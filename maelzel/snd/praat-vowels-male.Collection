@@ -1,0 +1,536 @@
+File type = "ooTextFile"
+Object class = "Collection"
+
+size = 5 
+item []: 
+    item [1]:
+        class = "FormantGrid" 
+        name = "a-male" 
+        xmin = 0 
+        xmax = 0.35251 
+        formants: size = 4 
+        formants [1]:
+            xmin = 0 
+            xmax = 0.35251 
+            points: size = 6 
+            points [1]:
+                number = 0 
+                value = 825.5083623880472 
+            points [2]:
+                number = 0.20083810298579538 
+                value = 825.5083623880472 
+            points [3]:
+                number = 0.2009580275394411 
+                value = 823.1514476430306 
+            points [4]:
+                number = 0.2762379838813311 
+                value = 823.1514476430306 
+            points [5]:
+                number = 0.27636410731846545 
+                value = 823.1514476430306 
+            points [6]:
+                number = 0.35251 
+                value = 823.1514476430306 
+        formants [2]:
+            xmin = 0 
+            xmax = 0.35251 
+            points: size = 6 
+            points [1]:
+                number = 0 
+                value = 1300.6076503426434 
+            points [2]:
+                number = 0.20083810298579538 
+                value = 1300.6076503426434 
+            points [3]:
+                number = 0.2009580275394411 
+                value = 1300.6076503426434 
+            points [4]:
+                number = 0.2762379838813311 
+                value = 1300.6076503426434 
+            points [5]:
+                number = 0.27636410731846545 
+                value = 1303.3705214718689 
+            points [6]:
+                number = 0.35251 
+                value = 1303.3705214718689 
+        formants [3]:
+            xmin = 0 
+            xmax = 0.35251 
+            points: size = 6 
+            points [1]:
+                number = 0 
+                value = 2500 
+            points [2]:
+                number = 0.20083810298579538 
+                value = 2500 
+            points [3]:
+                number = 0.2009580275394411 
+                value = 2500 
+            points [4]:
+                number = 0.2762379838813311 
+                value = 2500 
+            points [5]:
+                number = 0.27636410731846545 
+                value = 2500 
+            points [6]:
+                number = 0.35251 
+                value = 2500 
+        formants [4]:
+            xmin = 0 
+            xmax = 0.35251 
+            points: size = 6 
+            points [1]:
+                number = 0 
+                value = 3500 
+            points [2]:
+                number = 0.20083810298579538 
+                value = 3500 
+            points [3]:
+                number = 0.2009580275394411 
+                value = 3500 
+            points [4]:
+                number = 0.2762379838813311 
+                value = 3500 
+            points [5]:
+                number = 0.27636410731846545 
+                value = 3500 
+            points [6]:
+                number = 0.35251 
+                value = 3500 
+        bandwidths: size = 4 
+        bandwidths [1]:
+            xmin = 0 
+            xmax = 0.35251 
+            points: size = 6 
+            points [1]:
+                number = 0 
+                value = 82.55083623880472 
+            points [2]:
+                number = 0.20083810298579538 
+                value = 82.55083623880472 
+            points [3]:
+                number = 0.2009580275394411 
+                value = 82.31514476430306 
+            points [4]:
+                number = 0.2762379838813311 
+                value = 82.31514476430306 
+            points [5]:
+                number = 0.27636410731846545 
+                value = 82.31514476430306 
+            points [6]:
+                number = 0.35251 
+                value = 82.31514476430306 
+        bandwidths [2]:
+            xmin = 0 
+            xmax = 0.35251 
+            points: size = 6 
+            points [1]:
+                number = 0 
+                value = 130.06076503426434 
+            points [2]:
+                number = 0.20083810298579538 
+                value = 130.06076503426434 
+            points [3]:
+                number = 0.2009580275394411 
+                value = 130.06076503426434 
+            points [4]:
+                number = 0.2762379838813311 
+                value = 130.06076503426434 
+            points [5]:
+                number = 0.27636410731846545 
+                value = 130.33705214718688 
+            points [6]:
+                number = 0.35251 
+                value = 130.33705214718688 
+        bandwidths [3]:
+            xmin = 0 
+            xmax = 0.35251 
+            points: size = 6 
+            points [1]:
+                number = 0 
+                value = 250 
+            points [2]:
+                number = 0.20083810298579538 
+                value = 250 
+            points [3]:
+                number = 0.2009580275394411 
+                value = 250 
+            points [4]:
+                number = 0.2762379838813311 
+                value = 250 
+            points [5]:
+                number = 0.27636410731846545 
+                value = 250 
+            points [6]:
+                number = 0.35251 
+                value = 250 
+        bandwidths [4]:
+            xmin = 0 
+            xmax = 0.35251 
+            points: size = 6 
+            points [1]:
+                number = 0 
+                value = 350 
+            points [2]:
+                number = 0.20083810298579538 
+                value = 350 
+            points [3]:
+                number = 0.2009580275394411 
+                value = 350 
+            points [4]:
+                number = 0.2762379838813311 
+                value = 350 
+            points [5]:
+                number = 0.27636410731846545 
+                value = 350 
+            points [6]:
+                number = 0.35251 
+                value = 350 
+    item [2]:
+        class = "FormantGrid" 
+        name = "i-male" 
+        xmin = 0 
+        xmax = 0.50169 
+        formants: size = 4 
+        formants [1]:
+            xmin = 0 
+            xmax = 0.50169 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 269.9011692635266 
+            points [2]:
+                number = 0.50169 
+                value = 269.9011692635266 
+        formants [2]:
+            xmin = 0 
+            xmax = 0.50169 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 2301.7280866672704 
+            points [2]:
+                number = 0.50169 
+                value = 2301.7280866672704 
+        formants [3]:
+            xmin = 0 
+            xmax = 0.50169 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 2500 
+            points [2]:
+                number = 0.50169 
+                value = 2500 
+        formants [4]:
+            xmin = 0 
+            xmax = 0.50169 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 3500 
+            points [2]:
+                number = 0.50169 
+                value = 3500 
+        bandwidths: size = 4 
+        bandwidths [1]:
+            xmin = 0 
+            xmax = 0.50169 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 26.99011692635266 
+            points [2]:
+                number = 0.50169 
+                value = 26.99011692635266 
+        bandwidths [2]:
+            xmin = 0 
+            xmax = 0.50169 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 230.17280866672704 
+            points [2]:
+                number = 0.50169 
+                value = 230.17280866672704 
+        bandwidths [3]:
+            xmin = 0 
+            xmax = 0.50169 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 250 
+            points [2]:
+                number = 0.50169 
+                value = 250 
+        bandwidths [4]:
+            xmin = 0 
+            xmax = 0.50169 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 350 
+            points [2]:
+                number = 0.50169 
+                value = 350 
+    item [3]:
+        class = "FormantGrid" 
+        name = "e-male" 
+        xmin = 0 
+        xmax = 0.501437 
+        formants: size = 4 
+        formants [1]:
+            xmin = 0 
+            xmax = 0.501437 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 407.39340055458086 
+            points [2]:
+                number = 0.501437 
+                value = 407.39340055458086 
+        formants [2]:
+            xmin = 0 
+            xmax = 0.501437 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 2030.861032383453 
+            points [2]:
+                number = 0.501437 
+                value = 2030.861032383453 
+        formants [3]:
+            xmin = 0 
+            xmax = 0.501437 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 2500 
+            points [2]:
+                number = 0.501437 
+                value = 2500 
+        formants [4]:
+            xmin = 0 
+            xmax = 0.501437 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 3500 
+            points [2]:
+                number = 0.501437 
+                value = 3500 
+        bandwidths: size = 4 
+        bandwidths [1]:
+            xmin = 0 
+            xmax = 0.501437 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 40.73934005545809 
+            points [2]:
+                number = 0.501437 
+                value = 40.73934005545809 
+        bandwidths [2]:
+            xmin = 0 
+            xmax = 0.501437 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 203.0861032383453 
+            points [2]:
+                number = 0.501437 
+                value = 203.0861032383453 
+        bandwidths [3]:
+            xmin = 0 
+            xmax = 0.501437 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 250 
+            points [2]:
+                number = 0.501437 
+                value = 250 
+        bandwidths [4]:
+            xmin = 0 
+            xmax = 0.501437 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 350 
+            points [2]:
+                number = 0.501437 
+                value = 350 
+    item [4]:
+        class = "FormantGrid" 
+        name = "u-male" 
+        xmin = 0 
+        xmax = 0.693719 
+        formants: size = 4 
+        formants [1]:
+            xmin = 0 
+            xmax = 0.693719 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 324.09738879836624 
+            points [2]:
+                number = 0.693719 
+                value = 324.09738879836624 
+        formants [2]:
+            xmin = 0 
+            xmax = 0.693719 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 798.3266030727148 
+            points [2]:
+                number = 0.693719 
+                value = 798.3266030727148 
+        formants [3]:
+            xmin = 0 
+            xmax = 0.693719 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 2500 
+            points [2]:
+                number = 0.693719 
+                value = 2500 
+        formants [4]:
+            xmin = 0 
+            xmax = 0.693719 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 3500 
+            points [2]:
+                number = 0.693719 
+                value = 3500 
+        bandwidths: size = 4 
+        bandwidths [1]:
+            xmin = 0 
+            xmax = 0.693719 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 32.409738879836624 
+            points [2]:
+                number = 0.693719 
+                value = 32.409738879836624 
+        bandwidths [2]:
+            xmin = 0 
+            xmax = 0.693719 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 79.83266030727148 
+            points [2]:
+                number = 0.693719 
+                value = 79.83266030727148 
+        bandwidths [3]:
+            xmin = 0 
+            xmax = 0.693719 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 250 
+            points [2]:
+                number = 0.693719 
+                value = 250 
+        bandwidths [4]:
+            xmin = 0 
+            xmax = 0.693719 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 350 
+            points [2]:
+                number = 0.693719 
+                value = 350 
+    item [5]:
+        class = "FormantGrid" 
+        name = "o-male" 
+        xmin = 0 
+        xmax = 0.591889 
+        formants: size = 4 
+        formants [1]:
+            xmin = 0 
+            xmax = 0.591889 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 470.00288681625165 
+            points [2]:
+                number = 0.591889 
+                value = 470.00288681625165 
+        formants [2]:
+            xmin = 0 
+            xmax = 0.591889 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 906.7258606860511 
+            points [2]:
+                number = 0.591889 
+                value = 906.7258606860511 
+        formants [3]:
+            xmin = 0 
+            xmax = 0.591889 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 2500 
+            points [2]:
+                number = 0.591889 
+                value = 2500 
+        formants [4]:
+            xmin = 0 
+            xmax = 0.591889 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 3500 
+            points [2]:
+                number = 0.591889 
+                value = 3500 
+        bandwidths: size = 4 
+        bandwidths [1]:
+            xmin = 0 
+            xmax = 0.591889 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 47.000288681625165 
+            points [2]:
+                number = 0.591889 
+                value = 47.000288681625165 
+        bandwidths [2]:
+            xmin = 0 
+            xmax = 0.591889 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 90.67258606860511 
+            points [2]:
+                number = 0.591889 
+                value = 90.67258606860511 
+        bandwidths [3]:
+            xmin = 0 
+            xmax = 0.591889 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 250 
+            points [2]:
+                number = 0.591889 
+                value = 250 
+        bandwidths [4]:
+            xmin = 0 
+            xmax = 0.591889 
+            points: size = 2 
+            points [1]:
+                number = 0 
+                value = 350 
+            points [2]:
+                number = 0.591889 
+                value = 350 
