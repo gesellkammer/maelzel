@@ -1272,7 +1272,7 @@ def makeImage(m21obj, outfile:str=None, fmt='xml.png',
 
 def showImage(m21obj, fmt='xml.png'):
     imgpath = makeImage(m21obj, fmt=fmt)
-    from maelzel.music.core import tools
+    from maelzel.core import tools
     tools.pngShow(imgpath)
 
 

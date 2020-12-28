@@ -6,7 +6,7 @@ import bpf4 as _bpf
 from emlib.pitchtools import db2amp, amp2db
 from emlib import misc
 
-from typing import List, Sequence as Seq, Union as U
+from typing import List, Sequence as Seq, Union as U, Dict, Tuple
 
 
 _DYNAMICS = ('pppp', 'ppp', 'pp', 'p', 'mp',
@@ -15,7 +15,7 @@ _DYNAMICS = ('pppp', 'ppp', 'pp', 'p', 'mp',
 
 class DynamicsCurve(object):
     
-    def __init__(self, bpf, dynamics:Seq[str] = None):
+    def __init__(self, bpf: _bpf.BpfInterface, dynamics:Seq[str] = None):
         """
         shape: a bpf mapping 0-1 to amplitude(0-1)
         dynamics: a list of possible dynamics, or None to use the default
@@ -59,8 +59,8 @@ class DynamicsCurve(object):
             return curve[-1][1]
         insert_point = _bisect(curve, (amp, None))
         if not nearest:
-            floor = max(0, curve[insert_point-1])
-            return curve[floor][1]
+            idx = max(0, insert_point-1)
+            return curve[idx][1]
         amp0, dyn0 = curve[insert_point - 1]
         amp1, dyn1 = curve[insert_point]
         db = amp2db(amp)
@@ -117,7 +117,8 @@ def _validate_dynamics(dynamics: Seq[str]) -> None:
         "Dynamics not understood"
 
 
-def _create_dynamics_mapping(bpf, dynamics:Seq[str] = None):
+def _create_dynamics_mapping(bpf: _bpf.BpfInterface, dynamics:Seq[str] = None
+                             ) -> Tuple[List[Tuple[float, str]], Dict[str, float]]:
     """
     Calculate the global dynamics table according to the bpf given
 

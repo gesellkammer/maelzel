@@ -10,7 +10,7 @@ from emlib.pitchtools import db2amp
 from maelzel.snd import csoundengine
 from maelzel.snd import csound
 from maelzel.snd import vowels
-from maelzel.music.core import Chord
+from maelzel.core import Chord
 
 
 from typing import List

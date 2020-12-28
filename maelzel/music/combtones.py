@@ -1,15 +1,16 @@
 from __future__ import annotations
 from collections import namedtuple as _namedtuple
 from emlib.containers import RecordList 
-from emlib.pitchtools import f2n, n2f, m2n, n2m, f2m, m2f, interval2ratio
+from emlib.pitchtools import f2n, n2f, m2n, f2m, m2f, interval2ratio
 from emlib import misc
 from emlib.mathlib import frange
 from emlib.iterlib import flatten, product
 from itertools import combinations
-from maelzel.music.core import Note, Chord, asNote, EventSeq
-from typing import Union as U, TypeVar, Callable, NamedTuple, Tuple, List
+from maelzel.core import Chord, asNote, EventSeq
+from typing import Callable, NamedTuple, List
 import warnings
 from math import sqrt, ceil
+from maelzel.common import *
 
 
 # ------------------------------------------------------------
@@ -17,8 +18,7 @@ from math import sqrt, ceil
 # ------------------------------------------------------------
 
     
-pitch_t = U[str, float, Note]
-T = TypeVar("T")
+pitch_t = U[int, float, str, Note]
 
 
 def _ringmod2f(f1: float, f2: float) -> Tuple[float, float]:
@@ -30,28 +30,13 @@ def _ringmod2f(f1: float, f2: float) -> Tuple[float, float]:
     return diff, comb
 
 
-def _asmidi(x: pitch_t) -> float:
-    """
-    Converts a Note or a notename to a midinote. 
-    """
-    if isinstance(x, Note):
-        return x.midi
-    elif isinstance(x, (int, float)):
-        if x > 127:
-            raise ValueError("A midinote expected (< 128), but got a value of {x}!")
-        return x
-    elif isinstance(x, str):
-        return n2m(x)
-    raise TypeError(f"Expected a Note, a notename or a midinote, got {x}")
-
-
 def _parsePitches(*pitches) -> List[float]:
     midis = []
     for p in pitches:
         if isinstance(p, str):
             midis.extend(map(n2m, p.split()))
         elif isinstance(p, (Note, int, float)):
-            midis.append(_asmidi(p))
+            midis.append(asmidi(p))
         elif isinstance(p, (list, tuple)):
             midis.extend(_parsePitches(*p))
         else:
@@ -155,7 +140,7 @@ class Difftone:
 
         d = difftone_source("A3", interval=1)
         """
-        return interval2ratio(self.diff.midi - _asmidi(result))
+        return interval2ratio(self.diff.midi - asmidi(result))
 
 
 def difftones(*pitches: pitch_t) -> List[Note]:
@@ -178,7 +163,7 @@ def difftones_cubic(*notes:pitch_t) -> List[Note]:
     
     2*f1 - f2
     """
-    freqs = [m2f(_asmidi(note)) for note in notes]
+    freqs = [m2f(asmidi(note)) for note in notes]
     out = []
     for f1, f2 in combinations(freqs, 2):
         if f2 < f1:
@@ -198,7 +183,7 @@ def difftone_source(difftone:pitch_t, interval:float, resolution=0.0) -> Diffton
 
     Returns: a Difftone
     """
-    diffFreq = m2f(_asmidi(difftone))
+    diffFreq = m2f(asmidi(difftone))
     ratio = interval2ratio(interval)
     f0 = diffFreq / (ratio - 1)
     f1 = f0 * ratio
@@ -225,13 +210,13 @@ def difftone_sources_in_range(difftone: pitch_t, minnote:pitch_t=None,
     """
     import warnings
     warnings.warn("Deprecrated! Use difftone_sources")
-    diffmidi = _asmidi(difftone)
+    diffmidi = asmidi(difftone)
     if minnote is None:
         minnote = diffmidi + 13
     intervals = list(frange(resolution, maxinterval, resolution))
     difftones = [difftone_source(diffmidi, interval, resolution) for interval in intervals]
-    minmidi = _asmidi(minnote)
-    maxmidi = _asmidi(maxnote)
+    minmidi = asmidi(minnote)
+    maxmidi = asmidi(maxnote)
     sources = [difftone for difftone in difftones
                if minmidi <= difftone.note0.midi and difftone.note1.midi <= maxmidi]
     return RecordList(sources)
@@ -254,13 +239,13 @@ def _difftone_find_source(pitch, maxdeviation=0.5, intervals=None,
     Returns:
         a list of (lowest note, highest note))
     """
-    pitch = _asmidi(pitch)
+    pitch = asmidi(pitch)
     pitchfreq = m2f(pitch)
     intervals = intervals or list(frange(resolution, 8, resolution))
     f0 = m2f(pitch-maxdeviation)
     f1 = m2f(pitch+maxdeviation)
-    minmidi = _asmidi(minnote)
-    maxmidi = _asmidi(maxnote)
+    minmidi = asmidi(minnote)
+    maxmidi = asmidi(maxnote)
     out = []
     for interval in intervals:
         for m0 in frange(minmidi, maxmidi+resolution, resolution):
@@ -294,7 +279,7 @@ def _sumtone_find_source(pitch, maxdist=0.5, intervals:List[U[int, float]]=None,
              (or an empty list if no pairs are found)
     """
     intervals = intervals or [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    m0 = _asmidi(pitch)
+    m0 = asmidi(pitch)
     midimin = int(n2m(minnote)) if isinstance(minnote, str) else int(minnote)
     midimax = int(n2m(maxnote)) if isinstance(maxnote, str) else int(maxnote)
     minValidFreq = 1
@@ -325,12 +310,12 @@ def _sumtone_find_source(pitch, maxdist=0.5, intervals:List[U[int, float]]=None,
 
 def difftone_sources_from_set(difftone: pitch_t,
                               sources: List[T],
-                              tomidi: Callable[[T], float] = _asmidi,
+                              tomidi: Callable[[T], float] = asmidi,
                               maxdeviation=0.5,
                               exclude_intervals=None,
                               exclude_intervals_maxdeviation=0.5,
                               gap=0) -> List[Tuple[T, T]]:
-    difftone_pitch = _asmidi(difftone)
+    difftone_pitch = asmidi(difftone)
     f0 = m2f(difftone_pitch - maxdeviation)
     f1 = m2f(difftone_pitch + maxdeviation)
     possible_sources = [source for source in sources if tomidi(source) >= difftone_pitch + gap]
@@ -387,8 +372,8 @@ def difftone_sources(result: pitch_t,
 
     Returns a List of Difftones
     """
-    midiresult = _asmidi(result)
-    maxnote = _asmidi(maxnote)
+    midiresult = asmidi(result)
+    maxnote = asmidi(maxnote)
     minnote = minnote or midiresult + gap
     if minnote is None:
         minnote = midiresult + gap
@@ -431,8 +416,8 @@ def ringmod_exactsource(sideband1:pitch_t, sideband2:pitch_t) -> Tuple[Note, Not
 
     Returns: the original pitches, as midinotes
     """
-    diffFreq = m2f(_asmidi(sideband1))
-    sumFreq = m2f(_asmidi(sideband2))
+    diffFreq = m2f(asmidi(sideband1))
+    sumFreq = m2f(asmidi(sideband2))
     f1 = (diffFreq + sumFreq)/2.0
     f0 = sumFreq - f1
     return Note(f2m(f0)), Note(f2m(f1))
@@ -450,8 +435,8 @@ def ringmod_sources2(sideband1:pitch_t, sideband2:pitch_t,
     maxdiff: the max. difference between the given sidebands and the resulting sidebands,
              in midi (1=semitone)
     """
-    difm = _asmidi(sideband1)
-    summ = _asmidi(sideband2)
+    difm = asmidi(sideband1)
+    summ = asmidi(sideband2)
     midimin = n2m(minnote) if isinstance(minnote, str) else minnote
     midimax = n2m(maxnote) if isinstance(maxnote, str) else maxnote
     results = []
@@ -516,7 +501,7 @@ def ringmod_sources(sidebands: pitch_t,
     --> ['4C-09', '4E', '4G+30', '5D+08', '5Gb-27', '5B+02']
     """
     assert isinstance(sidebands, (list, tuple))
-    sidemidis = [_asmidi(sb) for sb in sidebands]
+    sidemidis = [asmidi(sb) for sb in sidebands]
     midi0, midi1 = n2m(minnote), n2m(maxnote)
     if len(sidebands) == 2 and (numsources == 2 or numsources is None):
         note1, note2 = ringmod_exactsource(sidebands[0], sidebands[1])
@@ -571,8 +556,8 @@ def sumtones_sources(result, maxdist=0.5, maxnote="C8",
             'musicxml': convert to musicxml, show as Finale file
             'lily': convert to lilypond, show as PDF
     """
-    result = _asmidi(result)
-    maxnote = _asmidi(maxnote)
+    result = asmidi(result)
+    maxnote = asmidi(maxnote)
     pairs = _sumtone_find_source(result, maxdist, minnote=minnote, maxnote=maxnote,
                                  intervals=intervals, difftonegap=difftonegap)
     if not pairs:
@@ -662,8 +647,8 @@ def difftones_beatings(pitch1: pitch_t, pitch2: pitch_t, maxbeatings=20, minbeat
     what is reported here.
     """
     defaultwave = wave
-    freq1 = m2f(_asmidi(pitch1))
-    freq2 = m2f(_asmidi(pitch2))
+    freq1 = m2f(asmidi(pitch1))
+    freq2 = m2f(asmidi(pitch2))
     overtones1 = [freq1 * i for i in range(1, 7)]
     overtones2 = [freq2 * i for i in range(1, 7)]
     pairs = []
@@ -735,8 +720,8 @@ def fm_chord_ratio(carrier: pitch_t, ratio: float, index: float, minamp=0.01,
 
 
 def difftone_evaluate_inharmonicity(pitch1: pitch_t, pitch2: pitch_t) -> float:
-    m1 = _asmidi(pitch1)
-    m2 = _asmidi(pitch2)
+    m1 = asmidi(pitch1)
+    m2 = asmidi(pitch2)
     if m1 > m2:
         m1, m2 = m2, m1
     md = f2m(abs(m2f(m1) - m2f(m2)))

@@ -20,6 +20,9 @@ import numpy as np
 from emlib import misc, filetools
 
 
+logger = _logging.getLogger("maelzel.csound")
+
+
 @dataclass
 class AudioBackend:
     name: str
@@ -101,7 +104,6 @@ _platform_backends: Dict[str, List[AudioBackend]] = {
 helper functions to work with csound
 """
 
-logger = _logging.getLogger("emlib.csound")  # type: _logging.Logger
 
 
 _csoundbin = None

@@ -1,5 +1,5 @@
-from maelzel.music.core import *
-from maelzel.music import core
+from maelzel.core import *
+from maelzel import core
 from emlib.pitchtools import *
 
 

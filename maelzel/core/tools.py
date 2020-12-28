@@ -6,9 +6,13 @@ import music21 as m21
 from emlib import misc
 from .common import *
 
+
 import textwrap
 from fractions import Fraction
 from ._base import Opt, Seq, List
+import subprocess
+import shutil
+import glob
 
 
 class AudiogenError(Exception): pass
@@ -443,3 +447,74 @@ def showTime(f:Opt[F]) -> str:
     return f"{float(f):.3f}"
 
 
+def _musescorePath() -> Opt[str]:
+    us = m21.environment.UserSettings()
+    musicxmlpath = us['musescoreDirectPNGPath']
+    if os.path.exists(musicxmlpath):
+        return str(musicxmlpath)
+    path = shutil.which('musescore')
+    if path is not None:
+        return path
+    return None
+
+
+def _musescoreConvertToPng(xmlfile:str, outfile: str, page=1, trim=True):
+    musescore = _musescorePath()
+    if musescore is None:
+        raise RuntimeError("MuseScore not found")
+    args = [musescore, '--no-webview']
+    if trim:
+        args.extend(['--trim-image', '10'])
+    args.extend(['--export-to', outfile, xmlfile])
+    subprocess.call(args, stderr=subprocess.PIPE)
+    generatedFiles = glob.glob(os.path.splitext(outfile)[0] + "-*.png")
+    if not generatedFiles:
+        raise RuntimeError("No output files generated")
+    for generatedFile in generatedFiles:
+        generatedPage = int(os.path.splitext(generatedFile)[0].split("-")[-1])
+        if generatedPage == page:
+            os.rename(generatedFile, outfile)
+            return
+    raise RuntimeError(f"Page not found, generated files: {generatedFiles}")
+
+
+def renderMusicxml(xmlfile: str, outfile: str, method:str=None) -> None:
+    """
+    Convert a saved musicxml file to pdf or png
+
+    Args:
+        xmlfile: the musicxml file to convert
+        outfile: the output file. The extension determines the output
+            format. Possible formats pdf and png
+        method: if given, will determine the method used to render. Use
+            None to indicate a default method.
+            Possible values: 'musescore'
+
+
+    Supported methods::
+
+        | format  |  methods   |
+        |---------|------------|
+        | pdf     |  musescore |
+        | png     |  musescore |
+
+    """
+    fmt = os.path.splitext(outfile)[1]
+    if fmt == ".pdf":
+        method = method or 'musescore'
+        if method == 'musescore':
+            musescore = _musescorePath()
+            if musescore is None:
+                raise RuntimeError("MuseScore not found")
+            subprocess.call([musescore, '--no-webview', '--export-to', outfile, xmlfile],
+                            stderr=subprocess.PIPE)
+            if not os.path.exists(outfile):
+                raise RuntimeError(f"Could not generate pdf file {outfile} from {xmlfile}")
+        else:
+            raise ValueError(f"method {method} unknown, possible values: 'musescore'")
+    elif fmt == '.png':
+        method = method or 'musescore'
+        if method == 'musescore':
+            _musescoreConvertToPng(xmlfile, outfile)
+        else:
+            raise ValueError(f"method {method} unknown, possible values: 'musescore'")

@@ -5,20 +5,18 @@ from __future__ import annotations
 import tempfile
 import os
 from math import sqrt
-from collections import namedtuple as _namedtuple
 from dataclasses import dataclass
 import pysndfile
 import numpy as np
 import bpf4 as bpf
 from emlib.iterlib import flatten
-from emlib.lib import returns_tuple
+from emlib.misc import returns_tuple
 from emlib.pitchtools import db2amp, amp2db
-
-from emlib import typehints as t
+from typing import Callable, Tuple, Iterator as Iter, Any, Union as U, List
 import logging
 
 
-logger = logging.Logger("emlib.sndfiletools")
+logger = logging.Logger("maelzel.sndfiletools")
 
 
 @dataclass
@@ -46,12 +44,12 @@ class SndInfo:
 
 
 _Bpf = bpf.BpfInterface
-_FloatFunc = t.Callable[[float], float]
+_FloatFunc = Callable[[float], float]
 
 
-def chunks(start:int, stop:int=None, step:int=None) -> t.Iter[tuple[int, int]]:
+def chunks(start:int, stop:int=None, step:int=None) -> Iter[Tuple[int, int]]:
     """
-    Like xrange, but returns a tuplet (position, distance form last position)
+    Like xrange, but returns a Tuplet (position, distance form last position)
 
     returns integers
     """
@@ -155,7 +153,7 @@ def is_samplesource(source) -> bool:
     """
     a sample source is defined by (samples, sr)
     """
-    return (isinstance(source, tuple) and 
+    return (isinstance(source, Tuple) and 
             len(source) == 2 and 
             isinstance(source[0], np.ndarray) and
             isinstance(source[1], int))
@@ -195,7 +193,7 @@ def copy_fragment(path:str, begin:float, end:float,
     return outfile
 
 def process(sourcefile, outfile, callback, timerange=None, bufsize=4096):
-    # type: (str, str, t.Callable[[np.ndarray, int, int], np.ndarray], t.Opt[t.Tup[float, float]], int) -> None
+    # type: (str, str, Callable[[np.ndarray, int, int], np.ndarray], t.Opt[t.Tup[float, float]], int) -> None
     """
     Process samples of sourcefile in chunks of `bufsize` by calling
     `callback` on each chunk.
@@ -222,7 +220,7 @@ def process(sourcefile, outfile, callback, timerange=None, bufsize=4096):
         ofile.write_frames(data2)
 
 
-def gain(filename:str, factor:t.U[float, _FloatFunc], outfile:str) -> None:
+def gain(filename:str, factor:U[float, _FloatFunc], outfile:str) -> None:
     """
     Change the volume of a audiofile.
 
@@ -237,7 +235,7 @@ def gain(filename:str, factor:t.U[float, _FloatFunc], outfile:str) -> None:
     process(filename, outfile, callback)
 
 
-def as_sndfile(snd: t.U[str, pysndfile.PySndfile]) -> pysndfile.PySndfile:
+def as_sndfile(snd: U[str, pysndfile.PySndfile]) -> pysndfile.PySndfile:
     if isinstance(snd, pysndfile.PySndfile):
         return snd
     if not isinstance(snd, str):
@@ -317,14 +315,14 @@ def mix(sources, offsets=None):
 
 def read_chunks(sndfile:str, chunksize:int=None,
                 chunkdur:float=None, start=0.0, end=0.0
-                ) -> t.Iter[tuple[np.ndarray, int]]:
+                ) -> Iter[Tuple[np.ndarray, int]]:
     """
     read chunks of data from sndfile. each chunk has a
     duration of `chunksize` in seconds but can have less
     if there are not enough samples to read (for instance
     at the end of the file)
     
-    Returns: a tuple (datachunk, position_in_frames)
+    Returns: a Tuple (datachunk, position_in_frames)
 
     sndfile        : the soundfile to read
     chunksize      : size of the chunk in samples
@@ -349,7 +347,7 @@ def read_chunks(sndfile:str, chunksize:int=None,
         yield (data, pos)
 
 
-def equal_power(pan:float) -> tuple[float, float]:
+def equal_power(pan:float) -> Tuple[float, float]:
     """
     pan is a float from 0 to 1
 
@@ -369,13 +367,13 @@ def get_info(filename:str) -> SndInfo:
     return SndInfo(snd.samplerate(), snd.channels(), snd.frames(),
                    snd.encoding_str())
 
+callback_t = Callable[[np.ndarray, int, *Any], None]
 
-def _process(sndfile, func, *args):
-    # type: (str, t.Callable[[np.ndarray, int, *Any], None]) -> None
+def _process(sndfile: str, func: callback_t, *args) -> None:
     """
     helper func, will call func with chunks of the soundfile
 
-    func is of the form: def func(data, pos, *args)
+    func is of the form: def func(data: np.ndarray, sample_index: int, *args)
     (args is optional)
     """
     for data, pos in read_chunks(sndfile):
@@ -383,8 +381,7 @@ def _process(sndfile, func, *args):
         func(data, pos, *args)
 
 
-def _process_fragment(sndfile, start, end, func, *args):
-    # type: (str, float, float, t.Callable[[np.ndarray, int, *Any], None], *Any) -> None
+def _process_fragment(sndfile:str, start:float, end:float, func: callback_t, *args) -> None:
     source = as_sndfile(sndfile)
     sr = source.samplerate
     frame0 = int(start * sr)
@@ -579,7 +576,7 @@ def _calculate_chunk_duration(sndfile):
 
 
 def normalize(path, peak=-1.5, outfile=None):
-    # type: (str, float, t.Opt[str]) -> t.U[str, np.ndarray]
+    # type: (str, float, t.Opt[str]) -> U[str, np.ndarray]
     """
     Normalize the given soundfile. Returns the path of the normalized file
     If outfile is not given, a new file with the suffix "-N" is generated
@@ -749,9 +746,9 @@ def read_fragment(sndfile, t0, t1):
 
 
 @returns_tuple("regions mask")
-def detect_regions(sndfile, attackthresh, decaythresh, mindur=0.020,
-                   func='rms', resolution=0.004, mingap=0, normalize=False):
-    # type: (str, float, float, float, str, float, float, bool) -> t.Tup[t.List[t.Tup[float, float]], _Bpf]
+def detect_regions(sndfile:str, attackthresh:float, decaythresh:float,
+                   mindur=0.020, func='rms', resolution=0.004, mingap:float=0,
+                   normalize=False) -> Tuple[List[Tuple[float, float]], _Bpf]:
     """
     Detect fragments inside a soudnfile.
 
@@ -856,7 +853,7 @@ def extract_regions(sndfile, times, outfile=None, mode='seq',
     return outfile
 
 
-@returns_tuple("arrays samplerate")
+@returns_Tuple("arrays samplerate")
 def read_regions(sndfile, times):
     # type: (str, t.Seq[t.Tup[float, float]]) -> t.Tup[t.List[np.ndarray], int]
     """
@@ -931,19 +928,19 @@ def _getsamples(source):
     """
     if isinstance(source, str):
         samples, sr = read_sndfile(source)
-    elif isinstance(source, tuple) and len(source) == 2:
+    elif isinstance(source, Tuple) and len(source) == 2:
         samples, sr = source
         assert isinstance(samples, np.ndarray)
         assert isinstance(sr, (int, float))
     else:
-        raise TypeError("source can be a path to a soundfile or a tuple (samples, sr)")
+        raise TypeError("source can be a path to a soundfile or a Tuple (samples, sr)")
     return Samples(samples, sr)
 
 
 def scrub(sndfile, curve, rewind=False, outfile=None):
-    # type: (t.U[str, t.Tup[np.ndarray, int]], _Bpf, bool, t.Opt[str]) -> t.Tup[np.ndarray, int]
+    # type: (U[str, t.Tup[np.ndarray, int]], _Bpf, bool, t.Opt[str]) -> t.Tup[np.ndarray, int]
     """
-    :param sndfile: the path to a sndfile, or a tuple (samples, samplerate)
+    :param sndfile: the path to a sndfile, or a Tuple (samples, samplerate)
     :param curve: a curve representing time:pointer (needs bpf4)
     :param rewind: if True, do not include silence at the beginning if
                    the bpf does not start at 0

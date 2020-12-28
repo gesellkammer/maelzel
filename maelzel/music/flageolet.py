@@ -2,7 +2,7 @@ from collections import namedtuple as _namedtuple
 from fractions import Fraction as _Fraction
 from emlib.pitchtools import *
 from emlib.misc import returns_tuple as _returns_tuple
-from maelzel.music.core import Note
+from maelzel.core import Note
 
 class Fret(_namedtuple("Fret", "fret midinote")):
     @property

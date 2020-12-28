@@ -1,18 +1,17 @@
 from __future__ import annotations
 import constraint
 from emlib.iterlib import pairwise, window
-from emlib import lib
+from emlib import misc, mathlib
 from math import sqrt, inf
 import bpf4 as bpf
-import typing as t
 import copy
 import logging
-from typing import Union as U, Optional as Opt
+from typing import Union as U, Optional as Opt, List
 import dataclasses
 import func_timeout
 import time
 
-logger = logging.getLogger("emlib.timescale")
+logger = logging.getLogger("maelzel.timescale")
 
 
 class Timedout(Exception): pass
@@ -33,9 +32,9 @@ class Rating:
 
 @dataclasses.dataclass
 class Solution:
-    slots: t.List[float]
+    slots: List[float]
     score: float = 0.0
-    data: t.Optional[dict] = None
+    data: Opt[dict] = None
 
 
 def indexDistance(seq, elem0, elem1, exact=True):
@@ -46,8 +45,8 @@ def indexDistance(seq, elem0, elem1, exact=True):
         element in seq is used
     """
     if not exact:
-        elem0 = lib.nearest_element(elem0, seq)
-        elem1 = lib.nearest_element(elem1, seq)
+        elem0 = misc.nearest_element(elem0, seq)
+        elem1 = misc.nearest_element(elem1, seq)
     return seq.index(elem1) - seq.index(elem0)
 
 
@@ -256,7 +255,7 @@ def asCurve(curve) -> bpf.BpfInterface:
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
-def _ascurve(curve) -> t.Optional[bpf.BpfInterface]:
+def _ascurve(curve) -> Opt[bpf.BpfInterface]:
     if isinstance(curve, bpf.BpfInterface):
         return curve
     elif isinstance(curve, (int, float)):
@@ -286,7 +285,7 @@ class Rater:
         self.relcurve = asCurve(self.relcurve) if self.relcurve is not None else None
         self.abscurve = asCurve(self.abscurve) if self.abscurve is not None else None
         
-    def __call__(self, solution: t.List[float]) -> Solution:
+    def __call__(self, solution: List[float]) -> Solution:
         numvalues = len(set(solution))
         ratedict = {
             'variance': (numvalues / len(solution), self.varianceWeight)
@@ -329,14 +328,14 @@ class Rater:
         self._ratings.append(Rating(name, weight, func))
 
 
-def rateRelativeCurve(slots: t.List[float], relcurve: bpf.BpfInterface, plot=False) -> float:            
-    solxs = lib.linspace(0, 1, len(slots))
+def rateRelativeCurve(slots: List[float], relcurve: bpf.BpfInterface, plot=False) -> float:            
+    solxs = mathlib.linspace(0, 1, len(slots))
     x0 = min(slots)
     x1 = max(slots)
     if x0 == x1:
         diff = 1
     else:
-        solys = [lib.linlin(slot, x0, x1,0, 1) for slot in slots]
+        solys = [mathlib.linlin(slot, x0, x1,0, 1) for slot in slots]
         solcurve = bpf.core.Linear(solxs, solys)
         if plot:
             solcurve.plot(), relcurve.plot(show=True)
@@ -346,8 +345,8 @@ def rateRelativeCurve(slots: t.List[float], relcurve: bpf.BpfInterface, plot=Fal
     return score
 
 
-def solve(solver: Solver, numslots: t.Union[int, t.List[int]], rater: Rater=None,
-          report=False, reportMaxRows=10) -> t.List[Solution]:
+def solve(solver: Solver, numslots: t.Union[int, List[int]], rater: Rater=None,
+          report=False, reportMaxRows=10) -> List[Solution]:
     """
     numslots: the number of slots to use, or a list of possible numslots
 
@@ -362,7 +361,7 @@ def solve(solver: Solver, numslots: t.Union[int, t.List[int]], rater: Rater=None
 
     """
     allsolutions = []
-    possibleNumslots = numslots if lib.isiterable(numslots) else [numslots]
+    possibleNumslots = numslots if misc.isiterable(numslots) else [numslots]
     for numslots in possibleNumslots:
         solutions = solver.solve(numslots)
         allsolutions.extend(solutions)
@@ -380,7 +379,7 @@ def solve(solver: Solver, numslots: t.Union[int, t.List[int]], rater: Rater=None
     return ratedSolutions
 
 
-def reportSolutions(solutions: t.List[Solution], plotbest=0, rater=None) -> None:
+def reportSolutions(solutions: List[Solution], plotbest=0, rater=None) -> None:
     """
     If given a rater, the solution will be plotted against the desired relcurve
     """
@@ -390,12 +389,13 @@ def reportSolutions(solutions: t.List[Solution], plotbest=0, rater=None) -> None
     for solution in solutions:
         ratings = solution.data.get('ratings')
         if ratings:
-            infostr = "\t".join([f"{key}: {value[0]:.3f}x{value[1]}={value[0]*value[1]:.3f}" for key, value in ratings.items()])
+            infostr = "\t".join([f"{key}: {value[0]:.3f}x{value[1]}={value[0]*value[1]:.3f}"
+                                 for key, value in ratings.items()])
         else:
             infostr = ""
         row = (solution.slots, solution.score, infostr)
         table.append(row)
-    lib.print_table(table, headers=('slots', 'score', 'infostr'))
+    misc.print_table(table, headers=('slots', 'score', 'infostr'))
     if plotbest and rater is not None and rater.relcurve is not None:
         for sol in solutions[:plotbest]:
             rateRelativeCurve(sol.slots, rater.relcurve)

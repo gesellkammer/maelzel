@@ -6,12 +6,11 @@ from pathlib import Path
 import os
 import csv
 
+from typing import Optional as Opt
 
-def _find_sonic_annotator(fail=True):
-    bin = shutil.which("sonic-annotator")
-    if bin is None and fail:
-        raise IOError("sonic-annotator not found")
-    return bin
+
+def _find_sonic_annotator() -> Opt[str]:
+    return shutil.which("sonic-annotator")
 
 # Obtained via sonic-annotator -s vamp:pyin:pyin:smoothedpitchtrack > pyin.n3
 
@@ -57,7 +56,11 @@ def pyin_smooth_pitch(sndfile:str, fftsize=2048, stepsize=256,
                       lowampsuppression=0.1, threshdistr=2.,
                       onsetsensitivity=0.7,
                       prunethresh=0.1) -> bpf4.core.Linear:
-    sonic = _find_sonic_annotator(fail=True)
+    sonic = _find_sonic_annotator()
+    if sonic is None:
+        raise RuntimeError("sonic-annotator was not found, install it from "
+                           "https://code.soundsoftware.ac.uk/projects/sonic-annotator/files")
+
     rdfstr = _rdf_pyin_smooth_pitch.format(fftsize=fftsize, stepsize=stepsize,
                                            lowampsuppression=lowampsuppression,
                                            threshdistr=threshdistr,

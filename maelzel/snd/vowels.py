@@ -7,7 +7,7 @@ from emlib.iterlib import flatten
 from emlib.misc import runonce
 
 from maelzel.snd import csoundengine
-from maelzel.music.core import Chord, Note
+from maelzel.core import Chord, Note
 
 from typing import List, Union as U, Tuple as Tup, Dict
 

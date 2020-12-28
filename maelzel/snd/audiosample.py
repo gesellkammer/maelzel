@@ -33,7 +33,7 @@ from maelzel.snd.resample import resample as _resample
 
 from typing import List, Tuple, Optional as Opt, Union as U, Iterator as Iter, Sequence as Seq
 
-logger = logging.getLogger("emlib:audiosample")
+logger = logging.getLogger("maelzel.audiosample")
 
 _initWasDone = False
 
@@ -47,7 +47,7 @@ def _configCheck(config, key, oldvalue, newvalue):
         return oldvalue
 
 
-config = ConfigDict(name='emlib:audiosample',
+config = ConfigDict(name='maelzel:audiosample',
                     default={
                         'editor': 'audacity',
                         'fade.shape': 'linear',
@@ -63,7 +63,7 @@ def _increase_suffix(filename: str) -> str:
         suffix = tokens[-1]
         try:
             suffixnum = int(suffix)
-            newname = "{}-{}".format(name[:-len(suffix)], suffixnum + 1)
+            newname = f"{name[:-len(suffix)]}-{suffixnum + 1}"
         except ValueError:
             pass
     if newname is None:
@@ -240,7 +240,7 @@ class Sample:
         tabnum = engine.makeEmptyTable(len(self.samples)*self.channels,
                                        numchannels=self.channels, sr=self.samplerate)
         engine.fillTable(tabnum, self.samples.flatten(), block=True)
-        self._csound_table = csoundengine.TableProxy(tabnum, freeself=True, manager=manager)
+        self._csound_table = csoundengine.TableProxy(tabnum, freeself=True, manager=manager, nchnls=self.channels)
         return self._csound_table
 
     def _play_csound(self, loop=False, chan:int=1, gain=1., delay=0., pan=None
@@ -682,7 +682,7 @@ class Sample:
         }.get(strategy, freq_from_autocorr)
         return func(s.samples, s.samplerate)
 
-    def fundamental_bpf(self, fftsize=2048, stepsize=512, method="pyin") -> _bpf.core.Linear:
+    def fundamental_bpf(self, fftsize=2048, stepsize=512, method="pyin") -> _bpf.BpfInterface:
         if method == "pyin":
             from maelzel.ext import sonicannotator
             tmpwav = tempfile.mktemp(suffix=".wav")

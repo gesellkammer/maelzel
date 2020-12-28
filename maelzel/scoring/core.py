@@ -7,7 +7,7 @@ from typing import Optional as Opt, Union as U, List, Any, Dict
 import logging
 
 
-logger = logging.getLogger("emlib.scoring")
+logger = logging.getLogger("maelzel.scoring")
 
 
 @dataclasses.dataclass
@@ -474,7 +474,7 @@ def packInParts(events: List[Notation], maxrange=36) -> List[Part]:
 
     Returns a list of Parts
     """
-    from emlib.music import packing
+    from maelzel.music import packing
     items = []
     groups = _groupById(events)
     for group in groups:

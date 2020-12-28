@@ -32,6 +32,15 @@ def pairwise(iterable: Iter[T]) -> Iter[Tuple[T, T]]:
 # end iterlib
 
 
+def asSimplestNumberType(f: F) -> U[int, float]:
+    """
+    convert a fraction to the simplest number type it represents
+    """
+    fl = float(f)
+    i = int(fl)
+    return i if i == fl else fl
+
+
 def makeId() -> uuid.UUID:
     return uuid.uuid4()
 
@@ -310,6 +319,7 @@ def parseNotehead(s: str) -> Tuple[str, Opt[bool]]:
         filled = parts[1] == "filled"
         return (notehead, filled)
     raise ValueError("Notehead format not understood")
+
 
 def quarterDurationToBaseDuration(d: F) -> int:
     """

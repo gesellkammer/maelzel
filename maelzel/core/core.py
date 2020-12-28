@@ -14,6 +14,7 @@ from emlib.pitchtools import amp2db, db2amp, m2n, m2f, f2m, r2i, str2midi
 from emlib import iterlib
 from maelzel import scoring
 from maelzel.snd import csoundengine
+from maelzel.music import lilytools
 
 from ._base import *
 from .common import CsoundEvent, PlayArgs, astuple, asF
@@ -264,7 +265,11 @@ class MusicObj:
         return m21score
 
     def musicxml(self) -> str:
-        " Return the representation of this object as musicxml "
+        """
+        Return the representation of this object as musicxml. A subclass can
+        override this method to provide a way of outputting musicxml which
+        bypasses music21
+        """
         m = self.asmusic21()
         if currentConfig()['m21.fixstream']:
             m21fix.fixStream(m)
@@ -1734,7 +1739,7 @@ def _splitChords(chords:List[Chord], split=60, showcents=None, showlabel=True, d
     return m21.stream.Score(parts)
                 
 
-def _makeImage(obj: MusicObj, outfile:str=None, fmt:str=None, fixstream=True,
+def _makeImage(obj: MusicObj, outfile:str=None, fmt:str=None,
                **options) -> str:
     """
     Given a music object, make an image representation of it.
@@ -1744,32 +1749,37 @@ def _makeImage(obj: MusicObj, outfile:str=None, fmt:str=None, fixstream=True,
         obj     : the object to make the image from (a Note, Chord, etc.)
         outfile : the path to be generated
         fmt     : format used. One of 'xml.png', 'lily.png' (no pdf)
-        options : any argument passed to .asmusic21
+        options : any argument passed to .asmusic21 (this is deprecated now)
 
     Returns:
         the path of the generated image
     """
-    m21obj = obj.asmusic21(**options)
-    if fixstream and isinstance(m21obj, m21.stream.Stream):
-        m21obj = m21fix.fixStream(m21obj, inPlace=True)
     config = currentConfig()
+    xml = obj.musicxml()
+    xmlfile = _tempfile.mktemp(suffix=".xml")
+    if outfile is None:
+        outfile = _tempfile.mktemp(suffix=".png")
+    open(xmlfile, "w").write(xml)
     fmt = fmt or config['show.format'].split(".")[0]+".png"
     logger.debug(f"makeImage: using format: {fmt}")
     method, fmt3 = fmt.split(".")
-    if method == 'lily' and config['use_musicxml2ly']:
-        if fmt3 not in ('png', 'pdf'):
-            raise ValueError(f"fmt should be one of 'lily.png', 'lily.pdf' (got {fmt})")
-        if outfile is None:
-            outfile = _tempfile.mktemp(suffix="."+fmt3)
-        path = m21tools.renderViaLily(m21obj, fmt=fmt3, outfile=outfile)
+    if method == 'lily':
+        lilyfile = lilytools.musicxml2ly(xmlfile)
+        pngfile = lilytools.lily2png(lilyfile, outfile)
+        assert pngfile == outfile
     else:
-        tmpfile = m21obj.write(fmt)
-        if outfile is not None:
-            os.rename(tmpfile, outfile)
-            path = outfile
-        else:
-            path = tmpfile
-    return str(path)
+        tools.renderMusicxml(xmlfile, outfile)
+    os.remove(xmlfile)
+    return outfile
+
+
+def _writeMusicxml(m21obj: m21.Music21Object, outfile: str) -> None:
+    tmpfile = m21obj.write("musicxml", )
+    if outfile is not None:
+        os.rename(tmpfile, outfile)
+        path = outfile
+    else:
+        path = tmpfile
 
 
 @_functools.lru_cache(maxsize=1000)

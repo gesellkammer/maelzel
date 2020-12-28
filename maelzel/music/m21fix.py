@@ -5,7 +5,7 @@ import copy
 from typing import List
 
 
-logger = logging.getLogger('emlib.m21fix')
+logger = logging.getLogger(__name__)
 
 
 def makeTupletBrackets(s: m21.stream.Stream, inPlace=False) -> m21.stream.Stream:

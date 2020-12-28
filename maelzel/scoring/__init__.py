@@ -10,7 +10,6 @@ Structure:
 common
     util
         core (Event, Note, Chord)
-            conversions
             play
             scorestruct (ScoreStructure, Measure, Part)
                 quant

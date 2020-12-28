@@ -1,17 +1,13 @@
 from __future__ import division as _div
 import warnings
-from numbers import Number
-from fractions import Fraction as F
+from maelzel.common import *
 
-from emlib import iterlib as _iterlib
+from emlib import iterlib 
 from emlib.misc import returns_tuple
 from typing import Tuple, List, Union as U
 
 import bpf4 as bpf
 
-
-timesig_t = Tuple[int, int]
-number_t = U[int, float, F]
 
 def measure_duration(timesig: U[str, timesig_t], tempo: number_t) -> F:
     """
@@ -91,9 +87,9 @@ def framed_time(offsets: List[number_t], durations: List[number_t]
     >>> framed2lin(1.5)
     0.5
     """
-    xs = [0] + list(_iterlib.partialsum(dur for dur in durations))
+    xs = [0] + list(iterlib.partialsum(dur for dur in durations))
     pairs = []
-    for (x0, x1), y in zip(_iterlib.pairwise(xs), offsets):
+    for (x0, x1), y in zip(iterlib.pairwise(xs), offsets):
         pairs.append((x0, y))
         pairs.append((x1, y + (x1 - x0)))
     xs, ys = zip(*pairs)
@@ -269,7 +265,7 @@ def best_timesig(duration, tempo=60, possibletimesigs=None, maxmeasures=1,
     """
     timesigs = possibletimesigs or possible_timesigs(tempo)
     assert (isinstance(timesigs, (list, tuple)) and
-            all(isinstance(t, Number) for t in timesigs))
+            all(isinstance(t, (int, float, F)) for t in timesigs))
     if maxmeasures > 1:
         return _besttimesig_with_combinations(duration, tempo, timesigs,
                                               tolerance=tolerance,
@@ -319,7 +315,7 @@ def _besttimesig_with_combinations(duration, tempo, timesigs, maxcombinations=3,
         values.sort()
         return tuple(values)
 
-    solutions = map(getvalues, solutions)
+    solutions = list(map(getvalues, solutions))
     best = solutions[0]
     solutions = set(solutions)
 

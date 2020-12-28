@@ -1,41 +1,12 @@
 from __future__ import division as _div
-from emlib.pitchtools import n2f, n2m
-from emlib.lib import returns_tuple as _returns_tuple
-from typing import Union as U
+from emlib.misc import returns_tuple as _returns_tuple
+from maelzel.common import *
 
 # #------------------------------------------------------------
 # #
 # #    GENERAL ROUTINES    
 # #
 # #------------------------------------------------------------
-
-
-
-
-def asmidi(n):
-    # type: (U[int, float, str]) -> float
-    """
-    return always a numeric midi note
-
-    number (int or midi) --> assumed to be a midinote
-    string               --> assumed to be a note, converts to midinote
-
-    Example
-    =======
-
-    >>> asmidi(60)
-    60
-    >>> asmidi("C4")
-    60  
-    """
-    if isinstance(n, (int, float)):
-        return float(n)
-    elif isinstance(n, str):
-        return n2m(n)
-    try:
-        return float(n)
-    except TypeError:
-        raise TypeError("could not convert %s to a midi note" % str(n))
 
 
 def _is_pandas_dataframe(obj):
