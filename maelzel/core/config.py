@@ -1,17 +1,15 @@
 from __future__ import annotations
-import sys
 import os
 import shutil
 import music21 as m21
 import appdirs
 from functools import lru_cache
 from configdict import ConfigDict
-from emlib.misc import dictmerge
 
 from ._base import *
 
 
-_defaultconfig = {
+_default = {
     'A4': 442,
     'defaultDuration': 1.0,
     'splitAcceptableDeviation': 4,
@@ -24,21 +22,20 @@ _defaultconfig = {
     'show.semitoneDivisions':4,
     'show.lastBreakpointDur':1/8,
     'show.cents': True,
-    'show.centsMethod': 'lyric',
     'show.centsFontSize': 8,
     'show.split': True,
     'show.gliss': True,
     'show.centSep': ',',
     'show.scaleFactor': 1.0,
-    'show.format': 'xml.png',
+    'show.staffSize': 12.0,
+    'show.method': 'musicxml',
+    'show.format': 'png',
     'show.external': False,
     'show.cacheImages': True,
-    'show.seqDuration': 1,
-    'show.defaultDuration': 1,
     'show.arpeggioDuration': 0.5,
     'show.label.fontSize': 12.0,
     'use_musicxml2ly': True,
-    'app.png': 'feh --image-bg white' if sys.platform == 'linux' else '',
+    'app.png': '',
     'displayhook.install': True,
     'play.dur': 2.0,
     'play.gain': 0.5,
@@ -61,20 +58,20 @@ _defaultconfig = {
     'rec.samplerate': 44100,
     'rec.ksmps': 64,
     'rec.path': '',
-    'rec.quiet': False
+    'rec.quiet': False,
 }
 
 _validator = {
     'defaultDuration::type': (int, float, Fraction),
     'show.semitoneDivisions::choices': {1, 2, 4},
     'm21.displayhook.format::choices': {'xml.png', 'lily.png'},
-    'show.format::choices':
-        {'xml.png', 'xml.pdf', 'lily.png', 'lily.pdf', 'repr'},
+    'show.method::choices': {'musicxml', 'lilypond'},
+    'show.format::choices': {'png', 'pdf', 'repr'},
+    'show.staffSize::type': float,
     'chord.arpeggio::choices': {'auto', True, False},
     'play.gain::range': (0, 1),
     'play.fadeShape::choices': {'linear', 'cos'},
     'play.numChannels::type': int,
-    'show.centsMethod::choices': {'lyric', 'expression'},
     'rec.samplerate::choices': {44100, 48000, 88200, 96000},
     'rec.ksmps::choices': {1, 16, 32, 64, 128, 256},
     'play.defaultAmplitude::range': (0, 1)
@@ -104,7 +101,9 @@ _docs = {
     'show.semitoneDivisions':
         "The number of divisions per semitone (2=quarter-tones, 4=eighth-tones)",
     'show.scaleFactor':
-        "Affects the size of the generated image",
+        "Affects the size of the generated image when using png format",
+    'show.staffSize':
+        "The size of a staff, in points",
     'show.format':
         "Used when no explicit format is passed to .show",
     'show.gliss':
@@ -125,8 +124,6 @@ _docs = {
         "Name of the play engine used",
     'm21.fixstream':
         "If True, fix the streams returned by .asmusic21 (see m21fix)",
-    'show.seqDuration':
-        "Default duration of each element of a NoteSeq or ChordSeq when shown",
     'show.label.fontSize':
         "Font size to use for labels",
     'show.centsFontSize':
@@ -149,60 +146,41 @@ _docs = {
 }
 
 
-def _checkConfig(cfg, key, oldvalue, value):
-    if key == 'notation.semitoneDivisions' and value == 4:
-        showformat = cfg.get('show.format')
-        if showformat and showformat.startswith('lily'):
-            newvalue = oldvalue if oldvalue is not None else 2
-            msg = ("\nlilypond backend (show.format) does not support 1/8 tones yet.\n"
-                   "Either set config['notation.semitoneDivisions'] to 2 or\n"
-                   "set config['show.format'] to 'xml.png'."
-                   "Setting notation.semitoneDivision to {newvalue}")
-            logger.error(msg)
-            return newvalue
+config = ConfigDict(f'maelzel:core', _default, validator=_validator, docs=_docs)
 
 
-def makeConfig(temp=False, source=None, **kws) -> ConfigDict:
-    if not temp:
-        out = ConfigDict(f'maelzel:core', _defaultconfig, validator=_validator, docs=_docs,
-                         precallback=_checkConfig, persistent=True)
+@lru_cache(maxsize=1)
+def _presetsPath() -> str:
+    datadirbase = appdirs.user_data_dir("maelzel")
+    path = os.path.join(datadirbase, "core", "presets")
+    return path
+
+
+def presetsPath() -> str:
+    """ Returns the path of the presets directory """
+    userpath = config['play.presetsPath']
+    if userpath:
+        return userpath
+    return _presetsPath()
+
+
+def recordPath() -> str:
+    """ The path where temporary recordings are saved
+    We do not use the temporary folder because it is wiped regularly
+    and the user might want to access a recording after rebooting.
+    The returned folder is guaranteed to exist
+    """
+    userpath = config['rec.path']
+    if userpath:
+        path = userpath
     else:
-        out = ConfigDict(f'maelzel:core', _defaultconfig, validator=_validator, docs=_docs,
-                         precallback=_checkConfig, persistent=False)
-    if source:
-        out.update(source)
-    out.update(kws)
-    return out
+        path = appdirs.user_data_dir(appname="emlib", version="recordings")
+    if not os.path.exists(path):
+        os.makedirs(path)
+    return path
 
 
-config = ConfigDict(f'maelzel:music_core', _defaultconfig, validator=_validator,
-                    docs=_docs, precallback=_checkConfig)
-
-
-# Environment
-
-
-def _setupMusescore(force=False) -> bool:
-    us = m21.environment.UserSettings()
-    pngapp = us['musescoreDirectPNGPath']
-    if pngapp is not None and pngapp.exists() and not force:
-        return False
-    mscore = _multiwhich("musescore", "MuseScore")
-    if mscore:
-        us['musescoreDirectPNGPath'] = mscore
-        return True
-    return False
-
-
-def _multiwhich(*appnames) -> Opt[str]:
-    for app in appnames:
-        path = shutil.which(app)
-        if path and os.path.exists(path):
-            return path
-    return None
-
-
-def checkEnvironment(solve=True) -> List[str]:
+def checkEnvironment(config:dict, solve=True) -> List[str]:
     """
     Check that we have everything we need
 
@@ -232,31 +210,21 @@ def checkEnvironment(solve=True) -> List[str]:
     return errors or None
 
 
-@lru_cache(maxsize=1)
-def _presetsPath() -> str:
-    datadirbase = appdirs.user_data_dir("emlib")
-    path = os.path.join(datadirbase, "music_core", "presets")
-    return path
+def _setupMusescore(force=False) -> bool:
+    us = m21.environment.UserSettings()
+    pngapp = us['musescoreDirectPNGPath']
+    if pngapp is not None and pngapp.exists() and not force:
+        return False
+    mscore = _multiwhich("musescore", "MuseScore")
+    if mscore:
+        us['musescoreDirectPNGPath'] = mscore
+        return True
+    return False
 
 
-def presetsPath() -> str:
-    """ Returns the path of the presets directory """
-    userpath = config['play.presetsPath']
-    if userpath:
-        return userpath
-    return _presetsPath()
-
-
-def recordPath() -> str:
-    """ The path where temporary recordings are saved
-    We do not use the temporary folder because it is wiped regularly
-    and you might. The returned folder is guaranteed to exist
-    """
-    userpath = config['rec.path']
-    if userpath:
-        path = userpath
-    else:
-        path = appdirs.user_data_dir(appname="emlib", version="recordings")
-    if not os.path.exists(path):
-        os.makedirs(path)
-    return path
+def _multiwhich(*appnames) -> Opt[str]:
+    for app in appnames:
+        path = shutil.which(app)
+        if path and os.path.exists(path):
+            return path
+    return None

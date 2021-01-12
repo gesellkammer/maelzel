@@ -5,20 +5,14 @@ import re
 import music21 as m21
 from emlib import misc
 from .common import *
+from . import environment
 
 
 import textwrap
 from fractions import Fraction
 from ._base import Opt, Seq, List
-import subprocess
-import shutil
-import glob
-
 
 class AudiogenError(Exception): pass
-
-
-insideJupyter = misc.inside_jupyter()
 
 
 _enharmonic_sharp_to_flat = {
@@ -104,7 +98,7 @@ def centsshown(centsdev:int, divsPerSemitone:int) -> str:
     return str(int(centsdev))
 
 
-if insideJupyter:
+if misc.inside_jupyter():
     from IPython.core.display import (display as jupyterDisplay, 
                                       Image as JupyterImage)
 
@@ -113,7 +107,7 @@ def setJupyterHookForClass(cls, func, fmt='image/png'):
     """
     Register func as a displayhook for class `cls`
     """
-    if not insideJupyter:
+    if not misc.inside_jupyter():
         logger.debug("_setJupyterHookForClass: not inside IPython/jupyter, skipping")
         return
     import IPython
@@ -141,7 +135,7 @@ def jupyterMakeImage(path: str) -> JupyterImage:
         an IPython.core.display.Image
 
     """
-    if not insideJupyter:
+    if not misc.inside_jupyter():
         raise RuntimeError("Not inside a Jupyter session")
 
     scalefactor = config.get('show.scalefactor', 1.0)
@@ -161,7 +155,7 @@ def jupyterShowImage(path: str):
         path: the path to the image file
 
     """
-    if not insideJupyter:
+    if not misc.inside_jupyter():
         logger.error("jupyter is not available")
         return
 
@@ -169,52 +163,12 @@ def jupyterShowImage(path: str):
     return jupyterDisplay(img)
 
 
-def pngOpenExternal(path:str, wait=False) -> None:
-    """
-    Open a png image in an external application
-    The application can be configured via config['app.png']
-
-    Args:
-        path: the path to the png
-        wait: if True, wait until the application exits
-
-    """
-    app = config.get('app.png')
-    if not app:
-        if wait:
-            logger.debug("pngOpenExternal: called with wait=True," 
-                         "but opening with standard app so can't wait")
-        misc.open_with_standard_app(path)
-        return
-    cmd = f'{app} "{path}"'
-    if wait:
-        os.system(cmd)
-    else:
-        os.system(cmd + " &")
-
-
-def pngShow(image:str, external=False) -> None:
-    """
-    Show a png either inside jupyter or with an external app
-
-    Args:
-        image: the path to an image
-        external: if True, it will show in an external app even
-            inside jupyter
-
-    """
-    if external or not insideJupyter:
-        pngOpenExternal(image)
-    else:
-        jupyterShowImage(image)
-
-
 def m21JupyterHook(enable=True) -> None:
     """
     Set an ipython-hook to display music21 objects inline on the
     ipython notebook
     """
-    if not insideJupyter:
+    if not misc.inside_jupyter():
         logger.debug("m21JupyterHook: not inside ipython/jupyter, skipping")
         return
     from IPython.core.getipython import get_ipython
@@ -234,6 +188,24 @@ def m21JupyterHook(enable=True) -> None:
     else:
         logger.debug("disabling display hook")
         formatter.for_type(m21.Music21Object, None)
+
+
+def pngShow(pngpath:str, forceExternal=False, app:str='') -> None:
+    """
+    Show a png either inside jupyter or with an external app
+
+    Args:
+        pngpath: the path to a png file
+        forceExternal: if True, it will show in an external app even
+            inside jupyter. Otherwise it will show inside an external
+            app if running a normal session and show an embedded
+            image if running inside a notebook
+
+    """
+    if misc.inside_jupyter() and not forceExternal:
+        jupyterShowImage(pngpath)
+    else:
+        environment.viewPng(pngpath, app=app)
 
 
 def asmidi(x) -> float:
@@ -447,74 +419,3 @@ def showTime(f:Opt[F]) -> str:
     return f"{float(f):.3f}"
 
 
-def _musescorePath() -> Opt[str]:
-    us = m21.environment.UserSettings()
-    musicxmlpath = us['musescoreDirectPNGPath']
-    if os.path.exists(musicxmlpath):
-        return str(musicxmlpath)
-    path = shutil.which('musescore')
-    if path is not None:
-        return path
-    return None
-
-
-def _musescoreConvertToPng(xmlfile:str, outfile: str, page=1, trim=True):
-    musescore = _musescorePath()
-    if musescore is None:
-        raise RuntimeError("MuseScore not found")
-    args = [musescore, '--no-webview']
-    if trim:
-        args.extend(['--trim-image', '10'])
-    args.extend(['--export-to', outfile, xmlfile])
-    subprocess.call(args, stderr=subprocess.PIPE)
-    generatedFiles = glob.glob(os.path.splitext(outfile)[0] + "-*.png")
-    if not generatedFiles:
-        raise RuntimeError("No output files generated")
-    for generatedFile in generatedFiles:
-        generatedPage = int(os.path.splitext(generatedFile)[0].split("-")[-1])
-        if generatedPage == page:
-            os.rename(generatedFile, outfile)
-            return
-    raise RuntimeError(f"Page not found, generated files: {generatedFiles}")
-
-
-def renderMusicxml(xmlfile: str, outfile: str, method:str=None) -> None:
-    """
-    Convert a saved musicxml file to pdf or png
-
-    Args:
-        xmlfile: the musicxml file to convert
-        outfile: the output file. The extension determines the output
-            format. Possible formats pdf and png
-        method: if given, will determine the method used to render. Use
-            None to indicate a default method.
-            Possible values: 'musescore'
-
-
-    Supported methods::
-
-        | format  |  methods   |
-        |---------|------------|
-        | pdf     |  musescore |
-        | png     |  musescore |
-
-    """
-    fmt = os.path.splitext(outfile)[1]
-    if fmt == ".pdf":
-        method = method or 'musescore'
-        if method == 'musescore':
-            musescore = _musescorePath()
-            if musescore is None:
-                raise RuntimeError("MuseScore not found")
-            subprocess.call([musescore, '--no-webview', '--export-to', outfile, xmlfile],
-                            stderr=subprocess.PIPE)
-            if not os.path.exists(outfile):
-                raise RuntimeError(f"Could not generate pdf file {outfile} from {xmlfile}")
-        else:
-            raise ValueError(f"method {method} unknown, possible values: 'musescore'")
-    elif fmt == '.png':
-        method = method or 'musescore'
-        if method == 'musescore':
-            _musescoreConvertToPng(xmlfile, outfile)
-        else:
-            raise ValueError(f"method {method} unknown, possible values: 'musescore'")

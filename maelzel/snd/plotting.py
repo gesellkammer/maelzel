@@ -20,10 +20,14 @@ def plot_power_spectrum(samples,
                         window=('kaiser', 9)):
     """
     Args:
+        samples: the samples to plot
+        samplerate: the samplerate of thesamples
+        framesize: the bigger the frame size, the smoother the plot
         window: As passed to scipy.signal.get_window
           `blackman`, `hamming`, `hann`, `bartlett`, `flattop`, `parzen`, `bohman`,
           `blackmanharris`, `nuttall`, `barthann`, `kaiser` (needs beta),
           `gaussian` (needs standard deviation)
+
 
 
     """

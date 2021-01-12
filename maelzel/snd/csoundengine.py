@@ -206,7 +206,13 @@ endin
 ; can make a table with data or just empty of a given size
 ; data must be smaller than 2000 which is the current limit
 ; for pfields
-instr ${maketable}
+instr ${maketable}  
+    ; args: 
+    ;   itoken: the token used to sync with the engine
+    ;   itabnum: the table number (can be 0 to let csound assign a number)
+    ;   ilen: the size of the table
+    ;   iempty: should the table be empty or should it be filled with data?
+    ;           in this case, the rest p-args should containt ilen datapoints
     itoken = p4
     itabnum = p5
     ilen = p6
@@ -224,6 +230,34 @@ instr ${maketable}
     endif
     turnoff
 endin
+
+instr _automate_pwrite
+    ip1 = p4
+    ipindex = p5
+    inumpairs = p6
+    imode = p7
+    iparam = p8
+    idataidx = 9
+    
+    ilen = inumpairs*2
+    iValues[] passign idataidx, idataidx+ilen
+    iXs[] slicearray iValues, 0, ilen-1, 2
+    iYs[] slicearray iValues, 1, ilen-1, 2
+    kt timeinsts
+    if imode == 0 then
+        ky bpf kt, iXs, iYs
+    elseif imode == 1 then
+        ky bpfcos kt, iXs, iYs
+    elseif imode == 2 then
+        ky bpf kt, iXs, iYs
+        ilagtime = max(iparam, 0.05)
+        ky = lag(ky, ilagtime)
+    else
+        initerror sprintf("imode %d not supported", imode)
+    endif
+    pwrite ip1, ipindex, ky
+endin
+
 
 instr ${automate}
     iargtab = p4

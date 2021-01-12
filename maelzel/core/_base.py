@@ -33,9 +33,9 @@ def F(x: U[Fraction, float, int], den=None, maxden=1000000) -> Fraction:
     return x if isinstance(x, Fraction) else Fraction(x).limit_denominator(maxden)
 
 
-def asTime(x:num_t, maxden=128) -> Fraction:
+def asTime(x:num_t, maxden=1024) -> Fraction:
     if isinstance(x, Fraction):
         return x.limit_denominator(maxden)
-    return F(x, maxden)
+    return F(x, maxden=maxden)
 
 

@@ -8,13 +8,13 @@ import tempfile as _tempfile
 import music21 as m21
 from emlib import misc
 from emlib.mathlib import intersection
-from maelzel.music import m21tools
-from maelzel.music import m21fix
 from emlib.pitchtools import amp2db, db2amp, m2n, m2f, f2m, r2i, str2midi
 from emlib import iterlib
+
+from maelzel.music import m21tools
+from maelzel.music import m21fix
 from maelzel import scoring
 from maelzel.snd import csoundengine
-from maelzel.music import lilytools
 
 from ._base import *
 from .common import CsoundEvent, PlayArgs, astuple, asF
@@ -23,7 +23,7 @@ from .state import getState, currentConfig
 from . import m21funcs
 from . import play
 from . import tools
-from . import notation
+from . import environment
 
 from emlib.typehints import U, T, Opt, Iter, Seq, List, Dict, Tup
 
@@ -51,19 +51,24 @@ class MusicObj:
         # A MusicObj can have a duration. A duration can't be 0
         if dur is not None:
             assert dur > 0
-        self.dur: Opt[Fraction] = F(dur) if dur else None
+        self.dur: Opt[Fraction] = asF(dur) if dur is not None else None
 
         # start specifies a time offset for this object
         self.start: Opt[Fraction] = F(start) if start is not None else None
 
         # _playargs are set via .setplay and serve the purpose of
         # attaching playing parameters (like position, instrument)
-        # # to an object
+        # to an object
         self._playargs: Opt[PlayArgs] = None
 
         # All MusicObjs should be hashable. For the cases where
         # calculating the hash is expensive, we cache that here
         self._hash: int = 0
+
+    def resolvedDuration(self, cfg=None) -> Fraction:
+        if self.dur is not None:
+            return self.dur
+        return (cfg or currentConfig())['defaultDuration']
 
     @property
     def playargs(self):
@@ -134,6 +139,15 @@ class MusicObj:
         start = self.start or F(0)
         return self.clone(start=timeoffset + start)
 
+    def __eq__(self, other) -> bool:
+        if isinstance(other, type(self)):
+            return hash(self) == hash(other)
+        else:
+            return False
+
+    def __ne__(self, other) -> bool:
+        return not(self == other)
+
     def __rshift__(self:T, timeoffset:time_t) -> T:
         return self.timeShift(timeoffset)
 
@@ -160,7 +174,7 @@ class MusicObj:
         to transposing an octave higher. """
         return self.transpose(r2i(ratio))
 
-    def show(self, external=None, fmt=None, **options) -> None:
+    def show(self, external=None, method:str=None, fmt:str=None) -> None:
         """
         Show this as notation.
 
@@ -168,17 +182,25 @@ class MusicObj:
             external: force opening the image in an external image viewer,
                 even when inside a jupyter notebook. Otherwise, show will
                 display the image inline
-            fmt: overrides the config setting 'show.format'
-                One of 'xml.png', 'xml', 'xml.pdf', 'lily.png', 'lily.pdf'
-            options: any argument passed to .asmusic21
+            method: one of 'lilypond', 'musicxml'. None to use default
+                (see config['show.method'])
+            fmt: one of 'png', 'pdf'. None to use default
 
-        NB: to use the music21 show capabilities, use note.asmusic21().show(...) or
-            m21show(note.asmusic21())
+        NB: to use the music21 show capabilities, use note.asmusic21().show(...)
         """
-        if external is None: external = currentConfig()['show.external']
-        png = self.makeImage(fmt=fmt, **options)
-        tools.pngShow(png, external=external)
-        
+        cfg = currentConfig()
+        if external is None:
+            external = cfg['show.external']
+        if method is None:
+            method = cfg['show.method']
+        if fmt is None:
+            fmt = 'png' if environment.insideJupyter else cfg['show.format']
+        img = self.makeImage(method=method, fmt=fmt)
+        if fmt == 'png':
+            tools.pngShow(img, forceExternal=external)
+        else:
+            misc.open_with_standard_app(img)
+
     def _changed(self) -> None:
         """
         This method is called whenever the object changes its representation
@@ -187,19 +209,28 @@ class MusicObj:
         object
         """
         self._hash = None
-        
-    def makeImage(self, **options) -> str:
+
+    def makeImage(self, method:str=None, outfile:str=None, fmt="png") -> str:
         """
         Creates an image representation, returns the path to the image
 
         Args:
-            options: any argument passed to .asmusic21
+            method: the rendering backend. One of 'musicxml', 'lilypond'
+                None uses the default method (see config['show.method'])
+            outfile: the path of the generated file. Use None to generate
+                a temporary file.
+            fmt: if outfile is None, fmt will determine the format of the
+                generated file. Possible values: 'png', 'pdf'.
+
+        Returns:
+            the path of the generated file. If outfile was given, the returned
+            path will be the same as the outfile.
         """
         # In order to be able to cache the images we put this
         # functionality outside of the class and use lru_cache
         if currentConfig()['show.cacheImages']:
-            return _makeImageCached(self, **options)
-        return _makeImage(self, **options)
+            return renderObject(self, method=method, outfile=outfile, fmt=fmt)
+        return _renderObject(self, method=method, outfile=outfile, fmt=fmt)
 
     def ipythonImage(self):
         """
@@ -211,7 +242,7 @@ class MusicObj:
 
         """
         from IPython.core.display import Image
-        return Image(self.makeImage(), embed=True)
+        return Image(self.makeImage(fmt='png'), embed=True)
 
     def scoringEvents(self) -> List[scoring.Notation]:
         """
@@ -226,8 +257,14 @@ class MusicObj:
         """
         raise NotImplementedError("Subclass should implement this")
 
+    def scoringParts(self) -> List[scoring.Part]:
+        notations = self.scoringEvents()
+        scoring.stackNotationsInPlace(notations)
+        parts = scoring.splitNotationsByClef(notations)
+        return parts
+
     def _scoringAnnotation(self) -> Opt[scoring.Annotation]:
-        if self.label is None:
+        if not self.label:
             return None
         return scoring.Annotation(self.label, fontSize=currentConfig()['show.label.fontSize'])
 
@@ -253,16 +290,10 @@ class MusicObj:
             an abstract representation of scoring objects which can
             be queried via .scoringEvents
         """
-        events = self.scoringEvents()
-        scoring.stackNotationsInPlace(events, start=self.start)
-        if split is None:
-            split = currentConfig()['show.split']
-        if split:
-            parts = scoring.splitNotationsByClef(events)
-        else:
-            parts = [scoring.Part(events)]
-        m21score = notation.scoringPartsToMusic21(parts)
-        return m21score
+        parts = self.scoringParts()
+        options = makeRenderOptions()
+        renderer = scoring.render.renderParts(parts, backend='musicxml', options=options)
+        return renderer.asMusic21()
 
     def musicxml(self) -> str:
         """
@@ -274,6 +305,26 @@ class MusicObj:
         if currentConfig()['m21.fixstream']:
             m21fix.fixStream(m)
         return m21tools.getXml(m)
+
+    def write(self, outfile:str, backend:str=None) -> None:
+        """
+        Write this as musicxml, lilypond, pdf, png
+
+        Args:
+            outfile: the path of the output file. The extension determines
+                the format
+            backend: the backend used when writing as pdf or png.
+                If not given, the default defined in the current
+                configuration is used (this is va
+        """
+        ext = os.path.splitext(outfile)[1]
+        if ext == '.ly':
+            backend = 'lilypond'
+        elif backend is None:
+            cfg = currentConfig()
+            backend = cfg['show.method']
+        r = scoring.render.renderParts(self.scoringParts(), backend=backend)
+        r.write(outfile)
 
     @classmethod
     def _setJupyterHook(cls) -> None:
@@ -405,7 +456,7 @@ class MusicObj:
              instr: str = None, 
              chan: int = None, 
              pitchinterpol: str = None,
-             fade: float = None,
+             fade: U[float, Tup[float, float]] = None,
              fadeshape: str = None,
              args: Dict[str, float] = None,
              position: float = None) -> csoundengine.AbstrSynth:
@@ -467,6 +518,9 @@ class MusicObj:
         events = self.events(**kws)
         return play.recEvents(events, outfile)
 
+    def isRest(self) -> bool:
+        return False
+
 
 @_functools.total_ordering
 class Note(MusicObj):
@@ -517,12 +571,13 @@ class Note(MusicObj):
                     label=label if label is not UNSET else self.label,
                     endpitch=endpitch if endpitch is not UNSET else self.endmidi)
 
-    def asChord(self):
+    def asChord(self) -> Chord:
         endpitches = None if not self.endmidi else [self.endmidi]
         return Chord([self], amp=self.amp, dur=self.dur, start=self.start,
                      endpitches=endpitches, label=self.label)
 
-    def isRest(self): return self.amp == 0
+    def isRest(self) -> bool:
+        return self.amp == 0
         
     def freqShift(self, freq:float) -> Note:
         """
@@ -536,19 +591,12 @@ class Note(MusicObj):
     def transpose(self, interval: float) -> Note:
         """ Return a copy of self, transposed by given `interval`"""
         return self.clone(pitch=self.midi+interval)
-        
-    def __eq__(self, other:pitch_t) -> bool:
-        if isinstance(other, str):
-            other = str2midi(other)
-        return self.__float__() == float(other)
-
-    def __ne__(self, other:pitch_t) -> bool:
-        return not(self == other)
 
     def __lt__(self, other:pitch_t) -> bool:
-        if isinstance(other, str):
-            other = str2midi(other)
-        return self.__float__() < float(other)
+        if isinstance(other, Note):
+            return self.midi < other.midi
+        else:
+            raise NotImplementedError()
 
     @property
     def freq(self) -> float: return m2f(self.midi)
@@ -590,8 +638,9 @@ class Note(MusicObj):
                                       gliss=self.hasGliss(),
                                       playbackGain=self.amp)]
             if self.endmidi:
+                start = self.end if self.start is not None else None
                 notes.append(scoring.makeNote(pitch=self.endmidi, duration=0,
-                                              offset=self.end))
+                                              offset=start))
 
         if self.label:
             annot = self._scoringAnnotation()
@@ -600,12 +649,15 @@ class Note(MusicObj):
         return notes
 
     def _asTableRow(self) -> List[str]:
-        elements = [m2n(self.midi)]
-        config = currentConfig()
-        if config['repr.showFreq']:
-            elements.append("%dHz" % int(self.freq))
-        if self.amp is not None and self.amp < 1:
-            elements.append("%ddB" % round(amp2db(self.amp)))
+        if self.isRest():
+            elements = ["REST"]
+        else:
+            elements = [m2n(self.midi)]
+            config = currentConfig()
+            if config['repr.showFreq']:
+                elements.append("%dHz" % int(self.freq))
+            if self.amp is not None and self.amp < 1:
+                elements.append("%ddB" % round(amp2db(self.amp)))
         if self.dur:
             elements.append(f"dur={tools.showTime(self.dur)}")
         if self.start is not None:
@@ -678,7 +730,8 @@ class Note(MusicObj):
 
 def Rest(dur:Fraction=1, start:Fraction=None) -> Note:
     """
-    Create a Rest. A Rest is a Note with pitch 0 and amp 0
+    Create a Rest. A Rest is a Note with pitch 0 and amp 0.
+    To test if an item is a rest, call isRest
 
     Args:
         dur: duration of the Rest
@@ -721,6 +774,7 @@ class Line(MusicObj):
     """ 
     A Line is a seq. of breakpoints, where each bp is of the form
     (delay, pitch, [amp=1, ...])
+
 
     delay: the time offset to the first breakpoint.
     pitch: the pitch as midinote or notename
@@ -840,9 +894,9 @@ class Line(MusicObj):
         misc.print_table(rows, headers=headers)
 
 
-def N(pitch, dur:time_t=None, start:time_t=None, endpitch:pitch_t=None,
-      amp:float=None, **kws
-      ) -> U[Note, Chord]:
+def mkEvent(pitch, dur:time_t=None, start:time_t=None, endpitch:pitch_t=None,
+            amp:float=None, **kws
+            ) -> U[Note, Chord]:
     """
     Create a Note or Chord. If pitch is a list of pitches, creates a Chord
 
@@ -869,6 +923,9 @@ def N(pitch, dur:time_t=None, start:time_t=None, endpitch:pitch_t=None,
             return Note(pitch, dur=dur, start=start, endpitch=endpitch, amp=amp, **kws)
     else:
         return Note(pitch, dur=dur, start=start, endpitch=endpitch, amp=amp, **kws)
+
+
+N = mkEvent
 
 
 class Chord(MusicObj):
@@ -943,7 +1000,7 @@ class Chord(MusicObj):
         pitches = [note.midi for note in self.notes]
         annot = self._scoringAnnotation()
         endpitches = None if not self.endchord else [note.midi for note in self.endchord]
-        dur = asF(self.dur) if self.dur is not None else config['defaultDuration']
+        dur = self.dur if self.dur is not None else config['defaultDuration']
         chord = scoring.makeChord(pitches=pitches, duration=asF(dur), offset=self.start,
                                   annotation=annot, playbackGain=self.amp)
         events = [chord]
@@ -952,12 +1009,12 @@ class Chord(MusicObj):
             events.append(endEvent)
         return events
 
-    def asmusic21(self, **kws) -> m21.stream.Stream:
+    def _asmusic21(self, **kws) -> m21.stream.Stream:
         config = currentConfig()
         arpeggio = _normalizeChordArpeggio(kws.get('arpeggio', None), self)
         if arpeggio:
             dur = config['show.arpeggioDuration']
-            return EventSeq(self.notes, dur=dur).asmusic21()
+            return EventSeq(self.notes, itemDefaultDur=dur).asmusic21()
         events = self.scoringEvents()
         scoring.stackNotationsInPlace(events, start=self.start)
         parts = scoring.splitNotationsByClef(events)
@@ -1134,7 +1191,7 @@ class Chord(MusicObj):
         return events
 
     def asSeq(self, dur=None) -> EventSeq:
-        return EventSeq(self.notes, dur=dur or self.dur)
+        return EventSeq(self.notes, itemDefaultDur=dur or self.dur)
 
     def __repr__(self):
         lines = []
@@ -1367,25 +1424,38 @@ class EventSeq(MusicObj):
     """
     A seq. of Notes or Chords
     """
-    __slots__ = ('items')
+    __slots__ = ('items', 'itemDefaultDur')
 
-    def __init__(self, items: List[U[Note, Chord]], dur:time_t=None, start:time_t=None):
-        if dur is not None:
-            dur = asF(dur)
-        super().__init__(dur=dur, start=start)
+    def __init__(self, items: List[MusicObj], itemDefaultDur:time_t=None, start:time_t=None):
+        if itemDefaultDur is None:
+            self.itemDefaultDur = currentConfig()['defaultDuration']
+        else:
+            self.itemDefaultDur = asF(itemDefaultDur)
+
+        super().__init__(dur=None, start=start)
         if items:
             items = [asEvent(item) for item in items]
+            items = stackEvents(items, defaultDur=itemDefaultDur, start=start)
             self.items = items
-            self.stackItems()
+            super().__init__(dur=self.items[0].start, start=self.items[0].start)
         else:
             self.items: List[U[Note, Chord]] = []
+            super().__init__(dur=None, start=None)
 
-    def stackItems(self) -> None:
-        dur = self.dur or currentConfig()['defaultDuration']
-        stackEventsInPlace(self.items, defaultDur=dur, start=self.start)
+    def resolvedDuration(self, cfg=None) -> Fraction:
+        if not self.items:
+            return F(0)
+        return self.items[-1].end - self.items[0].start
 
-    def append(self, item:U[Note, Chord]):
+    def append(self, item:U[Note, Chord]) -> None:
+        if item.start is not None and item.dur is not None:
+            assert item.start > self.end
+            self.items.append(item)
+        start = item.start if item.start is not None else (self.end or F(0))
+        dur = item.resolvedDuration()
+        item = item.clone(start=start, dur=dur)
         self.items.append(item)
+        self.dur = item.end - self.start
 
     def __len__(self) -> int:
         return len(self.items)
@@ -1395,15 +1465,16 @@ class EventSeq(MusicObj):
 
     def __getitem__(self, idx):
         out = self.items.__getitem__(idx)
-        if not out or isinstance(out, Chord):
+        if isinstance(out, MusicObj):
             return out
         elif isinstance(out, list):
             return self.__class__(out)
         else:
-            raise ValueError("__getitem__ returned {out}, expected Chord or list of Chords")
+            raise ValueError(f"__getitem__ returned {out}, expected Chord or list of Chords")
 
     def scoringEvents(self) -> List[scoring.Notation]:
         events = []
+        start = self.start if self.start is not None else F(0)
         for item in self.items:
             scoringEvents = item.scoringEvents()
             for ev in scoringEvents:
@@ -1411,7 +1482,7 @@ class EventSeq(MusicObj):
                     ev.duration = self.dur
             events.extend(scoringEvents)
         if events and events[0].offset is None:
-            events[0].offset = self.start
+            events[0].offset = start
         return events
 
     def __repr__(self):
@@ -1431,13 +1502,21 @@ class EventSeq(MusicObj):
     def csoundEvents(self, playargs: PlayArgs) -> List[CsoundEvent]:
         allevents = []
         for item in self.items:
-            events = item.csoundEvents(playargs)
+            events = item.events()
+            # events = item.csoundEvents(playargs)
             allevents.extend(events)
         return allevents
 
-    def cycle(self, dur:float) -> EventSeq:
+    def cycle(self, dur:float, crop=True) -> EventSeq:
         """
         Cycle the items in this seq. until the given duration is reached
+
+        Args:
+            dur: the total duration
+            crop: if True, the last event will be cropped to fit
+                the given total duration. Otherwise, it will last
+                its given duration, even if that would result in
+                a total duration longer than the given one
         """
         items = []
         defaultDur = self.dur
@@ -1445,23 +1524,37 @@ class EventSeq(MusicObj):
         totaldur = 0
         while totaldur < dur:
             item = next(it)
-            if item.dur is None:
-                item = item.clone(dur=defaultDur)
+            maxdur = dur - totaldur
+            if crop:
+                if item.dur is None or item.dur > maxdur:
+                    item = item.clone(dur=maxdur)
+            elif item.dur is None:
+                if crop:
+                    item = item.clone(dur=min(defaultDur, maxdur))
+                else:
+                    item = item.clone(dur=defaultDur)
             totaldur += item.dur
             items.append(item)
-        return EventSeq(items)
+        return EventSeq(items, start=self.start)
+
+    def clone(self, items:List[U[Note, Chord]]=None, dur:time_t=None, start:time_t=None
+              ) -> EventSeq:
+        items = items if items is not None else self.items
+        dur = dur if dur is not None else self.dur
+        start = start if start is not None else self.start
+        return EventSeq(items, itemDefaultDur=dur, start=start)
 
     def transpose(self:EventSeq, step) -> EventSeq:
         chords = [obj.transpose(step) for obj in self.items]
-        return EventSeq(chords, dur=self.dur)
+        return self.clone(chords)
 
     def quantizePitch(self, step=1.0) -> EventSeq:
         items = [item.quantizePitch(step) for item in self.items]
-        return EventSeq(items, dur=self.dur)
+        return self.clone(items)
 
     def timeShift(self, timeoffset:time_t) -> EventSeq:
         items = [item.timeShift(timeoffset) for item in self.items]
-        return EventSeq(items=items, dur=self.dur)
+        return self.clone(items)
 
 
 class Track(MusicObj):
@@ -1470,41 +1563,45 @@ class Track(MusicObj):
     """
 
     def __init__(self, objs=None, label:str=''):
-        self.timeline: List[MusicObj] = []
+        self.items: List[MusicObj] = []
         self.instrs: Dict[MusicObj, str] = {}
         self.label = label
-        super().__init__(dur=0, start=0)
+        super().__init__()
         if objs:
             for obj in objs:
                 self.add(obj)
 
     def __iter__(self):
-        return iter(self.timeline)
+        return iter(self.items)
 
     def __getitem__(self, idx):
-        return self.timeline.__getitem__(idx)
+        return self.items.__getitem__(idx)
 
     def __len__(self):
-        return len(self.timeline)
+        return len(self.items)
+
+    def __hash__(self):
+        hashes = [hash(item) for item in self.items]
+        return hash(tuple(hashes))
 
     def _changed(self):
-        if self.timeline:
-            self.dur = self.timeline[-1].end - self.timeline[0].start
+        if self.items:
+            self.dur = self.items[-1].end-self.items[0].start
         super()._changed()
 
     def endTime(self) -> Fraction:
-        if not self.timeline:
+        if not self.items:
             return Fraction(0)
-        return self.timeline[-1].end
+        return self.items[-1].end
 
     def isEmptyBetween(self, start:time_t, end:num_t):
-        if not self.timeline:
+        if not self.items:
             return True
-        if start >= self.timeline[-1].end:
+        if start >= self.items[-1].end:
             return True
-        if end < self.timeline[0].start:
+        if end < self.items[0].start:
             return True
-        for item in self.timeline:
+        for item in self.items:
             if intersection(item.start, item.end, start, end):
                 return False
         return True
@@ -1532,47 +1629,51 @@ class Track(MusicObj):
             msg = f"obj {obj} ({obj.start}:{obj.start+obj.dur}) does not fit in track"
             raise ValueError(msg)
         assert obj.start is not None and obj.start >= 0 and obj.dur is not None and obj.dur > 0
-        self.timeline.append(obj)
-        self.timeline.sort(key=lambda obj:obj.start)
+        self.items.append(obj)
+        self.items.sort(key=lambda obj:obj.start)
         self._changed()
 
     def extend(self, objs:List[MusicObj]) -> None:
         objs.sort(key=lambda obj:obj.start)
         assert objs[0].start >= self.endTime()
         for obj in objs:
-            self.timeline.append(obj)
+            self.items.append(obj)
         self._changed()
 
     def scoringEvents(self) -> List[scoring.Notation]:
-        return sum((obj.scoringEvents() for obj in self.timeline), [])
+        return sum((obj.scoringEvents() for obj in self.items), [])
                   
     def csoundEvents(self, playargs: PlayArgs) -> List[CsoundEvent]:
-        return sum((obj.csoundEvents(playargs) for obj in self.timeline), [])
+        return sum((obj.csoundEvents(playargs) for obj in self.items), [])
 
     def play(self, **kws) -> csoundengine.SynthGroup:
         """
         kws: any kws is passed directly to each individual event
         """
-        return csoundengine.SynthGroup([obj.play(**kws) for obj in self.timeline])
+        return csoundengine.SynthGroup([obj.play(**kws) for obj in self.items])
 
     def scoringPart(self) -> scoring.Part:
         return scoring.Part(self.scoringEvents(), label=self.label)
 
     def transpose(self:Track, step) -> Track:
-        return Track([obj.transpose(step) for obj in self.timeline])
+        return Track([obj.transpose(step) for obj in self.items])
 
     def quantizePitch(self:Track, step=1.0) -> Track:
-        return Track([obj.quantizePitch(step) for obj in self.timeline])
+        return Track([obj.quantizePitch(step) for obj in self.items])
 
 
 def _asTimedObj(obj: MusicObj, start, dur) -> MusicObj:
     """
     A TimedObj has a start time and a duration
     """
-    assert start is not None and dur is not None
-    dur = obj.dur if obj.dur is not None else dur
+    if obj.start is not None and obj.dur is not None:
+        return obj
 
+    assert (start is not None) and (dur is not None)
+    dur = obj.dur if obj.dur is not None else dur
+    assert dur > 0
     start = obj.start if obj.start is not None else start
+    assert start >= 0
     start = asTime(start)
     dur = asTime(dur)
     obj2 = obj.clone(dur=dur, start=start)
@@ -1690,123 +1791,85 @@ def splitNotesIfNecessary(notes:List[Note], splitpoint:float, deviation=None
     return [p for p in _splitNotesOnce(notes, splitpoint, deviation) if p]
 
 
-def _resolveSplitpoint(split) -> float:
-    if split is None: split = currentConfig()['show.split']
-    if isinstance(split, bool):
-        return 60.0 if split else 0.0
-    return split
-        
-
-def _splitChords(chords:List[Chord], split=60, showcents=None, showlabel=True, dur=1
-                 ) -> m21.stream.Score:
+def makeRenderOptions() -> scoring.render.RenderOptions:
     config = currentConfig()
-    if showcents is None: showcents = config['show.cents']
-    if dur is None: dur = config['show.seqDuration']
-    chordsup, chordsdown = [], []
-    splitpoint = _resolveSplitpoint(split)
+    renderOptions = scoring.render.RenderOptions(
+            staffSize=config['show.staffSize'],
+            divsPerSemitone=config['show.semitoneDivisions'],
+            showCents = config['show.cents'],
+            centsFontSize=config['show.centsFontSize'],
+            noteAnnotationsFontSize=config['show.label.fontSize']
+    )
+    return renderOptions
 
-    for chord in chords:
-        above, below = _splitNotesOnce(chord, splitpoint)
-        chordsup.append(above)
-        chordsdown.append(below)
 
-    def isRowEmpty(chords: List[List[Note]]) -> bool:
-        return all(not chord for chord in chords)
-
-    rows = [row for row in (chordsup, chordsdown) if not isRowEmpty(row)]
-    columns = zip(*rows)
-    labels = [chord.label for chord in chords]
-
-    def makePart(row: List[List[Note]]):
-        part = m21.stream.Part()
-        notes: List[Note] = iterlib.flattened(row)
-        midinotes = [n.midi for n in notes]
-        clef = m21funcs.bestClef(midinotes)
-        part.append(clef)
-        return part
-
-    parts = [makePart(row) for row in rows]
-    for column, label in zip(columns, labels):
-        if showlabel and label:
-            parts[0].append(m21funcs.m21Label(label))
-        for chord, part in zip(column, parts):
-            if chord:
-                midis = [n.midi for n in chord]
-                part.append(m21funcs.m21Chord(midis, showcents=showcents,
-                                              quarterLength=dur))
-            else:
-                part.append(m21.note.Rest(quarterLength=dur))
-    return m21.stream.Score(parts)
-                
-
-def _makeImage(obj: MusicObj, outfile:str=None, fmt:str=None,
-               **options) -> str:
+def _renderObject(obj: MusicObj, outfile:str=None, method:str=None, fmt='png'
+                  ) -> str:
     """
     Given a music object, make an image representation of it.
     NB: we put it here in order to make it easier to cache images
 
     Args:
-        obj     : the object to make the image from (a Note, Chord, etc.)
-        outfile : the path to be generated
-        fmt     : format used. One of 'xml.png', 'lily.png' (no pdf)
-        options : any argument passed to .asmusic21 (this is deprecated now)
+        obj: the object to make the image from (a Note, Chord, etc.)
+        outfile: the path to be generated. Can be None, in which case a temporary
+            file is generated.
+        method : one of 'musicxml', 'lilypond'
+        fmt: the format of the generated file, if no outfile is given. One
+            of 'png', 'pdf' (has no effect if outfile is given, in which case
+            the extension determines the format)
 
     Returns:
         the path of the generated image
     """
     config = currentConfig()
-    xml = obj.musicxml()
-    xmlfile = _tempfile.mktemp(suffix=".xml")
-    if outfile is None:
-        outfile = _tempfile.mktemp(suffix=".png")
-    open(xmlfile, "w").write(xml)
-    fmt = fmt or config['show.format'].split(".")[0]+".png"
-    logger.debug(f"makeImage: using format: {fmt}")
-    method, fmt3 = fmt.split(".")
-    if method == 'lily':
-        lilyfile = lilytools.musicxml2ly(xmlfile)
-        pngfile = lilytools.lily2png(lilyfile, outfile)
-        assert pngfile == outfile
+    if method is None:
+        method = config['show.method']
     else:
-        tools.renderMusicxml(xmlfile, outfile)
-    os.remove(xmlfile)
+        methods = {'xml', 'musicxml', 'lily', 'lilypond'}
+        if method not in methods:
+            raise ValueError(f"method {method} not supported. Should be one of {methods}")
+
+    if outfile is None:
+        outfile = _tempfile.mktemp(suffix="." + fmt)
+
+    renderOptions = makeRenderOptions()
+    logger.debug(f"renderOptions: {renderOptions}")
+
+
+    logger.debug(f"rendering parts with backend: {method}")
+    parts = obj.scoringParts()
+    renderer = scoring.render.renderParts(parts, backend=method,
+                                          options=renderOptions)
+    renderer.write(outfile)
     return outfile
 
 
-def _writeMusicxml(m21obj: m21.Music21Object, outfile: str) -> None:
-    tmpfile = m21obj.write("musicxml", )
-    if outfile is not None:
-        os.rename(tmpfile, outfile)
-        path = outfile
-    else:
-        path = tmpfile
-
-
 @_functools.lru_cache(maxsize=1000)
-def _makeImageCached(*args, **kws) -> str:
+def renderObject(obj:MusicObj, outfile:str=None, method:str=None, fmt='png'
+                 ) -> str:
     """
     Given a music object, make an image representation of it.
     NB: we put it here in order to make it easier to cache images
 
     Args:
         obj     : the object to make the image from (a Note, Chord, etc.)
-        outfile : the path to be generated
-        fmt     : format used. One of 'xml.png', 'lily.png' (no pdf)
-        options : any argument passed to .asmusic21
+        outfile : the path to be generated. A .png filename
+        method  : format used. One of 'musicxml', 'lilypond'
+        fmt: the format of the generated object. One of 'png', 'pdf'
 
     Returns:
         the path of the generated image
 
     NB: we put it here in order to make it easier to cache images
     """
-    return _makeImage(*args, **kws)
+    return _renderObject(obj=obj, outfile=outfile, method=method, fmt=fmt)
 
 
 def resetImageCache() -> None:
     """
     Reset the image cache. Useful when changing display format
     """
-    _makeImageCached.cache_clear()
+    renderObject.cache_clear()
 
 
 def asMusic(obj) -> U[Note, Chord]:
@@ -1851,54 +1914,58 @@ def gliss(a, b, dur:time_t=1, start:time_t=None) -> U[Note, Chord]:
 
 class Group(MusicObj):
     """
-    A Group represents a group of objects which belong together.
+    A Group represents a group of objects. They can be simultaneous
 
     a, b = Note(60, dur=2), Note(61, start=2, dur=1)
     h = Group((a, b))
 
-    # TODO: apply start to .play, .rec and .show (.events)
     """
 
-    def __init__(self, objects:List[MusicObj], start=0., label:str=None):
-        assert isinstance(objects, (list, tuple))
+    def __init__(self, items:List[MusicObj], start=0., label:str=None):
+        assert isinstance(items, (list, tuple))
         MusicObj.__init__(self, label=label, start=start)
-        self.objs: List[MusicObj] = []
-        self.objs.extend(objects)
+        assert all(item.start is not None and item.dur is not None
+                   for item in items)
+        self.items: List[MusicObj] = []
+        self.items.extend(items)
+        self.items.sort(key=lambda item: item.start)
+        self.dur = self.end - items[0].start
+
+    @property
+    def end(self) -> Fraction:
+        return max(item.end for item in self.items)
 
     def append(self, obj:MusicObj) -> None:
-        self.objs.append(obj)
+        self.items.append(obj)
 
     def __len__(self) -> int:
-        return len(self.objs)
+        return len(self.items)
 
     def __iter__(self) -> Iter[MusicObj]:
-        return iter(self.objs)
+        return iter(self.items)
 
 
     def __getitem__(self, idx) -> U[MusicObj, List[MusicObj]]:
-        return self.objs[idx]
+        return self.items[idx]
 
     def __repr__(self):
-        objstr = self.objs.__repr__()
+        objstr = self.items.__repr__()
         return f"Group({objstr})"
 
     def __hash__(self):
-        hashes = [hash(obj) for obj in self.objs]
+        hashes = [hash(obj) for obj in self.items]
         return hash(tuple(hashes))
 
-    #def play(self, **kws) -> csoundengine.SynthGroup:
-    #    return playMany(self, **kws)
-
     def rec(self, outfile:str=None, sr:int=None, **kws) -> str:
-        return recMany(self.objs, outfile=outfile, sr=sr, **kws)
+        return recMany(self.items, outfile=outfile, sr=sr, **kws)
 
-    def events(self, **kws) -> List[CsoundEvent]:
-        delay = kws.get('delay', 0)
-        kws['delay'] = delay + self.start
-        return getEvents(self.objs, **kws)
+    #def events(self, **kws) -> List[CsoundEvent]:
+    #    delay = kws.get('delay', 0)
+    #    kws['delay'] = delay + self.start
+    #    return getEvents(self.items, **kws)
 
     def csoundEvents(self, playargs: PlayArgs) -> List[CsoundEvent]:
-        return sum((obj.csoundEvents(playargs) for obj in self.objs), [])
+        return sum((obj.csoundEvents(playargs) for obj in self.items), [])
 
     def quantizePitch(self, step=1.0) -> Group:
         return Group([obj.quantizePitch(step=step) for obj in self])
@@ -1907,11 +1974,15 @@ class Group(MusicObj):
         return Group([obj.transpose(step) for obj in self])
 
     def scoringEvents(self) -> List[scoring.Notation]:
-        events = sum((obj.scoringEvents() for obj in self.objs), [])
+        events = sum((obj.scoringEvents() for obj in self.items), [])
         if self.start != 0:
             events = [ev.clone(offset=ev.offset+self.start)
                       for ev in events]
         return events
+
+    def scoringParts(self) -> List[scoring.Part]:
+        events = self.scoringEvents()
+        return scoring.packInParts(events)
 
 
 def asMidi(obj: U[float, int, str, Note]) -> float:
@@ -2001,7 +2072,8 @@ def recMany(objs: List[MusicObj], outfile:str=None, sr:int=None, **kws
     return play.recEvents(outfile=outfile, events=allevents, sr=sr)
 
 
-def trill(note1, note2, totaldur, notedur=None) -> EventSeq:
+def trill(note1: U[Note, Chord], note2: U[Note, Chord],
+          totaldur: time_t, notedur:time_t=None) -> EventSeq:
     """
     Create a trill
 
@@ -2009,10 +2081,11 @@ def trill(note1, note2, totaldur, notedur=None) -> EventSeq:
         note1: the first note of the trill (can also be a chord)
         note2: the second note of the trill (can also  be a chord)
         totaldur: total duration of the trill
-        notedur: duration of each note
+        notedur: duration of each note. This value will only be used
+            if the trill notes have an unset duration
 
     Returns:
-        A realisation of the trill as a ChordSeq of at least the
+        A realisation of the trill as an EventSeq of at least the
         given totaldur (can be longer if totaldur is not a multiple
         of notedur)
     """
@@ -2026,7 +2099,7 @@ def trill(note1, note2, totaldur, notedur=None) -> EventSeq:
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-if tools.insideJupyter:
+if environment.insideJupyter:
     setJupyterHook()
 
 

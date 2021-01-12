@@ -1,18 +1,13 @@
 import music21 as m21
-from functools import lru_cache
 from .common import *
 from maelzel import scoring
 from ._base import Opt, List
 from .state import currentConfig
-
-
-@lru_cache()
-def makeScoreStructure(timesig=(4, 4), quarterTempo=60) -> scoring.ScoreStructure:
-    return scoring.ScoreStructure.fromTimesig(timesig, quarterTempo=quarterTempo)
+from maelzel.scorestruct import ScoreStructure
 
 
 def scoringPartToMusic21(part: U[ scoring.Part, List[scoring.Notation] ],
-                         struct: Opt[scoring.ScoreStructure] = None,
+                         struct: Opt[ScoreStructure] = None,
                          showCents=None,
                          divsPerSemitone=None
                          ) -> U[m21.stream.Score, m21.stream.Part]:
@@ -41,7 +36,7 @@ def scoringPartToMusic21(part: U[ scoring.Part, List[scoring.Notation] ],
 
 
 def scoringPartsToMusic21(parts: List[U[scoring.Part, List[scoring.Notation]]],
-                          struct: Opt[scoring.ScoreStructure] = None,
+                          struct: Opt[ScoreStructure] = None,
                           showCents:bool=None,
                           divsPerSemitone:int=None,
                           config:dict=None
@@ -53,7 +48,7 @@ def scoringPartsToMusic21(parts: List[U[scoring.Part, List[scoring.Notation]]],
     centsFontSize = config['show.centsFontSize']
     if struct is None:
         state = getState()
-        struct = scoring.ScoreStructure.fromTimesig((4, 4), quarterTempo=state.tempo)
+        struct = ScoreStructure.fromTimesig((4, 4), quarterTempo=state.tempo)
     renderOptions = scoring.render.RenderOptions(divsPerSemitone=divsPerSemitone,
                                                  showCents=showCents,
                                                  centsFontSize=centsFontSize)
@@ -64,8 +59,7 @@ def scoringPartsToMusic21(parts: List[U[scoring.Part, List[scoring.Notation]]],
                                           options=renderOptions,
                                           backend="music21",
                                           quantizationProfile=quantProfile)
-    assert isinstance(renderer, scoring.render.Music21Renderer)
-    m21score = renderer.nativeScore()
+    m21score = renderer.asMusic21()
     return m21score
 
 

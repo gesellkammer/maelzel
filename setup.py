@@ -20,12 +20,12 @@ setup(
     url='https://github.com/gesellkammer/maelzel',
     packages=[
         'maelzel',
+        'maelzel.core',
         'maelzel.midi',
         'maelzel.snd',
         'maelzel.acoustics',
         'maelzel.ext',
         'maelzel.music',
-        'maelzel.music.core',
         'maelzel.scoring',
     ],
     include_package_data=True,

@@ -1,19 +1,66 @@
 from __future__ import annotations
 
-from . import util
-from .common import *
-from .core import Notation
-
 from pathlib import Path
 import dataclasses
-from typing import Tuple, Optional as Opt, List, Union as U
+from typing import Tuple, Optional as Opt, List, Union as U, Iterator as Iter
 from bisect import bisect
-from collections import defaultdict
 
 import music21 as m21
-from emlib import misc
-
 from maelzel.music import m21tools
+from fractions import Fraction as F
+
+
+def asF(x) -> F:
+    if isinstance(x, F):
+        return x
+    return F(x)
+
+
+timesig_t = Tuple[int, int]
+time_t = U[int, float, F]
+
+
+def parseScoreStructLine(line: str) -> Tuple[Opt[int], Opt[timesig_t], Opt[int]]:
+    """
+    parse a line of a ScoreStructure definition
+
+    Args:
+        line: a line of the format [measureNum, ] timesig [, tempo]
+
+    Returns:
+        a tuple (measureNum, timesig, tempo), where only timesig
+        is required
+    """
+    def parseTimesig(s: str) -> Tuple[int, int]:
+        try:
+            num, den = s.split("/")
+        except ValueError:
+            raise ValueError(f"Could not parse timesig: {s}")
+        return int(num), int(den)
+
+    parts = [_.strip() for _ in line.split(",")]
+    lenparts = len(parts)
+    if lenparts == 1:
+        timesigS = parts[0]
+        measure = None
+        tempo = None
+    elif lenparts == 2:
+        if "/" in parts[0]:
+            timesigS, tempoS = parts
+            measure = None
+            tempo = float(tempoS)
+        else:
+            measureNumS, timesigS = parts
+            measure = int(measureNumS)
+            tempo = None
+    elif lenparts == 3:
+        measureNumS, timesigS, tempoS = [_.strip() for _ in parts]
+        measure = int(measureNumS) if measureNumS else None
+        tempo = int(tempoS) if tempoS else None
+    else:
+        raise ValueError(f"Parsing error at line {line}")
+    timesig = parseTimesig(timesigS) if timesigS else None
+    return measure, timesig, tempo
 
 
 
@@ -31,13 +78,26 @@ class MeasureDef:
     barline: str = ""
 
     def __post_init__(self):
-        misc.assert_type(self.timesig, (int, int))
+        assert isinstance(self.timesig, tuple) and len(self.timesig) == 2
+        assert all(isinstance(i, int) for i in self.timesig)
         self.quarterTempo = asF(self.quarterTempo)
 
     def numberOfBeats(self):
+        """
+        The duration of this measure in beats
+
+        Timesig  numberOfBeats
+        ----------------------
+        4/4      4
+        5/8      2.5
+        3/8      1.5
+        """
         return 4 * F(*self.timesig)
 
     def duration(self) -> F:
+        """
+        The duration of this measure, in seconds
+        """
         if self.quarterTempo is None or self.timesig is None:
             raise ValueError("MeasureDef not fully defined")
         return self.numberOfBeats() * (F(60)/self.quarterTempo)
@@ -144,7 +204,7 @@ class ScoreStructure:
             line = lineStrip(line0)
             if not line:
                 continue
-            newMeasure, newTimesig, newTempo = util.parseScoreStructLine(line)
+            newMeasure, newTimesig, newTempo = parseScoreStructLine(line)
             if newMeasure is None:
                 newMeasure = measure + 1
             if newTempo is not None:
@@ -207,6 +267,9 @@ class ScoreStructure:
             return self.measuredefs[-1]
         for n in range(len(self.measuredefs)-1, idx):
             self.addMeasure()
+
+    def __getitem__(self, item:int) -> MeasureDef:
+        return self.measuredefs[item]
 
     def addMeasure(self, timesig: timesig_t=None, quarterTempo: number_t=None,
                    annotation:str=None, numMeasures:int=1) -> None:
@@ -334,9 +397,80 @@ class ScoreStructure:
             return None
         raise NotImplementedError("endless score not implemented here")
 
-    def elapsedTime(self, a:Tuple[int, F], b:Tuple[int, F]=None) -> F:
+    def beatToLocation(self, beat:time_t) -> Opt[ScoreLocation]:
         """
-        Returns the elapsed time between two score locations
+        Given a beat (in quarter-notes), return the score location
+        (measure, beat offset within the measure). Tempo does not
+        play any role within this calculation.
+
+        See also .locationToBeat, which performs the opposite operation
+
+        Example:
+            Given the following score: 4/4, 3/4, 4/4
+
+            input       output
+            ---------------------------------
+            4           ScoreLocation(1, 0)
+            5.5         ScoreLocation(1, 1.5)
+            8           ScoreLocation(2, 1.0)
+        """
+        assert len(self.measuredefs) >= 1
+        numMeasures = 0
+        rest = F(beat)
+        for i, mdef in enumerate(self.measuredefs):
+            numBeats = mdef.numberOfBeats()
+            if rest < numBeats:
+                return ScoreLocation(i, rest)
+            rest -= numBeats
+            numMeasures += 1
+        # we are at the end of the defined measure, but we did not find beat yet.
+        if not self.endless:
+            return None
+        beatsPerMeasures = self.measuredefs[-1].numberOfBeats()
+        numMeasures += int(rest / beatsPerMeasures)
+        restBeats = rest % beatsPerMeasures
+        return ScoreLocation(numMeasures, restBeats)
+
+    def iterMeasureDefs(self) -> Iter[MeasureDef]:
+        """
+        Iterate over all measure definitions in this ScoreStructure.
+        If it is marked as endless then the last defined measure
+        will be returned indefinitely.
+        """
+        for mdef in self.measuredefs:
+            yield mdef
+        if not self.endless:
+            raise StopIteration
+        lastmdef = self.measuredefs[-1]
+        while True:
+            yield lastmdef
+
+    def __iter__(self) -> Iter[MeasureDef]:
+        return self.iterMeasureDefs()
+
+    def locationToBeat(self, measure:int, beat:time_t=F(0)) -> F:
+        """
+        Given a score location (measure number, beat), returns
+        the amount of quarter notes up to that point. This value
+        is independent of any tempo given.
+
+        See also: beatToTime
+        """
+        accum = F(0)
+        if not self.endless and measure > self.numMeasures():
+            raise ValueError(f"This scorestruct has {self.numMeasures()} and is not"
+                             f"marked as endless. Measure {measure} is out of scope")
+        for i, mdef in enumerate(self.measuredefs):
+            if i == measure:
+                accum += asF(beat)
+                break
+            else:
+                accum += mdef.numberOfBeats()
+        return accum
+
+    def timeDifference(self, a:Tuple[int, F], b:Tuple[int, F]) -> F:
+        """
+        Returns the elapsed time between two score locations.
 
         Args:
             a: a tuple (measureIndex, beatOffset)
@@ -346,9 +480,6 @@ class ScoreStructure:
             the elapsed time, as a Fraction
 
         """
-        if b is None:
-            b = a
-            a = (0, F(0))
         t0 = self.beatToTime(a[0], a[1])
         t1 = self.beatToTime(b[0], b[1])
         return t1 - t0
@@ -410,7 +541,7 @@ class ScoreStructure:
 
     def write(self, path: U[str, Path]) -> None:
         """
-        Write this as .xml, .ly or render as .pdf or .ly
+        Write this as .xml, .ly or render as .pdf or .png
 
         Args:
             path: the path of the written file. The extension determines the format
@@ -421,120 +552,13 @@ class ScoreStructure:
             m21score.write("xml", path)
         elif path.suffix == ".pdf":
             m21tools.writePdf(m21score, str(path), 'musicxml.pdf')
+        elif path.suffix == ".png":
+            m21score.write("musicxml.png", path)
         elif path.suffix == ".ly":
             m21tools.saveLily(m21score, path)
         else:
-            raise ValueError(f"Extension {path.suffix} not supported, should be one of .xml, .pdf, .ly")
+            raise ValueError(f"Extension {path.suffix} not supported, "
+                             f"should be one of .xml, .pdf, .png or .ly")
 
 
-def _canBeMerged(n0: Notation, n1: Notation) -> bool:
-    """
-    Returns True if n0 and n1 can me merged into one Notation
-    with a regular duration
-
-    NB: a regular duration is one which can be represented via
-    one notation (a quarter, a half, a dotted 8th, a double dotted 16th are
-    all regular durations, 5/8 of a quarter is not --which is a shame)
-    """
-    if (not n0.tiedNext or
-            not n1.tiedPrev or
-            n0.durRatios != n1.durRatios or
-            n0.pitches != n1.pitches
-            ):
-        return False
-    # durRatios are the same so check if durations would sum to a regular duration
-    dur0 = n0.symbolicDuration()
-    dur1 = n1.symbolicDuration()
-    sumdur = dur0 + dur1
-    num, den = sumdur.numerator, sumdur.denominator
-    return den < 64 and num in {1, 2, 3, 7}
-
-
-def mergeNotationsIfPossible(notations: List[Notation]) -> List[Notation]:
-    """
-    If two consecutive notations have same .durRatio and merging them
-    would result in a regular note, merge them.
-
-    8 + 8 = q
-    q + 8 = q·
-    q + q = h
-    16 + 16 = 8
-
-    In general:
-
-    1/x + 1/x     2/x
-    2/x + 1/x     3/x  (and viceversa)
-    3/x + 1/x     4/x  (and viceversa)
-    6/x + 1/x     7/x  (and viceversa)
-    """
-    assert len(notations) > 1
-    out = [notations[0]]
-    for n1 in notations[1:]:
-        if _canBeMerged(out[-1], n1):
-            out[-1] = out[-1].mergeWith(n1)
-        else:
-            out.append(n1)
-    assert len(out) <= len(notations)
-    assert sum(n.duration for n in out) == sum(n.duration for n in notations)
-    return out
-
-
-@dataclasses.dataclass
-class DurationGroup:
-    """
-    A DurationGroup groups together Notations under time modifier (a tuple)
-    A DurationGroup consists of a sequence of Notations or DurationGroups,
-    allowing to define nested tuples or beats
-    """
-    durRatio: Tuple[int, int]
-    items: List[U[Notation, 'DurationGroup']]
-
-    def symbolicDuration(self) -> F:
-        """
-        The symbolic duration of this Notation. This represents
-        the notated figure (1=quarter, 1/2=eighth note, 1/4=16th note, etc)
-        """
-        return sum(item.symbolicDuration() for item in self.items)
-
-    def __repr__(self):
-        parts = [f"DurationGroup({self.durRatio[0]}/{self.durRatio[1]}, "]
-        for item in self.items:
-            if isinstance(item, Notation):
-                parts.append("  " + str(item))
-            else:
-                s = str(item)
-                for line in s.splitlines():
-                    parts.append("  " + line)
-        parts.append(")")
-        return "\n".join(parts)
-
-    def mergeNotations(self) -> DurationGroup:
-        i0 = self.items[0]
-        out = [i0 if isinstance(i0, Notation) else i0.mergeNotations()]
-        for i1 in self.items[1:]:
-            if isinstance(out[-1], Notation) and isinstance(i1, Notation):
-                if _canBeMerged(out[-1], i1):
-                    out[-1] = out[-1].mergeWith(i1)
-                else:
-                    out.append(i1)
-            elif isinstance(i1, Notation):
-                assert isinstance(out[-1], DurationGroup)
-                out.append(i1)
-            else:
-                assert isinstance(out[-1], Notation) and isinstance(i1, DurationGroup)
-                out.append(i1.mergeNotations())
-        return DurationGroup(durRatio=self.durRatio, items=out)
-
-
-def _splitGroupAt(group: List[Notation], splitPoints: List[F]
-                  ) -> List[List[Notation]]:
-    subgroups = defaultdict(lambda:list())
-    for n in group:
-        for i, splitPoint in enumerate(splitPoints):
-            if n.end <= splitPoint:
-                subgroups[i-1].append(n)
-                break
-        else:
-            subgroups[len(splitPoints)].append(n)
-    return [subgroup for subgroup in subgroups.values() if subgroup]
 

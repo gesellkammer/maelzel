@@ -3,9 +3,9 @@ from __future__ import annotations
 from .common import *
 from . import core
 from . import util
-
-from . import scorestruct
-from .scorestruct import Notation
+from .core import Notation
+from .durationgroup import DurationGroup, mergeNotationsIfPossible
+from maelzel.scorestruct import ScoreStructure
 
 import dataclasses
 
@@ -543,7 +543,7 @@ class QuantizedBeat:
         _applyDurationRatio(self.notations, division=self.divisions,
                             beatOffset=self.beatOffset, beatDur=self.beatDuration)
 
-    def group(self) -> scorestruct.DurationGroup:
+    def group(self) -> DurationGroup:
         return _groupByRatio(self.notations, division=self.divisions,
                              beatOffset=self.beatOffset, beatDur=self.beatDuration)
 
@@ -590,14 +590,13 @@ class QuantizedMeasure:
         assert len(notations) > 0
         assert all(n0.end == n1.offset for n0, n1 in iterlib.pairwise(notations))
         if merge:
-            notations = scorestruct.mergeNotationsIfPossible(notations)
+            notations = mergeNotationsIfPossible(notations)
         return notations
 
-    def groups(self) -> List[scorestruct.DurationGroup]:
+    def groups(self) -> List[DurationGroup]:
         if not self.beats:
             return []
         return [beat.group().mergeNotations() for beat in self.beats]
-        # return [beat.group() for beat in self.beats]
 
     def beatDurations(self) -> List[F]:
         """
@@ -1111,12 +1110,12 @@ def measureSplitNotationsAtBeats(eventsInMeasure: List[Notation],
 
 def _groupByRatio(notations: List[Notation], division:U[int, division_t],
                   beatOffset:F, beatDur:F
-                  ) -> scorestruct.DurationGroup:
+                  ) -> DurationGroup:
     if isinstance(division, int) or len(division) == 1:
         if isinstance(division, list):
             division = division[0]
         durRatio = _durationRatios[division]
-        return scorestruct.DurationGroup(durRatio=durRatio, items=notations)
+        return DurationGroup(durRatio=durRatio, items=notations)
 
     assert isinstance(division, list) and len(division) >= 2
     numSubBeats = len(division)
@@ -1132,7 +1131,7 @@ def _groupByRatio(notations: List[Notation], division:U[int, division_t],
         else:
             items.append(_groupByRatio(subdivNotations, subdiv, now, dt))
         now += dt
-    return scorestruct.DurationGroup(durRatio, items)
+    return DurationGroup(durRatio, items)
 
 
 def _applyDurationRatio(notations:List[Notation], division:U[int, division_t], beatOffset:F, beatDur:F) -> None:
@@ -1221,7 +1220,7 @@ def quantizeMeasure(events: List[Notation],
     return QuantizedMeasure(timesig=timesig, quarterTempo=quarterTempo, beats=beats)
 
 
-def splitByMeasure(struct: scorestruct.ScoreStructure,
+def splitByMeasure(struct: ScoreStructure,
                    event: Notation,
                    ) -> List[Tuple[int, Notation]]:
     """
@@ -1272,7 +1271,7 @@ def splitByMeasure(struct: scorestruct.ScoreStructure,
     return pairs
 
 
-def splitEventByMeasures(struct: scorestruct.ScoreStructure,
+def _splitEventByMeasures(struct: ScoreStructure,
                          event: core.Event,
                          ) -> List[Tuple[int, Notation]]:
     """
@@ -1358,7 +1357,7 @@ class PartLocation(NamedTuple):
 
 @dataclasses.dataclass
 class QuantizedPart:
-    struct: scorestruct.ScoreStructure
+    struct: ScoreStructure
     measures: List[QuantizedMeasure]
     label: str = ""
 
@@ -1384,10 +1383,11 @@ class QuantizedPart:
             m.dump()
 
 
-def quantizePart(struct: scorestruct.ScoreStructure,
-                 eventsInPart: List[Notation],
+def quantizePart(struct: ScoreStructure,
+                 part: U[core.Part, List[Notation]],
                  fillStructure=False,
-                 profile:U[str,QuantizationProfile]='default'
+                 profile:U[str,QuantizationProfile]='default',
+                 label:str=None
                  ) -> QuantizedPart:
     """
     Quantizes a sequence of non-overlapping events (a "part") to the
@@ -1396,21 +1396,27 @@ def quantizePart(struct: scorestruct.ScoreStructure,
 
     Args:
         struct: the ScoreStruct to use
-        eventsInPart: the events to quantize. Event within a part
+        part: the events to quantize. Event within a part
             should not overlap
         fillStructure: if True and struct is not endless, the
             generated Part will have as many measures as are defined
             in the struct. Otherwise only as many measures as needed
             to hold the given events will be created
         profile: the QuantizationProfile used
+        label: a name to use for this part
 
     Returns:
-        a list of QuantizedMeasures. To convert these to a scorestruct.Part,
+        a list of QuantizedMeasures. To convert these to a Part,
         call convertQuantizedMeasuresToPart
 
     """
-    eventsInPart = core.stackNotations(eventsInPart)
-    allpairs = [splitByMeasure(struct, event) for event in eventsInPart]
+    if isinstance(part, core.Part) and label is None:
+        label = part.label
+    else:
+        label = ""
+
+    part = core.stackNotations(part)
+    allpairs = [splitByMeasure(struct, event) for event in part]
     maxMeasure = max(pairs[-1][0] for pairs in allpairs)
     notationsPerMeasure: List[List[Notation]] = [[] for _ in range(maxMeasure+1)]
     for pairs in allpairs:
@@ -1437,7 +1443,7 @@ def quantizePart(struct: scorestruct.ScoreStructure,
             qmeasure = QuantizedMeasure(timesig=measureDef.timesig,
                                         quarterTempo=measureDef.quarterTempo, beats=[])
             qmeasures.append(qmeasure)
-    part = QuantizedPart(struct, qmeasures)
+    part = QuantizedPart(struct, qmeasures, label=label)
     _removeInvalidGracenotes(part)
     glissMarkTiedNotesAsHidden(part)
     return part

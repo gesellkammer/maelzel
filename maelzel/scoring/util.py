@@ -415,7 +415,8 @@ def centsDeviation(pitch: float, divsPerSemitone=4) -> int:
     return pitch_round(pitch, divsPerSemitone)[1]
 
 
-def centsAnnotation(pitch: U[float, List[float]], divsPerSemitone=4) -> str:
+def centsAnnotation(pitch: U[float, List[float]], divsPerSemitone=4,
+                    order='ascending') -> str:
     """
     Generates the string used to annotate a note/chord when
     showCents is true
@@ -423,16 +424,23 @@ def centsAnnotation(pitch: U[float, List[float]], divsPerSemitone=4) -> str:
     Args:
         pitch: midinote/s as float
         divsPerSemitone: subdivisions of the semitone
+        order: 'ascending' or 'descending'
 
     Returns:
         a string which can be attached to a note/chord to show
         the cents deviation from the notaten pitches
+
     """
     if isinstance(pitch, (int, float)):
         centsdev = centsDeviation(pitch, divsPerSemitone=divsPerSemitone)
         return str(centsdev)
 
-    centsdevs = [centsDeviation(p, divsPerSemitone) for p in pitch]
+    if order == 'ascending':
+        pitches = sorted(pitch)
+    else:
+        pitches = sorted(pitch, reverse=True)
+
+    centsdevs = [centsDeviation(p, divsPerSemitone) for p in pitches]
     annotations = [str(centsShown(centsdev)) for centsdev in centsdevs]
     return ",".join(annotations) if any(annotations) else ""
 

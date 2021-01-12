@@ -9,7 +9,7 @@ from emlib import iterlib
 from emlib.pitchtools import *
 import dataclasses
 from bpf4 import bpf
-from typing import List, Tuple 
+from typing import List, Tuple, Dict, Union as U
 
 
 dbToAmpCurve: bpf.BpfInterface = bpf.expon(
@@ -127,7 +127,7 @@ class PlayArgs:
     dur: float = None
     chan: int = None
     gain: float = None
-    fade: Union[None, float, Tuple[float, float]] = None
+    fade: U[None, float, Tuple[float, float]] = None
     instr: str = None
     pitchinterpol: str = None
     fadeshape: str = None
@@ -158,7 +158,7 @@ class CsoundEvent:
     """
     __slots__ = ("bps", "delay", "chan", "fadein", "fadeout", "gain",
                  "instr", "pitchinterpol", "fadeshape", "stereo", "args",
-                 "priority", "position")
+                 "priority", "position", "userargs")
 
     def __init__(self,
                  bps: List[tuple],
@@ -171,7 +171,8 @@ class CsoundEvent:
                  fadeshape=None,
                  args: Dict[str, float] = None,
                  priority:int=1,
-                 position:float=0):
+                 position:float=0,
+                 userargs: Opt[List[float]]=None):
         """
         bps (breakpoints): a seq of (delay, midi, amp, ...) of len >= 1.
         """
@@ -253,9 +254,13 @@ class CsoundEvent:
         7   9       fade1
         8   0       pitchinterpol
         9   1       fadeshape
-        0   2       numbps
-        1   3       bplen
-        22... data
+        1   3       numbps
+        2   4       bplen
+        .
+        . reserved space for user pargs
+        .
+        ----
+        breakpoint data
 
         tabnum: if 0 it is discarded and filled with a valid number later
         """

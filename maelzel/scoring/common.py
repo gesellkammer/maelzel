@@ -74,6 +74,9 @@ class Annotation:
     placement: str = 'above'
     fontSize: int = None
 
+    def __post_init__(self):
+        assert not self.text.isspace()
+
 
 @dataclasses.dataclass
 class NotatedDuration:
@@ -92,6 +95,7 @@ class NotatedDuration:
 dynamicLevels = ["pppp", "ppp", "pp", "p", "mp", "mf", "f", "ff", "fff", "ffff"]
 availableDynamics = set(dynamicLevels)
 
-availableNoteheads = {"slash", "triangle", "diamond", "square", "cross", "rectangle", "none"}
+availableNoteheads = {"slash", "triangle", "harmonic", "square", "cross",
+                      "rectangle", "xcircle", "none", "rhombus"}
 
-availableArticulations = {'accent', 'stacatto', 'tenuto'}
+availableArticulations = {'accent', 'staccato', 'tenuto', 'marcato', 'staccatissimo'}

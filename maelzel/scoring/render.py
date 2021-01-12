@@ -1,19 +1,21 @@
 from __future__ import annotations
 import logging
 
-from .scorestruct import *
+from maelzel.scorestruct import*
 from . import core
 from . import quant
 from .renderbase import Renderer, RenderOptions
 from . import renderm21
+from . import renderlily
+from .config import config
 
 
 logger = logging.getLogger("maelzel.scoring")
 
 
 def renderQuantizedParts(parts: List[quant.QuantizedPart],
-                         options:RenderOptions=None,
-                         backend='music21') -> Renderer:
+                         options:RenderOptions,
+                         backend:str) -> Renderer:
     """
     Render the already quantized parts as notation.
 
@@ -25,17 +27,18 @@ def renderQuantizedParts(parts: List[quant.QuantizedPart],
     Returns:
         a Renderer
     """
-    if backend == 'music21':
-        renderer = renderm21.Music21Renderer(parts, options=options)
-        return renderer
+    if backend == 'musicxml' or backend == 'xml' or backend == 'music21':
+        return renderm21.Music21Renderer(parts, options=options)
+    elif backend == 'lilypond' or backend == 'lily':
+        return renderlily.LilypondRenderer(parts, options=options)
     else:
-        raise ValueError(f"Supported backends: 'music21'. Got {backend}")
+        raise ValueError(f"Supported backends: 'musicxml', 'lilypond'. Got {backend}")
 
 
 def renderParts(parts: List[core.Part],
                 struct: ScoreStructure=None,
                 options: RenderOptions=None,
-                backend='music21',
+                backend:str=None,
                 quantizationProfile:quant.QuantizationProfile=None
                 ) -> Renderer:
     """
@@ -72,14 +75,16 @@ def renderParts(parts: List[core.Part],
     """
     if quantizationProfile is None:
         quantizationProfile = quant.QuantizationProfile()
-    if backend == 'music21':
+    if backend is None:
+        backend = config['render.backend']
+    if backend == 'musicxml':
         quantizationProfile.nestedTuples = False
     if struct is None:
         struct = ScoreStructure.fromTimesig((4,4), quarterTempo=60)
     qparts = []
     for part in parts:
         qpart = quant.quantizePart(struct,
-                                   eventsInPart=part,
+                                   part=part,
                                    profile=quantizationProfile)
         qpart.label = part.label
         qparts.append(qpart)
@@ -91,9 +96,11 @@ def renderParts(parts: List[core.Part],
 def render(obj: U[core.Part, core.Notation, List[core.Part], List[core.Notation]],
            struct:ScoreStructure=None,
            options: RenderOptions = None,
-           backend='music21',
+           backend:str=None,
            quantizationProfile: quant.QuantizationProfile = None
            ) -> Renderer:
+    if backend is None:
+        backend = config['render.backend']
     if isinstance(obj, core.Part):
         parts = [obj]
     elif isinstance(obj, list):
@@ -109,18 +116,6 @@ def render(obj: U[core.Part, core.Notation, List[core.Part], List[core.Notation]
         raise TypeError(f"Can't show {obj}")
     return renderParts(parts, struct=struct, options=options, backend=backend,
                        quantizationProfile=quantizationProfile)
-
-
-def show(obj, struct:ScoreStructure = None, options:RenderOptions = None) -> None:
-    """
-    Args:
-        obj: a Part, a list of Parts, a Notation, a list of Notations
-        struct: the scorestructure to use when rendering
-        options: the render options to use, or None to use defaults
-    """
-    render(obj, options=options, struct=struct).show()
-
-
 
 
 

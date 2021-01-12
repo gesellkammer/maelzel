@@ -3,6 +3,7 @@ This module declares the basic classes for all renderers.
 """
 
 from __future__ import annotations
+import tempfile
 from dataclasses import dataclass
 import music21 as m21
 
@@ -10,6 +11,8 @@ from maelzel.music import m21tools
 
 from .common import *
 from . import quant
+from .config import config
+from emlib.misc import open_with_standard_app
 
 
 @dataclass
@@ -18,6 +21,7 @@ class RenderOptions:
     orientation: one of "portrait" or "landscape"
     staffSize: the size of each staff in point
     pageSize: one of "a4", "a3"
+    pageMarginMillimeters: page margin in mm. Only used by some backends
 
     divsPerSemitone: the number of divisions of the semitone
     showCents: should each note/chord have a text label attached
@@ -31,22 +35,29 @@ class RenderOptions:
         have rests between them
     glissHideTiedNotes: if True, hide tied notes which are part of a gliss.
 
+    lilypondPngBookPreamble: include the lilypond book preamble when rendering
+        to png via lilypond
+
     title: the title of the score
     composer: the composer of the score
     """
-    orientation: str = "portrait"
-    staffSize: int = 12
-    pageSize: str = 'a4'
+    orientation: str = config['pageOrientation']
+    staffSize: int = config['staffSize']
+    pageSize: str = config['pageSize']
+    pageMarginMillimeters: Opt[int] = 4
 
-    divsPerSemitone: int = 4
-    showCents: bool = False
+    divsPerSemitone: int = config['divisionsPerSemitone']
+    showCents: bool = config['showCents']
     centsPlacement: str = "above"
-    centsFontSize: int = 10
+    centsFontSize: int = config['centsFontSize']
 
-    measureAnnotationFontSize: int = 12
+    measureAnnotationFontSize: int = config['measureAnnotationFontSize']
+    noteAnnotationsFontSize: int = config['noteAnnotationFontSize']
 
     glissAllowNonContiguous: bool = False
-    glissHideTiedNotes: bool = False
+    glissHideTiedNotes: bool = True
+
+    lilypondPngBookPreamble: bool = True
 
     title: str = ''
     composer: str = ''
@@ -78,12 +89,21 @@ class Renderer:
     def write(self, outfile:str) -> None:
         raise NotImplementedError("Please Implement this method")
 
-    def show(self) -> None:
-        raise NotImplementedError("Please Implement this method")
+    def show(self, fmt='png') -> None:
+        self.render()
+        possibleFormats = self.writeFormats()
+        if fmt not in possibleFormats:
+            raise ValueError(f"{fmt} not supported. Possible write "
+                             f"formats: {possibleFormats}")
+        outfile = tempfile.mktemp(suffix="."+fmt)
+        self.write(outfile)
+        open_with_standard_app(outfile)
 
     def musicxml(self) -> Opt[str]:
         m21stream = self.asMusic21()
-        return m21tools.getXml(m21stream) if m21stream else None
+        if m21stream is None:
+            return None
+        return m21tools.getXml(m21stream)
 
     def asMusic21(self) -> Opt[m21.stream.Stream]:
         """

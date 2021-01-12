@@ -2,7 +2,8 @@ from __future__ import annotations
 from .util import *
 import itertools
 import dataclasses
-from typing import Optional as Opt, Union as U, List, Any, Dict
+from typing import Optional as Opt, Union as U, List, Any, Dict, \
+    Iterator as Iter
 
 import logging
 
@@ -46,8 +47,8 @@ class Notation:
 
     """
     duration: Opt[F] = None
-    offset: Opt[F] = None
     pitches: Opt[List[float]] = None
+    offset: Opt[F] = None
     rest: bool = False
     tiedPrev: bool = False
     tiedNext: bool = False
@@ -105,10 +106,13 @@ class Notation:
                 dur *= durRatio
         return dur
 
-    def addAnnotation(self, text:U[str, Annotation], placement:str='above', fontSize:int=None) -> None:
+    def addAnnotation(self, text:U[str, Annotation], placement:str='above',
+                      fontSize:int=None) -> None:
         if isinstance(text, Annotation):
+            assert text.text.strip()
             annotation = text
         else:
+            assert not text.isspace()
             annotation = Annotation(text=text, placement=placement, fontSize=fontSize)
         if self.annotations is None:
             self.annotations = []
@@ -211,7 +215,10 @@ def makeChord(pitches: List[pitch_t], duration:time_t=None, offset:time_t=None,
     midinotes = [asmidi(pitch) for pitch in pitches]
     out = Notation(pitches=midinotes, duration=duration, offset=offset, **kws)
     if annotation:
-        out.addAnnotation(annotation)
+        if isinstance(annotation, str) and annotation.isspace():
+            logger.warning("Trying to add an empty annotation")
+        else:
+            out.addAnnotation(annotation)
     return out
 
 
@@ -232,7 +239,7 @@ def mergeNotations(n0: Notation, n1: Notation) -> Notation:
 class Part(list):
     def __init__(self, events: Iter[Notation]=None, label:str=None, groupid:str=None):
         """
-        A Track is a list of non-simultaneous events (a Part)
+        A Part is a list of non-simultaneous events
 
         Args:
             events: the events (notes, chords) in this track
@@ -241,11 +248,6 @@ class Part(list):
                 tracks which belong to a same group
         """
         if events:
-            #assert all(ev.duration is not None and
-            #           ev.duration>=0 and
-            #           ev.offset is not None
-            #           for ev in events)
-            #assert all(ev0.end <= ev1.offset for ev0, ev1 in iterlib.pairwise(events))
             super().__init__(events)
         else:
             super().__init__()
@@ -266,7 +268,17 @@ class Part(list):
         return midinotesNeedMultipleClefs(midinotes)
 
     def stack(self) -> None:
+        """
+        Stack the notations of this part in place. Stacking means
+        filling in any unresolved offset/duration of the notations
+        in this part. See `stacked` for a method returning
+        a new Part with its notations stacked
+        """
         stackNotationsInPlace(self)
+
+    def stacked(self) -> Part:
+        notations = stackNotations(self)
+        return Part(notations, label=self.label, groupid=self.groupid)
 
 
 def stackNotationsInPlace(events: List[Notation], start=F(0), overrideOffset=False) -> None:

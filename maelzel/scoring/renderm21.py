@@ -6,14 +6,15 @@ into musicxml and renders that musicxml via musescore.
 
 import os
 import logging
+import tempfile
 
 import music21 as m21
 from maelzel.music import m21tools, m21fix
+from maelzel import musicxml as mxml
 
 from .common import *
 from .core import Notation
 from .render import Renderer, RenderOptions
-from .scorestruct import DurationGroup
 from . import quant
 from . import util
 
@@ -22,7 +23,7 @@ logger = logging.getLogger("maelzel.scoring")
 
 
 _noteheadToMusic21 = {
-    'diamond': 'mi'
+    'harmonic': 'mi'
 }
 
 
@@ -36,10 +37,11 @@ def notationToMusic21(n: Notation, durRatios: List[F], tupleType: Opt[str],
         n: the notation
         durRatios: the duration ratios of the context in which the notation
             is. A Notation has already duration ratios,
-        tupleType:
-        options:
+        tupleType: either "start", "stop", or None
+        options: the render options
 
     Returns:
+        a m21 GeneralNote (a Note, a Chord, a GraceNote or a Rest)
 
     """
     if n.isGraceNote():
@@ -84,6 +86,7 @@ def notationToMusic21(n: Notation, durRatios: List[F], tupleType: Opt[str],
         out.duration.slash = n.getProperty("graceNoteSlash", True)
     else:
         m21tools.makeTie(out, tiedPrev=n.tiedPrev, tiedNext=n.tiedNext)
+
     if options.glissHideTiedNotes and n.noteheadHidden:
         m21tools.hideNotehead(out)
     # annotations need to be added later, when the music21 object has already
@@ -92,13 +95,13 @@ def notationToMusic21(n: Notation, durRatios: List[F], tupleType: Opt[str],
 
 
 def _m21RenderGroup(measure: m21.stream.Measure,
-                    group: DurationGroup,
+                    group: quant.DurationGroup,
                     durRatios:List[F],
                     options: RenderOptions) -> None:
     """
-    A DurationGroup is a sequence of notes which share (and fill) a time modifier.
+    A quant.DurationGroup is a sequence of notes which share (and fill) a time modifier.
     It can be understood as a "tuplet", whereas "normal" durations are interpreted
-    as a 1:1 tuplet. A group can consist of Notations or other DurationGroups
+    as a 1:1 tuplet. A group can consist of Notations or other quant.DurationGroups
 
     Args:
         measure: the measure being rendered to
@@ -108,8 +111,10 @@ def _m21RenderGroup(measure: m21.stream.Measure,
     """
     if group.durRatio != 1:
         durRatios.append(F(*group.durRatio))
+    centsLabelOrder = 'ascending' if options.centsPlacement == 'below' else 'descending'
+
     for i, item in enumerate(group.items):
-        if isinstance(item, DurationGroup):
+        if isinstance(item, quant.DurationGroup):
             _m21RenderGroup(measure, item, durRatios, options=options)
             continue
         assert isinstance(item, Notation)
@@ -130,7 +135,8 @@ def _m21RenderGroup(measure: m21.stream.Measure,
         measure.append(m21obj)
         if not item.rest and options.showCents and not item.tiedPrev:
             centsStr = util.centsAnnotation(item.pitches,
-                                            divsPerSemitone=options.divsPerSemitone)
+                                            divsPerSemitone=options.divsPerSemitone,
+                                            order=centsLabelOrder)
             if centsStr:
                 m21tools.addTextExpression(m21obj, text=centsStr,
                                            placement=options.centsPlacement,
@@ -230,9 +236,23 @@ def quantizedPartToMusic21(part: quant.QuantizedPart,
         m21tools.measureFixAccidentals(m21measure)
         m21part.append(m21measure)
 
-    _m21ApplyGlissandi(m21part, options)
     m21tools.fixNachschlaege(m21part)
+    _m21ApplyGlissandi(m21part, options)
     return m21part
+
+
+def dinSizeToMM(dinsize: str, orientation='portrait') -> Tuple[int, int]:
+    dinsize = dinsize.lower()
+    if dinsize == "a3":
+        x, y = 297, 420
+    elif dinsize == "a4":
+        x, y = 210, 297
+    else:
+        raise ValueError(f"dinsize should be one of 'a3', 'a4', got {dinsize}")
+    if orientation == "portrait":
+        return x, y
+    else:
+        return y, x
 
 
 def renderScore(parts: List[quant.QuantizedPart], options: RenderOptions=None
@@ -247,12 +267,22 @@ def renderScore(parts: List[quant.QuantizedPart], options: RenderOptions=None
     Returns:
         a music21 Score
     """
+    if options is None:
+        raise ValueError("options should not be None")
     options = options if options is not None else RenderOptions()
+    cnv = mxml.LayoutUnitConverter.fromStaffsize(options.staffSize)
+    heightmm, widthmm = dinSizeToMM(options.pageSize, orientation=options.orientation)
+    scalingmm = mxml.pointsToMillimeters(options.staffSize)
+    scoreLayout = m21.layout.ScoreLayout(scalingMillimeters=scalingmm,
+                                         scalingTenths=mxml.MUSICXML_TENTHS,
+                                         pageHeight=cnv.toTenths(heightmm),
+                                         pageWidth=cnv.toTenths(widthmm))
     m21parts = [quantizedPartToMusic21(part, addMeasureMarks=i==0, options=options)
                 for i, part in enumerate(parts)]
-    m21score = m21tools.stackParts(m21parts)
-    m21tools.scoreSetMetadata(m21score, title=options.title, composer=options.composer)
-    return m21score
+    score = m21tools.stackParts(m21parts)
+    score.insert(-1, scoreLayout)
+    m21tools.scoreSetMetadata(score, title=options.title, composer=options.composer)
+    return score
 
 
 class Music21Renderer(Renderer):
@@ -267,7 +297,7 @@ class Music21Renderer(Renderer):
         self._rendered = True
 
     def writeFormats(self) -> List[str]:
-        return ['pdf', 'xml']
+        return ['pdf', 'xml', 'png']
 
     def write(self, outfile: str) -> None:
         m21score = self.nativeScore()
@@ -275,22 +305,35 @@ class Music21Renderer(Renderer):
         if ext == ".xml":
             m21score.write('xml', outfile)
         elif ext == ".pdf":
-            xmlfile = base + ".xml"
-            m21score.write('musicxml.pdf', xmlfile)
+            m21score.write('musicxml.pdf', outfile)
         elif ext == ".png":
-            pngfile = base + ".png"
-            m21score.write('musicxml.png', pngfile)
+            xmlfile = tempfile.mktemp(suffix=".xml")
+            m21score.write('xml', xmlfile)
+            m21tools.renderMusicxml(xmlfile, outfile)
+            os.remove(xmlfile)
         else:
             raise ValueError("Format not supported")
+        if not os.path.exists(outfile):
+            logger.error(f"failed to write {outfile}")
+            xmlscore = m21tools.getXml(m21score)
+            logger.debug("musicxml score:")
+            logger.debug(xmlscore)
+            raise RuntimeError(f"failed to write {outfile}")
 
-    def show(self) -> None:
+    def show(self, fmt='png') -> None:
+        """
+        Args:
+            fmt: one of 'png', 'pdf'
+        """
+        assert fmt in {'png', 'pdf'}
         self.render()
-        m21fix.show(self._m21score, 'xml.pdf')
+        m21fix.fixStream(self._m21score, inPlace=True)
+        self._m21score.show(f'xml.{fmt}')
 
     def musicxml(self) -> str:
         return m21tools.getXml(self.asMusic21())
 
-    def asMusic21(self) -> m21.stream.Stream:
+    def asMusic21(self) -> m21.stream.Score:
         return self.nativeScore()
 
     def nativeScore(self) -> m21.stream.Score:

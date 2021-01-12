@@ -6,11 +6,8 @@ This module handles playing of events
 Each Note, Chord, Line, etc, can express its playback in terms of _CsoundLine
 events.
 
-A _CsoundLine event is a score line with the protocol
-
-
-The rest of the pfields being a flat list of values representing
-the breakpoints
+A _CsoundLine event is a score line with a number of fixed fields,
+user-defined fields and a sequence of breakpoints
 
 A breakpoint is a tuple of values of the form (offset, pitch [, amp, ...])
 The size if each breakpoint and the number of breakpoints are given
@@ -38,7 +35,6 @@ from watchdog.observers import Observer as _WatchdogObserver
 from maelzel.snd import csoundengine
 from typing import List, Dict, Optional as Opt, Union as U, Set, Tuple
 
-
 from .config import logger, presetsPath, recordPath
 from .state import currentConfig, getState, pushState, popState
 from .common import CsoundEvent, m2f
@@ -53,7 +49,7 @@ class PlayEngineNotStarted(Exception): pass
 
 
 @dataclass
-class _InstrDef:
+class InstrDef:
     """
         body: the body of the instrument preset
         name: the name of the preset
@@ -105,7 +101,6 @@ class _InstrDef:
         return init
 
 
-
 def _consolidateInitCode(init:str, includes:List[str]) -> str:
     if includes:
         includesCode = _genIncludes(includes)
@@ -140,24 +135,12 @@ opcode _oscsqr, a, kk
     xout aout
 endop
 
-opcode passignarr, i[],ii
-    istart, iend xin
-    idx = 0
-    icnt = iend - istart + 1
-    iOut[] init icnt
-    while idx < icnt do
-        iOut[idx] = pindex(idx+istart)
-        idx += 1
-    od
-    xout iOut
-endop
-
 opcode sfloadonce, i, S
-    Ssf2path xin
-    itab chnget Ssf2path
+    Spath xin
+    itab chnget Spath
     if (itab == 0) then
-        itab sfload Ssf2path
-        chnset itab, Ssf2path
+        itab sfload Spath
+        chnset itab, Spath
     endif
     xout itab
 endop
@@ -194,7 +177,7 @@ def _makePresetBody(audiogen:str,
                     numsignals=1,
                     generateRouting=True):
     template = r"""
-;  3  4       5      6      7     8       9       10              11            12       13
+;  3  4       5      6      7     8       9       10              11            13       14
 idur, itable, igain, ichan, ipos, ifade0, ifade1, i__pitchinterp, i__fadeshape, inumbps, ibplen passign 3
 idatalen = inumbps * ibplen
 idatastart = 14
@@ -316,7 +299,7 @@ def _fixNumericKeys(d: dict):
         d[int(key)] = v
 
 
-def _loadPreset(presetPath: str) -> [str, _InstrDef]:
+def _loadPreset(presetPath: str) -> [str, InstrDef]:
     """
     load a specific preset.
 
@@ -355,19 +338,19 @@ def _loadPreset(presetPath: str) -> [str, _InstrDef]:
                                numsignals=numSignals,
                                generateRouting=audiogenInfo['needsRouting'])
 
-    instrdef = _InstrDef(body=body,
-                         name=d.get('name'),
-                         includes=d.get('includes'),
-                         init=d.get('init'),
-                         audiogen=d.get('audiogen'),
-                         tabledef=tabledef,
-                         numsignals=numSignals,
-                         numouts=audiogenInfo['numOutputs']
-                         )
+    instrdef = InstrDef(body=body,
+                        name=d.get('name'),
+                        includes=d.get('includes'),
+                        init=d.get('init'),
+                        audiogen=d.get('audiogen'),
+                        tabledef=tabledef,
+                        numsignals=numSignals,
+                        numouts=audiogenInfo['numOutputs']
+                        )
     return presetName, instrdef
 
 
-def _loadPresets() -> Dict[str, _InstrDef]:
+def _loadPresets() -> Dict[str, InstrDef]:
     """
     loads all presets from presetsPath, return a dict {presetName:instrdef}
     """
@@ -434,11 +417,21 @@ class _PresetManager:
                            descr=None)
         builtinSf = partial(self.defPresetSoundfont, _userDefined=False)
 
-        mkPreset('sin',  "a0 oscili a(kamp), mtof(sc_lag(kpitch+ktransp, klag))",
+        mkPreset('sin', "a0 oscili a(kamp), mtof(lag(kpitch, 0.01))",
+                 descr="simplest sine wave")
+
+        mkPreset('tsin',  "a0 oscili a(kamp), mtof(sc_lag(kpitch+ktransp, klag))",
                  tabledef=dict(transp=0, lag=0.1),
                  descr="transposable sine wave")
 
         mkPreset('tri',
+                 """
+                 kfreq = mtof:k(lag(kpitch, 0.08))
+                 a0 = vco2(1, kfreq,  12) * a(kamp)
+                 """,
+                 descr="simple triangle wave")
+
+        mkPreset('ttri',
                  """
                  kfreq = mtof:k(lag(kpitch + ktransp, klag))
                  a0 = vco2(1, kfreq,  12) * a(kamp)
@@ -447,9 +440,16 @@ class _PresetManager:
                  endif
                  """,
                  tabledef=dict(transp=0, lag=0.1, freqratio=0, Q=3),
-                 descr="triangle wave with optional lowpass-filter")
+                 descr="transposable triangle wave with optional lowpass-filter")
 
         mkPreset('saw',
+                 """
+                 kfreq = mtof:k(lag(kpitch, 0.01))
+                 a0 = vco2(1, kfreq, 0) * a(kamp)
+                 """,
+                 descr="simple saw-tooth")
+
+        mkPreset('tsaw',
                  """
                  kfreq = mtof:k(lag(kpitch + ktransp, klag))
                  a0 = vco2(1, kfreq, 0) * a(kamp)
@@ -460,7 +460,7 @@ class _PresetManager:
                  tabledef = dict(transp=0, lag=0.1, freqratio=0, Q=3),
                  descr="transposable saw with optional low-pass filtering")
 
-        mkPreset('sqr',
+        mkPreset('tsqr',
                  """
                  a0 = vco2(1, mtof(lag(kpitch+ktransp, klag), 10) * a(kamp)
                  if kcutoff > 0 then
@@ -470,7 +470,7 @@ class _PresetManager:
                  tabledef=dict(transp=0, lag=0.1, cutoff=0, resonance=0.2),
                  descr="square wave with optional filtering")
 
-        mkPreset('pulse', "a0 vco2 kamp, mtof:k(lag:k(kpitch+ktransp, klag), 2, kpwm",
+        mkPreset('tpulse', "a0 vco2 kamp, mtof:k(lag:k(kpitch+ktransp, klag), 2, kpwm",
                  tabledef=dict(transp=0, lag=0.1, pwm=0.5))
 
         builtinSf('piano',     preset=148)
@@ -489,7 +489,7 @@ class _PresetManager:
                   generateTableCode=True,
                   descr: str = None,
                   _userDefined=True,
-                  ) -> _InstrDef:
+                  ) -> InstrDef:
         """
         Define a new instrument preset. The defined preset can be used
         as mynote.play(..., instr='name'), where name is the name of the
@@ -551,16 +551,16 @@ class _PresetManager:
                                generateRouting=audiogenInfo['needsRouting'])
         numouts = audiogenInfo['numOutputs']
 
-        instrdef = _InstrDef(name=name,
-                             body=body,
-                             init=init,
-                             audiogen=audiogen,
-                             tabledef=tabledef,
-                             includes=includes,
-                             numsignals=numSignals,
-                             numouts=numouts,
-                             description=descr,
-                             userDefined=_userDefined)
+        instrdef = InstrDef(name=name,
+                            body=body,
+                            init=init,
+                            audiogen=audiogen,
+                            tabledef=tabledef,
+                            includes=includes,
+                            numsignals=numSignals,
+                            numouts=numouts,
+                            description=descr,
+                            userDefined=_userDefined)
 
         self._registerPreset(name, instrdef)
         config = currentConfig()
@@ -576,7 +576,7 @@ class _PresetManager:
                            includes: List[str] = None,
                            postproc:str=None,
                            tabledef: U[List[float], Dict[str, float]] = None,
-                           _userDefined=True) -> _InstrDef:
+                           _userDefined=True) -> InstrDef:
         """
         Define a new soundfont instrument preset
 
@@ -603,10 +603,10 @@ class _PresetManager:
                               includes=includes, tabledef=tabledef,
                               _userDefined=_userDefined)
 
-    def _registerPreset(self, name:str, instrdef:_InstrDef) -> None:
+    def _registerPreset(self, name:str, instrdef:InstrDef) -> None:
         self.instrdefs[name] = instrdef
 
-    def getPreset(self, name:str) -> _InstrDef:
+    def getPreset(self, name:str) -> InstrDef:
         if name is None:
             name = currentConfig()['play.instr']
         return self.instrdefs.get(name)
@@ -1017,7 +1017,7 @@ def getPresetManager() -> _PresetManager:
     return _presetManager
 
 
-def getPreset(preset:str) -> Opt[_InstrDef]:
+def getPreset(preset:str) -> Opt[InstrDef]:
     return getPresetManager().getPreset(preset)
 
 

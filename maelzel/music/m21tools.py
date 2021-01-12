@@ -2,10 +2,13 @@ from __future__ import annotations
 import os
 import tempfile
 import warnings
+import shutil
+import glob
 
 import music21 as m21
 from fractions import Fraction as F
 import dataclasses
+import subprocess
 
 from emlib import iterlib
 from emlib.typehints import U, Seq, number_t, List, Tup, Dict, Iter, Opt
@@ -414,8 +417,10 @@ def makeAccidental(cents:int) -> m21.pitch.Accidental:
     note = m21.note.Note(61)
     note.pitch.accidental = makeAccidental(125)
     """
+    assert -150 <= cents <= 150
     name = accidentalName(round(cents/25)*25)
-    alter = round(cents / 50) * 50
+    semitone = cents/100.
+    alter = round(semitone/0.5)*0.5
     accidental = m21.pitch.Accidental()
     accidental.alter = alter
     # the non-standard-name should be done in the end, because otherwise
@@ -497,7 +502,8 @@ def makePitch(pitch: U[str, float], divsPerSemitone=4, hideAccidental=False
     octave, letter, alter, cents = split_notename(notename)
     basename, cents = split_cents(notename)
     m21notename = m21Notename(basename)
-    accidental = makeAccidental(100*alter+cents)
+    cents += 100 if alter == "#" else -100 if alter == "b" else 0
+    accidental = makeAccidental(cents)
     out = m21.pitch.Pitch(m21notename)
     if hideAccidental:
         accidental.style.hideObjectOnPrint = True
@@ -1221,9 +1227,10 @@ def renderViaLily(m21obj:m21.Music21Object, fmt:str=None, outfile:str=None, show
     if not os.path.exists(lypath):
         raise RuntimeError(f"Error converting {xmlpath} to lilypond {lypath}")    
     if fmt == 'png':
-        outfile2 = lilytools.lily2png(lypath, outfile)
+        outfile2 = lilytools.renderLily(lypath, outfile)
+        # outfile2 = lilytools.lily2png(lypath, outfile)
     elif fmt == 'pdf':
-        outfile2 = lilytools.lily2pdf(lypath, outfile)
+        outfile2 = lilytools.renderLily(lypath, outfile)
     else:
         raise ValueError(f"fmt should be png or pdf, got {fmt}")
     assert outfile2 is not None
@@ -1358,9 +1365,9 @@ def iterPart(part: m21.stream.Part, cls=m21.note.GeneralNote
             yield (measure, item)
 
 
-def fixNachschlag(n: m21.note.Note, durtype="eighth", priority=1) -> None:
+def fixNachschlag(n: m21.note.Note, durtype:str=None, priority=0) -> None:
     """
-    Fix a grace note in pace, so that it is displayed correctly in the case
+    Fix a grace note in place, so that it is displayed correctly in the case
     it is a Nachschlag (a grace note after another note)
 
     Args:
@@ -1369,13 +1376,14 @@ def fixNachschlag(n: m21.note.Note, durtype="eighth", priority=1) -> None:
         priority: higher priorities are sorted later for the same offset
     """
     assert n.duration.isGrace
-    assert durtype in {'eighth', '16th', '32nd'}
+    assert durtype in {'eighth', '16th', '32nd', None}
     n.duration.slash = False
-    n.duration.type = durtype
+    if durtype is not None:
+        n.duration.type = durtype
     n.priority = priority
 
 
-def fixNachschlaege(part: m21.stream.Part) -> None:
+def _fixNachschlaege(part: m21.stream.Part) -> None:
     """
     Fix Nachschläge within a part, in place
 
@@ -1390,3 +1398,100 @@ def fixNachschlaege(part: m21.stream.Part) -> None:
             fixNachschlag(n0)
 
 
+def fixNachschlaege(part: m21.stream.Part, convertToRealNote=False, duration=1/8) -> None:
+    """
+    Fix Nachschläge within a part, in place
+
+    A Nachschlag is a grace note placed after the main note.
+    In musicxml, for a nachschlag to be rendered properly it must be
+    of type "eighth" and cannot be slashed.
+    """
+    for loc0, loc1 in iterlib.pairwise(iterPart(part, m21.note.GeneralNote)):
+        n0 = loc0[1]
+        if n0.duration.isGrace and loc1[1].isRest:
+            assert isinstance(n0, m21.note.Note)
+            fixNachschlag(n0)
+            if convertToRealNote and duration > 0:
+                m1 = loc1[0]
+                n1 = loc1[1]
+                realizedDuration = min(duration, n1.quarterLength/2)
+                loc0[0].remove(n0)
+                m1.remove(n1)
+
+                n1.quarterLength = n1.quarterLength - realizedDuration
+                replacement, centsdev = makeNote(n0.pitch.midi, quarterLength=realizedDuration)
+                m1.insert(n1.offset, replacement)
+                m1.insert(n1.offset + realizedDuration, n1)
+
+
+def _musescorePath() -> Opt[str]:
+    us = m21.environment.UserSettings()
+    musicxmlpath = us['musescoreDirectPNGPath']
+    if os.path.exists(musicxmlpath):
+        return str(musicxmlpath)
+    path = shutil.which('musescore')
+    if path is not None:
+        return path
+    return None
+
+
+def _musescoreConvertToPng(xmlfile:str, outfile: str, page=1, trim=True):
+    musescore = _musescorePath()
+    if musescore is None:
+        raise RuntimeError("MuseScore not found")
+    args = [musescore, '--no-webview']
+    if trim:
+        args.extend(['--trim-image', '10'])
+    args.extend(['--export-to', outfile, xmlfile])
+    subprocess.call(args, stderr=subprocess.PIPE)
+    generatedFiles = glob.glob(os.path.splitext(outfile)[0] + "-*.png")
+    if not generatedFiles:
+        raise RuntimeError("No output files generated")
+    for generatedFile in generatedFiles:
+        generatedPage = int(os.path.splitext(generatedFile)[0].split("-")[-1])
+        if generatedPage == page:
+            os.rename(generatedFile, outfile)
+            return
+    raise RuntimeError(f"Page not found, generated files: {generatedFiles}")
+
+
+def renderMusicxml(xmlfile: str, outfile: str, method:str=None) -> None:
+    """
+    Convert a saved musicxml file to pdf or png
+
+    Args:
+        xmlfile: the musicxml file to convert
+        outfile: the output file. The extension determines the output
+            format. Possible formats pdf and png
+        method: if given, will determine the method used to render. Use
+            None to indicate a default method.
+            Possible values: 'musescore'
+
+
+    Supported methods::
+
+        | format  |  methods   |
+        |---------|------------|
+        | pdf     |  musescore |
+        | png     |  musescore |
+
+    """
+    fmt = os.path.splitext(outfile)[1]
+    if fmt == ".pdf":
+        method = method or 'musescore'
+        if method == 'musescore':
+            musescore = _musescorePath()
+            if musescore is None:
+                raise RuntimeError("MuseScore not found")
+            subprocess.call([musescore, '--no-webview', '--export-to', outfile, xmlfile],
+                            stderr=subprocess.PIPE)
+            if not os.path.exists(outfile):
+                raise RuntimeError(f"Could not generate pdf file {outfile} from {xmlfile}")
+        else:
+            raise ValueError(f"method {method} unknown, possible values: 'musescore'")
+    elif fmt == '.png':
+        method = method or 'musescore'
+        if method == 'musescore':
+            _musescoreConvertToPng(xmlfile, outfile)
+        else:
+            raise ValueError(f"method {method} unknown, possible values: 'musescore'")
