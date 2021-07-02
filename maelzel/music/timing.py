@@ -1,4 +1,4 @@
-from __future__ import division as _div
+from __future__ import annotations
 import warnings
 from maelzel.common import *
 
@@ -9,25 +9,26 @@ from typing import Tuple, List, Union as U
 import bpf4 as bpf
 
 
-def measure_duration(timesig: U[str, timesig_t], tempo: number_t) -> F:
+def measureDuration(timesig: U[str, timesig_t], tempo: number_t) -> F:
     """
     calculate the duration of a given measure with the given tempo
 
-    timesig: can be of the form "4/4" or (4, 4)
-    tempo:   a tempo value corresponding to the denominator of the time
-             signature
-             
+    Args:
+        timesig: can be of the form "4/4" or (4, 4)
+        tempo:   a tempo value corresponding to the denominator of the time
+                 signature
+
     Examples
     ~~~~~~~~
 
-    >>> measure_duration("3/4", 120)        # 3 quarters, quarter=120
+    >>> measureDuration("3/4", 120)        # 3 quarters, quarter=120
     1.5
-    >>> measure_duration((3, 8), 60)        # 3/8 bar, 8th note=60
+    >>> measureDuration((3, 8), 60)        # 3/8 bar, 8th note=60
     3
     
-    >>> assert all(measure_duration((n, 4), 60) == n for n in range(20))
-    >>> assert all(measure_duration((n, 8), 120) == n / 2 for n in range(20))
-    >>> assert all(measure_duration((n, 16), (8,60)) == n / 2 for n in range(40))
+    >>> assert all(measureDuration((n, 4), 60) == n for n in range(20))
+    >>> assert all(measureDuration((n, 8), 120) == n / 2 for n in range(20))
+    >>> assert all(measureDuration((n, 16), (8,60)) == n / 2 for n in range(40))
     """
     if isinstance(timesig, str):
         assert "/" in timesig
@@ -48,15 +49,17 @@ def measure_duration(timesig: U[str, timesig_t], tempo: number_t) -> F:
 
 
 @returns_tuple("linear2framed framed2linear")
-def framed_time(offsets: List[number_t], durations: List[number_t]
-                ) -> Tuple[bpf.BpfInterface, bpf.BpfInterface]:
+def framedTime(offsets: List[number_t], durations: List[number_t]
+               ) -> Tuple[bpf.BpfInterface, bpf.BpfInterface]:
     """
     Returns two bpfs to convert a value between linear and framed coords, and viceversa
 
-    offsets: the start x of each frame
-    durations: the duration of each frame
+    Args:
+        offsets: the start x of each frame
+        durations: the duration of each frame
 
-    Returns: linear2framed, framed2linear
+    Returns:
+        linear2framed, framed2linear
 
     Example
     ~~~~~~~
@@ -68,18 +71,18 @@ def framed_time(offsets: List[number_t], durations: List[number_t]
     >>> from collections import namedtuple
     >>> Frame = namedtuple("Frame", "id start dur")
     >>> frames = map(Frame, [
-        # id  start dur
-        ('A', 0,    0.5),
-        ('B', 0.5,  1),
-        ('A', 1.5,  0.5),
-        ('A', 2.0,  0.5),
-        ('B', 2.5,  1)
-    ])
+    ... # id  start dur
+    ... ('A', 0,    0.5),
+    ... ('B', 0.5,  1),
+    ... ('A', 1.5,  0.5),
+    ... ('A', 2.0,  0.5),
+    ... ('B', 2.5,  1)
+    ... ])
     >>> a_frames = [frame for frame in frames if frame.id == 'A']
     >>> offsets = [frame.start for frame in a_frames]
     >>> durs = [frame.dur for frame in a_frames]
     >>> density = bpf.linear(0, 0, 1, 1)  # linear crescendo in density
-    >>> lin2framed, framed2lin = framed_time(offsets, durs)
+    >>> lin2framed, framed2lin = framedTime(offsets, durs)
 
     # Now to convert from linear time to framed time, call lin2framed
     >>> lin2framed(0.5)
@@ -114,28 +117,29 @@ def _force_sorted(xs):
     return out
 
 
-def find_nearest_duration(dur, possible_durations, direction="<>"):
+def findNearestDuration(dur, possibleDurations: List[T], direction="<>") -> T:
     """
-    dur: a Dur or a float (will be converted to Dur via .fromfloat)
-    possible_durations: a seq of Durs
-    direction: "<"  -> find a dur from possible_durations which is lower than dur
-               ">"  -> find a dur from possible_durations which is higher than dur
-               "<>" -> find the nearest dur in possible_durations
+    Args:
+        dur: a Dur or a float (will be converted to Dur via .fromfloat)
+        possibleDurations: a seq of Durs
+        direction: "<"  -> find a dur from possible_durations which is lower than dur
+                   ">"  -> find a dur from possible_durations which is higher than dur
+                   "<>" -> find the nearest dur in possibleDurations
 
     Example
     ~~~~~~~
 
     >>> possible_durations = [0.5, 0.75, 1]
-    >>> find_nearest_duration(0.61, possible_durations, "<>")
+    >>> findNearestDuration(0.61, possibleDurations, "<>")
     0.5
 
     """
-    possdurs = sorted(possible_durations, key=lambda d: float(d))
+    possdurs = sorted(possibleDurations, key=lambda d: float(d))
     inf = float("inf")
-    if dur < possible_durations[0]:
-        return possible_durations[0] if direction != "<" else None
-    elif dur > possible_durations[-1]:
-        return possible_durations[-1] if direction != ">" else None
+    if dur < possibleDurations[0]:
+        return possibleDurations[0] if direction != "<" else None
+    elif dur > possibleDurations[-1]:
+        return possibleDurations[-1] if direction != ">" else None
     if direction == "<":
         nearest = sorted(possdurs, key=lambda d:abs(dur - d) if d < dur else inf)[0]
         return nearest if nearest < inf else None
@@ -159,8 +163,8 @@ def tempo2beatdur(tempo):
 
 
 @returns_tuple("best_tempi resulting_durs numbeats")
-def best_tempo(duration, possible_tempi=DEFAULT_TEMPI,
-               num_solutions=5, verbose=True):
+def bestTempo(duration, possible_tempi=DEFAULT_TEMPI,
+              num_solutions=5, verbose=True):
     """
     Find best tempi that fit the given duration
     """
@@ -180,27 +184,28 @@ def best_tempo(duration, possible_tempi=DEFAULT_TEMPI,
         return best_tempi, resulting_durs, numbeats
 
 
-def translate_subdivision(subdivision, new_tempo, original_tempo=60):
+def translateSubdivision(subdivision, new_tempo, original_tempo=60):
     dur_subdiv = tempo2beatdur(original_tempo) / subdivision
     new_beat = tempo2beatdur(new_tempo)
     dur_in_new_tempo = dur_subdiv / new_beat
     return dur_in_new_tempo
 
 
-def parse_dur(dur, tempo=60):
+def _ratio_to_dur(num: int, den: int) -> float:
+    return int(num) * (4 / int(den))
 
-    def ratio_to_dur(num, den):
-        return int(num) * (4 / int(den))
+
+def parseDur(dur, tempo=60):
     if '//' in dur:
-        d = ratio_to_dur(*dur.split('//'))
+        d = _ratio_to_dur(*dur.split('//'))
     elif '/' in dur:
-        d = ratio_to_dur(*dur.split('/'))
+        d = _ratio_to_dur(*dur.split('/'))
     else:
         d = int(dur)
     return d * (60 / tempo)
 
 
-def possible_timesigs(tempo):
+def possibleTimesigs(tempo: float) -> List[float]:
     """
     Return possible timesignatures for a given tempo
 
@@ -208,23 +213,32 @@ def possible_timesigs(tempo):
     it is assumed that tempo refers to a quarter note
     """
     fractional_timesigs = [1.5, 2.5, 3.5, 4.5]
-    int_timesigs = [2, 3, 4, 5, 6, 7, 8, 9]
+    int_timesigs = [2., 3., 4., 5., 6., 7., 8., 9.]
     if tempo > 80:
         return int_timesigs
     return sorted(int_timesigs + fractional_timesigs)
 
 
-def quarters_to_timesig(quarters:float, snap=True, mindiv=64) -> Tuple[int, int]:
+def quartersToTimesig(quarters:float, snap=True, mindiv=64) -> Tuple[int, int]:
     """
     Transform a duration in quarters to a timesig
 
+    =========   ========
     quarters    timesig
-    –––––––––––––––––––
+    =========   ========
     3           (3, 4)
     1.5         (3, 8)
     1.25        (5, 16)
     4.0         (4, 4)
+    =========   =======
 
+    Args:
+        quarters: duration in quarter notes
+        snap: if True, quantize quarters
+        mindiv: min. division
+
+    Returns:
+        a timesignature as (num, den)
     """
     if snap:
         if quarters < 1:     # accept a max. of 7/32
@@ -246,30 +260,27 @@ def quarters_to_timesig(quarters:float, snap=True, mindiv=64) -> Tuple[int, int]
     return timesig
 
 
-@returns_tuple("best allsolutions")
-def best_timesig(duration, tempo=60, possibletimesigs=None, maxmeasures=1,
-                 tolerance=0.25):
+def bestTimesig(duration: float,
+                tempo=60,
+                timesigs: List[float]=None,
+                tolerance=0.25) -> List[float]:
     """
-    possibletimesigs: a timesig is defined by a float where
-                      1 = 1 * fig defining the tempo.
-                      So if tempo=60, 1 is one beat of dur. 60
-                      Assuming that tempo is defined for the quarter note,
-                      1 = 1/4
-                      1.5 = 3/8
-                      3.5 = 7/8
-                      4 = 4/4
-                      etc.
+    Best timesignature for the given duration
 
-                        If not given, a sensible default is assumed
-    if maxmeasures > 1: solutions with multiple measures combined are searched
+    Args:
+        duration: the duration in quarter notes
+        tempo: the tempo
+        timesigs: a list of timesigs as fractional quarter notes
+            (1.5 = 3/8).
+        tolerance: how much can the resulting duration differ from the given
+    
+    Returns:
+        the solutions, sorted from best to worst, where each solution is a float
+        representing the time signature (2.5 = 5/8)
     """
-    timesigs = possibletimesigs or possible_timesigs(tempo)
+    timesigs = timesigs or possibleTimesigs(tempo)
     assert (isinstance(timesigs, (list, tuple)) and
             all(isinstance(t, (int, float, F)) for t in timesigs))
-    if maxmeasures > 1:
-        return _besttimesig_with_combinations(duration, tempo, timesigs,
-                                              tolerance=tolerance,
-                                              maxcombinations=maxmeasures)
     res = [(abs(timesig * (60 / tempo) - duration), timesig) for timesig in timesigs]
     res.sort()
     solutions = [r[1] for r in res]
@@ -277,13 +288,31 @@ def best_timesig(duration, tempo=60, possibletimesigs=None, maxmeasures=1,
                  if abs(sol * 60. / tempo - duration) <= tolerance]
     if not solutions:
         warnings.warn("No solution for the given tolerance. Try a different tempo")
-        return None, None
-    best = solutions[0]
-    return best, solutions
+
+    return solutions
 
 
-def _besttimesig_with_combinations(duration, tempo, timesigs, maxcombinations=3,
-                                   tolerance=0.25):
+def bestTimesigWithCombinations(duration: float,
+                                tempo: float,
+                                timesigs: List[float] = None,
+                                maxcombinations=3,
+                                tolerance=0.25
+                                ) -> List[List[float]]:
+    """
+    Best timesignature to cover the given duration with multiple measures
+
+    Args:
+        duration: the duration
+        tempo: the tempo
+        timesigs: possible timesignatures, as float (2.5 = 5/8)
+        maxcombinations: max number of measures
+        tolerance: acceptable difference between the given duration and the resulting
+            duration
+
+    Returns:
+        the solutions, sorted from best to worst (solutions[0] is the best solution).
+        Each solution is a list of floats, where each float represents a time signature
+    """
     assert isinstance(duration, (int, float, F))
     assert isinstance(tempo, (int, float, F)) and tempo>0
     assert isinstance(timesigs, (tuple, list))
@@ -307,18 +336,15 @@ def _besttimesig_with_combinations(duration, tempo, timesigs, maxcombinations=3,
     solutions = p.getSolutions()
     if not solutions:
         warnings.warn("No solutions")
-        return None
+        return []
     solutions.sort(key=objective)
 
-    def getvalues(solution):
+    def getvalues(solution) -> List[float]:
         values = [value for name, value in sorted(solution.items()) if value > 0]
         values.sort()
-        return tuple(values)
+        return values
 
     solutions = list(map(getvalues, solutions))
-    best = solutions[0]
-    solutions = set(solutions)
-
-    return best, solutions
+    return solutions
 
 

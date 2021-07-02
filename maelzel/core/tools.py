@@ -1,18 +1,28 @@
 from __future__ import annotations
 
-import os
 import re
+
+import emlib.img
 import music21 as m21
 from emlib import misc
-from .common import *
+import bpf4 as bpf
+from ._common import *
 from . import environment
-
-
-import textwrap
 from fractions import Fraction
-from ._base import Opt, Seq, List
+from pitchtools import str2midi, n2f, m2f, m2n, amp2db
+import math
+from typing import NamedTuple
+from .workspace import currentConfig, currentWorkspace
+from . import symbols as _symbols
+from maelzel import scoring
+import configdict
+import PIL
+
 
 class AudiogenError(Exception): pass
+
+
+breakpoint_t = Tuple[float,...]
 
 
 _enharmonic_sharp_to_flat = {
@@ -36,6 +46,17 @@ _enharmonic_flat_to_sharp = {
 }
 
 
+dbToAmpCurve: bpf.BpfInterface = bpf.expon(
+    -120, 0,
+    -60, 0.0,
+    -40, 0.1,
+    -30, 0.4,
+    -18, 0.9,
+    -6, 1,
+    0, 1,
+    exp=0.333)
+
+
 def enharmonic(n:str) -> str:
     n = n.capitalize()
     if "#" in n:
@@ -50,6 +71,8 @@ def enharmonic(n:str) -> str:
         return enharmonic(n.replace("s", "b"))
     elif "es" in n:
         return enharmonic(n.replace("es", "b"))
+    else:
+        return n
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #
@@ -62,8 +85,11 @@ def midicents(midinote: float) -> int:
     """
     Returns the cents to next chromatic pitch
 
-    :param midinote: a (fractional) midinote
-    :return: cents to next chromatic pitch
+    Args:
+        midinote: a (fractional) midinote
+
+    Returns:
+        cents to next chromatic pitch
     """
     return int(round((midinote - round(midinote)) * 100))
 
@@ -81,9 +107,12 @@ def centsshown(centsdev:int, divsPerSemitone:int) -> str:
     anything. Otherwise, the deviation is always the deviation
     from the chromatic pitch
 
-    :param centsdev: the deviation from the chromatic pitch
-    :param divsPerSemitone: 4 means 1/8 tones
-    :return: the string to be shown alongside the notated pitch
+    Args:
+        centsdev: the deviation from the chromatic pitch
+        divsPerSemitone: 4 means 1/8 tones
+
+    Returns:
+        the string to be shown alongside the notated pitch
     """
     # cents can be also negative (see self.cents)
     pivot = int(round(100 / divsPerSemitone))
@@ -118,7 +147,6 @@ def setJupyterHookForClass(cls, func, fmt='image/png'):
 
 def imgSize(path:str) -> Tuple[int, int]:
     """ returns (width, height) """
-    import PIL
     im = PIL.Image.open(path)
     return im.size
 
@@ -138,7 +166,7 @@ def jupyterMakeImage(path: str) -> JupyterImage:
     if not misc.inside_jupyter():
         raise RuntimeError("Not inside a Jupyter session")
 
-    scalefactor = config.get('show.scalefactor', 1.0)
+    scalefactor = currentConfig()['show.scaleFactor']
     if scalefactor != 1.0:
         imgwidth, imgheight = imgSize(path)
         width = imgwidth*scalefactor
@@ -167,6 +195,10 @@ def m21JupyterHook(enable=True) -> None:
     """
     Set an ipython-hook to display music21 objects inline on the
     ipython notebook
+
+    Args:
+        enable: if True, the hook will be set up and enabled
+            if False, the hook is removed
     """
     if not misc.inside_jupyter():
         logger.debug("m21JupyterHook: not inside ipython/jupyter, skipping")
@@ -178,8 +210,11 @@ def m21JupyterHook(enable=True) -> None:
     formatter = ip.display_formatter.formatters['image/png']
     if enable:
         def showm21(stream: m21.stream.Stream):
-            fmt = config['m21.displayhook.format']
+            cfg = currentConfig()
+            fmt = cfg['m21.displayhook.format']
             filename = str(stream.write(fmt))
+            if fmt.endswith(".png") and cfg['html.theme'] == 'dark':
+                emlib.img.pngRemoveTransparency(filename)
             return display(Image(filename=filename))
             # return display.Image(filename=filename)._repr_png_()
 
@@ -226,7 +261,7 @@ def asmidi(x) -> float:
         assert 0<=x<=200, f"Expected a midinote (0-127) but got {x}"
         return x
     elif hasattr(x, 'midi'):
-        return x.midi
+        return x.pitch
     raise TypeError(f"Expected a str, a Note or a midinote, got {x}")
 
 
@@ -239,7 +274,7 @@ def asfreq(n) -> float:
         n: a note as midinote, notename or Note
 
     Returns:
-        a frequency taking into account the A4 defined in emlib.pitch
+        the corresponding frequency
     """
     if isinstance(n, str):
         return n2f(n)
@@ -276,7 +311,8 @@ def notes2ratio(n1, n2, maxdenominator=16) -> Fraction:
     return Fraction.from_float(f1/f2).limit_denominator(maxdenominator)
 
 
-def midinotesNeedSplit(midinotes, splitpoint=60, margin=4) -> bool:
+def midinotesNeedSplit(midinotes: List[float], splitpoint=60, margin=4
+                       ) -> bool:
     if len(midinotes) == 0:
         return False
     numabove = sum(int(m > splitpoint - margin) for m in midinotes)
@@ -284,8 +320,15 @@ def midinotesNeedSplit(midinotes, splitpoint=60, margin=4) -> bool:
     return bool(numabove and numbelow)
 
 
+class NoteComponent(NamedTuple):
+    notename: str
+    midi: float
+    freq: float
+    ampdb: float
+    ampgroup: int
+
 def splitByAmp(midis: List[float], amps:List[float], numGroups=8, maxNotesPerGroup=8
-               ) -> List[List[float]]:
+               ) -> List[List[NoteComponent]]:
     """
     split the notes by amp into groups (similar to a histogram based on amplitude)
 
@@ -300,12 +343,10 @@ def splitByAmp(midis: List[float], amps:List[float], numGroups=8, maxNotesPerGro
     """
     step = (dbToAmpCurve*numGroups).floor()
     notes = []
-    # 0         1     2     3   4
-    # notename, note, freq, db, step
-    for note, amp in zip(midis, amps):
+    for midi, amp in zip(midis, amps):
         db = amp2db(amp)
-        notes.append((m2n(note), note, m2f(note), db, int(step(db))))
-    chords = [[] for _ in range(numGroups)]
+        notes.append(NoteComponent(m2n(midi), midi, m2f(midi), db, int(step(db))))
+    chords: List[List[NoteComponent]] = [[] for _ in range(numGroups)]
     notes2 = sorted(notes, key=lambda n: n[3], reverse=True)
     for note in notes2:
         chord = chords[note[4]]
@@ -313,11 +354,14 @@ def splitByAmp(midis: List[float], amps:List[float], numGroups=8, maxNotesPerGro
             chord.append(note)
     for chord in chords:
         chord.sort(key=lambda n: n[3], reverse=True)
-    return [ch for ch in chords]
+    return chords
 
 
 def analyzeAudiogen(audiogen:str, check=True) -> dict:
     """
+    Analyzes the audio generating part of an instrument definition,
+    returns the analysis results as a dictionary
+
     Args:
         audiogen: as passed to play.defPreset
         check: if True, will check that audiogen is well formed
@@ -326,7 +370,8 @@ def analyzeAudiogen(audiogen:str, check=True) -> dict:
         a dict with keys:
             numSignals (int): number of a_ variables
             minSignal: min. index of a_ variables
-            maxSignal: max. index of a_ variables
+            maxSignal: max. index of a_ variables (minSignal+numSignals=maxSignal)
+            numOutchs: number of
                 (normally minsignal+numsignals = maxsignal)
     """
     audiovarRx = re.compile(r"\ba[0-9]\b")
@@ -341,7 +386,7 @@ def analyzeAudiogen(audiogen:str, check=True) -> dict:
             opcode = outOpcode.group(0)
             args = line.split(opcode)[1].split(",")
             assert len(args)%2 == 0
-            numOutchs = len(args) / 2
+            numOutchs = len(args) // 2
 
     audiovars = set(audiovarsList)
     chans = [int(v[1:]) for v in audiovars]
@@ -376,46 +421,93 @@ def analyzeAudiogen(audiogen:str, check=True) -> dict:
     return out
 
 
-def reindent(text, prefix="", stripEmptyLines=True):
-    if stripEmptyLines:
-        text = misc.strip_lines(text)
-    text = textwrap.dedent(text)
-    if prefix:
-        text = textwrap.indent(text, prefix=prefix)
-    return text
-
-
-def getIndentation(code:str) -> int:
-    """ get the number of spaces used to indent code """
-    for line in code.splitlines():
-        stripped = line.lstrip()
-        if stripped:
-            spaces = len(line) - len(stripped)
-            return spaces
-    return 0
-
-
-def joinCode(codes: Seq[str]) -> str:
-    """
-    Like join, but preserving indentation
-
-    Args:
-        codes: a list of code strings
-
-    Returns:
-
-    """
-    codes2 = [textwrap.dedent(code) for code in codes if code]
-    code = "\n".join(codes2)
-    numspaces = getIndentation(codes[0])
-    if numspaces:
-        code = textwrap.indent(code, prefix=" "*numspaces)
-    return code
-
-
-def showTime(f:Opt[F]) -> str:
+def showTime(f) -> str:
     if f is None:
         return "None"
-    return f"{float(f):.3f}"
+    return f"{float(f):.3g}"
 
 
+def addColumn(mtx: List[List[T]], col: List[T], inplace=False) -> List[List[T]]:
+    """
+    Add a column to a list of lists
+
+    Args:
+        mtx: a matrix (a list of lists)
+        col: a list of elements to add as a new column to mtx
+        inplace: add the elements in place or create a new matrix
+
+    Returns:
+        if inplace, returns the old matrix, otherwise a new matrix
+
+    Example::
+
+        mtx = [[1,   2,  3],
+               [11, 12, 13],
+               [21, 22, 23]]
+
+        addColumn(mtx, [4, 14, 24])
+
+        [[1,   2,  3,  4],
+          11, 12, 13, 14],
+          21, 22, 23, 24]]
+
+    """
+    if isinstance(mtx[0], list):
+        if not inplace:
+            return [row + [elem] for row, elem in zip(mtx, col)]
+        else:
+            for row, elem in zip(mtx, col):
+                row.append(elem)
+            return mtx
+
+    raise TypeError(f"mtx should be a seq. of lists, "
+                    f"got {mtx} ({type(mtx[0])})")
+
+
+def carryColumns(rows: list, sentinel=None) -> list:
+    """
+    Converts a series of rows with possibly unequal number of elements per row
+    so that all rows have the same length, filling each new row with elements
+    from the previous, if they do not have enough elements (elements are "carried"
+    to the next row)
+    """
+    maxlen = max(len(row) for row in rows)
+    initrow = [0] * maxlen
+    outrows = [initrow]
+    for row in rows:
+        lenrow = len(row)
+        if lenrow < maxlen:
+            row = row + outrows[-1][lenrow:]
+        if sentinel in row:
+            row = row.__class__(x if x is not sentinel else lastx for x, lastx in zip(row, outrows[-1]))
+        outrows.append(row)
+    # we need to discard the initial row
+    return outrows[1:]
+
+
+def normalizeFade(fade: fade_t,
+                  defaultfade: float
+                  ) -> Tuple[float, float]:
+    """ Returns (fadein, fadeout) """
+    if fade is None:
+        fadein, fadeout = defaultfade, defaultfade
+    elif isinstance(fade, tuple):
+        assert len(fade) == 2, f"fade: expected a tuple or list of len=2, got {fade}"
+        fadein, fadeout = fade
+    elif isinstance(fade, (int, float)):
+        fadein = fadeout = fade
+    else:
+        raise TypeError(f"fade: expected a fadetime or a tuple of (fadein, fadeout), got {fade}")
+    return fadein, fadeout
+
+
+def applySymbols(symbols: List[_symbols.Symbol],
+                 notations: U[scoring.Notation, List[scoring.Notation]]) -> None:
+    for symbol in symbols:
+        if isinstance(symbol, _symbols.Dynamic):
+            notations[0].dynamic = symbol.kind
+        elif isinstance(symbol, _symbols.Notehead):
+            for n in notations:
+                n.notehead = symbol.kind
+        elif isinstance(symbol, _symbols.Articulation):
+            notations[0].articulation = symbol.kind

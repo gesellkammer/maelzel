@@ -2,24 +2,22 @@ from __future__ import annotations
 import os
 import shutil
 import music21 as m21
-import appdirs
-from functools import lru_cache
 from configdict import ConfigDict
-
-from ._base import *
+import re
+from ._common import *
 
 
 _default = {
     'A4': 442,
     'defaultDuration': 1.0,
     'splitAcceptableDeviation': 4,
-    'repr.showFreq': True,
     'chord.arpeggio': 'auto',
     'chord.adjustGain': True,
     'm21.displayhook.install': True,
     'm21.displayhook.format': 'xml.png',
-    'm21.fixstream': True,
-    'show.semitoneDivisions':4,
+    'm21.fixStream': True,
+    'repr.showFreq':True,
+    'semitoneDivisions':4,
     'show.lastBreakpointDur':1/8,
     'show.cents': True,
     'show.centsFontSize': 8,
@@ -33,14 +31,15 @@ _default = {
     'show.external': False,
     'show.cacheImages': True,
     'show.arpeggioDuration': 0.5,
-    'show.label.fontSize': 12.0,
-    'use_musicxml2ly': True,
+    'show.labelFontSize': 12.0,
+    'show.pageOrientation': 'portrait',
+    'show.glissEndStemless': False,
     'app.png': '',
     'displayhook.install': True,
     'play.dur': 2.0,
-    'play.gain': 0.5,
-    'play.chan': None,
-    'play.group': 'emlib.mus2',
+    'play.gain': 1.0,
+    'play.chan': 1,
+    'play.engineName': 'maelzel.core',
     'play.instr': 'sin',
     'play.fade': 0.02,
     'play.fadeShape': 'cos',
@@ -48,22 +47,34 @@ _default = {
     'play.numChannels': 2,
     'play.unschedFadeout': 0.05,
     'play.autostartEngine': True,
-    'play.backend': None,
+    'play.backend': 'default',
     'play.presetsPath': '',
     'play.autosavePresets': True,
-    'play.unknownParameterFailSilently': False,
     'play.defaultAmplitude': 1.0,
+    'play.generalMidiSoundfont': '',
+    'play.namedArgsMethod': 'pargs',
+    'play.soundfontAmpDiv': 16384,
     'rec.block': False,
-    'rec.gain': 1.0,
     'rec.samplerate': 44100,
     'rec.ksmps': 64,
+    'rec.nchnls': 2,
     'rec.path': '',
     'rec.quiet': False,
+    'html.theme': 'light',
+    'quant.minBeatFractionAcrossBeats': 1.0,
+    'quant.nestedTuples': False,
+    'quant.complexity': 'middle'
 }
 
 _validator = {
-    'defaultDuration::type': (int, float, Fraction),
-    'show.semitoneDivisions::choices': {1, 2, 4},
+    'A4::type': int,
+    'A4::range': (415, 460),
+    'play.chan::type': int,
+    'play.chan::range': (1, 64),
+    'play.backend::choices': {'default', 'jack', 'pulse', 'alsa', 'pa_cb',
+                              'auhal', 'portaudio'},
+    'defaultDuration::type': (int, float),
+    'semitoneDivisions::choices': {1, 2, 4},
     'm21.displayhook.format::choices': {'xml.png', 'lily.png'},
     'show.method::choices': {'musicxml', 'lilypond'},
     'show.format::choices': {'png', 'pdf', 'repr'},
@@ -73,14 +84,24 @@ _validator = {
     'play.fadeShape::choices': {'linear', 'cos'},
     'play.numChannels::type': int,
     'rec.samplerate::choices': {44100, 48000, 88200, 96000},
-    'rec.ksmps::choices': {1, 16, 32, 64, 128, 256},
-    'play.defaultAmplitude::range': (0, 1)
+    'rec.ksmps::choices': {1, 16, 32, 64, 128, 256},    
+    'play.defaultAmplitude::range': (0, 1),
+    'play.pitchInterpolation::choices': {'linear', 'cos'},
+    'app.png::type': str,
+    'play.generalMidiSoundfont': lambda cfg, key, val: val == '' or (os.path.exists(val) and os.path.splitext(val)[1] == '.sf2'),
+    'play.namedArgsMethod::choices': {'table', 'pargs'},
+    'html.theme::choices': {'light', 'dark'},
+    'show.lastBreakpointDur::range': (1/64., 1),
+    'quant.complexity::choices': {'low', 'middle', 'high'},
+    'show.pageOrientation::choices': {'portrait', 'landscape'}
 }
 
 _docs = {
     'defaultDuration': 
         "Value used when a duration is needed and has not been set (Note, Chord)."
         " Not the same as play.dur",
+    'semitoneDivisions':
+        "The number of divisions per semitone (2=quarter-tones, 4=eighth-tones)",
     'repr.showFreq':
         "Show frequency when calling printing a Note in the console",
     'chord.arpeggio':
@@ -93,13 +114,11 @@ _docs = {
         "Force opening images with an external tool, even when inside a Jupyter "
         "notebook",
     'show.split':
-        "Should a voice be split between two stafs. A midinumber can be given "
+        "Should a voice be split between two staves?. A midinumber can be given "
         "instead",
     'show.lastBreakpointDur':
         "Dur of a note representing the end of a line/gliss, which has "
         "no duration per se",
-    'show.semitoneDivisions':
-        "The number of divisions per semitone (2=quarter-tones, 4=eighth-tones)",
     'show.scaleFactor':
         "Affects the size of the generated image when using png format",
     'show.staffSize':
@@ -112,17 +131,15 @@ _docs = {
         "Default number of channels (channels can be set explicitely when calling"
         " startPlayEngine",
     'play.defaultAmplitude':
-        "The amplitude of a Note/Chord when an amplitude is needed and the object"
+        "The amplitude of a Note/Chord when an amplitude is needed and the object "
         "has an undefined amplitude",
     'rec.block':
-        "Default value when calling .rec (True=.rec will block until finished,"
-        " otherwise recording is done async)",
-    'use_musicxml2ly':
-        "Use musicxml2ly when converting xml 2 lily, instead of the builtin"
-        " conversion in music21",
-    'play.group':
+        "Should recording be blocking or should be done async?",
+    'play.engineName':
         "Name of the play engine used",
-    'm21.fixstream':
+    'play.chan':
+        "Default channel to play to. channels start at 1",
+    'm21.fixStream':
         "If True, fix the streams returned by .asmusic21 (see m21fix)",
     'show.label.fontSize':
         "Font size to use for labels",
@@ -132,52 +149,75 @@ _docs = {
     'play.autosavePresets':
         'Automatically save user defined presets, so they will be available '
         'for a next session',
-    'play.unknownParameterFailSilently':
-        'If True, any attempt to set an unknown parameter will be silently ignored',
     'splitAcceptableDeviation':
         'When splitting notes between staves, notes within this range of the '
         'split point will be grouped together if they all fit',
     'play.autostartEngine':
-        'Start play engine if not started manually. This is done when the user'
-        'performs an action which indirectly needs the engine to be running,'
+        'Start play engine if not started manually. This is done when the user '
+        'performs an action which indirectly needs the engine to be running, '
         'like defining an instrument, or calling play.getPlayManager()',
     'rec.quiet':
-        'Supress debug output when calling csound as a subprocess'
+        'Supress debug output when calling csound as a subprocess',
+    'play.dur':
+        'Default duration of any play action if the object has no given duration',
+    'rec.ksmps':
+        'samples per cycle when rendering offline (passed as ksmps to csound)',
+    'play.fade':
+        'default fade time',
+    'play.unschedFadeout':
+        'fade out when stopping a note',
+    'show.method':
+        'method/backend used when rendering notation',
+    'show.cents':
+        'show cents deviation as text when rendering notation',
+    'show.pageOrientation':
+        'Page orientation when rendering to pdf',
+    'show.glissEndStemless':
+        'When the end pitch of a gliss. is shown as gracenote, make this stemless',
+    'play.backend':
+        'backend used for playback',
+    'rec.path':
+        'path used to save output files when rendering offline. If '
+        'not given the default can be queried via `recordPath`',
+    'show.cacheImages':
+        'If True, new images are only generated when the object '
+        'being rendered as notation has changed. Normally this should '
+        'be left as True but can be deactivated for debugging',
+    'show.arpeggioDuration':
+        'Duration used for individual notes when rendering a chord as arpeggio',
+    'rec.samplerate':
+        'Sample rate used when rendering offline',
+    'play.fadeShape':
+        'Curve-shape used for fading in/out',
+    'show.centSep':
+        'Separator used when displaying multiple cents deviation (in a chord)',
+    'play.instr':
+        'Default instrument used for playback. A list of available instruments '
+        'can be queried via `availableInstrs`. '
+        'New instrument presets can be defined via `defPreset`',
+    'play.pitchInterpolation':
+        'Curve shape for interpolating between pitches',
+    'app.png':
+        'Application used when opening .png files externally. If an empty string '
+        'is set, a suitable default for the platform will be selected',
+    'play.generalMidiSoundfont':
+        'Path to a soundfont (sf2 file) with a general midi mapping',
+    'html.theme':
+        'Theme used when displaying html inside jupyter',
+    'play.namedArgsMethod':
+        'Method used to convert named parameters defined in a Preset to their'
+        ' corresponding function in a csoundengine.Instr',
+    'quant.complexity':
+        'Controls the allowed complexity in the notation. The higher the complexity,'
+        ' the more accurate the timing of the quantization, at the cost of a more complex'
+        ' notation. The value is used as a preset, controlling aspects like which '
+        'subdivisions of the beat are allowed at a' 
+        ' given tempo, the weighting of each subdivision, etc.',
+    'quant.nestedTuples':
+        'Are nested tuples allowed when quantizing? NB: not all display methods support'
+        ' nested tuples (for example, musescore, which is used to render musicxml to pdf,'
+        ' does not support nested tuples)'
 }
-
-
-config = ConfigDict(f'maelzel:core', _default, validator=_validator, docs=_docs)
-
-
-@lru_cache(maxsize=1)
-def _presetsPath() -> str:
-    datadirbase = appdirs.user_data_dir("maelzel")
-    path = os.path.join(datadirbase, "core", "presets")
-    return path
-
-
-def presetsPath() -> str:
-    """ Returns the path of the presets directory """
-    userpath = config['play.presetsPath']
-    if userpath:
-        return userpath
-    return _presetsPath()
-
-
-def recordPath() -> str:
-    """ The path where temporary recordings are saved
-    We do not use the temporary folder because it is wiped regularly
-    and the user might want to access a recording after rebooting.
-    The returned folder is guaranteed to exist
-    """
-    userpath = config['rec.path']
-    if userpath:
-        path = userpath
-    else:
-        path = appdirs.user_data_dir(appname="emlib", version="recordings")
-    if not os.path.exists(path):
-        os.makedirs(path)
-    return path
 
 
 def checkEnvironment(config:dict, solve=True) -> List[str]:
@@ -228,3 +268,19 @@ def _multiwhich(*appnames) -> Opt[str]:
         if path and os.path.exists(path):
             return path
     return None
+
+
+# -----------------
+
+def _syncCsoundengineTheme(theme:str):
+    import csoundengine
+    csoundengine.config['html_theme'] = theme
+
+def _resetImageCacheCallback():
+    from . import musicobj
+    musicobj.resetImageCache()
+
+mainConfig = ConfigDict('maelzel.core', _default, validator=_validator,
+                        docs=_docs, fmt='yaml')
+mainConfig.registerCallback(lambda k, v: _syncCsoundengineTheme(v), re.escape("html.theme"))
+mainConfig.registerCallback(lambda k, v: _resetImageCacheCallback(), "show\..+")

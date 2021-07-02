@@ -63,7 +63,7 @@ def play_ticks(times, chan=1, midinote=69, amp=0.5, attack=0.01, decay=0.05,
             initial latency product of scheduling a large amount of events
 
     """
-    manager = csoundengine.getManager()
+    manager = csoundengine.getSession()
     instr = manager.defInstr("features.tick", body="""
         iPitch, iAmp, iAtt, iDec, iSust, iRel, iChan passign 5
         iFreq mtof iPitch

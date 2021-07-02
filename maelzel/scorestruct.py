@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import os
+import shutil
+import tempfile
 from pathlib import Path
 import dataclasses
 from typing import Tuple, Optional as Opt, List, Union as U, Iterator as Iter
 from bisect import bisect
 
+import emlib.img
+import emlib.misc
 import music21 as m21
 from maelzel.music import m21tools
 from fractions import Fraction as F
@@ -13,11 +18,13 @@ from fractions import Fraction as F
 def asF(x) -> F:
     if isinstance(x, F):
         return x
+    elif hasattr(x, 'numerator'):
+        return F(x.numerator, x.denominator)
     return F(x)
 
 
 timesig_t = Tuple[int, int]
-time_t = U[int, float, F]
+number_t = U[int, float, F]
 
 
 def parseScoreStructLine(line: str) -> Tuple[Opt[int], Opt[timesig_t], Opt[int]]:
@@ -63,7 +70,6 @@ def parseScoreStructLine(line: str) -> Tuple[Opt[int], Opt[timesig_t], Opt[int]]
     return measure, timesig, tempo
 
 
-
 @dataclasses.dataclass
 class MeasureDef:
     """
@@ -82,7 +88,7 @@ class MeasureDef:
         assert all(isinstance(i, int) for i in self.timesig)
         self.quarterTempo = asF(self.quarterTempo)
 
-    def numberOfBeats(self):
+    def numberOfBeats(self) -> F:
         """
         The duration of this measure in beats
 
@@ -109,19 +115,20 @@ class ScoreLocation:
     beat: F = 0
 
     def __repr__(self):
-        beat = float(self.beat.limit_denominator(10000))
-        return f"ScoreLocation(measureNum={self.measureNum}, {beat=})"
+        return f"ScoreLocation(measureNum={self.measureNum}, beat={float(self.beat):.4g})"
 
     def __post_init__(self):
-        assert isinstance(self.beat, F)
+        assert isinstance(self.measureNum, int)
+        self.beat = asF(self.beat)
+
+    def __iter__(self):
+        return iter((self.measureNum, self.beat))
 
 
 class ScoreStructure:
     def __init__(self, endless=False, autoextend=False):
         """
-        A ScoreStructure hold all the information about a score but no data
-        (actual measures with notes inside, etc). A ScoreStructure is used
-        to quantize and render scores.
+        A ScoreStructure holds the structure of a score but no content
 
         A ScoreStructure consists of some metadata and a list of MeasureDefs,
         where each MeasureDef defines the properties of the measure at the given
@@ -136,7 +143,6 @@ class ScoreStructure:
                 the necessary MeasureDefs to cover the point in question. In concrete, if
                 a ScoreStructure has only one MeasureDef, .getMeasureDef(3) will create
                 three MeasureDefs, cloning the first MeasureDef, and return the last one.
-                Also .beatToTime and .timeToBeat will create new MeasureDefs.
 
         Example::
             # create an endless score with a given time signature
@@ -161,7 +167,7 @@ class ScoreStructure:
         self.title = None
         self.endless = endless
         self.autoextend = autoextend
-        self._changed = True
+        self._modified = True
         self._offsetsIndex: List[F] = []
 
     @staticmethod
@@ -176,12 +182,13 @@ class ScoreStructure:
         * Any value can be left out: , 5/8,
         * The measure number and/or the tempo can both be left out::
 
-            These are all the same (assuming the last defined measure is 1):
-            2, 5/8, 63
+            These are all the same:
+            1, 5/8, 63
             5/8, 63
             5/8
         * measure numbers start at 0
         * comments start with `#` and last until the end of the line
+        * A line with a single "." repeats the last defined measure
 
         Example::
 
@@ -192,7 +199,7 @@ class ScoreStructure:
         """
         tempo = initialTempo
         timesig = initialTimeSignature
-        measure = -1
+        measureNum = -1
         struct = ScoreStructure()
 
         def lineStrip(l:str) -> str:
@@ -204,16 +211,25 @@ class ScoreStructure:
             line = lineStrip(line0)
             if not line:
                 continue
-            newMeasure, newTimesig, newTempo = parseScoreStructLine(line)
-            if newMeasure is None:
-                newMeasure = measure + 1
-            if newTempo is not None:
-                tempo = newTempo
-            if newTimesig is not None:
-                timesig = newTimesig
-            for m in range(measure, newMeasure):
-                struct.addMeasure(timesig=timesig, quarterTempo=tempo)
-            measure = newMeasure
+
+            if line == ".":
+                assert len(struct.measuredefs) > 0
+                lastmeas = struct.measuredefs[-1]
+                struct.addMeasure(lastmeas.timesig, quarterTempo=lastmeas.quarterTempo)
+                measureNum += 1
+                continue
+
+            newMeasureNum, newTimesig, newTempo = parseScoreStructLine(line)
+            if newMeasureNum is None:
+                newMeasureNum = measureNum + 1
+            else:
+                assert newMeasureNum > measureNum
+                struct.addMeasure(numMeasures = newMeasureNum - measureNum - 1)
+
+            tempo = newTempo or tempo
+            timesig = newTimesig or timesig
+            struct.addMeasure(timesig=timesig, quarterTempo=tempo)
+            measureNum = newMeasureNum
 
         return struct
 
@@ -222,6 +238,7 @@ class ScoreStructure:
                     ) -> ScoreStructure:
         """
         Creates a ScoreStructure from a time signature and tempo.
+
         If numMeasures is given, the resulting ScoreStructure will
         have as many measures defined and will be finite. Otherwise
         the ScoreStructure will be flagged as endless
@@ -244,10 +261,11 @@ class ScoreStructure:
             out.addMeasure(timesig, quarterTempo, numMeasures=numMeasures)
         return out
 
-    def numMeasures(self) -> int:
+    def numDefinedMeasures(self) -> int:
         """
-        Returns the number of defined measures, independently of
-        this ScoreStructure being endless or not
+        Returns the number of defined measures
+
+        (independently of this ScoreStructure being endless or not)
         """
         return len(self.measuredefs)
 
@@ -305,7 +323,7 @@ class ScoreStructure:
                                 annotation=annotation, timesigInherited=timesigInherited,
                                 tempoInherited=tempoInherited)
         self.measuredefs.append(measuredef)
-        self._changed = True
+        self._modified = True
         if numMeasures > 1:
             self.addMeasure(numMeasures=numMeasures-1)
 
@@ -316,18 +334,26 @@ class ScoreStructure:
         lines.append("])")
         return "\n".join(lines)
 
-    def _update(self):
-        if not self._changed:
+    def markAsModified(self, value=True) -> None:
+        """
+        Call this when a MeasureDef inside this ScoreStruct is modified
+
+        By marking it as modified any internal cache is invalidated
+        """
+        self._modified = value
+
+    def _update(self) -> None:
+        if not self._modified:
             return
         now = F(0)
         starts = []
         for mdef in self.measuredefs:
             starts.append(now)
             now += mdef.duration()
-        self._changed = False
+        self._modified = False
         self._offsetsIndex = starts
 
-    def beatToTime(self, measure: int, beat:F=F(0)) -> F:
+    def locationToTime(self, measure: int, beat:number_t=F(0)) -> F:
         """
         Return the elapsed time at the given score location
 
@@ -347,7 +373,7 @@ class ScoreStructure:
                     self.addMeasure()
             else:
                 last = len(self.measuredefs)-1
-                lastTime = self.beatToTime(last)
+                lastTime = self.locationToTime(last)
                 mdef = self.getMeasureDef(last)
                 mdur = mdef.duration()
                 fractionalDur = beat * F(60)/mdef.quarterTempo
@@ -362,7 +388,12 @@ class ScoreStructure:
 
         return now+F(60)/mdef.quarterTempo*beat
 
-    def timeToBeat(self, time: time_t) -> Opt[ScoreLocation]:
+    def tempoAtTime(self, time: number_t) -> F:
+        loc = self.timeToLocation(time)
+        measuredef = self.getMeasureDef(loc.measureNum)
+        return measuredef.quarterTempo
+
+    def timeToLocation(self, time: number_t) -> Opt[ScoreLocation]:
         """
         Find the location in score corresponding to the given time in seconds
 
@@ -397,8 +428,11 @@ class ScoreStructure:
             return None
         raise NotImplementedError("endless score not implemented here")
 
-    def beatToLocation(self, beat:time_t) -> Opt[ScoreLocation]:
+    def beatToLocation(self, beat:number_t) -> Opt[ScoreLocation]:
         """
+        Return the location in score corresponding to the given
+        beat (time-offset in quarter-notes).
+
         Given a beat (in quarter-notes), return the score location
         (measure, beat offset within the measure). Tempo does not
         play any role within this calculation.
@@ -416,7 +450,7 @@ class ScoreStructure:
         """
         assert len(self.measuredefs) >= 1
         numMeasures = 0
-        rest = F(beat)
+        rest = asF(beat)
         for i, mdef in enumerate(self.measuredefs):
             numBeats = mdef.numberOfBeats()
             if rest < numBeats:
@@ -430,6 +464,25 @@ class ScoreStructure:
         numMeasures += int(rest / beatsPerMeasures)
         restBeats = rest % beatsPerMeasures
         return ScoreLocation(numMeasures, restBeats)
+
+    def beatToTime(self, beat: U[number_t, Tuple[int, number_t]]) -> F:
+        """
+        Convert beat-time to real-time
+
+        Args:
+            beat: the beat location, as beat-time (in quarter-notes) or as
+                a tuple (measure index, beat inside measure)
+        """
+        if isinstance(beat, tuple):
+            loc = beat
+        else:
+            loc = self.beatToLocation(beat)
+        return self.locationToTime(*loc)
+
+    def timeToBeat(self, t: number_t) -> F:
+        loc = self.timeToLocation(t)
+        beat = self.locationToBeat(loc.measureNum, loc.beat)
+        return beat
 
     def iterMeasureDefs(self) -> Iter[MeasureDef]:
         """
@@ -448,41 +501,58 @@ class ScoreStructure:
     def __iter__(self) -> Iter[MeasureDef]:
         return self.iterMeasureDefs()
 
-    def locationToBeat(self, measure:int, beat:time_t=F(0)) -> F:
+    def locationToBeat(self, measure:int, beat:number_t=F(0)) -> F:
         """
-        Given a score location (measure number, beat), returns
-        the amount of quarter notes up to that point. This value
-        is independent of any tempo given.
+        Returns the number of quarter notes up to the given location
 
-        See also: beatToTime
+        This value is independent of any tempo given.
         """
-        accum = F(0)
-        if not self.endless and measure > self.numMeasures():
-            raise ValueError(f"This scorestruct has {self.numMeasures()} and is not"
+        if not self.endless and measure > self.numDefinedMeasures():
+            raise ValueError(f"This scorestruct has {self.numDefinedMeasures()} and is not"
                              f"marked as endless. Measure {measure} is out of scope")
-        for i, mdef in enumerate(self.measuredefs):
-            if i == measure:
+        accum = F(0)
+        for i, mdef in enumerate(self.iterMeasureDefs()):
+            if i < measure:
+                accum += mdef.numberOfBeats()
+            else:
+                if beat > mdef.numberOfBeats():
+                    raise ValueError(f"beat {beat} outside of measure {i}: {mdef}")
                 accum += asF(beat)
                 break
-            else:
-                accum += mdef.numberOfBeats()
         return accum
 
-    def timeDifference(self, a:Tuple[int, F], b:Tuple[int, F]) -> F:
+    def timeDifference(self,
+                       start:U[number_t, Tuple[int, number_t]],
+                       end:U[number_t, Tuple[int, number_t]]
+                       ) -> F:
         """
         Returns the elapsed time between two score locations.
 
         Args:
-            a: a tuple (measureIndex, beatOffset)
-            b: a tuple (measureIndex, beatOffset)
+            start: the start location, as a beat or as a tuple (measureIndex, beatOffset)
+            end: the end location, as a beat or as a tuple (measureIndex, beatOffset)
 
         Returns:
             the elapsed time, as a Fraction
 
         """
-        t0 = self.beatToTime(a[0], a[1])
-        t1 = self.beatToTime(b[0], b[1])
-        return t1 - t0
+        return self.beatToTime(end) - self.beatToTime(start)
+
+    def timeDifferenceBetweenBeats(self, startBeat: number_t, endBeat: number_t) -> F:
+        return self.beatToTime(endBeat) - self.beatToTime(startBeat)
+
+    def beatDifference(self, start:Tuple[int,F], end:Tuple[int, F]) -> F:
+        """
+        difference in beats between the two score locations
+
+        Args:
+            start: the start location, a tuple (measureIndex, beatOffset)
+            end: the end location, a tuple (measureIndex, beatOffset)
+
+        Returns:
+            the distance between the two locations, in beats
+        """
+        return self.locationToBeat(*end) - self.locationToBeat(*start)
 
     def show(self) -> None:
         """
@@ -503,6 +573,37 @@ class ScoreStructure:
                 tempo = m.quarterTempo
             print("".join(parts))
 
+    def _repr_html_(self) -> str:
+        colnames = ['Meas. Index', 'Timesig', 'Tempo (quarter note)']
+
+        parts = [f'<h5><strong>ScoreStructure<strong></strong></h5>']
+        tempo = -1
+        N = len(str(len(self.measuredefs)))
+        rows = []
+        for i, m in enumerate(self.measuredefs):
+            num, den = m.timesig
+            if m.quarterTempo != tempo:
+                tempo = m.quarterTempo
+                row = (str(i), f"{num}/{den}", str(tempo))
+            else:
+                row = (str(i), f"{num}/{den}", "")
+            rows.append(row)
+        rowstyle = 'font-size: small;'
+        htmltable = emlib.misc.html_table(rows, colnames, rowstyles=[rowstyle]*3)
+        parts.append(htmltable)
+        return "".join(parts)
+
+    def render(self, outfile: str) -> None:
+        fmt = os.path.splitext(outfile)[1]
+        m21format = 'xml' + fmt
+        outfile2 = self.asMusic21().write(m21format, outfile)
+        if fmt == ".png":
+            emlib.img.pngRemoveTransparency(outfile2)
+        assert os.path.exists(outfile2)
+        if os.path.exists(outfile):
+            os.remove(outfile)
+        shutil.move(outfile2, outfile)
+
     def asMusic21(self, fillMeasures=False) -> m21.stream.Score:
         """
         Return the score structure as a music21 Score
@@ -515,7 +616,7 @@ class ScoreStructure:
         s = m21.stream.Part()
         lasttempo = self.measuredefs[0].quarterTempo or F(60)
         lastTimesig = self.measuredefs[0].timesig or (4, 4)
-        s.append(m21tools.makeMetronomeMark(number=lasttempo))
+        s.append(m21tools.makeMetronomeMark(number=float(lasttempo)))
 
         for measuredef in self.measuredefs:
             tempo = measuredef.quarterTempo or lasttempo
@@ -534,10 +635,24 @@ class ScoreStructure:
             else:
                 s.append(m21.note.Rest(duration=m21.duration.Duration(measuredef.numberOfBeats())))
         score = m21.stream.Score()
-        score.append(s)
+        score.insert(0, s)
         if self.title:
             m21tools.scoreSetMetadata(score, title=self.title)
         return score
+
+    def hasUniqueTempo(self) -> bool:
+        """
+        Returns True if this ScoreStructure has only one tempo.
+        """
+        numtempi = 0
+        lasttempo = None
+        for m in self.measuredefs:
+            if m.quarterTempo != lasttempo:
+                lasttempo = m.quarterTempo
+                numtempi += 1
+                if numtempi > 1:
+                    return False
+        return True
 
     def write(self, path: U[str, Path]) -> None:
         """
@@ -555,7 +670,7 @@ class ScoreStructure:
         elif path.suffix == ".png":
             m21score.write("musicxml.png", path)
         elif path.suffix == ".ly":
-            m21tools.saveLily(m21score, path)
+            m21tools.saveLily(m21score, path.as_posix())
         else:
             raise ValueError(f"Extension {path.suffix} not supported, "
                              f"should be one of .xml, .pdf, .png or .ly")

@@ -6,6 +6,8 @@ from __future__ import annotations
 import tempfile
 from dataclasses import dataclass
 import music21 as m21
+import pathlib
+
 
 from maelzel.music import m21tools
 
@@ -13,6 +15,7 @@ from .common import *
 from . import quant
 from .config import config
 from emlib.misc import open_with_standard_app
+import emlib.img
 
 
 @dataclass
@@ -25,7 +28,7 @@ class RenderOptions:
 
     divsPerSemitone: the number of divisions of the semitone
     showCents: should each note/chord have a text label attached
-    indicating the cents deviation from the nearest semitone?
+        indicating the cents deviation from the nearest semitone?
     centsPlacement: where to put the cents annotation
     centsFontSize: the font size of the cents annotation
 
@@ -42,28 +45,42 @@ class RenderOptions:
     composer: the composer of the score
     """
     orientation: str = config['pageOrientation']
-    staffSize: int = config['staffSize']
+    staffSize: U[int, float] = config['staffSize']
     pageSize: str = config['pageSize']
     pageMarginMillimeters: Opt[int] = 4
 
     divsPerSemitone: int = config['divisionsPerSemitone']
     showCents: bool = config['showCents']
     centsPlacement: str = "above"
-    centsFontSize: int = config['centsFontSize']
+    centsFontSize: U[int, float] = config['centsFontSize']
 
-    measureAnnotationFontSize: int = config['measureAnnotationFontSize']
-    noteAnnotationsFontSize: int = config['noteAnnotationFontSize']
+    measureAnnotationFontSize: U[int, float] = config['measureAnnotationFontSize']
+    noteAnnotationsFontSize: U[int, float] = config['noteAnnotationFontSize']
 
     glissAllowNonContiguous: bool = False
     glissHideTiedNotes: bool = True
 
     lilypondPngBookPreamble: bool = True
+    lilypondHorizontalSpacing: str = config['lilypondHorizontalSpacing']
 
     title: str = ''
     composer: str = ''
 
+    def __post_init__(self):
+        self.check()
+
+    def check(self):
+        assert self.orientation in ('portrait', 'landscape')
+        assert isinstance(self.staffSize, (int, float)) and 0 < self.staffSize, \
+            f"Invalid staffSize: {self.staffSize}"
+        assert self.pageSize in ('a3', 'a4')
+        assert self.divsPerSemitone in (1, 2, 4)
+        assert self.centsPlacement in ('above', 'below')
+        assert self.lilypondHorizontalSpacing in ('normal', 'medium', 'large')
+
 
 class Renderer:
+
     def __init__(self, parts: List[quant.QuantizedPart], options:RenderOptions=None):
         assert parts
         assert parts[0].struct is not None
@@ -89,7 +106,7 @@ class Renderer:
     def write(self, outfile:str) -> None:
         raise NotImplementedError("Please Implement this method")
 
-    def show(self, fmt='png') -> None:
+    def show(self, fmt='png', external=True) -> None:
         self.render()
         possibleFormats = self.writeFormats()
         if fmt not in possibleFormats:
@@ -111,3 +128,10 @@ class Renderer:
         return it here, otherwise return None
         """
         return None
+
+    def _repr_html_(self) -> str:
+        pngfile = tempfile.mktemp(suffix=".png", prefix="render-")
+        self.write(pngfile)
+        img = emlib.img.htmlImgBase64(pngfile, removeAlpha=True)
+        html = f'Renderer({len(self.parts)} parts)<br>' + img
+        return html

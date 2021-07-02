@@ -1,7 +1,7 @@
 from __future__ import annotations
 import logging
 
-from maelzel.scorestruct import*
+from maelzel.scorestruct import *
 from . import core
 from . import quant
 from .renderbase import Renderer, RenderOptions
@@ -69,14 +69,14 @@ def renderParts(parts: List[core.Part],
             some predefined profiles
 
     Returns:
-        a Renderer. To produce a pdf, call .write('out.pdf') on
-        the returned Renderer.
+        a Renderer. To produce a pdf or a png call :method:`Renderer.write` on
+        the returned Renderer, like `renderer.write('outfile.pdf')`
 
     """
     if quantizationProfile is None:
         quantizationProfile = quant.QuantizationProfile()
     if backend is None:
-        backend = config['render.backend']
+        backend = config['renderBackend']
     if backend == 'musicxml':
         quantizationProfile.nestedTuples = False
     if struct is None:
@@ -88,19 +88,14 @@ def renderParts(parts: List[core.Part],
                                    profile=quantizationProfile)
         qpart.label = part.label
         qparts.append(qpart)
+    logger.info("Using backend", backend)
     renderer = renderQuantizedParts(parts=qparts, options=options, backend=backend)
     renderer.render()
     return renderer
 
 
-def render(obj: U[core.Part, core.Notation, List[core.Part], List[core.Notation]],
-           struct:ScoreStructure=None,
-           options: RenderOptions = None,
-           backend:str=None,
-           quantizationProfile: quant.QuantizationProfile = None
-           ) -> Renderer:
-    if backend is None:
-        backend = config['render.backend']
+def _asParts(obj: U[core.Part, core.Notation, List[core.Part], List[core.Notation]]
+             ) -> List[core.Part]:
     if isinstance(obj, core.Part):
         parts = [obj]
     elif isinstance(obj, list):
@@ -113,7 +108,31 @@ def render(obj: U[core.Part, core.Notation, List[core.Part], List[core.Notation]
     elif isinstance(obj, core.Notation):
         parts = [core.Part([obj])]
     else:
-        raise TypeError(f"Can't show {obj}")
+        raise TypeError(f"Can't convert {obj} to a list of Parts")
+    return parts
+
+
+def render(obj: U[core.Part, core.Notation, List[core.Part], List[core.Notation]],
+           struct:ScoreStructure=None,
+           options: RenderOptions = None,
+           backend:str=None,
+           quantizationProfile: quant.QuantizationProfile = None
+           ) -> Renderer:
+    """
+    Render the given object `obj` as notation
+
+    Args:
+        obj: the object to render (a Notation, a list thereof, a Part or a list thereof)
+        struct: the score structure
+        options: the render options
+        backend: the render backend to use ('musicxml', 'lilypond')
+        quantizationProfile: the quantization profile
+
+    Returns:
+        a new Renderer
+
+    """
+    parts = _asParts(obj)
     return renderParts(parts, struct=struct, options=options, backend=backend,
                        quantizationProfile=quantizationProfile)
 

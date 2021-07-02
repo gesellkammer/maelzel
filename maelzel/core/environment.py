@@ -1,15 +1,12 @@
+from __future__ import annotations
 import sys
 import shutil
 from typing import List, Optional as Opt
 from emlib import misc
 import logging
-import music21 as m21
-import appdirs
 
 
 insideJupyter = misc.inside_jupyter()
-
-
 logger = logging.getLogger("maelzel")
 
 

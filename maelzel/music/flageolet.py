@@ -1,6 +1,6 @@
 from collections import namedtuple as _namedtuple
 from fractions import Fraction as _Fraction
-from emlib.pitchtools import *
+from pitchtools import *
 from emlib.misc import returns_tuple as _returns_tuple
 from maelzel.core import Note
 

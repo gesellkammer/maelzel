@@ -155,4 +155,3 @@ def fixStream(s: m21.stream.Stream, inPlace=False) -> m21.stream.Stream:
 def show(s: m21.stream.Stream, *args, **kws):
     fixed = fixStream(s, inPlace=False)
     fixed.show(*args, **kws)
-

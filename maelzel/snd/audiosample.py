@@ -2,144 +2,81 @@
 audiosample
 ~~~~~~~~~~~
 
-a Sample containts the audio of a soundfile as a
-numpy and it knows about its samplerate
-It can also perform simple actions (fade-in/out,
-cut, insert, reverse, normalize, etc)
-on its own audio destructively or return a new Sample.
+This module is based on the :class:`Sample` class, which contains the
+audio of a soundfile as a numpy array and it knows about its samplerate,
+original format and encoding, etc. It can also perform simple actions
+(fade-in/out, cut, insert, reverse, normalize, etc) on its own audio
+destructively or return a new Sample.
+
+External dependencies
+~~~~~~~~~~~~~~~~~~~~~
+
+For some functionality (fundamental pitch analysis) we rely at the moment
+on some external dependencies
+
+* pyin vamp plugin: https://code.soundsoftware.ac.uk/projects/pyin/files
+
+Examples
+~~~~~~~~
+
+.. code-block:: python
+
+    # load a Sample, fade it, play and write
+    from maelzel.snd.audiosample import *
+    import time
+    s = Sample.read("sound.wav")
+    s.fade(0.5)
+    synth = s.play(speed=0.5)
+    while synth.isPlaying():
+        time.sleep(0.1)
+    print("finished playing!")
+    s.write("sound-faded.flac")
+    s.plot_spectrogram()
+
+
+.. code-block:: python
+    samples = [
+        Sample.read("soundA.wav"),
+        Sample.read("soundB.aif"),
+        Sample.read("soundC.flac")]
+    samples = broadcast_samplerate(samples)
+    a, b, c = samples
+    # mix them down
+    out = a.prepend_silence(2) + b + c
+    out.write("mixed.wav")
+
+
+
+
 """
 
 from __future__ import annotations
 import numpy as np
 import os
-from math import sqrt
 import tempfile
-import shutil
 import subprocess
 import bpf4 as _bpf
 import pysndfile
 import logging
-import sys
 from pathlib import Path
+import shutil
 
-from configdict import ConfigDict
 import numpyx
-from emlib.pitchtools import amp2db, db2amp
+from pitchtools import amp2db, db2amp
 from emlib import numpytools
+import emlib.misc
 
-from maelzel.snd import csoundengine
+from maelzel.snd import numpysnd as npsnd
+import csoundengine
+import csoundengine.tableproxy
+import csoundengine.synth
+
 from maelzel.snd import sndfiletools
-from maelzel.snd.resample import resample as _resample
+from maelzel.snd.resample import resample
 
 from typing import List, Tuple, Optional as Opt, Union as U, Iterator as Iter, Sequence as Seq
 
 logger = logging.getLogger("maelzel.audiosample")
-
-_initWasDone = False
-
-
-def _configCheck(config, key, oldvalue, newvalue):
-    if key == 'editor':
-        if os.path.exists(newvalue) or shutil.which(newvalue):
-            return oldvalue
-        logger.error(f"Trying to set editor to {newvalue}."
-                     " File not found")
-        return oldvalue
-
-
-config = ConfigDict(name='maelzel:audiosample',
-                    default={
-                        'editor': 'audacity',
-                        'fade.shape': 'linear',
-                    },
-                    precallback=_configCheck)
-
-
-def _increase_suffix(filename: str) -> str:
-    name, ext = os.path.splitext(filename)
-    tokens = name.split("-")
-    newname = None
-    if len(tokens) > 1:
-        suffix = tokens[-1]
-        try:
-            suffixnum = int(suffix)
-            newname = f"{name[:-len(suffix)]}-{suffixnum + 1}"
-        except ValueError:
-            pass
-    if newname is None:
-        newname = name + '-1'
-    return newname + ext
-
-
-def _arrays_match_length(a: np.ndarray, b: np.ndarray, mode='longer', pad=0
-                         ) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    match the lengths of arrays a and b
-
-    if mode is 'longer', then the shorter array is padded with 'pad'
-    if mode is 'shorter', the longer array is truncated
-    """
-    assert isinstance(a, np.ndarray), ("a: Expected Array, got " +
-                                       str(a.__class__))
-    assert isinstance(b, np.ndarray), ("b: Expected Array, got " +
-                                       str(b.__class__))
-    lena = len(a)
-    lenb = len(b)
-    if lena == lenb:
-        return a, b
-    if mode == 'longer':
-        maxlen = max(lena, lenb)
-        if pad == 0:
-            func = np.zeros_like
-        else:
-            func = lambda arr: np.ones_like(arr) * pad
-        if lena < maxlen:
-            tmp = func(b)
-            tmp[:lena] = a
-            return tmp, b
-        else:
-            tmp = func(a)
-            tmp[:lenb] = b
-            return a, tmp
-    elif mode == 'shorter':
-        minlen = min(lena, lenb)
-        if lena > minlen:
-            return a[:minlen], b
-        else:
-            return a, b[:minlen]
-
-    else:
-        raise ValueError("Mode not understood"
-                         "It must be either 'shorter' or 'longer'")
-
-
-def split_channels(sndfile:str, labels:List[str]=None, basename='') -> List[Sample]:
-    """
-    split a multichannel sound-file and name the individual files
-    with a suffix specified by labels
-
-    sndfile: the path to a soundfile
-    labels: a list of labels (strings)
-    basename: if given, used as the base name for the new files
-
-    """
-    if isinstance(sndfile, str):
-        if basename is None:
-            basename = sndfile
-    else:
-        raise TypeError("sndfile must be the path to a soundfile")
-    s = Sample(sndfile)
-    if labels is None:
-        labels = ["%0d" % (ch + 1) for ch in range(s.channels)]
-    assert s.channels == len(labels)
-    base, ext = os.path.splitext(basename)
-    sndfiles = []
-    for ch, label in enumerate(labels):
-        filename = "%s-%s%s" % (base, label, ext)
-        s_ch = s.get_channel(ch)
-        s_ch.write(filename)
-        sndfiles.append(s_ch)
-    return sndfiles
 
 
 def _normalize_path(path:str) -> str:
@@ -147,67 +84,124 @@ def _normalize_path(path:str) -> str:
     return os.path.abspath(path)
 
 
-def open_in_editor(filename:str, wait=False, app=None) -> None:
-    editor = app or config['editor']
-    filename = _normalize_path(filename)
-    if sys.platform == 'darwin':
-        os.system(f'open -a "{editor}" "{os.path.abspath(filename)}"')
-    elif sys.platform == 'linux':
-        proc = subprocess.Popen(args=[editor, filename])
-        if wait:
-            logger.debug("open_in_editor: waiting until finished")
-            proc.wait()
+def openInEditor(soundfile:str, wait=False, app=None) -> None:
+    """
+    Open soundfile in an external sound editing appp
+    
+    Args:
+        soundfile: the file to open
+        wait: if wait, wait until editing is finished
+        app: the app to use. If None is given, a default app is used
+
+    """
+    soundfile = _normalize_path(soundfile)
+    emlib.misc.open_with(soundfile, app, wait=wait)
+
+
+def readSoundfile(sndfile: str, start:float=0., end:float=0.) -> Tuple[np.ndarray, int]:
+    """
+    Read a soundfile, returns a tuple ``(samples:np.ndarray, sr:int)``
+
+    Args:
+        sndfile (str): The path of the soundfile
+        start (float): The time to start reading. A negative value will seek from the end
+        end (float): The time to stop reading (0=end of file). A negative value will
+            seek from the end
+
+    Returns:
+        a tuple (samples:np.ndarray, samplerate:int)
+
+    Example::
+
+        # Read the first two seconds
+        >>> samples, sr = readSoundfile("sound.flac", end=2)
+
+        # Read the last two seconds
+        >>> samples, sr = readSoundfile("sound.aif", start=-2)
+    """
+    sndfile = pysndfile.PySndfile(sndfile)
+    sr = sndfile.samplerate()
+    numframes = sndfile.frames()
+    if end == 0:
+        endsample = numframes
     else:
-        logger.debug("open_in_editor: using windows routine")
-        proc = subprocess.Popen(f'"{editor}" "{filename}"', shell=True)
-        if wait:
-            proc.wait()
+        endsample = int(sr * end)
+        assert endsample < numframes
+    if start < 0:
+        start = numframes / sr + start
+    startsample = int(start*sr)
+    assert startsample < endsample
+    if startsample > 0:
+        sndfile.seek(startsample)
+    samples = sndfile.read_frames(endsample - startsample)
+    return samples, sr
+
+
+def _get_csoundengine() -> csoundengine.Engine:
+    engine = csoundengine.getEngine('audiosample')
+    if engine:
+        return engine
+    return csoundengine.Engine('audiosample')
 
 
 class Sample:
-    def __init__(self, sound:U[str, Path, np.ndarray], samplerate:int=None, start=0., end=0.) -> None:
+    """
+    A class to hold audio data
+
+    Attributes:
+        samples (np.ndarray): the audio data
+        samplerate (int): the samplerate of the audio data
+        numchannels (int): the number of channels
+        duration (float): the duration of the sample
+    """
+    def __init__(self, sound:U[str, Path, np.ndarray], samplerate:int=None,
+                 start=0., end=0.) -> None:
         """
-        sound: str, a Path or np.array
-            either sample data or a path to a soundfile
-        samplerate: only needed if passed an array
-        start, end: sec
-            if a path is given, it is possible to read a fragment of the data
-            end can be negative, in which case it starts counting from the end
+        Args:
+            sound: str, a Path or a numpy array
+                either sample data or a path to a soundfile
+            samplerate: only needed if passed an array
+            start: the start time (only valid when reading from a soundfile
+            end: the end time (only valid when reading from a soundfile)
+
+        .. note::
+            Both start and end can be negative, in which case the frame
+            is sought from the end
         """
         if isinstance(sound, (str, Path)):
-            path = str(sound)
-            tmp = Sample.read(path, start=start, end=end)
-            samples = tmp.samples
-            samplerate = tmp.samplerate
+            samples, samplerate = readSoundfile(sound, start=start, end=end)
         elif isinstance(sound, np.ndarray):
             assert samplerate is not None
             samples = sound
         else:
-            raise TypeError(
-                "sound should be a path to a sndfile or a seq. of samples")
+            raise TypeError("sound should be a path or an array of samples")
         self.samples: np.ndarray = samples
         self.samplerate: int = samplerate
-        self.channels = numchannels(self.samples)
+        self.numchannels = npsnd.numChannels(self.samples)
         self._asbpf: Opt[_bpf.BpfInterface] = None
-        self._csound_table: Opt[csoundengine.TableProxy] = None   # A cached csound table, for playback
+        # A cached csound table, for playback
+        self._csound_table: Opt[csoundengine.tableproxy.TableProxy] = None
 
     @property
-    def nframes(self) -> int:
-        return self.samples.shape[0]
-
-    def __repr__(self):
-        s = "Sample: dur=%f sr=%d ch=%d" % (self.duration, self.samplerate,
-                                            self.channels)
-        return s
+    def numframes(self) -> int:
+        return len(self.samples)
 
     @property
     def duration(self) -> float:
-        return len(self.samples) / self.samplerate
+        return len(self.samples)/self.samplerate
+
+    def __repr__(self):
+        s = "Sample: dur=%f sr=%d ch=%d" % (self.duration, self.samplerate,
+                                            self.numchannels)
+        return s
 
     @classmethod
     def read(cls, filename:str, start=0., end=0.) -> Sample:
         """
         Read samples from `filename`.
+
+        Both start and end can be negative, in which case the frame
+        is sought from the end
 
         Args:
             filename: the filename of the soundfile
@@ -217,64 +211,70 @@ class Sample:
         Returns:
             a Sample
         """
-        sndfile = pysndfile.PySndfile(filename)
-        sr = sndfile.samplerate()
-        if end == 0:
-            endsample = sndfile.frames()
-        else:
-            endsample = int(sr * end)
-            assert endsample < sndfile.frames()
-        if start > 0:
-            startsample = int(start * sr)
-            sndfile.seek(startsample)
-        else:
-            startsample = 0
-        samples = sndfile.read_frames(endsample - startsample)
+        samples, sr = readSoundfile(filename, start=start, end=end)
         return cls(samples, samplerate=sr)
 
-    def _make_csound_table(self) -> csoundengine.TableProxy:
+    @classmethod
+    def silent(cls, dur: float, channels: int, sr: int) -> Sample:
+        """
+        Generate a silent Sample with the given characteristics
+        """
+        if channels == 1:
+            samples = np.zeros((int(dur*sr),), dtype=float)
+        else:
+            samples = np.zeros((int(dur*sr), channels), dtype=float)
+        return cls(samples, sr)
+
+    def _makeCsoundTable(self) -> csoundengine.tableproxy.TableProxy:
         if self._csound_table is not None:
             return self._csound_table
-        manager = csoundengine.getManager()
-        engine = manager.getEngine()
-        tabnum = engine.makeEmptyTable(len(self.samples)*self.channels,
-                                       numchannels=self.channels, sr=self.samplerate)
+        engine = _get_csoundengine()
+        tabnum = engine.makeEmptyTable(len(self.samples)*self.numchannels,
+                                       numchannels=self.numchannels, sr=self.samplerate)
         engine.fillTable(tabnum, self.samples.flatten(), block=True)
-        self._csound_table = csoundengine.TableProxy(tabnum, freeself=True, manager=manager, nchnls=self.channels)
+        self._csound_table = csoundengine.tableproxy.TableProxy(tabnum,
+                                                                sr=self.samplerate,
+                                                                freeself=True,
+                                                                engine=engine,
+                                                                nchnls=self.numchannels,
+                                                                numframes=self.numframes)
         return self._csound_table
 
-    def _play_csound(self, loop=False, chan:int=1, gain=1., delay=0., pan=None
-                     ) -> csoundengine.AbstrSynth:
+    def play(self, loop=False, chan:int=1, gain=1., delay=0.,
+             pan=-1, speed=1.0
+             ) -> csoundengine.synth.Synth:
         """
-        Play the given sample
-        """
-        table = self._make_csound_table()
-        assert table.manager is not None
-        if pan is None:
-            pan = -1
-        synth = table.manager.playSample(table.tabnum, chan=chan, gain=gain,
-                                         loop=loop, delay=delay, pan=pan)
-        return synth
-
-    def play(self, loop=False, chan=1, delay=0., gain=1., pan=None) -> csoundengine.AbstrSynth:
-        """
-        Play is asynchronouse.
+        Play the given table
 
         Args:
-            loop: if True, loop the sound
-            chan: output channel.
-            pan: a value between 0-1 (0=left, 1=right) or None to use a default
-            delay: if > 0, schedule playback in the future
-            gain: adjust the gain of playback
+            loop (bool): should playback be looped?
+            chan (int): first channel to play to. For stereo samples, output
+                is routed to consecutive channels starting with this channel
+            gain (float): a gain modifier
+            delay (float): start delay in seconds
+            pan (float): a value between 0 (left) and 1 (right). Use -1
+                for a default value, which is 0 for mono samples and 0.5
+                for stereo. For 3 or more channels pan is currently ignored
+            speed(float): the playback speed. A variation in speed will change
+                the pitch accordingly.
 
         Returns:
-            a csoundengine.AbstrSynth. You can call .stop on this
-            to stop playback.
+            a :class:`csoundengine.synth.Synth`. This synth can be used to
+            control playback.
 
         """
-        return self._play_csound(loop=loop, chan=chan, delay=delay, gain=gain, pan=pan)
+        table = self._makeCsoundTable()
+        assert table.engine.started
+        assert isinstance(pan, float)
+        synth = table.engine.session().playSample(table.tabnum, chan=chan, gain=gain,
+                                                  loop=loop, delay=delay, pan=pan,
+                                                  speed=speed)
+        return synth
 
     def asbpf(self) -> _bpf.BpfInterface:
+        """
+        Convert this sample to a bpf4.core.Sampled bpf
+        """
         if self._asbpf not in (None, False):
             return self._asbpf
         else:
@@ -285,51 +285,64 @@ class Sample:
         """
         plot the sample data
 
-        profile: one of 'low', 'medium', 'high'
+        Args:
+            profile: one of 'low', 'medium', 'high'
         """
         from . import plotting
         plotting.plot_samples(self.samples, self.samplerate, profile=profile)
 
-    def plot_spectrograph(self, framesize=2048, window='hamming', at=0., dur=0.) -> None:
+    def plotSpetrograph(self, framesize=2048, window='hamming', start=0.,
+                        dur=0.) -> None:
         """
-        window: As passed to scipy.signal.get_window
-                `blackman`, `hamming`, `hann`, `bartlett`, `flattop`, `parzen`, `bohman`,
-                `blackmanharris`, `nuttall`, `barthann`, `kaiser` (needs beta),
-                `gaussian` (needs standard deviation)
+        Plot the spectrograph of this sample or a fragment thereof
+
+        Args:
+            framesize: the size of each analysis, in samples
+            window: As passed to scipy.signal.get_window
+                    `blackman`, `hamming`, `hann`, `bartlett`, `flattop`, `parzen`,
+                    `bohman`,
+                    `blackmanharris`, `nuttall`, `barthann`, `kaiser` (needs beta),
+                    `gaussian` (needs standard deviation)
+            start: if given, plot the spectrograph at this time
+            dur: if given, use this fragment of the sample (0=from start to end of
+                sample)
 
         Plots the spectrograph of the entire sample (slice before to use only
         a fraction)
-
-        See Also: .spectrum
         """
         from . import plotting
-        if self.channels > 1:
+        if self.numchannels > 1:
             samples = self.samples[:, 0]
         else:
             samples = self.samples
-        s0 = 0 if at == 0 else int(at * self.samplerate)
-        s1 = self.nframes if dur == 0 else min(self.nframes,
-                                               int(dur * self.samplerate) - s0)
-        if s0 > 0 or s1 != self.nframes:
+        s0 = 0 if start == 0 else int(start*self.samplerate)
+        s1 = self.numframes if dur == 0 else min(self.numframes,
+                                                 int(dur * self.samplerate)-s0)
+        if s0 > 0 or s1 != self.numframes:
             samples = samples[s0:s1]
         plotting.plot_power_spectrum(samples,
                                      self.samplerate,
                                      framesize=framesize,
                                      window=window)
 
-    def plot_spectrogram(self,
-                         fftsize=2048,
-                         window='hamming',
-                         overlap=4,
-                         mindb=-120) -> None:
+    def plotSpectrogram(self,
+                        fftsize=2048,
+                        window='hamming',
+                        overlap=4,
+                        mindb=-120) -> None:
         """
-        fftsize: the size of the fft
-        window: window type. One of 'hamming', 'hanning', 'blackman', ...
-                (see scipy.signal.get_window)
-        mindb: the min. amplitude to plot
+        Plot the spectrogram of this sound using matplotlib
+
+        Args:
+            fftsize: the size of the fft
+            window: window type. One of 'hamming', 'hanning', 'blackman', ...
+                    (see scipy.signal.get_window)
+            mindb: the min. amplitude to plot
+            overlap: determines the hop size (hop size in samples = fftsize/overlap)
+
         """
         from . import plotting
-        if self.channels > 1:
+        if self.numchannels > 1:
             samples = self.samples[:, 0]
         else:
             samples = self.samples
@@ -340,11 +353,12 @@ class Sample:
                                     overlap=overlap,
                                     mindb=mindb)
 
-    def open_in_editor(self, wait=True, app=None,
-                       fmt='wav') -> Opt[Sample]:
+    def openInEditor(self, wait=True, app=None, fmt='wav'
+                     ) -> Opt[Sample]:
         """
-        Open the sample in an external editor. The original
-        is not changed.
+        Open the sample in an external editor.
+
+        The original is not changed.
 
         Args:
             wait: if wait, the editor is opened in blocking mode,
@@ -356,26 +370,31 @@ class Sample:
 
         Returns:
             if wait, it returns the sample after closing editor
-
         """
         assert fmt in {'wav', 'aiff', 'aif', 'flac'}
         sndfile = tempfile.mktemp(suffix="." + fmt)
         self.write(sndfile)
         logger.debug(f"open_in_editor: opening {sndfile}")
-        open_in_editor(sndfile, wait=wait, app=app)
+        openInEditor(sndfile, wait=wait, app=app)
         if wait:
             return Sample.read(sndfile)
         return None
 
-    def write(self, outfile: str, bits: int = None, check=True, **metadata) -> str:
+    def write(self, outfile: str, bits: int = None, checkOverflow=True, **metadata
+              ) -> None:
         """
-        write the samples to outfile
+        Write the samples to outfile
 
-        outfile: the name of the soundfile. The extension
-                 determines the file format
-        bits: the number of bits. 32 bits and 64 bits are
-              floats, if the format allows it.
-              If None, the best resolution is chosen
+        Args:
+            outfile: the name of the soundfile. The extension determines the 
+                file format
+            bits: the number of bits. 32 bits and 64 bits are floats, if the 
+                format allows it. If None, the best resolution for the given
+                format is used.
+            checkOverflow: when saving to pcm (wav, aif), if this is True
+                it is ensured that no sample would overflow (all samples are
+                within the range -1, 1).
+            metadata:
         """
         ext = (os.path.splitext(outfile)[1][1:]).lower()
         if bits is None:
@@ -385,18 +404,18 @@ class Sample:
                 bits = 24
             else:
                 raise ValueError("extension should be wav, aif or flac")
-        if check and bits<=24:
-            minval, maxval = numpyx.minmax1d(self.get_channel(0).samples)
+        if checkOverflow and bits<=24:
+            minval, maxval = numpyx.minmax1d(self.getChannel(0).samples)
             if minval<-1 or maxval>1:
-                raise ValueError(f"Trying to save as pcm data, but range is higher than -1, 1 ({minval}, {maxval}")
-        o = open_sndfile_to_write(outfile,
-                                  channels=self.channels,
-                                  samplerate=self.samplerate,
-                                  bits=bits)
+                raise ValueError(f"Trying to save as pcm data, but range is higher "
+                                 f"than -1, 1 ({minval}, {maxval}")
+        o = PySndFileToWrite(outfile,
+                             channels=self.numchannels,
+                             samplerate=self.samplerate,
+                             bits=bits)
         o.write_frames(self.samples)
         if metadata:
             _modify_metadata(outfile, metadata)
-        return outfile
 
     def copy(self) -> Sample:
         """
@@ -408,88 +427,128 @@ class Sample:
         self._csound_table = None
 
     def __add__(self, other: U[float, Sample]) -> Sample:
-        if isinstance(other, Sample):
-            s0, s1, sr = broadcast_samplerate(self, other)
-            assert isinstance(s0, np.ndarray)
-            assert isinstance(s1, np.ndarray)
-            s0, s1 = _arrays_match_length(s0, s1, mode='longer')
-            return Sample(s0 + s1, samplerate=sr)
-        else:
-            # not a Sample
+        if isinstance(other, (int, float)):
             return Sample(self.samples + other, self.samplerate)
+        elif isinstance(other, Sample):
+            assert self.numchannels == other.numchannels and self.samplerate == other.samplerate
+            if len(self) == len(other):
+                return Sample(self.samples + other.samples, self.samplerate)
+            elif len(self) > len(other):
+                return Sample(self.samples[:len(other)] + other.samples, self.samplerate)
+            else:
+                return Sample(self.samples + other.samples[:len(self)], self.samplerate)
+        else:
+            raise TypeError(f"Expected a scalar or a sample, got {other}")
 
     def __iadd__(self, other: U[float, Sample]) -> None:
-        if isinstance(other, Sample):
-            s0, s1, sr = broadcast_samplerate(self, other)
-            s0, s1 = _arrays_match_length(s0, s1, mode='longer')
-            s0 += s1
-            self.samples = s0
-            self.samplerate = sr
-        else:
+        if isinstance(other, (int, float)):
             self.samples += other
+        elif isinstance(other, Sample):
+            assert self.numchannels == other.numchannels and self.samplerate == other.samplerate
+            if len(self) == len(other):
+                self.samples += other.samples
+            elif len(other) < len(self):
+                self.samples[:len(other)] += other.samples
+            else:
+                self.samples += other.samples[:len(self)]
+            self._changed()
+        else:
+            raise TypeError(f"Expected a scalar or a sample, got {other}")
+
+    def __sub__(self, other: U[float, Sample]) -> Sample:
+        if isinstance(other, (int, float)):
+            return Sample(self.samples - other, self.samplerate)
+        elif isinstance(other, Sample):
+            assert self.numchannels == other.numchannels and self.samplerate == other.samplerate
+            if len(self) == len(other):
+                return Sample(self.samples - other.samples, self.samplerate)
+            elif len(self) > len(other):
+                return Sample(self.samples[:len(other)] - other.samples, self.samplerate)
+            else:
+                return Sample(self.samples - other.samples[:len(self)], self.samplerate)
+        else:
+            raise TypeError(f"Expected a scalar or a sample, got {other}")
+
+    def __isub__(self, other: U[float, Sample]) -> None:
+        if isinstance(other, (int, float)):
+            self.samples -= other
+        elif isinstance(other, Sample):
+            assert self.numchannels == other.numchannels and self.samplerate == other.samplerate
+            if len(self) == len(other):
+                self.samples -= other.samples
+            elif len(self) > len(other):
+                self.samples[:len(other)] -= other.samples
+            else:
+                self.samples -= other.samples[:len(self)]
+        else:
+            raise TypeError(f"Expected a scalar or a sample, got {other}")
         self._changed()
 
     def __mul__(self, other: U[float, Sample]) -> Sample:
-        if isinstance(other, Sample):
-            s0, s1, sr = broadcast_samplerate(self, other)
-            s0, s1 = _arrays_match_length(s0, s1)
-            return Sample(s0 * s1, sr)
-        elif callable(other):
-            other = _mapn_between(other, len(self.samples), 0, self.duration)
-        return Sample(self.samples * other, self.samplerate)
+        if isinstance(other, (int, float)):
+            return Sample(self.samples*other, self.samplerate)
+        elif isinstance(other, Sample):
+            assert self.numchannels == other.numchannels and self.samplerate == other.samplerate
+            if len(self) == len(other):
+                return Sample(self.samples * other.samples, self.samplerate)
+            elif len(self) > len(other):
+                return Sample(self.samples[:len(other)] * other.samples, self.samplerate)
+            else:
+                return Sample(self.samples * other.samples[:len(self)], self.samplerate)
+        else:
+            raise TypeError(f"Expected a scalar or a sample, got {other}")
+
+    def __imul__(self, other: U[float, Sample]) -> None:
+        if isinstance(other, (int, float)):
+            self.samples *= other
+        elif isinstance(other, Sample):
+            assert self.numchannels == other.numchannels and self.samplerate == other.samplerate
+            if len(self) == len(other):
+                self.samples *= other.samples
+            elif len(self) > len(other):
+                self.samples[:len(other)] *= other.samples
+            else:
+                self.samples *= other.samples[:len(self)]
+        else:
+            raise TypeError(f"Expected a scalar or a sample, got {other}")
+        self._changed()
 
     def __pow__(self, other: float) -> Sample:
         return Sample(self.samples**other, self.samplerate)
-
-    def __imul__(self, other: U[float, Sample]) -> None:
-        if isinstance(other, Sample):
-            s0, s1, sr = broadcast_samplerate(self, other)
-            s0, s1 = _arrays_match_length(s0, s1)
-            s0 *= s1
-            self.samples = s0
-            self.samplerate = sr
-            self._changed()
-        elif callable(other):
-            other = _mapn_between(other, len(self.samples), 0, self.duration)
-        self.samples *= other
-        self._changed()
 
     def __len__(self) -> int:
         return len(self.samples)
 
     def __getitem__(self, item: slice) -> Sample:
         """
-        samples support slicing
+        Samples support slicing
 
-        sample[start:stop] will return a new Sample consisting of a slice
+        ``sample[start:stop]`` will return a new Sample consisting of a slice
         of this sample between the times start and stop. As it is a slice
         of this Sample, any changes inplace will be reflected in the original
-        samples. To avoid this, use .copy:
+        samples. To avoid this, use :meth:`Sample.copy`.
 
-        # Copy the fragment between seconds 1 and 3
-        fragment = original[1:3].copy()
+        Example::
 
-        To slice at the sample level, access .samples directly
+            # Get a slice between seconds 1.5 and 3. Any change to view will be
+            # reflected in original
+            >>> source = Sample.read("sound.wav")
+            >>> view = source[1.5:3.0]
 
-        s = Sample("path")
+            # To slice at the sample level, access .samples directly
+            >>> newsample = Sample(source.samples[1024:2048], source.samplerate).copy()
 
-        # This is a Sample
-        sliced_by_time = s[fromtime:totime]
-
-        # This is a numpy array
-        sliced_by_samples = s.samples[fromsample:tosample]
         """
         if not isinstance(item, slice):
-            raise ValueError(
-                "We only support sample[start:end]."
-                "To access individual samples, use sample.samples[index]")
+            raise ValueError("Samples only support the form sample[start:end]."
+                             "To access individual samples, use sample.samples[index]")
         start, stop, step = item.start, item.stop, item.step
         if stop is None:
             stop = self.duration
         if start is None:
             start = 0.
         if step is not None:
-            return self.resample(step)[start:stop]
+            raise ValueError("Samples do not support a step for slicing")
         stop = min(stop, self.duration)
         start = min(start, self.duration)
         assert 0 <= start <= stop
@@ -497,39 +556,65 @@ class Sample:
         frame1 = int(stop * self.samplerate)
         return Sample(self.samples[frame0:frame1], self.samplerate)
 
-    def fade(self, fadetime:float, mode='inout', shape:str=None) -> Sample:
+    def fade(self, fadetime:U[float, Tuple[float, float]], shape:str='linear') -> Sample:
         """
-        Fade this Sample **in place**, returns self
+        Fade this Sample **in place**, returns self.
+
+        If only value is given as fadetime a fade-in and fade-out is performed with
+        this fadetime. A tuple can be used to apply a different fadetime for in and out.
 
         Args:
-            fadetime: the duration of the fade
-            mode: 'in', 'out', 'inout'
-            shape: the shape of the fade  TODO!!
+            fadetime: the duration of the fade.
+            shape: the shape of the fade. One of 'linear', 'expon(x)', 'halfcos'
+
+        Returns:
+            self
+
+        .. note::
+            To generate a faded sample without modifying the original sample,
+            use ``sample = sample.copy().fade(...)``
+
+        Example::
+
+            >>> sample1= Sample.read("sound.wav")
+            # Fade-in and out
+            >>> sample1.fade(0.2)
+
+            >>> sample2 = Sample.read("another.wav")
+            # Create a copy with a fade-out of 200 ms
+            >>> sample3 = sample2.copy().fade((0, 0.2))
+
         """
-        if shape is None:
-            shape = config['fade.shape']
-        sndfiletools.fade_array(self.samples,
-                                self.samplerate,
-                                fadetime=fadetime,
-                                mode=mode,
-                                shape=shape)
+        if isinstance(fadetime, tuple):
+            fadein, fadeout = fadetime
+            if fadein:
+                npsnd.arrayFade(self.samples, self.samplerate, fadetime=fadein,
+                                mode='in', shape=shape)
+            if fadeout:
+                npsnd.arrayFade(self.samples, self.samplerate, fadetime=fadeout,
+                                mode='out', shape=shape)
+        else:
+            npsnd.arrayFade(self.samples, self.samplerate, fadetime=fadetime,
+                            mode='inout', shape=shape)
         return self
 
-    def prepend_silence(self, dur:float) -> Sample:
+    def prependSilence(self, dur:float) -> Sample:
         """
         Return a new Sample with silence of given dur at the beginning
         """
-        silence = make_silence(dur, self.channels, self.samplerate)
+        silence = Sample.silent(dur, self.numchannels, self.samplerate)
         return concat([silence, self])
 
     def normalize(self, headroom=0.) -> Sample:
         """Normalize in place, returns self
 
-        headroom: maximum peak in dB
+        Args:
+            headroom: maximum peak in dB
+
+        Returns:
+            self
         """
-        max_peak_possible = db2amp(headroom)
-        peak = np.abs(self.samples).max()
-        ratio = max_peak_possible / peak
+        ratio = npsnd.normalizationRatio(self.samples, headroom)
         self.samples *= ratio
         return self
 
@@ -537,92 +622,99 @@ class Sample:
         """return the highest sample value (dB)"""
         return amp2db(np.abs(self.samples).max())
 
-    def peaksbpf(self, res=0.01) -> _bpf.core.Linear:
+    def peaksbpf(self, framedur=0.01, overlap=2) -> _bpf.core.Sampled:
         """
-        Return a BPF representing the peaks envelope of the sndfile with the
-        resolution given
+        Return a BPF representing the peaks envelope of the sndfile
 
-        res: resolution in seconds
+        The resolution of the returned bpf will be ``framedur/overlap``
+
+        Args:
+            framedur: the duration of an analysis frame
+            overlap: determines the hop time between analysis frames.
         """
-        samplerate = self.samplerate
-        chunksize = int(samplerate * res)
-        X, Y = [], []
-        data = self.samples if self.channels == 1 else self.samples[:, 0]
-        data = np.abs(data)
-        for pos in np.arange(0, self.nframes, chunksize):
-            maximum = np.max(data[pos:pos + chunksize])
-            X.append(pos / samplerate)
-            Y.append(maximum)
-        return _bpf.core.Linear(X, Y)
+        return npsnd.peaksbpf(self.samples, self.samplerate, res=framedur, overlap=overlap)
 
     def reverse(self) -> Sample:
-        """ reverse the sample in-place """
+        """ reverse the sample in-place, returns self """
         self.samples[:] = self.samples[-1::-1]
         self._changed()
         return self
 
-    def rmsbpf(self, dt=0.01, hop=1) -> _bpf.core.Sampled:
+    def rmsbpf(self, dt=0.01, overlap=1) -> _bpf.core.Sampled:
         """
-        Return a bpf representing the rms of this sample as a function of time
+        Return a bpf representing the rms of this sample over time
         """
-        s = self.samples
-        period = int(self.samplerate * dt + 0.5)
-        dt = period / self.samplerate
-        hopsamps = int(period * hop)
-        numperiods = int(len(s) / hopsamps)
-        values: List[float] = []
-        data = np.empty((numperiods,), dtype=float)
-        for i in range(numperiods):
-            idx0 = i * hopsamps
-            chunk = s[idx0:idx0+period]
-            data[i] = rms(chunk)
-        return _bpf.core.Sampled(values, x0=0, dx=dt)
+        return npsnd.rmsbpf(self.samples, self.samplerate, dt=dt, overlap=overlap)
 
     def rms(self) -> float:
-        return rms(self.samples)
+        """ Returns the rms of the samples (see also: :meth:`rmsbpf`) """
+        return npsnd.rms(self.samples)
 
     def mono(self) -> Sample:
         """
         Return a new Sample with this sample downmixed to mono
+
         Returns self if already mono
         """
-        if self.channels == 1:
+        if self.numchannels == 1:
             return self
-        return Sample(mono(self.samples), samplerate=self.samplerate)
+        return Sample(npsnd.asmono(self.samples), samplerate=self.samplerate)
 
-    def remove_silence_left(self, threshold=-120.0, margin=0.01, window=0.02) -> Sample:
+    def stripSilenceLeft(self, threshold=-120.0, margin=0.01, window=0.02) -> Sample:
         """
-        See remove_silence
+        Remove silence from the left. Returns a new Sample
+
+        Args:
+            threshold: dynamic of silence, in dB
+            margin: leave at list this amount of time between the first sample
+                    and the beginning of silence
+            window: the duration of the analysis window, in seconds
+
+        Returns:
+            a new Sample with silence removed
         """
         period = int(window * self.samplerate)
-        first_sound_sample = first_sound(self.samples, threshold, period)
+        first_sound_sample = npsnd.firstSound(self.samples, threshold, period)
         if first_sound_sample >= 0:
             time = max(first_sound_sample / self.samplerate - margin, 0)
             return self[time:]
         return self
 
-    def remove_silence_right(self, threshold=-120.0, margin=0.01, window=0.02) -> Sample:
+    def stripSilenceRight(self, threshold=-120.0, margin=0.01, window=0.02) -> Sample:
         """
-        See remove_silence
+        Remove silence from the right. Returns a new Sample
+
+        Args:
+            threshold: dynamic of silence, in dB
+            margin: leave at list this amount of time between the first/last sample
+                    and the beginning of silence or
+            window: the duration of the analysis window, in seconds
+
+        Returns:
+            a new Sample with silence removed
         """
         period = int(window * self.samplerate)
-        lastsample = last_sound(self.samples, threshold, period)
+        lastsample = npsnd.lastSound(self.samples, threshold, period)
         if lastsample >= 0:
             time = min(lastsample / self.samplerate + margin, self.duration)
             return self[:time]
         return self
 
-    def remove_silence(self, threshold=-120.0, margin=0.01, window=0.02) -> Sample:
+    def stripSilence(self, threshold=-120.0, margin=0.01, window=0.02) -> Sample:
         """
         Remove silence from the sides. Returns a new Sample
 
-        threshold: dynamic of silence, in dB
-        margin: leave at list this amount of time between the first/last sample
-                and the beginning of silence or
-        window: the duration of the analysis window, in seconds
+        Args:
+            threshold: dynamic of silence, in dB
+            margin: leave at list this amount of time between the first/last sample
+                    and the beginning of silence or
+            window: the duration of the analysis window, in seconds
+
+        Returns:
+            a new Sample with silence at the sides removed
         """
-        out = self.remove_silence_left(threshold, margin, window)
-        out = out.remove_silence_right(threshold, margin, window)
+        out = self.stripSilenceLeft(threshold, margin, window)
+        out = out.stripSilenceRight(threshold, margin, window)
         return out
 
     def resample(self, samplerate: int) -> Sample:
@@ -631,50 +723,70 @@ class Sample:
         """
         if samplerate == self.samplerate:
             return self
-        samples = _resample(self.samples, self.samplerate, samplerate)
+        samples = resample(self.samples, self.samplerate, samplerate)
         return Sample(samples, samplerate=samplerate)
 
     def scrub(self, bpf: _bpf.BpfInterface) -> Sample:
         """
-        bpf: a bpf mapping time -> time
+        Args:
+            bpf: a bpf mapping time -> time
 
-        Example 1: Read sample at half speed
+        Example::
 
-        dur = sample1.duration
-        sample2 = sample1.scrub(bpf.linear((0, 0),
-                                           (dur*2, dur)
-                                           ))
+            >>> # Read sample at half speed
+            >>> sample = Sample("path.wav")
+            >>> dur = sample.duration
+            >>> sample2 = sample.scrub(bpf.linear([(0, 0), (dur*2, dur)]))
+
         """
         samples, sr = sndfiletools.scrub((self.samples, self.samplerate), bpf,
                                          rewind=False)
         return Sample(samples, self.samplerate)
 
-    def get_channel(self, n:int, contiguous=True) -> Sample:
+    def getChannel(self, n:int, contiguous=False) -> Sample:
         """
         return a new mono Sample with the given channel
+
+        Args:
+            n: the channel index (starting with 0)
+            contiguous: if True, ensure that the samples are represented as
+                contiguous in memory
         """
-        if self.channels == 1 and n == 0:
+        if self.numchannels == 1 and n == 0:
             return self
-        if n > (self.channels - 1):
-            raise ValueError("this sample has only %d channel(s)!" %
-                             self.channels)
+        if n > (self.numchannels-1):
+            raise ValueError("this sample has only %d channel(s)!"%
+                             self.numchannels)
         newsamples = self.samples[:, n]
         if contiguous and not newsamples.flags.c_contiguous:
             newsamples = np.ascontiguousarray(newsamples)
         return Sample(newsamples, self.samplerate)
 
-    def estimate_freq(self, start=0.2, dur=0.15, strategy='autocorr') -> float:
+    def contiguous(self) -> Sample:
+        """
+        Return a Sample ensuring that the samples are contiguous in memory
+        If self is already contiguous, self is returned
+        """
+        if self.samples.flags.c_contiguous:
+            return self
+        return Sample(np.ascontiguousarray(self.samples), self.samplerate)
+
+    def estimateFreq(self, start=0.2, dur=0.15, strategy='autocorr') -> float:
         """
         estimate the frequency of the sample (in Hz)
 
-        start: where to start the analysis (the beginning
-               of a sample is often not very clear)
-        dur: duration of the fragment to analyze
-        strategy: one of 'autocorr' or 'fft'
+        Args:
+            start: where to start the analysis (the beginning
+                   of a sample is often not very clear)
+            dur: duration of the fragment to analyze
+            strategy: one of 'autocorr' or 'fft'
+
+        Returns:
+            the estimated fundamental freq.
         """
         t0 = start
         t1 = min(self.duration, t0 + dur)
-        s = self.get_channel(0)[t0:t1]
+        s = self.getChannel(0)[t0:t1]
         from .freqestimate import freq_from_autocorr, freq_from_fft
         func = {
             'autocorr': freq_from_autocorr,
@@ -682,29 +794,58 @@ class Sample:
         }.get(strategy, freq_from_autocorr)
         return func(s.samples, s.samplerate)
 
-    def fundamental_bpf(self, fftsize=2048, stepsize=512, method="pyin") -> _bpf.BpfInterface:
-        if method == "pyin":
+    def fundamentalBpf(self, fftsize=2048, overlap=4, method="pyin"
+                       ) -> _bpf.BpfInterface:
+        """
+        Construct a bpf which follows the fundamental of this sample in time
+
+        .. note::
+            sonicannotator: https://code.soundsoftware.ac.uk/projects/sonic-annotator/files
+            pyin plugin: https://code.soundsoftware.ac.uk/projects/pyin/files
+        Args:
+            fftsize: the size of the fft, in samples
+            overlap: determines the hop size
+            method: one of 'pyin', 'autocorrelation'. To be able to use 'pyin'
+                sonnicannotator with the pyin plugin needs to be installed. 'pyin'
+                is the recommended method at the moment
+
+        Returns:
+            a bpf representing the fundamental freq. of this sample
+
+        """
+        stepsize = int(fftsize//overlap)
+        if method == "pyin-annotator":
             from maelzel.ext import sonicannotator
             tmpwav = tempfile.mktemp(suffix=".wav")
             self.write(tmpwav)
-            bpf = sonicannotator.pyin_smooth_pitch(tmpwav, fftsize=fftsize, stepsize=stepsize, threshdistr=1.5)
+            bpf = sonicannotator.pyin_smooth_pitch(tmpwav, fftsize=fftsize,
+                                                   stepsize=stepsize, threshdistr=1.5)
             os.remove(tmpwav)
             return bpf
+        elif method == "pyin":
+            from maelzel.snd import vamptools
+            dt, freqs = vamptools.pyin_smoothpitch(self.samples, self.samplerate,
+                                                   fft_size=fftsize,
+                                                   step_size=fftsize//overlap)
+            return _bpf.core.Sampled(freqs, dt)
+
         elif method == "autocorrelation":
             from maelzel.snd import freqestimate
             steptime = stepsize/self.samplerate
-            bpf = freqestimate.frequency_bpf(self.samples, sr=self.samplerate, steptime=steptime,
-                                             method='autocorrelation')
+            bpf = freqestimate.frequency_bpf(self.samples, sr=self.samplerate,
+                                             steptime=steptime, method='autocorrelation')
             return bpf
         else:
-            raise ValueError(f"method should be one of 'pyin', 'autocorrelation', but got {method}")
+            raise ValueError(f"method should be one of 'pyin', 'autocorrelation', "
+                             f"but got {method}")
 
-    def chord_at(self, t: float, resolution=30, method='sndtrck', **kws):
+    def chordAt(self, t: float, resolution=30, method='sndtrck', **kws):
         if method == 'sndtrck':
             try:
                 import sndtrck
             except ImportError:
-                raise ImportError("sndtrck is needed (https://github.com/gesellkammer/sndtrck)")
+                raise ImportError("sndtrck is needed "
+                                  "(https://github.com/gesellkammer/sndtrck)")
             margin = 0.15
             t0 = max(0., t - margin)
             t1 = min(self.duration, t + margin)
@@ -712,167 +853,87 @@ class Sample:
                                         self.samplerate,
                                         resolution=resolution,
                                         hop=2)
-            chord = s.chord_at(t - t0)
+            chord = s.chordAt(t-t0)
             return chord
         else:
-            raise ValueError(f"method {method} not supported. Possible methods: 'sndtrck'")
+            raise ValueError(f"method {method} not supported. Possible "
+                             f"methods: 'sndtrck'")
 
     def chunks(self, chunksize:int, hop:int=None, pad=False) -> Iter[np.ndarray]:
         """
         Iterate over the samples in chunks of chunksize. If pad is True,
         the last chunk will be zeropadded, if necessary
+
+        Args:
+            chunksize: the size of each chunk
+            hop: the number of samples to skip
+            pad: if True, pad the last chunk with 0 to fill chunksize
+
+        Returns:
+            an iterator over the chunks
         """
         return numpytools.chunks(self.samples,
                                  chunksize=chunksize,
                                  hop=hop,
                                  padwith=(0 if pad else None))
 
-    def first_sound(self, threshold=-120.0, period=0.04, hopratio=0.5, start=0.) -> float:
-        idx = first_sound(self.samples,
-                          threshold=threshold,
-                          periodsamps=int(period * self.samplerate),
-                          hopratio=hopratio,
-                          skip=int(start*self.samplerate))
-        return idx / self.samplerate if idx >= 0 else -1
-
-    def first_silence(self, threshold=-80, period=0.04, hopratio=0.5,
-                      soundthreshold=-50, start=0.):
+    def firstSound(self, threshold=-120.0, period=0.04, overlap=2, start=0.
+                   ) -> Opt[float]:
         """
+        Find the time of the first sound within this sample
 
         Args:
-            threshold: rms value which counts as silence
+            threshold: the sound threshold in dB.
             period: the time period to calculate the rms
-            hopratio: how much to slide between rms calculations, as a fraction of the period
-            soundthreshold: rms value which counts as sound
+            overlap: determines the step size between rms calculations
             start: start time (0=start of sample)
 
         Returns:
+            the time of the first sound, or None if no sound found
 
         """
-        idx = first_silence(samples=self.samples,
-                            threshold=threshold,
-                            period=int(period*self.samplerate),
-                            hopratio=hopratio,
-                            soundthreshold=soundthreshold,
-                            startidx=int(start*self.samplerate))
-        return idx/self.samplerate if idx > 0 else -1
+        idx = npsnd.firstSound(self.samples,
+                               threshold=threshold,
+                               periodsamps=int(period * self.samplerate),
+                               overlap=overlap,
+                               skip=int(start*self.samplerate))
+        return idx / self.samplerate if idx >= 0 else None
+
+    def firstSilence(self, threshold=-80, period=0.04, overlap=2,
+                     soundthreshold=-50, start=0.) -> Opt[float]:
+        """
+        Find the first silence in this sample
+
+        Args:
+            threshold: rms value which counts as silence, in dB
+            period: the time period to calculate the rms
+            overlap: determines the step size between rms calculations
+            soundthreshold: rms value which counts as sound, in dB
+            start: start time (0=start of sample)
+
+        Returns:
+            the time of the first silence, or None if no silence found
+
+        """
+        idx = npsnd.firstSilence(samples=self.samples,
+                                 threshold=threshold,
+                                 period=int(period*self.samplerate),
+                                 overlap=overlap,
+                                 soundthreshold=soundthreshold,
+                                 startidx=int(start*self.samplerate))
+        return idx/self.samplerate if idx is not None else None
 
 
-def first_sound(samples, threshold=-120.0, periodsamps=256, hopratio=0.5, skip=0) -> int:
+def broadcastSamplerate(samples: List[Sample]) -> List[Sample]:
     """
-    Find the first sample in samples whith a rms
-    exceeding the given threshold
-
-    Returns: time of the first sample holding sound or -1 if
-             no sound found
-    """
-    threshold_amp = db2amp(threshold)
-    hopsamples = int(periodsamps * hopratio)
-    i = 0
-    while True:
-        i0 = skip + i * hopsamples
-        i1 = i0 + periodsamps
-        if i1 > len(samples):
-            break
-        chunk = samples[i0:i1]
-        rms_now = rms(chunk)
-        if rms_now > threshold_amp:
-            return i0
-    return -1
-
-
-def first_silence(samples: np.ndarray, threshold=-100, period=256,
-                  hopratio=0.5, soundthreshold=-60, startidx=0) -> int:
-    """
-    Return the sample where rms decays below threshold
-
-    Args:
-        samples: the samples data
-        threshold: the threshold in dBs (rms)
-        period: how many samples to use for rms calculation
-        hopratio: how many samples to skip before taking the next
-            measurement
-        soundthreshold: the threshold to considere that the sound
-            started (rms)
-        startidx: the sample to start looking for silence (0 to start
-            from beginning)
-
-    Returns:
-        the index where the first silence is found (-1 if no silence found)
-
-    """
-    soundstarted = False
-    hopsamples = int(period * hopratio)
-    thresholdamp = db2amp(threshold)
-    soundthreshamp = db2amp(soundthreshold)
-    lastrms = rms(samples[startidx:startidx+period])
-    idx = hopsamples + startidx
-    while idx < len(samples) - period:
-        win = samples[idx:idx+period]
-        rmsnow = rms(win)
-        if rmsnow >= soundthreshamp:
-            soundstarted = True
-        elif rmsnow <= thresholdamp and lastrms > thresholdamp and soundstarted:
-            return idx
-        lastrms = rmsnow
-        idx += hopsamples
-    return -1
-
-
-def last_sound(samples: np.ndarray, threshold=-120.0, period=256, hopratio=1.0) -> int:
-    """
-    Find the end of the last sound in the samples.
-    (the last time where the rms is lower than the given threshold)
-
-    Returns -1 if no sound is found
-    """
-    samples1 = samples[::-1]
-    i = first_sound(samples1,
-                    threshold=threshold,
-                    periodsamps=period,
-                    hopratio=hopratio)
-    if i < 0:
-        return i
-    return len(samples) - (i + period)
-
-
-def rms(arr: np.ndarray) -> float:
-    """
-    calculate the root-mean-square of the array
-    """
-    return sqrt((arr**2).sum() / len(arr))
-
-
-def broadcast_samplerate(a: Sample, b: Sample) -> Tuple[np.ndarray, np.ndarray, int]:
-    """
-    Match the samplerates of audio samples a and b to the highest one
-    the audio sample with the lowest samplerate is resampled to the
+    Match the samplerates audio samples to the highest one.
+    The audio sample with the lowest samplerate is resampled to the
     higher one.
-
-    a, b: Sample instances
-
-    Returns: (resampled_a, resampled_b, new_samplerate)
+    
     """
-    assert isinstance(a, Sample)
-    assert isinstance(b, Sample)
-    if a.samplerate == b.samplerate:
-        return a.samples, b.samples, a.samplerate
-    sr = max(a.samplerate, b.samplerate)
-    if sr == a.samplerate:
-        samples0, samples1 = a.samples, _resample(b.samples, b.samplerate, sr)
-    else:
-        samples0, samples1 = _resample(a.samples, a.samplerate, sr), b.samples
-    assert isinstance(samples0, np.ndarray)
-    assert isinstance(samples1, np.ndarray)
-    return samples0, samples1, sr
-
-
-def numchannels(samples: np.ndarray) -> int:
-    """
-    Returns the number of channels held by the `samples` array
-    """
-    assert isinstance(samples, np.ndarray)
-    return 1 if len(samples.shape) == 1 else samples.shape[1]
+    assert all(isinstance(s, Sample) for s in samples)
+    sr = max(s.samplerate for s in samples)
+    return [s.resample(sr) for s in samples]
 
 
 def _as_numpy_samples(samples: U[Sample, np.ndarray]) -> np.ndarray:
@@ -884,9 +945,9 @@ def _as_numpy_samples(samples: U[Sample, np.ndarray]) -> np.ndarray:
         return np.asarray(samples, dtype=float)
 
 
-def as_sample(source: U[str, Sample, Tuple[np.ndarray, int]]) -> Sample:
+def asSample(source: U[str, Sample, Tuple[np.ndarray, int]]) -> Sample:
     """
-    return a Sample instance
+    Return a Sample instance
 
     input can be a filename, a Sample or a tuple (samples, samplerate)
     """
@@ -903,11 +964,10 @@ def as_sample(source: U[str, Sample, Tuple[np.ndarray, int]]) -> Sample:
 
 def mono(samples: U[Sample, np.ndarray]) -> np.ndarray:
     """
-    If samples are multichannel, it mixes down the samples
-    to one channel.
+    Returns a mono version of samples - mixes down the samples if necessary
     """
     samples = _as_numpy_samples(samples)
-    channels = numchannels(samples)
+    channels = npsnd.numChannels(samples)
     if channels == 1:
         return samples
     return np.sum(samples, axis=1) / channels
@@ -915,10 +975,15 @@ def mono(samples: U[Sample, np.ndarray]) -> np.ndarray:
 
 def concat(sampleseq: Seq[Sample]) -> Sample:
     """
-    sampleseq: a seq. of Samples
+    Concatenate a sequence of Samples
 
-    concat the given Samples into one Sample.
     Samples should share samplingrate and numchannels
+
+    Args:
+        sampleseq: a seq. of Samples
+
+    Returns:
+        the concatenated samples as one Sample
     """
     s = np.concatenate([s.samples for s in sampleseq])
     return Sample(s, sampleseq[0].samplerate)
@@ -944,24 +1009,30 @@ def _mapn_between(func, n:int, t0:float, t1:float) -> np.ndarray:
 
 def _modify_metadata(path: str, metadata: dict) -> None:
     """
-    possible keys:
+    possible keys::
 
-    description     \
-    originator       |
-    orig-ref         |
-    umid             | bext
-    orig-date        |
-    orig-time        |
-    coding-hist     /
 
-    title
-    copyright
-    artist
-    comment
-    date
-    album
-    license
+        description     \
+        originator       |
+        orig-ref         |
+        umid             | bext
+        orig-date        |
+        orig-time        |
+        coding-hist     /
+
+        title
+        copyright
+        artist
+        comment
+        date
+        album
+        license
     """
+    sndfile_metadata_set = shutil.which("sndfile-metadata-set")
+    if sndfile_metadata_set is None:
+        raise RuntimeError("Could not find sndfile-metadata-set. Metadata can'be be set "
+                           "via this method")
+
     possible_keys = {
         "description": "bext-description",
         "originator": "bext-originator",
@@ -976,43 +1047,54 @@ def _modify_metadata(path: str, metadata: dict) -> None:
         "date": "str-date",
         "album": "str-album"
     }
-    args = []
+    args = [sndfile_metadata_set]
     for key, value in metadata.items():
         key2 = possible_keys.get(key)
         if key2 is not None:
-            args.append(' --%s "%s"' % (key2, str(value)))
-    os.system('sndfile-metadata-set %s "%s"' % (" ".join(args), path))
+            args.append('--' + key2)
+            args.append(str(value))
+        else:
+            logger.error(f"Unknown key: {key}, skipping")
+    args.append(path)
+    subprocess.call(args)
 
 
-def open_sndfile_to_write(filename:str, channels=1, samplerate=48000, bits:int=None) -> pysndfile.PySndfile:
-    """
-    The format is inferred from the extension (wav, aiff, flac, etc.)
-
-    if bits is given, it is used. otherwise it is inferred from the format
-    """
-    encodings = {
-        'wav': {
-            16: "pcm16",
-            24: "pcm24",
-            32: "float32"
-        },
-        'aif': {
-            16: "pcm16",
-            24: "pcm24",
-            32: "float32",
-        },
-        'flac': {
-            16: "pcm16",
-            24: "pcm24",
-            32: "pcm24"
-        }
+_encodingsByFormat = {
+    'wav': {
+        16: "pcm16",
+        24: "pcm24",
+        32: "float32",
+        0: "float32"
+    },
+    'aif': {
+        16: "pcm16",
+        24: "pcm24",
+        32: "float32",
+        0: "float32"
+    },
+    'flac': {
+        16: "pcm16",
+        24: "pcm24",
+        0: "pcm24"
     }
+}
+
+
+def PySndFileToWrite(filename:str, channels=1, samplerate=48000,
+                     bits:int=None) -> pysndfile.PySndfile:
+    """
+    Open a PySndfile in write modus
+
+    The format is inferred from the extension (wav, aiff, flac, etc.)
+    If bits is given, it is used. Otherwise it is inferred from the format
+    """
+
     base, ext = os.path.splitext(filename)
     ext = ext[1:].lower()
-    if not ext or ext not in encodings:
+    if not ext or ext not in _encodingsByFormat:
         raise ValueError(f"The extension ({ext}) is not supported")
 
-    encoding = encodings[ext].get(bits)
+    encoding = _encodingsByFormat[ext].get(bits or 0)
     if encoding is None:
         raise ValueError(f"no format possible for {ext} with {bits} bits")
     fmt = pysndfile.construct_format(ext, encoding)
@@ -1023,12 +1105,46 @@ def open_sndfile_to_write(filename:str, channels=1, samplerate=48000, bits:int=N
                                samplerate=samplerate)
 
 
-def make_silence(dur:float, channels:int, sr:int) -> Sample:
+def mix(samples: List[Sample], offsets:List[float]=None, gains:List[float]=None
+        ) -> Sample:
     """
-    Generate a silent Sample with the given characteristics
+    Mix the given samples down, optionally with a time offset
+
+    All samples should share the same number of channels and samplerate
+
+    Args:
+        samples: the Samples to mix
+        offsets: if given, an offset in seconds for each sample
+        gains: if given, a gain for each sample
+
+    Returns:
+        the resulting Sample
+
+    Example::
+
+        >>> a = Sample.read("stereo-2seconds.wav")
+        >>> b = Sample.read("stereo-3seconds.wav")
+        >>> m = mix([a, b], offsets=[2, 0])
+        >>> m.duration
+        4.0
     """
-    if channels == 1:
-        samples = np.zeros((int(dur * sr), ), dtype=float)
+    nchannels = samples[0].numchannels
+    sr = samples[0].samplerate
+    assert all(s.numchannels == nchannels and s.samplerate == sr for s in samples)
+    if offsets is None:
+        offsets = [0.] * len(samples)
+    if gains is None:
+        gains = [1.] * len(samples)
+    dur = max(s.duration + offset for s, offset in zip(samples, offsets))
+    numframes = int(dur * sr)
+    if nchannels == 1:
+        buf = np.zeros((numframes,), dtype=float)
     else:
-        samples = np.zeros((int(dur * sr), channels), dtype=float)
-    return Sample(samples, sr)
+        buf = np.zeros((numframes, nchannels), dtype=float)
+    for s, offset, gain in zip(samples, offsets, gains):
+        startframe = int(offset*sr)
+        endframe = startframe+len(s)
+        buf[startframe:endframe] += s.samples
+        if gain != 1.0:
+            buf[startframe:endframe] *= gain
+    return Sample(buf, samplerate=sr)

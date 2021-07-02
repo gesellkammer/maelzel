@@ -7,24 +7,68 @@ into musicxml and renders that musicxml via musescore.
 import os
 import logging
 import tempfile
+from emlib.iterlib import pairwise
 
 import music21 as m21
 from maelzel.music import m21tools, m21fix
 from maelzel import musicxml as mxml
+
 
 from .common import *
 from .core import Notation
 from .render import Renderer, RenderOptions
 from . import quant
 from . import util
+from . import definitions
 
 
 logger = logging.getLogger("maelzel.scoring")
 
-
+# See https://www.w3.org/2021/06/musicxml40/musicxml-reference/data-types/notehead-value/
 _noteheadToMusic21 = {
-    'harmonic': 'mi'
+    'harmonic': 'mi',
+    'cross': 'x',
+    'triangleup': 'triangle',
+    'xcircle': 'circle-x',
+    'triangle': 'do',
+    'rhombus': 'mi',    # 'diamond',
+    'square': 'la', # 'la',
+    'rectangle': 'rectangle'
 }
+
+assert all(shape in definitions.noteheadShapes for shape in _noteheadToMusic21.keys())
+
+
+def noteToMusic21(n: Notation, divsPerSemitone=4, durRatios=None, tupleType=None
+                  ) -> Tuple[m21.note.Note, int]:
+    assert len(n.pitches) == 1
+
+    if n.isGraceNote():
+        duration = m21tools.makeDuration(n.getProperty("graceNoteType", "eighth"))
+    else:
+        notatedDur = n.notatedDuration()
+        durType = 4 / notatedDur.base
+        duration = m21tools.makeDuration(durType, dots=notatedDur.dots,
+                                         durRatios=durRatios, tupleType=tupleType)
+
+    pitch = n.pitches[0]
+    if n.notehead:
+        notehead, fill = util.parseNotehead(n.notehead)
+        m21notehead = _noteheadToMusic21.get(notehead)
+        if m21notehead is None:
+            logger.error(f"Unknown notehead {notehead}, using default")
+            m21notehead = None
+    else:
+        m21notehead, fill = None, None
+
+    out, centsdev = m21tools.makeNote(pitch=pitch, duration=duration,
+                                      divsPerSemitone=divsPerSemitone,
+                                      showcents=False,
+                                      notehead=m21notehead,
+                                      noteheadFill=fill,
+                                      tiedToPrevious=n.tiedPrev,
+                                      hideAccidental=n.accidentalHidden)
+    return out, centsdev
 
 
 def notationToMusic21(n: Notation, durRatios: List[F], tupleType: Opt[str],
@@ -53,28 +97,31 @@ def notationToMusic21(n: Notation, durRatios: List[F], tupleType: Opt[str],
         duration = m21tools.makeDuration(durType, dots=notatedDur.dots,
                                          durRatios=durRatios, tupleType=tupleType)
 
-    if n.rest:
+    if n.isRest:
         return m21.note.Rest(duration=duration)
 
     pitches = n.pitches
     if n.notehead:
         notehead, fill = util.parseNotehead(n.notehead)
-        notehead = _noteheadToMusic21.get(notehead, notehead)
+        m21notehead = _noteheadToMusic21.get(notehead)
+        if m21notehead is None:
+            logger.error(f"notationToMusic21: Unknown notehead {notehead}, using default")
+            m21notehead = None
     else:
-        notehead, fill = None, None
+        m21notehead, fill = None, None
 
     if len(pitches) == 1:
         out, centsdev = m21tools.makeNote(pitch=pitches[0], duration=duration,
                                           divsPerSemitone=options.divsPerSemitone,
                                           showcents=False,
-                                          notehead=notehead,
+                                          notehead=m21notehead,
                                           noteheadFill=fill,
                                           tiedToPrevious=n.tiedPrev,
                                           hideAccidental=n.accidentalHidden)
     else:
         out, centsdev = m21tools.makeChord(pitches=pitches, duration=duration,
                                            divsPerSemitone=options.divsPerSemitone,
-                                           notehead=notehead,
+                                           notehead=m21notehead,
                                            noteheadFill=fill,
                                            showcents=options.showCents,
                                            tiedToPrevious=n.tiedPrev,
@@ -89,6 +136,13 @@ def notationToMusic21(n: Notation, durRatios: List[F], tupleType: Opt[str],
 
     if options.glissHideTiedNotes and n.noteheadHidden:
         m21tools.hideNotehead(out)
+
+    if n.stem == 'hidden':
+        m21tools.hideStem(out)
+
+    if n.color:
+        out.style.color = n.color
+
     # annotations need to be added later, when the music21 object has already
     # been added to a stream
     return out
@@ -129,11 +183,11 @@ def _m21RenderGroup(measure: m21.stream.Measure,
                 tupleType = None
         m21obj = notationToMusic21(item, durRatios, tupleType=tupleType, options=options)
 
-        if not item.rest and item.gliss is not None:
+        if not item.isRest and item.gliss is not None:
             m21obj.editorial.gliss = item.gliss
 
         measure.append(m21obj)
-        if not item.rest and options.showCents and not item.tiedPrev:
+        if not item.isRest and options.showCents and not item.tiedPrev:
             centsStr = util.centsAnnotation(item.pitches,
                                             divsPerSemitone=options.divsPerSemitone,
                                             order=centsLabelOrder)
@@ -181,8 +235,23 @@ def _m21ApplyGlissandi(part: m21.stream.Part, options:RenderOptions) -> None:
                 logger.info(f"Can't render glissando between non"
                             f"contiguous notes: {note}")
                 continue
-            m21tools.addGliss(note, endnote,
+            m21tools.addGliss(note, endnote, linetype='solid', continuous=True,
                               hideTiedNotes=options.glissHideTiedNotes)
+
+
+def _fixGracenoteAtBeginning(part: quant.QuantizedPart) -> None:
+    if len(part.measures) < 2:
+        return
+    for m0, m1 in pairwise(part.measures):
+        if not m1.beats:
+            continue
+        m1b0 = m1.beats[0]
+        if len(m1b0.notations) <= 1:
+            continue
+        if m1b0.notations[0].duration == 0 and m1b0.notations[1].isRest:
+            m0last = m0.beats[-1]
+            m0last.notations.append(m1b0.notations[0])
+            m1b0.notations = m1b0.notations[1:]
 
 
 def quantizedPartToMusic21(part: quant.QuantizedPart,
@@ -206,9 +275,14 @@ def quantizedPartToMusic21(part: quant.QuantizedPart,
 
     """
     options = options if options is not None else RenderOptions()
+    if clef is None:
+        midinotesInPart = [n.notation.meanPitch() for n in part.iterNotations()
+                           if not n.notation.isRest]
+        clef = util.clefNameFromMidinotes(midinotesInPart)
     m21part = m21tools.makePart(clef=clef, partName=part.label)
     quarterTempo = 60
     timesig = None
+    _fixGracenoteAtBeginning(part)
     for i, measure in enumerate(part.measures):
         measureDef = part.struct.getMeasureDef(i)
         m21measure = m21tools.makeMeasure(measure.timesig,
@@ -229,11 +303,11 @@ def quantizedPartToMusic21(part: quant.QuantizedPart,
             dur = measureDef.numberOfBeats()
             rest = m21.note.Rest(duration=m21.duration.Duration(dur))
             m21measure.append(rest)
-            m21part.append(m21measure)
         else:
+            measure.removeUnnecessaryAccidentals()
             for group in measure.groups():
                 _m21RenderGroup(m21measure, group, [], options=options)
-        m21tools.measureFixAccidentals(m21measure)
+            m21tools.measureFixAccidentals(m21measure)
         m21part.append(m21measure)
 
     m21tools.fixNachschlaege(m21part)
@@ -277,8 +351,10 @@ def renderScore(parts: List[quant.QuantizedPart], options: RenderOptions=None
                                          scalingTenths=mxml.MUSICXML_TENTHS,
                                          pageHeight=cnv.toTenths(heightmm),
                                          pageWidth=cnv.toTenths(widthmm))
-    m21parts = [quantizedPartToMusic21(part, addMeasureMarks=i==0, options=options)
-                for i, part in enumerate(parts)]
+    m21parts = []
+    for i, part in enumerate(parts):
+        m21part = quantizedPartToMusic21(part, addMeasureMarks=i==0, options=options)
+        m21parts.append(m21part)
     score = m21tools.stackParts(m21parts)
     score.insert(-1, scoreLayout)
     m21tools.scoreSetMetadata(score, title=options.title, composer=options.composer)

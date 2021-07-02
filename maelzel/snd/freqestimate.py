@@ -80,7 +80,7 @@ def freq_from_fft(sig:np.ndarray, sr:int) -> float:
     f = np.fft.rfft(windowed)
     
     # Find the peak and interpolate to get a more accurate peak
-    i = np.argmax(abs(f))    # Just use this for less-accurate, naive version
+    i = int(np.argmax(abs(f)))    # Just use this for less-accurate, naive version
     true_i = parabolic(np.log(abs(f)), i)[0]
     
     # Convert to equivalent frequency
@@ -126,7 +126,7 @@ def freq_from_HPS(sig:np.ndarray, sr:int, maxharms=5) -> float:
         a = c[::x]  # Should average or maximum instead of decimating
         # a = max(c[::x],c[1::x],c[2::x])
         c = c[:len(a)]
-        i = np.argmax(abs(c))
+        i = int(np.argmax(abs(c)))
         try:
             true_i = parabolic(abs(c), i)[0]
         except IndexError:

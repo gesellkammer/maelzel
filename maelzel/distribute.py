@@ -652,7 +652,10 @@ def fill(containers, streams) -> _FillResult:
     Example
     =======
 
-    TODO
+    # try to partition 3 and 4 into three values which fill containers 1, 2, 5
+    # in the best way
+    >>> fill([1,2,5], [3, 4])
+    [[1, 2], 4]
     """
     containers_keep_track = containers[:]
     streams_keep_track = streams[:]

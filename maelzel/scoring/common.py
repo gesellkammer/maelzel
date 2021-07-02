@@ -1,12 +1,14 @@
 from typing import Union as U, Tuple, List, NamedTuple, Optional as Opt, TypeVar
 from fractions import Fraction as F
-from emlib.pitchtools import m2n, n2m, split_notename, split_cents, accidental_name
+from maelzel.mpqfractions import Rat
+from pitchtools import m2n, n2m, split_notename, split_cents, accidental_name
 import dataclasses
+import enum
 
 # This module can't import ANYTHING from .
 
-time_t = U[float, int, F]
-number_t = U[int, float, F]
+time_t = U[float, int, F, Rat]
+number_t = U[int, float, F, Rat]
 pitch_t  = U[int, float, str]
 timesig_t = Tuple[int, int]
 division_t = List[U[int, 'division_t']]
@@ -17,15 +19,15 @@ T = TypeVar("T")
 def asF(t: number_t) -> F:
     if isinstance(t, F):
         return t
+    elif isinstance(t, Rat):
+        return F(t.numerator, t.denominator)
     return F(t)
 
 
 def asFractionOrNone(t: number_t) -> Opt[F]:
     if t is None:
         return None
-    if isinstance(t, F):
-        return t
-    return F(t)
+    return asF(t)
 
 
 def asmidi(x) -> float:
@@ -52,23 +54,6 @@ class TimeSpan(NamedTuple):
 
 
 @dataclasses.dataclass
-class Tempo:
-    """
-    tempo: the tempo value, relative to the referent
-    referent: the value for which tempo is given. 1=quarter note, 1/2=8th note
-    """
-    tempo: F
-    referent: F = F(1)
-
-    @property
-    def quarterTempo(self) -> F:
-        return F(1)/self.referent*self.tempo
-
-    # def __hash__(self):
-    #    return hash((self.tempo, self.referent))
-
-
-@dataclasses.dataclass
 class Annotation:
     text: str
     placement: str = 'above'
@@ -92,10 +77,8 @@ class NotatedDuration:
     tuplets: List[Tuple[int, int]] = None
 
 
-dynamicLevels = ["pppp", "ppp", "pp", "p", "mp", "mf", "f", "ff", "fff", "ffff"]
-availableDynamics = set(dynamicLevels)
-
-availableNoteheads = {"slash", "triangle", "harmonic", "square", "cross",
-                      "rectangle", "xcircle", "none", "rhombus"}
-
-availableArticulations = {'accent', 'staccato', 'tenuto', 'marcato', 'staccatissimo'}
+class GLISS(enum.Enum):
+    START = 1
+    END = 2
+    ENDSTART = 3
+    NONE = 4

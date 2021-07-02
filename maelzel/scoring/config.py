@@ -10,5 +10,6 @@ config.addKey('centsFontSize', 10, type=int)
 config.addKey('measureAnnotationFontSize', 12, int)
 config.addKey('noteAnnotationFontSize', 10, int)
 config.addKey('showCents', False, type=bool)
+config.addKey('lilypondHorizontalSpacing', 'large', choices=('normal', 'medium', 'large'))
 
 config.load()

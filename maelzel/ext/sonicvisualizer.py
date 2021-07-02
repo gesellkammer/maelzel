@@ -4,41 +4,33 @@ Utilities to interact with Sonic Visualizer
 import os
 from lxml import etree
 from bpf4 import bpf
-from emlib.pitchtools import *
+from pitchtools import *
+from emlib.containers import RecordList
+from emlib import csvtools
 
 
-def readnotes(path):
+def readNotes(path: str) -> RecordList:
     """
-    Reads the data as exported by Export Annotation
-    from the layer 'Notes' or Flexible Notes'
+    Reads the data exported by Export Annotation from the layer 'Notes' / 'Flexible Notes'
 
-    Returns a pandas DataFrame
+    Returns:
+        a RecordList with fields 'start', 'freq', 'dur', 'amp', 'label', 'noten'
 
     The format is:
 
     - one row per note
     - columns: time, freq, dur, amp, label
 
-    Use dataframe2chord to convert it to a list of rows of 
-    type: (pitch, amp, notename)
     """
-    import pandas
-
-    def readcsv(path):
-        data = pandas.read_csv(path, names="start freq dur amp label".split())
-        notes = list(map(f2n, data['freq']))
-        data['note'] = notes
-        return data
-    
     ext = os.path.splitext(path)[1].lower()
+    if ext != '.csv':
+        raise ValueError(f"format {ext} not supported")
+    data = csvtools.readcsv(path, columns=["start", "freq", "dur", "amp", "label"])
+    notes = [f2n(d.freq) for d in data]
+    return data.add_column('note', notes)
 
-    if ext == '.csv':
-        return readcsv(path)
-    else:
-        raise ValueError("format %s not supported" % ext)
 
-
-def read_qtransf(path, minpitch=36, octave_division=12):
+def readQtrans(path, minpitch=36, octave_division=12):
     t = etree.parse(path)
     root = t.getroot()
     data = root.find("data")
@@ -60,8 +52,9 @@ def read_qtransf(path, minpitch=36, octave_division=12):
             values = []
         rows.append((int(row.get('n')), values))
     rows.sort(key=lambda r:r[0])
-    values = zip(*rows)[1]  # only the column with the values
-    return QTransf(start, wsize / sr, values, minpitch=minpitch, octave_division=octave_division)
+    values = list(zip(*rows))[1]   # only the column with the values
+    return QTransf(start, wsize / sr, values, minpitch=minpitch,
+                   octave_division=octave_division)
 
 
 class QTransf(object):
@@ -74,15 +67,15 @@ class QTransf(object):
         self.max_idx = len(values)
         self.maxpitch = minpitch + len(values[0]) * (12 / octave_division)
     
-    def __call__(self, t, midi):
-        if isinstance(midi, six.string_types):
+    def __call__(self, t: float, midi: U[float, str]) -> float:
+        if isinstance(midi, str):
             midi = n2m(midi)
         idx = int((t - self.start) / self.dt)
         midi_idx = int((midi - self.minpitch) * (self.octave_division / 12.))
         value = self.values[idx][midi_idx]
         return value
     
-    def chord_at(self, t, maxnotes=8, minamp=-60):
+    def chordAt(self, t:float, maxnotes=8, minamp=-60) -> List[Tuple[str, float]]:
         idx = int((t - self.start) / self.dt)
         values = self.values[idx]
         dp = 12. / self.octave_division
@@ -116,23 +109,12 @@ def read_adaptive_spectr(path):
             values = []
         rows.append((int(row.get('n')), values))
     rows.sort(key=lambda r:r[0])
-    values = zip(*rows)[1]  # only the column with the values
+    values = list(zip(*rows))[1]   # only the column with the values
     sr = int(model.get("sampleRate"))
     start = int(model.get("start"))
-    end = int(model.get("end"))
+    # end = int(model.get("end"))
     wsize = int(model.get("windowSize"))
     return Spectrum(bins, values, start, wsize/sr)
-
-
-def dataframe2chord(df):
-    chord = []
-    for i, row in df.iterrows():
-        pitch = f2m(row['freq'])
-        amp = row['amp']
-        notename = m2n(pitch)
-        chord.append((pitch, amp, notename))
-    chord.sort(reverse=True)
-    return chord
 
 
 class Spectrum(object):

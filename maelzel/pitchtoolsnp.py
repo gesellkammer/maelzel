@@ -3,8 +3,7 @@ Similar to pitchtools, but on numpy arrays
 """
 
 import numpy as np
-from emlib.pitchtools import set_reference_freq, get_reference_freq, n2m
-
+from pitchtools import n2m, get_reference_freq, set_reference_freq
 
 import sys
 _EPS = sys.float_info.epsilon
@@ -14,19 +13,27 @@ def f2m_np(freqs: np.ndarray, out:np.ndarray=None, a4:float=None) -> np.ndarray:
     """
     vectorized version of f2m
 
-    freqs: an array of frequencies
-    out: if given, put the result in out
+    Args:
+        freqs: an array of frequencies
+        out: if given, put the result in out
+        a4: the reference frequency. If not given use the global setting
+                (see set_reference_freq)
 
-    formula:
+    Returns:
+        the midi pitch as a numpy array
 
-    if freq < 9:
-        return 0
-    return 12.0 * log(freq/A4, 2) + 69.0
+
+    Formula::
+
+        if freq < 9:
+            return 0
+        return 12.0 * log(freq/A4, 2) + 69.0
+
     """
     freqs = np.asarray(freqs, dtype=float)
     a4 = a4 or get_reference_freq()
     if out is None:
-        return 12.0 * np.log2(freqs/A4) + 69.0
+        return 12.0 * np.log2(freqs/a4) + 69.0
     x = freqs/a4
     np.log2(x, out=x)
     x *= 12.0
@@ -38,8 +45,14 @@ def m2f_np(midinotes: np.ndarray, out:np.ndarray=None, a4:float=None) -> np.ndar
     """
     Vectorized version of m2f
 
-    midinotes: an array of midinotes
-    out: if given, put the result here
+    Args:
+        midinotes: an array of midinotes
+        out: if given, put the result here
+        a4: the reference frequency. If not given use the global setting
+            (see set_reference_freq)
+
+    Returns:
+        the frequencies as a numpy array
     """
     a4 = a4 or get_reference_freq()
     midinotes = np.asarray(midinotes, dtype=float)
@@ -53,9 +66,13 @@ def m2f_np(midinotes: np.ndarray, out:np.ndarray=None, a4:float=None) -> np.ndar
 def db2amp_np(db:np.ndarray, out:np.ndarray=None) -> np.ndarray:
     """
     Vectorized version of db2amp
-    
-    db: a np array of db values
-    out: if given, put the result here
+
+    Args:
+        db: a np array of db values
+        out: if given, put the result here
+
+    Returns:
+        the amplitudes as a numpy array
     """
     # amp = 10.0**(0.05*db)
     out = np.multiply(db, 0.05, out=out)
@@ -66,11 +83,15 @@ def db2amp_np(db:np.ndarray, out:np.ndarray=None) -> np.ndarray:
 def amp2db_np(amp:np.ndarray, out:np.ndarray=None) -> np.ndarray:
     """
     Vectorized version of amp2db
-    
-    amp: a np array of db values
-    out: if given, put the result here
+
+    Args:
+        amp: a np array of db values
+        out: if given, put the result here
+
+    Returns:
+        the dB values as a numpy array
+
     """
-    # db = log10(amp)*20
     X = np.maximum(amp, _EPS, out=out)
     X = np.log10(X, out=X)
     X *= 20
@@ -81,15 +102,22 @@ def logfreqs(notemin=0.0, notemax=139.0, notedelta=1.0) -> np.ndarray:
     """
     Return a list of frequencies corresponding to the pitch range given
 
-    notemin, notemax, notedelta: as used in arange (notemax is included)
+    Args:
+        notemin: start midi note
+        notemax: end midi note
+        notedelta: the delta to use between values
 
-    Example 1: generate a list of frequencies of all audible semitones
-    
-    >>> logfreqs(0, 139, notedelta=1)
+    Returns:
+        the frequencies between notemin and notemax with the given delta
 
-    Example 2: generate a list of frequencies of instrumental 1/4 tones
+    Example
+    =======
 
-    >>> logfreqs(n2m("A0"), n2m("C8"), 0.5) 
+        # generate a list of frequencies of all audible semitones
+        >>> logfreqs(0, 139, notedelta=1)
+
+        # generate a list of frequencies of instrumental 1/4 tones
+        >>> logfreqs(n2m("A0"), n2m("C8"), 0.5)
     """
     return m2f_np(np.arange(notemin, notemax+notedelta, notedelta))
 

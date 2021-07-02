@@ -1,35 +1,11 @@
 from __future__ import annotations
-from emlib import iterlib
+from emlib.iterlib import pairwise, partialsum
 from emlib import misc
-from emlib.pitchtools import n2m, m2n, pitch_round
+from pitchtools import n2m, m2n, pitch_round
 from .common import *
 from typing import List, Optional as Opt, Iterator as Iter, Tuple
-import uuid
 
 # This module can only import .common from .
-
-# iterlib
-
-def pairwise(iterable: Iter[T]) -> Iter[Tuple[T, T]]:
-    """
-    s -> (s0,s1), (s1,s2), (s2, s3), ..."
-
-    similar to window(seq, size=2, step=1)
-
-    Example
-    =======
-
-    >>> list(pairwise(range(4)))
-    [(0, 1), (1, 2), (2, 3)]
-    """
-    a, b = tee(iterable)
-    try:
-        next(b)
-    except StopIteration:
-        pass
-    return zip(a, b)
-
-# end iterlib
 
 
 def asSimplestNumberType(f: F) -> U[int, float]:
@@ -39,10 +15,6 @@ def asSimplestNumberType(f: F) -> U[int, float]:
     fl = float(f)
     i = int(fl)
     return i if i == fl else fl
-
-
-def makeId() -> uuid.UUID:
-    return uuid.uuid4()
 
 
 def roundMidinote(a: float, divsPerSemitone=4) -> float:
@@ -85,6 +57,21 @@ def measureTimeDuration(timesig: timesig_t, quarterTempo: F) -> F:
     return dur
 
 
+def beatDurationForTimesig(timesig: timesig_t, quarterTempo: number_t) -> F:
+    """
+    Beat duration for a given timesignature + tempo combination
+
+    Args:
+        timesig: the timesignature as tuple (num, den)
+        quarterTempo: the tempo in reference to the quarter note
+
+    Returns:
+        the beat duration as fraction of a quarter note
+    """
+    beats = measureBeats(timesig, quarterTempo)
+    return min(beats)
+
+
 def measureBeats(timesig: timesig_t, quarterTempo: number_t) -> List[F]:
     """
 
@@ -95,11 +82,14 @@ def measureBeats(timesig: timesig_t, quarterTempo: number_t) -> List[F]:
     Returns:
         a list of durations, as Fraction
 
-    4/8 -> [1, 1]
-    2/4 -> [1, 1]
-    3/4 -> [1, 1, 1]
-    5/8 -> [1, 1, 0.5]
-    5/16 -> [0.5, 0.5, 0.25]
+    ::
+
+        4/8 -> [1, 1]
+        2/4 -> [1, 1]
+        3/4 -> [1, 1, 1]
+        5/8 -> [1, 1, 0.5]
+        5/16 -> [0.5, 0.5, 0.25]
+
     """
     misc.assert_type(timesig, (int, int))
     quarterTempo = asF(quarterTempo)
@@ -152,7 +142,7 @@ def measureOffsets(timesig: timesig_t, quarterTempo: number_t) -> List[F]:
     quarterTempo = asF(quarterTempo)
 
     beatDurations = measureBeats(timesig, quarterTempo=quarterTempo)
-    beatOffsets = [F(0)] + list(iterlib.partialsum(beatDurations))
+    beatOffsets = [F(0)] + list(partialsum(beatDurations))
     return beatOffsets
 
 
@@ -161,18 +151,23 @@ def clefNameFromMidinotes(midis: List[float]) -> str:
     Given a list of midinotes, return the best clef to
     fit these notes
 
+    Args:
+        midis: a list of midinotes
+
+    Returns:
+        a string describing the clef type, one of 'treble', 'bass', 'treble8va', 'bass8vb'
     """
     if not midis:
         return "treble"
     avg = sum(midis)/len(midis)
     if avg>80:
-        return "treble8va"
+        return "treble8"
     elif avg>58:
         return "treble"
     elif avg>36:
         return "bass"
     else:
-        return "bass8vb"
+        return "bass8"
 
 
 def midinotesNeedSplit(midinotes: List[float], splitpoint=60, margin=4) -> bool:
@@ -303,6 +298,7 @@ def parseNotehead(s: str) -> Tuple[str, Opt[bool]]:
 
     * "diamond"
     * "diamond.unfilled"
+    * "harmonic.filled"
 
     Args:
         s: the neadhead description
@@ -310,10 +306,16 @@ def parseNotehead(s: str) -> Tuple[str, Opt[bool]]:
     Returns:
         A tuple (notehead:str, filled:Opt[bool])
     """
+    defaultFilled = {
+        'harmonic': False,
+    }
+
     parts = s.split(".")
     l = len(parts)
     if l == 1:
-        return (parts[0], None)
+        shape = parts[0]
+        filled = defaultFilled.get(shape)
+        return (parts[0], filled)
     if l == 2:
         notehead = parts[0]
         filled = parts[1] == "filled"
@@ -475,3 +477,6 @@ def notatedDuration(duration: F, durRatios: Opt[List[F]]) -> NotatedDuration:
         return NotatedDuration(base=4//num, dots=0, tuplets=tuplets)
     elif den != 1:
         raise ValueError(f"Unknown numerator: {dur}. Notation:{self}")
+
+
+

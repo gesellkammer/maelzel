@@ -1,54 +1,58 @@
-import music21 as m21
-from .common import *
+from ._common import *
+from .workspace import currentConfig, currentWorkspace
+
 from maelzel import scoring
-from ._base import Opt, List
-from .state import currentConfig
 from maelzel.scorestruct import ScoreStructure
+import music21 as m21
+
+import configdict
 
 
 def scoringPartToMusic21(part: U[ scoring.Part, List[scoring.Notation] ],
                          struct: Opt[ScoreStructure] = None,
-                         showCents=None,
-                         divsPerSemitone=None
+                         config: dict=None
                          ) -> U[m21.stream.Score, m21.stream.Part]:
     """
-    Creates a m21 Part from the given scoring events accoring to
-    the options in the configuration. Some options can be overriden
-    here.
-    Assumes that the events fit in one Part. If you need to split the events across
-    multiple staffs, use scoring.s
+    Creates a m21 Part from the given events according to the config
+
+    Assumes that the events fit in one Part.
 
     Args:
         part: the events to convert
         struct: the score structure used.
-        showCents: show cents as text
-        divsPerSemitone: divisions of the semitone
+        config: the configuration used. If None, the `currentConfig()` is used
 
     Returns:
         a music21 Part
 
     """
     m21score = scoringPartsToMusic21([part], struct=struct,
-                                     showCents=showCents,
-                                     divsPerSemitone=divsPerSemitone)
-    assert len(m21score.parts) == 1
-    return m21score.parts[0]
+                                     config=config)
+    assert len(m21score.voices) == 1
+    return m21score.voices[0]
 
 
 def scoringPartsToMusic21(parts: List[U[scoring.Part, List[scoring.Notation]]],
                           struct: Opt[ScoreStructure] = None,
-                          showCents:bool=None,
-                          divsPerSemitone:int=None,
                           config:dict=None
                           ) -> U[m21.stream.Score]:
+    """
+    Render the given scoring Parts as music21
+
+    Args:
+        parts: the parts to render
+        struct: the score structure
+        config ():
+
+    Returns:
+
+    """
     config = config or currentConfig()
-    divsPerSemitone = (divsPerSemitone if divsPerSemitone is not None else
-                       config['show.semitoneDivisions'])
-    if showCents is None: showCents = config['show.cents']
+    divsPerSemitone = config['show.semitoneDivisions']
+    showCents = config['show.cents']
     centsFontSize = config['show.centsFontSize']
     if struct is None:
-        state = getState()
-        struct = ScoreStructure.fromTimesig((4, 4), quarterTempo=state.tempo)
+        struct = currentWorkspace().scorestruct
     renderOptions = scoring.render.RenderOptions(divsPerSemitone=divsPerSemitone,
                                                  showCents=showCents,
                                                  centsFontSize=centsFontSize)
@@ -63,3 +67,63 @@ def scoringPartsToMusic21(parts: List[U[scoring.Part, List[scoring.Notation]]],
     return m21score
 
 
+def makeRenderOptionsFromConfig(cfg: configdict.CheckedDict = None
+                                ) -> scoring.render.RenderOptions:
+    """
+    Generate RenderOptions needed for scoring.render, based
+    on the settings in the given config
+
+    Args:
+        the config to use. If None, the current config is used
+
+    Returns:
+        a scoring.render.RenderOptions used to render parts
+        via scoring.render module
+    """
+    if cfg is None:
+        cfg = currentConfig()
+    renderOptions = scoring.render.RenderOptions(
+            staffSize=cfg['show.staffSize'],
+            divsPerSemitone=cfg['semitoneDivisions'],
+            showCents=cfg['show.cents'],
+            centsFontSize=cfg['show.centsFontSize'],
+            noteAnnotationsFontSize=cfg['show.labelFontSize']
+    )
+    return renderOptions
+
+
+def makeQuantizationProfileFromConfig(cfg: configdict.CheckedDict = None
+                                      ) -> scoring.quant.QuantizationProfile:
+    if cfg is None:
+        cfg = currentConfig()
+    complexity = cfg['quant.complexity']
+    preset = scoring.quant.quantdata.complexityPresets[complexity]
+    return scoring.quant.QuantizationProfile(
+            minBeatFractionAcrossBeats=cfg['quant.minBeatFractionAcrossBeats'],
+            nestedTuples=cfg['quant.nestedTuples'],
+            possibleDivisionsByTempo=preset['divisionsByTempo'],
+            divisionPenaltyMap=preset['divisionPenaltyMap']
+    )
+
+
+def renderWithCurrentConfig(parts: List[scoring.Part], backend: str = None
+                            ) -> scoring.render.Renderer:
+    """
+    Render the given scoring.Parts with the current configuration
+
+    Args:
+        parts: the parts to render
+        backend: the backend used (see currentConfig/'show.method')
+
+    Returns:
+        the rendered Renderer
+    """
+    state = currentWorkspace()
+    cfg = state.config
+    options = makeRenderOptionsFromConfig()
+    quantizationProfile = makeQuantizationProfileFromConfig()
+    return scoring.render.renderParts(parts,
+                                      backend=backend or cfg['show.method'],
+                                      struct=state.scorestruct,
+                                      options=options,
+                                      quantizationProfile=quantizationProfile)

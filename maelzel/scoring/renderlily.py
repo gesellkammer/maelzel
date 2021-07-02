@@ -20,13 +20,13 @@ logger = logging.getLogger("maelzel.scoring")
 
 
 def _lilyNote(pitch: pitch_t, baseduration:int, dots:int=0, tied=False) -> str:
-    assert baseduration in {1, 2, 4, 8, 16, 32, 64, 128}
+    assert baseduration in {0, 1, 2, 4, 8, 16, 32, 64, 128}, \
+        f'baseduration should be a power of two, got {baseduration}'
     pitch = lilytools.makePitch(pitch)
-    lilydur = str(baseduration) + "."*dots
-    out = pitch + lilydur
-    if tied:
-        out += "~"
-    return out
+    if baseduration == 0:
+        # a grace note
+        return fr"\grace {pitch}8"
+    return fr"{pitch}{baseduration}{'.'*dots}{'~' if tied else ''}"
 
 
 _articulations = {
@@ -37,6 +37,7 @@ _articulations = {
     'staccatissimo': r'\staccatissimo',
 }
 
+
 _noteheads = {
     'cross': r'\xNote',
     'harmonic': r"\once \override NoteHead.style = #'harmonic",
@@ -44,7 +45,8 @@ _noteheads = {
     'xcircle': r"\once \override NoteHead.style = #'xcircle",
     'triangle': r"\once \override NoteHead.style = #'triangle",
     'rhombus': r"\once \override NoteHead.style = #'harmonic-black",
-    'square': r"\once \override NoteHead.style = #'la"
+    'square': r"\once \override NoteHead.style = #'la",
+    'rectangle': r"\once \override NoteHead.style = #'la"
 }
 
 
@@ -74,42 +76,46 @@ def notationToLily(n: Notation) -> str:
     notatedDur = n.notatedDuration()
     base, dots = notatedDur.base, notatedDur.dots
     event = ""
-    if n.rest:
+    if n.isRest:
         rest = "r" + str(base) + "."*dots
-        print("rest: ", n, base, dots, rest)
         return rest
 
     # notehead modifiers precede the note
     if n.noteheadHidden:
-        # TODO
-        pass
+        event += r" \once \hide NoteHead "
     elif n.notehead:
         event += _lilyNotehead(n.notehead, n.noteheadParenthesis)
         event += " "
 
+    if n.stem == 'hidden':
+        event += r" \once \hide Stem "
 
     if len(n.pitches) == 1:
-        event += _lilyNote(n.pitches[0], baseduration=base, dots=dots, tied=n.tiedNext)
+        pitch = n.pitches[0]
+        notename = n.getFixedNotenameByIndex(0, m2n(pitch))
+        event += _lilyNote(notename, baseduration=base, dots=dots, tied=n.tiedNext)
     else:
-        pitches = [lilytools.makePitch(p) for p in n.pitches]
-        event += f"<{' '.join(pitches)}>{base}{'.'*dots}"
+        lilypitches = []
+        for i, pitch in enumerate(n.pitches):
+            notename = n.getFixedNotenameByIndex(i, m2n(pitch))
+            lilypitches.append(lilytools.makePitch(notename))
+        event += f"<{' '.join(lilypitches)}>{base}{'.'*dots}"
         if n.tiedNext:
             event += "~"
     if not n.tiedPrev:
         if n.articulation:
             event += _lilyArticulation(n.articulation)
         if n.dynamic:
-            event += f"\\{n.dynamic}"
+            event += fr" \{n.dynamic}"
         if n.gliss:
-            event += "\\glissando"
+            event += r" \glissando"
         if n.annotations:
             for annotation in n.annotations:
-                fontSize = f"\\abs-fontsize #{int(annotation.fontSize)}"
+                fontSize = fr"\abs-fontsize #{int(annotation.fontSize)}"
                 if annotation.placement == 'above':
-                    event += f"^\markup {{ {fontSize} {{ {annotation.text} }} }} "
+                    event += fr"^\markup {{ {fontSize} {{ {annotation.text} }} }} "
                 else:
-                    event += f"_\markup {{ {fontSize} {{ {annotation.text} }} }} "
-
+                    event += fr"_\markup {{ {fontSize} {{ {annotation.text} }} }} "
     return event
 
 
@@ -120,6 +126,7 @@ def _renderGroup(seq: List[str],
                  group: DurationGroup,
                  durRatios:List[F],
                  options: RenderOptions,
+                 state: dict,
                  numIndents: int = 0,
                  ) -> None:
     """
@@ -135,7 +142,6 @@ def _renderGroup(seq: List[str],
     indentSize = 2
     # \tuplet 3/2 { b4 b b }
     if group.durRatio != (1, 1):
-        print(f"group.durRatio: {group.durRatio}")
         durRatios.append(F(*group.durRatio))
         tupletStarted = True
         num, den = group.durRatio
@@ -149,13 +155,21 @@ def _renderGroup(seq: List[str],
         if isinstance(item, DurationGroup):
             _renderGroup(seq, item, durRatios, options=options, numIndents=numIndents+1)
         else:
+            if not item.gliss and state['glissSkip']:
+                seq.append(r"\glissandoSkipOff ")
+                state['glissSkip'] = False
             lilyItem = notationToLily(item)
             seq.append(lilyItem)
             seq.append(" ")
             if item.gliss and not item.tiedPrev and item.tiedNext:
                 seq.append(r"\glissandoSkipOn ")
+                assert not state['glissSkip']
+                state['glissSkip'] = True
             elif item.gliss and item.tiedPrev and not item.tiedNext:
                 seq.append(r"\glissandoSkipOff ")
+                assert state['glissSkip']
+                state['glissSkip'] = False
+
     seq.append("\n")
     if tupletStarted:
         numIndents -= 1
@@ -166,6 +180,7 @@ def _renderGroup(seq: List[str],
 def quantizedPartToLily(part: quant.QuantizedPart,
                         addMeasureMarks=True,
                         clef:str=None,
+                        addTempoMarks=True,
                         options:RenderOptions=None,
                         indents=0,
                         indentSize=2) -> str:
@@ -208,24 +223,35 @@ def quantizedPartToLily(part: quant.QuantizedPart,
     # indents += 1
 
     ownline(r"\new Staff \with {", indents)
-    ownline(f'    instrumentName = #"{part.label}"', indents)
+    if part.label:
+        ownline(f'    instrumentName = #"{part.label}"', indents)
     ownline("}", indents)
     ownline("{", indents)
     indents += 1
 
     if clef is not None:
-        ownline(f"\\clef {clef}", indents)
+        ownline(fr"\clef {clef}", indents)
+    else:
+        clef = quant.bestClefForPart(part)
+        ownline(lilytools.makeClef(clef), indents)
 
+    lastTimesig = None
+    state = {
+        'glissSkip': False
+    }
     for i, measure in enumerate(part.measures):
         ownline(f"% measure {i}", indents)
         indents += 1
         measureDef = part.struct.getMeasureDef(i)
-        num, den = measureDef.timesig
-        ownline(f"\\time {num}/{den}", indents)
+        if addTempoMarks and measureDef.timesig != lastTimesig:
+            lastTimesig = measureDef.timesig
+            num, den = measureDef.timesig
+            ownline(r"\numericTimeSignature", indents)
+            ownline(fr"\time {num}/{den}", indents)
         # TODO: add barlinetype
-        if measure.quarterTempo != quarterTempo:
+        if addTempoMarks and measure.quarterTempo != quarterTempo:
             quarterTempo = measure.quarterTempo
-            # TODO: add metronome mark
+            ownline(fr"\tempo 4 = {quarterTempo}")
         if measureDef.annotation and addMeasureMarks:
             # TODO: add measure annotation
             pass
@@ -234,7 +260,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
         else:
             for group in measure.groups():
                 _renderGroup(seq, group, durRatios=[], options=options,
-                             numIndents=indents)
+                             numIndents=indents, state=state)
         indents -= 1
         _(f"|   % end measure {i}", indents)
 
@@ -441,7 +467,23 @@ arrowGlyphs = #`(
   }
   
 }
+"""
 
+_horizontalSpacingMedium = r"""
+  \layout {
+    \context {
+      \Score
+      \override SpacingSpanner.base-shortest-duration = #(ly:make-moment 1/16)
+    }
+  }
+"""
+_horizontalSpacingLarge = r"""
+  \layout {
+    \context {
+      \Score
+      \override SpacingSpanner.base-shortest-duration = #(ly:make-moment 1/8)
+    }
+  }
 """
 
 
@@ -477,13 +519,24 @@ def makeScore(parts: List[quant.QuantizedPart],
     strs.append(r'% <paper>')
 
     strs.append(_prelude)
+
     strs.append(r"\score {")
     strs.append(r"<<")
     for i, part in enumerate(parts):
-        partstr = quantizedPartToLily(part, addMeasureMarks=i==0, options=options,
-                                      indents=1, indentSize=indentSize)
+        partstr = quantizedPartToLily(part,
+                                      addMeasureMarks=i==0,
+                                      addTempoMarks=i==0,
+                                      options=options,
+                                      indents=1,
+                                      indentSize=indentSize)
         strs.append(partstr)
     strs.append(r">>")
+
+    #if options.lilypondHorizontalSpacing == 'medium':
+    #    strs.append(_horizontalSpacingMedium)
+    #elif options.lilypondHorizontalSpacing == 'large':
+    #    strs.append(_horizontalSpacingLarge)
+
     strs.append(r"}")
     out = "\n".join(strs)
     return out
@@ -503,22 +556,23 @@ class LilypondRenderer(Renderer):
     def writeFormats(self) -> List[str]:
         return ['pdf', 'ly', 'png']
 
-    def write(self, outfile: str, removeTemporaryFiles=True) -> None:
+    def write(self, outfile: str, removeTemporaryFiles=False) -> None:
         lilytxt = self.nativeScore()
         base, ext = os.path.splitext(outfile)
         tempfiles = []
         if ext == '.ly':
             open(outfile, "w").write(lilytxt)
         elif ext == '.png':
+            # Adding he book-preamble crops the png output to the actual contents
             if self.options.lilypondPngBookPreamble:
                 if not 'lilypond-book-preamble.ly' in lilytxt and '% <book>' in lilytxt:
                     lilytxt = lilytxt.replace('% <book>',
                                               r'\include "lilypond-book-preamble.ly"')
             lilytxt = lilytxt.replace("% <paper>", lilytools.paperBlock(margin=20))
-            logger.debug(lilytxt)
             lilyfile = tempfile.mktemp(suffix=".ly")
             tempfiles.append(lilyfile)
             open(lilyfile, "w").write(lilytxt)
+            print(lilyfile)
             lilytools.renderLily(lilyfile, outfile)
         elif ext == '.pdf':
             lilyfile = tempfile.mktemp(suffix=".ly")

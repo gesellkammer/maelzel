@@ -1,6 +1,6 @@
 from maelzel.core import *
 from maelzel import core
-from emlib.pitchtools import *
+from pitchtools import *
 
 
 def generateNotes(minoctave=0, maxoctave=9):

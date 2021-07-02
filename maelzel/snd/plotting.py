@@ -2,16 +2,21 @@ from emlib import numpytools
 from scipy import signal
 import numpy as np
 from configdict import ConfigDict
+import matplotlib.pyplot as plt
 
 
-def _get_cmaps():
-    import matplotlib.pyplot as plt
+def _cmaps():
     return plt.colormaps()
 
 
-config = ConfigDict("emlib:snd_plotting",
-                    default={'spectrogram_colormap': 'inferno'},
-                    validator={'spectrogram_colormap::choices': _get_cmaps})
+config = ConfigDict("maelzel.snd.plotting")
+config.addKey('spectrogram.colormap', 'inferno', choices=_cmaps())
+config.addKey('samplesplot.figsize', (12, 4))
+config.addKey('spectrogram.figsize', (24, 8))
+config.addKey('spectrogram.maxfreq', 12000,
+              doc="Highest frequency in a spectrogram")
+config.addKey('spectrogram.window', 'hamming', choices={'hamming', 'hanning'})
+config.load()
 
 
 def plot_power_spectrum(samples,
@@ -76,16 +81,19 @@ def _frames_to_samples(frames, hop_length=512, n_fft=None):
 
 
 def _plot_matplotlib(samples, samplerate):
-    import matplotlib.pyplot as plt
     numch = get_num_channels(samples)
     numsamples = samples.shape[0]
     dur = numsamples / samplerate
     times = np.linspace(0, dur, numsamples)
+    figsize = config['samplesplot.figsize']
+    figsize = figsize[0]*2, figsize[1]
+    f = plt.figure(figsize=figsize)
+    ax1 = None
     for i in range(numch):
         if i == 0:
-            axes = ax1 = plt.subplot(numch, 1, i + 1)
+            axes = ax1 = f.add_subplot(numch, 1, i + 1)
         else:
-            axes = plt.subplot(numch, 1, i + 1, sharex=ax1, sharey=ax1)
+            axes = f.add_subplot(numch, 1, i + 1, sharex=ax1, sharey=ax1)
         if i < numch - 1:
             plt.setp(axes.get_xticklabels(), visible=False)
         chan = get_channel(samples, i)
@@ -95,47 +103,50 @@ def _plot_matplotlib(samples, samplerate):
 
 
 def _plot_samples_matplotlib2(samples, samplerate, profile):
-    # todo: copiar plot de librosa
     import matplotlib.pyplot as plt
     if profile == 'auto':
         dur = len(samples)/samplerate
         if dur > 60*8:
-            # more than 5 minutes
             profile = 'low'
         elif dur > 60*2:
             profile = 'medium'
-        else:
+        elif dur > 60*1:
             profile = 'high'
+        else:
+            profile = 'highest'
     if profile == 'low':
-        maxpoints = 10000
-        maxsr = 500
+        maxpoints = 2000
+        maxsr = 300
     elif profile == 'medium':
-        maxpoints = 40000
-        maxsr = 2000
+        maxpoints = 4000
+        maxsr = 600
     elif profile == 'high':
+        undersample = min(32, len(samples) // (1024*8))
+        return _plot_matplotlib(samples[::undersample], samplerate//undersample)
+    elif profile == 'highest':
         return _plot_matplotlib(samples, samplerate)
     else:
         raise ValueError("profile should be one of 'low', 'medium' or 'high'")
     targetsr = samplerate
-    hop_length = 1
     numch = get_num_channels(samples)
     numsamples = samples.shape[0]
-    if maxpoints is not None:
-        if maxpoints < numsamples:
-            targetsr = min(maxsr, (samplerate * numsamples) // maxpoints)
-        hop_length = samplerate // targetsr
-    print(f"targetsr: {targetsr}, hop_length: {hop_length}")
+    if maxpoints < numsamples:
+        targetsr = min(maxsr, (samplerate * numsamples) // maxpoints)
+    hop_length = samplerate // targetsr
+    figsize = config['samplesplot.figsize']
+    if profile == "medium":
+        figsize = int(figsize[0]*1.4), figsize[1]
     for i in range(numch):
+        f = plt.figure(figsize=figsize)
         if i == 0:
-            axes = ax1 = plt.subplot(numch, 1, i + 1)
+            axes = ax1 = f.add_subplot(numch, 1, i + 1)
         else:
-            axes = plt.subplot(numch, 1, i + 1, sharex=ax1, sharey=ax1)
+            axes = f.add_subplot(numch, 1, i + 1, sharex=ax1, sharey=ax1)
         if i < numch - 1:
             plt.setp(axes.get_xticklabels(), visible=False)
 
         chan = get_channel(samples, i)
         env = _envelope(np.ascontiguousarray(chan), hop_length)
-        print(env.max())
         samples_top = env
         samples_bottom = -env
         locs = _frames_to_time(np.arange(len(samples_top)),
@@ -151,7 +162,7 @@ def _plot_samples_pyqtgraph(samples, samplerate, profile):
     return False
 
 
-def plot_samples(samples, samplerate, profile="medium"):
+def plot_samples(samples: np.ndarray, samplerate: int, profile="auto") -> None:
     backends = [
         ('pyqtgraph', _plot_samples_pyqtgraph),
         ('matplotlib', _plot_samples_matplotlib2),
@@ -162,45 +173,38 @@ def plot_samples(samples, samplerate, profile="medium"):
             break
 
 
-def spectrogram(samples,
-                samplerate,
-                fftsize=2048,
-                window='hamming',
-                overlap=4,
-                cmap=None,
+def spectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:str=None,
+                overlap=4, axes:plt.Axes=None, cmap=None, interpolation='bilinear',
+                minfreq=40, maxfreq=None,
                 mindb=-90):
-    mpl_spectrogram(samples=samples,
-                    samplerate=samplerate,
-                    fftsize=fftsize,
-                    window=window,
-                    overlap=overlap,
-                    mindb=mindb)
-
-
-def mpl_spectrogram(samples,
-                    samplerate,
-                    fftsize=2048,
-                    window='hamming',
-                    overlap=4,
-                    axes=None,
-                    cmap=None,
-                    interpolation='bilinear',
-                    mindb=-90):
     """
-    samples: a channel of audio data
-    samplerate: the samplerate of the audio data
-    fftsize: the size of the fft, in samples
-    window: a string passed to scipy.signal.get_window
-    overlap: the number of overlaps. If fftsize=2048, an overlap of 4 will result
-        in a hopsize of 512 samples
+    Args:
+        samples: a channel of audio data
+        samplerate: the samplerate of the audio data
+        fftsize: the size of the fft, in samples
+        window: a string passed to scipy.signal.get_window
+        overlap: the number of overlaps. If fftsize=2048, an overlap of 4 will result
+            in a hopsize of 512 samples
+        axes: the axes to plot on. If None, new axes will be created
+        cmap: colormap, see pyplot.colormaps() (see config['spectrogram.cmap'])
+        minfreq: initial min.frequency
+        maxfreq: initial max. frequency. If None, a configurable default will be used
+            (see config['spectrogram.maxfreq')
+        interpolation: one of 'bilinear'
+        mindb: the amplitude threshold
+
+    Returns:
+        the axes object
     """
-    import matplotlib.pyplot as plt
     if axes is None:
-        axes = plt.subplot(1, 1, 1)
+        f: plt.Figure = plt.figure(figsize=config['spectrogram.figsize'])
+        axes:plt.Axes = f.add_subplot(1, 1, 1)
     hopsize = int(fftsize / overlap)
     noverlap = fftsize - hopsize
+    if window is None:
+        window = config['spectrogram.window']
     win = signal.get_window(window, fftsize)
-    cmap = cmap if cmap is not None else config['spectrogram_colormap']
+    cmap = cmap if cmap is not None else config['spectrogram.colormap']
     axes.specgram(samples,
                   NFFT=fftsize,
                   Fs=samplerate,
@@ -209,4 +213,7 @@ def mpl_spectrogram(samples,
                   cmap=cmap,
                   interpolation=interpolation,
                   vmin=mindb)
+    if maxfreq is None:
+        maxfreq = config['spectrogram.maxfreq']
+    axes.set_ylim(minfreq, maxfreq)
     return axes

@@ -2,11 +2,12 @@ from math import pi, sqrt
 from dataclasses import dataclass
 
 import bpf4 as bpf
-from emlib.pitchtools import *
+from pitchtools import *
+import csoundengine
+
 from emlib.iterlib import flatten
 from emlib.misc import runonce
 
-from maelzel.snd import csoundengine
 from maelzel.core import Chord, Note
 
 from typing import List, Union as U, Tuple as Tup, Dict
@@ -34,8 +35,11 @@ class Vowel:
 
 def getVowel(descr: U[str, Tup[str, str]]) -> Vowel:
     """
-    descr: a string of the form "vocal:register", like "i:bass", or
-           a tuple ('i', 'bass')
+    Args:
+        descr: a string of the form "vocal:register", like "i:bass", or
+               a tuple ('i', 'bass')
+    Returns:
+        the corresponding Vowel obj
     """
     if isinstance(descr, str):
         vowel, register = descr.split(":")
@@ -213,9 +217,13 @@ def interpolateVowel(vowels: List[str], weights:List[float]=None) -> Vowel:
     return Vowel(dbs=avgdbs, bws=avgbws, freqs=avgfreqs)
 
 
-def vowelInstr(kind='fof2'):
+def vowelInstr(kind='fof2') -> csoundengine.instr.Instr:
     """
-    kind: one of 'fof2', TODO
+    Args:
+        kind: one of 'fof2', TODO
+
+    Returns:
+        the csoundengine Instr
     """
     if kind == 'fof2':
         return _vowelInstrFof2()
@@ -276,7 +284,7 @@ def _vowelInstrFof2():
         aout *= aenv
         outs aout, aout
     """
-    instr = csoundengine.getManager().defInstr('vowels.fof2', body=body)
+    instr = csoundengine.getSession().defInstr('vowels.fof2', body)
     return instr
 
 
@@ -287,10 +295,12 @@ def instrData(vowel: U[str, Vowel]) -> List[float]:
     return data
 
 
-def _synthVowelFof2(midinote: U[float, Tup[float, float]], vowel: U[str, Vowel], dur:float, vibrate=0.,
-                    vibamount=0.25, gain=1.0
-                    ) -> csoundengine.AbstrSynth:
+def _synthVowelFof2(midinote: U[float, Tup[float, float]], vowel: U[str, Vowel], dur:float,
+                    vibrate=0., vibamount=0.25, gain=1.0
+                    ) -> csoundengine.synth.AbstrSynth:
     """
+    Synthesize the vowel via csoundengine
+
     Args:
         midinote: either a midinote as float, or a tuple (start, end)
         vowel: the vowel to synthesize
@@ -302,13 +312,13 @@ def _synthVowelFof2(midinote: U[float, Tup[float, float]], vowel: U[str, Vowel],
     Returns:
         the synth
     """
-    instr = vowelInstr('fof2')
     midi0, midi1 = midinote if isinstance(midinote, tuple) else (midinote,
                                                                  midinote)
     vowel = asVowel(vowel)
     data = instrData(vowel)
     args = [gain, midi0, midi1, vibrate, vibamount] + data
-    synth = instr.play(dur=dur, args=args)
+    session = csoundengine.getSession()
+    synth = session.sched('fof2', 0, dur=dur, pargs=args)
     return synth
 
 
@@ -318,7 +328,24 @@ def synthVowel(midinote: U[float, Tup[float, float]],
                gain=1.0,
                method='fof2',
                vibrate=0.,
-               vibamount=0.25) -> csoundengine.AbstrSynth:
+               vibamount=0.25) -> csoundengine.synth.AbstrSynth:
+    """
+    Synthesize a vowel
+
+    Args:
+        midinote: the pitch to synthesize, either a single pitch or a glissando if a tuple
+            (start pitch, end pitch) is given
+        vowel: the vowel to use
+        dur: the duration
+        gain: gain
+        method: 'fof2' at the moment
+        vibrate: vibrato rate
+        vibamount: amount of vibrato
+
+    Returns:
+        the synth
+
+    """
     if method == 'fof2':
         return _synthVowelFof2(midinote,
                                vowel,
@@ -411,8 +438,7 @@ def makeOvertones(f0, model='saw', maxfreq=8000):
 
 def findVowel(freqs: List[float]) -> str:
     """
-    Find the vowel whose formant freqs are nearest to the
-    freqs given
+    Find the vowel whose formant freqs are nearest to the freqs given
     """
 
     def vowelDistance(voweldef: Vowel, freqs: List[float]) -> float:
@@ -434,9 +460,16 @@ def findVowel(freqs: List[float]) -> str:
 
 def asVowel(vowel: U[str, Vowel]) -> Vowel:
     """
-    Converts a string to a Vowel. If a Vowel is passed, it is returned as is
+    Converts a string to a Vowel.
 
-    vowel: a Vowel or a vowel description in the format '<vowel>:<voice>', like 'i:bass'
+    If a Vowel is passed, it is returned as is
+
+    Args:
+        vowel: a Vowel or a vowel description in the format
+            '<vowel>:<voice>', like 'i:bass'
+
+    Returns:
+        the Vowel
     """
     if isinstance(vowel, Vowel):
         return vowel
@@ -520,19 +553,20 @@ def vocalChord(overtones: List[Tup[float, float]],
                mindb=-90,
                wet=1.0) -> Chord:
     """
-    overtones: a list of (freq, amplitude), as returned, for instance, by makeOvertones
-    vowelfilter: a VowelFilter or a string description of a vowel (eg: "a:male")
-    mindb: after filtering only overtones with a min. db of mindb will be kept
+    Args:
+        overtones: a list of (freq, amplitude), as returned, for instance, by makeOvertones
+        vowelfilter: a VowelFilter or a string description of a vowel (eg: "a:male")
+        mindb: after filtering only overtones with a min. db of mindb will be kept
 
     See Also: vocalChordFromF0
 
     Example
     ~~~~~~~
 
-    exciter = makeOvertones(50)
-    filter = VowelFilter(asVowel("a:male")
-    chord = vocalChord(exciter, filter, mindb=-60)
-    chord
+    >>> exciter = makeOvertones(50)
+    >>> filter = VowelFilter(asVowel("a:male")
+    >>> chord = vocalChord(exciter, filter, mindb=-60)
+    >>> chord
     """
     if isinstance(vowelfilter, str):
         vowelfilter = VowelFilter(asVowel(vowelfilter))

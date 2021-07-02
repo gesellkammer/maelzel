@@ -1,7 +1,7 @@
-# from peach import m2n, n2m, f2m, m2f
-from emlib.pitchtools import m2n, n2m, f2m, m2f
+from __future__ import annotations
+from pitchtools import m2n, n2m, f2m, m2f
 from emlib.iterlib import window as _window
-from emlib.music.flageolet import InstrumentString
+from maelzel.music.flageolet import InstrumentString
 
 
 class DetunedString(object):

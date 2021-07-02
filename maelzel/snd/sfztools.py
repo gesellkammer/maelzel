@@ -1,34 +1,36 @@
 """
 Utilities to edit and generate sfz files
 """
+from __future__ import annotations
 import os
 import math
-from emlib.snd import audiosample as smpl
-from emlib.pitchtools import n2m
+from maelzel.snd import audiosample as smpl
+from pitchtools import n2m
+from emlib.iterlib import pairwise
 import collections
+from typing import Tuple, List
 
 
-def region_from_file(sndfile, key='auto', offset=0, relpath=True, **kws):
+def region_from_file(sndfile: str, key='auto', offset=0, relpath=True, **kws) -> str:
     """
-    returns a <region> definition as a string
+    Returns a <region> definition as a string
 
-    key: the to assign to this sample, or 'auto' if the pitch of the sample
-         is to be used. In this case, the frequency is estimated and the 
-         closest midi-note is used
+    Args:
+        sndfile: the path of the soundfile
+        key: the note to assign to this sample, or 'auto' if the pitch of the sample
+             is to be used. In this case, the frequency is estimated and the
+             closest midi-note is used
 
-         key can also be a function, in which case it is called with the given
-         path. It should return a midinote.
-    offset: an offset in samples or 'auto' to calculate it
+             key can also be a function, in which case it is called with the given
+             path. It should return a midinote.
+        offset: an offset in samples or 'auto' to calculate it
+        relpath: use a relative path
+
+    Returns:
+        the <region> definition string
     """
     if key == 'auto':
         key = int(f2m(estimate_freq(sndfile)) + 0.5)
-    if isinstance(key, collections.Callable):
-        keyfunc = key
-        key = keyfunc(sndfile)
-        try:
-            key = int(key)
-        except ValueError:
-            pass
     key_str = str(key)
     attrs = ["%s=%s" % (k, v) for k, v in kws.items()]
     attr_str = " ".join(attrs)
@@ -47,7 +49,7 @@ def region_from_file(sndfile, key='auto', offset=0, relpath=True, **kws):
     return out.strip()
 
 
-def regions_from_files(files,
+def regions_from_files(files: List[str],
                        key='auto',
                        offset='auto',
                        fillkeys=True,
@@ -120,7 +122,6 @@ def regions_from_files(files,
         #                    (sample, key, offset))
     else:
         samples, keys, offsets = list(zip(*rows))
-        from .iterlib import pairwise
         avgs = [int((key1 + key0) / 2. + 0.5) for key0, key1 in pairwise(keys)]
         lokeys = [keys[0] - (avgs[0] - keys[0])] + avgs
         centers = keys
@@ -144,21 +145,39 @@ def normalize_filename(path):
     return path.replace(" ", "_").replace("__", "_")
 
 
-def estimate_freq(sndfile, strategy='autocorr'):
+def estimate_freq(sndfile: str, strategy='autocorr') -> float:
+    """
+    Estimate the freq. of sndfile
+
+    Args:
+        sndfile (str): the path of the soundfile
+        strategy (str): one of 'autocorr', 'fft'
+
+    Returns:
+        the estimated freq.
+    """
     s = smpl.Sample(sndfile)
-    return s.estimate_freq(start=0.1, strategy=strategy)
+    return s.estimateFreq(start=0.1, strategy=strategy)
 
 
-def estimate_offset(sndfile, minamp=-80):
+def estimate_offset(sndfile: str, minamp=-80) -> float:
+    """
+    Args:
+        sndfile: the path to a soundfile
+        minamp: the min. amplitude to considere as sound
+
+    Returns:
+        the starting time of the first sound, in seconds
+    """
     s = smpl.Sample(sndfile)
-    offset = smpl.first_sound(s.samples, minamp)
+    offset = s.firstSound(threshold=minamp)
     return offset
 
 
-def estimate_freq_and_offset(sndfile, minamp=-80):
+def estimate_freq_and_offset(sndfile: str, minamp=-80) -> Tuple[float, float]:
     s = smpl.Sample(sndfile)
-    freq = s.estimate_freq()
-    offset = smpl.first_sound(s.samples, minamp)
+    freq = s.estimateFreq()
+    offset = s.firstSound(minamp)
     return freq, offset
 
 

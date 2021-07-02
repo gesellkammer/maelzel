@@ -5,18 +5,18 @@ import warnings
 import shutil
 import glob
 
-import music21 as m21
 from fractions import Fraction as F
 import dataclasses
 import subprocess
+import music21 as m21
 
 from emlib import iterlib
 from emlib.typehints import U, Seq, number_t, List, Tup, Dict, Iter, Opt
-from maelzel.music.timing import quarters_to_timesig
+from maelzel.music.timing import quartersToTimesig
 from emlib import misc
 
-from emlib.pitchtools import n2m, m2n, split_notename, split_cents
-from maelzel.music import m21fix
+from pitchtools import n2m, m2n, split_notename, split_cents
+from maelzel.music.m21fix import *
 
 
 pitch_t = U[int, float, str]
@@ -29,7 +29,7 @@ def _splitchord(chord: m21.chord.Chord,
     above, below = [], []
     for i in range(len(chord)):
         note = chord[i]
-        if note.pitch.midi >= split:
+        if note.pitch.pitch >= split:
             above.append(note)
         else:
             below.append(note)
@@ -181,7 +181,7 @@ def splitVoice(voice: m21.stream.Stream, split: int=60) -> m21.stream.Score:
             above.append(obj)
             below.append(obj)
         else:
-            if obj.pitch.midi >= split:
+            if obj.pitch.pitch >= split:
                 above.append(obj)
                 below.append(rest)
             else:
@@ -271,7 +271,7 @@ def needsSplit(notes: U[Seq[float], m21.stream.Stream], splitpoint=60) -> bool:
     if isinstance(notes, list) and isinstance(notes[0], (int, float)):
         return _needsSplitMidinotes(notes)
     elif isinstance(notes, m21.stream.Stream):
-        midinotes = [note.pitch.midi for note in notes.getElementsByClass(m21.note.Note)]
+        midinotes = [note.pitch.pitch for note in notes.getElementsByClass(m21.note.Note)]
         return _needsSplitMidinotes(midinotes)
     else:
         raise TypeError(f"expected a list of midinotes or a m21.Stream, got {notes}")
@@ -286,7 +286,7 @@ def makeTimesig(num_or_dur: U[int, float], den:int=0) -> m21.meter.TimeSignature
     makeTimesig(4)   -> 4/4
     """
     if den == 0:
-        num, den = quarters_to_timesig(num_or_dur)
+        num, den = quartersToTimesig(num_or_dur)
     else:
         num = num_or_dur
     return m21.meter.TimeSignature(f"{num}/{den}")
@@ -460,10 +460,17 @@ def hideAccidental(note: m21.note.Note) -> None:
     accidental.displayType = "never"
 
 
+def hideStem(obj: m21.note.NotRest) -> None:
+    obj.stemDirection = "noStem"
+
+
 def measureFixAccidentals(s: m21.stream.Measure) -> None:
     seen = {}
-    for event in s.getElementsByClass(m21.note.NotRest):
+    for i, event in enumerate(s.getElementsByClass(m21.note.NotRest)):
         if isinstance(event, m21.note.Note):
+            if i == 0 and isTiedToPrevious(event):
+                print("Hiding accidental: ", event)
+                hideAccidental(event)
             notes = [event]
         elif isinstance(event, m21.chord.Chord):
             notes = event.notes
@@ -546,9 +553,9 @@ def _centsshown(centsdev, divsPerSemitone=4) -> str:
 
 
 availableNoteheads = {"slash", "triangle", "diamond", "square", "cross", "x",
-                      "xcircle", "inverted-triangle", "arrow-down", "arrow-up",
+                      "circle-x", "inverted-triangle", "arrow-down", "arrow-up",
                       "circled", "slashed", "back-slashed", "normal", "cluster", "circle-dot",
-                      "rectangle", "do", "re", "mi", "fa", "sol", "none"}
+                      "rectangle", "do", "re", "mi", "fa", "sol", "la", "none"}
 
 
 def setNotehead(note: m21.note.NotRest, notehead: str, fill:bool=None,
@@ -558,7 +565,8 @@ def setNotehead(note: m21.note.NotRest, notehead: str, fill:bool=None,
 
     Args:
         note: the note/chord to modify
-        notehead: the notehead type (one of availableNoteheads). "none" to hide the notehead
+        notehead: the notehead type (one of availableNoteheads).
+            "none" to hide the notehead
         fill: filled or unfilled?
         parenthesis: should the notehead be parenthesized?
     """
@@ -574,7 +582,8 @@ def setNotehead(note: m21.note.NotRest, notehead: str, fill:bool=None,
 
 def makeNotation(pitch: U[pitch_t, Seq[pitch_t]], divsPerSemitone=4, centsAsLyrics=False,
                  notehead: str=None, noteheadFill=None, hideAccidental=False,
-                 **options) -> U[m21.note.Note, m21.chord.Chord]:
+                 stem:str=None, color:str='', **options
+                 ) -> U[m21.note.Note, m21.chord.Chord]:
     """
     Construct a Note or a Chord, depending on the number of pitches given
 
@@ -585,6 +594,8 @@ def makeNotation(pitch: U[pitch_t, Seq[pitch_t]], divsPerSemitone=4, centsAsLyri
         notehead: the notehead to use, or None to leave the default
         noteheadFill: in connection with notehead, determines the shape of the notehead
         hideAccidental: if True, hide the accidental
+        stem: None to leave untouched, or one of 'hidden', ...
+        color: the color of the note/chord
         options: any option will be passed to m21.note.Note or m21.chord.Chord
 
     Returns:
@@ -593,17 +604,21 @@ def makeNotation(pitch: U[pitch_t, Seq[pitch_t]], divsPerSemitone=4, centsAsLyri
 
     if isinstance(pitch, (list, tuple)):
         pitches = [_asmidi(p) for p in pitch]
-        chord, centdevs = makeChord(pitches=pitches, divsPerSemitone=divsPerSemitone,
+        out, centdevs = makeChord(pitches=pitches, divsPerSemitone=divsPerSemitone,
                                   centsAsLyrics=centsAsLyrics, notehead=notehead,
                                   noteheadFill=noteheadFill, hideAccidental=hideAccidental,
                                   **options)
-        return chord
     else:
-        note, centdev = makeNote(pitch=_asmidi(pitch), divsPerSemitone=divsPerSemitone,
+        out, centdev = makeNote(pitch=_asmidi(pitch), divsPerSemitone=divsPerSemitone,
                                  centsAsLyrics=centsAsLyrics, notehead=notehead,
                                  noteheadFill=noteheadFill, hideAccidental=hideAccidental,
                                  **options)
-        return note
+    if stem == 'hidden':
+        hideStem(out)
+
+    if color:
+        out.style.color = color
+    return out
 
 
 def _makeNote(pitch: U[str, float], divsPerSemitone=4, centsAsLyrics=False,
@@ -643,11 +658,27 @@ def _makeNote(pitch: U[str, float], divsPerSemitone=4, centsAsLyrics=False,
     return note, centsdev
 
 
-def makeNote(pitch: U[str, float], divsPerSemitone=4, centsAsLyrics=False,
-             notehead: str=None, noteheadFill=None, hideAccidental=False,
+def makeNote(pitch: U[str, float], divsPerSemitone=4,
+             notehead: str=None, noteheadFill:bool=None, hideAccidental=False,
              tiedToPrevious=False,
              **options
              ) -> Tup[m21.note.Note, int]:
+    """
+    Create a music21 Note
+
+    Args:
+        pitch: either a note name or a midi number
+        divsPerSemitone: divisions per semitone
+        notehead: the kind of notehead. Possible noteheads: XXX
+        noteheadFill: should the notehead be filled (black)?
+        hideAccidental: force a hidden accidental
+        tiedToPrevious: is this note tied to the previous?
+        **options: any options here are passed to m21.note.Note directly
+
+    Returns:
+        a tuple (m21.note.Note, cents deviation from the given pitch)
+
+    """
     midinote = _asmidi(pitch)
     pitch, centsdev = makePitch(pitch=midinote, divsPerSemitone=divsPerSemitone,
                                 hideAccidental=hideAccidental)
@@ -678,6 +709,7 @@ def makeChord(pitches: Seq[float], divsPerSemitone:int=4, centsAsLyric=False,
         notehead: the notehead as str, or None to use the default
         noteheadFill: should the notehead be filled or hollow (None=default)
         hideAccidental: if True, hide the accidentals
+        tiedToPrevious: is this chord tied to the previous?
         options: options passed to the Chord constructor (duration, quarterLength, etc)
 
     Returns:
@@ -771,7 +803,8 @@ def findNextAttack(obj:U[m21.note.NotRest, m21.chord.Chord]
 
 
 def addGliss(start:m21.note.GeneralNote, end:m21.note.GeneralNote, linetype='solid',
-             stream:U[str, m21.stream.Stream]='Measure', hideTiedNotes=True
+             stream:U[str, m21.stream.Stream]='Measure', hideTiedNotes=True,
+             continuous=True, text:str=None
              ) -> m21.spanner.Spanner:
     """
     Add a glissando between start and end. Both notes should already be part
@@ -784,27 +817,34 @@ def addGliss(start:m21.note.GeneralNote, end:m21.note.GeneralNote, linetype='sol
         stream: a concrete stream or a context class
         hideTiedNotes: if True, tied notes after start will be hidden (the notehead
             only, actually)
+        continuous: if True, the slyde type is set to continuous. This will export
+            as <slide> in musicxml (if False, the spanner is exported as <glissando>)
+        text: text to use as a label along the line (normally "gliss.")
 
     Returns:
         the created Glissando
     """
     if not isinstance(start, m21.note.NotRest):
         raise TypeError(f"Expected a Note or a Chord, got {type(start)}")
+    assert linetype in m21.spanner.Line.validLineTypes
     gliss = m21.spanner.Glissando([start, end])
     gliss.lineType = linetype
     # this creates a <slide> tag when converted to xml
-    if linetype == 'solid':
+    if continuous:
         gliss.slideType = 'continuous'
+    gliss.label = text
     context = stream if isinstance(stream, m21.stream.Stream) else start.getContextByClass(stream)
     context.insert(start.getOffsetBySite(context), gliss)
     if hideTiedNotes:
         if isinstance(start, m21.note.Note):
             tiedNotes = noteLogicalTie(start, context)
             for tiedNote in tiedNotes[1:]:
-                hideNotehead(tiedNote)
+                if not tiedNote.duration.isGrace:
+                    hideNotehead(tiedNote)
         else:
             raise ValueError("hiding noteheads of chords is not supported yet")
     return gliss
+
 
 _articulationNameToClass = {
     'accent': m21.articulations.Accent,
@@ -863,7 +903,7 @@ def stackParts(parts:Seq[m21.stream.Stream], outstream:m21.stream.Stream=None
     Create a score from the different parts given
 
     This solves the problem that a Score will stack Parts vertically,
-    but append sny other stream horizontally
+    but append any other stream horizontally
     """
     if outstream is None:
         outstream = m21.stream.Score()
@@ -911,7 +951,8 @@ def makePart(clef:str=None, partName=None, abbreviatedName=None,
     """
     part = m21.stream.Part()
     if partName:
-        part.partName = partName
+        part.insert(0, m21.instrument.Instrument(partName))
+        # part.partName = partName
     if abbreviatedName:
         part.partAbbreviation = abbreviatedName
     if clef:
@@ -955,6 +996,7 @@ def makeTextExpression(text:str,
 _clefNameToClass = {
     'bass': m21.clef.BassClef,
     'bass8': m21.clef.Bass8vbClef,
+    'bass8vb':m21.clef.Bass8vbClef,
     'viola': m21.clef.AltoClef,
     'alto': m21.clef.AltoClef,
     'violin':m21.clef.TrebleClef,
@@ -963,19 +1005,34 @@ _clefNameToClass = {
     'c': m21.clef.AltoClef,
     'tenor': m21.clef.TenorClef,
     'treble': m21.clef.TrebleClef,
-    'treble8': m21.clef.Treble8vaClef
+    'treble8': m21.clef.Treble8vaClef,
+    'treble8va': m21.clef.Treble8vaClef
 }
 
 
 def makeClef(clef:str) -> m21.clef.Clef:
+    """
+    Create a music21 clef
+
+    Args:
+        clef: the clef to create. Possible values: treble, alto, tenor, bass, treble8,
+            bass8. There are aliases also (g=violin=treble, f=bass, c=viola=alto)
+
+    Returns:
+        a m21.clef.Clef of the specified type
+
+    """
     cls = _clefNameToClass.get(clef)
     if cls is None:
         raise KeyError(f"Clef {clef} unknown. Possible names: {_clefNameToClass.keys()}")
     return cls()
 
-def makeMetronomeMark(number:U[int, float], text:str=None, referent:str=None) -> m21.tempo.MetronomeMark:
+
+def makeMetronomeMark(number:U[int, float], text:str=None, referent:str=None
+                      ) -> m21.tempo.MetronomeMark:
     referentNote = m21.note.Note(type=referent) if referent else None
-    return m21.tempo.MetronomeMark(number=number, text=text, referent=referentNote)
+    mark = m21.tempo.MetronomeMark(number=number, text=text, referent=referentNote)
+    return mark
 
 
 def makeExpressionsFromLyrics(part: m21.stream.Part, **kws):
@@ -992,7 +1049,6 @@ def makeExpressionsFromLyrics(part: m21.stream.Part, **kws):
         if event.lyric:
             text = event.lyric
             event.lyric = None 
-            print(event)
             addTextExpression(event, text=text, **kws)
     
 
@@ -1059,8 +1115,9 @@ def makeMeasure(timesig: Tup[int, int],
         the created Measure
     """
     m = m21.stream.Measure()
-    m.timeSignature = makeTimesig(*timesig)
-    m.timeSignatureIsNew = timesigIsNew
+    if timesigIsNew:
+        m.timeSignature = makeTimesig(*timesig)
+        m.timeSignatureIsNew = timesigIsNew
     if barline:
         assert barline in barlineTypes, \
             f"Unknown barline {barline}, known values: {barlineTypes}"
@@ -1241,8 +1298,8 @@ def renderViaLily(m21obj:m21.Music21Object, fmt:str=None, outfile:str=None, show
     return outfile
 
 
-def makeImage(m21obj, outfile:str=None, fmt='xml.png', 
-              fixstream=True, musicxml2ly=True) -> str:
+def makeImage(m21obj, outfile:str=None, fmt='xml.png', musicxml2ly=True
+              ) -> str:
     """
     Generate an image from m21obj
 
@@ -1250,7 +1307,6 @@ def makeImage(m21obj, outfile:str=None, fmt='xml.png',
         m21obj: the object to make an image from
         outfile: the file to write to, or None to create a temporary
         fmt: the format, one of "xml.png" or "lily.png"
-        fixstream: see m21fix
         musicxml2ly: if fmt is lily.png and musicxml2ly is True, then conversion
                      is performed via the external tool `musicxml2ly`, otherwise
                      the conversion routine provided by music21 is used
@@ -1258,8 +1314,8 @@ def makeImage(m21obj, outfile:str=None, fmt='xml.png',
     Returns:
         the path to the generated image file
     """
-    if fixstream and isinstance(m21obj, m21.stream.Stream):
-        m21obj = m21fix.fixStream(m21obj, inPlace=True)
+    if isinstance(m21obj, m21.stream.Stream):
+        m21obj = fixStream(m21obj, inPlace=True)
     method, fmt3 = fmt.split(".")
     if method == 'lily' and musicxml2ly:
         if fmt3 not in ('png', 'pdf'):
@@ -1329,7 +1385,6 @@ def addBestClefs(part: m21.stream.Stream, threshold=4) -> None:
     if not notes:
         warnings.warn("The part is empty")
         return
-    print(notes)
     currentClef = bestClef(notes[:threshold])
     attachToObject(notes[0], currentClef)
     for group in notes[threshold::threshold]:
@@ -1419,7 +1474,7 @@ def fixNachschlaege(part: m21.stream.Part, convertToRealNote=False, duration=1/8
                 m1.remove(n1)
 
                 n1.quarterLength = n1.quarterLength - realizedDuration
-                replacement, centsdev = makeNote(n0.pitch.midi, quarterLength=realizedDuration)
+                replacement, centsdev = makeNote(n0.pitch.pitch, quarterLength=realizedDuration)
                 m1.insert(n1.offset, replacement)
                 m1.insert(n1.offset + realizedDuration, n1)
 
@@ -1435,7 +1490,7 @@ def _musescorePath() -> Opt[str]:
     return None
 
 
-def _musescoreConvertToPng(xmlfile:str, outfile: str, page=1, trim=True):
+def _musescoreRenderMusicxmlToPng(xmlfile:str, outfile: str, page=1, trim=True):
     musescore = _musescorePath()
     if musescore is None:
         raise RuntimeError("MuseScore not found")
@@ -1483,7 +1538,10 @@ def renderMusicxml(xmlfile: str, outfile: str, method:str=None) -> None:
             musescore = _musescorePath()
             if musescore is None:
                 raise RuntimeError("MuseScore not found")
-            subprocess.call([musescore, '--no-webview', '--export-to', outfile, xmlfile],
+            subprocess.call([musescore,
+                             '--no-webview',
+                             '--export-to', outfile,
+                             xmlfile],
                             stderr=subprocess.PIPE)
             if not os.path.exists(outfile):
                 raise RuntimeError(f"Could not generate pdf file {outfile} from {xmlfile}")
@@ -1492,6 +1550,6 @@ def renderMusicxml(xmlfile: str, outfile: str, method:str=None) -> None:
     elif fmt == '.png':
         method = method or 'musescore'
         if method == 'musescore':
-            _musescoreConvertToPng(xmlfile, outfile)
+            _musescoreRenderMusicxmlToPng(xmlfile, outfile)
         else:
             raise ValueError(f"method {method} unknown, possible values: 'musescore'")

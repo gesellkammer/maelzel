@@ -5,8 +5,8 @@ import warnings as _warnings
 from collections import namedtuple
 from bpf4 import bpf
 from .misc import normalize_frames
-from emlib.lib import returns_tuple as _returns_tuple, public, isiterable
-from emlib.pitchtools import n2m as _n2m
+from emlib.misc import returns_tuple as _returns_tuple, public, isiterable
+from pitchtools import n2m as _n2m
 
 
 class Measure(object):
@@ -189,7 +189,7 @@ class Score(object):
         fillpitch: the pitch to be used to fill each measure
         """
         import midi
-        t = midi.Track()
+        t = midi.Voice()
         t.tick_relative = False
         sec2tick = lambda sec: int(sec * resolution)
         tempo = -1
@@ -478,7 +478,7 @@ def _events_to_midi_multitrack(starts, durs, pitches, velocities=90,
     pitches = list(map(asmidi, pitches))
     
     for tracknum in range(numtracks):
-        t = midi.Track()
+        t = midi.Voice()
         t.make_ticks_abs()
         t.append(midi.SetTempoEvent(tick=0, bpm=tempo))
         miditracks.append(t)

@@ -4,11 +4,10 @@ import logging
 from functools import lru_cache
 from math import sqrt
 
-import sndtrck
 from maelzel.snd.audiosample import Sample
-from emlib.pitchtools import db2amp
-from maelzel.snd import csoundengine
-from maelzel.snd import csound
+from pitchtools import db2amp
+import csoundengine
+from csoundengine import csoundlib
 from maelzel.snd import vowels
 from maelzel.core import Chord
 
@@ -50,7 +49,7 @@ class Instr:
         """
         if self._csoundInstr is None:
             logger.debug(f"creating CsoundInstr {self.name}")
-            self._csoundInstr = csoundengine.getManager().defInstr(name=self.name, body=self.instrBody,
+            self._csoundInstr = csoundengine.getSession().defInstr(name=self.name, body=self.instrBody,
                                                                    init=self.instrInit)
         return self._csoundInstr
 
@@ -71,8 +70,8 @@ class Instr:
         """
         dur = max(dur, self.minDur)
         events = self._getEvents(dur=dur, gain=gain)
-        outfile, popen = csound.rec_instr(body=self.instrBody, init=self.instrInit, outfile=outfile,
-                                          events=events, sr=sr, ksmps=ksmps, nchnls=self.nchnls)
+        outfile, popen = csoundlib.rec_instr(body=self.instrBody, init=self.instrInit, outfile=outfile,
+                                             events=events, sr=sr, ksmps=ksmps, nchnls=self.nchnls)
         if block:
             popen.wait()
         return outfile
@@ -85,18 +84,6 @@ class Instr:
         sample = Sample(outfile)
         os.remove(outfile)
         return sample
-
-    def makeSpectrum(self, dur:float, resolution=30) -> sndtrck.Spectrum:
-        """
-        Run this Instr offline, analyze the samples and build a Spectrum
-
-        dur (s)       : The duration of the recording
-        reslution (Hz): The resolution of the analysis
-        """
-        sndfile = self.rec(dur)
-        spectrum = sndtrck.analyze(sndfile, resolution=resolution)
-        os.remove(sndfile)
-        return spectrum
 
     @lru_cache(maxsize=4)
     def chord(self, resolution=30, maxnotes=8, minamp=-50, maxfreq=12000, minfreq=0, t=-1.) -> Chord:
@@ -118,8 +105,8 @@ class Instr:
             dur = t * 1.4
         spectrum = self.makeSpectrum(dur=dur, resolution=resolution)
         mindur = dur * 0.3
-        notes = spectrum.chord_at(t, maxnotes=maxnotes, minamp=minamp, mindur=mindur,
-                                  minfreq=max(minfreq, resolution), maxfreq=maxfreq)
+        notes = spectrum.chordAt(t, maxnotes=maxnotes, minamp=minamp, mindur=mindur,
+                                 minfreq=max(minfreq, resolution), maxfreq=maxfreq)
         return Chord(notes)
 
     def play(self, dur, gain=1):

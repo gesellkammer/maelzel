@@ -7,7 +7,7 @@ them to useful representations in python
 
 from __future__ import annotations
 import os
-from emlib.pitchtools import f2n, f2m
+from pitchtools import f2n, f2m
 from emlib.filetools import fixLineEndings
 import bpf4 as bpf
 from typing import NamedTuple, List

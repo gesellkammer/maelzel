@@ -33,6 +33,7 @@ setup(
         "emlib",
         "numpy",
         "scipy",
+        "matplotlib",
         "music21",
         "bpf4",
         "configdict",
@@ -47,7 +48,14 @@ setup(
         "watchdog",
         "python-constraint",
         "pyyaml",
-        "rtmidi2"
+        "rtmidi2",
+        "samplerate",   # https://pypi.org/project/samplerate/
+        "psutil",
+        "csoundengine>=1.1",
+        "pitchtools>=1.1",
+        "vamp",
+        "lxml",
+        "gmpy"
     ],
     license="BSD",
     zip_safe=False,

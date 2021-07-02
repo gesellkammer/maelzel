@@ -1,6 +1,6 @@
 from typing import Tuple, Union as U, TypeVar
 from fractions import Fraction as F
-from emlib.pitchtools import n2m
+from pitchtools import n2m
 
 
 pitch_t = U[int, float, str]

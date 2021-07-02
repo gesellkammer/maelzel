@@ -1,12 +1,9 @@
-from __future__ import annotations
-
 """
 This module handles playing of events
 
-Each Note, Chord, Line, etc, can express its playback in terms of _CsoundLine
-events.
+Each Note, Chord, Line, etc, can express its playback in terms of CsoundEvents
 
-A _CsoundLine event is a score line with a number of fixed fields,
+A CsoundEvent is a score line with a number of fixed fields,
 user-defined fields and a sequence of breakpoints
 
 A breakpoint is a tuple of values of the form (offset, pitch [, amp, ...])
@@ -17,81 +14,156 @@ An instrument to handle playback should be defined with `defPreset` which handle
 breakpoints and only needs the audio generating part of the csound code
 
 Whenever a note actually is played with a given preset, this preset is
-actually sent to the csound engine and instantiated/evaluated.
+ sent to the csound engine and instantiated/evaluated.
 """
-
-
+from __future__ import annotations
 import os
-import json
 import glob
 
-from dataclasses import dataclass
-from functools import lru_cache
-import textwrap
-import fnmatch
+import textwrap as _textwrap
+import fnmatch as _fnmatch
 from datetime import datetime
+
+import emlib.misc
+
+import watchdog.events
 from watchdog.observers import Observer as _WatchdogObserver
 
-from maelzel.snd import csoundengine
-from typing import List, Dict, Optional as Opt, Union as U, Set, Tuple
+from emlib import textlib as _textlib
+from pitchtools import m2f
 
-from .config import logger, presetsPath, recordPath
-from .state import currentConfig, getState, pushState, popState
-from .common import CsoundEvent, m2f
+import csoundengine
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import List, Dict, Optional as Opt, Union as U, Set, Tuple
+    from .csoundevent import CsoundEvent
+
+from .config import logger
+from .workspace import currentConfig, currentWorkspace, presetsPath, recordPath
 from . import tools
 from . import presetutils
-
 
 _INSTR_INDENT = "    "
 
 
 class PlayEngineNotStarted(Exception): pass
 
+class PresetDef:
 
-@dataclass
-class InstrDef:
+    userPargsStart = 15
+
     """
+    An instrument definition
+
+    Attributes:
         body: the body of the instrument preset
         name: the name of the preset
         init: any init code (global code)
         includes: #include files
         audiogen: the audio generating code
-        tabledef: a dict(param1: default1, param2: default2, ...)
+        tabledef: a dict(param1: default1, param2: default2, ...). If a named argument
+            does not start with a 'k', this 'k' is prepended to it
         description: a description of this instr definition
+        priority: if not None, use this priority as default is no other priority
+            is given.
+
 
     """
-    body: str
-    name: str = None
-    init: str = None
-    includes: List[str] = None
-    audiogen: str = None
-    tabledef: Dict[U[str, int], float] = None
-    userDefined: bool = False
-    numsignals: int = 1
-    numouts: int = 2
-    description: str = ""
-    _consolidatedInit: str = None
+    def __init__(self,
+                 name: str,
+                 body: str,
+                 init: str = None,
+                 includes: List[str] = None,
+                 audiogen: str = None,
+                 params: Dict[str, float] = None,
+                 userDefined: bool = False,
+                 numsignals: int = 1,
+                 numouts: int = 1,
+                 description: str = "",
+                 priority: Opt[int] = None,
+                 ):
+        self.body = body
+        self.name = name
+        self.init = init
+        self.includes = includes
+        self.audiogen = audiogen.strip()
+        self.params = params
+        self.userDefined = userDefined
+        self.numsignals = numsignals
+        self.description = description
+        self.priority = priority
+        self.numouts = numouts
+        self._consolidatedInit: str = ''
+        self._instr: Opt[csoundengine.instr.Instr] = None
 
-    def __post_init__(self):
-        self.audiogen = self.audiogen.strip()
-        
     def __repr__(self):
         lines = []
         descr = f"({self.description})" if self.description else ""
-        lines.append(f"Instrdef: {self.name} {descr}")
-        if self.tabledef:
-            tabstr = ", ".join(f"{key}={value}" for key, value in self.tabledef.items())
-            lines.append(f"    tabledef: {tabstr}")
-        if self.init:
-            lines.append(f"    init: {self.init}")
+        lines.append(f"Preset: {self.name}  {descr}")
         if self.includes:
             includesline = ", ".join(self.includes)
             lines.append(f"    includes: {includesline}")
+        if self.init:
+            lines.append(f"    init: {self.init}")
+        if self.params:
+            tabstr = ", ".join(f"{key}={value}" for key, value in self.params.items())
+            lines.append(f"    {{{tabstr}}}")
         if self.audiogen:
-            lines.append("")
-            audiogen = textwrap.indent(self.audiogen, _INSTR_INDENT)
+            # lines.append("")
+            audiogen = _textwrap.indent(self.audiogen, _INSTR_INDENT)
             lines.append(audiogen)
         return "\n".join(lines)
+
+    def _repr_html_(self, theme=None, showGeneratedCode=False):
+        if self.description:
+            descr = f'(<i>{self.description}</i>)'
+        else:
+            descr = ''
+        ps = [f"Preset: <b>{self.name}</b> {descr}<br>"]
+        if not showGeneratedCode:
+            body = self.audiogen
+        else:
+            body = self.makeInstr().body
+        if self.params:
+            argstr = ", ".join(f"{key}={value}" for key, value in self.params.items())
+            argstr = f"|{argstr}|"
+            csoundcode = _textlib.joinPreservingIndentation((argstr, body))
+        else:
+            csoundcode = body
+        csoundcode = _textwrap.indent(csoundcode, _INSTR_INDENT)
+        htmlcode = csoundengine.csoundlib.highlightCsoundOrc(csoundcode, theme=theme)
+        ps.append(htmlcode)
+        return "\n".join(ps)
+
+    def instrName(self) -> str:
+        """
+        Returns the Instr name corresponding to this Preset
+        """
+        return _instrNameFromPresetName(self.name)
+
+    def makeInstr(self, namedArgsMethod:str=None) -> csoundengine.Instr:
+        if self._instr:
+            return self._instr
+        if namedArgsMethod is None:
+            namedArgsMethod = currentConfig()['play.namedArgsMethod']
+        instrName = self.instrName()
+        if namedArgsMethod == 'table':
+            self._instr = csoundengine.Instr(name=instrName,
+                                             body=self.body,
+                                             init=self.globalCode(),
+                                             tabledef=self.params,
+                                             numchans=self.numouts)
+        elif namedArgsMethod == 'pargs':
+            self._instr = csoundengine.Instr(name=instrName,
+                                             body=self.body,
+                                             init=self.globalCode(),
+                                             args=self.params,
+                                             userPargsStart=PresetDef.userPargsStart,
+                                             numchans=self.numouts)
+        else:
+            raise ValueError(f"namedArgsMethod expected 'table' or 'pargs', "
+                             f"got {namedArgsMethod}")
+        return self._instr
 
     def globalCode(self) -> str:
         if self._consolidatedInit:
@@ -104,43 +176,28 @@ class InstrDef:
 def _consolidateInitCode(init:str, includes:List[str]) -> str:
     if includes:
         includesCode = _genIncludes(includes)
-        init = tools.joinCode((includesCode, init))
+        init = _textlib.joinPreservingIndentation((includesCode, init))
     return init
-
-
-def _parseTableDefinition(d: dict) -> Tuple[List[float], Dict[str, int]]:
-    """
-    Given a dict of the sort {param: defaultValue}, create a tableinit and
-    a tablemap where
-
-    tableinit: a list of default values to populate the table passed to a note
-    tablemap: a dict mapping argument name to argument index
-    """
-    tableinit = []
-    tablemap = {}
-    idx = 0
-    for argname, value in d.items():
-        tableinit.append(value)
-        tablemap[argname] = idx
-        idx += 1
-    return tableinit, tablemap
 
 
 _csoundPrelude = \
 """
+/*
 opcode _oscsqr, a, kk
     kamp, kfreq xin
     aout vco2, 1, kfreq, 10
     aout *= a(kamp)
     xout aout
 endop
+*/
 
 opcode sfloadonce, i, S
     Spath xin
-    itab chnget Spath
+    Skey sprintf "sfloadonce:%s", Spath
+    itab chnget Skey
     if (itab == 0) then
         itab sfload Spath
-        chnset itab, Spath
+        chnset itab, Skey
     endif
     xout itab
 endop
@@ -157,78 +214,65 @@ endop
 
 _invalidVariables = {"kfreq", "kamp", "kpitch"}
 
-def _tabledefGenerateCode(tabledef: dict, checkValidKeys=True) -> str:
-    if checkValidKeys:
-        invalid = _invalidVariables.intersection(tabledef.keys())
-        if invalid:
-            raise KeyError(f"The table definition uses invalid variable names: {invalid}")
-    lines = []
-    idx = 0
-    for key, value in tabledef.items():
-        varname = key if key.startswith("k") else "k" + key
-        line = f"{varname} tab {idx}, itable"
-        lines.append(line)
-        idx += 1
-    return "\n".join(lines)
-
 
 def _makePresetBody(audiogen:str,
-                    tabledef:dict=None,
                     numsignals=1,
                     generateRouting=True):
+    # TODO: generate user pargs
     template = r"""
-;  3  4       5      6      7     8       9       10              11            13       14
-idur, itable, igain, ichan, ipos, ifade0, ifade1, i__pitchinterp, i__fadeshape, inumbps, ibplen passign 3
-idatalen = inumbps * ibplen
-idatastart = 14
-iArgs[] passign idatastart, idatastart + idatalen
-ilastidx = idatalen - 1
+;5          6       7      8     9     0    1      2      3          4        
+idataidx_,inumbps,ibplen,igain_,ichan_,ipos,ifade0,ifade1,ipchintrp_,ifadekind_ passign 5
+idatalen_ = inumbps * ibplen
+iArgs[] passign idataidx_, idataidx_ + idatalen_
+ilastidx = idatalen_ - 1
 iTimes[]     slicearray iArgs, 0, ilastidx, ibplen
 iPitches[]   slicearray iArgs, 1, ilastidx, ibplen
 iAmps[]      slicearray iArgs, 2, ilastidx, ibplen
 
-if (itable > 0) then
-    ftfree itable, 1
-endif
-
 k_time timeinsts
 
-if i__pitchinterp == 0 then      
+if ipchintrp_ == 0 then      
     ; linear midi interpolation    
     kpitch, kamp bpf k_time, iTimes, iPitches, iAmps
     kfreq mtof kpitch
-elseif (i__pitchinterp == 1) then  ; cos midi interpolation
+elseif (ipchintrp_ == 1) then  ; cos midi interpolation
     kpitch = 60
     kamp = 0.5
-    kpitch, kamp bpfcos k_time, iTimes, iPitches, iAmps
+    kidx bisect k_time, iTimes
+    kpitch interp1d kidx, iPitches, "cos"
+    kamp interp1d kidx, iAmps, "cos"
     kfreq mtof kpitch
-elseif (i__pitchinterp == 2) then  ; linear freq interpolation
+elseif (ipchintrp_ == 2) then  ; linear freq interpolation
     iFreqs[] mtof iPitches
     kfreq, kamp bpf k_time, iTimes, iFreqs, iAmps
     kpitch ftom kfreq
 
-elseif (i__pitchinterp == 3) then  ; cos midi interpolation
-    kfreq, kamp bpfcos k_time, iTimes, iFreqs, iAmps
+elseif (ipchintrp_ == 3) then  ; cos freq interpolation
+    kidx bisect k_time, iTimes
+    kfreq interp1d kidx, iFreqs, "cos"
+    kamp interp1d kidx, iAmps, "cos"
     kpitch ftom kfreq
 endif
-
-{tabledefstr}
 
 {audiogen}
 
 ifade0 = max:i(ifade0, 1/kr)
 ifade1 = max:i(ifade1, 1/kr)
-if (i__fadeshape == 0) then
-    aenv linsegr 0, ifade0, igain, ifade1, 0
-elseif (i__fadeshape == 1) then
-    aenv cossegr 0, ifade0, igain, ifade1, 0
+
+if (ifadekind_ == 0) then
+    aenv_ linseg 0, ifade0, igain_, p3-ifade0-ifade1, igain_, ifade1, 0
+elseif (ifadekind_ == 1) then
+    aenv_ cosseg 0, ifade0, igain_, p3-ifade0-ifade1, igain_, ifade1, 0
 endif
+; this envelope makes sure than we fade out even if the note is
+; turned off prematurely
+aenv_ *= linenr:a(1, 0, ifade1, 0.01)
 
 {envelope}
 
 {routing}
     """
-    envStr = "\n".join(f"a{i} *= aenv" for i in range(numsignals))
+    envStr = "\n".join(f"a{i} *= aenv_" for i in range(numsignals))
 
     if not generateRouting:
         routingStr = ""
@@ -236,56 +280,70 @@ endif
         if numsignals == 1:
             routingStr = r"""
             if (ipos == 0) then
-                outch ichan, a0
+                outch ichan_, a0
             else
                 aL, aR pan2 a0, ipos
-                outch ichan, aL, ichan+1, aR
+                outch ichan_, aL, ichan_+1, aR
             endif
             """
         elif numsignals == 2:
             routingStr = r"""
             aL, aR panstereo a0, a1, ipos
-            outch ichan, aL, ichan+1, aR
+            outch ichan_, aL, ichan_+1, aR
             """
         else:
             raise ValueError(f"numsignals can be either 1 or 2 at the moment"
                              f"if automatic routing is enabled (got {numsignals})")
 
-    tabledefStr = "" if tabledef is None else _tabledefGenerateCode(tabledef)
-    audiogen = textwrap.dedent(audiogen)
-    body = template.format(audiogen=tools.reindent(audiogen),
-                           envelope=tools.reindent(envStr),
-                           tabledefstr=tools.reindent(tabledefStr),
-                           routing=tools.reindent(routingStr))
+    audiogen = _textwrap.dedent(audiogen)
+    body = template.format(audiogen=_textlib.reindent(audiogen),
+                           envelope=_textlib.reindent(envStr),
+                           routing=_textlib.reindent(routingStr))
     return body
 
 
-def makeSoundfontAudiogen(sf2path: str = None, preset=0) -> str:
+def _resolveSoundfontPath(path:str=None) -> Opt[str]:
+    return (path or
+            currentConfig()['play.generalMidiSoundfont'] or
+            csoundengine.tools.defaultSoundfontPath() or
+            None)
+
+def makeSoundfontAudiogen(sf2path: str = None, instrnum=0) -> str:
     """
     Generate audiogen code for a soundfont.
+
     This can be used as the audiogen parameter to defPreset
+    
+    Args:        
+        sf2path: path to a sf2 soundfont. If None, the default fluidsynth soundfont
+            is used
+        instrnum: as returned via `csoundengine.csoundlib.soundfontGetInstruments`
 
-    sf2path:
-        path to a sf2 soundfont. If None, the default fluidsynth soundfont
-        is used
-    preset:
-        soundfont preset to be loaded. To find the preset number, use
-        echo "inst 1" | fluidsynth "path/to/sf2" | egrep '[0-9]{3}-[0-9]{3} '
-
-    banks are not supported
+    Examples
+    --------
+    
+        >>> # Add a soundfont preset with transposition
+        >>> code = r'''
+        ...     kpitch = kpitch + ktransp
+        ... '''
+        >>> code += makeSoundfontAudiogen("/path/to/soundfont.sf2", instrnum=0)
+        >>> defPreset('myinstr', code, params={'ktransp': 0})
+        
     """
-    if sf2path is not None:
-        sf2path = os.path.abspath(sf2path)
-    else:
-        sf2path = csoundengine.fluidsf2Path()
-    if not os.path.exists(sf2path):
-        raise FileNotFoundError(f"Soundfont file {sf2path} not found")
-    audiogen = f"""
+    sf2path = _resolveSoundfontPath(sf2path)
+    ampdiv = currentConfig()['play.soundfontAmpDiv']
+    if not sf2path:
+        raise ValueError("No soundfont was given and no default soundfont found")
+    audiogen = fr'''
     iSfTable sfloadonce "{sf2path}"
-    inote0 = p(idatastart + 1)
-    ivel = p(idatastart + 2) * 127
-    a0, a1  sfinstr ivel, inote0, kamp/16384, mtof:k(kpitch), {preset}, iSfTable, 1
-    """
+    inote0_ = round(p(idataidx_ + 1))
+    ivel_ = p(idataidx_ + 2) * 127
+    a0, a1  sfinstr ivel_, inote0_, kamp/{ampdiv}, mtof:k(kpitch), {instrnum}, iSfTable, 1
+    kfinished_  trigger detectsilence:k(a0, 0.0001, 0.05), 0.5, 0
+    if kfinished_ == 1  then
+        turnoff
+    endif
+    '''
     return audiogen
 
 
@@ -299,7 +357,7 @@ def _fixNumericKeys(d: dict):
         d[int(key)] = v
 
 
-def _loadPreset(presetPath: str) -> [str, InstrDef]:
+def _loadPreset(presetPath: str) -> [str, PresetDef]:
     """
     load a specific preset.
 
@@ -310,16 +368,10 @@ def _loadPreset(presetPath: str) -> [str, InstrDef]:
         A tuple(preset name, _InstrDef)
     """
     ext = os.path.splitext(presetPath)[1]
-    if ext == '.json':
-        try:
-            d = json.load(open(presetPath))
-        except json.JSONDecodeError:
-            logger.warning(f"Could not load preset {presetPath}")
-            return None
-    elif ext == '.ini':
+    if ext == '.ini':
         d = presetutils.loadIniPreset(presetPath)
     else:
-        raise ValueError("Only .json or .ini presets are supported")
+        raise ValueError("Only .ini presets are supported")
     assert 'name' in d and 'audiogen' in d, d
 
     presetName = d['name']
@@ -334,23 +386,23 @@ def _loadPreset(presetPath: str) -> [str, InstrDef]:
     numSignals = audiogenInfo['numSignals']
     body = d.get('body')
     if not body:
-        body = _makePresetBody(audiogen, tabledef=tabledef,
+        body = _makePresetBody(audiogen,
                                numsignals=numSignals,
                                generateRouting=audiogenInfo['needsRouting'])
 
-    instrdef = InstrDef(body=body,
-                        name=d.get('name'),
-                        includes=d.get('includes'),
-                        init=d.get('init'),
-                        audiogen=d.get('audiogen'),
-                        tabledef=tabledef,
-                        numsignals=numSignals,
-                        numouts=audiogenInfo['numOutputs']
-                        )
+    instrdef = PresetDef(body=body,
+                         name=d.get('name'),
+                         includes=d.get('includes'),
+                         init=d.get('init'),
+                         audiogen=d.get('audiogen'),
+                         params=tabledef,
+                         numsignals=numSignals,
+                         numouts=audiogenInfo['numOutputs']
+                         )
     return presetName, instrdef
 
 
-def _loadPresets() -> Dict[str, InstrDef]:
+def _loadPresets() -> Dict[str, PresetDef]:
     """
     loads all presets from presetsPath, return a dict {presetName:instrdef}
     """
@@ -359,7 +411,7 @@ def _loadPresets() -> Dict[str, InstrDef]:
     if not os.path.exists(basepath):
         logger.debug(f"_loadPresets: presets path does not exist: {basepath}")
         return presets
-    patterns = ["preset-*.json", "preset-*.yaml", "preset-*.ini"]
+    patterns = ["*.yaml", "*.ini"]
     savedPresets = []
     for pattern in patterns:
         found = glob.glob(os.path.join(basepath, pattern))
@@ -373,10 +425,10 @@ def _loadPresets() -> Dict[str, InstrDef]:
     return presets
 
 
-class _PresetManager:
+class PresetManager:
 
     def __init__(self):
-        self.instrdefs = {}
+        self.instrdefs: Dict[str, PresetDef] = {}
         self.presetsPath = presetsPath()
         self._prepareEnvironment()
         self._makeBuiltinPresets()
@@ -395,11 +447,17 @@ class _PresetManager:
     def _startWatchdog(self):
         observer = _WatchdogObserver()
 
-        def presetsPathChanged(*args, **kws):
-            logger.info(f"presets path changed: {args}, {kws}")
-            self.loadPresets()
+        class MyHandler(watchdog.events.FileSystemEventHandler):
+            def __init__(self, manager):
+                self.manager = manager
 
-        observer.schedule(presetsPathChanged, self.presetsPath)
+            def on_modified(self, event):
+                self.manager.loadPresets()
+
+            def on_created(self, event):
+                self.manager.loadPresets()
+
+        observer.schedule(MyHandler(self), self.presetsPath)
         observer.start()
         return observer
 
@@ -408,99 +466,114 @@ class _PresetManager:
         if not os.path.exists(path):
             os.makedirs(path)
 
-    def _makeBuiltinPresets(self) -> None:
+    def _makeBuiltinPresets(self, sf2path:str=None) -> None:
         """
         Defines all builtin presets
         """
         from functools import partial
-        mkPreset = partial(self.defPreset, _userDefined=False, generateTableCode=True,
-                           descr=None)
+        mkPreset = partial(self.defPreset, _userDefined=False, descr=None)
         builtinSf = partial(self.defPresetSoundfont, _userDefined=False)
 
         mkPreset('sin', "a0 oscili a(kamp), mtof(lag(kpitch, 0.01))",
                  descr="simplest sine wave")
 
-        mkPreset('tsin',  "a0 oscili a(kamp), mtof(sc_lag(kpitch+ktransp, klag))",
-                 tabledef=dict(transp=0, lag=0.1),
+        mkPreset('tsin',  "a0 oscili a(kamp), mtof(lag(kpitch+ktransp, klag))",
+                 params=dict(ktransp=0, klag=0.1),
                  descr="transposable sine wave")
 
         mkPreset('tri',
-                 """
+                 r'''
                  kfreq = mtof:k(lag(kpitch, 0.08))
                  a0 = vco2(1, kfreq,  12) * a(kamp)
-                 """,
+                 ''',
                  descr="simple triangle wave")
 
         mkPreset('ttri',
-                 """
+                 r'''
                  kfreq = mtof:k(lag(kpitch + ktransp, klag))
                  a0 = vco2(1, kfreq,  12) * a(kamp)
                  if kfreqratio > 0 then
                     a0 = K35_lpf(a0, kfreq*kfreqratio, kQ)
                  endif
-                 """,
-                 tabledef=dict(transp=0, lag=0.1, freqratio=0, Q=3),
+                 ''',
+                 params=dict(ktransp=0, klag=0.1, kfreqratio=0, kQ=3),
                  descr="transposable triangle wave with optional lowpass-filter")
 
         mkPreset('saw',
-                 """
+                 r'''
                  kfreq = mtof:k(lag(kpitch, 0.01))
                  a0 = vco2(1, kfreq, 0) * a(kamp)
-                 """,
+                 ''',
                  descr="simple saw-tooth")
 
         mkPreset('tsaw',
-                 """
+                 r'''
                  kfreq = mtof:k(lag(kpitch + ktransp, klag))
                  a0 = vco2(1, kfreq, 0) * a(kamp)
                  if kfreqratio > 0 then
                     a0 = K35_lpf(a0, kfreq*kfreqratio, kQ)
                  endif
-                 """,
-                 tabledef = dict(transp=0, lag=0.1, freqratio=0, Q=3),
+                 ''',
+                 params = dict(ktransp=0, klag=0.1, kfreqratio=0, kQ=3),
                  descr="transposable saw with optional low-pass filtering")
 
         mkPreset('tsqr',
-                 """
+                 r'''
                  a0 = vco2(1, mtof(lag(kpitch+ktransp, klag), 10) * a(kamp)
                  if kcutoff > 0 then
                     a0 moogladder a0, port(kcutoff, 0.05), kresonance
                  endif          
-                 """,
-                 tabledef=dict(transp=0, lag=0.1, cutoff=0, resonance=0.2),
+                 ''',
+                 params=dict(ktransp=0, klag=0.1, kcutoff=0, kresonance=0.2),
                  descr="square wave with optional filtering")
 
-        mkPreset('tpulse', "a0 vco2 kamp, mtof:k(lag:k(kpitch+ktransp, klag), 2, kpwm",
-                 tabledef=dict(transp=0, lag=0.1, pwm=0.5))
+        mkPreset('tpulse',
+                 "a0 vco2 kamp, mtof:k(lag:k(kpitch+ktransp, klag), 2, kpwm",
+                 params=dict(ktransp=0, klag=0.1, kpwm=0.5),
+                 descr="transposable pulse with moulatable pwm")
 
-        builtinSf('piano',     preset=148)
-        builtinSf('clarinet',  preset=61)
-        builtinSf('oboe',      preset=58)
-        builtinSf('flute',     preset=42)
-        builtinSf('violin',    preset=47)
-        builtinSf('reedorgan', preset=52)
+        sf2 = _resolveSoundfontPath(path=sf2path)
+        if sf2:
+            progs = csoundengine.csoundlib.soundfontGetInstruments(sf2)
+            prognums = {num for num, name in progs}
+            if 147 in prognums:
+                builtinSf('piano',     program=147)
+            if 61 in prognums:
+                builtinSf('clarinet',  program=61)
+            if 58 in prognums:
+                builtinSf('oboe',      program=58)
+            if 42 in prognums:
+                builtinSf('flute',     program=42)
+            if 47 in prognums:
+                builtinSf('violin',    program=47)
+            if 52 in prognums:
+                builtinSf('reedorgan', program=52)
+        else:
+            logger.info("No soundfont defined, builtin instruments using soundfonts will"
+                        "not be available. Set config['play.generalMidiSoundfont'] to"
+                        "the path of an existing soundfont")
 
     def defPreset(self,
                   name: str,
                   audiogen: str,
                   init:str=None,
                   includes: List[str] = None,
-                  tabledef: U[List[float], Dict[str, float]] = None,
-                  generateTableCode=True,
+                  params: Dict[str, float] = None,
                   descr: str = None,
+                  priority: int = None,
+                  temporary = False,
                   _userDefined=True,
-                  ) -> InstrDef:
+                  ) -> PresetDef:
         """
-        Define a new instrument preset. The defined preset can be used
-        as mynote.play(..., instr='name'), where name is the name of the
-        preset.
+        Define a new instrument preset.
 
-        A preset is created by defining the audio generating part as
-        csound code. Each preset has access to the following variables:
+        The defined preset can be used as mynote.play(..., instr='name'), where name
+        is the name of the preset. A preset is created by defining the audio generating
+        part as csound code. Each preset has access to the following variables:
 
-            kpitch: pitch as fractional midi
-            kamp  : linear amplitude (0-1)
-            kfreq : frequency corresponding to kpitch
+        - **kpitch**: pitch as fractional midi
+        - **kamp**: linear amplitude (0-1)
+        - **kfreq**: frequency corresponding to kpitch
 
         Each preset CAN have an associated ftable, passed as p4.
         If p4 is < 1, then the given preset has no associated ftable
@@ -508,23 +581,29 @@ class _PresetManager:
         audiogen should generate an audio output signal named 'a0' for channel 1,
         a1 for channel 2, etc.
 
-        Example
+        Example::
 
-        audiogen = 'a0 oscili a(kamp), kfreq'
+            audiogen = 'a0 oscili a(kamp), kfreq'
 
         Args:
             name: the name of the preset
             audiogen: audio generating csound code
             init: global code needed by the audiogen part (usually a table definition)
             includes: files to include
-            tabledef: either a dict {parameter_name: value} or a list of default
-                values (unnamed parameters)
-            generateTableCode: should we generate the code reading the associated
-                table
+            params: a dict {parameter_name: value}
             _userDefined: internal parameter, used to identify builtin presets
             descr: a description of what this preset is/does
+            priority: if given, the instr has this priority as default when scheduled
+            temporary: if True, preset will not be saved, eved if
+                `config['play.autosavePreset']` is True
 
-        Example:
+        Retursn:
+            an InstrDef
+
+        Example
+        ~~~~~~~
+
+        .. code-block:: python
 
             # create a preset with a dynamic parameter
             manager = getPresetManager()
@@ -533,50 +612,51 @@ class _PresetManager:
             kcutoff tab 0, p4
             kq      tab 1, p4
             asig vco2 kamp, kfreq, 10
-            asig moogladder a0, sc_lag:k(kcutoff, 0.1), kq
+            asig moogladder a0, lag:k(kcutoff, 0.1), kq
             '''
             manager.defPreset(name='mypreset', audiogen=audiogen,
-                              tabledef=dict(cutoff=4000, q=1))
+                              params=dict(kcutoff=4000, kq=1))
 
         See Also:
             defPresetSoundfont
         """
-        audiogen = textwrap.dedent(audiogen)
-        if not generateTableCode:
-            tabledef = None
+        audiogen = _textwrap.dedent(audiogen)
         audiogenInfo = tools.analyzeAudiogen(audiogen)
         numSignals = audiogenInfo['numSignals']
-        body = _makePresetBody(audiogen, tabledef,
+        body = _makePresetBody(audiogen,
                                numsignals=numSignals,
                                generateRouting=audiogenInfo['needsRouting'])
         numouts = audiogenInfo['numOutputs']
 
-        instrdef = InstrDef(name=name,
-                            body=body,
-                            init=init,
-                            audiogen=audiogen,
-                            tabledef=tabledef,
-                            includes=includes,
-                            numsignals=numSignals,
-                            numouts=numouts,
-                            description=descr,
-                            userDefined=_userDefined)
+        instrdef = PresetDef(name=name,
+                             body=body,
+                             init=init,
+                             audiogen=audiogen,
+                             params=params,
+                             includes=includes,
+                             numsignals=numSignals,
+                             numouts=numouts,
+                             description=descr,
+                             userDefined=_userDefined,
+                             priority=priority)
 
         self._registerPreset(name, instrdef)
         config = currentConfig()
-        if _userDefined and config['play.autosavePresets']:
+        if _userDefined and (not temporary or config['play.autosavePresets']):
             self.savePreset(name)
         return instrdef
 
     def defPresetSoundfont(self,
                            name:str,
                            sf2path:str=None,
-                           preset=0,
+                           program: U[int, Tuple[int, int], str]=0,
+                           preload=True,
                            init: str = None,
                            includes: List[str] = None,
                            postproc:str=None,
-                           tabledef: U[List[float], Dict[str, float]] = None,
-                           _userDefined=True) -> InstrDef:
+                           params: U[List[float], Dict[str, float]] = None,
+                           priority: int = None,
+                           _userDefined=True) -> PresetDef:
         """
         Define a new soundfont instrument preset
 
@@ -584,44 +664,82 @@ class _PresetManager:
             name: the name of the preset
             sf2path: the path to the soundfont, or None to use the default
                 fluidsynth soundfont
-            preset: the preset to use
-            postproc: any code needed for postprocessing
+            program: the program to use. Either an instr. number, as listed
+                via `csoundengine.csoundlib.soundfontGetInstruments`, a
+                `(bank, presetnum)` tuplet as returned by
+                `csoundengine.csoundlib.soundfontGetPreset`, or an instrument
+                name. In this last case a glob pattern can be used, in which case
+                the first instrument matching the pattern will be used.
+            preload: if True, load the soundfont at the beginning of the session
+            postproc: any code needed for postprocessing. Any postprocessing should
+                modify the variables a0, a1
             init: global code needed by postproc
             includes: files to include (if needed by init or postproc)
-            tabledef: mutable values needed by postproc (if any). See defPreset
+            params: mutable values needed by postproc (if any). See defPreset
+            priority: default priority for this preset
 
             _userDefined: internal parameter, used to identify builtin presets
                 (builtin presets are not saved)
 
-        NB: to list all presets in a soundfont in linux, use
-        $ echo "inst 1" | fluidsynth violin.sf2 2>/dev/null | egrep '[0-9]{3}-[0-9]{3} '
-        """
-        audiogen = makeSoundfontAudiogen(sf2path=sf2path, preset=preset)
-        if postproc:
-            audiogen = tools.joinCode((audiogen, postproc))
-        return self.defPreset(name=name, audiogen=audiogen, init=init,
-                              includes=includes, tabledef=tabledef,
-                              _userDefined=_userDefined)
+        !!! note
 
-    def _registerPreset(self, name:str, instrdef:InstrDef) -> None:
+            To list all programs in a soundfont, see
+            :func:`~maelzel.play.showSoundfontPresets`
+
+        """
+        audiogen = makeSoundfontAudiogen(sf2path=sf2path, instrnum=program)
+        if preload:
+            # We don't need to use a global variable because sfloadonce
+            # saved the table num into a channel
+            init0 = f'''iSfTable sfloadonce "{sf2path}"'''
+            if init:
+                init = "\n".join((init0, init))
+            else:
+                init = init0
+        if postproc:
+            audiogen = _textlib.joinPreservingIndentation((audiogen, postproc))
+        return self.defPreset(name=name, audiogen=audiogen, init=init,
+                              includes=includes, params=params,
+                              _userDefined=_userDefined,
+                              priority=priority)
+
+    def _registerPreset(self, name:str, instrdef:PresetDef) -> None:
         self.instrdefs[name] = instrdef
 
-    def getPreset(self, name:str) -> InstrDef:
+    def getPreset(self, name:str) -> PresetDef:
         if name is None:
             name = currentConfig()['play.instr']
-        return self.instrdefs.get(name)
+        preset = self.instrdefs.get(name)
+        if preset:
+            return preset
+        raise ValueError(f"Preset {name} not known. \n"
+                         f"Presets: {self.instrdefs.keys()}")
+
 
     def definedPresets(self) -> Set[str]:
         return set(self.instrdefs.keys())
 
-    def showPresets(self, pattern="*") -> None:
-        if "*" not in pattern:
-            pattern = f"*{pattern}*"
-        for presetName, instrdef in self.instrdefs.items():
-            if not fnmatch.fnmatch(presetName, pattern):
-                continue
-            print("\n")
-            print(instrdef)
+    def showPresets(self, pattern="*", showGeneratedCode=False) -> None:
+        selectedPresets = [presetName for presetName in self.instrdefs.keys()
+                           if _fnmatch.fnmatch(presetName, pattern)]
+        if not emlib.misc.inside_jupyter():
+            for presetName in selectedPresets:
+                presetdef = self.instrdefs[presetName]
+                print("")
+                if not showGeneratedCode:
+                    print(presetdef)
+                else:
+                    print(presetdef.makeInstr().body)
+        else:
+            theme = currentConfig()['html.theme']
+            htmls = []
+            for presetName in selectedPresets:
+                presetdef = self.instrdefs[presetName]
+                html = presetdef._repr_html_(theme, showGeneratedCode=showGeneratedCode)
+                htmls.append(html)
+            from IPython.core.display import display, HTML
+            display(HTML("\n".join(htmls)))
+
 
     def eventMaxNumChannels(self, event: CsoundEvent) -> int:
         """
@@ -651,9 +769,8 @@ class _PresetManager:
         """
         Saves all presets matching the pattern. Builtin presets are never saved
         """
-        import fnmatch
         for name, instrdef in self.instrdefs.items():
-            if instrdef.userDefined and fnmatch.fnmatch(name, pattern):
+            if instrdef.userDefined and _fnmatch.fnmatch(name, pattern):
                 self.savePreset(name)
 
     def savePreset(self, name:str) -> str:
@@ -683,11 +800,8 @@ class _PresetManager:
                     d[key] = val
 
         addtags('init', 'includes', 'numouts', 'tabledef', 'tableinit', 'tablemap')
-        outpath = os.path.join(path, f"preset-{name}.{fmt}")
-        if fmt == 'json':
-            with open(outpath, "w") as f:
-                json.dump(d, f, indent=True)
-        elif fmt == 'ini':
+        outpath = os.path.join(path, f"{name}.{fmt}")
+        if fmt == 'ini':
             presetutils.saveIniPreset(d, outpath)
         else:
             raise KeyError(f"format {fmt} not supported")
@@ -697,6 +811,7 @@ class _PresetManager:
                      events: List[CsoundEvent] = None,
                      presetNames:List[str]=None,
                      sr:int=None,
+                     nchnls:int=None,
                      ksmps=None
                      ) -> csoundengine.Renderer:
         """
@@ -708,6 +823,7 @@ class _PresetManager:
                 unset to use all or, if events are passed, to use the
                 presets defined in the events
             sr: the samplerate of the renderer
+            nchnls: the number of channels
             ksmps: if not explicitely set, will use config 'rec.ksmps'
 
         Returns:
@@ -716,10 +832,11 @@ class _PresetManager:
         config = currentConfig()
         sr = sr or config['rec.samplerate']
         ksmps = ksmps or config['rec.ksmps']
-        state = getState()
-        renderer = csoundengine.Renderer(sr=sr, nchnls=1, ksmps=ksmps,
+        nchnls = nchnls or config['rec.nchnls']
+        state = currentWorkspace()
+        renderer = csoundengine.Renderer(sr=sr, nchnls=nchnls, ksmps=ksmps,
                                          a4=state.a4)
-        renderer.addGlobal(_csoundPrelude)
+        renderer.addGlobalCode(_csoundPrelude)
         if events is not None:
             presetNames = list(set(ev.instr for ev in events))
         elif presetNames is None:
@@ -732,10 +849,10 @@ class _PresetManager:
                 logger.error(f"Preset {presetName} not found. "
                              f"Defined presets: {self.definedPresets()}")
                 raise KeyError(f"Preset {presetName} not found")
-            renderer.defInstr(presetName, instrdef.body, tabledef=instrdef.tabledef)
+            renderer.defInstr(presetName, instrdef.body, tabledef=instrdef.params)
             globalCode = instrdef.globalCode()
             if globalCode:
-                renderer.addGlobal(globalCode)
+                renderer.addGlobalCode(globalCode)
         if events:
             _schedOffline(renderer, events)
 
@@ -743,15 +860,44 @@ class _PresetManager:
 
     def makePresetTemplate(presetName: str, edit=False) -> str:
         """
-        Create a new preset with the given name. The preset can then be
-        edited as a text file. If edit is True, then it is opened to be
-        edited right away
+        Create a new preset template with the given name.
+
+        The preset can then be edited as a text file. If edit is True, it is opened
+        to be edited right away
         """
         return presetutils.makeIniPresetTemplate(presetName=presetName,
                                                  edit=edit)
 
+    def openPresetsDir(self) -> None:
+        """
+        Open a file manager at presetsPath
+        """
+        path = presetsPath()
+        emlib.misc.open_with_standard_app(path)
 
-class _OfflineRenderer:
+    def removeUserPreset(self, presetName: str) -> bool:
+        """
+        Remove a user defined preset
+
+        Args:
+            presetName: the name of the preset to remove
+
+        Returns:
+            True if the preset was removed, False if it did not exist
+        """
+        extensions = {'.yaml', '.ini'}
+        possibleFiles = glob.glob(os.path.join(presetsPath(), f"{presetName}.*"))
+        possibleFiles = [f for f in possibleFiles
+                         if os.path.splitext(f)[1] in extensions]
+        if not possibleFiles:
+            return False
+        for f in possibleFiles:
+            if f.endswith('.ini') or f.endswith('.yaml'):
+                os.remove(f)
+        return True
+
+
+class OfflineRenderer:
     def __init__(self, sr=None, ksmps=64, outfile:str=None):
         self.a4 = m2f(69)
         self.sr = sr or currentConfig()['rec.samplerate']
@@ -783,8 +929,7 @@ class _OfflineRenderer:
 
     def getCsd(self, outfile:str=None) -> str:
         """
-        Generate the .csd representing which would render all
-        events scheduled until now
+        Generate the .csd which would render all events scheduled until now
 
         Args:
             outfile: if given, the .csd is saved to this file
@@ -811,7 +956,8 @@ def recEvents(events: List[CsoundEvent], outfile:str=None,
 
     Args:
         events: a list of events as returned by .events(...)
-        outfile: the generated file. If left unset, a temporary file is created
+        outfile: the generated file. If left unset, a file inside the recording
+            path is created (see `recordPath`)
         sr: sample rate of the soundfile
         ksmps: number of samples per cycle (config 'rec.ksmps')
         wait: if True, wait until recording is finished. If None,
@@ -822,16 +968,7 @@ def recEvents(events: List[CsoundEvent], outfile:str=None,
     Returns:
         the path of the generated soundfile
 
-    Example:
-
-        a = Chord("A4 C5", start=1, dur=2)
-        b = Note("G#4", dur=4)
-        events = []
-        events.extend(a.events(chan=1))
-        events.extend(b.events(gain=0.2, chan=2))
-        recEvents(events, outfile="out.wav")
-
-        # This is the same as above:
+    Example::
 
         a = Chord("A4 C5", start=1, dur=2)
         b = Note("G#4", dur=4)
@@ -851,8 +988,9 @@ def recEvents(events: List[CsoundEvent], outfile:str=None,
     return outfile
 
 
-_presetManager = _PresetManager()
+_presetManager = PresetManager()
 defPreset = _presetManager.defPreset
+defPresetSoundfont = _presetManager.defPresetSoundfont
 showPresets = _presetManager.showPresets
 
 
@@ -874,6 +1012,7 @@ def _genIncludes(includes: List[str]) -> str:
 def makeRecordingFilename(ext=".wav", prefix=""):
     """
     Generate a new filename for a recording.
+
     This is used when rendering and no outfile is given
 
     Args:
@@ -881,8 +1020,8 @@ def makeRecordingFilename(ext=".wav", prefix=""):
         prefix: a prefix used to identify this recording
 
     Returns:
-        an absolute path. It is guaranteed that the filename
-        does not exist
+        an absolute path. It is guaranteed that the filename does not exist.
+        The file will be created inside the recording path (see ``state.recordPath``)
     """
     path = recordPath()
     assert ext.startswith(".")
@@ -894,33 +1033,30 @@ def makeRecordingFilename(ext=".wav", prefix=""):
     return out
 
 
-@lru_cache(maxsize=1000)
-def makeInstrFromPreset(instrname: str=None) -> csoundengine.CsoundInstr:
+def _instrNameFromPresetName(presetName: str) -> str:
+    # an Instr derived from a PresetDef gets a prefix to prevent collisions
+    # with Instrs a user might want to define in the same Session
+    return f'preset.{presetName}'
+
+
+def _registerPresetInSession(preset: PresetDef,
+                             session:csoundengine.session.Session
+                             ) -> csoundengine.Instr:
     """
-    Create a CsoundInstr from a preset
+    Create and register a :class:`csoundengine.instr.Instr` from a preset
 
     Args:
-        instrname: The name of the preset. If None, use the default
-            instrument as defined in config['play.instr']
+        preset: the PresetDef.
+        session: the session to manage the instr
+
+    Returns:
+        the registered Instr
     """
-    config = currentConfig()
-    if instrname is None:
-        instrname = config['play.instr']
-    instrdef = _presetManager.getPreset(instrname)
-    if instrdef is None:
-        raise KeyError(f"Unknown instrument {instrname}")
-    group = config['play.group']
-    name = f'{group}.preset.{instrname}'
-    startPlayEngine()
-    manager = getPlayManager()
-    csdinstr = manager.defInstr(name=name,
-                                body=instrdef.body,
-                                init=instrdef.globalCode(),
-                                tabledef=instrdef.tabledef,
-                                generateTableCode=False,
-                                freetable=False)
-    logger.debug(f"Created {csdinstr}")
-    return csdinstr
+    # each preset caches the generated instr
+    instr = preset.makeInstr()
+    # registerInstr checks itself if the instr is already defined
+    session.registerInstr(instr)
+    return instr
 
 
 def _soundfontToTabname(sfpath: str) -> str:
@@ -933,103 +1069,110 @@ def _soundfontToChannel(sfpath:str) -> str:
     return f"_sf:{basename}"
 
 
-def availableInstrs() -> Set[str]:
+def availablePresets() -> Set[str]:
     """
-    Returns a set of instr presets already defined
+    Returns the names of instr presets already defined
 
     """
     return getPresetManager().definedPresets()
 
 
-def startPlayEngine(nchnls=None, backend=None) -> None:
+def startPlayEngine(numChannels=None, backend=None) -> csoundengine.Engine:
     """
-    Start the play engine with a given configuration, if necessary.
+    Start the play engine
 
-    If an engine is already active, we do nothing, even if the
-    configuration is different. For that case, you need to
-    stop the engine first.
+    If an engine is already active, nothing happens, even if the
+    configuration is different. To start the play engine with a different
+    configuration, stop the engine first.
+
+    Args:
+        numChannels: the number of output channels, overrides config 'play.numChannels'
+        backend: the audio backend used, overrides config 'play.backend'
     """
     config = currentConfig()
-    engineName = config['play.group']
+    engineName = config['play.engineName']
     if engineName in csoundengine.activeEngines():
-        return
-    nchnls = nchnls or config['play.numChannels']
+        return csoundengine.getEngine(engineName)
+    numChannels = numChannels or config['play.numChannels']
     backend = backend or config['play.backend']
-    logger.info(f"Starting engine {engineName} (nchnls={nchnls})")
-    csoundengine.CsoundEngine(name=engineName, nchnls=nchnls,
-                              backend=backend,
-                              globalcode=_csoundPrelude)
+    logger.info(f"Starting engine {engineName} (nchnls={numChannels})")
+    return csoundengine.Engine(name=engineName, nchnls=numChannels,
+                               backend=backend,
+                               globalcode=_csoundPrelude)
 
 
-def stopSynths(stop_engine=False, cancel_future=True, allow_fadeout=None):
+def stopSynths(stop_engine=False, cancel_future=True):
     """
     Stops all synths (notes, chords, etc) being played
 
     If stopengine is True, the play engine itself is stopped
     """
-    manager = getPlayManager()
-    allow_fadeout = (allow_fadeout if allow_fadeout is not None
-                     else currentConfig()['play.unschedFadeout'])
-    manager.unschedAll(cancel_future=cancel_future, allow_fadeout=allow_fadeout)
+    manager = getPlaySession()
+    manager.unschedAll(cancel_future=cancel_future)
     if stop_engine:
         getPlayEngine().stop()
 
 
-def stopLastSynth(n=1) -> None:
-    """
-    Stop last active synth
-    """
-    getPlayManager().unschedLast(n=n)
-
-
-def getPlayManager() -> csoundengine.InstrManager:
+def getPlaySession() -> csoundengine.Session:
     config = currentConfig()
-    group = config['play.group']
+    group = config['play.engineName']
     if not isEngineActive():
         if config['play.autostartEngine']:
             startPlayEngine()
         else:
             raise PlayEngineNotStarted("Engine is not running. Call startPlayEngine")
-    return csoundengine.getManager(group)
+    return csoundengine.getSession(group)
 
 
 def restart() -> None:
-    group = currentConfig()['play.group']
-    manager = csoundengine.getManager(group)
+    """
+    Restart the sound engine
+    """
+    group = currentConfig()['play.engineName']
+    manager = csoundengine.getSession(group)
     manager.unschedAll()
     manager.restart()
 
 
 def isEngineActive() -> bool:
-    group = currentConfig()['play.group']
+    """
+    Returns True if the sound engine is active
+    """
+    group = currentConfig()['play.engineName']
     return csoundengine.getEngine(group) is not None
 
 
-def getPlayEngine() -> Opt[csoundengine.CsoundEngine]:
-    engine = csoundengine.getEngine(name=currentConfig()['play.group'])
+def getPlayEngine() -> Opt[csoundengine.Engine]:
+    """
+    Return the sound engine, or None if it has not been started
+    """
+    engine = csoundengine.getEngine(name=currentConfig()['play.engineName'])
     if not engine:
         logger.debug("engine not started")
         return
     return engine
 
 
-def getPresetManager() -> _PresetManager:
+def getPresetManager() -> PresetManager:
+    """
+    Get the preset manager
+    """
     return _presetManager
 
 
-def getPreset(preset:str) -> Opt[InstrDef]:
+def getPreset(preset:str) -> Opt[PresetDef]:
+    """
+    get a defined preset
+    """
     return getPresetManager().getPreset(preset)
 
 
 class rendering:
-    """
-    This is used as a context manager to transform all calls
-    to .play to be renderer offline
-    """
-
     def __init__(self, outfile:str=None, wait=True, quiet=None,
                  **kws):
         """
+        Context manager to transform all calls to .play to be renderer offline
+
         Args:
             outfile: events played within this context will be rendered
                 to this file. If set to None, no rendering will be performed
@@ -1041,43 +1184,41 @@ class rendering:
                 getPresetManager().makeRenderer
                 Possible keywords: sr, nchnls, ksmps
 
-        Example:
+        Example::
 
-        # this will generate a file foo.wav after leaving the `with` block
-        with rendering("foo.wav"):
-            chord.play(dur=2)
-            note.play(dur=1, fade=0.1, delay=1)
+            # this will generate a file foo.wav after leaving the `with` block
+            with rendering("foo.wav"):
+                chord.play(dur=2)
+                note.play(dur=1, fade=0.1, delay=1)
 
-        # You can render manually, if needed
-        with rendering() as r:
-            chord.play(dur=2)
-            ...
-            print(r.getCsd())
-            r.render("outfile.wav")
+            # You can render manually, if needed
+            with rendering() as r:
+                chord.play(dur=2)
+                ...
+                print(r.getCsd())
+                r.render("outfile.wav")
 
         """
         self.kws = kws
         self.outfile = outfile
-        self.renderer: Opt[_OfflineRenderer] = None
+        self._oldRenderer: Opt[OfflineRenderer] = None
+        self.renderer: Opt[OfflineRenderer] = None
         self.quiet = quiet or currentConfig()['rec.quiet']
         self.wait = wait
 
     def __enter__(self):
-        self.renderer = _OfflineRenderer(**self.kws)
-        pushState(renderer=self.renderer)
+        workspace = currentWorkspace()
+        self._oldRenderer = workspace.renderer
+        self.renderer = OfflineRenderer(**self.kws)
+        workspace.renderer = self.renderer
         return self.renderer
 
     def __exit__(self, *args, **kws):
-        popState()
+        currentWorkspace().renderer = self._oldRenderer
         if self.outfile is None:
             return
-        try:
-            self.renderer.render(outfile=self.outfile, wait=self.wait,
-                                 quiet=self.quiet)
-        except csoundengine.RenderError as e:
-            raise e
-        # reraise exceptions if any
-        return False
+        self.renderer.render(outfile=self.outfile, wait=self.wait,
+                             quiet=self.quiet)
 
 
 def _schedOffline(renderer: csoundengine.Renderer,
@@ -1085,8 +1226,9 @@ def _schedOffline(renderer: csoundengine.Renderer,
                   _checkNchnls=True
                   ) -> None:
     """
-    Schedule the given events for offline rendering. You need
-    to call renderer.render(...) to actually render/play the
+    Schedule the given events for offline rendering.
+
+    You need to call renderer.render(...) to actually render/play the
     scheduled events
 
     Args:
@@ -1102,23 +1244,61 @@ def _schedOffline(renderer: csoundengine.Renderer,
     if _checkNchnls:
         maxchan = max(presetManager.eventMaxNumChannels(event)
                       for event in events)
-        if renderer.csd.nchnls < maxchan:
-            logger.warn(f"_schedOffline: the renderer was defined with "
-                        f"nchnls={renderer.csd.nchnls}, but {maxchan}"
+        if renderer.nchnls < maxchan:
+            logger.info(f"_schedOffline: the renderer was defined with "
+                        f"nchnls={renderer.csd.nchnls}, but {maxchan} "
                         f"are needed to render the given events. "
-                        f"Setting nchnls temporarily to {maxchan}")
+                        f"Setting nchnls to {maxchan}")
             renderer.csd.nchnls = maxchan
     for event in events:
-        pargs = event.getArgs()
+        pargs = event.getPfields()
         if pargs[2] != 0:
             logger.warn(f"got an event with a tabnum already set...: {pargs}")
             logger.warn(f"event: {event}")
         instrName = event.instr
-        if not renderer.isInstrDefined(event.instr):
-            instrdef = presetManager.getPreset(instrName)
-            renderer.defInstr(instrName, body=instrdef.body, tabledef=instrdef.tabledef,
-                              generateTableCode=False)
+        assert instrName is not None
+        presetdef = presetManager.getPreset(instrName)
+        instr = presetdef.makeInstr()
+        if not renderer.isInstrDefined(instr.name):
+            renderer.registerInstr(presetdef.makeInstr())
+        # renderer.defInstr(instrName, body=presetdef.body, tabledef=presetdef.params)
         renderer.sched(instrName, delay=pargs[0], dur=pargs[1],
-                       args=pargs[3:],
-                       tabargs=event.args,
+                       pargs=pargs[3:],
+                       tabargs=event.namedArgs,
                        priority=event.priority)
+
+
+def playEvents(events: List[CsoundEvent]) -> csoundengine.synth.SynthGroup:
+    """
+    Play a list of events
+
+    Args:
+        events: a list of CsoundEvents
+
+    Returns:
+        A SynthGroup
+
+    Example::
+
+        TODO
+    """
+    synths = []
+    session = getPlaySession()
+    presetNames = {ev.instr for ev in events}
+    p = getPresetManager()
+    presetDefs = [p.getPreset(name) for name in presetNames]
+    presetToInstr: Dict[str, csoundengine.Instr] = {preset.name:_registerPresetInSession(preset, session)
+                                                    for preset in presetDefs}
+
+    for ev in events:
+        instr = presetToInstr[ev.instr]
+        args = ev.getPfields(numchans=instr.numchans)
+        synth = session.sched(instr.name,
+                              delay=args[0],
+                              dur=args[1],
+                              pargs=args[3:],
+                              tabargs=ev.namedArgs,
+                              priority=ev.priority)
+        synths.append(synth)
+    # print("finished sched: ", time.time())
+    return csoundengine.synth.SynthGroup(synths)

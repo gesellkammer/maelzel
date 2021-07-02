@@ -7,7 +7,7 @@ from functools import lru_cache
 import bpf4 as bpf
 
 from maelzel.scoring import *
-from maelzel.snd import csound
+from maelzel.snd import csoundlib
 
 from emlib import iterlib
 
@@ -205,6 +205,6 @@ def playNotes(parts: List[Part], defaultInstr=None, instrs=None) -> subprocess.P
         scorelines.extend(scorelinesForPart)
     sco = "\n".join(scorelines)
     orc = makeCsoundOrc(sr=44100, instrs=instrs)
-    csd = csound.join_csd(orc=orc, sco=sco)
-    proc = csound.run_csd(csd, output="dac", piped=True)
+    csd = csoundlib.join_csd(orc=orc, sco=sco)
+    proc = csoundlib.run_csd(csd, outdev="dac", piped=True)
     return proc

@@ -7,7 +7,7 @@ import re
 import textwrap
 from typing import List, Optional as Opt, Union as U, NamedTuple, Iterator as Iter
 
-import emlib.pitchtools as pt
+import pitchtools as pt
 from emlib import filetools
 from emlib import misc
 import cachetools
@@ -422,10 +422,11 @@ def postProcessFile(lilyfile: str, outfile: str=None, removeHeader=True,
 
 
 _octaveMapping = {
-    0: ",,,,",
-    1: ",,,",
-    2: ",,",
-    3: ",",
+    -1: ",,,,",
+    0: ",,,",
+    1: ",,",
+    2: ",",
+    3: "",
     4: "'",
     5: "''",
     6: "'''",
@@ -592,6 +593,35 @@ def makePitch(pitch: pitch_t, divsPerSemitone:int=4) -> str:
         raise TypeError(f"Expected a midinote or a notename, got {pitch} (type: {type(pitch)})")
     return notenameToLily(notename, divsPerSemitone=divsPerSemitone)
 
+
+_clefToLilypondClef = {
+        'g': 'treble',
+        'treble': 'treble',
+        'violin': 'treble',
+        'treble8': 'treble^8',
+        'f': 'bass',
+        'bass': 'bass',
+        'bass8': 'bass_8',
+        'alto': 'alto',
+        'viola': 'alto',
+        'tenor': 'tenor'
+    }
+
+
+def makeClef(clef: str) -> str:
+    """
+
+    Args:
+        clef: one of treble, bass, treble8, bass8, alto
+
+    Returns:
+        the lilypond clef representation
+    """
+    lilyclef = _clefToLilypondClef.get(clef.lower())
+    if lilyclef is None:
+        raise ValueError(f"Unknown clef {clef}. "
+                         f"Possible values: {_clefToLilypondClef.keys()}")
+    return fr"\clef {lilyclef}"
 
 def makeNote(pitch: pitch_t, duration: U[float, str], dots=0, tied=False,
              divsPerSemitone=4) -> str:

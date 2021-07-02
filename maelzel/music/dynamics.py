@@ -1,11 +1,12 @@
-#   functions to convert between dB and musical dynamics
-#   also makes a representation of the amplitude in terms of musical dynamics
+"""
+functions to convert between dB and musical dynamics
+also makes a representation of the amplitude in terms of musical dynamics
+"""
 from __future__ import annotations
 from bisect import bisect as _bisect
 import bpf4 as _bpf
-from emlib.pitchtools import db2amp, amp2db
+from pitchtools import db2amp, amp2db
 from emlib import misc
-
 from typing import List, Sequence as Seq, Union as U, Dict, Tuple
 
 
@@ -17,8 +18,9 @@ class DynamicsCurve(object):
     
     def __init__(self, bpf: _bpf.BpfInterface, dynamics:Seq[str] = None):
         """
-        shape: a bpf mapping 0-1 to amplitude(0-1)
-        dynamics: a list of possible dynamics, or None to use the default
+        Args:
+            bpf: a bpf mapping 0-1 to amplitude(0-1)
+            dynamics: a list of possible dynamics, or None to use the default
 
         NB: see .fromdescr
         """
@@ -28,16 +30,22 @@ class DynamicsCurve(object):
         assert len(self._amps2dyns) == len(self.dynamics)
 
     @classmethod
-    def fromdescr(cls, shape:str, mindb:-100.0, maxdb=0.0,
+    def fromdescr(cls, shape:str, mindb=-100.0, maxdb=0.0,
                   dynamics:Seq[str] = None) -> DynamicsCurve:
         """
-        shape: the shape of the mapping ('linear', 'expon(2)', etc)
-        mindb, maxdb: db value of minimum and maximum amplitude
-        dynamics: the list of possible dynamics, ordered from soft to loud
+        Args:
+            shape: the shape of the mapping ('linear', 'expon(2)', etc)
+            mindb: min. db value
+            maxdb: max. db value
+            dynamics: the list of possible dynamics, ordered from soft to loud
 
-        Example:
+        Returns:
+            a DynamicsCurve
 
-        DynamicsCurve.fromdescr('expon(3)', mindb=-80, dynamics='ppp pp p mf f ff'.split())
+        Example
+        ~~~~~~~
+
+        >>> DynamicsCurve.fromdescr('expon(3)', mindb=-80, dynamics='ppp pp p mf f ff'.split())
 
         """
         bpf = create_shape(shape, mindb, maxdb)
@@ -45,13 +53,16 @@ class DynamicsCurve(object):
 
     def amp2dyn(self, amp:float, nearest=True) -> str:
         """
-        convert amplitude to a string representation of its corresponding
-        musical dynamic as defined in DYNAMIC_TABLE
+        Convert amplitude to dynamic
 
-        nearest: if True, it searches for the nearest dynamic. Otherwise it gives 
-                 the dynamic exactly inferior
+        Args:
+            amp: the amplitude (0-1)
+            nearest: if True, it searches for the nearest dynamic. Otherwise it gives
+                     the dynamic exactly inferior
 
-       """
+        Returns:
+            the dynamic
+        """
         curve = self._amps2dyns
         if amp < curve[0][0]:
             return curve[0][1]
@@ -68,8 +79,7 @@ class DynamicsCurve(object):
 
     def dyn2amp(self, dyn:str) -> float:
         """
-        convert a dynamic expressed as a string to its 
-        corresponding amplitude
+        convert a dynamic expressed as a string to its corresponding amplitude
         """
         amp = self._dyns2amps.get(dyn.lower())
         if amp is None:
@@ -80,8 +90,6 @@ class DynamicsCurve(object):
         return amp2db(self.dyn2amp(dyn))
 
     def db2dyn(self, db:float) -> str:
-        """
-        """
         return self.amp2dyn(db2amp(db))
 
     def dyn2index(self, dyn:str) -> int:
@@ -122,28 +130,27 @@ def _create_dynamics_mapping(bpf: _bpf.BpfInterface, dynamics:Seq[str] = None
     """
     Calculate the global dynamics table according to the bpf given
 
-    * bpf: a bpf from dynamic-index to amp
-    * dynamics: a list of dynamics
+    Args:
+        bpf: a bpf from dynamic-index to amp
+        dynamics: a list of dynamics
 
     Returns:
-
-    a tuple (amps2dyns, dyns2amps), where 
-        - amps2dyns is a List of (amp, dyn)
-        - dyns2amps is a dict mapping dyn -> amp
+        a tuple (amps2dyns, dyns2amps), where amps2dyns is a List of (amp, dyn)
+        and dyns2amps is a dict mapping dyn -> amp
     """
     if dynamics is None:
         dynamics = _DYNAMICS
-    assert isinstance(bpf, _bpf.core._BpfInterface)
+    assert isinstance(bpf, _bpf.core.BpfInterface)
     _validate_dynamics(dynamics)
     dynamics_table = [(bpf(i), dyn) for i, dyn in enumerate(dynamics)]
     dynamics_dict = {dyn: ampdb for ampdb, dyn, in dynamics_table}
     return dynamics_table, dynamics_dict
 
 
-def create_shape(shape='expon(3)', mindb:U[int,float]=-90, maxdb:U[int, float]=0) -> _bpf.BpfInterface:
+def create_shape(shape='expon(3)', mindb:U[int,float]=-90, maxdb:U[int, float]=0
+                 ) -> _bpf.BpfInterface:
     """
-    Return a bpf mapping 0-1 to amplitudes, as needed to be passed
-    to DynamicsCurve
+    Return a bpf mapping 0-1 to amplitudes, as needed by DynamicsCurve
 
     Args:
         shape: a descriptor of the curve to use to map amplitude to dynamics

@@ -9,7 +9,7 @@ import textwrap
 import logging
 from configdict import ConfigDict
 
-from maelzel.snd import csound
+from maelzel.snd import csoundlib
 from functools import lru_cache
 from string import Template as _Template
 
@@ -19,20 +19,19 @@ _defaultconfig = {
     'sr': 0,  # 0 indicates the default sr of the backend
     'numchannels': 2,
     'ksmps': 64,
-    'linux.backend': 'jack',
+    'linux.backend': 'jack, pulse, pa_cb',
     'A4': 442,
     'multisine.maxosc': 200,
 }
 
 _validator = {
-    'linux.backend::choices': ['jack', 'pa_cb'],
     'numchannels::range': (1, 128),
     'sr::choices': [0, 22050, 24000, 44100, 48000, 88200, 96000],
     'ksmps::choices': [16, 32, 64, 128, 256],
     'A4::range': (410, 460)
 }
 
-config = ConfigDict("emlib:synthplayer",
+config = ConfigDict("emlib.synthplayer",
                     default=_defaultconfig,
                     validator=_validator)
 
@@ -85,8 +84,8 @@ def fluidsf2Path():
 
 
 def testcsoundapi(dur=20, nchnls=2, backend=None, sr=None):
-    backend = backend or csound.get_default_backend()
-    sr = sr or csound.get_sr(backend)
+    backend = backend or csoundlib.get_default_backend()
+    sr = sr or csoundlib.get_sr(backend)
     cs = ctcsound.Csound()
     orc = f"""
     sr = {sr}
@@ -130,13 +129,13 @@ class CsoundPlayer:
         cfg = config
         backend = backend if backend is not None else cfg[
             f'{sys.platform}.backend']
-        backends = csound.get_audiobackends()
+        backends = csoundlib.get_audiobackends()
         if backend not in backends:
             raise ValueError(
                 f"backend should be one of {backends}, but got {backend}")
         sr = sr if sr is not None else cfg['sr']
         if sr == 0:
-            sr = csound.get_sr(backend)
+            sr = csoundlib.get_sr(backend)
         if a4 is None:
             a4 = cfg['A4']
         if ksmps is None:

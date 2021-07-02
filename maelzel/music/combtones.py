@@ -1,16 +1,15 @@
 from __future__ import annotations
 from collections import namedtuple as _namedtuple
 from emlib.containers import RecordList 
-from emlib.pitchtools import f2n, n2f, m2n, f2m, m2f, interval2ratio
+from pitchtools import f2n, n2f, m2n, f2m, m2f, interval2ratio
 from emlib import misc
 from emlib.mathlib import frange
 from emlib.iterlib import flatten, product
 from itertools import combinations
-from maelzel.core import Chord, asNote, EventSeq
-from typing import Callable, NamedTuple, List
-import warnings
+from maelzel.core import Note, Chord, asNote, EventSeq
 from math import sqrt, ceil
 from maelzel.common import *
+from typing import Callable, NamedTuple, List, Optional as Opt
 
 
 # ------------------------------------------------------------
@@ -56,13 +55,12 @@ def ringmod(*pitches: pitch_t) -> List[Note]:
     """
     for p in pitches:
         _checkpitch(p)
-    midis = _parsePitches(*pitches)
-    freqs = list(map(m2f, midis))
+    midinotes = _parsePitches(*pitches)
+    freqs = list(map(m2f, midinotes))
     sidebands = [_ringmod2f(f1, f2) for f1, f2 in combinations(freqs, 2)]
-    all_sidebands: List[float] = list(set(flatten(sidebands)))
+    all_sidebands = list(set(flatten(sidebands)))
     all_sidebands.sort()
     return [Note(f2m(sideband)) for sideband in all_sidebands]
-
 
 def sumtones(*pitches: pitch_t) -> List[Note]:
     """
@@ -140,7 +138,7 @@ class Difftone:
 
         d = difftone_source("A3", interval=1)
         """
-        return interval2ratio(self.diff.midi - asmidi(result))
+        return interval2ratio(self.diff.pitch - asmidi(result))
 
 
 def difftones(*pitches: pitch_t) -> List[Note]:
@@ -183,6 +181,7 @@ def difftone_source(difftone:pitch_t, interval:float, resolution=0.0) -> Diffton
 
     Returns: a Difftone
     """
+
     diffFreq = m2f(asmidi(difftone))
     ratio = interval2ratio(interval)
     f0 = diffFreq / (ratio - 1)
@@ -218,7 +217,7 @@ def difftone_sources_in_range(difftone: pitch_t, minnote:pitch_t=None,
     minmidi = asmidi(minnote)
     maxmidi = asmidi(maxnote)
     sources = [difftone for difftone in difftones
-               if minmidi <= difftone.note0.midi and difftone.note1.midi <= maxmidi]
+               if minmidi <= difftone.note0.pitch and difftone.note1.pitch <= maxmidi]
     return RecordList(sources)
 
 
@@ -345,32 +344,32 @@ def difftone_sources_from_set(difftone: pitch_t,
 def difftone_sources(result: pitch_t,
                      maxdist=0.5,
                      gap=13.0,
-                     minnote=None,
-                     maxnote="C8",
-                     intervals=None,
-                     resolution=1,
+                     minnote: pitch_t = None,
+                     maxnote: pitch_t = "C8",
+                     intervals: List[number_t] = None,
+                     resolution=1.,
                      display=False
                      ) -> RecordList:
     """
-    find two notes which produce a difference tone near the given note
-    
-    result: 
-        the resulting difference tone, as Note, notename or midinote
-    maxdist: 
-        the maximum distance between the expected result and the generated tone,
-        in semitones (0.5 == 50 cents)
-    gap: 
-        the distance between the resulting difference tone and the lowest of 
-        the two originating notes
-    intervals: 
-        accepted intervals between the notes. If None is given, a set of intervals
-        based on resolution is used
-    resolution: 
-        the resolution of the pitch grid, in semitones. A resolution of 1 will 
-        search for the given difftone along all semitones between minnote and 
-        maxnote
+    Find two notes which produce a difference tone near the given note
 
-    Returns a List of Difftones
+    Args:
+        result: the resulting difference tone, as Note, notename or midinote
+        maxdist: the maximum distance between the expected result and the generated tone,
+            in semitones (0.5 == 50 cents)
+        gap: the distance between the resulting difference tone and the lowest of
+            the two originating notes
+        minnote: the min. note to considere as a source
+        maxnote: the max. note to considere as a source
+        intervals: accepted intervals between the notes. If None is given, a set of intervals
+            based on resolution is used
+        resolution: the resolution of the pitch grid, in semitones. A resolution of 1 will
+            search for the given difftone along all semitones between minnote and
+            maxnote
+        display: if True, the result is printed
+
+    Returns:
+        a List of Difftones
     """
     midiresult = asmidi(result)
     maxnote = asmidi(maxnote)
@@ -390,64 +389,38 @@ def difftone_sources(result: pitch_t,
     if display:
         # ipython?
         chordseq = EventSeq([Chord(diff.note0, diff.note1, diff.diff) for diff in difftones])
+        chordseq.show()
         if misc.inside_jupyter():
-            chordseq.show(split=midiresult+5)
-            disp = _get_jupyter_display()
+            disp = _jupyter_display()
             disp(reclist)
         else:
-            chordseq.show()
             print(reclist)
     return reclist
 
 
-def _get_jupyter_display():
+def _jupyter_display() -> Opt[Callable]:
     if not misc.inside_jupyter():
         return None
     from IPython.display import display
     return display
     
 
-def ringmod_exactsource(sideband1:pitch_t, sideband2:pitch_t) -> Tuple[Note, Note]:
+def ringmod_exactsource(sideband1: pitch_t, sideband2: pitch_t
+                        ) -> Tuple[Note, Note]:
     """
-    Find a pair of frequencies which, when ringmodulated, result in the
-    given sidebands
+    Find a pair of frequencies which produce the given sidebands when ringmodulated
 
-    sideband1, sideband2: the sidebands produced, as notename or midinote
+    Args:
+        sideband1, sideband2: the sidebands produced, as notename or midinote
 
-    Returns: the original pitches, as midinotes
+    Returns:
+        the original pitches, as midinotes
     """
     diffFreq = m2f(asmidi(sideband1))
     sumFreq = m2f(asmidi(sideband2))
     f1 = (diffFreq + sumFreq)/2.0
     f0 = sumFreq - f1
     return Note(f2m(f0)), Note(f2m(f1))
-    
-
-def ringmod_sources2(sideband1:pitch_t, sideband2:pitch_t,
-                     minnote:pitch_t= "A0", maxnote:pitch_t= "C8",
-                     maxdiff=0.5
-                     ) -> List[Tuple[Note,Note]]:
-    """
-    Find all pairs of two frequencies which produce the given sidebands when ringmodulated
-    Returns a list of Notes
-
-    minnote, maxnote: the range for possible answers
-    maxdiff: the max. difference between the given sidebands and the resulting sidebands,
-             in midi (1=semitone)
-    """
-    difm = asmidi(sideband1)
-    summ = asmidi(sideband2)
-    midimin = n2m(minnote) if isinstance(minnote, str) else minnote
-    midimax = n2m(maxnote) if isinstance(maxnote, str) else maxnote
-    results = []
-    for midi1, midi2 in combinations(range(int(midimin), int(ceil(midimax))), 2):
-        note0, note1 = ringmod_exactsource(m2f(midi1), m2f(midi2))
-        f0 = note0.freq
-        f1 = note1.freq
-        if abs(f2m(f0+f1) - summ) <= maxdiff and abs(f2m(abs(f1-f0)) - difm) <= maxdiff:
-            results.append((note0, note1))
-    results.sort()
-    return results
     
 
 def _matchone(orig, new, maxdiff):
@@ -512,7 +485,7 @@ def ringmod_sources(sidebands: pitch_t,
     sourcefreqs = None
     for m0, m1, m2 in combinations(range(int(midi0), int(ceil(midi1))), 3):
         newbands = ringmod(m0, m1, m2)
-        newmidis = [band.midi for band in newbands]
+        newmidis = [band.pitch for band in newbands]
         matching = _matchone(sidemidis, newmidis, maxdiff)
         if not matching:
             continue
@@ -549,6 +522,7 @@ def sumtones_sources(result, maxdist=0.5, maxnote="C8",
         maxnote: the highest note to considere
         intervals: accepted intervals between the notes. Only 'tempered' notes are used,
             but of course microtones produce also difference tones!
+        minnote: the min. note to considere as source
         difftonegap : minimum gap (absolute value) between the sumtone and the difftone
             produced by the two notes
         show: either False or one of:
@@ -562,6 +536,7 @@ def sumtones_sources(result, maxdist=0.5, maxnote="C8",
                                  intervals=intervals, difftonegap=difftonegap)
     if not pairs:
         if show == 'report':
+            import warnings
             warnings.warn("No source pair of notes found that satisfy the given conditions")
         return []
     out = []
@@ -669,8 +644,18 @@ def difftones_beatings(pitch1: pitch_t, pitch2: pitch_t, maxbeatings=20, minbeat
 def fm_sidebands(carrierfreq:float, modfreq:float, index:float, minamp=0.01,
                  minfreq=0, maxfreq=0) -> List[Tuple[float, float]]:
     """
-    Returns a list of bands which have the minimum relative amp `minamp`
-    at the given modulation index
+    Returns a list of bands with min. amp at the given modulation index
+
+    Args:
+        carrierfreq: the fm carrier frequency
+        modfreq: the fm modulation frequency
+        index: the fm modulation index
+        minamp: min. relative amp
+        minfreq: min. sideband frequency
+        maxfreq: max. sideband frequency
+
+    Returns:
+        a list of sidebands, where a sideband is a tuple (freq, amp)
     """
     # calcular las amplitudes con scipy.special.jv(n, index),
     # donde n es el indice de la banda
