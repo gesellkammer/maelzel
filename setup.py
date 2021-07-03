@@ -41,7 +41,6 @@ setup(
         "tabulate",
         "sndfileio",
         "pillow",
-        "pysndfile",
         "cachetools",
         "ctcsound",
         "numpyx",

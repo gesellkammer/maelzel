@@ -234,7 +234,7 @@ class MusicObj:
         """ Transpose self by `step` """
         raise NotImplementedError()
 
-    def freqratio(self: T, ratio: float) -> T:
+    def transposeByRatio(self: T, ratio: float) -> T:
         """ Transpose this by a given freq. ratio. A ratio of 2 equals
         to transposing an octave higher. """
         return self.transpose(r2i(ratio))
@@ -300,19 +300,6 @@ class MusicObj:
             return renderObject(self, method=method, outfile=outfile, fmt=fmt, opaque=opaque)
         return _renderObject(self, method=method, outfile=outfile, fmt=fmt, opaque=opaque)
 
-    def ipythonImage(self):
-        """
-        Generate a jupyter image from this object
-
-        To be used within a jupyter notebook.
-
-        Returns:
-            an IPython.core.display.Image
-
-        """
-        from IPython.core.display import Image
-        return Image(self.makeImage(fmt='png', opaque=True), embed=True)
-
     def scoringEvents(self, groupid:str=None) -> List[scoring.Notation]:
         """
         Returns its notated form as scoring.Notations
@@ -370,7 +357,10 @@ class MusicObj:
         """
         parts = self.scoringParts()
         renderer = notation.renderWithCurrentConfig(parts, backend='musicxml')
-        return renderer.asMusic21()
+        stream = renderer.asMusic21()
+        if currentConfig()['m21.fixStream']:
+            m21tools.fixStream(stream)
+        return stream
 
     def musicxml(self) -> str:
         """
@@ -379,10 +369,8 @@ class MusicObj:
         A subclass can override this method to provide a way of
         outputting musicxml which bypasses music21
         """
-        m = self.asmusic21()
-        if currentConfig()['m21.fixStream']:
-            m21tools.fixStream(m)
-        return m21tools.getXml(m)
+        stream = self.asmusic21()
+        return m21tools.getXml(stream)
 
     def write(self, outfile: str, backend: str = None) -> None:
         """

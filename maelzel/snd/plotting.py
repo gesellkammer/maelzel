@@ -136,8 +136,9 @@ def _plot_samples_matplotlib2(samples, samplerate, profile):
     figsize = config['samplesplot.figsize']
     if profile == "medium":
         figsize = int(figsize[0]*1.4), figsize[1]
+    f = plt.figure(figsize=figsize)
+    ax1 = None
     for i in range(numch):
-        f = plt.figure(figsize=figsize)
         if i == 0:
             axes = ax1 = f.add_subplot(numch, 1, i + 1)
         else:

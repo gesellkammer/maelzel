@@ -21,7 +21,7 @@ from maelzel.snd import numpysnd as npsnd
 logger = logging.Logger("maelzel.sndfiletools")
 Func1 = Callable[[float], float]
 sample_t = Tuple[np.ndarray, int]
-processfunc_t = Callable[[np.ndarray, int, int], np.ndarray]
+processfunc_t = Callable[[np.ndarray, int, float], np.ndarray]
 
 
 @dataclass
@@ -121,24 +121,22 @@ def process(sourcefile: str,
     Args:
         sourcefile: the file to read
         outfile: the file to write to
-        callback: a function taking ``(data, pos, now)`` and returning processed data
+        callback: a function taking ``(data, sampleindex, now)`` and returning processed data
             or None if data is processed inplace
         timerange: if given, only the samples within the times given will be processed
     """
-    ifile = pysndfile.PySndfile(sourcefile)
-    ofile = cloneWrite(sourcefile, outfile)
-    sr = ifile.samplerate()
-    if timerange is None:
-        timerange = (0, ifile.frames()/sr)
-    frame0 = int(timerange[0] * ifile.samplerate())
-    ifile.seek(frame0)
-    begin, end = timerange
-    frames_to_read = int((end - begin) * sr)
-    for pos, size in chunks(0, frames_to_read, bufsize):
-        now = pos/sr
-        data = ifile.read_frames(size)
-        data2 = callback(data, pos, now) if callback else data
-        ofile.write_frames(data2)
+    if timerange:
+        start, end = timerange
+    else:
+        start, end = 0, 0
+    writer = sndfileio.sndwrite_chunked_like(sourcefile, outfile)
+    sr = writer.sr
+    pos = 0
+    for chunk in sndfileio.sndread_chunked(sourcefile, bufsize, start, end):
+        if callback:
+            chunk = callback(chunk, pos, (pos/sr) + start)
+        writer.write(chunk)
+        pos += len(chunk)
 
 
 def gain(filename:str, factor:U[float, _FloatFunc], outfile:str) -> None:
@@ -154,9 +152,10 @@ def gain(filename:str, factor:U[float, _FloatFunc], outfile:str) -> None:
         factorfunc = bpf.asbpf(factor)
         return _dynamic_gain(filename, factorfunc, outfile)
 
-    def callback(data, pos, now):
+    def callback(data, sampleidx:int, now:float):
         data *= factor
         return data
+
     process(filename, outfile, callback)
 
 
@@ -223,7 +222,7 @@ def _dynamic_gain(sndfile: str, curve: bpf.BpfInterface, outfile='inplace') -> N
         inplace = False
     chunkdur = 0.1
 
-    def callback(data, pos, now):
+    def callback(data, sampleidx:int, now:float):
         factor = curve.mapn_between(len(data), now, now+chunkdur)
         data *= factor
         return data
@@ -287,9 +286,10 @@ def readChunks(sndfile:str,
                start=0.0, end=0.0
                ) -> Iter[Tuple[np.ndarray, int]]:
     """
-    Read chunks of data from sndfile. Each chunk has aduration of `chunksize`
-    in seconds but can have less if there are not enough samples to read
-    (at the end of the file)
+    Read chunks of data from sndfile.
+
+    Each chunk has a size of `chunksize` but can have less
+    if there are not enough samples to read (at the end of the file)
 
     .. note::
         Either chunksize or chunkdur can be given, not both
@@ -302,15 +302,16 @@ def readChunks(sndfile:str,
         end: and time to read (in seconds). 0 = end of file
 
     Returns:
-        a Tuple (datachunk, position_in_frames)
+        an iterator of tuple(datachunk, position_in_frames)
 
     """
-    assert not (chunksize is not None and chunkdur is not None)
-    if chunksize is None and chunkdur is None:
-        chunksize = 4096
-    s = pysndfile.PySndfile(sndfile)
-    chunksize = chunksize if chunksize is not None else int(chunkdur*s.samplerate())
-    return _read_chunks(s, chunksize=chunksize, start=start, end=end)
+    info = sndfileio.sndinfo(sndfile)
+    chunksize = chunksize if chunksize is not None else int(chunkdur * info.samplerate)
+    sampleidx = int(start * info.samplerate)
+    for chunk in sndfileio.sndread_chunked(sndfile, chunksize=chunksize,
+                                           start=start, stop=end):
+        yield chunk, sampleidx
+        sampleidx += len(chunk)
 
 
 def equalPowerPan(pan:float) -> Tuple[float, float]:
@@ -322,19 +323,6 @@ def equalPowerPan(pan:float) -> Tuple[float, float]:
 
     """
     return sqrt(1-pan), sqrt(pan)
-
-
-def sndinfo(sndfile:str) -> SndInfo:
-    """
-    Read information about a soundfile
-
-    Returns:
-        a :class:`SndInfo` structure with attributes (samplerate: int,
-        numchannels: int, numframes: int, encoding: str)
-    """
-    snd = pysndfile.PySndfile(sndfile)
-    return SndInfo(snd.samplerate(), snd.channels(), snd.frames(),
-                   snd.encoding_str())
 
 
 def peakbpf(filename:str, resolution=0.01, method='peak', channel:U[int, str]= 'mix',
@@ -353,7 +341,7 @@ def peakbpf(filename:str, resolution=0.01, method='peak', channel:U[int, str]= '
     Returns:
         a bpf holding the peaks curve
     """
-    info = sndinfo(filename)
+    info = sndfileio.sndinfo(filename)
     srate = info.samplerate
     chunk_step = int(srate*resolution)
     assert chunk_step > 0
@@ -371,7 +359,7 @@ def peakbpf(filename:str, resolution=0.01, method='peak', channel:U[int, str]= '
     channum = channel if isinstance(channel, int) else -1
 
     for chunk, pos in readChunks(filename):
-        if info.numchannels > 1:
+        if info.channels > 1:
             if channum == -1:
                 chunk = npsnd.asmono(chunk)
             else:
@@ -402,7 +390,7 @@ def maxPeak(filename: str, start:float=0, end:float=0, resolution=0.01
     """
     maximum_peak = 0
     max_pos = 0
-    info = sndinfo(filename)
+    info = sndfileio.sndinfo(filename)
     for data, pos in readChunks(filename, start=start, end=end, chunkdur=resolution):
         np.abs(data, data)
         peak = np.max(data)
