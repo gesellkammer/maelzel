@@ -1032,6 +1032,7 @@ def makeMetronomeMark(number:U[int, float], text:str=None, referent:str=None
                       ) -> m21.tempo.MetronomeMark:
     referentNote = m21.note.Note(type=referent) if referent else None
     mark = m21.tempo.MetronomeMark(number=number, text=text, referent=referentNote)
+    mark.positionPlacement = "above"
     return mark
 
 

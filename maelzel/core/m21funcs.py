@@ -9,7 +9,7 @@ from maelzel.music import m21tools
 from emlib import iterlib
 
 from . import tools
-from .workspace import currentConfig
+from .workspace import getConfig
 
 
 def m21Note(pitch: U[str, float], showcents:bool=None, divsPerSemitone:int=None,
@@ -29,7 +29,7 @@ def m21Note(pitch: U[str, float], showcents:bool=None, divsPerSemitone:int=None,
     """
     assert isinstance(pitch, (str, int, float))
     if config is None:
-        config = currentConfig()
+        config = getConfig()
     divs = divsPerSemitone or config['semitoneDivisions']
     showcents = showcents if showcents is not None else config['show.cents']
     note, centsdev = m21tools.makeNote(pitch, divsPerSemitone=divs,
@@ -39,7 +39,7 @@ def m21Note(pitch: U[str, float], showcents:bool=None, divsPerSemitone:int=None,
 
 def m21MicrotonalNote(pitch: float, duration, showcents:bool=None, divsPerSemitone:int=None, 
                       config=None, **options):
-    config = config or currentConfig()
+    config = config or getConfig()
     divs = divsPerSemitone or config['semitoneDivisions']
     basepitch = tools.quantizeMidi(pitch, 1/divs)
     note = m21Note(basepitch, quarterLength=duration, divsPerSemitone=divs,
@@ -57,7 +57,7 @@ def m21Chord(midinotes:Seq[float], showcents=None,
     """
     # m21chord = m21.chord.Chord([m21.note.Note(n.midi) for n in notes])
     assert all(isinstance(note, (str, int, float)) for note in midinotes)
-    config = config or currentConfig()
+    config = config or getConfig()
     divsPerSemi = config['semitoneDivisions']
     if showcents is None:
         showcents = config['show.cents']
@@ -71,7 +71,7 @@ def m21TextExpression(text:str, style:str=None, config=None) -> m21.expressions.
     style: one of None (default), 'small', 'bold', 'label'
     """
     txtexp = m21.expressions.TextExpression(text)
-    config = config or currentConfig()
+    config = config or getConfig()
     if style == 'small':
         txtexp.style.fontSize = 12.0
         txtexp.style.letterSpacing = 0.5

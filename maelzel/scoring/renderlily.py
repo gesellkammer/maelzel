@@ -7,13 +7,16 @@ into a .ly file and renders that via lilypond to pdf or png
 import os
 import logging
 import tempfile
+import textwrap
+
+import emlib.textlib
 
 from maelzel.music import lilytools
 from .common import *
 from .core import Notation
 from .render import Renderer, RenderOptions
 from .quant import DurationGroup
-from . import quant
+from . import quant, util
 
 
 logger = logging.getLogger("maelzel.scoring")
@@ -76,7 +79,7 @@ def notationToLily(n: Notation) -> str:
     notatedDur = n.notatedDuration()
     base, dots = notatedDur.base, notatedDur.dots
     event = ""
-    if n.isRest:
+    if n.isRest or len(n.pitches) == 1 and n.pitches[0] == 0:
         rest = "r" + str(base) + "."*dots
         return rest
 
@@ -90,18 +93,25 @@ def notationToLily(n: Notation) -> str:
     if n.stem == 'hidden':
         event += r" \once \hide Stem "
 
+    graceGroup = n.getProperty("graceGroup")
+    if graceGroup is not None:
+        base = 8
+        dots = 0
+        if graceGroup == "start":
+            event += " \grace { "
+
     if len(n.pitches) == 1:
-        pitch = n.pitches[0]
-        notename = n.getFixedNotenameByIndex(0, m2n(pitch))
+        notename = n.notename()
         event += _lilyNote(notename, baseduration=base, dots=dots, tied=n.tiedNext)
     else:
         lilypitches = []
         for i, pitch in enumerate(n.pitches):
-            notename = n.getFixedNotenameByIndex(i, m2n(pitch))
+            notename = n.notename(i)
             lilypitches.append(lilytools.makePitch(notename))
         event += f"<{' '.join(lilypitches)}>{base}{'.'*dots}"
         if n.tiedNext:
             event += "~"
+
     if not n.tiedPrev:
         if n.articulation:
             event += _lilyArticulation(n.articulation)
@@ -111,11 +121,10 @@ def notationToLily(n: Notation) -> str:
             event += r" \glissando"
         if n.annotations:
             for annotation in n.annotations:
-                fontSize = fr"\abs-fontsize #{int(annotation.fontSize)}"
-                if annotation.placement == 'above':
-                    event += fr"^\markup {{ {fontSize} {{ {annotation.text} }} }} "
-                else:
-                    event += fr"_\markup {{ {fontSize} {{ {annotation.text} }} }} "
+                event += lilytools.makeTextAnnotation(annotation.text,
+                                                      fontsize=annotation.fontSize)
+    if graceGroup == "stop":
+        event += " }"
     return event
 
 
@@ -153,8 +162,10 @@ def _renderGroup(seq: List[str],
     seq.append(_spaces[:numIndents*indentSize])
     for i, item in enumerate(group.items):
         if isinstance(item, DurationGroup):
-            _renderGroup(seq, item, durRatios, options=options, numIndents=numIndents+1)
+            _renderGroup(seq, item, durRatios, options=options, numIndents=numIndents+1,
+                         state=state)
         else:
+            assert isinstance(item, Notation)
             if not item.gliss and state['glissSkip']:
                 seq.append(r"\glissandoSkipOff ")
                 state['glissSkip'] = False
@@ -194,6 +205,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
             for the uppermost part and be set to False for the rest.
         clef: if given the part will be forced to start with this clef, otherwise
             the most suitable clef is picked
+        addTempoMarks: if True, add any tempo marks to this Part
         options: the RenderOptions used
         indents: how many indents to use as a base
         indentSize: the number of spaces to indent per indent number
@@ -219,15 +231,16 @@ def quantizedPartToLily(part: quant.QuantizedPart,
     def ownline(t: str, indents:int=0):
         _(t, indents, preln=True, postln=True)
 
-    # ownline("<<", indents)
-    # indents += 1
-
-    ownline(r"\new Staff \with {", indents)
     if part.label:
+        ownline(r"\new Staff \with {", indents)
         ownline(f'    instrumentName = #"{part.label}"', indents)
-    ownline("}", indents)
-    ownline("{", indents)
+        ownline("}", indents)
+        ownline("{", indents)
+    else:
+        ownline(r"\new Staff {", indents)
+
     indents += 1
+    ownline(r"\numericTimeSignature", indents)
 
     if clef is not None:
         ownline(fr"\clef {clef}", indents)
@@ -237,8 +250,10 @@ def quantizedPartToLily(part: quant.QuantizedPart,
 
     lastTimesig = None
     state = {
-        'glissSkip': False
+        'glissSkip': False,
+        'dynamic': ''
     }
+
     for i, measure in enumerate(part.measures):
         ownline(f"% measure {i}", indents)
         indents += 1
@@ -246,17 +261,25 @@ def quantizedPartToLily(part: quant.QuantizedPart,
         if addTempoMarks and measureDef.timesig != lastTimesig:
             lastTimesig = measureDef.timesig
             num, den = measureDef.timesig
-            ownline(r"\numericTimeSignature", indents)
             ownline(fr"\time {num}/{den}", indents)
         # TODO: add barlinetype
         if addTempoMarks and measure.quarterTempo != quarterTempo:
             quarterTempo = measure.quarterTempo
-            ownline(fr"\tempo 4 = {quarterTempo}")
+            ownline(fr"\tempo 4 = {quarterTempo}", indents)
         if measureDef.annotation and addMeasureMarks:
-            # TODO: add measure annotation
-            pass
+            relfontsize = options.measureAnnotationFontSize - options.staffSize
+            _(lilytools.makeTextAnnotation(measureDef.annotation,
+                                           fontsize=relfontsize, fontrelative=True,
+                                           boxed=options.measureAnnotationBoxed))
         if measure.isEmpty():
-            _(f"R1*{num}/{den}")
+            num, den = measure.timesig
+            measureDur = float(util.measureQuarterDuration(measure.timesig))
+            if measureDur in {1., 2., 3., 4., 6., 7., 8.}:
+                lilydur = lilytools.makeDuration(measureDur)
+                _(f"R{lilydur}")
+            else:
+                _(f"R1*{num}/{den}")
+            state['dynamic'] = ''
         else:
             for group in measure.groups():
                 _renderGroup(seq, group, durRatios=[], options=options,
@@ -275,13 +298,13 @@ _prelude = r"""
 
 glissandoSkipOn = {
   \override NoteColumn.glissando-skip = ##t
-  \hide NoteHead
+  % \hide NoteHead
   \override NoteHead.no-ledgers = ##t
 }
 
 glissandoSkipOff = {
   \revert NoteColumn.glissando-skip
-  \undo \hide NoteHead
+  % \undo \hide NoteHead
   \revert NoteHead.no-ledgers
 }
 
@@ -460,6 +483,12 @@ arrowGlyphs = #`(
     \override TrillPitchAccidental.glyph-name-alist = \arrowGlyphs
     \override AmbitusAccidental.glyph-name-alist = \arrowGlyphs
     
+    % overrides to allow glissandi across systembreaks
+    \override Glissando.breakable = ##t
+    \override Glissando.after-line-breaking = ##t
+    
+    % <score-overrides>
+    
   }
   \context {
     \Staff
@@ -470,32 +499,41 @@ arrowGlyphs = #`(
 """
 
 _horizontalSpacingMedium = r"""
-  \layout {
-    \context {
-      \Score
-      \override SpacingSpanner.base-shortest-duration = #(ly:make-moment 1/16)
-    }
+\layout {
+  \context {
+    \Score
+    \override SpacingSpanner.base-shortest-duration = #(ly:make-moment 1/16)
   }
+}
 """
 _horizontalSpacingLarge = r"""
-  \layout {
-    \context {
-      \Score
-      \override SpacingSpanner.base-shortest-duration = #(ly:make-moment 1/8)
-    }
+\layout {
+  \context {
+    \Score
+    \override SpacingSpanner.base-shortest-duration = #(ly:make-moment 1/32)
   }
+}  
+"""
+
+_horizontalSpacingXL = r"""
+\layout {
+  \context {
+    \Score
+    \override SpacingSpanner.base-shortest-duration = #(ly:make-moment 1/64)
+  }
+}
 """
 
 
-def makeScore(parts: List[quant.QuantizedPart],
+def makeScore(score: quant.QuantizedScore,
               options: RenderOptions=None,
-              lilypondVersion:U[str, bool]=True
+              lilypondVersion:U[str, bool]=True,
               ) -> str:
     """
     Convert a list of QuantizedParts to a lilypond score (as str)
 
     Args:
-        parts: the list of QuantizedParts to convert
+        score: the list of QuantizedParts to convert
         options: RenderOptions used to render the parts
         lilypondVersion: if given, use it to tag the rendered file
 
@@ -504,83 +542,117 @@ def makeScore(parts: List[quant.QuantizedPart],
     """
     indentSize = 2
     strs = []
+    _ = strs.append
     if lilypondVersion:
         if isinstance(lilypondVersion, bool):
             lilypondVersion = lilytools.getLilypondVersion()
-        strs.append(f'\\version "{lilypondVersion}"\n')
+        _(f'\\version "{lilypondVersion}"\n')
 
-    # anchor for book preamble insert
-    strs.append(r'% <book>')
+    if options.title or options.composer:
+        header = r"""
+        \header {
+            title = "%s"
+            composer = "%s"
+            tagline = ##f
+        }
+        """ % (options.title, options.composer)
+        _(textwrap.dedent(header))
+    else:
+        _(r"\header { tagline = ##f }")
 
-    if options.staffSize is not None:
-        staffSizePoints = lilytools.millimetersToPoints(options.staffSize)
-        strs.append(f'#(set-global-staff-size {staffSizePoints})')
+    # Global settings
+    # staffSizePoints = lilytools.millimetersToPoints(options.staffSize)
+    staffSizePoints = options.staffSize
+    if options.renderFormat == 'png':
+        staffSizePoints *= options.lilypondPngStaffsizeScale
+    _(f'#(set-global-staff-size {staffSizePoints})')
 
-    strs.append(r'% <paper>')
+    if options.cropToContent:
+        _(r'\include "lilypond-book-preamble.ly"')
+        # TODO: add configuration for this
+        _(lilytools.paperBlock(margin=20, unit="mm"))
+    else:
+        # We only set the paper size if rendering to pdf
+        _( f"#(set-default-paper-size \"{options.pageSize}\" '{options.orientation})" )
+        _(lilytools.paperBlock(margin=options.pageMarginMillimeters, unit="mm"))
 
-    strs.append(_prelude)
 
-    strs.append(r"\score {")
-    strs.append(r"<<")
-    for i, part in enumerate(parts):
+    _(_prelude)
+
+    if options.glissandoLineThickness != 1:
+        _(r"""
+        \layout {
+          \context { 
+            \Voice
+            \override Glissando #'thickness = #%d
+            \override Glissando #'gap = #0.05
+          }
+        }
+        """ % options.glissandoLineThickness)
+
+    if options.horizontalSpacing == 'medium':
+        _(_horizontalSpacingMedium)
+    elif options.horizontalSpacing == 'large':
+        _(_horizontalSpacingLarge)
+    elif options.horizontalSpacing == 'xlarge':
+        _(_horizontalSpacingXL)
+
+    _(r"\score {")
+    _(r"<<")
+    for i, part in enumerate(score):
         partstr = quantizedPartToLily(part,
                                       addMeasureMarks=i==0,
                                       addTempoMarks=i==0,
                                       options=options,
                                       indents=1,
                                       indentSize=indentSize)
-        strs.append(partstr)
-    strs.append(r">>")
-
-    #if options.lilypondHorizontalSpacing == 'medium':
-    #    strs.append(_horizontalSpacingMedium)
-    #elif options.lilypondHorizontalSpacing == 'large':
-    #    strs.append(_horizontalSpacingLarge)
-
-    strs.append(r"}")
-    out = "\n".join(strs)
+        _(partstr)
+    _(r">>")
+    _(r"}")  # end \score
+    out = emlib.textlib.joinPreservingIndentation(strs)
+    # out = "\n".join(strs)
     return out
 
 
 class LilypondRenderer(Renderer):
-    def __init__(self, parts: List[quant.QuantizedPart], options: RenderOptions=None):
-        super().__init__(parts, options=options)
-        self._lilyscore: Opt[str] = None
+    def __init__(self, score: quant.QuantizedScore, options: RenderOptions=None):
+        super().__init__(score, options=options)
+        self._lilyscore = ''
 
     def render(self) -> None:
         if self._rendered:
             return
-        self._lilyscore = makeScore(self.parts, options=self.options)
+        self._lilyscore = makeScore(self.score, options=self.options)
         self._rendered = True
 
     def writeFormats(self) -> List[str]:
         return ['pdf', 'ly', 'png']
 
-    def write(self, outfile: str, removeTemporaryFiles=False) -> None:
-        lilytxt = self.nativeScore()
+    def write(self, outfile: str, fmt: str=None, removeTemporaryFiles=False) -> None:
         base, ext = os.path.splitext(outfile)
+        if fmt is None:
+            fmt = ext[1:]
+        if fmt == 'png':
+            self.options.cropToContent = True
+        elif fmt == 'pdf':
+            self.options.cropToContent = False
+        self.render()
+        lilytxt = self._lilyscore
         tempfiles = []
-        if ext == '.ly':
+        if fmt == 'png' or fmt == 'pdf':
+            lilyfile = tempfile.mktemp(suffix=".ly")
+            open(lilyfile, "w").write(lilytxt)
+            if fmt != ext[1:]:
+                outfile2 = f"{outfile}.{fmt}"
+                lilytools.renderLily(lilyfile, outfile2)
+                os.rename(outfile2, outfile)
+            else:
+                lilytools.renderLily(lilyfile, outfile)
+            tempfiles.append(lilyfile)
+        elif fmt == 'ly':
             open(outfile, "w").write(lilytxt)
-        elif ext == '.png':
-            # Adding he book-preamble crops the png output to the actual contents
-            if self.options.lilypondPngBookPreamble:
-                if not 'lilypond-book-preamble.ly' in lilytxt and '% <book>' in lilytxt:
-                    lilytxt = lilytxt.replace('% <book>',
-                                              r'\include "lilypond-book-preamble.ly"')
-            lilytxt = lilytxt.replace("% <paper>", lilytools.paperBlock(margin=20))
-            lilyfile = tempfile.mktemp(suffix=".ly")
-            tempfiles.append(lilyfile)
-            open(lilyfile, "w").write(lilytxt)
-            print(lilyfile)
-            lilytools.renderLily(lilyfile, outfile)
-        elif ext == '.pdf':
-            lilyfile = tempfile.mktemp(suffix=".ly")
-            open(lilyfile, "w").write(lilytxt)
-            lilytools.renderLily(lilyfile, outfile)
-            tempfiles.append(lilyfile)
         else:
-            raise ValueError(f"Extension should be .pdf, .png or .ly, got {ext}")
+            raise ValueError(f"Format should be pdf, png or ly, got {fmt}")
         if removeTemporaryFiles:
             for f in tempfiles:
                 os.remove(f)

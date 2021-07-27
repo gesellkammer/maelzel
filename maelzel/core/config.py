@@ -18,6 +18,7 @@ _default = {
     'm21.fixStream': True,
     'repr.showFreq':True,
     'semitoneDivisions':4,
+
     'show.lastBreakpointDur':1/8,
     'show.cents': True,
     'show.centsFontSize': 8,
@@ -26,14 +27,22 @@ _default = {
     'show.centSep': ',',
     'show.scaleFactor': 1.0,
     'show.staffSize': 12.0,
-    'show.method': 'musicxml',
+    'show.backend': 'music21',
     'show.format': 'png',
     'show.external': False,
     'show.cacheImages': True,
     'show.arpeggioDuration': 0.5,
     'show.labelFontSize': 12.0,
     'show.pageOrientation': 'portrait',
+    'show.pageSize': 'a4',
+    'show.pageMarginMillimeters': 4,
     'show.glissEndStemless': False,
+    'show.lilypondPngStaffsizeScale': 1.0,
+    'show.measureAnnotationFontSize': 14,
+    'show.respellPitches': True,
+    'show.horizontalSpacing': 'normal',
+    'show.glissandoLineThickness': 2,
+
     'app.png': '',
     'displayhook.install': True,
     'play.dur': 2.0,
@@ -52,8 +61,9 @@ _default = {
     'play.autosavePresets': True,
     'play.defaultAmplitude': 1.0,
     'play.generalMidiSoundfont': '',
-    'play.namedArgsMethod': 'pargs',
+    'play.namedArgsMethod': 'table',
     'play.soundfontAmpDiv': 16384,
+    'play.soundfontInterpolation': 'linear',
     'rec.block': False,
     'rec.samplerate': 44100,
     'rec.ksmps': 64,
@@ -76,13 +86,15 @@ _validator = {
     'defaultDuration::type': (int, float),
     'semitoneDivisions::choices': {1, 2, 4},
     'm21.displayhook.format::choices': {'xml.png', 'lily.png'},
-    'show.method::choices': {'musicxml', 'lilypond'},
+    'show.backend::choices': {'music21', 'lilypond'},
     'show.format::choices': {'png', 'pdf', 'repr'},
     'show.staffSize::type': float,
+    'show.pageSize::choices': {'a3', 'a4', 'a2'},
     'chord.arpeggio::choices': {'auto', True, False},
     'play.gain::range': (0, 1),
     'play.fadeShape::choices': {'linear', 'cos'},
     'play.numChannels::type': int,
+    'play.soundfontInterpolation::choices': {'linear', 'cubic'},
     'rec.samplerate::choices': {44100, 48000, 88200, 96000},
     'rec.ksmps::choices': {1, 16, 32, 64, 128, 256},    
     'play.defaultAmplitude::range': (0, 1),
@@ -93,11 +105,14 @@ _validator = {
     'html.theme::choices': {'light', 'dark'},
     'show.lastBreakpointDur::range': (1/64., 1),
     'quant.complexity::choices': {'low', 'middle', 'high'},
-    'show.pageOrientation::choices': {'portrait', 'landscape'}
+    'show.pageOrientation::choices': {'portrait', 'landscape'},
+    'show.pageMarginMillimeters::range': (0, 1000),
+    'show.horizontalSpacing::choices': {'normal', 'medium', 'large', 'xlarge'},
+    'show.glissandoLineThickness::choices': {1, 2, 3, 4}
 }
 
 _docs = {
-    'defaultDuration': 
+    'defaultDuration':
         "Value used when a duration is needed and has not been set (Note, Chord)."
         " Not the same as play.dur",
     'semitoneDivisions':
@@ -145,6 +160,11 @@ _docs = {
         "Font size to use for labels",
     'show.centsFontSize':
         "Font size used for cents annotations",
+    'show.measureAnnotationFontSize':
+        'Font size used for measure annotations',
+    'show.glissandoLineThickness':
+        'Line thinkness when rendering glissandi. The value is abstract and it is'
+        'up to the renderer to interpret it',
     'play.presetsPath': 'The path were presets are saved',
     'play.autosavePresets':
         'Automatically save user defined presets, so they will be available '
@@ -166,14 +186,27 @@ _docs = {
         'default fade time',
     'play.unschedFadeout':
         'fade out when stopping a note',
-    'show.method':
+    'play.soundfontInterpolation':
+        'Interpolation used when reading sample data from a soundfont.',
+    'show.backend':
         'method/backend used when rendering notation',
     'show.cents':
         'show cents deviation as text when rendering notation',
     'show.pageOrientation':
         'Page orientation when rendering to pdf',
+    'show.pageSize':
+        'The page size when rendering to pdf',
     'show.glissEndStemless':
         'When the end pitch of a gliss. is shown as gracenote, make this stemless',
+    'show.pageMarginMillimeters':
+        'The page margin in mm',
+    'show.lilypondPngStaffsizeScale':
+        'A factor applied to the staffsize when rendering to png via lilypond. Without'
+        'this, it might happen that the renderer image is too small',
+    'show.horizontalSpacing':
+        'Hint for the renderer to adjust horizontal spacing. The actual result depends'
+        'on the backend and the format used',
+
     'play.backend':
         'backend used for playback',
     'rec.path':
@@ -214,7 +247,7 @@ _docs = {
         'subdivisions of the beat are allowed at a' 
         ' given tempo, the weighting of each subdivision, etc.',
     'quant.nestedTuples':
-        'Are nested tuples allowed when quantizing? NB: not all display methods support'
+        'Are nested tuples allowed when quantizing? NB: not all display backends support'
         ' nested tuples (for example, musescore, which is used to render musicxml to pdf,'
         ' does not support nested tuples)'
 }
@@ -280,7 +313,14 @@ def _resetImageCacheCallback():
     from . import musicobj
     musicobj.resetImageCache()
 
-mainConfig = ConfigDict('maelzel.core', _default, validator=_validator,
+def _propagateA4(config, a4):
+    from . import workspace
+    w = workspace.currentWorkspace()
+    if config is w.config:
+        w.a4 = a4
+
+rootConfig = ConfigDict('maelzel.core', _default, validator=_validator,
                         docs=_docs, fmt='yaml')
-mainConfig.registerCallback(lambda k, v: _syncCsoundengineTheme(v), re.escape("html.theme"))
-mainConfig.registerCallback(lambda k, v: _resetImageCacheCallback(), "show\..+")
+rootConfig.registerCallback(lambda d, k, v: _syncCsoundengineTheme(v), re.escape("html.theme"))
+rootConfig.registerCallback(lambda d, k, v: _resetImageCacheCallback(), "show\..+")
+rootConfig.registerCallback(lambda d, k, v: _propagateA4(d, v), "A4")

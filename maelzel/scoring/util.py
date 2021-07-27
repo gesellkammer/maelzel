@@ -1,7 +1,7 @@
 from __future__ import annotations
-from emlib.iterlib import pairwise, partialsum
+from emlib import iterlib
 from emlib import misc
-from pitchtools import n2m, m2n, pitch_round
+import pitchtools as pt
 from .common import *
 from typing import List, Optional as Opt, Iterator as Iter, Tuple
 
@@ -142,7 +142,7 @@ def measureOffsets(timesig: timesig_t, quarterTempo: number_t) -> List[F]:
     quarterTempo = asF(quarterTempo)
 
     beatDurations = measureBeats(timesig, quarterTempo=quarterTempo)
-    beatOffsets = [F(0)] + list(partialsum(beatDurations))
+    beatOffsets = [F(0)] + list(iterlib.partialsum(beatDurations))
     return beatOffsets
 
 
@@ -414,7 +414,7 @@ def parseScoreStructLine(line: str) -> Tuple[Opt[int], Opt[timesig_t], Opt[int]]
 
 
 def centsDeviation(pitch: float, divsPerSemitone=4) -> int:
-    return pitch_round(pitch, divsPerSemitone)[1]
+    return pt.pitch_round(pitch, divsPerSemitone)[1]
 
 
 def centsAnnotation(pitch: U[float, List[float]], divsPerSemitone=4,

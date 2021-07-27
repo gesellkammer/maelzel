@@ -47,7 +47,6 @@ class Notation:
             after the other.
         playbackGain: a float between 0-1, or None to leave unset. This is only
             useful for playback, has no effect in the Notation
-        fixedNotenames: an optional dict mapping pitch index to notename
 
     """
     __slots__ = ("duration",
@@ -60,7 +59,7 @@ class Notation:
                  "annotations",
                  "articulation",
                  "durRatios",
-                 "group",
+                 "groupid",
                  "gliss",
                  "notehead",
                  "noteheadHidden",
@@ -125,7 +124,7 @@ class Notation:
         self.articulation = articulation
         self.annotations = annotations
         self.durRatios = durRatios
-        self.group = group
+        self.groupid = group
         self.gliss = gliss
         self.notehead = notehead
         self.noteheadHidden = noteheadHidden
@@ -139,16 +138,35 @@ class Notation:
         self.playbackGain = playbackGain
         self.properties: Opt[Dict[str,Any]] = properties
         self.fixedNotenames: Opt[Dict[int, str]] = None
+        if self.isRest:
+            assert self.duration > 0
+            assert not self.pitches or (len(self.pitches) == 1 and self.pitches[0] == 0)
+        else:
+            assert self.pitches and all(p > 0 for p in self.pitches)
 
-    def setFixedNotenameByIndex(self, idx:int, notename:str):
+    def fixNotename(self, idx:int=0, enharmonic=False) -> None:
+        """
+        Fix the notename for the pitch at index `idx`, **in place**
+
+        Args:
+            idx: the pitch index
+            enharmonic: if True and possible, use the enharmonic spelling
+                (diatonic pitches do not have enharmonic)
+        """
+        pitch = self.pitches[idx]
+        note = m2n(pitch)
+        if enharmonic:
+            note = pt.enharmonic(note)
+        self.setFixedNotename(notename=note, idx=idx)
+
+    def setFixedNotename(self, notename:str, idx:int=0):
         if self.fixedNotenames is None:
             self.fixedNotenames = {}
         self.fixedNotenames[idx] = notename
 
-    def getFixedNotenameByIndex(self, idx:int, default=None) -> Opt[str]:
-        if not self.fixedNotenames:
-            return default
-        return self.fixedNotenames.get(idx, default)
+    def getFixedNotename(self, idx:int = 0) -> Opt[str]:
+        if self.fixedNotenames:
+            return self.fixedNotenames.get(idx)
 
     def isGraceNote(self) -> bool:
         return self.duration == 0
@@ -196,6 +214,25 @@ class Notation:
                 dur *= durRatio
         return dur
 
+    def notename(self, index=0) -> str:
+        """
+        Returns the notename corresponding to the given pitch index
+
+        If there is a fixed notename for the pitch, that will returned; otherwise
+        the notename corresponding to the pitch
+
+        Args:
+            index: the index of the pitch (in self.pitches)
+
+        Returns:
+            the notename corresponing to the given pitch
+
+        """
+        return self.getFixedNotename(index) or m2n(self.pitches[index])
+
+    def notatedVerticalPosition(self, index=0) -> int:
+        return pt.vertical_position(self.notename(index))
+
     def addAnnotation(self, text:U[str, Annotation], placement:str='above',
                       fontSize:int=None) -> None:
         """
@@ -227,9 +264,11 @@ class Notation:
         self.articulation = articulation
 
     def notatedDuration(self) -> NotatedDuration:
-        """The duration of the notated figure, in quarter-notes,
-        independent of any tuples. A quarter-note inside a triplet
-        would have a notatedDuration of 1"""
+        """
+        The duration of the notated figure, in quarter-notes, independent of any tuples.
+
+        A quarter-note inside a triplet would have a notatedDuration of 1
+        """
         return notatedDuration(self.duration, self.durRatios)
 
     def mergeWith(self, other:Notation) -> Notation:
@@ -238,9 +277,9 @@ class Notation:
 
     def setProperty(self, key:str, value) -> None:
         """
-        Set any property of this Notation. Properties can be
-        used, for example, for any rendering backend to pass directives which
-        are specific to that rendering backend.
+        Set any property of this Notation.
+        Properties can be used, for example, for any rendering backend to
+        pass directives which are specific to that rendering backend.
         """
         if self.properties is None:
             self.properties = {}
@@ -258,6 +297,8 @@ class Notation:
         info = []
         if self.offset is None:
             info.append(f"None, dur={showT(self.duration)}")
+        elif self.duration == 0:
+            info.append(f"{showT(self.offset)}:grace")
         else:
             info.append(f"{showT(self.offset)}:{showT(self.end)}")
 
@@ -276,14 +317,31 @@ class Notation:
                 info.append(m2n(self.pitches[0]))
             if self.gliss:
                 info.append("gliss")
-        if self.group:
-            if len(self.group) < 6:
-                info.append(f"group={self.group}")
+        if self.groupid:
+            if len(self.groupid) < 6:
+                info.append(f"group={self.groupid}")
             else:
-                info.append(f"group={self.group[:8]}…")
+                info.append(f"group={self.groupid[:8]}…")
+
+        if self.properties:
+            info.append(f"properties={self.properties}")
 
         infostr = " ".join(info)
         return "«" + infostr + "»"
+
+    def transferAttributesTo(self: Notation, dest: Notation) -> None:
+        """
+        Copy attributes of self to dest
+        """
+        dest.tiedPrev = self.tiedPrev
+        dest.gliss = self.gliss
+        dest.articulation = self.articulation
+        dest.noteheadHidden = self.noteheadHidden
+        if self.annotations:
+            if dest.annotations is None:
+                dest.annotations = self.annotations
+            else:
+                dest.annotations.extend(self.annotations)
 
 
 def makeGroupId() -> str:
@@ -324,12 +382,15 @@ def makeNote(pitch:pitch_t, duration:time_t = None, offset:time_t = None,
         duration = asFractionOrNone(duration)
     offset = asFractionOrNone(offset)
     midinote = asmidi(pitch)
+    assert midinote >= 12
+    assert 'isRest' not in kws
     out = Notation(pitches=[midinote], duration=duration, offset=offset, gliss=gliss,
                    **kws)
+    assert not out.isRest
     if annotation:
-        out.addArticulation(annotation)
+        out.addAnnotation(annotation)
     if withId:
-        out.group = str(id(out))
+        out.groupid = str(id(out))
     return out
 
 
@@ -374,6 +435,7 @@ def makeRest(duration: time_t, offset:time_t=None) -> Notation:
         offset: the start time of the rest. Normally a rest's offset
             is left unspecified (None)
     """
+    assert duration > 0
     return Notation(duration=asF(duration), offset=offset, isRest=True)
 
 
@@ -401,8 +463,8 @@ def mergeNotations(a: Notation, b: Notation) -> Notation:
 
 def durationsCanMerge(n0: Notation, n1: Notation) -> bool:
     """
-    Returns True if these two Notations can be merged solely based
-    on their duration and their start / end position
+    Returns True if these two Notations can be merged based on duration and start/end
+    position
     """
     dur0 = n0.symbolicDuration()
     dur1 = n1.symbolicDuration()
@@ -500,6 +562,9 @@ class Part(list):
         s0 = super().__repr__()
         return "Part"+s0
 
+    # def _repr_html_(self) -> str:
+    #   TODO
+
     def distributeByClef(self) -> List[Part]:
         """
         Distribute the notations in this Part into multiple parts,
@@ -525,6 +590,21 @@ class Part(list):
         """
         stackNotationsInPlace(self)
 
+    def fillGaps(self, mingap=1/64) -> None:
+        """
+        Fill gaps between notations in this Part, in place
+        """
+        if not self.hasGaps():
+            return
+        newevents = fillSilences(self, mingap=mingap, offset=0)
+        self.clear()
+        self.extend(newevents)
+        assert not self.hasGaps()
+
+    def hasGaps(self) -> bool:
+        assert all(n.offset is not None and n.duration is not None for n in self)
+        return any(n0.end < n1.offset for n0, n1 in iterlib.pairwise(self))
+
     def stacked(self) -> Part:
         """
         Similar to :meth:`stack`, stacks the Notations in this Part to make them
@@ -535,9 +615,92 @@ class Part(list):
         return Part(notations, label=self.label, groupid=self.groupid)
 
 
-def fixEnharmonicsInPlace(events: List[Notation]):
-    # TODO
-    pass
+class Score(list):
+    def __init__(self, parts: List[Part]=None, title:str=''):
+        if parts:
+            super().__init__(parts)
+        else:
+            super().__init__()
+        self.title = title
+
+
+# A : Ab  -> A : G#
+# G : G-  -> G : F#+
+# G+ : G  -> Ab- : G
+# G+ : G- -> Ab- : G-
+
+def _fixEnharmonics2(n0: Notation, n1: Notation, force=False):
+    # print("looking at ", n0, n1)
+    fixedNote0 = n0.getFixedNotename()
+    fixedNote1 = n1.getFixedNotename()
+    if fixedNote0 and fixedNote1:
+        return
+    if not fixedNote0 and not fixedNote1:
+        notated0 = pt.notated_pitch(n0.pitches[0])
+        notated1 = pt.notated_pitch(n1.pitches[0])
+        if notated0.vertical_position() != notated1.vertical_position():
+            if force:
+                n1.fixNotename()
+            return
+        # 4C+ 4C#  : 4C# ->4Db
+        # 4C- 4C+  : 3B+ 4C+  o 4C- 4Db-
+        # 4Eb 4E+  : 4Eb 4F-  o 4D# 4E+
+        # 4D+25 4D+ : 4D+25 4Eb-
+        name0, name1 = notated0.fullname, notated1.fullname
+        enh0 = pt.enharmonic(name0)
+        enh1 = pt.enharmonic(name1)
+        if name0 == enh0:
+            n0.fixNotename()
+            n1.setFixedNotename(enh1)
+        elif name1 == enh1:
+            n1.fixNotename()
+            n0.setFixedNotename(enh0)
+        else:
+            # both can be modified, just modify the second one
+            n0.fixNotename()
+            n1.setFixedNotename(enh1)
+        # print(".......", n0.pitches[0], n0.notatedVerticalPosition(), n1.pitches[0], n1.notatedVerticalPosition())
+        if n0.pitches[0] < n1.pitches[0] and \
+                n0.notatedVerticalPosition() > n1.notatedVerticalPosition():
+            n0.fixNotename(enharmonic=True)
+            n1.fixNotename(enharmonic=False)
+        elif n0.pitches[0] > n1.pitches[0] and \
+                n0.notatedVerticalPosition() > n1.notatedVerticalPosition():
+            n0.fixNotename()
+            n1.fixNotename(enharmonic=True)
+
+
+def fixEnharmonicsInPlace(notations: List[Notation]):
+    """
+    Try to find a better note spelling for this notations
+
+    This fixes the notenames of the notations, trying to make the
+    intervals between notes more readable.
+
+    Args:
+        notations: a list of consecutive notations (a Part)
+    """
+    # Fix gliss first
+    for n0, n1 in iterlib.pairwise(notations):
+        if n0.isRest or n1.isRest:
+            continue
+        if len(n0.pitches) == 1 and len(n1.pitches) == 1 and n0.gliss and \
+                n0.pitches[0] != n1.pitches[0]:
+            _fixEnharmonics2(n0, n1)
+
+    for n0, n1, n2 in iterlib.window(notations, 3):
+        if n0.isRest or n1.isRest or n2.isRest:
+            continue
+        if len(n0.pitches) > 1 or len(n1.pitches) > 1 or len(n2.pitches) > 1:
+            continue
+        if n0.pitches[0] < n1.pitches[0] < n2.pitches[0] and \
+            n1.notatedVerticalPosition() > n0.notatedVerticalPosition() and \
+            n0.notatedVerticalPosition() == n2.notatedVerticalPosition():
+            n2.fixNotename(enharmonic=True)
+        if n0.pitches[0]>n1.pitches[0]>n2.pitches[0] and \
+                n0.notatedVerticalPosition() == n2.notatedVerticalPosition():
+            n0.fixNotename(enharmonic=True)
+
 
 def stackNotationsInPlace(events: List[Notation], start=F(0), overrideOffset=False
                           ) -> None:
@@ -566,6 +729,7 @@ def stackNotationsInPlace(events: List[Notation], start=F(0), overrideOffset=Fal
         now += ev.duration
     for ev1, ev2 in iterlib.pairwise(events):
         assert ev1.offset <= ev2.offset
+    fixOverlap(events)
 
 
 def stackNotations(events: List[Notation], start=F(0), overrideOffset=False
@@ -602,14 +766,18 @@ def stackNotations(events: List[Notation], start=F(0), overrideOffset=False
         out.append(ev)
     for ev1, ev2 in iterlib.pairwise(out):
         assert ev1.offset <= ev2.offset
+    fixOverlap(out)
     return out
 
 
-def fixOverlap(notations: List[Notation]) -> List[Notation]:
+def fixOverlap(notations: List[Notation], mingap=F(1, 10000)) -> None:
     """
-    Fix overlap between notations. If two notations overlap,
-    the first notation is cut, preserving the offset of the
-    second notation
+    Fix overlap between notations, in place.
+
+    If two notations overlap, the first notation is cut, preserving the
+    offset of the second notation. If there is a gap smaller than a given
+    threshold the end of the note left of the gap is extended to match
+    the offset of the note right of the gap
 
     Args:
         notations: the notations to fix
@@ -618,20 +786,17 @@ def fixOverlap(notations: List[Notation]) -> List[Notation]:
         the fixed notations
     """
     if len(notations) < 2:
-        return notations
-    out = []
+        return
     for n0, n1 in iterlib.pairwise(notations):
         assert n0.duration is not None and n0.offset is not None
         assert n1.offset is not None
         assert n0.offset <= n1.offset, "Notes are not sorted!"
-        if n0.end > n1.offset:
-            n0 = n0.clone(duration=n1.offset - n0.offset)
-        out.append(n0)
-    out.append(notations[-1])
-    return out
+        if n0.end > n1.offset or n0.offset - n0.end < mingap:
+            n0.duration = n1.offset - n0.offset
+            assert n0.end == n1.offset
 
 
-def fillSilences(notations: List[Notation], mingap=1/64) -> List[Notation]:
+def fillSilences(notations: List[Notation], mingap=1/64, offset:time_t=None) -> List[Notation]:
     """
     Return a list of Notations filled with rests
 
@@ -639,26 +804,34 @@ def fillSilences(notations: List[Notation], mingap=1/64) -> List[Notation]:
         notations: the notes to fill
         mingap: min. gap between two notes. If any notes differ by less
                    than this, the first note absorvs the gap
+        offset: if given, marks the start time to fill. If notations start after
+            this offset a rest will be crated from this offset to the start
+            of the first notation
     Returns:
         a list of new Notations
     """
     assert notations
-    assert all(isinstance(ev, Notation) for ev in notations)
+    assert all(isinstance(n, Notation) and n.offset is not None and n.duration is not None
+               for n in notations)
+    if offset is not None:
+        assert all(n.offset >= offset for n in notations)
+
     out: List[Notation] = []
-    if notations[0].offset > 0:
-        out.append(makeRest(duration=notations[0].offset))
+    if offset is not None and notations[0].offset > offset:
+        out.append(makeRest(duration=notations[0].offset, offset=offset))
     for ev0, ev1 in iterlib.pairwise(notations):
         gap = ev1.offset - (ev0.offset + ev0.duration)
         assert gap >= 0, f"negative gap! = {gap}"
         if gap > mingap:
             out.append(ev0)
-            rest = makeRest(offset=ev0.offset+ev0.duration, duration=gap)
+            rest = makeRest(duration=gap, offset=ev0.offset+ev0.duration)
+            assert rest.offset is not None and rest.duration is not None
             out.append(rest)
         else:
             # adjust the dur of n0 to match start of n1
             out.append(ev0.clone(duration=ev1.offset - ev0.offset))
     out.append(notations[-1])
-    assert not any(n0.end != n1.offset for n0, n1 in iterlib.pairwise(out)), out
+    assert all(n0.end == n1.offset for n0, n1 in iterlib.pairwise(out)), out
     return out
 
 
@@ -670,7 +843,7 @@ def _groupById(notations: List[Notation]) -> List[U[Notation, List[Notation]]]:
 
     """
     out = []
-    for groupid, elementsiter in itertools.groupby(notations, key=lambda n:n.group):
+    for groupid, elementsiter in itertools.groupby(notations, key=lambda n:n.groupid):
         if not groupid:
             out.extend(elementsiter)
         else:

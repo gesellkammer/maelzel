@@ -1,3 +1,4 @@
 from .musicobj import *
-from .play import stopSynths
+from .play import *
+from .presetman import *
 from .workspace import *

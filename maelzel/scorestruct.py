@@ -2,17 +2,22 @@ from __future__ import annotations
 
 import os
 import shutil
-import tempfile
 from pathlib import Path
 import dataclasses
-from typing import Tuple, Optional as Opt, List, Union as U, Iterator as Iter
 from bisect import bisect
 
 import emlib.img
 import emlib.misc
+import emlib.textlib
 import music21 as m21
 from maelzel.music import m21tools
 from fractions import Fraction as F
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import Tuple, Optional as Opt, List, Union as U, Iterator as Iter
+    timesig_t = Tuple[int, int]
+    number_t = U[int, float, F]
 
 
 def asF(x) -> F:
@@ -23,13 +28,34 @@ def asF(x) -> F:
     return F(x)
 
 
-timesig_t = Tuple[int, int]
-number_t = U[int, float, F]
+def _parseTimesig(s: str) -> Tuple[int, int]:
+    try:
+        num, den = s.split("/")
+    except ValueError:
+        raise ValueError(f"Could not parse timesig: {s}")
+    return int(num), int(den)
+
+def _asTimesig(t: U[str, timesig_t]) -> timesig_t:
+    if isinstance(t, tuple):
+        assert len(t) == 2
+        return t
+    elif isinstance(t, str):
+        return _parseTimesig(t)
+    else:
+        raise TypeError(f"Expected a tuple (5, 8) or a string '5/8', got {t}, {type(t)}")
 
 
-def parseScoreStructLine(line: str) -> Tuple[Opt[int], Opt[timesig_t], Opt[int]]:
+@dataclasses.dataclass
+class _ScoreLine:
+    measureNum: Opt[int]
+    timesig: Opt[timesig_t]
+    tempo: Opt[float]
+    label: str = ''
+
+
+def _parseScoreStructLine(line: str) -> _ScoreLine:
     """
-    parse a line of a ScoreStructure definition
+    parse a line of a ScoreStruct definition
 
     Args:
         line: a line of the format [measureNum, ] timesig [, tempo]
@@ -38,15 +64,10 @@ def parseScoreStructLine(line: str) -> Tuple[Opt[int], Opt[timesig_t], Opt[int]]
         a tuple (measureNum, timesig, tempo), where only timesig
         is required
     """
-    def parseTimesig(s: str) -> Tuple[int, int]:
-        try:
-            num, den = s.split("/")
-        except ValueError:
-            raise ValueError(f"Could not parse timesig: {s}")
-        return int(num), int(den)
 
     parts = [_.strip() for _ in line.split(",")]
     lenparts = len(parts)
+    label = ''
     if lenparts == 1:
         timesigS = parts[0]
         measure = None
@@ -61,20 +82,32 @@ def parseScoreStructLine(line: str) -> Tuple[Opt[int], Opt[timesig_t], Opt[int]]
             measure = int(measureNumS)
             tempo = None
     elif lenparts == 3:
-        measureNumS, timesigS, tempoS = [_.strip() for _ in parts]
+        if "/" not in parts[0]:
+            measureNumS, timesigS, tempoS = [_.strip() for _ in parts]
+            measure = int(measureNumS) if measureNumS else None
+        else:
+            measure = None
+            timesigS, tempoS, label = [_.strip() for _ in parts]
+        tempo = float(tempoS) if tempoS else None
+    elif lenparts == 4:
+        measureNumS, timesigS, tempoS, label = [_.strip() for _ in parts]
         measure = int(measureNumS) if measureNumS else None
-        tempo = int(tempoS) if tempoS else None
+        tempo = float(tempoS) if tempoS else None
     else:
         raise ValueError(f"Parsing error at line {line}")
-    timesig = parseTimesig(timesigS) if timesigS else None
-    return measure, timesig, tempo
+    timesig = _parseTimesig(timesigS) if timesigS else None
+    if label:
+        label = label.replace('"', '')
+    return _ScoreLine(measureNum=measure, timesig=timesig, tempo=tempo, label=label)
 
 
 @dataclasses.dataclass
 class MeasureDef:
     """
-    A measure definition. This does not hold any other data (notes) but the information
-    of the measure itself, to be used inside a ScoreStructure
+    A measure definition.
+
+    It does not hold any other data (notes) but the information
+    of the measure itself, to be used inside a ScoreStruct
     """
     timesig: timesig_t
     quarterTempo: F
@@ -108,6 +141,9 @@ class MeasureDef:
             raise ValueError("MeasureDef not fully defined")
         return self.numberOfBeats() * (F(60)/self.quarterTempo)
 
+    def clone(self, **kws):
+        return dataclasses.replace(self, **kws)
+
 
 @dataclasses.dataclass
 class ScoreLocation:
@@ -125,41 +161,41 @@ class ScoreLocation:
         return iter((self.measureNum, self.beat))
 
 
-class ScoreStructure:
+class ScoreStruct:
     def __init__(self, endless=False, autoextend=False):
         """
-        A ScoreStructure holds the structure of a score but no content
+        A ScoreStruct holds the structure of a score but no content
 
-        A ScoreStructure consists of some metadata and a list of MeasureDefs,
+        A ScoreStruct consists of some metadata and a list of MeasureDefs,
         where each MeasureDef defines the properties of the measure at the given
-        index. If a ScoreStructure is marked as endless, it is possible to query
+        index. If a ScoreStruct is marked as endless, it is possible to query
         it (ask for a MeasureDef, convert beats to time, etc.) outside of the defined
         measures.
 
         Args:
-            endless: mark this ScoreStructure as endless
+            endless: mark this ScoreStruct as endless
             autoextend: this is only valid if the score is marked as endless. If True,
-                querying this ScoreStructure outside its defined boundaries will create
+                querying this ScoreStruct outside its defined boundaries will create
                 the necessary MeasureDefs to cover the point in question. In concrete, if
-                a ScoreStructure has only one MeasureDef, .getMeasureDef(3) will create
+                a ScoreStruct has only one MeasureDef, .getMeasureDef(3) will create
                 three MeasureDefs, cloning the first MeasureDef, and return the last one.
 
         Example::
             # create an endless score with a given time signature
-            >>> scorestruct = ScoreStructure(endless=True)
-            >>> scorestruct.addMeasure((4, 4), quarterTempo=72)
+            >>> s = ScoreStruct(endless=True)
+            >>> s.addMeasure((4, 4), quarterTempo=72)
             # this is the same as:
-            >>> scorestruct = ScoreStructure.fromTimesig((4, 4), 72)
+            >>> s = ScoreStruct.fromTimesig((4, 4), 72)
 
             # Create the beginning of Sacre
-            >>> s = ScoreStructure()
+            >>> s = ScoreStruct()
             >>> s.addMeasure((4, 4), 50)
             >>> s.addMeasure((3, 4))
             >>> s.addMeasure((4, 4))
             >>> s.addMeasure((2, 4))
             >>> s.addMeasure((3, 4), numMeasures=2)
 
-        A ScoreStructure can also be created from a string (see .fromString to learn
+        A ScoreStruct can also be created from a string (see .fromString to learn
         about the format), which can be read from a file
         """
         self.measuredefs: List[MeasureDef] = []
@@ -171,9 +207,17 @@ class ScoreStructure:
         self._offsetsIndex: List[F] = []
 
     @staticmethod
-    def fromString(s: str, initialTempo=60, initialTimeSignature=(4, 4)
-                   ) -> ScoreStructure:
+    def fromString(s: str, initialTempo=60, initialTimeSignature=(4, 4), endless=False
+                   ) -> ScoreStruct:
         """
+        Args:
+            s: the score as string
+            initialTempo: the initial tempo, for the case where the initial measure/s
+                do not include a tempo
+            initialTimeSignature: the initial time signature
+            endless: if True, make this ScoreStruct endless. The same can be achieved
+                by ending the score with the line '...'
+
         Format::
 
             measureNum, timeSig, tempo
@@ -186,28 +230,36 @@ class ScoreStructure:
             1, 5/8, 63
             5/8, 63
             5/8
+
         * measure numbers start at 0
         * comments start with `#` and last until the end of the line
         * A line with a single "." repeats the last defined measure
+        * A score ending with the line ... is an endless score
 
         Example::
 
-            0, 4/4, 60
+            0, 4/4, 60, "mark A"
             ,3/4,80     # Assumes measureNum=1
             10, 5/8, 120
-            30,,        # last measure (inclusive, the score will have 31 measures)
+            30,,
+            .
+            .      # last measure (inclusive, the score will have 33 measures)
         """
         tempo = initialTempo
         timesig = initialTimeSignature
         measureNum = -1
-        struct = ScoreStructure()
+        lines = emlib.textlib.splitAndStripLines(s)
+        if lines[-1].strip() == '...':
+            endless = True
+            lines = lines[:-1]
+        struct = ScoreStruct(endless=endless)
 
         def lineStrip(l:str) -> str:
             if "#" in l:
                 l = l.split("#")[0]
             return l.strip()
 
-        for i, line0 in enumerate(s.splitlines()):
+        for i, line0 in enumerate(lines):
             line = lineStrip(line0)
             if not line:
                 continue
@@ -219,61 +271,75 @@ class ScoreStructure:
                 measureNum += 1
                 continue
 
-            newMeasureNum, newTimesig, newTempo = parseScoreStructLine(line)
-            if newMeasureNum is None:
-                newMeasureNum = measureNum + 1
+            mdef = _parseScoreStructLine(line)
+            if mdef.measureNum is None:
+                mdef.measureNum = measureNum + 1
             else:
-                assert newMeasureNum > measureNum
-                struct.addMeasure(numMeasures = newMeasureNum - measureNum - 1)
+                assert mdef.measureNum > measureNum
+                struct.addMeasure(numMeasures = mdef.measureNum - measureNum - 1)
 
-            tempo = newTempo or tempo
-            timesig = newTimesig or timesig
-            struct.addMeasure(timesig=timesig, quarterTempo=tempo)
-            measureNum = newMeasureNum
+            tempo = mdef.tempo or tempo
+            timesig = mdef.timesig or timesig
+            struct.addMeasure(timesig=timesig, quarterTempo=tempo, annotation=mdef.label)
+            measureNum = mdef.measureNum
 
         return struct
 
     @staticmethod
-    def fromTimesig(timesig: timesig_t, quarterTempo=60, numMeasures:int=None
-                    ) -> ScoreStructure:
+    def fromTimesig(timesig: U[timesig_t, str], quarterTempo=60, numMeasures:int=None
+                    ) -> ScoreStruct:
         """
-        Creates a ScoreStructure from a time signature and tempo.
+        Creates a ScoreStruct from a time signature and tempo.
 
-        If numMeasures is given, the resulting ScoreStructure will
+        If numMeasures is given, the resulting ScoreStruct will
         have as many measures defined and will be finite. Otherwise
-        the ScoreStructure will be flagged as endless
+        the ScoreStruct will be flagged as endless
 
         Args:
             timesig: the time signature, a tuple (num, den)
             quarterTempo: the tempo of a quarter note
             numMeasures: the number of measures of this score. If None
-                is given, the ScoreStructure will be endless
+                is given, the ScoreStruct will be endless
 
         Returns:
-            a ScoreStructure
+            a ScoreStruct
 
         """
+        timesig = _asTimesig(timesig)
         if numMeasures is None:
-            out = ScoreStructure(endless=True)
+            out = ScoreStruct(endless=True)
             out.addMeasure(timesig=timesig, quarterTempo=quarterTempo)
         else:
-            out = ScoreStructure(endless=False)
+            out = ScoreStruct(endless=False)
             out.addMeasure(timesig, quarterTempo, numMeasures=numMeasures)
         return out
+
+    def copy(self) -> ScoreStruct:
+        """
+        Create a copy of this ScoreSturct
+        """
+        s = ScoreStruct(endless=self.endless, autoextend=self.autoextend)
+        s.title = self.title
+        s.measuredefs = self.measuredefs.copy()
+        return s
 
     def numDefinedMeasures(self) -> int:
         """
         Returns the number of defined measures
 
-        (independently of this ScoreStructure being endless or not)
+        (independently of this ScoreStruct being endless or not)
         """
         return len(self.measuredefs)
 
     def getMeasureDef(self, idx:int) -> MeasureDef:
         """
-        Returns the MeasureDef at the given index. If the scorestruct
-        is endless and the index is outside of the defined range, the
-        returned MeasureDef will be the last defined MeasureDef
+        Returns the MeasureDef at the given index.
+
+        If the scorestruct is endless and the index is outside of the defined
+        range, the returned MeasureDef will be the last defined MeasureDef.
+        If this ScoreStruct was created with autoextend=True, any query
+        outside of the defined range of measures will extend the score
+        to that point
         """
         if idx < len(self.measuredefs):
             return self.measuredefs[idx]
@@ -282,7 +348,12 @@ class ScoreStructure:
             raise IndexError(f"index out of range. The score has "
                              f"{len(self.measuredefs)} measures defined")
         if not self.autoextend:
-            return self.measuredefs[-1]
+            # we are "outside" the defined score
+            m = self.measuredefs[-1]
+            if m.annotation:
+                m = m.clone(annotation='', tempoInherited=True, timesigInherited=True)
+            return m
+
         for n in range(len(self.measuredefs)-1, idx):
             self.addMeasure()
 
@@ -306,7 +377,7 @@ class ScoreStructure:
         Example::
 
             # Create a 4/4 score, 32 measures long
-            >>> s = ScoreStructure()
+            >>> s = ScoreStruct()
             >>> s.addMeasure((4, 4), 52, numMeasures=32)
         """
         if timesig is None:
@@ -328,7 +399,7 @@ class ScoreStructure:
             self.addMeasure(numMeasures=numMeasures-1)
 
     def __str__(self) -> str:
-        lines = ["ScoreStructure(["]
+        lines = ["ScoreStruct(["]
         for m in self.measuredefs:
             lines.append("    " + str(m))
         lines.append("])")
@@ -405,7 +476,7 @@ class ScoreStructure:
              endless and the time is outside the score, None is returned
         """
         if not self.measuredefs:
-            raise IndexError("This ScoreStructure is empty")
+            raise IndexError("This ScoreStruct is empty")
 
         self._update()
         time = asF(time)
@@ -430,10 +501,10 @@ class ScoreStructure:
 
     def beatToLocation(self, beat:number_t) -> Opt[ScoreLocation]:
         """
-        Return the location in score corresponding to the given
-        beat (time-offset in quarter-notes).
+        Return the location in score corresponding to the given beat
 
-        Given a beat (in quarter-notes), return the score location
+        The beat is the time-offset in quarter-notes. Given a beat
+        (in quarter-notes), return the score location
         (measure, beat offset within the measure). Tempo does not
         play any role within this calculation.
 
@@ -486,7 +557,7 @@ class ScoreStructure:
 
     def iterMeasureDefs(self) -> Iter[MeasureDef]:
         """
-        Iterate over all measure definitions in this ScoreStructure.
+        Iterate over all measure definitions in this ScoreStruct.
         If it is marked as endless then the last defined measure
         will be returned indefinitely.
         """
@@ -556,7 +627,7 @@ class ScoreStructure:
 
     def show(self) -> None:
         """
-        Render and show this ScoreStructure
+        Render and show this ScoreStruct
         """
         score = self.asMusic21(fillMeasures=False)
         score.show('musicxml.pdf')
@@ -574,22 +645,24 @@ class ScoreStructure:
             print("".join(parts))
 
     def _repr_html_(self) -> str:
-        colnames = ['Meas. Index', 'Timesig', 'Tempo (quarter note)']
+        colnames = ['Meas. Index', 'Timesig', 'Tempo (quarter note)', 'Label']
 
-        parts = [f'<h5><strong>ScoreStructure<strong></strong></h5>']
+        parts = [f'<h5><strong>ScoreStruct<strong></strong></h5>']
         tempo = -1
-        N = len(str(len(self.measuredefs)))
         rows = []
         for i, m in enumerate(self.measuredefs):
             num, den = m.timesig
             if m.quarterTempo != tempo:
                 tempo = m.quarterTempo
-                row = (str(i), f"{num}/{den}", str(tempo))
+                tempostr = ("%.3f" % tempo).rstrip("0").rstrip(".")
             else:
-                row = (str(i), f"{num}/{den}", "")
+                tempostr = ""
+            row = (str(i), f"{num}/{den}", tempostr, m.annotation)
             rows.append(row)
+        if self.endless:
+            rows.append(("...", "", "", ""))
         rowstyle = 'font-size: small;'
-        htmltable = emlib.misc.html_table(rows, colnames, rowstyles=[rowstyle]*3)
+        htmltable = emlib.misc.html_table(rows, colnames, rowstyles=[rowstyle]*4)
         parts.append(htmltable)
         return "".join(parts)
 
@@ -642,7 +715,7 @@ class ScoreStructure:
 
     def hasUniqueTempo(self) -> bool:
         """
-        Returns True if this ScoreStructure has only one tempo.
+        Returns True if this ScoreStruct has only one tempo.
         """
         numtempi = 0
         lasttempo = None

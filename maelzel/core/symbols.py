@@ -46,6 +46,11 @@ class Articulation(NoteAttachedSymbol):
             f"{scoring.definitions.availableArticulations}"
         self.kind = kind
 
+noteAttachedSymbols = [
+    'Articulation',
+    'Dynamic',
+    'Notehead'
+]
 
 _clsnameToClass = {
     'dynamic': Dynamic,

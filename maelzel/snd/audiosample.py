@@ -45,18 +45,17 @@ Examples
     out = a.prepend_silence(2) + b + c
     out.write("mixed.wav")
 
-
-
-
 """
 from __future__ import annotations
 import numpy as np
 import os
 import tempfile
+import shutil
 import bpf4 as _bpf
 import sndfileio
 import logging
 from pathlib import Path
+import atexit as _atexit
 
 from pitchtools import amp2db
 import numpyx
@@ -73,6 +72,28 @@ if TYPE_CHECKING:
         Sequence as Seq
 
 logger = logging.getLogger("maelzel.audiosample")
+
+
+config = {
+    'reprhtml_include_audiotag': True,
+    'reprhtml_audiotag_maxduration_minutes': 10,
+    'reprhtml_audiotag_width': '100%',
+    'reprhtml_audiotag_maxwidth': '1200px',
+    'reprhtml_audio_format': 'wav'
+}
+
+
+_sessionTempfiles = []
+
+
+@_atexit.register
+def _cleanup():
+    for f in _sessionTempfiles:
+        if os.path.exists(f):
+            if os.path.isdir(f):
+                shutil.rmtree(f)
+            else:
+                os.remove(f)
 
 
 def _normalize_path(path:str) -> str:
@@ -168,6 +189,7 @@ class Sample:
         self._asbpf: Opt[_bpf.BpfInterface] = None
         # A cached csound table, for playback
         self._csoundTabnum = 0
+        self._reprHtml: str = ''
 
     def __del__(self):
         if self._csoundTabnum:
@@ -274,7 +296,59 @@ class Sample:
             profile: one of 'low', 'medium', 'high'
         """
         from . import plotting
-        plotting.plot_samples(self.samples, self.samplerate, profile=profile)
+        plotting.plotWaveform(self.samples, self.samplerate, profile=profile)
+
+    def _repr_html_(self) -> str:
+        if self._reprHtml:
+            return self._reprHtml
+        import emlib.img
+        from . import plotting
+        pngfile = tempfile.mktemp(suffix=".png", prefix="plot")
+        if self.duration < 20:
+            profile = 'highest'
+        elif self.duration < 40:
+            profile = 'high'
+        elif self.duration < 180:
+            profile = 'medium'
+        else:
+            profile = 'low'
+        plotting.plotWaveform(self.samples, self.samplerate, profile=profile,
+                              saveas=pngfile)
+        img = emlib.img.htmlImgBase64(pngfile, maxwidth='800px')
+        if self.duration > 60:
+            durstr = emlib.misc.sec2str(self.duration)
+        else:
+            durstr = f"{self.duration:.3g}"
+        s = f"Sample(duration={durstr}, samplerate={self.samplerate}, " \
+            f"numchannels={self.numchannels})"
+        s += "<br>" + img
+        if config['reprhtml_include_audiotag'] and \
+                self.duration/60 < config['reprhtml_audiotag_maxduration_minutes']:
+            if not os.path.exists("tmp"):
+                os.mkdir("tmp")
+                _sessionTempfiles.append(os.path.abspath("tmp"))
+            if config['reprhtml_audio_format'] == 'wav':
+                sndfile = tempfile.NamedTemporaryFile(dir="tmp", delete=False,
+                                                      prefix="repr_", suffix=".wav")
+                mimetype = 'audio/wav'
+            else:
+                sndfile = tempfile.NamedTemporaryFile(dir="tmp", delete=False,
+                                                      prefix="repr_", suffix=".mp3")
+                mimetype = "audio/mpeg"
+            relname = "tmp/" + os.path.split(sndfile.name)[1]
+            self.write(relname)
+            audiotag_width = config['reprhtml_audiotag_width']
+            maxwidth = config['reprhtml_audiotag_maxwidth']
+            audiotag = rf"""
+            <br>
+            <audio controls style="width: {audiotag_width}; max-width: {maxwidth};">
+              <source src="{relname}" type="{mimetype}">
+              audio tag not supported
+            </audio> 
+            """
+            s += audiotag
+        self._reprHtml = s
+        return s
 
     def plotSpetrograph(self, framesize=2048, window='hamming', start=0.,
                         dur=0.) -> None:
@@ -305,26 +379,30 @@ class Sample:
                                                  int(dur * self.samplerate)-s0)
         if s0 > 0 or s1 != self.numframes:
             samples = samples[s0:s1]
-        plotting.plot_power_spectrum(samples,
-                                     self.samplerate,
-                                     framesize=framesize,
-                                     window=window)
+        plotting.plotPowerSpectrum(samples,
+                                   self.samplerate,
+                                   framesize=framesize,
+                                   window=window,
+                                   )
 
     def plotSpectrogram(self,
                         fftsize=2048,
                         window='hamming',
-                        overlap=4,
+                        overlap=None,
                         mindb=-120,
+                        minfreq:int=40,
                         maxfreq:int=12000) -> None:
         """
         Plot the spectrogram of this sound using matplotlib
 
         Args:
-            fftsize: the size of the fft
+            fftsize: the size of the fft.
             window: window type. One of 'hamming', 'hanning', 'blackman', ...
                     (see scipy.signal.get_window)
             mindb: the min. amplitude to plot
-            overlap: determines the hop size (hop size in samples = fftsize/overlap)
+            overlap: determines the hop size (hop size in samples = fftsize/overlap).
+                None to infer a sensible default from the other parameters
+            minfreq: the min. freq to plot
             maxfreq: the highes freq. to plot. If None, a default is estimated
                 (check maelzel.snd.plotting.config)
         """
@@ -333,13 +411,14 @@ class Sample:
             samples = self.samples[:, 0]
         else:
             samples = self.samples
-        return plotting.spectrogram(samples,
-                                    self.samplerate,
-                                    window=window,
-                                    fftsize=fftsize,
-                                    overlap=overlap,
-                                    mindb=mindb,
-                                    maxfreq=maxfreq)
+        return plotting.plotSpectrogram(samples,
+                                        self.samplerate,
+                                        window=window,
+                                        fftsize=fftsize,
+                                        overlap=overlap,
+                                        mindb=mindb,
+                                        minfreq=minfreq,
+                                        maxfreq=maxfreq)
 
     def openInEditor(self, wait=True, app=None, fmt='wav'
                      ) -> Opt[Sample]:
@@ -359,7 +438,7 @@ class Sample:
         Returns:
             if wait, it returns the sample after closing editor
         """
-        assert fmt in {'wav', 'aiff', 'aif', 'flac'}
+        assert fmt in {'wav', 'aiff', 'aif', 'flac', 'mp3', 'ogg'}
         sndfile = tempfile.mktemp(suffix="." + fmt)
         self.write(sndfile)
         logger.debug(f"open_in_editor: opening {sndfile}")
@@ -368,8 +447,8 @@ class Sample:
             return Sample.read(sndfile)
         return None
 
-    def write(self, outfile: str, encoding: str = None, overflow='fail',
-              fmt:str=None, **metadata
+    def write(self, outfile: str, encoding:str=None, overflow='fail',
+              fmt:str='', bitrate=224, **metadata
               ) -> None:
         """
         Write the samples to outfile
@@ -378,13 +457,21 @@ class Sample:
             outfile: the name of the soundfile. The extension determines the 
                 file format
             encoding: the encoding to use. One of pcm16, pcm24, pcm32, float32,
-                float64
+                float64 or, in the case of mp3 or ogg, the frame rate as integer
+                (160 = 160Kb)
             fmt: if not given, it is inferred from the extension. One of 'wav',
                 'aiff', 'flac'.
-            overflow: one of 'fail', 'normalize', 'nothing'
+            overflow: one of 'fail', 'normalize', 'nothing'. This applies only to
+                pcm formats (wav, aif, mp3)
+            bitrate: bitrate used when writing to mp3
             metadata: XXX
         """
         samples = self.samples
+        if not fmt:
+            fmt = os.path.splitext(outfile)[1][1:].lower()
+            assert fmt in {'wav', 'aif', 'aiff', 'flac', 'mp3', 'ogg'}
+        if not encoding:
+            encoding = sndfileio.util.default_encoding(fmt)
         if overflow != 'nothing' and encoding.startswith('pcm'):
             minval, maxval = numpyx.minmax1d(self.getChannel(0).samples)
             if minval < -1 or maxval > 1:
@@ -395,6 +482,7 @@ class Sample:
                     samples = samples / maxpeak
         sndfileio.sndwrite(outfile, samples=samples, sr=self.samplerate,
                            encoding=encoding, fileformat=fmt,
+                           bitrate=bitrate,
                            metadata=metadata)
 
     def copy(self) -> Sample:
@@ -404,7 +492,8 @@ class Sample:
         return Sample(self.samples.copy(), self.samplerate)
 
     def _changed(self) -> None:
-        self._csound_table = None
+        self._csoundTabnum = 0
+        self._reprHtml = ''
 
     def __add__(self, other: U[float, Sample]) -> Sample:
         if isinstance(other, (int, float)):
@@ -478,7 +567,7 @@ class Sample:
         else:
             raise TypeError(f"Expected a scalar or a sample, got {other}")
 
-    def __imul__(self, other: U[float, Sample]) -> None:
+    def __imul__(self, other: U[float, Sample]) -> Sample:
         if isinstance(other, (int, float)):
             self.samples *= other
         elif isinstance(other, Sample):
@@ -492,6 +581,7 @@ class Sample:
         else:
             raise TypeError(f"Expected a scalar or a sample, got {other}")
         self._changed()
+        return self
 
     def __pow__(self, other: float) -> Sample:
         return Sample(self.samples**other, self.samplerate)

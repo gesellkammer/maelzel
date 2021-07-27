@@ -586,9 +586,11 @@ def makeDuration(quarterLength: U[int, float, str], dots=0) -> str:
 
 def makePitch(pitch: pitch_t, divsPerSemitone:int=4) -> str:
     if isinstance(pitch, (int, float)):
+        assert pitch >= 12, f"Pitch too low: {pitch}"
         notename = pt.m2n(pitch)
     elif isinstance(pitch, str):
         notename = pitch
+        assert pt.is_valid_notename(notename), f"Invalid notename: {notename}"
     else:
         raise TypeError(f"Expected a midinote or a notename, got {pitch} (type: {type(pitch)})")
     return notenameToLily(notename, divsPerSemitone=divsPerSemitone)
@@ -622,6 +624,7 @@ def makeClef(clef: str) -> str:
         raise ValueError(f"Unknown clef {clef}. "
                          f"Possible values: {_clefToLilypondClef.keys()}")
     return fr"\clef {lilyclef}"
+
 
 def makeNote(pitch: pitch_t, duration: U[float, str], dots=0, tied=False,
              divsPerSemitone=4) -> str:
@@ -678,22 +681,37 @@ def paperBlock(paperWidth:float=None,
     indentStr = " " * indent
 
     if margin is not None:
-        leftMargin = margin
-        rightMargin = margin
-        topMargin = margin
-        bottomMargin = margin
+        leftMargin = rightMargin = topMargin = bottomMargin = margin
 
     if paperWidth is not None:
-        lines.append(f"{indentStr}paper-width = {paperWidth}\\{unit}")
+        lines.append(fr"{indentStr}paper-width = {paperWidth}\{unit}")
     if leftMargin is not None:
-        lines.append(f"{indentStr}left-margin = {leftMargin}\\{unit}")
+        lines.append(fr"{indentStr}left-margin = {leftMargin}\{unit}")
     if rightMargin is not None:
-        lines.append(f"{indentStr}right-margin = {rightMargin}\\{unit}")
+        lines.append(fr"{indentStr}right-margin = {rightMargin}\{unit}")
     if topMargin is not None:
-        lines.append(f"{indentStr}top-margin = {topMargin}\\{unit}")
+        lines.append(fr"{indentStr}top-margin = {topMargin}\{unit}")
     if bottomMargin is not None:
-        lines.append(f"{indentStr}bottom-margin = {bottomMargin}\\{unit}")
+        lines.append(fr"{indentStr}bottom-margin = {bottomMargin}\{unit}")
     if lineWidth is not None:
-        lines.append(f"{indentStr}line-width = {lineWidth}\\{unit}")
+        lines.append(fr"{indentStr}line-width = {lineWidth}\{unit}")
     lines.append("}")
     return "\n".join(lines)
+
+
+def makeTextAnnotation(text: str, fontsize:int=None, fontrelative=False,
+                       placement='above',
+                       boxed=False) -> str:
+    placementchr = "^" if placement == "above" else "_"
+    markups = []
+    if fontsize:
+        if fontrelative:
+            markups.append(fr"\fontsize #{int(fontsize)}")
+        else:
+            markups.append(fr"\abs-fontsize #{int(fontsize)}")
+    if boxed:
+        markups.append(r"\box")
+    if markups:
+        markupstr = " ".join(markups)
+        return r"%s\markup { %s %s}" % (placementchr, markupstr, text)
+    return r"%s\markup %s" % (placementchr, text)

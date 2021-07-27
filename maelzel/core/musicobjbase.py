@@ -4,47 +4,39 @@ import os
 import copy as _copy
 import tempfile as _tempfile
 from dataclasses import dataclass
-import time
-
-import configdict
 import music21 as m21
 
 from emlib.misc import firstval
 import emlib.misc
 import emlib.img
-from PIL import Image as _Image
 
-from pitchtools import m2f, m2n, r2i, f2m, amp2db, db2amp, str2midi
 import maelzel.music.m21tools as m21tools
 from maelzel import scoring
+import pitchtools as pt
 
 import csoundengine
 
 from ._common import *
-from .workspace import currentWorkspace, currentConfig, currentScoreStructure
+from .workspace import currentWorkspace, getConfig, currentScoreStructure
 from . import play
 from . import tools
 from . import environment
 from . import symbols
 from . import notation
-from .csoundevent import PlayArgs, CsoundEvent
+from .csoundevent import PlayArgs, CsoundEvent, cropEvents
 
-from maelzel.scorestruct import ScoreStructure
+from maelzel.scorestruct import ScoreStruct
+from typing import TypeVar as _TypeVar
 
+
+_T = _TypeVar('_T', bound='MusicObj')
 
 _playkeys = PlayArgs.keys()
 
 
-__all__ = ('cloneObj',
-           'renderObject',
-           'MusicObj')
-
-
-def cloneObj(obj: T, **kws) -> T:
-    out = _copy.copy(obj)
-    for k, v in kws.items():
-        setattr(out, k, v)
-    return out
+__all__ = ('renderObject',
+           'MusicObj',
+           )
 
 
 @dataclass
@@ -118,7 +110,7 @@ class MusicObj:
         that, otherwise returns a default duration. Child
         classes can override this method to match their behaviour
         """
-        return self.dur if self.dur is not None else currentConfig()['defaultDuration']
+        return self.dur if self.dur is not None else getConfig()['defaultDuration']
 
     def withExplicitTime(self, dur: time_t = None, start: time_t = None):
         """
@@ -147,7 +139,7 @@ class MusicObj:
             self._playargs = PlayArgs()
         return self._playargs
 
-    def setplay(self:T, /, **kws) -> T:
+    def setplay(self:_T, /, **kws) -> _T:
         """
         Set any playback attributes, returns self
 
@@ -164,14 +156,16 @@ class MusicObj:
             # a piano note
             >>> note = Note("C4+25", dur=0.5).setplay(instr="piano")
         """
+        playargs = self.playargs
         for k, v in kws.items():
             if k not in _playkeys:
                 raise KeyError(f"key {k} not known. "
                                f"Possible keys are {_playkeys}")
-            setattr(self.playargs, k, v)
+            setattr(playargs, k, v)
+        assert self._playargs is not None
         return self
 
-    def clone(self: T, **kws) -> T:
+    def clone(self: _T, **kws) -> _T:
         """
         Clone this object, changing parameters if needed
 
@@ -190,18 +184,19 @@ class MusicObj:
         out = self.copy()
         for k, v in kws.items():
             setattr(out, k, v)
+        if self._playargs is not None:
+            out._playargs = self._playargs.copy()
         return out
 
     def copy(self):
         """Returns a copy of this object"""
         return _copy.deepcopy(self)
 
-    def timeShift(self:T, timeoffset: time_t) -> T:
+    def timeShift(self:_T, timeoffset: time_t) -> _T:
         """
         Return a copy of this object with an added time offset
         """
-        start = self.start or Rat(0)
-        return self.clone(start=timeoffset + start)
+        return self.timeTransform(lambda t: t+timeoffset)
 
     def __eq__(self, other) -> bool:
         if isinstance(other, type(self)):
@@ -230,16 +225,13 @@ class MusicObj:
         """ Returns a new object, with pitch rounded to step """
         raise NotImplementedError()
 
-    def transpose(self: T, step: float) -> T:
-        """ Transpose self by `step` """
-        raise NotImplementedError()
-
     def transposeByRatio(self: T, ratio: float) -> T:
         """ Transpose this by a given freq. ratio. A ratio of 2 equals
         to transposing an octave higher. """
-        return self.transpose(r2i(ratio))
+        return self.transpose(pt.r2i(ratio))
 
-    def show(self, external: bool = None, method: str = None, fmt: str = None) -> None:
+    def show(self, fmt: str = None, external: bool = None, backend: str = None
+             ) -> None:
         """
         Show this as notation.
 
@@ -248,20 +240,29 @@ class MusicObj:
                 even when inside a jupyter notebook. If False, show will
                 display the image inline if inside a notebook environment.
                 To change the default, modify ``config['show.external']``
-            method: one of 'lilypond', 'musicxml'. None to use default
-                (see ``config['show.method']``)
-            fmt: one of 'png', 'pdf'. None to use default
+            backend: None to use default
+                (see ``config['show.backend']``)
+            fmt: one of 'png', 'pdf', 'ly'. None to use default
 
         **NB**: to use the music21 show capabilities, use ``note.asmusic21().show(...)``
         """
-        cfg = currentConfig()
+        cfg = getConfig()
         if external is None:
             external = cfg['show.external']
-        if method is None:
-            method = cfg['show.method']
+        if backend is None:
+            backend = cfg['show.backend']
         if fmt is None:
-            fmt = 'png' if environment.insideJupyter else cfg['show.format']
-        img = self.makeImage(method=method, fmt=fmt, opaque=True)
+            fmt = 'png' if not external and environment.insideJupyter else cfg['show.format']
+        if fmt == 'ly':
+            if external:
+                lyfile = _tempfile.mktemp(suffix=".ly")
+                self.write(lyfile)
+                emlib.misc.open_with_standard_app(lyfile)
+            else:
+                lyscore = _generateLilypondScore(self)
+                tools.showLilypondScore(lyscore)
+            return
+        img = self.makeImage(backend=backend, fmt=fmt)
         if fmt == 'png':
             tools.pngShow(img, forceExternal=external)
         else:
@@ -276,19 +277,20 @@ class MusicObj:
         """
         self._hash = 0
 
-    def makeImage(self, method: str = None, outfile: str = None, fmt="png",
-                  opaque=True) -> str:
+    def makeImage(self, backend: str = None, outfile: str = None, fmt="png",
+                  renderoptions: scoring.render.RenderOptions = None) -> str:
         """
         Creates an image representation, returns the path to the image
 
         Args:
-            method: the rendering backend. One of 'musicxml', 'lilypond'
-                None uses the default method (see config['show.method'])
+            backend: the rendering backend. One of 'music21', 'lilypond'
+                None uses the default method (see config['show.backend'])
             outfile: the path of the generated file. Use None to generate
                 a temporary file.
             fmt: if outfile is None, fmt will determine the format of the
                 generated file. Possible values: 'png', 'pdf'.
-            opaque: if True, make sure that the background is not transparent
+            renderoptions: if given, will override any render options derived
+                from the currentConfig
 
         Returns:
             the path of the generated file. If outfile was given, the returned
@@ -296,9 +298,8 @@ class MusicObj:
         """
         # In order to be able to cache the images we put this
         # functionality outside of the class and use lru_cache
-        if currentConfig()['show.cacheImages']:
-            return renderObject(self, method=method, outfile=outfile, fmt=fmt, opaque=opaque)
-        return _renderObject(self, method=method, outfile=outfile, fmt=fmt, opaque=opaque)
+        return renderObject(self, backend=backend, outfile=outfile, fmt=fmt,
+                            renderoptions=renderoptions)
 
     def scoringEvents(self, groupid:str=None) -> List[scoring.Notation]:
         """
@@ -326,12 +327,16 @@ class MusicObj:
         parts = scoring.distributeNotationsByClef(notations)
         return parts
 
+    def makeScore(self, title:str=None) -> scoring.Score:
+        parts = self.scoringParts()
+        return scoring.Score(parts, title=title)
+
     def _scoringAnnotation(self) -> Opt[scoring.Annotation]:
         """ Returns owns annotations as a scoring Annotation """
         if not self.label:
             return None
         return scoring.Annotation(self.label,
-                                  fontSize=currentConfig()['show.labelFontSize'])
+                                  fontSize=getConfig()['show.labelFontSize'])
 
     def asmusic21(self, **kws) -> m21.stream.Stream:
         """
@@ -356,9 +361,9 @@ class MusicObj:
             objects which can be queried via .scoringEvents
         """
         parts = self.scoringParts()
-        renderer = notation.renderWithCurrentConfig(parts, backend='musicxml')
+        renderer = notation.renderWithCurrentWorkspace(parts, backend='musicxml')
         stream = renderer.asMusic21()
-        if currentConfig()['m21.fixStream']:
+        if getConfig()['m21.fixStream']:
             m21tools.fixStream(stream)
         return stream
 
@@ -383,52 +388,40 @@ class MusicObj:
                 the format
             backend: the backend used when writing as pdf or png.
                 If not given, the default defined in the current
-                configuration is used (key: 'show.method')
+                configuration is used (key: 'show.backend')
         """
         ext = os.path.splitext(outfile)[1]
         if ext == '.ly':
             backend = 'lilypond'
         elif ext == '.xml' or ext == '.musicxml':
-            backend = 'musicxml'
+            backend = 'music21'
         elif backend is None:
-            cfg = currentConfig()
-            backend = cfg['show.method']
-        r = notation.renderWithCurrentConfig(self.scoringParts(), backend=backend)
+            cfg = getConfig()
+            backend = cfg['show.backend']
+        r = notation.renderWithCurrentWorkspace(self.scoringParts(), backend=backend)
         r.write(outfile)
 
-    def _repr_png_(self):
-        imgpath = self.makeImage(opaque=True)
-        im = _Image.open(imgpath)
-        scaleFactor = currentConfig().get('show.scaleFactor', 1.0)
-        if scaleFactor == 1:
-            return im._repr_png_()
-        width, height = im.size
-        return im._repr_png_(), {'height': height*scaleFactor, 'width': width*scaleFactor}
+    def _htmlImage(self) -> str:
+        imgpath = self.makeImage()
+        scaleFactor = getConfig().get('show.scaleFactor', 1.0)
+        width, height = emlib.img.imgSize(imgpath)
+        img = emlib.img.htmlImgBase64(imgpath,
+                                      width=f'{int(width * scaleFactor)}px')
+        return img
 
-    @classmethod
-    def setJupyterHook(cls) -> None:
+    def _repr_html_(self) -> str:
+        img = self._htmlImage()
+        return f"<code>{repr(self)}</code><br>" + img
+
+    def dump(self, indents=0):
         """
-        Sets the jupyter display hook for this class
-
+        Prints all relevant information about this object
         """
-        if cls._showableInitialized:
-            return
-        from IPython.core.display import Image
+        print(f'{"  "*indents}{repr(self)}')
+        if self._playargs:
+            print(f'{"  "*(indents+1)}{self.playargs}')
 
-        def reprpng(obj):
-            imgpath = obj.makeImage(opaque=True)
-
-            scaleFactor = currentConfig().get('show.scaleFactor', 1.0)
-            if scaleFactor != 1.0:
-                imgwidth, imgheight = tools.imgSize(imgpath)
-                width = imgwidth * scaleFactor
-            else:
-                width = None
-            return Image(filename=imgpath, embed=True, width=width)._repr_png_()
-
-        tools.setJupyterHookForClass(cls, reprpng, fmt='image/png')
-
-    def csoundEvents(self, playargs: PlayArgs, scorestruct: ScoreStructure, conf: dict
+    def csoundEvents(self, playargs: PlayArgs, scorestruct: ScoreStruct, conf: dict
                      ) -> List[CsoundEvent]:
         """
         Must be overriden by each class to generate CsoundEvents
@@ -445,7 +438,7 @@ class MusicObj:
         """
         raise NotImplementedError("Subclass should implement this")
 
-    def events(self, scorestruct: ScoreStructure=None, config:dict=None, **kws
+    def events(self, scorestruct: ScoreStruct=None, config:dict=None, **kws
                ) -> List[CsoundEvent]:
         """
         Returns the CsoundEvents needed to play this object
@@ -481,7 +474,7 @@ class MusicObj:
 
         Example::
 
-            >>> n = Note(60, dur=1).setplay('instr=piano')
+            >>> n = Note(60, dur=1).setplay(instr='piano')
             >>> n.events(gain=0.5)
             [CsoundEvent(delay=0.000, gain=0.5, chan=1, fade=(0.02, 0.02), instr=piano)
              bps 0.000s:  60, 1.000000
@@ -491,7 +484,7 @@ class MusicObj:
         playargs = PlayArgs(**kws)
         if scorestruct is None:
             scorestruct = currentScoreStructure()
-        events = self.csoundEvents(playargs, scorestruct, config or currentConfig())
+        events = self.csoundEvents(playargs, scorestruct, config or getConfig())
         return events
 
     def play(self,
@@ -504,7 +497,9 @@ class MusicObj:
              fade: U[float, Tuple[float, float]] = None,
              fadeshape: str = None,
              position: float = None,
-             scorestruct: ScoreStructure = None) -> csoundengine.synth.AbstrSynth:
+             scorestruct: ScoreStruct = None,
+             start: float = None,
+             end: float = None) -> csoundengine.synth.AbstrSynth:
         """
         Plays this object.
 
@@ -527,9 +522,11 @@ class MusicObj:
             args: paramaters passed to the note through an associated table.
                 A dict paramName: value
             position: the panning position (0=left, 1=right)
+            start: start time of playback. Allows to play a fragment of the object
+            end: end time of playback. Allows to play a fragment of the object
             scorestruct: a ScoreStructure to determine the mapping between
                 beat-time and real-time. If no scorestruct is given the current/default
-                scorestruct is used (see ``pushState``)
+                scorestruct is used (see ``setScoreStructure``)
 
         Returns:
             A :class:`~csoundengine.synth.SynthGroup`
@@ -550,6 +547,8 @@ class MusicObj:
                              pitchinterpol=pitchinterpol, fadeshape=fadeshape,
                              args=args, position=position,
                              scorestruct=scorestruct)
+        if start is not None or end is not None:
+            cropEvents(events, start, end)
         renderer = currentWorkspace().renderer
         if renderer:
             # schedule offline
@@ -580,20 +579,32 @@ class MusicObj:
         """
         return False
 
+    def supportedSymbols(self) -> List[str]:
+        """
+        Returns a list of supported symbols
+        """
+        out = []
+        if self._acceptsNoteAttachedSymbols:
+            out.extend(symbols.noteAttachedSymbols)
+        return out
+
     def setSymbol(self, symbol: U[symbols.Symbol, str], value=None):
         """
         Set a notation symbol in this object
 
+        Notation symbols are any attributes of this MusicObj which are for
+        notation purposes only. Such notation only attributes include dynamics,
+        articulations, etc. Each class has a set of symbols which it accepts
+        (see :meth:`MusicObj.supportedSymbols`)
+
         Either `n.setSymbol(symbols.Dynamic('ff')` or n.setSymbol('Dynamic', 'ff')
 
         Args:
-            symbol ():
-            value ():
-
-        Returns:
+            symbol: either a symbols.Symbol or the name of a symbol, in which
+                case the value must be given
+            value: the value of the symbol
 
         """
-        # n.setSymbol('Dynamic', 'mf')
         if isinstance(symbol, str):
             symbol = symbols.construct(symbol, value)
 
@@ -607,20 +618,49 @@ class MusicObj:
                 self._symbols = [s for s in self._symbols if type(s) != type(symbol)]
                 self._symbols.append(symbol)
 
-    def timeTransform(self:T, timemap: Callable[[float], float]) -> T:
+    def timeTransform(self:_T, timemap: Callable[[float], float]) -> _T:
+        """
+        Apply a time-transform to this object
+
+        Args:
+            timemap: a function mapping old time to new time
+
+        Returns:
+            the resulting object
+        """
         start = 0. if self.start is None else self.start
-        dur = currentConfig()['defaultDur'] if self.dur is None else self.dur
+        dur = getConfig()['defaultDur'] if self.dur is None else self.dur
         start2 = timemap(start)
         dur2 = timemap(start+dur) - start2
         return self.clone(start=asRat(start2), dur=asRat(dur2))
 
-    def timeScale(self:T, factor: num_t, offset: num_t = 0) -> T:
+    def pitchTransform(self:_T, pitchmap: Callable[[float], float]) -> _T:
+        """
+        Apply a pitch-transform to this object
+
+        Args:
+            pitchmap: a function mapping pitch to pitch
+
+        Returns:
+            the object after the transform
+        """
+        raise NotImplementedError
+
+    def timeScale(self:_T, factor: num_t, offset: num_t = 0) -> _T:
         transform = _TimeScale(asRat(factor), offset=asRat(offset))
         return self.timeTransform(transform)
 
+    def invertPitch(self: _T, pivot: pitch_t) -> _T:
+        pivotm = tools.asmidi(pivot)
+        func = lambda pitch: pivotm*2 - pitch
+        return self.pitchTransform(func)
 
-def _renderObject(obj: MusicObj, outfile:str=None, method:str=None, fmt='png',
-                  opaque=False
+    def transpose(self:_T, interval: U[int, float]) -> _T:
+        return self.pitchTransform(lambda pitch: pitch+interval)
+
+
+def _renderObject(obj: MusicObj, outfile:str=None, backend:str=None, fmt='png',
+                  renderoptions: Opt[scoring.render.RenderOptions] = None
                   ) -> str:
     """
     Given a music object, make an image representation of it.
@@ -631,39 +671,53 @@ def _renderObject(obj: MusicObj, outfile:str=None, method:str=None, fmt='png',
         obj: the object to make the image from (a Note, Chord, etc.)
         outfile: the path to be generated. Can be None, in which case a temporary
             file is generated.
-        method : one of 'musicxml', 'lilypond'
+        backend : one of 'musicxml', 'lilypond'
         fmt: the format of the generated file, if no outfile is given. One
-            of 'png', 'pdf' (has no effect if outfile is given, in which case
-            the extension determines the format)
-        opaque: if True makes sure that the image does not have a transparent
-            background
+            of 'png', 'pdf', 'ly', 'xml (has no effect if outfile is given,
+            in which case the extension determines the format)
 
     Returns:
         the path of the generated image
     """
-    config = currentConfig()
-    if method is None:
-        method = config['show.method']
+    config = getConfig()
+    if backend is None:
+        backend = config['show.backend']
     else:
-        methods = {'musicxml', 'lilypond'}
-        if method not in methods:
-            raise ValueError(f"method {method} not supported. Should be one of {methods}")
+        backends = {'music21', 'lilypond'}
+        if backend not in backends:
+            raise ValueError(f"backend {backend} not supported. Should be one of {backends}")
 
     if outfile is None:
         outfile = _tempfile.mktemp(suffix="." + fmt)
+    else:
+        fmt = os.path.splitext(outfile)[1][1:]
+    if renderoptions is None:
+        renderoptions = notation.makeRenderOptionsFromConfig(config)
+    renderoptions.renderFormat = fmt
 
-    logger.debug(f"rendering parts with backend: {method}")
+    logger.debug(f"rendering parts with backend: {backend}")
     parts = obj.scoringParts()
-    renderer = notation.renderWithCurrentConfig(parts, backend=method)
+    renderer = notation.renderWithCurrentWorkspace(parts, backend=backend,
+                                                   renderoptions=renderoptions)
     renderer.write(outfile)
-    if opaque and method == 'musicxml' and os.path.splitext(outfile)[1].lower() == '.png':
-        emlib.img.pngRemoveTransparency(outfile)
     return outfile
 
 
+def _generateLilypondScore(obj: MusicObj,
+                           renderoptions: Opt[scoring.render.RenderOptions]=None
+                           ) -> str:
+    config = getConfig()
+    if renderoptions is None:
+        renderoptions = notation.makeRenderOptionsFromConfig(config)
+    parts = obj.scoringParts()
+    renderer = notation.renderWithCurrentWorkspace(parts, backend='lilypond',
+                                                   renderoptions=renderoptions)
+    return renderer.nativeScore()
+
+
 @functools.lru_cache(maxsize=1000)
-def renderObject(obj:MusicObj, outfile:str=None, method:str=None, fmt='png',
-                 opaque=False
+def renderObject(obj:MusicObj, outfile:str=None, backend:str=None, fmt='png',
+                 renderoptions: Opt[scoring.render.RenderOptions] = None
                  ) -> str:
     """
     Given a music object, make an image representation of it.
@@ -671,15 +725,16 @@ def renderObject(obj:MusicObj, outfile:str=None, method:str=None, fmt='png',
     NB: we put it here in order to make it easier to cache images
 
     Args:
-        obj     : the object to make the image from (a Note, Chord, etc.)
-        outfile : the path to be generated. A .png filename
-        method  : format used. One of 'musicxml', 'lilypond'
+        obj: the object to make the image from (a Note, Chord, etc.)
+        outfile: the path to be generated. A .png filename
+        backend: format used. One of 'musicxml', 'lilypond'
         fmt: the format of the generated object. One of 'png', 'pdf'
-        opaque: if True, force the background to white when rendering to png
-
+        renderoptions: render options, if given , will override values set
+            in the currentConfig
     Returns:
         the path of the generated image
 
     NB: we put it here in order to make it easier to cache images
     """
-    return _renderObject(obj=obj, outfile=outfile, method=method, fmt=fmt, opaque=opaque)
+    return _renderObject(obj=obj, outfile=outfile, backend=backend, fmt=fmt,
+                         renderoptions=renderoptions)

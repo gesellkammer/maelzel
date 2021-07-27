@@ -8,6 +8,7 @@ import os
 import logging
 import tempfile
 from emlib.iterlib import pairwise
+import emlib.img
 
 import music21 as m21
 from maelzel.music import m21tools, m21fix
@@ -184,7 +185,7 @@ def _m21RenderGroup(measure: m21.stream.Measure,
         m21obj = notationToMusic21(item, durRatios, tupleType=tupleType, options=options)
 
         if not item.isRest and item.gliss is not None:
-            m21obj.editorial.gliss = item.gliss
+            m21obj.editorial.makeGliss = item.gliss
 
         measure.append(m21obj)
         if not item.isRest and options.showCents and not item.tiedPrev:
@@ -293,7 +294,8 @@ def quantizedPartToMusic21(part: quant.QuantizedPart,
             if measure.quarterTempo != quarterTempo:
                 quarterTempo = measure.quarterTempo
                 tempoMark = m21tools.makeMetronomeMark(util.asSimplestNumberType(quarterTempo))
-                m21measure.insert(0, tempoMark)
+                m21measure.append(tempoMark)
+                # m21measure.insert(0, tempoMark)
             if measureDef.annotation:
                 m21measure.insert(0, m21tools.makeTextExpression(
                     text=measureDef.annotation, placement="above",
@@ -329,13 +331,13 @@ def dinSizeToMM(dinsize: str, orientation='portrait') -> Tuple[int, int]:
         return y, x
 
 
-def renderScore(parts: List[quant.QuantizedPart], options: RenderOptions=None
+def renderScore(score: quant.QuantizedScore, options: RenderOptions=None
                 ) -> m21.stream.Score:
     """
     Convert a list of QuantizedParts to a music21 Score
 
     Args:
-        parts: the list of QuantizedParts to convert
+        score: the list of QuantizedParts to convert
         options: RenderOptions used to render the parts
 
     Returns:
@@ -352,40 +354,49 @@ def renderScore(parts: List[quant.QuantizedPart], options: RenderOptions=None
                                          pageHeight=cnv.toTenths(heightmm),
                                          pageWidth=cnv.toTenths(widthmm))
     m21parts = []
-    for i, part in enumerate(parts):
+    for i, part in enumerate(score):
         m21part = quantizedPartToMusic21(part, addMeasureMarks=i==0, options=options)
         m21parts.append(m21part)
-    score = m21tools.stackParts(m21parts)
-    score.insert(-1, scoreLayout)
-    m21tools.scoreSetMetadata(score, title=options.title, composer=options.composer)
-    return score
+    m21score = m21tools.stackParts(m21parts)
+    m21score.insert(-1, scoreLayout)
+    m21tools.scoreSetMetadata(m21score,
+                              title=score.title or '',
+                              composer=score.composer or '')
+    m21fix.fixStream(m21score, inPlace=True)
+    return m21score
 
 
 class Music21Renderer(Renderer):
-    def __init__(self, parts: List[quant.QuantizedPart], options: RenderOptions=None):
-        super().__init__(parts, options=options)
+    def __init__(self, score: quant.QuantizedScore, options: RenderOptions=None):
+        super().__init__(score, options=options)
         self._m21score: Opt[m21.stream.Score] = None
 
-    def render(self) -> None:
+    def render(self, fmt:str = '') -> None:
         if self._rendered:
             return
-        self._m21score = renderScore(self.parts, options=self.options)
+        self._m21score = renderScore(self.score, options=self.options)
         self._rendered = True
 
     def writeFormats(self) -> List[str]:
         return ['pdf', 'xml', 'png']
 
     def write(self, outfile: str) -> None:
-        m21score = self.nativeScore()
         base, ext = os.path.splitext(outfile)
-        if ext == ".xml":
+        fmt = ext[1:]
+        if fmt == 'musicxml':
+            fmt = 'xml'
+        self.render(fmt)
+        m21score = self._m21score
+        if fmt == "xml":
             m21score.write('xml', outfile)
-        elif ext == ".pdf":
+        elif fmt == "pdf":
             m21score.write('musicxml.pdf', outfile)
-        elif ext == ".png":
+        elif fmt == "png":
             xmlfile = tempfile.mktemp(suffix=".xml")
             m21score.write('xml', xmlfile)
             m21tools.renderMusicxml(xmlfile, outfile)
+            if ext == '.png' and self.options.opaque:
+                emlib.img.pngRemoveTransparency(outfile)
             os.remove(xmlfile)
         else:
             raise ValueError("Format not supported")
@@ -395,16 +406,6 @@ class Music21Renderer(Renderer):
             logger.debug("musicxml score:")
             logger.debug(xmlscore)
             raise RuntimeError(f"failed to write {outfile}")
-
-    def show(self, fmt='png') -> None:
-        """
-        Args:
-            fmt: one of 'png', 'pdf'
-        """
-        assert fmt in {'png', 'pdf'}
-        self.render()
-        m21fix.fixStream(self._m21score, inPlace=True)
-        self._m21score.show(f'xml.{fmt}')
 
     def musicxml(self) -> str:
         return m21tools.getXml(self.asMusic21())

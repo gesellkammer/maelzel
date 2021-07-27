@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import re
 
 import emlib.img
@@ -9,14 +10,15 @@ import bpf4 as bpf
 from ._common import *
 from . import environment
 from fractions import Fraction
-from pitchtools import str2midi, n2f, m2f, m2n, amp2db
+import pitchtools as pt
 import math
-from typing import NamedTuple
-from .workspace import currentConfig, currentWorkspace
+from .workspace import getConfig
 from . import symbols as _symbols
 from maelzel import scoring
-import configdict
 import PIL
+from typing import TYPE_CHECKING, NamedTuple
+if TYPE_CHECKING:
+    from typing import Set
 
 
 class AudiogenError(Exception): pass
@@ -128,7 +130,7 @@ def centsshown(centsdev:int, divsPerSemitone:int) -> str:
 
 
 if misc.inside_jupyter():
-    from IPython.core.display import (display as jupyterDisplay, 
+    from IPython.core.display import (display as jupyterDisplay, HTML as JupyterHTML,
                                       Image as JupyterImage)
 
 
@@ -166,7 +168,7 @@ def jupyterMakeImage(path: str) -> JupyterImage:
     if not misc.inside_jupyter():
         raise RuntimeError("Not inside a Jupyter session")
 
-    scalefactor = currentConfig()['show.scaleFactor']
+    scalefactor = getConfig()['show.scaleFactor']
     if scalefactor != 1.0:
         imgwidth, imgheight = imgSize(path)
         width = imgwidth*scalefactor
@@ -210,7 +212,7 @@ def m21JupyterHook(enable=True) -> None:
     formatter = ip.display_formatter.formatters['image/png']
     if enable:
         def showm21(stream: m21.stream.Stream):
-            cfg = currentConfig()
+            cfg = getConfig()
             fmt = cfg['m21.displayhook.format']
             filename = str(stream.write(fmt))
             if fmt.endswith(".png") and cfg['html.theme'] == 'dark':
@@ -256,7 +258,7 @@ def asmidi(x) -> float:
 
     """
     if isinstance(x, str):
-        return str2midi(x)
+        return pt.str2midi(x)
     elif isinstance(x, (int, float)):
         assert 0<=x<=200, f"Expected a midinote (0-127) but got {x}"
         return x
@@ -277,9 +279,9 @@ def asfreq(n) -> float:
         the corresponding frequency
     """
     if isinstance(n, str):
-        return n2f(n)
+        return pt.n2f(n)
     elif isinstance(n, (int, float)):
-        return m2f(n)
+        return pt.m2f(n)
     elif hasattr(n, "freq"):
         return n.freq
     else:
@@ -320,12 +322,14 @@ def midinotesNeedSplit(midinotes: List[float], splitpoint=60, margin=4
     return bool(numabove and numbelow)
 
 
-class NoteComponent(NamedTuple):
+@dataclasses.dataclass
+class NoteComponent:
     notename: str
     midi: float
     freq: float
     ampdb: float
     ampgroup: int
+
 
 def splitByAmp(midis: List[float], amps:List[float], numGroups=8, maxNotesPerGroup=8
                ) -> List[List[NoteComponent]]:
@@ -344,8 +348,8 @@ def splitByAmp(midis: List[float], amps:List[float], numGroups=8, maxNotesPerGro
     step = (dbToAmpCurve*numGroups).floor()
     notes = []
     for midi, amp in zip(midis, amps):
-        db = amp2db(amp)
-        notes.append(NoteComponent(m2n(midi), midi, m2f(midi), db, int(step(db))))
+        db = pt.amp2db(amp)
+        notes.append(NoteComponent(pt.m2n(midi), midi, pt.m2f(midi), db, int(step(db))))
     chords: List[List[NoteComponent]] = [[] for _ in range(numGroups)]
     notes2 = sorted(notes, key=lambda n: n[3], reverse=True)
     for note in notes2:
@@ -357,68 +361,8 @@ def splitByAmp(midis: List[float], amps:List[float], numGroups=8, maxNotesPerGro
     return chords
 
 
-def analyzeAudiogen(audiogen:str, check=True) -> dict:
-    """
-    Analyzes the audio generating part of an instrument definition,
-    returns the analysis results as a dictionary
 
-    Args:
-        audiogen: as passed to play.defPreset
-        check: if True, will check that audiogen is well formed
 
-    Returns:
-        a dict with keys:
-            numSignals (int): number of a_ variables
-            minSignal: min. index of a_ variables
-            maxSignal: max. index of a_ variables (minSignal+numSignals=maxSignal)
-            numOutchs: number of
-                (normally minsignal+numsignals = maxsignal)
-    """
-    audiovarRx = re.compile(r"\ba[0-9]\b")
-    outOpcodeRx = re.compile(r"\boutch\b")
-    audiovarsList = []
-    numOutchs = 0
-    for line in audiogen.splitlines():
-        foundAudiovars = audiovarRx.findall(line)
-        audiovarsList.extend(foundAudiovars)
-        outOpcode = outOpcodeRx.fullmatch(line)
-        if outOpcode is not None:
-            opcode = outOpcode.group(0)
-            args = line.split(opcode)[1].split(",")
-            assert len(args)%2 == 0
-            numOutchs = len(args) // 2
-
-    audiovars = set(audiovarsList)
-    chans = [int(v[1:]) for v in audiovars]
-    maxchan = max(chans)
-    # check that there is an audiovar for each channel
-    if check:
-        if len(audiovars) == 0:
-            raise AudiogenError("audiogen defines no output signals (a_ variables)")
-
-        for i in range(maxchan+1):
-            if f"a{i}" not in audiovars:
-                raise AudiogenError("Not all channels are defined", i, audiovars)
-
-    needsRouting = numOutchs == 0
-    numSignals = len(audiovars)
-    if needsRouting:
-        numOuts = int(math.ceil(numSignals/2))*2
-    else:
-        numOuts = numOutchs
-
-    out = {
-        'signals': audiovars,
-        # number of signals defined in the audiogen
-        'numSignals': numSignals,
-        'minSignal': min(chans),
-        'maxSignal': max(chans),
-        # if numOutchs is 0, the audiogen does not implement routing
-        'numOutchs': numOutchs,
-        'needsRouting': needsRouting,
-        'numOutputs': numOuts
-    }
-    return out
 
 
 def showTime(f) -> str:
@@ -427,9 +371,9 @@ def showTime(f) -> str:
     return f"{float(f):.3g}"
 
 
-def addColumn(mtx: List[List[T]], col: List[T], inplace=False) -> List[List[T]]:
+def addColumn(mtx: U[List[List[T]], List[Tuple[T]]], col: List[T], inplace=False) -> List[List[T]]:
     """
-    Add a column to a list of lists
+    Add a column to a list of lists/tuples
 
     Args:
         mtx: a matrix (a list of lists)
@@ -459,9 +403,14 @@ def addColumn(mtx: List[List[T]], col: List[T], inplace=False) -> List[List[T]]:
             for row, elem in zip(mtx, col):
                 row.append(elem)
             return mtx
-
-    raise TypeError(f"mtx should be a seq. of lists, "
-                    f"got {mtx} ({type(mtx[0])})")
+    elif isinstance(mtx[0], tuple):
+        if inplace:
+            raise ValueError("Can't add a column in place, since each row is tuple"
+                             " and tuples are not mutable")
+        return [row+(item,) for row, item in zip(mtx, col)]
+    else:
+        raise TypeError(f"mtx should be a seq. of lists, or tuples, "
+                        f"got {mtx} ({type(mtx[0])})")
 
 
 def carryColumns(rows: list, sentinel=None) -> list:
@@ -483,6 +432,11 @@ def carryColumns(rows: list, sentinel=None) -> list:
         outrows.append(row)
     # we need to discard the initial row
     return outrows[1:]
+
+
+def as2dlist(rows) -> List[list]:
+    return [row if isinstance(row, list) else list(row)
+            for row in rows]
 
 
 def normalizeFade(fade: fade_t,
@@ -511,3 +465,19 @@ def applySymbols(symbols: List[_symbols.Symbol],
                 n.notehead = symbol.kind
         elif isinstance(symbol, _symbols.Articulation):
             notations[0].articulation = symbol.kind
+
+
+def _highlightLilypond(s: str) -> str:
+    # TODO
+    return s
+
+
+def showLilypondScore(score: str) -> None:
+    # TODO
+    print(score)
+    return
+    if not environment.insideJupyter:
+        print(score)
+    else:
+        html = _highlightLilypond(score)
+        jupyterDisplay(JupyterHTML(html))

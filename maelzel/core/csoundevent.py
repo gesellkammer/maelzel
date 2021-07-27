@@ -1,11 +1,16 @@
 from __future__ import annotations
 import dataclasses
+
+import emlib.mathlib
+import emlib.misc
+
 from ._common import *
 from . import tools
-from .workspace import currentConfig
-from typing import Set, Any, Dict, Tuple
-from emlib import iterlib
+from .workspace import getConfig
 import copy
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import Set, Any, Dict, Tuple
 
 
 _pitchinterpolToInt = {
@@ -36,6 +41,26 @@ class PlayArgs:
     args: Dict[str, float] = None
     priority: int = 1
     position: float = None
+
+    def __repr__(self) -> str:
+        parts = []
+        if self.delay is not None:
+            parts.append(f'delay={self.delay}')
+        if self.gain is not None:
+            parts.append(f'gain={self.gain}')
+        if self.fade is not None:
+            parts.append(f'fade={self.fade}')
+        if self.instr is not None:
+            parts.append(f'instr={self.instr}')
+        if self.fadeshape is not None:
+            parts.append(f'fadeshape={self.fadeshape}')
+        if self.args is not None:
+            parts.append(f'args={self.args}')
+        if self.position is not None:
+            parts.append(f'position={self.position}')
+        if self.priority != 1:
+            parts.append(f'priority={self.priority}')
+        return f"PlayArgs({', '.join(parts)})"
 
     @staticmethod
     def keys() -> Set[str]:
@@ -123,6 +148,17 @@ def fillPlayargsWithConfig(playargs: PlayArgs, cfg: dict) -> PlayArgs:
             position=playargs.position if playargs.position is not None else -1)
 
 
+def _interpolateBreakpoints(t: float, bp0: List[float], bp1: List[float]
+                            ) -> List[float]:
+    t0, t1 = bp0[0], bp1[0]
+    assert t0 <= t <= t1, f"{t0=}, {t=}, {t1=}"
+    delta = (t - t0) / (t1 - t0)
+    bp = [t]
+    for v0, v1 in zip(bp0[1:], bp1[1:]):
+        bp.append(v0 + (v1-v0)*delta)
+    return bp
+
+
 class CsoundEvent:
     """
     Represents a standard event (a line of variable breakpoints)
@@ -153,7 +189,7 @@ class CsoundEvent:
         priority: schedule the corresponding instr at this priority
         userpargs: user pargs
     """
-    __slots__ = ("bps", "delay", "dur", "chan", "fadein", "fadeout", "gain",
+    __slots__ = ("bps", "delay", "chan", "fadein", "fadeout", "gain",
                  "instr", "pitchInterpolMethod", "fadeShape", "stereo", "namedArgs",
                  "priority", "position", "userpargs", "_namedArgsMethod")
 
@@ -186,21 +222,22 @@ class CsoundEvent:
             priority: schedule the corresponding instr at this priority
             userpargs: ???
         """
-        bps = tools.carryColumns(bps)
-        cfg = currentConfig()
+        cfg = getConfig()
 
         if len(bps[0]) < 2:
             raise ValueError(f"A breakpoint should have at least (delay, pitch), "
                              f"but got {bps}")
+
+        bps = tools.carryColumns(bps)
+        assert all(isinstance(bp, list) for bp in bps)
         if len(bps[0]) < 3:
             column = [1] * len(bps)
             bps = tools.addColumn(bps, column)
         assert len(bps[0])>= 3
-        assert all(isinstance(bp, tuple) and len(bp) == len(bps[0]) for bp in bps)
+        assert all(isinstance(bp, (list, tuple)) and len(bp) == len(bps[0]) for bp in bps)
         self.bps = bps
-
+        dur = self.bps[-1][0] - self.bps[0][0]
         fadein, fadeout = tools.normalizeFade(fade, cfg['play.fade'])
-        self.dur = dur = float(self.bps[-1][0] - self.bps[0][0])
         self.delay = delay
         self.chan = chan or cfg['play.chan'] or 1
         self.gain = gain or cfg['play.gain']
@@ -216,7 +253,27 @@ class CsoundEvent:
         self._consolidateDelay()
         self._namedArgsMethod = cfg['play.namedArgsMethod']
 
-        # self._applyTimeFactor(getState()._timefactor)
+    @property
+    def dur(self) -> float:
+        if not self.bps:
+            return 0
+        return float(self.bps[-1][0] - self.bps[0][0])
+
+    def clone(self, **kws) -> CsoundEvent:
+        out = copy.deepcopy(self)
+        for k, v in kws.items():
+            setattr(out, k, v)
+        if out.bps[0][0] != 0:
+            out._consolidateDelay()
+        return out
+
+    @property
+    def start(self) -> float:
+        return self.bps[0][0]
+
+    @property
+    def end(self) -> float:
+        return self.bps[-1][0]
 
     @property
     def fade(self) -> Tuple[float, float]:
@@ -246,13 +303,37 @@ class CsoundEvent:
         delay0 = self.bps[0][0]
         if delay0 > 0:
             self.delay += delay0
-            self.bps = [(bp[0]-delay0,)+bp[1:] for bp in self.bps]
+            for bp in self.bps:
+                bp[0] -= delay0
 
     def _applyTimeFactor(self, timefactor: float) -> None:
         if timefactor == 1:
             return
         self.delay *= timefactor
         self.bps = [(bp[0]*timefactor,)+bp[1:] for bp in self.bps]
+
+    def cropped(self, start:float, end:float) -> CsoundEvent:
+        """
+        Return a cropped version of this CsoundEvent
+        """
+        start -= self.delay
+        end -= self.delay
+        out = []
+        for i in range(len(self.bps)):
+            bp: List[float] = self.bps[i]
+            if bp[0] < start:
+                if i < len(self.bps)-1 and start < self.bps[i+1][0]:
+                    bp = _interpolateBreakpoints(start, bp, self.bps[i+1])
+                    out.append(bp)
+            elif start <= bp[0] < end:
+                out.append(bp.copy())
+                if i < len(self.bps) - 1 and end <= self.bps[i+1][0]:
+                    bp2 = _interpolateBreakpoints(end, bp, self.bps[i+1])
+                    out.append(bp2)
+            elif bp[0] > end:
+                break
+        return self.clone(bps=out)
+
 
     def breakpointSize(self) -> int:
         """ Returns the number of breakpoints in this CsoundEvent """
@@ -311,17 +392,28 @@ class CsoundEvent:
 
         for bp in self.bps:
             pfields.extend(bp)
-        # pfields.extend(map(float, iterlib.flatten(self.bps)))
         assert all(isinstance(p, (int, float)) for p in pfields), pfields
         return pfields
 
+    def _repr_html_(self) -> str:
+        rows = [[f"{bp[0] + self.delay:.3f}", f"{bp[0]:.3f}"] + ["%.6g"%x for x in bp[1:]] for bp in self.bps]
+        headers = ["Abs time", "0. Rel. time", "1. Pitch", "2. Amp"]
+        l = len(self.bps[0])
+        if l > 3:
+            headers += [str(i) for i in range(4, l+1)]
+        htmltab = emlib.misc.html_table(rows, headers=headers)
+        return f"{self._reprHeader()}<br>" + htmltab
+    def _reprHeader(self) -> str:
+        return (f"CsoundEvent(delay={float(self.delay):.3g}, dur={self.dur:.3g}, "
+                f"gain={self.gain:.4g}, chan={self.chan}"
+                f", fade=({self.fadein}, {self.fadeout}), instr={self.instr})")
+
     def __repr__(self) -> str:
-        lines = [f"CsoundEvent(delay={float(self.delay):.3f}, dur={self.dur}, gain={self.gain}, chan={self.chan}"
-                 f", fade=({self.fadein}, {self.fadeout}), instr={self.instr})"]
+        lines = [self._reprHeader()]
 
         def bpline(bp):
-            rest = ", ".join("%f"%b if isinstance(b, float) else str(b) for b in bp[1:])
-            return f"{float(bp[0]):.3f}s:  {rest}"
+            rest = " ".join(("%.6g"%b).ljust(8) if isinstance(b, float) else str(b) for b in bp[1:])
+            return f"{float(bp[0]):.3f}s: {rest}"
 
         for i, bp in enumerate(self.bps):
             if i == 0:
@@ -330,3 +422,13 @@ class CsoundEvent:
                 lines.append(f"    {bpline(bp)}")
         lines.append("")
         return "\n".join(lines)
+
+
+def cropEvents(events: List[CsoundEvent], start: Opt[float], end: Opt[float]
+               ) -> List[CsoundEvent]:
+    if start is None:
+        start = min(ev.start for ev in events)
+    if end is None:
+        end = max(ev.end for ev in events)
+        assert start < end
+    return [event.cropped(start, end) for event in events]

@@ -1,28 +1,98 @@
+from __future__ import annotations
+
+import emlib.misc
+import emlib.mathlib
 from emlib import numpytools
-from scipy import signal
 import numpy as np
 from configdict import ConfigDict
-import matplotlib.pyplot as plt
+import bpf4
+import functools
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    import matplotlib.pyplot as plt
 
 
-def _cmaps():
-    return plt.colormaps()
+# the result of matplotlib.pyplot.colormaps()
+_matplotlib_cmaps = [
+ 'Accent',
+ 'Accent_r',
+ 'cividis',
+ 'cividis_r',
+ 'cool',
+ 'cool_r',
+ 'coolwarm',
+ 'coolwarm_r',
+ 'copper',
+ 'copper_r',
+ 'cubehelix',
+ 'cubehelix_r',
+ 'gnuplot',
+ 'gnuplot2',
+ 'gnuplot2_r',
+ 'gnuplot_r',
+ 'gray',
+ 'gray_r',
+ 'hot',
+ 'hot_r',
+ 'hsv',
+ 'hsv_r',
+ 'inferno',
+ 'inferno_r',
+ 'jet',
+ 'jet_r',
+ 'magma',
+ 'magma_r',
+ 'nipy_spectral',
+ 'nipy_spectral_r',
+ 'ocean',
+ 'ocean_r',
+ 'pink',
+ 'pink_r',
+ 'plasma',
+ 'plasma_r',
+ 'prism',
+ 'prism_r',
+ 'rainbow',
+ 'rainbow_r',
+ 'seismic',
+ 'seismic_r',
+ 'spring',
+ 'spring_r',
+ 'summer',
+ 'summer_r',
+ 'terrain',
+ 'terrain_r',
+ 'turbo',
+ 'turbo_r',
+ 'twilight',
+ 'twilight_r',
+ 'twilight_shifted',
+ 'twilight_shifted_r',
+ 'viridis',
+ 'viridis_r',
+ 'winter',
+ 'winter_r']
 
 
 config = ConfigDict("maelzel.snd.plotting")
-config.addKey('spectrogram.colormap', 'inferno', choices=_cmaps())
-config.addKey('samplesplot.figsize', (12, 4))
-config.addKey('spectrogram.figsize', (24, 8))
-config.addKey('spectrogram.maxfreq', 12000,
-              doc="Highest frequency in a spectrogram")
-config.addKey('spectrogram.window', 'hamming', choices={'hamming', 'hanning'})
-config.load()
+with config as _:
+    _('backend', 'matplotlib', choices={'matplotlib'},
+      doc="Default backend to use for plotting")
+    _('matplotlib.spectrogram.colormap', 'inferno', choices=_matplotlib_cmaps,
+      doc="Colormap used when plotting a spectrogram using matplotlib")
+    _('matplotlib.samplesplot.figsize', (24, 4), 
+      doc="Figure size used when plotting audio samples")
+    _('matplotlib.spectrogram.figsize', (24, 8),
+      doc="Figure size used when plotting a spectrogram using matplotlib")
+    _('spectrogram.maxfreq', 12000,
+      doc="Highest frequency in a spectrogram")
+    _('spectrogram.window', 'hamming', choices={'hamming', 'hanning'})
 
 
-def plot_power_spectrum(samples,
-                        samplerate,
-                        framesize=2048,
-                        window=('kaiser', 9)):
+def plotPowerSpectrum(samples,
+                      samplerate,
+                      framesize=2048,
+                      window=('kaiser', 9)):
     """
     Args:
         samples: the samples to plot
@@ -36,33 +106,30 @@ def plot_power_spectrum(samples,
 
 
     """
+    from scipy import signal
     w = signal.get_window(window, framesize)
-
-    def func(s):
-        return s * w
-
     import matplotlib.pyplot as plt
-    return plt.psd(samples, framesize, samplerate, window=func)
+    return plt.psd(samples, framesize, samplerate, window=lambda s, w=w: s*w)
 
 
-def get_channel(samples, channel):
+def _get_channel(samples, channel):
     if len(samples.shape) == 1:
         return samples
     return samples[:, channel]
 
 
-def get_num_channels(samples):
+def _get_num_channels(samples):
     if len(samples.shape) == 1:
         return 1
     return samples.shape[1]
 
 
-def iter_channels(samples, start=0, end=0):
-    numch = get_num_channels(samples)
+def _iter_channels(samples, start=0, end=0):
+    numch = _get_num_channels(samples)
     if end == 0 or end > numch:
         end = numch
     for i in range(start, end):
-        yield get_channel(samples, i)
+        yield _get_channel(samples, i)
 
 
 def _envelope(x, hop):
@@ -80,15 +147,22 @@ def _frames_to_samples(frames, hop_length=512, n_fft=None):
     return (np.asanyarray(frames) * hop_length + offset).astype(int)
 
 
-def _plot_matplotlib(samples, samplerate):
-    numch = get_num_channels(samples)
+def _plot_matplotlib(samples:np.ndarray, samplerate:int, timelabels:bool) -> plt.Figure:
+    import matplotlib
+    import matplotlib.pyplot as plt
+    numch = _get_num_channels(samples)
     numsamples = samples.shape[0]
-    dur = numsamples / samplerate
-    times = np.linspace(0, dur, numsamples)
-    figsize = config['samplesplot.figsize']
-    figsize = figsize[0]*2, figsize[1]
+    figsize = config['matplotlib.samplesplot.figsize']
     f = plt.figure(figsize=figsize)
     ax1 = None
+    if timelabels:
+        formatter = matplotlib.ticker.FuncFormatter(
+                lambda idx, x:emlib.misc.sec2str(idx/samplerate, msdigits=3))
+                # lambda idx, x:time.strftime('%M:%S', time.gmtime(idx / samplerate)))
+    else:
+        formatter = matplotlib.ticker.FuncFormatter(
+                lambda idx, x:f"{idx/samplerate:.3g}")
+    locator = _get_tick_locator(samplerate)
     for i in range(numch):
         if i == 0:
             axes = ax1 = f.add_subplot(numch, 1, i + 1)
@@ -96,16 +170,74 @@ def _plot_matplotlib(samples, samplerate):
             axes = f.add_subplot(numch, 1, i + 1, sharex=ax1, sharey=ax1)
         if i < numch - 1:
             plt.setp(axes.get_xticklabels(), visible=False)
-        chan = get_channel(samples, i)
-        axes.plot(times, chan, linewidth=1)
-        plt.xlim([0, dur])
-    return True
+        chan = _get_channel(samples, i)
+        # axes.plot(times, chan, linewidth=1)
+        axes.plot(chan, linewidth=1)
+        axes.xaxis.set_major_formatter(formatter)
+        axes.xaxis.set_major_locator(locator)
+
+    ax1.set_xlim(0, numsamples)
+    return f
 
 
-def _plot_samples_matplotlib2(samples, samplerate, profile):
+_diff_to_step = bpf4.nointerpol(
+        0.01, 1/1000,
+        0.025, 1/500,
+        0.05, 1/100,
+        0.1, 1/50,
+        0.25, 1/30,
+        0.5, 1/20,
+        1, 1/10,
+        2, 1/5,
+        5, 1/2,
+        10, 1,
+        20, 2,
+        40, 5,
+        100, 10,
+        200, 20,
+        400, 30,
+        600, 60,
+        2000, 120,
+        4000, 240,
+        8000, 400,
+        16000, 600,
+)
+
+
+functools.lru_cache(maxsize=0)
+def _get_tick_locator(samplerate: int = 0):
+    from matplotlib import ticker
+
+    class TimeLocator(ticker.LinearLocator):
+        def __init__(self, sr: int = 0):
+            super().__init__()
+            self.sr = sr
+
+        def tick_values(self, valmin:float, valmax:float):
+            "secmin and secmax are the axis limits, return the tick locations here"
+            if self.sr:
+                secmin = valmin / self.sr
+                secmax = valmax / self.sr
+            else:
+                secmin, secmax = valmin, valmax
+            diff = secmax - secmin
+            step = _diff_to_step(diff)
+            firstelem = emlib.mathlib.next_in_grid(secmin, step)
+            ticks = list(emlib.mathlib.frange(firstelem, secmax+step, step))
+            if not self.sr:
+                return ticks
+            return [int(tick * self.sr) for tick in ticks]
+
+    return TimeLocator(sr=samplerate)
+
+
+def _plot_samples_matplotlib2(samples, samplerate, profile:str, saveas:str=None,
+                              timelabels=True) -> bool:
     import matplotlib.pyplot as plt
+    import matplotlib
+    dur = len(samples) / samplerate
+
     if profile == 'auto':
-        dur = len(samples)/samplerate
         if dur > 60*8:
             profile = 'low'
         elif dur > 60*2:
@@ -114,30 +246,36 @@ def _plot_samples_matplotlib2(samples, samplerate, profile):
             profile = 'high'
         else:
             profile = 'highest'
-    if profile == 'low':
-        maxpoints = 2000
-        maxsr = 300
+
+    if profile == 'high' or profile == 'highest':
+        if profile == 'high':
+            undersample = min(32, len(samples) // (1024 * 8))
+            samples = samples[::undersample]
+            samplerate = samplerate // undersample
+        fig = _plot_matplotlib(samples, samplerate, timelabels=timelabels)
+        if saveas:
+            plt.close(fig)
+            fig.savefig(saveas, transparent=False, facecolor="white", bbox_inches='tight')
+        return True
+    elif profile == 'low':
+        maxpoints, maxsr = 600, 20
     elif profile == 'medium':
-        maxpoints = 4000
-        maxsr = 600
-    elif profile == 'high':
-        undersample = min(32, len(samples) // (1024*8))
-        return _plot_matplotlib(samples[::undersample], samplerate//undersample)
-    elif profile == 'highest':
-        return _plot_matplotlib(samples, samplerate)
+        maxpoints, maxsr = 1200, 40
     else:
-        raise ValueError("profile should be one of 'low', 'medium' or 'high'")
+        raise ValueError("profile should be one of 'low', 'medium' or 'highest'")
+
     targetsr = samplerate
-    numch = get_num_channels(samples)
+    numch = _get_num_channels(samples)
     numsamples = samples.shape[0]
     if maxpoints < numsamples:
         targetsr = min(maxsr, (samplerate * numsamples) // maxpoints)
     hop_length = samplerate // targetsr
-    figsize = config['samplesplot.figsize']
-    if profile == "medium":
-        figsize = int(figsize[0]*1.4), figsize[1]
+    figsize = config['matplotlib.samplesplot.figsize']
     f = plt.figure(figsize=figsize)
     ax1 = None
+    timeFormatter = matplotlib.ticker.FuncFormatter(
+                lambda s, x:emlib.misc.sec2str(s, msdigits=3))
+    locator = _get_tick_locator()
     for i in range(numch):
         if i == 0:
             axes = ax1 = f.add_subplot(numch, 1, i + 1)
@@ -146,7 +284,7 @@ def _plot_samples_matplotlib2(samples, samplerate, profile):
         if i < numch - 1:
             plt.setp(axes.get_xticklabels(), visible=False)
 
-        chan = get_channel(samples, i)
+        chan = _get_channel(samples, i)
         env = _envelope(np.ascontiguousarray(chan), hop_length)
         samples_top = env
         samples_bottom = -env
@@ -155,29 +293,45 @@ def _plot_samples_matplotlib2(samples, samplerate, profile):
                                hop_length=hop_length)
         axes.fill_between(locs, samples_bottom, samples_top)
         axes.set_xlim([locs.min(), locs.max()])
-    return True
+        axes.xaxis.set_major_locator(locator)
+        if timelabels:
+            axes.xaxis.set_major_formatter(timeFormatter)
+    if saveas:
+        plt.close(f)
+        f.savefig(saveas, transparent=False, facecolor="white", bbox_inches='tight')
+    return f
 
 
-def _plot_samples_pyqtgraph(samples, samplerate, profile):
-    # TODO
-    return False
+def plotWaveform(samples: np.ndarray, samplerate: int, profile="auto",
+                 saveas:str=None, backend:str=None, timelabels=True
+                 ) -> None:
+    """
+    Plot the waveform
+
+    Args:
+        samples: a mono or multichannel audio array
+        samplerate: the samplerate
+        profile: one of 'low', 'medium', 'high', 'highest'
+        saveas: if given, the plot is saved and not displayed
+        timelabels: if True, the x axes' labels are shown as MM:SS if needed
+        backend: the backend used (only 'matplotlib' at the moment).
+
+    """
+    if saveas is not None:
+        backend = 'matplotlib'
+    if backend is None:
+        backend = config['backend']
+    if backend == 'matplotlib':
+        _plot_samples_matplotlib2(samples, samplerate, profile, saveas=saveas,
+                                  timelabels=timelabels)
+    else:
+        raise ValueError("Invalid backend")
 
 
-def plot_samples(samples: np.ndarray, samplerate: int, profile="auto") -> None:
-    backends = [
-        ('pyqtgraph', _plot_samples_pyqtgraph),
-        ('matplotlib', _plot_samples_matplotlib2),
-    ]
-    for backend, func in backends:
-        ok = func(samples, samplerate, profile)
-        if ok:
-            break
-
-
-def spectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:str=None,
-                overlap=4, axes:plt.Axes=None, cmap=None, interpolation='bilinear',
-                minfreq=40, maxfreq=None,
-                mindb=-90):
+def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:str=None,
+                    overlap:int=None, axes:plt.Axes=None, cmap=None, interpolation='bilinear',
+                    minfreq=40, maxfreq=None,
+                    mindb=-90):
     """
     Args:
         samples: a channel of audio data
@@ -185,7 +339,8 @@ def spectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:str=N
         fftsize: the size of the fft, in samples
         window: a string passed to scipy.signal.get_window
         overlap: the number of overlaps. If fftsize=2048, an overlap of 4 will result
-            in a hopsize of 512 samples
+            in a hopsize of 512 samples. Use None to use a sensible value for the
+            number of samples.
         axes: the axes to plot on. If None, new axes will be created
         cmap: colormap, see pyplot.colormaps() (see config['spectrogram.cmap'])
         minfreq: initial min.frequency
@@ -197,15 +352,26 @@ def spectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:str=N
     Returns:
         the axes object
     """
+    import matplotlib.pyplot as plt
+    from scipy import signal
+
     if axes is None:
-        f: plt.Figure = plt.figure(figsize=config['spectrogram.figsize'])
+        f: plt.Figure = plt.figure(figsize=config['matplotlib.spectrogram.figsize'])
         axes:plt.Axes = f.add_subplot(1, 1, 1)
+    if overlap is None:
+        dur = len(samples) / samplerate
+        if dur < 10:
+            overlap=4
+        elif dur < 60:
+            overlap=2
+        else:
+            overlap=1
     hopsize = int(fftsize / overlap)
     noverlap = fftsize - hopsize
     if window is None:
         window = config['spectrogram.window']
     win = signal.get_window(window, fftsize)
-    cmap = cmap if cmap is not None else config['spectrogram.colormap']
+    cmap = cmap if cmap is not None else config['matplotlib.spectrogram.colormap']
     axes.specgram(samples,
                   NFFT=fftsize,
                   Fs=samplerate,

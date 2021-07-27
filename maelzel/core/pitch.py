@@ -6,18 +6,18 @@ from maelzel import scoring
 from pitchtools import m2n, m2f, f2m
 
 from ._common import *
-from .workspace import currentConfig
+from .workspace import getConfig
 from . import tools
 from . import notation
 
 
 @functools.lru_cache(maxsize=1000)
 def _makeImageForPitch(notename: str) -> str:
-    cfg = currentConfig()
+    cfg = getConfig()
     n = scoring.makeNote(notename, duration=cfg['defaultDuration'])
     part = scoring.Part([n])
     outfile = tempfile.mktemp(suffix=".png")
-    renderer = notation.renderWithCurrentConfig([part])
+    renderer = notation.renderWithCurrentWorkspace([part])
     renderer.write(outfile)
     return outfile
 
@@ -64,7 +64,7 @@ class Pitch:
         return self.midi > float(other)
 
     def __repr__(self) -> str:
-        if currentConfig()['repr.showFreq']:
+        if getConfig()['repr.showFreq']:
             return f"<{self.name} {self.freq:.1f}Hz>"
         else:
             return self.name
@@ -84,7 +84,7 @@ class Pitch:
 
         def reprpng(obj: Pitch):
             imgpath = obj.makeImage()
-            scaleFactor = currentConfig().get('show.scaleFactor', 1.0)
+            scaleFactor = getConfig().get('show.scaleFactor', 1.0)
             if scaleFactor != 1.0:
                 imgwidth, imgheight = tools.imgSize(imgpath)
                 width = imgwidth*scaleFactor

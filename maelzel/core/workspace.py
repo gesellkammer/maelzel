@@ -3,11 +3,12 @@ from ._common import *
 import configdict
 import appdirs
 import os
-from .config import mainConfig
+from .config import rootConfig
 from pitchtools import set_reference_freq
 from typing import Any
-from maelzel.scorestruct import ScoreStructure
+from maelzel.scorestruct import ScoreStruct
 from functools import lru_cache
+import weakref
 
 
 def _resetCache():
@@ -17,12 +18,13 @@ def _resetCache():
 
 class Workspace:
     initdone: bool = False
-    workspaces: Dict[str, Workspace] = {}
+    workspaces: Dict[str, weakref.ReferenceType[Workspace]] = {}
     current: Workspace
+    root: Workspace
 
     def __new__(cls, name: str,
-                scorestruct: Opt[ScoreStructure]=None,
-                config:configdict.CheckedDict=None,
+                scorestruct: Opt[ScoreStruct]=None,
+                config:configdict.ConfigDict=None,
                 renderer: Any = None,
                 activate=True):
         if name in Workspace.workspaces:
@@ -32,20 +34,43 @@ class Workspace:
 
     def __init__(self,
                  name: str,
-                 scorestruct:Opt[ScoreStructure]=None,
-                 config:configdict.CheckedDict=None,
+                 scorestruct:Opt[ScoreStruct]=None,
+                 config:configdict.ConfigDict=None,
                  renderer: Any = None,
                  activate=True
                  ):
         self.name = name
         self.renderer = renderer
-        self.config = config or currentConfig()
+        self.config = config or getConfig()
         if scorestruct is None:
-            scorestruct = ScoreStructure.fromTimesig((4, 4), quarterTempo=60)
-        self.scorestruct = scorestruct
-        Workspace.workspaces[name] = self
+            scorestruct = ScoreStruct.fromTimesig((4, 4), quarterTempo=60)
+        self._scorestruct = scorestruct
+        Workspace.workspaces[name] = weakref.ref(self)
         if activate:
             self.activate()
+            
+    @property
+    def scorestruct(self) -> ScoreStruct:
+        return self._scorestruct
+    
+    @scorestruct.setter
+    def scorestruct(self, s: ScoreStruct):
+        _resetCache()
+        self._scorestruct = s
+
+    def __del__(self):
+        if self.name == "root":
+            logger.error("Can't delete 'root' workspace")
+            return
+        Workspace.workspaces.pop(self.name)
+
+    @staticmethod
+    def _createUniqueName() -> str:
+        for n in range(1, 9999):
+            name = f"Workspace-{n}"
+            if name not in Workspace.workspaces:
+                return name
+        raise RuntimeError("Too many workspaces")
 
     @property
     def a4(self) -> float:
@@ -54,7 +79,7 @@ class Workspace:
     @a4.setter
     def a4(self, value:float):
         self.config['A4'] = value
-        if self is currentConfig():
+        if self is getConfig():
             set_reference_freq(value)
 
     @property
@@ -84,14 +109,52 @@ class Workspace:
         set the tempo for the current state's ScoreStructure"""
         return self.scorestruct.hasUniqueTempo()
 
+    def isActive(self) -> bool:
+        return currentWorkspace() is self
+
 
 def _init():
     if Workspace.initdone:
         logger.debug("init was already done")
         return
     Workspace.initdone = True
-    w = Workspace("main", config=mainConfig)
+    w = Workspace("root", config=rootConfig)
+    Workspace.root = w
     w.activate()
+
+
+def cloneWorkspace(name: str='', config:configdict.ConfigDict=UNSET,
+                   scorestruct:ScoreStruct=UNSET, activate=True
+                   ) -> Workspace:
+    """
+    Clone the current workspace.
+
+    The current config will be cloned also, so any modification to it
+    will be indendent from the config it is based upon. The scorestruct
+    is also cloned.
+
+    Args:
+        name: the name of this workspace. If not given, a unique name is generated
+        config: a config, as returned, for example, via getConfig().clone(...).
+            If left unfilled, a copy of the current config is used
+        scorestruct: a new scorestruct, or unset to use a copy of the current scorestruct
+        activate: if True, this new workspace is set to be the active one
+
+    Returns:
+        the cloned Workspace
+
+    """
+    w = currentWorkspace()
+    if config is UNSET:
+        config = w.config.clone(persistent=False, cloneCallbacks=True)
+    if scorestruct is UNSET:
+        scorestruct = w.scorestruct.copy()
+    if not name:
+        name = Workspace._createUniqueName()
+    return Workspace(name,
+                     config=config,
+                     scorestruct=scorestruct or w.scorestruct,
+                     activate=activate)
 
 
 def currentWorkspace() -> Workspace:
@@ -113,12 +176,7 @@ def setTempo(quarterTempo:float) -> None:
         w.tempo = quarterTempo
 
 
-def setA4(a4:float) -> None:
-    """ Set the A4 value for the current state """
-    currentWorkspace().a4 = a4
-
-
-def currentConfig() -> configdict.CheckedDict:
+def getConfig() -> configdict.ConfigDict:
     """
     Return the current config. If some new state has been pushed this will
     be a non-persistent config.
@@ -126,7 +184,31 @@ def currentConfig() -> configdict.CheckedDict:
     return currentWorkspace().config
 
 
-def currentScoreStructure() -> ScoreStructure:
+def newConfig(cloneCurrent=True, **kws) -> configdict.ConfigDict:
+    """
+    This will clone the current workspace with a copy of the current config
+
+    The current score struct is kept
+
+    Args:
+        cloneCurrent: if True, clones the current config otherwise clones
+            the default
+
+    Returns:
+        the new config
+    """
+    w = currentWorkspace()
+    if cloneCurrent:
+        config = w.config.clone(updates=kws, cloneCallbacks=True)
+    else:
+        rootWorkspace = Workspace.workspaces['root']()
+        assert rootWorkspace is not None
+        config = rootWorkspace.config.clone(updates=kws, cloneCallbacks=True)
+    newWorkspace = cloneWorkspace(config=config, scorestruct=w.scorestruct)
+    return newWorkspace.config
+
+
+def currentScoreStructure() -> ScoreStruct:
     """
     Returns the current ScoreStructure (which defines tempo and time signatures)
 
@@ -145,7 +227,7 @@ def currentScoreStructure() -> ScoreStructure:
     return s
 
 
-def setScoreStructure(s: ScoreStructure) -> None:
+def setScoreStruct(s: ScoreStruct) -> None:
     """
     Sets the current score structure
     """
@@ -162,7 +244,7 @@ def _presetsPath() -> str:
 
 def presetsPath() -> str:
     """ Returns the path were instrument presets are read/written"""
-    userpath = currentConfig()['play.presetsPath']
+    userpath = getConfig()['play.presetsPath']
     if userpath:
         return userpath
     return _presetsPath()
@@ -179,7 +261,7 @@ def recordPath() -> str:
     The default record path can be customized by modifying the config
     'rec.path'
     """
-    userpath = currentConfig()['rec.path']
+    userpath = getConfig()['rec.path']
     if userpath:
         path = userpath
     else:

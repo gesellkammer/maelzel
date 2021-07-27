@@ -4,6 +4,9 @@ from maelzel.mpqfractions import Rat
 from pitchtools import m2n, n2m, split_notename, split_cents, accidental_name
 import dataclasses
 import enum
+import logging
+
+logger = logging.getLogger("maelzel.scoring")
 
 # This module can't import ANYTHING from .
 

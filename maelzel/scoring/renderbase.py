@@ -6,7 +6,6 @@ from __future__ import annotations
 import tempfile
 from dataclasses import dataclass
 import music21 as m21
-import pathlib
 
 
 from maelzel.music import m21tools
@@ -14,7 +13,6 @@ from maelzel.music import m21tools
 from .common import *
 from . import quant
 from .config import config
-from emlib.misc import open_with_standard_app
 import emlib.img
 
 
@@ -22,8 +20,8 @@ import emlib.img
 class RenderOptions:
     """
     orientation: one of "portrait" or "landscape"
-    staffSize: the size of each staff in point
-    pageSize: one of "a4", "a3"
+    staffSize: the size of each staff, in points
+    pageSize: one of "a1", "a2", "a3", "a4", "a5"
     pageMarginMillimeters: page margin in mm. Only used by some backends
 
     divsPerSemitone: the number of divisions of the semitone
@@ -38,11 +36,15 @@ class RenderOptions:
         have rests between them
     glissHideTiedNotes: if True, hide tied notes which are part of a gliss.
 
-    lilypondPngBookPreamble: include the lilypond book preamble when rendering
-        to png via lilypond
+    lilypondPngSaffsizeScale: a scaling factor applied to staff size when rendering
+        to png via lilypond. This is to prevent png images being too small
+        or notation in pdfs being too big
 
     title: the title of the score
     composer: the composer of the score
+
+    opaque: if True, rendered images will be opaque (no transparent
+        background)
     """
     orientation: str = config['pageOrientation']
     staffSize: U[int, float] = config['staffSize']
@@ -55,13 +57,24 @@ class RenderOptions:
     centsFontSize: U[int, float] = config['centsFontSize']
 
     measureAnnotationFontSize: U[int, float] = config['measureAnnotationFontSize']
+    measureAnnotationBoxed: bool = config['measureAnnotationBoxed']
     noteAnnotationsFontSize: U[int, float] = config['noteAnnotationFontSize']
 
     glissAllowNonContiguous: bool = False
     glissHideTiedNotes: bool = True
 
-    lilypondPngBookPreamble: bool = True
-    lilypondHorizontalSpacing: str = config['lilypondHorizontalSpacing']
+    horizontalSpacing: str = config['horizontalSpacing']
+    lilypondPngStaffsizeScale: float = 1.4
+    removeSuperfluousDynamics: bool = config['removeSuperfluousDynamics']
+    restsResetDynamics: bool = True
+
+    respellPitches: bool = config['respellPitches']
+    glissandoLineThickness: int = config['glissandoLineThickness']
+
+    renderFormat: str = ''
+
+    cropToContent: bool = False
+    opaque: bool = True
 
     title: str = ''
     composer: str = ''
@@ -71,21 +84,22 @@ class RenderOptions:
 
     def check(self):
         assert self.orientation in ('portrait', 'landscape')
-        assert isinstance(self.staffSize, (int, float)) and 0 < self.staffSize, \
+        assert isinstance(self.staffSize, (int, float)) and 2 < self.staffSize < 40, \
             f"Invalid staffSize: {self.staffSize}"
-        assert self.pageSize in ('a3', 'a4')
+        assert self.pageSize in ('a1', 'a2', 'a3', 'a4', 'a5'), \
+            f"Invalid page size, it must be one of a1, a2, ..., a5"
         assert self.divsPerSemitone in (1, 2, 4)
         assert self.centsPlacement in ('above', 'below')
-        assert self.lilypondHorizontalSpacing in ('normal', 'medium', 'large')
+        assert self.horizontalSpacing in ('normal', 'medium', 'large')
 
 
 class Renderer:
 
-    def __init__(self, parts: List[quant.QuantizedPart], options:RenderOptions=None):
-        assert parts
-        assert parts[0].struct is not None
-        self.parts = parts
-        self.struct = parts[0].struct
+    def __init__(self, score: quant.QuantizedScore, options:RenderOptions=None):
+        assert score
+        assert score[0].struct is not None
+        self.score = score
+        self.struct = score[0].struct
         if options is None:
             options = RenderOptions()
         self.options = options
@@ -106,17 +120,14 @@ class Renderer:
     def write(self, outfile:str) -> None:
         raise NotImplementedError("Please Implement this method")
 
-    def show(self, fmt='png', external=True) -> None:
-        self.render()
-        possibleFormats = self.writeFormats()
-        if fmt not in possibleFormats:
-            raise ValueError(f"{fmt} not supported. Possible write "
-                             f"formats: {possibleFormats}")
-        outfile = tempfile.mktemp(suffix="."+fmt)
-        self.write(outfile)
-        open_with_standard_app(outfile)
-
     def musicxml(self) -> Opt[str]:
+        """
+        Returns the rendered score as musicxml if supported
+
+        Returns:
+            either the musicxml as str, or None if not supported by
+            this renderer
+        """
         m21stream = self.asMusic21()
         if m21stream is None:
             return None
@@ -129,9 +140,12 @@ class Renderer:
         """
         return None
 
+    def nativeScore(self) -> str:
+        raise NotImplementedError("Please Implement this method")
+
     def _repr_html_(self) -> str:
         pngfile = tempfile.mktemp(suffix=".png", prefix="render-")
         self.write(pngfile)
         img = emlib.img.htmlImgBase64(pngfile, removeAlpha=True)
-        html = f'Renderer({len(self.parts)} parts)<br>' + img
+        html = f'Renderer({len(self.score)} parts)<br>'+img
         return html

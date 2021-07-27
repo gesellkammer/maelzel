@@ -1,15 +1,15 @@
 from ._common import *
-from .workspace import currentConfig, currentWorkspace
+from .workspace import getConfig, currentWorkspace
 
 from maelzel import scoring
-from maelzel.scorestruct import ScoreStructure
+from maelzel.scorestruct import ScoreStruct
 import music21 as m21
 
 import configdict
 
 
 def scoringPartToMusic21(part: U[ scoring.Part, List[scoring.Notation] ],
-                         struct: Opt[ScoreStructure] = None,
+                         struct: Opt[ScoreStruct] = None,
                          config: dict=None
                          ) -> U[m21.stream.Score, m21.stream.Part]:
     """
@@ -33,7 +33,7 @@ def scoringPartToMusic21(part: U[ scoring.Part, List[scoring.Notation] ],
 
 
 def scoringPartsToMusic21(parts: List[U[scoring.Part, List[scoring.Notation]]],
-                          struct: Opt[ScoreStructure] = None,
+                          struct: Opt[ScoreStruct] = None,
                           config:dict=None
                           ) -> U[m21.stream.Score]:
     """
@@ -47,7 +47,7 @@ def scoringPartsToMusic21(parts: List[U[scoring.Part, List[scoring.Notation]]],
     Returns:
 
     """
-    config = config or currentConfig()
+    config = config or getConfig()
     divsPerSemitone = config['show.semitoneDivisions']
     showCents = config['show.cents']
     centsFontSize = config['show.centsFontSize']
@@ -59,10 +59,10 @@ def scoringPartsToMusic21(parts: List[U[scoring.Part, List[scoring.Notation]]],
     quantProfile = scoring.quant.QuantizationProfile(nestedTuples=False)
     for part in parts:
         scoring.stackNotationsInPlace(part)
-    renderer = scoring.render.renderParts(parts, struct=struct,
-                                          options=renderOptions,
-                                          backend="music21",
-                                          quantizationProfile=quantProfile)
+    renderer = scoring.render._quantizeAndRender(parts, struct=struct,
+                                                 options=renderOptions,
+                                                 backend="music21",
+                                                 quantizationProfile=quantProfile)
     m21score = renderer.asMusic21()
     return m21score
 
@@ -81,13 +81,19 @@ def makeRenderOptionsFromConfig(cfg: configdict.CheckedDict = None
         via scoring.render module
     """
     if cfg is None:
-        cfg = currentConfig()
+        cfg = getConfig()
     renderOptions = scoring.render.RenderOptions(
             staffSize=cfg['show.staffSize'],
             divsPerSemitone=cfg['semitoneDivisions'],
             showCents=cfg['show.cents'],
             centsFontSize=cfg['show.centsFontSize'],
-            noteAnnotationsFontSize=cfg['show.labelFontSize']
+            noteAnnotationsFontSize=cfg['show.labelFontSize'],
+            pageSize = cfg['show.pageSize'],
+            orientation= cfg['show.pageOrientation'],
+            pageMarginMillimeters=cfg['show.pageMarginMillimeters'],
+            measureAnnotationFontSize=cfg['show.measureAnnotationFontSize'],
+            respellPitches=cfg['show.respellPitches'],
+            glissandoLineThickness=cfg['show.glissandoLineThickness']
     )
     return renderOptions
 
@@ -95,7 +101,7 @@ def makeRenderOptionsFromConfig(cfg: configdict.CheckedDict = None
 def makeQuantizationProfileFromConfig(cfg: configdict.CheckedDict = None
                                       ) -> scoring.quant.QuantizationProfile:
     if cfg is None:
-        cfg = currentConfig()
+        cfg = getConfig()
     complexity = cfg['quant.complexity']
     preset = scoring.quant.quantdata.complexityPresets[complexity]
     return scoring.quant.QuantizationProfile(
@@ -106,24 +112,29 @@ def makeQuantizationProfileFromConfig(cfg: configdict.CheckedDict = None
     )
 
 
-def renderWithCurrentConfig(parts: List[scoring.Part], backend: str = None
-                            ) -> scoring.render.Renderer:
+def renderWithCurrentWorkspace(parts: List[scoring.Part],
+                               backend: str = None,
+                               renderoptions: scoring.render.RenderOptions = None
+                               ) -> scoring.render.Renderer:
     """
     Render the given scoring.Parts with the current configuration
 
     Args:
         parts: the parts to render
-        backend: the backend used (see currentConfig/'show.method')
+        backend: the backend used (see currentConfig/'show.backend')
+        renderoptions: if given, will override any option set in the currentConfig
 
     Returns:
         the rendered Renderer
     """
-    state = currentWorkspace()
-    cfg = state.config
-    options = makeRenderOptionsFromConfig()
+    workspace = currentWorkspace()
+    cfg = workspace.config
+    if not renderoptions:
+        renderoptions = makeRenderOptionsFromConfig()
     quantizationProfile = makeQuantizationProfileFromConfig()
-    return scoring.render.renderParts(parts,
-                                      backend=backend or cfg['show.method'],
-                                      struct=state.scorestruct,
-                                      options=options,
-                                      quantizationProfile=quantizationProfile)
+    backend = backend or cfg['show.backend']
+    return scoring.render._quantizeAndRender(parts,
+                                             backend=backend,
+                                             struct=workspace.scorestruct,
+                                             options=renderoptions,
+                                             quantizationProfile=quantizationProfile)
