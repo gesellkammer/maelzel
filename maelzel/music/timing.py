@@ -4,12 +4,14 @@ from maelzel.common import *
 
 from emlib import iterlib 
 from emlib.misc import returns_tuple
-from typing import Tuple, List, Union as U
-
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import *
+    
 import bpf4 as bpf
 
 
-def measureDuration(timesig: U[str, timesig_t], tempo: number_t) -> F:
+def measureDuration(timesig: Union[str, timesig_t], tempo: number_t) -> F:
     """
     calculate the duration of a given measure with the given tempo
 

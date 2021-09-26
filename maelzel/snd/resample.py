@@ -1,33 +1,31 @@
 """
 Multiple backends to perform resampling on numpy arrays
 """
-
+from __future__ import annotations
 import os
 import numpy as np
-from typing import Optional as Opt
+from typing import Optional 
 import subprocess
-import importlib
 import shutil
 
 
-def _try_import(module: str) -> bool:
+def get_backend() -> Optional[str]:
     try:
-        importlib.import_module(module)
-        return True
-    except ImportError:
-        return False
-
-
-def get_backend() -> Opt[str]:
-    if _try_import("samplerate"):
+        import samplerate
         return "python-samplerate"
-    if _try_import("resampy"):
+    except ImportError:
+        pass
+    try:
+        import resampy
         return "resampy"
+    except ImportError:
+        pass
+    return None
 
 
 def resample_cli(samples: np.ndarray, orig_samplerate:int, new_samplerate:int
-                 ) -> Opt[np.ndarray]:
-    sndfile_resample = shutil.which("sndfile-resample")
+                 ) -> Optional[np.ndarray]:
+    sndfile_resample = shutil.which("source-resample")
     if sndfile_resample is None:
         return None
 
@@ -46,7 +44,11 @@ def resample_cli(samples: np.ndarray, orig_samplerate:int, new_samplerate:int
 
 def _resample_resampy(samples: np.ndarray, samplerate:int, newsamplerate:int
                       ) -> np.ndarray:
-    import resampy
+    try:
+        import resampy
+    except ImportError:
+        raise RuntimeError("resampy is needed, install it via `pip install resampy`"
+                           " (see https://github.com/bmcfee/resampy)")
     return resampy.resample(samples, samplerate, newsamplerate)
 
 

@@ -1,11 +1,41 @@
+"""
+Module text
+"""
 from __future__ import annotations
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import *
+
 from gmpy import mpq
-from fractions import Fraction
 
 
-def limit_denominator(num, den, maxden):
-    f = Fraction(num, den).limit_denominator(maxden)
-    return f.numerator, f.denominator
+def _limit_denom(num: int, den: int, maxden: int) -> Rat:
+    """
+    Copied from https://github.com/python/cpython/blob/main/Lib/fractions.py
+    """
+    if maxden < 1:
+        raise ValueError("max_denominator should be at least 1")
+    if den <= maxden:
+        return Rat(num, den)
+
+    p0, q0, p1, q1 = 0, 1, 1, 0
+
+    while True:
+        a = num//den
+        q2 = q0+a*q1
+        if q2>maxden:
+            break
+        p0, q0, p1, q1 = p1, q1, p0+a*p1, q2
+        num, den = den, num-a*d
+
+    k = (maxden-q0) // q1
+    bound1 = Rat(p0+k*p1, q0+k*q1)
+    bound2 = Rat(p1, q1)
+    orig = Rat(num, den)
+    if abs(bound2 - orig) <= abs(bound1-orig):
+        return bound2
+    else:
+        return bound1
 
 
 class Rat:
@@ -87,12 +117,13 @@ class Rat:
     def __hash__(self):
         return hash(self._val)
 
+    def __abs__(self):
+        return Rat(abs(self._val))
+
     @classmethod
     def from_float(cls, x: float) -> Rat:
         return Rat(x)
 
     def limit_denominator(self, max_denominator=1000000):
-        return Rat(*limit_denominator(self.numerator, self.denominator, max_denominator))
-
-
+        return _limit_denom(self.numerator, self.denominator, max_denominator)
 

@@ -1,22 +1,27 @@
-from typing import Union as U, Tuple, List, NamedTuple, Optional as Opt, TypeVar
+"""
+Common type definitions and routines
+"""
+from __future__ import annotations
 from fractions import Fraction as F
 from maelzel.mpqfractions import Rat
-from pitchtools import m2n, n2m, split_notename, split_cents, accidental_name
-import dataclasses
+from dataclasses import dataclass
 import enum
 import logging
+from typing import NamedTuple, Union, Tuple, List, TypeVar, Optional
+import pitchtools as pt
+
+time_t = Union[float, int, F, Rat]
+number_t = Union[int, float, F, Rat]
+pitch_t = Union[int, float, str]
+timesig_t = Tuple[int, int]
+division_t = List[Union[int, 'division_t']]
+timerange_t = Tuple[F, F]
+T = TypeVar("T")
 
 logger = logging.getLogger("maelzel.scoring")
 
 # This module can't import ANYTHING from .
 
-time_t = U[float, int, F, Rat]
-number_t = U[int, float, F, Rat]
-pitch_t  = U[int, float, str]
-timesig_t = Tuple[int, int]
-division_t = List[U[int, 'division_t']]
-timerange_t = Tuple[F, F]
-T = TypeVar("T")
 
 
 def asF(t: number_t) -> F:
@@ -27,7 +32,7 @@ def asF(t: number_t) -> F:
     return F(t)
 
 
-def asFractionOrNone(t: number_t) -> Opt[F]:
+def asFractionOrNone(t: number_t) -> Optional[F]:
     if t is None:
         return None
     return asF(t)
@@ -38,7 +43,7 @@ def asmidi(x) -> float:
         assert 0<=x<=128
         return x
     elif isinstance(x, str):
-        return n2m(x)
+        return pt.n2m(x)
     elif isinstance(x, int):
         assert 0 <= x < 128
         return float(x)
@@ -56,7 +61,7 @@ class TimeSpan(NamedTuple):
         return self.end-self.start
 
 
-@dataclasses.dataclass
+@dataclass
 class Annotation:
     text: str
     placement: str = 'above'
@@ -66,7 +71,7 @@ class Annotation:
         assert not self.text.isspace()
 
 
-@dataclasses.dataclass
+@dataclass
 class NotatedDuration:
     """
     base: 4=quarter note, 8=8th, etc

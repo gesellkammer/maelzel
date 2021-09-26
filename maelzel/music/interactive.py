@@ -20,13 +20,9 @@ def generateNotes(minoctave=0, maxoctave=9):
     return newnotes
 
 
-def injectNotes():
-    globals().update(generateNotes())
-
-
+N = Note
 Ch = Chord
 R = Rest
-ss = stopSynths
 
-injectNotes()
+globals().update(generateNotes())
 

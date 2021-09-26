@@ -5,8 +5,8 @@ import sys
 import subprocess
 import shutil
 import cachetools
-import dataclasses
-from typing import Optional as Opt
+from dataclasses import dataclass
+from typing import Optional
 
 _jackclient = None
 
@@ -56,7 +56,7 @@ def get_client():
     return _jackclient
 
 
-@dataclasses.dataclass
+@dataclass
 class JackInfo:
     running: bool
     samplerate: int
@@ -69,7 +69,7 @@ def get_sr() -> int:
     c = jack.Client("maelzel.jacktools")
     return c.samplerate
 
-def get_info() -> Opt[JackInfo]:
+def get_info() -> Optional[JackInfo]:
     if not jack_running():
         return None
     c = jack.Client("maelzel.jacktools")

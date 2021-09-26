@@ -1,21 +1,30 @@
+"""
+Amplitude compensation curves
+"""
+from __future__ import annotations
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import *
 from math import sqrt
+
 
 _AMPCOMP_MINLEVEL = -0.1575371167435
 
+
 class AmpcompA:
-    def __init__(self, root=0, minAmp=0.32, rootAmp=1.0):
+    def __init__(self, root=0, minAmp=0.32, rootAmp=1.0, minlevel=_AMPCOMP_MINLEVEL):
         self.root = root
         self.minAmp = minAmp
         self.rootAmp = rootAmp
-        rootLevel = ampcompa_level(root)
-        self.scale = (rootAmp - minAmp) / (rootLevel - _AMPCOMP_MINLEVEL)
-        self.offset = minAmp - self.scale * _AMPCOMP_MINLEVEL
+        rootLevel = acurve_amplitude_compensation(root)
+        self.scale = (rootAmp - minAmp) / (rootLevel - minlevel)
+        self.offset = minAmp - self.scale * minlevel
 
     def level(self, freq):
-        return ampcompa_level(freq) * self.scale + self.offset
+        return acurve_amplitude_compensation(freq) * self.scale+self.offset
 
 
-def ampcompa_level(freq):
+def acurve_amplitude_compensation(freq):
     k = 3.5041384 * 10e15
     c1 = 20.598997 ** 2
     c2 = 107.65265 ** 2
@@ -23,14 +32,11 @@ def ampcompa_level(freq):
     c4 = 12194.217 ** 2
     r = freq * freq
     r2 = r*r
-    # level = k * r*r*r*r
     level = k * r2*r2
     n1 = c1 + r
     n2 = c4 + r
     level = level / (n1*n1*(c2+r) * (c3+r) * n2*n2)
     return 1 - sqrt(level)
-
-
 
 
 # Original code from supercollider AmpCompA

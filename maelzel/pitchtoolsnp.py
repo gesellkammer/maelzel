@@ -3,7 +3,7 @@ Similar to pitchtools, but on numpy arrays
 """
 
 import numpy as np
-from pitchtools import n2m, get_reference_freq, set_reference_freq
+from pitchtools import n2m, get_reference_freq
 
 import sys
 _EPS = sys.float_info.epsilon

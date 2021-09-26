@@ -1,3 +1,10 @@
+"""
+Routines for plotting sounds / soundfiles
+
+Uses matplotlib
+
+
+"""
 from __future__ import annotations
 
 import emlib.misc
@@ -6,9 +13,13 @@ from emlib import numpytools
 import numpy as np
 from configdict import ConfigDict
 import bpf4
-import functools
+import matplotlib.ticker
+import matplotlib.pyplot as plt
+
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
+    from typing import *
     import matplotlib.pyplot as plt
 
 
@@ -94,6 +105,8 @@ def plotPowerSpectrum(samples,
                       framesize=2048,
                       window=('kaiser', 9)):
     """
+    Plot the power spectrum of a sound
+
     Args:
         samples: the samples to plot
         samplerate: the samplerate of thesamples
@@ -103,12 +116,9 @@ def plotPowerSpectrum(samples,
           `blackmanharris`, `nuttall`, `barthann`, `kaiser` (needs beta),
           `gaussian` (needs standard deviation)
 
-
-
     """
     from scipy import signal
     w = signal.get_window(window, framesize)
-    import matplotlib.pyplot as plt
     return plt.psd(samples, framesize, samplerate, window=lambda s, w=w: s*w)
 
 
@@ -148,8 +158,6 @@ def _frames_to_samples(frames, hop_length=512, n_fft=None):
 
 
 def _plot_matplotlib(samples:np.ndarray, samplerate:int, timelabels:bool) -> plt.Figure:
-    import matplotlib
-    import matplotlib.pyplot as plt
     numch = _get_num_channels(samples)
     numsamples = samples.shape[0]
     figsize = config['matplotlib.samplesplot.figsize']
@@ -162,7 +170,7 @@ def _plot_matplotlib(samples:np.ndarray, samplerate:int, timelabels:bool) -> plt
     else:
         formatter = matplotlib.ticker.FuncFormatter(
                 lambda idx, x:f"{idx/samplerate:.3g}")
-    locator = _get_tick_locator(samplerate)
+    locator = TimeLocator(samplerate)
     for i in range(numch):
         if i == 0:
             axes = ax1 = f.add_subplot(numch, 1, i + 1)
@@ -204,37 +212,29 @@ _diff_to_step = bpf4.nointerpol(
 )
 
 
-functools.lru_cache(maxsize=0)
-def _get_tick_locator(samplerate: int = 0):
-    from matplotlib import ticker
+class TimeLocator(matplotlib.ticker.LinearLocator):
+    def __init__(self, sr: int = 0):
+        super().__init__()
+        self.sr = sr
 
-    class TimeLocator(ticker.LinearLocator):
-        def __init__(self, sr: int = 0):
-            super().__init__()
-            self.sr = sr
-
-        def tick_values(self, valmin:float, valmax:float):
-            "secmin and secmax are the axis limits, return the tick locations here"
-            if self.sr:
-                secmin = valmin / self.sr
-                secmax = valmax / self.sr
-            else:
-                secmin, secmax = valmin, valmax
-            diff = secmax - secmin
-            step = _diff_to_step(diff)
-            firstelem = emlib.mathlib.next_in_grid(secmin, step)
-            ticks = list(emlib.mathlib.frange(firstelem, secmax+step, step))
-            if not self.sr:
-                return ticks
-            return [int(tick * self.sr) for tick in ticks]
-
-    return TimeLocator(sr=samplerate)
+    def tick_values(self, valmin: float, valmax: float):
+        "secmin and secmax are the axis limits, return the tick locations here"
+        if self.sr:
+            secmin = valmin/self.sr
+            secmax = valmax/self.sr
+        else:
+            secmin, secmax = valmin, valmax
+        diff = secmax-secmin
+        step = _diff_to_step(diff)
+        firstelem = emlib.mathlib.next_in_grid(secmin, step)
+        ticks = list(emlib.mathlib.frange(firstelem, secmax+step, step))
+        if not self.sr:
+            return ticks
+        return [int(tick*self.sr) for tick in ticks]
 
 
 def _plot_samples_matplotlib2(samples, samplerate, profile:str, saveas:str=None,
                               timelabels=True) -> bool:
-    import matplotlib.pyplot as plt
-    import matplotlib
     dur = len(samples) / samplerate
 
     if profile == 'auto':
@@ -275,7 +275,7 @@ def _plot_samples_matplotlib2(samples, samplerate, profile:str, saveas:str=None,
     ax1 = None
     timeFormatter = matplotlib.ticker.FuncFormatter(
                 lambda s, x:emlib.misc.sec2str(s, msdigits=3))
-    locator = _get_tick_locator()
+    locator = TimeLocator(sr=samplerate)
     for i in range(numch):
         if i == 0:
             axes = ax1 = f.add_subplot(numch, 1, i + 1)
@@ -306,7 +306,7 @@ def plotWaveform(samples: np.ndarray, samplerate: int, profile="auto",
                  saveas:str=None, backend:str=None, timelabels=True
                  ) -> None:
     """
-    Plot the waveform
+    Plot the waveform of a sound
 
     Args:
         samples: a mono or multichannel audio array
@@ -333,6 +333,8 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:s
                     minfreq=40, maxfreq=None,
                     mindb=-90):
     """
+    Plot the spectrogram of a sound
+
     Args:
         samples: a channel of audio data
         samplerate: the samplerate of the audio data
@@ -350,9 +352,8 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:s
         mindb: the amplitude threshold
 
     Returns:
-        the axes object
+        the matplotlib axes object
     """
-    import matplotlib.pyplot as plt
     from scipy import signal
 
     if axes is None:

@@ -5,6 +5,7 @@ from emlib import iterlib
 
 from maelzel.scorestruct import *
 from . import core
+from . import enharmonics
 from . import quant
 from .renderbase import Renderer, RenderOptions
 from . import renderm21
@@ -41,7 +42,8 @@ def renderQuantizedScore(score: quant.QuantizedScore,
     if backend is None:
         backend = config['renderBackend']
     if options.removeSuperfluousDynamics:
-        score.removeUnnecessaryDynamics()
+        for part in score:
+            part.removeUnnecessaryDynamics()
     for part in score:
         part.removeUnnecessaryGracenotes()
     if backend == 'music21':
@@ -70,6 +72,39 @@ def _markConsecutiveGracenotes(part: quant.QuantizedPart):
             n0.setProperty("graceGroup", "stop")
 
 
+def _groupNotationsByMeasure(part:core.Part, struct: ScoreStruct
+                             ) -> List[List[core.Notation]]:
+    currMeasure = -1
+    groups = []
+    for n in part:
+        assert n.offset is not None and n.duration is not None
+        loc = struct.beatToLocation(n.offset)
+        if loc.measureNum == currMeasure:
+            groups[-1].append(n)
+        else:
+            # new measure
+            currMeasure = loc.measureNum
+            groups.append([n])
+    return groups
+
+
+def _fixEnharmonicsInPart(part: core.Part, struct: ScoreStruct,
+                          options: enharmonics.EnharmonicOptions) -> None:
+    # we split the notations into measures in order to reset
+    # the fixed slots (how a specific sounding pitch is spelled)
+    # at each measure
+    notationGroups = _groupNotationsByMeasure(part, struct)
+    for group in notationGroups:
+        group[0].setProperty("resetEnharmonicSlots", True)
+    enharmonics.fixEnharmonicsInPlace(part, options=options)
+
+
+def _makeEnharmonicOptionsFromRenderOptions(options: RenderOptions
+                                            ) -> enharmonics.EnharmonicOptions:
+    return enharmonics.EnharmonicOptions(groupSize=options.enharmonicsGroupSize,
+                                         groupStep=options.enharmonicsStep)
+
+
 def _quantizeAndRender(parts: List[core.Part],
                        struct: ScoreStruct,
                        options: RenderOptions,
@@ -80,8 +115,9 @@ def _quantizeAndRender(parts: List[core.Part],
     Quantize and render unquantized events organized into parts
     """
     if options.respellPitches:
+        enharmonicOptions = _makeEnharmonicOptionsFromRenderOptions(options)
         for part in parts:
-            core.fixEnharmonicsInPlace(part)
+            _fixEnharmonicsInPart(part, struct=struct, options=enharmonicOptions)
     qscore = quant.quantize(parts, struct=struct, quantizationProfile=quantizationProfile)
     renderer = renderQuantizedScore(score=qscore, options=options, backend=backend)
     renderer.render()

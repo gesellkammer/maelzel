@@ -112,7 +112,7 @@ def openInEditor(soundfile:str, wait=False, app=None) -> None:
 
     """
     soundfile = _normalize_path(soundfile)
-    emlib.misc.open_with(soundfile, app, wait=wait)
+    emlib.misc.open_with_app(soundfile, app, wait=wait)
 
 
 def readSoundfile(sndfile: str, start:float=0., end:float=0.) -> Tuple[np.ndarray, int]:
@@ -695,7 +695,7 @@ class Sample:
 
     def peaksbpf(self, framedur=0.01, overlap=2) -> _bpf.core.Sampled:
         """
-        Return a BPF representing the peaks envelope of the sndfile
+        Return a BPF representing the peaks envelope of the source
 
         The resolution of the returned bpf will be ``framedur/overlap``
 

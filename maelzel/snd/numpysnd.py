@@ -3,21 +3,21 @@ numpy utilities for audio arrays
 """
 from __future__ import annotations
 import numpy as np
-from typing import Union as U, Callable, Tuple, Iterator as Iter, Optional as Opt
 import bpf4
 from math import sqrt
 from pitchtools import db2amp, amp2db
-
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import *
+    
 Func1 = Callable[[float], float]
 
 
-def asmono(samples: np.ndarray, ) -> np.ndarray:
+def asmono(samples: np.ndarray) -> np.ndarray:
     """
-    Mix down a sample to mono. If it is already a mono
-    sample, the sample itself is returned. Otherwise the
-    channels are summed together. If the channels are very
-    correlated this operation might result in samples
-    exceeding 0dB
+    Mix down a sample to mono. If it is already a mono sample, the sample itself is
+    returned. Otherwise the channels are summed together. If the channels are very
+    correlated this operation might result in samples exceeding 0dB
 
     Args:
         samples (np.ndarray): the samples
@@ -43,6 +43,15 @@ def rms(arr: np.ndarray) -> float:
 def rmsbpf(samples: np.ndarray, sr:int, dt=0.01, overlap=1) -> bpf4.core.Sampled:
     """
     Return a bpf representing the rms of this sample as a function of time
+
+    Args:
+        samples: the audio samples
+        sr: the sample rate
+        dt: analysis time period
+        overlap: overlap of analysis frames
+
+    Returns:
+        a samples bpf
     """
     s = samples
     period = int(sr * dt + 0.5)
@@ -64,10 +73,18 @@ def peak(samples:np.ndarray) -> float:
 
 def peaksbpf(samples:np.ndarray, sr:int, res=0.01, overlap=2, channel=0) -> bpf4.core.Sampled:
     """
-    Return a BPF representing the peaks envelope of the sndfile with the
+    Return a BPF representing the peaks envelope of the source with the
     resolution given
 
-    res: resolution in seconds
+    Args:
+        samples: the sound samples
+        sr: sample rate
+        res: resolution in seconds
+        overlap: how much do windows overlap
+        channel: which channel to analyze
+
+    Returns:
+        a samples bpf
     """
     samples = getChannel(samples, channel)
     period = int(sr*res+0.5)
@@ -109,7 +126,7 @@ def getChannel(array: np.ndarray, channel:int) -> np.ndarray:
 
 
 def arrayFade(samples: np.ndarray, sr: int, fadetime: float,
-              mode='inout', shape: U[str, Func1] = 'linear',
+              mode='inout', shape: Union[str, Callable[[float], float]] = 'linear',
               margin=0
               ) -> None:
     """
@@ -155,7 +172,7 @@ def arrayFade(samples: np.ndarray, sr: int, fadetime: float,
             samples[-margin:] = 0
 
 
-def chunks(start:int, stop:int=None, step:int=None) -> Iter[Tuple[int, int]]:
+def chunks(start:int, stop:int=None, step:int=None) -> Iterable[Tuple[int, int]]:
     """
     Like xrange, but returns a Tuplet (position, distance form last position)
 
@@ -175,7 +192,7 @@ def chunks(start:int, stop:int=None, step:int=None) -> Iter[Tuple[int, int]]:
 
 def firstSound(samples: np.ndarray, threshold=-120.0, periodsamps=256, overlap=2,
                skip=0
-               ) -> Opt[int]:
+               ) -> Optional[int]:
     """
     Find the first sample in samples whith a rms
     exceeding the given threshold
@@ -206,7 +223,7 @@ def firstSound(samples: np.ndarray, threshold=-120.0, periodsamps=256, overlap=2
 
 def firstSilence(samples: np.ndarray, threshold=-100, period=256,
                  overlap=2, soundthreshold=-60, startidx=0
-                 ) -> Opt[int]:
+                 ) -> Optional[int]:
     """
     Return the sample where rms decays below threshold
 
@@ -245,9 +262,10 @@ def firstSilence(samples: np.ndarray, threshold=-100, period=256,
 
 
 def lastSound(samples: np.ndarray, threshold=-120.0, period=256, overlap=2
-              ) -> Opt[int]:
+              ) -> Optional[int]:
     """
     Find the end of the last sound in the samples.
+
     (the last time where the rms is lower than the given threshold)
 
     Args:
@@ -294,8 +312,9 @@ def _lastSound(samples: np.ndarray, samplerate:int, threshold:float=-120, resolu
 
 def normalizationRatio(samples: np.ndarray, maxdb=0.) -> float:
     """
-    Return the factor needed to apply the given normalization. To normalize
-    the array just multiply it by this ratio
+    Return the factor needed to apply the given normalization.
+
+    To normalize the array just multiply it by this ratio
 
     Args:
         samples: the samples to normalize

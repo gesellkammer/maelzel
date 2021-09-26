@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 from pathlib import Path
-import dataclasses
+from dataclasses import dataclass, replace as _dataclassReplace
 from bisect import bisect
 
 import emlib.img
@@ -45,7 +45,7 @@ def _asTimesig(t: U[str, timesig_t]) -> timesig_t:
         raise TypeError(f"Expected a tuple (5, 8) or a string '5/8', got {t}, {type(t)}")
 
 
-@dataclasses.dataclass
+@dataclass
 class _ScoreLine:
     measureNum: Opt[int]
     timesig: Opt[timesig_t]
@@ -101,7 +101,7 @@ def _parseScoreStructLine(line: str) -> _ScoreLine:
     return _ScoreLine(measureNum=measure, timesig=timesig, tempo=tempo, label=label)
 
 
-@dataclasses.dataclass
+@dataclass
 class MeasureDef:
     """
     A measure definition.
@@ -142,10 +142,10 @@ class MeasureDef:
         return self.numberOfBeats() * (F(60)/self.quarterTempo)
 
     def clone(self, **kws):
-        return dataclasses.replace(self, **kws)
+        return _dataclassReplace(self, **kws)
 
 
-@dataclasses.dataclass
+@dataclass
 class ScoreLocation:
     measureNum: int
     beat: F = 0
@@ -162,7 +162,8 @@ class ScoreLocation:
 
 
 class ScoreStruct:
-    def __init__(self, endless=False, autoextend=False):
+    def __init__(self, timesig:U[timesig_t, str]=None, quarterTempo:int=None,
+                 endless=True, autoextend=False):
         """
         A ScoreStruct holds the structure of a score but no content
 
@@ -174,11 +175,12 @@ class ScoreStruct:
 
         Args:
             endless: mark this ScoreStruct as endless
+
             autoextend: this is only valid if the score is marked as endless. If True,
-                querying this ScoreStruct outside its defined boundaries will create
-                the necessary MeasureDefs to cover the point in question. In concrete, if
-                a ScoreStruct has only one MeasureDef, .getMeasureDef(3) will create
-                three MeasureDefs, cloning the first MeasureDef, and return the last one.
+              querying this ScoreStruct outside its defined boundaries will create the
+              necessary MeasureDefs to cover the point in question. In concrete,
+              if a ScoreStruct has only one MeasureDef, .getMeasureDef(3) will create
+              three MeasureDefs, cloning the first MeasureDef, and return the last one.
 
         Example::
             # create an endless score with a given time signature
@@ -205,6 +207,12 @@ class ScoreStruct:
         self.autoextend = autoextend
         self._modified = True
         self._offsetsIndex: List[F] = []
+        if timesig or quarterTempo:
+            if not timesig:
+                timesig = (4, 4)
+            elif not quarterTempo:
+                quarterTempo = 60
+            self.addMeasure(timesig, quarterTempo=quarterTempo)
 
     @staticmethod
     def fromString(s: str, initialTempo=60, initialTimeSignature=(4, 4), endless=False
@@ -267,7 +275,7 @@ class ScoreStruct:
             if line == ".":
                 assert len(struct.measuredefs) > 0
                 lastmeas = struct.measuredefs[-1]
-                struct.addMeasure(lastmeas.timesig, quarterTempo=lastmeas.quarterTempo)
+                struct.addMeasure()
                 measureNum += 1
                 continue
 
@@ -276,11 +284,10 @@ class ScoreStruct:
                 mdef.measureNum = measureNum + 1
             else:
                 assert mdef.measureNum > measureNum
-                struct.addMeasure(numMeasures = mdef.measureNum - measureNum - 1)
+                struct.addMeasure(numMeasures =mdef.measureNum - measureNum - 1)
 
-            tempo = mdef.tempo or tempo
-            timesig = mdef.timesig or timesig
-            struct.addMeasure(timesig=timesig, quarterTempo=tempo, annotation=mdef.label)
+            struct.addMeasure(timesig=mdef.timesig, quarterTempo=mdef.tempo,
+                              annotation=mdef.label)
             measureNum = mdef.measureNum
 
         return struct
@@ -331,6 +338,10 @@ class ScoreStruct:
         """
         return len(self.measuredefs)
 
+    def __len__(self):
+        """Returns the number of defined measures"""
+        return len(self.measuredefs)
+
     def getMeasureDef(self, idx:int) -> MeasureDef:
         """
         Returns the MeasureDef at the given index.
@@ -345,7 +356,7 @@ class ScoreStruct:
             return self.measuredefs[idx]
         # outside of defined measures
         if not self.endless:
-            raise IndexError(f"index out of range. The score has "
+            raise IndexError(f"index {idx} out of range. The score has "
                              f"{len(self.measuredefs)} measures defined")
         if not self.autoextend:
             # we are "outside" the defined score
@@ -358,7 +369,9 @@ class ScoreStruct:
             self.addMeasure()
 
     def __getitem__(self, item:int) -> MeasureDef:
-        return self.measuredefs[item]
+        if isinstance(item, int):
+            return self.getMeasureDef(item)
+        print(item, dir(item))
 
     def addMeasure(self, timesig: timesig_t=None, quarterTempo: number_t=None,
                    annotation:str=None, numMeasures:int=1) -> None:
@@ -644,6 +657,30 @@ class ScoreStruct:
                 tempo = m.quarterTempo
             print("".join(parts))
 
+    def hasUniqueTempo(self) -> bool:
+        t = self.measuredefs[0].quarterTempo
+        return all(m.quarterTempo == t for m in self.measuredefs)
+
+    def __repr__(self) -> str:
+        if self.hasUniqueTempo() and self.hasUniqueTimesig():
+            m0 = self.measuredefs[0]
+            return f'ScoreStruct(tempo={m0.quarterTempo}, timesig={m0.timesig})'
+        else:
+            tempo = -1
+            parts = []
+            maxdefs = 10
+            for m in self.measuredefs[:maxdefs]:
+                num, den = m.timesig
+                if m.quarterTempo != tempo:
+                    tempo = m.quarterTempo
+                    parts.append(f"{num}/{den}@{tempo}")
+                else:
+                    parts.append(f"{num}/{den}")
+            s = ", ".join(parts)
+            if len(self.measuredefs) > maxdefs:
+                s += " …"
+            return f"ScoreStruct([{s}])"
+
     def _repr_html_(self) -> str:
         colnames = ['Meas. Index', 'Timesig', 'Tempo (quarter note)', 'Label']
 
@@ -657,7 +694,7 @@ class ScoreStruct:
                 tempostr = ("%.3f" % tempo).rstrip("0").rstrip(".")
             else:
                 tempostr = ""
-            row = (str(i), f"{num}/{den}", tempostr, m.annotation)
+            row = (str(i), f"{num}/{den}", tempostr, m.annotation or "")
             rows.append(row)
         if self.endless:
             rows.append(("...", "", "", ""))
@@ -713,18 +750,32 @@ class ScoreStruct:
             m21tools.scoreSetMetadata(score, title=self.title)
         return score
 
-    def hasUniqueTempo(self) -> bool:
+    def setTempo(self, quarterTempo: float, measureNum:int=0) -> None:
         """
-        Returns True if this ScoreStruct has only one tempo.
+        Set the tempo of the given measure, until the next tempo change
+
+        Args:
+            quarterTempo: the new tempo
+            measureNum: the first measure to modify
+
         """
-        numtempi = 0
-        lasttempo = None
+        if measureNum > len(self):
+            raise IndexError(f"Index {measureNum} out of rage; this ScoreStruct has only "
+                             f"{len(self)} measures defined")
+        mdef = self.measuredefs[measureNum]
+        mdef.quarterTempo = quarterTempo
+        mdef.tempoInherited = False
+        for m in self.measuredefs[measureNum+1:]:
+            if m.tempoInherited:
+                m.quarterTempo = quarterTempo
+            else:
+                break
+
+    def hasUniqueTimesig(self) -> bool:
+        lastTimesig = self.measuredefs[0].timesig
         for m in self.measuredefs:
-            if m.quarterTempo != lasttempo:
-                lasttempo = m.quarterTempo
-                numtempi += 1
-                if numtempi > 1:
-                    return False
+            if m.timesig != lastTimesig:
+                return False
         return True
 
     def write(self, path: U[str, Path]) -> None:

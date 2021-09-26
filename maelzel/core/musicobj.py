@@ -40,14 +40,15 @@ from . import environment
 from . import notation
 from .pitch import Pitch
 from .csoundevent import PlayArgs, CsoundEvent
+from . import _musicobjtools
 from maelzel.scorestruct import ScoreStruct
 import functools
 import csoundengine
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Callable, Optional as Opt, TYPE_CHECKING, List, Iterable as Iter, \
-        Sequence as Seq, Dict
+    from typing import *
+    from .typedefs import *
 
 
 @functools.total_ordering
@@ -78,55 +79,62 @@ class Note(MusicObj):
         dur: the duration of the Note (a Rat), or None
         amp: the amplitude (0-1), or None
         start: the start time (as Rat), or None
-        endpitch: the end pitch (as midinote), or None
+        gliss: the end pitch (as midinote), or None
         label: a string label
     """
 
-    __slots__ = ('pitch', 'amp', 'gliss')
+    __slots__ = ('pitch', 'amp', '_gliss', 'tied')
 
     def __init__(self,
                  pitch: pitch_t,
                  dur: time_t = None,
-                 amp:float=None,
-                 start:time_t=None,
-                 gliss:U[pitch_t, bool]=False,
-                 label:str='',
-                 dynamic:str=None,
+                 amp: float = None,
+                 start: time_t = None,
+                 gliss: Union[pitch_t, bool] = False,
+                 label: str = '',
+                 dynamic: str = None,
+                 tied = False
                  ):
 
         MusicObj.__init__(self, dur=dur, start=start, label=label)
         self.pitch: float = tools.asmidi(pitch)
-        self.amp: Opt[float] = amp
-        self.gliss: U[float, bool] = gliss if isinstance(gliss, bool) else tools.asmidi(gliss)
+        self.amp: Optional[float] = amp
+        self._gliss: Union[float, bool] = gliss if isinstance(gliss, bool) else tools.asmidi(gliss)
+        self.tied = tied
         if dynamic:
-            self.setSymbol('Dynamic',self.dynamic)
+            self.setSymbol('Dynamic', dynamic)
+
+    @property
+    def gliss(self):
+        return self._gliss
+
+    @gliss.setter
+    def gliss(self, gliss: Union[pitch_t, bool]):
+        """
+        Set the gliss attribute of this Note, in place
+        """
+        self._gliss = gliss if isinstance(gliss, bool) else tools.asmidi(gliss)
 
     def clone(self,
               pitch: pitch_t = UNSET,
-              dur: Opt[time_t] = UNSET,
-              amp: Opt[time_t] = UNSET,
-              start: Opt[time_t] = UNSET,
-              gliss: U[pitch_t, bool] = UNSET,
-              label: str = UNSET) -> Note:
+              dur: Optional[time_t] = UNSET,
+              amp: Optional[time_t] = UNSET,
+              start: Optional[time_t] = UNSET,
+              gliss: Union[pitch_t, bool] = UNSET,
+              label: str = UNSET,
+              tied: bool = UNSET) -> Note:
         """
+        Clone this note with overridden attributes
 
-        Args:
-            pitch: a pitch to override the current pitch
-            dur: a duration to override the current duration (or None to remove it)
-            amp: an amplitude to override current value (None to remove it)
-            start: a start time to override current value (None to remove it)
-            gliss: the end pitch or True for an undefined gliss. (None to remove it)
-            label: the label of this note
-
-        Returns:
-            a new note
+        Returns a new note
         """
-        out = Note(pitch if pitch is not UNSET else self.pitch,
-                   dur if dur is not UNSET else self.dur,
-                   amp if amp is not UNSET else self.amp,
-                   start if start is not UNSET else self.start,
-                   gliss if gliss is not UNSET else self.gliss,
-                   label if label is not UNSET else self.label)
+        out = Note(pitch=pitch if pitch is not UNSET else self.pitch,
+                   dur=dur if dur is not UNSET else self.dur,
+                   amp=amp if amp is not UNSET else self.amp,
+                   start=start if start is not UNSET else self.start,
+                   gliss=gliss if gliss is not UNSET else self.gliss,
+                   label=label if label is not UNSET else self.label,
+                   tied=tied if tied is not UNSET else self.tied)
         if self._symbols:
             out._symbols = self._symbols.copy()
         if self._playargs:
@@ -156,6 +164,9 @@ class Note(MusicObj):
         self.pitch = 0
         if self._symbols:
             self._symbols.clear()
+
+    def pitchRange(self) -> Optional[Tuple[float, float]]:
+        return (self.pitch, self.pitch)
         
     def freqShift(self, freq:float) -> Note:
         """
@@ -237,13 +248,18 @@ class Note(MusicObj):
                                 duration=asRat(dur),
                                 offset=self.start,
                                 gliss=bool(self.gliss),
-                                playbackGain=self.amp, group=groupid)
+                                playbackGain=self.amp,
+                                group=groupid)
+        if self.tied:
+            note.tiedNext = True
+            assert not self.gliss
+
         notes = [note]
-        if not isinstance(self.gliss, bool):
+        if self.gliss and not isinstance(self.gliss, bool):
             start = self.end if self.end is not None else None
             groupid = groupid or str(hash(self))
             notes[0].groupid = groupid
-            assert self.gliss >= 12
+            assert self.gliss >= 12, f"self.gliss = {self.gliss}"
             notes.append(scoring.makeNote(pitch=self.gliss, gracenote=True,
                                           offset=start, group=groupid))
             if config['show.glissEndStemless']:
@@ -266,7 +282,7 @@ class Note(MusicObj):
             if config['repr.showFreq']:
                 elements.append("%dHz" % int(self.freq))
             if self.amp is not None and self.amp < 1:
-                elements.append("%ddB" % round(amp2db(self.amp)))
+                elements.append("%ddB" % round(pt.amp2db(self.amp)))
         if self.dur:
             if self.dur >= MAXDUR:
                 elements.append("dur=inf")
@@ -286,7 +302,8 @@ class Note(MusicObj):
         if len(elements) == 1:
             return elements[0]
         else:
-            return f'‹{elements[0].ljust(3)} {" ".join(elements[1:])}›'
+            s = ":".join(elements)
+            return s
 
     def __str__(self) -> str: return self.name
 
@@ -311,7 +328,7 @@ class Note(MusicObj):
         Returns a new Note, rounded to step.
 
         If step is 0, the default quantization value is used (this can be
-        configured via ``currentConfig()['semitoneDivisions']``
+        configured via ``getConfig()['semitoneDivisions']``
         """
         if step == 0:
             step = 1/getConfig()['semitoneDivisions']
@@ -323,13 +340,13 @@ class Note(MusicObj):
         playargs.fillWithConfig(conf)
         amp = 1.0 if self.amp is None else self.amp
         endmidi = self.gliss if self.gliss > 1 else self.pitch
-        start = self.start or 0
+        start = self.start or 0.
         dur = self.dur or 1.0
         starttime = float(scorestruct.beatToTime(start))
         endtime   = float(scorestruct.beatToTime(start + dur))
         bps = [[starttime, self.pitch, amp],
-               [endtime, endmidi,   amp]]
-        return [CsoundEvent.fromPlayArgs(bps=bps, playargs=playargs)]
+               [endtime,   endmidi,    amp]]
+        return [CsoundEvent.fromPlayArgs(bps=bps, playargs=playargs, tiednext=self.tied)]
 
     def makeGliss(self, endpitch:pitch_t=None, dur:time_t=None, endamp:float=None
                   ) -> Line:
@@ -352,13 +369,13 @@ class Note(MusicObj):
             assert self.gliss > 1
             endpitch = self.gliss
         else:
-            endnote = tools.asmidi(endpitch)
+            endpitch = tools.asmidi(endpitch)
         dur = dur or self.resolvedDuration()
         startamp = self.resolvedAmp()
         endamp = firstval(endamp, self.amp, startamp)
         start = self.start or 0
         breakpoints = [(start, self.pitch, startamp),
-                       (start+dur, endnote, endamp)]
+                       (start+dur, endpitch, endamp)]
         return Line(breakpoints)
 
     def resolvedAmp(self) -> float:
@@ -367,7 +384,7 @@ class Note(MusicObj):
 
         Returns a default amplitude if no amplitude was define (self.amp is None).
         The default amplitude can be customized via
-        ``currentConfig()['play.defaultAmplitude']``
+        ``getConfig()['play.defaultAmplitude']``
 
         Returns:
             the amplitude (a value between 0-1, where 0 corresponds to 0dB)
@@ -376,7 +393,10 @@ class Note(MusicObj):
             getConfig()['play.defaultAmplitude']
 
     def pitchTransform(self, pitchmap: Callable[[float], float]) -> Note:
-        return self.clone(pitch=pitchmap(self.pitch))
+        pitch = pitchmap(self.pitch)
+        gliss = self.gliss if isinstance(self.gliss, bool) else pitchmap(self.gliss)
+        return self.clone(pitch=pitch, gliss=gliss)
+
 
 def Rest(dur:time_t=1, start:time_t=None) -> Note:
     """
@@ -395,7 +415,7 @@ def Rest(dur:time_t=1, start:time_t=None) -> Note:
     return Note(pitch=0, dur=dur, start=start, amp=0)
 
 
-def asNote(n: U[float, str, Note, Pitch],
+def asNote(n: Union[float, str, Note, Pitch],
            amp:float=None, dur:time_t=None, start:time_t=None) -> Note:
     """
     Convert ``n`` to a Note
@@ -409,7 +429,6 @@ def asNote(n: U[float, str, Note, Pitch],
     Returns:
         ``n`` as a Note
 
-    A Note can also be created via `asNote((pitch, amp))`
     """
     if isinstance(n, Note):
         if any(x is not None for x in (amp, dur, start)):
@@ -531,7 +550,6 @@ class Line(MusicObj):
         return [CsoundEvent.fromPlayArgs(bps, playargs=playargs)]
 
     def __hash__(self):
-        rowhashes = []
         rowhashes = [hash(tuple(bp)) for bp in self.bps]
         rowhashes.append(self.start)
         return hash(tuple(rowhashes))
@@ -552,8 +570,8 @@ class Line(MusicObj):
 
     def scoringEvents(self, groupid:str=None) -> List[scoring.Notation]:
         offsets = self.getOffsets()
-        groupid = groupid or scoring.makeGroupId()
-        notations = []
+        groupid = scoring.makeGroupId(groupid)
+        notations: List[scoring.Notation] = []
         for bp0, bp1 in iterlib.pairwise(self.bps):
             pitch = bp0[1]
             assert pitch > 0
@@ -562,6 +580,8 @@ class Line(MusicObj):
             assert dur > 0
             ev = scoring.makeNote(pitch=pitch, offset=offset, duration=dur,
                                   gliss=bp0[1] != bp1[1], group=groupid)
+            if bp0[1] == bp1[1]:
+                ev.tiedNext = True
             notations.append(ev)
         if(self.bps[-1][1] != self.bps[-2][1]):
             # add a last note if last pair needed a gliss (to have a destination note)
@@ -578,14 +598,15 @@ class Line(MusicObj):
                 notations[0].addAnnotation(annot)
         if self._symbols:
             tools.applySymbols(self._symbols, notations)
+        for n0, n1 in iterlib.window(notations, 2):
+            if n0.tiedNext:
+                n1.tiedNext = True
         return notations
 
     def timeTransform(self, timemap: Callable[[float], float]) -> Line:
         bps = []
-        start2 = timemap(self.start)
         for bp in self.bps:
-            t0 = bp[0] + self.start
-            t1 = timemap(t0)
+            t1 = timemap(bp[0] + self.start)
             bp2 = bp.copy()
             bp2[0] = t1
             bps.append(bp2)
@@ -621,14 +642,15 @@ class Line(MusicObj):
 
 class Chord(MusicObj):
 
-    __slots__ = ('amp', 'gliss', 'notes')
+    __slots__ = ('amp', 'gliss', 'notes', 'tied')
 
     def __init__(self, *notes,
-                 dur:time_t=None,
-                 amp:float=None,
-                 start=None,
-                 gliss=False,
-                 label:str=''
+                 dur: time_t = None,
+                 amp: float = None,
+                 start: time_t = None,
+                 gliss: Union[str, List[pitch_t], Tuple[pitch_t], bool] = False,
+                 label: str='',
+                 tied = False
                  ) -> None:
         """
         a Chord can be instantiated as:
@@ -645,7 +667,7 @@ class Chord(MusicObj):
             dur: the duration of this chord (in quarternotes)
             start: the start time (in quarternotes)
             gliss: either a list of end pitches (with the same size as the chord), or
-                True to leave the end pitches unspecified
+                True to leave the end pitches unspecified (a gliss to the next chord)
             label: if given, it will be used for printing purposes
         """
         self.amp = amp
@@ -656,9 +678,11 @@ class Chord(MusicObj):
         self.notes: List[Note] = []
         if not isinstance(gliss, bool):
             gliss = pt.as_midinotes(gliss)
-        self.gliss: U[bool, List[float]] = gliss
+
+        self.gliss: Union[bool, List[float]] = gliss
 
         if not notes:
+            super().__init__(dur=None, start=None, label=label)
             return
 
         # notes might be: Chord([n1, n2, ...]) or Chord(n1, n2, ...)
@@ -666,7 +690,7 @@ class Chord(MusicObj):
             notes = list(notes)
         n0 = notes[0]
         if len(notes) == 1:
-            if isinstance(n0, (Chord, EventSeq)):
+            if isinstance(n0, (Chord, Chain)):
                 notes = list(n0)
             elif isinstance(n0, (list, tuple)):
                 notes = notes[0]
@@ -680,30 +704,39 @@ class Chord(MusicObj):
         if start is None:
             start = min((n.start for n in notes if isinstance(n, Note) and n.start is not None),
                         default=None)
-        MusicObj.__init__(self, dur=dur, start=start, label=label)
+        super().__init__(dur=dur, start=start, label=label)
 
         for note in notes:
             if isinstance(note, Note):
                 # we erase any duration or offset of the individual notes
                 note = note.clone(dur=None, start=None)
+                if self.gliss:
+                    note.gliss = False
             else:
                 assert isinstance(note, (int, float, str))
                 note = asNote(note, amp=amp, dur=None, start=None)
             self.notes.append(note)
         self.notes = list(set(self.notes))
+        if self.gliss:
+            assert all(not n.gliss for n in self.notes)
+
         self.sort()
+        self.tied = tied
 
     def __len__(self) -> int:
         return len(self.notes)
 
-    def __getitem__(self, idx) -> U[Note, Chord]:
+    def __getitem__(self, idx) -> Union[Note, Chord]:
         out = self.notes.__getitem__(idx)
         if isinstance(out, list):
             out = self.__class__(out)
         return out
 
-    def __iter__(self) -> Iter[Note]:
+    def __iter__(self) -> Iterable[Note]:
         return iter(self.notes)
+
+    def pitchRange(self) -> Optional[Tuple[float, float]]:
+        return min(n.pitch for n in self.notes), max(n.pitch for n in self.notes)
 
     def scoringEvents(self, groupid:str = None) -> List[scoring.Notation]:
         config = getConfig()
@@ -712,17 +745,18 @@ class Chord(MusicObj):
         dur = self.dur if self.dur is not None else config['defaultDuration']
         chord = scoring.makeChord(pitches=pitches, duration=dur, offset=self.start,
                                   annotation=annot, group=groupid)
+        #if config['show.fillDynamicFromAmplitude'] and self.amp is not None and self.getSymbol('dynamic') is None:
+        #    chord.dynamic = tools.amplitudeToDynamic()
         notations = [chord]
         if self.gliss:
-            if self.gliss is True:
-                chord.gliss = True
-            else:
-                groupid = groupid or scoring.makeGroupId()
+            chord.gliss = True
+            if not isinstance(self.gliss, bool):
+                groupid = scoring.makeGroupId(groupid)
                 chord.groupid = groupid
-                endEvent = scoring.makeChord(pitches=self.gliss,
-                                             duration=0,
-                                             offset=self.end,
-                                             group=groupid)
+                endEvent = scoring.makeChord(pitches=self.gliss, duration=0,
+                                             offset=self.end, group=groupid)
+                if config['show.glissEndStemless']:
+                    endEvent.stem = 'hidden'
                 notations.append(endEvent)
         if self._symbols:
             tools.applySymbols(self._symbols, notations)
@@ -733,7 +767,8 @@ class Chord(MusicObj):
         arpeggio = _normalizeChordArpeggio(kws.get('arpeggio', None), self)
         if arpeggio:
             dur = config['show.arpeggioDuration']
-            return EventSeq(self.notes, itemDefaultDur=dur).asmusic21()
+            notes = [n.clone(dur=dur) for n in self.notes]
+            return Chain(notes).asmusic21()
         events = self.scoringEvents()
         scoring.stackNotationsInPlace(events, start=self.start)
         parts = scoring.distributeNotationsByClef(events)
@@ -742,12 +777,17 @@ class Chord(MusicObj):
     def __hash__(self):
         if self._hash:
             return self._hash
-        glisshash = hash(float(self.gliss))
+        if isinstance(self.gliss, bool):
+            glisshash = int(self.gliss)
+        elif isinstance(self.gliss, list):
+            glisshash = hash(tuple(self.gliss))
+        else:
+            glisshash = hash(self.gliss)
         data = (self.dur, self.start, self.label, glisshash, *(n.pitch for n in self.notes))
-        self._hash = h = hash(data)
-        return h
+        self._hash = hash(data)
+        return self._hash
 
-    def append(self, note:U[float, str, Note, Pitch]) -> None:
+    def append(self, note:Union[float, str, Note, Pitch]) -> None:
         """ append a note to this Chord """
         note = asNote(note)
         if note.freq < 17:
@@ -873,9 +913,6 @@ class Chord(MusicObj):
         Args:
             key: either 'pitch' or 'amp'
             reverse: similar as sort
-
-        Returns:
-            self
         """
         if key == 'pitch':
             self.notes.sort(key=lambda n: n.pitch, reverse=reverse)
@@ -909,15 +946,15 @@ class Chord(MusicObj):
         starttime = float(scorestruct.beatToTime(start))
         endtime = float(scorestruct.beatToTime(start + dur))
         for note, endpitch in zip(self.notes, endpitches):
-            amp = note.amp if note.amp is not None else 1.
+            amp = firstval(note.amp, self.amp, 1.)
             bps = [[starttime, note.pitch, amp],
                    [endtime, endpitch, amp]]
             events.append(CsoundEvent.fromPlayArgs(bps=bps, playargs=playargs))
         return events
 
-    def asSeq(self, dur=None) -> EventSeq:
-        """ Convert this Chord to an EventSeq """
-        return EventSeq(self.notes, itemDefaultDur=dur or self.dur)
+    def asChain(self, dur=None) -> Chain:
+        """ Convert this Chord to an Chain """
+        return Chain(self.notes)
 
     def __repr__(self):
         # «4C+14,4A 0.1q -50dB»
@@ -945,7 +982,7 @@ class Chord(MusicObj):
         elements = f'start={self.start}, dur={self.dur}, gliss={self.gliss}'
         print(f"{'  '*indents}Chord({elements})")
         if self._playargs:
-            print("  "*(indenst+1), self.playargs)
+            print("  "*(indents+1), self.playargs)
         for n in reversed(self.notes):
             print("  "*(indents+2), repr(n))
 
@@ -971,8 +1008,8 @@ class Chord(MusicObj):
         notes = []
         if db:
             for note in self:
-                db = curve(amp2db(note.amp))
-                notes.append(note.clone(amp=db2amp(db)))
+                db = curve(pt.amp2db(note.amp))
+                notes.append(note.clone(amp=pt.db2amp(db)))
         else:
             for note in self:
                 amp2 = curve(note.amp)
@@ -1011,9 +1048,10 @@ class Chord(MusicObj):
                    for n0, n1, n2 in iterlib.window(self, 3))
 
     def pitchTransform(self, pitchmap: Callable[[float], float]) -> Chord:
-        mewpitches = [pitchmap(p) for p in self.pitches]
+        newpitches = [pitchmap(p) for p in self.pitches]
         newnotes = [n.clone(pitch=pitch) for n, pitch in zip(self.notes, newpitches)]
-        return self.clone(notes=newnotes)
+        return self.clone(notes=newnotes,
+                          gliss=self.gliss if isinstance(self.gliss, bool) else list(map(pitchmap, self.gliss)))
 
 
 def asChord(obj, amp:float=None, dur:float=None) -> Chord:
@@ -1044,14 +1082,16 @@ def asChord(obj, amp:float=None, dur:float=None) -> Chord:
     return out
 
 
-def asEvent(obj, **kws) -> U[Note, Chord]:
+def asEvent(obj, **kws) -> Union[Note, Chord]:
     """Convert `obj` to an event (a Note or a Chord, depending on obj)"""
     if isinstance(obj, (Note, Chord)):
         return obj
-    return N(obj, **kws)
+    out = asMusic(obj, **kws)
+    assert isinstance(out, (Note, Chord))
+    return out
 
 
-def _normalizeChordArpeggio(arpeggio: U[str, bool], chord: Chord) -> bool:
+def _normalizeChordArpeggio(arpeggio: Union[str, bool], chord: Chord) -> bool:
     config = getConfig()
     if arpeggio is None: arpeggio = config['chord.arpeggio']
 
@@ -1085,6 +1125,10 @@ def stackEvents(events: List[MusicObj],
         return events
     if all(ev.start is not None and ev.dur is not None for ev in events):
         return events
+    if start is None:
+        start = events[0].start
+        if start is None:
+            start = Rat(0)
     assert start is not None
     if defaultDur is None:
         defaultDur = asRat(getConfig()['defaultDuration'])
@@ -1123,7 +1167,7 @@ def stackEvents(events: List[MusicObj],
     return out
 
 
-def stackEventsInPlace(events: List[MusicObj],
+def stackEventsInPlace(events: Sequence[MusicObj],
                        defaultDur:time_t=None,
                        start:time_t=Rat(0)
                        ) -> None:
@@ -1138,6 +1182,9 @@ def stackEventsInPlace(events: List[MusicObj],
     """
     if all(ev.start is not None and ev.dur is not None for ev in events):
         return
+    for ev in events:
+        if isinstance(ev, MusicObjList):
+            stackEventsInPlace(ev)
     assert start is not None
     if defaultDur is None:
         defaultDur = getConfig()['defaultDuration']
@@ -1171,22 +1218,37 @@ def stackEventsInPlace(events: List[MusicObj],
         assert ev1.end == ev2.start
 
 
-class SeqMusicObj(MusicObj):
+class MusicObjList(MusicObj):
+    """
+    A sequence of music objects (Chain, Group).
+
+    They do not need to be sequencial (they can overlap, like Group)
+    """
     __slots__ = ('items')
 
     def __init__(self, items: List[MusicObj], label:str=''):
+        self.items: List[MusicObj] = []
         if items:
             assert all(item.dur is not None and item.start is not None
                        for item in items)
-            self.items = items
+            self.items.extend(items)
             end = max(it.end for it in items)
             start = min(it.start for it in items)
             dur = end - start
         else:
-            self.items = []
             dur = None
             start = None
         super().__init__(dur=dur, start=start, label=label)
+
+    def append(self, obj: MusicObj) -> None:
+        self.items.append(obj)
+        self._changed()
+
+    def _changed(self) -> None:
+        self.start = min(it.start for it in self.items)
+        end = max(it.end for it in self.items)
+        self.dur = end - self.start
+        super()._changed()
 
     def __iter__(self):
         return iter(self.items)
@@ -1201,6 +1263,10 @@ class SeqMusicObj(MusicObj):
         hashes = [hash(type(self).__name__), hash(self.label)]
         hashes.extend(hash(i) for i in self.items)
         return hash(tuple(hashes))
+
+    def pitchRange(self) -> Optional[Tuple[float, float]]:
+        pitchRanges = [item.pitchRange() for item in self.items]
+        return min(p[0] for p in pitchRanges), max(p[1] for p in pitchRanges)
 
     def scoringEvents(self, groupid:str=None) -> List[scoring.Notation]:
         """
@@ -1239,16 +1305,17 @@ class SeqMusicObj(MusicObj):
 
     def quantizePitch(self:T, step=0.) -> T:
         if step == 0:
-            step = getConfig()['semitoneDivisions']
-        return type(self)([i.quantizePitch(step) for i in self.items])
+            step = 1/getConfig()['semitoneDivisions']
+        items = [i.quantizePitch(step) for i in self.items]
+        return self.clone(items=items)
 
     def timeShift(self:T, timeoffset: time_t) -> T:
-        return type(self)([item.timeShift(timeoffset) for item in self.items],
-                          label=self.label)
+        items = [item.timeShift(timeoffset) for item in self.items]
+        return self.clone(items=items)
 
     def timeTransform(self:T, timemap: Callable[[float], float]) -> T:
         items = [item.timeTransform(timemap) for item in self.items]
-        return type(self)(items, label=self.label)
+        return self.clone(items=items)
 
     def pitchTransform(self: T, pitchmap: Callable[[float], float]) -> T:
         newitems = [item.pitchTransform(pitchmap) for item in self.items]
@@ -1261,23 +1328,81 @@ class SeqMusicObj(MusicObj):
         for item in self.items:
             item.dump(indents+1)
 
+    def makeVoices(self) -> List[Voice]:
+        return _musicobjtools.packInVoices(self.items)
 
-class EventSeq(SeqMusicObj):
+
+def _fixGliss(items: List[MusicObj]) -> None:
+
+    for i0, i1 in iterlib.window(items, 2):
+        if isinstance(i0, MusicObjList):
+            _fixGliss(i0)
+        elif (isinstance(i0, Note) and isinstance(i1, Note) and
+                not i1.isRest() and i0.gliss is True):
+            i0.gliss = i1.pitch
+
+def _makeLine(notes: List[Note]) -> Line:
+    assert all(n0.end == n1.start for n0, n1 in iterlib.pairwise(notes))
+    bps = []
+    for note in notes:
+        bp = [note.start, note.pitch, note.resolvedAmp()]
+        bps.append(bp)
+    lastnote = notes[-1]
+    if lastnote.dur > 0:
+        pitch = lastnote.gliss if lastnote.gliss else lastnote.pitch
+        bps.append([lastnote.end, pitch, lastnote.resolvedAmp()])
+    return Line(bps, label=notes[0].label)
+
+
+def _mergeLines(items: List[Union[Note, Chord]]) -> List[Union[Note, Chord, Line]]:
+    groups = []
+    lineStarted = False
+    gapAfter = set()
+    for i0, i1 in iterlib.window(items, 2):
+        if i0.end < i1.start:
+            gapAfter.add(i0)
+    for item in items:
+        if isinstance(item, Note) and not item.isRest():
+            if lineStarted:
+                groups[-1].append(item)
+                if not item.tied and not (item.gliss is True):
+                    lineStarted = False
+            else:
+                if item.tied or item.gliss is True:
+                    lineStarted = True
+                    groups.append([item])
+                else:
+                    groups.append(item)
+        else:
+            lineStarted = False
+            groups.append(item)
+    return [_makeLine(item) if isinstance(item, list) else item
+            for item in groups]
+
+
+class Chain(MusicObjList):
     """
-    A seq. of Notes or Chords
+    A seq. of non-simultaneous Notes / Chords
 
-    Within an EventSeq, start times are relative to the sequence itself
+    A Chain is used to express a series of notes or chords which come
+    one after the other. All notes and chors within a Chain have an
+    explicit start and duration, but there can be gaps between
+    items. Such gaps are either possible by setting the explicit start
+    time of an event later than the end time of the previous event, or
+    by inserting a Rest.
 
+    Within a Chain, any note/chord with a glissando set to True will
+    result in a glissando to the next note/chord in the chain.
     """
     _acceptsNoteAttachedSymbols = False
 
-    def __init__(self, items: List[MusicObj] = None, start:time_t=None, label:str=''):
-        start = asRat(start)
+    def __init__(self, items: List[Union[Note, Chord]] = None, start:time_t=None,
+                 label:str=''):
         if start is not None:
             start = asRat(start)
         if items:
             items = [asEvent(item) for item in items]
-            items = stackEvents(items, defaultDur=self.itemDefaultDur, start=start)
+            items = stackEvents(items, start=start)
         super().__init__(items=items, label=label)
 
     def resolvedDuration(self) -> Rat:
@@ -1289,9 +1414,9 @@ class EventSeq(SeqMusicObj):
         assert start is not None
         return end - start
 
-    def append(self, item:U[Note, Chord]) -> None:
+    def append(self, item:Union[Note, Chord]) -> None:
         """
-        Append an item to this seq.
+        Append an item to this chain
 
         Args:
             item: the item to add
@@ -1303,13 +1428,27 @@ class EventSeq(SeqMusicObj):
         assert self.end is not None
         assert item.start >= self.end
         self.items.append(item)
-        assert self.start is not None
-        self.dur = item.end - self.start
+        if len(self.items) > 1:
+            butlast = self.items[-2]
+            last = self.items[-1]
+            if isinstance(butlast, Note) and butlast.gliss is True and isinstance(last, Note):
+                butlast.gliss = last.pitch
+        self._changed()
+
+    def _changed(self):
+        if self.items:
+            self.start = self.items[0].start
+            end = self.items[-1].end
+            self.dur = end - self.start
+        else:
+            self.start = None
+            self.dur = None
+        self._hash = None
 
     def __len__(self) -> int:
         return len(self.items)
 
-    def __iter__(self) -> Iter[Chord]:
+    def __iter__(self) -> Iterable[Union[Note, Chord]]:
         return iter(self.items)
 
     def __getitem__(self, idx):
@@ -1322,33 +1461,37 @@ class EventSeq(SeqMusicObj):
             raise ValueError(f"__getitem__ returned {out}, expected Chord or list of Chords")
 
     def scoringEvents(self, groupid:str=None) -> List[scoring.Notation]:
-        events = []
-        start = self.start if self.start is not None else Rat(0)
-        groupid = groupid or scoring.makeGroupId()
-        for item in self.items:
-            scoringEvents = item.scoringEvents(groupid)
-            for ev in scoringEvents:
-                if ev.duration is None and ev.offset is None:
-                    ev.duration = self.dur
-            events.extend(scoringEvents)
-        if events and events[0].offset is None:
-            events[0].offset = start
-        return events
+        items = _mergeLines(self.items)
+        subgroup = scoring.makeGroupId(groupid)
+        return sum((item.scoringEvents(subgroup) for item in items), [])
 
     def dump(self, indents=0):
-        lines = [f"{' '*indents}EventSeq"]
-        for item in self.items:
-            sublines = repr(item).splitlines()
-            for subline in sublines:
-                lines.append(f"{'  '*(indents+1)}{subline}")
-        return "\n".join(lines)
+        if environment.insideJupyter:
+            rows = []
+            for item in self.items:
+                row = [round(float(item.start), 3)]
+                if isinstance(item, Note):
+                    row.append(item.name)
+                else:
+                    row.append(", ".join(pt.m2n(n) for n in item))
+                row.append(item.dur)
+                row.append(item.gliss)
+                row.append(str(self._playargs))
+                rows.append(row)
+            misc.print_table(rows, headers='time pitch dur gliss playargs'.split())
+        else:
+            print(f"{' '*indents}Chain")
+            for item in self.items:
+                sublines = repr(item).splitlines()
+                for subline in sublines:
+                    print(f"{'  '*(indents+1)}{subline}")
 
     def __repr__(self):
         if len(self.items) < 10:
             itemstr = ", ".join(repr(_) for _ in self.items)
         else:
             itemstr = ", ".join(repr(_) for _ in self.items[:10]) + ", …"
-        return f'EventSeq([{itemstr}])'
+        return f'Chain([{itemstr}])'
 
     def __hash__(self):
         if not self._hash:
@@ -1357,13 +1500,12 @@ class EventSeq(SeqMusicObj):
 
     def csoundEvents(self, playargs: PlayArgs, scorestruct:ScoreStruct, conf:dict
                      ) -> List[CsoundEvent]:
-        allevents = []
         playargs.fillWith(self.playargs)
-        for item in self.items:
-            allevents.extend(item.csoundEvents(playargs.copy(), scorestruct, conf))
-        return allevents
+        items = _mergeLines(self.items)
+        return sum((item.csoundEvents(playargs.copy(), scorestruct, conf)
+                    for item in items), [])
 
-    def cycle(self, dur:time_t, crop=True) -> EventSeq:
+    def cycle(self, dur:time_t, crop=True) -> Chain:
         """
         Cycle the items in this seq. until the given duration is reached
 
@@ -1375,71 +1517,62 @@ class EventSeq(SeqMusicObj):
                 a total duration longer than the given one
 
         Returns:
-            the resulting EventSeq
+            the resulting Chain
         """
+        cfg = getConfig()
+        defaultDur = Rat(cfg['defaultDuration'])
+        accumDur = Rat(0)
+        maxDur = asRat(dur)
         items = []
-        defaultDur = self.dur
-        it = iterlib.cycle(self)
-        totaldur = Rat(0)
-        dur = asRat(dur)
-        while totaldur < dur:
-            item = next(it)
-            maxdur = dur - totaldur
-            if crop:
-                if item.dur is None or item.dur > maxdur:
-                    item = item.clone(dur=maxdur)
-            elif item.dur is None:
-                if crop:
-                    item = item.clone(dur=min(defaultDur, maxdur))
-                else:
-                    item = item.clone(dur=defaultDur)
-            assert item.dur is not None
-            totaldur += item.dur
+        for item in iterlib.cycle(self):
+            if item.dur is None:
+                item = item.clone(dur=defaultDur)
+            if item.dur > maxDur - accumDur:
+                if not crop:
+                    break
+                item = item.clone(dur=maxDur - accumDur)
+            if item.start is not None:
+                item = item.clone(start=None)
             items.append(item)
-        return EventSeq(items, start=self.start)
-
-    def clone(self, items:List[U[Note, Chord]]=None, dur:time_t=None, start:time_t=None,
-              **kws) -> EventSeq:
-        """Returns a copy of self with the given attributes modified"""
-        items = items if items is not None else self.items
-        dur = dur if dur is not None else self.dur
-        start = start if start is not None else self.start
-        return EventSeq(items, itemDefaultDur=dur, start=start, label=self.label)
-
-    def quantizePitch(self, step=0.) -> EventSeq:
-        step = step or 1/getConfig()['semitoneDivisions']
-        items = [i.quantizePitch(step) for i in self.items]
-        return self.clone(items)
-
-    def timeShift(self, timeoffset:time_t) -> EventSeq:
-        items = [i.timeShift(timeoffset) for i in self.items]
-        return self.clone(items=items)
+            accumDur += item.dur
+            if accumDur == maxDur:
+                break
+        stackEventsInPlace(items, defaultDur=defaultDur)
+        return Chain(items, start=self.start)
 
     def asVoice(self) -> Voice:
-        """Convert this EventSeq to a Voice"""
-        return Voice(self.items)
+        """Convert this Chain to a Voice"""
+        return Voice(self.items, label=self.label)
+
+    def makeVoices(self) -> List[Voice]:
+        return [self.asVoice()]
 
 
-
-
-class Voice(SeqMusicObj):
+class Voice(MusicObjList):
     """
     A Voice is a seq. of non-overlapping objects
+
+    A Voice can contain an Chain, but not vice versa
     """
     _acceptsNoteAttachedSymbols = False
 
     def __init__(self, items:List[MusicObj]=None, label:str= ''):
         self.instrs: Dict[MusicObj, str] = {}
         if items:
-            items = stackEvents(items, start=asRat(0))
+            items = items.copy()
+            stackEventsInPlace(items, start=asRat(0))
         super().__init__(items=items, label=label)
 
     def __repr__(self) -> str:
         parts = []
         if self.label:
             parts.append(self.label)
-        parts.append(str(self.items))
+        maxitems = 12
+        items = self.items[:maxitems]
+        parts.append(str(items))
         s = ', '.join(parts)
+        if len(self.items)>maxitems:
+            s += ", …"
         return f"Voice({s})"
 
     def _changed(self):
@@ -1448,32 +1581,14 @@ class Voice(SeqMusicObj):
             self.start = self.items[0].start
         super()._changed()
 
-    def endTime(self) -> Rat:
-        if not self.items:
-            return Rat(0)
-        end = self.items[-1].end
-        assert end is not None
-        return end
-
-    def startTime(self) -> Rat:
-        if not self.items:
-            return Rat(0)
-        start = self.items[0].start
-        assert start is not None
-        return start
-
     def isEmptyBetween(self, start:time_t, end:num_t) -> bool:
-        if not self.items:
-            return True
-        if start >= self.endTime():
-            return True
-        if end < self.startTime():
+        if not self.items or start >= self.end or end < self.start:
             return True
         return all(intersection(i.start, i.end, start, end) is None
                     for i in self.items)
 
     def needsSplit(self) -> bool:
-        pass
+        return False
 
     def add(self, obj:MusicObj) -> None:
         """
@@ -1492,48 +1607,62 @@ class Voice(SeqMusicObj):
             obj: the object to add (a Note, Chord, Event, etc.)
         """
         if obj.start is None or obj.dur is None:
-            obj = obj.withExplicitTime(start=self.endTime())
+            obj = obj.withExplicitTime(start=self.end)
         assert obj.start is not None and obj.end is not None
         if not self.isEmptyBetween(obj.start, obj.end):
             msg = f"obj {obj} ({obj.start}:{obj.end}) does not fit in voice"
             raise ValueError(msg)
         assert obj.dur is not None and obj.dur>0
         if obj.start is None:
-            obj = obj.clone(start=self.endTime())
+            obj = obj.clone(start=self.end)
         self.items.append(obj)
-        if obj.start < self.endTime():
+        if obj.start < self.end:
             self.items.sort(key=lambda obj:obj.start)
         self._changed()
 
     def extend(self, objs:List[MusicObj]) -> None:
         objs.sort(key=lambda obj:obj.start or 0)
         start = objs[0].start
-        assert start is not None and start >= self.endTime()
+        assert start is not None and start >= self.end
         for obj in objs:
             self.items.append(obj)
         self._changed()
 
-    def scoringParts(self) -> List[scoring.Part]:
+    def scoringEvents(self, groupid:str=None) -> List[scoring.Notation]:
+        items = _mergeLines(self.items)
+        subgroup = scoring.makeGroupId(groupid)
+        return sum((item.scoringEvents(subgroup) for item in items), [])
+
+    def scoringParts(self, options: scoring.render.RenderOptions = None
+                     ) -> List[scoring.Part]:
         notations = self.scoringEvents()
         scoring.stackNotationsInPlace(notations)
         part = scoring.Part(notations, label=self.label)
         return [part]
 
+    def csoundEvents(self, playargs: PlayArgs, scorestruct: ScoreStruct, conf: dict
+                     ) -> List[CsoundEvent]:
+        playargs.fillWith(self.playargs)
+        items = _mergeLines(self.items)
+        return sum((item.csoundEvents(playargs.copy(), scorestruct, conf)
+                    for item in items), [])
 
-def _asVoice(obj: U[MusicObj, List[MusicObj]]) -> Voice:
+
+
+def _asVoice(obj: Union[MusicObj, List[MusicObj]]) -> Voice:
     if isinstance(obj, Voice):
         return obj
-    elif isinstance(obj, EventSeq):
+    elif isinstance(obj, Chain):
         return obj.asVoice()
     elif isinstance(obj, (Chord, Note)):
         return _asVoice([obj])
     elif isinstance(obj, (list, tuple)):
-        return EventSeq(obj).asVoice()
+        return Chain(obj).asVoice()
     else:
         raise TypeError(f"Cannot convert {obj} of type {type(obj)} to a Voice")
 
 
-class Score(SeqMusicObj):
+class Score(MusicObjList):
 
     _acceptsNoteAttachedSymbols = False
 
@@ -1550,30 +1679,13 @@ class Score(SeqMusicObj):
     def voices(self):
         return self.items
 
-    def scoringParts(self) -> List[scoring.Part]:
+    def scoringParts(self, options=None) -> List[scoring.Part]:
         parts = []
         for voice in self.voices:
-            voiceparts = voice.scoringParts()
+            voiceparts = voice.scoringParts(options=options)
             parts.extend(voiceparts)
         return parts
 
-
-
-
-def _asTimedObj(obj: MusicObj, start:num_t=Rat(0),
-                dur:num_t=None) -> MusicObj:
-    """
-    A TimedObj has a start time and a duration
-    """
-    if obj.start is not None and obj.dur is not None:
-        return obj
-    if dur is None:
-        cfg = getConfig()
-        dur = cfg['defaultDuration']
-    dur = obj.dur if obj.dur is not None else dur
-    assert dur > 0 and start >= 0
-    start = obj.start if obj.start is not None else start
-    return obj.clone(dur=asRat(dur), start=asRat(start))
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #
@@ -1586,7 +1698,7 @@ def generateNotes(start=12, end=127) -> Dict[str, Note]:
     """
     Generates all notes for interactive use.
 
-    From an interactive session, 
+    From an interactive session,
 
     locals().update(generate_notes())
     """
@@ -1605,50 +1717,13 @@ def generateNotes(start=12, end=127) -> Dict[str, Note]:
     return notes
 
 
-def _setJupyterHooks() -> None:
-    """
-    Sets jupyter display hooks for multiple classes
-    """
-    # MusicObj.setJupyterHook()
-    Pitch.setJupyterHook()
-    tools.m21JupyterHook()
-
-
-def _splitNotesOnce(notes: U[Chord, Seq[Note]], splitpoint:float, deviation=None,
-                    ) -> Tuple[List[Note], List[Note]]:
-    """
-    Split a list of notes into two lists, one above and one below the splitpoint
-
-    Args:
-        notes: a seq. of Notes
-        splitpoint: the pitch to split the notes
-        deviation: an acceptable deviation to fit all notes
-            in one group (config: 'splitAcceptableDeviation')
-
-    Returns:
-        notes above and below
-
-    """
-    deviation = deviation or getConfig()['splitAcceptableDeviation']
-    if all(note.pitch > splitpoint - deviation for note in notes):
-        above = [n for n in notes]
-        below = []
-    elif all(note.pitch < splitpoint + deviation for note in notes):
-        above = []
-        below = [n for n in notes]
-    else:
-        above, below = [], []
-        for note in notes:
-            (above if note.pitch > splitpoint else below).append(note)
-    return above, below
-
-
-def splitNotes(notes: Seq[Note], splitpoints:List[float], deviation=None
+def splitNotes(notes: Sequence[Note], splitpoints:List[float], deviation=None
                ) -> List[List[Note]]:
     """
     Split notes at given splitpoints.
 
-    This can be used to split a group of notes into multiple staves
+    This can be used to split a group of notes into multiple staves. This assumes
+    that notes are not synchonous (they do not overlap)
 
     Args:
         notes: the notes to split
@@ -1664,31 +1739,13 @@ def splitNotes(notes: Seq[Note], splitpoints:List[float], deviation=None
     tracks = []
     above = notes
     for splitpoint in splitpoints:
-        above, below = _splitNotesOnce(above, splitpoint=splitpoint, deviation=deviation)
+        above, below = _musicobjtools.splitNotesOnce(above, splitpoint=splitpoint,
+                                                     deviation=deviation)
         if below:
             tracks.append(below)
         if not above:
             break
     return tracks
-
-
-def splitNotesIfNecessary(notes:List[Note], splitpoint:float, deviation=None
-                          ) -> List[List[Note]]:
-    """
-    Like _splitNotesOnce, but returns only groups which have notes in them
-
-    This can be used to split in more than one staves.
-
-    Args:
-        notes: the notes to split
-        splitpoint: the split point
-        deviation: an acceptable deviation, if all notes could fit in one part
-
-    Returns:
-        a list of parts (a part is a list of notes)
-
-    """
-    return [p for p in _splitNotesOnce(notes, splitpoint, deviation) if p]
 
 
 def resetImageCache() -> None:
@@ -1698,7 +1755,7 @@ def resetImageCache() -> None:
     renderObject.cache_clear()
 
 
-def asMusic(obj) -> U[Note, Chord]:
+def asMusic(obj, **kws) -> Union[Note, Chord]:
     """
     Convert obj to a Note or Chord, depending on the input itself
 
@@ -1712,52 +1769,41 @@ def asMusic(obj) -> U[Note, Chord]:
         return obj
     elif isinstance(obj, str):
         if " " in obj:
-            return Chord(obj.split())
-        return Note(obj)
+            return Chord(obj.split(), **kws)
+        return Note(obj, **kws)
     elif isinstance(obj, (list, tuple)):
-        return Chord(obj)
+        return Chord(obj, **kws)
     elif isinstance(obj, (int, float)):
-        return Note(obj)
+        return Note(obj, **kws)
     else:
         raise TypeError(f"Cannot convert {obj} to a Note or Chord")
 
 
-def gliss(a, b, dur:time_t=None) -> U[Note, Chord]:
+class Group(MusicObjList):
     """
-    Create a gliss. between a and b. a should implement
-    the method .gliss (either a Note or a Chord)
+    A Group represents a group of objects. These can be simultaneous
 
-    Args:
-        a: the start object
-        b: the end object (should have the same type as obj1)
-        dur: the duration of the glissando
-
-    Returns:
-        the resulting Note or Chord
-    """
-    m1 = asMusic(a)
-    m2 = asMusic(b)
-    assert isinstance(m2, type(m1))
-    return m1.makeGliss(m2, dur=dur)
-
-
-class Group(SeqMusicObj):
-    """
-    A Group represents a group of objects. They can be simultaneous
+    There are no group of groups: if a group is placed inside another group,
+    the items of the inner group are placed "ungrouped" inside the outer group
 
     Example::
 
         >>> a, b = Note(60, dur=2), Note(61, start=2, dur=1)
         >>> h = Group((a, b))
-
     """
 
-    def __init__(self, items:Seq[MusicObj], label:str=''):
+    def __init__(self, items:Sequence[MusicObj], label:str=''):
         assert isinstance(items, (list, tuple))
-        items = [i.withExplicitTime() for i in items]
+        flatitems = []
+        for item in items:
+            if isinstance(item, Group):
+                flatitems.extend(item)
+            else:
+                flatitems.append(item)
+        items = [i.withExplicitTime() for i in flatitems]
         items.sort(key=lambda item:item.start)
         start = min(i.start for i in items)
-        SeqMusicObj.__init__(self, items=items, label=label)
+        super().__init__(items=items, label=label)
         self.dur = self.end - start
 
     @property
@@ -1767,7 +1813,7 @@ class Group(SeqMusicObj):
     def add(self, obj:MusicObj) -> None:
         self.items.append(obj)
 
-    def __getitem__(self, idx) -> U[MusicObj, List[MusicObj]]:
+    def __getitem__(self, idx) -> Union[MusicObj, List[MusicObj]]:
         return self.items[idx]
 
     def __repr__(self):
@@ -1777,26 +1823,12 @@ class Group(SeqMusicObj):
     def rec(self, outfile:str=None, sr:int=None, **kws) -> str:
         return recMany(self.items, outfile=outfile, sr=sr, **kws)
 
-    def scoringParts(self) -> List[scoring.Part]:
+    def scoringParts(self, options=None) -> List[scoring.Part]:
         events = self.scoringEvents()
         return scoring.packInParts(events)
 
 
-def _collectPlayEvents(objs: List[MusicObj], **kws) -> List[CsoundEvent]:
-    """
-    Collect events of multiple objects using the same parameters
-
-    Args:
-        objs: a seq. of objects
-        **kws: keywords passed to play
-
-    Returns:
-        a list of the events
-    """
-    return sum((obj.events(**kws) for obj in objs), [])
-
-
-def playMany(objs, **kws) -> csoundengine.synth.SynthGroup:
+def playMany(objs: Sequence[MusicObj], **kws) -> csoundengine.synth.SynthGroup:
     """
     Play multiple objects with the same parameters
 
@@ -1808,10 +1840,11 @@ def playMany(objs, **kws) -> csoundengine.synth.SynthGroup:
         a SynthGroup holding all generated Synths
 
     """
-    return play.playEvents(_collectPlayEvents(objs, **kws))
+    events = sum((obj.events(**kws) for obj in objs), [])
+    return play.playEvents(events)
 
 
-def recMany(objs: List[MusicObj], outfile:str=None, sr:int=None, **kws
+def recMany(objs: Sequence[MusicObj], outfile:str=None, sr:int=None, **kws
             ) -> str:
     """
     Record many objects with the same parameters
@@ -1824,14 +1857,15 @@ def recMany(objs: List[MusicObj], outfile:str=None, sr:int=None, **kws
 
     Returns:
         the path of the generated soundfile. This is only needed if
-        outfile was None, in which
+        outfile was None, in which case the path of the generated
+        recording is returned
     """
-    allevents = _collectPlayEvents(objs, **kws)
-    return play.recEvents(outfile=outfile, events=allevents, sr=sr)
+    events = sum((obj.events(**kws) for obj in objs), [])
+    return play.recEvents(outfile=outfile, events=events, sr=sr)
 
 
-def trill(note1: U[Note, Chord], note2: U[Note, Chord],
-          totaldur: time_t, notedur:time_t=None) -> EventSeq:
+def trill(note1: Union[Note, Chord], note2: Union[Note, Chord],
+          totaldur: time_t, notedur:time_t=None) -> Chain:
     """
     Create a trill
 
@@ -1843,7 +1877,7 @@ def trill(note1: U[Note, Chord], note2: U[Note, Chord],
             if the trill notes have an unset duration
 
     Returns:
-        A realisation of the trill as an EventSeq of at least the
+        A realisation of the trill as an Chain of at least the
         given totaldur (can be longer if totaldur is not a multiple
         of notedur)
     """
@@ -1851,13 +1885,17 @@ def trill(note1: U[Note, Chord], note2: U[Note, Chord],
     note2 = asChord(note2)
     note1 = note1.clone(dur=note1.dur or notedur or Rat(1, 8))
     note2 = note2.clone(dur=note2.dur or notedur or Rat(1, 8))
-    seq = EventSeq([note1, note2])
+    seq = Chain([note1, note2])
     return seq.cycle(totaldur)
+
+
+def packInVoices(objs: List[MusicObj]) -> List[Voice]:
+    return _musicobjtools.packInVoices(objs)
 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 if environment.insideJupyter:
-    _setJupyterHooks()
+    tools.m21JupyterHook()
 
 

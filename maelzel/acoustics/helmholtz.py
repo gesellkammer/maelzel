@@ -1,9 +1,14 @@
-from __future__ import division as _division, annotations
+"""
+Resonators
+"""
+from __future__ import annotations
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import *
 from math import pi, sqrt
 
 
 C = 343.
-_PI2 = pi*2.
 
 
 def resonfreq(V:float, A:float=pi * 0.01**2, L:float=0.05, c:float=C) -> float:
@@ -23,7 +28,7 @@ def resonfreq(V:float, A:float=pi * 0.01**2, L:float=0.05, c:float=C) -> float:
     """
     a = sqrt(A / (L*pi))    # radius of the neck if the neck was a tube
     L1 = L + 1.7*a
-    return c / _PI2 * sqrt(A/(V*L1))
+    return c / pi*2. * sqrt(A/(V*L1))
 
 
 def resonvolume(f:float, A=pi* 0.01**2, L=0.05, c:float=C) -> float:
@@ -43,7 +48,7 @@ def resonvolume(f:float, A=pi* 0.01**2, L=0.05, c:float=C) -> float:
     """
     a = sqrt(A / (L*pi))    # radius of the neck if the neck was a tube
     L1 = L + 1.7*a
-    return A/((f*_PI2/c)**2 * L1)
+    return A/((f*pi*2/c)**2 * L1)
 
 
 def duct_unflanged_freq(L:float, radius:float, n:int, c:float=C) -> float:

@@ -1,7 +1,6 @@
 import os
 import itertools
 import logging
-from functools import lru_cache
 from math import sqrt
 
 from maelzel.snd.audiosample import Sample
@@ -9,7 +8,6 @@ from pitchtools import db2amp
 import csoundengine
 from csoundengine import csoundlib
 from maelzel.snd import vowels
-from maelzel.core import Chord
 
 
 from typing import List
@@ -49,8 +47,9 @@ class Instr:
         """
         if self._csoundInstr is None:
             logger.debug(f"creating CsoundInstr {self.name}")
-            self._csoundInstr = csoundengine.getSession().defInstr(name=self.name, body=self.instrBody,
-                                                                   init=self.instrInit)
+            session = csoundengine.getSession()
+            self._csoundInstr = session.defInstr(name=self.name, body=self.instrBody,
+                                                 init=self.instrInit)
         return self._csoundInstr
 
     def _getEvents(self, dur, gain=1, delay=0):
@@ -58,20 +57,25 @@ class Instr:
         event = [delay, dur] + args
         return [event]
 
-    def rec(self, dur, outfile=None, sr=44100, ksmps=64, gain=1, block=True) -> str:
+    def rec(self, dur, outfile:str=None, sr=44100, ksmps=64, block=True) -> str:
         """
         Record this Instr, return the soundfile generated
 
-        dur     : the duration of the recording
-        outfile : if given, the path to the generated soundfile.
-                  Otherwise a temp. file is generated
-        sr      : the samplerate of the sound
-        ksmps   : the ksmps used
+        Args:
+            dur: the duration of the recording
+            outfile: if given, the path to the generated soundfile.
+                Otherwise a temp. file is generated
+            sr: the samplerate of the sound
+            ksmps: the ksmps used
+            block: if True, wait until recording is finished
+
+        Returns:
+            the path of the recording
         """
         dur = max(dur, self.minDur)
         events = self._getEvents(dur=dur, gain=gain)
-        outfile, popen = csoundlib.rec_instr(body=self.instrBody, init=self.instrInit, outfile=outfile,
-                                             events=events, sr=sr, ksmps=ksmps, nchnls=self.nchnls)
+        outfile, popen = csoundlib.recInstr(body=self.instrBody, init=self.instrInit, outfile=outfile,
+                                            events=events, sr=sr, ksmps=ksmps, nchnls=self.nchnls)
         if block:
             popen.wait()
         return outfile
@@ -84,30 +88,6 @@ class Instr:
         sample = Sample(outfile)
         os.remove(outfile)
         return sample
-
-    @lru_cache(maxsize=4)
-    def chord(self, resolution=30, maxnotes=8, minamp=-50, maxfreq=12000, minfreq=0, t=-1.) -> Chord:
-        """
-        Returns the Chord at time `t`
-
-        Args:
-            resolution: Hz - the resolution of the analysis
-            maxnotes: n  - the maximum number of notes of the chord. Notes are sorted by amplitude
-            minamp: dB - the min. amp of a partial to be elegible
-            maxfreq: Hz - the max. freq of a partial to be elegible
-            minfreq: Hz - the min. freq of a partial to be elegible (it can't the lower than resolution)
-            t: the time at which to calculate the spectral chord
-        """
-        if t < 0:
-            t = self._chordTime()
-        dur = self.simTime
-        if t > dur*0.9:
-            dur = t * 1.4
-        spectrum = self.makeSpectrum(dur=dur, resolution=resolution)
-        mindur = dur * 0.3
-        notes = spectrum.chordAt(t, maxnotes=maxnotes, minamp=minamp, mindur=mindur,
-                                 minfreq=max(minfreq, resolution), maxfreq=maxfreq)
-        return Chord(notes)
 
     def play(self, dur, gain=1):
         instr = self.makeInstr()
@@ -328,7 +308,6 @@ def scaleAmps(n, maxdb=-3):
 
 class StaticSinesMono(Instr):
     @staticmethod
-    @lru_cache()
     def genBody(n):
         lines = [
             "igain = p4",

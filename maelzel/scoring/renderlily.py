@@ -17,6 +17,9 @@ from .core import Notation
 from .render import Renderer, RenderOptions
 from .quant import DurationGroup
 from . import quant, util
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import *
 
 
 logger = logging.getLogger("maelzel.scoring")
@@ -65,6 +68,7 @@ def _lilyNotehead(notehead:str, parenthesis:bool=False) -> str:
 def notationToLily(n: Notation) -> str:
     """
     Converts a Notation to its lilypond representation
+
     NB: we do not take tuplets into consideration here,
     since they should be taken care of at a higher level
     (see renderGroup)
@@ -85,30 +89,33 @@ def notationToLily(n: Notation) -> str:
 
     # notehead modifiers precede the note
     if n.noteheadHidden:
-        event += r" \once \hide NoteHead "
+        event += r" \once \hide NoteHead"
     elif n.notehead:
-        event += _lilyNotehead(n.notehead, n.noteheadParenthesis)
         event += " "
+        event += _lilyNotehead(n.notehead, n.noteheadParenthesis)
 
     if n.stem == 'hidden':
-        event += r" \once \hide Stem "
+        event += r" \once \override Stem.transparent = ##t"
+        # event += r" \once \hide Stem "
 
     graceGroup = n.getProperty("graceGroup")
-    if graceGroup is not None:
+    if graceGroup is not None or n.isGraceNote():
         base = 8
         dots = 0
+        event += " \grace"
         if graceGroup == "start":
-            event += " \grace { "
+            event += " {"
 
     if len(n.pitches) == 1:
         notename = n.notename()
+        event += " "
         event += _lilyNote(notename, baseduration=base, dots=dots, tied=n.tiedNext)
     else:
         lilypitches = []
         for i, pitch in enumerate(n.pitches):
             notename = n.notename(i)
             lilypitches.append(lilytools.makePitch(notename))
-        event += f"<{' '.join(lilypitches)}>{base}{'.'*dots}"
+        event += f" <{' '.join(lilypitches)}>{base}{'.'*dots}"
         if n.tiedNext:
             event += "~"
 
@@ -527,7 +534,7 @@ _horizontalSpacingXL = r"""
 
 def makeScore(score: quant.QuantizedScore,
               options: RenderOptions=None,
-              lilypondVersion:U[str, bool]=True,
+              lilypondVersion:Union[str, bool]=True,
               ) -> str:
     """
     Convert a list of QuantizedParts to a lilypond score (as str)
@@ -609,9 +616,7 @@ def makeScore(score: quant.QuantizedScore,
         _(partstr)
     _(r">>")
     _(r"}")  # end \score
-    out = emlib.textlib.joinPreservingIndentation(strs)
-    # out = "\n".join(strs)
-    return out
+    return emlib.textlib.joinPreservingIndentation(strs)
 
 
 class LilypondRenderer(Renderer):

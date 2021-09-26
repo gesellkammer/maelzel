@@ -9,28 +9,25 @@ def peakdetect(y_axis, x_axis=None, lookahead=500, delta = 0):
     Discovers peaks by searching for values which are surrounded by lower
     or larger values for maximas and minimas respectively
 
-    keyword arguments:
-    y_axis: A list containg the signal over which to find peaks
-    x_axis: A x-axis whose values correspond to the 'y_axis' list and is used
-        in the return to specify the postion of the peaks. If omitted the index
-        of the y_axis is used. (default: None)
-    lookahead: (optional) distance to look ahead from a peak candidate to
-        determine if it is the actual peak (default: 500) 
-        '(sample / period) / f' where '4 >= f >= 1.25' might be a good value
-    delta: (optional) this specifies a minimum difference between a peak and
-        the following points, before a peak may be considered a peak. Useful
-        to hinder the algorithm from picking up false peaks towards to end of
-        the signal. To work well delta should be set to 'delta >= RMSnoise * 5'.
-        (default: 0)
-            Delta function causes a 20% decrease in speed, when omitted
-            Correctly used it can double the speed of the algorithm
+    Args:
+        y_axis (array like): A list containg the signal over which to find peaks
+        x_axis (array like): A x-axis whose values correspond to the 'y_axis' list and
+            is used in the return to specify the postion of the peaks. If omitted the index
+            of the y_axis is used. (default: None)
+        lookahead: (optional) distance to look ahead from a peak candidate to
+            determine if it is the actual peak (default: 500)
+            '(sample / period) / f' where '4 >= f >= 1.25' might be a good value
+        delta: (optional) this specifies a minimum difference between a peak and
+            the following points, before a peak may be considered a peak. Useful
+            to hinder the algorithm from picking up false peaks towards to end of
+            the signal. To work well delta should be set to 'delta >= RMSnoise * 5'.
+            (default: 0)
+                Delta function causes a 20% decrease in speed, when omitted
+                Correctly used it can double the speed of the algorithm
 
-    Returns
-    =======
-
-    (maxima, minima) 
-
-    maxima, minima: lists of (position, peak_value) for each peak
+    Returns:
+        (maxima, minima)
+        maxima, minima: lists of (position, peak_value) for each peak
 
     NB: to get the average peak value do:
 
@@ -108,6 +105,7 @@ def peakdetect(y_axis, x_axis=None, lookahead=500, delta = 0):
 def peakdetect_zerocrossing(y_axis, x_axis=None, window=49):
     """
     Algorithm for detecting local maximas and minimas in a signal.
+
     Discovers peaks by dividing the signal into bins and retrieving the
     maximum and minimum value of each the even and odd bins respectively.
     Division into bins is performed by smoothing the curve and finding the
@@ -119,18 +117,16 @@ def peakdetect_zerocrossing(y_axis, x_axis=None, window=49):
     that the first and last peak will probably not be found, as this algorithm
     only can find peaks between the first and last zero crossing.
 
-    y_axis: A list containg the signal over which to find peaks
-    x_axis: A x-axis whose values correspond to the 'y_axis' list and is used
-        in the return to specify the postion of the peaks. If omitted the index
-        of the y_axis is used. (default: None)
-    window: the dimension of the smoothing window; should be an odd integer
+    Args:
+        y_axis: A list containg the signal over which to find peaks
+        x_axis: A x-axis whose values correspond to the 'y_axis' list and is used
+            in the return to specify the postion of the peaks. If omitted the index
+            of the y_axis is used. (default: None)
+        window: the dimension of the smoothing window; should be an odd integer
 
-    Returns
-    =======
-
-    (maxima, minima) 
-
-    maxima, minima: lists of (position, peak_value) for each peak
+    Returns:
+        a tuple (maxima, minima).
+        maxima, minima: lists of (position, peak_value) for each peak
 
     NB: to get the average peak value do:
 
@@ -181,22 +177,25 @@ def smooth(x, window_len=11, window='hanning'):
     (with the window size) in both ends so that transient parts are minimized
     in the begining and end part of the output signal.
 
-    input:
+    Args:
         x: the input signal 
         window_len: the dimension of the smoothing window; should be an odd integer
         window: the type of window from 'flat', 'hanning', 'hamming', 'bartlett', 'blackman'
             flat window will produce a moving average smoothing.
 
-    output:
+    Retrns:
         the smoothed signal
 
-    example:
+    Example
+    ~~~~~~~
 
-    t=linspace(-2,2,0.1)
-    x=sin(t)+randn(len(t))*0.1
-    y=smooth(x)
+        >>> import numpy as np
+        >>> t = np.linspace(-2,2,0.1)
+        >>> x = np.sin(t) + np.randn(len(t))*0.1
+        >>> y = smooth(x)
 
-    see also: 
+    See Also
+    ~~~~~~~~
 
     numpy.hanning, numpy.hamming, numpy.bartlett, numpy.blackman, numpy.convolve
     scipy.signal.lfilter
@@ -226,19 +225,19 @@ def smooth(x, window_len=11, window='hanning'):
 
 def zero_crossings(y_axis, x_axis = None, window = 49):
     """
-    Algorithm to find zero crossings. Smoothens the curve and finds the
-    zero-crossings by looking for a sign change.
+    Algorithm to find zero crossings.
 
+    Smoothens the curve and finds the zero-crossings by looking for a sign change.
 
-    keyword arguments:
-    y_axis -- A list containg the signal over which to find zero-crossings
-    x_axis -- A x-axis whose values correspond to the 'y_axis' list and is used
-        in the return to specify the postion of the zero-crossings. If omitted
-        then the indice of the y_axis is used. (default: None)
-    window -- the dimension of the smoothing window; should be an odd integer
-        (default: 49)
+    Args:
+        y_axis: A list containg the signal over which to find zero-crossings
+        x_axis: A x-axis whose values correspond to the 'y_axis' list and is used
+            in the return to specify the postion of the zero-crossings. If omitted
+            then the indice of the y_axis is used. (default: None)
+        window: the dimension of the smoothing window; should be an odd integer
 
-    return -- the x_axis value or the indice for each zero-crossing
+    Returns:
+        the x_axis value or the indice for each zero-crossing
     """
     # smooth the curve
     length = len(y_axis)
@@ -257,24 +256,3 @@ def zero_crossings(y_axis, x_axis = None, window = 49):
         raise ValueError("smoothing window too small, false zero-crossings found")
     return times
 
-
-if __name__ == "__main__":
-    import pylab
-    from math import pi
-
-    i = 10000
-    x = np.linspace(0,3.7 * pi,i)
-    y = 0.3 * np.sin(x) + np.sin(1.3 * x) + 0.9 * np.sin(4.2 * x) + 0.06 * np.random.randn(i)
-    y *= -1
-    x = list(range(i))
-
-    _max, _min = peakdetect(y,x,750, 0.30)
-    xm = [p[0] for p in _max]
-    ym = [p[1] for p in _max]
-    xn = [p[0] for p in _min]
-    yn = [p[1] for p in _min]
-
-    plot = pylab.plot(x,y)
-    pylab.hold(True)
-    pylab.plot(xm, ym, 'r+')
-    pylab.plot(xn, yn, 'g+')

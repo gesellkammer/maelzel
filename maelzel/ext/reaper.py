@@ -104,6 +104,7 @@ def get_markers(rpp_file:str) -> List[Marker]:
 def write_markers(csvfile: str, markers):
     """
     Writes a list of markers to disk as a .csv file.
+
     Reaper exchanges markers and regions as .csv with format
 
     id, Name, Start, End, Length, Color

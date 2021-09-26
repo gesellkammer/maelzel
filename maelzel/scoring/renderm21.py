@@ -3,9 +3,8 @@ This module implements a music21 renderer, converts our own
 intermediate representation as defined after quantization
 into musicxml and renders that musicxml via musescore.
 """
-
+from __future__ import annotations
 import os
-import logging
 import tempfile
 from emlib.iterlib import pairwise
 import emlib.img
@@ -14,16 +13,16 @@ import music21 as m21
 from maelzel.music import m21tools, m21fix
 from maelzel import musicxml as mxml
 
-
 from .common import *
 from .core import Notation
 from .render import Renderer, RenderOptions
 from . import quant
 from . import util
 from . import definitions
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import *
 
-
-logger = logging.getLogger("maelzel.scoring")
 
 # See https://www.w3.org/2021/06/musicxml40/musicxml-reference/data-types/notehead-value/
 _noteheadToMusic21 = {

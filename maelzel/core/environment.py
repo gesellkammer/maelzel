@@ -1,13 +1,25 @@
+"""
+Functionality to deal with the environment in which maelzel.core is running
+
+By environment we understand the platform, os and external applications
+needed to perform certain tasks
+"""
 from __future__ import annotations
 import sys
 import shutil
-from typing import List, Optional as Opt
-from emlib import misc
+from typing import Optional as Opt
+import emlib.misc
 import logging
 
 
-insideJupyter = misc.inside_jupyter()
+insideJupyter = emlib.misc.inside_jupyter()
 logger = logging.getLogger("maelzel")
+
+
+_linuxImageViewers = [
+    ('feh', 'feh --image-bg white'),
+    ('imv', 'imv -b "#ffffff"')
+]
 
 
 def hasBinary(binary:str) -> bool:
@@ -16,28 +28,36 @@ def hasBinary(binary:str) -> bool:
     return False
 
 
-def defaultImageViewer() -> Opt[str]:
+def preferredImageViewer() -> Opt[str]:
     """
     Returns a command string or None if no default was found.
+
     For that case, use emlib.misc.open_with_standard_app
+
+    We try to find installed viewers which might work best for displaying
+    a single image, possibly as fast as possible and without any added
+    functionallity. If no such app is found, we return None and let the
+    os decide which app to use.
     """
     if sys.platform == 'linux':
-        if hasBinary('feh'):
-            return 'feh --image-bg white'
-        elif hasBinary('imv'):
-            return 'imv -b "#ffffff"'
+        for binary, cmd in _linuxImageViewers:
+            if hasBinary(binary):
+                return cmd
     return None
 
 
-def viewPng(path:str, wait=False, app:str='') -> None:
+def openPngWithExternalApplication(path:str, wait=False, app:str= '') -> None:
+    """
+    Open the given png file
+    """
     if app:
-        return misc.open_with(path, app, wait=wait)
+        return emlib.misc.open_with_app(path, app, wait=wait)
 
-    cmd = defaultImageViewer()
+    cmd = preferredImageViewer()
     if cmd:
-        misc.open_with(path, cmd, wait=wait)
+        emlib.misc.open_with_app(path, cmd, wait=wait)
     else:
-        misc.open_with_standard_app(path, wait=wait)
+        emlib.misc.open_with_app(path, wait=wait)
 
 
 

@@ -1,8 +1,13 @@
+"""
+Utilities to generate vocal and manipulate vocal sounds
+
+"""
+from __future__ import annotations
 from math import pi, sqrt
-from dataclasses import dataclass
 
 import bpf4 as bpf
 from pitchtools import *
+from dataclasses import dataclass
 import csoundengine
 
 from emlib.iterlib import flatten
@@ -10,7 +15,9 @@ from emlib.misc import runonce
 
 from maelzel.core import Chord, Note
 
-from typing import List, Union as U, Tuple as Tup, Dict
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import *
 
 
 @dataclass
@@ -33,7 +40,7 @@ class Vowel:
         return Vowel(bws=bws, dbs=self.dbs, freqs=self.freqs)
 
 
-def getVowel(descr: U[str, Tup[str, str]]) -> Vowel:
+def getVowel(descr: Union[str, Tuple[str, str]]) -> Vowel:
     """
     Args:
         descr: a string of the form "vocal:register", like "i:bass", or
@@ -288,14 +295,14 @@ def _vowelInstrFof2():
     return instr
 
 
-def instrData(vowel: U[str, Vowel]) -> List[float]:
+def instrData(vowel: Union[str, Vowel]) -> List[float]:
     vowel = asVowel(vowel)
     amps = [db2amp(db) for db in vowel.dbs]
     data = list(flatten(zip(vowel.freqs, vowel.bws, amps)))
     return data
 
 
-def _synthVowelFof2(midinote: U[float, Tup[float, float]], vowel: U[str, Vowel], dur:float,
+def _synthVowelFof2(midinote: Union[float, Tuple[float, float]], vowel: Union[str, Vowel], dur:float,
                     vibrate=0., vibamount=0.25, gain=1.0
                     ) -> csoundengine.synth.AbstrSynth:
     """
@@ -322,8 +329,8 @@ def _synthVowelFof2(midinote: U[float, Tup[float, float]], vowel: U[str, Vowel],
     return synth
 
 
-def synthVowel(midinote: U[float, Tup[float, float]],
-               vowel: U[str, Vowel],
+def synthVowel(midinote: Union[float, Tuple[float, float]],
+               vowel: Union[str, Vowel],
                dur=4.,
                gain=1.0,
                method='fof2',
@@ -382,9 +389,19 @@ def _overtones_tri(f0, maxfreq):
     return overtones
 
 
-def _overtones_saw(f0, maxfreq):
+def _overtones_saw(f0: float, maxfreq: float) -> List[Tuple[float, float]]:
     """
-    saw: includes all harmonics, An = 1/2
+    Calculate overtones for a saw signal
+
+    A saw waveform includes all harmonics, Amp_n = 1/n
+
+    Args:
+        f0: fundamental
+        maxfreq: max. freq to calculate
+
+    Returns:
+        a list of tuples (freq, amp)
+
     """
     overtones = []
     for n in range(1, 1000000, 1):
@@ -418,10 +435,19 @@ def _overtones_const(f0, maxfreq):
     return overtones
 
 
-def makeOvertones(f0, model='saw', maxfreq=8000):
+def makeOvertones(f0: float, model='saw', maxfreq=8000
+                  ) -> List[Tuple[float, float]]:
     """
-    model:
-        one of 'saw', 'tri', 'square', 'const' (all overtones have the same amplitude)
+    Generate overtones for the given fundamental
+
+    Args:
+        f0: the fundamental
+        model: one of 'saw', 'tri', 'square', 'const' (all overtones have the
+            same amplitude)
+        maxfreq: max. frequency
+
+    Returns:
+        a list of tuples (freq, amplitude) for each overtone generated
     """
     if model == 'saw':
         pairs = _overtones_saw(f0, maxfreq=maxfreq)
@@ -439,6 +465,13 @@ def makeOvertones(f0, model='saw', maxfreq=8000):
 def findVowel(freqs: List[float]) -> str:
     """
     Find the vowel whose formant freqs are nearest to the freqs given
+    
+    Args:
+        freqs: formant frequencies
+        
+    Returns:
+        a string describing the vowel with the format {vowel}:{register} 
+        ("a:tenor")
     """
 
     def vowelDistance(voweldef: Vowel, freqs: List[float]) -> float:
@@ -458,7 +491,7 @@ def findVowel(freqs: List[float]) -> str:
     return f"{vowel}:{register}"
 
 
-def asVowel(vowel: U[str, Vowel]) -> Vowel:
+def asVowel(vowel: Union[str, Vowel]) -> Vowel:
     """
     Converts a string to a Vowel.
 
@@ -492,7 +525,7 @@ def listVowels():
 
 
 class VowelFilter:
-    def __init__(self, vowel, bwmul=1.0, gain=1.0, bwknee=0.1) -> None:
+    def __init__(self, vowel:Union[str, Vowel], bwmul=1.0, gain=1.0, bwknee=0.1) -> None:
         """
         a VowelFilter uses a vowel definition to generate a spectral surface,
         mapping frequency to gain
@@ -526,15 +559,19 @@ class VowelFilter:
             curves.append(b)
         return bpf.core.Max(*curves)
 
-    def filter(self, overtones, mindb=-90, wet=1.0):
+    def filter(self, overtones: List[Tuple[float, float]], mindb=-90, wet=1.0):
         """
         Returns a Chord with the filtered overtones
 
-        overtones: as generated via makeOvertones
-        mindb: min. amplitude to be present in the result
-        wet: the result is a combination of the original overtones and the
-            filtered result. When wet is 1, the result is composed only of
-            the filtered result.
+        Args:
+            overtones: as generated via makeOvertones (a list of tuples (freq, amp))
+            mindb: min. amplitude to be present in the result
+            wet: the result is a combination of the original overtones and the
+                filtered result. When wet is 1, the result is composed only of
+                the filtered result.
+        
+        Returns:
+            a Chord with the filtered overtones
         """
         return vocalChord(overtones, self, mindb=mindb, wet=wet)
 
@@ -548,8 +585,8 @@ def vocalChordFromF0(f0, vowel, model='saw', mindb=-90, wet=1.0):
                       wet=wet)
 
 
-def vocalChord(overtones: List[Tup[float, float]],
-               vowelfilter: U[VowelFilter, str],
+def vocalChord(overtones: List[Tuple[float, float]],
+               vowelfilter: Union[VowelFilter, str],
                mindb=-90,
                wet=1.0) -> Chord:
     """
@@ -558,15 +595,19 @@ def vocalChord(overtones: List[Tup[float, float]],
         vowelfilter: a VowelFilter or a string description of a vowel (eg: "a:male")
         mindb: after filtering only overtones with a min. db of mindb will be kept
 
-    See Also: vocalChordFromF0
+    See Also
+    ~~~~~~~~
+
+    vocalChordFromF0
 
     Example
     ~~~~~~~
 
-    >>> exciter = makeOvertones(50)
-    >>> filter = VowelFilter(asVowel("a:male")
-    >>> chord = vocalChord(exciter, filter, mindb=-60)
-    >>> chord
+        >>> exciter = makeOvertones(50, model='saw')
+        >>> filter = VowelFilter(asVowel("a:male")
+        >>> chord = vocalChord(exciter, filter, mindb=-60)
+        >>> chord.show()
+        >>> chord.clone(dur=10).play(instr='sin')
     """
     if isinstance(vowelfilter, str):
         vowelfilter = VowelFilter(asVowel(vowelfilter))

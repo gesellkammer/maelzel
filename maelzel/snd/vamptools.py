@@ -1,8 +1,11 @@
+from __future__ import annotations
 import vamp
 import vamp.frames
 import numpy as np
-from typing import Tuple, NamedTuple, List
 import numpyx
+from typing import TYPE_CHECKING, NamedTuple
+if TYPE_CHECKING:
+    from typing import Tuple, List, Set
 
 
 _pyin_threshold_distrs = {
@@ -15,11 +18,28 @@ _pyin_threshold_distrs = {
     "single20": 7
 }
 
+_cache = {
+}
+
 
 class Note(NamedTuple):
     timestamp: float
     frequency: float
     duration: float
+
+
+def list_plugins() -> Set[str]:
+    """
+    List all available vamp plugins
+
+    Returns:
+        A set of plugin identifiers
+    """
+    if (plugins := _cache.get('plugins')) is not None:
+        return plugins
+    plugins = vamp.list_plugins()
+    _cache['plugins'] = set(plugins)
+    return plugins
 
 
 def pyin_notes(samples: np.ndarray, sr:int,
@@ -29,7 +49,9 @@ def pyin_notes(samples: np.ndarray, sr:int,
                onset_sensitivity=0.9,
                prune_thresh=0.1) -> List[Tuple[float, float, float]]:
     """
-    Notes detection
+    Notes detection. Uses pyin
+
+    pYIN vamp plugin: https://code.soundsoftware.ac.uk/projects/pyin/files
 
     Args:
         samples (np.ndarray): the sample data (mono)
@@ -45,6 +67,19 @@ def pyin_notes(samples: np.ndarray, sr:int,
         a list of Notes, where each Note is a namedtuple with attributes:
         (time, freq, duration)
     """
+    if 'pyin:pyin' not in list_plugins():
+        import webbrowser
+        url = "https://code.soundsoftware.ac.uk/projects/pyin"
+        downloadurl = "https://code.soundsoftware.ac.uk/projects/pyin/files"
+        infourl = "https://www.vamp-plugins.org/download.html?platform=linux64&search=key&go=Go#install"
+        webbrowser.open(url)
+        webbrowser.open(infourl)
+        print(f"Vamp plugin 'pyin' not found. Download it from {downloadurl}, "
+              f"install it by following these instructions: {infourl}\n"
+              f"Check the installation by calling list_plugins() and verify that"
+              f"pyin:pyin is listed")
+        raise RuntimeError("Plugin 'pyin' not found")
+
     if len(samples.shape) > 1:
         samples = samples[:,0]
     threshdistridx = _pyin_threshold_distrs.get(thresh_distr)
@@ -87,9 +122,12 @@ def pyin_pitchtrack(samples:np.ndarray, sr:int,
                     prune_thresh=0.1
                     ) -> np.ndarray:
     """
-    Analyze the samples and extract, for each measurement, the
-    fundamental frequency and the voicedness probability (the
-    confidence that sound is pitched at a given time).
+    Analyze the samples and extract fundamental and voicedness
+
+    For each measurement calculates the fundamental frequency and the voicedness
+    probability  (the confidence that sound is pitched at a given time).
+
+    pYIN vamp plugin: https://code.soundsoftware.ac.uk/projects/pyin/files
 
     **NB**: the returned array is of type float32
 
@@ -128,14 +166,15 @@ def pyin_pitchtrack(samples:np.ndarray, sr:int,
         # play both the sample and the f0 to check
         tabnum = ce.makeTable(samples, sr=sr, block=True)
         ce.playSample(tabnum)
-        synth = ce.getManager().sched('.sine', pargs={'kmidi':pitch(0)})
+        synth = ce.session().sched('.sine', pargs={'kmidi':pitch(0)})
         synth.automatePargs('kmidi', pitch.flat_pairs())
         synth.automatePargs('kamp', pitchpitch.flat_pairs())
 
-
-
         TODO
     """
+    assert 'pyin:pyin' in list_plugins(), \
+        "Vamp plugin 'pyin' not found. Install it from https://code.soundsoftware.ac.uk/projects/pyin"
+
     if len(samples.shape) > 1:
         samples = samples[:,0]
     threshdistridx = _pyin_threshold_distrs.get(thresh_distr)
@@ -238,6 +277,9 @@ def pyin_smoothpitch(samples: np.ndarray, sr:int,
     single20       Single value 0.20
     ============   ============
     """
+    assert 'pyin:pyin' in list_plugins(), \
+        "Vamp plugin 'pyin' not found. Install it from https://code.soundsoftware.ac.uk/projects/pyin"
+
     if len(samples.shape) > 1:
         samples = samples[:,0]
     threshdistridx = _pyin_threshold_distrs.get(thresh_distr)

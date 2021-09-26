@@ -1,3 +1,8 @@
+"""
+Functionality to interface with maelzel.scoring
+
+"""
+from __future__ import annotations
 from ._common import *
 from .workspace import getConfig, currentWorkspace
 
@@ -7,11 +12,15 @@ import music21 as m21
 
 import configdict
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import *
 
-def scoringPartToMusic21(part: U[ scoring.Part, List[scoring.Notation] ],
-                         struct: Opt[ScoreStruct] = None,
+
+def scoringPartToMusic21(part: Union[ scoring.Part, List[scoring.Notation] ],
+                         struct: Optional[ScoreStruct] = None,
                          config: dict=None
-                         ) -> U[m21.stream.Score, m21.stream.Part]:
+                         ) -> Union[m21.stream.Score, m21.stream.Part]:
     """
     Creates a m21 Part from the given events according to the config
 
@@ -32,10 +41,10 @@ def scoringPartToMusic21(part: U[ scoring.Part, List[scoring.Notation] ],
     return m21score.voices[0]
 
 
-def scoringPartsToMusic21(parts: List[U[scoring.Part, List[scoring.Notation]]],
-                          struct: Opt[ScoreStruct] = None,
+def scoringPartsToMusic21(parts: List[Union[scoring.Part, List[scoring.Notation]]],
+                          struct: Optional[ScoreStruct] = None,
                           config:dict=None
-                          ) -> U[m21.stream.Score]:
+                          ) -> Union[m21.stream.Score]:
     """
     Render the given scoring Parts as music21
 

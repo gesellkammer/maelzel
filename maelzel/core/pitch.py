@@ -4,6 +4,7 @@ import functools
 
 from maelzel import scoring
 from pitchtools import m2n, m2f, f2m
+import emlib.img
 
 from ._common import *
 from .workspace import getConfig
@@ -11,7 +12,7 @@ from . import tools
 from . import notation
 
 
-@functools.lru_cache(maxsize=1000)
+@functools.cache
 def _makeImageForPitch(notename: str) -> str:
     cfg = getConfig()
     n = scoring.makeNote(notename, duration=cfg['defaultDuration'])
@@ -23,8 +24,6 @@ def _makeImageForPitch(notename: str) -> str:
 
 
 class Pitch:
-
-    _classInitialized = False
 
     __slots__ = ("midi")
 
@@ -72,24 +71,14 @@ class Pitch:
     def makeImage(self) -> str:
         return _makeImageForPitch(self.name)
 
-    @classmethod
-    def setJupyterHook(cls) -> None:
-        """
-        Sets the jupyter display hook for this class
+    def _htmlImage(self):
+        imgpath = self.makeImage()
+        scaleFactor = getConfig().get('show.scaleFactor', 1.0)
+        width, height = emlib.img.imgSize(imgpath)
+        img = emlib.img.htmlImgBase64(imgpath,
+                                      width=f'{int(width*scaleFactor)}px')
+        return img
 
-        """
-        if cls._classInitialized:
-            return
-        from IPython.core.display import Image
-
-        def reprpng(obj: Pitch):
-            imgpath = obj.makeImage()
-            scaleFactor = getConfig().get('show.scaleFactor', 1.0)
-            if scaleFactor != 1.0:
-                imgwidth, imgheight = tools.imgSize(imgpath)
-                width = imgwidth*scaleFactor
-            else:
-                width = None
-            return Image(filename=imgpath, embed=True, width=width)._repr_png_()
-
-        tools.setJupyterHookForClass(cls, reprpng, fmt='image/png')
+    def _repr_html_(self) -> str:
+        img = self._htmlImage()
+        return f"<code>{repr(self)}</code><br>"+img

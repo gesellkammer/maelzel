@@ -17,16 +17,21 @@ import pitchtools as pt
 import csoundengine
 
 from ._common import *
-from .workspace import currentWorkspace, getConfig, currentScoreStructure
+from .workspace import currentWorkspace, getConfig, currentScoreStruct
 from . import play
 from . import tools
 from . import environment
 from . import symbols
 from . import notation
+from maelzel.scoring import enharmonics
+
 from .csoundevent import PlayArgs, CsoundEvent, cropEvents
 
 from maelzel.scorestruct import ScoreStruct
-from typing import TypeVar as _TypeVar
+from typing import TYPE_CHECKING, TypeVar as _TypeVar
+if TYPE_CHECKING:
+    from typing import *
+    from .typedefs import time_t
 
 
 _T = _TypeVar('_T', bound='MusicObj')
@@ -70,7 +75,7 @@ class MusicObj:
 
     def __init__(self, dur: time_t = None, start: time_t = None, label: str = ''):
 
-        self.label: Opt[str] = label
+        self.label: Optional[str] = label
         "a label can be used to identify an object within a group of objects"
 
         # A MusicObj can have a duration. A duration can't be 0
@@ -80,27 +85,30 @@ class MusicObj:
                 dur = Rat(MAXDUR)
             else:
                 assert dur > 0
-        self.dur: Opt[Rat] = asRat(dur) if dur is not None else None
+        self.dur: Optional[Rat] = asRat(dur) if dur is not None else None
 
-        self.start: Opt[Rat] = asRat(start) if start is not None else None
+        self.start: Optional[Rat] = asRat(start) if start is not None else None
         "start specifies a time offset for this object"
 
         # _playargs are set via .setplay and serve the purpose of
         # attaching playing parameters (like position, instrument)
         # to an object
-        self._playargs: Opt[PlayArgs] = None
+        self._playargs: Optional[PlayArgs] = None
 
         # All MusicObjs should be hashable. For the cases where
         # calculating the hash is expensive, we cache that here
         self._hash: int = 0
 
-        self._symbols: Opt[List[symbols.Symbol]] = None
+        self._symbols: Optional[List[symbols.Symbol]] = None
 
     @property
     def symbols(self) -> List[symbols.Symbol]:
         if self._symbols is None:
             return []
         return self._symbols
+
+    def pitchRange(self) -> Optional[Tuple[float, float]]:
+        return None
 
     def resolvedDuration(self) -> Rat:
         """
@@ -186,6 +194,7 @@ class MusicObj:
             setattr(out, k, v)
         if self._playargs is not None:
             out._playargs = self._playargs.copy()
+        out._changed()
         return out
 
     def copy(self):
@@ -214,7 +223,7 @@ class MusicObj:
         return self.timeShift(-timeoffset)
 
     @property
-    def end(self) -> Opt[Rat]:
+    def end(self) -> Optional[Rat]:
         """ The end time of this object. Will be None if
         this object has no duration or no start"""
         if self.dur is None or self.start is None:
@@ -240,7 +249,8 @@ class MusicObj:
                 even when inside a jupyter notebook. If False, show will
                 display the image inline if inside a notebook environment.
                 To change the default, modify ``config['show.external']``
-            backend: None to use default
+            backend: backend used when rendering to png/pdf.
+                One of 'lilypond', 'music21'. None to use default
                 (see ``config['show.backend']``)
             fmt: one of 'png', 'pdf', 'ly'. None to use default
 
@@ -257,7 +267,7 @@ class MusicObj:
             if external:
                 lyfile = _tempfile.mktemp(suffix=".ly")
                 self.write(lyfile)
-                emlib.misc.open_with_standard_app(lyfile)
+                emlib.misc.open_with_app(lyfile)
             else:
                 lyscore = _generateLilypondScore(self)
                 tools.showLilypondScore(lyscore)
@@ -266,7 +276,7 @@ class MusicObj:
         if fmt == 'png':
             tools.pngShow(img, forceExternal=external)
         else:
-            emlib.misc.open_with_standard_app(img)
+            emlib.misc.open_with_app(img)
 
     def _changed(self) -> None:
         """
@@ -318,12 +328,14 @@ class MusicObj:
         """
         raise NotImplementedError("Subclass should implement this")
 
-    def scoringParts(self) -> List[scoring.Part]:
+    def scoringParts(self, options: scoring.render.RenderOptions=None
+                     ) -> List[scoring.Part]:
         """
         Returns this object as a list of scoring Parts.
         """
         notations = self.scoringEvents()
         scoring.stackNotationsInPlace(notations)
+        enharmonics.fixEnharmonicsInPlace(notations)
         parts = scoring.distributeNotationsByClef(notations)
         return parts
 
@@ -331,7 +343,7 @@ class MusicObj:
         parts = self.scoringParts()
         return scoring.Score(parts, title=title)
 
-    def _scoringAnnotation(self) -> Opt[scoring.Annotation]:
+    def _scoringAnnotation(self) -> Optional[scoring.Annotation]:
         """ Returns owns annotations as a scoring Annotation """
         if not self.label:
             return None
@@ -390,6 +402,13 @@ class MusicObj:
                 If not given, the default defined in the current
                 configuration is used (key: 'show.backend')
         """
+        if outfile == '?':
+            outfile = tools.selectFileForSave(key="writeLastDir",
+                                              filter="Image (*.pdf, *.png);; "
+                                                     "Text (*.ly, *.xml)")
+            if not outfile:
+                logger.info("File selection cancelled")
+                return
         ext = os.path.splitext(outfile)[1]
         if ext == '.ly':
             backend = 'lilypond'
@@ -444,9 +463,9 @@ class MusicObj:
         Returns the CsoundEvents needed to play this object
 
         An object always has a start time. It can be unset (None), which defaults to 0
-        but can also mean unset for contexts where this is meaningful (a sequence of Notes,
-        for example, where they are concatenated one after the other, the start time
-        is the end of the previous Note)
+        but can also mean unset for contexts where this is meaningful (a sequence of
+        Notes, for example, where they are concatenated one after the other, the start
+        time is the end of the previous Note)
 
         All these attributes here can be set previously via .playargs (or
         using .setplay)
@@ -455,6 +474,7 @@ class MusicObj:
             scorestruct: the :class:`ScoreStructure` used to map beat-time to
                 real-time. If not given the current/default :class:`ScoreStructure`
                 is used.
+            config: the configuration used (see :func:`maelzel.core.workspace.newConfig`)
 
         Keywords:
 
@@ -481,9 +501,15 @@ class MusicObj:
                  1.000s:  60, 1.000000]
 
         """
-        playargs = PlayArgs(**kws)
+        instr = kws.pop('instr', None)
+        if instr == "?":
+            from .presetman import presetManager
+            instr = presetManager.selectPreset()
+            if not instr:
+                raise ValueError("No preset selected")
+        playargs = PlayArgs(instr=instr, **kws)
         if scorestruct is None:
-            scorestruct = currentScoreStructure()
+            scorestruct = currentScoreStruct()
         events = self.csoundEvents(playargs, scorestruct, config or getConfig())
         return events
 
@@ -494,7 +520,7 @@ class MusicObj:
              gain: float = None,
              chan: int = None,
              pitchinterpol: str = None,
-             fade: U[float, Tuple[float, float]] = None,
+             fade: Union[float, Tuple[float, float]] = None,
              fadeshape: str = None,
              position: float = None,
              scorestruct: ScoreStruct = None,
@@ -514,7 +540,8 @@ class MusicObj:
             delay: delay in seconds, added to the start of the object
                 As opposed to the .start attribute of each object, which is defined
                 in symbolic (beat) time, the delay is always in real (seconds) time
-            instr: which instrument to use (see defInstrPreset, availableInstrPresets)
+            instr: which instrument to use (see defPreset, definedPresets). Use "?" to
+                select from a list of defined presets.
             chan: the channel to output to. **Channels start at 1**
             pitchinterpol: 'linear', 'cos', 'freqlinear', 'freqcos'
             fade: fade duration in seconds, can be a tuple (fadein, fadeout)
@@ -575,20 +602,39 @@ class MusicObj:
         """
         Is this object a Rest?
 
-        Rests are used as separators between objects inside an EventSeq or a Track
+        Rests are used as separators between objects inside an Chain or a Track
         """
         return False
 
     def supportedSymbols(self) -> List[str]:
         """
-        Returns a list of supported symbols
+        Returns a list of supported symbols for this object
         """
         out = []
         if self._acceptsNoteAttachedSymbols:
             out.extend(symbols.noteAttachedSymbols)
         return out
 
-    def setSymbol(self, symbol: U[symbols.Symbol, str], value=None):
+    def getSymbol(self, cls: str) -> Optional[symbols.Symbol]:
+        """
+        Get a symbol set for the given class
+
+        Args:
+            cls: the class name of the symbol (for example, "dynamic", "articulation",
+            etc)
+
+        Returns:
+            the set symbol, or None
+
+        """
+        if not self._symbols:
+            return None
+        cls = cls.lower()
+        for symbol in self._symbols:
+            if type(symbol).__name__.lower() == cls:
+                return symbol
+
+    def setSymbol(self, symbol: Union[symbols.Symbol, str], value=None):
         """
         Set a notation symbol in this object
 
@@ -608,7 +654,8 @@ class MusicObj:
         if isinstance(symbol, str):
             symbol = symbols.construct(symbol, value)
 
-        if isinstance(symbol, symbols.NoteAttachedSymbol) and not self._acceptsNoteAttachedSymbols:
+        if isinstance(symbol, symbols.NoteAttachedSymbol) \
+                and not self._acceptsNoteAttachedSymbols:
             raise ValueError(f"A {type(self)} does not accept note attached symbols")
         if not self._symbols:
             self._symbols = []
@@ -644,7 +691,7 @@ class MusicObj:
         Returns:
             the object after the transform
         """
-        raise NotImplementedError
+        raise NotImplementedError("Subclass should implement this")
 
     def timeScale(self:_T, factor: num_t, offset: num_t = 0) -> _T:
         transform = _TimeScale(asRat(factor), offset=asRat(offset))
@@ -655,12 +702,12 @@ class MusicObj:
         func = lambda pitch: pivotm*2 - pitch
         return self.pitchTransform(func)
 
-    def transpose(self:_T, interval: U[int, float]) -> _T:
+    def transpose(self:_T, interval: Union[int, float]) -> _T:
         return self.pitchTransform(lambda pitch: pitch+interval)
 
 
 def _renderObject(obj: MusicObj, outfile:str=None, backend:str=None, fmt='png',
-                  renderoptions: Opt[scoring.render.RenderOptions] = None
+                  renderoptions: Optional[scoring.render.RenderOptions] = None
                   ) -> str:
     """
     Given a music object, make an image representation of it.
@@ -685,7 +732,8 @@ def _renderObject(obj: MusicObj, outfile:str=None, backend:str=None, fmt='png',
     else:
         backends = {'music21', 'lilypond'}
         if backend not in backends:
-            raise ValueError(f"backend {backend} not supported. Should be one of {backends}")
+            raise ValueError(f"backend {backend} not supported. "
+                             f"Should be one of {backends}")
 
     if outfile is None:
         outfile = _tempfile.mktemp(suffix="." + fmt)
@@ -704,7 +752,7 @@ def _renderObject(obj: MusicObj, outfile:str=None, backend:str=None, fmt='png',
 
 
 def _generateLilypondScore(obj: MusicObj,
-                           renderoptions: Opt[scoring.render.RenderOptions]=None
+                           renderoptions: Optional[scoring.render.RenderOptions]=None
                            ) -> str:
     config = getConfig()
     if renderoptions is None:
@@ -717,7 +765,7 @@ def _generateLilypondScore(obj: MusicObj,
 
 @functools.lru_cache(maxsize=1000)
 def renderObject(obj:MusicObj, outfile:str=None, backend:str=None, fmt='png',
-                 renderoptions: Opt[scoring.render.RenderOptions] = None
+                 renderoptions: Optional[scoring.render.RenderOptions] = None
                  ) -> str:
     """
     Given a music object, make an image representation of it.
@@ -734,7 +782,7 @@ def renderObject(obj:MusicObj, outfile:str=None, backend:str=None, fmt='png',
     Returns:
         the path of the generated image
 
-    NB: we put it here in order to make it easier to cache images
     """
+    # NB: we put it here in order to make it easier to cache images
     return _renderObject(obj=obj, outfile=outfile, backend=backend, fmt=fmt,
                          renderoptions=renderoptions)

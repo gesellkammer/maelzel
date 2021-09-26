@@ -1,8 +1,7 @@
 """
 Frequency estimation of a signal with different algorithms
 """
-from __future__ import division, print_function
-from __future__ import absolute_import
+from __future__ import annotations
 import sys
 import numpy as np
 from scipy.signal import fftconvolve
@@ -12,13 +11,16 @@ import bpf4
 
 
 def parabolic(f:np.ndarray, x:int) -> Tup[float, float]:
-    """Quadratic interpolation for estimating the true position of an
+    """
+    Quadratic interpolation for estimating the true position of an
     inter-sample maximum when nearby samples are known.
-   
-    f: a vector (an array of sampled values over a regular grid)
-    x: index for that vector
-   
-    Returns (vx, vy), the coordinates of the vertex of a parabola that goes
+
+    Args:
+        f: a vector (an array of sampled values over a regular grid)
+        x: index for that vector
+
+    Returns:
+        (vx, vy), the coordinates of the vertex of a parabola that goes
     through point x and its two neighbors.
    
     Example
@@ -46,11 +48,13 @@ def find(condition) -> np.ndarray:
 
 def freq_from_crossings(sig:np.ndarray, sr:int) -> float:
     """Estimate frequency by counting zero crossings
-    
-    sig: a sampled signal
-    sr : sample rate
 
-    Returns -> the frequency of the signal
+    Args:
+        sig: a sampled signal
+        sr : sample rate
+
+    Returns:
+        the frequency of the signal
     """
     # Find all indices right before a rising-edge zero crossing
     indices = find((sig[1:] >= 0) & (sig[:-1] < 0))
@@ -70,10 +74,12 @@ def freq_from_crossings(sig:np.ndarray, sr:int) -> float:
 def freq_from_fft(sig:np.ndarray, sr:int) -> float:
     """Estimate frequency from peak of FFT
 
-    sig: a sampled signal
-    sr : sample rate
+    Args:
+        sig: a sampled signal
+        sr : sample rate
 
-    Returns -> the frequency of the signal
+    Returns:
+        the frequency of the signal
     """
     # Compute Fourier transform of windowed signal
     windowed = sig * blackmanharris(len(sig))
@@ -90,11 +96,13 @@ def freq_from_fft(sig:np.ndarray, sr:int) -> float:
 def freq_from_autocorr(sig:np.ndarray, sr:int) -> float:
     """
     Estimate frequency using autocorrelation
-    
-    sig: a sampled signal
-    sr : sample rate
 
-    Returns -> the frequency of the signal
+    Args:
+        sig: a sampled signal
+        sr : sample rate
+
+    Returns:
+        the frequency of the signal
     """
     # Calculate autocorrelation (same thing as convolution, but with 
     # one input reversed in time), and throw away the negative lags
@@ -137,7 +145,8 @@ def freq_from_HPS(sig:np.ndarray, sr:int, maxharms=5) -> float:
     return freq
 
 
-def frequency_bpf(sig:np.ndarray, sr:int, lowestfreq=100, steptime=0.01, method='autocorrelation'
+def frequency_bpf(sig:np.ndarray, sr:int, lowestfreq=100, steptime=0.01,
+                  method='autocorrelation'
                   ) -> bpf4.BpfInterface:
     windowsize = int(1/lowestfreq * sr)
     stepsize = int(steptime * sr)

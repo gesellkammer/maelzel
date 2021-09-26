@@ -1,9 +1,11 @@
 from __future__ import annotations
 import os
+import sys
 import shutil
 import music21 as m21
 from configdict import ConfigDict
 import re
+import emlib.misc
 from ._common import *
 
 
@@ -16,8 +18,8 @@ _default = {
     'm21.displayhook.install': True,
     'm21.displayhook.format': 'xml.png',
     'm21.fixStream': True,
-    'repr.showFreq':True,
-    'semitoneDivisions':4,
+    'repr.showFreq': True,
+    'semitoneDivisions': 4,
 
     'show.lastBreakpointDur':1/8,
     'show.cents': True,
@@ -42,6 +44,7 @@ _default = {
     'show.respellPitches': True,
     'show.horizontalSpacing': 'normal',
     'show.glissandoLineThickness': 2,
+    'show.fillDynamicFromAmplitude': False,
 
     'app.png': '',
     'displayhook.install': True,
@@ -64,6 +67,7 @@ _default = {
     'play.namedArgsMethod': 'table',
     'play.soundfontAmpDiv': 16384,
     'play.soundfontInterpolation': 'linear',
+    'play.verbose': False,
     'rec.block': False,
     'rec.samplerate': 44100,
     'rec.ksmps': 64,
@@ -73,7 +77,8 @@ _default = {
     'html.theme': 'light',
     'quant.minBeatFractionAcrossBeats': 1.0,
     'quant.nestedTuples': False,
-    'quant.complexity': 'middle'
+    'quant.complexity': 'middle',
+    'logger.level': 'INFO',
 }
 
 _validator = {
@@ -108,7 +113,8 @@ _validator = {
     'show.pageOrientation::choices': {'portrait', 'landscape'},
     'show.pageMarginMillimeters::range': (0, 1000),
     'show.horizontalSpacing::choices': {'normal', 'medium', 'large', 'xlarge'},
-    'show.glissandoLineThickness::choices': {1, 2, 3, 4}
+    'show.glissandoLineThickness::choices': {1, 2, 3, 4},
+    'logger.level::choices': {'DEBUG', 'INFO', 'WARNING', 'ERROR'}
 }
 
 _docs = {
@@ -165,6 +171,9 @@ _docs = {
     'show.glissandoLineThickness':
         'Line thinkness when rendering glissandi. The value is abstract and it is'
         'up to the renderer to interpret it',
+    'show.fillDynamicFromAmplitude':
+        'If True, when showing a musicobj as notation, if such object has an amplitude '
+        'and does not  have an explicit dynamic, add a dynamic according to the amplitude',
     'play.presetsPath': 'The path were presets are saved',
     'play.autosavePresets':
         'Automatically save user defined presets, so they will be available '
@@ -188,6 +197,8 @@ _docs = {
         'fade out when stopping a note',
     'play.soundfontInterpolation':
         'Interpolation used when reading sample data from a soundfont.',
+    'play.verbose':
+        'If True, outputs extra debugging information regarding playback',
     'show.backend':
         'method/backend used when rendering notation',
     'show.cents':
@@ -206,7 +217,6 @@ _docs = {
     'show.horizontalSpacing':
         'Hint for the renderer to adjust horizontal spacing. The actual result depends'
         'on the backend and the format used',
-
     'play.backend':
         'backend used for playback',
     'rec.path':

@@ -1,30 +1,30 @@
 from __future__ import annotations
 
-import dataclasses
-import re
+from dataclasses import dataclass
+import music21 as m21
+import PIL
+import bpf4 as bpf
+import pitchtools as pt
 
 import emlib.img
-import music21 as m21
-from emlib import misc
-import bpf4 as bpf
+import emlib.misc
+import emlib.dialogs
+
 from ._common import *
 from . import environment
-from fractions import Fraction
-import pitchtools as pt
-import math
-from .workspace import getConfig
 from . import symbols as _symbols
-from maelzel import scoring
-import PIL
-from typing import TYPE_CHECKING, NamedTuple
+from .state import appstate as _appstate
+from .workspace import getConfig
+from .environment import insideJupyter
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Set
+    from typing import *
+    from .typedefs import *
+    from maelzel import scoring
+    T = TypeVar("T")
 
 
 class AudiogenError(Exception): pass
-
-
-breakpoint_t = Tuple[float,...]
 
 
 _enharmonic_sharp_to_flat = {
@@ -129,7 +129,7 @@ def centsshown(centsdev:int, divsPerSemitone:int) -> str:
     return str(int(centsdev))
 
 
-if misc.inside_jupyter():
+if insideJupyter:
     from IPython.core.display import (display as jupyterDisplay, HTML as JupyterHTML,
                                       Image as JupyterImage)
 
@@ -138,7 +138,7 @@ def setJupyterHookForClass(cls, func, fmt='image/png'):
     """
     Register func as a displayhook for class `cls`
     """
-    if not misc.inside_jupyter():
+    if not insideJupyter:
         logger.debug("_setJupyterHookForClass: not inside IPython/jupyter, skipping")
         return
     import IPython
@@ -165,7 +165,7 @@ def jupyterMakeImage(path: str) -> JupyterImage:
         an IPython.core.display.Image
 
     """
-    if not misc.inside_jupyter():
+    if not insideJupyter:
         raise RuntimeError("Not inside a Jupyter session")
 
     scalefactor = getConfig()['show.scaleFactor']
@@ -185,7 +185,7 @@ def jupyterShowImage(path: str):
         path: the path to the image file
 
     """
-    if not misc.inside_jupyter():
+    if not insideJupyter:
         logger.error("jupyter is not available")
         return
 
@@ -202,7 +202,7 @@ def m21JupyterHook(enable=True) -> None:
         enable: if True, the hook will be set up and enabled
             if False, the hook is removed
     """
-    if not misc.inside_jupyter():
+    if not insideJupyter:
         logger.debug("m21JupyterHook: not inside ipython/jupyter, skipping")
         return
     from IPython.core.getipython import get_ipython
@@ -237,12 +237,13 @@ def pngShow(pngpath:str, forceExternal=False, app:str='') -> None:
             inside jupyter. Otherwise it will show inside an external
             app if running a normal session and show an embedded
             image if running inside a notebook
-
+        app: used if a specific external app is needed. Otherwise the os
+            defined app is used
     """
-    if misc.inside_jupyter() and not forceExternal:
+    if insideJupyter and not forceExternal:
         jupyterShowImage(pngpath)
     else:
-        environment.viewPng(pngpath, app=app)
+        environment.openPngWithExternalApplication(pngpath, app=app)
 
 
 def asmidi(x) -> float:
@@ -288,31 +289,6 @@ def asfreq(n) -> float:
         raise ValueError(f"cannot convert {n} to a frequency")
 
 
-def notes2ratio(n1, n2, maxdenominator=16) -> Fraction:
-    """
-    find the ratio between n1 and n2
-
-    n1, n2: notes -> "C4", or midinote (do not use frequencies)
-
-    Returns: a Fraction with the ratio between the two notes
-
-    NB: to obtain the ratios of the harmonic series, the second note
-        should match the intonation of the corresponding overtone of
-        the first note
-
-    C4 : D4       --> 8/9
-    C4 : Eb4+20   --> 5/6
-    C4 : E4       --> 4/5
-    C4 : F#4-30   --> 5/7
-    C4 : G4       --> 2/3
-    C4 : A4       --> 3/5
-    C4 : Bb4-30   --> 4/7
-    C4 : B4       --> 8/15
-    """
-    f1, f2 = asfreq(n1), asfreq(n2)
-    return Fraction.from_float(f1/f2).limit_denominator(maxdenominator)
-
-
 def midinotesNeedSplit(midinotes: List[float], splitpoint=60, margin=4
                        ) -> bool:
     if len(midinotes) == 0:
@@ -322,7 +298,7 @@ def midinotesNeedSplit(midinotes: List[float], splitpoint=60, margin=4
     return bool(numabove and numbelow)
 
 
-@dataclasses.dataclass
+@dataclass
 class NoteComponent:
     notename: str
     midi: float
@@ -361,17 +337,13 @@ def splitByAmp(midis: List[float], amps:List[float], numGroups=8, maxNotesPerGro
     return chords
 
 
-
-
-
-
 def showTime(f) -> str:
     if f is None:
         return "None"
     return f"{float(f):.3g}"
 
 
-def addColumn(mtx: U[List[List[T]], List[Tuple[T]]], col: List[T], inplace=False) -> List[List[T]]:
+def addColumn(mtx: Union[List[List[T]], List[Tuple[T]]], col: List[T], inplace=False) -> List[List[T]]:
     """
     Add a column to a list of lists/tuples
 
@@ -456,7 +428,7 @@ def normalizeFade(fade: fade_t,
 
 
 def applySymbols(symbols: List[_symbols.Symbol],
-                 notations: U[scoring.Notation, List[scoring.Notation]]) -> None:
+                 notations: Union[scoring.Notation, List[scoring.Notation]]) -> None:
     for symbol in symbols:
         if isinstance(symbol, _symbols.Dynamic):
             notations[0].dynamic = symbol.kind
@@ -476,8 +448,75 @@ def showLilypondScore(score: str) -> None:
     # TODO
     print(score)
     return
+
     if not environment.insideJupyter:
         print(score)
     else:
         html = _highlightLilypond(score)
         jupyterDisplay(JupyterHTML(html))
+
+
+def amplitudeToDynamics(amp: float) -> str:
+    from . import workspace
+    w = workspace.currentWorkspace()
+    dyncurve = w.dynamicsCurve
+    return dyncurve.amp2dyn(amp)
+
+
+def selectFromList(options: Sequence[str], title="", default=None) -> Optional[str]:
+    if environment.insideJupyter():
+        return emlib.dialogs.selectItem(options, title=title) or default
+    else:
+        # TODO: use tty tools, like fzf
+        return emlib.dialogs.selectItem(options, title=title) or default
+
+
+def selectFileForSave(key:str, filter="All (*.*)", prompt="Save File") -> Optional[str]:
+    """
+    Select a file for open via a gui dialog, remember the last directory
+
+    Args:
+        key: the key to use to remember the last directory
+        filter: for example "Images (*.png, *.jpg);; Videos (*.mp4)"
+        prompt: title of the dialog
+
+    Returns:
+        the selected file, or None if the operation was cancelled
+    """
+
+    lastdir = _appstate[key]
+    outfile = emlib.dialogs.saveDialog(filter=filter, directory=lastdir, title=prompt)
+    if outfile:
+        _appstate[key] = os.path.split(outfile)[0]
+    return outfile
+
+
+def selectFileForOpen(key: str, filter="All (*.*)", prompt="Open", ifcancel:str=None
+                      ) -> Optional[str]:
+    """
+    Select a file for open via a gui dialog, remember the last directory
+
+    Args:
+        key: the key to use to remember the last directory
+        filter: for example "Images (*.png, *.jpg);; Videos (*.mp4)"
+        prompt: title of the dialog
+        ifcancel: if given and the operation is cancelled a ValueError
+            with this as message is raised
+
+    Returns:
+        the selected file, or None if the operation was cancelled
+    """
+    lastdir = _appstate[key]
+    selected = emlib.dialogs.selectFile(filter=filter, directory=lastdir, title=prompt)
+    if selected:
+        _appstate[key] = os.path.split(selected)[0]
+    elif ifcancel is not None:
+        raise ValueError(ifcancel)
+    return selected
+
+
+def saveRecordingDialog(prompt="Save Recorging"):
+    return  selectFileForSave("recLastDir", "Audio (*.wav, *.aif, *.flac)",
+                              prompt=prompt)
+
+

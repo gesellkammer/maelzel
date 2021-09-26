@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import math
 from maelzel.snd import audiosample as smpl
-from pitchtools import n2m
+from pitchtools import n2m, f2m
 from emlib.iterlib import pairwise
 import collections
 from typing import Tuple, List
@@ -19,10 +19,8 @@ def region_from_file(sndfile: str, key='auto', offset=0, relpath=True, **kws) ->
         sndfile: the path of the soundfile
         key: the note to assign to this sample, or 'auto' if the pitch of the sample
              is to be used. In this case, the frequency is estimated and the
-             closest midi-note is used
-
-             key can also be a function, in which case it is called with the given
-             path. It should return a midinote.
+             closest midi-note is used. key can also be a function, in which case
+             it is called with the given path. It should return a midinote.
         offset: an offset in samples or 'auto' to calculate it
         relpath: use a relative path
 
@@ -141,13 +139,13 @@ def regions_from_files(files: List[str],
     return regions
 
 
-def normalize_filename(path):
+def normalize_filename(path: str) -> str:
     return path.replace(" ", "_").replace("__", "_")
 
 
 def estimate_freq(sndfile: str, strategy='autocorr') -> float:
     """
-    Estimate the freq. of sndfile
+    Estimate the freq. of source
 
     Args:
         sndfile (str): the path of the soundfile
@@ -181,12 +179,8 @@ def estimate_freq_and_offset(sndfile: str, minamp=-80) -> Tuple[float, float]:
     return freq, offset
 
 
-def log2(x):
+def log2(x:float) -> float:
     return math.log(x, 2)
-
-
-def f2m(freq, A4=440):
-    return 12 * log2(freq / A4) + 69
 
 
 def group_template(name=None, release=0.1, loopmode='one_shot', **attrs):

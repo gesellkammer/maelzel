@@ -3,6 +3,7 @@ maelzel
 
 A set of modules for computer music
 
+- core: core module defining basic classes for computer music (Note, Chord, Voice, Score, etc). Any of these classes can be representation as notation and played back.
 - music: music representation, algorithmic music, etc
 - scoring: music representation, quantization
 - midi: read/write midi files, general midi
@@ -15,6 +16,7 @@ External Dependencies
 
 - csound (>= 6.15)
 - csound-plugins (https://github.com/csound-plugins/csound-plugins)
+
 
 Installation
 ------------

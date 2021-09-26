@@ -1,4 +1,4 @@
-
+from __future__ import annotations
 import numpy as _np
 from scipy import signal as _signal
 from scipy.fftpack import hilbert

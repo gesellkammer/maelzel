@@ -89,8 +89,9 @@ def writeLabels(outfile: str, markers: List[tuple]) -> None:
 
 def readSpectrum(path:str) -> List[Bin]:
     """
-    Read a spectrum as saved by audacity, returns a list of Bins, where each bin
-    is a tuple (freq in Hz, level in dB)
+    Read a spectrum as saved by audacity
+
+    Returns a list of Bins, where each bin is a tuple (freq in Hz, level in dB)
     """
     f = open(path)
     lines = f.readlines()[1:]
@@ -115,16 +116,14 @@ _dbToStepCurve = bpf.expon(
 
 def dbToStep(db: float, numsteps:int) -> int:
     """
-    Used by readSpectrumAsChords to convert the db value of each bin to
-    a historgram step
+    Convert dB value to historgram step
     """
     return int(_dbToStepCurve(db) * numsteps)
 
 
 def readSpectrumAsChords(path, numsteps=8, maxNotesPerChord=inf) -> List[chord_t]:
     """
-    Reads the spectrum saved in `path`, splits it into at most `numsteps` chords, depending
-    on their amplitude.
+    Reads the spectrum saved in `path` and splits it into at most `numsteps` chords
 
     The information saved by audacity represents the spectrum of the selected audio
 
@@ -134,6 +133,10 @@ def readSpectrumAsChords(path, numsteps=8, maxNotesPerChord=inf) -> List[chord_t
             to their amplitude. Each step can be seen as a "layer"
         maxNotesPerChord: the max. number of bins for each "layer". Normally the loudest
             layers will have fewer components
+
+    Returns:
+        a list of chords, where each chord is a list of Note
+        (a Note is a namedtuple)
     """
     data = readSpectrum(path)
     notes = [] 
@@ -155,6 +158,7 @@ def readSpectrumAsChords(path, numsteps=8, maxNotesPerChord=inf) -> List[chord_t
 def readSpectrumAsBpf(path: str) -> bpf.BpfInterface:
     """
     Read the spectrum saved in `path`, returns a bpf mapping freq to level
+
     The information saved by audacity represents the spectrum of the selected audio
     """
     freqs = []

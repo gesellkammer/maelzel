@@ -51,10 +51,11 @@ setup(
         "samplerate",   # https://pypi.org/project/samplerate/
         "psutil",
         "csoundengine>=1.1",
-        "pitchtools>=1.1",
+        "pitchtools>=1.3",
         "vamp",
         "lxml",
-        "gmpy"
+        "gmpy",
+
     ],
     license="BSD",
     zip_safe=False,

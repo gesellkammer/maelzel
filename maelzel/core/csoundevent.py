@@ -5,13 +5,13 @@ import emlib.mathlib
 import emlib.misc
 
 from ._common import *
+from .typedefs import *
 from . import tools
 from .workspace import getConfig
 import copy
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Set, Any, Dict, Tuple
-
+    from typing import *
 
 _pitchinterpolToInt = {
     'linear':0,
@@ -34,7 +34,7 @@ class PlayArgs:
 
     chan: int = None
     gain: float = None
-    fade: U[None, float, Tuple[float, float]] = None
+    fade: Union[None, float, Tuple[float, float]] = None
     instr: str = None
     pitchinterpol: str = None
     fadeshape: str = None
@@ -134,20 +134,6 @@ class PlayArgs:
             self.position = -1
 
 
-def fillPlayargsWithConfig(playargs: PlayArgs, cfg: dict) -> PlayArgs:
-    return PlayArgs(
-            delay=playargs.delay if playargs.delay is not None else 0,
-            gain=playargs.gain if playargs.gain is not None else cfg['play.gain'],
-            instr=playargs.instr or cfg['play.instr'],
-            chan=playargs.chan if playargs.chan is not None else cfg['play.chan'],
-            fade=playargs.fade if playargs.fade is not None else cfg['play.fade'],
-            pitchinterpol=playargs.pitchinterpol or cfg['play.pitchInterpolation'],
-            fadeshape=playargs.fadeshape or cfg['play.fadeShape'],
-            args=playargs.args,
-            priority=playargs.priority if playargs.priority is not None else 1,
-            position=playargs.position if playargs.position is not None else -1)
-
-
 def _interpolateBreakpoints(t: float, bp0: List[float], bp1: List[float]
                             ) -> List[float]:
     t0, t1 = bp0[0], bp1[0]
@@ -191,13 +177,13 @@ class CsoundEvent:
     """
     __slots__ = ("bps", "delay", "chan", "fadein", "fadeout", "gain",
                  "instr", "pitchInterpolMethod", "fadeShape", "stereo", "namedArgs",
-                 "priority", "position", "userpargs", "_namedArgsMethod")
+                 "priority", "position", "userpargs", "_namedArgsMethod", "tiednext")
 
     def __init__(self,
                  bps: List[Tuple[float, ...]],
                  delay:float=0.0,
                  chan:int = None,
-                 fade:U[float, Tuple[float, float]]=None,
+                 fade:Union[float, Tuple[float, float]]=None,
                  gain:float = 1.0,
                  instr:str=None,
                  pitchinterpol:str=None,
@@ -205,7 +191,8 @@ class CsoundEvent:
                  args: Dict[str, float] = None,
                  priority:int=1,
                  position:float = None,
-                 userpargs: Opt[List[float]]=None):
+                 userpargs: Optional[List[float]]=None,
+                 tiednext=False):
         """
         bps (breakpoints): a seq of (delay, midi, amp, ...) of len >= 1.
 
@@ -221,6 +208,7 @@ class CsoundEvent:
             args: named parameters
             priority: schedule the corresponding instr at this priority
             userpargs: ???
+            tiednext: a hint to merge multiple events into longer lines.
         """
         cfg = getConfig()
 
@@ -229,7 +217,7 @@ class CsoundEvent:
                              f"but got {bps}")
 
         bps = tools.carryColumns(bps)
-        assert all(isinstance(bp, list) for bp in bps)
+        # assert all(isinstance(bp, list) for bp in bps)
         if len(bps[0]) < 3:
             column = [1] * len(bps)
             bps = tools.addColumn(bps, column)
@@ -250,6 +238,7 @@ class CsoundEvent:
         self.position = position
         self.userpargs = userpargs
         self.namedArgs = args
+        self.tiednext = tiednext
         self._consolidateDelay()
         self._namedArgsMethod = cfg['play.namedArgsMethod']
 
@@ -284,7 +273,7 @@ class CsoundEvent:
         self.fadein, self.fadeout = value
 
     @classmethod
-    def fromPlayArgs(cls, bps:List[breakpoint_t], playargs: PlayArgs
+    def fromPlayArgs(cls, bps:List[breakpoint_t], playargs: PlayArgs, **kws
                      ) -> CsoundEvent:
         """
         Construct a CsoundEvent from breakpoints and playargs
@@ -297,6 +286,8 @@ class CsoundEvent:
             a new CsoundEvent
         """
         d = dataclasses.asdict(playargs)
+        if kws:
+            d.update(kws)
         return cls(bps=bps, **d)
 
     def _consolidateDelay(self) -> None:
@@ -403,6 +394,7 @@ class CsoundEvent:
             headers += [str(i) for i in range(4, l+1)]
         htmltab = emlib.misc.html_table(rows, headers=headers)
         return f"{self._reprHeader()}<br>" + htmltab
+
     def _reprHeader(self) -> str:
         return (f"CsoundEvent(delay={float(self.delay):.3g}, dur={self.dur:.3g}, "
                 f"gain={self.gain:.4g}, chan={self.chan}"
@@ -424,7 +416,7 @@ class CsoundEvent:
         return "\n".join(lines)
 
 
-def cropEvents(events: List[CsoundEvent], start: Opt[float], end: Opt[float]
+def cropEvents(events: List[CsoundEvent], start: Optional[float], end: Optional[float]
                ) -> List[CsoundEvent]:
     if start is None:
         start = min(ev.start for ev in events)

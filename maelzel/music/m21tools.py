@@ -1,4 +1,13 @@
+"""
+Tools to work with music21
+"""
 from __future__ import annotations
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import *
+    number_t = Union[int, float]
+    pitch_t = Union[int, float, str]
+
 import os
 import tempfile
 import warnings
@@ -6,26 +15,23 @@ import shutil
 import glob
 
 from fractions import Fraction as F
-import dataclasses
+
 import subprocess
+from dataclasses import dataclass
 import music21 as m21
 
 from emlib import iterlib
-from emlib.typehints import U, Seq, number_t, List, Tup, Dict, Iter, Opt
-from maelzel.music.timing import quartersToTimesig
 from emlib import misc
 
 from pitchtools import n2m, m2n, split_notename, split_cents
-from maelzel.music.m21fix import *
-
-
-pitch_t = U[int, float, str]
+from maelzel.music import m21fix
+from maelzel.music.timing import quartersToTimesig
 
 
 def _splitchord(chord: m21.chord.Chord, 
                 partabove: m21.stream.Part, 
                 partbelow: m21.stream.Part, 
-                split=60) -> Tup[List[m21.note.Note], List[m21.note.Note]]:
+                split=60) -> Tuple[List[m21.note.Note], List[m21.note.Note]]:
     above, below = [], []
     for i in range(len(chord)):
         note = chord[i]
@@ -114,7 +120,7 @@ def noteLogicalTie(note: m21.note.Note, stream: m21.stream.Stream
     return out
 
 
-def splitChords(chords: Seq[m21.chord.Chord], split=60, force=False) -> m21.stream.Score:
+def splitChords(chords: Sequence[m21.chord.Chord], split=60, force=False) -> m21.stream.Score:
     """
     split a seq. of music21 Chords in two staffs
     """
@@ -158,7 +164,7 @@ def endTime(obj: m21.note.GeneralNote) -> F:
     return obj.offset + obj.quarterLength
 
 
-def attackPairs(stream: m21.stream.Stream) -> Iter[Tup[m21.note.NotRest, m21.note.NotRest]]:
+def attackPairs(stream: m21.stream.Stream) -> Iterable[Tuple[m21.note.NotRest, m21.note.NotRest]]:
     for g0, g1 in iterlib.pairwise(logicalTies(stream)):
         if g0 is None or g1 is None:
             continue
@@ -212,7 +218,7 @@ def bestClef(objs):
         return m21.clef.Bass8vbClef()
 
 
-def meanMidi(objs: Seq[m21.Music21Object]):
+def meanMidi(objs: Sequence[m21.Music21Object]):
     n, s = 0, 0
     stream = m21.stream.Stream()
     for obj in objs:
@@ -229,7 +235,7 @@ def meanMidi(objs: Seq[m21.Music21Object]):
     return 0
 
 
-def makeNoteSeq(midinotes: Seq[float], dur=1, split=False) -> m21.stream.Stream:
+def makeNoteSeq(midinotes: Sequence[float], dur=1, split=False) -> m21.stream.Stream:
     """
     Take a sequence of midi midinotes and create a Part (or a Score if
     split is True and midinotes need to be split between two staffs)
@@ -250,7 +256,7 @@ def makeNoteSeq(midinotes: Seq[float], dur=1, split=False) -> m21.stream.Stream:
         return s
 
 
-def needsSplit(notes: U[Seq[float], m21.stream.Stream], splitpoint=60) -> bool:
+def needsSplit(notes: Union[Sequence[float], m21.stream.Stream], splitpoint=60) -> bool:
     """
 
     notes:
@@ -277,7 +283,7 @@ def needsSplit(notes: U[Seq[float], m21.stream.Stream], splitpoint=60) -> bool:
         raise TypeError(f"expected a list of midinotes or a m21.Stream, got {notes}")
 
 
-def makeTimesig(num_or_dur: U[int, float], den:int=0) -> m21.meter.TimeSignature:
+def makeTimesig(num_or_dur: Union[int, float], den:int=0) -> m21.meter.TimeSignature:
     """
     Create a m21 TimeSignature from either a numerator, denominator or from
     a duration in quarter notes.
@@ -312,7 +318,7 @@ def durationTypeFromQuarterDur(dur: number_t) -> str:
     return _durationTypeFromFraction[asF(dur)]
 
 
-def makeDuration(durType: U[str, number_t], dots=0, durRatios: List[F]=None,
+def makeDuration(durType: Union[str, number_t], dots=0, durRatios: List[F]=None,
                  tupleType:str='') -> m21.duration.Duration:
     if isinstance(durType, str):
         assert durType in {'half', 'quarter', 'eighth', '16th', '32nd', '64th'}
@@ -334,7 +340,7 @@ def makeDuration(durType: U[str, number_t], dots=0, durRatios: List[F]=None,
             dur.appendTuplet(tup)
     return dur
 
-def _makeDuration(durType: U[str, number_t], dots=0, durRatios: List[F]=None,
+def _makeDuration(durType: Union[str, number_t], dots=0, durRatios: List[F]=None,
                  ) -> m21.duration.Duration:
     """
     Args:
@@ -363,7 +369,7 @@ def _makeDuration(durType: U[str, number_t], dots=0, durRatios: List[F]=None,
     return dur
 
 
-def makeTie(obj: U[m21.note.Note, m21.chord.Chord], tiedPrev:bool, tiedNext:bool) -> None:
+def makeTie(obj: Union[m21.note.Note, m21.chord.Chord], tiedPrev:bool, tiedNext:bool) -> None:
     if tiedPrev and tiedNext:
         obj.tie = m21.tie.Tie('continue')
     elif tiedPrev:
@@ -430,7 +436,7 @@ def makeAccidental(cents:int) -> m21.pitch.Accidental:
     return accidental
 
 
-def m21Notename(pitch: U[str, float]) -> str:
+def m21Notename(pitch: Union[str, float]) -> str:
     """
     Convert a midinote or notename (like "4C+10") to a notename accepted
     by music21. The decimal part (the non-chromatic part, in this case "+10")
@@ -485,8 +491,8 @@ def measureFixAccidentals(s: m21.stream.Measure) -> None:
             seen[note.pitch.step] = note.pitch.accidental.name
 
 
-def makePitch(pitch: U[str, float], divsPerSemitone=4, hideAccidental=False
-              ) -> Tup[m21.pitch.Pitch, int]:
+def makePitch(pitch: Union[str, float], divsPerSemitone=4, hideAccidental=False
+              ) -> Tuple[m21.pitch.Pitch, int]:
     """
     This is used to make a Pitch for a m21.Note (see makeNote)
     
@@ -580,10 +586,10 @@ def setNotehead(note: m21.note.NotRest, notehead: str, fill:bool=None,
     note.noteheadParenthesis = parenthesis
 
 
-def makeNotation(pitch: U[pitch_t, Seq[pitch_t]], divsPerSemitone=4, centsAsLyrics=False,
+def makeNotation(pitch: Union[pitch_t, Sequence[pitch_t]], divsPerSemitone=4, centsAsLyrics=False,
                  notehead: str=None, noteheadFill=None, hideAccidental=False,
                  stem:str=None, color:str='', **options
-                 ) -> U[m21.note.Note, m21.chord.Chord]:
+                 ) -> Union[m21.note.Note, m21.chord.Chord]:
     """
     Construct a Note or a Chord, depending on the number of pitches given
 
@@ -621,10 +627,10 @@ def makeNotation(pitch: U[pitch_t, Seq[pitch_t]], divsPerSemitone=4, centsAsLyri
     return out
 
 
-def _makeNote(pitch: U[str, float], divsPerSemitone=4, centsAsLyrics=False,
+def _makeNote(pitch: Union[str, float], divsPerSemitone=4, centsAsLyrics=False,
              notehead: str=None, noteheadFill=None, hideAccidental=False,
              **options
-             ) -> Tup[m21.note.Note, int]:
+             ) -> Tuple[m21.note.Note, int]:
     """
     Given a pitch as a (fractional) midinote or a notename, create a
     m21 Note with a max. 1/8 tone resolution.
@@ -658,11 +664,11 @@ def _makeNote(pitch: U[str, float], divsPerSemitone=4, centsAsLyrics=False,
     return note, centsdev
 
 
-def makeNote(pitch: U[str, float], divsPerSemitone=4,
+def makeNote(pitch: Union[str, float], divsPerSemitone=4,
              notehead: str=None, noteheadFill:bool=None, hideAccidental=False,
              tiedToPrevious=False,
              **options
-             ) -> Tup[m21.note.Note, int]:
+             ) -> Tuple[m21.note.Note, int]:
     """
     Create a music21 Note
 
@@ -691,11 +697,11 @@ def makeNote(pitch: U[str, float], divsPerSemitone=4,
     return note, centsdev
 
 
-def makeChord(pitches: Seq[float], divsPerSemitone:int=4, centsAsLyric=False,
-              notehead: Opt[str] = None, noteheadFill=None, hideAccidental=False,
+def makeChord(pitches: Sequence[float], divsPerSemitone:int=4, centsAsLyric=False,
+              notehead: Optional[str] = None, noteheadFill=None, hideAccidental=False,
               tiedToPrevious=False,
               **options
-              ) -> Tup[m21.chord.Chord, List[int]]:
+              ) -> Tuple[m21.chord.Chord, List[int]]:
     """
     Create a m21 Chord with the given pitches, adjusting the accidentals to divsPerSemitone
     (up to 1/8 tone). If showcents is True, the cents deviations to the written pitch
@@ -734,7 +740,7 @@ def makeChord(pitches: Seq[float], divsPerSemitone:int=4, centsAsLyric=False,
     return chord, centsdevs
 
 
-def centsAnnotation(centsdev:U[int, Seq[int]], divsPerSemi=4) -> str:
+def centsAnnotation(centsdev:Union[int, Sequence[int]], divsPerSemi=4) -> str:
     """
     Given a cents deviation or a list thereof, construct an annotation
     as it would be placed as a lyric for a chord or a note
@@ -754,7 +760,7 @@ def centsAnnotation(centsdev:U[int, Seq[int]], divsPerSemi=4) -> str:
         return ",".join(annotations) if any(annotations) else ""
 
 
-def addGraceNote(pitch:U[float, str, Seq[float]], anchorNote:m21.note.GeneralNote, dur=1/2,
+def addGraceNote(pitch:Union[float, str, Sequence[float]], anchorNote:m21.note.GeneralNote, dur=1/2,
                  nachschlag=False, context='Measure') -> m21.note.Note:
     """
     Add a grace note (or a nachschlag) to anchor note.A
@@ -782,8 +788,8 @@ def addGraceNote(pitch:U[float, str, Seq[float]], anchorNote:m21.note.GeneralNot
     return grace
 
 
-def findNextAttack(obj:U[m21.note.NotRest, m21.chord.Chord]
-                   ) -> Tup[Opt[m21.note.NotRest], bool]:
+def findNextAttack(obj:Union[m21.note.NotRest, m21.chord.Chord]
+                   ) -> Tuple[Optional[m21.note.NotRest], bool]:
     n = obj
     originalPitches = obj.pitches
     isContiguous = True
@@ -803,7 +809,7 @@ def findNextAttack(obj:U[m21.note.NotRest, m21.chord.Chord]
 
 
 def addGliss(start:m21.note.GeneralNote, end:m21.note.GeneralNote, linetype='solid',
-             stream:U[str, m21.stream.Stream]='Measure', hideTiedNotes=True,
+             stream:Union[str, m21.stream.Stream]='Measure', hideTiedNotes=True,
              continuous=True, text:str=None
              ) -> m21.spanner.Spanner:
     """
@@ -887,7 +893,7 @@ def _noteScalePitch(note: m21.note.Note, factor: number_t) -> None:
     note.pitch = pitch   
 
 
-def stackPartsInplace(parts:Seq[m21.stream.Stream], outstream:m21.stream.Stream) -> None:
+def stackPartsInplace(parts:Sequence[m21.stream.Stream], outstream:m21.stream.Stream) -> None:
     """
     This solves the problem that a Score will stack Parts vertically,
     but append any other stream horizontally
@@ -897,7 +903,7 @@ def stackPartsInplace(parts:Seq[m21.stream.Stream], outstream:m21.stream.Stream)
         outstream.insert(0, part)
 
 
-def stackParts(parts:Seq[m21.stream.Stream], outstream:m21.stream.Stream=None
+def stackParts(parts:Sequence[m21.stream.Stream], outstream:m21.stream.Stream=None
                ) -> m21.stream.Score:
     """
     Create a score from the different parts given
@@ -939,7 +945,7 @@ def addTextExpression(note:m21.note.GeneralNote, text:str, placement="above",
 
 
 def makePart(clef:str=None, partName=None, abbreviatedName=None,
-             timesig:Tup[int, int]=None) -> m21.stream.Part:
+             timesig:Tuple[int, int]=None) -> m21.stream.Part:
     """
     Returns an empty Part with the attributes given
 
@@ -1028,7 +1034,7 @@ def makeClef(clef:str) -> m21.clef.Clef:
     return cls()
 
 
-def makeMetronomeMark(number:U[int, float], text:str=None, referent:str=None
+def makeMetronomeMark(number:Union[int, float], text:str=None, referent:str=None
                       ) -> m21.tempo.MetronomeMark:
     referentNote = m21.note.Note(type=referent) if referent else None
     mark = m21.tempo.MetronomeMark(number=number, text=text, referent=referentNote)
@@ -1073,11 +1079,11 @@ def addDynamic(note:m21.note.GeneralNote, dynamic:str, contextclass='Measure') -
     attachToObject(note, m21.dynamics.Dynamic(dynamic), contextclass)
 
 
-@dataclasses.dataclass
+@dataclass
 class TextAnnotation:
     text: str
     placement: str = "above"
-    fontSize: Opt[int] = None
+    fontSize: Optional[int] = None
 
 
 barlineTypes = {
@@ -1094,12 +1100,12 @@ barlineTypes = {
 }
 
 
-def makeMeasure(timesig: Tup[int, int],
+def makeMeasure(timesig: Tuple[int, int],
                 timesigIsNew = True,
                 barline: str = '',
                 metronome: int = None,
                 metronomeReferent: str = "quarter",
-                annotation: U[str, TextAnnotation] = "") -> m21.stream.Measure:
+                annotation: Union[str, TextAnnotation] = "") -> m21.stream.Measure:
     """
     Create a Measure
 
@@ -1137,7 +1143,7 @@ def makeMeasure(timesig: Tup[int, int],
     return m
 
 
-def scoreSchema(durs: Seq[float],
+def scoreSchema(durs: Sequence[float],
                 default='rest',
                 barlines: Dict[int, str] = None,
                 measureLabels: Dict[int, str]   = None,
@@ -1316,7 +1322,7 @@ def makeImage(m21obj, outfile:str=None, fmt='xml.png', musicxml2ly=True
         the path to the generated image file
     """
     if isinstance(m21obj, m21.stream.Stream):
-        m21obj = fixStream(m21obj, inPlace=True)
+        m21obj = m21fix.fixStream(m21obj, inPlace=True)
     method, fmt3 = fmt.split(".")
     if method == 'lily' and musicxml2ly:
         if fmt3 not in ('png', 'pdf'):
@@ -1396,7 +1402,7 @@ def addBestClefs(part: m21.stream.Stream, threshold=4) -> None:
 
 
 def iterPart(part: m21.stream.Part, cls=m21.note.GeneralNote
-            ) -> Iter[Tup[m21.stream.Measure, m21.note.GeneralNote]]:
+            ) -> Iterable[Tuple[m21.stream.Measure, m21.note.GeneralNote]]:
     """
     Iterates over all items in a Part matching a specific class. For each
     item a tuple (measure, item) is yielded
@@ -1480,7 +1486,7 @@ def fixNachschlaege(part: m21.stream.Part, convertToRealNote=False, duration=1/8
                 m1.insert(n1.offset + realizedDuration, n1)
 
 
-def _musescorePath() -> Opt[str]:
+def _musescorePath() -> Optional[str]:
     us = m21.environment.UserSettings()
     musicxmlpath = us['musescoreDirectPNGPath']
     if os.path.exists(musicxmlpath):

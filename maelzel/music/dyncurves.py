@@ -1,5 +1,5 @@
-from __future__ import division as _division
-from ..iterlib import pairwise as _pairwise
+from __future__ import annotations
+from emlib.iterlib import pairwise as _pairwise
 
 silencio = '--'
 ppppp = 'ppppp'

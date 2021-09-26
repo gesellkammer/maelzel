@@ -6,11 +6,14 @@ from emlib.music.misc import split_mask, normalize_mask
 
 def morph(streams, curve, numsteps, hook=None):
     """
-    streams: a seq of iterators yielding one value per iteration
-    curve: a curve x->any interval, y->(0, len(streams)-1)
-    numsteps: the number of steps to apply the curve to
-    hook: if given, a function (stepnum, state) -> index, will
-          override the curve
+    morpth between streams
+
+    Args:
+        streams: a seq of iterators yielding one value per iteration
+        curve: a curve x->any interval, y->(0, len(streams)-1)
+        numsteps: the number of steps to apply the curve to
+        hook: if given, a function (stepnum, state) -> index, will
+              override the curve
 
     curve is used to index the streams
     """

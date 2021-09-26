@@ -1,14 +1,17 @@
-from configdict import ConfigDict
+"""
+Module to play multiple sine tones using csound
+
+DEPRECATED: use csoundengine for such a task
+"""
+from __future__ import annotations
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import *
+
 import sys
 import ctcsound
+import time
 
-config = ConfigDict("emlib:synthplayer",
-                    default={
-                        'sr': 44100,
-                        'linux.backend': 'jack',
-                        'multisine.maxosc': 200,
-                    },
-                    validator={'linux.backend::choices': ['jack', 'portaudi']})
 
 _csd_multisine = '''
 
@@ -70,36 +73,20 @@ endin
 
 
 class MultiSineSynth:
-    def __init__(self, sr=None, backend=None, porttime=0.05, maxosc=None):
+    def __init__(self, sr:int, backend:str, porttime=0.05, maxosc=200):
         """
-        notes:
-            a seq. of notes, where each note is a seq. of [freq, amp, bw], or
-            just [freq, amp]
-            Example data = [
-                [440, 0.4, 0.1],
-                [220, 0.1],
-                [800, 0.5, 0.5]
-            ]
-
-        sr:
-            samplerate. Can be None, in which case we use the default sr
-        backend:
-            audio backend for your platform
-        porttime:
-            the time used to smooth out values of freq and amp for each osc.
-        maxosc:
-            the maximum number of oscillators.
+        Args:
+            sr: samplerate. Can be None, in which case we use the default sr
+            backend: audio backend for your platform
+            porttime: the time used to smooth out values of freq and amp for each osc.
+            maxosc: the maximum number of oscillators.
         """
-        cfg = config
-        sr = sr if sr is not None else cfg['sr']
-        backend = backend if backend is not None else cfg[
-            f'{sys.platform}.backend']
         self.sr = sr
         self.backend = backend
         self.porttime = porttime
         self.fadetime = 0.2
-
-        self._numosc = maxosc if maxosc is not None else cfg['multisine.maxosc']
+        self._idxExpirationTimes = [0.]*maxosc
+        self._numosc = maxosc
         self._freqs = [0] * self._numosc
         self._amps = [0] * self._numosc
         self._bws = [0] * self._numosc
@@ -107,9 +94,9 @@ class MultiSineSynth:
         self._pt = None
         self._exited = False
         self._csdstr = _csd_multisine
-        self._start_csound()
+        self._startCsound()
 
-    def _start_csound(self):
+    def _startCsound(self):
         cs = ctcsound.Csound()
         orc = self._csdstr.format(sr=self.sr,
                                   ksmps=128,
@@ -125,24 +112,54 @@ class MultiSineSynth:
         self._cs = cs
         self._pt = pt
 
-    def setOsc(self, idx, freq, amp, bw=0, delay=0):
+    def setOsc(self, idx:int, freq:float, amp:float, bw=0., delay=0.) -> None:
+        """
+        Set one oscillator
+
+        Args:
+            idx (int): the index of the oscillator (0 to maxosc - 1)
+            freq (float): the frequency
+            amp (float): the amplitude (0-1)
+            bw (float): the bandwidth of the oscillator (0-1)
+            delay (float): when to start
+        """
         if idx > self._numosc - 1:
             raise IndexError("osc out of range")
         dur = self.porttime
         # the first argument, 0, indicates that we indicate time as
         # relative
+        if amp > 0:
+            self._idxExpirationTimes[idx] = float('inf')
         self._pt.scoreEvent(0, 'i', [100, delay, dur, idx, freq, amp, bw])
 
-    def playNote(self, dur, freq, amp, bw=0, idx=None, delay=0):
+    def _getIdx(self, dur:float) -> int:
+        now = time.time()
+        for i, expirationtime in enumerate(self._idxExpirationTimes):
+            if expirationtime < now:
+                self._idxExpirationTimes[i] = now+dur
+                return i
+        raise RuntimeError("No slots available")
+
+    def playNote(self, dur:float, freq:float, amp:float, bw=0., idx:int=None, delay=0.
+                 ) -> int:
+        """Play a static note
+
+        Returns the index if the index is not provided
+        """
         if idx is None:
-            idx = self._getidx()
+            idx = self._getIdx(dur)
+        else:
+            self._idxExpirationTimes[idx] = time.time()+dur
         self.setOsc(idx, freq, amp, bw, delay=delay)
         self.setOsc(idx, freq, 0, bw, delay=delay + dur)
+        return idx
 
     def fadeout(self, delay=0):
+        """fade out everything"""
         self._pt.scoreEvent(0, 'i', [200, delay, self.fadetime])
 
     def stop(self):
+        """stop the engine"""
         self._pt.stop()
         self._cs.stop()
         self._cs.cleanup()

@@ -1,3 +1,7 @@
+"""
+functions to fix errors in music21
+"""
+from __future__ import annotations
 import music21 as m21
 from music21.common.numberTools import opFrac
 import logging
@@ -120,18 +124,6 @@ def makeBeams(s: m21.stream.Stream, *, inPlace=False) -> m21.stream.Stream:
     return returnObj
 
 
-def _fixStream_old(s: m21.stream.Stream, inPlace=False) -> m21.stream.Stream:
-    """
-    Call this prior to calling .show()
-    """
-    out = s if inPlace else copy.deepcopy(s)
-    out.makeMeasures(inPlace=True)
-    for meas in out.iter.getElementsByClass('Measure'):
-        makeTupletBrackets(meas, inPlace=True)
-        makeBeams(meas, inPlace=True)
-    return out
-
-
 def fixStream(s: m21.stream.Stream, inPlace=False) -> m21.stream.Stream:
     """
     Call this prior to calling .show()
@@ -149,7 +141,6 @@ def fixStream(s: m21.stream.Stream, inPlace=False) -> m21.stream.Stream:
         except:
             pass
     return out
-
 
 
 def show(s: m21.stream.Stream, *args, **kws):

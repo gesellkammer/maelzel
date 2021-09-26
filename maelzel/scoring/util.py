@@ -3,12 +3,15 @@ from emlib import iterlib
 from emlib import misc
 import pitchtools as pt
 from .common import *
-from typing import List, Optional as Opt, Iterator as Iter, Tuple
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import *
+
 
 # This module can only import .common from .
 
 
-def asSimplestNumberType(f: F) -> U[int, float]:
+def asSimplestNumberType(f: F) -> Union[int, float]:
     """
     convert a fraction to the simplest number type it represents
     """
@@ -240,7 +243,7 @@ def centsShown(centsdev: int, divsPerSemitone=4, snap=2) -> str:
     return str(int(centsdev))
 
 
-def nextInGrid(x: U[float, F], ticks: List[F]):
+def nextInGrid(x: Union[float, F], ticks: List[F]):
     return misc.snap_to_grids(x + F(1, 9999999), ticks, mode='ceil')
 
 
@@ -282,7 +285,7 @@ def showF(f:F) -> str:
     return "%d/%d" % (f.numerator, f.denominator)
 
 
-def showT(f:Opt[F]) -> str:
+def showT(f:Option[F]) -> str:
     if f is None:
         return "None"
     return f"{float(f):.3f}"
@@ -292,7 +295,7 @@ def showB(b:bool) -> str:
     return "T" if b else "F"
 
 
-def parseNotehead(s: str) -> Tuple[str, Opt[bool]]:
+def parseNotehead(s: str) -> Tuple[str, Option[bool]]:
     """
     Format:
 
@@ -304,7 +307,7 @@ def parseNotehead(s: str) -> Tuple[str, Opt[bool]]:
         s: the neadhead description
 
     Returns:
-        A tuple (notehead:str, filled:Opt[bool])
+        A tuple (notehead:str, filled:Option[bool])
     """
     defaultFilled = {
         'harmonic': False,
@@ -370,7 +373,7 @@ def durationRatiosToTuplets(durRatios: List[F]) -> List[Tuple[int, int]]:
     return tuplets
 
 
-def parseScoreStructLine(line: str) -> Tuple[Opt[int], Opt[timesig_t], Opt[int]]:
+def parseScoreStructLine(line: str) -> Tuple[Option[int], Option[timesig_t], Option[int]]:
     """
     parse a line of a ScoreStructure definition
 
@@ -417,7 +420,7 @@ def centsDeviation(pitch: float, divsPerSemitone=4) -> int:
     return pt.pitch_round(pitch, divsPerSemitone)[1]
 
 
-def centsAnnotation(pitch: U[float, List[float]], divsPerSemitone=4,
+def centsAnnotation(pitch: Union[float, List[float]], divsPerSemitone=4,
                     order='ascending') -> str:
     """
     Generates the string used to annotate a note/chord when
@@ -447,7 +450,7 @@ def centsAnnotation(pitch: U[float, List[float]], divsPerSemitone=4,
     return ",".join(annotations) if any(annotations) else ""
 
 
-def notatedDuration(duration: F, durRatios: Opt[List[F]]) -> NotatedDuration:
+def notatedDuration(duration: F, durRatios: Option[List[F]]) -> NotatedDuration:
     assert duration >= 0
     if duration == 0:  #  a grace note
         return NotatedDuration(0)
@@ -477,6 +480,3 @@ def notatedDuration(duration: F, durRatios: Opt[List[F]]) -> NotatedDuration:
         return NotatedDuration(base=4//num, dots=0, tuplets=tuplets)
     elif den != 1:
         raise ValueError(f"Unknown numerator: {dur}. Notation:{self}")
-
-
-

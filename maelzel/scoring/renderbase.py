@@ -14,7 +14,7 @@ from .common import *
 from . import quant
 from .config import config
 import emlib.img
-
+import emlib.misc
 
 @dataclass
 class RenderOptions:
@@ -70,6 +70,9 @@ class RenderOptions:
 
     respellPitches: bool = config['respellPitches']
     glissandoLineThickness: int = config['glissandoLineThickness']
+
+    enharmonicsGroupSize: int = 6
+    enharmonicsStep: int = 3
 
     renderFormat: str = ''
 
@@ -142,6 +145,20 @@ class Renderer:
 
     def nativeScore(self) -> str:
         raise NotImplementedError("Please Implement this method")
+
+    def show(self, fmt='png', external=None):
+        if fmt == 'pdf':
+            external = True
+        if fmt == 'png' and emlib.misc.inside_jupyter() and not external:
+            from IPython.display import display_png
+            png = tempfile.mktemp(suffix='.png')
+            self.write(png)
+            display_png(png)
+        else:
+            outfile = tempfile.mktemp(suffix=f'.{fmt}')
+            self.write(outfile)
+            emlib.misc.open_with(outfile)
+
 
     def _repr_html_(self) -> str:
         pngfile = tempfile.mktemp(suffix=".png", prefix="render-")

@@ -5,17 +5,18 @@ from __future__ import annotations
 import tempfile
 import os
 from math import sqrt
-from dataclasses import dataclass
 import numpy as np
 import bpf4 as bpf
 from emlib.iterlib import flatten
 from pitchtools import db2amp, amp2db
-from typing import TYPE_CHECKING, Callable, Tuple, Iterator as Iter, Union as U, \
-    List, Optional as Opt
 import sndfileio
 import logging
 import numpyx
 from maelzel.snd import numpysnd as npsnd
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import *
+
 
 logger = logging.Logger("maelzel.sndfiletools")
 
@@ -48,9 +49,10 @@ def _chunks(start: int, stop: int = None, step: int = None
 
 
 def fadeSndfile(sndfile: str, outfile: str, fadetime: float,
-                mode: str = 'inout', shape: U[str, Func1] = 'halfcos'):
+                mode: str = 'inout', shape: Union[str, Func1] = 'halfcos'
+                ) -> None:
     """
-    Generate a new file `outfile` with the faded sndfile
+    Generate a new file `outfile` with the faded source
 
     Args:
         sndfile: infile
@@ -66,10 +68,10 @@ def fadeSndfile(sndfile: str, outfile: str, fadetime: float,
     samples, sr = sndfileio.sndread(sndfile)
     npsnd.arrayFade(samples, sr, fadetime=fadetime, mode=mode, shape=shape)
     sndfileio.sndwrite_like(outfile, samples, likefile=sndfile)
-    sndwriteLike(sndfile, outfile, samples)
 
 
-def copyFragment(path: str, start: float, end: float, outfile: str):
+def copyFragment(path: str, start: float, end: float, outfile: str
+                 ) -> None:
     """
     Read the data between begin and end (in seconds) and write it to outfile
 
@@ -81,7 +83,7 @@ def copyFragment(path: str, start: float, end: float, outfile: str):
         outfile: path of the saved fragment.
     """
     if end <= 0:
-        end = sndinfo(path).duration - end
+        end = sndfileio.sndinfo(path).duration - end
     samples, sr = sndfileio.sndread(path, start=start, end=end)
     sndfileio.sndwrite_like(outfile, samples, likefile=path)
 
@@ -116,7 +118,7 @@ def process(sourcefile: str,
         pos += len(chunk)
 
 
-def gain(filename: str, factor: U[float, _FloatFunc], outfile: str) -> None:
+def gain(filename: str, factor: Union[float, _FloatFunc], outfile: str) -> None:
     """
     Change the volume of a audiofile.
 
@@ -137,7 +139,7 @@ def gain(filename: str, factor: U[float, _FloatFunc], outfile: str) -> None:
 
 def _dynamic_gain(sndfile: str, curve: bpf.BpfInterface, outfile='inplace') -> None:
     """
-    Apply a dynamic gain to sndfile
+    Apply a dynamic gain to source
 
     Args:
         sndfile (str): the path to the soundfile
@@ -164,8 +166,10 @@ def _dynamic_gain(sndfile: str, curve: bpf.BpfInterface, outfile='inplace') -> N
 
 def mixArrays(sources: List[np.ndarray], offsets: List[int] = None) -> np.ndarray:
     """
-    Mix the sources together. All sources should have the same amount of channels.
-    It is assumed that they share the same samplerate
+    Mix the sources together.
+
+    All sources should have the same amount of channels. It is assumed that they share
+    the same samplerate
 
     Args:
         sources: a list of arrays. They should all have the same amount of channels
@@ -200,7 +204,7 @@ def readChunks(sndfile: str,
                start=0.0, end=0.0
                ) -> Iter[Tuple[np.ndarray, int]]:
     """
-    Read chunks of data from sndfile.
+    Read chunks of data from source.
 
     Each chunk has a size of `chunksize` but can have less
     if there are not enough samples to read (at the end of the file)
@@ -241,10 +245,10 @@ def equalPowerPan(pan: float) -> Tuple[float, float]:
     return sqrt(1 - pan), sqrt(pan)
 
 
-def peakbpf(filename: str, resolution=0.01, method='peak', channel: U[int, str] = 'mix',
+def peakbpf(filename: str, resolution=0.01, method='peak', channel: Union[int, str] = 'mix',
             normalize=False) -> bpf.BpfInterface:
     """
-    Build a bpf representing the peaks envelope of the sndfile
+    Build a bpf representing the peaks envelope of the source
 
     Args:
         filename: the file to analyze
@@ -316,8 +320,8 @@ def maxPeak(filename: str, start: float = 0, end: float = 0, resolution=0.01
 
 
 def findFirstSound(sndfile: str, threshold=-120,
-                resolution=0.01, start=0.
-                ) -> Opt[float]:
+                   resolution=0.01, start=0.
+                   ) -> Opt[float]:
     """
     Find the time of the first sound in the soundfile
 
@@ -334,16 +338,18 @@ def findFirstSound(sndfile: str, threshold=-120,
         time of the first sound (in seconds), or None if no first sound found
     """
     minamp = db2amp(threshold)
-    chunksize = int(resolution * sndfile.samplerate())
+    info = sndfileio.sndinfo(sndfile)
+    chunksize = int(resolution * info.samplerate)
     for chunk, pos in readChunks(sndfile, chunksize=chunksize, start=start):
         if npsnd.rms(chunk) > minamp:
-            return pos / sndfile.samplerate()
+            return pos / info.samplerate
     return None
 
 
 def findLastSound(sndfile: str, threshold=-120, resolution=0.01) -> Opt[float]:
     """
     Find the time when the last sound fades into silence
+
     (or, what is the same, the length of any silence at the
     end of the soundfile)
 
@@ -364,7 +370,7 @@ def findLastSound(sndfile: str, threshold=-120, resolution=0.01) -> Opt[float]:
 def stripSilence(sndfile: str, outfile: str, threshold=-100, margin=0.050,
                  fadetime=0.1, mode='both') -> None:
     """
-    Remove silence at the beginning and at the end of the sndfile, which fall
+    Remove silence at the beginning and at the end of the source, which fall
     below threshold (dB)
 
     Args:
@@ -407,9 +413,10 @@ def stripSilence(sndfile: str, outfile: str, threshold=-100, margin=0.050,
 
 def normalize(path: str, outfile: str, headroom=0.) -> None:
     """
-    Normalize the given soundfile. Returns the path of the normalized file
-    If outfile is not given, a new file with the suffix "-N" is generated
-    based on the input
+    Normalize the given soundfile.
+
+    Returns the path of the normalized file. If outfile is not given, a new file with the
+    suffix "-N" is generated based on the input
 
     Args:
         path: the path to the soundfile
@@ -517,7 +524,7 @@ def extractRegions(sndfile: str,
     for region in regions:
         npsnd.arrayFade(region, sr, fadetimes[0], mode='in', shape=fadeshape)
         npsnd.arrayFade(region, sr, fadetimes[1], mode='out', shape=fadeshape)
-    writer = sndfileio.sndwrite_chunked_like(sndfile)
+    writer = sndfileio.sndwrite_chunked_like(outfile, likefile=sndfile)
     if mode == 'original':
         shape = (info.nframes, info.channels) if info.channels > 1 else (info.nframes,)
         samples_out = np.zeros(shape, dtype=float)
@@ -546,6 +553,7 @@ def readRegions(sndfile: str, times: List[Tuple[float, float]]
     """
     # TODO: implement this at the backend level (in sndfileio) using seek
     data, sr = sndfileio.sndread(sndfile)
+    out = []
     for t0, t1 in times:
         fr0 = int(t0 * sr)
         fr1 = int(t1 * sr)
@@ -556,14 +564,13 @@ def readRegions(sndfile: str, times: List[Tuple[float, float]]
 
 def addSilentChannel(monofile: str, outfile: str) -> None:
     """
-    Given a sndfile, return a new sndfile with an added channel of silence
+    Given a source, return a new source with an added channel of silence
 
     .. note::
         the use-case for this is to add a silent channel to a mono file, to make
         clear that the right channel should be silent and the left channel should
         not be played also through the right channel
     """
-
     samples, sr = sndfileio.sndread(monofile)
     numchannels = npsnd.numChannels(samples)
     if numchannels != 1:
@@ -574,9 +581,9 @@ def addSilentChannel(monofile: str, outfile: str) -> None:
     sndfileio.sndwrite_like(outfile=outfile, samples=data, likefile=monofile)
 
 
-def _getsamples(source: U[str, sample_t]) -> sample_t:
+def _getsamples(source: Union[str, sample_t]) -> sample_t:
     """
-    source can be: "/path/to/sndfile" or (samples, sr)
+    source can be: "/path/to/source" or (samples, sr)
     """
     if isinstance(source, str):
         samples, sr = sndfileio.sndread(source)
@@ -589,13 +596,13 @@ def _getsamples(source: U[str, sample_t]) -> sample_t:
     return (samples, sr)
 
 
-def scrub(sndfile: U[str, Tuple[np.ndarray, int]], curve: bpf.BpfInterface,
+def scrub(source: Union[str, Tuple[np.ndarray, int]], curve: bpf.BpfInterface,
           rewind=False, outfile: str = None) -> sample_t:
     """
     Scrub soundfile with curve
 
     Args:
-        sndfile: the path to a sndfile, or a Tuple (samples, samplerate)
+        source: the path to a sndfile, or a Tuple (samples, samplerate)
         curve: a bpf representing real_time:time_in_soundfile
         rewind: if True, do not include silence at the beginning if
                        the bpf does not start at 0
@@ -604,7 +611,7 @@ def scrub(sndfile: U[str, Tuple[np.ndarray, int]], curve: bpf.BpfInterface,
     Returns:
         a tuple (samples, samplerate)
     """
-    samples, sr = _getsamples(sndfile)
+    samples, sr = _getsamples(source)
     samplebpf = curve.core.Sampled(samples, 1.0 / sr)
     warped = curve | samplebpf
     newsamples = warped[curve.x0:curve.x1:1.0 / sr].ys
@@ -613,8 +620,8 @@ def scrub(sndfile: U[str, Tuple[np.ndarray, int]], curve: bpf.BpfInterface,
         out[-len(newsamples):] = newsamples
         newsamples = out
     if outfile is not None:
-        if isinstance(sndfile, str):
-            sndwriteLike(sndfile, outfile, newsamples)
+        if isinstance(source, str):
+            sndfileio.sndwrite_like(outfile, likefile=source, samples=newsamples)
         else:
-            sndwrite(newsamples, sr, outfile)
+            sndfileio.sndwrite(outfile=outfile, samples=newsamples, sr=sr)
     return (newsamples, sr)
