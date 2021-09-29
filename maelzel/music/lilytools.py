@@ -39,7 +39,7 @@ def _addLineNumbers(s: str, start=1) -> Iter[str]:
 
 def callWithCapturedOutput(args: U[str, List[str]], shell=False) -> _CallResult:
     """
-    Call a subprocess with args
+    Call a subprocess with params
 
     Returns output, return code, error message
     """

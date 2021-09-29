@@ -1429,7 +1429,10 @@ class QuantizedPart:
                     n0.pitches[0] == n1.pitches[0]):
                 trash.append(loc0)
         for loc in trash:
-            loc.beat.notations.remove(loc.notation)
+            try:
+                loc.beat.notations.remove(loc.notation)
+            except:
+                logger.info(f"Could not remove gracenote: {loc.notation} ({loc}")
 
     def glissMarkTiedNotesAsHidden(self) -> None:
         it = self.iterNotations()

@@ -33,7 +33,7 @@ from maelzel import scoring
 
 from ._common import *
 from .musicobjbase import *
-from .workspace import getConfig
+from .workspace import activeConfig
 from . import play
 from . import tools
 from . import environment
@@ -196,20 +196,12 @@ class Note(MusicObj):
         self.pitch = pt.f2m(value)
 
     @property
-    def midi(self) -> float:
-        return self.pitch
-
-    @midi.setter
-    def midi(self, value: float) -> None:
-        self.pitch = value
-
-    @property
     def name(self) -> str:
         return pt.m2n(self.pitch)
 
     @property
     def pitchclass(self) -> int:
-        return round(self.midi) % 12
+        return round(self.pitch) % 12
 
 
     @property
@@ -219,7 +211,7 @@ class Note(MusicObj):
     @property
     def centsrepr(self) -> str:
         return tools.centsshown(self.cents,
-                                divsPerSemitone=getConfig()['semitoneDivisions'])
+                                divsPerSemitone=activeConfig()['semitoneDivisions'])
 
     def overtone(self, n:float) -> Note:
         """
@@ -234,7 +226,7 @@ class Note(MusicObj):
         return Note(pt.f2m(self.freq * n))
 
     def scoringEvents(self, groupid:str=None) -> List[scoring.Notation]:
-        config = getConfig()
+        config = activeConfig()
         dur = self.dur or config['defaultDuration']
         assert dur is not None
         if self.isRest():
@@ -278,7 +270,7 @@ class Note(MusicObj):
             elements = ["REST"]
         else:
             elements = [pt.m2n(self.pitch)]
-            config = getConfig()
+            config = activeConfig()
             if config['repr.showFreq']:
                 elements.append("%dHz" % int(self.freq))
             if self.amp is not None and self.amp < 1:
@@ -331,7 +323,7 @@ class Note(MusicObj):
         configured via ``getConfig()['semitoneDivisions']``
         """
         if step == 0:
-            step = 1/getConfig()['semitoneDivisions']
+            step = 1/activeConfig()['semitoneDivisions']
         return self.clone(pitch=round(self.pitch / step) * step)
 
     def csoundEvents(self, playargs: PlayArgs, scorestruct:ScoreStruct, conf:dict
@@ -390,7 +382,7 @@ class Note(MusicObj):
             the amplitude (a value between 0-1, where 0 corresponds to 0dB)
         """
         return self.amp if self.amp is not None else \
-            getConfig()['play.defaultAmplitude']
+            activeConfig()['play.defaultAmplitude']
 
     def pitchTransform(self, pitchmap: Callable[[float], float]) -> Note:
         pitch = pitchmap(self.pitch)
@@ -560,7 +552,7 @@ class Line(MusicObj):
     def quantizePitch(self, step=0) -> Line:
         """ Returns a new object, rounded to step """
         if step == 0:
-            step = 1/getConfig()['semitoneDivisions']
+            step = 1/activeConfig()['semitoneDivisions']
         bps = [ (bp[0], tools.quantizeMidi(bp[1], step)) + bp[2:]
                 for bp in self.bps ]
         if len(bps) >= 3:
@@ -739,7 +731,7 @@ class Chord(MusicObj):
         return min(n.pitch for n in self.notes), max(n.pitch for n in self.notes)
 
     def scoringEvents(self, groupid:str = None) -> List[scoring.Notation]:
-        config = getConfig()
+        config = activeConfig()
         pitches = [note.pitch for note in self.notes]
         annot = self._scoringAnnotation()
         dur = self.dur if self.dur is not None else config['defaultDuration']
@@ -763,7 +755,7 @@ class Chord(MusicObj):
         return notations
 
     def asmusic21(self, **kws) -> m21.stream.Stream:
-        config = getConfig()
+        config = activeConfig()
         arpeggio = _normalizeChordArpeggio(kws.get('arpeggio', None), self)
         if arpeggio:
             dur = config['show.arpeggioDuration']
@@ -852,7 +844,7 @@ class Chord(MusicObj):
         only the first one is kept.
         """
         if step == 0:
-            step = 1/getConfig()['semitoneDivisions']
+            step = 1/activeConfig()['semitoneDivisions']
         seenmidi = set()
         notes = []
         for note in self:
@@ -923,12 +915,12 @@ class Chord(MusicObj):
 
     def _resolvePlayargs(self, playargs: PlayArgs, config: dict=None) -> PlayArgs:
         playargs = playargs.filledWith(self.playargs)
-        playargs.fillWithConfig(config or getConfig())
+        playargs.fillWithConfig(config or activeConfig())
         return playargs
 
     @property
     def pitches(self) -> List[float]:
-        return [n.midi for n in self.notes]
+        return [n.pitch for n in self.notes]
 
     def csoundEvents(self, playargs: PlayArgs, scorestruct:ScoreStruct, config:dict
                      ) -> List[CsoundEvent]:
@@ -952,13 +944,13 @@ class Chord(MusicObj):
             events.append(CsoundEvent.fromPlayArgs(bps=bps, playargs=playargs))
         return events
 
-    def asChain(self, dur=None) -> Chain:
+    def asChain(self) -> Chain:
         """ Convert this Chord to an Chain """
         return Chain(self.notes)
 
     def __repr__(self):
         # «4C+14,4A 0.1q -50dB»
-        elements = [" ".join(pt.m2n(p.midi) for p in self.notes)]
+        elements = [" ".join(pt.m2n(p.pitch) for p in self.notes)]
         if self.dur:
             if self.dur >= MAXDUR:
                 elements.append("dur=inf")
@@ -974,9 +966,9 @@ class Chord(MusicObj):
                 elements.append(f"gliss={endpitches}")
 
         if len(elements) == 1:
-            return f'«{elements[0]}»'
+            return f'‹{elements[0]}›'
         else:
-            return f'«{elements[0].ljust(3)} {" ".join(elements[1:])}»'
+            return f'‹{elements[0].ljust(3)} {" ".join(elements[1:])}›'
 
     def dump(self, indents=0):
         elements = f'start={self.start}, dur={self.dur}, gliss={self.gliss}'
@@ -1092,7 +1084,7 @@ def asEvent(obj, **kws) -> Union[Note, Chord]:
 
 
 def _normalizeChordArpeggio(arpeggio: Union[str, bool], chord: Chord) -> bool:
-    config = getConfig()
+    config = activeConfig()
     if arpeggio is None: arpeggio = config['chord.arpeggio']
 
     if isinstance(arpeggio, bool):
@@ -1131,7 +1123,7 @@ def stackEvents(events: List[MusicObj],
             start = Rat(0)
     assert start is not None
     if defaultDur is None:
-        defaultDur = asRat(getConfig()['defaultDuration'])
+        defaultDur = asRat(activeConfig()['defaultDuration'])
     assert defaultDur is not None
     now = events[0].start if events[0].start is not None else start
     assert now is not None and now >= 0
@@ -1187,7 +1179,7 @@ def stackEventsInPlace(events: Sequence[MusicObj],
             stackEventsInPlace(ev)
     assert start is not None
     if defaultDur is None:
-        defaultDur = getConfig()['defaultDuration']
+        defaultDur = activeConfig()['defaultDuration']
         assert defaultDur is not None
     now = events[0].start if events[0].start is not None else start
     assert now is not None and now >= 0
@@ -1278,34 +1270,21 @@ class MusicObjList(MusicObj):
         Returns:
             the scoring notations
         """
-        return sum((i.scoringEvents(groupid=groupid) for i in self.items), [])
+        groupid = scoring.makeGroupId(groupid)
+        return sumlist(i.scoringEvents(groupid=groupid) for i in self._mergedItems())
+
+    def _mergedItems(self) -> List[MusicObj]:
+        return self.items
 
     def csoundEvents(self, playargs: PlayArgs, scorestruct: ScoreStruct, conf:dict
                      ) -> List[CsoundEvent]:
         playargs.fillWith(self.playargs)
-        events = []
-        for item in self.items:
-            itemevents = item.csoundEvents(playargs.copy(), scorestruct, conf)
-            events.extend(itemevents)
-        return events
-
-    def _play(self, **kws) -> csoundengine.synth.SynthGroup:
-        """
-        Args:
-            kws: any kws is passed directly to each individual event
-
-        Returns:
-            a SynthGroup collecting all the synths of each item
-        """
-        synths: List[csoundengine.synth.Synth] = []
-        for i in self.items:
-            itemsynths = i.play(**kws)
-            synths.extend(itemsynths)
-        return csoundengine.synth.SynthGroup(synths)
+        return sumlist(item.csoundEvents(playargs.copy(), scorestruct, conf)
+                       for item in self._mergedItems())
 
     def quantizePitch(self:T, step=0.) -> T:
         if step == 0:
-            step = 1/getConfig()['semitoneDivisions']
+            step = 1/activeConfig()['semitoneDivisions']
         items = [i.quantizePitch(step) for i in self.items]
         return self.clone(items=items)
 
@@ -1355,6 +1334,13 @@ def _makeLine(notes: List[Note]) -> Line:
 
 
 def _mergeLines(items: List[Union[Note, Chord]]) -> List[Union[Note, Chord, Line]]:
+    """
+    Merge notes/chords with ties/gliss into Lines, which are better capable of
+    rendering notation and playback for those cases.
+
+    Notes and Chords are appended as-is, notes which can be merged as Lines are
+    fused together and the resulting Line is added
+    """
     groups = []
     lineStarted = False
     gapAfter = set()
@@ -1404,6 +1390,12 @@ class Chain(MusicObjList):
             items = [asEvent(item) for item in items]
             items = stackEvents(items, start=start)
         super().__init__(items=items, label=label)
+        self._merged = None
+
+    def _mergedItems(self) -> List[Union[Note, Chord, Line]]:
+        if not self._merged:
+            self._merged = _mergeLines(self.items)
+        return self._merged
 
     def resolvedDuration(self) -> Rat:
         if not self.items:
@@ -1444,6 +1436,7 @@ class Chain(MusicObjList):
             self.start = None
             self.dur = None
         self._hash = None
+        self._merged = None
 
     def __len__(self) -> int:
         return len(self.items)
@@ -1459,11 +1452,6 @@ class Chain(MusicObjList):
             return self.__class__(out)
         else:
             raise ValueError(f"__getitem__ returned {out}, expected Chord or list of Chords")
-
-    def scoringEvents(self, groupid:str=None) -> List[scoring.Notation]:
-        items = _mergeLines(self.items)
-        subgroup = scoring.makeGroupId(groupid)
-        return sum((item.scoringEvents(subgroup) for item in items), [])
 
     def dump(self, indents=0):
         if environment.insideJupyter:
@@ -1498,13 +1486,6 @@ class Chain(MusicObjList):
             self._hash = hash(tuple(hash(i) ^ 0x1234 for i in self.items))
         return self._hash
 
-    def csoundEvents(self, playargs: PlayArgs, scorestruct:ScoreStruct, conf:dict
-                     ) -> List[CsoundEvent]:
-        playargs.fillWith(self.playargs)
-        items = _mergeLines(self.items)
-        return sum((item.csoundEvents(playargs.copy(), scorestruct, conf)
-                    for item in items), [])
-
     def cycle(self, dur:time_t, crop=True) -> Chain:
         """
         Cycle the items in this seq. until the given duration is reached
@@ -1519,7 +1500,7 @@ class Chain(MusicObjList):
         Returns:
             the resulting Chain
         """
-        cfg = getConfig()
+        cfg = activeConfig()
         defaultDur = Rat(cfg['defaultDuration'])
         accumDur = Rat(0)
         maxDur = asRat(dur)
@@ -1561,6 +1542,7 @@ class Voice(MusicObjList):
         if items:
             items = items.copy()
             stackEventsInPlace(items, start=asRat(0))
+        self._merged: Optional[List[Note, Chord, Line]] = None
         super().__init__(items=items, label=label)
 
     def __repr__(self) -> str:
@@ -1575,11 +1557,16 @@ class Voice(MusicObjList):
             s += ", …"
         return f"Voice({s})"
 
-    def _changed(self):
+    def _changed(self) -> None:
         if self.items:
             self.dur = self.items[-1].end-self.items[0].start
             self.start = self.items[0].start
         super()._changed()
+
+    def _mergedItems(self) -> List[Union[Note, Chord, Line]]:
+        if not self._merged:
+            self._merged = _mergeLines(self.items)
+        return self._merged
 
     def isEmptyBetween(self, start:time_t, end:num_t) -> bool:
         if not self.items or start >= self.end or end < self.start:
@@ -1629,9 +1616,9 @@ class Voice(MusicObjList):
         self._changed()
 
     def scoringEvents(self, groupid:str=None) -> List[scoring.Notation]:
-        items = _mergeLines(self.items)
         subgroup = scoring.makeGroupId(groupid)
-        return sum((item.scoringEvents(subgroup) for item in items), [])
+        return sumlist(item.scoringEvents(subgroup)
+                       for item in _mergeLines(self.items))
 
     def scoringParts(self, options: scoring.render.RenderOptions = None
                      ) -> List[scoring.Part]:
@@ -1643,10 +1630,8 @@ class Voice(MusicObjList):
     def csoundEvents(self, playargs: PlayArgs, scorestruct: ScoreStruct, conf: dict
                      ) -> List[CsoundEvent]:
         playargs.fillWith(self.playargs)
-        items = _mergeLines(self.items)
-        return sum((item.csoundEvents(playargs.copy(), scorestruct, conf)
-                    for item in items), [])
-
+        return sumlist(item.csoundEvents(playargs.copy(), scorestruct, conf)
+                       for item in _mergeLines(self.items))
 
 
 def _asVoice(obj: Union[MusicObj, List[MusicObj]]) -> Voice:

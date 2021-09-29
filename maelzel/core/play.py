@@ -37,7 +37,7 @@ from datetime import datetime
 import csoundengine
 
 from .config import logger
-from .workspace import getConfig, currentWorkspace, recordPath
+from .workspace import activeConfig, activeWorkspace, recordPath
 from . import tools
 from .presetbase import *
 from .presetman import presetManager, csoundPrelude as _prelude
@@ -61,9 +61,9 @@ _invalidVariables = {"kfreq", "kamp", "kpitch"}
 
 class OfflineRenderer:
     def __init__(self, sr=None, ksmps=64, outfile:str=None):
-        w = currentWorkspace()
+        w = activeWorkspace()
         self.a4 = w.a4  # m2f(69)
-        self.sr = sr or getConfig()['rec.samplerate']
+        self.sr = sr or activeConfig()['rec.samplerate']
         self.ksmps = ksmps
         self.outfile = outfile
         self.events: List[CsoundEvent] = []
@@ -85,7 +85,7 @@ class OfflineRenderer:
                 (print statements and similar opcodes still produce output)
 
         """
-        quiet = quiet or getConfig()['rec.quiet']
+        quiet = quiet or activeConfig()['rec.quiet']
         outfile = outfile or self.outfile
         recEvents(events=self.events, outfile=outfile, sr=self.sr,
                   wait=wait, quiet=quiet)
@@ -152,7 +152,7 @@ def recEvents(events: List[CsoundEvent], outfile:str=None,
         logger.info(f"Saving recording to {outfile}")
     renderer = presetManager.makeRenderer(events=events, sr=sr, ksmps=ksmps)
     if quiet is None:
-        quiet = getConfig()['rec.quiet']
+        quiet = activeConfig()['rec.quiet']
     renderer.render(outfile, wait=wait, quiet=quiet)
     return outfile
 
@@ -227,7 +227,7 @@ def startPlayEngine(numChannels=None, backend=None) -> csoundengine.Engine:
         numChannels: the number of output channels, overrides config 'play.numChannels'
         backend: the audio backend used, overrides config 'play.backend'
     """
-    config = getConfig()
+    config = activeConfig()
     engineName = config['play.engineName']
     if engineName in csoundengine.activeEngines():
         return csoundengine.getEngine(engineName)
@@ -237,10 +237,12 @@ def startPlayEngine(numChannels=None, backend=None) -> csoundengine.Engine:
         backend = tools.selectFromList(backends, title="Select Backend")
     backend = backend or config['play.backend']
     logger.debug(f"Starting engine {engineName} (nchnls={numChannels})")
-    return csoundengine.Engine(name=engineName, nchnls=numChannels,
+    return csoundengine.Engine(name=engineName,
+                               nchnls=numChannels,
                                backend=backend,
                                globalcode=_prelude,
-                               quiet=not config['play.verbose'])
+                               quiet=not config['play.verbose'],
+                               latency=config['play.schedLatency'])
 
 
 def stopSynths(stopengine=False, cancelfuture=True):
@@ -256,7 +258,7 @@ def stopSynths(stopengine=False, cancelfuture=True):
 
 
 def getPlaySession() -> csoundengine.Session:
-    config = getConfig()
+    config = activeConfig()
     group = config['play.engineName']
     if not isEngineActive():
         if config['play.autostartEngine']:
@@ -270,7 +272,7 @@ def isEngineActive() -> bool:
     """
     Returns True if the sound engine is active
     """
-    name = getConfig()['play.engineName']
+    name = activeConfig()['play.engineName']
     return csoundengine.getEngine(name) is not None
 
 
@@ -278,7 +280,7 @@ def getPlayEngine(start=None) -> Opt[csoundengine.Engine]:
     """
     Return the sound engine, or None if it has not been started
     """
-    cfg = getConfig()
+    cfg = activeConfig()
     engine = csoundengine.getEngine(name=cfg['play.engineName'])
     if not engine:
         logger.debug("engine not started")
@@ -324,18 +326,18 @@ class rendering:
         self.outfile = outfile
         self._oldRenderer: Opt[OfflineRenderer] = None
         self.renderer: Opt[OfflineRenderer] = None
-        self.quiet = quiet or getConfig()['rec.quiet']
+        self.quiet = quiet or activeConfig()['rec.quiet']
         self.wait = wait
 
     def __enter__(self):
-        workspace = currentWorkspace()
+        workspace = activeWorkspace()
         self._oldRenderer = workspace.renderer
         self.renderer = OfflineRenderer(sr=self.sr, outfile=self.outfile)
         workspace.renderer = self.renderer
         return self.renderer
 
     def __exit__(self, *args, **kws):
-        w = currentWorkspace()
+        w = activeWorkspace()
         w.renderer = self._oldRenderer
         if self.outfile is None:
             self.outfile = _makeRecordingFilename()
@@ -415,15 +417,20 @@ def playEvents(events: List[CsoundEvent],
     presetDefs = [presetManager.getPreset(name) for name in presetNames]
     presetToInstr: Dict[str, csoundengine.Instr] = {preset.name:_registerPresetInSession(preset, session)
                                                     for preset in presetDefs}
-
+    # We take a reference time before starting scheduling,
+    # so we can guarantee that events which are supposed to be
+    # in sync, are in fact in sync. We could use Engine.lockReferenceTime
+    # but we might interfere with another called doing the same.
+    elapsed = session.engine.elapsedTime() + session.engine.extraLatency
     for ev in events:
         instr = presetToInstr[ev.instr]
         args = ev.getPfields(numchans=instr.numchans)
         synth = session.sched(instr.name,
-                              delay=args[0],
+                              delay=args[0]+elapsed,
                               dur=args[1],
                               pargs=args[3:],
                               tabargs=ev.namedArgs,
-                              priority=ev.priority)
+                              priority=ev.priority,
+                              relative=False)
         synths.append(synth)
     return csoundengine.synth.SynthGroup(synths)
