@@ -4,7 +4,6 @@ Module text
 from __future__ import annotations
 from ._common import logger, UNSET
 import appdirs as _appdirs
-import weakref as _weakref
 import os
 import pitchtools as pt
 from .config import rootConfig
@@ -23,42 +22,43 @@ def _resetCache() -> None:
 
 
 class Workspace:
+    root: Workspace = None
+
     _initDone: bool = False
-    _workspaces: Dict[str, _weakref.ReferenceType[Workspace]] = {}
-    _current: Workspace
-    _root: Workspace
-
-    def __new__(cls, name: str,
-                scorestruct: Optional[ScoreStruct]=None,
-                config:configdict.ConfigDict=None,
-                renderer: Any = None,
-                activate=True):
-        if name in Workspace._workspaces:
-            logger.debug(f"Workspace {name} already exists. Returning the old"
-                         f"workspace")
-            assert scorestruct is None and config is None and renderer is None
-            out = Workspace._workspaces[name]()
-            if activate:
-                out.activate()
-        return super().__new__(cls)
-
+    _active: Workspace
+    _counter: int = 0
 
     def __init__(self,
-                 name: str,
+                 name: str = '',
                  scorestruct:Optional[ScoreStruct]=None,
                  config:configdict.ConfigDict=None,
                  renderer: Any = None,
                  dynamicCurve: DynamicCurve = None,
-                 activate=True
-                 ):
+                 activate=True):
+        """
+        Create a new Workspace / get an existing Workspace.
+
+        If the name refers to an existing Workspace, the already existing
+        Workspace is returned
+
+        Args:
+            name: the name of the workspace, or nothing to create an unique name.
+                The name 'root' refers to the root Workspace
+            scorestruct: the ScoreStruct.
+            config: the active config for this workspace
+            renderer: will be set to the active offline renderer while rendering offline
+            dynamicCurve: a DynamicCurve used to map amplitude to dynamic expressions
+            activate: if True, make this Workpsace active
+        """
+        if not name:
+            name = Workspace._createUniqueName()
         self.name = name
         self.renderer = renderer
-        self.config = config or getConfig()
+        self.config = config or activeConfig()
         if scorestruct is None:
             scorestruct = ScoreStruct.fromTimesig((4, 4), quarterTempo=60)
         self._scorestruct = scorestruct
         self.dynamicsCurve = dynamicCurve or DynamicCurve.getDefault()
-        Workspace._workspaces[name] = _weakref.ref(self)
         if activate:
             self.activate()
 
@@ -68,6 +68,7 @@ class Workspace:
             
     @property
     def scorestruct(self) -> ScoreStruct:
+        """Returns the current ScoreSctruct"""
         return self._scorestruct
     
     @scorestruct.setter
@@ -75,20 +76,10 @@ class Workspace:
         _resetCache()
         self._scorestruct = s
 
-    def __del__(self):
-        if self.name == "root":
-            logger.error("Cannot delete 'root' workspace")
-            return
-        if self.name in Workspace._workspaces:
-            Workspace._workspaces.pop(self.name)
-
-    @staticmethod
-    def _createUniqueName() -> str:
-        for n in range(1, 9999):
-            name = f"Workspace-{n}"
-            if name not in Workspace._workspaces:
-                return name
-        raise RuntimeError("Too many workspaces")
+    @classmethod
+    def _createUniqueName(cls) -> str:
+        cls._counter += 1
+        return f"Workspace-{cls._counter}"
 
     @property
     def a4(self) -> float:
@@ -100,18 +91,34 @@ class Workspace:
         if self.isActive():
             pt.set_reference_freq(value)
 
+    @classmethod
+    def getActive(cls) -> Workspace:
+        """Get the active Workspace
+
+        To set the active workspace, call `.activate()` on a previously
+        created Workspace
+        """
+        return cls._active
+
     def getTempo(self, measureNum=0) -> float:
+        """Get the quarter-note tempo at the given measure"""
         return float(self.scorestruct.getMeasureDef(measureNum).quarterTempo)
 
     def activate(self) -> None:
+        """Make this the active Workspace"""
         pt.set_reference_freq(self.a4)
-        Workspace._current = self
+        Workspace._active = self
 
     def isActive(self) -> bool:
-        return currentWorkspace() is self
+        """Is this the active Workspace?"""
+        return activeWorkspace() is self
     
     def clone(self, name:str=None, config:configdict.ConfigDict=UNSET,
-              scorestruct:ScoreStruct=UNSET, activate=True):
+              scorestruct:ScoreStruct=UNSET, activate=True
+              ) -> Workspace:
+        """
+        Clone this Workspace
+        """
         if config is UNSET:
             config = self.config.clone(persistent=False, cloneCallbacks=True)
         if scorestruct is UNSET:
@@ -122,14 +129,6 @@ class Workspace:
                          config=config,
                          scorestruct=scorestruct or self.scorestruct,
                          activate=activate)
-    
-    @classmethod
-    def workspaces(cls) -> List[str]:
-        """Returns the names of all created workspaces
-        
-        To access the actual Workspace, do Workspace(<workspacename>)
-        """
-        return list(cls._workspaces.keys())
 
 
 def _init() -> None:
@@ -138,17 +137,15 @@ def _init() -> None:
         return
     Workspace._initDone = True
     w = Workspace("root", config=rootConfig)
-    Workspace._root = w
+    Workspace.root = w
     w.activate()
 
 
-def currentWorkspace() -> Workspace:
+def activeWorkspace() -> Workspace:
     """
-    Get current workspace
+    Get the active workspace
     """
-    w = Workspace._current
-    assert w is not None
-    return w
+    return Workspace.getActive()
 
 
 def setTempo(quarterTempo:float, measureNum=0) -> None:
@@ -158,25 +155,29 @@ def setTempo(quarterTempo:float, measureNum=0) -> None:
     This is only possible if the currently active ScoreStruct has only 
     one initial tempo
     """
-    w = currentWorkspace()
+    w = activeWorkspace()
     w.scorestruct.setTempo(quarterTempo, measureNum=measureNum)
 
 
-def getConfig() -> configdict.ConfigDict:
+def activeConfig() -> configdict.ConfigDict:
     """
-    Return the current config.
+    Return the active config.
     """
-    return currentWorkspace().config
+    return activeWorkspace().config
 
 
-def newConfig(cloneCurrent=True, name:str=None,     updates:dict=None
+def newConfig(updates:dict=None, cloneCurrent=True, name:str=None,
               ) -> configdict.ConfigDict:
     """
-    Create a new config and set it as the active one.
+    Clone the current Workspace with a new config and set it as active
 
-    This will clone the current workspace with this new config
+    This new config will not be persistent. To make persistent changes, modify
+    the root config::
 
-    maelzel.core is organizad around the idea of a current workspace.
+        >>> from maelzel.core import *
+        >>> rootConfig.edit()
+
+    **maelzel.core** is organizad around the idea of a current workspace.
     Each workspace has a valid config. By calling `newConfig`, a new workspace
     is created with, either a clone of the previous config (if called with
     `cloneCurrent=True`) or of the root config. All other attributes of
@@ -189,6 +190,7 @@ def newConfig(cloneCurrent=True, name:str=None,     updates:dict=None
         name: name of the workspace created with this config. If no name is given,
             a new unique name is created (this name can be found
             via ``currentConfig().name``)
+        updates: if given, the new config is updated with this dict
 
     Returns:
         the new config
@@ -199,23 +201,22 @@ def newConfig(cloneCurrent=True, name:str=None,     updates:dict=None
         >>> from maelzel.core import *
         >>> cfg = newConfig()
         >>> cfg['play.numChannels'] = 4
-        >>> cfg['']
+        # This is the same as
+        >>> Workspace(config=activeConfig().clone(updates={'play.numChannels': 4}))
     """
-    w = currentWorkspace()
+    w = activeWorkspace()
     if cloneCurrent:
         config = w.config.clone(updates=updates, cloneCallbacks=True)
     else:
-        rootWorkspace = Workspace._workspaces['root']()
-        assert rootWorkspace is not None
+        rootWorkspace = Workspace.root
         config = rootWorkspace.config.clone(updates=updates, cloneCallbacks=True)
-    newWorkspace = currentWorkspace().clone(name=name, config=config, 
-                                            scorestruct=w.scorestruct)
+    newWorkspace = w.clone(name=name, config=config, scorestruct=w.scorestruct)
     return newWorkspace.config
 
 
-def currentScoreStruct() -> ScoreStruct:
+def activeScoreStruct() -> ScoreStruct:
     """
-    Returns the current ScoreStruct (which defines tempo and time signatures)
+    Returns the active ScoreStruct (which defines tempo and time signatures)
 
     If no ScoreStruct has been set explicitely, a default is always active which
     creates an endless 4/4 score with tempo q=60
@@ -227,7 +228,7 @@ def currentScoreStruct() -> ScoreStruct:
         the tempo can be modified via `setTempo`.
 
     """
-    s = currentWorkspace().scorestruct
+    s = activeWorkspace().scorestruct
     assert s is not None
     return s
 
@@ -236,7 +237,7 @@ def setScoreStruct(s: ScoreStruct) -> None:
     """
     Sets the current score structure
     """
-    currentWorkspace().scorestruct = s
+    activeWorkspace().scorestruct = s
 
 
 def _presetsPath() -> str:
@@ -247,7 +248,7 @@ def _presetsPath() -> str:
 
 def presetsPath() -> str:
     """ Returns the path were instrument presets are read/written"""
-    userpath = getConfig()['play.presetsPath']
+    userpath = activeConfig()['play.presetsPath']
     if userpath:
         return userpath
     return _presetsPath()
@@ -264,7 +265,7 @@ def recordPath() -> str:
     The default record path can be customized by modifying the config
     'rec.path'
     """
-    userpath = getConfig()['rec.path']
+    userpath = activeConfig()['rec.path']
     if userpath:
         path = userpath
     else:

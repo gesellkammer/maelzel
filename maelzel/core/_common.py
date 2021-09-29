@@ -12,6 +12,8 @@ Here we define:
 import logging as _logging
 # from fractions import Fraction as Rat
 from maelzel.mpqfractions import Rat
+from typing import List, Iterable
+from .typedefs import T
 import os
 
 
@@ -66,6 +68,10 @@ def isNumber(x) -> bool:
 
 def asTuple(obj) -> tuple:
     return obj if isinstance(obj, tuple) else tuple(obj)
+
+
+def sumlist(seq: Iterable[List[T]]) -> List[T]:
+    return sum(seq, [])
 
 
 def getPath(s: str) -> str:

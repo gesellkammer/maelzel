@@ -1,0 +1,14 @@
+numpy
+scipy
+matplotlib
+JACK-client
+ctcsound
+sndfileio
+emlib
+cachetools
+configdict>=0.4
+bpf4
+numpyx>=0.5
+sphinx-autodoc-typehints
+sphinx-automodapi
+sphinx_rtd_theme

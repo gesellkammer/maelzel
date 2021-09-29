@@ -2,7 +2,7 @@ from __future__ import annotations
 from maelzel.music import packing
 from fractions import Fraction
 from . import musicobj
-from .workspace import getConfig
+from .workspace import activeConfig
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -49,7 +49,7 @@ def splitNotesOnce(notes: Union[Chord, Sequence[Note]], splitpoint:float, deviat
         notes above and below
 
     """
-    deviation = deviation or getConfig()['splitAcceptableDeviation']
+    deviation = deviation or activeConfig()['splitAcceptableDeviation']
     if all(note.pitch > splitpoint - deviation for note in notes):
         above = [n for n in notes]
         below = []

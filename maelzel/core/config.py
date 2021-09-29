@@ -67,6 +67,7 @@ _default = {
     'play.namedArgsMethod': 'table',
     'play.soundfontAmpDiv': 16384,
     'play.soundfontInterpolation': 'linear',
+    'play.schedLatency': 0.2,
     'play.verbose': False,
     'rec.block': False,
     'rec.samplerate': 44100,
@@ -185,6 +186,8 @@ _docs = {
         'Start play engine if not started manually. This is done when the user '
         'performs an action which indirectly needs the engine to be running, '
         'like defining an instrument, or calling play.getPlayManager()',
+    'play.schedLatency':
+        'Added latency when scheduling events to ensure time precission',
     'rec.quiet':
         'Supress debug output when calling csound as a subprocess',
     'play.dur':
@@ -325,7 +328,7 @@ def _resetImageCacheCallback():
 
 def _propagateA4(config, a4):
     from . import workspace
-    w = workspace.currentWorkspace()
+    w = workspace.activeWorkspace()
     if config is w.config:
         w.a4 = a4
 

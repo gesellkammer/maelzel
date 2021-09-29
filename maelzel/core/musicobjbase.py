@@ -17,7 +17,7 @@ import pitchtools as pt
 import csoundengine
 
 from ._common import *
-from .workspace import currentWorkspace, getConfig, currentScoreStruct
+from .workspace import activeWorkspace, activeConfig, activeScoreStruct
 from . import play
 from . import tools
 from . import environment
@@ -118,7 +118,7 @@ class MusicObj:
         that, otherwise returns a default duration. Child
         classes can override this method to match their behaviour
         """
-        return self.dur if self.dur is not None else getConfig()['defaultDuration']
+        return self.dur if self.dur is not None else activeConfig()['defaultDuration']
 
     def withExplicitTime(self, dur: time_t = None, start: time_t = None):
         """
@@ -153,7 +153,7 @@ class MusicObj:
 
         Args:
             **kws: any argument passed to .play (delay, dur, chan,
-                gain, fade, instr, pitchinterpol, fadeshape, args,
+                gain, fade, instr, pitchinterpol, fadeshape, params,
                 priority, position).
 
         Returns:
@@ -256,7 +256,7 @@ class MusicObj:
 
         **NB**: to use the music21 show capabilities, use ``note.asmusic21().show(...)``
         """
-        cfg = getConfig()
+        cfg = activeConfig()
         if external is None:
             external = cfg['show.external']
         if backend is None:
@@ -348,7 +348,7 @@ class MusicObj:
         if not self.label:
             return None
         return scoring.Annotation(self.label,
-                                  fontSize=getConfig()['show.labelFontSize'])
+                                  fontSize=activeConfig()['show.labelFontSize'])
 
     def asmusic21(self, **kws) -> m21.stream.Stream:
         """
@@ -375,7 +375,7 @@ class MusicObj:
         parts = self.scoringParts()
         renderer = notation.renderWithCurrentWorkspace(parts, backend='musicxml')
         stream = renderer.asMusic21()
-        if getConfig()['m21.fixStream']:
+        if activeConfig()['m21.fixStream']:
             m21tools.fixStream(stream)
         return stream
 
@@ -415,14 +415,14 @@ class MusicObj:
         elif ext == '.xml' or ext == '.musicxml':
             backend = 'music21'
         elif backend is None:
-            cfg = getConfig()
+            cfg = activeConfig()
             backend = cfg['show.backend']
         r = notation.renderWithCurrentWorkspace(self.scoringParts(), backend=backend)
         r.write(outfile)
 
     def _htmlImage(self) -> str:
         imgpath = self.makeImage()
-        scaleFactor = getConfig().get('show.scaleFactor', 1.0)
+        scaleFactor = activeConfig().get('show.scaleFactor', 1.0)
         width, height = emlib.img.imgSize(imgpath)
         img = emlib.img.htmlImgBase64(imgpath,
                                       width=f'{int(width * scaleFactor)}px')
@@ -487,7 +487,7 @@ class MusicObj:
         - fadeshape: 'linear' or 'cos'
         - position: the panning position (0=left, 1=right). The left channel
             is determined by chan
-        - args: any args needed to pass to the instrument
+        - params: any params needed to pass to the instrument
 
         Returns:
             A list of :class:`CsoundEvent`s
@@ -509,14 +509,14 @@ class MusicObj:
                 raise ValueError("No preset selected")
         playargs = PlayArgs(instr=instr, **kws)
         if scorestruct is None:
-            scorestruct = currentScoreStruct()
-        events = self.csoundEvents(playargs, scorestruct, config or getConfig())
+            scorestruct = activeScoreStruct()
+        events = self.csoundEvents(playargs, scorestruct, config or activeConfig())
         return events
 
     def play(self,
              instr: str = None,
              delay: float = None,
-             args: Dict[str, float] = None,
+             params: Dict[str, float] = None,
              gain: float = None,
              chan: int = None,
              pitchinterpol: str = None,
@@ -546,7 +546,7 @@ class MusicObj:
             pitchinterpol: 'linear', 'cos', 'freqlinear', 'freqcos'
             fade: fade duration in seconds, can be a tuple (fadein, fadeout)
             fadeshape: 'linear' | 'cos'
-            args: paramaters passed to the note through an associated table.
+            params: paramaters passed to the note through an associated table.
                 A dict paramName: value
             position: the panning position (0=left, 1=right)
             start: start time of playback. Allows to play a fragment of the object
@@ -572,11 +572,11 @@ class MusicObj:
         events = self.events(delay=delay, chan=chan,
                              fade=fade, gain=gain, instr=instr,
                              pitchinterpol=pitchinterpol, fadeshape=fadeshape,
-                             args=args, position=position,
+                             params=params, position=position,
                              scorestruct=scorestruct)
         if start is not None or end is not None:
             cropEvents(events, start, end)
-        renderer = currentWorkspace().renderer
+        renderer = activeWorkspace().renderer
         if renderer:
             # schedule offline
             return renderer.schedMany(events)
@@ -676,7 +676,7 @@ class MusicObj:
             the resulting object
         """
         start = 0. if self.start is None else self.start
-        dur = getConfig()['defaultDur'] if self.dur is None else self.dur
+        dur = activeConfig()['defaultDur'] if self.dur is None else self.dur
         start2 = timemap(start)
         dur2 = timemap(start+dur) - start2
         return self.clone(start=asRat(start2), dur=asRat(dur2))
@@ -726,7 +726,7 @@ def _renderObject(obj: MusicObj, outfile:str=None, backend:str=None, fmt='png',
     Returns:
         the path of the generated image
     """
-    config = getConfig()
+    config = activeConfig()
     if backend is None:
         backend = config['show.backend']
     else:
@@ -754,7 +754,7 @@ def _renderObject(obj: MusicObj, outfile:str=None, backend:str=None, fmt='png',
 def _generateLilypondScore(obj: MusicObj,
                            renderoptions: Optional[scoring.render.RenderOptions]=None
                            ) -> str:
-    config = getConfig()
+    config = activeConfig()
     if renderoptions is None:
         renderoptions = notation.makeRenderOptionsFromConfig(config)
     parts = obj.scoringParts()

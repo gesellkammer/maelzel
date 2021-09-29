@@ -7,7 +7,7 @@ import glob
 import csoundengine.csoundlib
 import emlib.dialogs
 from .presetbase import *
-from .workspace import presetsPath, getConfig, currentWorkspace
+from .workspace import presetsPath, activeConfig, activeWorkspace
 from . import presetutils
 from . import playpresets
 from ._common import logger
@@ -131,7 +131,7 @@ class PresetManager:
         If p4 is 0, then the given preset has no associated ftable
 
         audiogen should generate an audio output signal named 'aout1' for channel 1,
-        aout2 for channel 2, etc.
+        'aout2' for channel 2, etc.
 
         Example::
 
@@ -159,20 +159,33 @@ class PresetManager:
         .. code-block:: python
 
             # create a preset with a dynamic parameter
-            manager = getPresetManager()
+            >>> audiogen = r'''
+            ... aout1 vco2 kamp, kfreq, 10
+            ... aout1 moogladder aout1, lag:k(kcutoff, 0.1), kq
+            ... '''
+            >>> presetManager.defPreset(name='mypreset', audiogen=audiogen,
+            ...                         params=dict(kcutoff=4000, kq=1))
 
-            audiogen = r'''
-            kcutoff tab 0, p4
-            kq      tab 1, p4
-            aout1 vco2 kamp, kfreq, 10
-            aout1 moogladder aout1, lag:k(kcutoff, 0.1), kq
-            '''
-            manager.defPreset(name='mypreset', audiogen=audiogen,
-                              params=dict(kcutoff=4000, kq=1))
+            # Alternatively the parameters can be declared inline:
+            >>> presetManager.defPreset('mypreset', r'''
+            ... |kcutoff=4000, kq=1|
+            ... aout1 vco2 kamp, kfreq, 10
+            ... aout1 moogladder aout1, lag:k(kcutoff, 0.1), kq
+            ... ''')
 
-        See Also:
-            defPresetSoundfont
+        See Also
+        ~~~~~~~~
+
+        :meth:`PresetManager.defPresetSoundfont`
         """
+        audiogen = emlib.textlib.stripLines(audiogen)
+        firstLine = audiogen.splitlines()[0].strip()
+        if firstLine[0] == '|' and firstLine[-1] == '|':
+            delimiter, inlineParams, audiogen = csoundengine.instr.parseInlineArgs(audiogen)
+            if params:
+                params.update(inlineParams)
+            else:
+                params = inlineParams
         presetdef = PresetDef(name=name,
                               audiogen=audiogen,
                               init=init,
@@ -209,8 +222,8 @@ class PresetManager:
             sf2path: the path to the soundfont, None to use the default soundfont (if
                 present in the system) or "?" to open a dialog
             preset: the preset to use. Either a tuple (bank: int, presetnum: int) or the
-                name of the preset as string. Use "?" to select from all available presets
-                in the soundfont
+                name of the preset as string. **Use "?" to select from all available presets
+                in the soundfont**
             init: global code needed by postproc
             postproc: code to modify the generated audio before it is sent to the
                 outputs
@@ -245,7 +258,7 @@ class PresetManager:
             sf2path = tools.selectFileForOpen('soundfontLastDirectory',
                                               filter="*.sf2", prompt="Select Soundfont",
                                               ifcancel="No soundfont selected, aborting")
-        cfg = getConfig()
+        cfg = activeConfig()
         if interpolation is None:
             interpolation = cfg['play.soundfontInterpolation']
         assert interpolation in ('linear', 'cubic')
@@ -305,7 +318,7 @@ class PresetManager:
 
         """
         self.presetdefs[presetdef.name] = presetdef
-        config = getConfig()
+        config = activeConfig()
         if presetdef.userDefined and not presetdef.temporary and config['play.autosavePresets']:
             self.savePreset(presetdef.name)
 
@@ -319,11 +332,11 @@ class PresetManager:
                 of defined presets)
         """
         if name is None:
-            name = getConfig()['play.instr']
+            name = activeConfig()['play.instr']
         elif name == "?":
             name = tools.selectFromList(list(self.presetdefs.keys()),
                                         title="Select Preset",
-                                        default=getConfig()['play.instr'])
+                                        default=activeConfig()['play.instr'])
         preset = self.presetdefs.get(name)
         if not preset:
             logger.error(f"Preset {name} not known. \n"
@@ -356,7 +369,7 @@ class PresetManager:
                 else:
                     print(presetdef.makeInstr().body)
         else:
-            theme = getConfig()['html.theme']
+            theme = activeConfig()['html.theme']
             htmls = []
             for presetName in selectedPresets:
                 presetdef = self.presetdefs[presetName]
@@ -450,11 +463,11 @@ class PresetManager:
         Returns:
             a csoundengine.Renderer
         """
-        config = getConfig()
+        config = activeConfig()
         sr = sr or config['rec.samplerate']
         ksmps = ksmps or config['rec.ksmps']
         nchnls = nchnls or config['rec.nchnls']
-        state = currentWorkspace()
+        state = activeWorkspace()
         renderer = csoundengine.Renderer(sr=sr, nchnls=nchnls, ksmps=ksmps,
                                          a4=state.a4)
         renderer.addGlobalCode(csoundPrelude)
@@ -471,7 +484,7 @@ class PresetManager:
         Open a file manager at presetsPath
         """
         path = presetsPath()
-        emlib.misc.open_with_standard_app(path)
+        emlib.misc.open_with_app(path)
 
     def removeUserPreset(self, presetName: str = None) -> bool:
         """

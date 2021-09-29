@@ -7,7 +7,7 @@ import emlib.misc
 from ._common import *
 from .typedefs import *
 from . import tools
-from .workspace import getConfig
+from .workspace import activeConfig
 import copy
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -38,7 +38,7 @@ class PlayArgs:
     instr: str = None
     pitchinterpol: str = None
     fadeshape: str = None
-    args: Dict[str, float] = None
+    params: Dict[str, float] = None
     priority: int = 1
     position: float = None
 
@@ -54,8 +54,8 @@ class PlayArgs:
             parts.append(f'instr={self.instr}')
         if self.fadeshape is not None:
             parts.append(f'fadeshape={self.fadeshape}')
-        if self.args is not None:
-            parts.append(f'args={self.args}')
+        if self.params is not None:
+            parts.append(f'params={self.params}')
         if self.position is not None:
             parts.append(f'position={self.position}')
         if self.priority != 1:
@@ -66,7 +66,7 @@ class PlayArgs:
     def keys() -> Set[str]:
         return {field.name for field in dataclasses.fields(PlayArgs)}
 
-    def values(self) -> Iter:
+    def values(self) -> Iterable:
         return (getattr(self, k) for k in self.keys())
 
     def checkValues(self) -> None:
@@ -171,7 +171,7 @@ class CsoundEvent:
         instr: the instr preset
         pitchinterpol: which pitchinterpolation to use ('linear', 'cos')
         fadeshape: shape of the fade ('linear', 'cos')
-        namedArgs: args used to initialize a parameter table
+        namedArgs: params used to initialize a parameter table
         priority: schedule the corresponding instr at this priority
         userpargs: user pargs
     """
@@ -188,7 +188,7 @@ class CsoundEvent:
                  instr:str=None,
                  pitchinterpol:str=None,
                  fadeshape:str=None,
-                 args: Dict[str, float] = None,
+                 params: Dict[str, float] = None,
                  priority:int=1,
                  position:float = None,
                  userpargs: Optional[List[float]]=None,
@@ -197,7 +197,8 @@ class CsoundEvent:
         bps (breakpoints): a seq of (delay, midi, amp, ...) of len >= 1.
 
         Args:
-            bps: breakpoints, where each breakpoint is a tuple of (timeoffset, midi, amp, [...])
+            bps: breakpoints, where each breakpoint is a tuple of (timeoffset, midi, amp,
+            [...])
             delay: time delay. The effective time of bp[n] will be delay + bp[n][0]
             chan: output channel
             fade: fade time (either a single value or a tuple (fadein, fadeout)
@@ -205,12 +206,12 @@ class CsoundEvent:
             instr: the instr preset
             pitchinterpol: which pitchinterpolation to use ('linear', 'cos')
             fadeshape: shape of the fade ('linear', 'cos')
-            args: named parameters
+            params: named parameters
             priority: schedule the corresponding instr at this priority
             userpargs: ???
             tiednext: a hint to merge multiple events into longer lines.
         """
-        cfg = getConfig()
+        cfg = activeConfig()
 
         if len(bps[0]) < 2:
             raise ValueError(f"A breakpoint should have at least (delay, pitch), "
@@ -237,7 +238,7 @@ class CsoundEvent:
         self.priority = priority
         self.position = position
         self.userpargs = userpargs
-        self.namedArgs = args
+        self.namedArgs = params
         self.tiednext = tiednext
         self._consolidateDelay()
         self._namedArgsMethod = cfg['play.namedArgsMethod']

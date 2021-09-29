@@ -14,7 +14,7 @@ from ._common import *
 from . import environment
 from . import symbols as _symbols
 from .state import appstate as _appstate
-from .workspace import getConfig
+from .workspace import activeConfig
 from .environment import insideJupyter
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -168,7 +168,7 @@ def jupyterMakeImage(path: str) -> JupyterImage:
     if not insideJupyter:
         raise RuntimeError("Not inside a Jupyter session")
 
-    scalefactor = getConfig()['show.scaleFactor']
+    scalefactor = activeConfig()['show.scaleFactor']
     if scalefactor != 1.0:
         imgwidth, imgheight = imgSize(path)
         width = imgwidth*scalefactor
@@ -212,7 +212,7 @@ def m21JupyterHook(enable=True) -> None:
     formatter = ip.display_formatter.formatters['image/png']
     if enable:
         def showm21(stream: m21.stream.Stream):
-            cfg = getConfig()
+            cfg = activeConfig()
             fmt = cfg['m21.displayhook.format']
             filename = str(stream.write(fmt))
             if fmt.endswith(".png") and cfg['html.theme'] == 'dark':
@@ -458,7 +458,7 @@ def showLilypondScore(score: str) -> None:
 
 def amplitudeToDynamics(amp: float) -> str:
     from . import workspace
-    w = workspace.currentWorkspace()
+    w = workspace.activeWorkspace()
     dyncurve = w.dynamicsCurve
     return dyncurve.amp2dyn(amp)
 

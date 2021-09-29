@@ -4,7 +4,7 @@ import math
 import re
 import textwrap as _textwrap
 import emlib.textlib as _textlib
-from .workspace import getConfig
+from .workspace import activeConfig
 import csoundengine
 
 from typing import TYPE_CHECKING
@@ -298,7 +298,7 @@ class PresetDef:
         if self._instr:
             return self._instr
         if namedArgsMethod is None:
-            namedArgsMethod = getConfig()['play.namedArgsMethod']
+            namedArgsMethod = activeConfig()['play.namedArgsMethod']
         instrName = self.instrName()
 
         if namedArgsMethod == 'table':

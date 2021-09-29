@@ -4,7 +4,7 @@ Functionality to interface with maelzel.scoring
 """
 from __future__ import annotations
 from ._common import *
-from .workspace import getConfig, currentWorkspace
+from .workspace import activeConfig, activeWorkspace
 
 from maelzel import scoring
 from maelzel.scorestruct import ScoreStruct
@@ -56,12 +56,12 @@ def scoringPartsToMusic21(parts: List[Union[scoring.Part, List[scoring.Notation]
     Returns:
 
     """
-    config = config or getConfig()
+    config = config or activeConfig()
     divsPerSemitone = config['show.semitoneDivisions']
     showCents = config['show.cents']
     centsFontSize = config['show.centsFontSize']
     if struct is None:
-        struct = currentWorkspace().scorestruct
+        struct = activeWorkspace().scorestruct
     renderOptions = scoring.render.RenderOptions(divsPerSemitone=divsPerSemitone,
                                                  showCents=showCents,
                                                  centsFontSize=centsFontSize)
@@ -90,7 +90,7 @@ def makeRenderOptionsFromConfig(cfg: configdict.CheckedDict = None
         via scoring.render module
     """
     if cfg is None:
-        cfg = getConfig()
+        cfg = activeConfig()
     renderOptions = scoring.render.RenderOptions(
             staffSize=cfg['show.staffSize'],
             divsPerSemitone=cfg['semitoneDivisions'],
@@ -110,7 +110,7 @@ def makeRenderOptionsFromConfig(cfg: configdict.CheckedDict = None
 def makeQuantizationProfileFromConfig(cfg: configdict.CheckedDict = None
                                       ) -> scoring.quant.QuantizationProfile:
     if cfg is None:
-        cfg = getConfig()
+        cfg = activeConfig()
     complexity = cfg['quant.complexity']
     preset = scoring.quant.quantdata.complexityPresets[complexity]
     return scoring.quant.QuantizationProfile(
@@ -136,7 +136,7 @@ def renderWithCurrentWorkspace(parts: List[scoring.Part],
     Returns:
         the rendered Renderer
     """
-    workspace = currentWorkspace()
+    workspace = activeWorkspace()
     cfg = workspace.config
     if not renderoptions:
         renderoptions = makeRenderOptionsFromConfig()
