@@ -515,8 +515,8 @@ def selectFileForOpen(key: str, filter="All (*.*)", prompt="Open", ifcancel:str=
     return selected
 
 
-def saveRecordingDialog(prompt="Save Recorging"):
-    return  selectFileForSave("recLastDir", "Audio (*.wav, *.aif, *.flac)",
-                              prompt=prompt)
+def saveRecordingDialog(prompt="Save Recording") -> Optional[str]:
+    return selectFileForSave("recLastDir", "Audio (*.wav, *.aif, *.flac)",
+                             prompt=prompt)
 
 

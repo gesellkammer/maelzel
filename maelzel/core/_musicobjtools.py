@@ -1,6 +1,6 @@
 from __future__ import annotations
 from maelzel.music import packing
-from fractions import Fraction
+from maelzel.rational import Rat
 from . import musicobj
 from .workspace import activeConfig
 
@@ -25,8 +25,8 @@ def packInVoices(objs: List[MusicObj]) -> List[Voice]:
         else:
             pitch = (r[0] + r[1]) / 2
             item = packing.Item(obj,
-                                offset=Fraction(obj.start.numerator, obj.start.denominator),
-                                dur=Fraction(obj.dur.numerator, obj.dur.denominator),
+                                offset=Rat(obj.start.numerator, obj.start.denominator),
+                                dur=Rat(obj.dur.numerator, obj.dur.denominator),
                                 step=pitch)
             items.append(item)
     tracks = packing.packInTracks(items)

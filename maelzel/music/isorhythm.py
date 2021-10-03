@@ -3,11 +3,12 @@ Isorhythmic structures
 """
 from __future__ import annotations
 from typing import TYPE_CHECKING
-from fractions import Fraction as Rat
+from maelzel.rational import Rat
 from emlib import iterlib
 
 if TYPE_CHECKING:
     from typing import *
+    T = TypeVar('T')
     number_t = Union[int, float, Rat]
 
 

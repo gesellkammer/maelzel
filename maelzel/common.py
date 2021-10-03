@@ -1,5 +1,5 @@
 from typing import Tuple, Union as U, TypeVar
-from fractions import Fraction as F
+from maelzel.rational import Rat as F
 from pitchtools import n2m
 
 

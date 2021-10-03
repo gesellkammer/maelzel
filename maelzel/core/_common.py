@@ -10,8 +10,8 @@ Here we define:
 """
 
 import logging as _logging
-# from fractions import Fraction as Rat
-from maelzel.mpqfractions import Rat
+# We want to share the same Rat implementation as scorestruct
+from maelzel.rational import Rat
 from typing import List, Iterable
 from .typedefs import T
 import os

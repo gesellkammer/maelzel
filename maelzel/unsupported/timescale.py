@@ -8,7 +8,6 @@ import copy
 import logging
 from typing import Union as U, Optional as Opt, List
 import dataclasses
-import func_timeout
 import time
 
 logger = logging.getLogger("maelzel.timescale")

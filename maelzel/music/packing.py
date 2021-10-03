@@ -9,14 +9,14 @@ must be wrapped inside an Item, defining an offset, duration and step
 """
 
 from __future__ import annotations
-from fractions import Fraction
+from maelzel.rational import Rat
 from typing import List, Tuple, Optional as Opt, Union as U
 from emlib.iterlib import pairwise
 import operator
 import bisect
 
 
-number_t = U[int, float, Fraction]
+number_t = U[int, float, Rat]
 
 
 def _overlap(x0: number_t, x1: number_t, y0: number_t, y1: number_t) -> bool:
@@ -26,10 +26,10 @@ def _overlap(x0: number_t, x1: number_t, y0: number_t, y1: number_t) -> bool:
     return y1 > x0
 
 
-def asFraction(x: number_t) -> Fraction:
-    if isinstance(x, Fraction):
+def asF(x: number_t) -> Rat:
+    if isinstance(x, Rat):
         return x
-    return Fraction(x)
+    return Rat(x)
 
 
 class Item:
@@ -44,8 +44,8 @@ class Item:
         """
         Args:
             obj (Any): the object to pack
-            offset (Fraction): the start time of the object
-            dur (Fraction): the duration of the object
+            offset (Rat): the start time of the object
+            dur (Rat): the duration of the object
             step (float): the pitch step. This is used to distribute
                 the item into a track
             weight: an item can be assigned a weight and this weight can be
@@ -54,13 +54,13 @@ class Item:
 
         """
         self.obj = obj
-        self.offset = asFraction(offset)
-        self.dur = asFraction(dur)
+        self.offset = asF(offset)
+        self.dur = asF(dur)
         self.step = step
         self.weight = weight
 
     @property
-    def end(self) -> Fraction:
+    def end(self) -> Rat:
         """ end time of item """
         return self.offset + self.dur
 
@@ -141,13 +141,13 @@ class Track(list):
                 maxstep = step
         return minstep, maxstep
 
-    def start(self) -> Fraction:
+    def start(self) -> Rat:
         if self.keepSorted:
             return self[0].offset
         else:
             return min(item.offset for item in self)
 
-    def end(self) -> Fraction:
+    def end(self) -> Rat:
         if self.keepSorted:
             return self[-1].end
         return max(item.end for item in self)

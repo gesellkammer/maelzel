@@ -2,7 +2,7 @@
 Module text
 """
 from __future__ import annotations
-from ._common import logger, UNSET
+from ._common import logger, UNSET, Rat
 import appdirs as _appdirs
 import os
 import pitchtools as pt
@@ -273,6 +273,11 @@ def recordPath() -> str:
     if not os.path.exists(path):
         os.makedirs(path)
     return path
+
+
+def toAbsTime(x) -> Rat:
+    s = activeScoreStruct()
+    return s.beatToTime(x)
 
 
 _init()
