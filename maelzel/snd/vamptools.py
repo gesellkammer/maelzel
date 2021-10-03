@@ -7,6 +7,12 @@ from typing import TYPE_CHECKING, NamedTuple
 if TYPE_CHECKING:
     from typing import Tuple, List, Set
 
+try:
+    import vamp
+    import vamp.frames
+except ImportError:
+    raise ImportError("vamp-host not installed. Install it via 'pip install vamphost'")
+
 
 _pyin_threshold_distrs = {
     "uniform": 0,
