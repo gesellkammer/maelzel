@@ -52,7 +52,6 @@ setup(
         "psutil",
         "csoundengine>=1.1",
         "pitchtools>=1.3",
-        "vamp",
         "lxml",
         "quicktions",
 

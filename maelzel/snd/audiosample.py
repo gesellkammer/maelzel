@@ -869,26 +869,46 @@ class Sample:
         }.get(strategy, freq_from_autocorr)
         return func(s.samples, s.samplerate)
 
-    def fundamentalBpf(self, fftsize=2048, overlap=4, method="pyin"
+    def fundamentalBpf(self, fftsize=2048, overlap=4, method:str=None
                        ) -> _bpf.BpfInterface:
         """
         Construct a bpf which follows the fundamental of this sample in time
 
         .. note::
+            The method 'pyin-annotator' depends on both sonicannotator and the
+            pyin vamp plugin being installed.
+            The method 'pyin' depends on the python module 'vamp' and the
+            pyin vamp plugin being installed
+
             sonicannotator: https://code.soundsoftware.ac.uk/projects/sonic-annotator/files
+            vamp host: original code: https://code.soundsoftware.ac.uk/projects/vampy-host,
+                install via 'pip install vamphost'
             pyin plugin: https://code.soundsoftware.ac.uk/projects/pyin/files
+
         Args:
             fftsize: the size of the fft, in samples
             overlap: determines the hop size
-            method: one of 'pyin', 'autocorrelation'. To be able to use 'pyin'
-                sonnicannotator with the pyin plugin needs to be installed. 'pyin'
-                is the recommended method at the moment
-
+            method: one of 'pyin', 'pyin-annotator', 'fft', 'autocorrelation'.
+                To be able to use 'pyin', the 'vamphost' package and the 'pyin' plugin
+                must be installed. 'pyin' is the recommended method at the moment
+                Use None to autodetect a method based on the installed software
         Returns:
             a bpf representing the fundamental freq. of this sample
 
         """
         stepsize = int(fftsize//overlap)
+        if method is None:
+            # auto detect
+            try:
+                import vamp
+                method = 'pyin'
+            except ImportError:
+                logger.debug("fundamentalBpf: vamphost is not installed, checkig other methods")
+                if shutil.which('sonic-annotator') is not None:
+                    method = 'pyin-annotator'
+                else:
+                    method = 'autocorrelation'
+
         if method == "pyin-annotator":
             from maelzel.ext import sonicannotator
             tmpwav = tempfile.mktemp(suffix=".wav")
@@ -904,6 +924,12 @@ class Sample:
                                                    step_size=fftsize//overlap)
             return _bpf.core.Sampled(freqs, dt)
 
+        elif method == 'fft':
+            from maelzel.snd import freqestimate
+            steptime = stepsize/self.samplerate
+            bpf = freqestimate.frequency_bpf(self.samples, sr=self.samplerate,
+                                             steptime=steptime, method='fft')
+            return bpf
         elif method == "autocorrelation":
             from maelzel.snd import freqestimate
             steptime = stepsize/self.samplerate
@@ -911,7 +937,8 @@ class Sample:
                                              steptime=steptime, method='autocorrelation')
             return bpf
         else:
-            raise ValueError(f"method should be one of 'pyin', 'autocorrelation', "
+            raise ValueError(f"method should be one of 'pyin', 'pyin-annotator', "
+                             f"'autocorrelation', 'fft'"
                              f"but got {method}")
 
     def chunks(self, chunksize:int, hop:int=None, pad=False) -> Iter[np.ndarray]:
