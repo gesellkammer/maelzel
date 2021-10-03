@@ -202,7 +202,7 @@ class PresetManager:
     def defPresetSoundfont(self,
                            name:str=None,
                            sf2path:str=None,
-                           preset: Union[Tuple[int, int], str]=0,
+                           preset: Union[Tuple[int, int], str]=(0, 0),
                            init: str = None,
                            postproc: str = None,
                            includes: List[str] = None,
