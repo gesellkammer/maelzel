@@ -17,6 +17,7 @@ import pitchtools as pt
 import csoundengine
 
 from ._common import *
+from .typedefs import *
 from .workspace import activeWorkspace, activeConfig, activeScoreStruct
 from . import play
 from . import tools
@@ -376,7 +377,7 @@ class MusicObj:
         renderer = notation.renderWithCurrentWorkspace(parts, backend='musicxml')
         stream = renderer.asMusic21()
         if activeConfig()['m21.fixStream']:
-            m21tools.fixStream(stream)
+            m21tools.m21fix.fixStream(stream, inPlace=True)
         return stream
 
     def musicxml(self) -> str:
@@ -579,8 +580,10 @@ class MusicObj:
         renderer = activeWorkspace().renderer
         if renderer:
             # schedule offline
-            return renderer.schedMany(events)
-        return play.playEvents(events)
+            for ev in events:
+                renderer.schedEvent(ev)
+        else:
+            return play.playEvents(events)
 
     def rec(self, outfile: str = None, sr: int = None, **kws) -> str:
         """
@@ -594,6 +597,11 @@ class MusicObj:
 
         Returns:
             the path of the generated soundfile
+
+        See Also
+        ~~~~~~~~
+
+        :class:`maelzel.core.play.OfflineRenderer`
         """
         events = self.events(**kws)
         return play.recEvents(events, outfile, sr=sr)
@@ -665,7 +673,7 @@ class MusicObj:
                 self._symbols = [s for s in self._symbols if type(s) != type(symbol)]
                 self._symbols.append(symbol)
 
-    def timeTransform(self:_T, timemap: Callable[[float], float]) -> _T:
+    def timeTransform(self:_T, timemap: Callable[[num_t], num_t]) -> _T:
         """
         Apply a time-transform to this object
 
@@ -674,12 +682,46 @@ class MusicObj:
 
         Returns:
             the resulting object
+
+        .. note::
+
+            time is conceived as abstract 'beat' time, measured in quarter-notes.
+            The actual time will be also determined by any tempo changes in the
+            active score structure.
         """
         start = 0. if self.start is None else self.start
         dur = activeConfig()['defaultDur'] if self.dur is None else self.dur
         start2 = timemap(start)
         dur2 = timemap(start+dur) - start2
         return self.clone(start=asRat(start2), dur=asRat(dur2))
+
+    def startAbsTime(self) -> Rat:
+        """
+        Returns the .start of this obj in absolute time
+
+        An Exception is raised if self does not have an start time
+
+        This is equivalent to ``activeScoreStruct().beatToTime(obj.start)``
+        """
+        if self.start is None:
+            raise ValueError(f"The object {self} has no explicit .start")
+        s = activeScoreStruct()
+        timefrac = s.beatToTime(self.start)
+        return Rat(timefrac.numerator, timefrac.denominator)
+
+    def endAbsTime(self) -> Rat:
+        """
+        Returns the .end of this obj in absolute time
+
+        An Exception is raised if self does not have an end time
+
+        This is equivalent to ``activeScoreStruct().beatToTime(obj.end)``
+        """
+        if self.end is None:
+            raise ValueError(f"The object {self} has no explicit .end")
+        s = activeScoreStruct()
+        timefrac = s.beatToTime(self.end)
+        return Rat(timefrac.numerator, timefrac.denominator)
 
     def pitchTransform(self:_T, pitchmap: Callable[[float], float]) -> _T:
         """

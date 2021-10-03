@@ -473,7 +473,7 @@ class PresetManager:
         renderer.addGlobalCode(csoundPrelude)
         # Define all instruments
         for presetdef in self.presetdefs.values():
-            renderer.defInstr(presetdef.name, presetdef.body, tabledef=presetdef.params)
+            renderer.defInstr(name=presetdef.name, body=presetdef.body, tabledef=presetdef.params)
             globalCode = presetdef.globalCode()
             if globalCode:
                 renderer.addGlobalCode(globalCode)

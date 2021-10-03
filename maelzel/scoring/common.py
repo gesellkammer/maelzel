@@ -2,16 +2,15 @@
 Common type definitions and routines
 """
 from __future__ import annotations
-from fractions import Fraction as F
-from maelzel.mpqfractions import Rat
+from maelzel.rational import Rat as F
 from dataclasses import dataclass
 import enum
 import logging
-from typing import NamedTuple, Union, Tuple, List, TypeVar, Optional
+from typing import NamedTuple, Union, Tuple, List, TypeVar
 import pitchtools as pt
 
-time_t = Union[float, int, F, Rat]
-number_t = Union[int, float, F, Rat]
+time_t = Union[float, int, F]
+number_t = Union[int, float, F]
 pitch_t = Union[int, float, str]
 timesig_t = Tuple[int, int]
 division_t = List[Union[int, 'division_t']]
@@ -27,15 +26,9 @@ logger = logging.getLogger("maelzel.scoring")
 def asF(t: number_t) -> F:
     if isinstance(t, F):
         return t
-    elif isinstance(t, Rat):
+    elif hasattr(t, "numerator"):
         return F(t.numerator, t.denominator)
     return F(t)
-
-
-def asFractionOrNone(t: number_t) -> Optional[F]:
-    if t is None:
-        return None
-    return asF(t)
 
 
 def asmidi(x) -> float:

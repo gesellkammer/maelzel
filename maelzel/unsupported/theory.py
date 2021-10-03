@@ -1,17 +1,26 @@
-from emlib.music import core
+"""
+Music theory
+"""
+from __future__ import annotations
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import *
+    pitch_t = Union[int, float, str]
+
 from emlib.iterlib import combinations
 from math import sqrt
+from maelzel.common import asmidi
 
 
-def quantizedInterval(pitch1: core.pitch_t, pitch2: core.pitch_t) -> int:
-    midi1 = core.asMidi(pitch1)
-    midi2 = core.asMidi(pitch2)
+def quantizedInterval(pitch1: pitch_t, pitch2: pitch_t) -> int:
+    midi1 = asmidi(pitch1)
+    midi2 = asmidi(pitch2)
     interval = round(abs(midi1 - midi2))
     return interval
 
 
 def chordConsonance(*pitches):
-    midinotes = [core.asMidi(p) for p in pitches]
+    midinotes = [asmidi(p) for p in pitches]
     intervals = [quantizedInterval(m1, m2) for m1, m2 in combinations(midinotes, 2)]
     modintervals = [i%12 for i in intervals]
     modIntervalConsonance = {

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, NamedTuple
 if TYPE_CHECKING:
     from typing import *
 from collections import namedtuple as _namedtuple
-from fractions import Fraction as _Fraction
+from maelzel.rational import Rat
 from pitchtools import *
 from emlib.misc import returns_tuple as _returns_tuple
 from maelzel.core import Note
@@ -126,7 +126,7 @@ class InstrumentString:
         fq = n2f(note) if isinstance(note, str) else m2f(note)
         if fq < self.freq:
             raise ValueError("The given note is lower than the fundamental")
-        ratio = _Fraction(self.freq/fq).limit_denominator(max_harmonic)
+        ratio = Rat(self.freq/fq).limit_denominator(max_harmonic)
         harmonic = ratio.denominator
         frets = self.find_node(harmonic).frets
         diff, fret_pos = min((abs(fret.freq - fq), fret) for fret in frets)

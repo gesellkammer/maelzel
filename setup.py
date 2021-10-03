@@ -54,7 +54,7 @@ setup(
         "pitchtools>=1.3",
         "vamp",
         "lxml",
-        "gmpy",
+        "quicktions",
 
     ],
     license="BSD",

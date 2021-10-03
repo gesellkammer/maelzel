@@ -509,8 +509,8 @@ def makeNote(pitch:pitch_t, duration:time_t = None, offset:time_t = None,
     if gracenote:
         duration = 0
     else:
-        duration = asFractionOrNone(duration)
-    offset = asFractionOrNone(offset)
+        duration = asF(duration) if duration is not None else None
+    offset = asF(offset) if offset is not None else None
     assert 'isRest' not in kws
     out = Notation(pitches=[pitch], duration=duration, offset=offset, gliss=gliss, **kws)
     assert not out.isRest
@@ -540,8 +540,8 @@ def makeChord(pitches: List[pitch_t], duration:time_t=None, offset:time_t=None,
     Returns:
         the created Notation
     """
-    duration = asFractionOrNone(duration)
-    offset = asFractionOrNone(offset)
+    duration = asF(duration) if duration is not None else None
+    offset = asF(offset) if offset is not None else None
     midinotes = [asmidi(pitch) for pitch in pitches]
     out = Notation(pitches=midinotes, duration=duration, offset=offset, **kws)
     if annotation:

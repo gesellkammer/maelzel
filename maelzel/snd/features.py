@@ -94,6 +94,6 @@ def play_ticks(times, chan=1, midinote=69, amp=0.5, attack=0.01, decay=0.05,
         """)
     dur = attack + decay + release
     args = [midinote, amp, attack, decay, sustain, release, chan]
-    synths = [session.sched(instr.name, delay=t + latency, dur=dur, args=args)
+    synths = [session.schedEvent(instr.name, delay=t+latency, dur=dur, args=args)
               for t in times]
     return csoundengine.synth.SynthGroup(synths)

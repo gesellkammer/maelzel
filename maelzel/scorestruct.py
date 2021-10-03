@@ -11,7 +11,8 @@ import emlib.misc
 import emlib.textlib
 import music21 as m21
 from maelzel.music import m21tools
-from fractions import Fraction as F
+from maelzel.rational import Rat as F
+
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -20,7 +21,7 @@ if TYPE_CHECKING:
     number_t = U[int, float, F]
 
 
-def asF(x) -> F:
+def asF(x: number_t) -> F:
     if isinstance(x, F):
         return x
     elif hasattr(x, 'numerator'):
@@ -284,7 +285,7 @@ class ScoreStruct:
                 mdef.measureNum = measureNum + 1
             else:
                 assert mdef.measureNum > measureNum
-                struct.addMeasure(numMeasures =mdef.measureNum - measureNum - 1)
+                struct.addMeasure(numMeasures=mdef.measureNum - measureNum - 1)
 
             struct.addMeasure(timesig=mdef.timesig, quarterTempo=mdef.tempo,
                               annotation=mdef.label)

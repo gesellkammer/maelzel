@@ -14,7 +14,7 @@ import warnings
 import shutil
 import glob
 
-from fractions import Fraction as F
+from maelzel.rational import Rat as F
 
 import subprocess
 from dataclasses import dataclass

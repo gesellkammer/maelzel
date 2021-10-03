@@ -41,13 +41,13 @@ from .workspace import activeConfig, activeWorkspace, recordPath
 from . import tools
 from .presetbase import *
 from .presetman import presetManager, csoundPrelude as _prelude
-from .state import appstate as _appstate
+from .errors import *
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
     from .csoundevent import CsoundEvent
-
+    from .musicobjbase import MusicObj
 
 __all__ = ('OfflineRenderer',
            'playEvents',
@@ -60,58 +60,202 @@ _invalidVariables = {"kfreq", "kamp", "kpitch"}
 
 
 class OfflineRenderer:
-    def __init__(self, sr=None, ksmps=64, outfile:str=None):
+    def __init__(self, outfile:str=None, sr=None, ksmps=64, quiet:bool=None):
         w = activeWorkspace()
-        self.a4 = w.a4  # m2f(69)
-        self.sr = sr or activeConfig()['rec.samplerate']
-        self.ksmps = ksmps
+        cfg = activeConfig()
         self.outfile = outfile
+        self.a4 = w.a4
+        self.sr = sr or cfg['rec.samplerate']
+        self.quiet = quiet
+        self.ksmps = ksmps
+        self.renderer = presetManager.makeRenderer(sr, ksmps=ksmps)
         self.events: List[CsoundEvent] = []
 
-    def sched(self, event:CsoundEvent) -> None:
-        self.events.append(event)
+    def registerInstr(self, instr: csoundengine.Instr) -> None:
+        self.renderer.registerInstr(instr)
 
-    def schedMany(self, events: List[CsoundEvent]) -> None:
-        self.events.extend(events)
+    def play(self, obj: MusicObj, **kws) -> List[csoundengine.offline.ScoreEvent]:
+        events = obj.events(**kws)
+        scoreEvents = [self.schedEvent(ev) for ev in events]
+        return scoreEvents
 
-    def render(self, outfile:str=None, wait=None, quiet=None) -> None:
+    def schedEvent(self, event: CsoundEvent) -> csoundengine.offline.ScoreEvent:
+        """
+        Schedule a CsoundEvent as returned by MusicObj.events()
+
+        Args:
+            event: a CsoundEvent, as returned
+
+        Returns:
+            a ScoreEvent
+
+        See Also:
+            sched
+        """
+        return _schedCsoundEvent(self.renderer, event)
+
+    def definedInstrs(self) -> Dict[str, csoundengine.Instr]:
+        """
+        Get all instruments available within this OfflineRenderer
+
+        All presets and all extra intruments registered at the active
+        Session (as returned via getPlaySession) are available
+
+        Returns:
+            dict {instrname: csoundengine.Instr} with all instruments available
+
+        """
+        instrs = {}
+        instrs.update(self.renderer.registeredInstrs())
+        instrs.update(getPlaySession().registeredInstrs())
+        return instrs
+
+    def sched(self,
+              instrname: str,
+              delay=0.,
+              dur=-1.,
+              priority=1,
+              pargs: Union[List[float], Dict[str, float]] = None,
+              tabargs: Dict[str, float] = None,
+              **kws) -> csoundengine.offline.ScoreEvent:
+        """
+        Schedule a csound event
+
+        This method should be used to schedule non-preset based instruments
+        when rendering offline (things like global effects, for example),
+        similarly to how a user might schedule a non-preset based instrument
+        in real-time.
+
+        Args:
+            instrname: the instr. name
+            delay: start time
+            dur: duration
+            priority: priority of the event
+            pargs: any pargs passed to the instr., starting at p5
+            tabargs: table args accepted by the instr.
+            **kws: named pargs
+
+        Returns:
+            the offline.ScoreEvent, which can be used as a reference by other
+            offline events
+
+        Example
+        ~~~~~~~
+
+            >>> from maelzel.core import *
+            >>> scale = Chain([Note(n) for n in "4C 4D 4E 4F 4G".split()])
+            >>> play.getPlaySession().defInstr('reverb', r'''
+            ... |kfeedback=0.6|
+            ... amon1, amon2 monitor
+            ... a1, a2 reverbsc amon1, amon2, kfeedback, 12000, sr, 0.6
+            ... outch 1, a1-amon1, 2, a2-amon2
+            ... ''')
+            >>> offlinerenderer = play.OfflineRenderer()
+
+        """
+        if not self.renderer.isInstrDefined(instrname):
+            session = getPlaySession()
+            instr = session.getInstr(instrname)
+            if not instr:
+                logger.error(f"Unknown instrument {instrname}. "
+                             f"Defined instruments: {self.renderer.registeredInstrs().keys()}")
+                raise ValueError(f"Instrument {instrname} unknown")
+            self.renderer.registerInstr(instr)
+        return self.renderer.sched(instrname=instrname, delay=delay, dur=dur,
+                                   priority=priority, pargs=pargs,
+                                   tabargs=tabargs,
+                                   **kws)
+
+
+    def render(self, outfile:str=None, wait=None, quiet=None, openWhenDone=False
+               ) -> str:
         """
         Render the events scheduled until now.
 
         Args:
-            outfile: the soundfile to generate. Use "?" to save via a GUI dialog
+            outfile: the soundfile to generate. Use "?" to save via a GUI dialog,
+                None will render to a temporary file
             wait: if True, wait until rendering is done
             quiet: if True, supress all output generated by csound itself
                 (print statements and similar opcodes still produce output)
-
-        """
-        quiet = quiet or activeConfig()['rec.quiet']
-        outfile = outfile or self.outfile
-        recEvents(events=self.events, outfile=outfile, sr=self.sr,
-                  wait=wait, quiet=quiet)
-
-    def getCsd(self, outfile:str=None) -> str:
-        """
-        Generate the .csd which would render all events scheduled until now
-
-        Args:
-            outfile: if given, the .csd is saved to this file
+            openWhenDone: if True, open the rendered soundfile in the default
+                application
 
         Returns:
-            a string representing the .csd file
+            the path of the renderer file
         """
-        renderer = presetManager.makeRenderer(events=self.events, sr=self.sr,
-                                              ksmps=self.ksmps)
-        csdstr = renderer.generateCsd()
+        cfg = activeConfig()
+        if outfile is None:
+            outfile = self.outfile
+        if outfile == '?':
+            outfile = tools.saveRecordingDialog()
+            if not outfile:
+                raise CancelledError("Render operation was cancelled")
+        elif not outfile:
+            outfile = _makeRecordingFilename(ext=".wav")
+        if quiet is None:
+            quiet = self.quiet if self.quiet is not None else cfg['rec.quiet']
+        self.renderer.render(outfile=outfile, wait=wait, quiet=quiet,
+                             openWhenDone=openWhenDone)
+        return outfile
+
+    def getCsd(self) -> str:
+        """
+        Return the .csd as string
+        """
+        return self.renderer.generateCsd()
+
+    def writeCsd(self, outfile:str='?') -> str:
+        """
+        Write the .csd which would render all events scheduled until now
+
+        Args:
+            outfile: the path of the saved .csd
+
+        Returns:
+            the outfile
+        """
+        csdstr = self.getCsd()
         if outfile == "?":
-            lastdir = _appstate['saveCsdLastDir']
-            outfile = tools.dialogs.saveDialog("Csd (*.csd)", directory=lastdir)
-            if outfile:
-                _appstate['saveCsdLastDir'] = os.path.split(outfile)[0]
-        if outfile:
-            with open(outfile, "w") as f:
-                f.write(csdstr)
-        return csdstr
+            outfile = tools.selectFileForSave("saveCsdLastDir", filter="Csd (*.csd)")
+            if not outfile:
+                raise CancelledError("Save operation cancelled")
+        with open(outfile, "w") as f:
+            f.write(csdstr)
+        return outfile
+
+    def __enter__(self):
+        workspace = activeWorkspace()
+        self._oldRenderer = workspace.renderer
+        workspace.renderer = self
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if exc_type is not None:
+            # There was an exception since entering
+            logger.warning("Offline rendering aborted")
+            return
+        w = activeWorkspace()
+        w.renderer = self._oldRenderer
+        if self.outfile is None:
+            self.outfile = _makeRecordingFilename()
+            logger.info(f"Rendering to {self.outfile}")
+        self.render(outfile=self.outfile, wait=True)
+
+
+def _schedCsoundEvent(renderer: csoundengine.Renderer, event: CsoundEvent,
+                      instrIndex: Dict[str, csoundengine.Instr] = None
+                      ) -> csoundengine.offline.ScoreEvent:
+    instrdef = renderer.getInstr(event.instr)
+    if instrdef is None:
+        instrdef = instrIndex.get(event.instr) if instrIndex else None
+        if instrdef is None:
+            raise KeyError(f"instr {event.instr} not defined")
+        renderer.registerInstr(instrdef)
+    args = event.getPfields(numchans=instrdef.numchans)
+    return renderer.sched(event.instr, delay=event.delay, dur=event.dur,
+                          pargs=args[3:], priority=event.priority,
+                          tabargs=event.namedArgs)
 
 
 def recEvents(events: List[CsoundEvent], outfile:str=None,
@@ -144,16 +288,16 @@ def recEvents(events: List[CsoundEvent], outfile:str=None,
             b.events(chan=2, gain=0.2)
         ], [])
         recEvents(events, outfile="out.wav")
+
+    See Also
+    ~~~~~~~~
+
+    :class:`OfflineRenderer`
     """
-    if outfile == "?":
-        outfile = tools.saveRecordingDialog()
-    if outfile is None:
-        outfile = _makeRecordingFilename(ext=".wav")
-        logger.info(f"Saving recording to {outfile}")
-    renderer = presetManager.makeRenderer(events=events, sr=sr, ksmps=ksmps)
-    if quiet is None:
-        quiet = activeConfig()['rec.quiet']
-    renderer.render(outfile, wait=wait, quiet=quiet)
+    offlineRenderer = OfflineRenderer(sr=sr, ksmps=ksmps)
+    for ev in events:
+        offlineRenderer.schedEvent(ev)
+    offlineRenderer.render(outfile=outfile, wait=wait, quiet=quiet)
     return outfile
 
 
@@ -276,7 +420,7 @@ def isEngineActive() -> bool:
     return csoundengine.getEngine(name) is not None
 
 
-def getPlayEngine(start=None) -> Opt[csoundengine.Engine]:
+def getPlayEngine(start=None) -> Optional[csoundengine.Engine]:
     """
     Return the sound engine, or None if it has not been started
     """
@@ -324,8 +468,8 @@ class rendering:
         self.sr = sr
         self.nchnls = nchnls
         self.outfile = outfile
-        self._oldRenderer: Opt[OfflineRenderer] = None
-        self.renderer: Opt[OfflineRenderer] = None
+        self._oldRenderer: Optional[OfflineRenderer] = None
+        self.renderer: Optional[OfflineRenderer] = None
         self.quiet = quiet or activeConfig()['rec.quiet']
         self.wait = wait
 
@@ -336,7 +480,8 @@ class rendering:
         workspace.renderer = self.renderer
         return self.renderer
 
-    def __exit__(self, *args, **kws):
+    def __exit__(self, exc_type, exc_value, traceback):
+        print(exc_type, exc_value, traceback)
         w = activeWorkspace()
         w.renderer = self._oldRenderer
         if self.outfile is None:

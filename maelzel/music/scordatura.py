@@ -44,10 +44,11 @@ class DetunedString(object):
         """
         find the harmonics in this string which can produce the given sound as result.
 
-        note: the note to produce (a string note)
-        kind: kind of harmonic. One of [4, 3M, 3m, natural, all]
-        tolerance: the acceptable difference between the desired note and the result
-                   (in semitones)
+        Args:
+            note: the note to produce (a string note)
+            kind: kind of harmonic. One of [4, 3M, 3m, natural, all]
+            tolerance: the acceptable difference between the desired note and the result
+                       (in semitones)
         """
         midinote = n2m(note)
         if kind == '4' or kind == 4:
@@ -93,7 +94,7 @@ def aslist(x):
     return aslist(x)
 
     
-class DetunedInstrument(object):
+class DetunedInstrument:
     def __init__(self, i, ii, iii, iv):
         self.i, self.ii, self.iii, self.iv = i, ii, iii, iv
 
