@@ -249,7 +249,7 @@ class PresetManager:
 
         """
         if name in self.presetdefs:
-            logger.warning(f"PresetDef {name} already exists, overwriting")
+            logger.info(f"PresetDef {name} already exists, overwriting")
         if sf2path is None:
             sf2path = presetutils.resolveSoundfontPath()
             if sf2path is None:

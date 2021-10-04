@@ -24,3 +24,12 @@ Installation
 ::
 
     pip install maelzel
+
+Examples
+--------
+
+Messiaen - Quatour pour la fin du temps - La liturgie de Cristal
+================================================================
+
+`Notebook: Analysis and reconstruction of the piano and cello isorhythmic structures <https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/examples/Messiaen-La%20Liturgie%20de%20Cristal.ipynb>`_
+
