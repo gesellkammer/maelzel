@@ -11,12 +11,6 @@ A set of modules for computer music
 - ext: wrappers around external software, like sonic-visualizer, audacity, reaper
 - acoustics: formulas for helmholtz resonators, speed of sound, etc.
 
-External Dependencies
----------------------
-
-- csound (>= 6.15)
-- csound-plugins (https://github.com/csound-plugins/csound-plugins)
-
 
 Installation
 ------------
@@ -24,6 +18,12 @@ Installation
 ::
 
     pip install maelzel
+
+
+External Dependencies
+~~~~~~~~~~~~~~~~~~~~~
+
+- csound (>= 6.16)
 
 
 Examples
