@@ -25,8 +25,9 @@ Installation
 
     pip install maelzel
 
+
 Examples
-========
+--------
 
 Messiaen - Quatour pour la fin du temps - La liturgie de Cristal
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
