@@ -54,6 +54,7 @@ setup(
         "pitchtools>=1.3",
         "lxml",
         "quicktions",
+        "librosa"
 
     ],
     license="BSD",
