@@ -9,8 +9,6 @@ from pitchtools import db2amp, amp2db
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
-    
-Func1 = Callable[[float], float]
 
 
 def asmono(samples: np.ndarray) -> np.ndarray:

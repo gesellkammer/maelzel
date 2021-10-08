@@ -136,20 +136,60 @@ def readSoundfile(sndfile: str, start:float=0., end:float=0.) -> Tuple[np.ndarra
         # Read the last two seconds
         >>> samples, sr = readSoundfile("sound.aif", start=-2)
     """
+    if sndfile == "?":
+        import emlib.dialogs
+        sndfile = emlib.dialogs.selectFile(directory=Path.cwd().as_posix(),
+                                           filter=emlib.dialogs.filters['Sound'],
+                                           title='Select soundfile')
+        if not sndfile:
+            raise RuntimeError("No soundfile selected")
+    sndfile = _normalize_path(sndfile)
     return sndfileio.sndread(sndfile, start=start, end=end)
 
 
 _csoundEngine = None
 
 
-def _getCsoundEngine() -> csoundengine.Engine:
-    """Returns the csound Engine used for playback"""
+def getPlayEngine() -> csoundengine.Engine:
+    """
+    Returns the csound Engine used for playback
+
+    If no playback has been performed up to this point, a new Engine
+    is created.
+
+    In the case where an Engine needs to be shared, an external
+    Engine can be set as the playback engine via setPlayEngine
+    """
     global _csoundEngine
     if _csoundEngine:
         return _csoundEngine
     import csoundengine
-    _csoundEngine = csoundengine.Engine('audiosample')
+    _csoundEngine = csoundengine.Engine()
     return _csoundEngine
+
+
+def setPlayEngine(engine: csoundengine.Engine) -> None:
+    """
+    Sets an external Engine as the playback engine.
+
+    Normally a csound engine is created ad-hoc to take care
+    of all playback operations. For some niche cases where
+    interaction is needed between playback and other operations
+    performed on an already existing engine, it is possible to
+    set an external engine as the playback engine. This will only
+    affect Sample objects created after the external playback engine has
+    been set.
+    """
+    global _csoundEngine
+    _csoundEngine = engine
+
+
+def _vampPyinAvailable() -> bool:
+    try:
+        import vamp
+    except ImportError:
+        return False
+    return "pyin:pyin" in vamp.list_plugins()
 
 
 class Sample:
@@ -193,7 +233,7 @@ class Sample:
 
     def __del__(self):
         if self._csoundTabnum:
-            _getCsoundEngine().freeTable(self._csoundTabnum)
+            getPlayEngine().freeTable(self._csoundTabnum)
 
     @property
     def numframes(self) -> int:
@@ -241,10 +281,11 @@ class Sample:
     def _makeCsoundTable(self) -> int:
         if self._csoundTabnum:
             return self._csoundTabnum
-        engine = _getCsoundEngine()
-        tabnum = engine.makeEmptyTable(len(self.samples)*self.numchannels,
-                                       numchannels=self.numchannels, sr=self.samplerate)
-        engine.fillTable(tabnum, self.samples.flatten(), block=True)
+        engine = getPlayEngine()
+        #tabnum = engine.makeEmptyTable(len(self.samples)*self.numchannels,
+        #                               numchannels=self.numchannels, sr=self.samplerate)
+        tabnum = engine.makeTable(self.samples, sr=self.samplerate, block=True)
+        #engine.fillTable(tabnum, self.samples.flatten(), block=True)
         self._csoundTabnum= tabnum
         return tabnum
 
@@ -271,7 +312,7 @@ class Sample:
             control playback.
 
         """
-        engine = _getCsoundEngine()
+        engine = getPlayEngine()
         tabnum = self._makeCsoundTable()
         synth = engine.session().playSample(tabnum, chan=chan, gain=gain,
                                             loop=loop, delay=delay, pan=pan,
@@ -301,6 +342,7 @@ class Sample:
     def _repr_html_(self) -> str:
         if self._reprHtml:
             return self._reprHtml
+        import IPython.display
         import emlib.img
         from . import plotting
         pngfile = tempfile.mktemp(suffix=".png", prefix="plot")
@@ -314,38 +356,42 @@ class Sample:
             profile = 'low'
         plotting.plotWaveform(self.samples, self.samplerate, profile=profile,
                               saveas=pngfile)
-        img = emlib.img.htmlImgBase64(pngfile, maxwidth='800px')
+        img = emlib.img.htmlImgBase64(pngfile) # , maxwidth='800px')
         if self.duration > 60:
             durstr = emlib.misc.sec2str(self.duration)
         else:
             durstr = f"{self.duration:.3g}"
-        s = f"Sample(duration={durstr}, samplerate={self.samplerate}, " \
-            f"numchannels={self.numchannels})"
+        s = f"<b>Sample</b>(duration=<code>{durstr}</code>, " \
+            f"samplerate=<code>{self.samplerate}</code>, " \
+            f"numchannels=<code>{self.numchannels}</code>)"
         s += "<br>" + img
         if config['reprhtml_include_audiotag'] and \
                 self.duration/60 < config['reprhtml_audiotag_maxduration_minutes']:
-            if not os.path.exists("tmp"):
-                os.mkdir("tmp")
-                _sessionTempfiles.append(os.path.abspath("tmp"))
-            if config['reprhtml_audio_format'] == 'wav':
-                sndfile = tempfile.NamedTemporaryFile(dir="tmp", delete=False,
-                                                      prefix="repr_", suffix=".wav")
-                mimetype = 'audio/wav'
-            else:
-                sndfile = tempfile.NamedTemporaryFile(dir="tmp", delete=False,
-                                                      prefix="repr_", suffix=".mp3")
-                mimetype = "audio/mpeg"
-            relname = "tmp/" + os.path.split(sndfile.name)[1]
-            self.write(relname)
             audiotag_width = config['reprhtml_audiotag_width']
             maxwidth = config['reprhtml_audiotag_maxwidth']
-            audiotag = rf"""
-            <br>
-            <audio controls style="width: {audiotag_width}; max-width: {maxwidth};">
-              <source src="{relname}" type="{mimetype}">
-              audio tag not supported
-            </audio> 
-            """
+            # embed short audiofiles, the longer ones are written to disk and read
+            # from there
+            if self.duration < 60:
+                audioobj = IPython.display.Audio(self.samples.T, rate=self.samplerate)
+                audiotag = audioobj._repr_html_()
+            else:
+                os.makedirs('tmp', exist_ok=True)
+                outfile = tempfile.mktemp(dir="tmp", suffix='.mp3')
+                self.write(outfile)
+                _sessionTempfiles.append(outfile)
+                audioobj = IPython.display.Audio(outfile)
+                audiotag = audioobj._repr_html_()
+            audiotag = audiotag.replace('audio  controls="controls"',
+                                        fr'audio controls style="width: {audiotag_width}; max-width: {maxwidth};"')
+
+            #_audiotag = rf"""
+            #<br>
+            #<audio controls style="width: {audiotag_width}; max-width: {maxwidth};">
+            #  <source src="{relname}" type="{mimetype}">
+            #  audio tag not supported
+            #</audio>
+            #"""
+            s += "<br>"
             s += audiotag
         self._reprHtml = s
         return s
@@ -388,10 +434,11 @@ class Sample:
     def plotSpectrogram(self,
                         fftsize=2048,
                         window='hamming',
-                        overlap=None,
+                        overlap:int=None,
                         mindb=-120,
                         minfreq:int=40,
-                        maxfreq:int=12000) -> None:
+                        maxfreq:int=12000,
+                        axes=None):
         """
         Plot the spectrogram of this sound using matplotlib
 
@@ -405,6 +452,11 @@ class Sample:
             minfreq: the min. freq to plot
             maxfreq: the highes freq. to plot. If None, a default is estimated
                 (check maelzel.snd.plotting.config)
+            axes: a matplotlib Axes object. If passed, plotting is done using this
+                Axes; otherwise a new Axes object is created and returned
+
+        Returns:
+            the matplotlib Axes
         """
         from . import plotting
         if self.numchannels > 1:
@@ -418,7 +470,8 @@ class Sample:
                                         overlap=overlap,
                                         mindb=mindb,
                                         minfreq=minfreq,
-                                        maxfreq=maxfreq)
+                                        maxfreq=maxfreq,
+                                        axes=axes)
 
     def openInEditor(self, wait=True, app=None, fmt='wav'
                      ) -> Opt[Sample]:
@@ -466,6 +519,15 @@ class Sample:
             bitrate: bitrate used when writing to mp3
             metadata: XXX
         """
+        if outfile == "?":
+            import emlib.dialogs
+            outfile = emlib.dialogs.saveDialog(filter=emlib.dialogs.filters['Sound'],
+                                               title="Save soundfile",
+                                               directory=os.getcwd())
+            if not outfile:
+                logger.warning("No outfile selected, aborting")
+                return
+        outfile = _normalize_path(outfile)
         samples = self.samples
         if not fmt:
             fmt = os.path.splitext(outfile)[1][1:].lower()
@@ -676,6 +738,20 @@ class Sample:
         silence = Sample.silent(dur, self.numchannels, self.samplerate)
         return concat([silence, self])
 
+    def concat(self, *other: Sample) -> Sample:
+        """
+        Concatenate this Sample with other
+
+        Args:
+            *other: one or more Samples to join together
+
+        Returns:
+            the resulting Sample
+        """
+        samples = [self]
+        samples.extend(other)
+        return concat(samples)
+
     def normalize(self, headroom=0.) -> Sample:
         """Normalize in place, returns self
 
@@ -862,12 +938,13 @@ class Sample:
         t0 = start
         t1 = min(self.duration, t0 + dur)
         s = self.getChannel(0)[t0:t1]
-        from .freqestimate import freq_from_autocorr, freq_from_fft
+        from .freqestimate import f0ViaAutocorrelation, f0ViaFFT
         func = {
-            'autocorr': freq_from_autocorr,
-            'fft': freq_from_fft
-        }.get(strategy, freq_from_autocorr)
-        return func(s.samples, s.samplerate)
+            'autocorr': f0ViaAutocorrelation,
+            'fft': f0ViaFFT
+        }.get(strategy, f0ViaAutocorrelation)
+        freq, prob = func(s.samples, s.samplerate)
+        return freq
 
     def fundamentalBpf(self, fftsize=2048, overlap=4, method:str=None
                        ) -> _bpf.BpfInterface:
@@ -877,7 +954,7 @@ class Sample:
         .. note::
             The method 'pyin-annotator' depends on both sonicannotator and the
             pyin vamp plugin being installed.
-            The method 'pyin' depends on the python module 'vamp' and the
+            The method 'pyin' depends on the python module 'vamphost' and the
             pyin vamp plugin being installed
 
             sonicannotator: https://code.soundsoftware.ac.uk/projects/sonic-annotator/files
@@ -888,7 +965,7 @@ class Sample:
         Args:
             fftsize: the size of the fft, in samples
             overlap: determines the hop size
-            method: one of 'pyin', 'pyin-annotator', 'fft', 'autocorrelation'.
+            method: one of 'pyin', 'pyin-annotator', 'fft'.
                 To be able to use 'pyin', the 'vamphost' package and the 'pyin' plugin
                 must be installed. 'pyin' is the recommended method at the moment
                 Use None to autodetect a method based on the installed software
@@ -899,46 +976,48 @@ class Sample:
         stepsize = int(fftsize//overlap)
         if method is None:
             # auto detect
-            try:
-                import vamp
+            if _vampPyinAvailable():
                 method = 'pyin'
-            except ImportError:
-                logger.debug("fundamentalBpf: vamphost is not installed, checkig other methods")
-                if shutil.which('sonic-annotator') is not None:
-                    method = 'pyin-annotator'
-                else:
-                    method = 'autocorrelation'
+            elif shutil.which('sonic-annotator') is not None:
+                method = 'pyin-annotator'
+            else:
+                method = 'pyin-librosa'
 
         if method == "pyin-annotator":
             from maelzel.ext import sonicannotator
             tmpwav = tempfile.mktemp(suffix=".wav")
-            self.write(tmpwav)
-            bpf = sonicannotator.pyin_smooth_pitch(tmpwav, fftsize=fftsize,
-                                                   stepsize=stepsize, threshdistr=1.5)
+            s = self.getChannel(0)
+            s.write(tmpwav)
+            bpf = sonicannotator.pyin_smoothpitch(tmpwav, fftsize=fftsize,
+                                                  stepsize=stepsize)
             os.remove(tmpwav)
             return bpf
         elif method == "pyin":
             from maelzel.snd import vamptools
-            dt, freqs = vamptools.pyin_smoothpitch(self.samples, self.samplerate,
+            samples = self.getChannel(0).samples
+            dt, freqs = vamptools.pyin_smoothpitch(samples, self.samplerate,
                                                    fft_size=fftsize,
                                                    step_size=fftsize//overlap)
             return _bpf.core.Sampled(freqs, dt)
+        elif method == 'pyin-librosa':
+            from maelzel.snd import freqestimate
+            samples = self.getChannel(0).samples
+            hoplength = fftsize // overlap
+            f0curve, probcurve = freqestimate.f0curvePyin(samples, sr=self.samplerate,
+                                                          framelength=fftsize,
+                                                          hoplength=hoplength)
+            return f0curve
 
         elif method == 'fft':
             from maelzel.snd import freqestimate
             steptime = stepsize/self.samplerate
-            bpf = freqestimate.frequency_bpf(self.samples, sr=self.samplerate,
-                                             steptime=steptime, method='fft')
-            return bpf
-        elif method == "autocorrelation":
-            from maelzel.snd import freqestimate
-            steptime = stepsize/self.samplerate
-            bpf = freqestimate.frequency_bpf(self.samples, sr=self.samplerate,
-                                             steptime=steptime, method='autocorrelation')
-            return bpf
+            samples = self.getChannel(0).samples
+            f0curve, probcurve = freqestimate.f0curve(samples, sr=self.samplerate,
+                                                        steptime=steptime, method='fft')
+            return f0curve
         else:
             raise ValueError(f"method should be one of 'pyin', 'pyin-annotator', "
-                             f"'autocorrelation', 'fft'"
+                             f"'fft'"
                              f"but got {method}")
 
     def chunks(self, chunksize:int, hop:int=None, pad=False) -> Iter[np.ndarray]:
@@ -1066,7 +1145,8 @@ def concat(sampleseq: Seq[Sample]) -> Sample:
     """
     Concatenate a sequence of Samples
 
-    Samples should share samplingrate and numchannels
+    Samples should share numchannels. If mismatching samplerates are found,
+    all samples are upsampled to the highest samplerate
 
     Args:
         sampleseq: a seq. of Samples
@@ -1074,8 +1154,12 @@ def concat(sampleseq: Seq[Sample]) -> Sample:
     Returns:
         the concatenated samples as one Sample
     """
+    sr = max(s.samplerate for s in sampleseq)
+    if any(s.samplerate != sr for s in sampleseq):
+        logger.info(f"concat: Mismatching samplerates. Samples will be upsampled to {sr}")
+        sampleseq = [s if s.samplerate == sr else s.resample(sr) for s in sampleseq]
     s = np.concatenate([s.samples for s in sampleseq])
-    return Sample(s, sampleseq[0].samplerate)
+    return Sample(s, sr)
 
 
 def _mapn_between(func, n:int, t0:float, t1:float) -> np.ndarray:

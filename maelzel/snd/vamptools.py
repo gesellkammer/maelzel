@@ -1,8 +1,7 @@
 from __future__ import annotations
-import vamp
-import vamp.frames
 import numpy as np
 import numpyx
+from functools import cache
 from typing import TYPE_CHECKING, NamedTuple
 if TYPE_CHECKING:
     from typing import Tuple, List, Set
@@ -24,9 +23,6 @@ _pyin_threshold_distrs = {
     "single20": 7
 }
 
-_cache = {
-}
-
 
 class Note(NamedTuple):
     timestamp: float
@@ -34,6 +30,7 @@ class Note(NamedTuple):
     duration: float
 
 
+@cache
 def list_plugins() -> Set[str]:
     """
     List all available vamp plugins
@@ -41,11 +38,7 @@ def list_plugins() -> Set[str]:
     Returns:
         A set of plugin identifiers
     """
-    if (plugins := _cache.get('plugins')) is not None:
-        return plugins
-    plugins = vamp.list_plugins()
-    _cache['plugins'] = set(plugins)
-    return plugins
+    return set(vamp.list_plugins())
 
 
 def pyin_notes(samples: np.ndarray, sr:int,
@@ -156,6 +149,18 @@ def pyin_pitchtrack(samples:np.ndarray, sr:int,
         Whenever the confidence that the f0 is correct drops below
         a certain threshold, the frequency is given as negative
 
+    ============   ============
+    thresh_distr   Description
+    ============   ============
+    uniform        Uniform
+    beta10         Beta (mean 0.10)
+    beta15         Beta (mean 0.15)
+    beta30         Beta (mean 0.30)
+    single10       Single value 0.10
+    single15       Single value 0.15
+    single20       Single value 0.20
+    ============   ============
+
     Example::
 
         import sndfileio
@@ -224,7 +229,6 @@ def pyin_pitchtrack(samples:np.ndarray, sr:int,
     i = 0
     for vp, pt, f0 in zip(vps, pts, f0s):
         t = vp['timestamp']
-        assert t == pt['timestamp'] == f0['timestamp']
         probs = vp['values']
         candidates = f0.get('values', None)
         freq = float(pt['values'][0])
@@ -234,7 +238,6 @@ def pyin_pitchtrack(samples:np.ndarray, sr:int,
             candidates = candidates.astype('float64')
             idx = numpyx.nearestidx(candidates, freq, sorted=False)
             prob = probs[idx]
-
             #pairs = zip(candidates, probs)
             #nearest = min(pairs, key=lambda pair:abs(pair[0]-freq))
             #prob = nearest[1]

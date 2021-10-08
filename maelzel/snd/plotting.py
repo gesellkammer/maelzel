@@ -344,7 +344,7 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:s
         fftsize: the size of the fft, in samples
         window: a string passed to scipy.signal.get_window
         overlap: the number of overlaps. If fftsize=2048, an overlap of 4 will result
-            in a hopsize of 512 samples. Use None to use a sensible value for the
+            in a hoplength of 512 samples. Use None to use a sensible value for the
             number of samples.
         axes: the axes to plot on. If None, new axes will be created
         cmap: colormap, see pyplot.colormaps() (see config['spectrogram.cmap'])
