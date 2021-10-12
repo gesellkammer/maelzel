@@ -169,7 +169,7 @@ def mixArrays(sources: List[np.ndarray], offsets: List[int] = None) -> np.ndarra
     Mix the sources together.
 
     All sources should have the same amount of channels. It is assumed that they share
-    the same samplerate
+    the same sr
 
     Args:
         sources: a list of arrays. They should all have the same amount of channels
@@ -549,7 +549,7 @@ def readRegions(sndfile: str, times: List[Tuple[float, float]]
         times: a list of tuples (start, end).
 
     Returns:
-        a tuple (list of arrays, samplerate)
+        a tuple (list of arrays, sr)
     """
     # TODO: implement this at the backend level (in sndfileio) using seek
     data, sr = sndfileio.sndread(sndfile)
@@ -602,14 +602,14 @@ def scrub(source: Union[str, Tuple[np.ndarray, int]], curve: bpf.BpfInterface,
     Scrub soundfile with curve
 
     Args:
-        source: the path to a sndfile, or a Tuple (samples, samplerate)
+        source: the path to a sndfile, or a Tuple (samples, sr)
         curve: a bpf representing real_time:time_in_soundfile
         rewind: if True, do not include silence at the beginning if
                        the bpf does not start at 0
         outfile: if given, samples are written to disk
 
     Returns:
-        a tuple (samples, samplerate)
+        a tuple (samples, sr)
     """
     samples, sr = _getsamples(source)
     samplebpf = curve.core.Sampled(samples, 1.0 / sr)

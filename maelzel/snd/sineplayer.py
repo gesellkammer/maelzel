@@ -76,7 +76,7 @@ class MultiSineSynth:
     def __init__(self, sr:int, backend:str, porttime=0.05, maxosc=200):
         """
         Args:
-            sr: samplerate. Can be None, in which case we use the default sr
+            sr: sr. Can be None, in which case we use the default sr
             backend: audio backend for your platform
             porttime: the time used to smooth out values of freq and amp for each osc.
             maxosc: the maximum number of oscillators.

@@ -70,7 +70,7 @@ _default = {
     'play.schedLatency': 0.2,
     'play.verbose': False,
     'rec.block': False,
-    'rec.samplerate': 44100,
+    'rec.sr': 44100,
     'rec.ksmps': 64,
     'rec.nchnls': 2,
     'rec.path': '',
@@ -101,7 +101,7 @@ _validator = {
     'play.fadeShape::choices': {'linear', 'cos'},
     'play.numChannels::type': int,
     'play.soundfontInterpolation::choices': {'linear', 'cubic'},
-    'rec.samplerate::choices': {44100, 48000, 88200, 96000},
+    'rec.sr::choices': {44100, 48000, 88200, 96000},
     'rec.ksmps::choices': {1, 16, 32, 64, 128, 256},    
     'play.defaultAmplitude::range': (0, 1),
     'play.pitchInterpolation::choices': {'linear', 'cos'},
@@ -231,7 +231,7 @@ _docs = {
         'be left as True but can be deactivated for debugging',
     'show.arpeggioDuration':
         'Duration used for individual notes when rendering a chord as arpeggio',
-    'rec.samplerate':
+    'rec.sr':
         'Sample rate used when rendering offline',
     'play.fadeShape':
         'Curve-shape used for fading in/out',

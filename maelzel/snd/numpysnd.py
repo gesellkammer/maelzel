@@ -132,7 +132,7 @@ def arrayFade(samples: np.ndarray, sr: int, fadetime: float,
 
     Args:
         samples: numpy array
-        sr: samplerate
+        sr: sr
         fadetime: fade time in seconds
         mode: in, out, or inout
         shape: either a string describing the shape (one of 'linear', 'expon(x)', halfcos)
@@ -289,7 +289,7 @@ def _lastSound(samples: np.ndarray, samplerate:int, threshold:float=-120, resolu
 
     Args:
         samples: The sample data
-        samplerate: the samplerate of the data
+        samplerate: the sr of the data
         threshold: The volume threshold defining silence, in dB
         resolution: the time resolution, in seconds
 
