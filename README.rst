@@ -72,5 +72,6 @@ Example of the `audiosample` module
 
 .. image:: docs/assets/audiosample-notebook.jpg
   :target: https://nbviewer.org/github/gesellkammer/maelzel/blob/master/examples/audiosample.ipynb
+  :alt: Screenshot of audiosample notebook
 
 `Notebook: spectrogram and fundamental analysis / resynthesis using the pyin method <https://nbviewer.org/github/gesellkammer/maelzel/blob/master/examples/audiosample.ipynb?flush_cache=true>`_
