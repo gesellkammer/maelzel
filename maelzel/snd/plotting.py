@@ -109,7 +109,7 @@ def plotPowerSpectrum(samples,
 
     Args:
         samples: the samples to plot
-        samplerate: the samplerate of thesamples
+        samplerate: the sr of thesamples
         framesize: the bigger the frame size, the smoother the plot
         window: As passed to scipy.signal.get_window
           `blackman`, `hamming`, `hann`, `bartlett`, `flattop`, `parzen`, `bohman`,
@@ -166,7 +166,7 @@ def _plot_matplotlib(samples:np.ndarray, samplerate:int, timelabels:bool) -> plt
     if timelabels:
         formatter = matplotlib.ticker.FuncFormatter(
                 lambda idx, x:emlib.misc.sec2str(idx/samplerate, msdigits=3))
-                # lambda idx, x:time.strftime('%M:%S', time.gmtime(idx / samplerate)))
+                # lambda idx, x:time.strftime('%M:%S', time.gmtime(idx / sr)))
     else:
         formatter = matplotlib.ticker.FuncFormatter(
                 lambda idx, x:f"{idx/samplerate:.3g}")
@@ -313,7 +313,7 @@ def plotWaveform(samples: np.ndarray, samplerate: int, profile="auto",
 
     Args:
         samples: a mono or multichannel audio array
-        samplerate: the samplerate
+        samplerate: the sr
         profile: one of 'low', 'medium', 'high', 'highest'
         saveas: if given, the plot is saved and not displayed
         timelabels: if True, the x axes' labels are shown as MM:SS if needed
@@ -340,7 +340,7 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:s
 
     Args:
         samples: a channel of audio data
-        samplerate: the samplerate of the audio data
+        samplerate: the sr of the audio data
         fftsize: the size of the fft, in samples
         window: a string passed to scipy.signal.get_window
         overlap: the number of overlaps. If fftsize=2048, an overlap of 4 will result

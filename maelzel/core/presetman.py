@@ -456,7 +456,7 @@ class PresetManager:
         Make an offline Renderer from instruments defined here
 
         Args:
-            sr: the samplerate of the renderer
+            sr: the sr of the renderer
             nchnls: the number of channels
             ksmps: if not explicitely set, will use config 'rec.ksmps'
 
@@ -464,7 +464,7 @@ class PresetManager:
             a csoundengine.Renderer
         """
         config = activeConfig()
-        sr = sr or config['rec.samplerate']
+        sr = sr or config['rec.sr']
         ksmps = ksmps or config['rec.ksmps']
         nchnls = nchnls or config['rec.nchnls']
         state = activeWorkspace()
