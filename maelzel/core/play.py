@@ -92,6 +92,7 @@ class OfflineRenderer:
         See Also:
             sched
         """
+        print("schedEvent (offline)", event)
         return _schedCsoundEvent(self.renderer, event)
 
     def definedInstrs(self) -> Dict[str, csoundengine.Instr]:

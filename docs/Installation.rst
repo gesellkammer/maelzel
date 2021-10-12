@@ -1,22 +1,24 @@
 Installation
 ============
 
-`csoundengine` needs a python version >= 3.8. For all platforms, the installation is 
+**maelzel** needs a python version >= 3.8. For all platforms, the installation is 
 the same::
 
-    pip install csoundengine
+    pip install maelzel
 
     
-Dependencies
-------------
+--------
 
-`csoundengine` needs a recent version of csound (at least 6.16). Csound can be downloaded from 
-`<https://github.com/csound/csound/releases>`_
+External Dependencies
+---------------------
 
+There are some external dependencies which need to be installed manually:
+
+* **csound** >= 6.16. (https://csound.com/download.html).
+* **lilypond** (https://lilypond.org/download.html)
 
 .. note::
 
-   The csound version packaged with most linux distributions is often
-   too old. The best way to install csound is to install it from
-   source. See `Csound's BUILD documentation <https://github.com/csound/csound/blob/develop/BUILD.md>`_
-   for instructions
+    On some linux distributions the *csound* package provided is too
+    old. *csound* can easily be installed from source by following
+    these instructions: https://github.com/csound/csound/blob/develop/BUILD.md#debian

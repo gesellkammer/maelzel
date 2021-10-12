@@ -48,7 +48,7 @@ import csoundengine
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
-    from .typedefs import *
+    from ._typedefs import *
 
 
 @functools.total_ordering
@@ -57,22 +57,33 @@ class Note(MusicObj):
     In its simple form, a Note is used to represent a Pitch.
 
     A Note must have a pitch. It is possible to specify
-    an a duration, a time offset (.start), an amplitude
+    a duration, a start time (.start), an amplitude
     and an endpitch, resulting in a glissando.
+
     Internally the pitch of a Note is represented as a fractional
     midinote, so there is no concept of enharmonicity. Notes created
     as ``Note(61)``, ``Note("4C#")`` or ``Note("4Db")`` will all result
     in the same Note.
+
+    Like all MusicObjs, a Note makes a clear division between
+    the value itself and the representation as notation or as sound.
+    Playback specific options (instrument, pan position, etc) can be
+    set via the `.setplay` method. Any aspects regarding notation
+    (articulation, enharmonic variant, etc) can be set via `.setSymbol`
 
     Args:
         pitch: a midinote or a note as a string. A pitch can be
             a midinote or a notename as a string.
         dur: the duration of this note (optional)
         amp: amplitude 0-1 (optional)
-        start: start fot the note (optional)
+        start: start fot the note (optional). If None, the start time will depend
+            on the context (previous notes) where this Note is evaluated.
         gliss: if given, defines a glissando. It can be either the endpitch of
             the glissando, or True, in which case the endpitch remains undefined
         label: a label str to identify this note
+        dynamic: allows to attach a dynamic expression to this Note. This dynamic
+            is only for notation purposes, it does not modify playback
+        tied: is this Note tied to the next?
 
     Attributes:
         pitch: the pitch of this Note, as midinote

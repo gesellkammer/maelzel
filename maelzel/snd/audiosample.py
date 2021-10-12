@@ -230,6 +230,10 @@ class Sample:
             Both start and end can be negative, in which case the frame
             is sought from the end
         """
+        self._csoundTabnum = 0
+        self._reprHtml: str = ''
+        self._asbpf: Opt[_bpf.BpfInterface] = None
+
         if isinstance(sound, (str, Path)):
             samples, samplerate = readSoundfile(sound, start=start, end=end)
         elif isinstance(sound, np.ndarray):
@@ -240,10 +244,6 @@ class Sample:
         self.samples: np.ndarray = samples
         self.sr: int = samplerate
         self.numchannels = _npsnd.numChannels(self.samples)
-        self._asbpf: Opt[_bpf.BpfInterface] = None
-        # A cached csound table, for playback
-        self._csoundTabnum = 0
-        self._reprHtml: str = ''
 
     def __del__(self):
         if self._csoundTabnum:
