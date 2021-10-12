@@ -47,7 +47,10 @@ Optional Dependencies
 ~~~~~~~~~~~~~~~~~~~~~
 
 * MuseScore (for rendering musicxml to pdf when using the musicxml backend)
-* 
+
+
+-------------
+
 
 Examples
 --------
@@ -55,10 +58,19 @@ Examples
 Messiaen - Quatour pour la fin du temps - La liturgie de Cristal
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-
 .. image:: docs/assets/messiaen-notebook.jpg
   :target: https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/examples/Messiaen-La%20Liturgie%20de%20Cristal.ipynb
   :alt: Screenshot of jupyter notebook
 
 `Notebook: Analysis and reconstruction of the piano and cello isorhythmic structures <https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/examples/Messiaen-La%20Liturgie%20de%20Cristal.ipynb>`_
 
+
+Audiosample
+~~~~~~~~~~~
+
+Example of the `audiosample` module
+
+.. image:: docs/assets/audiosample-notebook.jpg
+  :target: https://nbviewer.org/github/gesellkammer/maelzel/blob/master/examples/audiosample.ipynb
+
+`Notebook: spectrogram and fundamental analysis / resynthesis using the pyin method <https://nbviewer.org/github/gesellkammer/maelzel/blob/master/examples/audiosample.ipynb?flush_cache=true>`_
