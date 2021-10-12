@@ -17,7 +17,7 @@ import pitchtools as pt
 import csoundengine
 
 from ._common import *
-from .typedefs import *
+from ._typedefs import *
 from .workspace import activeWorkspace, activeConfig, activeScoreStruct
 from . import play
 from . import tools
@@ -32,7 +32,8 @@ from maelzel.scorestruct import ScoreStruct
 from typing import TYPE_CHECKING, TypeVar as _TypeVar
 if TYPE_CHECKING:
     from typing import *
-    from .typedefs import time_t
+    from ._typedefs import time_t
+    from .play import OfflineRenderer
 
 
 _T = _TypeVar('_T', bound='MusicObj')
@@ -61,8 +62,8 @@ class MusicObj:
     itself via :meth:`show` and play itself via :meth:`play`. It can
     have a duration and a start time.
 
-    A MusicObj has also attributes which are for playback only: :attr:`_playargs`.
-    These can be set via XXX
+    A MusicObj has also attributes which are for playback only. They can
+    be set via :meth:`setplay` and accessed via the `playargs` property
 
     Args:
         dur: the (optional) duration of this object, in abstract units (beats)
@@ -92,7 +93,7 @@ class MusicObj:
         "start specifies a time offset for this object"
 
         # _playargs are set via .setplay and serve the purpose of
-        # attaching playing parameters (like position, instrument)
+        # attaching playing parameters (like pan position, instrument)
         # to an object
         self._playargs: Optional[PlayArgs] = None
 
@@ -577,7 +578,7 @@ class MusicObj:
                              scorestruct=scorestruct)
         if start is not None or end is not None:
             cropEvents(events, start, end)
-        renderer = activeWorkspace().renderer
+        renderer: OfflineRenderer = activeWorkspace().renderer
         if renderer:
             # schedule offline
             for ev in events:
