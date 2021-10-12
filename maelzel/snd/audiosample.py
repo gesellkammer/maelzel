@@ -3,7 +3,7 @@ audiosample
 ~~~~~~~~~~~
 
 This module is based on the :class:`Sample` class, which contains the
-audio of a soundfile as a numpy array and it knows about its samplerate,
+audio of a soundfile as a numpy array and it knows about its sr,
 original format and encoding, etc. It can also perform simple actions
 (fade-in/out, cut, insert, reverse, normalize, etc) on its own audio
 destructively or return a new Sample.
@@ -126,7 +126,7 @@ def readSoundfile(sndfile: str, start:float=0., end:float=0.) -> Tuple[np.ndarra
             seek from the end
 
     Returns:
-        a tuple (samples:np.ndarray, samplerate:int)
+        a tuple (samples:np.ndarray, sr:int)
 
     Example::
 
@@ -198,7 +198,7 @@ class Sample:
 
     Attributes:
         samples (np.ndarray): the audio data
-        samplerate (int): the samplerate of the audio data
+        samplerate (int): the sr of the audio data
         numchannels (int): the number of channels
         duration (float): the duration of the sample
     """
@@ -224,7 +224,7 @@ class Sample:
         else:
             raise TypeError("sound should be a path or an array of samples")
         self.samples: np.ndarray = samples
-        self.samplerate: int = samplerate
+        self.sr: int = samplerate
         self.numchannels = _npsnd.numChannels(self.samples)
         self._asbpf: Opt[_bpf.BpfInterface] = None
         # A cached csound table, for playback
@@ -241,10 +241,10 @@ class Sample:
 
     @property
     def duration(self) -> float:
-        return len(self.samples)/self.samplerate
+        return len(self.samples)/self.sr
 
     def __repr__(self):
-        s = "Sample: dur=%f sr=%d ch=%d" % (self.duration, self.samplerate,
+        s = "Sample: dur=%f sr=%d ch=%d" % (self.duration, self.sr,
                                             self.numchannels)
         return s
 
@@ -283,8 +283,8 @@ class Sample:
             return self._csoundTabnum
         engine = getPlayEngine()
         #tabnum = engine.makeEmptyTable(len(self.samples)*self.numchannels,
-        #                               numchannels=self.numchannels, sr=self.samplerate)
-        tabnum = engine.makeTable(self.samples, sr=self.samplerate, block=True)
+        #                               numchannels=self.numchannels, sr=self.sr)
+        tabnum = engine.makeTable(self.samples, sr=self.sr, block=True)
         #engine.fillTable(tabnum, self.samples.flatten(), block=True)
         self._csoundTabnum= tabnum
         return tabnum
@@ -326,7 +326,7 @@ class Sample:
         if self._asbpf not in (None, False):
             return self._asbpf
         else:
-            self._asbpf = _bpf.core.Sampled(self.samples, 1 / self.samplerate)
+            self._asbpf = _bpf.core.Sampled(self.samples, 1/self.sr)
             return self._asbpf
 
     def plot(self, profile='auto') -> None:
@@ -337,7 +337,7 @@ class Sample:
             profile: one of 'low', 'medium', 'high'
         """
         from . import plotting
-        plotting.plotWaveform(self.samples, self.samplerate, profile=profile)
+        plotting.plotWaveform(self.samples, self.sr, profile=profile)
 
     def _repr_html_(self) -> str:
         if self._reprHtml:
@@ -354,7 +354,7 @@ class Sample:
             profile = 'medium'
         else:
             profile = 'low'
-        plotting.plotWaveform(self.samples, self.samplerate, profile=profile,
+        plotting.plotWaveform(self.samples, self.sr, profile=profile,
                               saveas=pngfile)
         img = emlib.img.htmlImgBase64(pngfile) # , maxwidth='800px')
         if self.duration > 60:
@@ -362,7 +362,7 @@ class Sample:
         else:
             durstr = f"{self.duration:.3g}"
         s = f"<b>Sample</b>(duration=<code>{durstr}</code>, " \
-            f"samplerate=<code>{self.samplerate}</code>, " \
+            f"sr=<code>{self.sr}</code>, " \
             f"numchannels=<code>{self.numchannels}</code>)"
         s += "<br>" + img
         if config['reprhtml_include_audiotag'] and \
@@ -372,7 +372,7 @@ class Sample:
             # embed short audiofiles, the longer ones are written to disk and read
             # from there
             if self.duration < 60:
-                audioobj = IPython.display.Audio(self.samples.T, rate=self.samplerate)
+                audioobj = IPython.display.Audio(self.samples.T, rate=self.sr)
                 audiotag = audioobj._repr_html_()
             else:
                 os.makedirs('tmp', exist_ok=True)
@@ -420,13 +420,13 @@ class Sample:
             samples = self.samples[:, 0]
         else:
             samples = self.samples
-        s0 = 0 if start == 0 else int(start*self.samplerate)
+        s0 = 0 if start == 0 else int(start*self.sr)
         s1 = self.numframes if dur == 0 else min(self.numframes,
-                                                 int(dur * self.samplerate)-s0)
+                                                 int(dur*self.sr)-s0)
         if s0 > 0 or s1 != self.numframes:
             samples = samples[s0:s1]
         plotting.plotPowerSpectrum(samples,
-                                   self.samplerate,
+                                   self.sr,
                                    framesize=framesize,
                                    window=window,
                                    )
@@ -464,7 +464,7 @@ class Sample:
         else:
             samples = self.samples
         return plotting.plotSpectrogram(samples,
-                                        self.samplerate,
+                                        self.sr,
                                         window=window,
                                         fftsize=fftsize,
                                         overlap=overlap,
@@ -542,7 +542,7 @@ class Sample:
                 elif overflow == 'normalize':
                     maxpeak = max(maxval, abs(minval))
                     samples = samples / maxpeak
-        sndfileio.sndwrite(outfile, samples=samples, sr=self.samplerate,
+        sndfileio.sndwrite(outfile, samples=samples, sr=self.sr,
                            encoding=encoding, fileformat=fmt,
                            bitrate=bitrate,
                            metadata=metadata)
@@ -551,7 +551,7 @@ class Sample:
         """
         return a copy of this Sample
         """
-        return Sample(self.samples.copy(), self.samplerate)
+        return Sample(self.samples.copy(), self.sr)
 
     def _changed(self) -> None:
         self._csoundTabnum = 0
@@ -559,15 +559,15 @@ class Sample:
 
     def __add__(self, other: U[float, Sample]) -> Sample:
         if isinstance(other, (int, float)):
-            return Sample(self.samples + other, self.samplerate)
+            return Sample(self.samples+other, self.sr)
         elif isinstance(other, Sample):
-            assert self.numchannels == other.numchannels and self.samplerate == other.samplerate
+            assert self.numchannels == other.numchannels and self.sr == other.sr
             if len(self) == len(other):
-                return Sample(self.samples + other.samples, self.samplerate)
+                return Sample(self.samples+other.samples, self.sr)
             elif len(self) > len(other):
-                return Sample(self.samples[:len(other)] + other.samples, self.samplerate)
+                return Sample(self.samples[:len(other)]+other.samples, self.sr)
             else:
-                return Sample(self.samples + other.samples[:len(self)], self.samplerate)
+                return Sample(self.samples+ other.samples[:len(self)], self.sr)
         else:
             raise TypeError(f"Expected a scalar or a sample, got {other}")
 
@@ -575,7 +575,7 @@ class Sample:
         if isinstance(other, (int, float)):
             self.samples += other
         elif isinstance(other, Sample):
-            assert self.numchannels == other.numchannels and self.samplerate == other.samplerate
+            assert self.numchannels == other.numchannels and self.sr == other.sr
             if len(self) == len(other):
                 self.samples += other.samples
             elif len(other) < len(self):
@@ -588,15 +588,15 @@ class Sample:
 
     def __sub__(self, other: U[float, Sample]) -> Sample:
         if isinstance(other, (int, float)):
-            return Sample(self.samples - other, self.samplerate)
+            return Sample(self.samples-other, self.sr)
         elif isinstance(other, Sample):
-            assert self.numchannels == other.numchannels and self.samplerate == other.samplerate
+            assert self.numchannels == other.numchannels and self.sr == other.sr
             if len(self) == len(other):
-                return Sample(self.samples - other.samples, self.samplerate)
+                return Sample(self.samples-other.samples, self.sr)
             elif len(self) > len(other):
-                return Sample(self.samples[:len(other)] - other.samples, self.samplerate)
+                return Sample(self.samples[:len(other)]-other.samples, self.sr)
             else:
-                return Sample(self.samples - other.samples[:len(self)], self.samplerate)
+                return Sample(self.samples- other.samples[:len(self)], self.sr)
         else:
             raise TypeError(f"Expected a scalar or a sample, got {other}")
 
@@ -604,7 +604,7 @@ class Sample:
         if isinstance(other, (int, float)):
             self.samples -= other
         elif isinstance(other, Sample):
-            assert self.numchannels == other.numchannels and self.samplerate == other.samplerate
+            assert self.numchannels == other.numchannels and self.sr == other.sr
             if len(self) == len(other):
                 self.samples -= other.samples
             elif len(self) > len(other):
@@ -617,15 +617,15 @@ class Sample:
 
     def __mul__(self, other: U[float, Sample]) -> Sample:
         if isinstance(other, (int, float)):
-            return Sample(self.samples*other, self.samplerate)
+            return Sample(self.samples*other, self.sr)
         elif isinstance(other, Sample):
-            assert self.numchannels == other.numchannels and self.samplerate == other.samplerate
+            assert self.numchannels == other.numchannels and self.sr == other.sr
             if len(self) == len(other):
-                return Sample(self.samples * other.samples, self.samplerate)
+                return Sample(self.samples*other.samples, self.sr)
             elif len(self) > len(other):
-                return Sample(self.samples[:len(other)] * other.samples, self.samplerate)
+                return Sample(self.samples[:len(other)]*other.samples, self.sr)
             else:
-                return Sample(self.samples * other.samples[:len(self)], self.samplerate)
+                return Sample(self.samples* other.samples[:len(self)], self.sr)
         else:
             raise TypeError(f"Expected a scalar or a sample, got {other}")
 
@@ -633,7 +633,7 @@ class Sample:
         if isinstance(other, (int, float)):
             self.samples *= other
         elif isinstance(other, Sample):
-            assert self.numchannels == other.numchannels and self.samplerate == other.samplerate
+            assert self.numchannels == other.numchannels and self.sr == other.sr
             if len(self) == len(other):
                 self.samples *= other.samples
             elif len(self) > len(other):
@@ -646,7 +646,7 @@ class Sample:
         return self
 
     def __pow__(self, other: float) -> Sample:
-        return Sample(self.samples**other, self.samplerate)
+        return Sample(self.samples**other, self.sr)
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -668,7 +668,7 @@ class Sample:
             >>> view = source[1.5:3.0]
 
             # To slice at the sample level, access .samples directly
-            >>> newsample = Sample(source.samples[1024:2048], source.samplerate).copy()
+            >>> newsample = Sample(source.samples[1024:2048], source.sr).copy()
 
         """
         if not isinstance(item, slice):
@@ -684,9 +684,9 @@ class Sample:
         stop = min(stop, self.duration)
         start = min(start, self.duration)
         assert 0 <= start <= stop
-        frame0 = int(start * self.samplerate)
-        frame1 = int(stop * self.samplerate)
-        return Sample(self.samples[frame0:frame1], self.samplerate)
+        frame0 = int(start*self.sr)
+        frame1 = int(stop*self.sr)
+        return Sample(self.samples[frame0:frame1], self.sr)
 
     def fade(self, fadetime:U[float, Tuple[float, float]], shape:str='linear'
              ) -> Sample:
@@ -721,13 +721,13 @@ class Sample:
         if isinstance(fadetime, tuple):
             fadein, fadeout = fadetime
             if fadein:
-                _npsnd.arrayFade(self.samples, self.samplerate, fadetime=fadein,
+                _npsnd.arrayFade(self.samples, self.sr, fadetime=fadein,
                                  mode='in', shape=shape)
             if fadeout:
-                _npsnd.arrayFade(self.samples, self.samplerate, fadetime=fadeout,
+                _npsnd.arrayFade(self.samples, self.sr, fadetime=fadeout,
                                  mode='out', shape=shape)
         else:
-            _npsnd.arrayFade(self.samples, self.samplerate, fadetime=fadetime,
+            _npsnd.arrayFade(self.samples, self.sr, fadetime=fadetime,
                              mode='inout', shape=shape)
         return self
 
@@ -735,7 +735,7 @@ class Sample:
         """
         Return a new Sample with silence of given dur at the beginning
         """
-        silence = Sample.silent(dur, self.numchannels, self.samplerate)
+        silence = Sample.silent(dur, self.numchannels, self.sr)
         return concat([silence, self])
 
     def concat(self, *other: Sample) -> Sample:
@@ -779,7 +779,7 @@ class Sample:
             framedur: the duration of an analysis frame
             overlap: determines the hop time between analysis frames.
         """
-        return _npsnd.peaksbpf(self.samples, self.samplerate, res=framedur, overlap=overlap)
+        return _npsnd.peaksbpf(self.samples, self.sr, res=framedur, overlap=overlap)
 
     def reverse(self) -> Sample:
         """ reverse the sample in-place, returns self """
@@ -791,7 +791,7 @@ class Sample:
         """
         Return a bpf representing the rms of this sample over time
         """
-        return _npsnd.rmsbpf(self.samples, self.samplerate, dt=dt, overlap=overlap)
+        return _npsnd.rmsbpf(self.samples, self.sr, dt=dt, overlap=overlap)
 
     def rms(self) -> float:
         """ Returns the rms of the samples (see also: :meth:`rmsbpf`) """
@@ -805,7 +805,7 @@ class Sample:
         """
         if self.numchannels == 1:
             return self
-        return Sample(_npsnd.asmono(self.samples), samplerate=self.samplerate)
+        return Sample(_npsnd.asmono(self.samples), samplerate=self.sr)
 
     def stripSilenceLeft(self, threshold=-120.0, margin=0.01, window=0.02) -> Sample:
         """
@@ -820,10 +820,10 @@ class Sample:
         Returns:
             a new Sample with silence removed
         """
-        period = int(window * self.samplerate)
+        period = int(window*self.sr)
         first_sound_sample = _npsnd.firstSound(self.samples, threshold, period)
         if first_sound_sample >= 0:
-            time = max(first_sound_sample / self.samplerate - margin, 0)
+            time = max(first_sound_sample/self.sr-margin, 0)
             return self[time:]
         return self
 
@@ -840,10 +840,10 @@ class Sample:
         Returns:
             a new Sample with silence removed
         """
-        period = int(window * self.samplerate)
+        period = int(window*self.sr)
         lastsample = _npsnd.lastSound(self.samples, threshold, period)
         if lastsample >= 0:
-            time = min(lastsample / self.samplerate + margin, self.duration)
+            time = min(lastsample/self.sr+margin, self.duration)
             return self[:time]
         return self
 
@@ -866,12 +866,12 @@ class Sample:
 
     def resample(self, samplerate: int) -> Sample:
         """
-        Return a new Sample with the given samplerate
+        Return a new Sample with the given sr
         """
-        if samplerate == self.samplerate:
+        if samplerate == self.sr:
             return self
         from maelzel.snd.resample import resample
-        samples = resample(self.samples, self.samplerate, samplerate)
+        samples = resample(self.samples, self.sr, samplerate)
         return Sample(samples, samplerate=samplerate)
 
     def scrub(self, bpf: _bpf.BpfInterface) -> Sample:
@@ -889,9 +889,9 @@ class Sample:
             >>> sample2 = sample.scrub(bpf.linear([(0, 0), (dur*2, dur)]))
 
         """
-        samples, sr = _sndfiletools.scrub((self.samples, self.samplerate), bpf,
-                                              rewind=False)
-        return Sample(samples, self.samplerate)
+        samples, sr = _sndfiletools.scrub((self.samples, self.sr), bpf,
+                                          rewind=False)
+        return Sample(samples, self.sr)
 
     def getChannel(self, n:int, contiguous=False) -> Sample:
         """
@@ -910,7 +910,7 @@ class Sample:
         newsamples = self.samples[:, n]
         if contiguous and not newsamples.flags.c_contiguous:
             newsamples = np.ascontiguousarray(newsamples)
-        return Sample(newsamples, self.samplerate)
+        return Sample(newsamples, self.sr)
 
     def contiguous(self) -> Sample:
         """
@@ -920,7 +920,7 @@ class Sample:
         """
         if self.samples.flags.c_contiguous:
             return self
-        return Sample(np.ascontiguousarray(self.samples), self.samplerate)
+        return Sample(np.ascontiguousarray(self.samples), self.sr)
 
     def estimateFreq(self, start=0.2, dur=0.15, strategy='autocorr') -> float:
         """
@@ -943,7 +943,7 @@ class Sample:
             'autocorr': f0ViaAutocorrelation,
             'fft': f0ViaFFT
         }.get(strategy, f0ViaAutocorrelation)
-        freq, prob = func(s.samples, s.samplerate)
+        freq, prob = func(s.samples, s.sr)
         return freq
 
     def fundamentalBpf(self, fftsize=2048, overlap=4, method:str=None
@@ -995,7 +995,7 @@ class Sample:
         elif method == "pyin":
             from maelzel.snd import vamptools
             samples = self.getChannel(0).samples
-            dt, freqs = vamptools.pyin_smoothpitch(samples, self.samplerate,
+            dt, freqs = vamptools.pyin_smoothpitch(samples, self.sr,
                                                    fft_size=fftsize,
                                                    step_size=fftsize//overlap)
             return _bpf.core.Sampled(freqs, dt)
@@ -1003,17 +1003,17 @@ class Sample:
             from maelzel.snd import freqestimate
             samples = self.getChannel(0).samples
             hoplength = fftsize // overlap
-            f0curve, probcurve = freqestimate.f0curvePyin(samples, sr=self.samplerate,
+            f0curve, probcurve = freqestimate.f0curvePyin(samples, sr=self.sr,
                                                           framelength=fftsize,
                                                           hoplength=hoplength)
             return f0curve
 
         elif method == 'fft':
             from maelzel.snd import freqestimate
-            steptime = stepsize/self.samplerate
+            steptime = stepsize/self.sr
             samples = self.getChannel(0).samples
-            f0curve, probcurve = freqestimate.f0curve(samples, sr=self.samplerate,
-                                                        steptime=steptime, method='fft')
+            f0curve, probcurve = freqestimate.f0curve(samples, sr=self.sr,
+                                                      steptime=steptime, method='fft')
             return f0curve
         else:
             raise ValueError(f"method should be one of 'pyin', 'pyin-annotator', "
@@ -1056,10 +1056,10 @@ class Sample:
         """
         idx = _npsnd.firstSound(self.samples,
                                 threshold=threshold,
-                                periodsamps=int(period * self.samplerate),
+                                periodsamps=int(period*self.sr),
                                 overlap=overlap,
-                                skip=int(start*self.samplerate))
-        return idx / self.samplerate if idx >= 0 else None
+                                skip=int(start*self.sr))
+        return idx / self.sr if idx>=0 else None
 
     def firstSilence(self, threshold=-80, period=0.04, overlap=2,
                      soundthreshold=-50, start=0.) -> Opt[float]:
@@ -1079,22 +1079,22 @@ class Sample:
         """
         idx = _npsnd.firstSilence(samples=self.samples,
                                   threshold=threshold,
-                                  period=int(period*self.samplerate),
+                                  period=int(period*self.sr),
                                   overlap=overlap,
                                   soundthreshold=soundthreshold,
-                                  startidx=int(start*self.samplerate))
-        return idx/self.samplerate if idx is not None else None
+                                  startidx=int(start*self.sr))
+        return idx/self.sr if idx is not None else None
 
 
 def broadcastSamplerate(samples: List[Sample]) -> List[Sample]:
     """
     Match the samplerates audio samples to the highest one.
-    The audio sample with the lowest samplerate is resampled to the
+    The audio sample with the lowest sr is resampled to the
     higher one.
     
     """
     assert all(isinstance(s, Sample) for s in samples)
-    sr = max(s.samplerate for s in samples)
+    sr = max(s.sr for s in samples)
     return [s.resample(sr) for s in samples]
 
 
@@ -1112,7 +1112,7 @@ def asSample(source: U[str, Sample, Tuple[np.ndarray, int]]) -> Sample:
     Return a Sample instance
 
     Args:
-        source: a filename, a Sample or a tuple (samples, samplerate)
+        source: a filename, a Sample or a tuple (samples, sr)
 
     Returns:
         a Sample. If already a Sample, it just returns it
@@ -1146,7 +1146,7 @@ def concat(sampleseq: Seq[Sample]) -> Sample:
     Concatenate a sequence of Samples
 
     Samples should share numchannels. If mismatching samplerates are found,
-    all samples are upsampled to the highest samplerate
+    all samples are upsampled to the highest sr
 
     Args:
         sampleseq: a seq. of Samples
@@ -1154,10 +1154,10 @@ def concat(sampleseq: Seq[Sample]) -> Sample:
     Returns:
         the concatenated samples as one Sample
     """
-    sr = max(s.samplerate for s in sampleseq)
-    if any(s.samplerate != sr for s in sampleseq):
+    sr = max(s.sr for s in sampleseq)
+    if any(s.sr != sr for s in sampleseq):
         logger.info(f"concat: Mismatching samplerates. Samples will be upsampled to {sr}")
-        sampleseq = [s if s.samplerate == sr else s.resample(sr) for s in sampleseq]
+        sampleseq = [s if s.sr == sr else s.resample(sr) for s in sampleseq]
     s = np.concatenate([s.samples for s in sampleseq])
     return Sample(s, sr)
 
@@ -1184,7 +1184,7 @@ def mix(samples: List[Sample], offsets:List[float]=None, gains:List[float]=None
     """
     Mix the given samples down, optionally with a time offset
 
-    All samples should share the same number of channels and samplerate
+    All samples should share the same number of channels and sr
 
     Args:
         samples: the Samples to mix
@@ -1203,8 +1203,8 @@ def mix(samples: List[Sample], offsets:List[float]=None, gains:List[float]=None
         4.0
     """
     nchannels = samples[0].numchannels
-    sr = samples[0].samplerate
-    assert all(s.numchannels == nchannels and s.samplerate == sr for s in samples)
+    sr = samples[0].sr
+    assert all(s.numchannels == nchannels and s.sr == sr for s in samples)
     if offsets is None:
         offsets = [0.] * len(samples)
     if gains is None:

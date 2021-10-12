@@ -165,7 +165,7 @@ def prime_power_delays(N, pathmin, pathmax, sr):
     @param N: the number of delay lines (>= 3)
     @param pathmin: minimum acoustic ray length in the reverberator (in meters)
     @param pathmax: max. acoustic ray lngth (meters) - think "room size"
-    @param sr: samplerate
+    @param sr: sr
     @return: a list of N elements, each being the delay time in samples
     """
     primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 41, 43, 47, 53]

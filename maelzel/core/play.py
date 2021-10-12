@@ -65,7 +65,7 @@ class OfflineRenderer:
         cfg = activeConfig()
         self.outfile = outfile
         self.a4 = w.a4
-        self.sr = sr or cfg['rec.samplerate']
+        self.sr = sr or cfg['rec.sr']
         self.quiet = quiet
         self.ksmps = ksmps
         self.renderer = presetManager.makeRenderer(sr, ksmps=ksmps)

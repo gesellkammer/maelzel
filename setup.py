@@ -48,7 +48,8 @@ setup(
         "python-constraint",
         "pyyaml",
         "rtmidi2",
-        "samplerate",   # https://pypi.org/project/samplerate/
+        # "samplerate",   # https://pypi.org/project/samplerate/
+        "resampy",
         "psutil",
         "csoundengine>=1.1",
         "pitchtools>=1.3",

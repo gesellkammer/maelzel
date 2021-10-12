@@ -213,7 +213,7 @@ def f0curvePyinVamp(sig: np.ndarray, sr:int, fftsize=2048, overlap=4,
 
     Args:
         sig: the signal as numpy array
-        sr: the samplerate
+        sr: the sr
         fftsize: with sizes greater than 2048 the result might be unstable
         overlap: hop size as fftsize//overlap
         lowAmpSupression: ??

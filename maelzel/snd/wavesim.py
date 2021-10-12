@@ -65,7 +65,7 @@ class Instr:
             dur: the duration of the recording
             outfile: if given, the path to the generated soundfile.
                 Otherwise a temp. file is generated
-            sr: the samplerate of the sound
+            sr: the sr of the sound
             ksmps: the ksmps used
             block: if True, wait until recording is finished
 

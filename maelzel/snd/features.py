@@ -78,7 +78,7 @@ def play_ticks(times, chan=1, midinote=69, amp=0.5, attack=0.01, decay=0.05,
 
         >>> import sndfileio
         >>> samples, info = sndfileio.sndget("/path/to/sound.wav")
-        >>> onsets = onsets_aubio(samples, info.samplerate)
+        >>> onsets = onsets_aubio(samples, info.sr)
         >>> synthgroup = play_ticks(onsets)
         # if needed to stop the playback at any moment:
         >>> synthgroup.stop()
