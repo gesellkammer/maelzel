@@ -5,7 +5,7 @@ import emlib.mathlib
 import emlib.misc
 
 from ._common import *
-from .typedefs import *
+from ._typedefs import *
 from . import tools
 from .workspace import activeConfig
 import copy

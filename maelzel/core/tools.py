@@ -19,7 +19,7 @@ from .environment import insideJupyter
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
-    from .typedefs import *
+    from ._typedefs import *
     from maelzel import scoring
     T = TypeVar("T")
 

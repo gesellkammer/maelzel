@@ -13,7 +13,7 @@ import logging as _logging
 # We want to share the same Rat implementation as scorestruct
 from maelzel.rational import Rat
 from typing import List, Iterable
-from .typedefs import T
+from ._typedefs import T
 import os
 
 
