@@ -24,7 +24,7 @@ Examples
     # load a Sample, fade it, play and write
     from maelzel.snd.audiosample import *
     import time
-    s = Sample.read("sound.wav")
+    s = Sample("sound.wav")
     s.fade(0.5)
     synth = s.play(speed=0.5)
     while synth.isPlaying():
@@ -36,9 +36,9 @@ Examples
 
 .. code-block:: python
     samples = [
-        Sample.read("soundA.wav"),
-        Sample.read("soundB.aif"),
-        Sample.read("soundC.flac")]
+        Sample("soundA.wav"),
+        Sample("soundB.aif"),
+        Sample("soundC.flac")]
     samples = broadcast_samplerate(samples)
     a, b, c = samples
     # mix them down
@@ -150,15 +150,22 @@ def readSoundfile(sndfile: str, start:float=0., end:float=0.) -> Tuple[np.ndarra
 _csoundEngine = None
 
 
-def getPlayEngine() -> csoundengine.Engine:
+def getPlayEngine(**kws) -> csoundengine.Engine:
     """
     Returns the csound Engine used for playback
 
     If no playback has been performed up to this point, a new Engine
-    is created.
+    is created. Keywords are passed directly to csoundengine.Engine
+    and will only take effect if this function is called before any
+    playback has been performed.
 
-    In the case where an Engine needs to be shared, an external
-    Engine can be set as the playback engine via setPlayEngine
+    An already existing Engine can be set as the playback engine via
+    `setPlayEngine`
+
+    See Also
+    ~~~~~~~~
+
+    * :func:`setPlayEngine`
     """
     global _csoundEngine
     if _csoundEngine:
@@ -179,9 +186,16 @@ def setPlayEngine(engine: csoundengine.Engine) -> None:
     set an external engine as the playback engine. This will only
     affect Sample objects created after the external playback engine has
     been set.
+
+    See Also
+    ~~~~~~~~
+
+    * :func:`getPlayEngine`
+
     """
     global _csoundEngine
     _csoundEngine = engine
+
 
 
 def _vampPyinAvailable() -> bool:
@@ -249,25 +263,6 @@ class Sample:
         return s
 
     @classmethod
-    def read(cls, filename:str, start=0., end=0.) -> Sample:
-        """
-        Read samples from `filename`.
-
-        Both start and end can be negative, in which case the frame
-        is sought from the end
-
-        Args:
-            filename: the filename of the soundfile
-            start: the time to start reading
-            end: the end time to stop reading (0 to read until the end)
-
-        Returns:
-            a Sample
-        """
-        samples, sr = readSoundfile(filename, start=start, end=end)
-        return cls(samples, samplerate=sr)
-
-    @classmethod
     def silent(cls, dur: float, channels: int, sr: int) -> Sample:
         """
         Generate a silent Sample with the given characteristics
@@ -293,7 +288,16 @@ class Sample:
              pan=-1, speed=1.0
              ) -> csoundengine.synth.Synth:
         """
-        Play the given table
+        Play the given sample
+
+        If no playback has taken place, a new playback engine is created
+        To create an Engine with specific characteristics use :func:`getPlayEngine`.
+        To use an already existing Engine, see :func:`setPlayEngine`
+
+        .. note::
+
+            To play a section of the sample, slice it first, then play the
+            resulting sample. To slice a sample, use ``sample[starttime:endtime]``
 
         Args:
             loop (bool): should playback be looped?
@@ -310,6 +314,12 @@ class Sample:
         Returns:
             a :class:`csoundengine.synth.Synth`. This synth can be used to
             control playback.
+
+        See Also
+        ~~~~~~~~
+
+        * :func:`getPlayEngine`
+        * :func:`setPlayEngine`
 
         """
         engine = getPlayEngine()
@@ -497,7 +507,7 @@ class Sample:
         logger.debug(f"open_in_editor: opening {sndfile}")
         openInEditor(sndfile, wait=wait, app=app)
         if wait:
-            return Sample.read(sndfile)
+            return Sample(sndfile)
         return None
 
     def write(self, outfile: str, encoding:str=None, overflow='fail',
@@ -664,15 +674,17 @@ class Sample:
 
             # Get a slice between seconds 1.5 and 3. Any change to view will be
             # reflected in original
-            >>> source = Sample.read("sound.wav")
+            >>> source = Sample("sound.wav")
             >>> view = source[1.5:3.0]
 
             # To slice at the sample level, access .samples directly
-            >>> newsample = Sample(source.samples[1024:2048], source.sr).copy()
-
+            # NB: this will be a 'view' over the existing samples, any modification
+            # will be reflected in the source array. Use .copy to produce an independent
+            # sample
+            >>> newsample = Sample(source.samples[1024:2048], source.sr)
         """
         if not isinstance(item, slice):
-            raise ValueError("Samples only support the form sample[start:end]."
+            raise ValueError("Samples only support the form sample[start:end]. "
                              "To access individual samples, use sample.samples[index]")
         start, stop, step = item.start, item.stop, item.step
         if stop is None:
@@ -680,7 +692,8 @@ class Sample:
         if start is None:
             start = 0.
         if step is not None:
-            raise ValueError("Samples do not support a step for slicing")
+            raise ValueError("Samples do not support a step for slicing. NB: "
+                             "To resample a Sample, use the .resample method")
         stop = min(stop, self.duration)
         start = min(start, self.duration)
         assert 0 <= start <= stop
@@ -709,11 +722,11 @@ class Sample:
 
         Example::
 
-            >>> sample1= Sample.read("sound.wav")
+            >>> sample1= Sample("sound.wav")
             # Fade-in and out
             >>> sample1.fade(0.2)
 
-            >>> sample2 = Sample.read("another.wav")
+            >>> sample2 = Sample("another.wav")
             # Create a copy with a fade-out of 200 ms
             >>> sample3 = sample2.copy().fade((0, 0.2))
 
@@ -1120,7 +1133,7 @@ def asSample(source: U[str, Sample, Tuple[np.ndarray, int]]) -> Sample:
     if isinstance(source, Sample):
         return source
     if isinstance(source, str):
-        return Sample.read(source)
+        return Sample(source)
     if isinstance(source, tuple) and isinstance(source[0], np.ndarray):
         samples, sr = source
         return Sample(samples, sr)
@@ -1196,8 +1209,8 @@ def mix(samples: List[Sample], offsets:List[float]=None, gains:List[float]=None
 
     Example::
 
-        >>> a = Sample.read("stereo-2seconds.wav")
-        >>> b = Sample.read("stereo-3seconds.wav")
+        >>> a = Sample("stereo-2seconds.wav")
+        >>> b = Sample("stereo-3seconds.wav")
         >>> m = mix([a, b], offsets=[2, 0])
         >>> m.duration
         4.0
