@@ -7,11 +7,11 @@ import sys
 from setuptools import setup
 
 readme = open('README.rst').read()
-version = (0, 2, 0)
+version = (0, 3, 0)
 
 setup(
     name='maelzel',
-    python_requires=">=3.8",
+    python_requires=">=3.9",
     version=".".join(map(str, version)),
     description='Utilities for sound, music notation, acoustics, etc',
     long_description=readme,
@@ -63,7 +63,6 @@ setup(
     classifiers=[
         'License :: OSI Approved :: BSD License',
         'Natural Language :: English',
-        'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9'
     ]
 )
