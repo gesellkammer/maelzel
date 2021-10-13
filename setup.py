@@ -7,7 +7,7 @@ import sys
 from setuptools import setup
 
 readme = open('README.rst').read()
-version = (0, 3, 0)
+version = (0, 3, 1)
 
 setup(
     name='maelzel',
@@ -39,7 +39,7 @@ setup(
         "configdict>=0.11",
         "appdirs",
         "tabulate",
-        "sndfileio>=1.8",
+        "sndfileio>=1.8.1",
         "pillow",
         "cachetools",
         "ctcsound",
