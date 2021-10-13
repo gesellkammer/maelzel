@@ -3,13 +3,13 @@ Introduction
 
 Introduction text
 
-Examples
---------
+Example Notebooks
+-----------------
 
 Messiaen - Quatour pour la fin du temps - La liturgie de Cristal
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-This example contains an analysis and reconstruction of the rhythmic ostinati in Messiaen's "La liturgie de Cristal"
+This notebook contains an analysis and reconstruction of the rhythmic ostinati in Messiaen's "La liturgie de Cristal"
 
 .. image:: assets/messiaen-notebook.jpg
   :target: https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/examples/Messiaen-La%20Liturgie%20de%20Cristal.ipynb
@@ -41,19 +41,40 @@ maelzel.core
 ------------
 
 **maelzel.core** provides a set of classes to define notes, chords,
-lines, sequences, voices and entire scores. These classes all derive
-from a base class MusicObj. Any of these objects can be synthesized
-and displayed as notation. When converting to notation a score is
-quantized following a score structure. Since Notes and Chords define
-pitch as an absolute value (a fractional midinote), independent of the
-enharmonic variant, an optimization pass takes place prior to rendering,
-where a suitable enharmonic spelling is determined for each note/chord.
+lines, sequences, voices and entire scores. Any of these objects can
+be played in real time, recorded and displayed as notation. When
+converting to notation a score is quantized following a score
+structure.
 
-Ferneyhough's Third String Quartet, violin 1
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+**maelzel.core**'s main purpose is to represent musical ideas, reason
+about aspects of pitch, rhythms, etc., and be of help while composing,
+analyzing or preparing a performance. Even if it is possible to
+construct a score, notation is in this context a tool to visualize
+results and it is not a goal to be able to produce final
+scores.
+
+Here are examples that showcase some of the features of **maelzel.core**
+
+
+Complex Rhythms: Ferneyhough's Third String Quartet, violin 1
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Within **maelzel.core** notes/chords have a duration in
+quarternotes. There is no concept of tuplet or any idea of
+encapsulation of a note within a group of notes. The notational aspect
+of rhythm (how a note is represented as notation) is determined by a
+quantization step and is outside the control of the user.
+
+Nevertheless, it is possible to input rather complex music, and the
+quantizer will try to render an accurate rhythmic transcription of
+it. In the case of this fragment by Ferneyhough, the transcription can
+help understand more precisely how to play a certain passage while, on
+the other hand, there are certainly some aspects of it which are lost
+(regarding mostly the phrasing but also traces of the compositional
+processes involved).
 
 .. image:: assets/ferney1-orig.jpg
-
+           
 .. code-block:: python
 
     from maelzel.core import *
@@ -95,7 +116,8 @@ Ferneyhough's Third String Quartet, violin 1
 
 .. image:: assets/ferney1.jpg
 
-Any `MusicObj` can be subjected to multiple operations. For example::
+Any `MusicObj` (a Note, Chord, Voice, etc) can be subjected to multiple operations.
+For example::
 
     V1.timeScale(4/3)
 
@@ -106,3 +128,5 @@ Or::
     V1.invertPitch("5F-").timeScale(11/7)
 
 .. image:: assets/ferney1-invert-timescale.jpg
+
+           

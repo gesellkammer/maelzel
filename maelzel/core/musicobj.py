@@ -31,7 +31,7 @@ from emlib import iterlib
 import pitchtools as pt
 from maelzel import scoring
 
-from ._common import *
+from ._common import Rat, asRat, UNSET, MAXDUR, logger
 from .musicobjbase import *
 from .workspace import activeConfig
 from . import play
@@ -1285,7 +1285,7 @@ class MusicObjList(MusicObj):
             the scoring notations
         """
         groupid = scoring.makeGroupId(groupid)
-        return sumlist(i.scoringEvents(groupid=groupid) for i in self._mergedItems())
+        return sum((i.scoringEvents(groupid=groupid) for i in self._mergedItems()), [])
 
     def _mergedItems(self) -> List[MusicObj]:
         return self.items
@@ -1293,8 +1293,8 @@ class MusicObjList(MusicObj):
     def csoundEvents(self, playargs: PlayArgs, scorestruct: ScoreStruct, conf:dict
                      ) -> List[CsoundEvent]:
         playargs.fillWith(self.playargs)
-        return sumlist(item.csoundEvents(playargs.copy(), scorestruct, conf)
-                       for item in self._mergedItems())
+        return misc.sumlist(item.csoundEvents(playargs.copy(), scorestruct, conf)
+                            for item in self._mergedItems())
 
     def quantizePitch(self:T, step=0.) -> T:
         if step == 0:
@@ -1631,8 +1631,8 @@ class Voice(MusicObjList):
 
     def scoringEvents(self, groupid:str=None) -> List[scoring.Notation]:
         subgroup = scoring.makeGroupId(groupid)
-        return sumlist(item.scoringEvents(subgroup)
-                       for item in _mergeLines(self.items))
+        return misc.sumlist(item.scoringEvents(subgroup)
+                            for item in _mergeLines(self.items))
 
     def scoringParts(self, options: scoring.render.RenderOptions = None
                      ) -> List[scoring.Part]:
@@ -1644,8 +1644,8 @@ class Voice(MusicObjList):
     def csoundEvents(self, playargs: PlayArgs, scorestruct: ScoreStruct, conf: dict
                      ) -> List[CsoundEvent]:
         playargs.fillWith(self.playargs)
-        return sumlist(item.csoundEvents(playargs.copy(), scorestruct, conf)
-                       for item in _mergeLines(self.items))
+        return misc.sumlist(item.csoundEvents(playargs.copy(), scorestruct, conf)
+                            for item in _mergeLines(self.items))
 
 
 def _asVoice(obj: Union[MusicObj, List[MusicObj]]) -> Voice:
