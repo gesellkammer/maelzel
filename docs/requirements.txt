@@ -6,7 +6,7 @@ music21
 bpf4
 configdict>=0.11
 appdirs
-sndfileio>=1.8
+sndfileio>=1.8.1
 pillow
 cachetools
 pyyaml
