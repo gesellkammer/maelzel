@@ -1,4 +1,4 @@
-from mpqfractions import Rat
+from maelzel.rational import Rat
 from typing import List, Union, Tuple, TypeVar
 
 num_t = Union[float, int, Rat]
