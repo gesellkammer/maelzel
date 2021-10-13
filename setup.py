@@ -39,7 +39,7 @@ setup(
         "configdict>=0.11",
         "appdirs",
         "tabulate",
-        "sndfileio",
+        "sndfileio>=1.8",
         "pillow",
         "cachetools",
         "ctcsound",
