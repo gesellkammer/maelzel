@@ -92,7 +92,6 @@ class OfflineRenderer:
         See Also:
             sched
         """
-        print("schedEvent (offline)", event)
         return _schedCsoundEvent(self.renderer, event)
 
     def definedInstrs(self) -> Dict[str, csoundengine.Instr]:
@@ -194,6 +193,7 @@ class OfflineRenderer:
                 raise CancelledError("Render operation was cancelled")
         elif not outfile:
             outfile = _makeRecordingFilename(ext=".wav")
+        outfile = tools.normalizeFilename(outfile)
         if quiet is None:
             quiet = self.quiet if self.quiet is not None else cfg['rec.quiet']
         self.renderer.render(outfile=outfile, wait=wait, quiet=quiet,
@@ -482,7 +482,6 @@ class rendering:
         return self.renderer
 
     def __exit__(self, exc_type, exc_value, traceback):
-        print(exc_type, exc_value, traceback)
         w = activeWorkspace()
         w.renderer = self._oldRenderer
         if self.outfile is None:

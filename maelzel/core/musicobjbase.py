@@ -581,6 +581,7 @@ class MusicObj:
         renderer: OfflineRenderer = activeWorkspace().renderer
         if renderer:
             # schedule offline
+            print("")
             for ev in events:
                 renderer.schedEvent(ev)
         else:
@@ -643,7 +644,7 @@ class MusicObj:
             if type(symbol).__name__.lower() == cls:
                 return symbol
 
-    def setSymbol(self, symbol: Union[symbols.Symbol, str], value=None):
+    def setSymbol(self:T, symbol: Union[symbols.Symbol, str], value=None) -> T:
         """
         Set a notation symbol in this object
 
@@ -657,7 +658,7 @@ class MusicObj:
         Args:
             symbol: either a symbols.Symbol or the name of a symbol, in which
                 case the value must be given
-            value: the value of the symbol
+            value: the value of the symbols
 
         """
         if isinstance(symbol, str):
@@ -673,6 +674,7 @@ class MusicObj:
             if symbol.exclusive:
                 self._symbols = [s for s in self._symbols if type(s) != type(symbol)]
                 self._symbols.append(symbol)
+        return self
 
     def timeTransform(self:_T, timemap: Callable[[num_t], num_t]) -> _T:
         """

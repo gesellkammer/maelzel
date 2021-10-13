@@ -335,24 +335,27 @@ class CsoundEvent:
         """
         returns pfields, **beginning with p2**.
 
-        idx parg    desc
-        0   2       delay
-        1   3       duration
-        2   4       tabnum
-        3   5       bpsoffset (pfield index, starting with 1)
-        4   6       bpsrows
-        5   7       bpscols
-        6   8       gain
-        7   9       chan
-        8   0       position
-        9   1       fade0
-        0   2       fade1
-        1   3       pitchinterpol
-        2   4       fadeshape
+        ==== =====  ======
+        idx  parg    desc
+        ==== =====  ======
+        0    2       delay
+        1    3       duration
+        2    4       tabnum
+        3    5       bpsoffset (pfield index, starting with 1)
+        4    6       bpsrows
+        5    7       bpscols
+        6    8       gain
+        7    9       chan
+        8    0       position
+        9    1       fade0
+        0    2       fade1
+        1    3       pitchinterpol
+        2    4       fadeshape
         .
         . reserved space for user pargs
         .
-        ----
+        ==== =====  ======
+
         breakpoint data
 
         tabnum: if 0 it is discarded and filled with a valid number later
