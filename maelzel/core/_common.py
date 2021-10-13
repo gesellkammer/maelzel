@@ -66,12 +66,6 @@ def isNumber(x) -> bool:
     return isinstance(x, (int, float, Rat))
 
 
-def asTuple(obj) -> tuple:
-    return obj if isinstance(obj, tuple) else tuple(obj)
-
-
-def sumlist(seq: Iterable[List[T]]) -> List[T]:
-    return sum(seq, [])
 
 
 def getPath(s: str) -> str:
