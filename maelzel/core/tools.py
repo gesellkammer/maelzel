@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 import music21 as m21
 import PIL
@@ -437,6 +438,8 @@ def applySymbols(symbols: List[_symbols.Symbol],
                 n.notehead = symbol.kind
         elif isinstance(symbol, _symbols.Articulation):
             notations[0].articulation = symbol.kind
+        elif isinstance(symbol, _symbols.Expression):
+            notations[0].addAnnotation(symbol.text)
 
 
 def _highlightLilypond(s: str) -> str:
@@ -489,6 +492,10 @@ def selectFileForSave(key:str, filter="All (*.*)", prompt="Save File") -> Option
     if outfile:
         _appstate[key] = os.path.split(outfile)[0]
     return outfile
+
+
+def normalizeFilename(path: str) -> str:
+    return os.path.expanduser(path)
 
 
 def selectFileForOpen(key: str, filter="All (*.*)", prompt="Open", ifcancel:str=None

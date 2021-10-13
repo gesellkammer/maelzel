@@ -653,7 +653,8 @@ class Chord(MusicObj):
                  start: time_t = None,
                  gliss: Union[str, List[pitch_t], Tuple[pitch_t], bool] = False,
                  label: str='',
-                 tied = False
+                 tied = False,
+                 dynamic: str = None
                  ) -> None:
         """
         a Chord can be instantiated as:
@@ -725,6 +726,8 @@ class Chord(MusicObj):
 
         self.sort()
         self.tied = tied
+        if dynamic:
+            self.setSymbol('Dynamic', dynamic)
 
     def __len__(self) -> int:
         return len(self.notes)
@@ -1215,10 +1218,10 @@ def stackEventsInPlace(events: Sequence[MusicObj],
         elif ev.start is None:
             ev.start = now
         assert ev.dur is not None and ev.start is not None
-        now += ev.dur
+        now = ev.end
     for ev1, ev2 in iterlib.pairwise(events):
-        assert ev1.start <= ev2.start
-        assert ev1.end == ev2.start
+        assert ev1.start <= ev2.start, f"{ev1=}, {ev2=}"
+        assert ev1.end <= ev2.start, f"{ev1=}, {ev2=}"
 
 
 class MusicObjList(MusicObj):

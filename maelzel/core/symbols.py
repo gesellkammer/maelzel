@@ -26,6 +26,13 @@ class Dynamic(NoteAttachedSymbol):
         return f"Dynamic({self.kind})"
 
 
+class Expression(NoteAttachedSymbol):
+    exclusive = False
+
+    def __init__(self, text: str):
+        self.text = text
+
+
 class Notehead(NoteAttachedSymbol):
     exclusive = True
 
@@ -50,13 +57,15 @@ class Articulation(NoteAttachedSymbol):
 noteAttachedSymbols = [
     'Articulation',
     'Dynamic',
-    'Notehead'
+    'Notehead',
+    'Expression'
 ]
 
 _clsnameToClass = {
     'dynamic': Dynamic,
     'notehead': Notehead,
-    'articulation': Articulation
+    'articulation': Articulation,
+    'expression': Expression
 }
 
 
