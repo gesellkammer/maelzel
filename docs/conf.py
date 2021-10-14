@@ -93,3 +93,4 @@ napoleon_use_rtype = True
 
 
 set_type_checking_flag = True
+automodsumm_inherited_members = True

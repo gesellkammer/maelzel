@@ -465,8 +465,9 @@ def asNote(n: Union[float, str, Note, Pitch],
 
 class Line(MusicObj):
     """ 
-    A Line is a seq. of breakpoints, where each bp is of the form
-    (delay, pitch, [amp=1, ...]), where:
+    A Line is a sequence of breakpoints
+
+    A bp has the form ``(delay, pitch, [amp=1, ...])``, where:
 
     - delay is the time offset to the first breakpoint.
     - pitch is the pitch as midinote or notename
