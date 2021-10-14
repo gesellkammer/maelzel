@@ -1,4 +1,4 @@
-emlib
+emlib>=1.2.0
 numpy
 scipy
 matplotlib
