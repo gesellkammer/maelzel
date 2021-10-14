@@ -66,7 +66,7 @@ class Workspace:
         if scorestruct is None:
             scorestruct = ScoreStruct.fromTimesig((4, 4), quarterTempo=60)
         self._scorestruct = scorestruct
-        self.dynamicsCurve = dynamicCurve or DynamicCurve.getDefault()
+        self.dynamicsCurve = dynamicCurve or DynamicCurve.fromdescr(shape='expon(3.0)')
         if activate:
             self.activate()
 
