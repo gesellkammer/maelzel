@@ -1,5 +1,6 @@
 from __future__ import annotations
-import dataclasses
+from dataclasses import dataclass
+import dataclasses as _dataclasses
 
 import emlib.mathlib
 import emlib.misc
@@ -27,8 +28,11 @@ _fadeshapeToInt = {
 }
 
 
-@dataclasses.dataclass
+@dataclass
 class PlayArgs:
+    """
+    Structure used to set playback options for any given MusicObj
+    """
     delay: float = None
     "extra delay"
 
@@ -64,7 +68,7 @@ class PlayArgs:
 
     @staticmethod
     def keys() -> Set[str]:
-        return {field.name for field in dataclasses.fields(PlayArgs)}
+        return {field.name for field in _dataclasses.fields(PlayArgs)}
 
     def values(self) -> Iterable:
         return (getattr(self, k) for k in self.keys())
@@ -82,13 +86,13 @@ class PlayArgs:
     def clone(self, **kws) -> PlayArgs:
         """ Create a new PlayArgs instance with the attributes
         in kws modified/filled in"""
-        return dataclasses.replace(self, **kws)
+        return _dataclasses.replace(self, **kws)
 
     def copy(self) -> PlayArgs:
         return copy.copy(self)
 
     def asdict(self) -> Dict[str, Any]:
-        return dataclasses.asdict(self)
+        return _dataclasses.asdict(self)
 
     def filledWith(self, other: PlayArgs) -> PlayArgs:
         """
@@ -286,7 +290,7 @@ class CsoundEvent:
         Returns:
             a new CsoundEvent
         """
-        d = dataclasses.asdict(playargs)
+        d = _dataclasses.asdict(playargs)
         if kws:
             d.update(kws)
         return cls(bps=bps, **d)

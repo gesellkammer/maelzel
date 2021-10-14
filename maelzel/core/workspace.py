@@ -22,6 +22,28 @@ def _resetCache() -> None:
 
 
 class Workspace:
+    """
+    Create a new Workspace / get an existing Workspace.
+
+    If the name refers to an existing Workspace, the already existing
+    Workspace is returned
+
+    Args:
+        name: the name of the workspace, or nothing to create an unique name.
+            The name 'root' refers to the root Workspace
+        scorestruct: the ScoreStruct.
+        config: the active config for this workspace
+        renderer: will be set to the active offline renderer while rendering offline
+        dynamicCurve: a DynamicCurve used to map amplitude to dynamic expressions
+        activate: if True, make this Workpsace active
+
+    Attributes:
+        name: the name of this Workspace
+        renderer: if not None, the active offline renderer
+        config: the active config for this Workspace
+        scorestruct: the active ScoreStruct
+        dynamicsCurve: a DynamicCurve, mapping amplitude to dynamic expression
+    """
     root: Workspace = None
 
     _initDone: bool = False
@@ -35,21 +57,7 @@ class Workspace:
                  renderer: Any = None,
                  dynamicCurve: DynamicCurve = None,
                  activate=True):
-        """
-        Create a new Workspace / get an existing Workspace.
 
-        If the name refers to an existing Workspace, the already existing
-        Workspace is returned
-
-        Args:
-            name: the name of the workspace, or nothing to create an unique name.
-                The name 'root' refers to the root Workspace
-            scorestruct: the ScoreStruct.
-            config: the active config for this workspace
-            renderer: will be set to the active offline renderer while rendering offline
-            dynamicCurve: a DynamicCurve used to map amplitude to dynamic expressions
-            activate: if True, make this Workpsace active
-        """
         if not name:
             name = Workspace._createUniqueName()
         self.name = name
@@ -275,9 +283,20 @@ def recordPath() -> str:
     return path
 
 
-def toAbsTime(x) -> Rat:
+def toAbsTime(offset: Union[int, float, Rat]) -> Rat:
+    """
+    Convert offset (an abstract time given as quarternotes) to absolute time
+
+    The conversion uses the active ScoreStruct.
+
+    Args:
+        offset: offset in quarternotes
+
+    Returns:
+
+    """
     s = activeScoreStruct()
-    return s.beatToTime(x)
+    return s.beatToTime(offset)
 
 
 _init()

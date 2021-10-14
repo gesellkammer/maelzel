@@ -19,17 +19,17 @@ values will always be used.
 
 from __future__ import annotations
 
-from math import sqrt
+import math
 
-import music21 as m21
-
+from emlib.misc import firstval as _firstval
 from emlib import misc
-from emlib.misc import firstval
-from emlib.mathlib import intersection
+from emlib import mathlib
 from emlib import iterlib
 
 import pitchtools as pt
+
 from maelzel import scoring
+from maelzel.scorestruct import ScoreStruct
 
 from ._common import Rat, asRat, UNSET, MAXDUR, logger
 from .musicobjbase import *
@@ -41,7 +41,6 @@ from . import notation
 from .pitch import Pitch
 from .csoundevent import PlayArgs, CsoundEvent
 from . import _musicobjtools
-from maelzel.scorestruct import ScoreStruct
 import functools
 import csoundengine
 
@@ -49,6 +48,23 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
     from ._typedefs import *
+    import music21 as m21
+
+
+__all__ = (
+    'MusicObj',
+    'Note',
+    'asNote',
+    'Chord',
+    'Line',
+    'MusicObjList',
+    'Chain',
+    'Voice',
+    'Score',
+    'ScoreStruct',
+    'asEvent',
+    'asMusic',
+)
 
 
 @functools.total_ordering
@@ -375,7 +391,7 @@ class Note(MusicObj):
             endpitch = tools.asmidi(endpitch)
         dur = dur or self.resolvedDuration()
         startamp = self.resolvedAmp()
-        endamp = firstval(endamp, self.amp, startamp)
+        endamp = _firstval(endamp, self.amp, startamp)
         start = self.start or 0
         breakpoints = [(start, self.pitch, startamp),
                        (start+dur, endpitch, endamp)]
@@ -644,6 +660,34 @@ class Line(MusicObj):
 
 
 class Chord(MusicObj):
+    """
+    A Chord is a stack of Notes
+
+    a Chord can be instantiated as::
+
+        Chord(note1, note2, ...)
+        Chord([note1, note2, ...])
+        Chord("C4 E4 G4", ...)
+
+    Where each note is either a Note, a notename ("C4", "E4+", etc), a midinote
+    or a tuple (midinote, amp)
+
+    Args:
+        amp: the amplitude (volume) of this chord
+        dur: the duration of this chord (in quarternotes)
+        start: the start time (in quarternotes)
+        gliss: either a list of end pitches (with the same size as the chord), or
+            True to leave the end pitches unspecified (a gliss to the next chord)
+        label: if given, it will be used for printing purposes
+
+    Attributes:
+        amp: the amplitude of the chord itself (each note can have an individual amp)
+        notes: the notes which build this chord
+        gliss: if True, this Chord makes a gliss to another chord. Also a list
+            of pitches can be given as gliss, these indicate the end pitch of the gliss
+            as midinote
+        tied: is this Chord tied to another Chord?
+    """
 
     __slots__ = ('amp', 'gliss', 'notes', 'tied')
 
@@ -941,9 +985,9 @@ class Chord(MusicObj):
         playargs.fillWith(self.playargs)
         playargs.fillWithConfig(config)
 
-        gain = firstval(playargs.gain, 1.0)
+        gain = _firstval(playargs.gain, 1.0)
         if config['chord.adjustGain']:
-            gain *= 1 / sqrt(len(self))
+            gain *= 1 / math.sqrt(len(self))
         playargs.gain = gain
         endpitches = self.gliss if isinstance(self.gliss, list) else self.pitches
         events = []
@@ -952,7 +996,7 @@ class Chord(MusicObj):
         starttime = float(scorestruct.beatToTime(start))
         endtime = float(scorestruct.beatToTime(start + dur))
         for note, endpitch in zip(self.notes, endpitches):
-            amp = firstval(note.amp, self.amp, 1.)
+            amp = _firstval(note.amp, self.amp, 1.)
             bps = [[starttime, note.pitch, amp],
                    [endtime, endpitch, amp]]
             events.append(CsoundEvent.fromPlayArgs(bps=bps, playargs=playargs))
@@ -1545,7 +1589,7 @@ class Chain(MusicObjList):
 
 class Voice(MusicObjList):
     """
-    A Voice is a seq. of non-overlapping objects
+    A Voice is a sequence of non-overlapping objects
 
     A Voice can contain an Chain, but not vice versa
     """
@@ -1585,8 +1629,8 @@ class Voice(MusicObjList):
     def isEmptyBetween(self, start:time_t, end:num_t) -> bool:
         if not self.items or start >= self.end or end < self.start:
             return True
-        return all(intersection(i.start, i.end, start, end) is None
-                    for i in self.items)
+        return all(mathlib.intersection(i.start, i.end, start, end) is None
+                   for i in self.items)
 
     def needsSplit(self) -> bool:
         return False
@@ -1662,7 +1706,9 @@ def _asVoice(obj: Union[MusicObj, List[MusicObj]]) -> Voice:
 
 
 class Score(MusicObjList):
-
+    """
+    A Score is a list of Voices
+    """
     _acceptsNoteAttachedSymbols = False
 
     def __init__(self, voices: List[MusicObj] = None, label:str=''):
@@ -1745,13 +1791,6 @@ def splitNotes(notes: Sequence[Note], splitpoints:List[float], deviation=None
         if not above:
             break
     return tracks
-
-
-def resetImageCache() -> None:
-    """
-    Reset the image cache. Useful when changing display format
-    """
-    renderObject.cache_clear()
 
 
 def asMusic(obj, **kws) -> Union[Note, Chord]:
@@ -1889,6 +1928,17 @@ def trill(note1: Union[Note, Chord], note2: Union[Note, Chord],
 
 
 def packInVoices(objs: List[MusicObj]) -> List[Voice]:
+    """
+    Distribute these objects across multiple voices
+
+    Ensures that objects within a voice do not overlap
+
+    Args:
+        objs: the objects (Notes, Chords, etc) to distribute
+
+    Returns:
+        a list of Voices
+    """
     return _musicobjtools.packInVoices(objs)
 
 
