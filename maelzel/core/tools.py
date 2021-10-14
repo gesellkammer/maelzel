@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 import music21 as m21
-import PIL
 import bpf4 as bpf
 import pitchtools as pt
 
@@ -12,6 +12,7 @@ import emlib.misc
 import emlib.dialogs
 
 from ._common import *
+from . import _util
 from . import environment
 from . import symbols as _symbols
 from .state import appstate as _appstate
@@ -148,19 +149,13 @@ def setJupyterHookForClass(cls, func, fmt='image/png'):
     return formatter.for_type(cls, func)
 
 
-def imgSize(path:str) -> Tuple[int, int]:
-    """ returns (width, height) """
-    im = PIL.Image.open(path)
-    return im.size
-
-
-def jupyterMakeImage(path: str) -> JupyterImage:
+def jupyterMakeImage(path: str, scalefactor:float = None) -> JupyterImage:
     """
-    Makes a jupyter Image, which can be displayed inline inside
-    a notebook
+    Makes a jupyter Image, which can be displayed inline inside a notebook
 
     Args:
         path: the path to the image file
+        scalefactor: a factor to scale the image
 
     Returns:
         an IPython.core.display.Image
@@ -169,16 +164,16 @@ def jupyterMakeImage(path: str) -> JupyterImage:
     if not insideJupyter:
         raise RuntimeError("Not inside a Jupyter session")
 
-    scalefactor = activeConfig()['show.scaleFactor']
+    scalefactor = scalefactor if scalefactor is not None else activeConfig()['show.scaleFactor']
     if scalefactor != 1.0:
-        imgwidth, imgheight = imgSize(path)
+        imgwidth, imgheight = _util.imgSize(path)
         width = imgwidth*scalefactor
     else:
         width = None
     return JupyterImage(filename=path, embed=True, width=width)
 
 
-def jupyterShowImage(path: str):
+def jupyterShowImage(path: str, scalefactor:float = None):
     """
     Show an image inside (inline) of a jupyter notebook
 
@@ -190,7 +185,7 @@ def jupyterShowImage(path: str):
         logger.error("jupyter is not available")
         return
 
-    img = jupyterMakeImage(path)
+    img = jupyterMakeImage(path, scalefactor=scalefactor)
     return jupyterDisplay(img)
 
 
@@ -272,6 +267,7 @@ def asmidi(x) -> float:
 def asfreq(n) -> float:
     """
     Convert a midinote, notename of Note to a freq.
+
     NB: a float value is interpreted as a midinote
 
     Args:
@@ -513,6 +509,8 @@ def selectFileForOpen(key: str, filter="All (*.*)", prompt="Open", ifcancel:str=
     Returns:
         the selected file, or None if the operation was cancelled
     """
+    if _util.checkBuildingDocumentation(logger):
+        return None
     lastdir = _appstate[key]
     selected = emlib.dialogs.selectFile(filter=filter, directory=lastdir, title=prompt)
     if selected:
@@ -525,6 +523,3 @@ def selectFileForOpen(key: str, filter="All (*.*)", prompt="Open", ifcancel:str=
 def saveRecordingDialog(prompt="Save Recording") -> Optional[str]:
     return selectFileForSave("recLastDir", "Audio (*.wav, *.aif, *.flac)",
                              prompt=prompt)
-
-
-
