@@ -43,6 +43,7 @@ _playkeys = PlayArgs.keys()
 
 __all__ = ('renderObject',
            'MusicObj',
+           'resetImageCache'
            )
 
 
@@ -831,3 +832,10 @@ def renderObject(obj:MusicObj, outfile:str=None, backend:str=None, fmt='png',
     # NB: we put it here in order to make it easier to cache images
     return _renderObject(obj=obj, outfile=outfile, backend=backend, fmt=fmt,
                          renderoptions=renderoptions)
+
+
+def resetImageCache() -> None:
+    """
+    Reset the image cache. Useful when changing display format
+    """
+    renderObject.cache_clear()

@@ -7,6 +7,11 @@ except ImportError:
 
 
 class Rat(F):
+    """
+    Drop-in replacement to fractions.Fraction with float-like repr
+
+    A rational number used to avoid rounding errors.
+    """
     def __floordiv__(self, other: Any) -> int:
         return F.__floordiv__(self, other)
 

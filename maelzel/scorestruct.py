@@ -163,44 +163,47 @@ class ScoreLocation:
 
 
 class ScoreStruct:
+    """
+    A ScoreStruct holds the structure of a score but no content
+
+    A ScoreStruct consists of some metadata and a list of MeasureDefs,
+    where each MeasureDef defines the properties of the measure at the given
+    index. If a ScoreStruct is marked as endless, it is possible to query
+    it (ask for a MeasureDef, convert beats to time, etc.) outside of the defined
+    measures.
+
+    Args:
+        endless: mark this ScoreStruct as endless
+
+        autoextend: this is only valid if the score is marked as endless. If True,
+          querying this ScoreStruct outside its defined boundaries will create the
+          necessary MeasureDefs to cover the point in question. In concrete,
+          if a ScoreStruct has only one MeasureDef, .getMeasureDef(3) will create
+          three MeasureDefs, cloning the first MeasureDef, and return the last one.
+
+    Example
+    ~~~~~~~
+
+        # create an endless score with a given time signature
+        >>> s = ScoreStruct(endless=True)
+        >>> s.addMeasure((4, 4), quarterTempo=72)
+        # this is the same as:
+        >>> s = ScoreStruct.fromTimesig((4, 4), 72)
+
+        # Create the beginning of Sacre
+        >>> s = ScoreStruct()
+        >>> s.addMeasure((4, 4), 50)
+        >>> s.addMeasure((3, 4))
+        >>> s.addMeasure((4, 4))
+        >>> s.addMeasure((2, 4))
+        >>> s.addMeasure((3, 4), numMeasures=2)
+
+    A ScoreStruct can also be created from a string (see .fromString to learn
+    about the format), which can be read from a file
+    """
     def __init__(self, timesig:U[timesig_t, str]=None, quarterTempo:int=None,
                  endless=True, autoextend=False):
-        """
-        A ScoreStruct holds the structure of a score but no content
 
-        A ScoreStruct consists of some metadata and a list of MeasureDefs,
-        where each MeasureDef defines the properties of the measure at the given
-        index. If a ScoreStruct is marked as endless, it is possible to query
-        it (ask for a MeasureDef, convert beats to time, etc.) outside of the defined
-        measures.
-
-        Args:
-            endless: mark this ScoreStruct as endless
-
-            autoextend: this is only valid if the score is marked as endless. If True,
-              querying this ScoreStruct outside its defined boundaries will create the
-              necessary MeasureDefs to cover the point in question. In concrete,
-              if a ScoreStruct has only one MeasureDef, .getMeasureDef(3) will create
-              three MeasureDefs, cloning the first MeasureDef, and return the last one.
-
-        Example::
-            # create an endless score with a given time signature
-            >>> s = ScoreStruct(endless=True)
-            >>> s.addMeasure((4, 4), quarterTempo=72)
-            # this is the same as:
-            >>> s = ScoreStruct.fromTimesig((4, 4), 72)
-
-            # Create the beginning of Sacre
-            >>> s = ScoreStruct()
-            >>> s.addMeasure((4, 4), 50)
-            >>> s.addMeasure((3, 4))
-            >>> s.addMeasure((4, 4))
-            >>> s.addMeasure((2, 4))
-            >>> s.addMeasure((3, 4), numMeasures=2)
-
-        A ScoreStruct can also be created from a string (see .fromString to learn
-        about the format), which can be read from a file
-        """
         self.measuredefs: List[MeasureDef] = []
 
         self.title = None

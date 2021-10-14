@@ -34,14 +34,14 @@ import os
 
 from datetime import datetime
 
-import csoundengine
 
 from .config import logger
-from .workspace import activeConfig, activeWorkspace, recordPath
 from . import tools
 from .presetbase import *
 from .presetman import presetManager, csoundPrelude as _prelude
 from .errors import *
+from .workspace import activeConfig, activeWorkspace, recordPath
+import csoundengine
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -53,13 +53,29 @@ __all__ = ('OfflineRenderer',
            'playEvents',
            'recEvents')
 
-class PlayEngineNotStarted(Exception): pass
-
 
 _invalidVariables = {"kfreq", "kamp", "kpitch"}
 
 
 class OfflineRenderer:
+    """
+    An OfflineRenderer is created to render musical objects to a soundfile
+
+    Example
+    ~~~~~~~
+
+        # Render a chromatic scale.
+        >>> from maelzel.core import *
+        >>> notes = [Note(n, dur=0.5) for n in range(48, 72)]
+        >>> chain = Chain(notes)
+        >>> defPresetSoundfont('piano', sf2path='/path/to/piano.sf2')
+        >>> with play.OfflineRenderer('scale.wav') as r:
+        ...     chain.play(instr='piano')
+        # When exiting the context manager the file 'scale.wav' is rendered. During
+        # the context manager, all calls to .play are intersected and scheduled
+        # via the OfflineRenderer
+
+    """
     def __init__(self, outfile:str=None, sr=None, ksmps=64, quiet:bool=None):
         w = activeWorkspace()
         cfg = activeConfig()
@@ -409,7 +425,8 @@ def getPlaySession() -> csoundengine.Session:
         if config['play.autostartEngine']:
             startPlayEngine()
         else:
-            raise PlayEngineNotStarted("Engine is not running. Call startPlayEngine")
+            raise RuntimeError("Engine is not running and config['play.autostartEngine'] "
+                               "is False. Call startPlayEngine")
     return csoundengine.getSession(group)
 
 
@@ -435,60 +452,6 @@ def getPlayEngine(start=None) -> Optional[csoundengine.Engine]:
             return engine
         return None
     return engine
-
-
-class rendering:
-    def __init__(self, outfile:str=None, wait=True, quiet=None,
-                 sr:int=None, nchnls:int=None):
-        """
-        Context manager to transform all calls to .play to be renderer offline
-
-        Args:
-            outfile: events played within this context will be rendered
-                to this file. If set to None, rendering is performed to an auto-generated
-                file in the recordings folder
-            wait: if True, wait until rendering is done
-            quiet: if True, supress any output from the csound
-                subprocess (config 'rec.quiet')
-
-        Example::
-
-            # this will generate a file foo.wav after leaving the `with` block
-            with rendering("foo.wav"):
-                chord.play(dur=2)
-                note.play(dur=1, fade=0.1, delay=1)
-
-            # You can render manually, if needed
-            with rendering() as r:
-                chord.play(dur=2)
-                ...
-                print(r.getCsd())
-                r.render("outfile.wav")
-
-        """
-        self.sr = sr
-        self.nchnls = nchnls
-        self.outfile = outfile
-        self._oldRenderer: Optional[OfflineRenderer] = None
-        self.renderer: Optional[OfflineRenderer] = None
-        self.quiet = quiet or activeConfig()['rec.quiet']
-        self.wait = wait
-
-    def __enter__(self):
-        workspace = activeWorkspace()
-        self._oldRenderer = workspace.renderer
-        self.renderer = OfflineRenderer(sr=self.sr, outfile=self.outfile)
-        workspace.renderer = self.renderer
-        return self.renderer
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        w = activeWorkspace()
-        w.renderer = self._oldRenderer
-        if self.outfile is None:
-            self.outfile = _makeRecordingFilename()
-            logger.info(f"Rendering to {self.outfile}")
-        self.renderer.render(outfile=self.outfile, wait=self.wait,
-                             quiet=self.quiet)
 
 
 def _schedOffline(renderer: csoundengine.Renderer,

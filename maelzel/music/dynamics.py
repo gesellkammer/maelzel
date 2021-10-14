@@ -5,11 +5,11 @@ also makes a representation of the amplitude in terms of musical dynamics
 from __future__ import annotations
 from bisect import bisect as _bisect
 import bpf4
-import emlib.img
-import tempfile
 from pitchtools import db2amp, amp2db
 from emlib import misc
-from typing import List, Sequence as Seq, Union as U, Dict, Tuple, Callable, NamedTuple
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import *
 
 
 _DYNAMICS = ('pppp', 'ppp', 'pp', 'p', 'mp',
@@ -27,9 +27,17 @@ class DynamicDescr(NamedTuple):
                                       dynamics=self.dynamics)
 
 
-class DynamicCurve(object):
+class DynamicCurve:
+    """
+    A DynamicCurve maps an amplitude to a dynamic expression
+
+    Attributes:
+        dynamics: a list of possible dynamic expressions, ordered from
+            soft to loud
+
+    """
     
-    def __init__(self, curve: Callable[[float], float], dynamics:Seq[str] = None):
+    def __init__(self, curve: Callable[[float], float], dynamics:Sequence[str] = None):
         """
         Args:
             curve: a bpf mapping 0-1 to amplitude(0-1)
@@ -43,13 +51,11 @@ class DynamicCurve(object):
         assert len(self._amps2dyns) == len(self.dynamics)
 
     @classmethod
-    def getDefault(cls) -> DynamicCurve:
-        return _default
-
-    @classmethod
     def fromdescr(cls, shape:str='expon(4.0)', mindb=-80.0, maxdb=0.0,
-                  dynamics:U[str, Seq[str]] = None) -> DynamicCurve:
+                  dynamics:Union[str, Sequence[str]] = None) -> DynamicCurve:
         """
+        Creates a DynamicCurve from a shape description
+
         Args:
             shape: the shape of the mapping ('linear', 'expon(2)', etc)
             mindb: min. db value
@@ -66,7 +72,7 @@ class DynamicCurve(object):
 
         """
         if isinstance(dynamics, str):
-            dynamics = str.split()
+            dynamics = dynamics.split()
         bpf = create_shape(shape, mindb, maxdb)
         return cls(bpf, dynamics)
 
@@ -98,7 +104,7 @@ class DynamicCurve(object):
 
     def dyn2amp(self, dyn:str) -> float:
         """
-        convert a dynamic expressed as a string to its corresponding amplitude
+        Convert a dynamic expressed as a string to a corresponding amplitude
         """
         amp = self._dyns2amps.get(dyn.lower())
         if amp is None:
@@ -106,9 +112,11 @@ class DynamicCurve(object):
         return amp
 
     def dyn2db(self, dyn:str) -> float:
+        """Convert a dynamic expression to an amplitude in dB"""
         return amp2db(self.dyn2amp(dyn))
 
     def db2dyn(self, db:float) -> str:
+        """Convert an amp in dB to a dynamic expression"""
         return self.amp2dyn(db2amp(db))
 
     def dyn2index(self, dyn:str) -> int:
@@ -120,7 +128,7 @@ class DynamicCurve(object):
         except ValueError:
             raise ValueError("Dynamic not defined, should be one of %s" % self.dynamics)
 
-    def index2dyn(self, idx:int) -> str:        
+    def index2dyn(self, idx:int) -> str:
         return self.dynamics[idx]
 
     def amp2index(self, amp:float) -> int:
@@ -139,6 +147,7 @@ class DynamicCurve(object):
         return dbs
 
     def plot(self, usedB=True):
+        """Plot this dynamic curve"""
         import matplotlib.pyplot as plt
         xs = list(range(len(self.dynamics)))
         fig, ax = plt.subplots()
@@ -153,12 +162,13 @@ class DynamicCurve(object):
         ax.set_xticklabels(self.dynamics)
         plt.show()
 
-def _validate_dynamics(dynamics: Seq[str]) -> None:
+
+def _validate_dynamics(dynamics: Sequence[str]) -> None:
     assert not set(dynamics).difference(_DYNAMICS), \
         "Dynamics not understood"
 
 
-def _create_dynamics_mapping(bpf: bpf4.BpfInterface, dynamics:Seq[str] = None
+def _create_dynamics_mapping(bpf: bpf4.BpfInterface, dynamics:Sequence[str] = None
                              ) -> Tuple[List[Tuple[float, str]], Dict[str, float]]:
     """
     Calculate the global dynamics table according to the bpf given
@@ -180,7 +190,7 @@ def _create_dynamics_mapping(bpf: bpf4.BpfInterface, dynamics:Seq[str] = None
     return dynamics_table, dynamics_dict
 
 
-def create_shape(shape='expon(3)', mindb:U[int,float]=-90, maxdb:U[int, float]=0
+def create_shape(shape='expon(3)', mindb:Union[int,float]=-90, maxdb:Union[int, float]=0
                  ) -> bpf4.BpfInterface:
     """
     Return a bpf mapping 0-1 to amplitudes, as needed by DynamicCurve
@@ -199,38 +209,4 @@ def create_shape(shape='expon(3)', mindb:U[int,float]=-90, maxdb:U[int, float]=0
     return bpf4.util.makebpf(shape, [0, 1], [minamp, maxamp])
     
 
-_default = DynamicCurve(create_shape("expon(4.0)", -80, 0))
-
-
-def amp2dyn(amp:float, nearest=True) -> str:
-    return _default.amp2dyn(amp, nearest)
-
-
-def dyn2amp(dyn:str) -> float:
-    return _default.dyn2amp(dyn)
-
-
-def dyn2db(dyn:str) -> float:
-    return _default.dyn2db(dyn)
-
-
-def db2dyn(db:float, nearest=True) -> str:
-    amp = db2amp(db)
-    return _default.amp2dyn(amp, nearest)
-   
-
-def dyn2index(dyn:str) -> int:
-    return _default.dyn2index(dyn)
-
-
-def index2dyn(idx:int) -> str:
-    return _default.index2dyn(idx)
-
-
-def setDefaultCurve(shape:str, mindb=-90, maxdb=0, possible_dynamics=None) -> None:
-    global _default
-    _default = DynamicCurve.fromdescr(shape, mindb=mindb, maxdb=maxdb, dynamics=possible_dynamics)
-
-
-def getDefaultCurve() -> DynamicCurve:
-    return _default
+# _default = DynamicCurve(create_shape("expon(4.0)", -80, 0))
