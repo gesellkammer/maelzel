@@ -1,3 +1,25 @@
+"""
+Module documentation
+
+Musical Objects
+---------------
+
+Time
+~~~~
+
+A MusicObj has always a start and dur attribute. They refer to an abstract time.
+When visualizing a MusicObj as musical notation these times are interpreted/converted
+to beats and score locations based on a score structure.
+
+Score Structure
+~~~~~~~~~~~~~~~
+
+A minimal score structure is a default time-signature (4/4) and a default tempo (60). If
+the user does not set a different score structure, an endless score with these default
+values will always be used.
+
+"""
+
 from __future__ import annotations
 import functools
 import os
@@ -89,6 +111,7 @@ class MusicObj:
             else:
                 assert dur > 0
         self.dur: Optional[Rat] = asRat(dur) if dur is not None else None
+        "the duration of this object (can be None, in which case it is unset)"
 
         self.start: Optional[Rat] = asRat(start) if start is not None else None
         "start specifies a time offset for this object"
@@ -106,11 +129,30 @@ class MusicObj:
 
     @property
     def symbols(self) -> List[symbols.Symbol]:
+        """
+        A list of symbols to determine any notation aspect of this object
+
+        Notation elements (Symbols) are those which only make sense in terms
+        of notation but have no real correlation regarding computation
+        (an accent, or a text-expression, are Symbols)
+
+        Returns:
+            a list of symbols
+        """
         if self._symbols is None:
             return []
         return self._symbols
 
     def pitchRange(self) -> Optional[Tuple[float, float]]:
+        """
+        The pitch range of this object, if applicable
+
+        This is useful to assign a proper Voice when distributing
+        objects among voices
+
+        Returns:
+            either None or a tuple (lowest pitch, highest pitch)
+        """
         return None
 
     def resolvedDuration(self) -> Rat:
@@ -146,6 +188,12 @@ class MusicObj:
 
     @property
     def playargs(self) -> PlayArgs:
+        """
+        A PlayArgs structure, containing any specification regarding playback
+
+        This is a read-only property. To modify any playback attribute, use
+        :meth:`~MusicObj.setplay`
+        """
         if self._playargs is None:
             self._playargs = PlayArgs()
         return self._playargs
@@ -343,6 +391,16 @@ class MusicObj:
         return parts
 
     def makeScore(self, title:str=None) -> scoring.Score:
+        """
+        Create a Score from this object
+
+        Args:
+            title: the title of the resulting score (if given)
+
+        Returns:
+            the Score representation of this object
+
+        """
         parts = self.scoringParts()
         return scoring.Score(parts, title=title)
 
@@ -740,15 +798,43 @@ class MusicObj:
         raise NotImplementedError("Subclass should implement this")
 
     def timeScale(self:_T, factor: num_t, offset: num_t = 0) -> _T:
+        """
+        Create a copy with modified timing by applying a linear transformation
+
+        Args:
+            factor: a factor which multiplies all durations and start times
+            offset: an offset added to all start times
+
+        Returns:
+            the modified object
+        """
         transform = _TimeScale(asRat(factor), offset=asRat(offset))
         return self.timeTransform(transform)
 
     def invertPitch(self: _T, pivot: pitch_t) -> _T:
+        """
+        Invert the pitch of this object
+
+        Args:
+            pivot: the point around which to invert pitches
+
+        Returns:
+            the inverted object
+        """
         pivotm = tools.asmidi(pivot)
         func = lambda pitch: pivotm*2 - pitch
         return self.pitchTransform(func)
 
     def transpose(self:_T, interval: Union[int, float]) -> _T:
+        """
+        Transpose this object by the given interval
+
+        Args:
+            interval: the interval in semitones
+
+        Returns:
+            the transposed object
+        """
         return self.pitchTransform(lambda pitch: pitch+interval)
 
 
