@@ -7,7 +7,7 @@ from bisect import bisect as _bisect
 import bpf4
 from pitchtools import db2amp, amp2db
 from emlib import misc
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 if TYPE_CHECKING:
     from typing import *
 
