@@ -34,7 +34,6 @@ import os
 
 from datetime import datetime
 
-
 from .config import logger
 from . import tools
 from .presetbase import *
@@ -42,12 +41,13 @@ from .presetman import presetManager, csoundPrelude as _prelude
 from .errors import *
 from .workspace import activeConfig, activeWorkspace, recordPath
 import csoundengine
+from .csoundevent import CsoundEvent
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
-    from .csoundevent import CsoundEvent
     from .musicobjbase import MusicObj
+
 
 __all__ = ('OfflineRenderer',
            'playEvents',

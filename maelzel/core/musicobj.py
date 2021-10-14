@@ -1,15 +1,18 @@
 """
 Module documentation
 
-# Musical Objects
+Musical Objects
+---------------
 
-## Time
+Time
+~~~~
 
 A MusicObj has always a start and dur attribute. They refer to an abstract time.
 When visualizing a MusicObj as musical notation these times are interpreted/converted
 to beats and score locations based on a score structure.
 
-### Score Structure
+Score Structure
+~~~~~~~~~~~~~~~
 
 A minimal score structure is a default time-signature (4/4) and a default tempo (60). If
 the user does not set a different score structure, an endless score with these default
@@ -50,7 +53,7 @@ if TYPE_CHECKING:
     from ._typedefs import *
     import music21 as m21
 
-
+"""
 __all__ = (
     'MusicObj',
     'Note',
@@ -65,7 +68,7 @@ __all__ = (
     'asEvent',
     'asMusic',
 )
-
+"""
 
 @functools.total_ordering
 class Note(MusicObj):
@@ -421,7 +424,7 @@ def Rest(dur:time_t=1, start:time_t=None) -> Note:
     """
     Creates a Rest. A Rest is a Note with pitch 0 and amp 0.
 
-    To test if an item is a rest, call isRest
+    To test if an item is a rest, call :meth:`~MusicObj.isRest`
 
     Args:
         dur: duration of the Rest
@@ -437,7 +440,7 @@ def Rest(dur:time_t=1, start:time_t=None) -> Note:
 def asNote(n: Union[float, str, Note, Pitch],
            amp:float=None, dur:time_t=None, start:time_t=None) -> Note:
     """
-    Convert ``n`` to a Note
+    Convert ``n`` to a Note, optionally setting its amp, start or dur
 
     Args:
         n: the pitch
@@ -483,6 +486,11 @@ class Line(MusicObj):
     >>> Line(bps)   # without *
 
     a Line stores its breakpoints as: ``[delayFromFirstBreakpoint, pitch, amp, ...]``
+
+    Attributes:
+        bps: the breakpoints of this line, a list of tuples of the form
+            ``(delay, pitch, [amp, ...])``, where delay is always relative
+            to the start of the line (the delay of the first breakpoint is always 0)
     """
 
     __slots__ = ('bps',)
@@ -1274,11 +1282,16 @@ class MusicObjList(MusicObj):
     A sequence of music objects (Chain, Group).
 
     They do not need to be sequencial (they can overlap, like Group)
+
+    Attributes:
+        items: a list of MusicObj inside this container
     """
     __slots__ = ('items')
 
     def __init__(self, items: List[MusicObj], label:str=''):
         self.items: List[MusicObj] = []
+        """a list of MusicObj inside this container"""
+
         if items:
             assert all(item.dur is not None and item.start is not None
                        for item in items)
@@ -1367,6 +1380,9 @@ class MusicObjList(MusicObj):
             item.dump(indents+1)
 
     def makeVoices(self) -> List[Voice]:
+        """
+        Construct a list of Voices from this object
+        """
         return _musicobjtools.packInVoices(self.items)
 
 
@@ -1427,7 +1443,7 @@ def _mergeLines(items: List[Union[Note, Chord]]) -> List[Union[Note, Chord, Line
 
 class Chain(MusicObjList):
     """
-    A seq. of non-simultaneous Notes / Chords
+    A sequence of non-simultaneous Notes / Chords
 
     A Chain is used to express a series of notes or chords which come
     one after the other. All notes and chors within a Chain have an
@@ -1547,7 +1563,7 @@ class Chain(MusicObjList):
 
     def cycle(self, dur:time_t, crop=True) -> Chain:
         """
-        Cycle the items in this seq. until the given duration is reached
+        Cycle the items in this chain until the given duration is reached
 
         Args:
             dur: the total duration
@@ -1628,12 +1644,29 @@ class Voice(MusicObjList):
         return self._merged
 
     def isEmptyBetween(self, start:time_t, end:num_t) -> bool:
+        """
+        Is this Voice empty between start and end?
+
+        Args:
+            start: start time to query
+            end: end time to query
+
+        Returns:
+            True if this Voice is empty between start and end
+
+        """
         if not self.items or start >= self.end or end < self.start:
             return True
         return all(mathlib.intersection(i.start, i.end, start, end) is None
                    for i in self.items)
 
     def needsSplit(self) -> bool:
+        """
+        Does this Voice need to be split?
+
+        Returns:
+            False
+        """
         return False
 
     def add(self, obj:MusicObj) -> None:
@@ -1722,7 +1755,10 @@ class Score(MusicObjList):
         self.dur = end - self.start
 
     @property
-    def voices(self):
+    def voices(self) -> List[Voice]:
+        """
+        A list of Voices inside this Score
+        """
         return self.items
 
     def scoringParts(self, options=None) -> List[scoring.Part]:
