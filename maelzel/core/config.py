@@ -1,3 +1,319 @@
+"""
+Configuration
+=============
+
+At any given moment there is one active config for any
+maelzel.core workspace. The configuration allows to set
+default values for many settings which customize all aspects
+of **maelzel.core**:  notation (default page size, rendered
+image scaling, etc), playback (default audio backend, instrument, etc)
+offline rendering, etc.
+
+The active config is an instance of ConfigDict
+(https://configdict.readthedocs.io/en/latest/)
+
+To make persistent modifications in the config, the `rootConfig` needs
+to be modified::
+
+    >>> from maelzel.core import *
+    # Set the reference frequency to 443 for this and all future sessions
+    >>> config.rootConfig['A4'] = 443
+    # Set lilypond as default rendering backend
+    >>> config.rootConfig['show.backend'] = 'lilypond'
+
+
+-------------------------
+
+Keys
+----
+
+A4:
+    | Default: **442**  -- `int`
+    | Between 415 - 460
+
+defaultDuration:
+    | Default: **1.0**  -- `(int, float)`
+    | *Value used when a duration is needed and has not been set (Note, Chord). Not the same as play.dur*
+
+splitAcceptableDeviation:
+    | Default: **4**  -- `int`
+    | *When splitting notes between staves, notes within this range of the split point will be grouped together if they all fit*
+
+chord.arpeggio:
+    | Default: **auto**  -- `(str, bool)`
+    | Choices: ``False, True, auto``
+    | *Arpeggiate notes of a chord when showing. In auto mode, only arpeggiate when needed*
+
+chord.adjustGain:
+    | Default: **True**  -- `bool`
+    | *Adjust the gain of a chord according to the number of notes, to prevent clipping*
+
+m21.displayhook.install:
+    | Default: **True**  -- `bool`
+
+m21.displayhook.format:
+    | Default: **xml.png**  -- `str`
+    | Choices: ``xml.png, lily.png``
+
+m21.fixStream:
+    | Default: **True**  -- `bool`
+    | *If True, fix the streams returned by .asmusic21 (see m21fix)*
+
+repr.showFreq:
+    | Default: **True**  -- `bool`
+    | *Show frequency when calling printing a Note in the console*
+
+semitoneDivisions:
+    | Default: **4**  -- `int`
+    | Choices: ``1, 2, 4``
+    | *The number of divisions per semitone (2=quarter-tones, 4=eighth-tones)*
+
+show.lastBreakpointDur:
+    | Default: **0.125**  -- `float`
+    | Between 0.015625 - 1
+    | *Dur of a note representing the end of a line/gliss, which has no duration per se*
+
+show.cents:
+    | Default: **True**  -- `bool`
+    | *show cents deviation as text when rendering notation*
+
+show.centsFontSize:
+    | Default: **8**  -- `int`
+    | *Font size used for cents annotations*
+
+show.split:
+    | Default: **True**  -- `bool`
+    | *Should a voice be split between two staves?. A midinumber can be given instead*
+
+show.gliss:
+    | Default: **True**  -- `bool`
+    | *If true, show a glissando line where appropriate*
+
+show.centSep:
+    | Default: **,**  -- `str`
+    | *Separator used when displaying multiple cents deviation (in a chord)*
+
+show.scaleFactor:
+    | Default: **1.0**  -- `float`
+    | *Affects the size of the generated image when using png format*
+
+show.staffSize:
+    | Default: **12.0**  -- `float`
+    | *The size of a staff, in points*
+
+show.backend:
+    | Default: **music21**  -- `str`
+    | Choices: ``lilypond, music21``
+    | *method/backend used when rendering notation*
+
+show.format:
+    | Default: **png**  -- `str`
+    | Choices: ``png, pdf, repr``
+    | *Used when no explicit format is passed to .show*
+
+show.external:
+    | Default: **False**  -- `bool`
+    | *Force opening images with an external tool, even when inside a Jupyter notebook*
+
+show.cacheImages:
+    | Default: **True**  -- `bool`
+    | *If True, new images are only generated when the object being rendered as notation has changed. Normally this should be left as True but can be deactivated for debugging*
+
+show.arpeggioDuration:
+    | Default: **0.5**  -- `float`
+    | *Duration used for individual notes when rendering a chord as arpeggio*
+
+show.labelFontSize:
+    | Default: **12.0**  -- `float`
+
+show.pageOrientation:
+    | Default: **portrait**  -- `str`
+    | Choices: ``portrait, landscape``
+    | *Page orientation when rendering to pdf*
+
+show.pageSize:
+    | Default: **a4**  -- `str`
+    | Choices: ``a3, a2, a4``
+    | *The page size when rendering to pdf*
+
+show.pageMarginMillimeters:
+    | Default: **4**  -- `int`
+    | Between 0 - 1000
+    | *The page margin in mm*
+
+show.glissEndStemless:
+    | Default: **False**  -- `bool`
+    | *When the end pitch of a gliss. is shown as gracenote, make this stemless*
+
+show.lilypondPngStaffsizeScale:
+    | Default: **1.0**  -- `float`
+    | *A factor applied to the staffsize when rendering to png via lilypond. Withoutthis, it might happen that the renderer image is too small*
+
+show.measureAnnotationFontSize:
+    | Default: **14**  -- `int`
+    | *Font size used for measure annotations*
+
+show.respellPitches:
+    | Default: **True**  -- `bool`
+
+show.horizontalSpacing:
+    | Default: **normal**  -- `str`
+    | Choices: ``normal, medium, large, xlarge``
+    | *Hint for the renderer to adjust horizontal spacing. The actual result dependson the backend and the format used*
+
+show.glissandoLineThickness:
+    | Default: **2**  -- `int`
+    | Choices: ``1, 2, 3, 4``
+    | *Line thinkness when rendering glissandi. The value is abstract and it isup to the renderer to interpret it*
+
+show.fillDynamicFromAmplitude:
+    | Default: **False**  -- `bool`
+    | *If True, when showing a musicobj as notation, if such object has an amplitude and does not  have an explicit dynamic, add a dynamic according to the amplitude*
+
+app.png:
+    | Default: ****  -- `str`
+    | *Application used when opening .png files externally. If an empty string is set, a suitable default for the platform will be selected*
+
+displayhook.install:
+    | Default: **True**  -- `bool`
+
+play.dur:
+    | Default: **2.0**  -- `float`
+    | *Default duration of any play action if the object has no given duration*
+
+play.gain:
+    | Default: **1.0**  -- `float`
+    | Between 0 - 1
+
+play.chan:
+    | Default: **1**  -- `int`
+    | Between 1 - 64
+    | *Default channel to play to. channels start at 1*
+
+play.engineName:
+    | Default: **maelzel.core**  -- `str`
+    | *Name of the play engine used*
+
+play.instr:
+    | Default: **sin**  -- `str`
+    | *Default instrument used for playback. A list of available instruments can be queried via `availableInstrs`. New instrument presets can be defined via `defPreset`*
+
+play.fade:
+    | Default: **0.02**  -- `float`
+    | *default fade time*
+
+play.fadeShape:
+    | Default: **cos**  -- `str`
+    | Choices: ``cos, linear``
+    | *Curve-shape used for fading in/out*
+
+play.pitchInterpolation:
+    | Default: **linear**  -- `str`
+    | Choices: ``cos, linear``
+    | *Curve shape for interpolating between pitches*
+
+play.numChannels:
+    | Default: **2**  -- `int`
+    | *Default number of channels (channels can be set explicitely when calling startPlayEngine*
+
+play.unschedFadeout:
+    | Default: **0.05**  -- `float`
+    | *fade out when stopping a note*
+
+play.autostartEngine:
+    | Default: **True**  -- `bool`
+    | *Start play engine if not started manually. This is done when the user performs an action which indirectly needs the engine to be running, like defining an instrument, or calling play.getPlayManager()*
+
+play.backend:
+    | Default: **default**  -- `str`
+    | Choices: ``default, portaudio, jack, auhal, pa_cb, pulse, alsa``
+    | *backend used for playback*
+
+play.presetsPath:
+    | Default: ****  -- `str`
+    | *The path were presets are saved*
+
+play.autosavePresets:
+    | Default: **True**  -- `bool`
+    | *Automatically save user defined presets, so they will be available for a next session*
+
+play.defaultAmplitude:
+    | Default: **1.0**  -- `float`
+    | Between 0 - 1
+    | *The amplitude of a Note/Chord when an amplitude is needed and the object has an undefined amplitude*
+
+play.generalMidiSoundfont:
+    | Default: ****  -- `str`
+    | *Path to a soundfont (sf2 file) with a general midi mapping*
+
+play.namedArgsMethod:
+    | Default: **table**  -- `str`
+    | Choices: ``table, pargs``
+    | *Method used to convert named parameters defined in a Preset to their corresponding function in a csoundengine.Instr*
+
+play.soundfontAmpDiv:
+    | Default: **16384**  -- `int`
+
+play.soundfontInterpolation:
+    | Default: **linear**  -- `str`
+    | Choices: ``cubic, linear``
+    | *Interpolation used when reading sample data from a soundfont.*
+
+play.schedLatency:
+    | Default: **0.2**  -- `float`
+    | *Added latency when scheduling events to ensure time precission*
+
+play.verbose:
+    | Default: **False**  -- `bool`
+    | *If True, outputs extra debugging information regarding playback*
+
+rec.block:
+    | Default: **False**  -- `bool`
+    | *Should recording be blocking or should be done async?*
+
+rec.sr:
+    | Default: **44100**  -- `int`
+    | Choices: ``48000, 96000, 44100, 88200``
+    | *Sample rate used when rendering offline*
+
+rec.ksmps:
+    | Default: **64**  -- `int`
+    | Choices: ``32, 1, 64, 128, 256, 16``
+    | *samples per cycle when rendering offline (passed as ksmps to csound)*
+
+rec.nchnls:
+    | Default: **2**  -- `int`
+
+rec.path:
+    | Default: ****  -- `str`
+    | *path used to save output files when rendering offline. If not given the default can be queried via `recordPath`*
+
+rec.quiet:
+    | Default: **False**  -- `bool`
+    | *Supress debug output when calling csound as a subprocess*
+
+html.theme:
+    | Default: **light**  -- `str`
+    | Choices: ``dark, light``
+    | *Theme used when displaying html inside jupyter*
+
+quant.minBeatFractionAcrossBeats:
+    | Default: **1.0**  -- `float`
+
+quant.nestedTuples:
+    | Default: **False**  -- `bool`
+    | *Are nested tuples allowed when quantizing? NB: not all display backends support nested tuples (for example, musescore, which is used to render musicxml to pdf, does not support nested tuples)*
+
+quant.complexity:
+    | Default: **middle**  -- `str`
+    | Choices: ``low, high, middle``
+    | *Controls the allowed complexity in the notation. The higher the complexity, the more accurate the timing of the quantization, at the cost of a more complex notation. The value is used as a preset, controlling aspects like which subdivisions of the beat are allowed at a given tempo, the weighting of each subdivision, etc.*
+
+logger.level:
+    | Default: **INFO**  -- `str`
+    | Choices: ``WARNING, DEBUG, ERROR, INFO``
+
+"""
 from __future__ import annotations
 import os
 import sys

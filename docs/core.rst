@@ -14,4 +14,11 @@ construct a score, notation is in this context a tool to visualize
 results and it is not a goal to be able to produce final
 scores with highly customized engraving.
 
-.. automodapi:: maelzel.core
+.. toctree::
+    :maxdepth: 1
+
+    musicobj
+    config
+    workspace
+
+
