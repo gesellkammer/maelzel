@@ -8,6 +8,14 @@ maelzel
  with samples, applying filters, fading, mixing, playback), 
  sound analysis, music, acoustics, music notation, etc.
 
+Documentation
+-------------
+
+https://maelzel.readthedocs.io/en/latest/index.html
+
+----------------
+
+
 Structure
 ---------
  
@@ -28,6 +36,8 @@ Structure
 - **ext**: wrappers around external software, like sonic-visualizer,
   audacity, reaper
 
+
+--------------
 
 
 Installation
@@ -54,6 +64,10 @@ Optional Dependencies
 
 Examples
 --------
+
+
+https://github.com/gesellkammer/maelzel/tree/master/examples
+
 
 Messiaen - Quatour pour la fin du temps - La liturgie de Cristal
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
