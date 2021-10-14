@@ -27,7 +27,7 @@ class Pitch:
 
     __slots__ = ("midi")
 
-    def __init__(self, pitch:pitch_t):
+    def __init__(self, pitch: pitch_t):
         self.midi:float = tools.asmidi(pitch)
 
     @property

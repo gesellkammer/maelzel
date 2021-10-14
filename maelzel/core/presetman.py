@@ -53,6 +53,14 @@ class _WatchdogPresetsHandler(watchdog.events.FileSystemEventHandler):
 
 
 class PresetManager:
+    """
+    Singleton object, manages all instrument Presets
+
+    Any maelzel.core object can be played with an instrument preset defined
+    here. A Preset is attached to a running Session as soon as an object
+    is scheduled with the given Preset. As such, it acts as a library of Presets
+    and any number of such Presets can be created.
+    """
     _numinstances = 0
 
     def __init__(self, watchPresets=False):
