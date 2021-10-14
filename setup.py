@@ -30,7 +30,7 @@ setup(
     ],
     include_package_data=True,
     install_requires=[
-        "emlib",
+        "emlib>=1.2.0",
         "numpy",
         "scipy",
         "matplotlib",
