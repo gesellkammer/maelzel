@@ -15,7 +15,8 @@ from maelzel.rational import Rat
 from typing import List, Iterable
 from ._typedefs import T
 import os
-
+from functools import cache as _cahe
+import sys
 
 MAXDUR = 99999
 
@@ -66,11 +67,10 @@ def isNumber(x) -> bool:
     return isinstance(x, (int, float, Rat))
 
 
-
-
 def getPath(s: str) -> str:
     if s == "?":
         from emlib import dialogs
         return dialogs.selectFile()
     else:
         return os.path.expanduser(s)
+

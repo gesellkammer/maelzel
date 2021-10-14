@@ -103,7 +103,8 @@ class PresetManager:
                         "the path of an existing soundfont")
 
         for name, preset in playpresets.soundfontGeneralMidiPresets.items():
-            self.defPresetSoundfont(name, sf2path=sf2, preset=preset, _builtin=True)
+            if sf2 and sf2 != "?":
+                self.defPresetSoundfont(name, sf2path=sf2, preset=preset, _builtin=True)
 
     def defPreset(self,
                   name: str,
