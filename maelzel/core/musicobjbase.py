@@ -252,6 +252,10 @@ class MusicObj:
         """Returns a copy of this object"""
         return _copy.deepcopy(self)
 
+    def moveTo(self, start: time_t):
+        self.start = start
+        self._changed()
+
     def timeShift(self:_T, timeoffset: time_t) -> _T:
         """
         Return a copy of this object with an added time offset
@@ -501,7 +505,7 @@ class MusicObj:
         if self._playargs:
             print(f'{"  "*(indents+1)}{self.playargs}')
 
-    def csoundEvents(self, playargs: PlayArgs, scorestruct: ScoreStruct, conf: dict
+    def csoundEvents(self, playargs: PlayArgs, scorestruct: ScoreStruct, conf: dict,
                      ) -> List[CsoundEvent]:
         """
         Must be overriden by each class to generate CsoundEvents
@@ -626,21 +630,29 @@ class MusicObj:
             >>> note = Note(60).play(gain=0.1, chan=2)
 
             >>> # record offline
-            >>> with play.rendering(sr=44100, outfile="out.wav"):
-                    Note(60, 5).play(gain=0.1, chan=2)
-                    # ... other objects.play(...)
+            >>> with play.OfflineRenderer("out.wav", sr=44100) as r:
+            ...     Note(60, 5).play(gain=0.1, chan=2)
+            ...     # ... other objects.play(...)
+            ...     # r.sched()
         """
-        events = self.events(delay=delay, chan=chan,
-                             fade=fade, gain=gain, instr=instr,
-                             pitchinterpol=pitchinterpol, fadeshape=fadeshape,
-                             params=params, position=position,
+        events = self.events(delay=delay,
+                             chan=chan,
+                             fade=fade,
+                             gain=gain,
+                             instr=instr,
+                             pitchinterpol=pitchinterpol,
+                             fadeshape=fadeshape,
+                             params=params,
+                             position=position,
                              scorestruct=scorestruct)
         if start is not None or end is not None:
-            cropEvents(events, start, end)
+            scorestruct = scorestruct or activeScoreStruct()
+            starttime = None if start is None else scorestruct.beatToTime(start)
+            endtime = None if end is None else scorestruct.beatToTime(end)
+            events = cropEvents(events, start=starttime, end=endtime, rewind=True)
         renderer: OfflineRenderer = activeWorkspace().renderer
         if renderer:
             # schedule offline
-            print("")
             for ev in events:
                 renderer.schedEvent(ev)
         else:
@@ -756,6 +768,10 @@ class MusicObj:
         start2 = timemap(start)
         dur2 = timemap(start+dur) - start2
         return self.clone(start=asRat(start2), dur=asRat(dur2))
+
+    def timeShiftInPlace(self, timeoffset):
+        self.start = self.start + timeoffset
+        self._changed()
 
     def startAbsTime(self) -> Rat:
         """

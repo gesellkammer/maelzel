@@ -1222,7 +1222,7 @@ def splitByMeasure(struct: ScoreStruct,
         return [(loc0.measureNum, event)]
 
     measuredef = struct.getMeasureDef(loc0.measureNum)
-    dur = measuredef.numberOfBeats() - loc0.beat
+    dur = measuredef.numberOfQuarters()-loc0.beat
     notation = event.clone(offset=loc0.beat, duration=dur, tiedNext=True)
     pairs = [(loc0.measureNum, notation)]
 
@@ -1231,7 +1231,7 @@ def splitByMeasure(struct: ScoreStruct,
         for m in range(loc0.measureNum+1, loc1.measureNum):
             measuredef = struct.getMeasureDef(m)
             notation = event.clone(offset=F(0),
-                                   duration=measuredef.numberOfBeats(),
+                                   duration=measuredef.numberOfQuarters(),
                                    tiedPrev=True, tiedNext=True)
             pairs.append((m, notation))
 

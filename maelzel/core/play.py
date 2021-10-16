@@ -34,7 +34,7 @@ import os
 
 from datetime import datetime
 
-from .config import logger
+from ._common import logger
 from . import tools
 from .presetbase import *
 from .presetman import presetManager, csoundPrelude as _prelude

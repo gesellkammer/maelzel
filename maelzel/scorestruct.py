@@ -109,6 +109,9 @@ class MeasureDef:
 
     It does not hold any other data (notes) but the information
     of the measure itself, to be used inside a ScoreStruct
+
+    Attributes:
+        quarterTempo: the tempo corresponding to a quarter note
     """
     timesig: timesig_t
     quarterTempo: F
@@ -116,13 +119,14 @@ class MeasureDef:
     timesigInherited: bool = False
     tempoInherited: bool = False
     barline: str = ""
+    subdivisionStructure: Opt[List[int]] = None
 
     def __post_init__(self):
         assert isinstance(self.timesig, tuple) and len(self.timesig) == 2
         assert all(isinstance(i, int) for i in self.timesig)
         self.quarterTempo = asF(self.quarterTempo)
 
-    def numberOfBeats(self) -> F:
+    def numberOfQuarters(self) -> F:
         """
         The duration of this measure in beats
 
@@ -140,10 +144,31 @@ class MeasureDef:
         """
         if self.quarterTempo is None or self.timesig is None:
             raise ValueError("MeasureDef not fully defined")
-        return self.numberOfBeats() * (F(60)/self.quarterTempo)
+        return self.numberOfQuarters()*(F(60)/self.quarterTempo)
+
+    def subdivisions(self) -> List[F]:
+        num, den = self.timesig
+        if den == 4:
+            return [F(1)] * num
+        elif den == 8 and self.quarterTempo < 120:
+            return [F(1, 2)]*num
+        else:
+            subdivStruct = self.subdivisionStructure or _inferSubdivisions(num, den, self.quarterTempo)
+            return [F(num, den//4) for num in subdivStruct]
 
     def clone(self, **kws):
         return _dataclassReplace(self, **kws)
+
+
+def _inferSubdivisions(num: int, den: int, quarterTempo
+                       ) -> List[int]:
+    subdivs = []
+    while num > 3:
+        subdivs.append(2)
+        num -= 2
+    if num:
+        subdivs.append(num)
+    return subdivs
 
 
 @dataclass
@@ -206,7 +231,7 @@ class ScoreStruct:
 
         self.measuredefs: List[MeasureDef] = []
 
-        self.title = None
+        self.title = ''
         self.endless = endless
         self.autoextend = autoextend
         self._modified = True
@@ -278,7 +303,6 @@ class ScoreStruct:
 
             if line == ".":
                 assert len(struct.measuredefs) > 0
-                lastmeas = struct.measuredefs[-1]
                 struct.addMeasure()
                 measureNum += 1
                 continue
@@ -288,7 +312,8 @@ class ScoreStruct:
                 mdef.measureNum = measureNum + 1
             else:
                 assert mdef.measureNum > measureNum
-                struct.addMeasure(numMeasures=mdef.measureNum - measureNum - 1)
+                if mdef.measureNum - measureNum > 1:
+                    struct.addMeasure(numMeasures=mdef.measureNum - measureNum - 1)
 
             struct.addMeasure(timesig=mdef.timesig, quarterTempo=mdef.tempo,
                               annotation=mdef.label)
@@ -470,7 +495,7 @@ class ScoreStruct:
         now = self._offsetsIndex[measure]
         mdef = self.measuredefs[measure]
 
-        measureBeats = mdef.numberOfBeats()
+        measureBeats = mdef.numberOfQuarters()
         if beat > measureBeats:
             raise ValueError(f"Beat outside of measure, measure={mdef}")
 
@@ -540,7 +565,7 @@ class ScoreStruct:
         numMeasures = 0
         rest = asF(beat)
         for i, mdef in enumerate(self.measuredefs):
-            numBeats = mdef.numberOfBeats()
+            numBeats = mdef.numberOfQuarters()
             if rest < numBeats:
                 return ScoreLocation(i, rest)
             rest -= numBeats
@@ -548,7 +573,7 @@ class ScoreStruct:
         # we are at the end of the defined measure, but we did not find beat yet.
         if not self.endless:
             return None
-        beatsPerMeasures = self.measuredefs[-1].numberOfBeats()
+        beatsPerMeasures = self.measuredefs[-1].numberOfQuarters()
         numMeasures += int(rest / beatsPerMeasures)
         restBeats = rest % beatsPerMeasures
         return ScoreLocation(numMeasures, restBeats)
@@ -601,9 +626,9 @@ class ScoreStruct:
         accum = F(0)
         for i, mdef in enumerate(self.iterMeasureDefs()):
             if i < measure:
-                accum += mdef.numberOfBeats()
+                accum += mdef.numberOfQuarters()
             else:
-                if beat > mdef.numberOfBeats():
+                if beat > mdef.numberOfQuarters():
                     raise ValueError(f"beat {beat} outside of measure {i}: {mdef}")
                 accum += asF(beat)
                 break
@@ -722,9 +747,6 @@ class ScoreStruct:
         """
         Return the score structure as a music21 Score
 
-        NB 1: to set score title/composer,
-              use emlib.music.m21tools.scoreSetMetadata
-
         TODO: render barlines according to measureDef
         """
         s = m21.stream.Part()
@@ -745,13 +767,12 @@ class ScoreStruct:
                 textExpression = m21tools.makeTextExpression(measuredef.annotation)
                 s.append(textExpression)
             if fillMeasures:
-                s.append(m21.note.Note(pitch=60, duration=m21.duration.Duration(measuredef.numberOfBeats())))
+                s.append(m21.note.Note(pitch=60, duration=m21.duration.Duration(measuredef.numberOfQuarters())))
             else:
-                s.append(m21.note.Rest(duration=m21.duration.Duration(measuredef.numberOfBeats())))
+                s.append(m21.note.Rest(duration=m21.duration.Duration(float(measuredef.numberOfQuarters()))))
         score = m21.stream.Score()
         score.insert(0, s)
-        if self.title:
-            m21tools.scoreSetMetadata(score, title=self.title)
+        m21tools.scoreSetMetadata(score, title=self.title)
         return score
 
     def setTempo(self, quarterTempo: float, measureNum:int=0) -> None:
