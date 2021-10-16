@@ -7,7 +7,7 @@ import emlib.misc
 
 from ._common import *
 from ._typedefs import *
-from . import tools
+from . import _util
 from .workspace import activeConfig
 import copy
 from typing import TYPE_CHECKING
@@ -221,16 +221,16 @@ class CsoundEvent:
             raise ValueError(f"A breakpoint should have at least (delay, pitch), "
                              f"but got {bps}")
 
-        bps = tools.carryColumns(bps)
+        bps = _util.carryColumns(bps)
         # assert all(isinstance(bp, list) for bp in bps)
         if len(bps[0]) < 3:
             column = [1] * len(bps)
-            bps = tools.addColumn(bps, column)
+            bps = _util.addColumn(bps, column)
         assert len(bps[0])>= 3
         assert all(isinstance(bp, (list, tuple)) and len(bp) == len(bps[0]) for bp in bps)
         self.bps = bps
         dur = self.bps[-1][0] - self.bps[0][0]
-        fadein, fadeout = tools.normalizeFade(fade, cfg['play.fade'])
+        fadein, fadeout = _util.normalizeFade(fade, cfg['play.fade'])
         self.delay = delay
         self.chan = chan or cfg['play.chan'] or 1
         self.gain = gain or cfg['play.gain']
@@ -263,11 +263,21 @@ class CsoundEvent:
 
     @property
     def start(self) -> float:
+        """time of first breakpoint
+
+        This should be normally 0 since we consolidate the delay and start time
+        """
         return self.bps[0][0]
 
     @property
     def end(self) -> float:
+        """The last time of the breakpoints (does not take delay into account)"""
         return self.bps[-1][0]
+
+    @property
+    def endtime(self) -> float:
+        """The time this event ends (delay + duration)"""
+        return self.delay + self.dur
 
     @property
     def fade(self) -> Tuple[float, float]:
@@ -307,6 +317,9 @@ class CsoundEvent:
             return
         self.delay *= timefactor
         self.bps = [(bp[0]*timefactor,)+bp[1:] for bp in self.bps]
+
+    def timeShifted(self, offset: float) -> CsoundEvent:
+        return self.clone(delay=self.delay+offset)
 
     def cropped(self, start:float, end:float) -> CsoundEvent:
         """
@@ -391,7 +404,8 @@ class CsoundEvent:
 
         for bp in self.bps:
             pfields.extend(bp)
-        assert all(isinstance(p, (int, float)) for p in pfields), pfields
+
+        assert all(isinstance(p, (int, float)) for p in pfields), [(p, type(p)) for p in pfields if not isinstance(p, (int, float))]
         return pfields
 
     def _repr_html_(self) -> str:
@@ -424,11 +438,22 @@ class CsoundEvent:
         return "\n".join(lines)
 
 
-def cropEvents(events: List[CsoundEvent], start: Optional[float], end: Optional[float]
+def cropEvents(events: List[CsoundEvent], start: Optional[float], end: Optional[float],
+               rewind=False
                ) -> List[CsoundEvent]:
     if start is None:
-        start = min(ev.start for ev in events)
+        start = min(ev.delay for ev in events)
+    else:
+        start = float(start)
     if end is None:
-        end = max(ev.end for ev in events)
-        assert start < end
-    return [event.cropped(start, end) for event in events]
+        end = max(ev.endtime for ev in events)
+        assert start < end, f"{start=}, {end=}"
+    else:
+        end= float(end)
+    from emlib.mathlib import intersection
+    events = [event.cropped(start, end) for event in events
+              if intersection(start, end, event.delay, event.endtime) is not None]
+    if rewind:
+        events = [event.timeShifted(-start)
+                  for event in events]
+    return events

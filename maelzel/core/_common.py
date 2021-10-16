@@ -8,15 +8,20 @@ Here we define:
 * basic conversion functions
 
 """
-
 import logging as _logging
 # We want to share the same Rat implementation as scorestruct
 from maelzel.rational import Rat
-from typing import List, Iterable
-from ._typedefs import T
 import os
-from functools import cache as _cahe
-import sys
+
+__all__ = (
+    'UNSET',
+    'MAXDUR',
+    'asRat',
+    'isNumber',
+    'getPath',
+    'logger'
+)
+
 
 MAXDUR = 99999
 
