@@ -261,6 +261,7 @@ class Notation:
             the notename corresponing to the given pitch
 
         """
+        assert index < len(self.pitches), print(index, self.pitches)
         return self.getFixedNotename(index) or pt.m2n(self.pitches[index])
 
     def pitchIndex(self, semitoneDivs=2, index=0) -> int:

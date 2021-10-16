@@ -301,7 +301,7 @@ def quantizedPartToMusic21(part: quant.QuantizedPart,
                     fontSize=options.measureAnnotationFontSize))
 
         if measure.isEmpty():
-            dur = measureDef.numberOfBeats()
+            dur = measureDef.numberOfQuarters()
             rest = m21.note.Rest(duration=m21.duration.Duration(dur))
             m21measure.append(rest)
         else:

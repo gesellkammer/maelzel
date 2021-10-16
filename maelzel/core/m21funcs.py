@@ -3,16 +3,19 @@ utility functions to work with music21 which are specific to maelzel.core
 (they might depend on the current config) and should not be moved
 to maelzel.music.m21tools
 """
+from __future__ import annotations
 import music21 as m21
-from ._common import *
 from maelzel.music import m21tools
 from emlib import iterlib
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import *
 
 from . import tools
 from .workspace import activeConfig
 
 
-def m21Note(pitch: U[str, float], showcents:bool=None, divsPerSemitone:int=None,
+def m21Note(pitch: Union[str, float], showcents:bool=None, divsPerSemitone:int=None,
             config=None, **options) -> m21.note.Note:
     """
     Create a m21.note.Note, taking semitoneDivisions into account
@@ -49,7 +52,7 @@ def m21MicrotonalNote(pitch: float, duration, showcents:bool=None, divsPerSemito
     return note
 
 
-def m21Chord(midinotes:Seq[float], showcents=None, 
+def m21Chord(midinotes:Sequence[float], showcents=None, 
              config=None, **options
              ) -> m21.chord.Chord:
     """
@@ -86,7 +89,7 @@ def m21Label(text:str, config=None) -> m21.expressions.TextExpression:
     return m21TextExpression(text, style='label', config=config)
 
 
-def bestClef(midinotes: Iter[float]) -> m21.clef.Clef:
+def bestClef(midinotes: Iterable[float]) -> m21.clef.Clef:
     """
     Return a m21 Clef which best fits the given pitches
 

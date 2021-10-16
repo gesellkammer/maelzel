@@ -4,10 +4,12 @@ from maelzel.rational import Rat
 from . import musicobj
 from .workspace import activeConfig
 
+
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
     from .musicobj import Note, Chord, Voice, MusicObj
+    from maelzel import scorestruct
 
 
 def packInVoices(objs: List[MusicObj]) -> List[Voice]:
@@ -80,3 +82,5 @@ def splitNotesIfNecessary(notes:List[Note], splitpoint:float, deviation=None
 
     """
     return [p for p in splitNotesOnce(notes, splitpoint, deviation) if p]
+
+

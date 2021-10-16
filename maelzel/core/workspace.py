@@ -6,6 +6,7 @@ xxx
 """
 from __future__ import annotations
 from ._common import logger, UNSET, Rat
+from ._typedefs import time_t
 import appdirs as _appdirs
 import os
 import pitchtools as pt
@@ -286,9 +287,9 @@ def recordPath() -> str:
     return path
 
 
-def toAbsTime(offset: Union[int, float, Rat]) -> Rat:
+def offsetToTime(offset: time_t) -> Rat:
     """
-    Convert offset (an abstract time given as quarternotes) to absolute time
+    Convert beat (an abstract time given as quarternotes) to absolute time
 
     The conversion uses the active ScoreStruct.
 
@@ -301,5 +302,18 @@ def toAbsTime(offset: Union[int, float, Rat]) -> Rat:
     s = activeScoreStruct()
     return s.beatToTime(offset)
 
+
+def locToOffset(measureidx: int, offset: time_t = 0) -> Rat:
+    """
+    Convert a score location to a global quarter note offset
+
+    Uses the active ScoreStruct
+
+    Args:
+        measureidx: index of the measure (starts with 0)
+        offset: the quarter note offset from measure start, needs to be
+            smaller than the measure duration
+    """
+    return activeScoreStruct().locationToBeat(measure=measureidx, beat=offset)
 
 _init()
