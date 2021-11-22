@@ -35,6 +35,7 @@ import os
 from datetime import datetime
 
 from ._common import logger
+from . import _util
 from . import tools
 from .presetbase import *
 from .presetman import presetManager, csoundPrelude as _prelude
@@ -209,7 +210,7 @@ class OfflineRenderer:
                 raise CancelledError("Render operation was cancelled")
         elif not outfile:
             outfile = _makeRecordingFilename(ext=".wav")
-        outfile = tools.normalizeFilename(outfile)
+        outfile = _util.normalizeFilename(outfile)
         if quiet is None:
             quiet = self.quiet if self.quiet is not None else cfg['rec.quiet']
         self.renderer.render(outfile=outfile, wait=wait, quiet=quiet,

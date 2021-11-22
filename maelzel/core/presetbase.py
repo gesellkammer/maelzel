@@ -136,7 +136,8 @@ ifade0 = max:i(ifade0, 1/kr)
 ifade1 = max:i(ifade1, 1/kr)
 
 if (ifadekind_ == 0) then
-    aenv_ linseg 0, ifade0, igain_, p3-ifade0-ifade1, igain_, ifade1, 0
+    ; aenv_ linseg 0, ifade0, igain_, p3-ifade0-ifade1, igain_, ifade1, 0
+    aenv_ linsegr 0, ifade0, igain_, ifade1, 0
 elseif (ifadekind_ == 1) then
     aenv_ cosseg 0, ifade0, igain_, p3-ifade0-ifade1, igain_, ifade1, 0
 endif
