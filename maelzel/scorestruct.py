@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from typing import Tuple, Optional as Opt, List, Union as U, Iterator as Iter
     timesig_t = Tuple[int, int]
     number_t = U[int, float, F]
+    import maelzel.core
 
 
 def asF(x: number_t) -> F:
@@ -158,6 +159,7 @@ class MeasureDef:
 
     def clone(self, **kws):
         return _dataclassReplace(self, **kws)
+
 
 
 def _inferSubdivisions(num: int, den: int, quarterTempo
@@ -824,5 +826,14 @@ class ScoreStruct:
             raise ValueError(f"Extension {path.suffix} not supported, "
                              f"should be one of .xml, .pdf, .png or .ly")
 
+    def exportMidi(self, midifile: str) -> None:
+        m21score = self.asMusic21(fillMeasures=False)
+        m21score.write("midi", midifile)
+
+    def exportMidiClickTrack(self, midifile: str) -> None:
+        from maelzel.core import tools
+        click = tools.makeClickTrack(self)
+        m21click = click.asmusic21()
+        m21click.write('midi', midifile)
 
 

@@ -438,7 +438,7 @@ class MusicObj:
             objects which can be queried via .scoringEvents
         """
         parts = self.scoringParts()
-        renderer = notation.renderWithCurrentWorkspace(parts, backend='musicxml')
+        renderer = notation.renderWithCurrentWorkspace(parts, backend='music21')
         stream = renderer.asMusic21()
         if activeConfig()['m21.fixStream']:
             m21tools.m21fix.fixStream(stream, inPlace=True)

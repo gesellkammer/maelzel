@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import pitchtools as pt
-from dataclasses import dataclass
 
 import emlib.img
 import emlib.misc
@@ -16,15 +15,12 @@ from .state import appstate as _appstate
 from .workspace import activeWorkspace
 from . import musicobj
 from maelzel.rational import Rat
+from typing import TYPE_CHECKING, NamedTuple
 
-
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
     from ._typedefs import *
     T = TypeVar("T")
-
-
 
 
 def _highlightLilypond(s: str) -> str:
@@ -145,13 +141,13 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
     return musicobj.Voice(events)
 
 
-@dataclass
-class NoteProperties:
+class NoteProperties(NamedTuple):
     pitch: Union[str, List[str]]
     dur: Optional[Rat]
     properties: Optional[Dict[str, str]]
 
-def parseNote(s: str):
+
+def parseNote(s: str) -> NoteProperties:
     """
     Parse a note definition string with optional duration and other properties
 
@@ -188,6 +184,10 @@ def parseNote(s: str):
             except ValueError:
                 if part in _knownDynamics:
                     properties['dynamic'] = part
+                elif part == 'gliss':
+                    properties['gliss'] = True
+                elif part == 'tied':
+                    properties['tied'] = True
                 elif "=" in part:
                     key, value = part.split("=", maxsplit=1)
                     properties[key] = value

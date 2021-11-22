@@ -1,3 +1,5 @@
+from __future__ import annotations
+import emlib.img
 from ._common import logger
 from .workspace import activeConfig
 

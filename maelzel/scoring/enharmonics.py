@@ -351,7 +351,6 @@ def _rateChordSpelling(notes: List[str], options: EnharmonicOptions) -> Tuple[fl
 def fixEnharmonicsInPlace(notations: List[Notation], eraseFixedNotes=True,
                           options: EnharmonicOptions = None,
                           ) -> None:
-    return
     # First fix single notes and upper note of chords, then fix each chord
     notations = [n for n in notations
                  if not n.isRest and all(p > 10 for p in n.pitches)]
