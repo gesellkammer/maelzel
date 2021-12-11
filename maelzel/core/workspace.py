@@ -2,7 +2,13 @@
 Workspace
 =========
 
-xxx
+maelzel.core is organized on the idea of a workspace. A workspace contains the current state
+(an active scorestrucutre, an active config). Many actions, like note playback, notation rendering,
+etc., use the active workspace to determine tempo, score structure, default playback instrument, etc.
+
+At any moment there is always an active workspace. This can be accessed via :func:`activeWorkspace`.
+At the start of a session a default workspace (the 'root' workspace) is created, based on the default
+config and a default score structure.
 """
 from __future__ import annotations
 from ._common import logger, UNSET, Rat
@@ -70,7 +76,7 @@ class Workspace:
         if scorestruct is None:
             scorestruct = ScoreStruct.fromTimesig((4, 4), quarterTempo=60)
         self._scorestruct = scorestruct
-        self.dynamicsCurve = dynamicCurve or DynamicCurve.fromdescr(shape='expon(3.0)')
+        self.dynamicsCurve = dynamicCurve or DynamicCurve.fromdescr(shape=self.config.get('dynamicsCurve.shape', 'expon(3.0)'))
         if activate:
             self.activate()
 
@@ -291,12 +297,14 @@ def offsetToTime(offset: time_t) -> Rat:
     """
     Convert beat (an abstract time given as quarternotes) to absolute time
 
-    The conversion uses the active ScoreStruct.
+    The conversion uses the active ScoreStruct, since it is influenced by
+    the tempo map.
 
     Args:
         offset: offset in quarternotes
 
     Returns:
+        the absolute time in seconds
 
     """
     s = activeScoreStruct()
