@@ -337,6 +337,8 @@ _default = {
     'repr.showFreq': True,
     'semitoneDivisions': 4,
 
+    'dynamicsCurve.shape': 'expon(3.0)',
+
     'show.lastBreakpointDur':1/8,
     'show.cents': True,
     'show.centsFontSize': 8,
