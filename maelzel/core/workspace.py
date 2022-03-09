@@ -1,4 +1,5 @@
 """
+
 Workspace
 =========
 
@@ -9,26 +10,38 @@ etc., use the active workspace to determine tempo, score structure, default play
 At any moment there is always an active workspace. This can be accessed via :func:`activeWorkspace`.
 At the start of a session a default workspace (the 'root' workspace) is created, based on the default
 config and a default score structure.
+
 """
 from __future__ import annotations
+import os
+import pitchtools
+import appdirs as _appdirs
+
 from ._common import logger, UNSET, Rat
 from ._typedefs import time_t
-import appdirs as _appdirs
-import os
-import pitchtools as pt
 from .config import rootConfig
 from maelzel.music.dynamics import DynamicCurve
 from maelzel.scorestruct import ScoreStruct
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import *
+    from typing import Optional, Any
     import configdict
 
 
 def _resetCache() -> None:
     from .musicobj import resetImageCache
     resetImageCache()
+
+
+___all__ = (
+    'Workspace',
+    'activeWorkspace',
+    'activeConfig',
+    'newConfig',
+    'setScoreStruct',
+    'setTempo',
+)
 
 
 class Workspace:
@@ -107,7 +120,7 @@ class Workspace:
     def a4(self, value:float):
         self.config['A4'] = value
         if self.isActive():
-            pt.set_reference_freq(value)
+            pitchtools.set_reference_freq(value)
 
     @classmethod
     def getActive(cls) -> Workspace:
@@ -124,7 +137,7 @@ class Workspace:
 
     def activate(self) -> None:
         """Make this the active Workspace"""
-        pt.set_reference_freq(self.a4)
+        pitchtools.set_reference_freq(self.a4)
         Workspace._active = self
 
     def isActive(self) -> bool:
@@ -184,10 +197,12 @@ def activeConfig() -> configdict.ConfigDict:
     return activeWorkspace().config
 
 
-def newConfig(updates:dict=None, cloneCurrent=True, name:str=None,
-              ) -> configdict.ConfigDict:
+def newConfig(updates:dict=None, cloneCurrent=True, name:str=None) -> configdict.ConfigDict:
     """
     Clone the current Workspace with a new config and set it as active
+
+    The returned config is a `configdict.ConfigDict <https://configdict.readthedocs.io/en/latest/api/configdict.configdict.ConfigDict.html>`_,
+    which behaves like a dictionary but allows only a specific set of keys.
 
     This new config will not be persistent. To make persistent changes, modify
     the root config::
@@ -195,23 +210,26 @@ def newConfig(updates:dict=None, cloneCurrent=True, name:str=None,
         >>> from maelzel.core import *
         >>> rootConfig.edit()
 
-    **maelzel.core** is organizad around the idea of a current workspace.
-    Each workspace has a valid config. By calling `newConfig`, a new workspace
+    **maelzel.core** is organized around the idea of an active workspace (see
+    :func:`~maelzel.core.workspace.activeWorkspace`: at any moment there is one active workspace.
+    Each workspace has a config associated with it. By calling `newConfig`, a new workspace
     is created with, either a clone of the previous config (if called with
     `cloneCurrent=True`) or of the root config. All other attributes of
     a workspace are inherited from the previous workspace. To access the newly
-    created workspace, call :func:`~maelzel.workspace.currentWorkspace`.
+    created workspace, call :func:`~maelzel.core.workspace.activeWorkspace`.
 
     Args:
         cloneCurrent: if True, clones the current config otherwise clones
             the default
         name: name of the workspace created with this config. If no name is given,
             a new unique name is created (this name can be found
-            via ``currentConfig().name``)
+            via ``activeConfig().name``)
         updates: if given, the new config is updated with this dict
 
     Returns:
         the new config
+
+    For more information on configuration, see :ref:`Configuration<config>`
 
     Example
     ~~~~~~~
@@ -293,35 +311,5 @@ def recordPath() -> str:
     return path
 
 
-def offsetToTime(offset: time_t) -> Rat:
-    """
-    Convert beat (an abstract time given as quarternotes) to absolute time
-
-    The conversion uses the active ScoreStruct, since it is influenced by
-    the tempo map.
-
-    Args:
-        offset: offset in quarternotes
-
-    Returns:
-        the absolute time in seconds
-
-    """
-    s = activeScoreStruct()
-    return s.beatToTime(offset)
-
-
-def locToOffset(measureidx: int, offset: time_t = 0) -> Rat:
-    """
-    Convert a score location to a global quarter note offset
-
-    Uses the active ScoreStruct
-
-    Args:
-        measureidx: index of the measure (starts with 0)
-        offset: the quarter note offset from measure start, needs to be
-            smaller than the measure duration
-    """
-    return activeScoreStruct().locationToBeat(measure=measureidx, beat=offset)
 
 _init()

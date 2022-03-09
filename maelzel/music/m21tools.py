@@ -26,7 +26,9 @@ from emlib import misc
 from pitchtools import n2m, m2n, split_notename, split_cents
 from maelzel.music import m21fix
 from maelzel.music.timing import quartersToTimesig
+import logging
 
+logger = logging.getLogger(__file__)
 
 def _splitchord(chord: m21.chord.Chord, 
                 partabove: m21.stream.Part, 
@@ -1486,22 +1488,48 @@ def fixNachschlaege(part: m21.stream.Part, convertToRealNote=False, duration=1/8
                 m1.insert(n1.offset + realizedDuration, n1)
 
 
-def _musescorePath() -> Optional[str]:
+def findMusescore() -> Optional[str]:
+    from maelzel.core import workspace
+    cfg = workspace.activeConfig()
+    musescorepath = cfg.get('musescorepath')
+    if musescorepath:
+        if os.path.exists(musescorepath):
+            return musescorepath
+        else:
+            logger.warning(f"musescorepath set to {musescorepath} in the active config, but the path does"
+                           f"not exist")
     us = m21.environment.UserSettings()
-    musicxmlpath = us['musescoreDirectPNGPath']
-    if os.path.exists(musicxmlpath):
-        return str(musicxmlpath)
+    musescorepath = us['musescoreDirectPNGPath']
+    if os.path.exists(musescorepath):
+        return str(musescorepath)
     path = shutil.which('musescore')
     if path is not None:
         return path
+    logger.warning("MuseScore not found. To fix this issue, make sure musescore is installed. "
+                   "Then set the path via: "
+                   "`from maelzel.core import config; config.rootConfig['musescorepath'] = '/path/to/musescore'`")
     return None
 
 
-def _musescoreRenderMusicxmlToPng(xmlfile:str, outfile: str, page=1, trim=True):
-    musescore = _musescorePath()
-    if musescore is None:
-        raise RuntimeError("MuseScore not found")
-    args = [musescore, '--no-webview']
+def musescoreRenderMusicxmlToPng(xmlfile: str, outfile: str, page=1, trim=True,
+                                 musescorepath: str = None) -> None:
+    """
+    Use musescore to render a musicxml file as png
+
+    Args:
+        xmlfile: the path to the musicxml file to render
+        outfile: the png file to generate
+        page: in the case that multiple pages were generated, use the given page
+        trim: if true, trim the image to the contents
+        musescorepath: if given, the path to the musescore binary
+
+    Raises RuntimeError if the musicxml file could not be rendered
+    """
+    if not musescorepath:
+        musescorepath = findMusescore()
+    if not musescorepath:
+        raise RuntimeError("MuseScore not found, cannot render musicxml to png")
+    args = [musescorepath, '--no-webview']
     if trim:
         args.extend(['--trim-image', '10'])
     args.extend(['--export-to', outfile, xmlfile])
@@ -1542,13 +1570,10 @@ def renderMusicxml(xmlfile: str, outfile: str, method:str=None) -> None:
     if fmt == ".pdf":
         method = method or 'musescore'
         if method == 'musescore':
-            musescore = _musescorePath()
+            musescore = findMusescore()
             if musescore is None:
                 raise RuntimeError("MuseScore not found")
-            subprocess.call([musescore,
-                             '--no-webview',
-                             '--export-to', outfile,
-                             xmlfile],
+            subprocess.call([musescore, '--no-webview', '--export-to', outfile, xmlfile],
                             stderr=subprocess.PIPE)
             if not os.path.exists(outfile):
                 raise RuntimeError(f"Could not generate pdf file {outfile} from {xmlfile}")
@@ -1557,6 +1582,8 @@ def renderMusicxml(xmlfile: str, outfile: str, method:str=None) -> None:
     elif fmt == '.png':
         method = method or 'musescore'
         if method == 'musescore':
-            _musescoreRenderMusicxmlToPng(xmlfile, outfile)
+            musescoreRenderMusicxmlToPng(xmlfile, outfile)
         else:
             raise ValueError(f"method {method} unknown, possible values: 'musescore'")
+    else:
+        raise ValueError(f"format {fmt} not supported")

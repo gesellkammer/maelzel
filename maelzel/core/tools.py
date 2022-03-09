@@ -14,9 +14,8 @@ from . import environment
 from .state import appstate as _appstate
 from .workspace import activeWorkspace
 from . import musicobj
-from maelzel.rational import Rat
-from typing import TYPE_CHECKING, NamedTuple
 
+from typing import TYPE_CHECKING, NamedTuple
 if TYPE_CHECKING:
     from typing import *
     from ._typedefs import *
@@ -32,12 +31,6 @@ def showLilypondScore(score: str) -> None:
     # TODO
     print(score)
     return
-
-    if not environment.insideJupyter:
-        print(score)
-    else:
-        html = _highlightLilypond(score)
-        jupyterDisplay(JupyterHTML(html))
 
 
 def amplitudeToDynamics(amp: float) -> str:
@@ -115,13 +108,13 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
         if m.timesig[1] == 4:
             for i, n in enumerate(range(m.timesig[0])):
                 pitch = strongBeatPitch if i == 0 else weakBeatPitch
-                ev = musicobj.Note(pitch, start=now, dur=clickdur).setplay(fade=(0, 0.1))
+                ev = musicobj.Note(pitch, start=now, dur=clickdur).setPlay(fade=(0, 0.1))
                 events.append(ev)
                 now += 1
         elif m.timesig[1] == 8:
             for i, n in enumerate(range(m.timesig[0])):
                 pitch = strongBeatPitch if i == 0 else weakBeatPitch
-                ev = musicobj.Note(pitch, start=now, dur=clickdur).setplay(fade=(0, 0.1))
+                ev = musicobj.Note(pitch, start=now, dur=clickdur).setPlay(fade=(0, 0.1))
                 events.append(ev)
                 now += 0.5
         elif m.timesig[1] == 16:
@@ -199,3 +192,23 @@ def parseNote(s: str) -> NoteProperties:
 _knownDynamics = {
     'pppp', 'ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'ffff', 'n'
 }
+
+
+def pngShow(pngpath:str, forceExternal=False, app:str='') -> None:
+    """
+    Show a png either with an external app or inside jupyter
+
+    Args:
+        pngpath: the path to a png file
+        forceExternal: if True, it will show in an external app even
+            inside jupyter. Otherwise it will show inside an external
+            app if running a normal session and show an embedded
+            image if running inside a notebook
+        app: used if a specific external app is needed. Otherwise the os
+            defined app is used
+    """
+    if environment.insideJupyter and not forceExternal:
+        from . import jupytertools
+        jupytertools.pngShow(pngpath)
+    else:
+        environment.openPngWithExternalApplication(pngpath, app=app)

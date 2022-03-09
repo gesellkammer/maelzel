@@ -36,7 +36,7 @@ setup(
         "matplotlib",
         "music21",
         "bpf4",
-        "configdict>=0.11",
+        "configdict>=1.0.0",
         "appdirs",
         "tabulate",
         "sndfileio>=1.8.1",
