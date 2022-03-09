@@ -1,22 +1,20 @@
 """
-Module documentation
 
-Musical Objects
----------------
+All objects within the realm of **maelzel.core** inherit from :class:`~maelzel.core.MusicObj`.
+A ``M̀usicObj`` **exists in time** (in has a start and duration attribute), it **can display itself
+as notation** and, if appropriate, **play itself as audio**.
 
-Time
-~~~~
+**Time**
 
-A MusicObj has always a start and dur attribute. They refer to an abstract time.
-When visualizing a MusicObj as musical notation these times are interpreted/converted
-to beats and score locations based on a score structure.
+A :class:`~maelzel.core.MusicObj` has always a start and dur attribute. They refer to an abstract,
+`quarternote` time. When visualizing a MusicObj as musical notation or played back as audio these times are
+interpreted/converted based on a score structure.
 
-Score Structure
-~~~~~~~~~~~~~~~
+**Score Structure**
 
-A minimal score structure is a default time-signature (4/4) and a default tempo (60). If
-the user does not set a different score structure, an endless score with these default
-values will always be used.
+A Score Structure (:class:`maelzel.scorestruct.ScoreStruct`) is a set of tempos and measure definitions (it does not
+contain any material itself: it is only the "skeleton" of a score). At any moment there is always an active score
+structure, the default being an endless score with a 4/4 time-signature and a tempo of 60 bpm.
 
 """
 
@@ -54,22 +52,26 @@ if TYPE_CHECKING:
     from ._typedefs import *
     import music21 as m21
 
-"""
+
 __all__ = (
     'MusicObj',
     'Note',
     'asNote',
+    'Rest',
     'Chord',
+    'asChord',
+    'asEvent',
+    'stackEvents',
     'Line',
     'MusicObjList',
     'Chain',
     'Voice',
     'Score',
-    'ScoreStruct',
-    'asEvent',
+    'trill',
+    'packInVoices',
     'asMusic',
+    'Group'
 )
-"""
 
 @functools.total_ordering
 class Note(MusicObj):
@@ -106,12 +108,10 @@ class Note(MusicObj):
         tied: is this Note tied to the next?
 
     Attributes:
-        pitch: the pitch of this Note, as midinote
-        dur: the duration of the Note (a Rat), or None
         amp: the amplitude (0-1), or None
-        start: the start time (as Rat), or None
+        pitch: the sounding pitch, as midinote
         gliss: the end pitch (as midinote), or None
-        label: a string label
+        tied: True if this Note is tied to another
     """
 
     __slots__ = ('pitch', 'amp', '_gliss', 'tied')
@@ -140,6 +140,7 @@ class Note(MusicObj):
 
     @property
     def gliss(self):
+        """the end pitch (as midinote), or None"""
         return self._gliss
 
     @gliss.setter
@@ -223,6 +224,7 @@ class Note(MusicObj):
 
     @property
     def freq(self) -> float:
+        """The frequency of this Note (according to the current A4 value)"""
         return pt.m2f(self.pitch)
 
     @freq.setter
@@ -231,19 +233,23 @@ class Note(MusicObj):
 
     @property
     def name(self) -> str:
+        """The notename of this Note"""
         return pt.m2n(self.pitch)
 
     @property
     def pitchclass(self) -> int:
+        """The pitch-class of this Note (an int between 0-11)"""
         return round(self.pitch) % 12
 
 
     @property
     def cents(self) -> int:
+        """The fractional part of this pitch, rounded to the cent"""
         return _util.midicents(self.pitch)
 
     @property
     def centsrepr(self) -> str:
+        """A string representing the .cents of this Note"""
         return _util.centsshown(self.cents,
                                 divsPerSemitone=activeConfig()['semitoneDivisions'])
 
@@ -583,7 +589,7 @@ class Line(MusicObj):
 
     def __hash__(self):
         rowhashes = [hash(tuple(bp)) for bp in self.bps]
-        rowhashes.append(self.start)
+        rowhashes.append(hash(self.start))
         return hash(tuple(rowhashes))
 
     def __repr__(self):
@@ -1167,23 +1173,31 @@ def _normalizeChordArpeggio(arpeggio: Union[str, bool], chord: Chord) -> bool:
 
 
 def stackEvents(events: List[MusicObj],
-                defaultDur:time_t=None,
-                start:time_t=Rat(0)
+                defaultDur: time_t = None,
+                start: time_t = Rat(0),
+                inplace=False,
+                force=False
                 ) -> List[MusicObj]:
     """
-    Place `events` one after the other`
+    Place `events` in succession
 
     Args:
-        events: the events to stack against each other
+        events: the events (Notes / Chords) to stack against each other
         defaultDur: the duration given to events which don't have an explicit duration
         start: the start time for the event stack (will be used if the first event
             doesn't have an explicit start)
+        force: if True and the first event has a start time, it is forced
+            to use the given start time
 
     Returns:
         the resulting events. It is ensured that in the returned events there is no
         intersection between the events and all have start and dur set
 
     """
+    if inplace:
+        _stackEventsInPlace(events=events, defaultDur=defaultDur, start=start, force=force)
+        return events
+
     if not events:
         return events
     if all(ev.start is not None and ev.dur is not None for ev in events):
@@ -1230,11 +1244,11 @@ def stackEvents(events: List[MusicObj],
     return out
 
 
-def stackEventsInPlace(events: Sequence[MusicObj],
-                       defaultDur:time_t=None,
-                       start:time_t=Rat(0),
-                       force=False
-                       ) -> None:
+def _stackEventsInPlace(events: Sequence[MusicObj],
+                        defaultDur:time_t=None,
+                        start:time_t=Rat(0),
+                        force=False
+                        ) -> None:
     """
     Similar to stackEvents, but modifies the events themselves
 
@@ -1243,6 +1257,8 @@ def stackEventsInPlace(events: Sequence[MusicObj],
         defaultDur: the duration given to events which don't have an explicit duration
         start: the start time for the event stack (will be used if the first event
             doesn't have an explicit start)
+        force: if True and the first event has a start time, it is forced
+            to use the given start time
     """
     # events = list(iterlib.flatten(events, exclude=(Chord,)))
     if force:
@@ -1250,9 +1266,7 @@ def stackEventsInPlace(events: Sequence[MusicObj],
         events[0].start = start
     if all(ev.start is not None and ev.dur is not None for ev in events):
         return
-    #for ev in events:
-    #    if isinstance(ev, MusicObjList):
-    #        stackEventsInPlace(ev)
+
     assert start is not None
     if defaultDur is None:
         defaultDur = activeConfig()['defaultDuration']
@@ -1465,11 +1479,16 @@ class Chain(MusicObjList):
 
     Within a Chain, any note/chord with a glissando set to True will
     result in a glissando to the next note/chord in the chain.
+
+    Args:
+        items: the items in this chain
+        start: the start time
+        label: a label for this Chain
     """
     _acceptsNoteAttachedSymbols = False
 
-    def __init__(self, items: List[Union[Note, Chord, str]] = None, start:time_t=None,
-                 label:str=''):
+    def __init__(self, items: List[Union[Note, Chord, str]] = None, start: time_t = None,
+                 label: str = ''):
         if start is not None:
             start = asRat(start)
         if items:
@@ -1529,7 +1548,7 @@ class Chain(MusicObjList):
     def _changed(self):
         if self.items:
             if self.items[0] is not None:
-                stackEventsInPlace(self.items)
+                _stackEventsInPlace(self.items)
             self.start = self.items[0].start
             end = self.items[-1].end
             self.dur = end - self.start
@@ -1619,7 +1638,7 @@ class Chain(MusicObjList):
             accumDur += item.dur
             if accumDur == maxDur:
                 break
-        stackEventsInPlace(items, defaultDur=defaultDur)
+        _stackEventsInPlace(items, defaultDur=defaultDur)
         return Chain(items, start=self.start)
 
     def asVoice(self) -> Voice:
@@ -1642,7 +1661,7 @@ class Voice(MusicObjList):
         self.instrs: Dict[MusicObj, str] = {}
         if items:
             items = items.copy()
-            stackEventsInPlace(items, start=asRat(0))
+            _stackEventsInPlace(items, start=asRat(0))
         self._merged: Optional[List[Note, Chord, Line]] = None
         super().__init__(items=items, label=label)
 

@@ -14,8 +14,9 @@ External Dependencies
 
 There are some external dependencies which need to be installed manually:
 
-* **csound** >= 6.16. (https://csound.com/download.html).
+* **csound** >= 6.16. (https://csound.com/download.html). Csound 7 is not supported yet.
 * **lilypond** (https://lilypond.org/download.html)
+* **MuseScore** (https://musescore.org/en) - Useful for quick rendering to png
 
 .. note::
 

@@ -1,6 +1,4 @@
 """
-Module documentation
-
 Musical Objects
 ---------------
 
@@ -198,7 +196,7 @@ class MusicObj:
             self._playargs = PlayArgs()
         return self._playargs
 
-    def setplay(self:_T, /, **kws) -> _T:
+    def setPlay(self:_T, /, **kws) -> _T:
         """
         Set any playback attributes, returns self
 
@@ -213,7 +211,8 @@ class MusicObj:
         Example::
 
             # a piano note
-            >>> note = Note("C4+25", dur=0.5).setplay(instr="piano")
+            >>> from maelzel.core import *
+            >>> note = Note("C4+25", dur=0.5).setPlay(instr="piano")
         """
         playargs = self.playargs
         for k, v in kws.items():
@@ -237,6 +236,7 @@ class MusicObj:
 
         Example::
 
+            >>> from maelzel.core import *
             >>> a = Note("C4+", dur=1)
             >>> b = a.clone(dur=0.5)
         """
@@ -248,11 +248,12 @@ class MusicObj:
         out._changed()
         return out
 
-    def copy(self):
+    def copy(self: _T) -> _T:
         """Returns a copy of this object"""
         return _copy.deepcopy(self)
 
-    def moveTo(self, start: time_t):
+    def moveTo(self, start: time_t) -> None:
+        """Move this to the given start time (in place)"""
         self.start = start
         self._changed()
 
@@ -285,13 +286,15 @@ class MusicObj:
             return None
         return self.start + self.dur
 
-    def quantizePitch(self: T, step=0.) -> T:
+    def quantizePitch(self: _T, step=0.) -> _T:
         """ Returns a new object, with pitch rounded to step """
         raise NotImplementedError()
 
-    def transposeByRatio(self: T, ratio: float) -> T:
-        """ Transpose this by a given freq. ratio. A ratio of 2 equals
-        to transposing an octave higher. """
+    def transposeByRatio(self: _T, ratio: float) -> _T:
+        """
+        Transpose this by a given freq. ratio.
+
+        A ratio of 2 equals to transposing an octave higher. """
         return self.transpose(pt.r2i(ratio))
 
     def show(self, fmt: str = None, external: bool = None, backend: str = None
@@ -336,9 +339,9 @@ class MusicObj:
     def _changed(self) -> None:
         """
         This method is called whenever the object changes its representation
-        (a note changes its pitch inplace, the duration is modified, etc)
-        This invalidates, among other things, the image cache for this
-        object
+
+        This happens when a note changes its pitch inplace, the duration is modified, etc.
+        This invalidates, among other things, the image cache for this object
         """
         self._hash = 0
 
@@ -559,7 +562,8 @@ class MusicObj:
 
         Example::
 
-            >>> n = Note(60, dur=1).setplay(instr='piano')
+            >>> from maelzel.core import *
+            >>> n = Note(60, dur=1).setPlay(instr='piano')
             >>> n.events(gain=0.5)
             [CsoundEvent(delay=0.000, gain=0.5, chan=1, fade=(0.02, 0.02), instr=piano)
              bps 0.000s:  60, 1.000000
@@ -702,7 +706,7 @@ class MusicObj:
 
         Args:
             cls: the class name of the symbol (for example, "dynamic", "articulation",
-            etc)
+                etc)
 
         Returns:
             the set symbol, or None
@@ -715,7 +719,7 @@ class MusicObj:
             if type(symbol).__name__.lower() == cls:
                 return symbol
 
-    def setSymbol(self:T, symbol: Union[symbols.Symbol, str], value=None) -> T:
+    def setSymbol(self: _T, symbol: str, value=None) -> _T:
         """
         Set a notation symbol in this object
 
@@ -729,20 +733,22 @@ class MusicObj:
         Args:
             symbol: either a symbols.Symbol or the name of a symbol, in which
                 case the value must be given
-            value: the value of the symbols
+            value: the value of the symbol, or None if the symbol does not need one
 
+        Returns:
+            self
         """
-        if isinstance(symbol, str):
-            symbol = symbols.construct(symbol, value)
+        assert isinstance(symbol, str)
+        symboldef = symbols.construct(symbol, value)
 
         if isinstance(symbol, symbols.NoteAttachedSymbol) \
                 and not self._acceptsNoteAttachedSymbols:
             raise ValueError(f"A {type(self)} does not accept note attached symbols")
         if not self._symbols:
             self._symbols = []
-            self._symbols.append(symbol)
+            self._symbols.append(symboldef)
         else:
-            if symbol.exclusive:
+            if symboldef.exclusive:
                 self._symbols = [s for s in self._symbols if type(s) != type(symbol)]
                 self._symbols.append(symbol)
         return self
@@ -769,13 +775,19 @@ class MusicObj:
         dur2 = timemap(start+dur) - start2
         return self.clone(start=asRat(start2), dur=asRat(dur2))
 
-    def timeShiftInPlace(self, timeoffset):
+    def timeShiftInPlace(self, timeoffset: time_t) -> None:
+        """
+        Shift the time of this by the given offset (in place)
+
+        Args:
+            timeoffset: the time delta
+        """
         self.start = self.start + timeoffset
         self._changed()
 
     def startAbsTime(self) -> Rat:
         """
-        Returns the .start of this obj in absolute time
+        Returns the .start of this in absolute time according to the active ScoreStruct
 
         An Exception is raised if self does not have an start time
 
@@ -789,7 +801,7 @@ class MusicObj:
 
     def endAbsTime(self) -> Rat:
         """
-        Returns the .end of this obj in absolute time
+        Returns the .end of this in absolute time according to the active ScoreStruct
 
         An Exception is raised if self does not have an end time
 
@@ -803,7 +815,7 @@ class MusicObj:
 
     def pitchTransform(self:_T, pitchmap: Callable[[float], float]) -> _T:
         """
-        Apply a pitch-transform to this object
+        Apply a pitch-transform to this object, returns a copy
 
         Args:
             pitchmap: a function mapping pitch to pitch

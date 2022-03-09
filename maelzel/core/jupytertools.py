@@ -41,8 +41,8 @@ def jupyterMakeImage(path: str, scalefactor:float = None) -> JupyterImage:
 
     scalefactor = scalefactor if scalefactor is not None else activeConfig()['show.scaleFactor']
     if scalefactor != 1.0:
-        imgwidth, imgheight = _util.imgSize(path)
-        width = imgwidth*scalefactor
+        imgwidth, imgheight = emlib.img.imgSize(path)
+        width = imgwidth * scalefactor
     else:
         width = None
     return JupyterImage(filename=path, embed=True, width=width)
