@@ -2,9 +2,15 @@
 Reference
 =========
 
-
 .. toctree::
-    :maxdepth: 1
+    :maxdepth: 3
 
     core
-    
+
+Misc
+----
+
+.. toctree::
+    :maxdepth: 2
+
+    misc

@@ -2,18 +2,28 @@
 Configuration
 =============
 
-At any given moment there is one active config for any
-maelzel.core workspace. The configuration allows to set
-default values for many settings which customize all aspects
-of **maelzel.core**:  notation (default page size, rendered
-image scaling, etc), playback (default audio backend, instrument, etc)
-offline rendering, etc.
+At any given moment there is one active configuration. The configuration
+allows to set default values for many settings which customize different
+aspects of **maelzel.core**:
 
-The active config is an instance of ConfigDict
-(https://configdict.readthedocs.io/en/latest/)
+* notation (default page size, rendered image scaling, etc)
+* playback (default audio backend, instrument, etc)
+* offline rendering
+* etc.
 
-To make persistent modifications in the config, the `rootConfig` needs
-to be modified::
+The active config is an instance of ConfigDict (https://configdict.readthedocs.io/en/latest/),
+which is itself a subclass of `dict`. Settings can be modified by simply changing the
+values of this dict, like ``config[key] = value``. A config has a **set of valid keys**: an
+attempt to set an unknown key will result in an error. Values are also validated regarding
+their type and accepted choices, range, etc.
+
+Persistence / Root config
+-------------------------
+
+Modifications to the active configuration can be made for the
+current session or they can be persistent. **The root config** (the config
+at the beginning of a session) **is by default persistent**: any
+modification to it will be saved for all future sessions.
 
     >>> from maelzel.core import *
     # Set the reference frequency to 443 for this and all future sessions
@@ -21,6 +31,18 @@ to be modified::
     # Set lilypond as default rendering backend
     >>> config.rootConfig['show.backend'] = 'lilypond'
 
+See also: :py:module:`csoundengine.workspace`
+
+Active config
+-------------
+
+In order to create a configuration specific for a particular task it is possible
+to create a new config. This will set it as the active config and any changes will
+be only applied to the current workspace.
+
+    >>> from maelzel.core import *
+    # Create a config to work with old tuning and display notation using a3 page size
+    >>> cfg = newConfig(updates={'A4': 435, 'show.pageSize': 'a3'})
 
 -------------------------
 
@@ -321,8 +343,11 @@ import shutil
 import music21 as m21
 from configdict import ConfigDict
 import re
-import emlib.misc
 from ._common import *
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import List, Dict, Optional
 
 
 _default = {
@@ -365,6 +390,7 @@ _default = {
     'show.fillDynamicFromAmplitude': False,
 
     'app.png': '',
+    'musescorepath': '',
     'displayhook.install': True,
     'play.dur': 2.0,
     'play.gain': 1.0,
@@ -584,7 +610,7 @@ _docs = {
 }
 
 
-def checkEnvironment(config:dict, solve=True) -> List[str]:
+def checkEnvironment(config:dict=None) -> List[str]:
     """
     Check that we have everything we need
 
@@ -592,63 +618,38 @@ def checkEnvironment(config:dict, solve=True) -> List[str]:
         a list of errors or None if no errors found
     """
     # check that musescore is installed if necessary
-    showFormat = config['show.format']
     errors = []
-    if showFormat == 'xml.png' or config['m21.displayhook.format'] == 'xml.png':
-        us = m21.environment.UserSettings()
-        pngapp = us['musescoreDirectPNGPath']
-        logger.debug("Checking if MuseScore is setup correctly")
-        if not pngapp or not pngapp.exists():
-            msg = "In the configuration the key 'show.format' is set to" \
-                  "'xml.png'. MuseScore is needed to handle this conversion," \
-                  " and its path must be configured as " \
-                  "music21.environment.UserSettings()['musescoreDirectPNGPath'] = '/path/to/musescore'"
-            logger.error(msg)
-            if solve:
-                solved = _setupMusescore()
-                solvedstr = "solved" if solved else "not solved"
-                logger.error("-----> " + solvedstr)
-                errors.append("MuseScore not setup within music21 settings: {solvedstr}")
-        else:
-            logger.debug("Checked if MuseScore is setup correctly: OK")
+    # check if musescore is setup
+    import maelzel.music.m21tools
+    musescorepath = maelzel.music.m21tools.findMusescore()
+    if not musescorepath:
+        msg = "In the configuration the key 'show.format' is set to" \
+              "'xml.png'. MuseScore is needed to handle this conversion," \
+              " and its path must be configured as " \
+              "music21.environment.UserSettings()['musescoreDirectPNGPath'] = '/path/to/musescore'"
+        logger.error(msg)
+        errors.append(f"MuseScore not found")
+    else:
+        logger.debug("Checked if MuseScore is setup correctly: OK")
     return errors or None
 
-
-def _setupMusescore(force=False) -> bool:
-    us = m21.environment.UserSettings()
-    pngapp = us['musescoreDirectPNGPath']
-    if pngapp is not None and pngapp.exists() and not force:
-        return False
-    mscore = _multiwhich("musescore", "MuseScore")
-    if mscore:
-        us['musescoreDirectPNGPath'] = mscore
-        return True
-    return False
-
-
-def _multiwhich(*appnames) -> Opt[str]:
-    for app in appnames:
-        path = shutil.which(app)
-        if path and os.path.exists(path):
-            return path
-    return None
-
-
-# -----------------
 
 def _syncCsoundengineTheme(theme:str):
     import csoundengine
     csoundengine.config['html_theme'] = theme
 
+
 def _resetImageCacheCallback():
     from . import musicobj
     musicobj.resetImageCache()
+
 
 def _propagateA4(config, a4):
     from . import workspace
     w = workspace.activeWorkspace()
     if config is w.config:
         w.a4 = a4
+
 
 rootConfig = ConfigDict('maelzel.core', _default, validator=_validator,
                         docs=_docs, fmt='yaml')
