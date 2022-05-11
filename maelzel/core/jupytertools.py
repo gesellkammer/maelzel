@@ -1,17 +1,18 @@
 from __future__ import annotations
 import emlib.img
 from ._common import logger
-from .workspace import activeConfig
-
+from .workspace import getConfig
+import tempfile
+import os
 from . import environment
-
+from typing import TYPE_CHECKING
 
 if environment.insideJupyter:
     from IPython.core.display import (display as jupyterDisplay, HTML as JupyterHTML,
                                       Image as JupyterImage)
 
 
-def setJupyterHookForClass(cls, func, fmt='image/png'):
+def setJupyterHookForClass(cls, func, fmt='image/png') -> None:
     """
     Register func as a displayhook for class `cls`
     """
@@ -39,16 +40,14 @@ def jupyterMakeImage(path: str, scalefactor:float = None) -> JupyterImage:
     if not environment.insideJupyter:
         raise RuntimeError("Not inside a Jupyter session")
 
-    scalefactor = scalefactor if scalefactor is not None else activeConfig()['show.scaleFactor']
+    scalefactor = scalefactor if scalefactor is not None else getConfig()['show.scaleFactor']
+    width, height = emlib.img.imgSize(path)
     if scalefactor != 1.0:
-        imgwidth, imgheight = emlib.img.imgSize(path)
-        width = imgwidth * scalefactor
-    else:
-        width = None
+        width *= scalefactor
     return JupyterImage(filename=path, embed=True, width=width)
 
 
-def jupyterShowImage(path: str, scalefactor:float = None):
+def jupyterShowImage(path: str, scalefactor:float = None, maxwidth: int = None):
     """
     Show an image inside (inline) of a jupyter notebook
 
@@ -62,10 +61,12 @@ def jupyterShowImage(path: str, scalefactor:float = None):
         return
 
     img = jupyterMakeImage(path, scalefactor=scalefactor)
+    if maxwidth is not None and img.width > maxwidth:
+        img.width = maxwidth
     return jupyterDisplay(img)
 
 
-def pngShow(pngpath:str, forceExternal=False, app:str='') -> None:
+def showPng(pngpath:str, forceExternal=False, app:str= '', scalefactor: float = None) -> None:
     """
     Show a png either inside jupyter or with an external app
 
@@ -79,7 +80,7 @@ def pngShow(pngpath:str, forceExternal=False, app:str='') -> None:
             defined app is used
     """
     if environment.insideJupyter and not forceExternal:
-        jupyterShowImage(pngpath)
+        jupyterShowImage(pngpath, scalefactor=scalefactor)
     else:
         environment.openPngWithExternalApplication(pngpath, app=app)
 
@@ -100,17 +101,29 @@ def m21JupyterHook(enable=True) -> None:
     from IPython.core import display
     from IPython.display import Image, display
     import music21 as m21
+    import maelzel.scoring
     ip = get_ipython()
     formatter = ip.display_formatter.formatters['image/png']
     if enable:
         def showm21(stream: m21.stream.Stream):
-            cfg = activeConfig()
-            fmt = cfg['m21.displayhook.format']
-            filename = str(stream.write(fmt))
-            if fmt.endswith(".png") and cfg['html.theme'] == 'dark':
-                emlib.img.pngRemoveTransparency(filename)
-            return display(Image(filename=filename))
-            # return display.Image(filename=filename)._repr_png_()
+            cfg = getConfig()
+            xmlfile = tempfile.mktemp(suffix='.musicxml', dir='.')
+            outfile = tempfile.mktemp(suffix='.png', dir='.')
+            stream.write('musicxml', xmlfile)
+            assert os.path.exists(xmlfile), f"Failed to write {xmlfile}!"
+            maelzel.scoring.render.renderMusicxml(xmlfile, outfile=outfile)
+            if cfg['html.theme'] == 'dark':
+                emlib.img.pngRemoveTransparency(outfile)
+            imgwidth, imgheight = emlib.img.imgSize(outfile)
+            scaleFactor = cfg['show.scaleFactor']
+            width = min(cfg['show.jupyterMaxImageWidth'], imgwidth*scaleFactor)
+            img = Image(filename=outfile, width=width)
+            if os.path.exists(xmlfile):
+                os.remove(xmlfile)
+            if os.path.exists(outfile):
+                os.remove(outfile)
+            display(img)
+
 
         dpi = formatter.for_type(m21.Music21Object, showm21)
         return dpi

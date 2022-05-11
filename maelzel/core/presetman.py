@@ -7,7 +7,7 @@ import glob
 import csoundengine.csoundlib
 import emlib.dialogs
 from .presetbase import *
-from .workspace import presetsPath, activeConfig, activeWorkspace
+from .workspace import presetsPath, getConfig, getWorkspace
 from . import presetutils
 from . import playpresets
 from ._common import logger
@@ -21,16 +21,15 @@ import watchdog.events
 from watchdog.observers import Observer as _WatchdogObserver
 
 
-__all__ = ('csoundPrelude',
-           'presetManager',
-           'showPresets',
-           'defPreset',
-           'defPresetSoundfont',
-           'PresetManager',
-           )
+__all__ = (
+    'presetManager',
+    'showPresets',
+    'defPreset',
+    'defPresetSoundfont'
+)
 
 
-csoundPrelude = r"""
+_csoundPrelude = r"""
 opcode turnoffWhenSilent, 0, a
     asig xin
     ksilent_  trigger detectsilence:k(asig, 0.0001, 0.05), 0.5, 0
@@ -57,7 +56,7 @@ class PresetManager:
     Singleton object, manages all instrument Presets
 
     Any maelzel.core object can be played with an instrument preset defined
-    here. A Preset is attached to a running Session as soon as an object
+    here. A PresetManager is attached to a running Session as soon as an object
     is scheduled with the given Preset. As such, it acts as a library of Presets
     and any number of such Presets can be created.
     """
@@ -136,13 +135,12 @@ class PresetManager:
         - **kamp**: linear amplitude (0-1)
         - **kfreq**: frequency corresponding to kpitch
 
-        Each preset CAN have an associated ftable, passed as p4.
-        If p4 is 0, then the given preset has no associated ftable
+        Similar to csoundengine's `Instr <https://csoundengine.readthedocs.io/en/latest/instr.html>`_ ,
+        each preset can have an associated ftable, passed as p4. If p4 is 0, then
+        the given preset has no associated ftable
 
         audiogen should generate an audio output signal named 'aout1' for channel 1,
-        'aout2' for channel 2, etc.
-
-        Example::
+        'aout2' for channel 2, etc.::
 
             audiogen = 'aout1 oscili a(kamp), kfreq'
 
@@ -157,17 +155,19 @@ class PresetManager:
             description: a description of what this preset is/does
             priority: if given, the instr has this priority as default when scheduled
             temporary: if True, preset will not be saved, even if
-                `config['play.autosavePreset']` is True
+                the 'play.autosavePreset' is set to True in the active config
 
-        Retursn:
+        Returns:
             a PresetDef
 
         Example
         ~~~~~~~
 
+        Create a preset with dynamic parameters
+
         .. code-block:: python
 
-            # create a preset with a dynamic parameter
+            >>> from maelzel.core import *
             >>> audiogen = r'''
             ... aout1 vco2 kamp, kfreq, 10
             ... aout1 moogladder aout1, lag:k(kcutoff, 0.1), kq
@@ -175,7 +175,8 @@ class PresetManager:
             >>> presetManager.defPreset(name='mypreset', audiogen=audiogen,
             ...                         params=dict(kcutoff=4000, kq=1))
 
-            # Alternatively the parameters can be declared inline:
+        Alternatively the parameters can be declared inline:
+
             >>> presetManager.defPreset('mypreset', r'''
             ... |kcutoff=4000, kq=1|
             ... aout1 vco2 kamp, kfreq, 10
@@ -223,7 +224,7 @@ class PresetManager:
                            turnoffWhenSilent=True,
                            _builtin=False) -> PresetDef:
         """
-        Define a new soundfont instrument preset
+        Define a new instrument preset based on a soundfont
 
         Args:
             name: the name of the preset. If not given, the name of the preset
@@ -251,7 +252,7 @@ class PresetManager:
             _builtin: internal parameter, used to identify builtin presets
                 (builtin presets are not saved)
 
-        !!! note
+        .. note::
 
             To list all programs in a soundfont, see
             :func:`~maelzel.play.showSoundfontPresets`
@@ -267,7 +268,7 @@ class PresetManager:
             sf2path = tools.selectFileForOpen('soundfontLastDirectory',
                                               filter="*.sf2", prompt="Select Soundfont",
                                               ifcancel="No soundfont selected, aborting")
-        cfg = activeConfig()
+        cfg = getConfig()
         if interpolation is None:
             interpolation = cfg['play.soundfontInterpolation']
         assert interpolation in ('linear', 'cubic')
@@ -327,9 +328,10 @@ class PresetManager:
 
         """
         self.presetdefs[presetdef.name] = presetdef
-        config = activeConfig()
+        config = getConfig()
         if presetdef.userDefined and not presetdef.temporary and config['play.autosavePresets']:
             self.savePreset(presetdef.name)
+
 
     def getPreset(self, name:str) -> PresetDef:
         """Get a preset by name
@@ -341,11 +343,11 @@ class PresetManager:
                 of defined presets)
         """
         if name is None:
-            name = activeConfig()['play.instr']
+            name = getConfig()['play.instr']
         elif name == "?":
             name = tools.selectFromList(list(self.presetdefs.keys()),
                                         title="Select Preset",
-                                        default=activeConfig()['play.instr'])
+                                        default=getConfig()['play.instr'])
         preset = self.presetdefs.get(name)
         if not preset:
             logger.error(f"Preset {name} not known. \n"
@@ -354,7 +356,13 @@ class PresetManager:
         return preset
 
     def definedPresets(self) -> List[str]:
-        """Returns a list of defined presets"""
+        """Returns a list with the names of all defined presets
+
+        .. note::
+
+            To show more information about each preset, see
+            :meth:`~maelzel.presetman.PresetManager.showPresets`
+        """
         return list(self.presetdefs.keys())
 
     def showPresets(self, pattern="*", showGeneratedCode=False) -> None:
@@ -376,9 +384,9 @@ class PresetManager:
                 if not showGeneratedCode:
                     print(presetdef)
                 else:
-                    print(presetdef.makeInstr().body)
+                    print(presetdef.getInstr().body)
         else:
-            theme = activeConfig()['html.theme']
+            theme = getConfig()['html.theme']
             htmls = []
             for presetName in selectedPresets:
                 presetdef = self.presetdefs[presetName]
@@ -472,19 +480,21 @@ class PresetManager:
         Returns:
             a csoundengine.Renderer
         """
-        config = activeConfig()
+        config = getConfig()
         sr = sr or config['rec.sr']
         ksmps = ksmps or config['rec.ksmps']
         nchnls = nchnls or config['rec.nchnls']
-        state = activeWorkspace()
+        state = getWorkspace()
         renderer = csoundengine.Renderer(sr=sr, nchnls=nchnls, ksmps=ksmps,
                                          a4=state.a4)
-        renderer.addGlobalCode(csoundPrelude)
+        renderer.addGlobalCode(_csoundPrelude)
         # Define all instruments
         for presetdef in self.presetdefs.values():
-            renderer.defInstr(name=presetdef.name, body=presetdef.body, tabledef=presetdef.params)
+            instr = presetdef.getInstr()
+            renderer.registerInstr(instr)
             globalCode = presetdef.globalCode()
             if globalCode:
+                logger.debug(f"makeRenderer: adding global code for instr {instr.name}:\n{globalCode}")
                 renderer.addGlobalCode(globalCode)
         return renderer
 
@@ -524,10 +534,24 @@ class PresetManager:
         return True
 
     def savedPresets(self) -> List[str]:
+        """
+        Returns a list of saved presets
+
+        Returns:
+            a list of the names of the presets saved to the presets path
+
+        .. seealso:: :func:`presetsPath`
+        """
         presets = glob.glob(os.path.join(presetsPath(), "*.yaml"))
         return [os.path.splitext(os.path.split(p)[1])[0] for p in presets]
 
     def selectPreset(self) -> Optional[str]:
+        """
+        Select one of the available presets via a GUI
+
+        Returns:
+            the name of the selected preset, or None if selection was canceled
+        """
         return emlib.dialogs.selectItem(presetManager.definedPresets(),
                                         title="Select Preset")
 
@@ -536,5 +560,5 @@ presetManager = PresetManager()
 defPreset = presetManager.defPreset
 defPresetSoundfont = presetManager.defPresetSoundfont
 showPresets = presetManager.showPresets
-
+definedPresets = presetManager.definedPresets
 

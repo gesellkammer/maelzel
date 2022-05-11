@@ -67,7 +67,15 @@ builtinPresets = [
         r"aout1 vco2 kamp, mtof:k(lag:k(kpitch+ktransp, klag), 2, kpwm",
         params=dict(ktransp=0, klag=0.1, kpwm=0.5),
         description="transposable pulse with moulatable pwm",
-        builtin=True)
+        builtin=True),
+
+    PresetDef('.click',
+        r"""
+        aclickenv expseg db(-120), 0.01, 1, 0.1, db(-120)
+        aout1 = oscili:a(aclickenv, mtof:k(kpitch+ktransp))
+        """,
+        params={'ktransp': 24},
+        builtin=True),
 ]
 
 

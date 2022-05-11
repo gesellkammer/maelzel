@@ -86,7 +86,7 @@ def peaksbpf(samples:np.ndarray, sr:int, res=0.01, overlap=2, channel=0) -> bpf4
     """
     samples = getChannel(samples, channel)
     period = int(sr*res+0.5)
-    dt = period/sr
+    # dt = period/sr
     hopsamps = period//overlap
     numperiods = int(len(samples)/hopsamps)
     data = np.empty((numperiods,), dtype=float)
@@ -94,7 +94,7 @@ def peaksbpf(samples:np.ndarray, sr:int, res=0.01, overlap=2, channel=0) -> bpf4
         idx0 = i * hopsamps
         chunk = samples[idx0:idx0+period]
         data[i] = np.abs(chunk).max()
-    return bpf4.core.Sampled(data, x0=0, dx=dt)
+    return bpf4.core.Sampled(data, x0=0, dx=hopsamps/sr)
 
 
 def makeRamp(desc:str, numsamples:int) -> np.ndarray:

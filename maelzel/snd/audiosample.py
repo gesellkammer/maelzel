@@ -51,7 +51,7 @@ import numpy as np
 import os
 import tempfile
 import shutil
-import bpf4 as _bpf
+import bpf4
 import sndfileio
 import logging
 from pathlib import Path
@@ -79,7 +79,8 @@ config = {
     'reprhtml_audiotag_maxduration_minutes': 10,
     'reprhtml_audiotag_width': '100%',
     'reprhtml_audiotag_maxwidth': '1200px',
-    'reprhtml_audio_format': 'wav'
+    'reprhtml_audio_format': 'wav',
+    'csoundengine': 'maelzel.snd',
 }
 
 
@@ -171,7 +172,7 @@ def getPlayEngine(**kws) -> csoundengine.Engine:
     if _csoundEngine:
         return _csoundEngine
     import csoundengine
-    _csoundEngine = csoundengine.Engine()
+    _csoundEngine = csoundengine.Engine('maelzel.snd.audiosample')
     return _csoundEngine
 
 
@@ -195,7 +196,6 @@ def setPlayEngine(engine: csoundengine.Engine) -> None:
     """
     global _csoundEngine
     _csoundEngine = engine
-
 
 
 def _vampPyinAvailable() -> bool:
@@ -232,10 +232,12 @@ class Sample:
         """
         self._csoundTabnum = 0
         self._reprHtml: str = ''
-        self._asbpf: Opt[_bpf.BpfInterface] = None
+        self._asbpf: Opt[bpf4.core.BpfInterface] = None
+        self.path = ''
 
         if isinstance(sound, (str, Path)):
             samples, samplerate = readSoundfile(sound, start=start, end=end)
+            self.path = str(sound)
         elif isinstance(sound, np.ndarray):
             assert samplerate is not None
             samples = sound
@@ -258,9 +260,8 @@ class Sample:
         return len(self.samples)/self.sr
 
     def __repr__(self):
-        s = "Sample: dur=%f sr=%d ch=%d" % (self.duration, self.sr,
-                                            self.numchannels)
-        return s
+        return (f"Sample(dur={self.duration}, sr={self.sr:d}, "
+                f"ch={self.numchannels})")
 
     @classmethod
     def silent(cls, dur: float, channels: int, sr: int) -> Sample:
@@ -273,19 +274,20 @@ class Sample:
             samples = np.zeros((int(dur*sr), channels), dtype=float)
         return cls(samples, sr)
 
-    def _makeCsoundTable(self) -> int:
+    def _makeCsoundTable(self, engine: csoundengine.Engine) -> int:
         if self._csoundTabnum:
-            return self._csoundTabnum
-        engine = getPlayEngine()
-        #tabnum = engine.makeEmptyTable(len(self.samples)*self.numchannels,
-        #                               numchannels=self.numchannels, sr=self.sr)
+            usedengine, table = self._csoundTabnum
+            if usedengine == engine.name:
+                return table
         tabnum = engine.makeTable(self.samples, sr=self.sr, block=True)
-        #engine.fillTable(tabnum, self.samples.flatten(), block=True)
-        self._csoundTabnum= tabnum
+        self._csoundTabnum = (engine.name, tabnum)
         return tabnum
 
+    def preparePlay(self):
+        self._makeCsoundTable(getPlayEngine())
+
     def play(self, loop=False, chan:int=1, gain=1., delay=0.,
-             pan=-1, speed=1.0
+             pan=-1, speed=1.0, engine: U[str, csoundengine.Engine] = None
              ) -> csoundengine.synth.Synth:
         """
         Play the given sample
@@ -310,6 +312,9 @@ class Sample:
                 for stereo. For 3 or more channels pan is currently ignored
             speed(float): the playback speed. A variation in speed will change
                 the pitch accordingly.
+            engine: the name of a csoundengine.Engine, or the Engine instance
+                itself. If given, playback will be performed using this engine,
+                otherwise a default Engine will be used.
 
         Returns:
             a :class:`csoundengine.synth.Synth`. This synth can be used to
@@ -322,21 +327,30 @@ class Sample:
         * :func:`setPlayEngine`
 
         """
-        engine = getPlayEngine()
-        tabnum = self._makeCsoundTable()
+        if engine:
+            import csoundengine
+            if isinstance(engine, str):
+                _engine = csoundengine.getEngine(engine)
+                if _engine is None:
+                    raise ValueError(f"Engine {engine} unknown. Known engines: {csoundengine.activeEngines()}")
+                else:
+                    engine = _engine
+        else:
+            engine = getPlayEngine()
+        tabnum = self._makeCsoundTable(engine)
         synth = engine.session().playSample(tabnum, chan=chan, gain=gain,
                                             loop=loop, delay=delay, pan=pan,
                                             speed=speed)
         return synth
 
-    def asbpf(self) -> _bpf.BpfInterface:
+    def asbpf(self) -> bpf4.BpfInterface:
         """
         Convert this sample to a bpf4.core.Sampled bpf
         """
         if self._asbpf not in (None, False):
             return self._asbpf
         else:
-            self._asbpf = _bpf.core.Sampled(self.samples, 1/self.sr)
+            self._asbpf = bpf4.core.Sampled(self.samples, 1/self.sr)
             return self._asbpf
 
     def plot(self, profile='auto') -> None:
@@ -348,6 +362,9 @@ class Sample:
         """
         from . import plotting
         plotting.plotWaveform(self.samples, self.sr, profile=profile)
+
+    def reprHtml(self) -> str:
+        return self._repr_html_()
 
     def _repr_html_(self) -> str:
         if self._reprHtml:
@@ -393,14 +410,6 @@ class Sample:
                 audiotag = audioobj._repr_html_()
             audiotag = audiotag.replace('audio  controls="controls"',
                                         fr'audio controls style="width: {audiotag_width}; max-width: {maxwidth};"')
-
-            #_audiotag = rf"""
-            #<br>
-            #<audio controls style="width: {audiotag_width}; max-width: {maxwidth};">
-            #  <source src="{relname}" type="{mimetype}">
-            #  audio tag not supported
-            #</audio>
-            #"""
             s += "<br>"
             s += audiotag
         self._reprHtml = s
@@ -426,20 +435,14 @@ class Sample:
         a fraction)
         """
         from . import plotting
-        if self.numchannels > 1:
-            samples = self.samples[:, 0]
-        else:
-            samples = self.samples
+        samples = self.samples if self.numchannels == 1 else self.samples[:,0]
         s0 = 0 if start == 0 else int(start*self.sr)
         s1 = self.numframes if dur == 0 else min(self.numframes,
                                                  int(dur*self.sr)-s0)
         if s0 > 0 or s1 != self.numframes:
             samples = samples[s0:s1]
-        plotting.plotPowerSpectrum(samples,
-                                   self.sr,
-                                   framesize=framesize,
-                                   window=window,
-                                   )
+        plotting.plotPowerSpectrum(samples, self.sr, framesize=framesize,
+                                   window=window)
 
     def plotSpectrogram(self,
                         fftsize=2048,
@@ -473,15 +476,9 @@ class Sample:
             samples = self.samples[:, 0]
         else:
             samples = self.samples
-        return plotting.plotSpectrogram(samples,
-                                        self.sr,
-                                        window=window,
-                                        fftsize=fftsize,
-                                        overlap=overlap,
-                                        mindb=mindb,
-                                        minfreq=minfreq,
-                                        maxfreq=maxfreq,
-                                        axes=axes)
+        return plotting.plotSpectrogram(samples, self.sr, window=window, fftsize=fftsize,
+                                        overlap=overlap, mindb=mindb, minfreq=minfreq,
+                                        maxfreq=maxfreq, axes=axes)
 
     def openInEditor(self, wait=True, app=None, fmt='wav'
                      ) -> Opt[Sample]:
@@ -782,7 +779,7 @@ class Sample:
         """return the highest sample value (dB)"""
         return amp2db(np.abs(self.samples).max())
 
-    def peaksbpf(self, framedur=0.01, overlap=2) -> _bpf.core.Sampled:
+    def peaksbpf(self, framedur=0.01, overlap=2) -> bpf4.core.Sampled:
         """
         Return a BPF representing the peaks envelope of the source
 
@@ -800,7 +797,7 @@ class Sample:
         self._changed()
         return self
 
-    def rmsbpf(self, dt=0.01, overlap=1) -> _bpf.core.Sampled:
+    def rmsbpf(self, dt=0.01, overlap=1) -> bpf4.core.Sampled:
         """
         Return a bpf representing the rms of this sample over time
         """
@@ -887,7 +884,7 @@ class Sample:
         samples = resample(self.samples, self.sr, samplerate)
         return Sample(samples, samplerate=samplerate)
 
-    def scrub(self, bpf: _bpf.BpfInterface) -> Sample:
+    def scrub(self, bpf: bpf4.BpfInterface) -> Sample:
         """
         Scrub the samples with the given curve
 
@@ -896,10 +893,11 @@ class Sample:
 
         Example::
 
-            >>> # Read sample at half speed
+            Read sample at half speed
+            >>> import bpf4
             >>> sample = Sample("path.wav")
             >>> dur = sample.duration
-            >>> sample2 = sample.scrub(bpf.linear([(0, 0), (dur*2, dur)]))
+            >>> sample2 = sample.scrub(bpf4.linear([(0, 0), (dur*2, dur)]))
 
         """
         samples, sr = _sndfiletools.scrub((self.samples, self.sr), bpf,
@@ -959,29 +957,78 @@ class Sample:
         freq, prob = func(s.samples, s.sr)
         return freq
 
+    def onsets(self, fftsize=2048, overlap=4, method: str = 'rosita',
+               threshold: float = None, mingap=0.03) -> np.ndarray:
+        """
+        Detect onsets
+
+        .. note::
+
+
+
+        Args:
+            fftsize: the size of the window
+            overlap: a hop size as a fraction of the fftsize
+            method: one of 'rosita' (using librosa's onset detection algorithm)
+                or 'aubio' (needs aubio to be installed)
+            threshold: the onset sensitivity. rosita has a default of 0.07, while
+                aubio has a default of 0.03
+            mingap: the min. time between two onsets
+
+        Returns:
+            a list of onset times, as a numpy array
+
+        See Also
+        --------
+
+        * maelzel.snd.features.onsetsAubio
+        * maelzel.snd.features.onsetsRosita
+
+        """
+        if method == 'rosita':
+            if threshold is None:
+                threshold = 0.07
+            from maelzel.snd import features
+            onsets, onsetstrength = features.onsets(self.samples, sr=self.sr,
+                                                    winsize=fftsize,
+                                                    hopsize = fftsize // overlap,
+                                                    threshold=threshold,
+                                                    mingap=mingap)
+            return onsets
+        elif method == 'aubio':
+            if threshold is None:
+                threshold = 0.03
+            from maelzel.snd import features
+            onsets = features.onsetsAubio(samples=self.samples, sr=self.sr, winsize=fftsize,
+                                          hopsize=fftsize//overlap, threshold=threshold,
+                                          mingap=mingap)
+            return np.asarray(onsets, dtype=float)
+        else:
+            raise ValueError(f"method {method} not known. Possible methods: 'rosita', 'aubio'")
+
     def fundamentalBpf(self, fftsize=2048, overlap=4, method:str=None
-                       ) -> _bpf.BpfInterface:
+                       ) -> bpf4.BpfInterface:
         """
         Construct a bpf which follows the fundamental of this sample in time
 
         .. note::
-            The method 'pyin-annotator' depends on both sonicannotator and the
-            pyin vamp plugin being installed.
-            The method 'pyin' depends on the python module 'vamphost' and the
+
+            The method 'pyin-vamp' depends on the python module 'vamphost' and the
             pyin vamp plugin being installed
 
-            sonicannotator: https://code.soundsoftware.ac.uk/projects/sonic-annotator/files
-            vamp host: original code: https://code.soundsoftware.ac.uk/projects/vampy-host,
-                install via 'pip install vamphost'
-            pyin plugin: https://code.soundsoftware.ac.uk/projects/pyin/files
+            - vamp host: original code: https://code.soundsoftware.ac.uk/projects/vampy-host
+              (install via ``pip install vamphost``)
+            - pyin plugin can be downloaded from https://code.soundsoftware.ac.uk/projects/pyin/files.
+              More information about installing VAMP plugins: https://www.vamp-plugins.org/download.html#install
 
         Args:
             fftsize: the size of the fft, in samples
             overlap: determines the hop size
-            method: one of 'pyin', 'pyin-annotator', 'fft'.
-                To be able to use 'pyin', the 'vamphost' package and the 'pyin' plugin
-                must be installed. 'pyin' is the recommended method at the moment
+            method: one of 'pyin-native', 'pyin-vamp', 'fft'.
+                To be able to use 'pyin-vamp', the 'vamphost' package and the 'pyin' plugin
+                must be installed. 'pyin-vamp' is the recommended method at the moment
                 Use None to autodetect a method based on the installed software
+
         Returns:
             a bpf representing the fundamental freq. of this sample
 
@@ -990,29 +1037,18 @@ class Sample:
         if method is None:
             # auto detect
             if _vampPyinAvailable():
-                method = 'pyin'
-            elif shutil.which('sonic-annotator') is not None:
-                method = 'pyin-annotator'
+                method = 'pyin-vamp'
             else:
-                method = 'pyin-librosa'
+                method = 'pyin-native'
 
-        if method == "pyin-annotator":
-            from maelzel.ext import sonicannotator
-            tmpwav = tempfile.mktemp(suffix=".wav")
-            s = self.getChannel(0)
-            s.write(tmpwav)
-            bpf = sonicannotator.pyin_smoothpitch(tmpwav, fftsize=fftsize,
-                                                  stepsize=stepsize)
-            os.remove(tmpwav)
-            return bpf
-        elif method == "pyin":
+        if method == "pyin-vamp":
             from maelzel.snd import vamptools
             samples = self.getChannel(0).samples
             dt, freqs = vamptools.pyin_smoothpitch(samples, self.sr,
                                                    fft_size=fftsize,
                                                    step_size=fftsize//overlap)
-            return _bpf.core.Sampled(freqs, dt)
-        elif method == 'pyin-librosa':
+            return bpf4.core.Sampled(freqs, dt)
+        elif method == 'pyin-native':
             from maelzel.snd import freqestimate
             samples = self.getChannel(0).samples
             hoplength = fftsize // overlap
@@ -1097,6 +1133,19 @@ class Sample:
                                   soundthreshold=soundthreshold,
                                   startidx=int(start*self.sr))
         return idx/self.sr if idx is not None else None
+
+    def onsets(self, hopsize=512) -> List[float]:
+        """
+        Detect onsets in this Sample
+
+        Args:
+            hopsize: the hop size in samples
+
+        Returns:
+            a list of onset times
+
+        """
+
 
 
 def broadcastSamplerate(samples: List[Sample]) -> List[Sample]:
@@ -1212,7 +1261,7 @@ def mix(samples: List[Sample], offsets:List[float]=None, gains:List[float]=None
         >>> a = Sample("stereo-2seconds.wav")
         >>> b = Sample("stereo-3seconds.wav")
         >>> m = mix([a, b], offsets=[2, 0])
-        >>> m.duration
+        >>> m.durationSecs
         4.0
     """
     nchannels = samples[0].numchannels

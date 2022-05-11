@@ -7,14 +7,14 @@ from pitchtools import m2n, m2f, f2m
 import emlib.img
 
 from ._common import *
-from .workspace import activeConfig
+from .workspace import getConfig
 from . import tools
 from . import notation
 
 
 @functools.cache
 def _makeImageForPitch(notename: str) -> str:
-    cfg = activeConfig()
+    cfg = getConfig()
     n = scoring.makeNote(notename, duration=cfg['defaultDuration'])
     part = scoring.Part([n])
     outfile = tempfile.mktemp(suffix=".png")
@@ -63,7 +63,7 @@ class Pitch:
         return self.midi > float(other)
 
     def __repr__(self) -> str:
-        if activeConfig()['repr.showFreq']:
+        if getConfig()['repr.showFreq']:
             return f"<{self.name} {self.freq:.1f}Hz>"
         else:
             return self.name
@@ -73,7 +73,7 @@ class Pitch:
 
     def _htmlImage(self):
         imgpath = self.makeImage()
-        scaleFactor = activeConfig().get('show.scaleFactor', 1.0)
+        scaleFactor = getConfig().get('show.scaleFactor', 1.0)
         width, height = emlib.img.imgSize(imgpath)
         img = emlib.img.htmlImgBase64(imgpath,
                                       width=f'{int(width*scaleFactor)}px')

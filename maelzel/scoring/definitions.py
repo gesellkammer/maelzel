@@ -24,4 +24,4 @@ noteheadShapes = {
 
 dynamicLevels = ["pppp", "ppp", "pp", "p", "mp", "mf", "f", "ff", "fff", "ffff"]
 
-availableDynamics = {'pppp', 'ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'ffff'}
+availableDynamics = set(dynamicLevels)

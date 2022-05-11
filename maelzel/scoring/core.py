@@ -10,12 +10,12 @@ from .notation import *
 import itertools
 import functools
 import copy
-from typing import Optional as Opt, Union as U, List, Any, Dict, \
-    Iterator as Iter
 import uuid
 import logging
 from enum import Enum
-
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import *
 
 logger = logging.getLogger("maelzel.scoring")
 
@@ -101,7 +101,7 @@ class Part(list):
         groupid: an identification (given by makeGroupId), used to identify
             tracks which belong to a same group
     """
-    def __init__(self, events: Iter[Notation]=None, label:str=None, groupid:str=None):
+    def __init__(self, events: Iterator[Notation]=None, label:str=None, groupid:str=None):
 
         if events:
             super().__init__(events)
@@ -114,7 +114,7 @@ class Part(list):
     def __getitem__(self, item) -> Notation:
         return super().__getitem__(item)
 
-    def __iter__(self) -> Iter[Notation]:
+    def __iter__(self) -> Iterator[Notation]:
         return super().__iter__()
 
     def __repr__(self) -> str:
@@ -149,6 +149,21 @@ class Part(list):
         """
         stackNotationsInPlace(self)
 
+    def meanPitch(self) -> float:
+        """
+        Returns the mean pitch of this part, weighted by the duration of each pitch
+
+        Returns:
+            a float representing the mean pitch as midinote
+        """
+        pitch, dur = 0, 0
+        for n in self:
+            if n.isRest:
+               continue
+            pitch += n.meanPitch() * n.duration
+            dur += n.duration
+        return pitch / dur
+
     def fillGaps(self, mingap=1/64) -> None:
         """
         Fill gaps between notations in this Part, in place
@@ -174,7 +189,10 @@ class Part(list):
         return Part(notations, label=self.label, groupid=self.groupid)
 
 
-class Score(list):
+class Arrangement(list):
+    """
+    An Arrangement is a list of Parts
+    """
     def __init__(self, parts: List[Part]=None, title:str=''):
         if parts:
             super().__init__(parts)
@@ -332,7 +350,7 @@ def fillSilences(notations: List[Notation], mingap=1/64, offset:time_t=None) -> 
     return out
 
 
-def _groupById(notations: List[Notation]) -> List[U[Notation, List[Notation]]]:
+def _groupById(notations: List[Notation]) -> List[Union[Notation, List[Notation]]]:
     """
     Given a seq. of events, elements which are grouped together are wrapped
     in a list, whereas elements which don't belong to any group are

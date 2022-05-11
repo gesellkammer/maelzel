@@ -337,13 +337,13 @@ def objDuration(obj) -> F:
     1/4 = 1 quarter note
     """
     if isinstance(obj, (abj.core.Tuplet, abj.core.Note, abj.core.Rest)):
-        dur = abj.inspect(obj).duration()
+        dur = abj.inspect(obj).durationSecs()
         return dur
     raise TypeError(f"dur. not implemented for {type(obj)}")
 
 
 def _abjTupleGetDurationType(tup: abj.core.Tuplet) -> str:
-    tupdur = abj.inspect(tup).duration()
+    tupdur = abj.inspect(tup).durationSecs()
     mult = tup.multiplier
     if mult.denominator <= 3:
         durtype = {

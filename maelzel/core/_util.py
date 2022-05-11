@@ -25,6 +25,16 @@ def buildingDocumentation() -> bool:
 
 
 def checkBuildingDocumentation(logger=None) -> bool:
+    """
+    Check if we are running because of a documentation build
+
+    Args:
+        logger: if given, it is used to log messages
+
+    Returns:
+        True if currently building documentation
+
+    """
     building = buildingDocumentation()
     if building:
         msg = "Not available while building documentation"
@@ -334,10 +344,15 @@ def applySymbols(symbols: List[_symbols.Symbol],
                  notations: Union[scoring.Notation, List[scoring.Notation]]) -> None:
     for symbol in symbols:
         if isinstance(symbol, _symbols.Dynamic):
+
             notations[0].dynamic = symbol.kind
         elif isinstance(symbol, _symbols.Notehead):
             for n in notations:
-                n.notehead = symbol.kind
+                if symbol.kind:
+                    n.notehead = symbol.kind
+                if symbol.color:
+                    n.color = symbol.color
+                n.noteheadParenthesis = symbol.parenthesis
         elif isinstance(symbol, _symbols.Articulation):
             notations[0].articulation = symbol.kind
         elif isinstance(symbol, _symbols.Expression):

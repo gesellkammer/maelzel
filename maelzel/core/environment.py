@@ -6,10 +6,12 @@ needed to perform certain tasks
 """
 from __future__ import annotations
 import sys
+import os
 import shutil
 from typing import Optional as Opt
 import emlib.misc
 import logging
+from typing import Optional
 
 
 insideJupyter = emlib.misc.inside_jupyter()
@@ -60,4 +62,47 @@ def openPngWithExternalApplication(path:str, wait=False, app:str= '') -> None:
         emlib.misc.open_with_app(path, wait=wait)
 
 
+def findMusescore() -> Optional[str]:
+    """
+    Tries to find musescore, returns the path to the executable or None
 
+    We rely on the active config (key: ``musescorepath``) or a binary
+    ``musescore``being present in the path. Also if music21 is installed
+    and the user has set 'musescoreDirectPNGPath' pointing to an existing
+    binary, that will be tried also. If musescore is not found, set
+    the correct path via::
+
+        from maelzel.core import *
+        conf = getConfig()
+        conf['musescorepath'] = '/path/to/musescore'
+        conf.save()
+
+    .. note::
+
+        On macOS the path to the binary should be used, not the path to the .app
+        (which is actually a directory).
+    """
+    from maelzel.core import workspace
+    import music21 as m21
+    cfg = workspace.getConfig()
+    musescorepath = cfg.get('musescorepath')
+    if musescorepath:
+        if os.path.exists(musescorepath):
+            return musescorepath
+        else:
+            logger.warning(f"musescorepath set to {musescorepath} in the active config, but the path does"
+                           f"not exist")
+    us = m21.environment.UserSettings()
+    musescorepath = us['musescoreDirectPNGPath']
+    if os.path.exists(musescorepath):
+        return str(musescorepath)
+    path = shutil.which('musescore')
+    if path is not None:
+        return path
+    logger.warning("MuseScore not found. To fix this issue, make sure musescore is installed. "
+                   "Then set the path via: \n"
+                   ">>> from maelzel.core import *\n"
+                   ">>> conf = getConfig()\n"
+                   ">>> conf['musescorepath'] = '/path/to/musescore'\n"
+                   ">>> conf.save()")
+    return None

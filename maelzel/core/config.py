@@ -3,7 +3,7 @@ Configuration
 =============
 
 At any given moment there is one active configuration. The configuration
-allows to set default values for many settings which customize different
+allows to set default values for many settings to customize different
 aspects of **maelzel.core**:
 
 * notation (default page size, rendered image scaling, etc)
@@ -17,19 +17,19 @@ values of this dict, like ``config[key] = value``. A config has a **set of valid
 attempt to set an unknown key will result in an error. Values are also validated regarding
 their type and accepted choices, range, etc.
 
-Persistence / Root config
--------------------------
+Persistence
+-----------
 
-Modifications to the active configuration can be made for the
-current session or they can be persistent. **The root config** (the config
-at the beginning of a session) **is by default persistent**: any
-modification to it will be saved for all future sessions.
+Modifications to the active configuration can be made persistent by
+saving the config.
 
     >>> from maelzel.core import *
     # Set the reference frequency to 443 for this and all future sessions
-    >>> config.rootConfig['A4'] = 443
+    >>> conf = getConfig()
+    >>> conf['A4'] = 443
     # Set lilypond as default rendering backend
-    >>> config.rootConfig['show.backend'] = 'lilypond'
+    >>> conf['show.backend'] = 'lilypond'
+    >>> conf.save()
 
 See also: :py:module:`csoundengine.workspace`
 
@@ -37,12 +37,13 @@ Active config
 -------------
 
 In order to create a configuration specific for a particular task it is possible
-to create a new config. This will set it as the active config and any changes will
-be only applied to the current workspace.
+to create a new config. This will clone the current workspace with a new config
+with the given modifications.
 
     >>> from maelzel.core import *
     # Create a config to work with old tuning and display notation using a3 page size
-    >>> cfg = newConfig(updates={'A4': 435, 'show.pageSize': 'a3'})
+    >>> cfg = newWorkspace(updates={'A4': 435, 'show.pageSize': 'a3'}, active=True)
+    # do something with this, then deactivate the workspace
 
 -------------------------
 
@@ -124,7 +125,7 @@ show.staffSize:
     | *The size of a staff, in points*
 
 show.backend:
-    | Default: **music21**  -- `str`
+    | Default: **lilypond**  -- `str`
     | Choices: ``lilypond, music21``
     | *method/backend used when rendering notation*
 
@@ -269,7 +270,7 @@ play.generalMidiSoundfont:
     | *Path to a soundfont (sf2 file) with a general midi mapping*
 
 play.namedArgsMethod:
-    | Default: **table**  -- `str`
+    | Default: **pargs**  -- `str`
     | Choices: ``table, pargs``
     | *Method used to convert named parameters defined in a Preset to their corresponding function in a csoundengine.Instr*
 
@@ -338,11 +339,9 @@ logger.level:
 """
 from __future__ import annotations
 import os
-import sys
-import shutil
-import music21 as m21
-from configdict import ConfigDict
 import re
+
+from configdict import ConfigDict
 from ._common import *
 
 from typing import TYPE_CHECKING
@@ -372,7 +371,7 @@ _default = {
     'show.centSep': ',',
     'show.scaleFactor': 1.0,
     'show.staffSize': 12.0,
-    'show.backend': 'music21',
+    'show.backend': 'lilypond',
     'show.format': 'png',
     'show.external': False,
     'show.cacheImages': True,
@@ -382,12 +381,14 @@ _default = {
     'show.pageSize': 'a4',
     'show.pageMarginMillimeters': 4,
     'show.glissEndStemless': False,
-    'show.lilypondPngStaffsizeScale': 1.0,
+    'show.glissHideTiedNotes': True,
+    'show.lilypondPngStaffsizeScale': 1.5,
     'show.measureAnnotationFontSize': 14,
     'show.respellPitches': True,
     'show.horizontalSpacing': 'normal',
     'show.glissandoLineThickness': 2,
     'show.fillDynamicFromAmplitude': False,
+    'show.jupyterMaxImageWidth': 1000,
 
     'app.png': '',
     'musescorepath': '',
@@ -408,7 +409,7 @@ _default = {
     'play.autosavePresets': True,
     'play.defaultAmplitude': 1.0,
     'play.generalMidiSoundfont': '',
-    'play.namedArgsMethod': 'table',
+    'play.namedArgsMethod': 'pargs',
     'play.soundfontAmpDiv': 16384,
     'play.soundfontInterpolation': 'linear',
     'play.schedLatency': 0.2,
@@ -428,7 +429,7 @@ _default = {
 
 _validator = {
     'A4::type': int,
-    'A4::range': (415, 460),
+    'A4::range': (10, 10000),
     'play.chan::type': int,
     'play.chan::range': (1, 64),
     'play.backend::choices': {'default', 'jack', 'pulse', 'alsa', 'pa_cb',
@@ -459,10 +460,14 @@ _validator = {
     'show.pageMarginMillimeters::range': (0, 1000),
     'show.horizontalSpacing::choices': {'normal', 'medium', 'large', 'xlarge'},
     'show.glissandoLineThickness::choices': {1, 2, 3, 4},
-    'logger.level::choices': {'DEBUG', 'INFO', 'WARNING', 'ERROR'}
+    'logger.level::choices': {'DEBUG', 'INFO', 'WARNING', 'ERROR'},
+    'show.jupyterMaxImageWidth::type': int
 }
 
 _docs = {
+    'A4':
+        "Freq. of the Kammerton A4. Normal values are 440, 442, 443 or 432 for old tuning, "
+        "but any 'fantasy' value can be used",
     'defaultDuration':
         "Value used when a duration is needed and has not been set (Note, Chord)."
         " Not the same as play.dur",
@@ -514,11 +519,13 @@ _docs = {
     'show.measureAnnotationFontSize':
         'Font size used for measure annotations',
     'show.glissandoLineThickness':
-        'Line thinkness when rendering glissandi. The value is abstract and it is'
+        'Line thikness when rendering glissandi. The value is abstract and it is'
         'up to the renderer to interpret it',
+    'show.glissHideTiedNotes':
+        'Hide tied notes which are part of a glissando',
     'show.fillDynamicFromAmplitude':
-        'If True, when showing a musicobj as notation, if such object has an amplitude '
-        'and does not  have an explicit dynamic, add a dynamic according to the amplitude',
+        'If True, when rendering notation, if an object has an amplitude '
+        'and does not have an explicit dynamic, add a dynamic according to the amplitude',
     'play.presetsPath': 'The path were presets are saved',
     'play.autosavePresets':
         'Automatically save user defined presets, so they will be available '
@@ -527,9 +534,7 @@ _docs = {
         'When splitting notes between staves, notes within this range of the '
         'split point will be grouped together if they all fit',
     'play.autostartEngine':
-        'Start play engine if not started manually. This is done when the user '
-        'performs an action which indirectly needs the engine to be running, '
-        'like defining an instrument, or calling play.getPlayManager()',
+        'Start play engine if not started manually?',
     'play.schedLatency':
         'Added latency when scheduling events to ensure time precission',
     'rec.quiet':
@@ -559,20 +564,20 @@ _docs = {
     'show.pageMarginMillimeters':
         'The page margin in mm',
     'show.lilypondPngStaffsizeScale':
-        'A factor applied to the staffsize when rendering to png via lilypond. Without'
-        'this, it might happen that the renderer image is too small',
+        'A factor applied to the staffsize when rendering to png via lilypond. Useful '
+        'if rendered images appear too small in a jupyter notebook',
     'show.horizontalSpacing':
         'Hint for the renderer to adjust horizontal spacing. The actual result depends'
         'on the backend and the format used',
+    'show.jupyterMaxImageWidth':
+        'A max. width in pixels for images displayed in a jupyter notebook',
     'play.backend':
         'backend used for playback',
     'rec.path':
         'path used to save output files when rendering offline. If '
         'not given the default can be queried via `recordPath`',
     'show.cacheImages':
-        'If True, new images are only generated when the object '
-        'being rendered as notation has changed. Normally this should '
-        'be left as True but can be deactivated for debugging',
+        'If True, cache rendered images. Set it to False for debugging',
     'show.arpeggioDuration':
         'Duration used for individual notes when rendering a chord as arpeggio',
     'rec.sr':
@@ -588,8 +593,8 @@ _docs = {
     'play.pitchInterpolation':
         'Curve shape for interpolating between pitches',
     'app.png':
-        'Application used when opening .png files externally. If an empty string '
-        'is set, a suitable default for the platform will be selected',
+        'Application used when opening .png files externally. If empty, '
+        'the platform default is used',
     'play.generalMidiSoundfont':
         'Path to a soundfont (sf2 file) with a general midi mapping',
     'html.theme':
@@ -599,14 +604,11 @@ _docs = {
         ' corresponding function in a csoundengine.Instr',
     'quant.complexity':
         'Controls the allowed complexity in the notation. The higher the complexity,'
-        ' the more accurate the timing of the quantization, at the cost of a more complex'
-        ' notation. The value is used as a preset, controlling aspects like which '
-        'subdivisions of the beat are allowed at a' 
-        ' given tempo, the weighting of each subdivision, etc.',
+        ' the more accurate the quantization, at the cost of a more complex notation. ',
     'quant.nestedTuples':
-        'Are nested tuples allowed when quantizing? NB: not all display backends support'
-        ' nested tuples (for example, musescore, which is used to render musicxml to pdf,'
-        ' does not support nested tuples)'
+        'Are nested tuples allowed when quantizing? Not all display backends support'
+        ' nested tuples (musescore, used to render musicxml '
+        ' has no support for nested tuples)'
 }
 
 
@@ -646,13 +648,20 @@ def _resetImageCacheCallback():
 
 def _propagateA4(config, a4):
     from . import workspace
-    w = workspace.activeWorkspace()
+    w = workspace.getWorkspace()
     if config is w.config:
         w.a4 = a4
 
 
-rootConfig = ConfigDict('maelzel.core', _default, validator=_validator,
-                        docs=_docs, fmt='yaml')
+def isValidConfig(config: ConfigDict) -> bool:
+    """
+    Is this a valid config?
+    """
+    return (config.default == rootConfig.default)
+
+
+rootConfig = ConfigDict('maelzel.core', _default, persistent=False,
+                        validator=_validator, docs=_docs)
 rootConfig.registerCallback(lambda d, k, v: _syncCsoundengineTheme(v), re.escape("html.theme"))
 rootConfig.registerCallback(lambda d, k, v: _resetImageCacheCallback(), "show\..+")
 rootConfig.registerCallback(lambda d, k, v: _propagateA4(d, v), "A4")

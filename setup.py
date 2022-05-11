@@ -7,7 +7,7 @@ import sys
 from setuptools import setup
 
 readme = open('README.rst').read()
-version = (0, 3, 2)
+version = (0, 4, 0)
 
 setup(
     name='maelzel',
@@ -27,6 +27,7 @@ setup(
         'maelzel.ext',
         'maelzel.music',
         'maelzel.scoring',
+        'maelzel.musicxml'
     ],
     include_package_data=True,
     install_requires=[
@@ -36,27 +37,25 @@ setup(
         "matplotlib",
         "music21",
         "bpf4",
-        "configdict>=1.0.0",
+        "configdict>=2.0",
         "appdirs",
         "tabulate",
         "sndfileio>=1.8.1",
         "pillow",
         "cachetools",
         "ctcsound",
-        "numpyx",
+        "numpyx>=1.2.0",
         "watchdog",
         "python-constraint",
         "pyyaml",
         "rtmidi2",
-        # "samplerate",   # https://pypi.org/project/samplerate/
         "resampy",
         "psutil",
         "csoundengine>=1.1",
         "pitchtools>=1.3",
         "lxml",
         "quicktions",
-        "librosa"
-
+        "rich"
     ],
     license="BSD",
     zip_safe=False,
@@ -64,5 +63,6 @@ setup(
         'License :: OSI Approved :: BSD License',
         'Natural Language :: English',
         'Programming Language :: Python :: 3.9'
-    ]
+    ],
+    package_data={'': ['data/*']},
 )

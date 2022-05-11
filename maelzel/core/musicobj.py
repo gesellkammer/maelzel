@@ -35,11 +35,12 @@ from maelzel.scorestruct import ScoreStruct
 from ._common import Rat, asRat, UNSET, MAXDUR, logger
 from . import _util
 from .musicobjbase import *
-from .workspace import activeConfig
+from .workspace import getConfig
 from . import play
 from . import environment
 from . import notation
 from . import tools
+from . import symbols
 from .pitch import Pitch
 from .csoundevent import PlayArgs, CsoundEvent
 from . import _musicobjtools
@@ -56,8 +57,8 @@ if TYPE_CHECKING:
 __all__ = (
     'MusicObj',
     'Note',
-    'asNote',
     'Rest',
+    'asNote',
     'Chord',
     'asChord',
     'asEvent',
@@ -70,8 +71,10 @@ __all__ = (
     'trill',
     'packInVoices',
     'asMusic',
-    'Group'
+    'Group',
+    'resetImageCache'
 )
+
 
 @functools.total_ordering
 class Note(MusicObj):
@@ -136,7 +139,6 @@ class Note(MusicObj):
             assert self.pitch > 0
         if dynamic:
             self.setSymbol('Dynamic', dynamic)
-
 
     @property
     def gliss(self):
@@ -251,7 +253,7 @@ class Note(MusicObj):
     def centsrepr(self) -> str:
         """A string representing the .cents of this Note"""
         return _util.centsshown(self.cents,
-                                divsPerSemitone=activeConfig()['semitoneDivisions'])
+                                divsPerSemitone=getConfig()['semitoneDivisions'])
 
     def overtone(self, n:float) -> Note:
         """
@@ -266,7 +268,7 @@ class Note(MusicObj):
         return Note(pt.f2m(self.freq * n))
 
     def scoringEvents(self, groupid:str=None) -> List[scoring.Notation]:
-        config = activeConfig()
+        config = getConfig()
         dur = self.dur or config['defaultDuration']
         assert dur is not None
         if self.isRest():
@@ -302,7 +304,9 @@ class Note(MusicObj):
             if annot is not None:
                 notes[0].addAnnotation(annot)
         if self._symbols:
-            _util.applySymbols(self._symbols, notes)
+            for symbol in self._symbols:
+                assert isinstance(symbol, (symbols.NoteAttachedSymbol, symbols.Property))
+                symbol.applyToTiedGroup(notes)
         return notes
 
     def _asTableRow(self) -> List[str]:
@@ -310,7 +314,7 @@ class Note(MusicObj):
             elements = ["REST"]
         else:
             elements = [pt.m2n(self.pitch)]
-            config = activeConfig()
+            config = getConfig()
             if config['repr.showFreq']:
                 elements.append("%dHz" % int(self.freq))
             if self.amp is not None and self.amp < 1:
@@ -363,7 +367,7 @@ class Note(MusicObj):
         configured via ``getConfig()['semitoneDivisions']``
         """
         if step == 0:
-            step = 1/activeConfig()['semitoneDivisions']
+            step = 1 / getConfig()['semitoneDivisions']
         return self.clone(pitch=round(self.pitch / step) * step)
 
     def csoundEvents(self, playargs: PlayArgs, scorestruct:ScoreStruct, conf:dict
@@ -376,6 +380,9 @@ class Note(MusicObj):
         dur = self.dur or 1.0
         starttime = float(scorestruct.beatToTime(start))
         endtime   = float(scorestruct.beatToTime(start + dur))
+        if starttime >= endtime:
+            raise ValueError(f"Trying to play an event with 0 or negative duration: {endtime-starttime}. "
+                             f"Object: {self}")
         bps = [[starttime, self.pitch, amp],
                [endtime,   endmidi,    amp]]
         return [CsoundEvent.fromPlayArgs(bps=bps, playargs=playargs, tiednext=self.tied)]
@@ -422,7 +429,7 @@ class Note(MusicObj):
             the amplitude (a value between 0-1, where 0 corresponds to 0dB)
         """
         return self.amp if self.amp is not None else \
-            activeConfig()['play.defaultAmplitude']
+            getConfig()['play.defaultAmplitude']
 
     def pitchTransform(self, pitchmap: Callable[[float], float]) -> Note:
         pitch = pitchmap(self.pitch)
@@ -598,7 +605,7 @@ class Line(MusicObj):
     def quantizePitch(self, step=0) -> Line:
         """ Returns a new object, rounded to step """
         if step == 0:
-            step = 1/activeConfig()['semitoneDivisions']
+            step = 1 / getConfig()['semitoneDivisions']
         bps = [ (bp[0], _util.quantizeMidi(bp[1], step)) + bp[2:]
                 for bp in self.bps ]
         if len(bps) >= 3:
@@ -808,7 +815,7 @@ class Chord(MusicObj):
         return min(n.pitch for n in self.notes), max(n.pitch for n in self.notes)
 
     def scoringEvents(self, groupid:str = None) -> List[scoring.Notation]:
-        config = activeConfig()
+        config = getConfig()
         pitches = [note.pitch for note in self.notes]
         annot = self._scoringAnnotation()
         dur = self.dur if self.dur is not None else config['defaultDuration']
@@ -832,7 +839,7 @@ class Chord(MusicObj):
         return notations
 
     def asmusic21(self, **kws) -> m21.stream.Stream:
-        config = activeConfig()
+        config = getConfig()
         arpeggio = _normalizeChordArpeggio(kws.get('arpeggio', None), self)
         if arpeggio:
             dur = config['show.arpeggioDuration']
@@ -841,7 +848,7 @@ class Chord(MusicObj):
         events = self.scoringEvents()
         scoring.stackNotationsInPlace(events, start=self.start)
         parts = scoring.distributeNotationsByClef(events)
-        return notation.renderWithCurrentWorkspace(parts).asMusic21()
+        return notation.renderWithCurrentWorkspace(parts, backend='music21').asMusic21()
 
     def __hash__(self):
         if self._hash:
@@ -921,7 +928,7 @@ class Chord(MusicObj):
         only the first one is kept.
         """
         if step == 0:
-            step = 1/activeConfig()['semitoneDivisions']
+            step = 1 / getConfig()['semitoneDivisions']
         seenmidi = set()
         notes = []
         for note in self:
@@ -992,7 +999,7 @@ class Chord(MusicObj):
 
     def _resolvePlayargs(self, playargs: PlayArgs, config: dict=None) -> PlayArgs:
         playargs = playargs.filledWith(self.playargs)
-        playargs.fillWithConfig(config or activeConfig())
+        playargs.fillWithConfig(config or getConfig())
         return playargs
 
     @property
@@ -1161,7 +1168,7 @@ def asEvent(obj, **kws) -> Union[Note, Chord]:
 
 
 def _normalizeChordArpeggio(arpeggio: Union[str, bool], chord: Chord) -> bool:
-    config = activeConfig()
+    config = getConfig()
     if arpeggio is None: arpeggio = config['chord.arpeggio']
 
     if isinstance(arpeggio, bool):
@@ -1208,7 +1215,7 @@ def stackEvents(events: List[MusicObj],
             start = Rat(0)
     assert start is not None
     if defaultDur is None:
-        defaultDur = asRat(activeConfig()['defaultDuration'])
+        defaultDur = asRat(getConfig()['defaultDuration'])
     assert defaultDur is not None
     now = events[0].start if events[0].start is not None else start
     assert now is not None and now >= 0
@@ -1269,7 +1276,7 @@ def _stackEventsInPlace(events: Sequence[MusicObj],
 
     assert start is not None
     if defaultDur is None:
-        defaultDur = activeConfig()['defaultDuration']
+        defaultDur = getConfig()['defaultDuration']
         assert defaultDur is not None
     now = events[0].start if events[0].start is not None else start
     assert now is not None and now >= 0
@@ -1304,9 +1311,10 @@ def _stackEventsInPlace(events: Sequence[MusicObj],
 
 class MusicObjList(MusicObj):
     """
-    A sequence of music objects (Chain, Group).
+    A sequence of music objects
 
-    They do not need to be sequencial (they can overlap, like Group)
+    This class serves as a base for all container classes (Chain, Group, Voice)
+    **It should not be instantiated by itself**
 
     Attributes:
         items: a list of MusicObj inside this container
@@ -1349,9 +1357,12 @@ class MusicObjList(MusicObj):
         return len(self.items)
 
     def __hash__(self):
-        hashes = [hash(type(self).__name__), hash(self.label)]
-        hashes.extend(hash(i) for i in self.items)
-        return hash(tuple(hashes))
+        items = [type(self).__name__, self.label, len(self.items)]
+        if self._symbols:
+            items.extend(hash(s) for s in self._symbols)
+        items.extend(hash(i) for i in self.items)
+        out = hash(tuple(items))
+        return out
 
     def pitchRange(self) -> Optional[Tuple[float, float]]:
         pitchRanges = [item.pitchRange() for item in self.items]
@@ -1368,7 +1379,12 @@ class MusicObjList(MusicObj):
             the scoring notations
         """
         groupid = scoring.makeGroupId(groupid)
-        return sum((i.scoringEvents(groupid=groupid) for i in self._mergedItems()), [])
+        notations = sum((i.scoringEvents(groupid=groupid) for i in self._mergedItems()), [])
+        if self._symbols:
+            for s in self._symbols:
+                for n in notations:
+                    s.applyTo(n)
+        return notations
 
     def _mergedItems(self) -> List[MusicObj]:
         return self.items
@@ -1381,7 +1397,7 @@ class MusicObjList(MusicObj):
 
     def quantizePitch(self:T, step=0.) -> T:
         if step == 0:
-            step = 1/activeConfig()['semitoneDivisions']
+            step = 1 / getConfig()['semitoneDivisions']
         items = [i.quantizePitch(step) for i in self.items]
         return self.clone(items=items)
 
@@ -1601,11 +1617,6 @@ class Chain(MusicObjList):
             itemstr = ", ".join(repr(_) for _ in self.items[:10]) + ", …"
         return f'Chain([{itemstr}])'
 
-    def __hash__(self):
-        if not self._hash:
-            self._hash = hash(tuple(hash(i) ^ 0x1234 for i in self.items))
-        return self._hash
-
     def cycle(self, dur:time_t, crop=True) -> Chain:
         """
         Cycle the items in this chain until the given duration is reached
@@ -1620,7 +1631,7 @@ class Chain(MusicObjList):
         Returns:
             the resulting Chain
         """
-        cfg = activeConfig()
+        cfg = getConfig()
         defaultDur = Rat(cfg['defaultDuration'])
         accumDur = Rat(0)
         maxDur = asRat(dur)
@@ -1790,14 +1801,14 @@ class Score(MusicObjList):
     """
     _acceptsNoteAttachedSymbols = False
 
-    def __init__(self, voices: List[MusicObj] = None, label:str=''):
-        if voices:
-            voices = [_asVoice(v) for v in voices]
-
-        super().__init__(items=voices, label=label)
+    def __init__(self, voices: List[MusicObj] = None, label:str='',
+                 scorestruct: ScoreStruct = None):
+        asvoices = [_asVoice(v) for v in voices]
+        super().__init__(items=asvoices, label=label)
         self.start = min(v.start for v in self.voices)
         end = max(v.end for v in self.voices)
         self.dur = end - self.start
+        self._scorestruct = scorestruct
 
     @property
     def voices(self) -> List[Voice]:
@@ -1806,12 +1817,24 @@ class Score(MusicObjList):
         """
         return self.items
 
-    def scoringParts(self, options=None) -> List[scoring.Part]:
+    def scoringParts(self, options: scoring.render.RenderOptions = None
+                     ) -> List[scoring.Part]:
         parts = []
         for voice in self.voices:
             voiceparts = voice.scoringParts(options=options)
             parts.extend(voiceparts)
         return parts
+
+    def attachedScoreStruct(self) -> Optional[ScoreStruct]:
+        if self._scorestruct is not None:
+            return self._scorestruct
+        structs = set(v.attachedScoreStruct for v in self.voices)
+        if not structs:
+            return None
+        if len(structs) > 1:
+            logger.error("Multiple scorestructs are attached to voices within"
+                         "this score. Returning the first one found")
+        return next(iter(structs))
 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1952,8 +1975,9 @@ class Group(MusicObjList):
 
     def scoringParts(self, options=None) -> List[scoring.Part]:
         events = self.scoringEvents()
-        return scoring.packInParts(events)
-
+        parts = scoring.packInParts(events, keepGroupsTogether=False)
+        parts.sort(key=lambda part: part.meanPitch(), reverse=True)
+        return parts
 
 def playMany(objs: Sequence[MusicObj], **kws) -> csoundengine.synth.SynthGroup:
     """

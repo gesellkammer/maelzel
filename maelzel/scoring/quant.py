@@ -72,7 +72,7 @@ class QuantizationProfile:
 
     offsetErrorWeight: float = 1.0
     restOffsetErrorWeight: float = 0.25
-    durationErrorWeight: float = 0.1
+    durationErrorWeight: float = 0.2
     graceNoteDuration: F = F(1, 32)
 
     possibleDivisionsByTempo: Dict[int, list] = _factory(quantdata.complexityPresets['middle']['divisionsByTempo'])
@@ -361,7 +361,7 @@ def fillDuration(notations: List[Notation], duration: F, offset=F(0)) -> List[No
         f"events start after duration ({duration}): {_eventsShow(notations)}"
     assert all(n0.offset <= n1.offset for n0, n1 in iterlib.pairwise(notations)), \
         f"events are not sorted: {_eventsShow(notations)}"
-    assert all(n0.end<=n1.offset for n0, n1 in iterlib.pairwise(notations) if n0.duration is not None), \
+    assert all(n0.end <= n1.offset for n0, n1 in iterlib.pairwise(notations) if n0.duration is not None), \
         f"events overlap: {_eventsShow(notations)}"
     assert all(n.end<=offset+duration for n in notations if n.duration is not None), \
         "events extend over beat duration"
@@ -428,17 +428,17 @@ def evaluateQuantization(profile: QuantizationProfile,
     graceNoteDuration = profile.graceNoteDuration
     graceNoteOffsetErrorFactor = 0.5
 
-    def evaluateEvent(event: Notation, snapped) -> float:
+    def evaluateEvent(event: Notation, snapped: Notation) -> float:
         offsetError = abs(event.offset - snapped.offset) / beatDuration
-        if snapped.duration == 0:
-            offsetError *= graceNoteOffsetErrorFactor
         if event.isRest:
             offsetError *= restOffsetErrorWeight / offsetErrorWeight
+
         if snapped.duration == 0:
+            offsetError *= graceNoteOffsetErrorFactor
             durationError = abs(event.duration - graceNoteDuration) / beatDuration
         else:
             durationError = abs(event.duration - snapped.duration) / beatDuration
-        error = mathlib.euclidian_distance([offsetError, durationError],
+        error = mathlib.euclidian_distance([float(offsetError), float(durationError)],
                                            [offsetErrorWeight, durationErrorWeight])
         return error
 
@@ -867,6 +867,13 @@ def _tieNotationParts(parts: List[Notation]) -> None:
 
 def _splitIrregularDuration(n: Notation, slotIndex: int, slotDur: F) -> List[Notation]:
     """
+    Split irregular durations
+
+    An irregular duration is a duration which cannot be extpressed as a quarter/eights/16th/etc
+    For example a beat filled with a sextuplet with durations (1, 5), the second
+    note is irregular and must be split. Since it begins in an uneven slot, it is
+    split as 1+4
+
     Args:
         n: the Notation to split
         slotIndex: which slot is n assigned to within the beat/subbeat
@@ -942,6 +949,8 @@ def _breakIrregularDuration(n: Notation, beatDur:F, div: int, beatOffset=F(0)
 def breakIrregularDuration(n: Notation, beatDur:F, beatDivision: division_t, beatOffset=F(0)
                            ) -> Optional[List[Notation]]:
     """
+    Breaks a notation with irregular duration into its parts
+
     * a Notations should not extend over a subdivision of the beat if the
       subdivisions in question are coprimes
     * within a subdivision, a Notation should not result in an irregular multiple of the
@@ -1222,7 +1231,7 @@ def splitByMeasure(struct: ScoreStruct,
         return [(loc0.measureNum, event)]
 
     measuredef = struct.getMeasureDef(loc0.measureNum)
-    dur = measuredef.numberOfQuarters()-loc0.beat
+    dur = measuredef.durationBeats() - loc0.beat
     notation = event.clone(offset=loc0.beat, duration=dur, tiedNext=True)
     pairs = [(loc0.measureNum, notation)]
 
@@ -1231,7 +1240,7 @@ def splitByMeasure(struct: ScoreStruct,
         for m in range(loc0.measureNum+1, loc1.measureNum):
             measuredef = struct.getMeasureDef(m)
             notation = event.clone(offset=F(0),
-                                   duration=measuredef.numberOfQuarters(),
+                                   duration=measuredef.durationBeats(),
                                    tiedPrev=True, tiedNext=True)
             pairs.append((m, notation))
 
@@ -1240,7 +1249,7 @@ def splitByMeasure(struct: ScoreStruct,
         notation = event.clone(offset=F(0), duration=loc1.beat, tiedPrev=True)
         pairs.append((loc1.measureNum, notation))
 
-    sumdur = sum(struct.beatDifference((i, n.offset), (i, n.end)) for i, n in pairs)
+    sumdur = sum(struct.beatDelta((i, n.offset), (i, n.end)) for i, n in pairs)
     assert sumdur == event.duration, f"{event=}, {sumdur=}, {pairs=}"
     return pairs
 
@@ -1523,7 +1532,6 @@ def quantizePart(part: core.Part,
                                         quarterTempo=measureDef.quarterTempo, beats=[])
             qmeasures.append(qmeasure)
     part = QuantizedPart(struct, qmeasures, label=label)
-    ## _removeInvalidGracenotes(part)
     part.glissMarkTiedNotesAsHidden()
     part.removeUnnecessaryGracenotes()
     return part
