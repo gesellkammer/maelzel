@@ -2,14 +2,13 @@ from __future__ import annotations
 from maelzel.music import packing
 from maelzel.rational import Rat
 from . import musicobj
-from .workspace import activeConfig
+from .workspace import getConfig
 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
     from .musicobj import Note, Chord, Voice, MusicObj
-    from maelzel import scorestruct
 
 
 def packInVoices(objs: List[MusicObj]) -> List[Voice]:
@@ -51,7 +50,7 @@ def splitNotesOnce(notes: Union[Chord, Sequence[Note]], splitpoint:float, deviat
         notes above and below
 
     """
-    deviation = deviation or activeConfig()['splitAcceptableDeviation']
+    deviation = deviation or getConfig()['splitAcceptableDeviation']
     if all(note.pitch > splitpoint - deviation for note in notes):
         above = [n for n in notes]
         below = []

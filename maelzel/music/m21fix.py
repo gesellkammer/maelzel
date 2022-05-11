@@ -92,8 +92,8 @@ def makeBeams(s: m21.stream.Stream, *, inPlace=False) -> m21.stream.Stream:
         for noteStream in noteGroups:
             if len(noteStream) <= 1:
                 continue  # nothing to beam
-            realNotes = [n for n in noteStream if n.duration.quarterLength > 0]
-            durList = [n.duration for n in realNotes]
+            realNotes = [n for n in noteStream if n.durationSecs.quarterLength > 0]
+            durList = [n.durationSecs for n in realNotes]
             # error check; call before sending to time signature, as, if this
             # fails, it represents a problem that happens before time signature
             # processing

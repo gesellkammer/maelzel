@@ -50,8 +50,8 @@ class Notation:
             a value of [(1, 1)] (no modification)
         gliss: if True, a glissando will be rendered between this note and the next
         notehead: the type of notehead, with the format <notehead> or
-            <notehead>.<filled/unfilled>. Examples: "cross", "square.unfilled"
-        noteheadHidden: should the notehead be hidden when rendered?
+            <notehead>.<filled/unfilled>. Examples: "cross", "square.unfilled". If the
+            hotehead is hidden, use 'hidden'
         noteheadParenthesis: parenthesize notehead
         instr: the name of the instrument to play this notation, used for playback
         color: the color of this notations
@@ -75,7 +75,6 @@ class Notation:
                  "groupid",
                  "gliss",
                  "notehead",
-                 "noteheadHidden",
                  "noteheadParenthesis",
                  "accidentalHidden",
                  "accidentalNeeded",
@@ -85,7 +84,8 @@ class Notation:
                  "priority",
                  "playbackGain",
                  "properties",
-                 "fixedNotenames"
+                 "fixedNotenames",
+                 "sizeFactor"
                  )
 
     def __init__(self,
@@ -96,13 +96,12 @@ class Notation:
                  tiedPrev=False,
                  tiedNext=False,
                  dynamic:str='',
-                 annotations:List[Annotation]=None,
-                 articulation:str='',
-                 durRatios: List[F]=None,
+                 annotations: List[Annotation] = None,
+                 articulation: str = '',
+                 durRatios: List[F] = None,
                  group='',
-                 gliss:bool=None,
-                 notehead:str='',
-                 noteheadHidden=False,
+                 gliss: bool=None,
+                 notehead: str = '',
                  noteheadParenthesis=False,
                  accidentalHidden=False,
                  accidentalNeeded=True,
@@ -110,6 +109,7 @@ class Notation:
                  stem='',
                  instr='',
                  priority=0,
+                 sizeFactor=1,      # size is relative: 0 is normal, +1 is bigger, -1 is smaller
                  playbackGain:float=None,
                  properties:Dict[str, Any]=None,
                  ):
@@ -140,16 +140,16 @@ class Notation:
         self.groupid = group
         self.gliss = gliss
         self.notehead = notehead
-        self.noteheadHidden = noteheadHidden
         self.noteheadParenthesis = noteheadParenthesis
         self.accidentalHidden = accidentalHidden
         self.accidentalNeeded = accidentalNeeded
         self.color = color
         self.stem = stem
         self.instr = instr
+        self.sizeFactor = sizeFactor
         self.priority = priority
         self.playbackGain = playbackGain
-        self.properties: Optional[Dict[str,Any]] = properties
+        self.properties: Optional[Dict[str,Any]] = properties or {}
         self.fixedNotenames: Optional[Dict[int, str]] = None
         if self.isRest:
             assert self.duration > 0
@@ -415,11 +415,39 @@ class Notation:
     def transferAttributesTo(self: Notation, dest: Notation) -> None:
         """
         Copy attributes of self to dest
+
+        duration:time_t = None,
+                 pitches: List[pitch_t] = None,
+                 offset: time_t = None,
+                 isRest=False,
+                 tiedPrev=False,
+                 tiedNext=False,
+                 dynamic:str='',
+                 annotations: List[Annotation] = None,
+                 articulation: str = '',
+                 durRatios: List[F] = None,
+                 group='',
+                 gliss: bool=None,
+                 notehead: str = '',
+                 noteheadParenthesis=False,
+                 accidentalHidden=False,
+                 accidentalNeeded=True,
+                 color='',
+                 stem='',
+                 instr='',
+                 priority=0,
+                 sizeFactor=1,      # size is relative: 0 is normal, +1 is bigger, -1 is smaller
+                 playbackGain:float=None,
+                 properties:Dict[str, Any]=None,
         """
-        dest.tiedPrev = self.tiedPrev
-        dest.gliss = self.gliss
-        dest.articulation = self.articulation
-        dest.noteheadHidden = self.noteheadHidden
+        exclude = {'duration', 'pitches', 'offset', 'durRatios', 'group', 'annotations', 'properties'}
+        for attr in self.__slots__:
+            if attr not in exclude:
+                setattr(dest, attr, getattr(self, attr))
+        if self.properties:
+            for prop, value in self.properties.items():
+                dest.setProperty(prop, value)
+
         if self.annotations:
             if dest.annotations is None:
                 dest.annotations = self.annotations

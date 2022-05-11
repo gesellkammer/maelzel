@@ -4,7 +4,7 @@ import math
 import re
 import textwrap as _textwrap
 import emlib.textlib as _textlib
-from .workspace import activeConfig
+from .workspace import getConfig
 import csoundengine
 
 from typing import TYPE_CHECKING
@@ -115,8 +115,6 @@ if ipchintrp_ == 0 then
     kpitch, kamp bpf k_time, iTimes, iPitches, iAmps
     kfreq mtof kpitch
 elseif (ipchintrp_ == 1) then  ; cos midi interpolation
-    kpitch = 60
-    kamp = 0.5
     kidx bisect k_time, iTimes
     kpitch interp1d kidx, iPitches, "cos"
     kamp interp1d kidx, iAmps, "cos"
@@ -159,7 +157,7 @@ aenv_ *= linenr:a(1, 0, ifade1, 0.01)
     else:
         if numsignals == 1:
             routingStr = r"""
-            if (ipos == 0) then
+            if (ipos <= 0) then
                 outch ichan_, aout1
             else
                 aL_, aR_ pan2 aout1, ipos
@@ -168,6 +166,7 @@ aenv_ *= linenr:a(1, 0, ifade1, 0.01)
             """
         elif numsignals == 2:
             routingStr = r"""
+            ipos = (ipos == -1) ? 0.5 : ipos
             aL_, aR_ panstereo aout1, aout2, ipos
             outch ichan_, aL_, ichan_+1, aR_
             """
@@ -276,7 +275,7 @@ class PresetDef:
             inithtml = csoundengine.csoundlib.highlightCsoundOrc(init, theme=theme)
             ps.append(rf"init: {inithtml}")
             ps.append("audiogen:")
-        body = self.audiogen if not showGeneratedCode else self.makeInstr().body
+        body = self.audiogen if not showGeneratedCode else self.getInstr().body
         if self.params:
             argstr = ", ".join(f"{key}={value}" for key, value in self.params.items())
             argstr = f"{_INSTR_INDENT}|{argstr}|"
@@ -295,11 +294,24 @@ class PresetDef:
         """
         return _instrNameFromPresetName(self.name)
 
-    def makeInstr(self, namedArgsMethod:str=None) -> csoundengine.Instr:
+    def getInstr(self, namedArgsMethod:str=None) -> csoundengine.Instr:
+        """
+        Returns the csoundengine's Instr corresponding to this PresetDef
+
+        This method is cached, the Instr is constructed only the first time
+
+        Args:
+            namedArgsMethod: one of 'table' or 'pargs'. None will fallback
+                to the config (key: 'play.namedArgsMethod')
+
+        Returns:
+            the csoundengine.Instr corresponding to this PresetDef
+
+        """
         if self._instr:
             return self._instr
         if namedArgsMethod is None:
-            namedArgsMethod = activeConfig()['play.namedArgsMethod']
+            namedArgsMethod = getConfig()['play.namedArgsMethod']
         instrName = self.instrName()
 
         if namedArgsMethod == 'table':
@@ -326,13 +338,18 @@ class PresetDef:
         self._consolidatedInit = _consolidateInitCode(self.init, self.includes)
         return self._consolidatedInit
 
-    def save(self):
+    def save(self) -> str:
         """
         Save this preset to disk
+
+        All presets are saved to the presets path. Saved presets will be available
+        in a future session
+
+        .. seealso:: :func:`maelzel.core.presetsPath
         """
         from . import presetman
-        man = presetman.getPresetManager()
-        man.savePreset(self.name)
+        savedpath = presetman.presetManager.savePreset(self.name)
+        return savedpath
 
 
 def _consolidateInitCode(init:str, includes:List[str]) -> str:

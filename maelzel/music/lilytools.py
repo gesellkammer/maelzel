@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os
 import sys
 import logging
@@ -5,31 +6,34 @@ import subprocess
 import tempfile
 import re
 import textwrap
-from typing import List, Optional as Opt, Union as U, NamedTuple, Iterator as Iter
 
 import pitchtools as pt
 from emlib import filetools
 from emlib import misc
-import cachetools
+from functools import cache
+from dataclasses import dataclass
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import *
+    pitch_t = Union[int, float, str]
 
 
 logger = logging.getLogger("maelzel")
-
-
-pitch_t = U[int, float, str]
 
 
 class PlatformNotSupported(Exception):
     pass
 
 
-class _CallResult(NamedTuple):
+@dataclass
+class _CallResult:
     returnCode: int
     stdout: str
     stderr: str
 
 
-def _addLineNumbers(s: str, start=1) -> Iter[str]:
+def _addLineNumbers(s: str, start=1) -> Iterator[str]:
     lines = s.splitlines()
     numZeros = len(str(len(lines)))
     fmt = f"%0{numZeros}d %s"
@@ -37,7 +41,7 @@ def _addLineNumbers(s: str, start=1) -> Iter[str]:
         yield fmt % (i, l)
 
 
-def callWithCapturedOutput(args: U[str, List[str]], shell=False) -> _CallResult:
+def callWithCapturedOutput(args: Union[str, List[str]], shell=False) -> _CallResult:
     """
     Call a subprocess with params
 
@@ -52,7 +56,7 @@ def callWithCapturedOutput(args: U[str, List[str]], shell=False) -> _CallResult:
                        proc.stderr.read().decode('utf-8'))
 
 
-def _checkOutput(args: List[str], encoding="utf-8") -> Opt[str]:
+def _checkOutput(args: List[str], encoding="utf-8") -> Optional[str]:
     """
     Like subprocess.check_output, but returns None if failed instead
     of throwing an exeception
@@ -64,7 +68,7 @@ def _checkOutput(args: List[str], encoding="utf-8") -> Opt[str]:
         return None
 
 
-def findLilypond() -> Opt[str]:
+def findLilypond() -> Optional[str]:
     """
     Find lilypond binary, or None if not found
     """
@@ -121,7 +125,7 @@ def renderScore(score:str, outfile:str=None,
 def renderLily(lilyfile:str, outfile:str=None,
                removeHeader:bool=None, book:bool=None,
                imageResolution:int=None,
-               openWhenFinished=False) -> Opt[str]:
+               openWhenFinished=False) -> Optional[str]:
     assert os.path.exists(lilyfile)
     assert imageResolution is None or imageResolution in {150, 200, 300, 600, 1200}
     if outfile is None:
@@ -150,17 +154,21 @@ def renderLily(lilyfile:str, outfile:str=None,
         args.append(f'-dresolution={imageResolution}')
     args.append(lilyfile)
     if shell:
-        result = callWithCapturedOutput(" ".join(args), shell)
+        cmd = " ".join(args)
+        logger.debug("Calling liliypond with shell:", cmd)
+        result = callWithCapturedOutput(cmd, shell)
     else:
+        logger.debug("Calling liliypond subprocess:", args)
         result = callWithCapturedOutput(args, shell)
 
-    if not os.path.exists(outfile) or result.returnCode != 0:
+    txt = open(lilyfile).read()
+    hasMidiBlock = re.search(r'\\midi\b', txt)
+
+    if (not hasMidiBlock and not os.path.exists(outfile)) or result.returnCode != 0:
         logger.error(f"Error while running lilypond, failed to produce a {fmt} file: {outfile}")
         logger.error(f"Return code: {result.returnCode}")
-        logger.error("stdout: ")
-        logger.error(textwrap.indent(result.stdout, "!! "))
-        logger.error("stderr: ")
-        logger.error(textwrap.indent(result.stderr, "!! "))
+        logger.error("stdout: \n" + textwrap.indent(result.stdout, "!! "))
+        logger.error("stderr: \n" + textwrap.indent(result.stderr, "!! "))
         logger.info("Contents of the lilypond file: ")
         lilysource = open(lilyfile).read()
         lilysource = "\n".join(_addLineNumbers(lilysource))
@@ -176,7 +184,7 @@ def renderLily(lilyfile:str, outfile:str=None,
             logger.debug(textwrap.indent(result.stderr, " "))
 
     if openWhenFinished:
-        misc.open_with_standard_app(outfile)
+        misc.open_with_app(outfile)
 
     return outfile
 
@@ -558,7 +566,7 @@ def isValidLilypondDuration(s: str) -> bool:
     return True
 
 
-def makeDuration(quarterLength: U[int, float, str], dots=0) -> str:
+def makeDuration(quarterLength: Union[int, float, str], dots=0) -> str:
     """
     Args:
         quarterLength: the duration as a fraction of a quarter-note. Possible string
@@ -585,7 +593,94 @@ def makeDuration(quarterLength: U[int, float, str], dots=0) -> str:
     return lilydur + "." * dots
 
 
-def makePitch(pitch: pitch_t, divsPerSemitone:int=4) -> str:
+noteheadStyles = {
+    'default',
+    'harmonic',
+    'cross',
+    'xcircle',
+    'triangle',
+    'harmonic-black',
+    'do',
+    're',
+    'mi',
+    'fa',
+    'la',
+    'diamond',
+    'xcircle',
+    'slash',
+}
+
+def customNotehead(notehead: str = 'default', parenthesis: bool = False, color: str = None,
+                   sizeFactor: float = None
+                   ) -> str:
+    """
+
+    Args:
+        notehead: one of 'cross', 'harmonic', 'triangleup', 'xcircle', 'triangle',
+            'rhombus', 'square', 'rectangle'
+        parenthesis: if True, enclose the notehead in a parenthesis
+        color: the color of the notehead. Must be a css color color or #RRGGBB
+            (see https://lilypond.org/doc/v2.23/Documentation/notation/inside-the-staff#coloring-objects)
+        sizeFactor: a size factor applied to the notehead (1.0 indicates the default size)
+
+    Returns:
+        the lilypond text to be placed **before** the note
+
+    """
+    # TODO: take account of parenthesis
+    parts = []
+    if notehead is not None and notehead != "default":
+        assert notehead in noteheadStyles, f"{notehead=}, {noteheadStyles=}"
+        parts.append(rf"\once \override NoteHead.style = #'{notehead}")
+    if color:
+        parts.append(rf'\once \override NoteHead.color = "{color}"')
+    if sizeFactor is not None and sizeFactor != 1.0:
+        relsize = fontSizeFactorToRelativeSize(sizeFactor)
+        parts.append(rf'\once \override NoteHead.font-size =#{relsize}')
+    if parenthesis:
+        parts.append(r'\parenthesize')
+
+    return " ".join(parts) if parts else ''
+
+
+def fontSizeFactorToRelativeSize(factor: float) -> int:
+    """
+    Convert a fontsize factor to lilypond's relative size
+
+    From the manual: "The fontSize value is a number indicating the
+    size relative to the standard size for the current staff height.
+    The default fontSize is 0; adding 6 to any fontSize value doubles
+    the printed size of the glyphs, and subtracting 6 halves the size.
+    Each step increases the size by approximately 12%."
+
+    This is in fact a decibel scale
+
+    Args:
+        factor: the size factor, where 1.0 means default size and 2.0
+            indicates a doubling of the size
+
+    Returns:
+        the relative size, where 0 means default and 6 indicates a
+        doubling of the size. The returned value is rounded to the
+        nearest int
+    """
+    relsize = pt.amp2db(factor)
+    return round(relsize)
+
+
+def makePitch(pitch: pitch_t, divsPerSemitone:int=4, accidentalParenthesis=False) -> str:
+    """
+    Create the liylpond text to render the given pitch
+
+    Args:
+        pitch: a fractional midinote or a notename
+        divsPerSemitone: the resolution of the pitch (num. divisions per semitone)
+        accidentalParenthesis: should the accidental, if any, be within parenthesis?
+
+    Returns:
+        the lilypond text to render the given pitch (needs a duration suffix)
+
+    """
     if isinstance(pitch, (int, float)):
         assert pitch >= 12, f"Pitch too low: {pitch}"
         notename = pt.m2n(pitch)
@@ -594,28 +689,45 @@ def makePitch(pitch: pitch_t, divsPerSemitone:int=4) -> str:
         assert pt.is_valid_notename(notename), f"Invalid notename: {notename}"
     else:
         raise TypeError(f"Expected a midinote or a notename, got {pitch} (type: {type(pitch)})")
-    return notenameToLily(notename, divsPerSemitone=divsPerSemitone)
+    lilypitch = notenameToLily(notename, divsPerSemitone=divsPerSemitone)
+    if accidentalParenthesis:
+        lilypitch += '?'
+    return lilypitch
 
 
 _clefToLilypondClef = {
-        'g': 'treble',
-        'treble': 'treble',
-        'violin': 'treble',
-        'treble8': 'treble^8',
-        'f': 'bass',
-        'bass': 'bass',
-        'bass8': 'bass_8',
-        'alto': 'alto',
-        'viola': 'alto',
-        'tenor': 'tenor'
-    }
+    'g': 'treble',
+    'treble': 'treble',
+    'violin': 'treble',
+    'treble8': 'treble^8',
+    'treble8a': 'treble^8',
+    'treble15': 'treble^15',
+    'treble15a': 'treble^15',
+    'f': 'bass',
+    'bass': 'bass',
+    'bass8': 'bass_8',
+    'bass8b': 'bass_8',
+    'bass15': 'bass_15',
+    'bass15b': 'bass_15',
+    'alto': 'alto',
+    'viola': 'alto',
+    'tenor': 'tenor'
+}
 
 
 def makeClef(clef: str) -> str:
     """
-
+    Create a lilypond clef indication from the clef given
+    
+    .. note::
+    
+        clef can be one of treble, bass or alto. To indicate octave displacement
+        add an '8' and 'a' for 8va alta, and 'b' for octava bassa. If not specified
+        'treble8' indicates *8va bassa* and 'bass8' indicates *8va bassa*. Also
+        possible is the '15' modifier for two octaves (higher or lower). 
+    
     Args:
-        clef: one of treble, bass, treble8, bass8, alto
+        clef: one of treble, bass, treble8, bass8, alto, treble15, bass15
 
     Returns:
         the lilypond clef representation
@@ -624,29 +736,58 @@ def makeClef(clef: str) -> str:
     if lilyclef is None:
         raise ValueError(f"Unknown clef {clef}. "
                          f"Possible values: {_clefToLilypondClef.keys()}")
-    return fr"\clef {lilyclef}"
+    if "^" in lilyclef or "_" in lilyclef:
+        lilyclef = '"' + lilyclef + '"'
+    return r"\clef " + lilyclef
 
 
-def makeNote(pitch: pitch_t, duration: U[float, str], dots=0, tied=False,
-             divsPerSemitone=4) -> str:
+def colorFlag(color: str) -> str:
+    return rf'\override Flag.color = "{color}"'
+
+def colorStem(color: str) -> str:
+    return rf'\override Stem.color = "{color}"'
+
+
+def makeNote(pitch: pitch_t, duration: Union[float, str], dots=0, tied=False,
+             divsPerSemitone=4, noteheadcolor: str = None,
+             notehead: str = None, parenthesis=False,
+             cautionary=False) -> str:
     """
+    Returns the lilypond representation of the given note
+    
+    **NB**: Tuplets should be created independently
 
-    NB: Tuplets should be created independently
+    Args:
+        pitch: pitch as midinote or notename
+        duration: duration as quarter length
+        dots: number of dots
+        tied: is this note tied?
+        divsPerSemitone: pitch resolution
+        stemcolor: the color of the stem (as css color)
+        noteheadcolor: color of the notehead (as css color)
+        parenthesis: should the notehead be within parenthesis?
+        cautiniory: if True, put the accidental within parenthesis
+
+    Returns:
+        The lilypond text
     """
-    lilypitch = makePitch(pitch, divsPerSemitone=divsPerSemitone)
-    lilydur = makeDuration(duration, dots=dots)
-    out = lilypitch + lilydur
+    parts = []
+    if notehead or parenthesis or noteheadcolor:
+        parts.append(customNotehead(notehead=notehead, color=noteheadcolor, parenthesis=parenthesis))
+        parts.append(' ')
+    parts.append(makePitch(pitch, divsPerSemitone=divsPerSemitone, accidentalParenthesis=cautionary))
+    parts.append(makeDuration(duration, dots=dots))
     if tied:
-        out += "~"
-    return out
+        parts.append("~")
+    return "".join(parts)
 
 
-@cachetools.cached(cache=cachetools.TTLCache(1, 60))
-def getLilypondVersion() -> Opt[str]:
+@cache
+def getLilypondVersion() -> Optional[str]:
     """
     Return the lilypond version as string
 
-    The result is cached for a certain amount of time
+    **NB**: The result is cached
     """
     lilybin = findLilypond()
     if not lilybin:
@@ -700,9 +841,61 @@ def paperBlock(paperWidth:float=None,
     return "\n".join(lines)
 
 
+def makeTextMark(text: str, fontsize:int=None, fontrelative=True,
+                       boxed=False, italic=False, bold=False
+                      ) -> str:
+    """
+    Creates a system text mark - a text above all measures
+
+    Args:
+        text: the text
+        fontsize: the size of the text.
+        fontrelative: font size is relative or absolute?
+        boxed: enclose the text in a box?
+        italic: italic?
+        bold: bold?
+
+    Returns:
+        the text to add to a .ly script. Normally to be added at the beginning
+        of the measure in the uppermost part
+    """
+    markups = []
+    if fontsize:
+        if fontrelative:
+            markups.append(fr"\fontsize #{int(fontsize)}")
+        else:
+            markups.append(fr"\abs-fontsize #{int(fontsize)}")
+    if boxed:
+        markups.append(r"\box")
+    if italic:
+        markups.append(r"\italic")
+    if bold:
+        markups.append(r"\bold")
+    if markups:
+        markupstr = " ".join(markups)
+        return fr'\mark \markup {{ {markupstr} "{text}" }}'
+    else:
+        return fr'\mark "{text}"'
+
+
 def makeTextAnnotation(text: str, fontsize:int=None, fontrelative=False,
                        placement='above',
                        boxed=False) -> str:
+    """
+    Creates a lilypond text annotation to be attached to a note/rest
+
+    **NB**: this needs to be added **AFTER** a note
+
+    Args:
+        text: the text
+        fontsize: a font size, or None to use lilypond's default
+        fontrelative: if True, the fontsize is relative to the default fontsize
+        placement: 'above' or 'below'
+        boxed: if True, a box is drawn around the text
+
+    Returns:
+        the lilypond markup to generate the given annotation
+    """
     placementchr = "^" if placement == "above" else "_"
     markups = []
     if fontsize:
@@ -714,5 +907,5 @@ def makeTextAnnotation(text: str, fontsize:int=None, fontrelative=False,
         markups.append(r"\box")
     if markups:
         markupstr = " ".join(markups)
-        return r"%s\markup { %s %s}" % (placementchr, markupstr, text)
-    return r"%s\markup %s" % (placementchr, text)
+        return fr'{placementchr}\mark \markup {{ {markupstr} "{text}" }}'
+    return fr'{placementchr}\markup "{text}"'

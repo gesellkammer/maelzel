@@ -4,7 +4,7 @@ Functionality to interface with maelzel.scoring
 """
 from __future__ import annotations
 from ._common import *
-from .workspace import activeConfig, activeWorkspace
+from .workspace import getConfig, getWorkspace
 
 from maelzel import scoring
 from maelzel.scorestruct import ScoreStruct
@@ -56,27 +56,27 @@ def scoringPartsToMusic21(parts: List[Union[scoring.Part, List[scoring.Notation]
     Returns:
 
     """
-    config = config or activeConfig()
+    config = config or getConfig()
     divsPerSemitone = config['show.semitoneDivisions']
     showCents = config['show.cents']
     centsFontSize = config['show.centsFontSize']
     if struct is None:
-        struct = activeWorkspace().scorestruct
+        struct = getWorkspace().scorestruct
     renderOptions = scoring.render.RenderOptions(divsPerSemitone=divsPerSemitone,
                                                  showCents=showCents,
                                                  centsFontSize=centsFontSize)
     quantProfile = scoring.quant.QuantizationProfile(nestedTuples=False)
     for part in parts:
         scoring.stackNotationsInPlace(part)
-    renderer = scoring.render._quantizeAndRender(parts, struct=struct,
-                                                 options=renderOptions,
-                                                 backend="music21",
-                                                 quantizationProfile=quantProfile)
+    renderer = scoring.render.quantizeAndRender(parts, struct=struct,
+                                                options=renderOptions,
+                                                backend="music21",
+                                                quantizationProfile=quantProfile)
     m21score = renderer.asMusic21()
     return m21score
 
 
-def makeRenderOptionsFromConfig(cfg: configdict.CheckedDict = None
+def makeRenderOptionsFromConfig(cfg: configdict.CheckedDict = None,
                                 ) -> scoring.render.RenderOptions:
     """
     Generate RenderOptions needed for scoring.render, based
@@ -90,19 +90,22 @@ def makeRenderOptionsFromConfig(cfg: configdict.CheckedDict = None
         via scoring.render module
     """
     if cfg is None:
-        cfg = activeConfig()
+        cfg = getConfig()
     renderOptions = scoring.render.RenderOptions(
-            staffSize=cfg['show.staffSize'],
-            divsPerSemitone=cfg['semitoneDivisions'],
-            showCents=cfg['show.cents'],
-            centsFontSize=cfg['show.centsFontSize'],
-            noteAnnotationsFontSize=cfg['show.labelFontSize'],
-            pageSize = cfg['show.pageSize'],
-            orientation= cfg['show.pageOrientation'],
-            pageMarginMillimeters=cfg['show.pageMarginMillimeters'],
-            measureAnnotationFontSize=cfg['show.measureAnnotationFontSize'],
-            respellPitches=cfg['show.respellPitches'],
-            glissandoLineThickness=cfg['show.glissandoLineThickness']
+        staffSize=cfg['show.staffSize'],
+        divsPerSemitone=cfg['semitoneDivisions'],
+        showCents=cfg['show.cents'],
+        centsFontSize=cfg['show.centsFontSize'],
+        noteAnnotationsFontSize=cfg['show.labelFontSize'],
+        pageSize = cfg['show.pageSize'],
+        orientation= cfg['show.pageOrientation'],
+        pageMarginMillimeters=cfg['show.pageMarginMillimeters'],
+        measureAnnotationFontSize=cfg['show.measureAnnotationFontSize'],
+        respellPitches=cfg['show.respellPitches'],
+        glissandoLineThickness=cfg['show.glissandoLineThickness'],
+        lilypondPngStaffsizeScale=cfg['show.lilypondPngStaffsizeScale'],
+        glissHideTiedNotes=cfg['show.glissHideTiedNotes'],
+        renderFormat=cfg['show.format']
     )
     return renderOptions
 
@@ -110,7 +113,7 @@ def makeRenderOptionsFromConfig(cfg: configdict.CheckedDict = None
 def makeQuantizationProfileFromConfig(cfg: configdict.CheckedDict = None
                                       ) -> scoring.quant.QuantizationProfile:
     if cfg is None:
-        cfg = activeConfig()
+        cfg = getConfig()
     complexity = cfg['quant.complexity']
     preset = scoring.quant.quantdata.complexityPresets[complexity]
     return scoring.quant.QuantizationProfile(
@@ -123,7 +126,9 @@ def makeQuantizationProfileFromConfig(cfg: configdict.CheckedDict = None
 
 def renderWithCurrentWorkspace(parts: List[scoring.Part],
                                backend: str = None,
-                               renderoptions: scoring.render.RenderOptions = None
+                               renderoptions: scoring.render.RenderOptions = None,
+                               scorestruct: ScoreStruct = None,
+                               config: dict = None,
                                ) -> scoring.render.Renderer:
     """
     Render the given scoring.Parts with the current configuration
@@ -136,14 +141,17 @@ def renderWithCurrentWorkspace(parts: List[scoring.Part],
     Returns:
         the rendered Renderer
     """
-    workspace = activeWorkspace()
-    cfg = workspace.config
+    workspace = getWorkspace()
+    if not config:
+        config = workspace.config
     if not renderoptions:
-        renderoptions = makeRenderOptionsFromConfig()
-    quantizationProfile = makeQuantizationProfileFromConfig()
-    backend = backend or cfg['show.backend']
-    return scoring.render._quantizeAndRender(parts,
-                                             backend=backend,
-                                             struct=workspace.scorestruct,
-                                             options=renderoptions,
-                                             quantizationProfile=quantizationProfile)
+        renderoptions = makeRenderOptionsFromConfig(config)
+    quantizationProfile = makeQuantizationProfileFromConfig(config)
+    backend = backend or config['show.backend']
+    if scorestruct is None:
+        scorestruct = workspace.scorestruct
+    return scoring.render.quantizeAndRender(parts,
+                                            backend=backend,
+                                            struct=scorestruct,
+                                            options=renderoptions,
+                                            quantizationProfile=quantizationProfile)

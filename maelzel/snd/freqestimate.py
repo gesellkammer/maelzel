@@ -188,13 +188,16 @@ def f0curvePyin(sig: np.ndarray, sr:int, minfreq=50, maxfreq=5000,
     if _sigNumChannels(sig) > 1:
         raise ValueError("sig should be a mono signal")
 
-    import librosa
-    totaldur = len(sig)/sr
-    f0, voiced_flag, voiced_probs = librosa.pyin(sig, sr=sr,
-                                                 fmin=minfreq, fmax=maxfreq,
-                                                 frame_length=framelength,
-                                                 win_length=winlength,
-                                                 hop_length=hoplength)
+    totaldur = len(sig) / sr
+
+    #import librosa
+    from maelzel.snd import rosita
+    # f0, voiced_flag, voiced_probs = librosa.pyin(sig, sr=sr,
+    f0, voiceg_flag, voiced_probs = rosita.pyin(sig, sr=sr,
+                                                fmin=minfreq, fmax=maxfreq,
+                                                frame_length=framelength,
+                                                win_length=winlength,
+                                                hop_length=hoplength)
     times = np.linspace(0, totaldur, len(f0))
     return bpf4.core.Linear(times, f0), bpf4.core.Linear(times, voiced_probs)
 
@@ -205,7 +208,8 @@ def _fftWinlength(sr: int, minfreq: int) -> int:
 def f0curvePyinVamp(sig: np.ndarray, sr:int, fftsize=2048, overlap=4,
                     lowAmpSupression=0.1, onsetSensitivity=0.7,
                     pruneThreshold=0.1,
-                    threshDistr='beta15'
+                    threshDistr='beta15',
+                    unvoicedFreqs='nan'
 
                     ) -> Tuple[bpf4.BpfInterface, bpf4.BpfInterface]:
     """
@@ -216,15 +220,31 @@ def f0curvePyinVamp(sig: np.ndarray, sr:int, fftsize=2048, overlap=4,
         sr: the sr
         fftsize: with sizes greater than 2048 the result might be unstable
         overlap: hop size as fftsize//overlap
-        lowAmpSupression: ??
-        onsetSensitivity: ??
-        pruneThreshold: ??
-        threshDistr: one of beta10, beta15, beta20, beta30
+        lowAmpSupression: supress low amplitude pitch estimates
+        onsetSensitivity: onset sensitivity
+        pruneThreshold: duration pruning threshold
+        threshDistr: yin threshold distribution (see table below) - One of
+            uniform, beta10, beta15, beta30, single10, single20-
+        unvoicedFreqs: one of 'nan', 'negative'. If 'nan' unvoiced  frequencies
+            (frequencies for segments where the f0 confidence is too low) are given
+            as `nan`. If 'negative' unvoiced freqs are given as negative.
 
     Returns:
         a tuple (f0 bpf, probability bpf), where f0 is a bpf with the
         detected fundamental. Whenver the algorithms detects unvoiced
         (noise) or absence of a fundamental, the result is negative.
+
+    ============   ============
+    thresh_distr   Description
+    ============   ============
+    uniform        Uniform
+    beta10         Beta (mean 0.10)
+    beta15         Beta (mean 0.15)
+    beta30         Beta (mean 0.30)
+    single10       Single value 0.10
+    single15       Single value 0.15
+    single20       Single value 0.20
+    ============   ============
         
     """
     if _sigNumChannels(sig) > 1:
@@ -236,9 +256,14 @@ def f0curvePyinVamp(sig: np.ndarray, sr:int, fftsize=2048, overlap=4,
                                      onset_sensitivity=onsetSensitivity,
                                      prune_thresh=pruneThreshold,
                                      thresh_distr=threshDistr)
-    times = data[:, 0]
-    f0 = data[:, 1]
-    probs = data[:, 2]
+    times = np.ascontiguousarray(data[:, 0])
+    f0 = np.ascontiguousarray(data[:, 1])
+    probs = np.ascontiguousarray(data[:, 2])
+    # Unvoiced estimates are given a negative frequency. Convert to nan
+    # if needed
+    if unvoicedFreqs == 'nan':
+        f0[f0 <= 0] = np.nan
+
     return bpf4.core.Linear(times, f0), bpf4.core.Linear(times, probs)
 
 
