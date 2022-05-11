@@ -1,7 +1,8 @@
 from __future__ import annotations
 import numpy as np
 import numpyx
-from functools import cache
+import sys
+import os
 from typing import TYPE_CHECKING, NamedTuple
 if TYPE_CHECKING:
     from typing import Tuple, List, Set
@@ -23,6 +24,7 @@ _pyin_threshold_distrs = {
     "single20": 7
 }
 
+_cache = {}
 
 class Note(NamedTuple):
     timestamp: float
@@ -30,15 +32,36 @@ class Note(NamedTuple):
     duration: float
 
 
-@cache
-def list_plugins() -> Set[str]:
+def vamp_folder():
+    """
+    Returns the vamp plugins folder
+    """
+    folder = {
+        'linux': '~/vamp',
+        'windows': 'C:\Program Files\Vamp Plugins',  # win 64
+        'darwin': '~/Library/Audio/Plug-Ins/Vamp'
+    }.get(sys.platform, None)
+    if folder is None:
+        raise RuntimeError(f"Platform {sys.platform} not supported")
+    return os.path.expanduser(folder)
+
+
+def list_plugins(cached=True) -> Set[str]:
     """
     List all available vamp plugins
+
+    Args:
+        cached: if True, use cache when querying multiple times
 
     Returns:
         A set of plugin identifiers
     """
-    return set(vamp.list_plugins())
+    if cached:
+        plugins = _cache.get('plugins')
+        if plugins is not None:
+            return plugins
+    _cache['plugins'] = plugins = set(vamp.list_plugins())
+    return plugins
 
 
 def pyin_notes(samples: np.ndarray, sr:int,
@@ -65,6 +88,18 @@ def pyin_notes(samples: np.ndarray, sr:int,
     Returns:
         a list of Notes, where each Note is a namedtuple with attributes:
         (time, freq, duration)
+
+    ============   ============
+    thresh_distr   Description
+    ============   ============
+    uniform        Uniform
+    beta10         Beta (mean 0.10)
+    beta15         Beta (mean 0.15)
+    beta30         Beta (mean 0.30)
+    single10       Single value 0.10
+    single15       Single value 0.15
+    single20       Single value 0.20
+    ============   ============
     """
     if 'pyin:pyin' not in list_plugins():
         import webbrowser
@@ -118,7 +153,8 @@ def pyin_pitchtrack(samples:np.ndarray, sr:int,
                     low_amp_suppression=0.1,
                     thresh_distr="beta15",
                     onset_sensitivity=0.7,
-                    prune_thresh=0.1
+                    prune_thresh=0.1,
+                    unvoiced_freqs='negative'
                     ) -> np.ndarray:
     """
     Analyze the samples and extract fundamental and voicedness
@@ -236,21 +272,21 @@ def pyin_pitchtrack(samples:np.ndarray, sr:int,
             prob = 0
         else:
             candidates = candidates.astype('float64')
-            idx = numpyx.nearestidx(candidates, freq, sorted=False)
-            prob = probs[idx]
-            #pairs = zip(candidates, probs)
-            #nearest = min(pairs, key=lambda pair:abs(pair[0]-freq))
-            #prob = nearest[1]
+            if len(candidates) == len(probs):
+                idx = numpyx.nearestidx(candidates, freq, sorted=False)
+                prob = probs[idx]
+            else:
+                prob = probs[0]
         arr[i] = [t, freq, prob]
         i += 1
     return arr
 
 
 def pyin_smoothpitch(samples: np.ndarray, sr:int,
-                      fft_size=2048, step_size=256,
-                      low_amp_suppression=0.1, thresh_distr="beta15",
-                      onset_sensitivity=0.7,
-                      prune_thresh=0.1) -> Tuple[float, np.ndarray]:
+                     fft_size=2048, step_size=256,
+                     low_amp_suppression=0.1, thresh_distr="beta15",
+                     onset_sensitivity=0.7,
+                     prune_thresh=0.1) -> Tuple[float, np.ndarray]:
     """
     Fundamental frequency analysis
 

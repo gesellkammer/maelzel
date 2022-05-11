@@ -91,9 +91,9 @@ with config as _:
       doc="Default backend to use for plotting")
     _('matplotlib.spectrogram.colormap', 'inferno', choices=_matplotlib_cmaps,
       doc="Colormap used when plotting a spectrogram using matplotlib")
-    _('matplotlib.samplesplot.figsize', (24, 4), 
+    _('matplotlib.samplesplot.figsize', [24, 4],
       doc="Figure size used when plotting audio samples")
-    _('matplotlib.spectrogram.figsize', (24, 8),
+    _('matplotlib.spectrogram.figsize', [24, 8],
       doc="Figure size used when plotting a spectrogram using matplotlib")
     _('spectrogram.maxfreq', 12000,
       doc="Highest frequency in a spectrogram")

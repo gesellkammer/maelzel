@@ -3,9 +3,17 @@ Reference
 =========
 
 .. toctree::
-    :maxdepth: 3
+    :maxdepth: 2
 
     core
+
+Scoring
+-------
+
+.. toctree::
+    :maxdepth: 1
+
+    scoring
 
 Misc
 ----
@@ -14,3 +22,5 @@ Misc
     :maxdepth: 2
 
     misc
+
+

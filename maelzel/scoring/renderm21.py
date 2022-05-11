@@ -8,6 +8,7 @@ import os
 import tempfile
 from emlib.iterlib import pairwise
 import emlib.img
+import emlib.filetools
 
 import music21 as m21
 from maelzel.music import m21tools, m21fix
@@ -15,7 +16,7 @@ from maelzel import musicxml as mxml
 
 from .common import *
 from .core import Notation
-from .render import Renderer, RenderOptions
+from . import render
 from . import quant
 from . import util
 from . import definitions
@@ -32,7 +33,7 @@ _noteheadToMusic21 = {
     'xcircle': 'circle-x',
     'triangle': 'do',
     'rhombus': 'mi',    # 'diamond',
-    'square': 'la', # 'la',
+    'square': 'la',     # 'la',
     'rectangle': 'rectangle'
 }
 
@@ -71,8 +72,8 @@ def noteToMusic21(n: Notation, divsPerSemitone=4, durRatios=None, tupleType=None
     return out, centsdev
 
 
-def notationToMusic21(n: Notation, durRatios: List[F], tupleType: Opt[str],
-                      options:RenderOptions
+def notationToMusic21(n: Notation, durRatios: List[F], tupleType: Optional[str],
+                      options:render.RenderOptions
                       ) -> m21.note.GeneralNote:
     """
     Converts a Notation to a music21 Rest/Note/Chord/GraceNote
@@ -134,7 +135,7 @@ def notationToMusic21(n: Notation, durRatios: List[F], tupleType: Opt[str],
     else:
         m21tools.makeTie(out, tiedPrev=n.tiedPrev, tiedNext=n.tiedNext)
 
-    if options.glissHideTiedNotes and n.noteheadHidden:
+    if options.glissHideTiedNotes and n.notehead == 'hidden':
         m21tools.hideNotehead(out)
 
     if n.stem == 'hidden':
@@ -148,10 +149,10 @@ def notationToMusic21(n: Notation, durRatios: List[F], tupleType: Opt[str],
     return out
 
 
-def _m21RenderGroup(measure: m21.stream.Measure,
-                    group: quant.DurationGroup,
-                    durRatios:List[F],
-                    options: RenderOptions) -> None:
+def _renderGroup(measure: m21.stream.Measure,
+                 group: quant.DurationGroup,
+                 durRatios:List[F],
+                 options: render.RenderOptions) -> None:
     """
     A quant.DurationGroup is a sequence of notes which share (and fill) a time modifier.
     It can be understood as a "tuplet", whereas "normal" durations are interpreted
@@ -169,7 +170,7 @@ def _m21RenderGroup(measure: m21.stream.Measure,
 
     for i, item in enumerate(group.items):
         if isinstance(item, quant.DurationGroup):
-            _m21RenderGroup(measure, item, durRatios, options=options)
+            _renderGroup(measure, item, durRatios, options=options)
             continue
         assert isinstance(item, Notation)
         if group.durRatio == 1:
@@ -210,7 +211,7 @@ def _m21RenderGroup(measure: m21.stream.Measure,
         durRatios.pop()
 
 
-def _m21ApplyGlissandi(part: m21.stream.Part, options:RenderOptions) -> None:
+def _m21ApplyGlissandi(part: m21.stream.Part, options:render.RenderOptions) -> None:
     """
     Render glissandi in part. Notes with glissando should have been annotated
     via `note.editorial.gliss = True`. The glissando is understood to be
@@ -257,7 +258,7 @@ def _fixGracenoteAtBeginning(part: quant.QuantizedPart) -> None:
 def quantizedPartToMusic21(part: quant.QuantizedPart,
                            addMeasureMarks=True,
                            clef=None,
-                           options:RenderOptions=None) -> m21.stream.Part:
+                           options:render.RenderOptions=None) -> m21.stream.Part:
     """
     Convert a QuantizedPart to a music21 Part
 
@@ -274,7 +275,7 @@ def quantizedPartToMusic21(part: quant.QuantizedPart,
         the rendered music21 Part
 
     """
-    options = options if options is not None else RenderOptions()
+    options = options if options is not None else render.RenderOptions()
     if clef is None:
         midinotesInPart = [n.notation.meanPitch() for n in part.iterNotations()
                            if not n.notation.isRest]
@@ -301,13 +302,13 @@ def quantizedPartToMusic21(part: quant.QuantizedPart,
                     fontSize=options.measureAnnotationFontSize))
 
         if measure.isEmpty():
-            dur = measureDef.numberOfQuarters()
+            dur = measureDef.durationBeats()
             rest = m21.note.Rest(duration=m21.duration.Duration(dur))
             m21measure.append(rest)
         else:
             measure.removeUnnecessaryAccidentals()
             for group in measure.groups():
-                _m21RenderGroup(m21measure, group, [], options=options)
+                _renderGroup(m21measure, group, [], options=options)
             m21tools.measureFixAccidentals(m21measure)
         m21part.append(m21measure)
 
@@ -330,7 +331,7 @@ def dinSizeToMM(dinsize: str, orientation='portrait') -> Tuple[int, int]:
         return y, x
 
 
-def renderScore(score: quant.QuantizedScore, options: RenderOptions=None
+def renderScore(score: quant.QuantizedScore, options: render.RenderOptions = None
                 ) -> m21.stream.Score:
     """
     Convert a list of QuantizedParts to a music21 Score
@@ -344,7 +345,7 @@ def renderScore(score: quant.QuantizedScore, options: RenderOptions=None
     """
     if options is None:
         raise ValueError("options should not be None")
-    options = options if options is not None else RenderOptions()
+    options = options if options is not None else render.RenderOptions()
     cnv = mxml.LayoutUnitConverter.fromStaffsize(options.staffSize)
     heightmm, widthmm = dinSizeToMM(options.pageSize, orientation=options.orientation)
     scalingmm = mxml.pointsToMillimeters(options.staffSize)
@@ -354,7 +355,7 @@ def renderScore(score: quant.QuantizedScore, options: RenderOptions=None
                                          pageWidth=cnv.toTenths(widthmm))
     m21parts = []
     for i, part in enumerate(score):
-        m21part = quantizedPartToMusic21(part, addMeasureMarks=i==0, options=options)
+        m21part = quantizedPartToMusic21(part, addMeasureMarks=(i == 0), options=options)
         m21parts.append(m21part)
     m21score = m21tools.stackParts(m21parts)
     m21score.insert(-1, scoreLayout)
@@ -365,10 +366,10 @@ def renderScore(score: quant.QuantizedScore, options: RenderOptions=None
     return m21score
 
 
-class Music21Renderer(Renderer):
-    def __init__(self, score: quant.QuantizedScore, options: RenderOptions=None):
+class Music21Renderer(render.Renderer):
+    def __init__(self, score: quant.QuantizedScore, options: render.RenderOptions=None):
         super().__init__(score, options=options)
-        self._m21score: Opt[m21.stream.Score] = None
+        self._m21score: Optional[m21.stream.Score] = None
 
     def render(self, fmt:str = '') -> None:
         if self._rendered:
@@ -380,6 +381,7 @@ class Music21Renderer(Renderer):
         return ['pdf', 'xml', 'png']
 
     def write(self, outfile: str) -> None:
+        outfile = emlib.filetools.normalizePath(outfile)
         base, ext = os.path.splitext(outfile)
         fmt = ext[1:]
         if fmt == 'musicxml':
@@ -393,10 +395,12 @@ class Music21Renderer(Renderer):
         elif fmt == "png":
             xmlfile = tempfile.mktemp(suffix=".xml")
             m21score.write('xml', xmlfile)
-            m21tools.renderMusicxml(xmlfile, outfile)
+            render.renderMusicxml(xmlfile, outfile)
             if ext == '.png' and self.options.opaque:
                 emlib.img.pngRemoveTransparency(outfile)
             os.remove(xmlfile)
+        elif fmt == 'mid':
+            m21score.write('midi', outfile)
         else:
             raise ValueError("Format not supported")
         if not os.path.exists(outfile):

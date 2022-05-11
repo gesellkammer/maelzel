@@ -8,11 +8,12 @@ import emlib.misc
 import emlib.dialogs
 
 from maelzel import scorestruct
+from maelzel.rational import Rat
 from ._common import *
 from . import _util
 from . import environment
 from .state import appstate as _appstate
-from .workspace import activeWorkspace
+from .workspace import getWorkspace
 from . import musicobj
 
 from typing import TYPE_CHECKING, NamedTuple
@@ -34,7 +35,7 @@ def showLilypondScore(score: str) -> None:
 
 
 def amplitudeToDynamics(amp: float) -> str:
-    w = activeWorkspace()
+    w = getWorkspace()
     dyncurve = w.dynamicsCurve
     return dyncurve.amp2dyn(amp)
 
@@ -84,7 +85,7 @@ def selectFileForOpen(key: str, filter="All (*.*)", prompt="Open", ifcancel:str=
     """
     if _util.checkBuildingDocumentation(logger):
         return None
-    lastdir = _appstate[key]
+    lastdir = _appstate.get(key)
     selected = emlib.dialogs.selectFile(filter=filter, directory=lastdir, title=prompt)
     if selected:
         _appstate[key] = os.path.split(selected)[0]
@@ -93,45 +94,91 @@ def selectFileForOpen(key: str, filter="All (*.*)", prompt="Open", ifcancel:str=
     return selected
 
 
+def selectSndfileForOpen(prompt="Open Soundfile",
+                         filter='Audio (*.wav, *.aif, *.flac, *.mp3)',
+                         ifcancel: str = None
+                         ) -> Optional[str]:
+    """
+    Select a soundfile for open via a gui dialog, remember the last directory
+
+    Args:
+        prompt: title of the dialog
+        filter: the file types to accept
+        ifcancel: if given and the operation is cacelled a ValueError with this message
+            is raised
+
+    Returns:
+        the selected file, or None if the operation was cancelled
+
+    .. seealso:: :func:`~maelzel.core.tools.selectFileForOpen`
+    """
+    return selectFileForOpen(key='loadSndfileLastDir', filter=filter, ifcancel=ifcancel)
+
+
 def saveRecordingDialog(prompt="Save Recording") -> Optional[str]:
     return selectFileForSave("recLastDir", "Audio (*.wav, *.aif, *.flac)",
                              prompt=prompt)
 
 
 def makeClickTrack(struct: scorestruct.ScoreStruct,
-                   clickdur=1/32,
-                   strongBeatPitch="7C",
-                   weakBeatPitch="7G"):
+                   clickdur: time_t = None,
+                   strongBeatPitch="5C",
+                   weakBeatPitch="5G",
+                   playpreset: str = '.click',
+                   playparams: Dict[str, float] = None,
+                   fade=0) -> musicobj.Score:
+    """
+    Creates a score representing a clicktrack of the given ScoreStruct
+
+    Args:
+        struct: the ScoreStruct
+        clickdur: the length of each tick. Use None to use the duration of the beat.
+            **NB**: the duration of the playback can be set individually from the duration
+            of the displayed pitch
+        strongBeatPitch: the pitch to use as a strong tick
+        weakBeatPitch: the pitch to use as a weak tick
+        playpreset: the preset instr to use for playback. The default plays the given
+            pitches two octaves higher as very short clicks
+
+    Returns:
+        a Voice
+    """
     now = 0
     events = []
     for m in struct.measuredefs:
-        if m.timesig[1] == 4:
+        num, den = m.timesig
+        if den  == 4:
             for i, n in enumerate(range(m.timesig[0])):
                 pitch = strongBeatPitch if i == 0 else weakBeatPitch
-                ev = musicobj.Note(pitch, start=now, dur=clickdur).setPlay(fade=(0, 0.1))
+                ev = musicobj.Note(pitch, start=now, dur=clickdur or 1).setPlay(fade=(0, 0.1))
                 events.append(ev)
                 now += 1
-        elif m.timesig[1] == 8:
+        elif den == 8:
             for i, n in enumerate(range(m.timesig[0])):
                 pitch = strongBeatPitch if i == 0 else weakBeatPitch
-                ev = musicobj.Note(pitch, start=now, dur=clickdur).setPlay(fade=(0, 0.1))
+                ev = musicobj.Note(pitch, start=now, dur=clickdur or 0.5).setPlay(fade=(0, 0.1))
                 events.append(ev)
                 now += 0.5
-        elif m.timesig[1] == 16:
+        elif den == 16:
             if m.quarterTempo > 80:
-                ev = musicobj.Note(strongBeatPitch, dur=clickdur, start=now)
+                dur = clickdur or m.durationBeats()
+                ev = musicobj.Note(strongBeatPitch, dur=dur, start=now)
                 events.append(ev)
-                now += m.numberOfQuarters()
+                now += m.durationBeats()
             else:
                 beats = m.subdivisions()
                 for i, beat in enumerate(beats):
                     pitch = strongBeatPitch if i == 0 else weakBeatPitch
-                    ev = musicobj.Note(pitch, dur=clickdur, start=now)
+                    ev = musicobj.Note(pitch, dur=clickdur or beat, start=now)
                     events.append(ev)
                     now += beat
         else:
             raise ValueError(f"Timesig {m.timesig} not supported")
-    return musicobj.Voice(events)
+    voice = musicobj.Voice(events)
+    voice.setPlay(fade=fade)
+    if playpreset:
+        voice.setPlay(instr=playpreset, params=playparams)
+    return musicobj.Score([voice], scorestruct=struct)
 
 
 class NoteProperties(NamedTuple):
@@ -209,6 +256,6 @@ def pngShow(pngpath:str, forceExternal=False, app:str='') -> None:
     """
     if environment.insideJupyter and not forceExternal:
         from . import jupytertools
-        jupytertools.pngShow(pngpath)
+        jupytertools.showPng(pngpath)
     else:
         environment.openPngWithExternalApplication(pngpath, app=app)

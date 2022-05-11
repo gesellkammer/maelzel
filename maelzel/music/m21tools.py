@@ -11,12 +11,7 @@ if TYPE_CHECKING:
 import os
 import tempfile
 import warnings
-import shutil
-import glob
-
 from maelzel.rational import Rat as F
-
-import subprocess
 from dataclasses import dataclass
 import music21 as m21
 
@@ -184,7 +179,7 @@ def splitVoice(voice: m21.stream.Stream, split: int=60) -> m21.stream.Score:
         if obj.isClassOrSubclass((m21.note.GeneralNote,)):
             above.append(obj)
             continue
-        rest = m21.note.Rest(duration=obj.duration)
+        rest = m21.note.Rest(duration=obj.durationSecs)
         if isinstance(obj, m21.note.Rest):
             above.append(obj)
             below.append(obj)
@@ -783,7 +778,7 @@ def addGraceNote(pitch:Union[float, str, Sequence[float]], anchorNote:m21.note.G
         grace = makeChord(pitch, quarterLength=dur)[0].getGrace()
     else:
         grace = makeNote(pitch, quarterLength=dur)[0].getGrace()
-    grace.duration.slash = False
+    grace.durationSecs.slash = False
     if nachschlag:
         grace.priority = 2
     stream.insert(anchorNote.getOffsetBySite(stream), grace)
@@ -991,7 +986,7 @@ def makeTextExpression(text:str,
         the TextExpression
     """
     textexpr = m21.expressions.TextExpression(text)
-    textexpr.positionPlacement = placement
+    textexpr.placement = placement
     if fontSize:
         textexpr.style.fontSize = fontSize
     if letterSpacing:
@@ -1040,7 +1035,7 @@ def makeMetronomeMark(number:Union[int, float], text:str=None, referent:str=None
                       ) -> m21.tempo.MetronomeMark:
     referentNote = m21.note.Note(type=referent) if referent else None
     mark = m21.tempo.MetronomeMark(number=number, text=text, referent=referentNote)
-    mark.positionPlacement = "above"
+    mark.placement = "above"
     return mark
 
 
@@ -1257,7 +1252,8 @@ def saveLily(m21stream, outfile: str) -> str:
 def renderViaLily(m21obj:m21.Music21Object, fmt:str=None, outfile:str=None, show=False) -> str:
     """
     Create a pdf or png via lilypond, bypassing the builtin converter
-    (using musicxml2ly instead)
+
+    Internally musicxml2ly is used. This script is part of the lilypond distribution
 
     To use the builtin method, use stream.write('lily.pdf') or
     stream.write('lily.png')
@@ -1294,7 +1290,6 @@ def renderViaLily(m21obj:m21.Music21Object, fmt:str=None, outfile:str=None, show
         raise RuntimeError(f"Error converting {xmlpath} to lilypond {lypath}")    
     if fmt == 'png':
         outfile2 = lilytools.renderLily(lypath, outfile)
-        # outfile2 = lilytools.lily2png(lypath, outfile)
     elif fmt == 'pdf':
         outfile2 = lilytools.renderLily(lypath, outfile)
     else:
@@ -1303,7 +1298,7 @@ def renderViaLily(m21obj:m21.Music21Object, fmt:str=None, outfile:str=None, show
     if not os.path.exists(outfile2):
         raise RuntimeError(f"Error converting lilypond file {lypath} to {fmt} {outfile}")
     if show:
-        misc.open_with_standard_app(outfile)
+        misc.open_with_app(outfile)
     return outfile
 
 
@@ -1457,7 +1452,7 @@ def _fixNachschlaege(part: m21.stream.Part) -> None:
     """
     for loc0, loc1 in iterlib.pairwise(iterPart(part, m21.note.GeneralNote)):
         n0 = loc0[1]
-        if n0.duration.isGrace and loc1[1].isRest:
+        if n0.durationSecs.isGrace and loc1[1].isRest:
             assert isinstance(n0, m21.note.Note)
             fixNachschlag(n0)
 
@@ -1487,103 +1482,3 @@ def fixNachschlaege(part: m21.stream.Part, convertToRealNote=False, duration=1/8
                 m1.insert(n1.offset, replacement)
                 m1.insert(n1.offset + realizedDuration, n1)
 
-
-def findMusescore() -> Optional[str]:
-    from maelzel.core import workspace
-    cfg = workspace.activeConfig()
-    musescorepath = cfg.get('musescorepath')
-    if musescorepath:
-        if os.path.exists(musescorepath):
-            return musescorepath
-        else:
-            logger.warning(f"musescorepath set to {musescorepath} in the active config, but the path does"
-                           f"not exist")
-    us = m21.environment.UserSettings()
-    musescorepath = us['musescoreDirectPNGPath']
-    if os.path.exists(musescorepath):
-        return str(musescorepath)
-    path = shutil.which('musescore')
-    if path is not None:
-        return path
-    logger.warning("MuseScore not found. To fix this issue, make sure musescore is installed. "
-                   "Then set the path via: "
-                   "`from maelzel.core import config; config.rootConfig['musescorepath'] = '/path/to/musescore'`")
-    return None
-
-
-def musescoreRenderMusicxmlToPng(xmlfile: str, outfile: str, page=1, trim=True,
-                                 musescorepath: str = None) -> None:
-    """
-    Use musescore to render a musicxml file as png
-
-    Args:
-        xmlfile: the path to the musicxml file to render
-        outfile: the png file to generate
-        page: in the case that multiple pages were generated, use the given page
-        trim: if true, trim the image to the contents
-        musescorepath: if given, the path to the musescore binary
-
-    Raises RuntimeError if the musicxml file could not be rendered
-    """
-    if not musescorepath:
-        musescorepath = findMusescore()
-    if not musescorepath:
-        raise RuntimeError("MuseScore not found, cannot render musicxml to png")
-    args = [musescorepath, '--no-webview']
-    if trim:
-        args.extend(['--trim-image', '10'])
-    args.extend(['--export-to', outfile, xmlfile])
-    subprocess.call(args, stderr=subprocess.PIPE)
-    generatedFiles = glob.glob(os.path.splitext(outfile)[0] + "-*.png")
-    if not generatedFiles:
-        raise RuntimeError("No output files generated")
-    for generatedFile in generatedFiles:
-        generatedPage = int(os.path.splitext(generatedFile)[0].split("-")[-1])
-        if generatedPage == page:
-            os.rename(generatedFile, outfile)
-            return
-    raise RuntimeError(f"Page not found, generated files: {generatedFiles}")
-
-
-def renderMusicxml(xmlfile: str, outfile: str, method:str=None) -> None:
-    """
-    Convert a saved musicxml file to pdf or png
-
-    Args:
-        xmlfile: the musicxml file to convert
-        outfile: the output file. The extension determines the output
-            format. Possible formats pdf and png
-        method: if given, will determine the method used to render. Use
-            None to indicate a default method.
-            Possible values: 'musescore'
-
-
-    Supported methods::
-
-        | format  |  methods   |
-        |---------|------------|
-        | pdf     |  musescore |
-        | png     |  musescore |
-
-    """
-    fmt = os.path.splitext(outfile)[1]
-    if fmt == ".pdf":
-        method = method or 'musescore'
-        if method == 'musescore':
-            musescore = findMusescore()
-            if musescore is None:
-                raise RuntimeError("MuseScore not found")
-            subprocess.call([musescore, '--no-webview', '--export-to', outfile, xmlfile],
-                            stderr=subprocess.PIPE)
-            if not os.path.exists(outfile):
-                raise RuntimeError(f"Could not generate pdf file {outfile} from {xmlfile}")
-        else:
-            raise ValueError(f"method {method} unknown, possible values: 'musescore'")
-    elif fmt == '.png':
-        method = method or 'musescore'
-        if method == 'musescore':
-            musescoreRenderMusicxmlToPng(xmlfile, outfile)
-        else:
-            raise ValueError(f"method {method} unknown, possible values: 'musescore'")
-    else:
-        raise ValueError(f"format {fmt} not supported")

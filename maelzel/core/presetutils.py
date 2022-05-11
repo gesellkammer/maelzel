@@ -8,7 +8,7 @@ import textwrap
 import csoundengine
 import emlib.dialogs
 import emlib.textlib
-from .workspace import presetsPath, activeConfig
+from .workspace import presetsPath, getConfig
 from . import tools
 from ._common import logger
 from .presetbase import PresetDef, analyzeAudiogen
@@ -128,7 +128,7 @@ def makeSoundfontAudiogen(sf2path: str = None, instrnum:int=None,
 
     """
     sf2path = resolveSoundfontPath(sf2path)
-    ampdiv = ampDivisor or activeConfig()['play.soundfontAmpDiv']
+    ampdiv = ampDivisor or getConfig()['play.soundfontAmpDiv']
     assert bool(instrnum) != bool(preset), "Either instrnum or preset should be given"
     if not sf2path:
         raise ValueError("No soundfont was given and no default soundfont found")
@@ -229,7 +229,7 @@ def _fixNumericKeys(d: dict):
 
 def resolveSoundfontPath(path:str=None) -> Optional[str]:
     return (path or
-            activeConfig()['play.generalMidiSoundfont'] or
+            getConfig()['play.generalMidiSoundfont'] or
             csoundengine.tools.defaultSoundfontPath() or
             None)
 

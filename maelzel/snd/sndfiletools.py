@@ -456,7 +456,7 @@ def detectRegions(sndfile: str, attackthresh: float, decaythresh: float,
         each region is a tuple (region start, region end)
     """
     b = peakbpf(sndfile, resolution=resolution, method=func, normalize=normalize)
-    bsmooth = bpf.util.smooth((b + db2amp(-160)).apply(amp2db), mindur / 8)
+    bsmooth = bpf.util.smooth((b + db2amp(-160)).applyTo(amp2db), mindur / 8)
     regions = []
     Y = bsmooth.sample(resolution)
     X = np.linspace(b.x0, b.x1, len(Y))

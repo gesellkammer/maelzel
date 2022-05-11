@@ -8,24 +8,12 @@ import emlib.misc
 from ._common import *
 from ._typedefs import *
 from . import _util
-from .workspace import activeConfig
+from .workspace import getConfig
 import copy
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
-
-_pitchinterpolToInt = {
-    'linear':0,
-    'cos':1,
-    'freqlinear':2,
-    'freqcos':3
-}
-
-
-_fadeshapeToInt = {
-    'linear': 0,
-    'cos': 1
-}
+    import csoundengine.instr
 
 
 @dataclass
@@ -75,8 +63,8 @@ class PlayArgs:
 
     def checkValues(self) -> None:
         """ Check own values for validity """
-        assert self.pitchinterpol is None or self.pitchinterpol in _pitchinterpolToInt
-        assert self.fadeshape is None or self.fadeshape in _fadeshapeToInt
+        assert self.pitchinterpol is None or self.pitchinterpol in CsoundEvent.pitchinterpolToInt
+        assert self.fadeshape is None or self.fadeshape in CsoundEvent.fadeshapeToInt
         assert self.chan is None or self.chan
 
     def hasUndefinedValues(self) -> bool:
@@ -119,6 +107,8 @@ class PlayArgs:
     def fillWithConfig(self, cfg: dict):
         """
         Fill unset values with config
+
+        Removes any None values
         """
         if self.delay is None:
             self.delay = 0
@@ -175,13 +165,25 @@ class CsoundEvent:
         instr: the instr preset
         pitchinterpol: which pitchinterpolation to use ('linear', 'cos')
         fadeshape: shape of the fade ('linear', 'cos')
-        namedArgs: params used to initialize a parameter table
+        namedArgs: params used to initialize named parameters
         priority: schedule the corresponding instr at this priority
-        userpargs: user pargs
     """
     __slots__ = ("bps", "delay", "chan", "fadein", "fadeout", "gain",
                  "instr", "pitchInterpolMethod", "fadeShape", "stereo", "namedArgs",
-                 "priority", "position", "userpargs", "_namedArgsMethod", "tiednext")
+                 "priority", "position", "_namedArgsMethod", "tiednext",
+                 "numchans", "whenfinished")
+
+    pitchinterpolToInt = {
+        'linear': 0,
+        'cos': 1,
+        'freqlinear': 2,
+        'freqcos': 3
+    }
+
+    fadeshapeToInt = {
+        'linear': 0,
+        'cos': 1
+    }
 
     def __init__(self,
                  bps: List[Tuple[float, ...]],
@@ -195,8 +197,9 @@ class CsoundEvent:
                  params: Dict[str, float] = None,
                  priority:int=1,
                  position:float = None,
-                 userpargs: Optional[List[float]]=None,
-                 tiednext=False):
+                 numchans: int = None,
+                 tiednext=False,
+                 whenfinished: Callable = None):
         """
         bps (breakpoints): a seq of (delay, midi, amp, ...) of len >= 1.
 
@@ -212,10 +215,10 @@ class CsoundEvent:
             fadeshape: shape of the fade ('linear', 'cos')
             params: named parameters
             priority: schedule the corresponding instr at this priority
-            userpargs: ???
+            numchans: the number of channels this event outputs
             tiednext: a hint to merge multiple events into longer lines.
         """
-        cfg = activeConfig()
+        cfg = getConfig()
 
         if len(bps[0]) < 2:
             raise ValueError(f"A breakpoint should have at least (delay, pitch), "
@@ -241,9 +244,10 @@ class CsoundEvent:
         self.fadeShape = fadeshape or cfg['play.fadeShape']
         self.priority = priority
         self.position = position
-        self.userpargs = userpargs
         self.namedArgs = params
         self.tiednext = tiednext
+        self.numchans = numchans
+        self.whenfinished = whenfinished
         self._consolidateDelay()
         self._namedArgsMethod = cfg['play.namedArgsMethod']
 
@@ -348,9 +352,43 @@ class CsoundEvent:
         """ Returns the number of breakpoints in this CsoundEvent """
         return len(self.bps[0])
 
-    def getPfields(self, numchans=1) -> List[float]:
+    def _repr_html_(self) -> str:
+        rows = [[f"{bp[0] + self.delay:.3f}", f"{bp[0]:.3f}"] + ["%.6g"%x for x in bp[1:]] for bp in self.bps]
+        headers = ["Abs time", "0. Rel. time", "1. Pitch", "2. Amp"]
+        l = len(self.bps[0])
+        if l > 3:
+            headers += [str(i) for i in range(4, l+1)]
+        htmltab = emlib.misc.html_table(rows, headers=headers)
+        return f"{self._reprHeader()}<br>" + htmltab
+
+    def _reprHeader(self) -> str:
+        info = [f"delay={float(self.delay):.3g}, dur={self.dur:.3g}, "
+                f"gain={self.gain:.4g}, chan={self.chan}"
+                f", fade=({self.fadein}, {self.fadeout}), instr={self.instr}"]
+        if self.namedArgs:
+            info.append(f"namedArgs={self.namedArgs}")
+        infostr = ", ".join(info)
+        return f"CsoundEvent({infostr})"
+
+    def __repr__(self) -> str:
+        lines = [self._reprHeader()]
+
+        def bpline(bp):
+            rest = " ".join(("%.6g"%b).ljust(8) if isinstance(b, float) else str(b) for b in bp[1:])
+            return f"{float(bp[0]):.3f}s: {rest}"
+
+        for i, bp in enumerate(self.bps):
+            if i == 0:
+                lines.append(f"bps {bpline(bp)}")
+            else:
+                lines.append(f"    {bpline(bp)}")
+        lines.append("")
+        return "\n".join(lines)
+
+    def resolvePfields(self: CsoundEvent, instr: csoundengine.instr.Instr
+                        ) -> List[float]:
         """
-        returns pfields, **beginning with p2**.
+        Returns pfields, **beginning with p2**.
 
         ==== =====  ======
         idx  parg    desc
@@ -369,78 +407,70 @@ class CsoundEvent:
         1    3       pitchinterpol
         2    4       fadeshape
         .
-        . reserved space for user pargs
+        . named arguments, if anyreserved space for user pargs
         .
         ==== =====  ======
 
-        breakpoint data
+        breakpoint data is appended
 
-        tabnum: if 0 it is discarded and filled with a valid number later
         """
-        pitchInterpolMethod = _pitchinterpolToInt[self.pitchInterpolMethod]
-        fadeshape = _fadeshapeToInt[self.fadeShape]
+        pitchInterpolMethod = CsoundEvent.pitchinterpolToInt[self.pitchInterpolMethod]
+        fadeshape = CsoundEvent.fadeshapeToInt[self.fadeShape]
         # if no userpargs, bpsoffset is 15
-        bpsoffset = 15 + (len(self.userpargs) if self.userpargs else 0)
+        numPargs5 = len(instr.pargsIndexToName)
+        numBuiltinPargs = 10
+        numUserArgs = numPargs5 - numBuiltinPargs
+        bpsoffset = 15 + numUserArgs
         bpsrows = len(self.bps)
         bpscols = self.breakpointSize()
-        pos = self.position
-        if pos == -1:
-            pos = 0. if numchans == 1 else 0.5
-
-        pfields = [float(self.delay),
-                   self.dur,
-                   0,  # table index, to be filled later
-                   bpsoffset,
-                   bpsrows,
-                   bpscols,
-                   self.gain,
-                   self.chan,
-                   pos,
-                   self.fadein,
-                   self.fadeout,
-                   pitchInterpolMethod,
-                   fadeshape,
-                   ]
-
+        pfields = [
+            float(self.delay),
+            self.dur,
+            0,  # table index, to be filled later
+        ]
+        pfields5 = [
+            bpsoffset,  # p5, idx: 4
+            bpsrows,
+            bpscols,
+            self.gain,
+            self.chan,
+            self.position,
+            self.fadein,
+            self.fadeout,
+            pitchInterpolMethod,
+            fadeshape
+        ]
+        if self._namedArgsMethod == 'pargs' and numUserArgs > 0:
+            pfields5 = instr.pargsTranslate(args=pfields5, kws=self.namedArgs)
+        pfields.extend(pfields5)
         for bp in self.bps:
             pfields.extend(bp)
 
-        assert all(isinstance(p, (int, float)) for p in pfields), [(p, type(p)) for p in pfields if not isinstance(p, (int, float))]
+        assert all(isinstance(p, (int, float)) for p in pfields), [(p, type(p)) for p in pfields if
+                                                                   not isinstance(p, (int, float))]
         return pfields
 
-    def _repr_html_(self) -> str:
-        rows = [[f"{bp[0] + self.delay:.3f}", f"{bp[0]:.3f}"] + ["%.6g"%x for x in bp[1:]] for bp in self.bps]
-        headers = ["Abs time", "0. Rel. time", "1. Pitch", "2. Amp"]
-        l = len(self.bps[0])
-        if l > 3:
-            headers += [str(i) for i in range(4, l+1)]
-        htmltab = emlib.misc.html_table(rows, headers=headers)
-        return f"{self._reprHeader()}<br>" + htmltab
 
-    def _reprHeader(self) -> str:
-        return (f"CsoundEvent(delay={float(self.delay):.3g}, dur={self.dur:.3g}, "
-                f"gain={self.gain:.4g}, chan={self.chan}"
-                f", fade=({self.fadein}, {self.fadeout}), instr={self.instr})")
-
-    def __repr__(self) -> str:
-        lines = [self._reprHeader()]
-
-        def bpline(bp):
-            rest = " ".join(("%.6g"%b).ljust(8) if isinstance(b, float) else str(b) for b in bp[1:])
-            return f"{float(bp[0]):.3f}s: {rest}"
-
-        for i, bp in enumerate(self.bps):
-            if i == 0:
-                lines.append(f"bps {bpline(bp)}")
-            else:
-                lines.append(f"    {bpline(bp)}")
-        lines.append("")
-        return "\n".join(lines)
-
-
-def cropEvents(events: List[CsoundEvent], start: Optional[float], end: Optional[float],
+def cropEvents(events: List[CsoundEvent], start: float = None, end: float = None,
                rewind=False
                ) -> List[CsoundEvent]:
+    """
+    Crop the events at the given time slice
+
+    Removes any event / part of an event outside the time slice start:end
+
+    Args:
+        events: the events to crop
+        start: start of the time slice (None will only crop at the end)
+        end: end of the time slice (None will only crop at the beginning)
+        rewind: if True, events are timeshifted to the given start
+
+    Returns:
+        the cropped events
+
+    """
+    assert start is not None or end is not None
+
     if start is None:
         start = min(ev.delay for ev in events)
     else:
@@ -449,7 +479,7 @@ def cropEvents(events: List[CsoundEvent], start: Optional[float], end: Optional[
         end = max(ev.endtime for ev in events)
         assert start < end, f"{start=}, {end=}"
     else:
-        end= float(end)
+        end = float(end)
     from emlib.mathlib import intersection
     events = [event.cropped(start, end) for event in events
               if intersection(start, end, event.delay, event.endtime) is not None]
@@ -457,3 +487,5 @@ def cropEvents(events: List[CsoundEvent], start: Optional[float], end: Optional[
         events = [event.timeShifted(-start)
                   for event in events]
     return events
+
+

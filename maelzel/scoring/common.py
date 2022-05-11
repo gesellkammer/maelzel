@@ -22,7 +22,6 @@ logger = logging.getLogger("maelzel.scoring")
 # This module can't import ANYTHING from .
 
 
-
 def asF(t: number_t) -> F:
     if isinstance(t, F):
         return t
