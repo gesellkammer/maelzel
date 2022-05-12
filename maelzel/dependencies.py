@@ -3,7 +3,8 @@ from pathlib import Path
 import os
 import sys
 import logging
-
+from datetime import datetime
+from maelzel._state import state
 
 logger = logging.getLogger('maelzel')
 
@@ -84,9 +85,11 @@ def installVampPlugins() -> None:
         for comp in components:
             print(f"    {comp.name}")
         msg = ("You need to restart the python session in order for the installed "
-               "plugins to be available to maelzel")
+               "plugins to be available to maelzel. These plugins provide "
+               "feature extraction functions, like pyin pitch tracking")
         from maelzel import tui
-        tui.panel(msg, margin=(1, 1), padding=(1, 2), bordercolor='red')
+        tui.panel(msg, margin=(1, 1), padding=(1, 2), bordercolor='red', title="VAMP plugins",
+                  width=80)
 
 
 def checkDependencies(abortIfErrors=False, tryfix=True) -> list[str]:
@@ -123,4 +126,32 @@ def checkDependencies(abortIfErrors=False, tryfix=True) -> list[str]:
         logger.error("Errors while checking dependencies:")
         for err in errors:
             logger.error(f"    {err}")
+
+    if not errors:
+        state['last_dependency_check'] = datetime.now().isoformat()
+
     return errors
+
+
+def checkDependenciesIfNeeded(daysSinceLastCheck=1) -> bool:
+    """
+    Checks dependencies if needed
+
+    A check is needed at the first run and after a given interval
+
+    Returns:
+        True if dependencies are installed
+    """
+    timeSincelast_run = datetime.now() - datetime.fromisoformat(state['last_dependency_check'])
+    if timeSincelast_run.days < daysSinceLastCheck:
+        logger.debug("Dependency check not needed")
+        return True
+
+    logger.warning("Maelzel - checking dependencies")
+    errors = checkDependencies(abortIfErrors=False, tryfix=True)
+    if not errors:
+        return True
+    logger.error(f"Error while checking dependencies: ")
+    for err in errors:
+        logger.error(f"    {err}")
+    return False

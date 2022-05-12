@@ -1,0 +1,3 @@
+@image{/home/em/dev/python/maelzel/notebooks/struct-1}
+@image{/home/em/dev/python/maelzel/notebooks/struct-2}
+@c eof

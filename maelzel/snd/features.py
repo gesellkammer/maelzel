@@ -112,12 +112,13 @@ def playTicks(times: List[float], engine: csoundengine.Engine = None, chan=1,
 
 
 def onsets(samples: np.ndarray, sr: int, winsize=2048,
-           hopsize=512, threshold=0.07, mingap=0.050):
+           hopsize=512, threshold=0.07, mingap=0.050
+           ) -> tuple[np.ndarray, bpf.BpfInterface]:
     """
-    Detect onsets via rosita
+    Detect onsets
 
-    rosita is a minimal version of librosa with some fixes and simplifications. It
-    avoids having to add numba as a dependency.
+    This is based on `rosita`, a minimal version of librosa with some fixes
+    and simplifications (it avoids having to add numba as a dependency)
 
     The onset detection algorithm uses the variation in mel spectrum to calculate
     an onset strength in time. Peaks above the given threshold are detected
