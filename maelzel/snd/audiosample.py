@@ -964,8 +964,6 @@ class Sample:
 
         .. note::
 
-
-
         Args:
             fftsize: the size of the window
             overlap: a hop size as a fraction of the fftsize
