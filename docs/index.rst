@@ -7,7 +7,7 @@
 maelzel - Documentation
 =======================
 
-**maelzel** is a framework for doing computer music in python. It is
+**maelzel** is a framework for computer music in python. It is
 based on a :ref:`core<core>` package, which provides datatypes to define *notes*,
 *chords*, *sequences*, *lines*, *voices*, *scores*, etc. Other modules 
 provide functionality for working with sound (loading soundfiles, working
@@ -25,13 +25,28 @@ Demo Notebook
 
 ----------------
 
+Quick Start
+-----------
+
+**maelzel** needs a python version >= 3.9
+
+    pip install maelzel
+
+There are some **external dependencies** which need to be installed manually:
+
+* **csound** >= 6.16. (https://csound.com/download.html).
+* **lilypond** (https://lilypond.org/download.html)
+* **MuseScore** (https://musescore.org) - Optional - useful for quick rendering to png
+
+For more information see :ref:`installation`
+
+-----------------
+
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents:
-   
-   Installation      
+   :maxdepth: 3
+
    Introduction
    Reference
-   
+   Installation
 
 

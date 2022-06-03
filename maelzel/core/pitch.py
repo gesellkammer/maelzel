@@ -18,7 +18,7 @@ def _makeImageForPitch(notename: str) -> str:
     n = scoring.makeNote(notename, duration=cfg['defaultDuration'])
     part = scoring.Part([n])
     outfile = tempfile.mktemp(suffix=".png")
-    renderer = notation.renderWithCurrentWorkspace([part])
+    renderer = notation.renderWithActiveWorkspace([part])
     renderer.write(outfile)
     return outfile
 

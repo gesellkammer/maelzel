@@ -7,7 +7,8 @@ from emlib.misc import returns_tuple
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
-    
+    from numbers import Real as  number_t
+
 import bpf4 as bpf
 
 

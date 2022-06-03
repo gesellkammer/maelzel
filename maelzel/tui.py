@@ -1,3 +1,10 @@
+"""
+Text User Interface
+
+This package provides utilities for generating simple output / user interfaces for
+for the terminal
+"""
+
 import rich.panel
 import rich.console
 

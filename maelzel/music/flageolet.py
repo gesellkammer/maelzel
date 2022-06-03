@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, NamedTuple
 if TYPE_CHECKING:
     from typing import *
-from collections import namedtuple as _namedtuple
 from maelzel.rational import Rat
 from pitchtools import *
 from emlib.misc import returns_tuple as _returns_tuple
@@ -49,11 +48,11 @@ class InstrumentString:
     """
     Defines the string of an instrument
     """
-    def __init__(self, pitch: Union[float, str], frets_per_octave=12):
+    def __init__(self, pitch: Union[float, str], fretsPerOctave=12):
         """
         """
         self.midi = pitch if isinstance(pitch, (int, float)) else n2m(pitch)
-        self.frets_per_octave = frets_per_octave
+        self.fretsPerOctave = fretsPerOctave
         self.freq = m2f(self.midi)
         
     def ratio2fret(self, ratio:float) -> float:
@@ -62,24 +61,24 @@ class InstrumentString:
             ratio: the position on the string (0-1)
         """
         if ratio != 1:
-            return math.log(-1 / (ratio - 1)) / math.log(2) * self.frets_per_octave
+            return math.log(-1 / (ratio - 1)) / math.log(2) * self.fretsPerOctave
         else:
             return 0
 
     def fret2midi(self, fret: float) -> float:
-        return self.midi + 12 * (fret / self.frets_per_octave)
+        return self.midi + 12 * (fret / self.fretsPerOctave)
 
     def fret2note(self, fret: float) -> str:
         return m2n(self.fret2midi(fret))
 
     def midi2fret(self, midinote: float) -> float:
-        fret = (midinote - self.midi) / 12 * self.frets_per_octave
+        fret = (midinote - self.midi) / 12 * self.fretsPerOctave
         return fret
 
     def note2fret(self, note: str) -> float:
         return self.midi2fret(n2m(note))
 
-    def find_node(self, harmonic=2, minfret=0, maxfret=24):
+    def findNode(self, harmonic=2, minfret=0, maxfret=24):
         """
         Find a node for the given harmonic between the specified frets
 
@@ -99,8 +98,8 @@ class InstrumentString:
                 continue
             fret = self.ratio2fret(i / harmonic)
             if fret >= minfret and fret <= maxfret:
-                position_as_midi = self.midi + 12 * (fret / self.frets_per_octave)
-                frets.append(Fret(fret, position_as_midi))
+                positionAsMidi = self.midi + 12 * (fret / self.fretsPerOctave)
+                frets.append(Fret(fret, positionAsMidi))
         freq = self.freq * harmonic
         return Node(f2m(freq), frets)
 
@@ -116,25 +115,26 @@ class InstrumentString:
         raise NotImplementedError("not yet...")
 
     @_returns_tuple("harmonic note fret")   
-    def nearest_node(self, note, max_harmonic=16):
+    def nearestNode(self, note: Union[str, float], maxHarmonic=16):
         """
         Find node closest to the given position
 
-        note (str|num)     : The position in the string as a note (str or midinumber)
-        max_harmonic (int) : Consider only harmonics lower or equal to this harmonic
+        Args:
+            note: The position in the string as a note (str or midinumber)
+            maxHarmonic: Consider only harmonics lower or equal to this harmonic
         """
         fq = n2f(note) if isinstance(note, str) else m2f(note)
         if fq < self.freq:
             raise ValueError("The given note is lower than the fundamental")
-        ratio = Rat(self.freq/fq).limit_denominator(max_harmonic)
+        ratio = Rat(self.freq/fq).limit_denominator(maxHarmonic)
         harmonic = ratio.denominator
-        frets = self.find_node(harmonic).frets
+        frets = self.findNode(harmonic).frets
         diff, fret_pos = min((abs(fret.freq - fq), fret) for fret in frets)
         resulting_freq = self.freq * harmonic
         return harmonic, Note(f2m(resulting_freq)), fret_pos
 
     def __mul__(self, other):
-        return self.find_node(other)
+        return self.findNode(other)
         
     def __rmul__(self, other):
         return self * other
@@ -143,7 +143,7 @@ class InstrumentString:
         return self.freq + other
 
     def __mod__(self, other):
-        return self.nearest_node(other)
+        return self.nearestNode(other)
 
     def __repr__(self):
         return "%f Hz | %s | %f midi" % (self.freq, f2n(self.freq), f2m(self.freq))

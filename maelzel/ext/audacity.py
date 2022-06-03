@@ -60,6 +60,7 @@ def readLabels(filename:str) -> List[Label]:
 def writeLabels(outfile: str, markers: List[tuple]) -> None:
     """
     Write a labels file which can be imported by audacity.
+
     A label is a tuple if the form (start, end), or (start, end, name).
     If no name is given, an index number is used.
 
@@ -91,7 +92,11 @@ def readSpectrum(path:str) -> List[Bin]:
     """
     Read a spectrum as saved by audacity
 
-    Returns a list of Bins, where each bin is a tuple (freq in Hz, level in dB)
+    Args:
+        path: the path to the saved spectrum
+
+    Returns:
+        a list of Bins, where each bin is a tuple `(freq in Hz, level in dB)`
     """
     f = open(path)
     lines = f.readlines()[1:]

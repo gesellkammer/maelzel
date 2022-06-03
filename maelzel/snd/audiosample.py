@@ -2,8 +2,8 @@
 audiosample
 ~~~~~~~~~~~
 
-This module is based on the :class:`Sample` class, which contains the
-audio of a soundfile as a numpy array and it knows about its sr,
+This module is based on the :class:`~maelzel.snd.audiosample.Sample` class,
+which contains the audio of a soundfile as a numpy array and it knows about its sr,
 original format and encoding, etc. It can also perform simple actions
 (fade-in/out, cut, insert, reverse, normalize, etc) on its own audio
 destructively or return a new Sample.
@@ -16,6 +16,10 @@ on some external dependencies
 
 * pyin vamp plugin: https://code.soundsoftware.ac.uk/projects/pyin/files
 
+These dependencies are shipped together with **maelzel** and installed
+automatically if not already present in the system
+
+
 Examples
 ~~~~~~~~
 
@@ -23,23 +27,20 @@ Examples
 
     # load a Sample, fade it, play and write
     from maelzel.snd.audiosample import *
-    import time
-    s = Sample("sound.wav")
+    s = Sample("snd/Numbers_EnglishFemale.flac")
     s.fade(0.5)
-    synth = s.play(speed=0.5)
-    while synth.isPlaying():
-        time.sleep(0.1)
-    print("finished playing!")
-    s.write("sound-faded.flac")
-    s.plot_spectrogram()
+    s.play(speed=0.5, block=True)
+    # Plot a 6 second fragment startine at time=1
+    s[1:7].plotSpectrogram(fftsize=4096, overlap=8, mindb=-100, maxfreq=8000)
 
+.. image:: assets/audiosample-plot-spectrogram.png
 
 .. code-block:: python
     samples = [
         Sample("soundA.wav"),
         Sample("soundB.aif"),
         Sample("soundC.flac")]
-    samples = broadcast_samplerate(samples)
+    samples = broadcastSamplerate(samples)
     a, b, c = samples
     # mix them down
     out = a.prepend_silence(2) + b + c
@@ -232,7 +233,7 @@ class Sample:
         """
         self._csoundTabnum = 0
         self._reprHtml: str = ''
-        self._asbpf: Opt[bpf4.core.BpfInterface] = None
+        self._asbpf: Opt[bpf4.BpfInterface] = None
         self.path = ''
 
         if isinstance(sound, (str, Path)):
@@ -253,10 +254,12 @@ class Sample:
 
     @property
     def numframes(self) -> int:
+        """The number of frames"""
         return len(self.samples)
 
     @property
     def duration(self) -> float:
+        """The duration in seconds"""
         return len(self.samples)/self.sr
 
     def __repr__(self):
@@ -287,7 +290,9 @@ class Sample:
         self._makeCsoundTable(getPlayEngine())
 
     def play(self, loop=False, chan:int=1, gain=1., delay=0.,
-             pan=-1, speed=1.0, engine: U[str, csoundengine.Engine] = None
+             pan=-1, speed=1.0,
+             engine: U[str, csoundengine.Engine] = None,
+             block=False
              ) -> csoundengine.synth.Synth:
         """
         Play the given sample
@@ -315,6 +320,7 @@ class Sample:
             engine: the name of a csoundengine.Engine, or the Engine instance
                 itself. If given, playback will be performed using this engine,
                 otherwise a default Engine will be used.
+            block: if True, block execution until playback is finished
 
         Returns:
             a :class:`csoundengine.synth.Synth`. This synth can be used to
@@ -341,6 +347,10 @@ class Sample:
         synth = engine.session().playSample(tabnum, chan=chan, gain=gain,
                                             loop=loop, delay=delay, pan=pan,
                                             speed=speed)
+        if block:
+            import time
+            while synth.isPlaying():
+                time.sleep(0.05)
         return synth
 
     def asbpf(self) -> bpf4.BpfInterface:
@@ -783,6 +793,11 @@ class Sample:
         """
         Return a BPF representing the peaks envelope of the source
 
+        A peak is the absolute maximum value of a sample over a window
+        of time (the *framedur* in this case). To use another metric
+        for tracking amplitude see :meth:`Sample.rmsbpf` which uses
+        rms.
+
         The resolution of the returned bpf will be ``framedur/overlap``
 
         Args:
@@ -962,8 +977,6 @@ class Sample:
         """
         Detect onsets
 
-        .. note::
-
         Args:
             fftsize: the size of the window
             overlap: a hop size as a fraction of the fftsize
@@ -980,7 +993,7 @@ class Sample:
         --------
 
         * maelzel.snd.features.onsetsAubio
-        * maelzel.snd.features.onsetsRosita
+        * maelzel.snd.features.onsets
 
         """
         if method == 'rosita':
@@ -1042,9 +1055,9 @@ class Sample:
         if method == "pyin-vamp":
             from maelzel.snd import vamptools
             samples = self.getChannel(0).samples
-            dt, freqs = vamptools.pyin_smoothpitch(samples, self.sr,
-                                                   fft_size=fftsize,
-                                                   step_size=fftsize//overlap)
+            dt, freqs = vamptools.pyinSmoothPitch(samples, self.sr,
+                                                  fftSize=fftsize,
+                                                  stepSize=fftsize // overlap)
             return bpf4.core.Sampled(freqs, dt)
         elif method == 'pyin-native':
             from maelzel.snd import freqestimate
@@ -1132,23 +1145,11 @@ class Sample:
                                   startidx=int(start*self.sr))
         return idx/self.sr if idx is not None else None
 
-    def onsets(self, hopsize=512) -> List[float]:
-        """
-        Detect onsets in this Sample
-
-        Args:
-            hopsize: the hop size in samples
-
-        Returns:
-            a list of onset times
-
-        """
-
-
 
 def broadcastSamplerate(samples: List[Sample]) -> List[Sample]:
     """
     Match the samplerates audio samples to the highest one.
+
     The audio sample with the lowest sr is resampled to the
     higher one.
     

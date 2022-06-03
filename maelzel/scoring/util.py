@@ -2,8 +2,9 @@ from __future__ import annotations
 from emlib import iterlib
 from emlib import misc
 import pitchtools as pt
-from .common import *
+from .common import F, asF, timesig_t, NotatedDuration
 from typing import TYPE_CHECKING
+from numbers import Real
 if TYPE_CHECKING:
     from typing import *
 
@@ -21,6 +22,28 @@ def asSimplestNumberType(f: F) -> Union[int, float]:
 
 
 def roundMidinote(a: float, divsPerSemitone=4) -> float:
+    """
+    Round a midi note to the nearest division
+    
+    Args:
+        a: the midinote 
+        divsPerSemitone: the number of subdivisions per semitone
+
+    Returns:
+        the rounded midinote
+        
+    Example
+    ~~~~~~~
+    
+        >>> from maelzel.scoring import util
+        >>> util.roundMidinote(60.1)
+        60.0
+        >>> util.roundMidinote(60.7, divsPerSemitone=2)
+        60.5
+        >>> util.roundMidinote(60.7, dicsPerSemitone=4)
+        60.75
+
+    """
     rounding_factor = 1/divsPerSemitone
     return round(a/rounding_factor)*rounding_factor
 
@@ -52,6 +75,17 @@ def measureQuarterDuration(timesig: timesig_t) -> F:
 
 
 def measureTimeDuration(timesig: timesig_t, quarterTempo: F) -> F:
+    """
+    The duration of a measure in seconds
+
+    Args:
+        timesig: the time signature, a tuple (num, den)
+        quarterTempo: the tempo of the quarter note
+
+    Returns:
+        The duration **in seconds**
+
+    """
     misc.assert_type(timesig, (int, int))
     quarterTempo = asF(quarterTempo)
     quarters = measureQuarterDuration(timesig=timesig)
@@ -60,7 +94,7 @@ def measureTimeDuration(timesig: timesig_t, quarterTempo: F) -> F:
     return dur
 
 
-def beatDurationForTimesig(timesig: timesig_t, quarterTempo: number_t) -> F:
+def beatDurationForTimesig(timesig: timesig_t, quarterTempo: Real) -> F:
     """
     Beat duration for a given timesignature + tempo combination
 
@@ -75,7 +109,7 @@ def beatDurationForTimesig(timesig: timesig_t, quarterTempo: number_t) -> F:
     return min(beats)
 
 
-def measureBeats(timesig: timesig_t, quarterTempo: number_t) -> List[F]:
+def measureBeats(timesig: timesig_t, quarterTempo: Real) -> List[F]:
     """
 
     Args:
@@ -123,10 +157,11 @@ def measureBeats(timesig: timesig_t, quarterTempo: number_t) -> List[F]:
         raise ValueError(f"Invalid time signature: {timesig}")
 
 
-def measureOffsets(timesig: timesig_t, quarterTempo: number_t) -> List[F]:
+def measureOffsets(timesig: timesig_t, quarterTempo: Real) -> List[F]:
     """
-    Returns a list with the offsets of all beats in measure. The last value
-    refers to the offset of the end of the measure
+    Returns a list with the offsets of all beats in measure.
+
+    The last value refers to the offset of the end of the measure
 
     Args:
         timesig: the timesignature as a tuple (num, den)
@@ -151,8 +186,7 @@ def measureOffsets(timesig: timesig_t, quarterTempo: number_t) -> List[F]:
 
 def clefNameFromMidinotes(midis: List[float]) -> str:
     """
-    Given a list of midinotes, return the best clef to
-    fit these notes
+    Find the best clef to fit these notes
 
     Args:
         midis: a list of midinotes
@@ -174,6 +208,18 @@ def clefNameFromMidinotes(midis: List[float]) -> str:
 
 
 def midinotesNeedSplit(midinotes: List[float], splitpoint=60, margin=4) -> bool:
+    """
+    Do these midinotes need to be split across multiple stafs?
+
+    Args:
+        midinotes: the midnotes to analyze
+        splitpoint: the splitpoint
+        margin: ??
+
+    Returns:
+        True if the midinotes need to be split
+
+    """
     if len(midinotes) == 0:
         return False
     numabove = sum(int(m > splitpoint - margin) for m in midinotes)
@@ -181,10 +227,11 @@ def midinotesNeedSplit(midinotes: List[float], splitpoint=60, margin=4) -> bool:
     return bool(numabove and numbelow)
 
 
-def midinotesNeedMultipleClefs(midinotes: List[float] ,threshold=1) -> bool:
+def midinotesNeedMultipleClefs(midinotes: List[float], threshold=1) -> bool:
     """
-    Returns True if multiple clefs are needed to represent these midinotes
-    within one staf. This can be used to determine of they need to be split
+    True if multiple clefs are needed to represent these midinotes
+
+    This can be used to determine of they need to be split
     among multiple staves.
 
     Args:
@@ -210,24 +257,26 @@ def midinotesNeedMultipleClefs(midinotes: List[float] ,threshold=1) -> bool:
 
 def centsShown(centsdev: int, divsPerSemitone=4, snap=2) -> str:
     """
+
     Given a cents deviation from a chromatic pitch, return
-    a string to be shown along the notation, to indicate the
-    distance to its corresponding microtone. If we are very
-    close to a notated pitch (depending on divsPerSemitone),
-    then we don't show anything.
+    a string to be shown along the notation to indicate the
+    distance to its corresponding microtone.
 
     Args:
         centsdev: the deviation from the chromatic pitch
         divsPerSemitone: divisions per semitone
         snap: if the difference to the microtone is within this error,
-            we "snap" the pitch to the microtone
+            we "snap" the pitch to the microtone and do not
+            show any annotation
 
     Returns:
         the string to be shown alongside the notated pitch
 
-    Example:
-        centsShown(55, divsPerSemitone=4)
-            "5"
+    Example
+    ~~~~~~~
+
+        >>> centsShown(55, divsPerSemitone=4)
+        "5"
     """
     # cents can be also negative (see self.cents)
     divsPerSemitone = divsPerSemitone
@@ -243,8 +292,29 @@ def centsShown(centsdev: int, divsPerSemitone=4, snap=2) -> str:
     return str(int(centsdev))
 
 
-def nextInGrid(x: Union[float, F], ticks: List[F]):
-    return misc.snap_to_grids(x + F(1, 9999999), ticks, mode='ceil')
+def nextInGrid(x: Union[float, F], ticks: List[F]) -> F:
+    """
+    Snap x to the right within a grid created by the given ticks
+
+    Args:
+        x: an unquantized value
+        ticks: deltas which constitute a grid
+
+    Returns:
+        the nearest value to x within the grid
+
+    Example
+    ~~~~~~~
+
+       >>> nextInGrid(0.4, [1/4, 1/3])
+       0.5
+
+       >>> nextInGrid(0.29, [1/4, 1/3])
+       0.33333333
+
+    """
+    out = misc.snap_to_grids(x + F(1, 9999999), ticks, mode='ceil')
+    return asF(out)
 
 
 def snapTime(start: F,
@@ -271,43 +341,58 @@ def snapTime(start: F,
         durdivisors = divisors
     ticks = [F(1, div) for div in divisors]
     durticks = [F(1, div) for div in durdivisors]
-    start = misc.snap_to_grids(start, ticks)
-    end = misc.snap_to_grids(start + duration, durticks)
+    start = asF(misc.snap_to_grids(start, ticks))
+    end = asF(misc.snap_to_grids(start + duration, durticks))
     if end - start <= mindur:
         end = nextInGrid(start + mindur, ticks)
     return (start, end-start)
 
 
-def showF(f:F) -> str:
-    if f.denominator > 1000:
-        f2 = f.limit_denominator(1000)
+def showF(f:F, maxdenom=1000) -> str:
+    """
+    Show a fraction, limit den to *maxdenom*
+
+    Args:
+        f:
+
+    Returns:
+
+    """
+    if f.denominator > maxdenom:
+        f2 = f.limit_denominator(maxdenom)
         return "*%d/%d" % (f2.numerator, f2.denominator)
     return "%d/%d" % (f.numerator, f.denominator)
 
 
-def showT(f:Option[F]) -> str:
+def showT(f:Optional[F]) -> str:
+    """Show *f* as time"""
     if f is None:
         return "None"
     return f"{float(f):.3f}"
 
 
 def showB(b:bool) -> str:
+    """Show *b* as boolean"""
     return "T" if b else "F"
 
 
-def parseNotehead(s: str) -> Tuple[str, Option[bool]]:
+def parseNotehead(s: str) -> Tuple[str, Optional[bool]]:
     """
-    Format:
-
-    * "diamond"
-    * "diamond.unfilled"
-    * "harmonic.filled"
+    Parse notehead description
 
     Args:
-        s: the neadhead description
+        s: the notehead description (a str)
 
     Returns:
-        A tuple (notehead:str, filled:Option[bool])
+        a tuple (notehead:str, filled: bool)
+
+
+    **Format**:
+
+    - "diamond"
+    - "diamond.unfilled"
+    - "harmonic.filled"
+
     """
     defaultFilled = {
         'harmonic': False,
@@ -328,16 +413,28 @@ def parseNotehead(s: str) -> Tuple[str, Option[bool]]:
 
 def quarterDurationToBaseDuration(d: F) -> int:
     """
-    Quarter  | Base
-    Duration | Duration
-    --------------------
-    4/1        1
-    2/1        2
-    1/1        4
-    1/2        8
-    1/4        16
-    1/8        32
-    1/16       64
+    Convert duration in quarters to its base duration
+
+
+    Args:
+        d: the duration
+
+    Returns:
+        the base duration
+
+
+    ================  ===============
+    Quarter Duration  Base Duration
+    ================  ===============
+    4/1               1
+    2/1               2
+    1/1               4
+    1/2               8
+    1/4               16
+    1/8               32
+    1/16              64
+    ================  ===============
+
     """
     assert ((d.denominator == 1 and d.numerator in {4, 2, 1}) or
             (d.numerator == 1 and d.denominator in {2, 4, 8, 16, 32})
@@ -357,25 +454,53 @@ _baseDurationToName = {
 
 
 def baseDurationToName(baseDur: int) -> str:
+    """
+    Convert base duration to its name
+
+    Args:
+        baseDur: the base duration (1, 2, 4, 8, …)
+
+    Returns:
+        the corresponding name
+
+    ====  ========
+    Base  Name
+    ====  ========
+     1    while
+     2    half
+     4    quarter
+     8    eighth
+     16   16th
+     32   32nd
+     64   64th
+    ====  ========
+    """
     return _baseDurationToName[baseDur]
 
 
 def baseDurationToQuarterDuration(b: int) -> F:
+    """Convert base duration to quarter duration
+
+    Example
+    ~~~~~~~
+
+        >>> baseDurationToQuarterDuration(4)
+        1
+        >>> baseDurationToQuarterDuration(8)
+        0.5
+    """
     return F(1, b)*4
 
 
 def durationRatiosToTuplets(durRatios: List[F]) -> List[Tuple[int, int]]:
-    """
-    [F(1, 1), F(3, 2)]
-
-    """
     tuplets = [(dr.numerator, dr.denominator) for dr in durRatios if dr != F(1)]
     return tuplets
 
 
-def parseScoreStructLine(line: str) -> Tuple[Option[int], Option[timesig_t], Option[int]]:
+def parseScoreStructLine(line: str
+                         ) -> Tuple[Optional[int], Optional[timesig_t], Optional[float]]:
     """
-    parse a line of a ScoreStructure definition
+    Parse a line of a ScoreStructure definition
 
     Args:
         line: a line of the format [measureNum, ] timesig [, tempo]
@@ -417,14 +542,62 @@ def parseScoreStructLine(line: str) -> Tuple[Option[int], Option[timesig_t], Opt
 
 
 def centsDeviation(pitch: float, divsPerSemitone=4) -> int:
+    """
+    The cents deviation to the nearest pitch in grid
+
+    Args:
+        pitch: the pitch to query
+        divsPerSemitone: the number of divisions per semitone
+
+    Returns:
+        the deviationin cents from the nearest pitch in grid
+
+    ======== ===============  ===============
+    pitch    4 divs/semitone  2 divs/semitone
+    ======== ===============  ===============
+    60.0       0                0
+    60.05      5                5
+    60.1       10              10
+    60.15      15              15
+    60.2       20              20
+    60.25      25              25
+    60.3       30              30
+    60.35      35              35
+    60.4       40              40
+    60.45      45              45
+    60.5       50              50
+    60.55      55              55
+    60.6       60              60
+    60.65     -35              65
+    60.7      -30              70
+    60.75     -25             -25
+    60.8      -20             -20
+    60.85     -15             -15
+    60.9      -10             -10
+    60.95     -5              -5
+    ======== ===============  ===============
+    """
     return pt.pitch_round(pitch, divsPerSemitone)[1]
 
+def fixedPitchCentsAnnotation(note: str) -> str:
+    """
+
+    4C+60    4C+     60
+    4C+      4C+     -
+    4C+30    4C>     30
+    4C+80    4Db-20 -20
+
+    Args:
+        note:
+
+    Returns:
+
+    """
 
 def centsAnnotation(pitch: Union[float, List[float]], divsPerSemitone=4,
                     order='ascending') -> str:
     """
-    Generates the string used to annotate a note/chord when
-    showCents is true
+    Generates the string used to annotate a note/chord when showCents is true
     
     Args:
         pitch: midinote/s as float
@@ -450,7 +623,8 @@ def centsAnnotation(pitch: Union[float, List[float]], divsPerSemitone=4,
     return ",".join(annotations) if any(annotations) else ""
 
 
-def notatedDuration(duration: F, durRatios: Option[List[F]]) -> NotatedDuration:
+def notatedDuration(duration: F, durRatios: Optional[List[F]]
+                    ) -> NotatedDuration:
     assert duration >= 0
     if duration == 0:  #  a grace note
         return NotatedDuration(0)
@@ -478,5 +652,5 @@ def notatedDuration(duration: F, durRatios: Option[List[F]]) -> NotatedDuration:
         return NotatedDuration(base=den, dots=2, tuplets=tuplets)
     elif den == 1 and num in {2, 4}:
         return NotatedDuration(base=4//num, dots=0, tuplets=tuplets)
-    elif den != 1:
-        raise ValueError(f"Unknown numerator: {dur}. Notation:{self}")
+    else:
+        raise ValueError(f"Invalid duration: {dur}")

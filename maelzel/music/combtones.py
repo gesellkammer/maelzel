@@ -323,7 +323,7 @@ def difftone_sources(result: pitch_t,
                      gap=13.0,
                      minnote: pitch_t = None,
                      maxnote: pitch_t = "C8",
-                     intervals: List[number_t] = None,
+                     intervals: List[float] = None,
                      resolution=1.,
                      display=False
                      ) -> RecordList:

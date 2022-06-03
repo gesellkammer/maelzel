@@ -1,7 +1,9 @@
+"""
+Find the best enharmonic spelling for a sequence of notes
+"""
 from __future__ import annotations
 from collections import defaultdict
 
-import emlib.misc
 from emlib import iterlib
 from dataclasses import dataclass
 import pitchtools as pt
@@ -42,6 +44,16 @@ _defaultEnharmonicOptions = EnharmonicOptions()
 
 
 def isEnharmonicVariantValid(notes: List[str]) -> bool:
+    """
+    Is the enharmonic spelling in this list of notes valid?
+
+    Args:
+        notes: a list of notenames
+
+    Returns:
+        True if the spelling used for these notes is valid
+
+    """
     pitches = [pt.n2m(n) for n in notes]
     for i0, i1 in iterlib.window(range(len(notes)), 2):
         p0 = pitches[i0]
@@ -326,13 +338,16 @@ class _SpellingHistory:
                  if val != 0}
         print(fixed)
 
-    def addNotation(self, notation:Notation):
+    def addNotation(self, notation:Notation, force=False):
         notenames = notation.notenames
         for notename in notenames:
             if not self.spellingOk(notename):
-                self.dump()
-                raise ValueError(f"Spelling for {notename} already set "
-                                 f"(notation={notenames})")
+                if not force:
+                    self.dump()
+                    raise ValueError(f"Spelling for {notename} already set "
+                                     f"(notation={notenames})")
+                else:
+                    return
         self.add(notenames)
 
 
@@ -380,9 +395,9 @@ def fixEnharmonicsInPlace(notations: List[Notation], eraseFixedNotes=True,
                                                      fixedslots=spellingHistory.slots)
         if not partialVariations:
             spellingHistory.clear()
-            partialVariations = pt.enharmonic_variations(unfixedNotenames)
+            partialVariations = pt.enharmonic_variations(unfixedNotenames, force=True)
 
-        # assert partialVariations, f"{unfixedNotenames=}, {spellingHistory.slots=}"
+        assert partialVariations, f"{unfixedNotenames=}, {spellingHistory.slots=}"
         variations = []
         for variation in partialVariations:
             filledVar = notenamesInGroup.copy()
@@ -398,7 +413,7 @@ def fixEnharmonicsInPlace(notations: List[Notation], eraseFixedNotes=True,
             if len(n) == 1:
                 if not n.getFixedNotename():
                     n.fixNotename(solution[idx])
-                    spellingHistory.addNotation(n)
+                    spellingHistory.addNotation(n, force=True)
 
         # for idx, n in enumerate(group):
             elif len(n) > 1:

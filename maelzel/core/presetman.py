@@ -1,3 +1,7 @@
+"""
+Text about this moduke
+
+"""
 from __future__ import annotations
 import os
 import emlib.textlib
@@ -25,7 +29,10 @@ __all__ = (
     'presetManager',
     'showPresets',
     'defPreset',
-    'defPresetSoundfont'
+    'defPresetSoundfont',
+    'definedPresets',
+    'PresetManager',
+    'getPresetManager'
 )
 
 
@@ -175,18 +182,30 @@ class PresetManager:
             >>> presetManager.defPreset(name='mypreset', audiogen=audiogen,
             ...                         params=dict(kcutoff=4000, kq=1))
 
-        Alternatively the parameters can be declared inline:
+        Or simply:
 
-            >>> presetManager.defPreset('mypreset', r'''
+            >>> defPreset('mypreset', r'''
             ... |kcutoff=4000, kq=1|
             ... aout1 vco2 kamp, kfreq, 10
             ... aout1 moogladder aout1, lag:k(kcutoff, 0.1), kq
             ... ''')
 
-        See Also
-        ~~~~~~~~
+        Then, to use the Preset:
 
-        :meth:`PresetManager.defPresetSoundfont`
+            >>> synth = Note("4C", dur=60).play(instr='mypreset', params={'kcutoff': 1000})
+
+        ``.play`` returns a SynthGroup, even if in this case a Note generates only one synth.
+        (for example a Chord would generate one synth per note)
+
+        **NB**: Parameters can be modified while the synth is running :
+
+            >>> synth.setp(kcutoff=2000)
+
+        .. admonition:: See Also
+
+            - :func:`defPresetSoundfont`
+            - :meth:`maelzel.core.musicobj.MusicObj.play`
+
         """
         audiogen = emlib.textlib.stripLines(audiogen)
         firstLine = audiogen.splitlines()[0].strip()
@@ -226,14 +245,37 @@ class PresetManager:
         """
         Define a new instrument preset based on a soundfont
 
+        Once the instr preset is defined the soundfont preset is fixed. To use multiple
+        soundfont presets, define one instr preset for each.
+
+        Example
+        ~~~~~~~
+
+            >>> from maelzel.core import *
+            >>> defPresetSoundfont('yamahagrand', '/path/to/yamahapiano.sf2',
+            ...                    preset='Yamaha C5 Grand')
+            >>> Note("C4", dur=5).play(instr='yamahagrand')
+
+
+        .. note::
+
+            To list all presets in a soundfont, see
+            `csoundengine.csoundlib.soundfontGetPresets <https://csoundengine.readthedocs.io/en/latest/api/csoundengine.csoundlib.soundfontGetPresets.html>`_
+
+        See Also
+        ~~~~~~~~
+
+        :func:`defPreset`
+
+
         Args:
             name: the name of the preset. If not given, the name of the preset
                 is used
-            sf2path: the path to the soundfont, None to use the default soundfont (if
-                present in the system) or "?" to open a dialog
+            sf2path: the path to the soundfont; Use "?" open a dialog to select a .sf2 file
+                or None to use the default soundfont
             preset: the preset to use. Either a tuple (bank: int, presetnum: int) or the
                 name of the preset as string. **Use "?" to select from all available presets
-                in the soundfont**
+                in the soundfont**.
             init: global code needed by postproc
             postproc: code to modify the generated audio before it is sent to the
                 outputs
@@ -251,11 +293,6 @@ class PresetManager:
 
             _builtin: internal parameter, used to identify builtin presets
                 (builtin presets are not saved)
-
-        .. note::
-
-            To list all programs in a soundfont, see
-            :func:`~maelzel.play.showSoundfontPresets`
 
         """
         if name in self.presetdefs:
@@ -350,24 +387,71 @@ class PresetManager:
                                         default=getConfig()['play.instr'])
         preset = self.presetdefs.get(name)
         if not preset:
-            logger.error(f"Preset {name} not known. \n"
-                         f"Presets: {self.presetdefs.keys()}")
-            raise KeyError(f"Preset {name} not known")
+            raise KeyError(f"Preset {name} not known. Available presets: {self.presetdefs.keys()}")
         return preset
 
     def definedPresets(self) -> List[str]:
         """Returns a list with the names of all defined presets
 
+        Example
+        ~~~~~~~
+
+            >>> from maelzel.core import *
+            >>> definedPresets()
+            ['sin',
+             'tsin',
+             'tri',
+             'ttri',
+             'saw',
+             'tsaw',
+             'tsqr',
+             'tpulse',
+             '.click',
+             '.piano',
+             '.clarinet',
+             '.oboe',
+             '.flute',
+             '.violin',
+             '.reedorgan',
+             'click',
+             'noise',
+             'accordion',
+             'piano',
+             'voiceclick']
+
+
         .. note::
 
             To show more information about each preset, see
-            :meth:`~maelzel.presetman.PresetManager.showPresets`
+            :func:`~maelzel.core.presetman.showPresets`
         """
         return list(self.presetdefs.keys())
 
     def showPresets(self, pattern="*", showGeneratedCode=False) -> None:
         """
         Show the selected presets
+
+        The output is printed to stdout if inside a terminal or shown as
+        html inside of jupyter
+
+        Example
+        ~~~~~~~
+
+            >>> from maelzel.core import *
+            >>> showPresets("piano")
+            Preset: piano
+              init: iSfTable_ sfloadonce "/home/user/sf2/grand-piano-YDP.sf2"
+              audiogen:
+                ipresetidx sfPresetIndex "/home/user/sf2/grand-piano-YDP.sf2", 0, 0
+                inote0_ = round(p(idataidx_ + 1))
+                ivel_ = p(idataidx_ + 2) * 127
+                aout1, aout2 sfplay ivel_, inote0_, kamp/16384, mtof:k(kpitch), ipresetidx, 1
+              epilogue:
+                turnoffWhenSilent aout1
+
+        At init time the samples are loaded. The event turns itself off when the sample
+        is silent, so it is possible to use an infinite duration to produce a one-shot
+        playback.
 
         Args:
             pattern: a glob pattern to select which presets are shown
@@ -557,8 +641,33 @@ class PresetManager:
 
 
 presetManager = PresetManager()
-defPreset = presetManager.defPreset
 defPresetSoundfont = presetManager.defPresetSoundfont
 showPresets = presetManager.showPresets
 definedPresets = presetManager.definedPresets
+defPreset = presetManager.defPreset
 
+
+def getPresetManager() -> PresetManager:
+    """
+    Returns the preset manager (a singleton object)
+
+    This is here for documentation. You can access the preset manager
+    directly via the :py:obj:`presetManager` object
+
+    Example
+    ~~~~~~~
+
+        >>> from maelzel.core import *
+        >>> assert presetManager is getPresetManager()
+        True
+        >>> preset = presetManager.selectPreset()  # Opens a gui to select a preset
+        >>> preset
+        tri
+
+    .. image:: ../assets/selectpreset.png
+
+
+    Returns:
+        the active PresetManager
+    """
+    return presetManager

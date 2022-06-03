@@ -7,7 +7,7 @@ maelzel.core is organized on the idea of a workspace. A workspace contains the c
 (an active scorestrucutre, an active config). Many actions, like note playback, notation rendering,
 etc., use the active workspace to determine tempo, score structure, default playback instrument, etc.
 
-At any moment there is always an active workspace. This can be accessed via :func:`activeWorkspace`.
+At any moment there is always an **active workspace**. This can be accessed via :func:`getWorkspace`.
 At the start of a session a default workspace (the 'root' workspace) is created, based on the default
 config and a default score structure.
 
@@ -18,16 +18,16 @@ import pitchtools
 import appdirs as _appdirs
 
 from ._common import logger, UNSET
-from ._typedefs import time_t
-from .config import rootConfig
+from .config import CoreConfig, rootConfig
 from maelzel.music.dynamics import DynamicCurve
 from maelzel.scorestruct import ScoreStruct
-from maelzel.rational import Rat
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
+    from ._typedefs import time_t
     from typing import Optional, Any, Union, Tuple
-    import configdict
+    from maelzel.rational import Rat
+
 
 
 def _resetCache() -> None:
@@ -35,14 +35,19 @@ def _resetCache() -> None:
     resetImageCache()
 
 
-___all__ = (
+__all__ = (
     'Workspace',
     'getWorkspace',
     'getConfig',
     'setConfig',
-    'getScoreStruct'
+    'getScoreStruct',
     'setScoreStruct',
     'setTempo',
+    'makeConfig',
+    'CoreConfig',
+    'DynamicCurve',
+    'presetsPath',
+    'logger'
 )
 
 
@@ -94,7 +99,7 @@ class Workspace:
     _counter: int = 0
 
     def __init__(self,
-                 config: configdict.ConfigDict = None,
+                 config: CoreConfig = None,
                  scorestruct: Optional[ScoreStruct] = None,
                  renderer: Any = None,
                  dynamicCurve: DynamicCurve = None,
@@ -106,14 +111,19 @@ class Workspace:
             name = Workspace._createUniqueName()
         self.name = name
         self.renderer = renderer
-        if config:
-            self.config = config if not updates else config.clone(updates=updates)
-        else:
-            self.config = rootConfig.clone(updates=updates)
+
+        if not config:
+            config = rootConfig.clone(updates=updates)
+        elif config and updates:
+            config = config.clone(updates=updates)
+        self.config: CoreConfig = config
+
+        self.dynamicsCurve = dynamicCurve or DynamicCurve.fromdescr(
+            shape=self.config.get('dynamicsCurve.shape', 'expon(3.0)'))
+
         if scorestruct is None:
             scorestruct = ScoreStruct.fromTimesig((4, 4), quarterTempo=60)
         self._scorestruct = scorestruct
-        self.dynamicsCurve = dynamicCurve or DynamicCurve.fromdescr(shape=self.config.get('dynamicsCurve.shape', 'expon(3.0)'))
         self._previousWorkspace: Optional[Workspace] = getWorkspace()
         if active:
             self.activate()
@@ -198,7 +208,7 @@ class Workspace:
     def activate(self) -> Workspace:
         """Make this the active Workspace
 
-        This method returns self in order to allow chaining:
+        This method returns self in order to allow chaining
 
         Example
         -------
@@ -221,7 +231,7 @@ class Workspace:
         return getWorkspace() is self
     
     def clone(self, name: str = None,
-              config: configdict.ConfigDict = UNSET,
+              config: CoreConfig = UNSET,
               scorestruct: ScoreStruct = UNSET,
               active=False
               ) -> Workspace:
@@ -329,7 +339,7 @@ def setTempo(quarterTempo:float, measureNum=0) -> None:
     w.scorestruct.setTempo(quarterTempo, measureNum=measureNum)
 
 
-def getConfig() -> configdict.ConfigDict:
+def getConfig() -> CoreConfig:
     """
     Return the active config.
 
@@ -338,7 +348,7 @@ def getConfig() -> configdict.ConfigDict:
     return getWorkspace().config
 
 
-def setConfig(config: configdict.ConfigDict) -> None:
+def setConfig(config: CoreConfig) -> None:
     """
     Activate this config
 
@@ -351,46 +361,30 @@ def setConfig(config: configdict.ConfigDict) -> None:
     getWorkspace().config = config
 
 
-def Config(updates: dict = None, source: Union[configdict.ConfigDict, str] = 'root',
-           active=False
-           ) -> configdict.ConfigDict:
+def makeConfig(updates: dict = None,
+               source: CoreConfig = None,
+               active = False
+               ) -> CoreConfig:
     """
     Create a new config
 
-    The returned config is a clone of either a given source dict, the root config,
-    the active or default config. This function is simply a shortcut to clone a
-    config and is placed here for discoverability
+    The returned config is a clone of the root config with any updates applied to it.
+    This function is simply a shortcut and is placed here for discoverability
 
     Args:
         updates: a dict of updates to the new config
-        source: the dict to use as source. Either another config or one of 'root' (to clone
-            the root config), 'active' or 'default'
-        active: if True, set this new config as the active config in the current
+        source: the dict to use as source. If ``None`` the root config is used.
+        active: if True, set the newly created Config as active within the current
             Workspace
 
     Returns:
-        the cloned config (a configdict.ConfigDict)
+        the cloned config (a CoreConfig)
 
-    =========== =====================
-    Name        Description
-    =========== =====================
-    root        The root config. This is the initial config of the session and includes
-                any saved cu
+
     """
-    if isinstance(source, str):
-        if source == 'root':
-            baseconfig = rootConfig
-        elif source == 'active':
-            baseconfig = getConfig()
-        elif source == 'default':
-            baseconfig = rootConfig.makeDefault()
-        else:
-            raise KeyError(f"Source {source} unknown. Valid values: 'root', 'default', 'active'")
-    else:
-        baseconfig = source
-        assert baseconfig.default == rootConfig.default, "The given config is not valid"
-
-    out = baseconfig.clone(updates=updates)
+    if source is None:
+        source = rootConfig
+    out = source.clone(updates=updates)
     if active:
         setConfig(out)
     return out
@@ -431,7 +425,55 @@ def _presetsPath() -> str:
 
 
 def presetsPath() -> str:
-    """ Returns the path were instrument presets are read/written"""
+    """
+    Returns the path were instrument presets are read/written
+
+    The path can be configured with the core configuration::
+
+        getConfig()['play.presetsPath'] = '/my/custom/path'
+
+    Otherwise the default for the current platform is returned.
+
+    Example
+    ~~~~~~~
+
+    Running in linux using ipython
+
+    .. code-block:: python
+
+        >>> from maelzel.core import *
+        >>> path = presetsPath()
+        >>> path
+        '/home/XXX/.local/share/maelzel/core/presets'
+        >>> os.listdir(path)
+        ['.click.yaml',
+         'click.yaml',
+         'noise.yaml',
+         'accordion.yaml',
+         'piano.yaml',
+         'voiceclick.yaml']
+        >>> definedPresets()
+        ['sin',
+         'tsin',
+         'tri',
+         'ttri',
+         'saw',
+         'tsaw',
+         'tsqr',
+         'tpulse',
+         '.click',
+         '.piano',
+         '.clarinet',
+         '.oboe',
+         '.flute',
+         '.violin',
+         '.reedorgan',
+         'click',
+         'noise',
+         'accordion',
+         'piano',
+         'voiceclick']
+    """
     userpath = getConfig()['play.presetsPath']
     if userpath:
         return userpath

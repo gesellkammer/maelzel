@@ -1,20 +1,39 @@
 """
 
-All objects within the realm of **maelzel.core** inherit from :class:`~maelzel.core.MusicObj`.
-A ``M̀usicObj`` **exists in time** (in has a start and duration attribute), it **can display itself
+All objects within the realm of **maelzel.core** inherit from :class:`MusicObj`.
+A :class:`MusicObj` **exists in time** (in has a start and duration attribute), it **can display itself
 as notation** and, if appropriate, **play itself as audio**.
 
-**Time**
+Time: Absolute Time / Quarternote Time
+--------------------------------------
 
-A :class:`~maelzel.core.MusicObj` has always a start and dur attribute. They refer to an abstract,
-`quarternote` time. When visualizing a MusicObj as musical notation or played back as audio these times are
-interpreted/converted based on a score structure.
+A :class:`MusicObj` has always a *start* and *dur* attribute. These can be unset (``None``),
+meaning that they are not explicitely determined. For example, a sequence of notes might
+be defined by simply setting their duration (the ``dur`` attribute); their ``start`` time
+would be determined by stacking them one after the other.
 
-**Score Structure**
+These time attributes (*start*, *dur*, *end*) refer to an abstract, `quarternote` time.
+To map a *quarternote* time to *absolute* time a score structure
+(:class:`maelzel.scorestruct.ScoreStruct`) is needed, which provides information about
+tempo.
 
-A Score Structure (:class:`maelzel.scorestruct.ScoreStruct`) is a set of tempos and measure definitions (it does not
-contain any material itself: it is only the "skeleton" of a score). At any moment there is always an active score
-structure, the default being an endless score with a 4/4 time-signature and a tempo of 60 bpm.
+Score Structure
+---------------
+
+A Score Structure (:class:`~maelzel.scorestruct.ScoreStruct`) is a set of tempos and measure
+definitions. **It does not contain any material itself**: it is only the "skeleton" of a score.
+
+At any moment there is always an **active score structure**, the default being an endless
+score with a *4/4* time-signature and a tempo of *60 bpm*.
+
+Playback
+--------
+
+For playback we rely on `csound <https://csound.com/>`_. When the method :meth:`MusicObj.play` is
+called, a :class:`MusicObj` generates a list of :class:`~maelzel.core.csoundevent.CsoundEvent`, which tell *csound* how
+to play a :class:`Note`, :class:`Chord`, or an entire :class:`Score`. Using csound it is
+possible to define instrumental presets using any kind of synthesis or by simply loading
+a set of samples or a soundfont. See :meth:`MusicObj.play` and :py:mod:`maelzel.core.play`
 
 """
 
@@ -127,10 +146,11 @@ class Note(MusicObj):
                  gliss: Union[pitch_t, bool] = False,
                  label: str = '',
                  dynamic: str = None,
-                 tied = False
+                 tied = False,
+                 properties: Dict[str, Any] = None
                  ):
 
-        MusicObj.__init__(self, dur=dur, start=start, label=label)
+        MusicObj.__init__(self, dur=dur, start=start, label=label, properties=properties)
         self.pitch: float = _util.asmidi(pitch)
         self.amp: Optional[float] = amp
         self._gliss: Union[float, bool] = gliss if isinstance(gliss, bool) else _util.asmidi(gliss)
@@ -175,7 +195,9 @@ class Note(MusicObj):
         if self._symbols:
             out._symbols = self._symbols.copy()
         if self._playargs:
-            out._playargs =self._playargs.copy()
+            out._playargs = self._playargs.copy()
+        if self._properties:
+            out._properties = self._properties.copy()
         return out
 
     def __hash__(self) -> int:
@@ -221,8 +243,17 @@ class Note(MusicObj):
     def __lt__(self, other:pitch_t) -> bool:
         if isinstance(other, Note):
             return self.pitch < other.pitch
+        elif isinstance(other, float):
+            return self.pitch < other
+        elif isinstance(other, str):
+            return self.pitch < pt.n2m(other)
         else:
             raise NotImplementedError()
+
+    def __abs__(self) -> Note:
+        if self.pitch >= 0:
+            return self
+        return self.clone(pitch=-self.pitch)
 
     @property
     def freq(self) -> float:
@@ -432,6 +463,8 @@ class Note(MusicObj):
             getConfig()['play.defaultAmplitude']
 
     def pitchTransform(self, pitchmap: Callable[[float], float]) -> Note:
+        if self.isRest():
+            return self
         pitch = pitchmap(self.pitch)
         gliss = self.gliss if isinstance(self.gliss, bool) else pitchmap(self.gliss)
         return self.clone(pitch=pitch, gliss=gliss)
@@ -457,7 +490,7 @@ def Rest(dur:time_t=1, start:time_t=None) -> Note:
 def asNote(n: Union[float, str, Note, Pitch],
            amp:float=None, dur:time_t=None, start:time_t=None) -> Note:
     """
-    Convert ``n`` to a Note, optionally setting its amp, start or dur
+    Convert *n* to a Note, optionally setting its amp, start or dur
 
     Args:
         n: the pitch
@@ -560,8 +593,9 @@ class Line(MusicObj):
 
         super().__init__(dur=bps[-1][0], start=delay, label=label)
         self.bps: List[List[float]] = bps
+        """The breakpoints of this line, a list of tuples (delay, pitch, [amp, ...])"""
         
-    def getOffsets(self) -> List[num_t]:
+    def offsets(self) -> List[num_t]:
         """ Return absolute offsets of each breakpoint """
         start = self.start
         return [bp[0] + start for bp in self.bps]
@@ -614,7 +648,7 @@ class Line(MusicObj):
         return Line(bps)
 
     def scoringEvents(self, groupid:str=None) -> List[scoring.Notation]:
-        offsets = self.getOffsets()
+        offsets = self.offsets()
         groupid = scoring.makeGroupId(groupid)
         notations: List[scoring.Notation] = []
         for bp0, bp1 in iterlib.pairwise(self.bps):
@@ -724,7 +758,8 @@ class Chord(MusicObj):
                  gliss: Union[str, List[pitch_t], Tuple[pitch_t], bool] = False,
                  label: str='',
                  tied = False,
-                 dynamic: str = None
+                 dynamic: str = None,
+                 properties: Dict[str, Any] = None
                  ) -> None:
         """
         a Chord can be instantiated as:
@@ -778,7 +813,7 @@ class Chord(MusicObj):
         if start is None:
             start = min((n.start for n in notes if isinstance(n, Note) and n.start is not None),
                         default=None)
-        super().__init__(dur=dur, start=start, label=label)
+        super().__init__(dur=dur, start=start, label=label, properties=properties)
 
         for note in notes:
             if isinstance(note, Note):
@@ -848,7 +883,7 @@ class Chord(MusicObj):
         events = self.scoringEvents()
         scoring.stackNotationsInPlace(events, start=self.start)
         parts = scoring.distributeNotationsByClef(events)
-        return notation.renderWithCurrentWorkspace(parts, backend='music21').asMusic21()
+        return notation.renderWithActiveWorkspace(parts, backend='music21').asMusic21()
 
     def __hash__(self):
         if self._hash:
@@ -1321,7 +1356,8 @@ class MusicObjList(MusicObj):
     """
     __slots__ = ('items')
 
-    def __init__(self, items: List[MusicObj], label:str=''):
+    def __init__(self, items: List[MusicObj], label:str='',
+                 properties: Dict[str, Any] = None):
         self.items: List[MusicObj] = []
         """a list of MusicObj inside this container"""
 
@@ -1335,7 +1371,7 @@ class MusicObjList(MusicObj):
         else:
             dur = None
             start = None
-        super().__init__(dur=dur, start=start, label=label)
+        super().__init__(dur=dur, start=start, label=label, properties=properties)
 
     def append(self, obj: MusicObj) -> None:
         self.items.append(obj)
@@ -1426,6 +1462,11 @@ class MusicObjList(MusicObj):
         """
         return _musicobjtools.packInVoices(self.items)
 
+    def adaptToScoreStruct(self, newstruct: ScoreStruct, oldstruct: ScoreStruct = None):
+        newitems = [item.adaptToScoreStruct(newstruct, oldstruct)
+                    for item in self.items]
+        return self.clone(items=newitems)
+
 
 def _fixGliss(items: List[MusicObj]) -> None:
 
@@ -1447,6 +1488,7 @@ def _makeLine(notes: List[Note]) -> Line:
         pitch = lastnote.gliss if lastnote.gliss else lastnote.pitch
         bps.append([lastnote.end, pitch, lastnote.resolvedAmp()])
     return Line(bps, label=notes[0].label)
+
 
 
 def _mergeLines(items: List[Union[Note, Chord]]) -> List[Union[Note, Chord, Line]]:
@@ -1482,6 +1524,8 @@ def _mergeLines(items: List[Union[Note, Chord]]) -> List[Union[Note, Chord, Line
             for item in groups]
 
 
+
+
 class Chain(MusicObjList):
     """
     A sequence of non-simultaneous Notes / Chords
@@ -1504,13 +1548,13 @@ class Chain(MusicObjList):
     _acceptsNoteAttachedSymbols = False
 
     def __init__(self, items: List[Union[Note, Chord, str]] = None, start: time_t = None,
-                 label: str = ''):
+                 label: str = '', properties: Dict[str, Any] = None):
         if start is not None:
             start = asRat(start)
         if items:
             items = [asEvent(item) for item in items]
             items = stackEvents(items, start=start)
-        super().__init__(items=items, label=label)
+        super().__init__(items=items, label=label, properties=properties)
         self._merged = None
 
     def timeShiftInPlace(self, timeoffset):
@@ -1828,13 +1872,16 @@ class Score(MusicObjList):
     def attachedScoreStruct(self) -> Optional[ScoreStruct]:
         if self._scorestruct is not None:
             return self._scorestruct
-        structs = set(v.attachedScoreStruct for v in self.voices)
+        structs = set(struct for v in self.voices
+                      if (struct:=v.attachedScoreStruct()) is not None)
         if not structs:
             return None
         if len(structs) > 1:
-            logger.error("Multiple scorestructs are attached to voices within"
+            logger.warning("Multiple scorestructs are attached to voices within"
                          "this score. Returning the first one found")
-        return next(iter(structs))
+        struct = next(iter(structs))
+        assert isinstance(struct, ScoreStruct)
+        return struct
 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1901,11 +1948,15 @@ def asMusic(obj, **kws) -> Union[Note, Chord]:
     """
     Convert obj to a Note or Chord, depending on the input itself
 
-    ::
-        int, float      -> Note
-        list (of notes) -> Chord
-        "C4"            -> Note
-        "C4 E4"         -> Chord
+    =============================  ==========
+    Input                          Output
+    =============================  ==========
+    int, float (midinote)          Note
+    list (of notes)                Chord
+    notename as string ("C4")      Note
+    str with notenames ("C4 E4")   Chord
+    =============================  ==========
+
     """
     if isinstance(obj, (Note, Chord)):
         return obj
@@ -1936,7 +1987,8 @@ class Group(MusicObjList):
     There are no group of groups: if a group is placed inside another group,
     the items of the inner group are placed "ungrouped" inside the outer group
 
-    Example::
+    Example
+    ~~~~~~~
 
         >>> a, b = Note(60, dur=2), Note(61, start=2, dur=1)
         >>> h = Group((a, b))
@@ -1959,9 +2011,6 @@ class Group(MusicObjList):
     @property
     def end(self) -> Rat:
         return max(i.end or Rat(0) for i in self.items)
-
-    def add(self, obj:MusicObj) -> None:
-        self.items.append(obj)
 
     def __getitem__(self, idx) -> Union[MusicObj, List[MusicObj]]:
         return self.items[idx]
@@ -2002,14 +2051,15 @@ def recMany(objs: Sequence[MusicObj], outfile:str=None, sr:int=None, **kws
 
     Args:
         objs: the objects to record
-        outfile: the path of the generated sound file
+        outfile: the path of the generated sound file. Use '?' to select an
+            output file via a GUI dialog.
         sr: the sample rate
         kws: any keywords passed to rec
 
     Returns:
         the path of the generated soundfile. This is only needed if
-        outfile was None, in which case the path of the generated
-        recording is returned
+        outfile was '?' or None, in which case the path of the generated
+        recording is returned.
     """
     events = sum((obj.events(**kws) for obj in objs), [])
     return play.recEvents(outfile=outfile, events=events, sr=sr)

@@ -18,7 +18,7 @@ def checkCsound() -> str:
 
 def vampPluginsInstalled(cached=True) -> bool:
     from maelzel.snd import vamptools
-    return 'pyin:pyin' in vamptools.list_plugins(cached=cached)
+    return 'pyin:pyin' in vamptools.listPlugins(cached=cached)
 
 
 def checkVampPlugins(fix=True) -> str:
@@ -71,14 +71,14 @@ def installVampPlugins() -> None:
     if not components:
         raise RuntimeError(f"Plugins not found in out distribution. "
                            f"Plugins folder: {pluginspath}")
-    pluginsDest = vamptools.vamp_folder()
+    pluginsDest = vamptools.vampFolder()
     os.makedirs(pluginsDest, exist_ok=True)
     logger.debug(f"Installing vamp plugins from {pluginspath} to {pluginsDest}")
     logger.debug(f"Plugins found: {pluginspath.glob('*.n3')}")
     _copyFiles([component.as_posix() for component in components], pluginsDest, verbose=True)
     # This step will always fail since vampyhost cached the pluginloader. We need
     # to reload the module, which we cannot do here
-    vampplugins = vamptools.list_plugins(cached=False)
+    vampplugins = vamptools.listPlugins(cached=False)
     if 'pyin:pyin' not in vampplugins:
         print(f"VAMP plugins were installed to the user folder: {pluginsDest}")
         print("Components installed: ")

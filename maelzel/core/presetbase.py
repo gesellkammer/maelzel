@@ -36,12 +36,8 @@ def analyzeAudiogen(audiogen:str, check=True) -> AudiogenAnalysis:
         check: if True, will check that audiogen is well formed
 
     Returns:
-        a dict with keys:
-            numSignals (int): number of a_ variables
-            minSignal: min. index of a_ variables
-            maxSignal: max. index of a_ variables (minSignal+numSignals=maxSignal)
-            numOutchs: number of
-                (normally minsignal+numsignals = maxsignal)
+        an instance of AudiogenAnalysis (normally
+        minsignal+numsignals = maxsignal)
     """
     audiovarRx = re.compile(r"\baout[1-9]\b")
     outOpcodeRx = re.compile(r"\boutch\b")
@@ -54,7 +50,7 @@ def analyzeAudiogen(audiogen:str, check=True) -> AudiogenAnalysis:
         if outOpcode is not None:
             opcode = outOpcode.group(0)
             args = line.split(opcode)[1].split(",")
-            assert len(args)%2 == 0
+            assert len(args) % 2 == 0
             numOutchs = len(args) // 2
 
     if not audiovarsList:
@@ -181,27 +177,37 @@ aenv_ *= linenr:a(1, 0, ifade1, 0.01)
     return body
 
 
-
 class PresetDef:
 
     userPargsStart = 15
 
     """
-    An instrument definition
-
+    An instrument preset definition
+    
+    Normally a user does not create a PresetDef directly. A PresetDef is created
+    when calling :func:`~maelzel.core.presetman.defPreset` .
+    
+    A Preset is aware the pitch and amplitude of a CsoundEvent and generates all the
+    interface code regarding play parameters like panning position, fadetime, 
+    fade shape, gain, etc. The user only needs to define the audio generating code and
+    any init code needed (global code needed by the instrument, like soundfiles which 
+    need to be loaded, buffers which need to be allocated, etc). A Preset can define
+    any number of extra parameters (transposition, filter cutoff frequency, etc.). 
+    
     Attributes:
         body: the body of the instrument preset
         name: the name of the preset
         init: any init code (global code)
         includes: #include files
         audiogen: the audio generating code
-        tabledef: a dict(param1: default1, param2: default2, ...). If a named argument
-            does not start with a 'k', this 'k' is prepended to it
+        tabledef: a dict(param1: default1, param2: default2, ...). Parameter names
+            need to follow csound's naming: init-only parameters need to start with 'i',
+            variable parameters need to start with 'k'. 
         description: a description of this instr definition
-        priority: if not None, use this priority as default is no other priority
-            is given.
+        priority: if not None, use this priority as default if no other priority
+            is given. 
         temporary: if True, this PresetDef will not be saved. It can only be saved by 
-            calling .save explicitely
+            calling .save explicitely. By default Presets are persistent.
 
     """
     def __init__(self,
@@ -345,7 +351,7 @@ class PresetDef:
         All presets are saved to the presets path. Saved presets will be available
         in a future session
 
-        .. seealso:: :func:`maelzel.core.presetsPath
+        .. seealso:: :func:`maelzel.core.workspace.presetsPath`
         """
         from . import presetman
         savedpath = presetman.presetManager.savePreset(self.name)

@@ -3,14 +3,13 @@ Functionality to interface with maelzel.scoring
 
 """
 from __future__ import annotations
+from .config import CoreConfig
 from ._common import *
 from .workspace import getConfig, getWorkspace
 
 from maelzel import scoring
 from maelzel.scorestruct import ScoreStruct
 import music21 as m21
-
-import configdict
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -76,11 +75,10 @@ def scoringPartsToMusic21(parts: List[Union[scoring.Part, List[scoring.Notation]
     return m21score
 
 
-def makeRenderOptionsFromConfig(cfg: configdict.CheckedDict = None,
+def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
                                 ) -> scoring.render.RenderOptions:
     """
-    Generate RenderOptions needed for scoring.render, based
-    on the settings in the given config
+    Generate RenderOptions needed for scoring.render based on the config
 
     Args:
         the config to use. If None, the current config is used
@@ -105,12 +103,13 @@ def makeRenderOptionsFromConfig(cfg: configdict.CheckedDict = None,
         glissandoLineThickness=cfg['show.glissandoLineThickness'],
         lilypondPngStaffsizeScale=cfg['show.lilypondPngStaffsizeScale'],
         glissHideTiedNotes=cfg['show.glissHideTiedNotes'],
-        renderFormat=cfg['show.format']
+        renderFormat=cfg['show.format'],
+        pngResolution=cfg['show.pngResolution']
     )
     return renderOptions
 
 
-def makeQuantizationProfileFromConfig(cfg: configdict.CheckedDict = None
+def makeQuantizationProfileFromConfig(cfg: CoreConfig = None
                                       ) -> scoring.quant.QuantizationProfile:
     if cfg is None:
         cfg = getConfig()
@@ -124,12 +123,12 @@ def makeQuantizationProfileFromConfig(cfg: configdict.CheckedDict = None
     )
 
 
-def renderWithCurrentWorkspace(parts: List[scoring.Part],
-                               backend: str = None,
-                               renderoptions: scoring.render.RenderOptions = None,
-                               scorestruct: ScoreStruct = None,
-                               config: dict = None,
-                               ) -> scoring.render.Renderer:
+def renderWithActiveWorkspace(parts: List[scoring.Part],
+                              backend: str = None,
+                              renderoptions: scoring.render.RenderOptions = None,
+                              scorestruct: ScoreStruct = None,
+                              config: CoreConfig = None,
+                              ) -> scoring.render.Renderer:
     """
     Render the given scoring.Parts with the current configuration
 

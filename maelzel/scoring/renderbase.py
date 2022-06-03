@@ -22,28 +22,29 @@ from typing import Optional, Union
 @dataclass
 class RenderOptions:
     """
+    Holds all options needed for rendering
 
-    - orientation: one of "portrait" or "landscape"
-    - staffSize: the size of each staff, in points
-    - pageSize: one of "a1", "a2", "a3", "a4", "a5"
-    - pageMarginMillimeters: page margin in mm. Only used by some backends
-
-    - divsPerSemitone: the number of divisions of the semitone
-    - showCents: should each note/chord have a text label attached indicating
-      the cents deviation from the nearest semitone?
-    - centsPlacement: where to put the cents annotation
-    - centsFontSize: the font size of the cents annotation
-    - measureAnnotationFontSize: font size for measure annotations
-    - glissAllowNonContiguous: if True, allow glissandi between notes which have rests
-      between them
-    - glissHideTiedNotes: if True, hide tied notes which are part of a gliss.
-    - lilypondPngSaffsizeScale: a scaling factor applied to staff size when rendering
-      to png via lilypond.
-    - title: the title of the score
-    - composer: the composer of the score
-
-    - opaque: if True, rendered images will be opaque (no transparent
-        background)
+    Attributes:
+        orientation: one of "portrait" or "landscape"
+        staffSize: the size of each staff, in points
+        pageSize: one of "a1", "a2", "a3", "a4", "a5"
+        pageMarginMillimeters: page margin in mm. Only used by some backends
+        divsPerSemitone: the number of divisions of the semitone
+        showCents: should each note/chord have a text label attached indicating
+        the cents deviation from the nearest semitone?
+        centsPlacement: where to put the cents annotation
+        centsFontSizeFactor: the factor used for the font size used in cents annotation
+        measureAnnotationFontSize: font size for measure annotations
+        glissAllowNonContiguous: if True, allow glissandi between notes which have rests
+            between them
+        glissHideTiedNotes: if True, hide tied notes which are part of a gliss.
+        lilypondPngStaffsizeScale: a scaling factor applied to staff size when rendering
+            to png via lilypond.
+        pngResolution: dpi used when rendering a lilypond score to png
+        title: the title of the score
+        composer: the composer of the score
+        opaque: if True, rendered images will be opaque (no transparent
+            background)
     """
     orientation: str = config['pageOrientation']
     staffSize: Union[int, float] = config['staffSize']
@@ -64,6 +65,7 @@ class RenderOptions:
 
     horizontalSpacing: str = config['horizontalSpacing']
     lilypondPngStaffsizeScale: float = 1.4
+    pngResolution: int = config['pngResolution']
     removeSuperfluousDynamics: bool = config['removeSuperfluousDynamics']
     restsResetDynamics: bool = True
 
@@ -111,12 +113,27 @@ class Renderer:
         self.options = options
         self._rendered = False
 
+    def reset(self) -> None:
+        """
+        Resets the current renderer so that a new render is possible
+
+        A Renderer caches its internal representation and last rendered
+        score. This method resets the Renderer to its state after
+        construction
+        """
+        self._rendered = False
+
     def __hash__(self) -> int:
         return hash((hash(self.score), hash(self.struct), hash(self.options)))
 
     def render(self) -> None:
         """
-        This method should be implemented by the backend
+        Render the quantized score
+
+        .. note::
+
+            The result is internally cached to calling this method multiple times
+            only performs the rendering once.
         """
         raise NotImplementedError("Please Implement this method")
 

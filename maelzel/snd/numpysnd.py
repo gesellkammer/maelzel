@@ -69,7 +69,8 @@ def peak(samples:np.ndarray) -> float:
     return amp2db(np.abs(samples).max())
 
 
-def peaksbpf(samples:np.ndarray, sr:int, res=0.01, overlap=2, channel=0) -> bpf4.core.Sampled:
+def peaksbpf(samples:np.ndarray, sr:int, res=0.01, overlap=2, channel=0
+             ) -> bpf4.core.Sampled:
     """
     Return a BPF representing the peaks envelope of the source with the
     resolution given
