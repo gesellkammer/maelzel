@@ -1,11 +1,11 @@
 """
-This module implements a lilypond renderer, converts our own
-intermediate representation as defined after quantization
+This module implements a lilypond renderer
+
+It converts our own intermediate representation as defined after quantization
 into a .ly file and renders that via lilypond to pdf or png
 """
 
 import os
-import logging
 import tempfile
 import textwrap
 import shutil
@@ -19,6 +19,8 @@ from .core import Notation
 from .render import Renderer, RenderOptions
 from .quant import DurationGroup
 from . import quant, util
+import logging
+
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
@@ -61,13 +63,15 @@ def _lilyArticulation(articulation:str) -> str:
     return _articulations[articulation]
 
 
-def notationToLily(n: Notation) -> str:
+def notationToLily(n: Notation, options: RenderOptions) -> str:
     """
     Converts a Notation to its lilypond representation
 
-    NB: we do not take tuplets into consideration here,
-    since they should be taken care of at a higher level
-    (see renderGroup)
+    .. note::
+
+        We do not take tuplets into consideration here,
+        since they should be taken care of at a higher level
+        (see renderGroup)
 
     Args:
         n: the notation
@@ -148,6 +152,14 @@ def notationToLily(n: Notation) -> str:
         if n.annotations:
             for annotation in n.annotations:
                 _(lilytools.makeTextAnnotation(annotation.text, fontsize=annotation.fontSize))
+        if options.showCents:
+            # TODO: cents annotation should follow options (below/above, fontsize)
+            centsText = util.centsAnnotation(n.pitches, divsPerSemitone=options.divsPerSemitone)
+            if centsText:
+                fontrelsize = options.centsFontSize - options.staffSize
+                _(lilytools.makeTextAnnotation(centsText, fontsize=fontrelsize,
+                                               fontrelative=True, placement='below'))
+
     if graceGroup == "stop":
         _("}")
     return " ".join(parts)
@@ -193,7 +205,7 @@ def _renderGroup(seq: List[str],
             if not item.gliss and state['glissSkip']:
                 seq.append(r"\glissandoSkipOff ")
                 state['glissSkip'] = False
-            lilyItem = notationToLily(item)
+            lilyItem = notationToLily(item, options=options)
             seq.append(lilyItem)
             seq.append(" ")
             if item.gliss and not item.tiedPrev and item.tiedNext:
@@ -268,7 +280,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
     if clef is not None:
         line(fr'\clef "{clef}"', indents)
     else:
-        clef = quant.bestClefForPart(part)
+        clef = quant._bestClefForPart(part)
         line(lilytools.makeClef(clef), indents)
 
     lastTimesig = None
@@ -316,6 +328,8 @@ def quantizedPartToLily(part: quant.QuantizedPart,
     # ownline(">>", indents)
     return "".join(seq)
 
+
+# --------------------------------------------------------------
 
 _prelude = r"""
 
@@ -662,9 +676,13 @@ class LilypondRenderer(Renderer):
         if fmt is None:
             fmt = ext[1:]
         if fmt == 'png':
+            if self.options.renderFormat != 'png':
+                self.reset()
             self.options.cropToContent = True
             self.options.renderFormat = 'png'
         elif fmt == 'pdf':
+            if self.options.renderFormat != 'pdf':
+                self.reset()
             self.options.cropToContent = False
             self.options.renderFormat = 'pdf'
         elif fmt == 'mid':
@@ -683,7 +701,8 @@ class LilypondRenderer(Renderer):
             open(lilyfile, "w").write(lilytxt)
             if fmt != ext[1:]:
                 outfile2 = f"{outfile}.{fmt}"
-                lilytools.renderLily(lilyfile, outfile2)
+                lilytools.renderLily(lilyfile, outfile2,
+                                     imageResolution=self.options.pngResolution)
                 shutil.move(outfile2, outfile)
             else:
                 lilytools.renderLily(lilyfile, outfile)
@@ -705,8 +724,17 @@ class LilypondRenderer(Renderer):
                 os.remove(f)
 
     def asMusic21(self) -> None:
+        """
+        This renderer does not implement conversion to music21
+        """
         return None
 
     def nativeScore(self) -> str:
+        """
+        Returns the lilypond score (as text)
+
+        Returns:
+            the string representing the rendered lilypond score
+        """
         self.render()
         return self._lilyscore

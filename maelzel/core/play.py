@@ -1,33 +1,6 @@
 """
 This module handles playing of events
 
-Each Note, Chord, Line, etc, can express its playback in terms of CsoundEvents
-
-A CsoundEvent is a score line with a number of fixed fields,
-user-defined fields and a sequence of breakpoints
-
-A breakpoint is a tuple of values of the form (offset, pitch [, amp, ...])
-The size if each breakpoint and the number of breakpoints are given
-by inumbps, ibplen
-
-An instrument to handle playback should be defined with `defPreset` which handles
-breakpoints and only needs the audio generating part of the csound code.
-
-Whenever a note actually is played with a given preset, this preset is
- sent to the csound engine and instantiated/evaluated.
-
-Examples
-~~~~~~~~
-
-.. code::
-
-    from maelzel.core import *
-    f0 = n2f("1E")
-    notes = [Note(f2m(i*f0), dur=0.5) for i in range(20)]
-    play.defPreset("detuned", r'''
-
-    ''')
-
 """
 from __future__ import annotations
 import os
@@ -53,7 +26,9 @@ if TYPE_CHECKING:
 
 __all__ = ('OfflineRenderer',
            'playEvents',
-           'recEvents')
+           'recEvents',
+           'rendering',
+           'lockedClock')
 
 
 _invalidVariables = {"kfreq", "kamp", "kpitch"}
@@ -78,18 +53,25 @@ class OfflineRenderer:
         quiet: if True, debugging output is minimized. If None, defaults to
             config (key: 'rec.quiet')
 
+    If rendering offline in tandem with audio samples and other csoundengine's
+    functionality, it is possible to access the underlying csoundengine's Renderer
+    via the ``.renderer`` attribute
+
     .. _offlineRendererExample:
 
     Example
     ~~~~~~~
 
-        # Render a chromatic scale.
+        # Render a chromatic scale in sync with a soundfile
         >>> from maelzel.core import *
+        >>> import sndfileio
         >>> notes = [Note(n, dur=0.5) for n in range(48, 72)]
         >>> chain = Chain(notes)
         >>> defPresetSoundfont('piano', sf2path='/path/to/piano.sf2')
-        >>> with play.OfflineRenderer('scale.wav') as r:
+        >>> samples, sr = sndfileio.sndread('/path/to/soundfile')
+        >>> with rendering('scale.wav') as r:
         ...     chain.play(instr='piano')
+        ...     r.renderer.playSample((samples, sr))
 
     When exiting the context manager the file 'scale.wav' is rendered. During
     the context manager, all calls to .play are intersected and scheduled
@@ -102,14 +84,30 @@ class OfflineRenderer:
         if outfile is not None and outfile != "?":
             outfile = _util.normalizeFilename(outfile)
         self.outfile = outfile
+        """The outfile to render to. If not given, a filename is assigned when rendering"""
+
         self.a4 = w.a4
+        """A value for the reference frequency"""
+
         self.sr = sr or cfg['rec.sr']
-        self.quiet = quiet
+        """The samplerate. If not given, ['rec.sr'] is used """
+
         self.ksmps = ksmps
-        self.renderer = presetManager.makeRenderer(sr, ksmps=ksmps, nchnls=nchnls)
+        """ksmps value (samples per block)"""
+
+        self.renderer: csoundengine.Renderer = presetManager.makeRenderer(sr, ksmps=ksmps, nchnls=nchnls)
+        """The actual csoundengine.Renderer"""
+
         self.events: List[CsoundEvent] = []
+        """A list of all events rendered"""
+
         self.instrDefs: Dict[str, csoundengine.Instr] = {}
+        """An index of registered Instrs"""
+
         self.renderedSoundfiles: List[str] = []
+        """A list of soundfiles rendered with this renderer"""
+
+        self._quiet = quiet
 
     def _repr_html_(self) -> str:
         if not self.renderedSoundfiles:
@@ -128,6 +126,11 @@ class OfflineRenderer:
     def registerInstr(self, instrname: str, instrdef: csoundengine.Instr) -> None:
         """
         Register a csoundengine.Instr to be used with this OfflineRenderer
+
+        .. note::
+
+            All :class:`csoundengine.Instr` defined in the play Session are
+            available to be rendered offline without the need to be registered
 
         Args:
             instrname: the name of this preset/instrument
@@ -284,7 +287,7 @@ class OfflineRenderer:
         outfile = _util.normalizeFilename(outfile)
         self.renderedSoundfiles.append(outfile)
         if quiet is None:
-            quiet = self.quiet if self.quiet is not None else cfg['rec.quiet']
+            quiet = self._quiet if self._quiet is not None else cfg['rec.quiet']
         self.renderer.render(outfile=outfile, wait=wait, quiet=quiet,
                              openWhenDone=openWhenDone)
         return outfile
@@ -351,6 +354,38 @@ class OfflineRenderer:
             raise RuntimeError(f"Did not find rendered file {sndfile}")
         import emlib.misc
         emlib.misc.open_with_app(sndfile)
+
+
+def rendering(outfile:str, sr=None, nchnls=2, **kws) -> OfflineRenderer:
+    """
+    Creates a **context manager** to render any .play call offline
+
+    Args:
+        outfile: the soundfile to render
+        sr: the sample rate
+        nchnls: the number of channels to render to
+        **kws: any keywords are passed directly to :class:``OfflineRenderer`
+
+    Returns:
+        an OfflineRenderer
+
+    Example
+    ~~~~~~~
+
+        >>> from maelzel.core import *
+        >>> scale = Chain([Note(n) for n in "4C 4D 4E 4F 4G".split()])
+        >>> play.getPlaySession().defInstr('reverb', r'''
+        ... |kfeedback=0.6|
+        ... amon1, amon2 monitor
+        ... a1, a2 reverbsc amon1, amon2, kfeedback, 12000, sr, 0.6
+        ... outch 1, a1-amon1, 2, a2-amon2
+        ... ''')
+        >>> presetManager.defPresetSoundfont('piano', '/path/to/piano.sf2')
+        >>> with rendering('out.wav') as r:
+        ...     scale.play('piano')
+        ...     r.sched('reverb', priority=2)
+    """
+    return OfflineRenderer(outfile=outfile, sr=sr, nchnls=nchnls, **kws)
 
 
 def recEvents(events: List[CsoundEvent], outfile:str=None,
@@ -558,54 +593,6 @@ def lockedClock():
 
     """
     return getPlayEngine().lockedClock()
-
-
-def _schedOffline__(renderer: csoundengine.Renderer,
-                  events: List[CsoundEvent],
-                  _checkNchnls=True
-                  ) -> None:
-    """
-    Schedule the given events for offline rendering.
-
-    You need to call renderer.render(...) to actually render/play the
-    scheduled events
-
-    Args:
-        renderer: a Renderer as returned by makeRenderer
-        events: events as returned by, for example, chord.events(**kws)
-        _checkNchnls: (internal parameter)
-            if True, will check (and adjust) nchnls in
-            the renderer so that it is high enough for all
-            events to render properly
-    """
-    # Deprecated
-    raise RuntimeError("This function is deprecated")
-    if _checkNchnls:
-        maxchan = max(presetManager.eventMaxNumChannels(event)
-                      for event in events)
-        if renderer.nchnls < maxchan:
-            logger.info(f"_schedOffline: the renderer was defined with "
-                        f"nchnls={renderer.csd.nchnls}, but {maxchan} "
-                        f"are needed to render the given events. "
-                        f"Setting nchnls to {maxchan}")
-            renderer.csd.nchnls = maxchan
-    for event in events:
-        instrName = event.instr
-        assert instrName is not None
-        presetdef = presetManager.getPreset(instrName)
-        instr = presetdef.getInstr()
-        if not renderer.isInstrDefined(instr.name):
-            instr = presetdef.getInstr()
-            renderer.registerInstr(instr)
-        # renderer.defInstr(instrName, body=presetdef.body, tabledef=presetdef.params)
-        pargs = event.resolvePfields(instr)
-        if pargs[2] != 0:
-            logger.warn(f"got an event with a tabnum already set...: {pargs}")
-            logger.warn(f"event: {event}")
-        renderer.sched(instrName, delay=pargs[0], dur=pargs[1],
-                       pargs=pargs[3:],
-                       tabargs=event.namedArgs,
-                       priority=event.priority)
 
 
 def playEvents(events: List[CsoundEvent],

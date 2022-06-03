@@ -55,7 +55,7 @@ def onsetsAubio(samples: np.ndarray, sr:int, method='mkl', winsize=1024,
 
 def playTicks(times: List[float], engine: csoundengine.Engine = None, chan=1,
               midinote:Union[int, float, List[float]] = 69,
-              amp=0.5, attack=0.01, decay=0.05, sustain=0.5, release=0.100, latency=0.2
+              amp=0.5, attack=0.01, decay=0.05, sustain=0.5, release=0.100, extraLatency=0.
               ) -> csoundengine.synth.SynthGroup:
     """
     Given a list of times offsets, play these as ticks
@@ -88,6 +88,9 @@ def playTicks(times: List[float], engine: csoundengine.Engine = None, chan=1,
     import csoundengine
     if engine is None:
         engine = csoundengine.getEngine("maelzel.snd")
+        lockClock = True
+    else:
+        lockClock = False
     session = engine.session()
     instr = session.defInstr("features.tick", body=r"""
         iPitch, iAmp, iAtt, iDec, iSust, iRel, iChan passign 5
@@ -104,10 +107,16 @@ def playTicks(times: List[float], engine: csoundengine.Engine = None, chan=1,
         midinotes = midinote
 
     synths = []
-    with engine.lockedClock():
-        for t, m in zip(times, midinotes):
-            args[0] = m
-            synths.append(session.sched(instr.name, delay=t+latency, dur=dur, pargs=args))
+    if lockClock:
+        engine.lockClock(True)
+
+    for t, m in zip(times, midinotes):
+        args[0] = m
+        synths.append(session.sched(instr.name, delay=t+extraLatency, dur=dur, pargs=args))
+
+    if lockClock:
+        engine.lockClock(False)
+
     return csoundengine.synth.SynthGroup(synths)
 
 

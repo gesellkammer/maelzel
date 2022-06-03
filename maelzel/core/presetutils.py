@@ -2,14 +2,11 @@ from __future__ import annotations
 import re
 import os
 import glob
-import math
-import dataclasses
 import textwrap
 import csoundengine
 import emlib.dialogs
 import emlib.textlib
 from .workspace import presetsPath, getConfig
-from . import tools
 from ._common import logger
 from .presetbase import PresetDef, analyzeAudiogen
 from typing import TYPE_CHECKING
@@ -95,7 +92,7 @@ def loadYamlPreset(path: str) -> PresetDef:
 
 
 def makeSoundfontAudiogen(sf2path: str = None, instrnum:int=None,
-                          preset:Tuple[int, int]=None,
+                          preset:tuple[int, int]=None,
                           interpolation='linear',
                           ampDivisor:int=None,
                           mono=False) -> str:
@@ -120,6 +117,7 @@ def makeSoundfontAudiogen(sf2path: str = None, instrnum:int=None,
     --------
 
         >>> # Add a soundfont preset with transposition
+        >>> from maelzel.core import *
         >>> code = r'''
         ...     kpitch = kpitch + ktransp
         ... '''
@@ -234,7 +232,7 @@ def resolveSoundfontPath(path:str=None) -> Optional[str]:
             None)
 
 
-def getSoundfontProgram(sf2path: str, presetname: str) -> Tuple[int, int]:
+def getSoundfontProgram(sf2path: str, presetname: str) -> tuple[int, int]:
     idx = csoundengine.csoundlib.soundfontIndex(sf2path)
     if presetname not in idx.nameToIndex:
         raise KeyError("fPresetname {presetname} not defined in soundfont {sf2path}"
@@ -242,7 +240,7 @@ def getSoundfontProgram(sf2path: str, presetname: str) -> Tuple[int, int]:
     return idx.nameToPreset[presetname]
 
 
-def soundfontSelectProgram(sf2path: str) -> Opt[Tuple[str, int, int]]:
+def soundfontSelectProgram(sf2path: str) -> Optional[tuple[str, int, int]]:
     """
     Select a soundfont program using a gui
 
@@ -255,7 +253,7 @@ def soundfontSelectProgram(sf2path: str) -> Opt[Tuple[str, int, int]]:
     """
     idx = csoundengine.csoundlib.soundfontIndex(sf2path)
     programnames = list(idx.nameToPreset.keys())
-    programname = emlib.dialogs.selectFromList(programnames, title="Select Program")
+    programname = emlib.dialogs.selectItem(programnames, title="Select Program")
     if programname is None:
         return None
     bank, presetnum = idx.nameToPreset[programname]

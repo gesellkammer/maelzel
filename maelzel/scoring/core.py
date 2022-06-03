@@ -1,18 +1,11 @@
 from __future__ import annotations
-from collections import defaultdict
-from dataclasses import dataclass
 from emlib import iterlib
-import pitchtools as pt
-from .util import *
-from . import definitions
-from . import enharmonics
+import emlib.misc
+from .common import *
 from .notation import *
+from . import util
 import itertools
-import functools
-import copy
-import uuid
 import logging
-from enum import Enum
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
@@ -20,10 +13,39 @@ if TYPE_CHECKING:
 logger = logging.getLogger("maelzel.scoring")
 
 
+__all__ = (
+    'Notation',
+    'Part',
+    'Arrangement',
+    'stackNotations',
+    'stackNotationsInPlace',
+    'fillSilences',
+    'distributeNotationsByClef',
+    'packInParts',
+    'mergeNotationsIfPossible',
+    'durationsCanMerge',
+    'notationsCanMerge',
+    'fixOverlap',
+    'Annotation',
+    'NotatedDuration',
+)
+
+
 def durationsCanMerge(n0: Notation, n1: Notation) -> bool:
     """
-    Returns True if these two Notations can be merged based on duration and start/end
-    position
+    True if these Notations can be merged based on duration and start/end
+
+    Two durations can be merged if their sum is regular, meaning
+    the sum has a numerator of 1, 2, 3, 4, or 7 (3 means a dotted
+    note, 7 a double dotted note) and the denominator is <= 64
+    (1/1 being a quarter note)
+
+    Args:
+        n0: one Notation
+        n1: the other Notation
+
+    Returns:
+        True if they can be merged
     """
     dur0 = n0.symbolicDuration()
     dur1 = n1.symbolicDuration()
@@ -64,20 +86,22 @@ def notationsCanMerge(n0: Notation, n1: Notation) -> bool:
 
 def mergeNotationsIfPossible(notations: List[Notation]) -> List[Notation]:
     """
+    Merge the given notations into one, if possible
+
     If two consecutive notations have same .durRatio and merging them
-    would result in a regular note, merge them.
+    would result in a regular note, merge them::
 
-    8 + 8 = q
-    q + 8 = q·
-    q + q = h
-    16 + 16 = 8
+        8 + 8 = q
+        q + 8 = q·
+        q + q = h
+        16 + 16 = 8
 
-    In general:
+    In general::;
 
-    1/x + 1/x     2/x
-    2/x + 1/x     3/x  (and viceversa)
-    3/x + 1/x     4/x  (and viceversa)
-    6/x + 1/x     7/x  (and viceversa)
+        1/x + 1/x     2/x
+        2/x + 1/x     3/x  (and viceversa)
+        3/x + 1/x     4/x  (and viceversa)
+        6/x + 1/x     7/x  (and viceversa)
     """
     assert len(notations) > 1
     out = [notations[0]]
@@ -101,14 +125,14 @@ class Part(list):
         groupid: an identification (given by makeGroupId), used to identify
             tracks which belong to a same group
     """
-    def __init__(self, events: Iterator[Notation]=None, label:str=None, groupid:str=None):
+    def __init__(self, events: List[Notation]=None, label:str='', groupid:str=''):
 
         if events:
             super().__init__(events)
         else:
             super().__init__()
-        self.groupid:str = groupid
-        self.label:str = label
+        self.groupid: str = groupid
+        self.label: str = label
         _fixGlissInPart(self)
 
     def __getitem__(self, item) -> Notation:
@@ -126,42 +150,42 @@ class Part(list):
 
     def distributeByClef(self) -> List[Part]:
         """
-        Distribute the notations in this Part into multiple parts,
-        depending on their pitch
+        Distribute the notations in this Part into multiple parts, based on pitch
         """
         return distributeNotationsByClef(self, groupid=self.groupid)
 
     def needsMultipleClefs(self) -> bool:
         """
-        Returns True if the notations in this Part extend over the range
-        of one particular clef
+        True if the notations in this Part extend over the range of one clef
         """
-        midinotes = sum((n.pitches for n in self), [])
-        return midinotesNeedMultipleClefs(midinotes)
+        midinotes: List[float] = sum((n.pitches for n in self), [])
+        return util.midinotesNeedMultipleClefs(midinotes)
 
     def stack(self) -> None:
         """
-        Stack the notations of this part **in place**. Stacking means filling in any
-        unresolved offset/duration of the notations in this part. After this operation,
-        all Notations in this Part have an explicit duration and start. See
-        :meth:`stacked` for a version which returns a new Part instead of operating in
-        place
+        Stack the notations of this part **in place**.
+
+        Stacking means filling in any unresolved offset/duration of the notations
+        in this part. After this operation, all Notations in this Part have an
+        explicit duration and start. See :meth:`stacked` for a version which
+        returns a new Part instead of operating in place
         """
         stackNotationsInPlace(self)
 
     def meanPitch(self) -> float:
         """
-        Returns the mean pitch of this part, weighted by the duration of each pitch
+        The mean pitch of this part, weighted by the duration of each pitch
 
         Returns:
             a float representing the mean pitch as midinote
         """
-        pitch, dur = 0, 0
+        pitch, dur = 0., 0.
         for n in self:
             if n.isRest:
                continue
-            pitch += n.meanPitch() * n.duration
-            dur += n.duration
+            dur = n.duration or 1.
+            pitch += n.meanPitch() * dur
+            dur += dur
         return pitch / dur
 
     def fillGaps(self, mingap=1/64) -> None:
@@ -176,14 +200,16 @@ class Part(list):
         assert not self.hasGaps()
 
     def hasGaps(self) -> bool:
+        """Does this Part have gaps?"""
         assert all(n.offset is not None and n.duration is not None for n in self)
         return any(n0.end < n1.offset for n0, n1 in iterlib.pairwise(self))
 
     def stacked(self) -> Part:
         """
-        Similar to :meth:`stack`, stacks the Notations in this Part to make them
-        adjacent whenever they have unset offset/duration. **This method returns a
-        new Part** instead of operating in place.
+        Stack the Notations to make them adjacent if they have unset offset/duration
+
+        Similar to :meth:`stack`, **this method returns a new Part** instead of
+        operating in place.
         """
         notations = stackNotations(self)
         return Part(notations, label=self.label, groupid=self.groupid)
@@ -220,7 +246,9 @@ def _fixGlissInPart(notations: List[Notation]):
 def stackNotationsInPlace(events: List[Notation], start=F(0), overrideOffset=False
                           ) -> None:
     """
-    This function stacks events together by placing an event at the end of the
+    Stacks notations to the left, in place
+
+    Stacks events together by placing an event at the end of the
     previous event whenever an event does not define its own offset
 
     Args:
@@ -230,7 +258,7 @@ def stackNotationsInPlace(events: List[Notation], start=F(0), overrideOffset=Fal
     """
     if all(ev.offset is not None and ev.duration is not None for ev in events):
         return
-    now = misc.firstval(events[0].offset, start, F(0))
+    now = emlib.misc.firstval(events[0].offset, start, F(0))
     assert now is not None and now>=0
     lasti = len(events)-1
     for i, ev in enumerate(events):
@@ -250,6 +278,8 @@ def stackNotationsInPlace(events: List[Notation], start=F(0), overrideOffset=Fal
 def stackNotations(events: List[Notation], start=F(0), overrideOffset=False
                    ) -> List[Notation]:
     """
+    Stacks Notations to the left, returns the new notations
+
     This function stacks events together by placing an event at the end of the
     previous event whenever an event does not define its own offset, or sets
     the duration of an event if events are specified via offset alone
@@ -311,7 +341,8 @@ def fixOverlap(notations: List[Notation], mingap=F(1, 10000)) -> None:
             assert n0.end == n1.offset
 
 
-def fillSilences(notations: List[Notation], mingap=1/64, offset:time_t=None) -> List[Notation]:
+def fillSilences(notations: List[Notation], mingap=1/64, offset:time_t=None
+                 ) -> List[Notation]:
     """
     Return a list of Notations filled with rests
 
@@ -329,11 +360,13 @@ def fillSilences(notations: List[Notation], mingap=1/64, offset:time_t=None) -> 
     assert all(isinstance(n, Notation) and n.offset is not None and n.duration is not None
                for n in notations)
     if offset is not None:
-        assert all(n.offset >= offset for n in notations)
+        assert all(n.offset >= offset for n in notations
+                   if n.offset is not None)
 
     out: List[Notation] = []
-    if offset is not None and notations[0].offset > offset:
-        out.append(makeRest(duration=notations[0].offset, offset=offset))
+    n0 = notations[0]
+    if offset is not None and n0.offset is not None and n0.offset > offset:
+        out.append(makeRest(duration=n0.offset, offset=offset))
     for ev0, ev1 in iterlib.pairwise(notations):
         gap = ev1.offset - (ev0.offset + ev0.duration)
         assert gap >= 0, f"negative gap! = {gap}"
@@ -357,19 +390,21 @@ def _groupById(notations: List[Notation]) -> List[Union[Notation, List[Notation]
     appended as is
 
     """
-    out = []
+    out: List[Union[Notation, List[Notation]]] = []
     for groupid, elementsiter in itertools.groupby(notations, key=lambda n:n.groupid):
         if not groupid:
             out.extend(elementsiter)
         else:
             elements = list(elementsiter)
-            elements.sort(key=lambda elem:elem.offset)
+            elements.sort(key=lambda elem:elem.offset or 0)
             out.append(elements)
     return out
 
 
 def distributeNotationsByClef(notations: List[Notation], groupid=None) -> List[Part]:
     """
+    Split the notations into parts
+
     Assuming that events are not simultanous, split the events into
     different Parts if the range makes it necessary, where each
     Part can be represented without clef changes. We don't enforce that the
@@ -386,7 +421,7 @@ def distributeNotationsByClef(notations: List[Notation], groupid=None) -> List[P
     G = []
     F = []
     G15a = []
-    lowPitch = 0
+    lowPitch = 0.
     for n in notations:
         for p in n.pitches:
             lowPitch += 60 - p
@@ -451,29 +486,29 @@ def packInParts(notations: List[Notation], maxrange=36,
         a list of Parts
 
     """
-    from maelzel.music import packing
+    from maelzel import packing
     items = []
     groups = _groupById(notations)
     for group in groups:
         if isinstance(group, Notation):
             n = group
             if not n.isRest:
+                assert n.offset is not None and n.duration is not None
                 items.append(packing.Item(obj=n, offset=n.offset,
                                           dur=n.duration, step=n.meanPitch()))
         else:
             assert isinstance(group, list)
             if keepGroupsTogether:
-                dur = max(n.end for n in group) - min(n.offset for n in group)
+                dur = max(n.end for n in group if n.end is not None) - min(n.offset for n in group if n.offset is not None)
                 step = sum(n.meanPitch() for n in group)/len(group)
-                item = packing.Item(obj=group, offset=group[0].offset, dur=dur, step=step)
+                item = packing.Item(obj=group, offset=group[0].offset or 0, dur=dur, step=step)
                 items.append(item)
             else:
-                items.extend(packing.Item(obj=n, offset=n.offset, dur=n.duration,
+                items.extend(packing.Item(obj=n, offset=n.offset or 0, dur=n.duration or 1,
                                           step=n.meanPitch())
                              for n in group)
 
     packedTracks = packing.packInTracks(items, maxAmbitus=maxrange)
     return [Part(track.unwrap()) for track in packedTracks]
-
 
 

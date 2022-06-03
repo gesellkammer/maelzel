@@ -9,21 +9,23 @@ durratio_t = Tuple[int, int]
 @dataclasses.dataclass
 class DurationGroup:
     """
-    A DurationGroup is a container, grouping together Notations under time modifier (a
-    tuple)
+    A DurationGroup is a container, grouping Notation under one time modifier
+
     A DurationGroup consists of a sequence of Notations or DurationGroups, allowing to
     define nested tuples or beats. The notations inside a DurationGroup already hold the
     real beat-duration. The durRatio is a ratio by which to multiply a given duration to
     obtain the notated duration.
 
-    durRatio: a tuple (num, den) indication the ratio by which to multiply the duration
-    of the items to obtain the notated items: the items inside this group
+    Attributes:
+        durRatio: a tuple (num, den) indication the ratio by which to multiply the duration
+            of the items to obtain the notated items: the items inside this group
+        items: the items in this group
 
     In the case of a simple triplet, the items would hold something like::
 
-        >>> from maelzel import scoring
-        >>> notations = [scoring.makeNote(60, duration=F(1, 3)),
-        ...              scoring.makeNote(61, duration=F(2, 3))]
+        >>> from maelzel.scoring import *
+        >>> notations = [makeNote(60, duration=F(1, 3)),
+        ...              makeNote(61, duration=F(2, 3))]
         >>> DurationGroup(durRatio=(3, 2), items=notations)
     """
     durRatio: durratio_t
@@ -31,8 +33,9 @@ class DurationGroup:
 
     def symbolicDuration(self) -> F:
         """
-        The symbolic duration of this Notation. This represents
-        the notated figure (1=quarter, 1/2=eighth note, 1/4=16th note, etc)
+        The symbolic duration of this Notation.
+
+        This represents the notated figure (1=quarter, 1/2=eighth note, 1/4=16th note, etc)
         """
         return sum(item.symbolicDuration() for item in self.items)
 
@@ -49,6 +52,12 @@ class DurationGroup:
         return "\n".join(parts)
 
     def mergeNotations(self) -> DurationGroup:
+        """
+        Merge the notations in this group
+
+        Returns:
+            a new DurationGroup with merged notations (whenever possible)
+        """
         i0 = self.items[0]
         out = [i0 if isinstance(i0, Notation) else i0.mergeNotations()]
         for i1 in self.items[1:]:

@@ -11,7 +11,7 @@ import emlib.img
 import emlib.filetools
 
 import music21 as m21
-from maelzel.music import m21tools, m21fix
+from maelzel.music import m21tools, _m21fix
 from maelzel import musicxml as mxml
 
 from .common import *

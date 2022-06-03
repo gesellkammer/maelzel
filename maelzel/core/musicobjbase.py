@@ -26,7 +26,6 @@ import tempfile as _tempfile
 import html as _html
 from dataclasses import dataclass
 
-import configdict
 import music21 as m21
 
 from emlib.misc import firstval
@@ -39,7 +38,7 @@ import csoundengine
 
 from maelzel.common import asmidi
 from ._common import *
-from ._typedefs import *
+from .config import CoreConfig
 from .workspace import getWorkspace, getConfig, getScoreStruct
 from . import play
 from . import tools
@@ -55,9 +54,9 @@ from maelzel.scorestruct import ScoreStruct
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
-    from ._typedefs import time_t
+    from ._typedefs import *
     from .play import OfflineRenderer
-    _T = TypeVar('_T', bound='MusicObj')
+    T = TypeVar('T', bound='MusicObj')
 
 _playkeys = PlayArgs.keys()
 
@@ -101,9 +100,10 @@ class MusicObj:
     _showableInitialized = False
     _acceptsNoteAttachedSymbols = True
 
-    __slots__ = ('dur', 'start', 'label', '_playargs', '_hash', '_symbols')
+    __slots__ = ('dur', 'start', 'label', '_playargs', '_hash', '_symbols', '_properties')
 
-    def __init__(self, dur: time_t = None, start: time_t = None, label: str = ''):
+    def __init__(self, dur: time_t = None, start: time_t = None, label: str = '',
+                 properties: Dict[str, Any] = None):
 
         self.label: Optional[str] = label
         "a label can be used to identify an object within a group of objects"
@@ -131,6 +131,13 @@ class MusicObj:
         self._hash: int = 0
 
         self._symbols: Optional[List[symbols.Symbol]] = None
+        self._properties: Optional[Dict[str, Any]] = properties
+
+    @property
+    def properties(self) -> Dict[str, Any]:
+        if self._properties is None:
+            self._properties = {}
+        return self._properties
 
     @property
     def symbols(self) -> List[symbols.Symbol]:
@@ -203,23 +210,42 @@ class MusicObj:
             self._playargs = PlayArgs()
         return self._playargs
 
-    def setPlay(self:_T, /, **kws) -> _T:
+    def setPlay(self:T, /, **kws) -> T:
         """
         Set any playback attributes, returns self
 
         Args:
-            **kws: any argument passed to .play (delay, dur, chan,
+            **kws: any argument passed to :meth:`~MusicObj.play` (delay, dur, chan,
                 gain, fade, instr, pitchinterpol, fadeshape, params,
                 priority, position).
 
         Returns:
             self. This allows to chain this to any constructor (see example)
 
-        Example::
+        ============================= =====================================================
+        Playback Attribute            Descr
+        ============================= =====================================================
+        instr: ``str``                The instrument preset to use
+        delay: ``float``              Delay in seconds, added to the start of the object
+        gain: ``float``               A gain factor applied to the amplitude of this object
+        chan: ``int``                 The channel to output to, **channels start at 1**
+        pitchinterpol: ``str``        One of 'linear', 'cos', 'freqlinear', 'freqcos'
+        fade: ``float``               The fade time; can also be a tuple (fadein, fadeout)
+        position: ``float``           Panning position (0=left, 1=right)
+        start: ``float``              Start time of playback; allows to play a fragment of the object
+        end: ``float``                End time of playback; allow to trim playback of the object
+        scorestruct: ``ScoreStruct``  Overrides the current scorestruct
+        ============================= =====================================================
+
+
+        **Example**::
 
             # a piano note
             >>> from maelzel.core import *
-            >>> note = Note("C4+25", dur=0.5).setPlay(instr="piano")
+            # Create a note with predetermined instr and panning position
+            >>> note = Note("C4+25", dur=0.5).setPlay(instr="piano", position=1)
+            # When .play is called, the note will play with the preset instr and position
+            >>> note.play()
         """
         playargs = self.playargs
         for k, v in kws.items():
@@ -230,7 +256,7 @@ class MusicObj:
         assert self._playargs is not None
         return self
 
-    def clone(self: _T, **kws) -> _T:
+    def clone(self: T, **kws) -> T:
         """
         Clone this object, changing parameters if needed
 
@@ -252,21 +278,33 @@ class MusicObj:
             setattr(out, k, v)
         if self._playargs is not None:
             out._playargs = self._playargs.copy()
+        if self._properties is not None:
+            out._properties = self._properties.copy()
         out._changed()
         return out
 
-    def copy(self: _T) -> _T:
+    def copy(self: T) -> T:
         """Returns a copy of this object"""
         return _copy.deepcopy(self)
 
     def moveTo(self, start: time_t) -> None:
-        """Move this to the given start time (in place)"""
+        """Move this to the given start time (**in place**)
+
+        Args:
+            start: the new start time
+        """
         self.start = start
         self._changed()
 
-    def timeShift(self:_T, timeoffset: time_t) -> _T:
+    def timeShift(self:T, timeoffset: time_t) -> T:
         """
         Return a copy of this object with an added time offset
+
+        Args:
+            timeoffset: a delta time added
+
+        Returns:
+            a copy of this object shifted in time by the given amount
         """
         return self.timeTransform(lambda t: t+timeoffset)
 
@@ -293,20 +331,37 @@ class MusicObj:
             return None
         return self.start + self.dur
 
-    def quantizePitch(self: _T, step=0.) -> _T:
+    def quantizePitch(self: T, step=0.) -> T:
         """ Returns a new object, with pitch rounded to step """
         raise NotImplementedError()
 
-    def transposeByRatio(self: _T, ratio: float) -> _T:
+    def transposeByRatio(self: T, ratio: float) -> T:
         """
-        Transpose this by a given freq. ratio.
+        Transpose this by a given frequency ratio, if applicable
 
-        A ratio of 2 equals to transposing an octave higher. """
+        A ratio of 2 equals to transposing an octave higher.
+
+        Args:
+            ratio: the ratio to transpose by
+
+        Returns:
+            a copy of this object, transposed by the given ratio
+
+        Example
+        -------
+
+            >>> from maelzel.core import *
+            >>> n = Note("4C")
+            # A transposition by a ratio of 2 results in a pitch an octave higher
+            >>> n.transposeByRatio(2)
+            5C
+        """
         return self.transpose(pt.r2i(ratio))
 
     def show(self, fmt: str = None, external: bool = None, backend: str = None,
              scorestruct: ScoreStruct = None,
-             config: configdict.ConfigDict = None
+             config: CoreConfig = None,
+             resolution: int = None
              ) -> None:
         """
         Show this as notation.
@@ -315,13 +370,15 @@ class MusicObj:
             external: True to force opening the image in an external image viewer,
                 even when inside a jupyter notebook. If False, show will
                 display the image inline if inside a notebook environment.
-                To change the default, modify ``config['show.external']``
+                To change the default, modify :ref:`config['show.external'] <config_show_external>`
             backend: backend used when rendering to png/pdf.
                 One of 'lilypond', 'music21'. None to use default
-                (see ``config['show.backend']``)
-            fmt: one of 'png', 'pdf', 'ly'. None to use default
-
-        **NB**: to use the music21 show capabilities, use ``note.asmusic21().show(...)``
+                (see :ref:`config['show.backend'] <config_show_backend>`)
+            fmt: one of 'png', 'pdf', 'ly'. None to use default.
+            scorestruct: if given overrides the current/default score structure
+            config: if given overrides the current/default config
+            resolution: dpi resolution when rendering to an image, overrides the
+                :ref:`config key 'show.pngResolution' <config_show_pngresolution>`
         """
         cfg = config or getConfig()
         if external is None:
@@ -339,7 +396,8 @@ class MusicObj:
             else:
                 tools.showLilypondScore(r.nativeScore())
         else:
-            img = self.renderImage(backend=backend, fmt=fmt, scorestruct=scorestruct, config=cfg)
+            img = self.renderImage(backend=backend, fmt=fmt, scorestruct=scorestruct,
+                                   config=cfg)
             if fmt == 'png':
                 tools.pngShow(img, forceExternal=external)
             else:
@@ -357,13 +415,13 @@ class MusicObj:
     def render(self, backend: str = None,
                renderoptions: scoring.render.RenderOptions = None,
                scorestruct: ScoreStruct = None,
-               config: configdict.ConfigDict = None) -> scoring.render.Renderer:
+               config: CoreConfig = None) -> scoring.render.Renderer:
         """
         Renders this object as a quantized score
 
         Args:
-            backend: the backend to use, one of 'lilypond', 'music21'. If not given, defaults
-                to the active config's ``'show.backend'`` value
+            backend: the backend to use, one of 'lilypond', 'music21'. If not given,
+                defaults to the :ref:`config key 'show.backend' <config_show_backend>`
             renderoptions: the render options to use. If not given, these are generated from
                 the active config
             scorestruct: if given, overrides the scorestruct set within the active Workspace
@@ -387,14 +445,15 @@ class MusicObj:
 
     def renderImage(self, backend: str = None, outfile: str = None, fmt="png",
                     scorestruct: ScoreStruct = None,
-                    config: configdict.ConfigDict = None
+                    config: CoreConfig = None
                     ) -> str:
         """
         Creates an image representation, returns the path to the image
 
         Args:
             backend: the rendering backend. One of 'music21', 'lilypond'
-                None uses the default method (see config['show.backend'])
+                None uses the default method
+                (see :ref:`getConfig()['show.backend'] <config_show_backend>`)
             outfile: the path of the generated file. Use None to generate
                 a temporary file.
             fmt: if outfile is None, fmt will determine the format of the
@@ -508,11 +567,11 @@ class MusicObj:
             objects which can be queried via .scoringEvents
         """
         parts = self.scoringParts()
-        renderer = notation.renderWithCurrentWorkspace(parts, backend='music21',
-                                                       scorestruct=self.attachedScoreStruct())
+        renderer = notation.renderWithActiveWorkspace(parts, backend='music21',
+                                                      scorestruct=self.attachedScoreStruct())
         stream = renderer.asMusic21()
         if getConfig()['m21.fixStream']:
-            m21tools.m21fix.fixStream(stream, inPlace=True)
+            m21tools.fixStream(stream, inPlace=True)
         return stream
 
     def musicxml(self) -> str:
@@ -532,7 +591,9 @@ class MusicObj:
         return None
 
     def write(self, outfile: str, backend: str = None,
-              scorestruct: ScoreStruct = None) -> None:
+              scorestruct: ScoreStruct = None,
+              resolution: int = None
+              ) -> None:
         """
         Export to multiple formats
 
@@ -543,9 +604,13 @@ class MusicObj:
             outfile: the path of the output file. The extension determines
                 the format
             backend: the backend used when writing as pdf or png. If not given,
-                the default defined in the active config is used (key: 'show.backend').
-                Possible backends: ``music21`` (uses musescore to render musicxml as image),
-                ``lilypond``
+                the default defined in the active config is used
+                (:ref:`key: 'show.backend' <config_show_backend>`).
+                Possible backends: ``lilypond``; ``music21`` (uses MuseScore to render musicxml as
+                image so MuseScore needs to be installed)
+            scorestruct: if given it will overwrite the active ScoreStruct
+            resolution: image DPI (only valid if rendering to an image) - overrides
+                the :ref:`config key 'show.pngResolution' <config_show_pngresolution>`
         """
         if outfile == '?':
             outfile = tools.selectFileForSave(key="writeLastDir",
@@ -555,15 +620,18 @@ class MusicObj:
                 logger.info("File selection cancelled")
                 return
         ext = os.path.splitext(outfile)[1]
+        cfg = getConfig()
         if ext == '.ly' or ext == '.mid' or ext == '.midi':
             backend = 'lilypond'
         elif ext == '.xml' or ext == '.musicxml':
             backend = 'music21'
         elif backend is None:
-            cfg = getConfig()
             backend = cfg['show.backend']
-        r = notation.renderWithCurrentWorkspace(self.scoringParts(), backend=backend,
-                                                scorestruct=scorestruct or self.attachedScoreStruct())
+        if resolution is not None:
+            cfg = cfg.clone(updates={'show.pngResolution': resolution})
+        r = notation.renderWithActiveWorkspace(self.scoringParts(), backend=backend,
+                                               scorestruct=scorestruct or self.attachedScoreStruct(),
+                                               config=cfg)
         r.write(outfile)
 
     def _htmlImage(self) -> str:
@@ -756,10 +824,10 @@ class MusicObj:
             outfile: the outfile where sound will be recorded. Can be
                 None, in which case a filename will be generated. Use '?'
                 to open a save dialog
-            sr: the sampling rate (config ``rec.sr``)
-            ksmps: the ksmps used when recording (config ``rec.ksmps``)
+            sr: the sampling rate (:ref:`config key: 'rec.sr' <config_rec_sr>`)
+            ksmps: the ksmps used when recording (:ref:`config key 'rec.ksmps' <config_rec_ksmps>`)
             wait: if True, the operation blocks until recording is finishes
-                (config ``rec.block``)
+                (:ref:`config 'rec.block' <config_rec_block>`)
             nchnls: if given, use this as the number of channels to record.
             **kws: any keyword passed to .play
 
@@ -792,12 +860,12 @@ class MusicObj:
             out.extend(symbols.noteAttachedSymbols)
         return out
 
-    def getSymbol(self, cls: str) -> Optional[symbols.Symbol]:
+    def getSymbol(self, symbolname: str) -> Optional[symbols.Symbol]:
         """
         Get a symbol set for the given class
 
         Args:
-            cls: the class name of the symbol (for example, "dynamic", "articulation",
+            symbolname: the class name of the symbol (for example, "dynamic", "articulation",
                 etc)
 
         Returns:
@@ -806,12 +874,12 @@ class MusicObj:
         """
         if not self._symbols:
             return None
-        cls = cls.lower()
-        for symbol in self._symbols:
-            if type(symbol).__name__.lower() == cls:
-                return symbol
+        symbolname = symbolname.lower()
+        for symbolinstance in self._symbols:
+            if type(symbolinstance).__name__.lower() == symbolname:
+                return symbolname
 
-    def setSymbol(self: _T, symbol: Union[str, symbols.Symbol], *args, **kws) -> _T:
+    def setSymbol(self: T, symbol: Union[str, symbols.Symbol], *args, **kws) -> T:
         """
         Set a notation symbol in this object
 
@@ -842,15 +910,15 @@ class MusicObj:
         ============  ==========================================================
         Symbol        Arguments
         ============  ==========================================================
-        dynamic       kind: {pppp, ppp, pp, …}
-        expression    text: expression text; placement: {above, 'below}
-        notehead      kind: {cross, harmonic, triangleup, xcircle,
-                      triangle, rhombus, square, rectangle};
-                      color: a css color
-                      parenthesis: bool
-        articulation  kind: {accent, staccato, tenuto, marcato, staccatissimo}
-        size          value: int (0=default, 1, 2, …=bigger, -1, -2, … = smaller)
-        color         value: a css color
+        dynamic       kind: ``str`` {pppp, ppp, pp, …}
+        expression    | text: ``str``
+                      | placement: ``str`` {above, below}
+        notehead      | kind: ``str`` {cross, harmonic, triangleup, xcircle, triangle, rhombus, square, rectangle}
+                      | color: ``str`` (a css color)
+                      | parenthesis: ``bool``
+        articulation  kind: ``str`` {accent, staccato, tenuto, marcato, staccatissimo}
+        size          value: ``int`` (0=default, 1, 2, …=bigger, -1, -2, … = smaller)
+        color         value: ``str`` (a css color)
         ============  ==========================================================
 
         """
@@ -872,7 +940,7 @@ class MusicObj:
             self._symbols.append(symboldef)
         return self
 
-    def timeTransform(self:_T, timemap: Callable[[num_t], num_t]) -> _T:
+    def timeTransform(self:T, timemap: Callable[[num_t], num_t]) -> T:
         """
         Apply a time-transform to this object
 
@@ -899,7 +967,7 @@ class MusicObj:
         Shift the time of this by the given offset (in place)
 
         Args:
-            timeoffset: the time delta
+            timeoffset: the time delta (in quarterNotes)
         """
         self.start = self.start + timeoffset
         self._changed()
@@ -932,7 +1000,7 @@ class MusicObj:
         timefrac = s.beatToTime(self.end)
         return Rat(timefrac.numerator, timefrac.denominator)
 
-    def pitchTransform(self:_T, pitchmap: Callable[[float], float]) -> _T:
+    def pitchTransform(self:T, pitchmap: Callable[[float], float]) -> T:
         """
         Apply a pitch-transform to this object, returns a copy
 
@@ -944,7 +1012,7 @@ class MusicObj:
         """
         raise NotImplementedError("Subclass should implement this")
 
-    def timeScale(self:_T, factor: num_t, offset: num_t = 0) -> _T:
+    def timeScale(self:T, factor: num_t, offset: num_t = 0) -> T:
         """
         Create a copy with modified timing by applying a linear transformation
 
@@ -958,7 +1026,30 @@ class MusicObj:
         transform = _TimeScale(asRat(factor), offset=asRat(offset))
         return self.timeTransform(transform)
 
-    def invertPitch(self: _T, pivot: pitch_t) -> _T:
+    def adaptToScoreStruct(self: T, newstruct: ScoreStruct, oldstruct: ScoreStruct=None
+                           ) -> T:
+        """
+        Adapts the time to a new ScoreStruct so that its absolute time is unmodified
+
+        Args:
+            newstruct: the new ScoreStruct
+            oldstruct: the old ScoreStruct. If not given either the attached or the
+                current ScoreStruct is used
+
+        Returns:
+            a clone of self with the modified start and duration
+
+        """
+        oldstruct = oldstruct or self.attachedScoreStruct() or getScoreStruct()
+        if newstruct == oldstruct:
+            logger.warning("The new scorestruct is the same as the old scorestruct")
+            return self
+        startTime = oldstruct.beatToTime(self.start)
+        endTime = oldstruct.beatToTime(self.end)
+        return self.clone(start=newstruct.timeToBeat(startTime),
+                          dur=newstruct.beatDelta(startTime, endTime))
+
+    def invertPitch(self: T, pivot: pitch_t) -> T:
         """
         Invert the pitch of this object
 
@@ -967,12 +1058,25 @@ class MusicObj:
 
         Returns:
             the inverted object
+
+        .. code::
+
+            >>> from maelzel.core import *
+            >>> series = Chain("4Bb 4E 4F# 4Eb 4F 4A 5D 5C# 4G 4G# 4B 5C".split())
+            >>> inverted = series.invertPitch("4F#")
+            >>> print(" ".join(_.name.ljust(4) for _ in series))
+            ... print(" ".join(_.name.ljust(4) for _ in inverted))
+            4A#  4E   4F#  4D#  4F   4A   5D   5C#  4G   4G#  4B   5C
+            4D   4G#  4F#  4A   4G   4D#  3A#  3B   4F   4E   4C#  4C
+            >>> Score([series, inverted])
+
+        .. image:: ../assets/dodecaphonic-series-1-inverted.png
         """
         pivotm = asmidi(pivot)
         func = lambda pitch: pivotm*2 - pitch
         return self.pitchTransform(func)
 
-    def transpose(self:_T, interval: Union[int, float]) -> _T:
+    def transpose(self:T, interval: Union[int, float]) -> T:
         """
         Transpose this object by the given interval
 
@@ -988,7 +1092,7 @@ class MusicObj:
 @functools.lru_cache(maxsize=1000)
 def _renderImage(obj: MusicObj, outfile: Optional[str], fmt, backend,
                   scorestruct: ScoreStruct,
-                  config: configdict.ConfigDict):
+                  config: CoreConfig):
     renderoptions = notation.makeRenderOptionsFromConfig(config)
     if scorestruct is None:
         scorestruct = getScoreStruct()
@@ -1004,7 +1108,7 @@ def _renderObject(obj: MusicObj,
                   backend:str,
                   renderoptions: scoring.render.RenderOptions,
                   scorestruct: ScoreStruct,
-                  config: configdict.ConfigDict
+                  config: CoreConfig
                   ) -> scoring.render.Renderer:
     """
     Render an object
@@ -1015,8 +1119,6 @@ def _renderObject(obj: MusicObj,
 
     Args:
         obj: the object to make the image from (a Note, Chord, etc.)
-        outfile: if given, the path to be generated. The extension must be one of
-            '.png', '.pdf', '.xml' (for musicxml) or '.ly' (for lilypond)
         backend : one of 'musicxml', 'lilypond'
         scorestruct: if given, this ScoreStruct will be used for rendering. Otherwise
             the scorestruct within the active Workspace is used
@@ -1024,15 +1126,16 @@ def _renderObject(obj: MusicObj,
             within the active Workspace is used
 
     Returns:
-        a scopring.Renderer. The returned object can be used to render (via the ``write()``
-        method) or to have access to the generated score (see ``nativeScore()``)
+        a scoring.Renderer. The returned object can be used to render (via the
+        :meth:`~maelzel.scoring.render.Renderer.write` method) or to have access to the
+        generated score (see :meth:`~maelzel.scoring.render.Renderer.nativeScore`)
 
     .. note::
 
         To render with a temporary Wrokspace (i.e., without modifying the active Workspace),
         use::
 
-        .. code-blocl:: python
+        .. code-block:: python
 
             with Workspace(scorestruct=..., config=..., ...) as w:
                 renderObject(myobj, "outfile.pdf")
@@ -1040,10 +1143,10 @@ def _renderObject(obj: MusicObj,
     assert backend and renderoptions and scorestruct and config
     logger.debug(f"rendering parts with backend: {backend}")
     parts = obj.scoringParts()
-    renderer = notation.renderWithCurrentWorkspace(parts, backend=backend,
-                                                   renderoptions=renderoptions,
-                                                   scorestruct=scorestruct,
-                                                   config=config)
+    renderer = notation.renderWithActiveWorkspace(parts, backend=backend,
+                                                  renderoptions=renderoptions,
+                                                  scorestruct=scorestruct,
+                                                  config=config)
     return renderer
 
 

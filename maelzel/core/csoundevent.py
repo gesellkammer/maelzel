@@ -16,6 +16,12 @@ if TYPE_CHECKING:
     import csoundengine.instr
 
 
+__all__ = (
+    'PlayArgs',
+    'CsoundEvent',
+    'cropEvents'
+)
+
 @dataclass
 class PlayArgs:
     """
@@ -143,18 +149,9 @@ class CsoundEvent:
     """
     Represents a standard event (a line of variable breakpoints)
 
-    init: delay=0, chan=0, fadein=None, fadeout=None
-    bp: delay, midi, amp, ...
-    (all breakpoints should have the same length)
-
-    protocol:
-
-    i inum, delay, dur, p4, p5, ...
-    i inum, delay, dur, chan, fadein, fadeout, bplen, *flat(bps)
-
-    inum is given by the manager
-    dur is calculated based on bps
-    bplen is calculated based on bps (it is the length of one breakpoint)
+    A User does not normally create a ``CsoundEvent``: ``CsoundEvent``s are
+    created by a :class:`Note` or a :class:`Voice` and are used internally
+    to generate a set of events to be played by the csound engine.
 
     Attributes:
         bps: breakpoints, where each breakpoint is a tuple of (timeoffset, midi, amp, [...])
@@ -164,7 +161,7 @@ class CsoundEvent:
         gain: a gain to be applied to this event
         instr: the instr preset
         pitchinterpol: which pitchinterpolation to use ('linear', 'cos')
-        fadeshape: shape of the fade ('linear', 'cos')
+        fadeShape: shape of the fade ('linear', 'cos')
         namedArgs: params used to initialize named parameters
         priority: schedule the corresponding instr at this priority
     """
@@ -390,9 +387,9 @@ class CsoundEvent:
         """
         Returns pfields, **beginning with p2**.
 
-        ==== =====  ======
+        ==== =====  ============================================
         idx  parg    desc
-        ==== =====  ======
+        ==== =====  ============================================
         0    2       delay
         1    3       duration
         2    4       tabnum
@@ -407,9 +404,9 @@ class CsoundEvent:
         1    3       pitchinterpol
         2    4       fadeshape
         .
-        . named arguments, if anyreserved space for user pargs
+        .            reserved space for user pargs
         .
-        ==== =====  ======
+        ==== =====  ============================================
 
         breakpoint data is appended
 

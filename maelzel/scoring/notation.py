@@ -1,7 +1,11 @@
+"""
+A Notation represents a note/chord/rest
+"""
 from __future__ import annotations
 import copy
 import uuid
 
+from .common import *
 from .util import *
 from . import definitions
 import pitchtools as pt
@@ -171,10 +175,7 @@ class Notation:
                 case the enharmonic variant of the current notename will be used
             idx: the index of the note to modify
 
-        See Also
-        ~~~~~~~~
-
-        notenames
+        .. seealso:: :meth:`Notation.notenames`
         """
         if self.fixedNotenames is None:
             self.fixedNotenames = {}
@@ -185,6 +186,16 @@ class Notation:
         self.fixedNotenames[idx] = notename
 
     def getFixedNotename(self, idx:int = 0) -> Optional[str]:
+        """
+        Returns the fixed notename of this notation, if any
+
+        Args:
+            idx: 0 in the case of a note, the index of the note if representing a chord
+
+        Returns:
+            the fixed spelling of the note, if exists (None otherwise)
+
+        """
         if self.fixedNotenames:
             return self.fixedNotenames.get(idx)
 
@@ -192,6 +203,17 @@ class Notation:
         return self.duration == 0
 
     def meanPitch(self) -> float:
+        """
+        The mean pitch of this note/chord
+
+        This is provided to have a generalized way of quering the pitch
+        of a note/chord for packing
+
+        Returns:
+            the pitchof this note or the avg. pitch if it is a chord. Rests
+            do not have a mean pitch and calling this on a rest will raise
+            ValueError
+        """
         L = len(self.pitches)
         if self.isRest or L == 0:
             raise ValueError("No pitches to calculate mean")
@@ -199,6 +221,9 @@ class Notation:
 
     @property
     def end(self) -> Optional[F]:
+        """
+        The end time of this notation (if set)
+        """
         if self.duration is not None and self.offset is not None:
             return self.offset + self.duration
         return None
@@ -238,8 +263,10 @@ class Notation:
 
     def symbolicDuration(self) -> F:
         """
-        The symbolic duration of this Notation. This represents
-        the notated figure (1=quarter, 1/2=eighth note, 1/4=16th note, etc)
+        The symbolic duration of this Notation.
+
+        This represents the notated figure (1=quarter, 1/2=eighth note,
+        1/4=16th note, etc)
         """
         dur = self.duration
         if self.durRatios:
@@ -292,7 +319,7 @@ class Notation:
 
     def verticalPosition(self, index=0) -> int:
         """
-        Return the vertical position of the notated note at given index
+        The vertical position of the notated note at given index
 
         The vertical position is the position within the staff in terms of
         lines/spaces. It is calculated as octave*7 + diatonic_index
@@ -340,8 +367,9 @@ class Notation:
 
     def addArticulation(self, articulation:str):
         """
-        Add an articulation to this Notation. See definitions.availableArticulations
-        for possible values.
+        Add an articulation to this Notation.
+
+        See definitions.availableArticulations for possible values.
         """
         assert articulation in definitions.availableArticulations
         self.articulation = articulation
@@ -361,6 +389,7 @@ class Notation:
     def setProperty(self, key:str, value) -> None:
         """
         Set any property of this Notation.
+
         Properties can be used, for example, for any rendering backend to
         pass directives which are specific to that rendering backend.
         """
@@ -478,8 +507,9 @@ class Notation:
 
 def mergeNotations(a: Notation, b: Notation) -> Notation:
     """
-    Merge two compatible notations to one. For two notations to be
-    mergeable they need to:
+    Merge two compatible notations to one.
+
+    For two notations to be mergeable they need to:
 
     - be adjacent or have unset offset
     - have a duration
@@ -583,8 +613,9 @@ def makeChord(pitches: List[pitch_t], duration:time_t=None, offset:time_t=None,
 
 def makeRest(duration: time_t, offset:time_t=None) -> Notation:
     """
-    Shortcut function to create a rest notation. A rest is only
-    needed when stacking notations within a container like
+    Shortcut function to create a rest notation.
+
+    A rest is only needed when stacking notations within a container like
     Chain or Track, to signal a spacing between notations.
     Just explicitely setting the offset of a notation has the
     same effect
@@ -593,6 +624,11 @@ def makeRest(duration: time_t, offset:time_t=None) -> Notation:
         duration: the duration of the rest
         offset: the start time of the rest. Normally a rest's offset
             is left unspecified (None)
+
+    Returns:
+        the created rest (a Notation)
     """
     assert duration > 0
     return Notation(duration=asF(duration), offset=offset, isRest=True)
+
+

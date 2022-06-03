@@ -8,6 +8,7 @@ from scipy.signal.windows import blackmanharris
 import logging
 from typing import Tuple
 import bpf4
+from maelzel.snd import vamptools
 
 
 logger = logging.getLogger(__name__)
@@ -213,7 +214,7 @@ def f0curvePyinVamp(sig: np.ndarray, sr:int, fftsize=2048, overlap=4,
 
                     ) -> Tuple[bpf4.BpfInterface, bpf4.BpfInterface]:
     """
-    Calculate the fundamental using 'vamptools' and the pyin vamp plugin
+    Calculate the fundamental using the pyin vamp plugin
 
     Args:
         sig: the signal as numpy array
@@ -251,11 +252,11 @@ def f0curvePyinVamp(sig: np.ndarray, sr:int, fftsize=2048, overlap=4,
         raise ValueError("sig should be a mono signal")
 
     from maelzel.snd import vamptools
-    data = vamptools.pyin_pitchtrack(sig, sr=sr, fft_size=fftsize, overlap=overlap,
-                                     low_amp_suppression=lowAmpSupression,
-                                     onset_sensitivity=onsetSensitivity,
-                                     prune_thresh=pruneThreshold,
-                                     thresh_distr=threshDistr)
+    data = vamptools.pyinPitchTrack(sig, sr=sr, fftSize=fftsize, overlap=overlap,
+                                    lowAmpSuppression=lowAmpSupression,
+                                    onsetSensitivity=onsetSensitivity,
+                                    pruneThresh=pruneThreshold,
+                                    threshDistr=threshDistr)
     times = np.ascontiguousarray(data[:, 0])
     f0 = np.ascontiguousarray(data[:, 1])
     probs = np.ascontiguousarray(data[:, 2])
@@ -272,12 +273,49 @@ def _sigNumChannels(sig: np.ndarray):
 
 
 def f0curve(sig:np.ndarray, sr:int, minfreq=100, steptime=0.01,
-            method='pyin-librosa'
+            method='pyin'
             ) -> Tuple[bpf4.BpfInterface, bpf4.BpfInterface]:
+    """
+    Estimate the fundamental and its voicedness
+
+    The voicedness curve indicates how accurate the frequency reading is. The
+    value should drop whenever the signal is either too low (during silences)
+    or it turns noisy (during consonants in the case of speech)
+
+    This function combines all frequency estimation algorithms into one interface.
+    For more detailed access to parameters of each method use the specific
+    function (pyin vamp: :func:`f0curvePyinVamp`; pyin native: :func:`f0curvePyin`, etc)
+
+    Both the f0 curve and the voicedness curve are returned as bpfs.
+    See https://bpf4.readthedocs.io for more information about bpfs
+
+    Args:
+        sig: the signal, a 1D float numpy array with samples between -1:1
+        sr: the samplerate
+        minfreq: the min. frequency of the fundamental. Using this hint
+            we estimate the best value for fft size / window size
+        steptime: the time step between measurements
+        method: the method used. One of 'pyin', 'fft', 'hps', 'autocorrelation'.
+            For pyin make sure that you are using the vamp plugin, since the
+            fallback version (using an implementation based on librosa's version
+            of the algorithm) is very slow at the moment. **If the vamp plugin
+            is not available you should see a warning**
+
+    Returns:
+        a tuple (f0curve, f0voicedness)
+    """
     if _sigNumChannels(sig) > 1:
         raise ValueError("sig should be a mono signal")
 
-    if method == 'pyin-librosa':
+    if method == 'pyin':
+        if vamptools.pyinAvailable():
+            method = 'pyin-vamp'
+        else:
+            method = 'pyin-native'
+            logger.warning("The pyin vamp plugin was not found. Falling back to"
+                           "the python version, this might be very slow")
+
+    if method == 'pyin-native':
         hoplength = int(steptime * sr)
         winlength = _fftWinlength(sr, minfreq)
         return f0curvePyin(sig, sr, minfreq=minfreq,
@@ -291,6 +329,7 @@ def f0curve(sig:np.ndarray, sr:int, minfreq=100, steptime=0.01,
             if f0 <= minfreq < f1:
                 break
         return f0curvePyinVamp(sig, sr, fftsize=fftsize)
+
     stepsize = int(steptime*sr)
     windowsize = _fftWinlength(sr, minfreq)
     maxidx = len(sig) - windowsize

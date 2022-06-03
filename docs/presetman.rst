@@ -1,0 +1,2 @@
+.. automodapi:: maelzel.core.presetman
+

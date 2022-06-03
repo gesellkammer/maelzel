@@ -83,7 +83,6 @@ def findMusescore() -> Optional[str]:
         (which is actually a directory).
     """
     from maelzel.core import workspace
-    import music21 as m21
     cfg = workspace.getConfig()
     musescorepath = cfg.get('musescorepath')
     if musescorepath:
@@ -92,17 +91,27 @@ def findMusescore() -> Optional[str]:
         else:
             logger.warning(f"musescorepath set to {musescorepath} in the active config, but the path does"
                            f"not exist")
-    us = m21.environment.UserSettings()
-    musescorepath = us['musescoreDirectPNGPath']
-    if os.path.exists(musescorepath):
-        return str(musescorepath)
+    try:
+        import music21 as m21
+        us = m21.environment.UserSettings()
+        musescorepath = us['musescoreDirectPNGPath']
+        if os.path.exists(musescorepath):
+            return str(musescorepath)    
+    except ImportError:
+        pass
+
     path = shutil.which('musescore')
     if path is not None:
         return path
-    logger.warning("MuseScore not found. To fix this issue, make sure musescore is installed. "
+    path = shutil.which('MuseScore')
+    if path is not None:
+            return path
+        
+    logger.warning("MuseScore not found. Tried to find 'musescore' or 'MuseScore' in the path, "
+                   "without success. To fix this issue, make sure MuseScore is installed. "
                    "Then set the path via: \n"
                    ">>> from maelzel.core import *\n"
                    ">>> conf = getConfig()\n"
                    ">>> conf['musescorepath'] = '/path/to/musescore'\n"
-                   ">>> conf.save()")
+                   ">>> conf.save()  # Save the config for future sessions")
     return None

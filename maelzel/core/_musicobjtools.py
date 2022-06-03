@@ -1,5 +1,5 @@
 from __future__ import annotations
-from maelzel.music import packing
+from maelzel import packing
 from maelzel.rational import Rat
 from . import musicobj
 from .workspace import getConfig
