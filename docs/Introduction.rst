@@ -1,15 +1,25 @@
 Introduction 
 ============
 
-Introduction text
+**maelzel** provides a framework to work with both *symbolic* (music) and *concrete*
+(audio) sound. Here are some short demonstrations of some of its features
 
-Example Notebooks
+Demos
+-----
+
+#. :ref:`Demo 1: Messiaen - Quatour pur la fin du temps <demo_messiaen>`
+#. :ref:`Demo 2: Fundamental analysis and resynthesis <demo_audiosample>`
+#. :ref:`Demo 3: Complex Rhythms - Ferneyhough's 3rd String Quartet <demo_ferneyhough>`
+
 -----------------
+
+.. _demo_messiaen:
 
 Messiaen - Quatour pour la fin du temps - La liturgie de Cristal
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-This notebook contains an analysis and reconstruction of the rhythmic ostinati in Messiaen's "La liturgie de Cristal"
+This notebook contains an analysis and reconstruction of the rhythmic
+ostinati in Messiaen's "La liturgie de Cristal"
 
 .. image:: assets/messiaen-notebook.jpg
   :target: https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/examples/Messiaen-La%20Liturgie%20de%20Cristal.ipynb
@@ -19,6 +29,8 @@ This notebook contains an analysis and reconstruction of the rhythmic ostinati i
 
 
 ----
+
+.. _demo_audiosample:
 
 
 Audiosample - Fundamental analysis and resynthesis
@@ -34,40 +46,36 @@ fundamental simultaneously to validate the analysis
 
 `Notebook: spectrogram and fundamental analysis / resynthesis using the pyin method <https://nbviewer.org/github/gesellkammer/maelzel/blob/master/examples/audiosample.ipynb?flush_cache=true>`_
 
+----
 
-----------------------
-
-maelzel.core
-------------
-
-**maelzel.core** provides a set of classes to define notes, chords,
-lines, sequences, voices and entire scores. Any of these objects can
-be played in real time, recorded and displayed as notation. When
-converting to notation a score is quantized following a score
-structure.
-
-**maelzel.core**'s main purpose is to represent musical ideas, reason
-about aspects of pitch, rhythms, etc., and be of help while composing,
-analyzing or preparing a performance. Even if it is possible to
-construct a score, notation is in this context a tool to visualize
-results and it is not a goal to be able to produce final
-scores.
-
-Here are examples that showcase some of the features of **maelzel.core**
-
+.. _demo_ferneyhough:
 
 Complex Rhythms: Ferneyhough's Third String Quartet, violin 1
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Within **maelzel.core** notes/chords have a duration in
 quarternotes. There is no concept of tuplet or any idea of
-encapsulation of a note within a group of notes. The notational aspect
+encapsulation of durations (tuplets). The notational aspect
 of rhythm (how a note is represented as notation) is determined by a
-quantization step and is outside the control of the user.
+quantization step and is normally outside the control of the user.
 
 Nevertheless, it is possible to input rather complex music, and the
 quantizer will try to render an accurate rhythmic transcription of
-it. In the case of this fragment by Ferneyhough, the transcription can
+it. For example complex tuplets are quantized as expected:
+
+.. code-block:: python
+
+    from maelzel.core import *
+    v = Chain([
+        Note("4C+", dur=Rat(1, 5)),
+        Note("4E", dur=Rat(2, 5)*Rat(3, 2)),
+        Note("4F-", dur=Rat(1, 10)),
+    ])
+    v.show()
+
+.. image:: assets/demoferney-1.jpg
+
+In the case of this fragment by Ferneyhough, the transcription can
 help understand more precisely how to play a certain passage while, on
 the other hand, there are certainly some aspects of it which are lost
 (regarding mostly the phrasing but also traces of the compositional

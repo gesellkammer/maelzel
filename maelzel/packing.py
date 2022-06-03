@@ -1,22 +1,24 @@
 """
 Implements a general routine for packing a seq. of
-items (notes, partials, etc) into a series of tracks.
+items (notes, partials, etc) into a series of non-simultaneous containers (tracks)
 
 A Track is a seq. of non-overlapping items
 
 In order to be attached to a Track, each object (note, partial, etc.)
 must be wrapped inside an Item, defining an offset, duration and step
+
+
 """
 
 from __future__ import annotations
 from maelzel.rational import Rat
-from typing import List, Tuple, Optional as Opt, Union as U
+from typing import Optional, Union
 from emlib.iterlib import pairwise
 import operator
 import bisect
 
 
-number_t = U[int, float, Rat]
+number_t = Union[int, float, Rat]
 
 
 def _overlap(x0: number_t, x1: number_t, y0: number_t, y1: number_t) -> bool:
@@ -26,16 +28,23 @@ def _overlap(x0: number_t, x1: number_t, y0: number_t, y1: number_t) -> bool:
     return y1 > x0
 
 
-def asF(x: number_t) -> Rat:
-    if isinstance(x, Rat):
-        return x
-    return Rat(x)
+def asRat(x: number_t) -> Rat:
+    return x if isinstance(x, Rat) else Rat(x)
 
 
 class Item:
     """
     an Item is used to wrap an object to be packed in a Track
 
+    Attributes:
+        obj: the object itself
+        offset: the offset of the item (a time or x coordinate)
+        dur: the "duration" or "width" of the object
+        step: an arbitrary y-value for this object. This is used to group
+            together items which are similar, or to discard adding an item to
+            a certain track if this step does not fit the track
+        weight: an arbitrary weight for the object. It might be used to give
+            this item a higher priority over other items when packing
     """
     __slots__ = ("obj", "offset", "dur", "step", "weight")
 
@@ -54,8 +63,8 @@ class Item:
 
         """
         self.obj = obj
-        self.offset = asF(offset)
-        self.dur = asF(dur)
+        self.offset = asRat(offset)
+        self.dur = asRat(dur)
         self.step = step
         self.weight = weight
 
@@ -82,7 +91,13 @@ class Item:
 
 class Track(list):
     """ A Track is a list of non-simultaneous Items """
-    def __init__(self, items=None, keepSorted=True):
+
+    def __init__(self, items: list[Item] = None, keepSorted=True):
+        """
+        Args:
+            items: the items  to add to this track
+            keepSorted: keep the track sorted when appending elements?
+        """
         if items:
             super().__init__(items)
         else:
@@ -92,8 +107,14 @@ class Track(list):
 
     def append(self, item: Item) -> None:
         """
-        Append an item to this Track and keep it sorted
-        Does not explicitely check if item fits in track
+        Append an item to this Track
+
+        Keeps the Track sorted if the Track was created with keepSorted==True
+
+        .. note::
+
+            Does not explicitely check if item fits in track. This check should
+            be done before appending
         """
         if not self or not self.keepSorted or self[-1].offset < item.offset:
             super().append(item)
@@ -101,9 +122,11 @@ class Track(list):
             bisect.insort(self, item)
 
     def sort(self, *, key=None, reverse=False) -> None:
+        """Sort this Track"""
         super().sort(key=key or self._sortKey, reverse=reverse)
 
-    def extend(self, items: List[Item]) -> None:
+    def extend(self, items: list[Item]) -> None:
+        """Extend this Track"""
         assert all(isinstance(item, Item) for item in items)
         if not self.keepSorted:
             super().extend(items)
@@ -125,7 +148,7 @@ class Track(list):
         for item in self:
             print(f"{float(item.offset):.4f} - {float(item.end):.4f} {item.step}")
 
-    def ambitus(self) -> Tuple[float, float]:
+    def ambitus(self) -> tuple[float, float]:
         """
         Returns a tuple (min. step, max. step) for this track.
         """
@@ -142,18 +165,29 @@ class Track(list):
         return minstep, maxstep
 
     def start(self) -> Rat:
+        """
+        The offset of the first item
+        """
         if self.keepSorted:
             return self[0].offset
         else:
             return min(item.offset for item in self)
 
     def end(self) -> Rat:
+        """
+        The end value of the last item
+        """
         if self.keepSorted:
             return self[-1].end
         return max(item.end for item in self)
 
     def unwrap(self) -> list:
         """
+        Unwraps the values inside this track
+
+        Returns:
+            a list with the original items wrapped in each Item in this Track
+
         In order to implement generic packing the strategy is to:
 
         1. pack each object as an Item, explicitely copying into the Item
@@ -170,7 +204,10 @@ class Track(list):
                 out.append(obj)
         return out
 
-    def isWellFormed(self) -> bool:
+    def hasNoOverlap(self) -> bool:
+        """
+        Returns True if the items in this track do not overlap
+        """
         if not self:
             return True
         for item0, item1 in pairwise(self):
@@ -179,12 +216,11 @@ class Track(list):
         return True
 
 
-def packInTracks(items: List[Item],
-                 maxAmbitus=36,
-                 maxJump:int=None) -> List[Track]:
+def packInTracks(items: list[Item],
+                 maxAmbitus: float = float('inf'),
+                 maxJump:int=None) -> list[Track]:
     """
-    Distribute the items into tracks, minimizing the amount of
-    tracks needed to pack the given items.
+    Pack the items into tracks, minimizing the amount of tracks needed
 
     To pack an arbitrary list of objects:
 
@@ -197,15 +233,15 @@ def packInTracks(items: List[Item],
         items: a seq. of Items
         maxAmbitus: the maximum step range of a track. An item
             can be added to a track if the resulting range of the track
-            would be smaller than ``maxTrackRange``. This is to minimize
-            packing very disimilate items into one Track, in this is desired
+            would be smaller than this value. This is to minimize
+            packing very disimilate items into one Track, if this is desired
         maxJump: if given, limit the step difference between any adjacent items
 
     Returns:
         a list of the packed Tracks
     """
-    tracks: List[Track] = []
-    items2: List[Item] = sorted(items, key=lambda item: item.offset)
+    tracks: list[Track] = []
+    items2: list[Item] = sorted(items, key=operator.attrgetter('offset'))
     for item in items2:
         track = _bestTrack(tracks, item, maxAmbitus=maxAmbitus,
                            maxJump=maxJump)
@@ -213,11 +249,11 @@ def packInTracks(items: List[Item],
             track = Track()
             tracks.append(track)
         track.append(item)
-    assert all(track.isWellFormed() for track in tracks)
+    assert all(track.hasNoOverlap() for track in tracks)
     return tracks
 
 
-def dumpTracks(tracks: List[Track]) -> None:
+def dumpTracks(tracks: list[Track]) -> None:
     """ print tracks """
     for track in tracks:
         track.dump()
@@ -226,8 +262,8 @@ def dumpTracks(tracks: List[Track]) -> None:
 # ------------------------------------------------------------------------
 
 
-def _bestTrack(tracks: List[Track], item: Item, maxAmbitus: int,
-               maxJump:int=None) -> Opt[Track]:
+def _bestTrack(tracks: list[Track], item: Item, maxAmbitus: float,
+               maxJump:int=None) -> Optional[Track]:
     """
     Returns the best track in tracks to pack item into
 
@@ -251,7 +287,7 @@ def _bestTrack(tracks: List[Track], item: Item, maxAmbitus: int,
     return track
 
 
-def _fitsInTrack(track: Track, item: Item, maxAmbitus: int,
+def _fitsInTrack(track: Track, item: Item, maxAmbitus: float,
                  maxJump: int=None) -> bool:
     """
     Returns True if item can be added to track, False otherwise
@@ -286,9 +322,17 @@ def _fitsInTrack(track: Track, item: Item, maxAmbitus: int,
 
 def _rateFit(track: Track, item: Item) -> float:
     """
-    Return a value representing how goog this item fits in track
+    Return a value representing how good this item fits in track
+
     Assumes that it fits both horizontally and vertically.
     The lower the value, the best the fit
+
+    Args:
+        track: the track to rate
+        item: the item which should be placed in track
+
+    Returns:
+        a penalte. The lower the penalty, the better the fit
     """
     assert isinstance(track, list)
     assert isinstance(item, Item)
@@ -297,8 +341,8 @@ def _rateFit(track: Track, item: Item) -> float:
     else:
         time1 = track[-1].end
     assert time1 <= item.offset
-    rating = item.offset - time1
-    return rating
+    penalty = item.offset - time1
+    return float(penalty)
 
 
 def _checkTrack(track: Track) -> bool:
@@ -308,5 +352,4 @@ def _checkTrack(track: Track) -> bool:
         if item0.end > item1.offset:
             return False
     return True
-
 

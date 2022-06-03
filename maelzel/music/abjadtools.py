@@ -2,18 +2,16 @@
 Functions and code snippets to make working with abjad less frustrating
 
 """
-from dataclasses import dataclass
-from fractions import Fraction as F
+from __future__ import annotations
+import abjad as abj
+
+from maelzel.rational import Rat as F
 import copy
 import enum
-
-import abjad as abj
-from emlib.music import lilytools
-from emlib import typehints as t
+from maelzel.music import lilytools
 from emlib import iterlib
 import textwrap
 import music21 as m21
-
 
 
 def voiceMeanPitch(voice: abj.Voice) -> float:

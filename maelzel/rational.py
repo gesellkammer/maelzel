@@ -1,5 +1,27 @@
 """
 Rational numbers with float-like repr
+
+    >>> from fractions import Fraction
+    >>> from maelzel.rational import Rat
+    >>> import math
+    >>> pifraction = Fraction.from_float(math.pi)
+    >>> pifraction
+    Fraction(884279719003555, 281474976710656)
+    >>> pirational = Rat.from_float(math.pi)
+    >>> pirational
+    3.1415927
+    >>> pirational == pifraction
+    True
+
+To check types, always check against the abstract class. This makes it easy to
+use classes like Rat or quicktions.Fraction:
+
+    >>> import numbers
+    >>> isinstance(pirational, numbers.Rational)
+    True
+    >>> isinstance(pirational, Fraction)
+    False
+
 """
 from __future__ import annotations
 from typing import Tuple, Any
@@ -20,7 +42,7 @@ class Rat(_F):
     whenever a Fraction is used to avoid rounding errors, but its ``repr``
     resembles that of a float
 
-    If the package `quicktions` is installed (an fast implementation of
+    If the package `quicktions` is installed (a fast implementation of
     Fraction in cython), it is used as a base class of Rat. For that,
     to test if a Rat is Fraction-like, avoid using isinstance(x, Fraction)
     but use::
@@ -30,6 +52,15 @@ class Rat(_F):
         >>> x = Rat(1, 3)
         >>> isinstance(x, Rational)
         True
+
+    The same is valid when using type annotations::
+
+        import numbers
+        def square(a: numbers.Rational) -> numbers.Rational:
+            return a*a
+
+    For all other aspects the documentation for python ``fractions.Fraction`` is
+    valid for this implementation: https://docs.python.org/3/library/fractions.html
 
     """
     def __floordiv__(self, other: Any) -> int:

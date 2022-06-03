@@ -1,20 +1,22 @@
 """
 Utilities to interact with Sonic Visualizer
 """
+from __future__ import annotations
 import os
 from lxml import etree
-from bpf4 import bpf
+import bpf4 as bpf
 from pitchtools import *
 from emlib.containers import RecordList
 from emlib import csvtools
 
+from typing import Union
 
 def readNotes(path: str) -> RecordList:
     """
     Reads the data exported by Export Annotation from the layer 'Notes' / 'Flexible Notes'
 
     Returns:
-        a RecordList with fields 'start', 'freq', 'dur', 'amp', 'label', 'noten'
+        a RecordList with fields 'start', 'freq', 'dur', 'amp', 'label'
 
     The format is:
 
@@ -30,7 +32,17 @@ def readNotes(path: str) -> RecordList:
     return data.add_column('note', notes)
 
 
-def readQtrans(path, minpitch=36, octave_division=12):
+def readQtrans(path: str, minpitch=36, octaveDivision=12):
+    """
+    Read a Q-Transform analysis
+    Args:
+        path: 
+        minpitch: 
+        octaveDivision: 
+
+    Returns:
+
+    """
     t = etree.parse(path)
     root = t.getroot()
     data = root.find("data")
@@ -54,10 +66,10 @@ def readQtrans(path, minpitch=36, octave_division=12):
     rows.sort(key=lambda r:r[0])
     values = list(zip(*rows))[1]   # only the column with the values
     return QTransf(start, wsize / sr, values, minpitch=minpitch,
-                   octave_division=octave_division)
+                   octave_division=octaveDivision)
 
 
-class QTransf(object):
+class QTransf:
     def __init__(self, start, dt, values, minpitch, octave_division):
         self.start = start
         self.dt = dt
@@ -67,7 +79,7 @@ class QTransf(object):
         self.max_idx = len(values)
         self.maxpitch = minpitch + len(values[0]) * (12 / octave_division)
     
-    def __call__(self, t: float, midi: U[float, str]) -> float:
+    def __call__(self, t: float, midi: Union[float, str]) -> float:
         if isinstance(midi, str):
             midi = n2m(midi)
         idx = int((t - self.start) / self.dt)
@@ -75,7 +87,7 @@ class QTransf(object):
         value = self.values[idx][midi_idx]
         return value
     
-    def chordAt(self, t:float, maxnotes=8, minamp=-60) -> List[Tuple[str, float]]:
+    def chordAt(self, t: float, maxnotes=8, minamp=-60) -> list[tuple[str, float]]:
         idx = int((t - self.start) / self.dt)
         values = self.values[idx]
         dp = 12. / self.octave_division
@@ -90,7 +102,7 @@ class QTransf(object):
         return notes3
 
 
-def read_adaptive_spectr(path):
+def readAdaptiveSpectr(path: str) -> Spectrum:
     t = etree.parse(path)
     root = t.getroot()
     data = root.find("data")
@@ -117,7 +129,7 @@ def read_adaptive_spectr(path):
     return Spectrum(bins, values, start, wsize/sr)
 
 
-class Spectrum(object):
+class Spectrum:
     def __init__(self, freqs, values, start, dt):
         self.freqs = freqs
         self.values = values

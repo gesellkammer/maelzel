@@ -1,17 +1,32 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
-Onset detection
-===============
-.. autosummary::
-    :toctree: generated/
+rosita - a minimal version of librosa
 
-    onset_detect
-    onset_backtrack
-    onset_strength
-    onset_strength_multi
+https://github.com/librosa/librosa
+
+This is an attempt to provide some of the great functionality
+implemented in librosa without the dependency of numba, which
+forces other dependency problems regarding numpy's version, etc.
+
+Original license of librosa:
+
+## ISC License
+
+Copyright (c) 2013--2017, librosa development team.
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
 """
-
+from __future__ import annotations
 import numpy as np
 from numpy import fft
 from scipy.signal import get_window
@@ -182,7 +197,8 @@ def frames_to_samples(frames, *, hop_length=512, n_fft=None):
 
     Examples
     --------
-    >>> y, sr = librosa.load(librosa.ex('choice'))
+    >>> import sndfileio
+    >>> y, sr = sndfileio.sndread("sound.wav")
     >>> tempo, beats = librosa.beat.beat_track(y=y, sr=sr)
     >>> beat_samples = librosa.frames_to_samples(beats)
     """
@@ -1933,8 +1949,7 @@ def onset_strength(
     center=True,
     feature=None,
     aggregate=None,
-    **kwargs,
-):
+    **kwargs):
     """Compute a spectral flux onset strength envelope.
 
     Onset strength at time ``t`` is determined by::

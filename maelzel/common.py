@@ -1,12 +1,12 @@
-from typing import Tuple, Union as U, TypeVar
 from maelzel.rational import Rat as F
 from pitchtools import n2m
+import numbers as _numbers
 
-
-pitch_t = U[int, float, str]
-timesig_t = Tuple[int, int]
-number_t = U[int, float, F]
-T = TypeVar('T')
+import typing as t
+pitch_t = t.Union[int, float, str]
+timesig_t = t.Tuple[int, int]
+number_t = t.Union[float, _numbers.Rational]
+T = t.TypeVar('T')
 
 
 def asmidi(x: pitch_t) -> float:

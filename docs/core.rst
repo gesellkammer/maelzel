@@ -1,7 +1,7 @@
 .. _core:
 
-Core - Computation / Notation / Playback
-----------------------------------------
+Introduction
+------------
 
 **maelzel.core** provides a set of classes to define notes, chords,
 lines, sequences, voices or entire scores. Any of these objects can
@@ -24,10 +24,19 @@ analyzing or preparing a performance.
     The notation produced is to be understood as a means of visualization
     of musical and / or acoustic processes.
 
+Tutorial (Jupyter Notebooks)
+----------------------------
+
+#. `First Steps <https://nbviewer.org/github/gesellkammer/maelzel/blob/master/notebooks/firststeps.ipynb>`_
+#. `Durations: Ockeghem's Missa Prolationum <https://nbviewer.org/github/gesellkammer/maelzel/blob/master/notebooks/ockeghem.ipynb>`_
+#. `Config and Workspace <https://nbviewer.org/github/gesellkammer/maelzel/blob/master/notebooks/maelzel.core%20-%20Config%20and%20Workspace.ipynb>`_
+#. `Score Structure <https://nbviewer.org/github/gesellkammer/maelzel/blob/master/notebooks/maelzel.core%20-%20Score%20Structure.ipynb>`_
+#. `Notation Refinements <https://nbviewer.org/github/gesellkammer/maelzel/blob/master/notebooks/maelzel.core%20-%20Symbols.ipynb>`_
+
 ----------------
 
-Contents
---------
+Table of Contents
+-----------------
 
 .. toctree::
     :maxdepth: 3
@@ -36,6 +45,7 @@ Contents
     scorestruct
     config
     workspace
+    coreplayintro
 
 
 

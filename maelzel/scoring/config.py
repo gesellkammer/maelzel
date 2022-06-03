@@ -24,4 +24,6 @@ config.addKey('removeSuperfluousDynamics', True,
 config.addKey('respellPitches', True,
               doc='Try make pitch sequences more readable using enharmonic spelling for '
                   'certain pitches')
+config.addKey('pngResolution', 200,
+              doc='DPI resolution used when rendering to png')
 config.load()

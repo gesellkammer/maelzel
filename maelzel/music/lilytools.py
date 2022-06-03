@@ -907,5 +907,5 @@ def makeTextAnnotation(text: str, fontsize:int=None, fontrelative=False,
         markups.append(r"\box")
     if markups:
         markupstr = " ".join(markups)
-        return fr'{placementchr}\mark \markup {{ {markupstr} "{text}" }}'
+        return fr'{placementchr}\markup {{ {markupstr} "{text}" }}'
     return fr'{placementchr}\markup "{text}"'

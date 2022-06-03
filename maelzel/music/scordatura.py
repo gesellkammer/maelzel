@@ -4,7 +4,7 @@ from emlib.iterlib import window as _window
 from maelzel.music.flageolet import InstrumentString
 
 
-class DetunedString(object):
+class DetunedString:
     def __init__(self, name='IV', written='3G', sounding='3C'):
         self._name = name
         self._written = written
@@ -13,14 +13,25 @@ class DetunedString(object):
         self._sounding_midi = n2m(sounding)
         self._flageolet_string = InstrumentString(self._sounding)
 
-    def note2sound(self, note):
+    def note2sound(self, note: str) -> str:
+        """
+        Return the sounding note of the given played note
+
+        Args:
+            note: the played note (as a notename)
+
+        Returns:
+            the sounding note (as note name)
+
+        """
         midinote = n2m(note)
         dx = midinote - self._written_midi
-        if dx >= 0:
-            sounding = self._sounding_midi + dx
-            return m2n(sounding)
+        if dx < 0:
+            raise ValueError("This note is impossible in this string")
+        sounding = self._sounding_midi + dx
+        return m2n(sounding)
 
-    def sound2note(self, note):
+    def sound2note(self, note: str) -> str:
         midinote = n2m(note)
         dx = midinote - self._sounding_midi
         if dx >= 0:

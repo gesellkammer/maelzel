@@ -12,7 +12,7 @@ from maelzel.rational import Rat
 from ._common import *
 from . import _util
 from . import environment
-from .state import appstate as _appstate
+from ._appstate import appstate as _appstate
 from .workspace import getWorkspace
 from . import musicobj
 
