@@ -2,6 +2,5 @@ Score Structure
 ===============
 
 .. automodapi:: maelzel.scorestruct
-    :no-heading:
+    :no-inheritance-diagram:
     :skip: asF
-

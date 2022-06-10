@@ -18,6 +18,7 @@ assert docs.exists()
 
 from maelzel.core import *
 cfg = getConfig()
-rst = cfg.generateRstDocumentation(linkPrefix='config_')
+rst = cfg.generateRstDocumentation(linkPrefix='config_', withName=False)
+
 outfile = docs / "configkeys.rst"
 open(outfile, "w").write(rst)

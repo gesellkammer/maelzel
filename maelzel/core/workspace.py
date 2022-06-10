@@ -1,17 +1,3 @@
-"""
-
-Workspace
-=========
-
-maelzel.core is organized on the idea of a workspace. A workspace contains the current state
-(an active scorestrucutre, an active config). Many actions, like note playback, notation rendering,
-etc., use the active workspace to determine tempo, score structure, default playback instrument, etc.
-
-At any moment there is always an **active workspace**. This can be accessed via :func:`getWorkspace`.
-At the start of a session a default workspace (the 'root' workspace) is created, based on the default
-config and a default score structure.
-
-"""
 from __future__ import annotations
 import os
 import pitchtools
@@ -37,16 +23,16 @@ def _resetCache() -> None:
 
 __all__ = (
     'Workspace',
-    'getWorkspace',
     'getConfig',
-    'setConfig',
+    'makeConfig',
+    'getWorkspace',
     'getScoreStruct',
+
+    'setConfig',
     'setScoreStruct',
     'setTempo',
-    'makeConfig',
     'CoreConfig',
     'DynamicCurve',
-    'presetsPath',
     'logger'
 )
 
@@ -56,14 +42,14 @@ class Workspace:
     Create a new Workspace
 
     Args:
-        name: the name of the workspace, or nothing to create an unique name.
-            The name 'root' refers to the root Workspace
         scorestruct: the ScoreStruct. If None, a default scorestruct (4/4, q=60) is used
         config: the active config for this workspace. If None, a copy of the root config
             is used
         updates: if given, these are applied to the config
         renderer: will be set to the active offline renderer while rendering offline
         dynamicCurve: a DynamicCurve used to map amplitude to dynamic expressions
+        name: the name of the workspace, or nothing to create a unique name.
+            The name 'root' refers to the root Workspace
         active: if True, make this Workpsace active
 
     Attributes:
@@ -79,7 +65,7 @@ class Workspace:
     .. code::
 
         from maelzel.core import *
-        scorestruct = ScoreStruct.fromString(r'''
+        scorestruct = ScoreStruct(r'''
         4/4, 60
         .
         3/4
@@ -112,10 +98,12 @@ class Workspace:
         self.name = name
         self.renderer = renderer
 
-        if not config:
-            config = rootConfig.clone(updates=updates)
-        elif config and updates:
+        if config is None or isinstance(config, str):
+            config = makeConfig(updates=updates, source=config)
+        elif updates:
             config = config.clone(updates=updates)
+        else:
+            assert isinstance(config, CoreConfig)
         self.config: CoreConfig = config
 
         self.dynamicsCurve = dynamicCurve or DynamicCurve.fromdescr(
@@ -273,6 +261,58 @@ class Workspace:
                          name=name
                          )
 
+    def presetsPath(self) -> str:
+        """
+        Returns the path were instrument presets are read/written
+
+        The path can be configured with the core configuration::
+
+            getConfig()['play.presetsPath'] = '/my/custom/path'
+
+        Otherwise the default for the current platform is returned.
+
+        Example
+        ~~~~~~~
+
+        Running in linux using ipython
+
+        .. code-block:: python
+
+            >>> from maelzel.core import *
+            >>> path = getWorkspace().presetsPath()
+            >>> path
+            '/home/XXX/.local/share/maelzel/core/presets'
+            >>> os.listdir(path)
+            ['.click.yaml',
+             'click.yaml',
+             'noise.yaml',
+             'accordion.yaml',
+             'piano.yaml',
+             'voiceclick.yaml']
+
+        """
+        return self.config.get('play.presetsPath') or _presetsPath()
+
+    def recordPath(self) -> str:
+        """
+        The path where temporary recordings are saved
+
+        We do not use the temporary folder because it is wiped regularly
+        and the user might want to access a recording after rebooting.
+        The returned folder is guaranteed to exist
+
+        The default record path can be customized by modifying the config
+        'rec.path'
+        """
+        userpath = self.config['rec.path']
+        if userpath:
+            path = userpath
+        else:
+            path = _appdirs.user_data_dir(appname="maelzel", version="recordings")
+        if not os.path.exists(path):
+            os.makedirs(path)
+        return path
+
 
 def _init() -> None:
     if Workspace._initDone:
@@ -315,11 +355,6 @@ def cloneWorkspace(workspace: Workspace = None,
     Returns:
         the cloned Workspace
 
-    Example
-    -------
-
-        >>> from maelzel.core import *
-        >>> scostruct = ScoreStruct.fromString()
     """
     w = workspace or getWorkspace()
     return Workspace(config=config or w.config,
@@ -334,6 +369,46 @@ def setTempo(quarterTempo:float, measureNum=0) -> None:
     
     This is only allowed if the currently active ScoreStruct has only
     one initial tempo
+
+    Args:
+        quarterTempo: the new tempo
+        measureNum: the measure number to modify
+
+    See Also
+    ~~~~~~~~
+
+    TODO: add link to setTempo notebook
+
+    Example
+    ~~~~~~~
+
+    .. code-block:: python
+
+        from maelzel.core import *
+        # A chromatic scale of eighth notes
+        scale = Chain(Note(m, dur=0.5)
+                      for m in range(60, 72))
+
+        # Will play 8th notes at 60
+        scale.play()
+
+        setTempo(120)
+        # Will play at twice the speed
+        scale.play()
+
+    .. code-block:: python
+
+        >>> setScoreStruct(ScoreStruct(r'''
+        ... 3/4, 120
+        ... 4/4, 66
+        ... 5/8, 132
+        ... '''))
+        >>> setTempo(40)
+        >>> getScoreStruct().dump()
+        0, 3/4, 40
+        1, 4/4, 66
+        2, 5/8, 132
+
     """
     w = getWorkspace()
     w.scorestruct.setTempo(quarterTempo, measureNum=measureNum)
@@ -362,7 +437,7 @@ def setConfig(config: CoreConfig) -> None:
 
 
 def makeConfig(updates: dict = None,
-               source: CoreConfig = None,
+               source: Union[str, CoreConfig] = 'root',
                active = False
                ) -> CoreConfig:
     """
@@ -373,17 +448,25 @@ def makeConfig(updates: dict = None,
 
     Args:
         updates: a dict of updates to the new config
-        source: the dict to use as source. If ``None`` the root config is used.
+        source: the dict to use as source. If ``None`` or ``'root'`` is given, the root config is used
+            [1]_. Other possible sources are the *active config* (as returned by :func:`getConfig`)
+            or the *default config* [2]_ (use ``source='default'``)
         active: if True, set the newly created Config as active within the current
             Workspace
 
     Returns:
-        the cloned config (a CoreConfig)
+        the cloned config
 
-
+    .. [1] The root config is the config created at the start of a session, which includes any
+        changes persisted via :meth:`CoreConfig.save() <maelzel.core.config.CoreConfig.save>`)
+    .. [2] The default config is the config without any user customizations
     """
-    if source is None:
+    if source is None or source == 'root':
         source = rootConfig
+    elif source == 'default':
+        source = rootConfig.makeDefault()
+    elif source == 'active':
+        source = getConfig()
     out = source.clone(updates=updates)
     if active:
         setConfig(out)
@@ -414,6 +497,8 @@ def getScoreStruct() -> ScoreStruct:
 def setScoreStruct(s: ScoreStruct) -> None:
     """
     Sets the current score structure
+
+    This is a shortcut to ``getWorkspace().scorestruct = s``
     """
     getWorkspace().scorestruct = s
 
@@ -422,111 +507,6 @@ def _presetsPath() -> str:
     datadirbase = _appdirs.user_data_dir("maelzel")
     path = os.path.join(datadirbase, "core", "presets")
     return path
-
-
-def presetsPath() -> str:
-    """
-    Returns the path were instrument presets are read/written
-
-    The path can be configured with the core configuration::
-
-        getConfig()['play.presetsPath'] = '/my/custom/path'
-
-    Otherwise the default for the current platform is returned.
-
-    Example
-    ~~~~~~~
-
-    Running in linux using ipython
-
-    .. code-block:: python
-
-        >>> from maelzel.core import *
-        >>> path = presetsPath()
-        >>> path
-        '/home/XXX/.local/share/maelzel/core/presets'
-        >>> os.listdir(path)
-        ['.click.yaml',
-         'click.yaml',
-         'noise.yaml',
-         'accordion.yaml',
-         'piano.yaml',
-         'voiceclick.yaml']
-        >>> definedPresets()
-        ['sin',
-         'tsin',
-         'tri',
-         'ttri',
-         'saw',
-         'tsaw',
-         'tsqr',
-         'tpulse',
-         '.click',
-         '.piano',
-         '.clarinet',
-         '.oboe',
-         '.flute',
-         '.violin',
-         '.reedorgan',
-         'click',
-         'noise',
-         'accordion',
-         'piano',
-         'voiceclick']
-    """
-    userpath = getConfig()['play.presetsPath']
-    if userpath:
-        return userpath
-    return _presetsPath()
-
-
-def recordPath() -> str:
-    """
-    The path where temporary recordings are saved
-
-    We do not use the temporary folder because it is wiped regularly
-    and the user might want to access a recording after rebooting.
-    The returned folder is guaranteed to exist
-
-    The default record path can be customized by modifying the config
-    'rec.path'
-    """
-    userpath = getConfig()['rec.path']
-    if userpath:
-        path = userpath
-    else:
-        path = _appdirs.user_data_dir(appname="maelzel", version="recordings")
-    if not os.path.exists(path):
-        os.makedirs(path)
-    return path
-
-
-def toBeat(x: Union[time_t, Tuple[int, time_t]]) -> Rat:
-    """
-    Convert a time in secs or a location (measure, beat) to a quarter-note beat
-
-    Args:
-        x: the time/location to convert
-
-    Returns:
-        the corresponding quarter note beat according to the active ScoreStruct
-
-    """
-    return getWorkspace().scorestruct.toBeat(x)
-
-
-def toTime(x: Union[time_t, Tuple[int, time_t]]) -> Rat:
-    """
-    Convert a quarter-note beat or a location (measure, beat) to an absolute time in secs
-
-    Args:
-        x: the beat/location to convert
-
-    Returns:
-        the corresponding time according to the active ScoreStruct
-
-    """
-    return getWorkspace().scorestruct.toTime(x)
 
 
 _init()

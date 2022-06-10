@@ -7,21 +7,24 @@ import os
 
 from datetime import datetime
 
+import emlib.misc
+
 from ._common import logger
 from . import _util
-from . import tools
+from . import _dialogs
 from .presetbase import *
 from .presetman import presetManager, _csoundPrelude as _prelude
 from .errors import *
-from .workspace import getConfig, getWorkspace, recordPath
+from .workspace import getConfig, getWorkspace
 import csoundengine
 from .csoundevent import CsoundEvent
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import *
+    from typing import Union, Optional
     from .musicobjbase import MusicObj
     from maelzel.snd import audiosample
+    import subprocess
 
 
 __all__ = ('OfflineRenderer',
@@ -46,8 +49,8 @@ class OfflineRenderer:
         (see example below: :ref:`example<offlineRendererExample>`)
 
     Args:
-        outfile: the path to the rendered soundfile. If not given a path
-            within the recordPath() is returned
+        outfile: the path to the rendered soundfile. If not given, a path
+            within the record path [1]_ is returned
         sr: the samplerate of the render (config: 'rec.sr')
         ksmps: the ksmps used for the recording
         quiet: if True, debugging output is minimized. If None, defaults to
@@ -56,6 +59,8 @@ class OfflineRenderer:
     If rendering offline in tandem with audio samples and other csoundengine's
     functionality, it is possible to access the underlying csoundengine's Renderer
     via the ``.renderer`` attribute
+
+    .. [1] To get the current *record path*: ``getWorkspace().recordPath()``
 
     .. _offlineRendererExample:
 
@@ -76,15 +81,13 @@ class OfflineRenderer:
     When exiting the context manager the file 'scale.wav' is rendered. During
     the context manager, all calls to .play are intersected and scheduled
     via the OfflineRenderer
-
     """
-    def __init__(self, outfile:str=None, sr=None, ksmps=64, nchnls=2, quiet:bool=None):
+    def __init__(self, outfile: str = None, sr=None, ksmps=64, nchnls=2, quiet:bool=None):
         w = getWorkspace()
         cfg = getConfig()
-        if outfile is not None and outfile != "?":
-            outfile = _util.normalizeFilename(outfile)
-        self.outfile = outfile
-        """The outfile to render to. If not given, a filename is assigned when rendering"""
+
+        self._outfile = outfile
+        """Outfile given for rendering"""
 
         self.a4 = w.a4
         """A value for the reference frequency"""
@@ -109,19 +112,32 @@ class OfflineRenderer:
 
         self._quiet = quiet
 
+        self._renderProc: Optional[subprocess.Popen] = None
+
+    def __repr__(self):
+        return f"OfflineRenderer(sr={self.sr})"
+
     def _repr_html_(self) -> str:
-        if not self.renderedSoundfiles:
-            return str(self)
-        sndfile = self.renderedSoundfiles[-1]
-        if not os.path.exists(sndfile):
-            return str(self)
-        from maelzel.snd import audiosample
+        sndfile = self.lastOutfile()
+        if not sndfile:
+            return f'<strong>OfflineRenderer</strong>(sr={self.sr})'
         from maelzel import colortheory
-        sample = audiosample.Sample(sndfile)
-        samplehtml = sample.reprHtml()
         blue = colortheory.safeColors['blue1']
-        header = f'<strong>OfflineRenderer</strong>(outfile=<code style="color:{blue}">"{self.outfile}"</code>)'
-        return '<br>'.join([header, samplehtml])
+        if not os.path.exists(sndfile):
+            info = f'lastOutfile=<code style="color:{blue}">"{sndfile}"</code>'
+            return f'<strong>OfflineRenderer</strong>({info})'
+        from maelzel.snd import audiosample
+        sample = audiosample.Sample(sndfile)
+        samplehtml = sample.reprHtml(withHeader=False, withAudiotag=True)
+        header = f'<strong>OfflineRenderer</strong>'
+
+        def _(s):
+            return f'<code style="color:{blue}">{s}</code>'
+
+        sndfilestr = f'"{sndfile}"'
+        info = f'outfile={_(sndfilestr)}, {_(sample.numchannels)} channels, ' \
+               f'{_(format(sample.duration, ".2f"))} secs, {_(sample.sr)} Hz'
+        return '<br>'.join([header, info, samplehtml])
 
     def registerInstr(self, instrname: str, instrdef: csoundengine.Instr) -> None:
         """
@@ -230,6 +246,11 @@ class OfflineRenderer:
         Example
         ~~~~~~~
 
+        Schedule a reverb at a higher priority to affect all notes played. Notice
+        that the reverb instrument is declared at the play Session (see
+        :func:`play.getPlaySession() <maelzel.core.play.getPlaySession>`). All instruments
+        registered at this Session are immediately available for offline rendering.
+
             >>> from maelzel.core import *
             >>> scale = Chain([Note(n) for n in "4C 4D 4E 4F 4G".split()])
             >>> play.getPlaySession().defInstr('reverb', r'''
@@ -257,11 +278,13 @@ class OfflineRenderer:
                                    tabargs=tabargs,
                                    **kws)
 
-
     def render(self, outfile:str=None, wait=None, quiet=None, openWhenDone=False
                ) -> str:
         """
         Render the events scheduled until now.
+
+        You can access the rendering subprocess (a :class:`subprocess.Popen` object)
+        via :meth:`~OfflineRenderer.lastRenderProc`
 
         Args:
             outfile: the soundfile to generate. Use "?" to save via a GUI dialog,
@@ -273,13 +296,18 @@ class OfflineRenderer:
                 application
 
         Returns:
-            the path of the renderer file
+            the path of the rendered file
+
+        Example
+        ~~~~~~~
+
+        TODO
         """
         cfg = getConfig()
         if outfile is None:
-            outfile = self.outfile
+            outfile = self._outfile
         if outfile == '?':
-            outfile = tools.saveRecordingDialog()
+            outfile = _dialogs.saveRecordingDialog()
             if not outfile:
                 raise CancelledError("Render operation was cancelled")
         elif not outfile:
@@ -288,9 +316,60 @@ class OfflineRenderer:
         self.renderedSoundfiles.append(outfile)
         if quiet is None:
             quiet = self._quiet if self._quiet is not None else cfg['rec.quiet']
-        self.renderer.render(outfile=outfile, wait=wait, quiet=quiet,
-                             openWhenDone=openWhenDone)
+        outfile, proc = self.renderer.render(outfile=outfile, wait=wait, quiet=quiet,
+                                             openWhenDone=openWhenDone)
+        self._renderProc = proc
         return outfile
+
+    def openLastOutfile(self) -> None:
+        """
+        Open last rendered outfile in an external app
+
+        Will do nothing if there is no outfile. If the render is in progress
+        this operation will block.
+        """
+        lastoutfile = self.lastOutfile()
+        if not lastoutfile:
+            return
+        if not os.path.exists(lastoutfile):
+            lastproc = self.lastRenderProc()
+            if not lastproc:
+                return
+            lastproc.wait()
+        assert os.path.exists(lastoutfile)
+        emlib.misc.open_with_app(lastoutfile)
+
+    def lastOutfile(self) -> Optional[str]:
+        """
+        Last rendered outfile, None if no soundfiles were rendered
+
+        Example
+        ~~~~~~~
+
+            >>> r = OfflineRenderer(...)
+            >>> r.sched(...)
+            >>> r.render(wait=True)
+            >>> r.lastOutfile()
+            '~/.local/share/maelzel/recordings/tmpsasjdas.wav'
+        """
+        return self.renderedSoundfiles[-1] if self.renderedSoundfiles else None
+
+    def lastRenderProc(self) -> Optional[subprocess.Popen]:
+        """
+        Last process (subprocess.Popen) used for rendering
+
+        Example
+        ~~~~~~~
+
+            >>> r = OfflineRenderer(...)
+            >>> r.sched(...)
+            >>> r.render("outfile.wav", wait=False)
+            >>> if (proc := r.lastRenderProc()) is not None:
+            ...     proc.wait()
+            ...     print(proc.stdout.read())
+
+        """
+        return self._renderProc
 
     def getCsd(self) -> str:
         """
@@ -309,7 +388,7 @@ class OfflineRenderer:
             the outfile
         """
         if outfile == "?":
-            outfile = tools.selectFileForSave("saveCsdLastDir", filter="Csd (*.csd)")
+            outfile = _dialogs.selectFileForSave("saveCsdLastDir", filter="Csd (*.csd)")
             if not outfile:
                 raise CancelledError("Save operation cancelled")
         self.renderer.writeCsd(outfile)
@@ -328,10 +407,9 @@ class OfflineRenderer:
             return
         w = getWorkspace()
         w.renderer = self._oldRenderer
-        if self.outfile is None:
-            self.outfile = _makeRecordingFilename()
-            logger.info(f"Rendering to {self.outfile}")
-        self.render(outfile=self.outfile, wait=True)
+        outfile = self._outfile or _makeRecordingFilename()
+        logger.info(f"Rendering to {outfile}")
+        self.render(outfile=outfile, wait=True)
 
     def renderedSample(self) -> audiosample.Sample:
         """
@@ -391,7 +469,7 @@ def rendering(outfile:str, sr=None, nchnls=2, **kws) -> OfflineRenderer:
 def recEvents(events: List[CsoundEvent], outfile:str=None,
               sr:int=None, wait:bool=None, ksmps: int = None,
               quiet: bool = None, nchnls: int = None
-              ) -> str:
+              ) -> OfflineRenderer:
     """
     Record the events to a soundfile
 
@@ -407,7 +485,9 @@ def recEvents(events: List[CsoundEvent], outfile:str=None,
             the csound subprocess
 
     Returns:
-        the path of the generated soundfile
+        the :class:`OfflineRenderer` used to render the events. If the outfile
+        was not given, the path of the recording can be retrieved from
+        ``renderer.outfile``
 
     Example::
 
@@ -429,7 +509,8 @@ def recEvents(events: List[CsoundEvent], outfile:str=None,
     offlineRenderer = OfflineRenderer(sr=sr, ksmps=ksmps, nchnls=nchnls)
     for ev in events:
         offlineRenderer.schedEvent(ev)
-    return offlineRenderer.render(outfile=outfile, wait=wait, quiet=quiet)
+    offlineRenderer.render(outfile=outfile, wait=wait, quiet=quiet)
+    return offlineRenderer
 
 
 def _path2name(path):
@@ -448,9 +529,10 @@ def _makeRecordingFilename(ext=".wav", prefix="rec-"):
 
     Returns:
         an absolute path. It is guaranteed that the filename does not exist.
-        The file will be created inside the recording path (see ``state.recordPath``)
+        The file will be created inside the recording path
+        (see :meth:`Workspace.recordPath() <maelzel.core.workspace.Workspace.recordPath>`)
     """
-    path = recordPath()
+    path = getWorkspace().recordPath()
     assert ext.startswith(".")
     base = datetime.now().isoformat(timespec='milliseconds')
     if prefix:
@@ -515,7 +597,7 @@ def startPlayEngine(numChannels: int = None,
     numChannels = numChannels or config['play.numChannels']
     if backend == "?":
         backends = [b.name for b in csoundengine.csoundlib.audioBackends(available=True)]
-        backend = tools.selectFromList(backends, title="Select Backend")
+        backend = _dialogs.selectFromList(backends, title="Select Backend")
     backend = backend or config['play.backend']
     verbose = verbose if verbose is not None else config['play.verbose']
     logger.debug(f"Starting engine {engineName} (nchnls={numChannels})")
@@ -724,3 +806,5 @@ def _resolvePfields(event: CsoundEvent, instr: csoundengine.Instr
 
     assert all(isinstance(p, (int, float)) for p in pfields), [(p, type(p)) for p in pfields if not isinstance(p, (int, float))]
     return pfields
+
+

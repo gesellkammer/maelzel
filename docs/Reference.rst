@@ -11,7 +11,7 @@ computation related to music/sound. They can be played in real time, recorded
 and displayed as notation.
 
 .. toctree::
-    :maxdepth: 2
+    :maxdepth: 3
 
     core
 
@@ -35,13 +35,16 @@ multiple backends (*lilypond*, *musescore*)
 --------------------
 
 maelzel.snd
+-----------
 
 All functionality related to *sound* is contained within this package
 
 .. toctree::
     :maxdepth: 1
+    :titlesonly:
+    :glob:
 
-    snd
+    snd-*
 
 --------------------
 

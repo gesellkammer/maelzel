@@ -1,9 +1,7 @@
 """
 Routines for plotting sounds / soundfiles
 
-Uses matplotlib
-
-
+Uses matplotlib as a backend
 """
 from __future__ import annotations
 
@@ -19,7 +17,7 @@ import matplotlib.pyplot as plt
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import *
+    from typing import Union
     import matplotlib.pyplot as plt
 
 
@@ -100,10 +98,11 @@ with config as _:
     _('spectrogram.window', 'hamming', choices={'hamming', 'hanning'})
 
 
-def plotPowerSpectrum(samples,
-                      samplerate,
+def plotPowerSpectrum(samples: np.ndarray,
+                      samplerate: int,
                       framesize=2048,
-                      window=('kaiser', 9)):
+                      window: Union[str, tuple[str, float]] = ('kaiser', 9)
+                      ) -> None:
     """
     Plot the power spectrum of a sound
 
@@ -165,11 +164,10 @@ def _plot_matplotlib(samples:np.ndarray, samplerate:int, timelabels:bool) -> plt
     ax1 = None
     if timelabels:
         formatter = matplotlib.ticker.FuncFormatter(
-                lambda idx, x:emlib.misc.sec2str(idx/samplerate, msdigits=3))
-                # lambda idx, x:time.strftime('%M:%S', time.gmtime(idx / sr)))
+            lambda idx, x:emlib.misc.sec2str(idx/samplerate, msdigits=3))
     else:
         formatter = matplotlib.ticker.FuncFormatter(
-                lambda idx, x:f"{idx/samplerate:.3g}")
+            lambda idx, x:f"{idx/samplerate:.3g}")
     locator = TimeLocator(samplerate)
     for i in range(numch):
         if i == 0:
@@ -213,6 +211,24 @@ _diff_to_step = bpf4.nointerpol(
 
 
 class TimeLocator(matplotlib.ticker.LinearLocator):
+    """
+    A locator for time plotting
+
+    Example
+    -------
+
+    .. code-block:: python
+
+        import matplotlib.pyplot as plt
+        from maelzel.snd import plotting
+        import sndfileio
+        samples, sr = sndfileio.sndread("/path/to/soundfile.wav")
+        fig, axes = plt.subplots()
+        locator = plotting.TimeLocator(sr)
+        axes.xaxis.set_major_locator(locator)
+        axes.plot(samples)
+
+    """
     def __init__(self, sr: int = 0):
         super().__init__()
         self.sr = sr
@@ -236,12 +252,68 @@ class TimeLocator(matplotlib.ticker.LinearLocator):
         return [int(tick*self.sr) for tick in ticks]
 
 
-def _plot_samples_matplotlib2(samples, samplerate, profile:str, saveas:str=None,
-                              timelabels=True) -> bool:
+def plotWaveform(samples, samplerate, profile:str = None, saveas:str=None,
+                 timelabels=True) -> list[plt.Axes]:
+    """
+    Plot the waveform of a sound using pyplot
+
+    Args:
+        samples: a mono or multichannel audio array
+        samplerate: the sr
+        profile: one of 'low', 'medium', 'high', 'highest'. If None or 'auto' is
+            passe, a profile is chosen based on the duration and other parameters given
+        saveas: if given, the plot is saved and not displayed
+        timelabels: if True, the x axes' labels are shown as MM:SS if needed
+
+    Returns:
+        the axes used (one per channel)
+
+    Example
+    ~~~~~~~
+
+    .. code-block:: python
+
+        >>> from maelzel.snd import plotting
+        >>> import sndfileio
+        >>> samples, info = sndfileio.sndget("snd/bach-presto-gmoll.mp3")
+        # In this case the profile used will be 'high'
+        >>> plotting.plotWaveform(samples, info.samplerate)
+
+    .. image:: ../assets/snd-plotting-plotWaveform-high.png
+
+    .. code-block:: python
+
+        >>> plotting.plotWaveform(samples, info.samplerate, profile='low')
+
+    .. image:: ../assets/snd-plotting-plotWaveform-low.png
+
+    .. code-block:: python
+
+        >>> plotting.plotWaveform(samples, info.samplerate, profile='medium')
+
+    .. image:: ../assets/snd-plotting-plotWaveform-medium.png
+
+    .. code-block:: python
+
+        >>> plotting.plotWaveform(samples, info.samplerate, profile='high')
+
+    .. image:: ../assets/snd-plotting-plotWaveform-high.png
+
+    .. code-block:: python
+
+        >>> plotting.plotWaveform(samples, info.samplerate, profile='highest')
+
+    .. image:: ../assets/snd-plotting-plotWaveform-highest.png
+
+
+
+    """
     dur = len(samples) / samplerate
 
-    if profile == 'auto':
-        if dur > 60*8:
+    if profile == 'auto' or profile is None:
+        if saveas is not None:
+            profile = 'highest'
+        elif dur > 60*8:
             profile = 'low'
         elif dur > 60*2:
             profile = 'medium'
@@ -259,7 +331,7 @@ def _plot_samples_matplotlib2(samples, samplerate, profile:str, saveas:str=None,
         if saveas:
             plt.close(fig)
             fig.savefig(saveas, transparent=False, facecolor="white", bbox_inches='tight')
-        return True
+        return fig.axes
     elif profile == 'low':
         maxpoints, maxsr = 600, 20
     elif profile == 'medium':
@@ -277,7 +349,7 @@ def _plot_samples_matplotlib2(samples, samplerate, profile:str, saveas:str=None,
     f = plt.figure(figsize=figsize)
     ax1 = None
     timeFormatter = matplotlib.ticker.FuncFormatter(
-                lambda s, x:emlib.misc.sec2str(s, msdigits=3))
+        lambda s, x:emlib.misc.sec2str(s, msdigits=3))
     locator = TimeLocator(sr=samplerate)
     for i in range(numch):
         if i == 0:
@@ -296,45 +368,20 @@ def _plot_samples_matplotlib2(samples, samplerate, profile:str, saveas:str=None,
                                hop_length=hop_length)
         axes.fill_between(locs, samples_bottom, samples_top)
         axes.set_xlim([locs.min(), locs.max()])
-        axes.xaxis.set_major_locator(locator)
+        # axes.xaxis.set_major_locator(locator)
         if timelabels:
             axes.xaxis.set_major_formatter(timeFormatter)
     if saveas:
         plt.close(f)
         f.savefig(saveas, transparent=False, facecolor="white", bbox_inches='tight')
-    return f
-
-
-def plotWaveform(samples: np.ndarray, samplerate: int, profile="auto",
-                 saveas:str=None, backend:str=None, timelabels=True
-                 ) -> None:
-    """
-    Plot the waveform of a sound
-
-    Args:
-        samples: a mono or multichannel audio array
-        samplerate: the sr
-        profile: one of 'low', 'medium', 'high', 'highest'
-        saveas: if given, the plot is saved and not displayed
-        timelabels: if True, the x axes' labels are shown as MM:SS if needed
-        backend: the backend used (only 'matplotlib' at the moment).
-
-    """
-    if saveas is not None:
-        backend = 'matplotlib'
-    if backend is None:
-        backend = config['backend']
-    if backend == 'matplotlib':
-        _plot_samples_matplotlib2(samples, samplerate, profile, saveas=saveas,
-                                  timelabels=timelabels)
-    else:
-        raise ValueError("Invalid backend")
+    return f.axes
 
 
 def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:str=None,
                     overlap:int=None, axes:plt.Axes=None, cmap=None, interpolation='bilinear',
                     minfreq=40, maxfreq=None,
-                    mindb=-90):
+                    mindb=-90
+                    ) -> plt.Axes:
     """
     Plot the spectrogram of a sound
 
@@ -365,11 +412,11 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:s
     if overlap is None:
         dur = len(samples) / samplerate
         if dur < 10:
-            overlap=4
+            overlap = 4
         elif dur < 60:
-            overlap=2
+            overlap = 2
         else:
-            overlap=1
+            overlap = 1
     hopsize = int(fftsize / overlap)
     noverlap = fftsize - hopsize
     if window is None:
