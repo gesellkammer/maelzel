@@ -1,12 +1,15 @@
 """
 Frequency estimation of a signal with different algorithms
+
+The most important entry point is :func:`~maelzel.snd.freqestimate.f0curve`, which estimates
+the fundamental frequency of an audio signal together with its voicedness (the reliability
+of the measurement)
+
 """
 from __future__ import annotations
 import numpy as np
-from scipy.signal import fftconvolve
-from scipy.signal.windows import blackmanharris
+import scipy.signal
 import logging
-from typing import Tuple
 import bpf4
 from maelzel.snd import vamptools
 
@@ -18,8 +21,10 @@ def _nextPow2(x: int) -> int:
     return 1 if x == 0 else 2**(x-1).bit_length()
 
 
-def parabolic(f:np.ndarray, x:int) -> Tuple[float, float]:
+def parabolic(f: np.ndarray, x: int) -> tuple[float, float]:
     """
+    Estimates inter-sample maximum
+
     Quadratic interpolation for estimating the true position of an
     inter-sample maximum when nearby samples are known.
 
@@ -29,7 +34,7 @@ def parabolic(f:np.ndarray, x:int) -> Tuple[float, float]:
 
     Returns:
         (vx, vy), the coordinates of the vertex of a parabola that goes
-    through point x and its two neighbors.
+        through point x and its two neighbors.
    
     Example
     =======
@@ -48,13 +53,13 @@ def parabolic(f:np.ndarray, x:int) -> Tuple[float, float]:
     return xv, yv
 
 
-def find(condition) -> np.ndarray:
+def _find(condition) -> np.ndarray:
     """Return the indices where ravel(condition) is true"""
     res, = np.nonzero(np.ravel(condition))
     return res
 
 
-def f0ViaZeroCrossings(sig:np.ndarray, sr:int) -> Tuple[float, float]:
+def f0ZeroCross(sig: np.ndarray, sr: int) -> tuple[float, float]:
     """Estimate frequency by counting zero crossings
 
     Args:
@@ -68,7 +73,7 @@ def f0ViaZeroCrossings(sig:np.ndarray, sr:int) -> Tuple[float, float]:
         raise ValueError("sig should be a mono signal")
 
     # Find all indices right before a rising-edge zero crossing
-    indices = find((sig[1:] >= 0) & (sig[:-1] < 0))
+    indices = _find((sig[1:] >= 0) & (sig[:-1] < 0))
     
     # Naive (Measures 1000.185 Hz for 1000 Hz, for instance)
     # crossings = indices
@@ -82,7 +87,7 @@ def f0ViaZeroCrossings(sig:np.ndarray, sr:int) -> Tuple[float, float]:
     return sr / np.mean(np.diff(crossings)), 1
 
 
-def f0ViaFFT(sig:np.ndarray, sr:int) -> Tuple[float, float]:
+def f0FFT(sig: np.ndarray, sr: int) -> tuple[float, float]:
     """Estimate frequency from peak of FFT
 
     Args:
@@ -96,7 +101,7 @@ def f0ViaFFT(sig:np.ndarray, sr:int) -> Tuple[float, float]:
     if _sigNumChannels(sig) > 1:
         raise ValueError("sig should be a mono signal")
     # Compute Fourier transform of windowed signal
-    windowed = sig * blackmanharris(len(sig))
+    windowed = sig * scipy.signal.windows.blackmanharris(len(sig))
     f = np.fft.rfft(windowed)
     
     # Find the peak and interpolate to get a more accurate peak
@@ -107,7 +112,7 @@ def f0ViaFFT(sig:np.ndarray, sr:int) -> Tuple[float, float]:
     return sr * true_i / len(windowed), 1
 
 
-def f0ViaAutocorrelation(sig:np.ndarray, sr:int) -> Tuple[float, float]:
+def f0Autocorr(sig: np.ndarray, sr: int) -> tuple[float, float]:
     """
     Estimate frequency using autocorrelation
 
@@ -124,12 +129,12 @@ def f0ViaAutocorrelation(sig:np.ndarray, sr:int) -> Tuple[float, float]:
 
     # Calculate autocorrelation (same thing as convolution, but with 
     # one input reversed in time), and throw away the negative lags
-    corr = fftconvolve(sig, sig[::-1], mode='full')
+    corr = scipy.signal.fftconvolve(sig, sig[::-1], mode='full')
     corr = corr[int(len(corr)/2):]
     
     # Find the first low point
     d = np.diff(corr)
-    start = find(d > 0)[0]
+    start = _find(d > 0)[0]
     
     # Find the next peak after the low point (other than 0 lag).  This bit is 
     # not reliable for long signals, due to the desired peak occurring between 
@@ -140,7 +145,7 @@ def f0ViaAutocorrelation(sig:np.ndarray, sr:int) -> Tuple[float, float]:
     return sr / px, 1
 
 
-def f0ViaHPS(sig:np.ndarray, sr:int, maxharms=5) -> Tuple[float, float]:
+def f0HPS(sig: np.ndarray, sr: int, maxharms=5) -> tuple[float, float]:
     """
     Estimate frequency using harmonic product spectrum (HPS)
     
@@ -148,7 +153,7 @@ def f0ViaHPS(sig:np.ndarray, sr:int, maxharms=5) -> Tuple[float, float]:
     if _sigNumChannels(sig) > 1:
         raise ValueError("sig should be a mono signal")
 
-    windowed = sig * blackmanharris(len(sig))
+    windowed = sig * scipy.signal.windows.blackmanharris(len(sig))
     c = abs(np.fft.rfft(windowed))
     freq = 0
     for x in range(2,maxharms):
@@ -165,9 +170,9 @@ def f0ViaHPS(sig:np.ndarray, sr:int, maxharms=5) -> Tuple[float, float]:
     return freq, 1
 
 
-def f0curvePyin(sig: np.ndarray, sr:int, minfreq=50, maxfreq=5000,
+def f0curvePyin(sig: np.ndarray, sr: int, minfreq=50, maxfreq=5000,
                 framelength=2048, winlength=None, hoplength=512
-                ) -> Tuple[bpf4.BpfInterface, bpf4.BpfInterface]:
+                ) -> tuple[bpf4.BpfInterface, bpf4.BpfInterface]:
     """
     Calculate the fundamental based on the pyin method
 
@@ -206,13 +211,14 @@ def f0curvePyin(sig: np.ndarray, sr:int, minfreq=50, maxfreq=5000,
 def _fftWinlength(sr: int, minfreq: int) -> int:
     return _nextPow2(int(sr/minfreq))
 
-def f0curvePyinVamp(sig: np.ndarray, sr:int, fftsize=2048, overlap=4,
+
+def f0curvePyinVamp(sig: np.ndarray, sr: int, fftsize=2048, overlap=4,
                     lowAmpSupression=0.1, onsetSensitivity=0.7,
                     pruneThreshold=0.1,
                     threshDistr='beta15',
                     unvoicedFreqs='nan'
 
-                    ) -> Tuple[bpf4.BpfInterface, bpf4.BpfInterface]:
+                    ) -> tuple[bpf4.BpfInterface, bpf4.BpfInterface]:
     """
     Calculate the fundamental using the pyin vamp plugin
 
@@ -272,9 +278,9 @@ def _sigNumChannels(sig: np.ndarray):
     return sig.shape[1] if len(sig.shape) > 1 else 1
 
 
-def f0curve(sig:np.ndarray, sr:int, minfreq=100, steptime=0.01,
+def f0curve(sig: np.ndarray, sr: int, minfreq=100, steptime=0.01,
             method='pyin'
-            ) -> Tuple[bpf4.BpfInterface, bpf4.BpfInterface]:
+            ) -> tuple[bpf4.BpfInterface, bpf4.BpfInterface]:
     """
     Estimate the fundamental and its voicedness
 
@@ -303,6 +309,21 @@ def f0curve(sig:np.ndarray, sr:int, minfreq=100, steptime=0.01,
 
     Returns:
         a tuple (f0curve, f0voicedness)
+
+    Example
+    ~~~~~~~
+
+    .. code-block:: python
+
+        from maelzel.snd.audiosample import Sample
+        from maelzel.snd import freqestimate
+        samp = Sample("snd/finneganswake-fragm01.flac").getChannel(0, contiguous=True)
+        freq, voiced = freqestimate.f0curve(sig=samp.samples, sr=samp.sr, method='pyin')
+        freq.plot(figsize=(18, 6))
+
+    .. image:: ../assets/snd-freqestimate-f0curve.png
+
+    For a more in-depth example see ``notebooks/analysis-pyin.ipynb``
     """
     if _sigNumChannels(sig) > 1:
         raise ValueError("sig should be a mono signal")
@@ -335,9 +356,9 @@ def f0curve(sig:np.ndarray, sr:int, minfreq=100, steptime=0.01,
     maxidx = len(sig) - windowsize
     maxn = int(maxidx / stepsize)
     func = {
-        'autocorrelation': f0ViaAutocorrelation,
-        'fft': f0ViaFFT,
-        'hps': f0ViaHPS
+        'autocorrelation': f0Autocorr,
+        'fft': f0FFT,
+        'hps': f0HPS
     }[method]
     freqs, times, probs = [], [], []
     for n in range(maxn):

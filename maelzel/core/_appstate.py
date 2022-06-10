@@ -13,7 +13,7 @@ with ConfigDict("maelzel.core.state", persistent=True) as appstate:
     home = os.path.expanduser("~")
     appstate.addKey('saveCsdLastDir', home)
     appstate.addKey('writeLastDir', home)
-    appstate.addKey('recLastDir', workspace.recordPath())
+    appstate.addKey('recLastDir', workspace.getWorkspace().recordPath())
     appstate.addKey('loadSndfileLastDir', home)
     if sys.platform == 'linux':
         appstate.addKey('soundfontLastDirectory',

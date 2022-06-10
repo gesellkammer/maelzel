@@ -1,26 +1,27 @@
 from __future__ import annotations
 
-import os
-import pitchtools as pt
-
-import emlib.img
-import emlib.misc
-import emlib.dialogs
-
 from maelzel import scorestruct
+# from ._common import *
 from maelzel.rational import Rat
-from ._common import *
-from . import _util
-from . import environment
-from ._appstate import appstate as _appstate
+
 from .workspace import getWorkspace
 from . import musicobj
 
 from typing import TYPE_CHECKING, NamedTuple
 if TYPE_CHECKING:
-    from typing import *
-    from ._typedefs import *
-    T = TypeVar("T")
+    from typing import Optional, Union
+    from ._typedefs import time_t
+    # T = TypeVar("T")
+
+
+__all__ = (
+    'showLilypondScore',
+    'amplitudeToDynamics',
+    'makeClickTrack',
+    'parseNote',
+    'NoteProperties'
+)
+
 
 
 def _highlightLilypond(s: str) -> str:
@@ -29,95 +30,36 @@ def _highlightLilypond(s: str) -> str:
 
 
 def showLilypondScore(score: str) -> None:
-    # TODO
+    """
+    Display a lilypond score, either at the terminal or within a notebook
+
+    Args:
+        score: the score as text
+    """
+    # TODO: add highlighting, check if inside jupyter, etc.
     print(score)
     return
 
 
 def amplitudeToDynamics(amp: float) -> str:
+    """
+    Convert an amplitude 0-1 to a dynamic according to the current dynamics curve
+
+    Args:
+        amp: an amplitude between 0-1
+
+    Returns:
+        a dynamic ('pp', 'f', etc)
+
+    Example
+    ~~~~~~~
+
+        TODO
+
+    """
     w = getWorkspace()
     dyncurve = w.dynamicsCurve
     return dyncurve.amp2dyn(amp)
-
-
-def selectFromList(options: Sequence[str], title="", default=None) -> Optional[str]:
-    if environment.insideJupyter():
-        return emlib.dialogs.selectItem(options, title=title) or default
-    else:
-        # TODO: use tty tools, like fzf
-        return emlib.dialogs.selectItem(options, title=title) or default
-
-
-def selectFileForSave(key:str, filter="All (*.*)", prompt="Save File") -> Optional[str]:
-    """
-    Select a file for open via a gui dialog, remember the last directory
-
-    Args:
-        key: the key to use to remember the last directory
-        filter: for example "Images (*.png, *.jpg);; Videos (*.mp4)"
-        prompt: title of the dialog
-
-    Returns:
-        the selected file, or None if the operation was cancelled
-    """
-
-    lastdir = _appstate[key]
-    outfile = emlib.dialogs.saveDialog(filter=filter, directory=lastdir, title=prompt)
-    if outfile:
-        _appstate[key] = os.path.split(outfile)[0]
-    return outfile
-
-
-def selectFileForOpen(key: str, filter="All (*.*)", prompt="Open", ifcancel:str=None
-                      ) -> Optional[str]:
-    """
-    Select a file for open via a gui dialog, remember the last directory
-
-    Args:
-        key: the key to use to remember the last directory
-        filter: for example "Images (*.png, *.jpg);; Videos (*.mp4)"
-        prompt: title of the dialog
-        ifcancel: if given and the operation is cancelled a ValueError
-            with this as message is raised
-
-    Returns:
-        the selected file, or None if the operation was cancelled
-    """
-    if _util.checkBuildingDocumentation(logger):
-        return None
-    lastdir = _appstate.get(key)
-    selected = emlib.dialogs.selectFile(filter=filter, directory=lastdir, title=prompt)
-    if selected:
-        _appstate[key] = os.path.split(selected)[0]
-    elif ifcancel is not None:
-        raise ValueError(ifcancel)
-    return selected
-
-
-def selectSndfileForOpen(prompt="Open Soundfile",
-                         filter='Audio (*.wav, *.aif, *.flac, *.mp3)',
-                         ifcancel: str = None
-                         ) -> Optional[str]:
-    """
-    Select a soundfile for open via a gui dialog, remember the last directory
-
-    Args:
-        prompt: title of the dialog
-        filter: the file types to accept
-        ifcancel: if given and the operation is cacelled a ValueError with this message
-            is raised
-
-    Returns:
-        the selected file, or None if the operation was cancelled
-
-    .. seealso:: :func:`~maelzel.core.tools.selectFileForOpen`
-    """
-    return selectFileForOpen(key='loadSndfileLastDir', filter=filter, ifcancel=ifcancel)
-
-
-def saveRecordingDialog(prompt="Save Recording") -> Optional[str]:
-    return selectFileForSave("recLastDir", "Audio (*.wav, *.aif, *.flac)",
-                             prompt=prompt)
 
 
 def makeClickTrack(struct: scorestruct.ScoreStruct,
@@ -125,7 +67,7 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
                    strongBeatPitch="5C",
                    weakBeatPitch="5G",
                    playpreset: str = '.click',
-                   playparams: Dict[str, float] = None,
+                   playparams: dict[str, float] = None,
                    fade=0) -> musicobj.Score:
     """
     Creates a score representing a clicktrack of the given ScoreStruct
@@ -139,9 +81,16 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
         weakBeatPitch: the pitch to use as a weak tick
         playpreset: the preset instr to use for playback. The default plays the given
             pitches two octaves higher as very short clicks
+        playparams: parameters passed to the play preset, if needed
+        fade: a fadetime for the clicks
 
     Returns:
-        a Voice
+        a maelzel.core Score
+
+    Example
+    ~~~~~~~
+
+        TODO
     """
     now = 0
     events = []
@@ -182,9 +131,21 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
 
 
 class NoteProperties(NamedTuple):
-    pitch: Union[str, List[str]]
+    """
+    Represents the parsed properties of a note, as returned by :func:`parseNote`
+
+    The format to parse is Pitch[:dur][:property1][...]
+
+    .. seealso:: :func:`parseNote`
+    """
+    pitch: Union[str, list[str]]
+    """A pitch or a list of pitches"""
+
     dur: Optional[Rat]
-    properties: Optional[Dict[str, str]]
+    """An optional duration"""
+
+    properties: Optional[dict[str, str]]
+    """Any other properties"""
 
 
 def parseNote(s: str) -> NoteProperties:
@@ -212,7 +173,7 @@ def parseNote(s: str) -> NoteProperties:
         a NoteProperties object with the result
     """
     dur, properties = None, None
-    if not ":" in s:
+    if ":" not in s:
         pitch = s
     else:
         pitch, rest = s.split(":", maxsplit=1)
@@ -236,26 +197,9 @@ def parseNote(s: str) -> NoteProperties:
     notename = [p.strip() for p in pitch.split(",",)] if "," in pitch else pitch
     return NoteProperties(pitch=notename, dur=dur, properties=properties)
 
+
 _knownDynamics = {
     'pppp', 'ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'ffff', 'n'
 }
 
 
-def pngShow(pngpath:str, forceExternal=False, app:str='') -> None:
-    """
-    Show a png either with an external app or inside jupyter
-
-    Args:
-        pngpath: the path to a png file
-        forceExternal: if True, it will show in an external app even
-            inside jupyter. Otherwise it will show inside an external
-            app if running a normal session and show an embedded
-            image if running inside a notebook
-        app: used if a specific external app is needed. Otherwise the os
-            defined app is used
-    """
-    if environment.insideJupyter and not forceExternal:
-        from . import jupytertools
-        jupytertools.showPng(pngpath)
-    else:
-        environment.openPngWithExternalApplication(pngpath, app=app)

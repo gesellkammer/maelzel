@@ -6,9 +6,9 @@ import textwrap
 import csoundengine
 import emlib.dialogs
 import emlib.textlib
-from .workspace import presetsPath, getConfig
+from .workspace import getConfig, getWorkspace
 from ._common import logger
-from .presetbase import PresetDef, analyzeAudiogen
+from .presetbase import PresetDef
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
@@ -190,9 +190,11 @@ def loadPreset(presetPath: str) -> PresetDef:
 
 def loadPresets(skipErrors=True) -> List[PresetDef]:
     """
-    loads all presets from presetsPath
+    loads all presets from the presets path
+
+    To get the current presets path: ``getWorkspace().presetsPath()``
     """
-    basepath = presetsPath()
+    basepath = getWorkspace().presetsPath()
     presetdefs = []
     if not os.path.exists(basepath):
         logger.debug(f"Presets path does not exist: {basepath}")

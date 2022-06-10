@@ -13,6 +13,7 @@ import logging as _logging
 from maelzel.rational import Rat
 import os
 
+
 __all__ = (
     'UNSET',
     'MAXDUR',
@@ -25,12 +26,14 @@ __all__ = (
 
 MAXDUR = 99999
 
+
 class _UNSET:
     def __repr__(self):
         return 'UNSET'
 
     def __bool__(self):
         return False
+
 
 UNSET = _UNSET()
 
@@ -78,4 +81,3 @@ def getPath(s: str) -> str:
         return dialogs.selectFile()
     else:
         return os.path.expanduser(s)
-

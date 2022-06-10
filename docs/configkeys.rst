@@ -1,6 +1,3 @@
-maelzel:core
-------------
-
 .. _config_a4:
 
 A4:
@@ -240,13 +237,13 @@ show.jupyterMaxImageWidth:
 .. _config_app_png:
 
 app.png:
-    | Default: ****  -- `str`
+    | Default: **''**  -- `str`
     | *Application used when opening .png files externally. If empty, the platform default is used*
 
 .. _config_musescorepath:
 
 musescorepath:
-    | Default: ****  -- `str`
+    | Default: **''**  -- `str`
     | *The command to use when calling MuseScore. For macOS users: it must be an absolute path pointing to the actual binary inside the .app bundle*
 
 .. _config_displayhook_install:
@@ -333,7 +330,7 @@ play.backend:
 .. _config_play_presetspath:
 
 play.presetsPath:
-    | Default: ****  -- `str`
+    | Default: **''**  -- `str`
     | *The path were presets are saved*
 
 .. _config_play_autosavepresets:
@@ -352,7 +349,7 @@ play.defaultAmplitude:
 .. _config_play_generalmidisoundfont:
 
 play.generalMidiSoundfont:
-    | Default: ****  -- `str`
+    | Default: **''**  -- `str`
     | *Path to a soundfont (sf2 file) with a general midi mapping*
 
 .. _config_play_namedargsmethod:
@@ -414,7 +411,7 @@ rec.nchnls:
 .. _config_rec_path:
 
 rec.path:
-    | Default: ****  -- `str`
+    | Default: **''**  -- `str`
     | *path used to save output files when rendering offline. If not given the default can be queried via `recordPath`*
 
 .. _config_rec_quiet:
