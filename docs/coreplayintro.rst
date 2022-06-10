@@ -1,11 +1,14 @@
 Playback
---------
+========
+
+The play method
+---------------
 
 Each :class:`~maelzel.core.musicobj.Note`, :class:`~maelzel.core.musicobj.Chord`,
 :class:`~maelzel.core.musicobj.Line`, can play itself by calling its
 :meth:`~maelzel.core.musicobj.MusicObj.play` method. Internally playback relies
 on csound for realtime and offline audio generation, via
-`csoundengine <https://github.com/gesellkammer/csoundengine>`_. In fact, all audio
+`csoundengine <https://github.com/gesellkammer/csoundengine>`_. All audio
 playback within **maelzel** is implemented using *csoundengine*. This makes it possible
 to interact between the *core* classes, like :class:`Note` or :class:`Voice` and other
 "unrelated" parts of *maelzel*, like the :class:`maelzel.snd.audiosample.Sample` class.
@@ -169,7 +172,7 @@ By replacing a call to :meth:`~maelzel.core.musicobj.MusicObj.play` with a call 
 :class:`~maelzel.core.musicobj.MusicObj` as a soundfile (offline rendering). To
 render multiple objects to the same soundfile you can either group them in a container
 (for example, place multiple notes inside a :class:`~maelzel.core.musicobj.Voice` and
-render that) or render them via :func:`maelzel.core.musicobj.recMany`
+render that) or render them via :func:`maelzel.core.musicobj.recObjects`
 
 .. code-block:: python
 
@@ -180,7 +183,7 @@ render that) or render them via :func:`maelzel.core.musicobj.recMany`
                     for m in range(60, 72)])
     voice1.setPlay(instr='saw')
     voice2.setPlay(instr='tri')
-    outfile = recMany([voice1, voice2])
+    outfile = recObjects([voice1, voice2])
 
 Notice that in this way, any parameter normally passed to ``.rec`` needs to be fixed
 via ``.setPlay``. A simpler method is to use a :func:`maelzel.core.play.rendering` context
@@ -206,8 +209,6 @@ Playback API
 ------------
 
 .. toctree::
-    :maxdepth: 3
-    :titlesonly:
 
     coreplay
     presetman

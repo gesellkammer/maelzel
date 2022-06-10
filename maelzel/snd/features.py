@@ -182,8 +182,8 @@ def plotOnsets(samples: np.ndarray, sr: int, onsets: np.ndarray,
         >>> with e.lockedClock():
         ...     s.play(engine=e)
         ...     playTicks(times=onsets, engine=e)
-        >>> features.plotOnsetsRosita(samples=s.samples, sr=s.sr, onsets=onsets,
-        ...                           onsetbpf=onsetstrength)
+        >>> features.plotOnsets(samples=s.samples, sr=s.sr, onsets=onsets,
+        ...                     onsetbpf=onsetstrength)
 
 
     """

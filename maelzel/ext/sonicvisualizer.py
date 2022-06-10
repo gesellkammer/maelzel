@@ -45,9 +45,9 @@ def readQtrans(path: str, minpitch=36, octaveDivision=12):
     """
     t = etree.parse(path)
     root = t.getroot()
-    data = root.find("data")
-    model = data.find("model")
-    dset = data.find("dataset")
+    data = root._find("data")
+    model = data._find("model")
+    dset = data._find("dataset")
     assert model.get("name").split(":")[-1].strip() == "Constant-Q Spectrogram"
     sr = int(model.get("sampleRate"))
     start = int(model.get("start"))
@@ -105,9 +105,9 @@ class QTransf:
 def readAdaptiveSpectr(path: str) -> Spectrum:
     t = etree.parse(path)
     root = t.getroot()
-    data = root.find("data")
-    model = data.find("model")
-    dset = data.find("dataset")
+    data = root._find("data")
+    model = data._find("model")
+    dset = data._find("dataset")
     bins = []
     for bin in dset.findall("bin"):
         freq = int(bin.get("name").split()[0])

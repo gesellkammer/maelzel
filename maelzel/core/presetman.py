@@ -11,11 +11,11 @@ import glob
 import csoundengine.csoundlib
 import emlib.dialogs
 from .presetbase import *
-from .workspace import presetsPath, getConfig, getWorkspace
+from .workspace import getConfig, getWorkspace
 from . import presetutils
 from . import playpresets
 from ._common import logger
-from . import tools
+from . import _dialogs
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
@@ -74,7 +74,7 @@ class PresetManager:
             raise RuntimeError("Only one PresetManager should be active")
         self._numinstances = 1
         self.presetdefs: Dict[str, PresetDef] = {}
-        self.presetsPath = presetsPath()
+        self.presetsPath = getWorkspace().presetsPath()
         self._prepareEnvironment()
         self._makeBuiltinPresets()
         self.loadSavedPresets()
@@ -99,9 +99,8 @@ class PresetManager:
         return observer
 
     def _prepareEnvironment(self) -> None:
-        path = presetsPath()
-        if not os.path.exists(path):
-            os.makedirs(path)
+        if not os.path.exists(self.presetsPath):
+            os.makedirs(self.presetsPath)
 
     def _makeBuiltinPresets(self, sf2path:str=None) -> None:
         """
@@ -302,9 +301,9 @@ class PresetManager:
             if sf2path is None:
                 sf2path = "?"
         if sf2path == "?":
-            sf2path = tools.selectFileForOpen('soundfontLastDirectory',
-                                              filter="*.sf2", prompt="Select Soundfont",
-                                              ifcancel="No soundfont selected, aborting")
+            sf2path = _dialogs.selectFileForOpen('soundfontLastDirectory',
+                                                 filter="*.sf2", prompt="Select Soundfont",
+                                                 ifcancel="No soundfont selected, aborting")
         cfg = getConfig()
         if interpolation is None:
             interpolation = cfg['play.soundfontInterpolation']
@@ -369,7 +368,6 @@ class PresetManager:
         if presetdef.userDefined and not presetdef.temporary and config['play.autosavePresets']:
             self.savePreset(presetdef.name)
 
-
     def getPreset(self, name:str) -> PresetDef:
         """Get a preset by name
 
@@ -382,9 +380,9 @@ class PresetManager:
         if name is None:
             name = getConfig()['play.instr']
         elif name == "?":
-            name = tools.selectFromList(list(self.presetdefs.keys()),
-                                        title="Select Preset",
-                                        default=getConfig()['play.instr'])
+            name = _dialogs.selectFromList(list(self.presetdefs.keys()),
+                                           title="Select Preset",
+                                           default=getConfig()['play.instr'])
         preset = self.presetdefs.get(name)
         if not preset:
             raise KeyError(f"Preset {name} not known. Available presets: {self.presetdefs.keys()}")
@@ -540,7 +538,7 @@ class PresetManager:
             raise ValueError(f"Preset {preset} not found")
         if not presetdef.userDefined:
             raise ValueError(f"Can't save a builtin preset: {preset}")
-        path = presetsPath()
+        path = self.presetsPath
         outpath = os.path.join(path, f"{presetdef.name}.{fmt}")
         if fmt == 'yaml' or fmt == 'yml':
             presetutils.saveYamlPreset(presetdef, outpath)
@@ -586,7 +584,7 @@ class PresetManager:
         """
         Open a file manager at presetsPath
         """
-        path = presetsPath()
+        path = self.presetsPath
         emlib.misc.open_with_app(path)
 
     def removeUserPreset(self, presetName: str = None) -> bool:
@@ -608,7 +606,7 @@ class PresetManager:
             presetName = emlib.dialogs.selectItem(saved, title="Remove Preset")
             if not presetName:
                 return False
-        path = os.path.join(presetsPath(), f"{presetName}.yaml")
+        path = os.path.join(self.presetsPath, f"{presetName}.yaml")
         if not os.path.exists(path):
             logger.warning(f"Preset {presetName} does not exist (searched: {path})")
             presetnames = self.savedPresets()
@@ -626,7 +624,7 @@ class PresetManager:
 
         .. seealso:: :func:`presetsPath`
         """
-        presets = glob.glob(os.path.join(presetsPath(), "*.yaml"))
+        presets = glob.glob(os.path.join(self.presetsPath, "*.yaml"))
         return [os.path.splitext(os.path.split(p)[1])[0] for p in presets]
 
     def selectPreset(self) -> Optional[str]:

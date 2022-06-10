@@ -66,16 +66,14 @@ typehints_fully_qualified = False
 typehints_document_rtype = True
 
 # Autodoc
-autodoc_member_order = 'bysource'
-
-set_type_checking_flag = False
+# autodoc_member_order = 'bysource'
 
 numpydoc_show_class_members = False
 
 
 autodoc_mock_imports = ["ctcsound", "numpy", "scipy", "matplotlib", "music21"
                         "bpf4", "sndfileio", "pillow", "numpyx", "rtmidi2", "sr",
-                        "vamp", "lxml", "gmpy"
+                        "vamp", "lxml", "gmpy", "csoundengine", "sndfileio"
 ]
 
 # Napoleon settings
@@ -94,4 +92,10 @@ napoleon_use_rtype = True
 
 set_type_checking_flag = True
 automodsumm_inherited_members = True
-automodapi_inheritance_diagram = False
+
+automodapi_inheritance_diagram = True
+automodapi_group_order = ("modules", "classes", "functions", "variables")
+
+html_css_files = [
+    'custom.css',
+]

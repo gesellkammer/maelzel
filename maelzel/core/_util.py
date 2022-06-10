@@ -11,6 +11,8 @@ import bpf4 as bpf
 import pitchtools as pt
 from dataclasses import dataclass
 from . import symbols as _symbols
+from . import environment
+
 
 if TYPE_CHECKING:
     from typing import *
@@ -43,6 +45,27 @@ def checkBuildingDocumentation(logger=None) -> bool:
         else:
             print(msg)
     return building
+
+
+def pngShow(pngpath:str, forceExternal=False, app:str='') -> None:
+    """
+    Show a png either with an external app or inside jupyter
+
+    Args:
+        pngpath: the path to a png file
+        forceExternal: if True, it will show in an external app even
+            inside jupyter. Otherwise it will show inside an external
+            app if running a normal session and show an embedded
+            image if running inside a notebook
+        app: used if a specific external app is needed. Otherwise the os
+            defined app is used
+    """
+    if environment.insideJupyter and not forceExternal:
+        from . import jupytertools
+        jupytertools.showPng(pngpath)
+    else:
+        environment.openPngWithExternalApplication(pngpath, app=app)
+
 
 
 def imgSize(path:str) -> Tuple[int, int]:
@@ -341,7 +364,8 @@ def splitByAmp(midis: List[float], amps:List[float], numGroups=8, maxNotesPerGro
 
 
 def applySymbols(symbols: List[_symbols.Symbol],
-                 notations: Union[scoring.Notation, List[scoring.Notation]]) -> None:
+                 notations: Union[scoring.Notation, List[scoring.Notation]]
+                 ) -> None:
     for symbol in symbols:
         if isinstance(symbol, _symbols.Dynamic):
 

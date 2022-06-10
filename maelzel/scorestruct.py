@@ -1,25 +1,52 @@
 """
-This module defines a :class:`~maelzel.scorestruct.ScoreStruct`
+This module defines a Score Structure class (:class:`ScoreStruct`)
 
-A :class:`~maelzel.scorestruct.ScoreStruct` holds the structure of a score
-(its skeleton). It is a list of measure definitionss, where each measure
-definition includes a time-signature, tempo and optional annotations.
-
-A ScoreStruct provides utilities to convert between score locations,
-quarternote offset and absolute time position
+A :class:`ScoreStruct` holds the structure of a score
+(its skeleton): it is a list of measure definitions (see :meth:`~ScoreStruct.addMeasure`),
+where each measure definition includes a time-signature, tempo and optional annotations.
+A :class:`ScoreStruct` provides utilities to convert between score locations,
+quarternote time and absolute time position.
 
 Score structure ≠ score contents
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+--------------------------------
 
 A :class:`~maelzel.scorestruct.ScoreStruct` does not hold any actual
 content (notes, chords, silences, etc), it just provides a skeleton
 to organize such content within the given structure
 
-.. admonition:: Rational Numbers
+Beat time vs Real time
+----------------------
 
-    As in the rest of **maelzel**, any variable or attribute dealing with
-    time (in beats, seconds, tempo, etc) is a rational number
-    (a :class:`maelzel.rational.Rat`) to avoid rounding errors.
+*Real time* is the actual clock time, measured in seconds. *Beat time* refers to a
+symbolic time, measured in quarternotes. For example, an event (a note) starting at
+``beat=2.5`` with a duration of ``0.5`` beats means that the event starts ``2+1/2``
+quarternotes after the beginning and has a duration of an eighth note. The exact
+location in *Real time* depends on the tempo and on any tempo changes before
+and during the event.
+
+To convert between *beat time* and *real time* see :meth:`~ScoreStruct.beatToTime` and
+:meth:`~ScoreStruct.timeToBeat`.
+
+Score Location
+--------------
+
+As mentioned above, *beat time* is measured in quarternotes since the beginning.
+Within a score with time-signature changes there is a more convenient way to indicate
+time: a :class:`ScoreLocation`, which is basically a tuple ``(measure index, beat offset)``.
+See :meth:`~ScoreStruct.locationToTime`, :meth:`~ScoreStruct.timeToLocation`
+
+.. note::
+
+    Measure indexes start at 0
+
+
+Rational Numbers
+----------------
+
+As in the rest of **maelzel**, any variable or attribute dealing with
+time (in beats, seconds, tempo, etc) is a rational number
+(a :class:`maelzel.rational.Rat`). **This is done to avoid rounding errors**
+
 """
 from __future__ import annotations
 
@@ -314,16 +341,16 @@ class ScoreStruct:
     """
     A ScoreStruct holds the structure of a score but no content
 
-    A ScoreStruct consists of some metadata and a list of MeasureDefs,
-    where each MeasureDef defines the properties of the measure at the given
-    index. If a ScoreStruct is marked as endless, it is possible to query
-    it (ask for a MeasureDef, convert beats to time, etc.) outside of the defined
-    measures.
+    A ScoreStruct consists of some metadata and a list of :class:`MeasureDefs`,
+    where each :class:`MeasureDef` defines the properties of the measure at the given
+    index. If a ScoreStruct is marked as *endless*, it is possible to query
+    it (convert beats to time, etc.) outside of the defined measures.
 
     Args:
         score: if given, a score definition as a string (see below for the format)
-        timesig: if no score is given, a timesig can be given to define a basic
-            scorestruct with a time signature and a default or given tempo
+        timesig: time-signature. If no score is given, a timesig can be given to
+            define a basic scorestruct with a time signature and a default or
+            given tempo
         quarterTempo: the tempo of a quarter note, if given
         endless: mark this ScoreStruct as endless
         autoextend: this is only valid if the score is marked as endless. If True,
@@ -364,8 +391,6 @@ class ScoreStruct:
 
         # Or everything in one line:
         s = ScoreStruct('4/4, 50; 3/4; 4/4; 2/4; 3/4; 3/4 ')
-
-    See :meth:``ScoreStruct.fromString`` for more detailts about the string format
 
     **Format**
 
@@ -410,7 +435,7 @@ class ScoreStruct:
             if timesig or quarterTempo:
                 raise ValueError("Either a score as string or a timesig / quarterTempo can be given"
                                  "but not both")
-            s = ScoreStruct.fromString(s=score)
+            s = ScoreStruct._fromString(s=score)
             self.measuredefs = s.measuredefs
             self.endless = s.endless
         else:
@@ -436,8 +461,8 @@ class ScoreStruct:
         return hash(self) == hash(other)
 
     @staticmethod
-    def fromString(s: str, initialTempo=60, initialTimeSignature=(4, 4), endless=False
-                   ) -> ScoreStruct:
+    def _fromString(s: str, initialTempo=60, initialTimeSignature=(4, 4), endless=False
+                    ) -> ScoreStruct:
         """
         Create a ScoreStruct from a string definition
 
@@ -469,7 +494,6 @@ class ScoreStruct:
             1, 5/8, 63
             5/8, 63
             5/8
-
 
         **Example**::
 
@@ -839,6 +863,18 @@ class ScoreStruct:
 
         Returns:
             the corresponding time
+
+        Example
+        ~~~~~~~
+
+            >>> from maelzel.scorestruct import ScoreStruct
+            >>> sco = ScoreStruct.fromTimesig('4/4', quarterTempo=120)
+            >>> sco.beatToTime(2)
+            1.0
+            >>> sco.timeToBeat(2)
+            4.0
+
+        .. seealso:: :meth:`~ScoreStruct.timeToBeat`
         """
         return self.locationToTime(*self.beatToLocation(beat))
 
@@ -851,6 +887,18 @@ class ScoreStruct:
 
         Returns:
             A quarternote offset
+
+        Example
+        ~~~~~~~
+
+            >>> from maelzel.scorestruct import ScoreStruct
+            >>> sco = ScoreStruct.fromTimesig('4/4', quarterTempo=120)
+            >>> sco.beatToTime(2)
+            1.0
+            >>> sco.timeToBeat(2)
+            4.0
+
+        .. seealso:: :meth:`~ScoreStruct.beatToTime`
         """
         loc = self.timeToLocation(t)
         beat = self.locationToBeat(loc.measureNum, loc.beat)
@@ -859,6 +907,7 @@ class ScoreStruct:
     def iterMeasureDefs(self) -> Iter[MeasureDef]:
         """
         Iterate over all measure definitions in this ScoreStruct.
+
         If it is marked as endless then the last defined measure
         will be returned indefinitely.
         """
@@ -883,6 +932,18 @@ class ScoreStruct:
         Returns:
             the corresponding quarter note beat according to this ScoreStruct
 
+        Example
+        ~~~~~~~
+
+            >>> sco = ScoreStruct.fromTimesig('3/4', 120)
+            # Convert time to beat
+            >>> sco.toBeat(0.5)
+            1.0
+            # Convert score location (measure 1, beat 2) to beats
+            >>> sco.toBeat((1, 2))
+            5.0
+
+        .. seealso:: :meth:`~ScoreSctruct.toTime`
         """
         if isinstance(x, tuple):
             return self.locationToBeat(*x)
@@ -898,6 +959,19 @@ class ScoreStruct:
 
         Returns:
             the corresponding time according to this ScoreStruct
+
+        Example
+        ~~~~~~~
+
+            >>> sco = ScoreStruct.fromTimesig('3/4', 120)
+            # Convert time to beat
+            >>> sco.toTime(1)
+            0.5
+            # Convert score location (measure 1, beat 2) to beats
+            >>> sco.toTime((1, 2))
+            2.5
+
+        .. seealso:: :meth:`~ScoreSctruct.toBeat`
 
         """
         return self.locationToTime(*x) if isinstance(x, tuple) else self.beatToTime(x)
@@ -919,7 +993,7 @@ class ScoreStruct:
         Example
         -------
 
-        >>> s = ScoreStruct.fromString(r'''
+        >>> s = ScoreStruct._fromString(r'''
         ... 3/4, 120
         ... 3/8
         ... 4/4
@@ -958,6 +1032,8 @@ class ScoreStruct:
         Returns:
             the elapsed time, as a Fraction
 
+        .. seealso:: :meth:`~ScoreStruct.beatDelta`
+
         """
         startTime = self.locationToTime(*start) if isinstance(start, tuple) else self.beatToTime(start)
         endTime = self.locationToTime(*end) if isinstance(end, tuple) else self.beatToTime(end)
@@ -976,6 +1052,8 @@ class ScoreStruct:
 
         Returns:
             the distance between the two locations, in beats
+
+        .. seealso:: :meth:`~ScoreStruct.timeDelta`
         """
         startBeat = self.locationToBeat(*start) if isinstance(start, tuple) else self.timeToBeat(start)
         endBeat = self.locationToBeat(*end) if isinstance(start, tuple) else self.timeToBeat(end)
@@ -1190,10 +1268,7 @@ class ScoreStruct:
         Args:
             midifile: the path of the MIDI file to generate
 
-        See Also
-        ~~~~~~~~
-
-        :func:`maelzel.core.tools.makeClickTrack`
+        .. seealso:: :func:`maelzel.core.tools.makeClickTrack`
         """
         from maelzel.core import tools
         click = tools.makeClickTrack(self)
@@ -1204,6 +1279,15 @@ class ScoreStruct:
                        weakBeatPitch='5G', playTransposition=24,
                        ) -> maelzel.core.Score:
         """
+
+        struct: scorestruct.ScoreStruct,
+                   clickdur: time_t = None,
+                   strongBeatPitch="5C",
+                   weakBeatPitch="5G",
+                   playpreset: str = '.click',
+                   playparams: Dict[str, float] = None,
+                   fade=0) -> musicobj.Score:
+
         Create a click track from this ScoreStruct
 
         The returned score can be displayed as notation via :meth:`maelzel.core.Score.show`
@@ -1232,7 +1316,7 @@ class ScoreStruct:
         -------
 
             >>> from maelzel.core import *
-            >>> scorestruct = ScoreStruct.fromString(r"...")
+            >>> scorestruct = ScoreStruct._fromString(r"...")
             >>> clicktrack = scorestruct.makeClickTrack()
             >>> clicktrack.write('click.pdf')
             >>> clicktrack.play()

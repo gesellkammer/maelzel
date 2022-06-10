@@ -1,21 +1,33 @@
 """
-Configuration
-=============
 
-At any given moment there is one active configuration. The configuration
-allows to set default values for many settings to customize different
+CoreConfig: Configuration for maelzel.core
+==========================================
+
+At any given moment there is one active configuration (an instance of :class:`CoreConfig`,
+itself a subclass of `dict`).
+The configuration allows to set default values for many settings to customize different
 aspects of **maelzel.core**:
 
-* notation (default page size, rendered image scaling, etc)
-* playback (default audio backend, instrument, etc)
-* offline rendering
+* notation (default page size, rendered image scaling, etc). Prefix: *show*
+* playback (default audio backend, instrument, etc). Prefix: *play*
+* offline rendering. Prefix: *rec*
 * etc.
 
-The active config is an instance of :class:`CoreConfig`, which is itself a
-a subclass of `dict`. Settings can be modified by simply changing the
-values of this dict, like ``config[key] = value``. A config has a **set of valid keys**. An
-attempt to set an unknown key will result in an error. Values are also validated regarding
-their type and accepted choices, range, etc.
+Settings can be modified by simply changing the values of the config dict::
+
+    # Get the active config
+    >>> from maelzel.core import *
+    >>> config = getConfig()
+    >>> config['show.pageSize'] = 'A3'
+
+A config has a :ref:`set of valid keys <coreconfigkeys>`. An attempt to set an unknown key will
+result in an error. Values are also validated regarding their type and accepted
+values, range, etc.::
+
+    >>> config['foo'] = 'bar'
+    KeyError: 'Unknown key foo'
+    >>> config['show.pageSize'] = 'Z1'
+    ValueError: key show.pageSize should be one of {'a2', 'a4', 'a3'}, got Z1
 
 Persistence
 -----------
@@ -39,16 +51,27 @@ In a future session these changes will be picked up as default:
     443
 
 
-See also: :py:mod:`maelzel.core.workspace`
+.. seealso::
+
+    :ref:`Iworkspace_mod`
 
 ---------------------
 
+.. _activeconfigh:
 
 Active config
 -------------
 
 In order to create a configuration specific for a particular task it is possible
-to create a new config either by cloning the rootConfig or by cloning the default config.
+to create a new config with :func:`~maelzel.core.workspace.makeConfig` or by
+cloning any CoreConfig.
+
+    >>> from maelzel.core import *
+    >>> newconfig = makeConfig({'show.pageSize': 'a3'}, active=True)
+    # This is the same as
+    >>> newconfig = getConfig().clone({'show.pageSize': 'a3'})
+    >>> setConfig(newconfig)
+
 Also creating a new :class:`~maelzel.core.workspace.Workspace` will create a new
 config:
 
@@ -390,6 +413,12 @@ class CoreConfig(ConfigDict):
 
     Args:
         load: if True, the saved version is loaded when creating this CoreConfig
+
+    .. admonition:: See Also
+
+        :ref:`Configuration Keys <coreconfigkeys>` for documentation on the keys and
+        their possible values
+
     """
     def __init__(self, load=True, **kws):
         super().__init__('maelzel.core', _default, persistent=False,
@@ -415,6 +444,8 @@ class CoreConfig(ConfigDict):
         """
         from maelzel.core import notation
         return notation.makeRenderOptionsFromConfig(self)
+
+
 
 
 rootConfig = CoreConfig(load=True)

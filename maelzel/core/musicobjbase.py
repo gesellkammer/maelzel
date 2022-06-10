@@ -45,6 +45,7 @@ from . import tools
 from . import environment
 from . import symbols
 from . import notation
+from . import _util
 import maelzel.music.m21tools as m21tools
 from maelzel import scoring
 
@@ -55,8 +56,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
     from ._typedefs import *
-    from .play import OfflineRenderer
     T = TypeVar('T', bound='MusicObj')
+    from .play import OfflineRenderer
 
 _playkeys = PlayArgs.keys()
 
@@ -399,7 +400,7 @@ class MusicObj:
             img = self.renderImage(backend=backend, fmt=fmt, scorestruct=scorestruct,
                                    config=cfg)
             if fmt == 'png':
-                tools.pngShow(img, forceExternal=external)
+                _util.pngShow(img, forceExternal=external)
             else:
                 emlib.misc.open_with_app(img)
 
@@ -816,7 +817,7 @@ class MusicObj:
     def rec(self, outfile: str = None, sr: int = None, quiet: bool = None,
             wait: bool = None, ksmps: int = None, nchnls: int = None,
             **kws
-            ) -> str:
+            ) -> OfflineRenderer:
         """
         Record the output of .play as a soundfile
 
@@ -832,12 +833,24 @@ class MusicObj:
             **kws: any keyword passed to .play
 
         Returns:
-            the path of the generated soundfile
+            the offline renderer used. If no outfile was given it is possible to
+            access the renderer soundfile via
+            :meth:`OfflineRenderer.lastOutfile() <maelzel.core.play.OfflineRenderer.lastOutfile>`
+
+        Example
+        ~~~~~~~
+
+            >>> from maelzel.core import *
+            >>> # a simple note
+            >>> chord = Chord("4C 4E 4G", dur=8).setPlay(gain=0.1, instr='piano')
+            >>> renderer = chord.rec(wait=True)
+            >>> renderer.lastOutfile()
+            '/home/testuser/.local/share/maelzel/recordings/tmpashdas.wav'
 
         See Also
         ~~~~~~~~
 
-        :class:`maelzel.core.play.OfflineRenderer`
+        - :class:`~maelzel.core.play.OfflineRenderer`
         """
         events = self.events(**kws)
         return play.recEvents(events, outfile, sr=sr, ksmps=ksmps, wait=wait, quiet=quiet,

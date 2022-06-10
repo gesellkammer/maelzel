@@ -1,3 +1,14 @@
+"""
+High-level interface to vamp plugins
+
+Depends on `vamphost <https://pypi.org/project/vamphost/>`_ and on some vamp plugins
+being installed (pyin plugin)
+
+These dependencies should be taken care of automatically when installing maelzel
+(the pyin plugin is shipped together with maelzel, the vamphost module is provided
+via pypi and installed by pip as a dependency)
+
+"""
 from __future__ import annotations
 import numpy as np
 import numpyx
