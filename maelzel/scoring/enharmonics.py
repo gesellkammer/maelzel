@@ -9,10 +9,8 @@ from dataclasses import dataclass
 import pitchtools as pt
 import functools
 from collections import deque
+
 from .notation import Notation
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from typing import *
 
 
 @dataclass
@@ -43,7 +41,7 @@ class EnharmonicOptions:
 _defaultEnharmonicOptions = EnharmonicOptions()
 
 
-def isEnharmonicVariantValid(notes: List[str]) -> bool:
+def isEnharmonicVariantValid(notes: list[str]) -> bool:
     """
     Is the enharmonic spelling in this list of notes valid?
 
@@ -67,12 +65,12 @@ def isEnharmonicVariantValid(notes: List[str]) -> bool:
     return True
 
 
-def groupPenalty(notes: List[str], options: EnharmonicOptions = None) -> Tuple[float, str]:
+def groupPenalty(notes: list[str], options: EnharmonicOptions = None) -> tuple[float, str]:
     if options is None:
         options = _defaultEnharmonicOptions
     total = 0
     penaltysources = []
-    notated: List[pt.NotatedPitch] = [pt.notated_pitch(n) for n in notes]
+    notated: list[pt.NotatedPitch] = [pt.notated_pitch(n) for n in notes]
     alterations = [n.alteration_direction() for n in notated
                    if n.is_black_key]
     numDirections = len(set(alterations))
@@ -139,8 +137,8 @@ def groupPenalty(notes: List[str], options: EnharmonicOptions = None) -> Tuple[f
     return total, ", ".join(penaltysources)
 
 
-def intervalsPenalty(notes: List[str], options: EnharmonicOptions
-                     ) -> Tuple[float, str]:
+def intervalsPenalty(notes: list[str], options: EnharmonicOptions
+                     ) -> tuple[float, str]:
     total = 0
     sources = []
     for n0, n1 in iterlib.window(notes, 2):
@@ -152,7 +150,7 @@ def intervalsPenalty(notes: List[str], options: EnharmonicOptions
 
 
 def intervalPenalty(n0: str, n1: str, options: EnharmonicOptions
-                    ) -> Tuple[float, str]:
+                    ) -> tuple[float, str]:
     """
     Rate the penalty of the interval between n0 and n1
 
@@ -256,7 +254,7 @@ def intervalPenalty(n0: str, n1: str, options: EnharmonicOptions
     return total, source
 
 
-def _enharmonicPenalty(notes: List[str], options:EnharmonicOptions) -> float:
+def _enharmonicPenalty(notes: list[str], options:EnharmonicOptions) -> float:
     """
     Rate how bad this enharmonic variant is
 
@@ -281,7 +279,7 @@ class _SpellingHistory:
         self.itemHistory = itemHistory
         self.pitchHistory = pitchHistory
         self.dequelen = itemHistory
-        self.deque: deque[List[pt.NotatedPitch]] = deque(maxlen=self.dequelen)
+        self.deque: deque[list[pt.NotatedPitch]] = deque(maxlen=self.dequelen)
         self.divsPerSemitone= divsPerSemitone
         numslots = 12 * divsPerSemitone
         self.slots = {idx: 0 for idx in range(numslots)}
@@ -293,7 +291,7 @@ class _SpellingHistory:
         self.slots = {idx:0 for idx in range(numslots)}
         self.refcount = {idx:0 for idx in range(numslots)}
 
-    def add(self, items: List[str]) -> None:
+    def add(self, items: list[str]) -> None:
         ns = [pt.notated_pitch(item) for item in items]
         numpitches = sum(len(item) for item in self.deque)
         if len(self.deque) == self.itemHistory or numpitches>=self.pitchHistory:
@@ -351,7 +349,7 @@ class _SpellingHistory:
         self.add(notenames)
 
 
-def _rateChordSpelling(notes: List[str], options: EnharmonicOptions) -> Tuple[float, str]:
+def _rateChordSpelling(notes: list[str], options: EnharmonicOptions) -> tuple[float, str]:
     totalpenalty = 0.
     sources = []
     for a, b in iterlib.combinations(notes, 2):
@@ -363,7 +361,7 @@ def _rateChordSpelling(notes: List[str], options: EnharmonicOptions) -> Tuple[fl
     return totalpenalty, sourcestr
 
 
-def fixEnharmonicsInPlace(notations: List[Notation], eraseFixedNotes=True,
+def fixEnharmonicsInPlace(notations: list[Notation], eraseFixedNotes=True,
                           options: EnharmonicOptions = None,
                           ) -> None:
     # First fix single notes and upper note of chords, then fix each chord
@@ -448,7 +446,7 @@ def fixEnharmonicsInPlace(notations: List[Notation], eraseFixedNotes=True,
 
     return
 
-def _verifyVariants(variants: List[Tuple[str, ...]], slots):
+def _verifyVariants(variants: list[tuple[str, ...]], slots):
     for variant in variants:
         for n in variant:
             notated = pt.notated_pitch(n)

@@ -1,44 +1,20 @@
 from __future__ import annotations
 
 from maelzel import scorestruct
-# from ._common import *
-from maelzel.rational import Rat
 
 from .workspace import getWorkspace
 from . import musicobj
 
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Optional, Union
     from ._typedefs import time_t
-    # T = TypeVar("T")
 
 
 __all__ = (
-    'showLilypondScore',
     'amplitudeToDynamics',
     'makeClickTrack',
-    'parseNote',
-    'NoteProperties'
 )
 
-
-
-def _highlightLilypond(s: str) -> str:
-    # TODO
-    return s
-
-
-def showLilypondScore(score: str) -> None:
-    """
-    Display a lilypond score, either at the terminal or within a notebook
-
-    Args:
-        score: the score as text
-    """
-    # TODO: add highlighting, check if inside jupyter, etc.
-    print(score)
-    return
 
 
 def amplitudeToDynamics(amp: float) -> str:
@@ -58,7 +34,7 @@ def amplitudeToDynamics(amp: float) -> str:
 
     """
     w = getWorkspace()
-    dyncurve = w.dynamicsCurve
+    dyncurve = w.dynamicCurve
     return dyncurve.amp2dyn(amp)
 
 
@@ -90,7 +66,27 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
     Example
     ~~~~~~~
 
-        TODO
+    .. code-block:: python
+
+        from maelzel.core import *
+        scorestruct = ScoreStruct(r'''
+        4/4, 72
+        .
+        5/8
+        3/8
+        2/4, 96
+        .
+        5/4
+        3/4
+        '')
+        clicktrack = tools.makeClickTrack(scorestruct)
+        clicktrack.show()
+        clicktrack.rec('clicktrack.flac')
+
+    .. image:: ../assets/clicktrack.png
+
+    .. seealso:: :ref:`clicktrack_notebook`
+
     """
     now = 0
     events = []
@@ -128,78 +124,3 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
     if playpreset:
         voice.setPlay(instr=playpreset, params=playparams)
     return musicobj.Score([voice], scorestruct=struct)
-
-
-class NoteProperties(NamedTuple):
-    """
-    Represents the parsed properties of a note, as returned by :func:`parseNote`
-
-    The format to parse is Pitch[:dur][:property1][...]
-
-    .. seealso:: :func:`parseNote`
-    """
-    pitch: Union[str, list[str]]
-    """A pitch or a list of pitches"""
-
-    dur: Optional[Rat]
-    """An optional duration"""
-
-    properties: Optional[dict[str, str]]
-    """Any other properties"""
-
-
-def parseNote(s: str) -> NoteProperties:
-    """
-    Parse a note definition string with optional duration and other properties
-
-    ============================== ========= ====  ===========
-    Note                           Pitch     Dur   Properties
-    ============================== ========= ====  ===========
-    4c#                            4C#       None  None
-    4F+:0.5                        4F+       0.5   None
-    4G:1/3                         4G        1/3   None
-    4Bb-:mf                        4B-       None  {'dynamic':'mf'}
-    4G-:0.4:ff:articulation=accent 4G-       0.4   {'dynamic':'ff',
-                                                    'articulation':'accent'}
-    4F#,4A                         [4F#, 4A] None  None
-    4G:^                           4G        None  {'articulation': 'accent'}
-    ============================== ========= ====  ===========
-
-
-    Args:
-        s: the note definition to parse
-
-    Returns:
-        a NoteProperties object with the result
-    """
-    dur, properties = None, None
-    if ":" not in s:
-        pitch = s
-    else:
-        pitch, rest = s.split(":", maxsplit=1)
-        parts = rest.split(":")
-        properties = {}
-        for part in parts:
-            try:
-                dur = Rat(part)
-            except ValueError:
-                if part in _knownDynamics:
-                    properties['dynamic'] = part
-                elif part == 'gliss':
-                    properties['gliss'] = True
-                elif part == 'tied':
-                    properties['tied'] = True
-                elif "=" in part:
-                    key, value = part.split("=", maxsplit=1)
-                    properties[key] = value
-        if not properties:
-            properties = None
-    notename = [p.strip() for p in pitch.split(",",)] if "," in pitch else pitch
-    return NoteProperties(pitch=notename, dur=dur, properties=properties)
-
-
-_knownDynamics = {
-    'pppp', 'ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'ffff', 'n'
-}
-
-

@@ -10,10 +10,7 @@ from maelzel.scorestruct import ScoreStruct
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from ._typedefs import time_t
     from typing import Optional, Any, Union, Tuple
-    from maelzel.rational import Rat
-
 
 
 def _resetCache() -> None:
@@ -57,7 +54,7 @@ class Workspace:
         renderer: if not None, the active offline renderer
         config: the active config for this Workspace
         scorestruct: the active ScoreStruct
-        dynamicsCurve: a DynamicCurve, mapping amplitude to dynamic expression
+        dynamicCurve: a DynamicCurve, mapping amplitude to dynamic expression
 
     A Workspace can also be used as a context manager, in which case it will be
     activated when entering the context and  and deactivated at exit
@@ -81,8 +78,9 @@ class Workspace:
     root: Workspace = None
 
     _initDone: bool = False
-    _active: Workspace = None
     _counter: int = 0
+
+    active: Workspace = None
 
     def __init__(self,
                  config: CoreConfig = None,
@@ -104,19 +102,40 @@ class Workspace:
             config = config.clone(updates=updates)
         else:
             assert isinstance(config, CoreConfig)
-        self.config: CoreConfig = config
+        self._config: CoreConfig = config
 
-        self.dynamicsCurve = dynamicCurve or DynamicCurve.fromdescr(
-            shape=self.config.get('dynamicsCurve.shape', 'expon(3.0)'))
+        if dynamicCurve is None:
+            mindb = config['dynamicCurve.mindb']
+            maxdb = config['dynamicCurve.maxdb']
+            dynamics = config['dynamicCurve.dynamics'].split()
+            dynamicCurve = DynamicCurve.fromdescr(shape=config['dynamicCurve.shape'],
+                                                  mindb=mindb, maxdb=maxdb,
+                                                  dynamics=dynamics)
+
+        self.dynamicCurve = dynamicCurve
 
         if scorestruct is None:
             scorestruct = ScoreStruct.fromTimesig((4, 4), quarterTempo=60)
         self._scorestruct = scorestruct
-        self._previousWorkspace: Optional[Workspace] = getWorkspace()
+        self._previousWorkspace: Optional[Workspace] = Workspace.active
         if active:
             self.activate()
 
-    def deactivate(self) -> None:
+    @property
+    def config(self) -> CoreConfig:
+        return self._config
+
+    @config.setter
+    def config(self, config: CoreConfig) -> None:
+        self._config = config
+        if self.isActive():
+            self._activateConfig()
+
+    def _activateConfig(self) -> None:
+        config = self._config
+        pitchtools.set_reference_freq(config['A4'])
+
+    def deactivate(self) -> Workspace:
         """
         Deactivates this Workspace and sets the previous Workspace as active
 
@@ -133,8 +152,10 @@ class Workspace:
             logger.warning("This Workspace has not previous workspace, activating the root"
                            " Workspace instead")
             Workspace.root.activate()
+            return Workspace.root
         else:
             self._previousWorkspace.activate()
+            return self._previousWorkspace
 
     def __del__(self):
         if self.isActive() and self is not Workspace.root:
@@ -152,9 +173,9 @@ class Workspace:
             self._previousWorkspace = None
 
     def __repr__(self):
-        parts = [f"name={self.name}, scorestruct={repr(self.scorestruct)}"]
-        return f"Workspace({', '.join(parts)})"
-            
+        return (f"Workspace(name={self.name}, scorestruct={repr(self.scorestruct)}, "
+                f"dynamicCurve={self.dynamicCurve})")
+
     @property
     def scorestruct(self) -> ScoreStruct:
         """Returns the current ScoreSctruct"""
@@ -176,18 +197,11 @@ class Workspace:
 
     @a4.setter
     def a4(self, value:float):
+        self.config.bypassCallbacks = True
         self.config['A4'] = value
+        self.config.bypassCallbacks = False
         if self.isActive():
             pitchtools.set_reference_freq(value)
-
-    @classmethod
-    def getActive(cls) -> Workspace:
-        """Get the active Workspace
-
-        To set the active workspace, call `.activate()` on a previously
-        created Workspace
-        """
-        return cls._active
 
     def getTempo(self, measureNum=0) -> float:
         """Get the quarter-note tempo at the given measure"""
@@ -211,7 +225,7 @@ class Workspace:
             442
         """
         pitchtools.set_reference_freq(self.a4)
-        Workspace._active = self
+        Workspace.active = self
         return self
 
     def isActive(self) -> bool:
@@ -250,7 +264,8 @@ class Workspace:
             ...     # Now do something baroque
         """
         if config is UNSET:
-            config = self.config.clone(persistent=False, cloneCallbacks=True)
+            assert isinstance(self.config, CoreConfig)
+            config = self.config.copy()
         if scorestruct is UNSET:
             scorestruct = self.scorestruct.copy()
         if not name or name is UNSET:
@@ -258,8 +273,7 @@ class Workspace:
         return Workspace(config=config,
                          scorestruct=scorestruct or self.scorestruct,
                          active=active,
-                         name=name
-                         )
+                         name=name)
 
     def presetsPath(self) -> str:
         """
@@ -313,6 +327,21 @@ class Workspace:
             os.makedirs(path)
         return path
 
+    def setDynamicsCurve(self, shape='expon(0.5)', mindb=-80, maxdb=0) -> Workspace:
+        """
+        Set a new dynamics curve for this Workspace
+
+        Args:
+            shape: the shape of the curve
+            mindb: the db value mapped to the softest dynamic
+            maxdb: the db value mapped to the loudest dynamic
+
+        Returns:
+
+        """
+        self.dynamicCurve = DynamicCurve.fromdescr(shape=shape, mindb=mindb, maxdb=maxdb)
+        return self
+
 
 def _init() -> None:
     if Workspace._initDone:
@@ -332,7 +361,7 @@ def getWorkspace() -> Workspace:
         >>> from maelzel.core import *
         >>> w = getWorkspace().clone(active=True)
     """
-    return Workspace.getActive()
+    return Workspace.active
 
 
 def cloneWorkspace(workspace: Workspace = None,
@@ -363,7 +392,7 @@ def cloneWorkspace(workspace: Workspace = None,
                      updates=updates)
 
 
-def setTempo(quarterTempo:float, measureNum=0) -> None:
+def setTempo(quarterTempo:float, measureIndex=0) -> None:
     """
     Set the current tempo. 
     
@@ -372,12 +401,14 @@ def setTempo(quarterTempo:float, measureNum=0) -> None:
 
     Args:
         quarterTempo: the new tempo
-        measureNum: the measure number to modify
+        measureIndex: the measure number to modify
 
     See Also
     ~~~~~~~~
 
-    TODO: add link to setTempo notebook
+    * :meth:`ScoreStruct.setTempo <maelzel.scorestruct.ScoreStruct.setTempo>`
+    * :ref:`setTempo notebook <setTempo_notebook>`
+
 
     Example
     ~~~~~~~
@@ -396,6 +427,10 @@ def setTempo(quarterTempo:float, measureNum=0) -> None:
         # Will play at twice the speed
         scale.play()
 
+        # setTempl is only a shortcut to ScoreStruct's setTempo method
+        struct = getScoreStruct()
+        struct.setTempo(40)
+
     .. code-block:: python
 
         >>> setScoreStruct(ScoreStruct(r'''
@@ -411,23 +446,23 @@ def setTempo(quarterTempo:float, measureNum=0) -> None:
 
     """
     w = getWorkspace()
-    w.scorestruct.setTempo(quarterTempo, measureNum=measureNum)
+    w.scorestruct.setTempo(quarterTempo, measureIndex=measureIndex)
 
 
 def getConfig() -> CoreConfig:
     """
     Return the active config.
 
-    .. seealso:: :func:`newConfig`
+    .. seealso:: :func:`makeConfig`
     """
-    return getWorkspace().config
+    return getWorkspace()._config
 
 
 def setConfig(config: CoreConfig) -> None:
     """
     Activate this config
 
-    This is the same as ``getWorkspace().config = config``. It is put here
+    This is the same as ``getWorkspace().config = config``. It is placed here
     for visibility
 
     Args:
@@ -443,19 +478,40 @@ def makeConfig(updates: dict = None,
     """
     Create a new config
 
-    The returned config is a clone of the root config with any updates applied to it.
-    This function is simply a shortcut and is placed here for discoverability
+    By default the returned config is a clone of the root config[1]_ with any updates
+    applied to it. This function is simply a shortcut and is placed here for discoverability
+
+    This is the same as::
+
+        # Using root as source
+        setConfig(rootConfig.clone({...}))
+
+        # Using the active config as source
+        setConfig(getConfig().clone({...})
 
     Args:
         updates: a dict of updates to the new config
         source: the dict to use as source. If ``None`` or ``'root'`` is given, the root config is used
-            [1]_. Other possible sources are the *active config* (as returned by :func:`getConfig`)
+            Other possible sources are the *active config* (as returned by :func:`getConfig`)
             or the *default config* [2]_ (use ``source='default'``)
         active: if True, set the newly created Config as active within the current
             Workspace
 
     Returns:
         the cloned config
+
+    Example
+    ~~~~~~~
+
+        >>> from maelzel.core import *
+        # Do something with a modified config
+        >>> config = makeConfig({'play.instr': 'piano',
+        ...                      'play.useDynamics': True})
+        >>> voice = Chain("4C:.5:ff 4E-:1:p 4F:0.5:f".split())
+        # Using the config as context manager makes it active for the
+        # lifetime of the context
+        >>> with config:
+        ...     voice.play()
 
     .. [1] The root config is the config created at the start of a session, which includes any
         changes persisted via :meth:`CoreConfig.save() <maelzel.core.config.CoreConfig.save>`)

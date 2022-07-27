@@ -66,7 +66,7 @@ Presets - Introduction
 instrument preset (a :class:`~maelzel.core.presetbase.PresetDef`) the user is given
 three variables: *kfreq* (the current frequency of the event), *kamp* (the current
 amplitude of the event) and *kpitch* (the current midinote of the event, corresponds
-to *kfreq*). With this information it needs to provide the audio-generating part
+to *kfreq*). With this information the user needs to provide the audio-generating part
 using csound code, by assigning the audio output to the variable *aout1* for channel 1,
 *aout2* for channel 2, etc.
 
@@ -186,7 +186,12 @@ render that) or render them via :func:`maelzel.core.musicobj.recObjects`
     outfile = recObjects([voice1, voice2])
 
 Notice that in this way, any parameter normally passed to ``.rec`` needs to be fixed
-via ``.setPlay``. A simpler method is to use a :func:`maelzel.core.play.rendering` context
+via ``.setPlay``.
+
+Using the ``rendering`` context manager
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A simpler method is to use the :func:`~maelzel.core.play.rendering` context
 manager:
 
 .. code-block:: python
@@ -201,7 +206,7 @@ manager:
         voice2.play(instr='tri')
 
 With the context manager the same code used for playing in realtime can be used to render offline
-(see also: :class:`maelzel.core.play.OfflineRenderer`)
+(see also: :class:`~maelzel.core.play.OfflineRenderer`)
 
 -----------------
 

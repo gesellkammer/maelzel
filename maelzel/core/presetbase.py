@@ -134,6 +134,8 @@ if (ifadekind_ == 0) then
     aenv_ linsegr 0, ifade0, igain_, ifade1, 0
 elseif (ifadekind_ == 1) then
     aenv_ cosseg 0, ifade0, igain_, p3-ifade0-ifade1, igain_, ifade1, 0
+elseif (ifadekind_ == 2) then
+    aenv_ transeg 0, ifade0*.5, 2, igain_*0.5, ifade0*.5, -2, igain_, p3-ifade0-ifade1, igain_, 1, ifade1*.5, 2, igain_*0.5, ifade1*.5, -2, 0 	
 endif
 
 aenv_ *= linenr:a(1, 0, ifade1, 0.01)
@@ -222,7 +224,8 @@ class PresetDef:
                  description: str = "",
                  priority: Optional[int] = None,
                  temporary: bool = False,
-                 builtin=False
+                 builtin=False,
+                 properties: dict[str, Any] = None
                  ):
         assert isinstance(audiogen, str)
 
@@ -248,6 +251,7 @@ class PresetDef:
         self._consolidatedInit: str = ''
         self._instr: Optional[csoundengine.instr.Instr] = None
         self.body = body
+        self.properties: dict[str, Any] = properties or {}
 
     def __repr__(self):
         lines = []
@@ -260,15 +264,25 @@ class PresetDef:
             lines.append(f"  init: {self.init.strip()}")
         if self.params:
             tabstr = ", ".join(f"{key}={value}" for key, value in self.params.items())
-            lines.append(f"  {{{tabstr}}}")
-        if self.audiogen:
-            lines.append(f"  audiogen:")
-            audiogen = _textwrap.indent(self.audiogen, _INSTR_INDENT)
-            lines.append(audiogen)
+            lines.append(f"  |{tabstr}|")
+        audiogen = _textwrap.indent(self.audiogen, _INSTR_INDENT)
+        lines.append(audiogen)
         if self.epilogue:
             lines.append(f"  epilogue:")
             lines.append(_textwrap.indent(self.epilogue, "    "))
         return "\n".join(lines)
+
+    def _sortOrder(self):
+        return (1 - int(self.userDefined), 1-int(self.isSoundFont()), self.name)
+
+    def isSoundFont(self) -> bool:
+        """
+        Is this Preset based on a soundfont?
+
+        Returns:
+            True if this Preset is based on a soundfont
+        """
+        return re.search(r"\bsfplay(3m|m|3)?\b", self.body) is not None
 
     def _repr_html_(self, theme=None, showGeneratedCode=False):
         if self.description:

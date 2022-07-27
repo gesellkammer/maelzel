@@ -55,7 +55,8 @@ setup(
         "pitchtools>=1.3",
         "lxml",
         "quicktions",
-        "rich"
+        "rich",
+        "risset"
     ],
     license="BSD",
     zip_safe=False,

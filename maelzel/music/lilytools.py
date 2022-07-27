@@ -606,7 +606,6 @@ noteheadStyles = {
     'fa',
     'la',
     'diamond',
-    'xcircle',
     'slash',
 }
 
@@ -676,6 +675,7 @@ def makePitch(pitch: pitch_t, divsPerSemitone:int=4, accidentalParenthesis=False
         pitch: a fractional midinote or a notename
         divsPerSemitone: the resolution of the pitch (num. divisions per semitone)
         accidentalParenthesis: should the accidental, if any, be within parenthesis?
+        noteshape: one of 'harmonic', 'cross'
 
     Returns:
         the lilypond text to render the given pitch (needs a duration suffix)
@@ -692,6 +692,7 @@ def makePitch(pitch: pitch_t, divsPerSemitone:int=4, accidentalParenthesis=False
     lilypitch = notenameToLily(notename, divsPerSemitone=divsPerSemitone)
     if accidentalParenthesis:
         lilypitch += '?'
+
     return lilypitch
 
 

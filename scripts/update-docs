@@ -1,0 +1,7 @@
+#!/bin/bash
+root=$(realpath $(dirname "$0")/..)
+echo "package root: $root"
+python "$root/scripts/update-config-docs.py"
+python "$root/docs/convert-notebooks.py" "$root"/docs/*.ipynb
+cd "$root/docs"
+make html

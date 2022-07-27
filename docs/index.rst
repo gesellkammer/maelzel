@@ -42,10 +42,16 @@ For more information see :ref:`installation`
 
 -----------------
 
+.. include:: Tutorial.rst
+
+
+-----------------
+
 .. toctree::
    :maxdepth: 3
 
    Introduction
+   Tutorial
    Reference
    Installation
 

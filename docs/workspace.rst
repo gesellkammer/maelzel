@@ -36,6 +36,9 @@ from previous sessions (see :meth:`CoreConfig.save() <maelzel.core.config.CoreCo
 Example
 ~~~~~~~
 
+A simple chromatic scale. The default Workspace includes a default ScoreStruct with a time signature
+of ``4/4`` and a tempo of ``quarternote=60``
+
 .. code-block:: python
 
     from maelzel.core import *
@@ -44,22 +47,39 @@ Example
 
 .. image:: assets/workspace-chromaticscale.png
 
-Create a Workpsace with a different default instrument
+You can either modify the current Workspace, for example, by setting a new ScoreStruct via
+:func:`~maelzel.core.workspace.setScoreStruct` or setting its ``scorestruct`` attribute:
 
 .. code-block:: python
 
-    w = Workspace(updates={'play.instr': 'piano'}, active=True)
+    setScoreStruct(ScoreStruct.fromTimesig((3, 4), quarterTempo=72))
+    # The same can be achieved by:
+    w = getWorkspace()
+    w.scorestruct = ScoreStruct.fromTimesig((3, 4), quarterTempo=72)
+    notes
+
+.. image:: assets/workspace-chromaticscale2.png
+
+For specific tasks it might be useful to create a Workspace with custom settings.
+In the following example we create a new Workpsace using the current ScoreStruct and a modified
+configuration.
+
+.. code-block:: python
+
+    w = Workspace(updates={'play.instr': 'piano'},
+                  scorestruct=getScoreStruct(),
+                  active=True)
     notes.play()
     # Deactivate will set the previous Workspace as active
     w.deactivate()
 
 A temporary Workpsace can be created as a context manager.
-In this case we use an ad-hoc score struct and a copy of the
-active config:
+In this case an ad-hoc score struct and a copy of the
+active config are used:
 
 .. code-block:: python
 
-    scorestruct = ScoreStruct.fromString(r'''
+    scorestruct = ScoreStruct(r'''
     4/4, 60
     3/4
     5/8, 72
@@ -71,10 +91,20 @@ active config:
 .. image:: assets/workspace-temporaryworkspace.png
 
 
+Example Notebooks
+-----------------
+
+.. toctree::
+    :maxdepth: 1
+
+    The active Workspace <getWorkspace>
+    setTempo: modify the tempo of the active ScoreStruct <setTempo>
+
+
+
 -----------------
 
 .. automodapi:: maelzel.core.workspace
-    :no-heading:
     :allowed-package-names: maelzel.core.workspace,maelzel.core.config,maelzel.music.dynamics
     :no-inheritance-diagram:
 

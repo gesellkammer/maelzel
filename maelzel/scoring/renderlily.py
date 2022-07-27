@@ -17,13 +17,14 @@ from maelzel.music import lilytools
 from .common import *
 from .core import Notation
 from .render import Renderer, RenderOptions
-from .quant import DurationGroup
+from .durationgroup import DurationGroup
 from . import quant, util
+from . import spanner as _spanner
 import logging
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import *
+    from typing import Union
 
 
 logger = logging.getLogger("maelzel.scoring")
@@ -63,6 +64,97 @@ def _lilyArticulation(articulation:str) -> str:
     return _articulations[articulation]
 
 
+@dataclass
+class _Notehead:
+    kind: str = ''
+    parenthesized: bool = False
+    color: str = ''
+    sizefactor: Optional[float] = None
+
+
+def _parseNotehead(notehead: str) -> _Notehead:
+    kind, *attrs = notehead.split(";")
+    if kind and kind[-1] == '?':
+        parenthesized = True
+        kind = kind[:-1]
+    else:
+        parenthesized = False
+
+    color = ''
+    sizefactor = None
+
+    for attr in attrs:
+        k, v = attr.split("=")
+        if k == 'color':
+            color = v
+        elif k == 'size':
+            sizefactor = float(v)
+
+    return _Notehead(kind, parenthesized=parenthesized, color=color, sizefactor=sizefactor)
+
+
+def _lilyNoteheadInsideChord(notehead: str) -> str:
+    if not notehead:
+        return ''
+    parts = []
+    parsedNotehead = _parseNotehead(notehead)
+    if parsedNotehead.color:
+        parts.append(fr'\tweak NoteHead.color "{parsedNotehead.color}"')
+    if parsedNotehead.sizefactor:
+        relsize = lilytools.fontSizeFactorToRelativeSize(parsedNotehead.sizefactor)
+        parts.append(fr'\tweak NoteHead.font-size #{relsize}')
+    if parsedNotehead.kind:
+        lilynotehead = _noteheadToLilypond.get(parsedNotehead.kind)
+        if not lilynotehead:
+            raise ValueError(f'Unknown notehead: {notehead}, '
+                             f'possible noteheads: {_noteheadToLilypond.keys()}')
+        parts.append(fr"\tweak NoteHead.style #'{lilynotehead}")
+    if parsedNotehead.parenthesized:
+        parts.append(r'\parenthesize')
+    return " ".join(parts)
+
+
+def _lilyNotehead(notehead: str) -> str:
+    """
+    Convert a noteshape to its lilypond representation
+
+    This uses \override so it can't be placed inside a chord
+
+    Args:
+        noteshape: the noteshape. It can end with '?', in which case it will be
+            parenthesized
+
+    Returns:
+        the lilypond code representing this notehead. This needs to be placed **before**
+        the note/chord it will modify.
+
+    """
+    assert isinstance(notehead, str), f"Expected a str, got {notehead}"
+
+    if not notehead:
+        return ''
+
+    if notehead == 'hidden':
+        return r"\once \hide NoteHead"
+
+    parts = []
+    parsedNotehead = _parseNotehead(notehead)
+    if parsedNotehead.color:
+        parts.append(fr'\once \override NoteHead.color = "{parsedNotehead.color}"')
+    if parsedNotehead.sizefactor:
+        relsize = lilytools.fontSizeFactorToRelativeSize(parsedNotehead.sizefactor)
+        parts.append(fr'\once \override NoteHead.font-size = #{relsize}')
+    if parsedNotehead.kind:
+        lilynotehead = _noteheadToLilypond.get(parsedNotehead.kind)
+        if not lilynotehead:
+            raise ValueError(f'Unknown notehead: {notehead}, '
+                             f'possible noteheads: {_noteheadToLilypond.keys()}')
+        parts.append(fr"\once \override NoteHead.style = #'{lilynotehead}")
+    if parsedNotehead.parenthesized:
+        parts.append(r'\parenthesize')
+    return " ".join(parts)
+
+
 def notationToLily(n: Notation, options: RenderOptions) -> str:
     """
     Converts a Notation to its lilypond representation
@@ -75,6 +167,7 @@ def notationToLily(n: Notation, options: RenderOptions) -> str:
 
     Args:
         n: the notation
+        options: render options
 
     Returns:
         the lilypond notation corresponding to n, as a string
@@ -95,21 +188,11 @@ def notationToLily(n: Notation, options: RenderOptions) -> str:
           fr'\once \override Stem.color = "{n.color}" '
           fr'\once \override Accidental.color = "{n.color}" '
           fr'\once \override Flag.color = "{n.color}"')
-        if 'noteheadColor' not in n.properties:
+        if n.properties and 'noteheadColor' not in n.properties:
             _(fr'\once \override NoteHead.color = "{n.color}"')
 
-    if n.notehead == 'hidden':
-        _(r"\once \hide NoteHead")
-    elif n.notehead:
-        lilyNoteHead = _noteheadToLilypond.get(n.notehead)
-        assert lilyNoteHead is not None, f"Unknown nothead style: '{n.notehead}'"
-        _(rf"\once \override NoteHead.style = #'{lilyNoteHead}")
-
-    if n.noteheadParenthesis:
-        _(r"\parenthesize")
-
     if n.properties:
-        if color:=n.properties.get('noteheadColor'):
+        if color := n.properties.get('noteheadColor'):
             _(fr'\once \override NoteHead.color = "{color}"')
         if sizeFactor := n.properties.get('noteheadSizeFactor'):
             relsize = lilytools.fontSizeFactorToRelativeSize(sizeFactor)
@@ -122,7 +205,7 @@ def notationToLily(n: Notation, options: RenderOptions) -> str:
         _(r"\once \override Stem.transparent = ##t")
 
     graceGroup = n.getProperty("graceGroup")
-    if graceGroup is not None or n.isGraceNote():
+    if graceGroup is not None or n.isGraceNote:
         base = 8
         dots = 0
         _(r"\grace")
@@ -130,23 +213,35 @@ def notationToLily(n: Notation, options: RenderOptions) -> str:
             _("{")
 
     if len(n.pitches) == 1:
-        parts.append(_lilyNote(n.notename(), baseduration=base, dots=dots, tied=n.tiedNext,
-                               cautionary=n.getProperty('accidentalParenthesis', False)))
+        if n.notehead:
+            _(_lilyNotehead(n.notehead if isinstance(n.notehead, str) else n.notehead[0]))
+        _(_lilyNote(n.notename(), baseduration=base, dots=dots, tied=n.tiedNext,
+                    cautionary=n.getProperty('accidentalParenthesis', False)))
     else:
-        pitches = []
+        if not n.notehead:
+            noteheads = None
+        elif isinstance(n.notehead, str):
+            _(_lilyNotehead(n.notehead))
+            noteheads = None   # No individual noteheads
+        elif isinstance(n.notehead, list):
+            noteheads = n.notehead
+            assert len(noteheads) == len(n.pitches), f"noteheads: {noteheads}, pitches: {n.pitches}"
+        else:
+            raise TypeError(f'Notation.notehead can be a str or list[str], got {n.notehead}')
+        _("<")
         for i, pitch in enumerate(n.pitches):
-            pitches.append(lilytools.makePitch(n.notename(i),
-                                               accidentalParenthesis=n.getProperty('accidentalParenthesis', False)))
-        pitch = f" <{' '.join(pitches)}>{base}{'.'*dots}"
-        if n.tiedNext:
-            pitch += "~"
-        _(pitch)
+            if noteheads and noteheads[i]:
+                _(_lilyNoteheadInsideChord(noteheads[i]))
+            _(lilytools.makePitch(n.notename(i),
+                                  accidentalParenthesis=n.getProperty('accidentalParenthesis', False)))
+        _(f">{base}{'.'*dots}{'~' if n.tiedNext else ''}")
 
     if not n.tiedPrev:
         if n.articulation:
             _(_lilyArticulation(n.articulation))
         if n.dynamic:
-            _(fr"\{n.dynamic}")
+            dyn = n.dynamic if not n.dynamic.endswith('!') else n.dynamic[:-1]
+            _(fr"\{dyn}")
         if n.gliss:
             _(r"\glissando")
         if n.annotations:
@@ -164,12 +259,13 @@ def notationToLily(n: Notation, options: RenderOptions) -> str:
         _("}")
     return " ".join(parts)
 
+
 _spaces = " " * 1000
 
 
-def _renderGroup(seq: List[str],
+def _renderGroup(seq: list[str],
                  group: DurationGroup,
-                 durRatios:List[F],
+                 durRatios:list[F],
                  options: RenderOptions,
                  state: dict,
                  numIndents: int = 0,
@@ -205,8 +301,34 @@ def _renderGroup(seq: List[str],
             if not item.gliss and state['glissSkip']:
                 seq.append(r"\glissandoSkipOff ")
                 state['glissSkip'] = False
-            lilyItem = notationToLily(item, options=options)
-            seq.append(lilyItem)
+
+            if item.isRest:
+                state['dynamic'] = ''
+
+            if item.dynamic:
+                if (options.removeSuperfluousDynamics and
+                        not item.dynamic.endswith('!') and
+                        item.dynamic == state['dynamic']):
+                    item.dynamic = ''
+
+            seq.append(notationToLily(item, options=options))
+
+            if item.spanners:
+                for spanner in item.spanners:
+                    if ((spanner.endingAtTie == 'last' and item.tiedNext) or
+                            (spanner.endingAtTie == 'first' and item.tiedPrev)):
+                        continue
+                    if isinstance(spanner, _spanner.Slur):
+                        if spanner.kind == 'start':
+                            seq.append(r"\(")
+                        elif spanner.kind == 'end':
+                            seq.append(r"\)")
+                    elif isinstance(spanner, _spanner.Hairpin):
+                        if spanner.kind == 'start':
+                            seq.append(fr" \{spanner.direction}")
+                        elif spanner.kind  == 'end':
+                            seq.append(r" \!")
+
             seq.append(" ")
             if item.gliss and not item.tiedPrev and item.tiedNext:
                 seq.append(r"\glissandoSkipOn ")
@@ -230,31 +352,35 @@ def quantizedPartToLily(part: quant.QuantizedPart,
                         clef:str=None,
                         addTempoMarks=True,
                         indents=0,
-                        indentSize=2) -> str:
+                        indentSize=2,
+                        numMeasures:int = 0) -> str:
     """
     Convert a QuantizedPart to lilypond
 
     Args:
         part: the QuantizedPart
+        options: the RenderOptions used
         addMeasureMarks: if True, this part will include all markings which are global
             to all parts (metronome marks, any measure labels). This should be True
             for the uppermost part and be set to False for the rest.
         clef: if given the part will be forced to start with this clef, otherwise
             the most suitable clef is picked
         addTempoMarks: if True, add any tempo marks to this Part
-        options: the RenderOptions used
         indents: how many indents to use as a base
         indentSize: the number of spaces to indent per indent number
+        numMeasures: if given, indicates the number of measures in this score. This will
+            be used to render the final barline if this part reaches the end
 
     Returns:
         the rendered lilypond code
 
     """
     quarterTempo = 60
+    scorestruct = part.struct
 
     seq = []
 
-    def _(t:str, indents:int=0, preln=False, postln=False):
+    def _(t: str, indents: int = 0, preln=False, postln=False):
         if preln and seq and seq[-1][-1] != "\n":
             seq.append("\n")
         if indents:
@@ -263,7 +389,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
         if postln:
             seq.append("\n")
 
-    def line(t: str, indents:int=0):
+    def line(t: str, indents: int = 0):
         _(t, indents, preln=True, postln=True)
 
     if part.label:
@@ -280,10 +406,11 @@ def quantizedPartToLily(part: quant.QuantizedPart,
     if clef is not None:
         line(fr'\clef "{clef}"', indents)
     else:
-        clef = quant._bestClefForPart(part)
+        clef = quant.bestClefForPart(part)
         line(lilytools.makeClef(clef), indents)
 
     lastTimesig = None
+
     state = {
         'glissSkip': False,
         'dynamic': ''
@@ -292,15 +419,17 @@ def quantizedPartToLily(part: quant.QuantizedPart,
     for i, measure in enumerate(part.measures):
         line(f"% measure {i}", indents)
         indents += 1
-        measureDef = part.struct.getMeasureDef(i)
+        measureDef = scorestruct.getMeasureDef(i)
+
         if addTempoMarks and measureDef.timesig != lastTimesig:
             lastTimesig = measureDef.timesig
             num, den = measureDef.timesig
             line(fr"\time {num}/{den}", indents)
-        # TODO: add barlinetype
+
         if addTempoMarks and measure.quarterTempo != quarterTempo:
             quarterTempo = measure.quarterTempo
             line(fr"\tempo 4 = {quarterTempo}", indents)
+
         if measureDef.annotation and addMeasureMarks:
             relfontsize = options.measureAnnotationFontSize - options.staffSize
             _(lilytools.makeTextMark(measureDef.annotation,
@@ -320,12 +449,23 @@ def quantizedPartToLily(part: quant.QuantizedPart,
                 _renderGroup(seq, group, durRatios=[], options=options,
                              numIndents=indents, state=state)
         indents -= 1
-        _(f"|   % end measure {i}", indents)
+
+        if not measureDef.barline or measureDef.barline == 'single':
+            _(f"|   % end measure {i}", indents)
+        elif measureDef.barline == 'final' or numMeasures and i == numMeasures - 1:
+            _(r'\bar "|."    % final bar', indents)
+        elif measureDef.barline == 'double':
+            _(fr'\bar "||"   % end measure {i}', indents)
+        elif measureDef.barline == 'solid':
+            _(fr'\bar "."    % end measure {i}', indents)
+        elif measureDef.barline == 'dashed':
+            _(fr'\bar "!"    % end measure {i}', indents)
+        else:
+            raise ValueError(f"Barline type {measureDef.barline} not known")
 
     indents -= 1
+
     line("}", indents)
-    # indents -= 1
-    # ownline(">>", indents)
     return "".join(seq)
 
 
@@ -564,7 +704,6 @@ _horizontalSpacingXL = r"""
 
 def makeScore(score: quant.QuantizedScore,
               options: RenderOptions,
-              lilypondVersion:Union[str, bool]=True,
               midi=False
               ) -> str:
     """
@@ -573,20 +712,23 @@ def makeScore(score: quant.QuantizedScore,
     Args:
         score: the list of QuantizedParts to convert
         options: RenderOptions used to render the parts
-        lilypondVersion: if given, use it to tag the rendered file
-        midi: if True, include a \midi block so that lilypond
+        midi: if True, include a ``\midi`` block so that lilypond
             generates a midi file together with the rendered image file
 
     Returns:
         the generated score as str
     """
     indentSize = 2
+    numMeasures = max(len(part.measures)
+                      for part in score.parts)
+    struct = score.scorestruct.copy()
+    struct.setBarline(numMeasures - 1, 'final')
+    score.scorestruct = struct
+
     strs = []
     _ = strs.append
-    if lilypondVersion:
-        if isinstance(lilypondVersion, bool):
-            lilypondVersion = lilytools.getLilypondVersion()
-        _(f'\\version "{lilypondVersion}"\n')
+    lilypondVersion = lilytools.getLilypondVersion()
+    _(f'\\version "{lilypondVersion}"\n')
 
     if options.title or options.composer:
         _(textwrap.dedent(fr'''
@@ -614,9 +756,8 @@ def makeScore(score: quant.QuantizedScore,
         _(lilytools.paperBlock(margin=20, unit="mm"))
     else:
         # We only set the paper size if rendering to pdf
-        _( f"#(set-default-paper-size \"{options.pageSize}\" '{options.orientation})" )
+        _(f"#(set-default-paper-size \"{options.pageSize}\" '{options.orientation})")
         _(lilytools.paperBlock(margin=options.pageMarginMillimeters, unit="mm"))
-
 
     _(_prelude)
 
@@ -646,7 +787,8 @@ def makeScore(score: quant.QuantizedScore,
                                       addTempoMarks=i==0,
                                       options=options,
                                       indents=1,
-                                      indentSize=indentSize)
+                                      indentSize=indentSize,
+                                      numMeasures=numMeasures)
         _(partstr)
     _(r">>")
     if midi:
@@ -667,7 +809,7 @@ class LilypondRenderer(Renderer):
         self._lilyscore = makeScore(self.score, options=self.options, midi=self._withMidi)
         self._rendered = True
 
-    def writeFormats(self) -> List[str]:
+    def writeFormats(self) -> list[str]:
         return ['pdf', 'ly', 'png']
 
     def write(self, outfile: str, fmt: str=None, removeTemporaryFiles=False) -> None:
