@@ -5,6 +5,7 @@ import pitchtools as pt
 from .common import F, asF, timesig_t, NotatedDuration
 from typing import TYPE_CHECKING
 from numbers import Real
+import random
 if TYPE_CHECKING:
     from typing import *
 
@@ -654,3 +655,10 @@ def notatedDuration(duration: F, durRatios: Optional[List[F]]
         return NotatedDuration(base=4//num, dots=0, tuplets=tuplets)
     else:
         raise ValueError(f"Invalid duration: {dur}")
+
+
+_uuid_alphabet = '0123456789abcdefghijklmnopqrstuvwxyz'
+
+
+def makeuuid(size=8) -> str:
+    return ''.join(random.choices(_uuid_alphabet, k=size))

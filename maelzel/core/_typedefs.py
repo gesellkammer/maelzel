@@ -1,11 +1,9 @@
-from maelzel.rational import Rat
-from numbers import Rational
-from typing import TYPE_CHECKING, Union, TypeVar
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    # num_t = Union[float, int, Rat]
+    from numbers import Rational
+    from typing import Union, TypeVar
     num_t = Union[float, Rational]
-    # time_t = Union[float, int, Rat]
     time_t = Union[float, Rational]
     pitch_t = Union[int, float, str]
     fade_t = Union[float, tuple[float, float]]

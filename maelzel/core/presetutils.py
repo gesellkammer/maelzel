@@ -68,6 +68,10 @@ def saveYamlPreset(p: PresetDef, outpath: str) -> None:
             f.write(f"priority: {p.priority}\n")
         if p.includes:
             f.write(f"includes: {p.includes}\n")
+        if p.properties:
+            f.write("properties:\n")
+            for k, v in p.properties.items():
+                f.write(f"    {k}: {v}\n")
 
 
 def loadYamlPreset(path: str) -> PresetDef:
@@ -88,7 +92,8 @@ def loadYamlPreset(path: str) -> PresetDef:
                      includes=d.get('includes'),
                      init=d.get('init'),
                      epilogue=d.get('epilogue'),
-                     params=params)
+                     params=params,
+                     properties=d.get('properties'))
 
 
 def makeSoundfontAudiogen(sf2path: str = None, instrnum:int=None,
@@ -262,3 +267,19 @@ def soundfontSelectProgram(sf2path: str) -> Optional[tuple[str, int, int]]:
     return programname, bank, presetnum
 
 
+def findSoundfontInPresetdef(presetdef: PresetDef) -> Optional[str]:
+    """
+    Searched the presetdef for the used soundfont
+
+    Args:
+        presetdef: the PresetDef
+
+    Returns:
+        the path of the used soundfont, if this preset is soundfont based
+    """
+    assert presetdef.isSoundFont()
+    if presetdef.init:
+        path = re.search(r'sfloadonce \"(.*)\"', presetdef.init)
+        if path:
+            return path.group(1)
+    return None

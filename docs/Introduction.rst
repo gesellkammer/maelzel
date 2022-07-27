@@ -7,9 +7,14 @@ Introduction
 Demos
 -----
 
-#. :ref:`Demo 1: Messiaen - Quatour pur la fin du temps <demo_messiaen>`
-#. :ref:`Demo 2: Fundamental analysis and resynthesis <demo_audiosample>`
-#. :ref:`Demo 3: Complex Rhythms - Ferneyhough's 3rd String Quartet <demo_ferneyhough>`
+#. :ref:`Messiaen - Quatour pur la fin du temps <demo_messiaen>`
+#. :ref:`Fundamental analysis and resynthesis <demo_audiosample>`
+#. :ref:`Complex Rhythms - Ferneyhough's 3rd String Quartet <demo_ferneyhough>`
+#. :ref:`Speech transcription <demo_speechtranscription>`
+
+.. tip::
+
+    To learn more, take a look at the :ref:`Tutorial <core_jupyter_tutorial>`
 
 -----------------
 
@@ -59,21 +64,27 @@ encapsulation of durations (tuplets). The notational aspect
 of rhythm (how a note is represented as notation) is determined by a
 quantization step and is normally outside the control of the user.
 
-Nevertheless, it is possible to input rather complex music, and the
-quantizer will try to render an accurate rhythmic transcription of
+Nevertheless, it is possible to input complex rhythms, and the
+quantizer will try to render an accurate transcription of
 it. For example complex tuplets are quantized as expected:
 
 .. code-block:: python
 
     from maelzel.core import *
     v = Chain([
-        Note("4C+", dur=Rat(1, 5)),
-        Note("4E", dur=Rat(2, 5)*Rat(3, 2)),
-        Note("4F-", dur=Rat(1, 10)),
+        Note("4C+", dur=Rat(1, 3)),
+
+        Note("4E",  dur=Rat(1, 3)*Rat(1, 5),
+        Note("4E-", dur=Rat(1, 3)*Rat(1, 5)),
+        Note("4Eb", dur=Rat(1, 3)*Rat(1, 5)),
+        Note("4D",  dur=Rat(1, 3)*Rat(1, 5)),
+        Note("4D+", dur=Rat(1, 3)*Rat(1, 5)),
+
+        Note("4F-", dur=Rat(1, 3)),
     ])
     v.show()
 
-.. image:: assets/demoferney-1.jpg
+.. image:: assets/demoferney-nestedtuples.png
 
 In the case of this fragment by Ferneyhough, the transcription can
 help understand more precisely how to play a certain passage while, on
@@ -87,7 +98,7 @@ processes involved).
 
     from maelzel.core import *
     from fractions import Fraction as F
-    struct = ScoreStruct.fromString(r'''
+    struct = ScoreStruct(r'''
         5/8, 36
         .
         3/8
@@ -95,8 +106,8 @@ processes involved).
         5/8
         4/8
         .
-    ''')
-    struct.title = "Third String Quartet"
+    ''', title="Third String Quartet")
+
     setScoreStruct(struct)
 
     v1 = [
@@ -119,13 +130,15 @@ processes involved).
     ]
 
     V1 = Voice(v1, 'Violin 1')
+    # Within a jupyter notebook any MusicObj evaluated as last within a cell
+    # will show html including rendered notation
     V1
 
 
 .. image:: assets/ferney1.jpg
 
-Any `MusicObj` (a Note, Chord, Voice, etc) can be subjected to multiple operations.
-For example::
+Any `MusicObj` (a `Note`, `Chord`, `Chain`, `Voice`, etc) can be subjected to multiple
+operations. For example::
 
     V1.timeScale(4/3)
 

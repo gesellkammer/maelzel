@@ -99,3 +99,5 @@ automodapi_group_order = ("modules", "classes", "functions", "variables")
 html_css_files = [
     'custom.css',
 ]
+
+default_role = 'any'

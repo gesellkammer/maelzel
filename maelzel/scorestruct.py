@@ -1,58 +1,10 @@
-"""
-This module defines a Score Structure class (:class:`ScoreStruct`)
-
-A :class:`ScoreStruct` holds the structure of a score
-(its skeleton): it is a list of measure definitions (see :meth:`~ScoreStruct.addMeasure`),
-where each measure definition includes a time-signature, tempo and optional annotations.
-A :class:`ScoreStruct` provides utilities to convert between score locations,
-quarternote time and absolute time position.
-
-Score structure ≠ score contents
---------------------------------
-
-A :class:`~maelzel.scorestruct.ScoreStruct` does not hold any actual
-content (notes, chords, silences, etc), it just provides a skeleton
-to organize such content within the given structure
-
-Beat time vs Real time
-----------------------
-
-*Real time* is the actual clock time, measured in seconds. *Beat time* refers to a
-symbolic time, measured in quarternotes. For example, an event (a note) starting at
-``beat=2.5`` with a duration of ``0.5`` beats means that the event starts ``2+1/2``
-quarternotes after the beginning and has a duration of an eighth note. The exact
-location in *Real time* depends on the tempo and on any tempo changes before
-and during the event.
-
-To convert between *beat time* and *real time* see :meth:`~ScoreStruct.beatToTime` and
-:meth:`~ScoreStruct.timeToBeat`.
-
-Score Location
---------------
-
-As mentioned above, *beat time* is measured in quarternotes since the beginning.
-Within a score with time-signature changes there is a more convenient way to indicate
-time: a :class:`ScoreLocation`, which is basically a tuple ``(measure index, beat offset)``.
-See :meth:`~ScoreStruct.locationToTime`, :meth:`~ScoreStruct.timeToLocation`
-
-.. note::
-
-    Measure indexes start at 0
-
-
-Rational Numbers
-----------------
-
-As in the rest of **maelzel**, any variable or attribute dealing with
-time (in beats, seconds, tempo, etc) is a rational number
-(a :class:`maelzel.rational.Rat`). **This is done to avoid rounding errors**
-
-"""
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 from dataclasses import dataclass, replace as _dataclassReplace
 from bisect import bisect
+import sys
 
 import emlib.img
 import emlib.misc
@@ -72,9 +24,9 @@ if TYPE_CHECKING:
 
 __all__ = (
     'asF',
-    'MeasureDef',
     'ScoreStruct',
     'ScoreLocation',
+    'MeasureDef'
 )
 
 _unicodeFractions = {
@@ -118,6 +70,7 @@ def _parseTimesig(s: str) -> Tuple[int, int]:
         raise ValueError(f"Could not parse timesig: {s}")
     return int(num), int(den)
 
+
 def _asTimesig(t: Union[str, timesig_t]) -> timesig_t:
     if isinstance(t, tuple):
         assert len(t) == 2
@@ -130,7 +83,7 @@ def _asTimesig(t: Union[str, timesig_t]) -> timesig_t:
 
 @dataclass
 class _ScoreLine:
-    measureNum: Optional[int]
+    measureIndex: Optional[int]
     timesig: Optional[timesig_t]
     tempo: Optional[float]
     label: str = ''
@@ -141,10 +94,10 @@ def _parseScoreStructLine(line: str) -> _ScoreLine:
     parse a line of a ScoreStruct definition
 
     Args:
-        line: a line of the format [measureNum, ] timesig [, tempo]
+        line: a line of the format [measureIndex, ] timesig [, tempo]
 
     Returns:
-        a tuple (measureNum, timesig, tempo), where only timesig
+        a tuple (measureIndex, timesig, tempo), where only timesig
         is required
     """
     line = line.strip()
@@ -164,30 +117,30 @@ def _parseScoreStructLine(line: str) -> _ScoreLine:
             except ValueError as e:
                 raise ValueError(f"Could not parse the tempo ({tempoS}) as a number (line: {line})")
         else:
-            measureNumS, timesigS = parts
+            measureIndexS, timesigS = parts
             try:
-                measure = int(measureNumS)
+                measure = int(measureIndexS)
             except ValueError:
-                raise ValueError(f"Could not parse the measure number '{measureNumS}' while parsing line: '{line}'")
+                raise ValueError(f"Could not parse the measure index '{measureIndexS}' while parsing line: '{line}'")
             tempo = None
     elif lenparts == 3:
         if "/" not in parts[0]:
-            measureNumS, timesigS, tempoS = [_.strip() for _ in parts]
-            measure = int(measureNumS) if measureNumS else None
+            measureIndexS, timesigS, tempoS = [_.strip() for _ in parts]
+            measure = int(measureIndexS) if measureIndexS else None
         else:
             measure = None
             timesigS, tempoS, label = [_.strip() for _ in parts]
         tempo = float(tempoS) if tempoS else None
     elif lenparts == 4:
-        measureNumS, timesigS, tempoS, label = [_.strip() for _ in parts]
-        measure = int(measureNumS) if measureNumS else None
+        measureIndexS, timesigS, tempoS, label = [_.strip() for _ in parts]
+        measure = int(measureIndexS) if measureIndexS else None
         tempo = float(tempoS) if tempoS else None
     else:
         raise ValueError(f"Parsing error at line {line}")
     timesig = _parseTimesig(timesigS) if timesigS else None
     if label:
         label = label.replace('"', '')
-    return _ScoreLine(measureNum=measure, timesig=timesig, tempo=tempo, label=label)
+    return _ScoreLine(measureIndex=measure, timesig=timesig, tempo=tempo, label=label)
 
 
 @dataclass
@@ -250,7 +203,8 @@ class MeasureDef:
         3/8      1.5
         =======  =============
         """
-        return 4 * F(*self.timesig)
+        n, d = self.timesig
+        return F(4*n, d)
 
     def durationSecs(self) -> F:
         """
@@ -311,30 +265,40 @@ def _inferSubdivisions(num: int, den: int, quarterTempo
     return subdivs
 
 
+def _bisect(seq, value) -> int:
+    l = len(seq)
+    if l > 10:
+        return bisect(seq, value)
+    for i, x in enumerate(seq):
+        if value < x:
+            return i
+    return l
+
+
 @dataclass
 class ScoreLocation:
     """
     Dataclass holding a location in a score
 
     Attributes:
-        measureNum: the measure number (measures start at 0)
-        beat: the offset within the measure (0=start of the measure)
+        measureIndex: the measure index (measures start at 0)
+        beat: the offset within the measure, in quarter notes (0=start of the measure)
     """
-    measureNum: int
+    measureIndex: int
     """The measure number"""
 
     beat: F = 0
     """The offset into the measure, in quarter notes"""
 
     def __repr__(self):
-        return f"ScoreLocation(measureNum={self.measureNum}, beat={float(self.beat):.4g})"
+        return f"ScoreLocation(measureIndex={self.measureIndex}, beat={float(self.beat):.4g})"
 
     def __post_init__(self):
-        assert isinstance(self.measureNum, int)
+        assert isinstance(self.measureIndex, int)
         self.beat = asF(self.beat)
 
     def __iter__(self):
-        return iter((self.measureNum, self.beat))
+        return iter((self.measureIndex, self.beat))
 
 
 class ScoreStruct:
@@ -346,18 +310,18 @@ class ScoreStruct:
     index. If a ScoreStruct is marked as *endless*, it is possible to query
     it (convert beats to time, etc.) outside of the defined measures.
 
+    The ScoreStruct class is used extensively within :py:mod:`maelzel.core` (see
+    `scorestruct-and-maelzel-core`)
+
     Args:
         score: if given, a score definition as a string (see below for the format)
-        timesig: time-signature. If no score is given, a timesig can be given to
+        timesig: time-signature. If no score is given, a timesig can be passed to
             define a basic scorestruct with a time signature and a default or
             given tempo
         quarterTempo: the tempo of a quarter note, if given
         endless: mark this ScoreStruct as endless
-        autoextend: this is only valid if the score is marked as endless. If True,
-          querying this ScoreStruct outside its defined boundaries will create the
-          necessary MeasureDefs to cover the point in question. In concrete,
-          if a ScoreStruct has only one MeasureDef, .getMeasureDef(3) will create
-          three MeasureDefs, cloning the first MeasureDef, and return the last one.
+        title: title metadata for the score, used when rendering
+        composer: composer metadata for this score, used when rendering
 
     Example
     -------
@@ -396,7 +360,7 @@ class ScoreStruct:
 
     A definitions are divided by new line or by ;. Each line has the form::
 
-        measureNum, timeSig, tempo
+        measureIndex, timeSig, tempo
 
 
     * Tempo refers always to a quarter note
@@ -413,29 +377,41 @@ class ScoreStruct:
         5/8, 63
         5/8
 
-
     **Example**::
 
         0, 4/4, 60, "mark A"
-        ,3/4,80     # Assumes measureNum=1
+        ,3/4,80     # Assumes measureIndex=1
         10, 5/8, 120
         30,,
         .
         .      # last measure (inclusive, the score will have 33 measures)
 
     """
-    def __init__(self, score: str = None, timesig:Union[timesig_t, str]=None, quarterTempo:int=None,
-                 endless=True, autoextend=False,
-                 title='', composer=''):
+    def __init__(self,
+                 score: str = None,
+                 timesig:Union[timesig_t, str]=None,
+                 quarterTempo:int=None,
+                 endless=True,
+                 title='',
+                 composer=''):
 
-        self._offsetsIndex: List[F] = []
+        # holds the time offset (in seconds) of each measure
+        self._timeOffsets: List[F] = []
+
+        self._beatOffsets: List[F] = []
+
+        # the quarternote duration of each measure
+        self._quarternoteDurations: List[F] = []
+
+
         self._modified = True
+        self._prevScoreStruct: Optional[ScoreStruct] = None
 
         if score:
             if timesig or quarterTempo:
                 raise ValueError("Either a score as string or a timesig / quarterTempo can be given"
                                  "but not both")
-            s = ScoreStruct._fromString(s=score)
+            s = ScoreStruct._parseScore(score)
             self.measuredefs = s.measuredefs
             self.endless = s.endless
         else:
@@ -450,7 +426,7 @@ class ScoreStruct:
 
         self.title = title
         self.composer = composer
-        self.autoextend = autoextend
+        self.autoextend = False
 
     def __hash__(self) -> int:
         hashes = [hash(x) for x in (self.title, self.endless, self.autoextend)]
@@ -461,7 +437,7 @@ class ScoreStruct:
         return hash(self) == hash(other)
 
     @staticmethod
-    def _fromString(s: str, initialTempo=60, initialTimeSignature=(4, 4), endless=False
+    def _parseScore(s: str, initialTempo=60, initialTimeSignature=(4, 4), endless=False
                     ) -> ScoreStruct:
         """
         Create a ScoreStruct from a string definition
@@ -478,7 +454,7 @@ class ScoreStruct:
 
         A definitions are divided by new line or by ;. Each line has the form::
 
-            measureNum, timeSig, tempo
+            measureIndex, timeSig, tempo
 
 
         * Tempo refers always to a quarter note
@@ -498,15 +474,21 @@ class ScoreStruct:
         **Example**::
 
             0, 4/4, 60, "mark A"
-            ,3/4,80     # Assumes measureNum=1
+            ,3/4,80     # Assumes measureIndex=1
+            4/4         # Assumes measureIndex=2, inherits tempo 80
             10, 5/8, 120
+            12,,96      # At measureIndex 12, change tempo to 96
             30,,
             .
             .      # last measure (inclusive, the score will have 33 measures)
+        10, 4/4 q=60 label='Mylabel'
+        3/4 q=42
+        20, q=60 label='foo'
+
         """
         tempo = initialTempo
         timesig = initialTimeSignature
-        measureNum = -1
+        measureIndex = -1
         lines = emlib.textlib.splitAndStripLines(s, r'[\n;]')
         if lines[-1].strip() == '...':
             endless = True
@@ -526,20 +508,20 @@ class ScoreStruct:
             if line == ".":
                 assert len(struct.measuredefs) > 0
                 struct.addMeasure()
-                measureNum += 1
+                measureIndex += 1
                 continue
 
             mdef = _parseScoreStructLine(line)
-            if mdef.measureNum is None:
-                mdef.measureNum = measureNum + 1
+            if mdef.measureIndex is None:
+                mdef.measureIndex = measureIndex + 1
             else:
-                assert mdef.measureNum > measureNum
-                if mdef.measureNum - measureNum > 1:
-                    struct.addMeasure(numMeasures=mdef.measureNum - measureNum - 1)
+                assert mdef.measureIndex > measureIndex
+                if mdef.measureIndex - measureIndex > 1:
+                    struct.addMeasure(numMeasures=mdef.measureIndex - measureIndex - 1)
 
             struct.addMeasure(timesig=mdef.timesig, quarterTempo=mdef.tempo,
                               annotation=mdef.label)
-            measureNum = mdef.measureNum
+            measureIndex = mdef.measureIndex
         
         return struct
 
@@ -576,9 +558,10 @@ class ScoreStruct:
         """
         Create a copy of this ScoreSturct
         """
-        s = ScoreStruct(endless=self.endless, autoextend=self.autoextend)
-        s.title = self.title
-        s.measuredefs = self.measuredefs.copy()
+        s = ScoreStruct(endless=self.endless, title=self.title, composer=self.composer)
+        s.autoextend = self.autoextend
+        s.measuredefs = copy.deepcopy(self.measuredefs)
+        s.markAsModified()
         return s
 
     def numDefinedMeasures(self) -> int:
@@ -590,15 +573,17 @@ class ScoreStruct:
         return len(self.measuredefs)
 
     def __len__(self):
-        """Returns the number of defined measures"""
+        """
+        Returns the number of defined measures (even if the score is defined as endless)
+        """
         return len(self.measuredefs)
 
-    def getMeasureDef(self, idx:int) -> MeasureDef:
+    def getMeasureDef(self, idx: int, extend: bool = None) -> MeasureDef:
         """
         Returns the MeasureDef at the given index.
 
         Args:
-            idx: the measure index (NB: measures start at 0)
+            idx: the measure index (measures start at 0)
 
         If the scorestruct is endless and the index is outside of the defined
         range, the returned MeasureDef will be the last defined MeasureDef.
@@ -626,13 +611,17 @@ class ScoreStruct:
                        tempoInherited=True, barline='', subdivisionStructure=None)
 
         """
+        if extend is None:
+            extend = self.autoextend
+
         if idx < len(self.measuredefs):
             return self.measuredefs[idx]
+
         # outside of defined measures
         if not self.endless:
             raise IndexError(f"index {idx} out of range. The score has "
                              f"{len(self.measuredefs)} measures defined")
-        if not self.autoextend:
+        if not extend:
             # we are "outside" the defined score
             m = self.measuredefs[-1]
             if m.annotation:
@@ -641,6 +630,8 @@ class ScoreStruct:
 
         for n in range(len(self.measuredefs)-1, idx):
             self.addMeasure()
+
+        return self.measuredefs[-1]
 
     def __getitem__(self, item:int) -> MeasureDef:
         if isinstance(item, int):
@@ -677,7 +668,9 @@ class ScoreStruct:
             quarterTempo = self.measuredefs[-1].quarterTempo if self.measuredefs else F(60)
         else:
             tempoInherited = False
-        measuredef = MeasureDef(timesig=timesig, quarterTempo=quarterTempo,
+
+        measuredef = MeasureDef(timesig=timesig if isinstance(timesig, tuple) else _parseTimesig(timesig),
+                                quarterTempo=quarterTempo,
                                 annotation=annotation, timesigInherited=timesigInherited,
                                 tempoInherited=tempoInherited)
         self.measuredefs.append(measuredef)
@@ -714,15 +707,23 @@ class ScoreStruct:
         self._modified = value
 
     def _update(self) -> None:
-        if not self._modified:
-            return
-        now = F(0)
+        accumTime = F(0)
+        accumBeats = F(0)
         starts = []
+        quarterDurs = []
+        beatOffsets = []
+
         for mdef in self.measuredefs:
-            starts.append(now)
-            now += mdef.durationSecs()
+            starts.append(accumTime)
+            beatOffsets.append(accumBeats)
+            durBeats = mdef.durationBeats()
+            quarterDurs.append(durBeats)
+            accumTime += F(60) / mdef.quarterTempo * durBeats
+            accumBeats += durBeats
         self._modified = False
-        self._offsetsIndex = starts
+        self._timeOffsets = starts
+        self._beatOffsets = beatOffsets
+        self._quarternoteDurations = quarterDurs
 
     def locationToTime(self, measure: int, beat:number_t=F(0)) -> F:
         """
@@ -735,43 +736,54 @@ class ScoreStruct:
         Returns:
             a time in seconds (as a Fraction to avoid rounding problems)
         """
-        self._update()
+        if self._modified:
+            self._update()
+
         if measure > len(self.measuredefs) - 1:
+            if measure == len(self.measuredefs) and beat == 0:
+                mdef = self.measuredefs[-1]
+                return self._timeOffsets[-1] + mdef.durationSecs()
+
             if not self.endless:
                 raise ValueError("Measure outside of score")
-            if self.autoextend:
-                for _ in range(len(self.measuredefs)-1, measure):
-                    self.addMeasure()
-            else:
-                last = len(self.measuredefs)-1
-                lastTime = self.locationToTime(last)
-                mdef = self.getMeasureDef(last)
-                mdur = mdef.durationSecs()
-                fractionalDur = beat * F(60)/mdef.quarterTempo
-                return lastTime + (measure - last)*mdur + fractionalDur
 
-        now = self._offsetsIndex[measure]
+            if not self.autoextend:
+                last = len(self.measuredefs) - 1
+                lastTime = self._timeOffsets[last]
+                # lastTime = self.locationToTime(last)
+                mdef = self.measuredefs[last]
+                # mdef = self.getMeasureDef(last)
+                mdur = mdef.durationSecs()
+                fractionalDur = beat * F(60) / mdef.quarterTempo
+                return lastTime + (measure - last) * mdur + fractionalDur
+
+            for _ in range(len(self.measuredefs)-1, measure):
+                self.addMeasure()
+
+        now = self._timeOffsets[measure]
         mdef = self.measuredefs[measure]
 
-        measureBeats = mdef.durationBeats()
+        measureBeats = self._quarternoteDurations[measure]
+        #measureBeats = mdef.durationBeats()
         if beat > measureBeats:
             raise ValueError(f"Beat outside of measure, measure={mdef}")
 
-        return now+F(60)/mdef.quarterTempo*beat
+        qtempo = mdef.quarterTempo
+        return now + F(60 * qtempo.denominator, qtempo.numerator) * beat
 
     def tempoAtTime(self, time: number_t) -> F:
         """
         Returns the tempo active at the given time (in seconds)
 
         Args:
-            time: time of the measure active at the given time
+            time: point in the timeline (in seconds)
 
         Returns:
-            the tempo
+            the quarternote-tempo at the given time
 
         """
         loc = self.timeToLocation(time)
-        measuredef = self.getMeasureDef(loc.measureNum)
+        measuredef = self.getMeasureDef(loc.measureIndex)
         return measuredef.quarterTempo
 
     def timeToLocation(self, time: number_t) -> Optional[ScoreLocation]:
@@ -782,25 +794,28 @@ class ScoreStruct:
             time: the time in seconds
 
         Returns:
-            a :class:`ScoreLocation` ``(.measureNum, .beat)``. If the score is not endless
+            a :class:`ScoreLocation` ``(.measureIndex, .beat)``. If the score is not endless
             and the time is outside the score, None is returned
+
+        .. seealso:: :meth:`beatToLocation`
         """
         if not self.measuredefs:
             raise IndexError("This ScoreStruct is empty")
 
-        self._update()
+        if self._modified:
+            self._update()
         time = asF(time)
-        idx = bisect(self._offsetsIndex, time)
+        idx = bisect(self._timeOffsets, time)
         if idx < len(self.measuredefs):
             m = self.measuredefs[idx-1]
-            assert self._offsetsIndex[idx-1]<=time<self._offsetsIndex[idx]
-            dt = time-self._offsetsIndex[idx-1]
+            assert self._timeOffsets[idx-1]<=time<self._timeOffsets[idx]
+            dt = time-self._timeOffsets[idx-1]
             beat = dt*m.quarterTempo/F(60)
             return ScoreLocation(idx-1, beat)
 
         # is it within the last measure?
         m = self.measuredefs[idx-1]
-        dt = time - self._offsetsIndex[idx-1]
+        dt = time - self._timeOffsets[idx-1]
         if dt < m.durationSecs():
             beat = dt*m.quarterTempo/F(60)
             return ScoreLocation(idx-1, beat)
@@ -813,7 +828,7 @@ class ScoreStruct:
         beat = (numMeasures - int(numMeasures)) * lastMeas.durationBeats()
         return ScoreLocation(len(self.measuredefs)-1 + int(numMeasures), beat)
 
-    def beatToLocation(self, beat:number_t) -> Optional[ScoreLocation]:
+    def beatToLocation(self, beat: number_t) -> Optional[ScoreLocation]:
         """
         Return the location in score corresponding to the given beat
 
@@ -822,7 +837,15 @@ class ScoreStruct:
         (measure, beat offset within the measure). Tempo does not
         play any role within this calculation.
 
-        See also .locationToBeat, which performs the opposite operation
+        If the beat is outside the score, returns ``None``.
+
+        .. note::
+
+            In the special case where a ScoreStruct is not endless and the
+            beat is exactly at the end of the last measure, we return
+            ``ScoreLocation(numMeasures, 0)``
+
+        .. seealso:: :meth:`locationToBeat`, which performs the opposite operation
 
         Example
         ~~~~~~~
@@ -837,21 +860,26 @@ class ScoreStruct:
          8          ScoreLocation(2, 1.0)
         ========   =======================
         """
-        assert len(self.measuredefs) >= 1
-        numMeasures = 0
+        assert len(self.measuredefs) >= 1, "This scorestruct is empty"
+        if self._modified:
+            self._update()
+
         rest = asF(beat)
+        numMeasures = 0
         for i, mdef in enumerate(self.measuredefs):
-            numBeats = mdef.durationBeats()
+            # numBeats = mdef.durationBeats()
+            numBeats = self._quarternoteDurations[i]
             if rest < numBeats:
                 return ScoreLocation(i, rest)
             rest -= numBeats
             numMeasures += 1
-        # we are at the end of the defined measure, but we did not find beat yet.
+        # we are at the end of the defined measures, but we did not find beat yet.
         if not self.endless:
-            return None
-        beatsPerMeasures = self.measuredefs[-1].durationBeats()
-        numMeasures += int(rest / beatsPerMeasures)
-        restBeats = rest % beatsPerMeasures
+            return None if rest > 0 else ScoreLocation(len(self.measuredefs), F(0))
+
+        beatsPerMeasure = self.measuredefs[-1].durationBeats()
+        numMeasures += int(rest / beatsPerMeasure)
+        restBeats = rest % beatsPerMeasure
         return ScoreLocation(numMeasures, restBeats)
 
     def beatToTime(self, beat: number_t) -> F:
@@ -901,7 +929,7 @@ class ScoreStruct:
         .. seealso:: :meth:`~ScoreStruct.beatToTime`
         """
         loc = self.timeToLocation(t)
-        beat = self.locationToBeat(loc.measureNum, loc.beat)
+        beat = self.locationToBeat(loc.measureIndex, loc.beat)
         return beat
 
     def iterMeasureDefs(self) -> Iter[MeasureDef]:
@@ -993,7 +1021,7 @@ class ScoreStruct:
         Example
         -------
 
-        >>> s = ScoreStruct._fromString(r'''
+        >>> s = ScoreStruct._parseScore(r'''
         ... 3/4, 120
         ... 3/8
         ... 4/4
@@ -1004,9 +1032,23 @@ class ScoreStruct:
         1.75
 
         """
-        if not self.endless and measure > self.numDefinedMeasures():
+        if self._modified:
+            self._update()
+        beat = asF(beat)
+        if measure < self.numDefinedMeasures():
+            # Use the index
+            measureOffset = self._beatOffsets[measure]
+            quartersInMeasure = self._quarternoteDurations[measure]
+            if beat > quartersInMeasure:
+                raise ValueError(f"Measure {measure} has {quartersInMeasure} quarters, but given "
+                                 f"offset {beat} is too large")
+            return measureOffset + beat
+        elif not self.endless:
             raise ValueError(f"This scorestruct has {self.numDefinedMeasures()} and is not"
                              f"marked as endless. Measure {measure} is out of scope")
+        # It is endless and out of the defined measures
+        # TODO
+
         accum = F(0)
         for i, mdef in enumerate(self.iterMeasureDefs()):
             if i < measure:
@@ -1032,6 +1074,16 @@ class ScoreStruct:
         Returns:
             the elapsed time, as a Fraction
 
+        Example
+        -------
+
+            >>> from maelzel.scorestruct import ScoreStruct
+            >>> s = ScoreStruct('4/4,60; 3/4; 3/8')
+            >>> s.timeDelta((0, 0.5), (2, 0.5))
+            7
+            >>> s.timeDelta(3, (1, 2))
+            3
+
         .. seealso:: :meth:`~ScoreStruct.beatDelta`
 
         """
@@ -1052,6 +1104,15 @@ class ScoreStruct:
 
         Returns:
             the distance between the two locations, in beats
+
+        Example
+        -------
+
+            >>> from maelzel.scorestruct import ScoreStruct
+            >>> s = ScoreStruct('4/4, 120; 3/4; 3/8; 5/8')
+            # delta, in quarternotes, between time=2secs and location (2, 0)
+            >>> s.beatDelta(2., (2, 0))
+            5
 
         .. seealso:: :meth:`~ScoreStruct.timeDelta`
         """
@@ -1119,6 +1180,21 @@ class ScoreStruct:
                 s += " …"
             return f"ScoreStruct([{s}])"
 
+    def __enter__(self):
+        if 'maelzel.core.workspace' in sys.modules:
+            from maelzel.core import workspace
+            w = workspace.getWorkspace()
+            self._prevScoreStruct = w.scorestruct
+            w.scorestruct = self
+        else:
+            raise RuntimeError("No active maelzel.core Workspace. A ScoreStruct can only be "
+                               "called when maelzel.core has been importated")
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        assert self._prevScoreStruct is not None
+        from maelzel.core import workspace
+        workspace.getWorkspace().scorestruct = self._prevScoreStruct
+
     def _repr_html_(self) -> str:
         colnames = ['Meas. Index', 'Timesig', 'Tempo (quarter note)', 'Label']
 
@@ -1154,6 +1230,15 @@ class ScoreStruct:
         """
         Return the score structure as a music21 Score
 
+        Args:
+            fillMeasues: if True, measures are filled with a note. This can be useful
+                if you need to export the musicxml as midi
+
+        Returns:
+            a music21 Score representing this score structure
+
+        .. image:: ../assets/scorestruct-asmusic21.png
+
         TODO: render barlines according to measureDef
         """
         from maelzel.music import m21tools
@@ -1183,22 +1268,22 @@ class ScoreStruct:
         m21tools.scoreSetMetadata(score, title=self.title)
         return score
 
-    def setTempo(self, quarterTempo: float, measureNum:int=0) -> None:
+    def setTempo(self, quarterTempo: float, measureIndex:int=0) -> None:
         """
         Set the tempo of the given measure, until the next tempo change
 
         Args:
             quarterTempo: the new tempo
-            measureNum: the first measure to modify
+            measureIndex: the first measure to modify
 
         """
-        if measureNum > len(self):
-            raise IndexError(f"Index {measureNum} out of rage; this ScoreStruct has only "
+        if measureIndex > len(self):
+            raise IndexError(f"Index {measureIndex} out of rage; this ScoreStruct has only "
                              f"{len(self)} measures defined")
-        mdef = self.measuredefs[measureNum]
+        mdef = self.measuredefs[measureIndex]
         mdef.quarterTempo = quarterTempo
         mdef.tempoInherited = False
-        for m in self.measuredefs[measureNum+1:]:
+        for m in self.measuredefs[measureIndex+1:]:
             if m.tempoInherited:
                 m.quarterTempo = quarterTempo
             else:
@@ -1275,19 +1360,22 @@ class ScoreStruct:
         m21click = click.asmusic21()
         m21click.write('midi', midifile)
 
+    def setBarline(self, measureIndex: int, linetype: str) -> None:
+        """
+        Set the barline type
+
+        Args:
+            measureIndex: the measure index to modify
+            linetype: one of 'single', 'double', 'final'
+
+        """
+        assert linetype in {'single', 'double', 'final'}
+        self.getMeasureDef(measureIndex, extend=True).barline = linetype
+
     def makeClickTrack(self, clickdur: F = None, strongBeatPitch='5C',
                        weakBeatPitch='5G', playTransposition=24,
                        ) -> maelzel.core.Score:
         """
-
-        struct: scorestruct.ScoreStruct,
-                   clickdur: time_t = None,
-                   strongBeatPitch="5C",
-                   weakBeatPitch="5G",
-                   playpreset: str = '.click',
-                   playparams: Dict[str, float] = None,
-                   fade=0) -> musicobj.Score:
-
         Create a click track from this ScoreStruct
 
         The returned score can be displayed as notation via :meth:`maelzel.core.Score.show`
@@ -1316,11 +1404,12 @@ class ScoreStruct:
         -------
 
             >>> from maelzel.core import *
-            >>> scorestruct = ScoreStruct._fromString(r"...")
+            >>> scorestruct = ScoreStruct(r"4/4,72; .; 5/8; 3/8; 2/4,96; .; 5/4; 3/4")
             >>> clicktrack = scorestruct.makeClickTrack()
             >>> clicktrack.write('click.pdf')
             >>> clicktrack.play()
 
+        .. image:: ../assets/clicktrack2.png
         """
         from maelzel.core import tools
         return tools.makeClickTrack(self, clickdur=clickdur,
@@ -1342,11 +1431,10 @@ def _filledScoreFromStruct(struct: ScoreStruct, pitch='4C') -> maelzel.core.Scor
     Returns:
         the resulting maelzel.core Score
 
-
     """
     now = 0
     events = []
-    from maelzel.core import Note, Voice, Score, Rest
+    from maelzel.core import Note, Voice, Score
     import pitchtools
     midinote = pitch if isinstance(pitch, (int, float)) else pitchtools.n2m(pitch)
     for i, m in enumerate(struct.measuredefs):

@@ -50,4 +50,6 @@ from .notation import *
 from .core import *
 from . import quant
 from . import render
-from . import enharmonics
+# from . import enharmonics
+from . import definitions
+from . import spanner

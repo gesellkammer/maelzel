@@ -1,5 +1,6 @@
 build/
 dist/
+docs/tmp/
 _build/
 *.egg*
 __pycache__
@@ -18,3 +19,5 @@ examples/Untitled*
 .#*
 *~
 docs/api
+notebooks/Untitled*.ipynb
+notebooks/tmp

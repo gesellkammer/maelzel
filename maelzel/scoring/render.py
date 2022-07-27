@@ -10,19 +10,18 @@ from . import core
 from . import enharmonics
 from . import quant
 from .renderbase import Renderer, RenderOptions
-from . import renderm21
 from . import renderlily
 from .config import config
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import *
+    from typing import Union
 
 
 logger = logging.getLogger("maelzel.scoring")
 
 
-def _asQuantizedScore(s: Union[quant.QuantizedScore, List[quant.QuantizedPart]],
+def _asQuantizedScore(s: Union[quant.QuantizedScore, list[quant.QuantizedPart]],
                       options: RenderOptions) -> quant.QuantizedScore:
     if isinstance(s, quant.QuantizedScore):
         return s
@@ -53,6 +52,7 @@ def renderQuantizedScore(score: quant.QuantizedScore,
     for part in score:
         part.removeUnnecessaryGracenotes()
     if backend == 'music21':
+        from . import renderm21
         return renderm21.Music21Renderer(score, options=options)
     elif backend == 'lilypond' or backend == 'lily':
         for part in score:
@@ -66,20 +66,20 @@ def _markConsecutiveGracenotes(part: quant.QuantizedPart):
     for n0, n1 in iterlib.pairwise(part.flatNotations()):
         if n0.isRest:
             continue
-        if n0.isGraceNote() and n1.isGraceNote():
+        if n0.isGraceNote and n1.isGraceNote:
             graceGroupState = n0.getProperty("graceGroup")
             if graceGroupState is None:
                 n0.setProperty("graceGroup", "start")
                 n1.setProperty("graceGroup", "continue")
             elif graceGroupState == 'continue':
                 n1.setProperty("graceGroup", 'continue')
-        elif n0.isGraceNote() and (n1.isRest or not n1.isGraceNote()) and \
+        elif n0.isGraceNote and (n1.isRest or not n1.isGraceNote) and \
                 n0.getProperty('graceGroup') in ('start', 'continue'):
             n0.setProperty("graceGroup", "stop")
 
 
 def _groupNotationsByMeasure(part:core.Part, struct: ScoreStruct
-                             ) -> List[List[core.Notation]]:
+                             ) -> list[list[core.Notation]]:
     currMeasure = -1
     groups = []
     for n in part:
@@ -90,11 +90,11 @@ def _groupNotationsByMeasure(part:core.Part, struct: ScoreStruct
             logger.error(f"Scorestruct: duration = {struct.durationBeats()} quarters\n{struct.dump()}")
             raise ValueError(f"Offset {float(n.offset):.3f} outside of score structure "
                              f"(max. offset: {float(struct.durationBeats()):.3f})")
-        elif loc.measureNum == currMeasure:
+        elif loc.measureIndex == currMeasure:
             groups[-1].append(n)
         else:
             # new measure
-            currMeasure = loc.measureNum
+            currMeasure = loc.measureIndex
             groups.append([n])
     return groups
 
@@ -116,7 +116,7 @@ def _makeEnharmonicOptionsFromRenderOptions(options: RenderOptions
                                          groupStep=options.enharmonicsStep)
 
 
-def quantizeAndRender(parts: List[core.Part],
+def quantizeAndRender(parts: list[core.Part],
                       struct: ScoreStruct,
                       options: RenderOptions,
                       backend:str,
@@ -133,8 +133,8 @@ def quantizeAndRender(parts: List[core.Part],
     return renderQuantizedScore(score=qscore, options=options, backend=backend)
 
 
-def _asParts(obj: Union[core.Part, core.Notation, List[core.Part], List[core.Notation]]
-             ) -> List[core.Part]:
+def _asParts(obj: Union[core.Part, core.Notation, list[core.Part], list[core.Notation]]
+             ) -> list[core.Part]:
     if isinstance(obj, core.Part):
         parts = [obj]
     elif isinstance(obj, list):
@@ -151,7 +151,7 @@ def _asParts(obj: Union[core.Part, core.Notation, List[core.Part], List[core.Not
     return parts
 
 
-def render(obj: Union[core.Part, core.Notation, List[core.Part], List[core.Notation]],
+def render(obj: Union[core.Part, core.Notation, list[core.Part], list[core.Notation]],
            struct:ScoreStruct=None,
            options: RenderOptions = None,
            backend:str=None,
@@ -210,6 +210,7 @@ def renderMusicxml(xmlfile: str, outfile: str, method:str=None, crop: bool = Non
             Possible values: 'musescore'
         crop: if True, crop the image to the contents. This defaults to True for
             png and to False for pdf
+        pngpage: which page to render if rendering to png
 
 
     Supported methods:
@@ -286,6 +287,4 @@ def _musescoreRenderMusicxmlToPng(xmlfile: str, outfile: str, musescorepath: str
             return
     raise RuntimeError(f"Page not found, generated files: {generatedFiles}")
 
-
-    
 

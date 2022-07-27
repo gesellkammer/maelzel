@@ -3,7 +3,7 @@ from maelzel import packing
 from maelzel.rational import Rat
 from . import musicobj
 from .workspace import getConfig
-
+from emlib.iterlib import pairwise
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -81,5 +81,91 @@ def splitNotesIfNecessary(notes:List[Note], splitpoint:float, deviation=None
 
     """
     return [p for p in splitNotesOnce(notes, splitpoint, deviation) if p]
+
+
+def fillTempDynamics(items: list[Union[Note, Chord]], initialDynamic='mf',
+                     resetMinGap=1
+                     ) -> None:
+    """
+    Fill notes/chords with context dynamic as temporary (in place)
+
+    To mark that the dynamic is temporary the property 'tempdynamic' is set to
+    True. This routine is used for playback when config['play.useDynamics'] is True,
+    to set the dynamic from the last dynamic if a note/chord of the same voice does
+    not have a dynamic set
+
+    Args:
+        items: the notes/chords to modify. We assume that these form a voice, a consecutive
+            list of notes without overlap
+        initialDynamic: the dynamic to use at the beginning, if no dynamic present
+        resetMinGap: if a distance between two events is longer than this the dynamic
+            is reset to the initial dynamic. Set it to 0 to never reset
+
+    Returns:
+
+    """
+    if not items:
+        return
+    elif len(items) == 1:
+        item = items[0]
+        if not item.dynamic:
+            item.dynamic = initialDynamic
+            item.properties['tempdynamic'] = True
+    else:
+        lastDynamic = initialDynamic
+        lastEnd  = 0
+        for item in items:
+            if resetMinGap > 0 and item.start - lastEnd > resetMinGap:
+                lastDynamic = initialDynamic
+            if not item.dynamic:
+                item.dynamic = lastDynamic
+                item.properties['tempdynamic'] = True
+            else:
+                lastDynamic = item.dynamic
+            lastEnd = item.end
+
+
+def addDurationToGracenotes(chain: list[Note], dur: Rat) -> None:
+    """
+    Adds real duration to gracenotes within chain
+
+    Previous to playback, gracenotes have a duration of 0. When playing back
+    they are assigned a duration, which is substracted from the previous "real"
+    note or silence.
+
+    Args:
+        chain: the sequence of notes to modify (in place)
+        dur: the duration of a single gracenote
+
+    Returns:
+
+    """
+    lastRealNote = None
+    d = {}
+    # first we build a registry mapping real notes to their grace notes
+    for i, n in enumerate(chain):
+        if not n.isGracenote():
+            lastRealNote = i
+        else:
+            if lastRealNote is None:
+                # first in the sequence!
+                print("What to do???")
+            else:
+                gracenotes = d.get(lastRealNote)
+                if gracenotes:
+                    gracenotes.append(i)
+                else:
+                    d[lastRealNote] = [i]
+    for realnoteIndex, gracenotesIndexes in d.items():
+        realnote = chain[realnoteIndex]
+        assert realnote.dur is not None
+        realnote.dur -= dur * len(gracenotesIndexes)
+        assert realnote.dur > 0
+        for i, gracenoteIndex in enumerate(gracenotesIndexes):
+            gracenote = chain[gracenoteIndex]
+            gracenote.dur = dur
+            deltapos = (len(gracenotesIndexes) - i) * dur
+            gracenote.start -= deltapos
+
 
 

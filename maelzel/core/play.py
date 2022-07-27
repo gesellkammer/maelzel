@@ -27,11 +27,12 @@ if TYPE_CHECKING:
     import subprocess
 
 
-__all__ = ('OfflineRenderer',
-           'playEvents',
-           'recEvents',
-           'rendering',
-           'lockedClock')
+__all__ = (
+    'OfflineRenderer',
+    'rendering',
+    'lockedClock',
+    'testAudio'
+)
 
 
 _invalidVariables = {"kfreq", "kamp", "kpitch"}
@@ -43,18 +44,19 @@ class OfflineRenderer:
 
     .. admonition:: OfflineRenderer as context manager
 
-        The most simple way to render offline is to use an OfflineRenderer
-        as a context manager. Within this context any .play call will be
-        collected and everything will be rendered when exiting the context
-        (see example below: :ref:`example<offlineRendererExample>`)
+        The simplest way to render offline is to use an OfflineRenderer
+        as a context manager (see also :func:`rendering`). Within this
+        context any .play call will be collected and everything will be
+        rendered when exiting the context
+        (:ref:`see example below <offlineRendererExample>`)
 
     Args:
         outfile: the path to the rendered soundfile. If not given, a path
             within the record path [1]_ is returned
-        sr: the samplerate of the render (config: 'rec.sr')
+        sr: the samplerate of the render (:ref:`config key: 'rec.sr' <config_rec_sr>`)
         ksmps: the ksmps used for the recording
         quiet: if True, debugging output is minimized. If None, defaults to
-            config (key: 'rec.quiet')
+            config (:ref:`key: 'rec.quiet' <config_rec_quiet>`)
 
     If rendering offline in tandem with audio samples and other csoundengine's
     functionality, it is possible to access the underlying csoundengine's Renderer
@@ -62,12 +64,15 @@ class OfflineRenderer:
 
     .. [1] To get the current *record path*: ``getWorkspace().recordPath()``
 
+    (see :meth:`~maelzel.core.workspace.Workspace.recordPath`)
+
     .. _offlineRendererExample:
 
     Example
     ~~~~~~~
 
-        # Render a chromatic scale in sync with a soundfile
+    Render a chromatic scale in sync with a soundfile
+
         >>> from maelzel.core import *
         >>> import sndfileio
         >>> notes = [Note(n, dur=0.5) for n in range(48, 72)]
@@ -137,7 +142,8 @@ class OfflineRenderer:
         sndfilestr = f'"{sndfile}"'
         info = f'outfile={_(sndfilestr)}, {_(sample.numchannels)} channels, ' \
                f'{_(format(sample.duration, ".2f"))} secs, {_(sample.sr)} Hz'
-        return '<br>'.join([header, info, samplehtml])
+        header = f'{header}({info})'
+        return '<br>'.join([header, samplehtml])
 
     def registerInstr(self, instrname: str, instrdef: csoundengine.Instr) -> None:
         """
@@ -173,10 +179,10 @@ class OfflineRenderer:
 
     def schedEvent(self, event: CsoundEvent) -> csoundengine.offline.ScoreEvent:
         """
-        Schedule a CsoundEvent as returned by MusicObj.events()
+        Schedule a CsoundEvent as returned by :meth:`MusicObj.events() <maelzel.core.musicobj.MusicObj.events>`
 
         Args:
-            event: a CsoundEvent, as returned
+            event: a :class:`~maelzel.core.csoundevent.CsoundEvent`
 
         Returns:
             a ScoreEvent
@@ -278,7 +284,8 @@ class OfflineRenderer:
                                    tabargs=tabargs,
                                    **kws)
 
-    def render(self, outfile:str=None, wait=None, quiet=None, openWhenDone=False
+    def render(self, outfile:str=None, wait=None, quiet=None, openWhenDone=False,
+               compressionBitrate: int = None
                ) -> str:
         """
         Render the events scheduled until now.
@@ -303,6 +310,7 @@ class OfflineRenderer:
 
         TODO
         """
+        self._renderProc = None
         cfg = getConfig()
         if outfile is None:
             outfile = self._outfile
@@ -316,8 +324,12 @@ class OfflineRenderer:
         self.renderedSoundfiles.append(outfile)
         if quiet is None:
             quiet = self._quiet if self._quiet is not None else cfg['rec.quiet']
+        if wait is None:
+            wait = cfg['rec.block']
+        if compressionBitrate is None:
+            compressionBitrate = cfg['rec.compressionBitrate']
         outfile, proc = self.renderer.render(outfile=outfile, wait=wait, quiet=quiet,
-                                             openWhenDone=openWhenDone)
+                                             openWhenDone=openWhenDone, compressionBitrate=compressionBitrate)
         self._renderProc = proc
         return outfile
 
@@ -335,7 +347,8 @@ class OfflineRenderer:
             lastproc = self.lastRenderProc()
             if not lastproc:
                 return
-            lastproc.wait()
+            if lastproc.poll() is None:
+                lastproc.wait()
         assert os.path.exists(lastoutfile)
         emlib.misc.open_with_app(lastoutfile)
 
@@ -413,7 +426,7 @@ class OfflineRenderer:
 
     def renderedSample(self) -> audiosample.Sample:
         """
-        Returns the last rendered soundfile as an :class:`maelzel.snd.audiosample.Sample`
+        Returns the last rendered soundfile as a :class:`maelzel.snd.audiosample.Sample`
         """
         assert self.renderedSoundfiles
         lastsnd = self.renderedSoundfiles[-1]
@@ -433,16 +446,43 @@ class OfflineRenderer:
         import emlib.misc
         emlib.misc.open_with_app(sndfile)
 
+    def isRendering(self) -> bool:
+        """
+        True if still rendering
 
-def rendering(outfile:str, sr=None, nchnls=2, **kws) -> OfflineRenderer:
+        Returns:
+            True if rendering is still in course
+        """
+        proc = self.lastRenderProc()
+        return proc.poll() is None
+
+    def wait(self, timeout=0) -> None:
+        """
+        Wait until finished rendering
+
+        Args:
+            timeout: a timeout (0 to wait indefinitely)
+
+        """
+        proc = self.lastRenderProc()
+        if proc.poll() is None:
+            proc.wait(timeout=timeout)
+
+
+def rendering(outfile: str = None, sr=None, nchnls=2,
+              fmt: str = None, **kws
+              ) -> OfflineRenderer:
     """
     Creates a **context manager** to render any .play call offline
 
     Args:
-        outfile: the soundfile to render
+        outfile: the soundfile to render. None to render to a soundfile in the recordings path,
+            '?' to open a "save to" dialog.
         sr: the sample rate
         nchnls: the number of channels to render to
-        **kws: any keywords are passed directly to :class:``OfflineRenderer`
+        fmt: file format to render to. If outfile is given, the file format given by the
+            extension is used. If None,
+        **kws: any keywords are passed directly to :class:`OfflineRenderer`
 
     Returns:
         an OfflineRenderer
@@ -478,9 +518,9 @@ def recEvents(events: List[CsoundEvent], outfile:str=None,
         outfile: the generated file. If left unset, a file inside the recording
             path is created (see `recordPath`). Use "?" to save via a GUI dialog
         sr: sample rate of the soundfile
-        ksmps: number of samples per cycle (config 'rec.ksmps')
+        ksmps: number of samples per cycle (:ref:`config 'rec.ksmps' <config_rec_ksmps>`)
         wait: if True, wait until recording is finished. If None,
-            use the config 'rec.block'
+            use the :ref:`config 'rec.block' <config_rec_block>`
         quiet: if True, supress debug information when calling
             the csound subprocess
 
@@ -489,7 +529,10 @@ def recEvents(events: List[CsoundEvent], outfile:str=None,
         was not given, the path of the recording can be retrieved from
         ``renderer.outfile``
 
-    Example::
+    Example
+    ~~~~~~~
+
+    .. code-block:: python
 
         a = Chord("A4 C5", start=1, dur=2)
         b = Note("G#4", dur=4)
@@ -572,10 +615,31 @@ def _soundfontToChannel(sfpath:str) -> str:
     return f"_sf:{basename}"
 
 
+def testAudio(duration=4, period=0.5, numChannels: int = None, delay=0.5,
+              backend: str = None
+              ) -> None:
+    """
+    Test the audio engine by sending pink to each channel
+
+    Args:
+        duration: the duration of the test
+        period: how long to test each channel. Channels are cycled
+        numChannels: the number of channels to use if starting the engine
+        delay: how long to wait before starting the test.
+
+    """
+    engine = getPlayEngine(start=False)
+    if not engine:
+        logger.info("Starting engine...")
+        engine = startPlayEngine(numChannels=numChannels, backend=backend)
+    engine.testAudio(dur=duration, period=period, delay=delay)
+
+
 def startPlayEngine(numChannels: int = None,
                     backend: str = None,
                     verbose: bool = None,
-                    buffersize: int = None) -> csoundengine.Engine:
+                    buffersize: int = None,
+                    waitAfterStart=0.5) -> csoundengine.Engine:
     """
     Start the play engine
 
@@ -601,13 +665,17 @@ def startPlayEngine(numChannels: int = None,
     backend = backend or config['play.backend']
     verbose = verbose if verbose is not None else config['play.verbose']
     logger.debug(f"Starting engine {engineName} (nchnls={numChannels})")
-    return csoundengine.Engine(name=engineName,
-                               nchnls=numChannels,
-                               backend=backend,
-                               globalcode=_prelude,
-                               quiet=not verbose,
-                               latency=config['play.schedLatency'],
-                               buffersize=buffersize)
+    engine = csoundengine.Engine(name=engineName,
+                                 nchnls=numChannels,
+                                 backend=backend,
+                                 globalcode=_prelude,
+                                 quiet=not verbose,
+                                 latency=config['play.schedLatency'],
+                                 buffersize=buffersize)
+    if waitAfterStart > 0:
+        import time
+        time.sleep(waitAfterStart)
+    return engine
 
 
 def stopSynths(stopengine=False, cancelfuture=True):
@@ -642,9 +710,28 @@ def isEngineActive() -> bool:
     return csoundengine.getEngine(name) is not None
 
 
-def getPlayEngine(start=None) -> Optional[csoundengine.Engine]:
+def getPlayEngine(start=None, numChannels: int = None, **kws) -> Optional[csoundengine.Engine]:
     """
     Return the sound engine, or None if it has not been started
+
+    Args:
+        start: if True, the play Engine will be started if not started already. If
+            None, the value in the config 'play.autostartEngine` (`config_play_autostartengine`)
+            is used
+        numChannels: only valid if the engine has  not been started and is set to be
+            started (start is True or autostart is set in the config)
+        kws: any keyword given will be passed to :func:`startPlayEngine` if the engine needs
+            to be started
+
+    Returns:
+        the play Engine or None if the Engine has not been started
+
+    Common keywords:
+
+    keyword         description
+
+    numChannels     The number of output channels of the Engine
+
     """
     cfg = getConfig()
     engine = csoundengine.getEngine(name=cfg['play.engineName'])
@@ -652,7 +739,7 @@ def getPlayEngine(start=None) -> Optional[csoundengine.Engine]:
         logger.debug("engine not started")
         start = start if start is not None else cfg['play.autostartEngine']
         if start:
-            engine = startPlayEngine()
+            engine = startPlayEngine(numChannels=numChannels, **kws)
             return engine
         return None
     return engine
@@ -675,6 +762,12 @@ def lockedClock():
 
     """
     return getPlayEngine().lockedClock()
+
+
+def _dummySynth(dur=0.001) -> csoundengine.synth.Synth:
+    engine = getPlayEngine()
+    session = engine.session()
+    return session.sched('.dummy', 0, dur)
 
 
 def playEvents(events: List[CsoundEvent],
