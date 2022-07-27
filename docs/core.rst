@@ -17,12 +17,12 @@ analyzing or preparing a performance.
 
 .. admonition:: Notation as display vs engraving
 
-    **maelzel.core** defines music objects which can have many attributes
-    within the realm of notation and do not have a well defined
-    purely acoustic meaning: dynamics, articulations, text labels, etc. These
-    "notation" attributes are very important for composing or analyzing.
-    Nevertheless **maelzel.core** does not seek to provide the
-    level of customization needed to produce a finished engraved score.
+    The objects defined in **maelzel.core** can have many attributes
+    within the realm of notation which do not have a well defined
+    acoustic translation: articulations, text labels, size. Although
+    such symbolic attributes are very important for composing or analyzing
+    **maelzel.core** does not seek to provide the level of customization
+    needed to produce a finished engraved score.
     **The notation produced is to be understood as a means of visualization**
     of musical and / or acoustic processes.
 
@@ -34,7 +34,7 @@ MusicObj
 
 All classes defined in **maelzel.core** inherit from :class:`MusicObj`.
 A :class:`MusicObj` **exists in time** (in has a start and duration attribute),
-it **can display itself as notation** and, if appropriate, **play itself as audio**.
+it **can be displayed as notation** and, if appropriate, **played as audio**.
 
 Implicit / Explicit Time
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -49,8 +49,8 @@ Real Time / Beat (symbolic) Time
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The time attributes (*start*, *dur*, *end*) of a :class:`MusicObj` refer to a symbolic,
-*beat* time, measured in quarternotes. This *quarternote time* depends on the tempo. To map
-from *quarternote* time to *absolute* time a score structure
+*beat* time, measured in quarternotes. This *quarternote time* depends on the tempo at a given
+time. To map from *quarternote* time to *absolute* time a score structure
 (:class:`~maelzel.scorestruct.ScoreStruct`) is needed, which sets the tempo at any moment in time
 
 Score Structure
@@ -94,14 +94,6 @@ a set of samples or a soundfont.
 
 ----------------
 
-Tutorial (Jupyter Notebooks)
-============================
-
-#. `First Steps <https://nbviewer.org/github/gesellkammer/maelzel/blob/master/notebooks/firststeps.ipynb>`_
-#. `Durations: Ockeghem's Missa Prolationum <https://nbviewer.org/github/gesellkammer/maelzel/blob/master/notebooks/ockeghem.ipynb>`_
-#. `Config and Workspace <https://nbviewer.org/github/gesellkammer/maelzel/blob/master/notebooks/maelzel.core%20-%20Config%20and%20Workspace.ipynb>`_
-#. `Score Structure <https://nbviewer.org/github/gesellkammer/maelzel/blob/master/notebooks/maelzel.core%20-%20Score%20Structure.ipynb>`_
-#. `Notation Refinements <https://nbviewer.org/github/gesellkammer/maelzel/blob/master/notebooks/maelzel.core%20-%20Symbols.ipynb>`_
 
 ----------------
 
@@ -117,6 +109,7 @@ Table of Contents
     config
     workspace
     coretools
+    symbols
 
 
 

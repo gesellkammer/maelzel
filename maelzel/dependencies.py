@@ -1,10 +1,12 @@
+from __future__ import annotations
 import shutil
 from pathlib import Path
 import os
 import sys
 import logging
 from datetime import datetime
-from maelzel._state import state
+from maelzel import _state
+
 
 logger = logging.getLogger('maelzel')
 
@@ -13,7 +15,7 @@ def checkCsound() -> str:
     """ Returns True if csound is installed """
     if shutil.which("csound") is not None:
         return ""
-    return "Could not find csound in the path"
+    return "Could not find csound in the path (checked via shutil.which)"
 
 
 def vampPluginsInstalled(cached=True) -> bool:
@@ -48,14 +50,61 @@ def _copyFiles(files: list[str], dest: str, verbose=False) -> None:
         shutil.copy(f, dest)
 
 
+def maelzelRootFolder() -> Path:
+    return Path(os.path.split(__file__)[0]).parent
+
+
+def checkCsoundPlugins(fix=True) -> str:
+    """
+    Checks that the needed csound plugins are installed
+
+    Returns:
+        an error string if failed, an empty string if OK
+    """
+    logger.debug("Checking dependencies for csound plugins")
+    import risset
+    logger.debug("Reading risset's main index")
+    idx = risset.MainIndex(update=True)
+    neededopcodes = {
+        'presetinterp': 'else',
+        'weightedsum': 'else',
+        'poly': 'poly'
+    }
+    errors = []
+    installedopcodes = {opcode.name for opcode in idx.defined_opcodes()
+                        if opcode.installed}
+    for opcodename, pluginname in neededopcodes.items():
+        if opcodename not in installedopcodes:
+            if fix:
+                logger.info(f"Opcode {opcodename} (from plugin {pluginname}) not found, I will"
+                            f"try to install it now")
+                plugin = idx.plugins[pluginname]
+                errmsg = idx.install_plugin(plugin)
+                if errmsg:
+                    logger.error(f"Could not install plugin {pluginname}")
+                    errors.append(errmsg)
+                else:
+                    logger.info(f"Installed {pluginname} OK")
+            else:
+                logger.error(f"Opcode {opcodename} (from plugin {pluginname}) not found!")
+                errors.append(f"Opcode {opcodename} (plugin: {pluginname}) not found")
+    if errors:
+        return "\n".join(errors)
+    return ''
+
+
 def installVampPlugins() -> None:
     """
     Install needed vamp plugins in the user folder
 
     Raises RuntimeError if there was an error during the installation
+
+    To ease the installation maelzel is actually shipped with the needed
+    plugins at the moment. Installation is thus reduced to copying the
+    plugins to the correct folder for the platform
     """
     from maelzel.snd import vamptools
-    rootfolder = Path(os.path.split(__file__)[0]).parent
+    rootfolder = maelzelRootFolder()
     assert rootfolder.exists()
     subfolder = {
         'darwin': 'macos',
@@ -106,11 +155,12 @@ def checkDependencies(abortIfErrors=False, tryfix=True) -> list[str]:
             fixes might require to restart the current python session
 
     Returns:
-        a list of errors (or an empty list if no errors found)
+        a list of errors (or an empty list if no errors where found)
     """
     steps = [
         checkCsound,
         checkLilypond,
+        lambda: checkCsoundPlugins(fix=tryfix),
         lambda: checkVampPlugins(fix=tryfix)
     ]
     errors = []
@@ -128,7 +178,7 @@ def checkDependencies(abortIfErrors=False, tryfix=True) -> list[str]:
             logger.error(f"    {err}")
 
     if not errors:
-        state['last_dependency_check'] = datetime.now().isoformat()
+        _state.state['last_dependency_check'] = datetime.now().isoformat()
 
     return errors
 
@@ -142,8 +192,8 @@ def checkDependenciesIfNeeded(daysSinceLastCheck=1) -> bool:
     Returns:
         True if dependencies are installed
     """
-    timeSincelast_run = datetime.now() - datetime.fromisoformat(state['last_dependency_check'])
-    if timeSincelast_run.days < daysSinceLastCheck:
+    lastcheck = datetime.fromisoformat(_state.state['last_dependency_check'])
+    if (datetime.now() - lastcheck).days < daysSinceLastCheck:
         logger.debug("Dependency check not needed")
         return True
 

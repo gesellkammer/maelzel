@@ -149,6 +149,9 @@ def renderWithActiveWorkspace(parts: List[scoring.Part],
     backend = backend or config['show.backend']
     if scorestruct is None:
         scorestruct = workspace.scorestruct
+    if config['show.hideRedundantDynamics']:
+        for part in parts:
+            scoring.core.removeRedundantDynamics(part)
     return scoring.render.quantizeAndRender(parts,
                                             backend=backend,
                                             struct=scorestruct,

@@ -5,18 +5,20 @@ also makes a representation of the amplitude in terms of musical dynamics
 from __future__ import annotations
 from bisect import bisect as _bisect
 import bpf4
+from dataclasses import dataclass
 from pitchtools import db2amp, amp2db
 from emlib import misc
 from typing import TYPE_CHECKING, NamedTuple
 if TYPE_CHECKING:
-    from typing import *
+    from typing import Union, Callable, Sequence
 
 
-_DYNAMICS = ('pppp', 'ppp', 'pp', 'p', 'mp',
-             'mf', 'f', 'ff', 'fff', 'ffff')
+dynamicSteps = ('pppp', 'ppp', 'pp', 'p', 'mp',
+                'mf', 'f', 'ff', 'fff', 'ffff')
 
 
-class DynamicDescr(NamedTuple):
+@dataclass
+class DynamicDescr:
     shape: str
     mindb: float
     maxdb: float = 0.
@@ -35,6 +37,8 @@ class DynamicCurve:
         dynamics: a list of possible dynamic expressions, ordered from
             soft to loud
 
+    .. seealso:: :meth:`DynamicCurve.fromdescr`
+
     """
     
     def __init__(self, curve: Callable[[float], float], dynamics:Sequence[str] = None):
@@ -43,15 +47,20 @@ class DynamicCurve:
             curve: a bpf mapping 0-1 to amplitude(0-1)
             dynamics: a list of possible dynamics, or None to use the default
 
-        NB: see .fromdescr
+        See Also
+        ~~~~~~~~
+
+        * :meth:`DynamicCurve.fromdescr`
+
         """
-        self.dynamics = misc.astype(tuple, dynamics if dynamics else _DYNAMICS)
+        self.dynamics = misc.astype(tuple, dynamics if dynamics else dynamicSteps)
         bpf = bpf4.asbpf(curve, bounds=(0, 1)).fit_between(0, len(self.dynamics)-1)
-        self._amps2dyns, self._dyns2amps = _create_dynamics_mapping(bpf, self.dynamics)
+        self._amps2dyns, self._dyns2amps = _makeDynamicsMapping(bpf, self.dynamics)
+        self._shape: str = ''
         assert len(self._amps2dyns) == len(self.dynamics)
 
     @classmethod
-    def fromdescr(cls, shape:str='expon(4.0)', mindb=-80.0, maxdb=0.0,
+    def fromdescr(cls, shape:str='expon(0.5)', mindb=-80.0, maxdb=0.0,
                   dynamics:Union[str, Sequence[str]] = None) -> DynamicCurve:
         """
         Creates a DynamicCurve from a shape description
@@ -73,8 +82,38 @@ class DynamicCurve:
         """
         if isinstance(dynamics, str):
             dynamics = dynamics.split()
-        bpf = create_shape(shape, mindb, maxdb)
-        return cls(bpf, dynamics)
+        bpf = createShape(shape, mindb, maxdb)
+        out = cls(bpf, dynamics)
+        out._shape = shape
+        return out
+
+    def __repr__(self) -> str:
+        cls = type(self).__name__
+        if self._shape:
+            mindb, maxdb = self.decibelRange()
+            return f'{cls}(shape={self._shape}, mindb={mindb}, maxdb={maxdb})'
+        else:
+            return f'{cls}(curve={self._dyns2amps}, dynamics={self.dynamics})'
+
+    def decibelRange(self) -> tuple[float, float]:
+        """
+        Return the decibel range of this curve
+
+        Returns:
+            a tuple (mindb, maxdb)
+
+        Example
+        ~~~~~~~
+
+            >>> from maelzel.music import dynamics
+            >>> curve = dynamics.DynamicCurve.fromdescr("expon(0.5)", mindb=-60, maxdb=0)
+            >>> curve.decibelRange()
+            (-60, 0)
+
+        """
+        mindyn = self.dynamics[0]
+        maxdyn = self.dynamics[-1]
+        return self.dyn2db(mindyn), self.dyn2db(maxdyn)
 
     def amp2dyn(self, amp:float, nearest=True) -> str:
         """
@@ -93,7 +132,7 @@ class DynamicCurve:
             return curve[0][1]
         if amp > curve[-1][0]:
             return curve[-1][1]
-        insert_point = _bisect(curve, (amp, None))
+        insert_point = _bisect(curve, (amp, ''))
         if not nearest:
             idx = max(0, insert_point-1)
             return curve[idx][1]
@@ -129,15 +168,84 @@ class DynamicCurve:
             raise ValueError("Dynamic not defined, should be one of %s" % self.dynamics)
 
     def index2dyn(self, idx:int) -> str:
+        """
+        Convert a dynamic index to a dynamic
+
+        Args:
+            idx: the dynamic index
+
+        Returns:
+            the corresponding dynamic as string
+
+        Example
+        ~~~~~~~
+
+            >>> from maelzel.music.dynamics import DynamicCurve
+            >>> curve = DynamicCurve.fromdescr('expon(0.5', dynamics='pp p mf f ff'.split())
+            >>> for i in range(len(curve.dynamics)):
+            ...     print(i, curve.index2dyn(i), curve.index2amp(i)
+            0 	 pp 	 0.0001
+            1 	 p 	     0.01
+            2 	 mf 	 0.06736388483950367
+            3 	 f 	     0.2911398240065722
+            4 	 ff 	 1.0
+        """
         return self.dynamics[idx]
 
     def amp2index(self, amp:float) -> int:
+        """
+        Converts an amplitude (in the range 0-1) to a dynamic index
+        
+        The dynamic index corresponds to the dynamics given when this
+        DynamicCurve was created
+        
+        Args:
+            amp: an amplitude in the range 0-1 
+
+        Returns:
+            the corresponding dynamic index
+            
+        Example
+        ~~~~~~~
+        
+            >>> from maelzel.music.dynamics import DynamicCurve
+            >>> curve = DynamicCurve.fromdescr('expon(0.5)', dynamics='pp p mf f ff'.split())
+            >>> curve.amp2index(0.5)
+            3
+            >>> curve.dynamics[3]
+            'f'
+
+        """
         return self.dyn2index(self.amp2dyn(amp))
 
     def index2amp(self, index:int) -> float:
+        """
+        Convert a dynamic index to an amplitude in the range 0-1
+
+        Args:
+            index: the dynamic index
+
+        Returns:
+            the corresponding amplitude, in a range 0-1
+
+        Example
+        ~~~~~~~
+
+            >>> from maelzel.music.dynamics import DynamicCurve
+            >>> curve = DynamicCurve.fromdescr('expon(0.5', dynamics='pp p mf f ff'.split())
+            >>> for i in range(len(curve.dynamics)):
+            ...     print(i, curve.index2dyn(i), curve.index2amp(i)
+            0 	 pp 	 0.0001
+            1 	 p 	     0.01
+            2 	 mf 	 0.06736388483950367
+            3 	 f 	     0.2911398240065722
+            4 	 ff 	 1.0
+
+
+        """
         return self.dyn2amp(self.index2dyn(index))
 
-    def asdbs(self, step=1) -> List[float]:
+    def asdbs(self, step=1) -> list[float]:
         """
         Convert the dynamics defined in this curve to dBs
         """
@@ -163,13 +271,13 @@ class DynamicCurve:
         plt.show()
 
 
-def _validate_dynamics(dynamics: Sequence[str]) -> None:
-    assert not set(dynamics).difference(_DYNAMICS), \
+def _validateDynamics(dynamics: Sequence[str]) -> None:
+    assert not set(dynamics).difference(dynamicSteps), \
         "Dynamics not understood"
 
 
-def _create_dynamics_mapping(bpf: bpf4.BpfInterface, dynamics:Sequence[str] = None
-                             ) -> Tuple[List[Tuple[float, str]], Dict[str, float]]:
+def _makeDynamicsMapping(bpf: bpf4.BpfInterface, dynamics:Sequence[str] = None
+                         ) -> tuple[list[tuple[float, str]], Dict[str, float]]:
     """
     Calculate the global dynamics table according to the bpf given
 
@@ -182,16 +290,16 @@ def _create_dynamics_mapping(bpf: bpf4.BpfInterface, dynamics:Sequence[str] = No
         and dyns2amps is a dict mapping dyn -> amp
     """
     if dynamics is None:
-        dynamics = _DYNAMICS
+        dynamics = dynamicSteps
     assert isinstance(bpf, bpf4.core.BpfInterface)
-    _validate_dynamics(dynamics)
+    _validateDynamics(dynamics)
     dynamics_table = [(bpf(i), dyn) for i, dyn in enumerate(dynamics)]
     dynamics_dict = {dyn: ampdb for ampdb, dyn, in dynamics_table}
     return dynamics_table, dynamics_dict
 
 
-def create_shape(shape='expon(3)', mindb:Union[int,float]=-90, maxdb:Union[int, float]=0
-                 ) -> bpf4.BpfInterface:
+def createShape(shape='expon(3)', mindb:Union[int, float]=-90, maxdb:Union[int, float]=0
+                ) -> bpf4.BpfInterface:
     """
     Return a bpf mapping 0-1 to amplitudes, as needed by DynamicCurve
 
@@ -200,13 +308,22 @@ def create_shape(shape='expon(3)', mindb:Union[int,float]=-90, maxdb:Union[int, 
         mindb: the min. representable amplitude (in dB)
         maxdb: the max. representable amplitude (in dB)
 
-    If X is dynamic and Y is amplitude, an exponential curve with exp > 1
+    Returns:
+        a bpf mapping the range 0-1 to amplitude following the given shape
+
+    If *x* is dynamic and *y* is amplitude, an exponential curve with exp > 1
     will allocate more dynamics to the soft amplitude range, resulting in more
     resolution for small amplitudes.
-    A curve with exp < 1 will result in more resolution for high dynamics
+    A curve with exp < 1 will result in more resolution for high amplitudes
+
+    .. note::
+
+        If a curve has high resolution for soft amplitudes (meaning that a small variation
+        in amplitude results in high variation in dynamic), soft dynamics will
+        have low resolution (meaning that a high variation in dynamic will have low variation
+        in amplitude) and viceversa
     """
     minamp, maxamp = db2amp(mindb), db2amp(maxdb)
-    return bpf4.util.makebpf(shape, [0, 1], [minamp, maxamp])
+    return bpf4.util.makebpf(shape, [0, 1], [mindb, maxdb]).db2amp()
+    # return bpf4.util.makebpf(shape, [0, 1], [minamp, maxamp])
     
-
-# _default = DynamicCurve(create_shape("expon(4.0)", -80, 0))

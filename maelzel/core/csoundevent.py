@@ -5,15 +5,16 @@ import dataclasses as _dataclasses
 import emlib.mathlib
 import emlib.misc
 
-from ._common import *
 from ._typedefs import *
 from . import _util
 from .workspace import getConfig
 import copy
+
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import *
+    from typing import Iterable, Any, Callable
     import csoundengine.instr
+    from .config import CoreConfig
 
 
 __all__ = (
@@ -21,6 +22,7 @@ __all__ = (
     'CsoundEvent',
     'cropEvents'
 )
+
 
 @dataclass
 class PlayArgs:
@@ -31,38 +33,47 @@ class PlayArgs:
     "extra delay"
 
     chan: int = None
+    """The channel to send output to"""
+
     gain: float = None
-    fade: Union[None, float, Tuple[float, float]] = None
+    """Gain factor"""
+
+    fade: Union[None, float, tuple[float, float]] = None
+    """Fade in / Fade out"""
+
     instr: str = None
+    """Instrument template"""
+
     pitchinterpol: str = None
+    """Pitch interpolation, one of 'linear', 'cos'"""
+
     fadeshape: str = None
-    params: Dict[str, float] = None
-    priority: int = 1
+    """The shape of the fade, one of 'linear', 'cos'"""
+
+    params: dict[str, float] = None
+    """Preset parameters"""
+
+    priority: int = None
+    """Priority to run this event"""
+
     position: float = None
+    """Pan position (between 0-1)"""
+
+    sustain: float = None
+    """Sustain time, an extra time added at the end of the event"""
 
     def __repr__(self) -> str:
         parts = []
-        if self.delay is not None:
-            parts.append(f'delay={self.delay}')
-        if self.gain is not None:
-            parts.append(f'gain={self.gain}')
-        if self.fade is not None:
-            parts.append(f'fade={self.fade}')
-        if self.instr is not None:
-            parts.append(f'instr={self.instr}')
-        if self.fadeshape is not None:
-            parts.append(f'fadeshape={self.fadeshape}')
-        if self.params is not None:
-            parts.append(f'params={self.params}')
-        if self.position is not None:
-            parts.append(f'position={self.position}')
-        if self.priority != 1:
-            parts.append(f'priority={self.priority}')
+        for attr in self.keys():
+            val = getattr(self, attr)
+            if val is not None:
+                parts.append(f'{attr}={val}')
         return f"PlayArgs({', '.join(parts)})"
 
     @staticmethod
-    def keys() -> Set[str]:
-        return {field.name for field in _dataclasses.fields(PlayArgs)}
+    def keys() -> set[str]:
+        return PlayArgs.__dataclass_fields__.keys()
+        # return {field.name for field in _dataclasses.fields(PlayArgs)}
 
     def values(self) -> Iterable:
         return (getattr(self, k) for k in self.keys())
@@ -75,42 +86,87 @@ class PlayArgs:
 
     def hasUndefinedValues(self) -> bool:
         """ Are there any unfilled values in this PlayArgs instance? """
-        return not any(v is None for v in self.asdict().values())
+        return any(getattr(self, attr) is not None for attr in self.keys())
+        # return not any(v is None for v in self.asdict().values())
 
     def clone(self, **kws) -> PlayArgs:
         """ Create a new PlayArgs instance with the attributes
         in kws modified/filled in"""
-        return _dataclasses.replace(self, **kws)
+        out = self.copy()
+        for k, v in kws.items():
+            setattr(out, k, v)
+        return out
+        # return _dataclasses.replace(self, **kws)
 
     def copy(self) -> PlayArgs:
-        return copy.copy(self)
+        return PlayArgs(delay=self.delay,
+                        chan=self.chan,
+                        gain=self.gain,
+                        fade=self.fade,
+                        instr=self.instr,
+                        pitchinterpol=self.pitchinterpol,
+                        fadeshape=self.fadeshape,
+                        params=self.params,
+                        priority=self.priority,
+                        position=self.position,
+                        sustain=self.sustain
+                        )
+        # return copy.copy(self)
 
-    def asdict(self) -> Dict[str, Any]:
+    def asdict(self) -> dict[str, Any]:
         return _dataclasses.asdict(self)
 
+    def _filledWith(self, other: PlayArgs) -> PlayArgs:
+        out = self.copy()
+        out.fillWith(other)
+        return out
+
     def filledWith(self, other: PlayArgs) -> PlayArgs:
-        """
-        Return a new PlayArgs with unset values filled with corresponding
-        values from `other`
-        """
-        a = self.asdict()
-        b = other.asdict()
-        for k, v in a.items():
-            if v is None:
-                a[k] = b[k]
-        return PlayArgs(**a)
+        return PlayArgs(
+            delay = _ if (_:=self.delay) is not None else other.delay,
+            chan = _ if (_:=self.chan) is not None else other.chan,
+            gain = _ if (_:=self.gain) is not None else other.gain,
+            fade = _ if (_:=self.fade) is not None else other.fade,
+            instr = self.instr or other.instr,
+            pitchinterpol = self.pitchinterpol or other.pitchinterpol,
+            fadeshape = self.fadeshape or other.fadeshape,
+            params = self.params or other.params,
+            priority = self.priority or other.priority,
+            position = _ if (_:=self.position) is not None else other.position,
+            sustain = _ if (_:=self.sustain) is not None else other.sustain
+        )
+
+    def _fillWith(self, other: PlayArgs) -> None:
+        for k in PlayArgs.keys():
+            if getattr(self, k) is None:
+                setattr(self, k, getattr(other, k))
 
     def fillWith(self, other: PlayArgs) -> None:
         """
         Fill unset values with values from `other`, inplace
         """
-        a = self.asdict()
-        b = other.asdict()
-        for k, v in a.items():
-            if v is None:
-                setattr(self, k, b[k])
+        if self.delay is None:
+            self.delay = other.delay
+        if self.gain is None:
+            self.gain = other.gain
+        if not self.instr:
+            self.instr = other.instr
+        if self.fade is None:
+            self.fade = other.fade
+        if not self.pitchinterpol:
+            self.pitchinterpol= other.pitchinterpol
+        if not self.fadeshape:
+            self.fadeshape = other.fadeshape
+        if not self.params:
+            self.params = other.params
+        if self.priority is None:
+            self.priority = other.priority
+        if self.position is None:
+            self.position = other.position
+        if self.sustain is None:
+            self.sustain = other.sustain
 
-    def fillWithConfig(self, cfg: dict):
+    def fillWithConfig(self, cfg: CoreConfig):
         """
         Fill unset values with config
 
@@ -132,10 +188,12 @@ class PlayArgs:
             self.priority = 1
         if self.position is None:
             self.position = -1
+        if self.sustain is None:
+            self.sustain = 0.
 
 
-def _interpolateBreakpoints(t: float, bp0: List[float], bp1: List[float]
-                            ) -> List[float]:
+def _interpolateBreakpoints(t: float, bp0: list[float], bp1: list[float]
+                            ) -> list[float]:
     t0, t1 = bp0[0], bp1[0]
     assert t0 <= t <= t1, f"{t0=}, {t=}, {t1=}"
     delta = (t - t0) / (t1 - t0)
@@ -179,24 +237,26 @@ class CsoundEvent:
 
     fadeshapeToInt = {
         'linear': 0,
-        'cos': 1
+        'cos': 1,
+        'scurve': 2,
     }
 
     def __init__(self,
-                 bps: List[Tuple[float, ...]],
+                 bps: list[tuple[float, ...]],
                  delay:float=0.0,
                  chan:int = None,
-                 fade:Union[float, Tuple[float, float]]=None,
+                 fade:Union[float, tuple[float, float]]=None,
                  gain:float = 1.0,
                  instr:str=None,
                  pitchinterpol:str=None,
                  fadeshape:str=None,
-                 params: Dict[str, float] = None,
+                 params: dict[str, float] = None,
                  priority:int=1,
                  position:float = None,
                  numchans: int = None,
                  tiednext=False,
-                 whenfinished: Callable = None):
+                 whenfinished: Callable = None,
+                 sustain: float = 0.):
         """
         bps (breakpoints): a seq of (delay, midi, amp, ...) of len >= 1.
 
@@ -221,20 +281,28 @@ class CsoundEvent:
             raise ValueError(f"A breakpoint should have at least (delay, pitch), "
                              f"but got {bps}")
 
-        bps = _util.carryColumns(bps)
+        bpslen = len(bps[0])
+        if any (len(bp) != bpslen for bp in bps):
+            bps = _util.carryColumns(bps)
         # assert all(isinstance(bp, list) for bp in bps)
         if len(bps[0]) < 3:
-            column = [1] * len(bps)
-            bps = _util.addColumn(bps, column)
-        assert len(bps[0])>= 3
-        assert all(isinstance(bp, (list, tuple)) and len(bp) == len(bps[0]) for bp in bps)
+            raise ValueError("A breakpoint needs to have at least (time, pitch, amp)")
+
         self.bps = bps
         dur = self.bps[-1][0] - self.bps[0][0]
-        fadein, fadeout = _util.normalizeFade(fade, cfg['play.fade'])
+
+        if fade is None:
+            defaultfade = cfg['play.fade']
+            fadein, fadeout = defaultfade, defaultfade
+        elif isinstance(fade, tuple):
+            fadein, fadeout = fade
+        else:
+            fadein = fadeout = fade
+
         self.delay = delay
         self.chan = chan or cfg['play.chan'] or 1
         self.gain = gain or cfg['play.gain']
-        self.fadein = max(fadein, 0.0001)
+        self.fadein = fadein
         self.fadeout = fadeout if dur < 0 else min(fadeout, dur)
         self.instr = instr
         self.pitchInterpolMethod = pitchinterpol or cfg['play.pitchInterpolation']
@@ -281,15 +349,15 @@ class CsoundEvent:
         return self.delay + self.dur
 
     @property
-    def fade(self) -> Tuple[float, float]:
+    def fade(self) -> tuple[float, float]:
         return (self.fadein, self.fadeout)
 
     @fade.setter
-    def fade(self, value: Tuple[float, float]):
+    def fade(self, value: tuple[float, float]):
         self.fadein, self.fadeout = value
 
     @classmethod
-    def fromPlayArgs(cls, bps:List[breakpoint_t], playargs: PlayArgs, **kws
+    def fromPlayArgs(cls, bps:list[breakpoint_t], playargs: PlayArgs, **kws
                      ) -> CsoundEvent:
         """
         Construct a CsoundEvent from breakpoints and playargs
@@ -301,10 +369,22 @@ class CsoundEvent:
         Returns:
             a new CsoundEvent
         """
-        d = _dataclasses.asdict(playargs)
+        d = CsoundEvent(bps=bps,
+                        delay=playargs.delay,
+                        chan=playargs.chan,
+                        fade=playargs.fade,
+                        gain=playargs.gain,
+                        instr=playargs.instr,
+                        pitchinterpol=playargs.pitchinterpol,
+                        fadeshape=playargs.fadeshape,
+                        params=playargs.params,
+                        priority=playargs.priority,
+                        position=playargs.position,
+                        sustain=playargs.sustain)
         if kws:
-            d.update(kws)
-        return cls(bps=bps, **d)
+            for k, v in kws.items():
+                setattr(d, k, v)
+        return d
 
     def _consolidateDelay(self) -> None:
         delay0 = self.bps[0][0]
@@ -330,7 +410,7 @@ class CsoundEvent:
         end -= self.delay
         out = []
         for i in range(len(self.bps)):
-            bp: List[float] = self.bps[i]
+            bp: list[float] = self.bps[i]
             if bp[0] < start:
                 if i < len(self.bps)-1 and start < self.bps[i+1][0]:
                     bp = _interpolateBreakpoints(start, bp, self.bps[i+1])
@@ -383,7 +463,7 @@ class CsoundEvent:
         return "\n".join(lines)
 
     def resolvePfields(self: CsoundEvent, instr: csoundengine.instr.Instr
-                        ) -> List[float]:
+                        ) -> list[float]:
         """
         Returns pfields, **beginning with p2**.
 
@@ -448,9 +528,9 @@ class CsoundEvent:
         return pfields
 
 
-def cropEvents(events: List[CsoundEvent], start: float = None, end: float = None,
+def cropEvents(events: list[CsoundEvent], start: float = None, end: float = None,
                rewind=False
-               ) -> List[CsoundEvent]:
+               ) -> list[CsoundEvent]:
     """
     Crop the events at the given time slice
 

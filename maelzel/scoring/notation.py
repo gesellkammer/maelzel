@@ -8,6 +8,7 @@ import uuid
 from .common import *
 from .util import *
 from . import definitions
+from . import spanner as _spanner
 import pitchtools as pt
 
 
@@ -55,8 +56,8 @@ class Notation:
         gliss: if True, a glissando will be rendered between this note and the next
         notehead: the type of notehead, with the format <notehead> or
             <notehead>.<filled/unfilled>. Examples: "cross", "square.unfilled". If the
-            hotehead is hidden, use 'hidden'
-        noteheadParenthesis: parenthesize notehead
+            hotehead is hidden, use 'hidden'. If the notehead is parenthesized, end
+            the notehead with ?
         instr: the name of the instrument to play this notation, used for playback
         color: the color of this notations
         stem: if given, one of
@@ -79,7 +80,6 @@ class Notation:
                  "groupid",
                  "gliss",
                  "notehead",
-                 "noteheadParenthesis",
                  "accidentalHidden",
                  "accidentalNeeded",
                  "color",
@@ -89,24 +89,24 @@ class Notation:
                  "playbackGain",
                  "properties",
                  "fixedNotenames",
-                 "sizeFactor"
+                 "sizeFactor",
+                 "spanners"
                  )
 
     def __init__(self,
                  duration:time_t = None,
-                 pitches: List[pitch_t] = None,
+                 pitches: list[pitch_t] = None,
                  offset: time_t = None,
                  isRest=False,
                  tiedPrev=False,
                  tiedNext=False,
                  dynamic:str='',
-                 annotations: List[Annotation] = None,
+                 annotations: list[Annotation] = None,
                  articulation: str = '',
-                 durRatios: List[F] = None,
+                 durRatios: list[F] = None,
                  group='',
                  gliss: bool=None,
-                 notehead: str = '',
-                 noteheadParenthesis=False,
+                 notehead: Union[str, list[str]] = '',
                  accidentalHidden=False,
                  accidentalNeeded=True,
                  color='',
@@ -115,11 +115,15 @@ class Notation:
                  priority=0,
                  sizeFactor=1,      # size is relative: 0 is normal, +1 is bigger, -1 is smaller
                  playbackGain:float=None,
-                 properties:Dict[str, Any]=None,
+                 properties:dict[str, Any]=None,
                  ):
 
-        assert not notehead or notehead in definitions.noteheadShapes, \
-            f"Possible noteheads: {definitions.noteheadShapes}"
+        if notehead:
+            if isinstance(notehead, str):
+                assert notehead in definitions.noteheadShapes, f"Possible noteheads: {definitions.noteheadShapes}"
+            elif isinstance(notehead, (list, tuple)):
+                assert all(n in definitions.noteheadShapes
+                           for n in notehead), f"Possible noteheads: {definitions.noteheadShapes}, got {notehead}"
         assert not articulation or articulation in definitions.availableArticulations, \
             f"Available articulations: {definitions.availableArticulations}"
         assert not stem or stem in definitions.stemTypes, \
@@ -128,7 +132,7 @@ class Notation:
             f"Available dynamics: {definitions.availableDynamics}"
 
         self.duration:Optional[F] = None if duration is None else asF(duration)
-        self.pitches: List[float] = [asmidi(p) for p in pitches] if pitches else []
+        self.pitches: list[float] = [asmidi(p) for p in pitches] if pitches else []
         self.offset:Optional[F] = None if offset is None else asF(offset)
         self.isRest = isRest
         if isRest:
@@ -144,7 +148,6 @@ class Notation:
         self.groupid = group
         self.gliss = gliss
         self.notehead = notehead
-        self.noteheadParenthesis = noteheadParenthesis
         self.accidentalHidden = accidentalHidden
         self.accidentalNeeded = accidentalNeeded
         self.color = color
@@ -153,8 +156,10 @@ class Notation:
         self.sizeFactor = sizeFactor
         self.priority = priority
         self.playbackGain = playbackGain
-        self.properties: Optional[Dict[str,Any]] = properties or {}
-        self.fixedNotenames: Optional[Dict[int, str]] = None
+        self.properties: Optional[dict[str,Any]] = properties or {}
+        self.fixedNotenames: Optional[dict[int, str]] = None
+        self.spanners: Optional[list[_spanner.Spanner]] = None
+
         if self.isRest:
             assert self.duration > 0
             assert not self.pitches or (len(self.pitches) == 1 and self.pitches[0] == 0)
@@ -163,6 +168,21 @@ class Notation:
             for i, n in enumerate(pitches):
                 if isinstance(n, str):
                     self.fixNotename(n, i)
+
+    def addSpanner(self, spanner: _spanner.Spanner):
+        if self.spanners is None:
+            self.spanners = []
+        self.spanners.append(spanner)
+        self.spanners.sort(key=lambda spanner: spanner.priority())
+
+    def startSlur(self) -> str:
+        slur = _spanner.Slur(kind='start')
+        self.addSpanner(slur)
+        return slur.uuid
+
+    def endSlur(self, uuid: str) -> None:
+        slur = _spanner.Slur(kind='end', uuid=uuid)
+        self.addSpanner(slur)
 
     def fixNotename(self, notename:str= '', idx:int=0) -> None:
         """
@@ -199,6 +219,7 @@ class Notation:
         if self.fixedNotenames:
             return self.fixedNotenames.get(idx)
 
+    @property
     def isGraceNote(self) -> bool:
         return self.duration == 0
 
@@ -228,7 +249,7 @@ class Notation:
             return self.offset + self.duration
         return None
 
-    def _setPitches(self, pitches: List[pitch_t]) -> None:
+    def _setPitches(self, pitches: list[pitch_t]) -> None:
         self.pitches = [asmidi(p) for p in pitches] if pitches else []
         for i, n in enumerate(pitches):
             if isinstance(n, str):
@@ -314,7 +335,7 @@ class Notation:
         return pt.notated_pitch(notename).microtone_index(divs_per_semitone=semitoneDivs)
 
     @property
-    def notenames(self) -> List[str]:
+    def notenames(self) -> list[str]:
         return [self.getFixedNotename(i) or pt.m2n(p) for i, p in enumerate(self.pitches)]
 
     def verticalPosition(self, index=0) -> int:
@@ -405,6 +426,54 @@ class Notation:
             return default
         return self.properties.get(key, default)
 
+    def setClefHint(self, clef: str, idx: int = None) -> None:
+        """
+        Sets a hint regarding which clef to use for this notation
+
+        .. warning::
+
+            This is mostly used internally and is an experimental feature.
+            It is conceived for the case where two notations
+            are bound by a glissando and they should be placed together,
+            even if the pitch of some of them might indicate otherwise
+
+        Args:
+            clef: the clef to set, one of 'g', 'f' or '15a'
+            idx: the index of the pitch within a chord, or None to apply to
+                the whole notation
+
+        """
+        if idx is None:
+            self.setProperty('clefHint', clef)
+        else:
+            hint = self.getProperty('clefHint', {})
+            hint[idx] = clef
+            self.setProperty('clefHint', hint)
+
+    def getClefHint(self, idx: int = 0) -> Optional[str]:
+        """
+        Get any clef hint for this notation or a particular pitch thereof
+
+        .. warning::
+
+            This is mostly used internally and is an experimental feature which
+            might be implemented using other means in the future
+
+        Args:
+            idx: which pitch index to query
+
+        Returns:
+            the clef hint, if any
+
+        """
+        hints = self.getProperty('clefHint')
+        if not hints:
+            return None
+        elif isinstance(hints, str):
+            return hints
+        else:
+            return hints.get(idx)
+
     def __repr__(self):
         info = []
         if self.offset is None:
@@ -429,14 +498,19 @@ class Notation:
                 info.append(self.notenames[0])
             if self.gliss:
                 info.append("gliss")
+        if self.dynamic:
+            info.append(self.dynamic)
         if self.groupid:
             if len(self.groupid) < 6:
                 info.append(f"group={self.groupid}")
             else:
                 info.append(f"group={self.groupid[:8]}…")
 
-        if self.properties:
-            info.append(f"properties={self.properties}")
+        for attr in ('properties', 'spanners', 'annotations', 'color',
+                     'articulation', 'notehead'):
+            val = getattr(self, attr)
+            if val:
+                info.append(f"{attr}={val}")
 
         infostr = " ".join(info)
         return f"«{infostr}»"
@@ -444,32 +518,9 @@ class Notation:
     def transferAttributesTo(self: Notation, dest: Notation) -> None:
         """
         Copy attributes of self to dest
-
-        duration:time_t = None,
-                 pitches: List[pitch_t] = None,
-                 offset: time_t = None,
-                 isRest=False,
-                 tiedPrev=False,
-                 tiedNext=False,
-                 dynamic:str='',
-                 annotations: List[Annotation] = None,
-                 articulation: str = '',
-                 durRatios: List[F] = None,
-                 group='',
-                 gliss: bool=None,
-                 notehead: str = '',
-                 noteheadParenthesis=False,
-                 accidentalHidden=False,
-                 accidentalNeeded=True,
-                 color='',
-                 stem='',
-                 instr='',
-                 priority=0,
-                 sizeFactor=1,      # size is relative: 0 is normal, +1 is bigger, -1 is smaller
-                 playbackGain:float=None,
-                 properties:Dict[str, Any]=None,
         """
-        exclude = {'duration', 'pitches', 'offset', 'durRatios', 'group', 'annotations', 'properties'}
+        exclude = {'duration', 'pitches', 'offset', 'durRatios', 'group',
+                   'annotations', 'properties'}
         for attr in self.__slots__:
             if attr not in exclude:
                 setattr(dest, attr, getattr(self, attr))
@@ -504,6 +555,16 @@ class Notation:
         notated = pt.notated_pitch(n)
         return notated.alteration_direction(min_alteration=min_alteration)
 
+    def getNoteheads(self) -> list[str]:
+        noteheads = self.notehead
+        if not noteheads:
+            noteheads = [''] * len(self.pitches)
+        elif isinstance(noteheads, str):
+            noteheads = [noteheads] * len(self.pitches)
+        else:
+            assert isinstance(noteheads, list) and len(noteheads) == len(self.pitches)
+        return noteheads
+
 
 def mergeNotations(a: Notation, b: Notation) -> Notation:
     """
@@ -525,6 +586,9 @@ def mergeNotations(a: Notation, b: Notation) -> Notation:
     assert b.offset is None or (a.end == b.offset)
     out = a.clone(duration=a.duration + b.duration,
                   tiedNext=b.tiedNext)
+    #if b.spanners:
+    #    for spanner in b.spanners:
+    #        a.addSpanner(spanner)
     return out
 
 
@@ -544,7 +608,8 @@ def makeGroupId(parent=None) -> str:
 def makeNote(pitch:pitch_t, duration:time_t = None, offset:time_t = None,
              annotation:str=None, gliss=False, withId=False,
              gracenote=False, enharmonicSpelling: str = None,
-             **kws) -> Notation:
+             dynamic: str = '', **kws
+             ) -> Notation:
     """
     Utility function to create a note Notation
 
@@ -560,6 +625,7 @@ def makeNote(pitch:pitch_t, duration:time_t = None, offset:time_t = None,
             can be used to mark multiple notes as belonging to a same group
         gracenote: make this a grace note.
         enharmonicSpelling: if given, this spelling of pitch will be used
+        dynamic: a dynamic such as 'p', 'mf', 'ff', etc.
         **kws: any keyword accepted by Notation
 
     Returns:
@@ -570,8 +636,8 @@ def makeNote(pitch:pitch_t, duration:time_t = None, offset:time_t = None,
     else:
         duration = asF(duration) if duration is not None else None
     offset = asF(offset) if offset is not None else None
-    assert 'isRest' not in kws
-    out = Notation(pitches=[pitch], duration=duration, offset=offset, gliss=gliss, **kws)
+    out = Notation(pitches=[pitch], duration=duration, offset=offset, gliss=gliss,
+                   dynamic=dynamic, **kws)
     assert not out.isRest
     if annotation:
         out.addAnnotation(annotation)
@@ -582,8 +648,9 @@ def makeNote(pitch:pitch_t, duration:time_t = None, offset:time_t = None,
     return out
 
 
-def makeChord(pitches: List[pitch_t], duration:time_t=None, offset:time_t=None,
-              annotation:str=None, **kws) -> Notation:
+def makeChord(pitches: list[pitch_t], duration:time_t=None, offset:time_t=None,
+              annotation:str=None, dynamic='', **kws
+              ) -> Notation:
     """
     Utility function to create a chord Notation
 
@@ -594,6 +661,7 @@ def makeChord(pitches: List[pitch_t], duration:time_t=None, offset:time_t=None,
             use 0 to create a grace note
         offset: the offset of this Notation (None to leave unset)
         annotation: a text annotation
+        dynamic: a dynamic for this chord
         **kws: any keyword accepted by Notation
 
     Returns:
@@ -602,7 +670,8 @@ def makeChord(pitches: List[pitch_t], duration:time_t=None, offset:time_t=None,
     duration = asF(duration) if duration is not None else None
     offset = asF(offset) if offset is not None else None
     midinotes = [asmidi(pitch) for pitch in pitches]
-    out = Notation(pitches=midinotes, duration=duration, offset=offset, **kws)
+    out = Notation(pitches=midinotes, duration=duration, offset=offset,
+                   dynamic=dynamic, **kws)
     if annotation:
         if isinstance(annotation, str) and annotation.isspace():
             logger.warning("Trying to add an empty annotation")

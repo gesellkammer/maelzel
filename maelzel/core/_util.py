@@ -4,21 +4,18 @@ Internal utilities
 from __future__ import annotations
 from typing import TYPE_CHECKING
 from functools import cache
-import PIL
 import sys
 import os
 import bpf4 as bpf
 import pitchtools as pt
 from dataclasses import dataclass
-from . import symbols as _symbols
+from maelzel.rational import Rat
 from . import environment
 
-
 if TYPE_CHECKING:
-    from typing import *
+    from typing import Union, Optional, TypeVar, Sequence
     from ._typedefs import *
     T = TypeVar("T")
-    from maelzel import scoring
 
 
 @cache
@@ -67,63 +64,16 @@ def pngShow(pngpath:str, forceExternal=False, app:str='') -> None:
         environment.openPngWithExternalApplication(pngpath, app=app)
 
 
-
-def imgSize(path:str) -> Tuple[int, int]:
-    """ returns (width, height) """
-    im = PIL.Image.open(path)
-    return im.size
-
-
 def showTime(f) -> str:
     if f is None:
         return "None"
     return f"{float(f):.3g}"
 
 
-def addColumn(mtx: Union[List[List[T]], List[Tuple[T]]], col: List[T], inplace=False) -> List[List[T]]:
-    """
-    Add a column to a list of lists/tuples
-
-    Args:
-        mtx: a matrix (a list of lists)
-        col: a list of elements to add as a new column to mtx
-        inplace: add the elements in place or create a new matrix
-
-    Returns:
-        if inplace, returns the old matrix, otherwise a new matrix
-
-    Example::
-
-        mtx = [[1,   2,  3],
-               [11, 12, 13],
-               [21, 22, 23]]
-
-        addColumn(mtx, [4, 14, 24])
-
-        [[1,   2,  3,  4],
-          11, 12, 13, 14],
-          21, 22, 23, 24]]
-
-    """
-    if isinstance(mtx[0], list):
-        if not inplace:
-            return [row + [elem] for row, elem in zip(mtx, col)]
-        else:
-            for row, elem in zip(mtx, col):
-                row.append(elem)
-            return mtx
-    elif isinstance(mtx[0], tuple):
-        if inplace:
-            raise ValueError("Can't add a column in place, since each row is tuple"
-                             " and tuples are not mutable")
-        return [row+(item,) for row, item in zip(mtx, col)]
-    else:
-        raise TypeError(f"mtx should be a seq. of lists, or tuples, "
-                        f"got {mtx} ({type(mtx[0])})")
-
-
 def carryColumns(rows: list, sentinel=None) -> list:
     """
+    Carries values from one row to the next, if needed
+
     Converts a series of rows with possibly unequal number of elements per row
     so that all rows have the same length, filling each new row with elements
     from the previous, if they do not have enough elements (elements are "carried"
@@ -143,14 +93,14 @@ def carryColumns(rows: list, sentinel=None) -> list:
     return outrows[1:]
 
 
-def as2dlist(rows) -> List[list]:
+def as2dlist(rows) -> list[list]:
     return [row if isinstance(row, list) else list(row)
             for row in rows]
 
 
 def normalizeFade(fade: fade_t,
                   defaultfade: float
-                  ) -> Tuple[float, float]:
+                  ) -> tuple[float, float]:
     """ Returns (fadein, fadeout) """
     if fade is None:
         fadein, fadeout = defaultfade, defaultfade
@@ -168,7 +118,7 @@ def normalizeFilename(path: str) -> str:
     return os.path.expanduser(path)
 
 
-def midinotesNeedSplit(midinotes: List[float], splitpoint=60, margin=4
+def midinotesNeedSplit(midinotes: list[float], splitpoint=60, margin=4
                        ) -> bool:
     if len(midinotes) == 0:
         return False
@@ -296,8 +246,6 @@ def asmidi(x) -> float:
     elif isinstance(x, (int, float)):
         assert 0<=x<=200, f"Expected a midinote (0-127) but got {x}"
         return x
-    elif hasattr(x, 'midi'):
-        return x.pitch
     raise TypeError(f"Expected a str, a Note or a midinote, got {x}")
 
 
@@ -333,8 +281,8 @@ class NoteComponent:
     ampgroup: int
 
 
-def splitByAmp(midis: List[float], amps:List[float], numGroups=8, maxNotesPerGroup=8
-               ) -> List[List[NoteComponent]]:
+def splitByAmp(midis: list[float], amps:list[float], numGroups=8, maxNotesPerGroup=8
+               ) -> list[list[NoteComponent]]:
     """
     split the notes by amp into groups (similar to a histogram based on amplitude)
 
@@ -352,7 +300,7 @@ def splitByAmp(midis: List[float], amps:List[float], numGroups=8, maxNotesPerGro
     for midi, amp in zip(midis, amps):
         db = pt.amp2db(amp)
         notes.append(NoteComponent(pt.m2n(midi), midi, pt.m2f(midi), db, int(step(db))))
-    chords: List[List[NoteComponent]] = [[] for _ in range(numGroups)]
+    chords: list[list[NoteComponent]] = [[] for _ in range(numGroups)]
     notes2 = sorted(notes, key=lambda n: n[3], reverse=True)
     for note in notes2:
         chord = chords[note[4]]
@@ -363,24 +311,123 @@ def splitByAmp(midis: List[float], amps:List[float], numGroups=8, maxNotesPerGro
     return chords
 
 
-def applySymbols(symbols: List[_symbols.Symbol],
-                 notations: Union[scoring.Notation, List[scoring.Notation]]
-                 ) -> None:
-    for symbol in symbols:
-        if isinstance(symbol, _symbols.Dynamic):
+@dataclass
+class NoteProperties:
+    """
+    Represents the parsed properties of a note, as returned by :func:`parseNote`
 
-            notations[0].dynamic = symbol.kind
-        elif isinstance(symbol, _symbols.Notehead):
-            for n in notations:
-                if symbol.kind:
-                    n.notehead = symbol.kind
-                if symbol.color:
-                    n.color = symbol.color
-                n.noteheadParenthesis = symbol.parenthesis
-        elif isinstance(symbol, _symbols.Articulation):
-            notations[0].articulation = symbol.kind
-        elif isinstance(symbol, _symbols.Expression):
-            notations[0].addAnnotation(symbol.text)
+    The format to parse is Pitch[:dur][:property1][...]
+
+    .. seealso:: :func:`parseNote`
+    """
+    pitch: Union[str, list[str]]
+    """A pitch or a list of pitches"""
+
+    dur: Optional[Rat]
+    """An optional duration"""
+
+    properties: Optional[dict[str, str]]
+    """Any other properties"""
+
+
+_dotRatios = [1, Rat(3, 2), Rat(7, 4), Rat(15, 8), Rat(31, 16)]
+
+
+def _parseSymbolicDuration(s: str) -> Rat:
+    if not s.endswith("."):
+        return Rat(4, int(s))
+    dots = s.count(".")
+    s = s[:-dots]
+    ratio = _dotRatios[dots]
+    return Rat(4, int(s)) * ratio
+
+
+def parseNote(s: str) -> NoteProperties:
+    """
+    Parse a note definition string with optional duration and other properties
+
+    ================================== ============= ====  ===========
+    Note                               Pitch         Dur   Properties
+    ================================== ============= ====  ===========
+    ``4c#``                            ``4C#``       None  None
+    ``4F+:0.5``                        ``4F+``       0.5   None
+    ``4G:1/3``                         ``4G``        1/3   None
+    ``4Bb-:mf``                        ``4B-``       None  ``{'dynamic':'mf'}``
+    ``4G-:0.4:ff:articulation=accent`` ``4G-``       0.4   ``{'dynamic':'ff', 'articulation':'accent'}``
+    ``4F#,4A``                         ``[4F#, 4A]`` None  None
+    ``4G:^``                           ``4G``        None  ``{'articulation': 'accent'}`
+    ================================== ============= ====  ===========
+
+
+    Args:
+        s: the note definition to parse
+
+    Returns:
+        a NoteProperties object with the result
+
+    4C#~
+    """
+    dur, properties = None, None
+    if ":" not in s:
+        if "/" in s:
+            # 4Eb/8. -> 4Eb, dur=0.75
+            pitch, symbolicdur = s.split("/")
+            dur = _parseSymbolicDuration(symbolicdur)
+        else:
+            pitch = s
+    else:
+        pitch, rest = s.split(":", maxsplit=1)
+        properties = {}
+        if "/" in pitch:
+            # 4Eb/8  = 4Eb, dur=0.5
+            pitch, symbolicdur = pitch.split("/")
+            dur = _parseSymbolicDuration(symbolicdur)
+
+        if pitch[-1] == "~":
+            properties['tied'] = True
+            pitch = pitch[:-1]
+
+        parts = rest.split(":")
+        for part in parts:
+            try:
+                dur = Rat(part)
+            except ValueError:
+                if part in _knownDynamics:
+                    properties['dynamic'] = part
+                elif part == 'gliss':
+                    properties['gliss'] = True
+                elif part == 'tied':
+                    properties['tied'] = True
+                elif "=" in part:
+                    key, value = part.split("=", maxsplit=1)
+                    properties[key] = value
+        if not properties:
+            properties = None
+    notename = [p.strip() for p in pitch.split(",",)] if "," in pitch else pitch
+    return NoteProperties(pitch=notename, dur=dur, properties=properties)
+
+
+_knownDynamics = {
+    'pppp', 'ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'ffff', 'n'
+}
+
+
+
+def _highlightLilypond(s: str) -> str:
+    # TODO
+    return s
+
+
+def showLilypondScore(score: str) -> None:
+    """
+    Display a lilypond score, either at the terminal or within a notebook
+
+    Args:
+        score: the score as text
+    """
+    # TODO: add highlighting, check if inside jupyter, etc.
+    print(score)
+    return
 
 
 

@@ -8,4 +8,6 @@ from maelzel.scorestruct import ScoreStruct
 
 from .config import rootConfig
 
-logger.setLevel(rootConfig['logger.level'])
+from maelzel.rational import Rat
+
+# logger.setLevel(rootConfig['logger.level'])

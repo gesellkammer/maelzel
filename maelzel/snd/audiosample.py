@@ -461,20 +461,19 @@ class Sample:
             maxwidth = config['reprhtml_audiotag_maxwidth']
             # embed short audiofiles, the longer ones are written to disk and read
             # from there
-            if self.duration < 60:
+            if self.duration < 2:
                 audioobj = IPython.display.Audio(self.samples.T, rate=self.sr)
                 audiotag = audioobj._repr_html_()
             else:
                 os.makedirs('tmp', exist_ok=True)
                 outfile = tempfile.mktemp(dir="tmp", suffix='.mp3')
-                self.write(outfile)
+                self.write(outfile, overflow='normalize')
                 _sessionTempfiles.append(outfile)
                 audioobj = IPython.display.Audio(outfile)
                 audiotag = audioobj._repr_html_()
             audiotag = audiotag.replace('audio  controls="controls"',
                                         fr'audio controls style="width: {audiotag_width}; max-width: {maxwidth};"')
-            s += "<br>"
-            s += audiotag
+            s += "<br>" + audiotag
         self._reprHtml = s
         return s
 
