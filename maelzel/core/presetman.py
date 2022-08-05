@@ -21,7 +21,7 @@ from . import _dialogs
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
-    from .csoundevent import CsoundEvent
+    from .synthevent import SynthEvent
 
 import watchdog.events
 from watchdog.observers import Observer as _WatchdogObserver
@@ -512,11 +512,11 @@ class PresetManager:
             from IPython.core.display import display, HTML
             display(HTML("\n".join(htmls)))
 
-    def eventMaxNumChannels(self, event: CsoundEvent) -> int:
+    def eventMaxNumChannels(self, event: SynthEvent) -> int:
         """
         Number of channels needed to play the event
 
-        Given a CsoundEvent, which defines a base channel (.chan)
+        Given a SynthEvent, which defines a base channel (.chan)
         calculate the number of channels needed to render/play
         this event, based on the number of outputs declared by
         the used preset
@@ -580,16 +580,16 @@ class PresetManager:
         return outpath
 
     def makeRenderer(self,
-                     sr:int=None,
-                     nchnls:int=None,
-                     ksmps=None
+                     sr: int = None,
+                     numChannels: int = None,
+                     ksmps: int = None
                      ) -> csoundengine.Renderer:
         """
         Make an offline Renderer from instruments defined here
 
         Args:
             sr: the sr of the renderer
-            nchnls: the number of channels
+            numChannels: the number of channels
             ksmps: if not explicitely set, will use config 'rec.ksmps'
 
         Returns:
@@ -598,11 +598,12 @@ class PresetManager:
         config = getConfig()
         sr = sr or config['rec.sr']
         ksmps = ksmps or config['rec.ksmps']
-        nchnls = nchnls or config['rec.nchnls']
-        state = getWorkspace()
-        renderer = csoundengine.Renderer(sr=sr, nchnls=nchnls, ksmps=ksmps,
-                                         a4=state.a4)
+        numChannels = numChannels or config['rec.numChannels']
+        workspace = getWorkspace()
+        renderer = csoundengine.Renderer(sr=sr, nchnls=numChannels, ksmps=ksmps,
+                                         a4=workspace.a4)
         renderer.addGlobalCode(_csoundPrelude)
+
         # Define all instruments
         for presetdef in self.presetdefs.values():
             instr = presetdef.getInstr()

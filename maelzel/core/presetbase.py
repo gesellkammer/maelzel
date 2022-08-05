@@ -189,7 +189,7 @@ class PresetDef:
     Normally a user does not create a PresetDef directly. A PresetDef is created
     when calling :func:`~maelzel.core.presetman.defPreset` .
     
-    A Preset is aware the pitch and amplitude of a CsoundEvent and generates all the
+    A Preset is aware the pitch and amplitude of a SynthEvent and generates all the
     interface code regarding play parameters like panning position, fadetime, 
     fade shape, gain, etc. The user only needs to define the audio generating code and
     any init code needed (global code needed by the instrument, like soundfiles which 

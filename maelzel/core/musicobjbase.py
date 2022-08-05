@@ -39,8 +39,8 @@ import csoundengine
 from maelzel.common import asmidi
 from ._common import *
 from .config import CoreConfig
-from .workspace import Workspace, getWorkspace, getConfig, getScoreStruct
-from . import play
+from .workspace import Workspace, getConfig, getScoreStruct
+from . import playback
 from . import environment
 from . import symbols as _symbols
 from . import notation
@@ -50,7 +50,7 @@ from maelzel.rational import Rat
 import maelzel.music.m21tools as m21tools
 from maelzel import scoring
 
-from .csoundevent import PlayArgs, CsoundEvent, cropEvents
+from .synthevent import PlayArgs, SynthEvent, cropEvents
 from maelzel.scorestruct import ScoreStruct
 
 from typing import TYPE_CHECKING
@@ -58,7 +58,7 @@ if TYPE_CHECKING:
     from typing import Union, Optional, Any, TypeVar, Callable
     from ._typedefs import *
     T = TypeVar('T', bound='MusicObj')
-    from .play import OfflineRenderer
+    from .playback import OfflineRenderer
 
 _playkeys = PlayArgs.keys()
 
@@ -163,12 +163,11 @@ class MusicObj:
         Returns:
             the resolved start time, in quarter notes
         """
-        start = self.start
-        return start if start is not None else Rat(0)
+        return self.start if self.start is not None else Rat(0)
 
-    def resolvedDuration(self) -> Rat:
+    def resolvedDur(self, start: time_t = None) -> Rat:
         """
-        The explicit duration or a default duration
+        The explicit duration or a default duration, in quarternotes
 
         If this object has an explicitely set duration, this method returns
         that, otherwise returns a default duration. Child
@@ -193,8 +192,8 @@ class MusicObj:
         """
         if self.dur is not None and self.start is not None:
             return self
-        dur = self.resolvedDuration()
         start = asRat(firstval(start, self.start, Rat(0)))
+        dur = self.resolvedDur(start)
         return self.clone(dur=dur, start=start)
 
     @property
@@ -242,7 +241,7 @@ class MusicObj:
             # Create a note with predetermined instr and panning position
             >>> note = Note("C4+25", dur=0.5).setPlay(instr="piano", position=1)
             # When .play is called, the note will play with the preset instr and position
-            >>> note.play()
+            >>> note.playgroup()
         """
         playargs = self.playargs
         for k, v in kws.items():
@@ -253,11 +252,15 @@ class MusicObj:
         assert self._playargs is not None
         return self
 
-    def clone(self: T, start: Rat = UNSET, **kws) -> T:
+    def clone(self: T,
+              start: Union[Rat, None, UNSET] = UNSET,
+              **kws) -> T:
         """
         Clone this object, changing parameters if needed
 
         Args:
+            start: the start of this object (use None to erase an already
+                set start, leave as UNSET to use the object's start)
             **kws: any keywords passed to the constructor
 
         Returns:
@@ -648,10 +651,13 @@ class MusicObj:
                                       width=f'{int(width * scaleFactor)}px')
         return img
 
+    def _repr_html_header(self):
+        return _html.escape(repr(self))
+
     def _repr_html_(self) -> str:
         img = self._htmlImage()
-        txt = _html.escape(repr(self))
-        return rf"<code>{txt}</code><br>" + img
+        txt = self._repr_html_header()
+        return rf'<code style="font-size:0.9em">{txt}</code><br>' + img
 
     def dump(self, indents=0):
         """
@@ -661,10 +667,10 @@ class MusicObj:
         if self._playargs:
             print(f'{"  "*(indents+1)}{self.playargs}')
 
-    def _csoundEvents(self, playargs: PlayArgs, workspace: Workspace,
-                      ) -> list[CsoundEvent]:
+    def _synthEvents(self, playargs: PlayArgs, workspace: Workspace,
+                     ) -> list[SynthEvent]:
         """
-        Must be overriden by each class to generate CsoundEvents
+        Must be overriden by each class to generate SynthEvents
 
         Args:
             playargs: a :class:`PlayArgs`, structure, filled with given values,
@@ -673,52 +679,68 @@ class MusicObj:
                 configuration and a mapping between dynamics and amplitudes
 
         Returns:
-            a list of :class:`CsoundEvent`s
+            a list of :class:`SynthEvent`s
         """
         raise NotImplementedError("Subclass should implement this")
 
-    def events(self, workspace: Workspace=None, instr: str=None,
-               **kws
-               ) -> list[CsoundEvent]:
+    def events(self,
+               instr: str = None,
+               delay: float = None,
+               params: dict[str, float] = None,
+               gain: float = None,
+               chan: int = None,
+               pitchinterpol: str = None,
+               fade: Union[float, tuple[float, float]] = None,
+               fadeshape: str = None,
+               position: float = None,
+               start: float = None,
+               end: float = None,
+               sustain: float = None,
+               workspace: Workspace = None
+               ) -> list[SynthEvent]:
         """
-        Returns the CsoundEvents needed to play this object
+        Returns the SynthEvents needed to play this object
 
         All these attributes here can be set previously via `playargs` (or
         using :meth:`MusicObj.setPlay`)
 
         Args:
-            scorestruct: the :class:`ScoreStructure` used to map beat-time to
-                real-time. If not given the current/default :class:`ScoreStructure`
-                is used.
-            config: the configuration used (see :func:`maelzel.core.workspace.newConfig`)
-            instr: the instrument preset to use, '?' to select from o list or None to use
-                the default
-            kws: see below
-
-        Keywords arguments:
-
-        - delay: A delay, if defined, is added to the start time.
-        - chan: the chan to play (or rec) this object
-        - gain: gain modifies .amp
-        - fade: fadetime or (fadein, fadeout)
-        - instr: the name of the instrument
-        - pitchinterpol: 'linear' or 'cos'
-        - fadeshape: 'linear' or 'cos'
-        - position: the panning position (0=left, 1=right). The left channel
-          is determined by chan
-        - params: any params needed to pass to the instrument
+            gain: modifies the own amplitude for playback/recording (0-1)
+            delay: delay in seconds, added to the start of the object
+                As opposed to the .start attribute of each object, which is defined
+                in symbolic (beat) time, the delay is always in real (seconds) time
+            instr: which instrument to use (see defPreset, definedPresets). Use "?" to
+                select from a list of defined presets.
+            chan: the channel to output to. **Channels start at 1**
+            pitchinterpol: 'linear', 'cos', 'freqlinear', 'freqcos'
+            fade: fade duration in seconds, can be a tuple (fadein, fadeout)
+            fadeshape: 'linear' | 'cos'
+            params: paramaters passed to the note through an associated table.
+                A dict paramName: value
+            position: the panning position (0=left, 1=right)
+            start: start playback at the given offset (in quarternotes). Allows to play
+                a fragment of the object (NB: this trims the playback of the object.
+                Use `delay` to offset the playback in time while keeping the playback time
+                unmodified)
+            end: end time of playback, in quarternotes. Allows to play a fragment of the object by trimming the end of the playback
+            sustain: a time added to the playback events to facilitate overlapping/legato between
+                notes, or to allow one-shot samples to play completely without being cropped.
+            workspace: a Workspace. If given, overrides the current workspace. It's scorestruct
+                is used to to determine the mapping between beat-time and real-time.
 
         Returns:
-            A list of :class:`CsoundEvent`s
+            A list of SynthEvents (see :class:`SynthEvent`)
 
-        Example::
+        Example
+        ~~~~~~~
 
             >>> from maelzel.core import *
             >>> n = Note(60, dur=1).setPlay(instr='piano')
             >>> n.events(gain=0.5)
-            [CsoundEvent(delay=0.000, gain=0.5, chan=1, fade=(0.02, 0.02), instr=piano)
+            [SynthEvent(delay=0.000, gain=0.5, chan=1, fade=(0.02, 0.02), instr=piano)
              bps 0.000s:  60, 1.000000
                  1.000s:  60, 1.000000]
+            >>> play(n.events(chan=2))
 
         """
         if instr == "?":
@@ -726,12 +748,27 @@ class MusicObj:
             instr = presetManager.selectPreset()
             if not instr:
                 raise ValueError("No preset selected")
-        playargs = PlayArgs(instr=instr, **kws)
+        playargs = PlayArgs(instr=instr,
+                            delay=delay,
+                            gain=gain,
+                            fade=fade,
+                            pitchinterpol=pitchinterpol,
+                            fadeshape=fadeshape,
+                            params=params,
+                            position=position,
+                            sustain=sustain,
+                            chan=chan
+                            )
         if workspace is None:
             workspace = Workspace.active
         if struct:=self.attachedScoreStruct():
             workspace = workspace.clone(scorestruct=struct)
-        events = self._csoundEvents(playargs, workspace)
+        events = self._synthEvents(playargs, workspace)
+        if start is not None or end is not None:
+            scorestruct = self.attachedScoreStruct() or workspace.scorestruct
+            starttime = None if start is None else scorestruct.beatToTime(start)
+            endtime = None if end is None else scorestruct.beatToTime(end)
+            events = cropEvents(events, start=starttime, end=endtime, rewind=True)
         return events
 
     def play(self,
@@ -785,18 +822,39 @@ class MusicObj:
         Returns:
             A :class:`~csoundengine.synth.SynthGroup`
 
-        Example::
+
+        .. seealso::
+            * :meth:`MusicObj.events`
+            * :meth:`MusicObj.rec`
+            * :func:`~maelzel.core.playback.render`,
+            * :class:`~maelzel.core.playbakc.playgroup`
+
+
+        Example
+        ~~~~~~~
+
+        Play a note
 
             >>> from maelzel.core import *
-            >>> # play a note
             >>> note = Note(60).play(gain=0.1, chan=2)
 
-            >>> # record offline
-            >>> with play.OfflineRenderer("out.wav", sr=44100) as r:
+        Play multiple objects synchronised
+
+            >>> with playgroup():
+            ...     Note(60, 1.5).play(gain=0.1, position=0.5)
+            ...     Chord("4E 4G", 2, start=1.2).play(instr='piano')
+            ...     ...
+
+
+        Render offline
+
+            >>> with render("out.wav", sr=44100) as r:
             ...     Note(60, 5).play(gain=0.1, chan=2)
-            ...     # ... other objects.play(...)
-            ...     # r.sched()
+            ...     Chord("4E 4G", 3).play(instr='piano')
         """
+        if workspace is None:
+            workspace = Workspace.active
+
         events = self.events(delay=delay,
                              chan=chan,
                              fade=fade,
@@ -807,24 +865,19 @@ class MusicObj:
                              params=params,
                              position=position,
                              sustain=sustain,
-                             workspace=workspace)
-        if start is not None or end is not None:
-            scorestruct = self.attachedScoreStruct()
-            if not scorestruct:
-                scorestruct = (workspace or Workspace.active).scorestruct
-            starttime = None if start is None else scorestruct.beatToTime(start)
-            endtime = None if end is None else scorestruct.beatToTime(end)
-            events = cropEvents(events, start=starttime, end=endtime, rewind=True)
+                             workspace=workspace,
+                             start=start,
+                             end=end)
 
         if not events:
-            return csoundengine.synth.SynthGroup([play._dummySynth()])
+            return csoundengine.synth.SynthGroup([playback._dummySynth()])
 
-        if (renderer:=Workspace.active.renderer) is not None:
+        if (renderer:=workspace.renderer) is not None:
             # schedule offline
             for ev in events:
                 renderer.schedEvent(ev)
         else:
-            return play.playEvents(events, whenfinished=whenfinished)
+            return playback._playFlatEvents(events, whenfinished=whenfinished)
 
     def rec(self,
             outfile: str = None,
@@ -866,7 +919,7 @@ class MusicObj:
         Returns:
             the offline renderer used. If no outfile was given it is possible to
             access the renderer soundfile via
-            :meth:`OfflineRenderer.lastOutfile() <maelzel.core.play.OfflineRenderer.lastOutfile>`
+            :meth:`OfflineRenderer.lastOutfile() <maelzel.core.playback.OfflineRenderer.lastOutfile>`
 
         Example
         ~~~~~~~
@@ -881,13 +934,13 @@ class MusicObj:
         See Also
         ~~~~~~~~
 
-        - :class:`~maelzel.core.play.OfflineRenderer`
+        - :class:`~maelzel.core.playback.OfflineRenderer`
         """
         events = self.events(instr=instr, position=position,
                              delay=delay, params=params,gain=gain,
                              **kws)
-        return play.recEvents(events, outfile, sr=sr, wait=wait, quiet=quiet,
-                              nchnls=nchnls)
+        return playback.render(outfile=outfile, events=events, r=sr, wait=wait,
+                               quiet=quiet, nchnls=nchnls)
 
     def isRest(self) -> bool:
         """
@@ -1056,10 +1109,11 @@ class MusicObj:
         self.start = self.start + timeoffset
         self._changed()
 
-    def startAbsTime(self) -> Rat:
+    def startSecs(self) -> Rat:
         """
-        Returns the .start of this in absolute time according to the active ScoreStruct
+        Returns the .start time in seconds according to the score
 
+        The absolute time depends on the active ScoreStruct
         An Exception is raised if self does not have an start time
 
         This is equivalent to ``activeScoreStruct().beatToTime(obj.start)``
@@ -1070,19 +1124,28 @@ class MusicObj:
         timefrac = s.beatToTime(self.start)
         return Rat(timefrac.numerator, timefrac.denominator)
 
-    def endAbsTime(self) -> Rat:
+    def durSecs(self) -> Rat:
         """
-        Returns the .end of this in absolute time according to the active ScoreStruct
+        Returns the duration in seconds according to the active score
 
+        Returns:
+            the duration of self in seconds
+        """
+        s = getScoreStruct()
+        start = self.resolvedStart()
+        dur = self.resolvedDur(start=start)
+        return s.timeDelta(start, start+dur)
+
+    def endSecs(self) -> Rat:
+        """
+        Returns the end of this in seconds according to the active score
+
+        The absolute end time depends on the active ScoreStruct.
         An Exception is raised if self does not have an end time
 
         This is equivalent to ``activeScoreStruct().beatToTime(obj.end)``
         """
-        if self.end is None:
-            raise ValueError(f"The object {self} has no explicit .end")
-        s = getScoreStruct()
-        timefrac = s.beatToTime(self.end)
-        return Rat(timefrac.numerator, timefrac.denominator)
+        return self.startSecs() + self.durSecs()
 
     def pitchTransform(self:T, pitchmap: Callable[[float], float]) -> T:
         """
@@ -1096,7 +1159,7 @@ class MusicObj:
         """
         raise NotImplementedError("Subclass should implement this")
 
-    def timeScale(self:T, factor: num_t, offset: num_t = 0) -> T:
+    def timeScale(self: T, factor: num_t, offset: num_t = 0) -> T:
         """
         Create a copy with modified timing by applying a linear transformation
 

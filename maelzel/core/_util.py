@@ -13,9 +13,9 @@ from maelzel.rational import Rat
 from . import environment
 
 if TYPE_CHECKING:
-    from typing import Union, Optional, TypeVar, Sequence
+    from typing import Union, Optional, TypeVar
     from ._typedefs import *
-    T = TypeVar("T")
+    # T = TypeVar("T")
 
 
 @cache
@@ -44,7 +44,7 @@ def checkBuildingDocumentation(logger=None) -> bool:
     return building
 
 
-def pngShow(pngpath:str, forceExternal=False, app:str='') -> None:
+def pngShow(pngpath: str, forceExternal=False, app: str = '') -> None:
     """
     Show a png either with an external app or inside jupyter
 
@@ -93,7 +93,16 @@ def carryColumns(rows: list, sentinel=None) -> list:
     return outrows[1:]
 
 
-def as2dlist(rows) -> list[list]:
+def as2dlist(rows: list[list|tuple]) -> list[list]:
+    """
+    Ensure that all rows are lists
+
+    Args:
+        rows: a list of sequences
+
+    Returns:
+        a list of lists
+    """
     return [row if isinstance(row, list) else list(row)
             for row in rows]
 
@@ -159,7 +168,7 @@ dbToAmpCurve: bpf.BpfInterface = bpf.expon(
     exp=0.333)
 
 
-def enharmonic(n:str) -> str:
+def enharmonic(n: str) -> str:
     n = n.capitalize()
     if "#" in n:
         return _enharmonic_sharp_to_flat[n]
@@ -196,11 +205,11 @@ def midicents(midinote: float) -> int:
     return int(round((midinote - round(midinote)) * 100))
 
 
-def quantizeMidi(midinote:float, step=1.0) -> float:
+def quantizeMidi(midinote: float, step=1.0) -> float:
     return round(midinote / step) * step
 
 
-def centsshown(centsdev:int, divsPerSemitone:int) -> str:
+def centsshown(centsdev: int, divsPerSemitone: int) -> str:
     """
     Given a cents deviation from a chromatic pitch, return
     a string to be shown along the notation, to indicate the
@@ -218,7 +227,7 @@ def centsshown(centsdev:int, divsPerSemitone:int) -> str:
     """
     # cents can be also negative (see self.cents)
     pivot = int(round(100 / divsPerSemitone))
-    dist = min(centsdev%pivot, -centsdev%pivot)
+    dist = min(centsdev % pivot, -centsdev % pivot)
     if dist <= 2:
         return ""
     if centsdev < 0:
@@ -244,10 +253,9 @@ def asmidi(x) -> float:
     if isinstance(x, str):
         return pt.str2midi(x)
     elif isinstance(x, (int, float)):
-        assert 0<=x<=200, f"Expected a midinote (0-127) but got {x}"
+        assert 0 <= x <= 200, f"Expected a midinote (0-127) but got {x}"
         return x
     raise TypeError(f"Expected a str, a Note or a midinote, got {x}")
-
 
 
 def asfreq(n) -> float:
@@ -270,45 +278,6 @@ def asfreq(n) -> float:
         return n.freq
     else:
         raise ValueError(f"cannot convert {n} to a frequency")
-
-
-@dataclass
-class NoteComponent:
-    notename: str
-    midi: float
-    freq: float
-    ampdb: float
-    ampgroup: int
-
-
-def splitByAmp(midis: list[float], amps:list[float], numGroups=8, maxNotesPerGroup=8
-               ) -> list[list[NoteComponent]]:
-    """
-    split the notes by amp into groups (similar to a histogram based on amplitude)
-
-    Args:
-        midis: a seq of midinotes
-        amps: a seq of amplitudes in dB (same length as midinotes)
-        numGroups: the number of groups to divide the notes into
-        maxNotesPerGroup: the maximum of included notes per group, picked by loudness
-
-    Returns:
-        a list of chords with length=numgroups
-    """
-    step = (dbToAmpCurve*numGroups).floor()
-    notes = []
-    for midi, amp in zip(midis, amps):
-        db = pt.amp2db(amp)
-        notes.append(NoteComponent(pt.m2n(midi), midi, pt.m2f(midi), db, int(step(db))))
-    chords: list[list[NoteComponent]] = [[] for _ in range(numGroups)]
-    notes2 = sorted(notes, key=lambda n: n[3], reverse=True)
-    for note in notes2:
-        chord = chords[note[4]]
-        if len(chord) <= maxNotesPerGroup:
-            chord.append(note)
-    for chord in chords:
-        chord.sort(key=lambda n: n[3], reverse=True)
-    return chords
 
 
 @dataclass
@@ -349,13 +318,15 @@ def parseNote(s: str) -> NoteProperties:
     ================================== ============= ====  ===========
     Note                               Pitch         Dur   Properties
     ================================== ============= ====  ===========
-    ``4c#``                            ``4C#``       None  None
-    ``4F+:0.5``                        ``4F+``       0.5   None
-    ``4G:1/3``                         ``4G``        1/3   None
-    ``4Bb-:mf``                        ``4B-``       None  ``{'dynamic':'mf'}``
-    ``4G-:0.4:ff:articulation=accent`` ``4G-``       0.4   ``{'dynamic':'ff', 'articulation':'accent'}``
-    ``4F#,4A``                         ``[4F#, 4A]`` None  None
-    ``4G:^``                           ``4G``        None  ``{'articulation': 'accent'}`
+    4c#                                4C#           None  None
+    4F+:0.5                            4F+           0.5   None
+    4G:1/3                             4G            1/3   None
+    4Bb-:mf                            4B-           None  {'dynamic':'mf'}
+    4G-:0.4:ff:articulation=accent     4G-           0.4   {'dynamic':'ff', 'articulation':'accent'}
+    4F#,4A                             [4F#, 4A]     None  None
+    4G:^                               4G            None  {'articulation': 'accent'}
+    4A/8                               4A            0.5
+    4Gb/4.:pp                          4Gb           1.5   {dynamic: 'pp'}
     ================================== ============= ====  ===========
 
 
@@ -412,7 +383,6 @@ _knownDynamics = {
 }
 
 
-
 def _highlightLilypond(s: str) -> str:
     # TODO
     return s
@@ -428,8 +398,4 @@ def showLilypondScore(score: str) -> None:
     # TODO: add highlighting, check if inside jupyter, etc.
     print(score)
     return
-
-
-
-
 

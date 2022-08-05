@@ -83,7 +83,7 @@ config:
     >>> print(n.freq)
     435
     # Play with default instr
-    >>> n.play()
+    >>> n.playgroup()
     # When finished, deactivate it to return to previous Workspace
     >>> w.deactivate()
     >>> Note("4A").freq
@@ -178,7 +178,6 @@ _default = {
     'displayhook.install': True,
     'play.dur': 2.0,
     'play.gain': 1.0,
-    'play.chan': 1,
     'play.engineName': 'maelzel.core',
     'play.instr': 'sin',
     'play.fade': 0.02,
@@ -186,7 +185,6 @@ _default = {
     'play.pitchInterpolation': 'linear',
     'play.numChannels': 2,
     'play.unschedFadeout': 0.05,
-    'play.autostartEngine': True,
     'play.backend': 'default',
     'play.presetsPath': '',
     'play.autosavePresets': True,
@@ -199,10 +197,11 @@ _default = {
     'play.schedLatency': 0.2,
     'play.verbose': False,
     'play.useDynamics': True,
+    'play.waitAfterStart': 0.5,
     'rec.block': True,
     'rec.sr': 44100,
     'rec.ksmps': 64,
-    'rec.nchnls': 2,
+    'rec.numChannels': 2,
     'rec.path': '',
     'rec.quiet': True,
     'rec.compressionBitrate': 224,
@@ -216,8 +215,6 @@ _default = {
 _validator = {
     'A4::type': int,
     'A4::range': (10, 10000),
-    'play.chan::type': int,
-    'play.chan::range': (1, 64),
     'play.backend::choices': {'default', 'jack', 'pulse', 'alsa', 'pa_cb',
                               'auhal', 'portaudio'},
     'semitoneDivisions::choices': {1, 2, 4},
@@ -312,8 +309,8 @@ _docs = {
         "Should recording be blocking or should be done async?",
     'play.engineName':
         "Name of the play engine used",
-    'play.chan':
-        "Default channel to play to. channels start at 1",
+    'play.waitAfterStart':
+        'How much to wait for the sound engine to be operational after starting it',
     'm21.fixStream':
         "If True, fix the streams returned by .asmusic21 (see m21fix)",
     'show.label.fontSize':
@@ -337,8 +334,6 @@ _docs = {
     'splitAcceptableDeviation':
         'When splitting notes between staves, notes within this range of the '
         'split point will be grouped together if they all fit',
-    'play.autostartEngine':
-        'Start play engine if not started manually?',
     'play.schedLatency':
         'Added latency when scheduling events to ensure time precission',
     'rec.quiet':
@@ -346,9 +341,11 @@ _docs = {
     'play.dur':
         'Default duration of any play action if the object has no given duration',
     'rec.ksmps':
-        'samples per cycle when rendering offline (passed as ksmps to csound)',
+        'Samples per cycle when rendering offline (passed as ksmps to csound)',
     'rec.compressionBitrate':
         'bitrate to use by default when encoding to ogg',
+    'rec.numChannels':
+        'The default number of channels when rendering to disk',
     'play.fade':
         'default fade time',
     'play.unschedFadeout':

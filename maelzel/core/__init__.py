@@ -1,6 +1,6 @@
 # API
 from .musicobj import *
-from .play import *
+from .playback import *
 from .presetman import *
 from .workspace import *
 

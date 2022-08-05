@@ -12,14 +12,14 @@ import copy
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Iterable, Any, Callable
+    from typing import Iterable, Any, Callable, Optional
     import csoundengine.instr
     from .config import CoreConfig
 
 
 __all__ = (
     'PlayArgs',
-    'CsoundEvent',
+    'SynthEvent',
     'cropEvents'
 )
 
@@ -80,8 +80,8 @@ class PlayArgs:
 
     def checkValues(self) -> None:
         """ Check own values for validity """
-        assert self.pitchinterpol is None or self.pitchinterpol in CsoundEvent.pitchinterpolToInt
-        assert self.fadeshape is None or self.fadeshape in CsoundEvent.fadeshapeToInt
+        assert self.pitchinterpol is None or self.pitchinterpol in SynthEvent.pitchinterpolToInt
+        assert self.fadeshape is None or self.fadeshape in SynthEvent.fadeshapeToInt
         assert self.chan is None or self.chan
 
     def hasUndefinedValues(self) -> bool:
@@ -109,17 +109,19 @@ class PlayArgs:
                         params=self.params,
                         priority=self.priority,
                         position=self.position,
-                        sustain=self.sustain
+                        sustain=self.sustain,
                         )
-        # return copy.copy(self)
+
+    @staticmethod
+    def makeDefault(conf: CoreConfig) -> PlayArgs:
+        return PlayArgs(delay=0, chan=1, gain=conf['play.gain'],
+                        fade=conf['play.fade'], instr=conf['play.fade'],
+                        pitchinterpol=conf['play.pitchinterpol'],
+                        fadeshape=conf['play.fadeshape'],
+                        priority=1, position=-1, sustain=0)
 
     def asdict(self) -> dict[str, Any]:
         return _dataclasses.asdict(self)
-
-    def _filledWith(self, other: PlayArgs) -> PlayArgs:
-        out = self.copy()
-        out.fillWith(other)
-        return out
 
     def filledWith(self, other: PlayArgs) -> PlayArgs:
         return PlayArgs(
@@ -140,6 +142,37 @@ class PlayArgs:
         for k in PlayArgs.keys():
             if getattr(self, k) is None:
                 setattr(self, k, getattr(other, k))
+
+    def overwriteWith(self, p: PlayArgs):
+        """
+        Overwrite self with p
+
+        Overwrites any value of self where p is not None. This would be equivalent to
+        copying p and filling this copy with any set values in self
+        """
+        if p.delay is not None:
+            self.delay = p.delay
+        if p.gain is not None:
+            self.delay = p.gain
+        if p.instr:
+            self.instr = p.instr
+        if p.fade is not None:
+            self.fade = p.fade
+        if p.pitchinterpol:
+            self.pitchinterpol = p.pitchinterpol
+        if p.fadeshape:
+            self.fadeshape = p.fadeshape
+        if p.priority is not None:
+            self.priority = p.priority
+        if p.params:
+            # TODO: Should these get merged??
+            self.params = p.params
+        if p.position is not None:
+            self.position = p.position
+        if p.sustain is not None:
+            self.sustain = p.sustain
+        if p.chan is not None:
+            self.chan = p.chan
 
     def fillWith(self, other: PlayArgs) -> None:
         """
@@ -165,6 +198,8 @@ class PlayArgs:
             self.position = other.position
         if self.sustain is None:
             self.sustain = other.sustain
+        if self.chan is None:
+            self.chan = other.chan
 
     def fillWithConfig(self, cfg: CoreConfig):
         """
@@ -190,6 +225,8 @@ class PlayArgs:
             self.position = -1
         if self.sustain is None:
             self.sustain = 0.
+        if self.chan is None:
+            self.chan = 1
 
 
 def _interpolateBreakpoints(t: float, bp0: list[float], bp1: list[float]
@@ -203,13 +240,13 @@ def _interpolateBreakpoints(t: float, bp0: list[float], bp1: list[float]
     return bp
 
 
-class CsoundEvent:
+class SynthEvent:
     """
     Represents a standard event (a line of variable breakpoints)
 
-    A User does not normally create a ``CsoundEvent``: ``CsoundEvent``s are
+    A User does not normally create a ``SynthEvent``: ``SynthEvent``s are
     created by a :class:`Note` or a :class:`Voice` and are used internally
-    to generate a set of events to be played by the csound engine.
+    to generate a set of events to be played by the playback engine.
 
     Attributes:
         bps: breakpoints, where each breakpoint is a tuple of (timeoffset, midi, amp, [...])
@@ -226,7 +263,7 @@ class CsoundEvent:
     __slots__ = ("bps", "delay", "chan", "fadein", "fadeout", "gain",
                  "instr", "pitchInterpolMethod", "fadeShape", "stereo", "namedArgs",
                  "priority", "position", "_namedArgsMethod", "tiednext",
-                 "numchans", "whenfinished")
+                 "numchans", "whenfinished", "properties")
 
     pitchinterpolToInt = {
         'linear': 0,
@@ -242,9 +279,9 @@ class CsoundEvent:
     }
 
     def __init__(self,
-                 bps: list[tuple[float, ...]],
+                 bps: list[list[float, ...]],
                  delay:float=0.0,
-                 chan:int = None,
+                 chan:int = 1,
                  fade:Union[float, tuple[float, float]]=None,
                  gain:float = 1.0,
                  instr:str=None,
@@ -256,7 +293,7 @@ class CsoundEvent:
                  numchans: int = None,
                  tiednext=False,
                  whenfinished: Callable = None,
-                 sustain: float = 0.):
+                 properties: Optional[dict[str, Any]] = None):
         """
         bps (breakpoints): a seq of (delay, midi, amp, ...) of len >= 1.
 
@@ -283,8 +320,8 @@ class CsoundEvent:
 
         bpslen = len(bps[0])
         if any (len(bp) != bpslen for bp in bps):
-            bps = _util.carryColumns(bps)
-        # assert all(isinstance(bp, list) for bp in bps)
+            raise ValueError("Not all breakpoints have the same length")
+
         if len(bps[0]) < 3:
             raise ValueError("A breakpoint needs to have at least (time, pitch, amp)")
 
@@ -300,7 +337,7 @@ class CsoundEvent:
             fadein = fadeout = fade
 
         self.delay = delay
-        self.chan = chan or cfg['play.chan'] or 1
+        self.chan = chan
         self.gain = gain or cfg['play.gain']
         self.fadein = fadein
         self.fadeout = fadeout if dur < 0 else min(fadeout, dur)
@@ -315,6 +352,7 @@ class CsoundEvent:
         self.whenfinished = whenfinished
         self._consolidateDelay()
         self._namedArgsMethod = cfg['play.namedArgsMethod']
+        self.properties = properties
 
     @property
     def dur(self) -> float:
@@ -322,13 +360,30 @@ class CsoundEvent:
             return 0
         return float(self.bps[-1][0] - self.bps[0][0])
 
-    def clone(self, **kws) -> CsoundEvent:
-        out = copy.deepcopy(self)
+    def clone(self, **kws) -> SynthEvent:
+        out = self.copy()
         for k, v in kws.items():
             setattr(out, k, v)
         if out.bps[0][0] != 0:
             out._consolidateDelay()
         return out
+
+    def copy(self) -> SynthEvent:
+        return SynthEvent(bps=[bp.copy() for bp in self.bps],
+                          delay=self.delay,
+                          chan=self.chan,
+                          fade=self.fade,
+                          gain=self.gain,
+                          instr=self.instr,
+                          pitchinterpol=self.pitchInterpolMethod,
+                          fadeshape=self.fadeShape,
+                          params=self.namedArgs,
+                          priority=self.priority,
+                          position=self.position,
+                          numchans=self.numchans,
+                          tiednext=self.tiednext,
+                          whenfinished=self.whenfinished,
+                          properties=self.properties.copy() if self.properties else None)
 
     @property
     def start(self) -> float:
@@ -357,30 +412,35 @@ class CsoundEvent:
         self.fadein, self.fadeout = value
 
     @classmethod
-    def fromPlayArgs(cls, bps:list[breakpoint_t], playargs: PlayArgs, **kws
-                     ) -> CsoundEvent:
+    def fromPlayArgs(cls,
+                     bps: list[breakpoint_t],
+                     playargs: PlayArgs,
+                     properties: Optional[dict[str, Any]] = None,
+                     **kws
+                     ) -> SynthEvent:
         """
-        Construct a CsoundEvent from breakpoints and playargs
+        Construct a SynthEvent from breakpoints and playargs
 
         Args:
             bps: the breakpoints
             playargs: playargs
+            kws: any argument passed to SynthEvent's constructor
 
         Returns:
-            a new CsoundEvent
+            a new SynthEvent
         """
-        d = CsoundEvent(bps=bps,
-                        delay=playargs.delay,
-                        chan=playargs.chan,
-                        fade=playargs.fade,
-                        gain=playargs.gain,
-                        instr=playargs.instr,
-                        pitchinterpol=playargs.pitchinterpol,
-                        fadeshape=playargs.fadeshape,
-                        params=playargs.params,
-                        priority=playargs.priority,
-                        position=playargs.position,
-                        sustain=playargs.sustain)
+        d = SynthEvent(bps=bps,
+                       delay=playargs.delay,
+                       chan=playargs.chan,
+                       fade=playargs.fade,
+                       gain=playargs.gain,
+                       instr=playargs.instr,
+                       pitchinterpol=playargs.pitchinterpol,
+                       fadeshape=playargs.fadeshape,
+                       params=playargs.params,
+                       priority=playargs.priority,
+                       position=playargs.position,
+                       properties=properties)
         if kws:
             for k, v in kws.items():
                 setattr(d, k, v)
@@ -397,14 +457,15 @@ class CsoundEvent:
         if timefactor == 1:
             return
         self.delay *= timefactor
-        self.bps = [(bp[0]*timefactor,)+bp[1:] for bp in self.bps]
+        for bp in self.bps:
+            bp[0] *= timefactor
 
-    def timeShifted(self, offset: float) -> CsoundEvent:
+    def timeShifted(self, offset: float) -> SynthEvent:
         return self.clone(delay=self.delay+offset)
 
-    def cropped(self, start:float, end:float) -> CsoundEvent:
+    def cropped(self, start:float, end:float) -> SynthEvent:
         """
-        Return a cropped version of this CsoundEvent
+        Return a cropped version of this SynthEvent
         """
         start -= self.delay
         end -= self.delay
@@ -424,9 +485,8 @@ class CsoundEvent:
                 break
         return self.clone(bps=out)
 
-
     def breakpointSize(self) -> int:
-        """ Returns the number of breakpoints in this CsoundEvent """
+        """ Returns the number of breakpoints in this SynthEvent """
         return len(self.bps[0])
 
     def _repr_html_(self) -> str:
@@ -445,7 +505,7 @@ class CsoundEvent:
         if self.namedArgs:
             info.append(f"namedArgs={self.namedArgs}")
         infostr = ", ".join(info)
-        return f"CsoundEvent({infostr})"
+        return f"SynthEvent({infostr})"
 
     def __repr__(self) -> str:
         lines = [self._reprHeader()]
@@ -462,8 +522,9 @@ class CsoundEvent:
         lines.append("")
         return "\n".join(lines)
 
-    def resolvePfields(self: CsoundEvent, instr: csoundengine.instr.Instr
-                        ) -> list[float]:
+    def resolvePfields(self: SynthEvent,
+                       instr: csoundengine.instr.Instr
+                       ) -> list[float]:
         """
         Returns pfields, **beginning with p2**.
 
@@ -491,8 +552,8 @@ class CsoundEvent:
         breakpoint data is appended
 
         """
-        pitchInterpolMethod = CsoundEvent.pitchinterpolToInt[self.pitchInterpolMethod]
-        fadeshape = CsoundEvent.fadeshapeToInt[self.fadeShape]
+        pitchInterpolMethod = SynthEvent.pitchinterpolToInt[self.pitchInterpolMethod]
+        fadeshape = SynthEvent.fadeshapeToInt[self.fadeShape]
         # if no userpargs, bpsoffset is 15
         numPargs5 = len(instr.pargsIndexToName)
         numBuiltinPargs = 10
@@ -523,14 +584,14 @@ class CsoundEvent:
         for bp in self.bps:
             pfields.extend(bp)
 
-        assert all(isinstance(p, (int, float)) for p in pfields), [(p, type(p)) for p in pfields if
-                                                                   not isinstance(p, (int, float))]
+        #assert all(isinstance(p, (int, float)) for p in pfields), [(p, type(p)) for p in pfields if
+        #                                                           not isinstance(p, (int, float))]
         return pfields
 
 
-def cropEvents(events: list[CsoundEvent], start: float = None, end: float = None,
+def cropEvents(events: list[SynthEvent], start: float = None, end: float = None,
                rewind=False
-               ) -> list[CsoundEvent]:
+               ) -> list[SynthEvent]:
     """
     Crop the events at the given time slice
 
