@@ -14,15 +14,14 @@ to interact between the *core* classes, like :class:`Note` or :class:`Voice` and
 "unrelated" parts of *maelzel*, like the :class:`maelzel.snd.audiosample.Sample` class.
 
 Internally each :class:`~maelzel.core.musicobj.MusicObj` expresses its playback in
-terms of a list of :class:`~maelzel.core.csoundevent.CsoundEvent`. These
-:class:`~maelzel.core.csoundevent.CsoundEvent`
+terms of a list of :class:`~maelzel.core.synthevent.SynthEvent`.
 
-.. admonition:: csound events
+.. admonition:: synthesis events
 
-    A CsoundEvent is a score line with a number of fixed fields,
+    A SynthEvent is a score line with a number of fixed fields,
     user-defined fields and a sequence of breakpoints to define pitch, amplitude
     and any other parameter over time. For more information
-    see :class:`~maelzel.core.csoundevent.CsoundEvent`
+    see :class:`~maelzel.core.synthevent.SynthEvent`
 
 To play any :class:`~maelzel.core.musicobj.MusicObj` (a Note, a Voice, a Score), call its
 :meth:`~maelzel.core.musicobj.MusicObj.play` method. Within this method a number of parameters

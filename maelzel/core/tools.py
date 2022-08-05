@@ -39,10 +39,11 @@ def amplitudeToDynamics(amp: float) -> str:
 
 
 def makeClickTrack(struct: scorestruct.ScoreStruct,
+                   minMeasures: int = 0,
                    clickdur: time_t = None,
                    strongBeatPitch="5C",
                    weakBeatPitch="5G",
-                   playpreset: str = '.click',
+                   playpreset: str = '_click',
                    playparams: dict[str, float] = None,
                    fade=0) -> musicobj.Score:
     """
@@ -50,6 +51,8 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
 
     Args:
         struct: the ScoreStruct
+        minMeasures: if given, the minimum number of measures. This might be needed
+            in the case of an endless scorestruct
         clickdur: the length of each tick. Use None to use the duration of the beat.
             **NB**: the duration of the playback can be set individually from the duration
             of the displayed pitch
@@ -90,6 +93,10 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
     """
     now = 0
     events = []
+    if minMeasures and minMeasures > struct.numDefinedMeasures():
+        struct = struct.copy()
+        struct.addMeasure(numMeasures=minMeasures - struct.numDefinedMeasures())
+
     for m in struct.measuredefs:
         num, den = m.timesig
         if den  == 4:

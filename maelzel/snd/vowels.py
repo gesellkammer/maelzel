@@ -607,7 +607,7 @@ def vocalChord(overtones: List[Tuple[float, float]],
         >>> filter = VowelFilter(asVowel("a:male")
         >>> chord = vocalChord(exciter, filter, mindb=-60)
         >>> chord.show()
-        >>> chord.clone(dur=10).play(instr='sin')
+        >>> chord.clone(dur=10).playgroup(instr='sin')
     """
     if isinstance(vowelfilter, str):
         vowelfilter = VowelFilter(asVowel(vowelfilter))

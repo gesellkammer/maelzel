@@ -1,17 +1,18 @@
 from __future__ import annotations
 from maelzel import packing
 from maelzel.rational import Rat
-from . import musicobj
-from .workspace import getConfig
 from emlib.iterlib import pairwise
+from . import musicobj as mobj
+from .workspace import getConfig, Workspace
+from maelzel.core.synthevent import SynthEvent
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
-    from .musicobj import Note, Chord, Voice, MusicObj
+    from .musicobj import Note, Chord, Voice, MusicObj, MusicEvent
 
 
-def packInVoices(objs: List[MusicObj]) -> List[Voice]:
+def packInVoices(objs: list[MusicObj]) -> list[Voice]:
     """
     Distribute the items across voices
     """
@@ -35,8 +36,8 @@ def packInVoices(objs: List[MusicObj]) -> List[Voice]:
     return voices
 
 
-def splitNotesOnce(notes: Union[Chord, Sequence[Note]], splitpoint:float, deviation=None,
-                    ) -> Tuple[List[Note], List[Note]]:
+def splitNotesOnce(notes: Union[Chord, Sequence[Note]], splitpoint: float, deviation=None,
+                    ) -> Tuple[list[Note], list[Note]]:
     """
     Split a list of notes into two lists, one above and one below the splitpoint
 
@@ -64,8 +65,8 @@ def splitNotesOnce(notes: Union[Chord, Sequence[Note]], splitpoint:float, deviat
     return above, below
 
 
-def splitNotesIfNecessary(notes:List[Note], splitpoint:float, deviation=None
-                          ) -> List[List[Note]]:
+def splitNotesIfNecessary(notes: list[Note], splitpoint: float, deviation=None
+                          ) -> list[list[Note]]:
     """
     Like _splitNotesOnce, but returns only groups which have notes in them
 
@@ -113,7 +114,7 @@ def fillTempDynamics(items: list[Union[Note, Chord]], initialDynamic='mf',
             item.properties['tempdynamic'] = True
     else:
         lastDynamic = initialDynamic
-        lastEnd  = 0
+        lastEnd = 0
         for item in items:
             if resetMinGap > 0 and item.start - lastEnd > resetMinGap:
                 lastDynamic = initialDynamic
@@ -125,7 +126,7 @@ def fillTempDynamics(items: list[Union[Note, Chord]], initialDynamic='mf',
             lastEnd = item.end
 
 
-def addDurationToGracenotes(chain: list[Note], dur: Rat) -> None:
+def addDurationToGracenotes(chain: list[MusicEvent], dur: Rat) -> None:
     """
     Adds real duration to gracenotes within chain
 
@@ -168,4 +169,68 @@ def addDurationToGracenotes(chain: list[Note], dur: Rat) -> None:
             gracenote.start -= deltapos
 
 
+def groupEvents(items: list[MusicEvent]) -> list[Note | Chord | list[Note]]:
+    groups = []
+    lineStarted = False
+    for i, item in enumerate(items):
+        if isinstance(item, mobj.Note):
+            if item.isRest():
+                lineStarted = False
+                groups.append(item)
+            else:
+                if lineStarted:
+                    groups[-1].append(item)
+                    if not item.tied and not (item.gliss is True):
+                        # Finish the line
+                        lineStarted = False
+                else:
+                    if item.tied or item.gliss is True:
+                        # Start a line
+                        lineStarted = True
+                        groups.append([item])
+                    else:
+                        groups.append(item)
+        elif isinstance(item, Chord):
+            if item.gliss is True:
+                if i < len(items) - 1:
+                    nextitem = items[i + 1]
+                    if isinstance(nextitem, (mobj.Chord, mobj.Note)) and not nextitem.isRest():
+                        target = nextitem.pitches if isinstance(nextitem, Chord) else [nextitem.pitch]
+                        item.properties['glisstarget'] = target
+            groups.append(item)
+        else:
+            lineStarted = False
+            groups.append(item)
+    return groups
 
+
+def chainSynthEvents(objs: list[MusicEvent], playargs, workspace: Workspace
+                     ) -> list[SynthEvent]:
+    groups = groupEvents(objs)
+    flatevents = []
+    for group in groups:
+        if isinstance(group, mobj.MusicEvent) and not group.isRest():
+            flatevents.extend(group._synthEvents(playargs.copy(), workspace=workspace))
+        elif isinstance(group, list) and group:
+            assert all(isinstance(item, (mobj.Note, mobj.Chord)) for item in group)
+            bps = []
+            # TODO: revise this
+            playargs = playargs.copy()
+            playargs.overwriteWith(group[0].playargs)
+            playargs.fillWithConfig(workspace.config)
+            for item0, item1 in pairwise(group):
+                if isinstance(item0, mobj.Note) and isinstance(item1, mobj.Note):
+                    bp = [item0.start, item0.pitch, item0.resolvedAmp(workspace=workspace)]
+                    bps.append(bp)
+                else:
+                    raise TypeError(f"Not supported yet: {item0}, {item1}")
+            lastev = group[-1]
+            if isinstance(lastev, mobj.Note):
+                bps.append([lastev.start, lastev.pitch, lastev.resolvedAmp(workspace=workspace)])
+                if playargs.sustain:
+                    raise RuntimeError("Not supported yet...")
+            event = SynthEvent.fromPlayArgs(bps=bps, playargs=playargs)
+            flatevents.append(event)
+        else:
+            raise TypeError(f"Did not expect to get {group}")
+    return flatevents
