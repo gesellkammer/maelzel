@@ -319,7 +319,7 @@ class ScoreStruct:
             define a basic scorestruct with a time signature and a default or
             given tempo
         quarterTempo: the tempo of a quarter note, if given
-        endless: mark this ScoreStruct as endless
+        endless: mark this ScoreStruct as endless. Defaults to True
         title: title metadata for the score, used when rendering
         composer: composer metadata for this score, used when rendering
 
@@ -389,9 +389,9 @@ class ScoreStruct:
     """
     def __init__(self,
                  score: str = None,
-                 timesig:Union[timesig_t, str]=None,
-                 quarterTempo:int=None,
-                 endless=True,
+                 timesig: Union[timesig_t, str] = None,
+                 quarterTempo: int = None,
+                 endless: bool = True,
                  title='',
                  composer=''):
 
@@ -413,7 +413,7 @@ class ScoreStruct:
                                  "but not both")
             s = ScoreStruct._parseScore(score)
             self.measuredefs = s.measuredefs
-            self.endless = s.endless
+            self.endless = endless
         else:
             self.measuredefs: List[MeasureDef] = []
             self.endless = endless
@@ -677,6 +677,36 @@ class ScoreStruct:
         self._modified = True
         if numMeasures > 1:
             self.addMeasure(numMeasures=numMeasures-1)
+
+    def ensureDurationInMeasures(self, numMeasures: int) -> None:
+        """
+        Extends this score to have at least the given number of measures
+
+        If the scorestruct already has reached the given length this operation
+        does nothing
+
+        Args:
+            numMeasures: the minimum number of measures this score should have
+        """
+        measureDiff = numMeasures - self.numDefinedMeasures()
+        if measureDiff > 0:
+            self.addMeasure(numMeasures=measureDiff)
+
+    def ensureDurationInSeconds(self, duration: F) -> None:
+        """
+        Ensure that this scorestruct is long enough to include the given time
+
+        This is of relevance in certain edge cases including endless scorestructs:
+
+        * When creating a clicktrack from an endless score.
+        * When exporting a scorestruct to midi
+
+        Args:
+            duration: the duration in seconds to ensure
+
+        """
+        loc = self.timeToLocation(duration)
+        self.ensureDurationInMeasures(loc.measureIndex + 1)
 
     def durationBeats(self) -> F:
         """
@@ -1372,8 +1402,12 @@ class ScoreStruct:
         assert linetype in {'single', 'double', 'final'}
         self.getMeasureDef(measureIndex, extend=True).barline = linetype
 
-    def makeClickTrack(self, clickdur: F = None, strongBeatPitch='5C',
-                       weakBeatPitch='5G', playTransposition=24,
+    def makeClickTrack(self,
+                       minMeasures: int = 0,
+                       clickdur: F = None,
+                       strongBeatPitch='5C',
+                       weakBeatPitch='5G',
+                       playTransposition=24,
                        ) -> maelzel.core.Score:
         """
         Create a click track from this ScoreStruct
@@ -1407,15 +1441,20 @@ class ScoreStruct:
             >>> scorestruct = ScoreStruct(r"4/4,72; .; 5/8; 3/8; 2/4,96; .; 5/4; 3/4")
             >>> clicktrack = scorestruct.makeClickTrack()
             >>> clicktrack.write('click.pdf')
-            >>> clicktrack.play()
+            >>> clicktrack.playgroup()
 
         .. image:: ../assets/clicktrack2.png
         """
         from maelzel.core import tools
-        return tools.makeClickTrack(self, clickdur=clickdur,
+        if minMeasures < self.numDefinedMeasures():
+            out = self
+        else:
+            out = self.copy()
+            out.ensureDurationInMeasures(minMeasures)
+        return tools.makeClickTrack(out, clickdur=clickdur,
                                     strongBeatPitch=strongBeatPitch,
                                     weakBeatPitch=weakBeatPitch,
-                                    playpreset='.click',
+                                    playpreset='_click',
                                     playparams={'ktransp': playTransposition})
 
 

@@ -511,7 +511,7 @@ def makeConfig(updates: dict = None,
         # Using the config as context manager makes it active for the
         # lifetime of the context
         >>> with config:
-        ...     voice.play()
+        ...     voice.playgroup()
 
     .. [1] The root config is the config created at the start of a session, which includes any
         changes persisted via :meth:`CoreConfig.save() <maelzel.core.config.CoreConfig.save>`)

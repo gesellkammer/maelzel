@@ -83,7 +83,7 @@ in python (see `csoundengine <https://csoundengine.readthedocs.io>`_)
 
 When the :meth:`~maelzel.core.musicobjbase.MusicObj.play` method is called, a
 :class:`~maelzel.core.musicobjbase.MusicObj` generates a list of
-:class:`~maelzel.core.csoundevent.CsoundEvent`, which tell *csound* how
+:class:`~maelzel.core.synthevent.SynthEvent`, which tell *csound* how
 to play a :class:`Note`, :class:`Chord`, or an entire :class:`Score`. Using csound it is
 possible to define instrumental presets using any kind of synthesis or by simply loading
 a set of samples or a soundfont.

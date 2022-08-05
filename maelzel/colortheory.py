@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 # Colors which can work with light and dark backgrounds
+# 1 is lighter, 2 is darker
+
 safeColors = {
     'blue1': '#9090FF',
-    'blue2': '#8080E0',
+    'blue2': '#6666E0',
     'red1': '#FF9090',
     'red2': '#E08080',
     'green1': '#90FF90',
