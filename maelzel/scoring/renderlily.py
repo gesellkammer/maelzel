@@ -4,11 +4,12 @@ This module implements a lilypond renderer
 It converts our own intermediate representation as defined after quantization
 into a .ly file and renders that via lilypond to pdf or png
 """
-
+from __future__ import annotations
 import os
 import tempfile
 import textwrap
 import shutil
+from dataclasses import dataclass
 
 import emlib.textlib
 import emlib.filetools
@@ -25,6 +26,7 @@ import logging
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Union
+    from .common import pitch_t
 
 
 logger = logging.getLogger("maelzel.scoring")
@@ -90,7 +92,7 @@ def _parseNotehead(notehead: str) -> _Notehead:
         elif k == 'size':
             sizefactor = float(v)
 
-    return _Notehead(kind, parenthesized=parenthesized, color=color, sizefactor=sizefactor)
+    return _Notehead(kind=kind, parenthesized=parenthesized, color=color, sizefactor=sizefactor)
 
 
 def _lilyNoteheadInsideChord(notehead: str) -> str:
@@ -121,7 +123,7 @@ def _lilyNotehead(notehead: str) -> str:
     This uses \override so it can't be placed inside a chord
 
     Args:
-        noteshape: the noteshape. It can end with '?', in which case it will be
+        notehead: the noteshape. It can end with '?', in which case it will be
             parenthesized
 
     Returns:
@@ -215,6 +217,7 @@ def notationToLily(n: Notation, options: RenderOptions) -> str:
     if len(n.pitches) == 1:
         if n.notehead:
             _(_lilyNotehead(n.notehead if isinstance(n.notehead, str) else n.notehead[0]))
+        print("creating note", n.notename(), f"tied={n.tiedNext}")
         _(_lilyNote(n.notename(), baseduration=base, dots=dots, tied=n.tiedNext,
                     cautionary=n.getProperty('accidentalParenthesis', False)))
     else:
@@ -236,24 +239,27 @@ def notationToLily(n: Notation, options: RenderOptions) -> str:
                                   accidentalParenthesis=n.getProperty('accidentalParenthesis', False)))
         _(f">{base}{'.'*dots}{'~' if n.tiedNext else ''}")
 
-    if not n.tiedPrev:
-        if n.articulation:
-            _(_lilyArticulation(n.articulation))
-        if n.dynamic:
-            dyn = n.dynamic if not n.dynamic.endswith('!') else n.dynamic[:-1]
-            _(fr"\{dyn}")
-        if n.gliss:
-            _(r"\glissando")
-        if n.annotations:
-            for annotation in n.annotations:
-                _(lilytools.makeTextAnnotation(annotation.text, fontsize=annotation.fontSize))
-        if options.showCents:
-            # TODO: cents annotation should follow options (below/above, fontsize)
-            centsText = util.centsAnnotation(n.pitches, divsPerSemitone=options.divsPerSemitone)
-            if centsText:
-                fontrelsize = options.centsFontSize - options.staffSize
-                _(lilytools.makeTextAnnotation(centsText, fontsize=fontrelsize,
-                                               fontrelative=True, placement='below'))
+    if (not n.tiedPrev or options.articulationInsideTie) and n.articulation:
+        _(_lilyArticulation(n.articulation))
+
+    if (not n.tiedPrev or options.articulationInsideTie) and n.dynamic:
+        dyn = n.dynamic if not n.dynamic.endswith('!') else n.dynamic[:-1]
+        _(fr"\{dyn}")
+
+    if n.gliss:
+        _(r"\glissando")
+
+    if n.annotations:
+        for annotation in n.annotations:
+            _(lilytools.makeTextAnnotation(annotation.text, fontsize=annotation.fontSize))
+
+    if options.showCents:
+        # TODO: cents annotation should follow options (below/above, fontsize)
+        centsText = util.centsAnnotation(n.pitches, divsPerSemitone=options.divsPerSemitone)
+        if centsText:
+            fontrelsize = options.centsFontSize - options.staffSize
+            _(lilytools.makeTextAnnotation(centsText, fontsize=fontrelsize,
+                                           fontrelative=True, placement='below'))
 
     if graceGroup == "stop":
         _("}")
@@ -306,10 +312,12 @@ def _renderGroup(seq: list[str],
                 state['dynamic'] = ''
 
             if item.dynamic:
+                dynamic = item.dynamic
                 if (options.removeSuperfluousDynamics and
                         not item.dynamic.endswith('!') and
                         item.dynamic == state['dynamic']):
                     item.dynamic = ''
+                state['dynamic'] = dynamic
 
             seq.append(notationToLily(item, options=options))
 
@@ -336,7 +344,7 @@ def _renderGroup(seq: list[str],
                 state['glissSkip'] = True
             elif item.gliss and item.tiedPrev and not item.tiedNext:
                 seq.append(r"\glissandoSkipOff ")
-                assert state['glissSkip']
+                # assert state['glissSkip']
                 state['glissSkip'] = False
 
     seq.append("\n")

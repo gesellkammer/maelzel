@@ -74,13 +74,20 @@ def notationsCanMerge(n0: Notation, n1: Notation) -> bool:
     if n0.isRest and n1.isRest:
         return (n0.durRatios == n1.durRatios and
                 durationsCanMerge(n0, n1))
-    if (not n0.tiedNext or
-            not n1.tiedPrev or
-            n0.durRatios != n1.durRatios or
-            n0.pitches != n1.pitches):
-        return False
-    # durRatios are the same so check if durations would sum to a regular duration
-    return durationsCanMerge(n0, n1)
+    if (
+            n0.tiedNext and
+            n1.tiedPrev and
+            (n0.durRatios == n1.durRatios) and
+            (n0.pitches == n1.pitches) and
+            (not n1.dynamic or n0.dynamic == n1.dynamic) and
+            not n1.annotations and
+            not n1.articulation and
+            (n1.getNoteheads() == n0.getNoteheads()) and
+            not n1.gliss
+        ):
+        return durationsCanMerge(n0, n1)
+    return False
+
 
 
 def mergeNotationsIfPossible(notations: list[Notation]) -> list[Notation]:
