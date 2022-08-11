@@ -399,3 +399,8 @@ def showLilypondScore(score: str) -> None:
     print(score)
     return
 
+
+def dictRemoveNoneKeys(d: dict):
+    keysToRemove = [k for k, v in d.items() if v is None]
+    for k in keysToRemove:
+        del d[k]

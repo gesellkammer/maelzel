@@ -69,6 +69,9 @@ class Rat(_F):
     def __repr__(self):
         return f"{float(self):.8g}"
 
+    def __format__(self, format_spec) -> str:
+        return float(self).__format__(format_spec)
+
     def __add__(self, other) -> Rat:
         return Rat(_F.__add__(self, other))
 

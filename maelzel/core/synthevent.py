@@ -24,8 +24,103 @@ __all__ = (
 )
 
 
-@dataclass
 class PlayArgs:
+    playkeys = {'delay', 'chan', 'gain', 'fade', 'instr', 'pitchinterpol',
+                'fadeshape', 'params', 'priority', 'position', 'sustain'}
+
+    def __init__(self, d: dict[str, Any] = None):
+        if d is None:
+            d = {}
+        self.args: dict[str, Any] = d
+        assert not(d.keys() - self.playkeys)
+        assert all(v is not None for v in d.values())
+
+    def __bool__(self):
+        return bool(self.args)
+
+    def keys(self) -> set[str]:
+        return self.playkeys
+
+    def values(self):
+        args = self.args
+        return (args.get(k) for k in self.playkeys)
+
+    def items(self) -> dict[str, Any]:
+        args = self.args
+        return {k: args.get(k) for k in self.playkeys}
+
+    def get(self, key: str, default=None):
+        return self.args.get(key, default)
+
+    def __getitem__(self, item: str):
+        return self.args[item]
+
+    def __setitem__(self, key: str, value) -> None:
+        if value is None:
+            del self.args[key]
+        else:
+            self.args[key] = value
+
+    def overwriteWith(self, p: PlayArgs) -> None:
+        self.args.update(p.args)
+
+    def copy(self) -> PlayArgs:
+        return PlayArgs(self.args.copy())
+
+    def clone(self, **kws) -> PlayArgs:
+        outargs = self.args.copy()
+        outargs.update(kws)
+        return PlayArgs(outargs)
+
+    def __repr__(self):
+        args = ', '.join(f'{k}={v}' for k, v in self.args.items())
+        return f"PlayArgs({args})"
+
+    def asdict(self) -> dict[str, Any]:
+        return self.args
+
+    @staticmethod
+    def makeDefault(conf: CoreConfig) -> PlayArgs:
+        d = dict(delay=0,
+                 chan=1,
+                 gain=conf['play.gain'],
+                 fade=conf['play.fade'],
+                 instr=conf['play.instr'],
+                 pitchinterpol=conf['play.pitchInterpolation'],
+                 fadeshape=conf['play.fadeShape'],
+                 priority=1,
+                 position=-1,
+                 sustain=0)
+        return PlayArgs(d)
+
+    def filledWith(self, other: PlayArgs) -> PlayArgs:
+        args = self.args.copy()
+        for k, v in other.args.items():
+            if v is not None:
+                args[k] = args.get(k, v)
+        return PlayArgs(args)
+
+    def fillWith(self, other: PlayArgs) -> None:
+        args = self.args
+        for k, v in other.args.items():
+            if v is not None:
+                args[k] = args.get(k, v)
+
+    def fillWithConfig(self, cfg: CoreConfig) -> None:
+        args = self.args
+        args.setdefault('delay', 0.)
+        args.setdefault('gain', cfg['play.gain'])
+        args.setdefault('instr', cfg['play.instr'])
+        args.setdefault('fade', cfg['play.fade'])
+        args.setdefault('pitchinterpol', cfg['play.pitchInterpolation'])
+        args.setdefault('priority', 1)
+        args.setdefault('position', -1)
+        args.setdefault('sustain', 0)
+        args.setdefault('chan', 1)
+
+
+@dataclass
+class _PlayArgs:
     """
     Structure used to set playback options for any given MusicObj
     """
@@ -114,11 +209,16 @@ class PlayArgs:
 
     @staticmethod
     def makeDefault(conf: CoreConfig) -> PlayArgs:
-        return PlayArgs(delay=0, chan=1, gain=conf['play.gain'],
-                        fade=conf['play.fade'], instr=conf['play.fade'],
-                        pitchinterpol=conf['play.pitchinterpol'],
-                        fadeshape=conf['play.fadeshape'],
-                        priority=1, position=-1, sustain=0)
+        return PlayArgs(delay=0,
+                        chan=1,
+                        gain=conf['play.gain'],
+                        fade=conf['play.fade'],
+                        instr=conf['play.instr'],
+                        pitchinterpol=conf['play.pitchInterpolation'],
+                        fadeshape=conf['play.fadeShape'],
+                        priority=1,
+                        position=-1,
+                        sustain=0)
 
     def asdict(self) -> dict[str, Any]:
         return _dataclasses.asdict(self)
@@ -153,7 +253,7 @@ class PlayArgs:
         if p.delay is not None:
             self.delay = p.delay
         if p.gain is not None:
-            self.delay = p.gain
+            self.gain = p.gain
         if p.instr:
             self.instr = p.instr
         if p.fade is not None:
@@ -244,7 +344,7 @@ class SynthEvent:
     """
     Represents a standard event (a line of variable breakpoints)
 
-    A User does not normally create a ``SynthEvent``: ``SynthEvent``s are
+    A User never creates a ``SynthEvent``: ``SynthEvent``s are
     created by a :class:`Note` or a :class:`Voice` and are used internally
     to generate a set of events to be played by the playback engine.
 
@@ -259,11 +359,13 @@ class SynthEvent:
         fadeShape: shape of the fade ('linear', 'cos')
         namedArgs: params used to initialize named parameters
         priority: schedule the corresponding instr at this priority
+        sustain: any extra duration given to the event, recorded here for information
+            only (it should actually be accounted for by the breakpoints)
     """
     __slots__ = ("bps", "delay", "chan", "fadein", "fadeout", "gain",
                  "instr", "pitchInterpolMethod", "fadeShape", "stereo", "namedArgs",
                  "priority", "position", "_namedArgsMethod", "tiednext",
-                 "numchans", "whenfinished", "properties")
+                 "numchans", "whenfinished", "properties", 'sustain')
 
     pitchinterpolToInt = {
         'linear': 0,
@@ -284,7 +386,7 @@ class SynthEvent:
                  chan:int = 1,
                  fade:Union[float, tuple[float, float]]=None,
                  gain:float = 1.0,
-                 instr:str=None,
+                 instr: str=None,
                  pitchinterpol:str=None,
                  fadeshape:str=None,
                  params: dict[str, float] = None,
@@ -293,7 +395,9 @@ class SynthEvent:
                  numchans: int = None,
                  tiednext=False,
                  whenfinished: Callable = None,
-                 properties: Optional[dict[str, Any]] = None):
+                 properties: Optional[dict[str, Any]] = None,
+                 sustain: float = 0.,
+                 **kws):
         """
         bps (breakpoints): a seq of (delay, midi, amp, ...) of len >= 1.
 
@@ -311,6 +415,7 @@ class SynthEvent:
             priority: schedule the corresponding instr at this priority
             numchans: the number of channels this event outputs
             tiednext: a hint to merge multiple events into longer lines.
+            kws: ignored at the moment
         """
         cfg = getConfig()
 
@@ -325,34 +430,34 @@ class SynthEvent:
         if len(bps[0]) < 3:
             raise ValueError("A breakpoint needs to have at least (time, pitch, amp)")
 
+        assert isinstance(delay, (int, float)) and delay >= 0
+
         self.bps = bps
         dur = self.bps[-1][0] - self.bps[0][0]
 
-        if fade is None:
-            defaultfade = cfg['play.fade']
-            fadein, fadeout = defaultfade, defaultfade
-        elif isinstance(fade, tuple):
+        if isinstance(fade, tuple):
             fadein, fadeout = fade
         else:
             fadein = fadeout = fade
 
         self.delay = delay
         self.chan = chan
-        self.gain = gain or cfg['play.gain']
+        self.gain = gain
         self.fadein = fadein
         self.fadeout = fadeout if dur < 0 else min(fadeout, dur)
         self.instr = instr
-        self.pitchInterpolMethod = pitchinterpol or cfg['play.pitchInterpolation']
-        self.fadeShape = fadeshape or cfg['play.fadeShape']
+        self.pitchInterpolMethod = pitchinterpol
+        self.fadeShape = fadeshape
         self.priority = priority
         self.position = position
         self.namedArgs = params
         self.tiednext = tiednext
         self.numchans = numchans
         self.whenfinished = whenfinished
-        self._consolidateDelay()
-        self._namedArgsMethod = cfg['play.namedArgsMethod']
         self.properties = properties
+        self.sustain = sustain
+        self._namedArgsMethod = cfg['play.namedArgsMethod']
+        self._consolidateDelay()
 
     @property
     def dur(self) -> float:
@@ -430,17 +535,8 @@ class SynthEvent:
             a new SynthEvent
         """
         d = SynthEvent(bps=bps,
-                       delay=playargs.delay,
-                       chan=playargs.chan,
-                       fade=playargs.fade,
-                       gain=playargs.gain,
-                       instr=playargs.instr,
-                       pitchinterpol=playargs.pitchinterpol,
-                       fadeshape=playargs.fadeshape,
-                       params=playargs.params,
-                       priority=playargs.priority,
-                       position=playargs.position,
-                       properties=properties)
+                       properties=properties,
+                       **playargs.args)
         if kws:
             for k, v in kws.items():
                 setattr(d, k, v)
@@ -448,6 +544,8 @@ class SynthEvent:
 
     def _consolidateDelay(self) -> None:
         delay0 = self.bps[0][0]
+        assert delay0 is not None
+        assert self.delay is not None
         if delay0 > 0:
             self.delay += delay0
             for bp in self.bps:

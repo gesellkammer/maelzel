@@ -817,9 +817,13 @@ def _collectEvents(events: Sequence[MusicObj | Sequence[SynthEvent]],
     if workspace is None:
         workspace = Workspace.active
     for ev in events:
-        if isinstance(ev, list):
-            assert isinstance(ev[0], SynthEvent)
-            maelzelevents.extend(ev)
+        if isinstance(ev, (list, tuple)):
+            if isinstance(ev[0], SynthEvent):
+                maelzelevents.extend(ev)
+            else:
+                evs, sessionevs = _collectEvents(ev, eventparams=eventparams, workspace=workspace)
+                maelzelevents.extend(evs)
+                sessionevents.extend(sessionevs)
         elif isinstance(ev, SynthEvent):
             maelzelevents.append(ev)
         elif isinstance(ev, csoundengine.session.SessionEvent):

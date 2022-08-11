@@ -1,14 +1,14 @@
 from __future__ import annotations
+import random
 from emlib import iterlib
 from emlib import misc
 import pitchtools as pt
-from .common import F, asF, timesig_t, NotatedDuration
+from .common import F, asF, NotatedDuration
 from typing import TYPE_CHECKING
-from numbers import Real
-import random
 if TYPE_CHECKING:
     from typing import *
-
+    from .common import timesig_t
+    from numbers import Real
 
 # This module can only import .common from .
 

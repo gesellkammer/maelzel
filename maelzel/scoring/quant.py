@@ -47,7 +47,7 @@ __all__ = (
     'quantizeMeasure',
     'quantizePart',
     'splitNotationAtOffsets',
-    'splitByMeasure',
+    'splitNotationByMeasure',
     'PartLocation',
 )
     
@@ -901,6 +901,11 @@ def splitNotationAtOffsets(n: Notation, offsets: list[Rational]) -> list[Notatio
 
     parts: list[Notation] = [n.clone(offset=start, duration=end-start)
                              for start, end in intervals]
+    # Remove superfluous dynamic/articulation
+    for part in parts[1:]:
+        n.dynamic = ''
+        n.articulation = ''
+
     if not n.isRest:
         parts[0].tiedPrev = n.tiedPrev
         parts[-1].tiedNext = n.tiedNext
@@ -972,6 +977,8 @@ def _tieNotationParts(parts: list[Notation]) -> None:
         part.tiedNext = True
     for part in parts[1:]:
         part.tiedPrev = True
+        part.dynamic = ''
+        part.articulation = ''
 
 
 def _splitIrregularDuration(n: Notation, slotIndex: int, slotDur: F) -> list[Notation]:
@@ -1316,9 +1323,9 @@ def quantizeMeasure(events: list[Notation],
                             profile=profile)
 
 
-def splitByMeasure(struct: ScoreStruct,
-                   event: Notation,
-                   ) -> list[Tuple[int, Notation]]:
+def splitNotationByMeasure(struct: ScoreStruct,
+                           event: Notation,
+                           ) -> list[Tuple[int, Notation]]:
     """
     Split a Notation if it extends across multiple measures.
 
@@ -1363,12 +1370,14 @@ def splitByMeasure(struct: ScoreStruct,
             measuredef = struct.getMeasureDef(m)
             notation = event.clone(offset=F(0),
                                    duration=measuredef.durationBeats(),
-                                   tiedPrev=True, tiedNext=True)
+                                   tiedPrev=True, tiedNext=True, dynamic='',
+                                   articulation='')
             pairs.append((m, notation))
 
     # add last notation
     if loc1.beat > 0:
-        notation = event.clone(offset=F(0), duration=loc1.beat, tiedPrev=True)
+        notation = event.clone(offset=F(0), duration=loc1.beat, tiedPrev=True,
+                               dynamic='', articulation='')
         pairs.append((loc1.measureIndex, notation))
 
     sumdur = sum(struct.beatDelta((i, n.offset), (i, n.end)) for i, n in pairs)
@@ -1618,7 +1627,7 @@ class QuantizedPart:
 
     def _fixTies(self):
         for n0, n1 in iterlib.pairwise(self.flatNotations()):
-            if n0.tiedNext and n0.pitches != n1.pitches:
+            if n0.tiedNext and not any(x in n1.pitches for x in n0.pitches):
                 n0.tiedNext = False
                 n1.tiedPrev = False
 
@@ -1674,7 +1683,7 @@ def quantizePart(part: core.Part,
     assert not part.hasGaps()
     label = part.label
     part = core.stackNotations(part)
-    allpairs = [splitByMeasure(struct, event) for event in part]
+    allpairs = [splitNotationByMeasure(struct, event) for event in part]
     maxMeasure = max(pairs[-1][0] for pairs in allpairs)
     notationsPerMeasure: list[list[Notation]] = [[] for _ in range(maxMeasure+1)]
     for pairs in allpairs:
