@@ -4,7 +4,8 @@ from maelzel.rational import Rat
 from emlib.iterlib import pairwise
 from . import musicobj as mobj
 from .workspace import getConfig, Workspace
-from maelzel.core.synthevent import SynthEvent
+from maelzel.core.synthevent import SynthEvent, PlayArgs
+from numbers import Rational
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -32,7 +33,7 @@ def packInVoices(objs: list[MusicObj]) -> list[Voice]:
                                 step=pitch)
             items.append(item)
     tracks = packing.packInTracks(items)
-    voices = [musicobj.Voice(track.unwrap()) for track in tracks]
+    voices = [mobj.Voice(track.unwrap()) for track in tracks]
     return voices
 
 
@@ -169,68 +170,190 @@ def addDurationToGracenotes(chain: list[MusicEvent], dur: Rat) -> None:
             gracenote.start -= deltapos
 
 
-def groupEvents(items: list[MusicEvent]) -> list[Note | Chord | list[Note]]:
-    groups = []
-    lineStarted = False
-    for i, item in enumerate(items):
-        if isinstance(item, mobj.Note):
-            if item.isRest():
-                lineStarted = False
-                groups.append(item)
-            else:
-                if lineStarted:
-                    groups[-1].append(item)
-                    if not item.tied and not (item.gliss is True):
-                        # Finish the line
-                        lineStarted = False
-                else:
-                    if item.tied or item.gliss is True:
-                        # Start a line
-                        lineStarted = True
-                        groups.append([item])
-                    else:
-                        groups.append(item)
-        elif isinstance(item, Chord):
-            if item.gliss is True:
-                if i < len(items) - 1:
-                    nextitem = items[i + 1]
-                    if isinstance(nextitem, (mobj.Chord, mobj.Note)) and not nextitem.isRest():
-                        target = nextitem.pitches if isinstance(nextitem, Chord) else [nextitem.pitch]
-                        item.properties['glisstarget'] = target
-            groups.append(item)
+def itemsAreLinked(ev1: MusicEvent, ev2: MusicEvent) -> bool:
+    """
+    Are these two items linked?
+
+    We assume that the items are adjacent
+
+    Args:
+        ev1: first note/chord
+        ev2: second note/chord
+
+    Returns:
+        True if the two items are linked
+    """
+    if ev1.isRest() or ev2.isRest():
+        return False
+    if isinstance(ev1, mobj.Note):
+        if ev1.gliss is True:
+            return True
+        if isinstance(ev2, mobj.Note):
+            if ev1.tied and ev1.pitch == ev2.pitch:
+                return True
+        elif isinstance(ev2, mobj.Chord):
+            if ev1.pitch in ev2.pitches:
+                return True
+    elif isinstance(ev1, mobj.Chord):
+        if ev1.gliss is True:
+            return True
+        if isinstance(ev2, mobj.Note):
+            if ev1.tied and any(p == ev2.pitch for p in ev1.pitches):
+                return True
+        elif isinstance(ev2, mobj.Chord):
+            if ev1.tied and any(p in ev2.pitches for p in ev1.pitches):
+                return True
+    return False
+
+
+def groupLinkedEvents(items: list[MusicEvent]) -> list[MusicEvent | list[MusicEvent]]:
+    """
+    Group linked events together
+
+    Two events are linked if they are adjacent and the first event is either tied
+    or has a glissando to the second event
+
+    Args:
+        items: a list of Note|Chord
+
+    Returns:
+        a list of individual notes, chords or groups, where a group is itself a
+        list of notes/chords
+    """
+    lastitem = items[0]
+    groups = [[lastitem]]
+    for item in items[1:]:
+        if itemsAreLinked(lastitem, item):
+            groups[-1].append(item)
         else:
-            lineStarted = False
-            groups.append(item)
-    return groups
+            groups.append([item])
+        lastitem = item
+    return [group[0] if len(group) == 1 else group for group in groups]
+
+
+def splitLinkedGroupIntoLines(objs: list[MusicEvent]
+                              ) -> list[list[Note]]:
+    """
+    Given a group as a list of Notes/Chords, split it in subgroups matching
+    each note with its continuation.
+
+    For example, when one chords is followed by another chord and the first chord
+    should do a glissando to the second, each note in the first chord is matched with
+    a second note of the second chord (possibly duplicating the notes).
+
+    This is purely intended for playback, so the duplication is not important.
+
+    """
+    finished: list[list[Note]] = []
+    started: list[list[Note]] = []
+    continuations: dict[Note, Note] = {}
+    for obj in objs:
+        if isinstance(obj, mobj.Chord):
+            for note in obj.notes:
+                note.start = obj.start
+                note.dur = obj.dur
+                note.gliss = obj.gliss
+                note.tied = obj.tied
+                if obj._playargs:
+                    note.playargs.fillWith(obj._playargs)
+
+
+    # gliss pass
+    for ev0, ev1 in pairwise(objs):
+        if isinstance(ev0, mobj.Chord) and ev0.gliss is True:
+            if isinstance(ev1, mobj.Chord):
+                for n0, n1 in zip(ev0.notes, ev1.notes):
+                    assert isinstance(n0, mobj.Note)
+                    continuations[n0] = n1
+            elif isinstance(ev1, mobj.Note):
+                for n0 in ev0.notes:
+                    continuations[n0] = ev1
+
+    for objidx, obj in enumerate(objs):
+        if isinstance(obj, mobj.Note):
+            notes = [obj]
+        elif isinstance(obj, mobj.Chord):
+            notes = obj.notes
+        else:
+            raise TypeError(f"Expected a Note/Chord, got {obj}")
+        assert all(n.start is not None for n in notes)
+        if not started:
+            # No started groups, so all notes here will start groups
+            for note in notes:
+                started.append([note])
+        else:
+            # there are started groups, so iterate through started groups and
+            # find if there are matches.
+            for groupidx, group in enumerate(started):
+                last = group[-1]
+                if last.tied:
+                    matchidx = next((i for i, n in enumerate(notes) if n.pitch == last.pitch), None)
+                    if matchidx is not None:
+                        group.append(notes[matchidx])
+                        notes.pop(matchidx)
+                elif last.gliss is True:
+                    continuation = continuations.get(last)
+                    if continuation:
+                        assert continuation in notes
+                        group.append(continuation)
+                        notes.remove(continuation)
+                    else:
+                        matchidx = min(range(len(notes)),
+                                       key=lambda idx: abs(notes[idx].pitch - last.pitch))
+                        group.append(notes[matchidx])
+                        notes.pop(matchidx)
+                    #if not group[-1].tied or not group[-1].gliss:
+                    #    finished.append(group)
+                    #    started.pop(groupidx)
+                else:
+                    # This group's last note is not tied and has no gliss: this is the
+                    # end of this group, so add it to finished
+                    finished.append(group)
+                    started.pop(groupidx)
+            # Are there notes left? If yes, this notes did not match any started group,
+            # so they must start a group themselves
+            if notes:
+                for note in notes:
+                    started.append([note])
+
+    # We finished iterating, are there any started groups? Finish them
+    finished.extend(started)
+    return finished
 
 
 def chainSynthEvents(objs: list[MusicEvent], playargs, workspace: Workspace
-                     ) -> list[SynthEvent]:
-    groups = groupEvents(objs)
-    flatevents = []
+                      ) -> list[SynthEvent]:
+    synthevents = []
+    groups = groupLinkedEvents(objs)
+    struct = workspace.scorestruct
+    conf = workspace.config
     for group in groups:
-        if isinstance(group, mobj.MusicEvent) and not group.isRest():
-            flatevents.extend(group._synthEvents(playargs.copy(), workspace=workspace))
-        elif isinstance(group, list) and group:
-            assert all(isinstance(item, (mobj.Note, mobj.Chord)) for item in group)
-            bps = []
-            # TODO: revise this
-            playargs = playargs.copy()
-            playargs.overwriteWith(group[0].playargs)
-            playargs.fillWithConfig(workspace.config)
-            for item0, item1 in pairwise(group):
-                if isinstance(item0, mobj.Note) and isinstance(item1, mobj.Note):
-                    bp = [item0.start, item0.pitch, item0.resolvedAmp(workspace=workspace)]
-                    bps.append(bp)
-                else:
-                    raise TypeError(f"Not supported yet: {item0}, {item1}")
-            lastev = group[-1]
-            if isinstance(lastev, mobj.Note):
-                bps.append([lastev.start, lastev.pitch, lastev.resolvedAmp(workspace=workspace)])
-                if playargs.sustain:
-                    raise RuntimeError("Not supported yet...")
-            event = SynthEvent.fromPlayArgs(bps=bps, playargs=playargs)
-            flatevents.append(event)
+        if isinstance(group, mobj.MusicEvent):
+            events = group._synthEvents(playargs.copy(), workspace=workspace)
+            synthevents.extend(events)
+        elif isinstance(group, list):
+            if all(isinstance(item, mobj.Note) for item in group):
+                lines = [group]
+            else:
+                lines = splitLinkedGroupIntoLines(group)
+            # A line of notes
+            for line in lines:
+                bps = [[float(struct.toTime(item.start)), item.pitch, item.resolvedAmp(workspace=workspace)]
+                       for item in line]
+                lastev = line[-1]
+                pitch = lastev.gliss or lastev.pitch
+                assert lastev.end is not None
+                bps.append([float(struct.toTime(lastev.end)), pitch, lastev.resolvedAmp(workspace=workspace)])
+                for bp in bps:
+                    assert all(isinstance(x, (int, float)) for x in bp), f"bp: {bp}\n{bps=}"
+                firstev = line[0]
+                # TODO: optimize / revise the playargs handling
+                evplayargs = playargs.copy()
+                if firstev._playargs:
+                    evplayargs.overwriteWith(firstev._playargs)
+                evplayargs.fillWithConfig(conf)
+                synthevents.append(SynthEvent.fromPlayArgs(bps=bps, playargs=evplayargs))
         else:
-            raise TypeError(f"Did not expect to get {group}")
-    return flatevents
+            raise TypeError(f"Did not expect {group}")
+    return synthevents
+

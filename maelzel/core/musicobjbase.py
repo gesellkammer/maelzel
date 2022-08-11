@@ -60,8 +60,6 @@ if TYPE_CHECKING:
     T = TypeVar('T', bound='MusicObj')
     from .playback import OfflineRenderer
 
-_playkeys = PlayArgs.keys()
-
 
 __all__ = (
     'MusicObj',
@@ -241,14 +239,14 @@ class MusicObj:
             # Create a note with predetermined instr and panning position
             >>> note = Note("C4+25", dur=0.5).setPlay(instr="piano", position=1)
             # When .play is called, the note will play with the preset instr and position
-            >>> note.playgroup()
+            >>> note.play()
         """
         playargs = self.playargs
         for k, v in kws.items():
-            if k not in _playkeys:
+            if k not in PlayArgs.playkeys:
                 raise KeyError(f"key {k} not known. "
-                               f"Possible keys are {_playkeys}")
-            setattr(playargs, k, v)
+                               f"Possible keys are {PlayArgs.playkeys}")
+            playargs[k] = v
         assert self._playargs is not None
         return self
 
@@ -748,17 +746,20 @@ class MusicObj:
             instr = presetManager.selectPreset()
             if not instr:
                 raise ValueError("No preset selected")
-        playargs = PlayArgs(instr=instr,
-                            delay=delay,
-                            gain=gain,
-                            fade=fade,
-                            pitchinterpol=pitchinterpol,
-                            fadeshape=fadeshape,
-                            params=params,
-                            position=position,
-                            sustain=sustain,
-                            chan=chan
-                            )
+        d = dict(
+            instr=instr,
+            delay=delay,
+            gain=gain,
+            fade=fade,
+            pitchinterpol=pitchinterpol,
+            fadeshape=fadeshape,
+            params=params,
+            position=position,
+            sustain=sustain,
+            chan=chan
+        )
+        d = {k:v for k, v in d.items() if v is not None}
+        playargs = PlayArgs(d)
         if workspace is None:
             workspace = Workspace.active
         if struct:=self.attachedScoreStruct():

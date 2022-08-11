@@ -45,6 +45,10 @@ class RenderOptions:
         composer: the composer of the score
         opaque: if True, rendered images will be opaque (no transparent
             background)
+        articulationsWithinTies: if True, include any articulation even if the note if
+            tied to a previous note
+        dynamicsWithinTies: include dynamics even for notes tied to previous notes
+
     """
     orientation: str = config['pageOrientation']
     staffSize: Union[int, float] = config['staffSize']
@@ -79,6 +83,9 @@ class RenderOptions:
 
     cropToContent: bool = False
     opaque: bool = True
+
+    articulationInsideTie: bool = True
+    dynamicInsideTie: bool = True
 
     title: str = ''
     composer: str = ''

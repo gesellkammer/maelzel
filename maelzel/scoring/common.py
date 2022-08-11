@@ -7,16 +7,18 @@ from dataclasses import dataclass
 import enum
 import logging
 import numbers as _numbers
-from typing import NamedTuple, Union, Tuple, List, TypeVar, Optional
+from typing import TYPE_CHECKING, NamedTuple
 import pitchtools as pt
 
-time_t = Union[float, int, F]
-pitch_t = Union[int, float, str]
-timesig_t = Tuple[int, int]
-division_t = List[Union[int, list]]
-# division_t = List[Union[int, 'division_t']]
-timerange_t = Tuple[F, F]
-T = TypeVar("T")
+if TYPE_CHECKING:
+    from typing import Union, Tuple, List, TypeVar, Optional
+    time_t = Union[float, int, F]
+    pitch_t = Union[int, float, str]
+    timesig_t = Tuple[int, int]
+    division_t = List[Union[int, list]]
+    # division_t = List[Union[int, 'division_t']]
+    timerange_t = Tuple[F, F]
+    T = TypeVar("T")
 
 logger = logging.getLogger("maelzel.scoring")
 

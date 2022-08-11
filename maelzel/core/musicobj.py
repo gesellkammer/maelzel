@@ -497,7 +497,7 @@ class Note(MusicEvent):
         if self.amp is not None:
             amp = self.amp
         else:
-            if conf['play.useDynamic']:
+            if conf['play.useDynamics']:
                 dyn = self.dynamic or conf['play.defaultDynamic']
                 amp = workspace.dynamicCurve.dyn2amp(dyn)
             else:
@@ -513,12 +513,15 @@ class Note(MusicEvent):
                              f"Object: {self}")
         bps = [[starttime, self.pitch, amp],
                [endtime,   endmidi,    amp]]
-        if playargs.sustain:
-            bps.append([endtime + playargs.sustain, endmidi, amp])
+        if sustain:=playargs.get('sustain'):
+            bps.append([endtime + sustain, endmidi, amp])
 
         return [SynthEvent.fromPlayArgs(bps=bps, playargs=playargs, tiednext=self.tied)]
 
-    def makeGliss(self, endpitch:pitch_t=None, dur:time_t=None, endamp:float=None
+    def makeGliss(self,
+                  endpitch: pitch_t = None,
+                  dur: time_t = None,
+                  endamp: float = None
                   ) -> Line:
         """
         Create a Line between this Note and ``endpitch``
@@ -836,9 +839,6 @@ class Line(MusicEvent):
         if self.symbols:
             for symbol in self.symbols:
                 symbol.applyToTiedGroup(notations)
-        for n0, n1 in iterlib.window(notations, 2):
-            if n0.tiedNext:
-                n1.tiedNext = True
         if self.tied:
             logger.warning("Tied lines are not yet supported")
         if self.gliss:
@@ -1024,8 +1024,8 @@ class Chord(MusicEvent):
         dur = self.dur if self.dur is not None else Rat(1)
 
         chord = scoring.makeChord(pitches=pitches, duration=dur, offset=self.start,
-                                  annotation=annot, group=groupid, dynamic=self.dynamic)
-
+                                  annotation=annot, group=groupid, dynamic=self.dynamic,
+                                  tiedNext=self.tied)
         noteheads = [n.getSymbol('notehead')
                      for n in self.notes]
         if any(noteheads):
@@ -1033,7 +1033,9 @@ class Chord(MusicEvent):
                 if notehead:
                     assert isinstance(notehead, symbols.Notehead)
                     notehead.applyToNotehead(chord, i)
-
+        if self.symbols:
+            for s in self.symbols:
+                s.applyTo(chord)
         notations = [chord]
         if self.gliss:
             chord.gliss = True
@@ -1045,9 +1047,6 @@ class Chord(MusicEvent):
                 if config['show.glissEndStemless']:
                     endEvent.stem = 'hidden'
                 notations.append(endEvent)
-        if self.symbols:
-            for s in self.symbols:
-                s.applyToTiedGroup(notations)
         return notations
 
     def asmusic21(self, **kws) -> m21.stream.Stream:
@@ -1248,8 +1247,8 @@ class Chord(MusicEvent):
                 noteamp = chordamp
             bps = [[starttime, note.pitch, noteamp],
                    [endtime,   endpitch,   noteamp]]
-            if playargs.sustain:
-                bps.append([endtime + playargs.sustain, endpitch, noteamp])
+            if sustain:=playargs.get('sustain'):
+                bps.append([endtime + sustain, endpitch, noteamp])
             events.append(SynthEvent.fromPlayArgs(bps=bps, playargs=playargs))
         return events
 
@@ -1881,7 +1880,7 @@ def _mergeItems(items: list[MusicEvent], workspace: Workspace = None
     Notes which can be merged as Lines are fused together
     and the resulting Line is added
     """
-    groups = _musicobjtools.groupEvents(items)
+    groups = _musicobjtools.groupLinkedEvents(items)
     return [_makeLine(item, workspace=workspace)
             if isinstance(item, list) else item
             for item in groups]
@@ -1969,11 +1968,6 @@ class Chain(MusicObj):
         if conf['play.useDynamics']:
             _musicobjtools.fillTempDynamics(items, initialDynamic=conf['play.defaultDynamic'])
         return _musicobjtools.chainSynthEvents(items, playargs=playargs, workspace=workspace)
-
-        items = _mergeItems(items, workspace=workspace)
-        out = misc.sumlist(item._synthEvents(playargs.copy(), workspace)
-                           for item in items)
-        return out
 
     def timeShiftInPlace(self, timeoffset):
         if any(item.start is None for item in self.items):
@@ -2190,9 +2184,12 @@ class Chain(MusicObj):
         if config is None:
             config = getConfig()
         items = stackEventsRelative(self.items, offset=self.start)
-        # groupid = scoring.makeGroupId(groupid)
-        notations = sum((item.scoringEvents(groupid=groupid, config=config)
-                         for item in items), [])
+        notations: list[scoring.Notation] = []
+        for item in items:
+            notations.extend(item.scoringEvents(groupid=groupid, config=config))
+        for n0, n1 in iterlib.pairwise(notations):
+            if n0.tiedNext and not n1.isRest:
+                n1.tiedPrev = True
 
         if self.symbols:
             for s in self.symbols:
