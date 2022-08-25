@@ -136,6 +136,9 @@ class MusicObj:
             self._properties = {}
         return self._properties
 
+    def isEmpty(self) -> bool:
+        return False
+
     def pitchRange(self) -> Optional[tuple[float, float]]:
         """
         The pitch range of this object, if applicable
@@ -173,6 +176,12 @@ class MusicObj:
 
         For non-container objects (:class:`Note`, :class:`Chord`) this is either
         the explicitely set ``.dur`` attribute, or 1.0
+
+        Args:
+            start: the start time of the object, overrides the set start time. This
+                is relevant for objects with a time defined in seconds, because the
+                duration in quarternotes might be dependent on the scorestruct
+                so the start time needs to be given
         """
         return self.dur if self.dur is not None else Rat(1)
 
@@ -282,7 +291,6 @@ class MusicObj:
             out._playargs = self._playargs.copy()
         if self._properties is not None:
             out._properties = self._properties.copy()
-        # out._changed()
         return out
 
     def copy(self: T) -> T:
@@ -327,8 +335,10 @@ class MusicObj:
 
     @property
     def end(self) -> Optional[Rat]:
-        """ The end time of this object. Will be None if
-        this object has no duration or no start"""
+        """
+        The end time of this object.
+
+        Will be None if this object has no duration or no start"""
         if self.dur is None or self.start is None:
             return None
         return self.start + self.dur
@@ -528,6 +538,8 @@ class MusicObj:
         is unquantized and independent of any score structure
         """
         notations = self.scoringEvents(config=getConfig())
+        if not notations:
+            return []
         scoring.stackNotationsInPlace(notations)
         scoring.enharmonics.fixEnharmonicsInPlace(notations)
         parts = scoring.distributeNotationsByClef(notations)
@@ -643,6 +655,8 @@ class MusicObj:
 
     def _htmlImage(self) -> str:
         imgpath = self.renderImage()
+        if not imgpath:
+            return ''
         scaleFactor = getConfig().get('show.scaleFactor', 1.0)
         width, height = emlib.img.imgSize(imgpath)
         img = emlib.img.htmlImgBase64(imgpath,

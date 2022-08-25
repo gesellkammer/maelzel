@@ -104,7 +104,6 @@ import re
 import typing
 from maelzel import _state
 from maelzel.music import dynamics
-
 from configdict import ConfigDict
 
 if typing.TYPE_CHECKING:
@@ -136,7 +135,7 @@ _default = {
     'm21.displayhook.install': True,
     'm21.displayhook.format': 'xml.png',
     'm21.fixStream': True,
-    'repr.showFreq': True,
+    'repr.showFreq': False,
     'semitoneDivisions': 4,
 
     'dynamicCurve.shape': 'expon(0.3)',
@@ -191,7 +190,6 @@ _default = {
     'play.defaultAmplitude': 1.0,
     'play.defaultDynamic': 'f',
     'play.generalMidiSoundfont': '',
-    'play.namedArgsMethod': 'pargs',
     'play.soundfontAmpDiv': 16384,
     'play.soundfontInterpolation': 'linear',
     'play.schedLatency': 0.2,
@@ -236,7 +234,6 @@ _validator = {
     'play.pitchInterpolation::choices': {'linear', 'cos'},
     'app.png::type': str,
     'play.generalMidiSoundfont': lambda cfg, key, val: val == '' or (os.path.exists(val) and os.path.splitext(val)[1] == '.sf2'),
-    'play.namedArgsMethod::choices': {'table', 'pargs'},
     'play.defaultDynamic::choices': {'pppp', 'ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'ffff'},
     'html.theme::choices': {'light', 'dark'},
     'show.lastBreakpointDur::range': (1/64., 1),
@@ -410,9 +407,6 @@ _docs = {
         'Path to a soundfont (sf2 file) with a general midi mapping',
     'html.theme':
         'Theme used when displaying html inside jupyter',
-    'play.namedArgsMethod':
-        'Method used to convert named parameters defined in a Preset to their'
-        ' corresponding function in a csoundengine.Instr',
     'play.soundfontAmpDiv':
         'A divisor used to scale the amplitude of soundfonts to a range 0-1',
     'quant.complexity':
@@ -511,7 +505,7 @@ class CoreConfig(ConfigDict):
 
     def __enter__(self):
         from . import workspace
-        w = workspace.getWorkspace()
+        w = workspace.Workspace.active
         self._prevConfig = w.config
         w.config = self
 
@@ -528,8 +522,8 @@ class CoreConfig(ConfigDict):
         This is just a shortcut for ``setConfig(self)``
 
         """
-        from .workspace import setConfig
-        setConfig(self)
+        from . import workspace
+        workspace.setConfig(self)
 
 
 def onFirstRun():
@@ -539,7 +533,7 @@ def onFirstRun():
         print("*** maelzel.core: found builtin piano soundfont; setting default instrument to '_piano'")
         rootConfig['play.instr'] = '_piano'
         rootConfig.save()
-    _state.state['first_run'] = False
+    _state.state['first_run'] = False   # state is persistent so no need to save
 
 
 rootConfig = CoreConfig(load=True)

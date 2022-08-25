@@ -10,6 +10,7 @@ import bpf4 as bpf
 import pitchtools as pt
 from dataclasses import dataclass
 from maelzel.rational import Rat
+from maelzel.colortheory import safeColors
 from . import environment
 
 if TYPE_CHECKING:
@@ -404,3 +405,9 @@ def dictRemoveNoneKeys(d: dict):
     keysToRemove = [k for k, v in d.items() if v is None]
     for k in keysToRemove:
         del d[k]
+
+
+def htmlSpan(text, color: str) -> str:
+    if color.startswith(':'):
+        color = safeColors[color[1:]]
+    return f'<span style="color:{color}">{str(text)}</span>'

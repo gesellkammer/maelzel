@@ -35,13 +35,14 @@ def readNotes(path: str) -> RecordList:
 def readQtrans(path: str, minpitch=36, octaveDivision=12):
     """
     Read a Q-Transform analysis
+
     Args:
         path: 
         minpitch: 
         octaveDivision: 
 
     Returns:
-
+        a QTransf
     """
     t = etree.parse(path)
     root = t.getroot()
@@ -65,11 +66,11 @@ def readQtrans(path: str, minpitch=36, octaveDivision=12):
         rows.append((int(row.get('n')), values))
     rows.sort(key=lambda r:r[0])
     values = list(zip(*rows))[1]   # only the column with the values
-    return QTransf(start, wsize / sr, values, minpitch=minpitch,
-                   octave_division=octaveDivision)
+    return QTransform(start, wsize / sr, values, minpitch=minpitch,
+                      octave_division=octaveDivision)
 
 
-class QTransf:
+class QTransform:
     def __init__(self, start, dt, values, minpitch, octave_division):
         self.start = start
         self.dt = dt
@@ -124,7 +125,6 @@ def readAdaptiveSpectr(path: str) -> Spectrum:
     values = list(zip(*rows))[1]   # only the column with the values
     sr = int(model.get("sampleRate"))
     start = int(model.get("start"))
-    # end = int(model.get("end"))
     wsize = int(model.get("windowSize"))
     return Spectrum(bins, values, start, wsize/sr)
 

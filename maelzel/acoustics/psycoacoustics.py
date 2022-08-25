@@ -12,7 +12,7 @@ moore95 = bpf.linear(
         2000, 220,
         3000, 500,
         10000, 900
-).keep_skope()
+).keep_slope()
 
 
 def criticalband(freq: float) -> float:

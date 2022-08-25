@@ -4,12 +4,13 @@ from maelzel.common import *
 
 from emlib import iterlib 
 from emlib.misc import returns_tuple
+import bpf4 as bpf
+
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
     from numbers import Real as  number_t
 
-import bpf4 as bpf
 
 
 def measureDuration(timesig: Union[str, timesig_t], tempo: number_t) -> F:
@@ -24,14 +25,14 @@ def measureDuration(timesig: Union[str, timesig_t], tempo: number_t) -> F:
     Examples
     ~~~~~~~~
 
-    >>> measureDuration("3/4", 120)        # 3 quarters, quarter=120
-    1.5
-    >>> measureDuration((3, 8), 60)        # 3/8 bar, 8th note=60
-    3
-    
-    >>> assert all(measureDuration((n, 4), 60) == n for n in range(20))
-    >>> assert all(measureDuration((n, 8), 120) == n / 2 for n in range(20))
-    >>> assert all(measureDuration((n, 16), (8,60)) == n / 2 for n in range(40))
+        >>> measureDuration("3/4", 120)        # 3 quarters, quarter=120
+        1.5
+        >>> measureDuration((3, 8), 60)        # 3/8 bar, 8th note=60
+        3
+
+        >>> assert all(measureDuration((n, 4), 60) == n for n in range(20))
+        >>> assert all(measureDuration((n, 8), 120) == n / 2 for n in range(20))
+        >>> assert all(measureDuration((n, 16), (8,60)) == n / 2 for n in range(40))
     """
     if isinstance(timesig, str):
         assert "/" in timesig
@@ -165,7 +166,7 @@ def tempo2beatdur(tempo):
     return 60 / tempo
 
 
-@returns_tuple("best_tempi resulting_durs numbeats")
+@returns_tuple("bestTempi resultingDurations numBeats")
 def bestTempo(duration, possible_tempi=DEFAULT_TEMPI,
               num_solutions=5, verbose=True):
     """

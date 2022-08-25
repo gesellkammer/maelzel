@@ -11,6 +11,7 @@ import shutil
 from typing import Optional as Opt
 import emlib.misc
 import logging
+from functools import cache
 from typing import Optional
 
 
@@ -30,6 +31,7 @@ def hasBinary(binary:str) -> bool:
     return False
 
 
+@cache
 def preferredImageViewer() -> Opt[str]:
     """
     Returns a command string or None if no default was found.
@@ -67,10 +69,9 @@ def findMusescore() -> Optional[str]:
     Tries to find musescore, returns the path to the executable or None
 
     We rely on the active config (key: ``musescorepath``) or a binary
-    ``musescore``being present in the path. Also if music21 is installed
-    and the user has set 'musescoreDirectPNGPath' pointing to an existing
-    binary, that will be tried also. If musescore is not found, set
-    the correct path via::
+    ``musescore`` being present in the path.
+
+    If musescore is not found, set the correct path via::
 
         from maelzel.core import *
         conf = getConfig()
@@ -96,16 +97,15 @@ def findMusescore() -> Optional[str]:
         us = m21.environment.UserSettings()
         musescorepath = us['musescoreDirectPNGPath']
         if os.path.exists(musescorepath):
+            logger.info("Using musescore path as set in music21")
             return str(musescorepath)    
     except ImportError:
         pass
 
-    path = shutil.which('musescore')
-    if path is not None:
+    if (path:=shutil.which('musescore')) is not None:
         return path
-    path = shutil.which('MuseScore')
-    if path is not None:
-            return path
+    if (path:=shutil.which('MuseScore')) is not None:
+        return path
         
     logger.warning("MuseScore not found. Tried to find 'musescore' or 'MuseScore' in the path, "
                    "without success. To fix this issue, make sure MuseScore is installed. "

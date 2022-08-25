@@ -4,13 +4,14 @@ import pitchtools
 import appdirs as _appdirs
 
 from ._common import logger, UNSET
-from .config import CoreConfig, rootConfig
+from . import config as _config
 from maelzel.music.dynamics import DynamicCurve
 from maelzel.scorestruct import ScoreStruct
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Optional, Any, Union, Tuple
+    from .config import CoreConfig
 
 
 def _resetCache() -> None:
@@ -28,8 +29,6 @@ __all__ = (
     'setConfig',
     'setScoreStruct',
     'setTempo',
-    'CoreConfig',
-    'DynamicCurve',
     'logger'
 )
 
@@ -101,7 +100,7 @@ class Workspace:
         elif updates:
             config = config.clone(updates=updates)
         else:
-            assert isinstance(config, CoreConfig)
+            assert isinstance(config, _config.CoreConfig)
         self._config: CoreConfig = config
 
         if dynamicCurve is None:
@@ -264,7 +263,7 @@ class Workspace:
             ...     # Now do something baroque
         """
         if config is UNSET:
-            assert isinstance(self.config, CoreConfig)
+            assert isinstance(self.config, _config.CoreConfig)
             config = self.config.copy()
         if scorestruct is UNSET:
             scorestruct = self.scorestruct.copy()
@@ -348,7 +347,7 @@ def _init() -> None:
         logger.debug("init was already done")
         return
     Workspace._initDone = True
-    w = Workspace(name="root", config=rootConfig, active=True)
+    w = Workspace(name="root", config=_config.rootConfig, active=True)
     Workspace.root = w
 
 
@@ -518,9 +517,9 @@ def makeConfig(updates: dict = None,
     .. [2] The default config is the config without any user customizations
     """
     if source is None or source == 'root':
-        source = rootConfig
+        source = _config.rootConfig
     elif source == 'default':
-        source = rootConfig.makeDefault()
+        source = _config.rootConfig.makeDefault()
     elif source == 'active':
         source = getConfig()
     out = source.clone(updates=updates)

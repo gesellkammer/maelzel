@@ -336,7 +336,7 @@ class _SpellingHistory:
                  if val != 0}
         print(fixed)
 
-    def addNotation(self, notation:Notation, force=False):
+    def addNotation(self, notation: Notation, force=False):
         notenames = notation.notenames
         for notename in notenames:
             if not self.spellingOk(notename):
@@ -425,7 +425,7 @@ def fixEnharmonicsInPlace(notations: list[Notation], eraseFixedNotes=True,
                 chordSolution = chordVariants[0]
                 for i, notename in enumerate(chordSolution):
                     n.fixNotename(notename, idx=i)
-                spellingHistory.addNotation(n)
+                spellingHistory.addNotation(n, force=True)
 
     # Fix wrong accidentals
     # In pairs, we check glissandi and notes with inverted vertical position / pitch

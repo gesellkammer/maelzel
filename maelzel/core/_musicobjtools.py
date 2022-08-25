@@ -10,31 +10,10 @@ from numbers import Rational
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
-    from .musicobj import Note, Chord, Voice, MusicObj, MusicEvent
+    from .musicobj import Note, Chord, Chain, MusicObj, MusicEvent
+    from .config import CoreConfig
 
 
-def packInVoices(objs: list[MusicObj]) -> list[Voice]:
-    """
-    Distribute the items across voices
-    """
-    items = []
-    unpitched = []
-    for obj in objs:
-        assert obj.start is not None and obj.dur is not None, \
-            "Only objects with an explict start / duration can be packed"
-        r = obj.pitchRange()
-        if r is None:
-            unpitched.append(r)
-        else:
-            pitch = (r[0] + r[1]) / 2
-            item = packing.Item(obj,
-                                offset=Rat(obj.start.numerator, obj.start.denominator),
-                                dur=Rat(obj.dur.numerator, obj.dur.denominator),
-                                step=pitch)
-            items.append(item)
-    tracks = packing.packInTracks(items)
-    voices = [mobj.Voice(track.unwrap()) for track in tracks]
-    return voices
 
 
 def splitNotesOnce(notes: Union[Chord, Sequence[Note]], splitpoint: float, deviation=None,
@@ -150,8 +129,14 @@ def addDurationToGracenotes(chain: list[MusicEvent], dur: Rat) -> None:
             lastRealNote = i
         else:
             if lastRealNote is None:
-                # first in the sequence!
-                print("What to do???")
+                # First in the sequence is a gracenote. Diminish the dur of the next real note,
+                # make the gracenote "on the beat"
+                assert i == 0 and len(chain) > 1 and not chain[1].isGracenote()
+                nextreal = chain[1]
+                assert nextreal.dur > dur
+                nextreal.dur -= dur
+                nextreal.start += dur
+                n.dur = dur
             else:
                 gracenotes = d.get(lastRealNote)
                 if gracenotes:
@@ -168,42 +153,6 @@ def addDurationToGracenotes(chain: list[MusicEvent], dur: Rat) -> None:
             gracenote.dur = dur
             deltapos = (len(gracenotesIndexes) - i) * dur
             gracenote.start -= deltapos
-
-
-def itemsAreLinked(ev1: MusicEvent, ev2: MusicEvent) -> bool:
-    """
-    Are these two items linked?
-
-    We assume that the items are adjacent
-
-    Args:
-        ev1: first note/chord
-        ev2: second note/chord
-
-    Returns:
-        True if the two items are linked
-    """
-    if ev1.isRest() or ev2.isRest():
-        return False
-    if isinstance(ev1, mobj.Note):
-        if ev1.gliss is True:
-            return True
-        if isinstance(ev2, mobj.Note):
-            if ev1.tied and ev1.pitch == ev2.pitch:
-                return True
-        elif isinstance(ev2, mobj.Chord):
-            if ev1.pitch in ev2.pitches:
-                return True
-    elif isinstance(ev1, mobj.Chord):
-        if ev1.gliss is True:
-            return True
-        if isinstance(ev2, mobj.Note):
-            if ev1.tied and any(p == ev2.pitch for p in ev1.pitches):
-                return True
-        elif isinstance(ev2, mobj.Chord):
-            if ev1.tied and any(p in ev2.pitches for p in ev1.pitches):
-                return True
-    return False
 
 
 def groupLinkedEvents(items: list[MusicEvent]) -> list[MusicEvent | list[MusicEvent]]:
@@ -223,7 +172,7 @@ def groupLinkedEvents(items: list[MusicEvent]) -> list[MusicEvent | list[MusicEv
     lastitem = items[0]
     groups = [[lastitem]]
     for item in items[1:]:
-        if itemsAreLinked(lastitem, item):
+        if lastitem.canBeLinkedTo(item):
             groups[-1].append(item)
         else:
             groups.append([item])
@@ -244,6 +193,9 @@ def splitLinkedGroupIntoLines(objs: list[MusicEvent]
     This is purely intended for playback, so the duplication is not important.
 
     """
+    if all(isinstance(obj, mobj.Note) for obj in objs):
+        return [objs]
+
     finished: list[list[Note]] = []
     started: list[list[Note]] = []
     continuations: dict[Note, Note] = {}
@@ -257,25 +209,19 @@ def splitLinkedGroupIntoLines(objs: list[MusicEvent]
                 if obj._playargs:
                     note.playargs.fillWith(obj._playargs)
 
-
     # gliss pass
     for ev0, ev1 in pairwise(objs):
         if isinstance(ev0, mobj.Chord) and ev0.gliss is True:
             if isinstance(ev1, mobj.Chord):
                 for n0, n1 in zip(ev0.notes, ev1.notes):
-                    assert isinstance(n0, mobj.Note)
                     continuations[n0] = n1
             elif isinstance(ev1, mobj.Note):
                 for n0 in ev0.notes:
                     continuations[n0] = ev1
 
     for objidx, obj in enumerate(objs):
-        if isinstance(obj, mobj.Note):
-            notes = [obj]
-        elif isinstance(obj, mobj.Chord):
-            notes = obj.notes
-        else:
-            raise TypeError(f"Expected a Note/Chord, got {obj}")
+        notes = obj.notes if isinstance(obj, mobj.Chord) else [obj]
+        usednotes = set()
         assert all(n.start is not None for n in notes)
         if not started:
             # No started groups, so all notes here will start groups
@@ -290,21 +236,20 @@ def splitLinkedGroupIntoLines(objs: list[MusicEvent]
                     matchidx = next((i for i, n in enumerate(notes) if n.pitch == last.pitch), None)
                     if matchidx is not None:
                         group.append(notes[matchidx])
-                        notes.pop(matchidx)
+                        # notes.pop(matchidx)
+                        usednotes.add(notes[matchidx])
                 elif last.gliss is True:
-                    continuation = continuations.get(last)
-                    if continuation:
-                        assert continuation in notes
+                    if continuation:=continuations.get(last):
                         group.append(continuation)
-                        notes.remove(continuation)
+                        if continuation in notes:
+                            usednotes.add(continuation)
+                            # notes.remove(continuation)
                     else:
                         matchidx = min(range(len(notes)),
                                        key=lambda idx: abs(notes[idx].pitch - last.pitch))
                         group.append(notes[matchidx])
-                        notes.pop(matchidx)
-                    #if not group[-1].tied or not group[-1].gliss:
-                    #    finished.append(group)
-                    #    started.pop(groupidx)
+                        usednotes.add(notes[matchidx])
+                        # notes.pop(matchidx)
                 else:
                     # This group's last note is not tied and has no gliss: this is the
                     # end of this group, so add it to finished
@@ -312,8 +257,8 @@ def splitLinkedGroupIntoLines(objs: list[MusicEvent]
                     started.pop(groupidx)
             # Are there notes left? If yes, this notes did not match any started group,
             # so they must start a group themselves
-            if notes:
-                for note in notes:
+            for note in notes:
+                if note not in usednotes:
                     started.append([note])
 
     # We finished iterating, are there any started groups? Finish them
@@ -321,8 +266,19 @@ def splitLinkedGroupIntoLines(objs: list[MusicEvent]
     return finished
 
 
-def chainSynthEvents(objs: list[MusicEvent], playargs, workspace: Workspace
+def chainSynthEvents(objs: list[MusicEvent], playargs: PlayArgs, workspace: Workspace
                       ) -> list[SynthEvent]:
+    """
+    Calculate synthevents for a chain of events
+
+    Args:
+        objs: a sequence of events
+        playargs: playargs for the sequence
+        workspace: the activeworkspace
+
+    Returns:
+        the corresponding list of synthevents
+    """
     synthevents = []
     groups = groupLinkedEvents(objs)
     struct = workspace.scorestruct
@@ -332,10 +288,7 @@ def chainSynthEvents(objs: list[MusicEvent], playargs, workspace: Workspace
             events = group._synthEvents(playargs.copy(), workspace=workspace)
             synthevents.extend(events)
         elif isinstance(group, list):
-            if all(isinstance(item, mobj.Note) for item in group):
-                lines = [group]
-            else:
-                lines = splitLinkedGroupIntoLines(group)
+            lines = splitLinkedGroupIntoLines(group)
             # A line of notes
             for line in lines:
                 bps = [[float(struct.toTime(item.start)), item.pitch, item.resolvedAmp(workspace=workspace)]
@@ -357,3 +310,87 @@ def chainSynthEvents(objs: list[MusicEvent], playargs, workspace: Workspace
             raise TypeError(f"Did not expect {group}")
     return synthevents
 
+
+def normalizeChordArpeggio(arpeggio: Union[str, bool], chord: Chord, config: CoreConfig
+                           ) -> bool:
+    if arpeggio is None:
+        arpeggio = config['show.arpeggiateChord']
+    if isinstance(arpeggio, bool):
+        return arpeggio
+    elif arpeggio == 'auto':
+        return chord._isTooCrowded()
+    else:
+        raise ValueError(f"arpeggio should be True, False, 'auto' (got {arpeggio})")
+
+
+def flattenObjs(objs: list[MusicEvent | Chain], offset=Rat(0)) -> list[MusicEvent]:
+    collected = []
+    for obj in objs:
+        assert obj.start is not None, \
+            f"This function should be called with objects with resolved start, got {obj}"
+        if isinstance(obj, mobj.MusicEvent):
+            assert obj.dur is not None
+            collected.append(obj.clone(start=obj.start+offset))
+        elif isinstance(obj, mobj.Chain) and obj.items:
+            collected.extend(flattenObjs(obj.items, offset=offset+obj.start))
+        else:
+            raise TypeError(f"Expected a Note/Chord or a Chain, got {obj} ({type(obj)})")
+    return collected
+
+
+def resolvedTimes(events: list[MusicEvent | Chain],
+                  defaultDur = Rat(1),
+                  offset = Rat(0),
+                  ) -> list:
+    """
+    Stack events to the left, making any unset start and duration explicit
+
+    After setting all start times and durations an offset is added, if given
+
+    Args:
+        events: the events to modify, either in place or as a copy
+        defaultDur: the default duration used when an event has no duration and
+            the next event does not have an explicit start
+        inplace: if True, events are modified in place
+        offset: an offset to add to all start times after stacking them
+        recurse: if True, stack also events inside subchains
+
+    Returns:
+        the modified events. If inplace is True, the returned events are the
+        same as the events passed as input
+
+    """
+
+    if not events:
+        raise ValueError("no events given")
+
+    now = Rat(0)
+    lasti = len(events) - 1
+    out = []
+    for i, ev in enumerate(events):
+        if ev.start is None:
+            start = now
+        else:
+            start = ev.start
+        dur = defaultDur
+        if isinstance(ev, MusicEvent):
+            if ev.dur is None:
+                if i < lasti:
+                    nextev = events[i+1]
+                    if nextev.start is not None:
+                        dur = nextev.start - start
+                        # ev.dur = nextev.start - ev.start
+            now = start + dur
+            out.append((ev, start, dur))
+        elif isinstance(ev, Chain):
+            subitems = resolvedTimes(ev.items)
+            out.append(subitems)
+            dur = _resolvedTimesDur(ev.items)
+            now = start + dur
+
+    return out
+
+
+def _resolvedTimesDur(items: list[tuple[MusicEvent, Rational, Rational] | list]) -> Rational:
+    return sum(item[2] if isinstance(item, tuple) else _resolvedTimesDur(item)
+               for item in items)
