@@ -19,11 +19,31 @@ def checkCsound() -> str:
 
 
 def vampPluginsInstalled(cached=True) -> bool:
+    """
+    Are the needed VAMP plugins installed?
+
+    Args:
+        cached: if True, results are cached
+
+    Returns:
+        True if the needed VAMP plugins are installed
+
+    """
     from maelzel.snd import vamptools
     return 'pyin:pyin' in vamptools.listPlugins(cached=cached)
 
 
 def checkVampPlugins(fix=True) -> str:
+    """
+    Check if the needed VAMP plugins are installed
+
+    Args:
+        fix: if True, VAMP plugins are installed if they are not present
+
+    Returns:
+        an error string or an empty string if everything is ok
+
+    """
     if vampPluginsInstalled():
         return ""
     if not fix:
@@ -37,6 +57,13 @@ def checkVampPlugins(fix=True) -> str:
 
 
 def checkLilypond() -> str:
+    """
+    Check if lilypond is installed
+
+    Returns:
+        an error string if something went wrong, an empty string if lilypond is
+        installed
+    """
     if shutil.which("lilypond") is not None:
         return ""
     return "Could not find lilypond in the path"
@@ -51,6 +78,9 @@ def _copyFiles(files: list[str], dest: str, verbose=False) -> None:
 
 
 def maelzelRootFolder() -> Path:
+    """
+    Returns the root folder of the maelzel installation
+    """
     return Path(os.path.split(__file__)[0]).parent
 
 
@@ -183,7 +213,7 @@ def checkDependencies(abortIfErrors=False, tryfix=True) -> list[str]:
     return errors
 
 
-def checkDependenciesIfNeeded(daysSinceLastCheck=1) -> bool:
+def checkDependenciesIfNeeded(daysSinceLastCheck=7) -> bool:
     """
     Checks dependencies if needed
 

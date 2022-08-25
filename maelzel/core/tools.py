@@ -3,18 +3,22 @@ from __future__ import annotations
 from maelzel import scorestruct
 
 from .workspace import getWorkspace
-from . import musicobj
+from . import musicobj as mobj
+from . import score
+from maelzel import packing
+from maelzel.rational import Rat
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ._typedefs import time_t
+    from maelzel.core.musicobj import *
 
 
 __all__ = (
     'amplitudeToDynamics',
     'makeClickTrack',
+    'packInVoices'
 )
-
 
 
 def amplitudeToDynamics(amp: float) -> str:
@@ -45,7 +49,7 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
                    weakBeatPitch="5G",
                    playpreset: str = '_click',
                    playparams: dict[str, float] = None,
-                   fade=0) -> musicobj.Score:
+                   fade=0) -> score.Score:
     """
     Creates a score representing a clicktrack of the given ScoreStruct
 
@@ -102,32 +106,55 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
         if den  == 4:
             for i, n in enumerate(range(m.timesig[0])):
                 pitch = strongBeatPitch if i == 0 else weakBeatPitch
-                ev = musicobj.Note(pitch, start=now, dur=clickdur or 1).setPlay(fade=(0, 0.1))
+                ev = mobj.Note(pitch, start=now, dur=clickdur or 1).setPlay(fade=(0, 0.1))
                 events.append(ev)
                 now += 1
         elif den == 8:
             for i, n in enumerate(range(m.timesig[0])):
                 pitch = strongBeatPitch if i == 0 else weakBeatPitch
-                ev = musicobj.Note(pitch, start=now, dur=clickdur or 0.5).setPlay(fade=(0, 0.1))
+                ev = mobj.Note(pitch, start=now, dur=clickdur or 0.5).setPlay(fade=(0, 0.1))
                 events.append(ev)
                 now += 0.5
         elif den == 16:
             if m.quarterTempo > 80:
                 dur = clickdur or m.durationBeats()
-                ev = musicobj.Note(strongBeatPitch, dur=dur, start=now)
+                ev = mobj.Note(strongBeatPitch, dur=dur, start=now)
                 events.append(ev)
                 now += m.durationBeats()
             else:
                 beats = m.subdivisions()
                 for i, beat in enumerate(beats):
                     pitch = strongBeatPitch if i == 0 else weakBeatPitch
-                    ev = musicobj.Note(pitch, dur=clickdur or beat, start=now)
+                    ev = mobj.Note(pitch, dur=clickdur or beat, start=now)
                     events.append(ev)
                     now += beat
         else:
             raise ValueError(f"Timesig {m.timesig} not supported")
-    voice = musicobj.Voice(events)
+    voice = mobj.Voice(events)
     voice.setPlay(fade=fade)
     if playpreset:
         voice.setPlay(instr=playpreset, params=playparams)
-    return musicobj.Score([voice], scorestruct=struct)
+    return score.Score([voice], scorestruct=struct)
+
+
+def packInVoices(objs: list[MusicObj]) -> list[mobj.Voice]:
+    """
+    Distribute the items across voices
+    """
+    items = []
+    unpitched = []
+    for obj in objs:
+        assert obj.start is not None and obj.dur is not None, \
+            "Only objects with an explict start / duration can be packed"
+        r = obj.pitchRange()
+        if r is None:
+            unpitched.append(r)
+        else:
+            pitch = (r[0] + r[1]) / 2
+            item = packing.Item(obj,
+                                offset=Rat(obj.start.numerator, obj.start.denominator),
+                                dur=Rat(obj.dur.numerator, obj.dur.denominator),
+                                step=pitch)
+            items.append(item)
+    tracks = packing.packInTracks(items)
+    return [mobj.Voice(track.unwrap()) for track in tracks]

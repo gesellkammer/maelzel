@@ -263,9 +263,10 @@ def stackNotationsInPlace(events: list[Notation], start=F(0), overrideOffset=Fal
         start: the start time, will override the offset of the first event
         overrideOffset: if True, offsets are overriden even if they are defined
     """
-    if all(ev.offset is not None and ev.duration is not None for ev in events):
+    if all(ev.offset is not None and ev.duration is not None
+           for ev in events):
         return
-    now = offset if (offset:=events[0].offset) is not None else start if start is not None else F(0)
+    now = _ if (_:=events[0].offset) is not None else start if start is not None else F(0)
     assert now is not None and now >= 0
     lasti = len(events)-1
     for i, ev in enumerate(events):
@@ -277,8 +278,7 @@ def stackNotationsInPlace(events: list[Notation], start=F(0), overrideOffset=Fal
                 raise ValueError("The last event should have a duration")
             ev.duration = events[i+1].offset - ev.offset
         now += ev.duration
-    for ev1, ev2 in iterlib.pairwise(events):
-        assert ev1.offset <= ev2.offset
+    assert all(ev1.offset <= ev2.offset for ev1, ev2 in iterlib.pairwise(events))
     fixOverlap(events)
 
 
@@ -299,27 +299,9 @@ def stackNotations(events: list[Notation], start=F(0), overrideOffset=False
     Returns:
         a list of stacked events
     """
-    if all(ev.offset is not None and ev.duration is not None for ev in events):
-        return events
-    assert all(ev.offset is not None or ev.duration is not None for ev in events)
-    now = events[0].offset if events[0].offset is not None else start
-    assert now is not None and now >= 0
-    out = []
-    lasti = len(events) - 1
-    for i, ev in enumerate(events):
-        if ev.offset is None or overrideOffset:
-            assert ev.duration is not None
-            ev = ev.clone(offset=now, duration=ev.duration)
-        elif ev.duration is None:
-            if i == lasti:
-                raise ValueError("The last event should have a duration")
-            ev = ev.clone(duration=events[i+1].offset - ev.offset)
-        now += ev.duration
-        out.append(ev)
-    for ev1, ev2 in iterlib.pairwise(out):
-        assert ev1.offset <= ev2.offset
-    fixOverlap(out)
-    return out
+    events = [ev.copy() for ev in events]
+    stackNotationsInPlace(events, start=start, overrideOffset=overrideOffset)
+    return events
 
 
 def fixOverlap(notations: list[Notation], mingap=F(1, 10000)) -> None:
@@ -378,9 +360,14 @@ def fillSilences(notations: list[Notation], mingap=1/64, offset: time_t = None
     if offset is not None and n0.offset is not None and n0.offset > offset:
         out.append(makeRest(duration=n0.offset, offset=offset))
     for ev0, ev1 in iterlib.pairwise(notations):
+        assert isinstance(ev0.offset, F) and isinstance(ev0.duration, F)
         gap = ev1.offset - (ev0.offset + ev0.duration)
-        assert gap >= 0, f"negative gap! = {gap}"
-        if gap > mingap:
+        if gap < 0:
+            if abs(gap) < 1e-14 and ev0.duration > 1e-13:
+                out.append(ev0.clone(duration=ev1.offset - ev0.offset))
+            else:
+                raise ValueError(f"negative gap! = {gap}")
+        elif gap > mingap:
             out.append(ev0)
             rest = makeRest(duration=gap, offset=ev0.offset+ev0.duration)
             assert rest.offset is not None and rest.duration is not None
@@ -389,7 +376,8 @@ def fillSilences(notations: list[Notation], mingap=1/64, offset: time_t = None
             # adjust the dur of n0 to match start of n1
             out.append(ev0.clone(duration=ev1.offset - ev0.offset))
     out.append(notations[-1])
-    assert all(n0.end == n1.offset for n0, n1 in iterlib.pairwise(out)), out
+    for n0, n1 in iterlib.pairwise(out):
+        assert n0.end == n1.offset, f'{n0=}, {n1=}'
     return out
 
 

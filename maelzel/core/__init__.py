@@ -1,13 +1,13 @@
 # API
+from .musicobjbase import *
 from .musicobj import *
+from .score import *
 from .playback import *
 from .presetman import *
 from .workspace import *
+from .config import rootConfig, CoreConfig
 
 from maelzel.scorestruct import ScoreStruct
 
-from .config import rootConfig
-
 from maelzel.rational import Rat
 
-# logger.setLevel(rootConfig['logger.level'])

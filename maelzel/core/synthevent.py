@@ -5,16 +5,14 @@ import dataclasses as _dataclasses
 import emlib.mathlib
 import emlib.misc
 
-from ._typedefs import *
-from . import _util
 from .workspace import getConfig
-import copy
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Iterable, Any, Callable, Optional
+    from typing import Any, Callable, Optional, Iterable
     import csoundengine.instr
     from .config import CoreConfig
+    from ._typedefs import *
 
 
 __all__ = (
@@ -24,9 +22,13 @@ __all__ = (
 )
 
 
+_MAX_NUM_PFIELDS = 1900
+
+
 class PlayArgs:
     playkeys = {'delay', 'chan', 'gain', 'fade', 'instr', 'pitchinterpol',
                 'fadeshape', 'params', 'priority', 'position', 'sustain'}
+    __slots__ = ('args', )
 
     def __init__(self, d: dict[str, Any] = None):
         if d is None:
@@ -39,9 +41,18 @@ class PlayArgs:
         return bool(self.args)
 
     def keys(self) -> set[str]:
+        """All possible keys for a PlayArgs instance
+
+        This is not the equivalent of the actual set keys
+        (see ``playargs.args.keys()``)"""
         return self.playkeys
 
-    def values(self):
+    def values(self) -> Iterable:
+        """
+        The values corresponding to all possible keys
+
+        This might contain unset values. For only the actually set
+         values, use ``playargs.args.values()``"""
         args = self.args
         return (args.get(k) for k in self.playkeys)
 
@@ -62,12 +73,36 @@ class PlayArgs:
             self.args[key] = value
 
     def overwriteWith(self, p: PlayArgs) -> None:
+        """
+        Overwrites this with set values in *p*
+
+        This is actually the same as merging self's dict with
+        *p*'s dict as long as *self* or *p* do not have any
+        value set to None
+
+        Args:
+            p: another PlayArgs instance
+
+        """
         self.args.update(p.args)
 
     def copy(self) -> PlayArgs:
+        """
+        Returns a copy of self
+        """
         return PlayArgs(self.args.copy())
 
     def clone(self, **kws) -> PlayArgs:
+        """
+        Clone self with modifications
+
+        Args:
+            **kws: one of the possible playkeys
+
+        Returns:
+            the cloned PlayArgs
+
+        """
         outargs = self.args.copy()
         outargs.update(kws)
         return PlayArgs(outargs)
@@ -77,10 +112,28 @@ class PlayArgs:
         return f"PlayArgs({args})"
 
     def asdict(self) -> dict[str, Any]:
+        """
+        This PlayArgs as dict
+
+        Only set key:value pairs are returned
+
+        Returns:
+            the set key:value pairs, as dict
+        """
         return self.args
 
     @staticmethod
     def makeDefault(conf: CoreConfig) -> PlayArgs:
+        """
+        Create a PlayArgs with defaults from a CoreConfig
+
+        Args:
+            conf: a CoreConfig
+
+        Returns:
+            the created PlayArgs
+
+        """
         d = dict(delay=0,
                  chan=1,
                  gain=conf['play.gain'],
@@ -94,6 +147,16 @@ class PlayArgs:
         return PlayArgs(d)
 
     def filledWith(self, other: PlayArgs) -> PlayArgs:
+        """
+        Clone of self with any unset value in self filled with other
+
+        Args:
+            other: another PlayArgs
+
+        Returns:
+            a clone of self with unset values set from *other*
+
+        """
         args = self.args.copy()
         for k, v in other.args.items():
             if v is not None:
@@ -101,6 +164,13 @@ class PlayArgs:
         return PlayArgs(args)
 
     def fillWith(self, other: PlayArgs) -> None:
+        """
+        Fill any unset value in self with the value in other **inplace**
+
+        Args:
+            other: another PlayArgs
+
+        """
         args = self.args
         for k, v in other.args.items():
             if v is not None:
@@ -117,216 +187,7 @@ class PlayArgs:
         args.setdefault('position', -1)
         args.setdefault('sustain', 0)
         args.setdefault('chan', 1)
-
-
-@dataclass
-class _PlayArgs:
-    """
-    Structure used to set playback options for any given MusicObj
-    """
-    delay: float = None
-    "extra delay"
-
-    chan: int = None
-    """The channel to send output to"""
-
-    gain: float = None
-    """Gain factor"""
-
-    fade: Union[None, float, tuple[float, float]] = None
-    """Fade in / Fade out"""
-
-    instr: str = None
-    """Instrument template"""
-
-    pitchinterpol: str = None
-    """Pitch interpolation, one of 'linear', 'cos'"""
-
-    fadeshape: str = None
-    """The shape of the fade, one of 'linear', 'cos'"""
-
-    params: dict[str, float] = None
-    """Preset parameters"""
-
-    priority: int = None
-    """Priority to run this event"""
-
-    position: float = None
-    """Pan position (between 0-1)"""
-
-    sustain: float = None
-    """Sustain time, an extra time added at the end of the event"""
-
-    def __repr__(self) -> str:
-        parts = []
-        for attr in self.keys():
-            val = getattr(self, attr)
-            if val is not None:
-                parts.append(f'{attr}={val}')
-        return f"PlayArgs({', '.join(parts)})"
-
-    @staticmethod
-    def keys() -> set[str]:
-        return PlayArgs.__dataclass_fields__.keys()
-        # return {field.name for field in _dataclasses.fields(PlayArgs)}
-
-    def values(self) -> Iterable:
-        return (getattr(self, k) for k in self.keys())
-
-    def checkValues(self) -> None:
-        """ Check own values for validity """
-        assert self.pitchinterpol is None or self.pitchinterpol in SynthEvent.pitchinterpolToInt
-        assert self.fadeshape is None or self.fadeshape in SynthEvent.fadeshapeToInt
-        assert self.chan is None or self.chan
-
-    def hasUndefinedValues(self) -> bool:
-        """ Are there any unfilled values in this PlayArgs instance? """
-        return any(getattr(self, attr) is not None for attr in self.keys())
-        # return not any(v is None for v in self.asdict().values())
-
-    def clone(self, **kws) -> PlayArgs:
-        """ Create a new PlayArgs instance with the attributes
-        in kws modified/filled in"""
-        out = self.copy()
-        for k, v in kws.items():
-            setattr(out, k, v)
-        return out
-        # return _dataclasses.replace(self, **kws)
-
-    def copy(self) -> PlayArgs:
-        return PlayArgs(delay=self.delay,
-                        chan=self.chan,
-                        gain=self.gain,
-                        fade=self.fade,
-                        instr=self.instr,
-                        pitchinterpol=self.pitchinterpol,
-                        fadeshape=self.fadeshape,
-                        params=self.params,
-                        priority=self.priority,
-                        position=self.position,
-                        sustain=self.sustain,
-                        )
-
-    @staticmethod
-    def makeDefault(conf: CoreConfig) -> PlayArgs:
-        return PlayArgs(delay=0,
-                        chan=1,
-                        gain=conf['play.gain'],
-                        fade=conf['play.fade'],
-                        instr=conf['play.instr'],
-                        pitchinterpol=conf['play.pitchInterpolation'],
-                        fadeshape=conf['play.fadeShape'],
-                        priority=1,
-                        position=-1,
-                        sustain=0)
-
-    def asdict(self) -> dict[str, Any]:
-        return _dataclasses.asdict(self)
-
-    def filledWith(self, other: PlayArgs) -> PlayArgs:
-        return PlayArgs(
-            delay = _ if (_:=self.delay) is not None else other.delay,
-            chan = _ if (_:=self.chan) is not None else other.chan,
-            gain = _ if (_:=self.gain) is not None else other.gain,
-            fade = _ if (_:=self.fade) is not None else other.fade,
-            instr = self.instr or other.instr,
-            pitchinterpol = self.pitchinterpol or other.pitchinterpol,
-            fadeshape = self.fadeshape or other.fadeshape,
-            params = self.params or other.params,
-            priority = self.priority or other.priority,
-            position = _ if (_:=self.position) is not None else other.position,
-            sustain = _ if (_:=self.sustain) is not None else other.sustain
-        )
-
-    def _fillWith(self, other: PlayArgs) -> None:
-        for k in PlayArgs.keys():
-            if getattr(self, k) is None:
-                setattr(self, k, getattr(other, k))
-
-    def overwriteWith(self, p: PlayArgs):
-        """
-        Overwrite self with p
-
-        Overwrites any value of self where p is not None. This would be equivalent to
-        copying p and filling this copy with any set values in self
-        """
-        if p.delay is not None:
-            self.delay = p.delay
-        if p.gain is not None:
-            self.gain = p.gain
-        if p.instr:
-            self.instr = p.instr
-        if p.fade is not None:
-            self.fade = p.fade
-        if p.pitchinterpol:
-            self.pitchinterpol = p.pitchinterpol
-        if p.fadeshape:
-            self.fadeshape = p.fadeshape
-        if p.priority is not None:
-            self.priority = p.priority
-        if p.params:
-            # TODO: Should these get merged??
-            self.params = p.params
-        if p.position is not None:
-            self.position = p.position
-        if p.sustain is not None:
-            self.sustain = p.sustain
-        if p.chan is not None:
-            self.chan = p.chan
-
-    def fillWith(self, other: PlayArgs) -> None:
-        """
-        Fill unset values with values from `other`, inplace
-        """
-        if self.delay is None:
-            self.delay = other.delay
-        if self.gain is None:
-            self.gain = other.gain
-        if not self.instr:
-            self.instr = other.instr
-        if self.fade is None:
-            self.fade = other.fade
-        if not self.pitchinterpol:
-            self.pitchinterpol= other.pitchinterpol
-        if not self.fadeshape:
-            self.fadeshape = other.fadeshape
-        if not self.params:
-            self.params = other.params
-        if self.priority is None:
-            self.priority = other.priority
-        if self.position is None:
-            self.position = other.position
-        if self.sustain is None:
-            self.sustain = other.sustain
-        if self.chan is None:
-            self.chan = other.chan
-
-    def fillWithConfig(self, cfg: CoreConfig):
-        """
-        Fill unset values with config
-
-        Removes any None values
-        """
-        if self.delay is None:
-            self.delay = 0
-        if self.gain is None:
-            self.gain = cfg['play.gain']
-        if not self.instr:
-            self.instr = cfg['play.instr']
-        if self.fade is None:
-            self.fade = cfg['play.fade']
-        if not self.pitchinterpol:
-            self.pitchinterpol = cfg['play.pitchInterpolation']
-        if not self.fadeshape:
-            self.fadeshape = cfg['play.fadeShape']
-        if self.priority is None:
-            self.priority = 1
-        if self.position is None:
-            self.position = -1
-        if self.sustain is None:
-            self.sustain = 0.
-        if self.chan is None:
-            self.chan = 1
+        args.setdefault('fadeshape', cfg['play.fadeShape'])
 
 
 def _interpolateBreakpoints(t: float, bp0: list[float], bp1: list[float]
@@ -382,17 +243,17 @@ class SynthEvent:
 
     def __init__(self,
                  bps: list[list[float, ...]],
-                 delay:float=0.0,
-                 chan:int = 1,
-                 fade:Union[float, tuple[float, float]]=None,
-                 gain:float = 1.0,
-                 instr: str=None,
-                 pitchinterpol:str=None,
-                 fadeshape:str=None,
+                 instr: str,
+                 delay: float = 0.0,
+                 chan: int = 1,
+                 fade: Union[float, tuple[float, float]] = 0,
+                 gain: float = 1.0,
+                 pitchinterpol: str = 'linear',
+                 fadeshape: str = 'cos',
                  params: dict[str, float] = None,
-                 priority:int=1,
-                 position:float = None,
-                 numchans: int = None,
+                 priority: int = 1,
+                 position: float = -1,
+                 numchans: int = 2,
                  tiednext=False,
                  whenfinished: Callable = None,
                  properties: Optional[dict[str, Any]] = None,
@@ -456,7 +317,7 @@ class SynthEvent:
         self.whenfinished = whenfinished
         self.properties = properties
         self.sustain = sustain
-        self._namedArgsMethod = cfg['play.namedArgsMethod']
+        self._namedArgsMethod = 'pargs'
         self._consolidateDelay()
 
     @property
@@ -681,9 +542,8 @@ class SynthEvent:
         pfields.extend(pfields5)
         for bp in self.bps:
             pfields.extend(bp)
-
-        #assert all(isinstance(p, (int, float)) for p in pfields), [(p, type(p)) for p in pfields if
-        #                                                           not isinstance(p, (int, float))]
+        if len(pfields) > _MAX_NUM_PFIELDS:
+            logger.error(f"This SynthEvent has too many pfields: {len(pfields)}")
         return pfields
 
 

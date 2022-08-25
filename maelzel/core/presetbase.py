@@ -330,10 +330,9 @@ class PresetDef:
         """
         if self._instr:
             return self._instr
-        if namedArgsMethod is None:
-            namedArgsMethod = getConfig()['play.namedArgsMethod']
         instrName = self.instrName()
 
+        namedArgsMethod = 'pargs'
         if namedArgsMethod == 'table':
             self._instr = csoundengine.Instr(name=instrName,
                                              body=self.body,

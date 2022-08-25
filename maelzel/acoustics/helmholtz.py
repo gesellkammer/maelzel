@@ -11,7 +11,7 @@ from math import pi, sqrt
 C = 343.
 
 
-def resonfreq(V:float, A:float=pi * 0.01**2, L:float=0.05, c:float=C) -> float:
+def resonantFrequency(V:float, A:float= pi * 0.01 ** 2, L:float=0.05, c:float=C) -> float:
     """
     resonance frequency of a helmholtz-resonator (in Hz)
 
@@ -31,7 +31,7 @@ def resonfreq(V:float, A:float=pi * 0.01**2, L:float=0.05, c:float=C) -> float:
     return c / pi*2. * sqrt(A/(V*L1))
 
 
-def resonvolume(f:float, A=pi* 0.01**2, L=0.05, c:float=C) -> float:
+def resonatorVolume(f:float, A=pi * 0.01 ** 2, L=0.05, c:float=C) -> float:
     """
     Volume of a helmholz resonator of the given frequency (in m^3)
     the volume is given in m^3
@@ -51,7 +51,7 @@ def resonvolume(f:float, A=pi* 0.01**2, L=0.05, c:float=C) -> float:
     return A/((f*pi*2/c)**2 * L1)
 
 
-def duct_unflanged_freq(L:float, radius:float, n:int, c:float=C) -> float:
+def ductResonantFrequency(L:float, radius:float, n:int, c:float=C) -> float:
     """
     resonance frequency of an unflanged (open) duct
 
@@ -70,7 +70,7 @@ def duct_unflanged_freq(L:float, radius:float, n:int, c:float=C) -> float:
     return f_n
 
 
-def duct_unflanged_length(freq:float, radius:float, n:int=1, c:float=C) -> float:
+def ductLength(freq:float, radius:float, n:int=1, c:float=C) -> float:
     """
     calculate the length of the duct based on the observed resonant frequency
 
@@ -87,20 +87,20 @@ def duct_unflanged_length(freq:float, radius:float, n:int=1, c:float=C) -> float
 
         # the most prominent resonance measured is 513 Hz, but in the spectrogram
         # it is observed that this frequency corresponds to the second harmonic
-        >>> duct_unflanged_length(513, 0.07, n=2)
+        >>> ductLength(513, 0.07, n=2)
     """
     L = n * c / (2*freq) - (0.61*radius)
     return L
 
 
-def sphere_volume(r:float) -> float:
+def sphereVolume(r:float) -> float:
     """
     The volume of a sphere with given radius
     """
     return 4/3. * pi * r**3
 
 
-def sphere_radius(V:float) -> float:
+def sphereRadius(V:float) -> float:
     """
     The radius of a sphere with given volume
     """

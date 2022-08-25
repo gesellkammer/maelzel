@@ -157,7 +157,7 @@ def _lilyNotehead(notehead: str) -> str:
     return " ".join(parts)
 
 
-def notationToLily(n: Notation, options: RenderOptions) -> str:
+def notationToLily(n: Notation, options: RenderOptions, state: dict) -> str:
     """
     Converts a Notation to its lilypond representation
 
@@ -207,17 +207,18 @@ def notationToLily(n: Notation, options: RenderOptions) -> str:
         _(r"\once \override Stem.transparent = ##t")
 
     graceGroup = n.getProperty("graceGroup")
-    if graceGroup is not None or n.isGraceNote:
-        base = 8
-        dots = 0
+    if graceGroup == 'start':
+        _(r"\grace {")
+        state['insideGraceGroup'] = True
+        base, dots = 8, 0
+    elif state.get('insideGraceGroup'):
+        base, dots = 8, 0
+    elif n.isGraceNote:
         _(r"\grace")
-        if graceGroup == "start":
-            _("{")
 
     if len(n.pitches) == 1:
         if n.notehead:
             _(_lilyNotehead(n.notehead if isinstance(n.notehead, str) else n.notehead[0]))
-        print("creating note", n.notename(), f"tied={n.tiedNext}")
         _(_lilyNote(n.notename(), baseduration=base, dots=dots, tied=n.tiedNext,
                     cautionary=n.getProperty('accidentalParenthesis', False)))
     else:
@@ -263,6 +264,8 @@ def notationToLily(n: Notation, options: RenderOptions) -> str:
 
     if graceGroup == "stop":
         _("}")
+        state['insideGraceGroup'] = False
+
     return " ".join(parts)
 
 
@@ -319,7 +322,7 @@ def _renderGroup(seq: list[str],
                     item.dynamic = ''
                 state['dynamic'] = dynamic
 
-            seq.append(notationToLily(item, options=options))
+            seq.append(notationToLily(item, options=options, state=state))
 
             if item.spanners:
                 for spanner in item.spanners:

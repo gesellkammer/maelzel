@@ -7,7 +7,8 @@ if TYPE_CHECKING:
     from typing import *
 
 
-def tube_freq(length:float, width:float, kind='open', shape="circular", c=343.0) -> float:
+def tubeFrequency(length: float, width: float, kind='open', shape="circular", c=343.0
+                  ) -> float:
     """
     Calculate the fundamental of an organ tube
 
@@ -43,14 +44,15 @@ def tube_freq(length:float, width:float, kind='open', shape="circular", c=343.0)
     return f
 
 
-def organ_pipe_length(freq:float, width_ratio=12.0, kind='closed', footmount=0.02, 
-                      c=343.0) -> float:
+def organPipeLength(freq: float, widthRatio=12.0, kind='closed', footmount=0.02,
+                    c=343.0
+                    ) -> float:
     """
     Calculate the pipe length for the given conditions
 
     Args:
         freq: the desired sounding frequency
-        width_ratio: the width to length ratio
+        widthRatio: the width to length ratio
         kind: 'closed' or 'open'
         footmount: the height of the foot mount.
         c: speed of sound
@@ -60,7 +62,7 @@ def organ_pipe_length(freq:float, width_ratio=12.0, kind='closed', footmount=0.0
     """
     lmbda = c / freq
     L = lmbda / 2
-    W = L / width_ratio
+    W = L / widthRatio
     F = footmount if footmount >= 0 else W
     if kind == 'closed':
         Lpipe = 0.52 * L + W + F
@@ -71,7 +73,8 @@ def organ_pipe_length(freq:float, width_ratio=12.0, kind='closed', footmount=0.0
     return Lpipe
 
 
-def organ_slide_length(freq:float, width_ratio=12.0, c=343.0) -> float:
-    return organ_pipe_length(freq=freq, width_ratio=width_ratio, kind='closed',
-                             footmount=2, c=c)
+def organSlideLength(freq: float, widthRatio=12.0, c=343.0
+                     ) -> float:
+    return organPipeLength(freq=freq, widthRatio=widthRatio, kind='closed',
+                           footmount=2, c=c)
 

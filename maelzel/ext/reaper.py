@@ -124,7 +124,7 @@ def getMarkers(rpp_file:str) -> List[Marker]:
     return markers
 
 
-def writeMarkers(csvfile: str, markers):
+def writeMarkers(csvfile: str, markers) -> None:
     """
     Writes a list of markers to disk as a .csv file.
 
