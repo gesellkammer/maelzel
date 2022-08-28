@@ -87,6 +87,9 @@ class RenderOptions:
     articulationInsideTie: bool = True
     dynamicInsideTie: bool = True
 
+    rehearsalMarkFontSize: Union[int, float] = config['rehearsalMarkFontSize']
+    rehearsalMarkBoxed: bool = config['rehearsalMarkBoxed']
+
     title: str = ''
     composer: str = ''
 

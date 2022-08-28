@@ -2,9 +2,13 @@ from __future__ import annotations
 from maelzel.scorestruct import ScoreStruct
 from .musicobj import Note, Chord, Voice, Rest
 from .score import Score
-from ._common import Rat
+from . import symbols
+from ._common import Rat, logger
 import pitchtools as pt
 from emlib.iterlib import pairwise
+from dataclasses import dataclass
+from maelzel import scoring
+from typing import Callable
 
 import xml.etree.ElementTree as ET
 
@@ -85,6 +89,26 @@ def _parsePitch(node) -> tuple[int, int, float]:
     return step, oct, alter
 
 
+@dataclass
+class Notation:
+    kind: str
+    name: str
+    properties: dict | None = None
+
+
+def _parseNotations(root: ET.Element) -> list[Notation]:
+    out = []
+    node: ET.Element
+    for node in root:
+        if node.tag == 'articulations':
+            out.extend([Notation('articulation', subnode.tag) for subnode in node])
+        elif node.tag == 'ornaments':
+            out.extend([Notation('ornament', subnode.tag) for subnode in node])
+        elif node.tag == 'fermata':
+            out.append(Notation('fermata', node.text))
+    return out
+
+
 def _parseNote(root: ET.Element, context: dict) -> Note:
     accidental = ''
     durationType = ''
@@ -94,6 +118,8 @@ def _parseNote(root: ET.Element, context: dict) -> Note:
     properties = {}
     isRest = False
     isGrace = False
+    notations = None
+    annotations = []
     for node in root:
         if node.tag == 'rest':
             isRest = True
@@ -113,6 +139,10 @@ def _parseNote(root: ET.Element, context: dict) -> Note:
             properties['voice'] = int(node.text)
         elif node.tag == 'tie' and node.attrib.get('type', 'start') == 'start':
             tied = True
+        elif node.tag == 'notations':
+            notations = _parseNotations(node)
+        elif node.tag == 'lyric':
+            annotations.append(scoring.Annotation(node.find('text').text, placement='below'))
     if isRest:
         rest = Rest(dur)
         if properties:
@@ -120,12 +150,31 @@ def _parseNote(root: ET.Element, context: dict) -> Note:
         return rest
     pitch = _notename(step=pstep, octave=poct, alter=palter)
     properties['_chordCont'] = chordCont
-    if chordCont:
-        dur = 0
-    if isGrace:
+
+    if chordCont or isGrace:
         dur = 0
 
     note = Note(pitch=pitch, dur=dur, tied=tied, properties=properties)
+    if notations:
+        for notation in notations:
+            if notation.kind == 'articulation':
+                articulation = scoring.definitions.normalizeArticulation(notation.name)
+                if articulation:
+                    note.setSymbol('articulation', notation.name)
+                else:
+                    # If this is an unsupported articulation, at least save it as a property
+                    note.properties['mxml/articulation'] = notation.name
+            elif notation.kind == 'ornament':
+                ornament = scoring.definitions.normalizeOrnament(notation.name)
+                if ornament:
+                    note.setSymbol('ornament', ornament)
+                else:
+                    note.properties['mxml/ornament'] = notation.name
+            elif notation.kind == 'fermata':
+                note.setSymbol('fermata', scoring.definitions.normalizeFermata(notation.name))
+    for annotation in annotations:
+        note.setSymbol(symbols.Expression(text=annotation.text, placement=annotation.placement))
+
     return note
 
 
@@ -177,6 +226,38 @@ def _measureDuration(beats: int, beattype: int) -> Rat:
     return Rat(beats*4, beattype)
 
 
+@dataclass
+class Direction:
+    kind: str
+    value: str
+    placement: str = ''
+    properties: dict | None = None
+
+
+def _attr(attrib: dict, key: str, default, convert=None):
+    value = attrib.get(key)
+    if value is not None:
+        return value if not convert else convert(value)
+    return default
+
+
+def _parsePosition(x: ET.Element) -> str:
+    attrib = x.attrib
+    defaulty = _attr(attrib, 'default-y', 0., float)
+    relativey = _attr(attrib, 'relative-y', 0., float)
+    pos = defaulty + relativey
+    return '' if pos == 0 else 'above' if pos > 0 else 'below'
+
+
+def _parseAttribs(attrib: dict, keys: dict[str, Callable]) -> dict:
+    out = {}
+    for k, convertfunc in keys.items():
+        v = attrib.get(k)
+        if v is not None:
+            out[k] = v if not convertfunc else convertfunc(v)
+    return out
+
+
 def _parsePart(part: ET.Element, context: dict) -> tuple[dict[int, Voice], ScoreStruct]:
     """
     Parse a part
@@ -198,43 +279,74 @@ def _parsePart(part: ET.Element, context: dict) -> tuple[dict[int, Voice], Score
 
     voices: dict[int, list[Note]] = {}
     measureCursor = Rat(0)
-    lastDynamic: str = ''
-    for i, measure in enumerate(part.findall('measure')):
+    for measureidx, measure in enumerate(part.findall('measure')):
+        directions: list[Direction] = []
         cursors = {voicenum: measureCursor for voicenum in range(10)}
 
-        addMeasureDef = False
         # we find first the metronome, if present, so that we can add a new
         # measure definition if there is a change in time-signature
         # NB: we do not parse <sound tempo=".."> tags
         if metronome := measure.find('./direction/direction-type/metronome'):
             quarterTempo = _parseMetronome(metronome)
-            addMeasureDef = True
 
         if time := measure.find('./attributes/time'):
             beats = int(time.find('beats').text)
             beattype = int(time.find('beat-type').text)
-            addMeasureDef = True
+
+        sco.addMeasure(timesig=(beats, beattype), quarterTempo=quarterTempo)
 
         for item in measure:
             tag = item.tag
-            if tag == 'note':
+            if tag == 'direction':
+                inner = item.find('direction-type')[0]
+                if inner.tag == 'dynamics':
+                    dynamic = inner[0].tag
+                    dynamic2 = scoring.definitions.normalizeDynamic(dynamic)
+                    if dynamic2:
+                        directions.append(Direction('dynamic', dynamic2))
+                    else:
+                        directions.append(Direction('words', dynamic, placement='below',
+                                                    properties={'font-style': 'italic'}))
+                elif inner.tag == 'words':
+                    # TODO: parse style / font / etc.
+                    placement = _parsePosition(inner)
+                    properties = _parseAttribs(inner.attrib, {'font-size': float, 'font-style':None})
+                    directions.append(Direction('words', inner.text, placement=placement,
+                                                properties=properties))
+                elif inner.tag == 'rehearsal':
+                    enclosed = bool(inner.attrib.get('enclosed'))
+                    directions.append(Direction('rehearsal', inner.text,
+                                                properties={'enclosed': enclosed}))
+
+            elif tag == 'note':
                 note = _parseNote(item, context)
-                if lastDynamic:
-                    note.dynamic = lastDynamic
-                    lastDynamic = ''
                 voicenum = note.properties.get('voice', 1)
-                note.start = cursors[voicenum]
+                cursor = cursors[voicenum]
+                cursorWithinMeasure = cursor - measureCursor
+                note.start = cursor
+                for direction in directions:
+                    if direction.kind == 'dynamic':
+                        note.dynamic = direction.value
+                    elif direction.kind == 'words':
+                        note.addText(direction.value,
+                                     placement=direction.placement,
+                                     fontsize=direction.properties.get('font-size'),
+                                     fontstyle=direction.properties.get('font-style'))
+                    elif direction.kind == 'rehearsal':
+                        if cursorWithinMeasure == 0:
+                            sco.addRehearsalMark(measureidx, direction.value)
+                        else:
+                            # A rehearsal mark in the middle of the measure?? This
+                            # can be added as a text annotation
+                            note.addText(direction.value,
+                                         placement='above',
+                                         fontstyle='bold',
+                                         box=True)
                 voices.setdefault(voicenum, []).append(note)
-                # print(f"measure: {i}\t{repr(note).ljust(20)}\t{voicenum=}\tcursor={cursors[voicenum]:.8g}")
                 cursors[voicenum] += note.dur
-            elif tag == 'direction':
-                dynamicN = item.find('./direction-type/dynamics')
-                if dynamicN is not None:
-                    lastDynamic = dynamicN[0].tag
+                directions.clear()
 
         # ...
-        if addMeasureDef:
-            sco.addMeasure(timesig=(beats, beattype), quarterTempo=quarterTempo)
         measureCursor += Rat(beats*4, beattype)
 
     if len(sco) == 0:
@@ -283,8 +395,9 @@ def parseMusicxml(xml: str) -> Score:
 
     scorestructs: list[ScoreStruct] = []
     allvoices: list[Voice] = []
-    for part in root.findall('part'):
+    for partidx, part in enumerate(root.findall('part')):
         partid = part.get('id')
+        logger.debug("Parsing part", partidx, partid)
         if partid is None:
             raise MusicxmlImportError(f"Part definition does not have an id: {part}")
         voicesdict, scorestruct = _parsePart(part, context)

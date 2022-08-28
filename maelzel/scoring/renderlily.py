@@ -16,6 +16,7 @@ import emlib.filetools
 
 from maelzel.music import lilytools
 from .common import *
+from . import definitions
 from .core import Notation
 from .render import Renderer, RenderOptions
 from .durationgroup import DurationGroup
@@ -49,6 +50,7 @@ _articulations = {
     'marcato': r'\marcato',
     'tenuto': r'\tenuto',
     'staccatissimo': r'\staccatissimo',
+    'portato': r'\portato'
 }
 
 _noteheadToLilypond = {
@@ -59,6 +61,14 @@ _noteheadToLilypond = {
     'rhombus': 'harmonic-black',
     'square': 'la',
     'rectangle': 'la',
+}
+
+_lilyFermata = {
+    'normal': r'\fermata',
+    'square': r'\longfermata',
+    'angled': r'\shortfermata',
+    'double-square': r'\verylongfermata',
+    'double-angled': r'\veryshortfermata'
 }
 
 
@@ -243,6 +253,12 @@ def notationToLily(n: Notation, options: RenderOptions, state: dict) -> str:
     if (not n.tiedPrev or options.articulationInsideTie) and n.articulation:
         _(_lilyArticulation(n.articulation))
 
+    if ornament:=n.getProperty('ornament'):
+        _(fr'\{ornament}')
+
+    if fermata:=n.getProperty('fermata'):
+        _(_lilyFermata.get(fermata, r'\fermata'))
+
     if (not n.tiedPrev or options.articulationInsideTie) and n.dynamic:
         dyn = n.dynamic if not n.dynamic.endswith('!') else n.dynamic[:-1]
         _(fr"\{dyn}")
@@ -252,15 +268,19 @@ def notationToLily(n: Notation, options: RenderOptions, state: dict) -> str:
 
     if n.annotations:
         for annotation in n.annotations:
-            _(lilytools.makeTextAnnotation(annotation.text, fontsize=annotation.fontSize))
+            # TODO: support box shape
+            _(lilytools.makeText(annotation.text, placement=annotation.placement,
+                                 fontsize=annotation.fontsize,
+                                 italic=annotation.isItalic(), bold=annotation.isBold(),
+                                 boxed=bool(annotation.box)))
 
     if options.showCents:
         # TODO: cents annotation should follow options (below/above, fontsize)
         centsText = util.centsAnnotation(n.pitches, divsPerSemitone=options.divsPerSemitone)
         if centsText:
             fontrelsize = options.centsFontSize - options.staffSize
-            _(lilytools.makeTextAnnotation(centsText, fontsize=fontrelsize,
-                                           fontrelative=True, placement='below'))
+            _(lilytools.makeText(centsText, fontsize=fontrelsize,
+                                 fontrelative=True, placement='below'))
 
     if graceGroup == "stop":
         _("}")
@@ -318,7 +338,9 @@ def _renderGroup(seq: list[str],
                 dynamic = item.dynamic
                 if (options.removeSuperfluousDynamics and
                         not item.dynamic.endswith('!') and
-                        item.dynamic == state['dynamic']):
+                        item.dynamic == state['dynamic'] and
+                        item.dynamic in definitions.dynamicLevels
+                ):
                     item.dynamic = ''
                 state['dynamic'] = dynamic
 
@@ -386,7 +408,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
         the rendered lilypond code
 
     """
-    quarterTempo = 60
+    quarterTempo = 0
     scorestruct = part.struct
 
     seq = []
@@ -439,13 +461,25 @@ def quantizedPartToLily(part: quant.QuantizedPart,
 
         if addTempoMarks and measure.quarterTempo != quarterTempo:
             quarterTempo = measure.quarterTempo
-            line(fr"\tempo 4 = {quarterTempo}", indents)
+            # lilypond only support integer tempi
+            # TODO: convert to a different base if the tempo is too slow/fast for
+            # the quarter, or convert according to the time signature
+            line(fr"\tempo 4 = {int(quarterTempo)}", indents)
 
-        if measureDef.annotation and addMeasureMarks:
-            relfontsize = options.measureAnnotationFontSize - options.staffSize
-            _(lilytools.makeTextMark(measureDef.annotation,
-                                     fontsize=relfontsize, fontrelative=True,
-                                     boxed=options.measureAnnotationBoxed))
+        if addMeasureMarks:
+            if measureDef.annotation:
+                relfontsize = options.measureAnnotationFontSize - options.staffSize
+                _(lilytools.makeTextMark(measureDef.annotation,
+                                         fontsize=relfontsize, fontrelative=True,
+                                         boxed=options.measureAnnotationBoxed))
+            if measureDef.rehearsalMark:
+                relfontsize = options.rehearsalMarkFontSize - options.staffSize
+                enclosed = measureDef.rehearsalMark.enclosed
+                boxed = enclosed if enclosed is not None else options.rehearsalMarkBoxed
+                _(lilytools.makeTextMark(measureDef.rehearsalMark.text,
+                                         fontsize=relfontsize, fontrelative=True,
+                                         boxed=boxed))
+
         if measure.isEmpty():
             num, den = measure.timesig
             measureDur = float(util.measureQuarterDuration(measure.timesig))

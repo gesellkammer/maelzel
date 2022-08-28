@@ -71,14 +71,31 @@ class TimeSpan(NamedTuple):
         return self.end-self.start
 
 
-@dataclass
 class Annotation:
-    text: str
-    placement: str = 'above'
-    fontSize: Optional[int] = None
+    __slots__ = ('text', 'placement', 'fontsize', 'fontstyles', 'box')
 
-    def __post_init__(self):
-        assert not self.text.isspace()
+    def __init__(self, text: str, placement='above', fontsize: float = None, fontstyle='',
+                 box: str|bool = False):
+        assert not text.isspace()
+        if fontsize is not None:
+            assert isinstance(fontsize, (int, float))
+        self.text = text
+        self.placement = placement
+        self.fontsize = fontsize
+        self.box: str = box if isinstance(box, str) else 'square' if box else ''
+        if not fontstyle:
+            self.fontstyles = None
+        else:
+            styles = fontstyle.split(',')
+            for style in styles:
+                assert style in {'italic', 'bold'}, f'Style {style} not supported'
+            self.fontstyles = styles
+
+    def isItalic(self):
+        return self.fontstyles and 'italic' in self.fontstyles
+
+    def isBold(self):
+        return self.fontstyles and 'bold' in self.fontstyles
 
 
 @dataclass
