@@ -2,6 +2,7 @@ from __future__ import annotations
 from emlib import iterlib
 from .common import *
 from .notation import *
+from . import definitions
 from . import util
 import itertools
 import logging
@@ -517,7 +518,8 @@ def removeRedundantDynamics(notations: list[Notation],
     """
     Removes redundant dynamics, in place
 
-    A dynamic is redundant if it is the same as the last dynamic. It is
+    A dynamic is redundant if it is the same as the last dynamic and
+    it is a dynamic level (ff, mf, ppp, but not sf, sfz, etc). It is
     possible to force a dynamic by adding a ``!`` sign to the dynamic
     (pp!)
 
@@ -534,7 +536,7 @@ def removeRedundantDynamics(notations: list[Notation],
         if n.isRest:
             if resetAfterRest and n.duration > minRestDuration:
                 lastDynamic = ''
-        elif n.dynamic:
+        elif n.dynamic and n.dynamic in definitions.dynamicLevels:
             if n.dynamic[-1] == '!':
                 lastDynamic = n.dynamic[:-1]
             elif n.dynamic == lastDynamic:

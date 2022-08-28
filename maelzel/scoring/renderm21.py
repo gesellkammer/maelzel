@@ -200,7 +200,7 @@ def _renderGroup(measure: m21.stream.Measure,
             for annotation in item.annotations:
                 m21tools.addTextExpression(m21obj, text=annotation.text,
                                            placement=annotation.placement,
-                                           fontSize=annotation.fontSize)
+                                           fontSize=annotation.fontsize)
         if item.dynamic and not item.tiedPrev:
             m21dyn = m21.dynamics.Dynamic(item.dynamic)
             measure.insert(m21obj.offset, m21dyn)

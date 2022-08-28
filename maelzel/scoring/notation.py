@@ -128,8 +128,8 @@ class Notation:
             f"Available articulations: {definitions.availableArticulations}"
         assert not stem or stem in definitions.stemTypes, \
             f"Stem types: {definitions.stemTypes}"
-        assert not dynamic or dynamic in definitions.availableDynamics, \
-            f"Available dynamics: {definitions.availableDynamics}"
+        if dynamic:
+            dynamic = definitions.normalizeDynamic(dynamic, '')
 
         self.duration:Optional[F] = None if duration is None else asF(duration)
         self.pitches: list[float] = [asmidi(p) for p in pitches] if pitches else []
@@ -364,8 +364,13 @@ class Notation:
         """
         return pt.vertical_position(self.notename(index))
 
-    def addAnnotation(self, text:Union[str, Annotation], placement:str='above',
-                      fontSize:int=None) -> None:
+    def addAnnotation(self,
+                      text: Union[str, Annotation],
+                      placement='above',
+                      fontsize: int|float = None,
+                      fontstyle: str = None,
+                      box: str|bool = False
+                      ) -> None:
         """
         Add a text annotation to this Notation.
 
@@ -374,14 +379,17 @@ class Notation:
                 If passed an Annotation, all other parameters will not be
                 considered
             placement: where to place the annotation, one of 'above' or 'below'
-            fontSize: the size of the font
+            fontsize: the size of the font
+            box: if True, the text is enclosed in a box. A string indicates the shape
+                of the box
         """
         if isinstance(text, Annotation):
             assert text.text.strip()
             annotation = text
         else:
             assert not text.isspace()
-            annotation = Annotation(text=text, placement=placement, fontSize=fontSize)
+            annotation = Annotation(text=text, placement=placement, fontsize=fontsize,
+                                    fontstyle=fontstyle, box=box)
         if self.annotations is None:
             self.annotations = []
         self.annotations.append(annotation)

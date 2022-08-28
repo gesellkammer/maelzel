@@ -92,6 +92,7 @@ __all__ = (
 
 class MusicEvent(MusicObj):
 
+
     def isRest(self) -> bool:
         return False
 
@@ -221,7 +222,7 @@ class Note(MusicEvent):
                 assert pitch > 0
 
             if dynamic:
-                assert dynamic in scoring.definitions.availableDynamics
+                assert dynamic in scoring.definitions.dynamicLevels
 
         super().__init__(dur=dur, start=start, label=label, properties=properties)
         self.pitch: float = pitch

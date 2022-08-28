@@ -461,7 +461,7 @@ def m21Notename(pitch: Union[str, float]) -> str:
 
 def hideAccidental(note: m21.note.Note) -> None:
     accidental = note.pitch.accidental
-    accidental.style.hideObjectOnPrint = True
+    accidental.fontstyle.hideObjectOnPrint = True
     accidental.displayStatus = False
     accidental.displayType = "never"
 
@@ -991,7 +991,7 @@ def makeTextExpression(text:str,
     textexpr = m21.expressions.TextExpression(text)
     textexpr.placement = placement
     if fontSize:
-        textexpr.style.fontSize = fontSize
+        textexpr.style.fontsize = fontSize
     if letterSpacing:
         textexpr.style.letterSpacing = letterSpacing
     if fontWeight:
@@ -1068,7 +1068,7 @@ def hideNotehead(event:m21.note.NotRest, hideAccidental=True) -> None:
             event.pitch.accidental.displayStatus = False
     elif isinstance(event, m21.chord.Chord):
         for note in event:
-            note.style.hideObjectOnPrint = True
+            note.fontstyle.hideObjectOnPrint = True
             if hideAccidental:
                 note.pitch.accidental.displayStatus = False
     else:

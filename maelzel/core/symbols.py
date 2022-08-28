@@ -161,8 +161,8 @@ class Dynamic(NoteAttachedSymbol):
     exclusive = True
 
     def __init__(self, kind: str):
-        assert kind in scoring.definitions.availableDynamics, \
-            f"Dynamic {kind} unknown, possible values: {scoring.definitions.availableDynamics}"
+        assert kind in scoring.definitions.dynamicLevels, \
+            f"Dynamic {kind} unknown, possible values: {scoring.definitions.dynamicLevels}"
         self.kind = kind
 
     def __hash__(self):
@@ -171,7 +171,7 @@ class Dynamic(NoteAttachedSymbol):
     @classmethod
     def possibleValues(self, key: str = None) -> Optional[Set[str]]:
         if key is None or key == 'kind':
-            return scoring.definitions.availableDynamics
+            return scoring.definitions.dynamicLevels
 
     def __str__(self):
         return self.kind
@@ -184,24 +184,71 @@ class Dynamic(NoteAttachedSymbol):
             n.dynamic = self.kind
 
 
-class Expression(NoteAttachedSymbol):
+class Ornament(NoteAttachedSymbol):
+    exclusive = True
 
-    """A note attached expression """
+    def __init__(self, kind: str):
+        self.kind = kind
+
+    @classmethod
+    def possibleValues(self, key: str = None) -> Optional[Set[str]]:
+        if key is None or key == 'kind':
+            return scoring.definitions.availableOrnaments
+
+    def applyTo(self, notation: scoring.Notation) -> None:
+        notation.setProperty('ornament', self.kind)
+
+
+class Fermata(NoteAttachedSymbol):
+    exclusive = True
+
+    def __init__(self, kind: str = 'normal'):
+        self.kind = kind
+
+    @classmethod
+    def possibleValues(self, key: str = None) -> Optional[Set[str]]:
+        if key is None or key == 'kind':
+            return scoring.definitions.availableFermatas
+
+    def applyTo(self, notation: scoring.Notation) -> None:
+        notation.setProperty('fermata', self.kind)
+
+
+class Expression(NoteAttachedSymbol):
+    """
+    A note attached text expression
+
+    Args:
+        text: the text
+        placement: 'above', 'below' or None to leave it undetermined
+        fontsize: the size of the text. The actual resulting size will depend
+            on the backend used
+        fontstyle: None or one of 'italic', 'bold' or a comma separated string such
+            as 'italic,bold'
+
+    """
     exclusive = False
 
-    def __init__(self, text: str, placement='above'):
+    def __init__(self, text: str, placement='above', fontsize: float = None,
+                 fontstyle: str = None, box: str|bool = False):
+        assert fontsize is None or isinstance(fontsize, (int, float)), f"Invalid fontsize: {fontsize}, type: {type(fontsize)}"
         self.text = text
         self.placement = placement
+        self.fontsize = fontsize
+        self.fontstyle = fontstyle
+        self.box = box
 
     def __repr__(self):
         return f"Expression({self.text})"
 
     def applyTo(self, n: scoring.Notation) -> None:
         if not n.tiedPrev:
-            n.addAnnotation(self.text)
+            # TODO: add fontsize
+            n.addAnnotation(self.text, placement=self.placement, fontsize=self.fontsize,
+                            fontstyle=self.fontstyle, box=self.box)
 
     def __hash__(self):
-        return hash((type(self).__name__, self.text, self.placement))
+        return hash((type(self).__name__, self.text, self.placement, self.fontsize, self.fontstyle))
 
 
 class Notehead(NoteAttachedSymbol):
@@ -298,10 +345,10 @@ class Articulation(NoteAttachedSymbol):
     appliesToRests = False
 
     def __init__(self, kind: str):
-        assert kind in scoring.definitions.availableArticulations, \
-            f"Articulation {kind} unknown. Possible values: " \
-            f"{scoring.definitions.availableArticulations}"
-        self.kind = kind
+        normalized = scoring.definitions.normalizeArticulation(kind)
+        assert normalized, f"Articulation {kind} unknown. Possible values: " \
+                           f"{scoring.definitions.availableArticulations}"
+        self.kind = normalized
 
     def __hash__(self):
         return hash((type(self).__name__, self.kind))
@@ -352,7 +399,10 @@ class Accidental(NoteAttachedSymbol):
             n.setProperty('accidentalColor', self.parenthesis)
 
 
-_symbols = (Dynamic, Notehead, Articulation, Expression, SizeFactor, Color, Accidental)
+_symbols = (Dynamic, Notehead, Articulation, Expression,
+            SizeFactor, Color, Accidental, Ornament,
+            Fermata)
+
 
 _symbolNameToClass = {cls.__name__.lower(): cls for cls in _symbols}
 

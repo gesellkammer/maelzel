@@ -879,9 +879,9 @@ def makeTextMark(text: str, fontsize:int=None, fontrelative=True,
         return fr'\mark "{text}"'
 
 
-def makeTextAnnotation(text: str, fontsize:int=None, fontrelative=False,
-                       placement='above',
-                       boxed=False) -> str:
+def makeText(text: str, fontsize:int=None, fontrelative=False,
+             placement='above', italic=False, bold=False,
+             boxed=False) -> str:
     """
     Creates a lilypond text annotation to be attached to a note/rest
 
@@ -892,11 +892,14 @@ def makeTextAnnotation(text: str, fontsize:int=None, fontrelative=False,
         fontsize: a font size, or None to use lilypond's default
         fontrelative: if True, the fontsize is relative to the default fontsize
         placement: 'above' or 'below'
+        italic: if True, the text should be italic
+        bold: if True, the text should be bold
         boxed: if True, a box is drawn around the text
 
     Returns:
         the lilypond markup to generate the given annotation
     """
+    # TODO: support different box shapes for boxed
     placementchr = "^" if placement == "above" else "_"
     markups = []
     if fontsize:
@@ -904,6 +907,10 @@ def makeTextAnnotation(text: str, fontsize:int=None, fontrelative=False,
             markups.append(fr"\fontsize #{int(fontsize)}")
         else:
             markups.append(fr"\abs-fontsize #{int(fontsize)}")
+    if italic:
+        markups.append(r'\italic')
+    if bold:
+        markups.append(r'\bold')
     if boxed:
         markups.append(r"\box")
     if markups:

@@ -12,17 +12,19 @@ Example
     XXX
 """
 from __future__ import annotations
+from dataclasses import dataclass, field as _field
 
 from .common import *
 from . import core
+from . import definitions
 from . import util
-from .core import Notation, makeRest
-from .durationgroup import DurationGroup, durratio_t
 from . import quantdata
 from . import enharmonics
+
+from .core import Notation, makeRest
+from .durationgroup import DurationGroup, durratio_t
 from maelzel.scorestruct import ScoreStruct
 
-from dataclasses import dataclass, field as _field
 from emlib import iterlib
 from emlib import misc
 from emlib import mathlib
@@ -1573,7 +1575,9 @@ class QuantizedPart:
             for n in meas.notations():
                 if n.isRest:
                     continue
-                if not n.tiedPrev and n.dynamic:
+                if not n.tiedPrev and n.dynamic and n.dynamic in definitions.dynamicLevels:
+                    # Only dynamic levels are ever superfluous (f, ff, mp), other 'dynamics'
+                    # like sf should not be removed
                     if n.dynamic == dynamic:
                         n.dynamic = ''
                     else:

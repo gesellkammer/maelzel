@@ -76,12 +76,12 @@ def m21TextExpression(text:str, style:str=None, config=None) -> m21.expressions.
     txtexp = m21.expressions.TextExpression(text)
     config = config or getConfig()
     if style == 'small':
-        txtexp.style.fontSize = 12.0
+        txtexp.style.fontsize = 12.0
         txtexp.style.letterSpacing = 0.5
     elif style == 'bold':
         txtexp.style.fontWeight = 'bold'
     elif style == 'label':
-        txtexp.style.fontSize = config['show.labelFontSize']
+        txtexp.style.fontsize = config['show.labelFontSize']
     return txtexp
 
 

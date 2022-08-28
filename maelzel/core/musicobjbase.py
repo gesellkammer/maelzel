@@ -1050,6 +1050,25 @@ class MusicObj:
             if classname == s.name:
                 return s
 
+    def addText(self, text: str, placement='above', fontsize: int = None,
+                fontstyle: str = None, box: str|bool = False
+                ) -> None:
+        """
+        Shortcut to add a text annotation to this object
+
+        This is a shortcut to ``self.setSymbol(symbols.Expression(...))``
+
+        Args:
+            text: the text annotation
+            placement: where to place the annotation ('above', 'below')
+            fontsize: the size of the annotation
+            fontstyle: italic, bold or a comma-separated list thereof
+
+        """
+        self.setSymbol(_symbols.Expression(text, placement=placement, fontsize=fontsize,
+                                           fontstyle=fontstyle, box=box))
+
+
     def addSpanner(self, spannercls: str, endobj: MusicObj = None) -> None:
         """
         Adds a spanner symbol to this object

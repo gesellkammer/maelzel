@@ -89,6 +89,12 @@ class _ScoreLine:
     label: str = ''
 
 
+@dataclass
+class RehearsalMark:
+    text: str
+    enclosed: bool = True
+
+
 def _parseScoreStructLine(line: str) -> _ScoreLine:
     """
     parse a line of a ScoreStruct definition
@@ -182,6 +188,8 @@ class MeasureDef:
 
     subdivisionStructure: Optional[List[int]] = None
     """for irregular measures indicates the grouping of beats (for 7/8 could be [2, 3, 2])"""
+
+    rehearsalMark: RehearsalMark | None = None
 
     def __post_init__(self):
         assert isinstance(self.timesig, tuple) and len(self.timesig) == 2
@@ -638,8 +646,13 @@ class ScoreStruct:
             return self.getMeasureDef(item)
         print(item, dir(item))
 
-    def addMeasure(self, timesig: timesig_t=None, quarterTempo: number_t=None,
-                   annotation:str=None, numMeasures:int=1) -> None:
+    def addMeasure(self,
+                   timesig: timesig_t = None,
+                   quarterTempo: number_t = None,
+                   annotation: str = None,
+                   numMeasures=1,
+                   rehearsalMark: str | RehearsalMark = None
+                   ) -> None:
         """
         Add a measure definition to this score structure
 
@@ -651,6 +664,9 @@ class ScoreStruct:
             annotation: each measure can have a text annotation
             numMeasures: if this is > 1, multiple measures of the same kind can be
                 added
+            rehearsalMark: if given, add a rehearsal mark to the new measure definition.
+                A rehearsal mark can be a text or a RehearsalMark, which enables you
+                to customize the rehearsal mark further
 
         Example::
 
@@ -669,14 +685,35 @@ class ScoreStruct:
         else:
             tempoInherited = False
 
+        if isinstance(rehearsalMark, str):
+            rehearsalMark = RehearsalMark(rehearsalMark)
+
         measuredef = MeasureDef(timesig=timesig if isinstance(timesig, tuple) else _parseTimesig(timesig),
                                 quarterTempo=quarterTempo,
                                 annotation=annotation, timesigInherited=timesigInherited,
-                                tempoInherited=tempoInherited)
+                                tempoInherited=tempoInherited,
+                                rehearsalMark=rehearsalMark)
         self.measuredefs.append(measuredef)
         self._modified = True
         if numMeasures > 1:
             self.addMeasure(numMeasures=numMeasures-1)
+
+    def addRehearsalMark(self, idx: int, mark: RehearsalMark | str) -> None:
+        """
+        Add a rehearsal mark to this scorestruct
+
+        The measure definition for the given index must already exist or the score must
+        be set to autoextend
+
+        Args:
+            idx: the measure index
+            mark: the rehearsal mark, as text or as a RehearsalMark
+        """
+        if idx >= len(self.measuredefs) and not self.endless:
+            raise IndexError(f"Measure index {idx} out of range. "
+                             f"This score has {len(self.measuredefs)} measures")
+        mdef = self.getMeasureDef(idx, extend=True)
+        mdef.rehearsalMark = mark if isinstance(mark, RehearsalMark) else RehearsalMark(mark)
 
     def ensureDurationInMeasures(self, numMeasures: int) -> None:
         """
@@ -1181,6 +1218,10 @@ class ScoreStruct:
             if m.quarterTempo != tempo:
                 parts.append(f", {m.quarterTempo}")
                 tempo = m.quarterTempo
+            if m.annotation:
+                parts.append(f", annotation={m.annotation}")
+            if m.rehearsalMark:
+                parts.append(f", rehearsal={m.rehearsalMark.text}")
             print("".join(parts))
 
     def hasUniqueTempo(self) -> bool:
@@ -1226,7 +1267,7 @@ class ScoreStruct:
         workspace.getWorkspace().scorestruct = self._prevScoreStruct
 
     def _repr_html_(self) -> str:
-        colnames = ['Meas. Index', 'Timesig', 'Tempo (quarter note)', 'Label']
+        colnames = ['Meas. Index', 'Timesig', 'Tempo (quarter note)', 'Label', 'Rehearsal']
 
         parts = [f'<h5><strong>ScoreStruct<strong></strong></h5>']
         tempo = -1
@@ -1238,12 +1279,13 @@ class ScoreStruct:
                 tempostr = ("%.3f" % tempo).rstrip("0").rstrip(".")
             else:
                 tempostr = ""
-            row = (str(i), f"{num}/{den}", tempostr, m.annotation or "")
+            rehearsal = m.rehearsalMark.text if m.rehearsalMark is not None else ''
+            row = (str(i), f"{num}/{den}", tempostr, m.annotation or "", rehearsal)
             rows.append(row)
         if self.endless:
-            rows.append(("...", "", "", ""))
+            rows.append(("...", "", "", "", ""))
         rowstyle = 'font-size: small;'
-        htmltable = emlib.misc.html_table(rows, colnames, rowstyles=[rowstyle]*4)
+        htmltable = emlib.misc.html_table(rows, colnames, rowstyles=[rowstyle]*5)
         parts.append(htmltable)
         return "".join(parts)
 
