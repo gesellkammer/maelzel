@@ -96,7 +96,7 @@ def _speed_of_sound_gases(k: float, R: float, T: float) -> float:
     """
     k : ratio of specific heats
     R : gas constant
-    T : absolute temperature
+    MObjT : absolute temperature
 
     from http://www.engineeringtoolbox.com/speed-sound-d_519.html
     """

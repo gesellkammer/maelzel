@@ -1,0 +1,1 @@
+.. automodapi:: maelzel.core.score

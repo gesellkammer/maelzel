@@ -1,5 +1,5 @@
 from __future__ import annotations
-from . import musicobj
+from . import mobj
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:

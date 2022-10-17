@@ -11,7 +11,6 @@ import emlib.misc
 import fnmatch
 import glob
 import csoundengine.csoundlib
-import emlib.dialogs
 from .presetbase import *
 from .workspace import getConfig, getWorkspace
 from . import presetutils
@@ -20,7 +19,6 @@ from ._common import logger
 from . import _dialogs
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import *
     from .synthevent import SynthEvent
 
 import watchdog.events
@@ -67,6 +65,10 @@ class PresetManager:
     here. A PresetManager is attached to a running Session as soon as an object
     is scheduled with the given Preset. As such, it acts as a library of Presets
     and any number of such Presets can be created.
+
+    Args:
+        watchPresets: if True, any saved preset which has been loaded into
+            a session will be re-loaded if the saved file is modified
     """
     _numinstances = 0
 
@@ -74,7 +76,7 @@ class PresetManager:
         if self._numinstances > 0:
             raise RuntimeError("Only one PresetManager should be active")
         self._numinstances = 1
-        self.presetdefs: Dict[str, PresetDef] = {}
+        self.presetdefs: dict[str, PresetDef] = {}
         self.presetsPath = getWorkspace().presetsPath()
         self._prepareEnvironment()
         self._makeBuiltinPresets()
@@ -103,7 +105,7 @@ class PresetManager:
         if not os.path.exists(self.presetsPath):
             os.makedirs(self.presetsPath)
 
-    def _makeBuiltinPresets(self, sf2path:str=None) -> None:
+    def _makeBuiltinPresets(self, sf2path: str = None) -> None:
         """
         Defines all builtin presets
         """
@@ -133,10 +135,10 @@ class PresetManager:
                   init='',
                   epilogue='',
                   includes: list[str] = None,
-                  params: Dict[str, float] = None,
+                  args: dict[str, float] = None,
                   description: str = None,
-                  priority: int = None,
-                  temporary = False,
+                  envelope=True,
+                  routing=True
                   ) -> PresetDef:
         """
         Define a new instrument preset.
@@ -165,11 +167,12 @@ class PresetManager:
                 since calling turnoff in the middle of an instrument might cause a crash.
             init: global code needed by the audiogen part (usually a table definition)
             includes: files to include
-            params: a dict {parameter_name: value}
+            args: a dict {parameter_name: value}
             description: a description of what this preset is/does
-            priority: if given, the instr has this priority as default when scheduled
-            temporary: if True, preset will not be saved, even if
-                the 'play.autosavePreset' is set to True in the active config
+            envelope: If True, apply an envelope as determined by the fadein/fadeout
+                play arguments.
+            routing: if True, generate output routing (panning and output) for this
+                preset. Otherwise the user is responsible for applying panning
 
         Returns:
             a PresetDef
@@ -187,7 +190,7 @@ class PresetManager:
             ... aout1 moogladder aout1, lag:k(kcutoff, 0.1), kq
             ... '''
             >>> presetManager.defPreset(name='mypreset', audiogen=audiogen,
-            ...                         params=dict(kcutoff=4000, kq=1))
+            ...                         args=dict(kcutoff=4000, kq=1))
 
         Or simply:
 
@@ -199,7 +202,7 @@ class PresetManager:
 
         Then, to use the Preset:
 
-            >>> synth = Note("4C", dur=60).play(instr='mypreset', params={'kcutoff': 1000})
+            >>> synth = Note("4C", dur=60).play(instr='mypreset', args={'kcutoff': 1000})
 
         ``.play`` returns a SynthGroup, even if in this case a Note generates only one synth.
         (for example a Chord would generate one synth per note)
@@ -211,44 +214,43 @@ class PresetManager:
         .. admonition:: See Also
 
             - :func:`defPresetSoundfont`
-            - :meth:`maelzel.core.musicobj.MusicObj.play`
+            - :meth:`maelzel.core.MObj.play`
 
         """
         audiogen = emlib.textlib.stripLines(audiogen)
-        firstLine = audiogen.splitlines()[0].strip()
+        firstLine = audiogen.split('\n', maxsplit=1)[0].strip()
         if firstLine[0] == '|' and firstLine[-1] == '|':
             delimiter, inlineParams, audiogen = csoundengine.instr.parseInlineArgs(audiogen)
-            if params:
-                params.update(inlineParams)
+            if args:
+                args.update(inlineParams)
             else:
-                params = inlineParams
+                args = inlineParams
         presetdef = PresetDef(name=name,
                               audiogen=audiogen,
                               init=init,
                               epilogue=epilogue,
                               includes=includes,
-                              params=params,
+                              args=args,
                               description=description,
                               builtin=False,
-                              priority=priority,
-                              temporary=temporary)
+                              envelope=envelope,
+                              routing=routing)
         self.registerPreset(presetdef)
         return presetdef
 
     def defPresetSoundfont(self,
-                           name:str=None,
-                           sf2path:str=None,
-                           preset: Union[Tuple[int, int], str]=(0, 0),
+                           name: str = None,
+                           sf2path: str = None,
+                           preset: tuple[int, int] | str = (0, 0),
                            init: str = None,
                            postproc: str = None,
                            includes: list[str] = None,
-                           params: Union[list[float], Dict[str, float]] = None,
-                           priority: int = None,
+                           args: list[float] | dict[str, float] | None = None,
                            interpolation: str = None,
-                           temporary = False,
                            mono=False,
                            turnoffWhenSilent=True,
                            description='',
+                           routing=True,
                            _builtin=False) -> PresetDef:
         """
         Define a new instrument preset based on a soundfont
@@ -281,18 +283,22 @@ class PresetManager:
                 in the soundfont**.
             init: global code needed by postproc
             postproc: code to modify the generated audio before it is sent to the
-                outputs
+                outputs. **NB**: the audio is placed in *aout1*, *aout2*, etc. depending
+                on the number of channels (normally 2)
             includes: files to include (if needed by init or postproc)
-            params: mutable values needed by postproc (if any). See :meth:`~PresetManager.defPreset`
-            priority: default priority for this preset
-            temporary: if True, preset will not be saved, even if
-                :ref:`config['play.autosavePreset'] <config_play_autosavepresets>` is True
+            args: mutable values needed by postproc (if any). See :meth:`~PresetManager.defPreset`
             mono: if True, only the left channel of the soundfont is read
             interpolation: one of 'linear', 'cubic'. Refers to the interpolation used
                 when reading the sample waveform. If None, use the default defined
                 in the config (:ref:`key 'play.soundfontInterpolation' <config_play_soundfontinterpolation>`)
             turnoffWhenSilent: if True, turn a note off when the sample stops (by detecting
                 silence for a given amount of time)
+            routing: if True, code is generated to apply panning and
+                send the audio generated to the output. If False audio is placed in the
+                audiogen variables *aout1*, *aout2*, etc., and the user is responsible
+                for sending those signals to some output, to a bus, etc. This code
+                can be included in the *postproc* parameter
+            description: a short string describing this preset
 
         Example
         ~~~~~~~
@@ -351,40 +357,32 @@ class PresetManager:
         else:
             init = init0
         if postproc:
-            audiogen = emlib.textlib.joinPreservingIndentation((audiogen, postproc))
+            audiogen = emlib.textlib.joinPreservingIndentation((audiogen, '\n;; postproc\n', postproc))
         epilogue = "turnoffWhenSilent aout1" if turnoffWhenSilent else ''
         presetdef = PresetDef(name=name,
                               audiogen=audiogen,
                               init=init,
                               epilogue=epilogue,
                               includes=includes,
-                              params=params,
-                              priority=priority,
-                              temporary=temporary,
+                              args=args,
                               builtin=_builtin,
                               description=description,
-                              properties={'sfpath': sf2path})
+                              properties={'sfpath': sf2path},
+                              routing=routing)
         self.registerPreset(presetdef)
         return presetdef
 
-    def registerPreset(self, presetdef:PresetDef) -> None:
+    def registerPreset(self, presetdef: PresetDef) -> None:
         """
         Register this PresetDef.
-
-        If the PresetDef is temporary or config['play.autosavePresets'] is False,
-        the presetdef will not be saved to disk, otherwise any PresetDef registered
-        will be persisted and will be loaded in any new session
 
         Args:
             presetdef: the PresetDef to register
 
         """
         self.presetdefs[presetdef.name] = presetdef
-        config = getConfig()
-        if presetdef.userDefined and not presetdef.temporary and config['play.autosavePresets']:
-            self.savePreset(presetdef.name)
 
-    def getPreset(self, name:str) -> PresetDef:
+    def getPreset(self, name: str) -> PresetDef:
         """Get a preset by name
 
         Raises KeyError if no preset with such name is defined
@@ -501,8 +499,8 @@ class PresetManager:
                         if not sfpath:
                             sfpath = presetutils.findSoundfontInPresetdef(presetdef) or '??'
                         l += f" [sf: {sfpath}]"
-                    if presetdef.params:
-                        s = ", ".join(f"{k}={v}" for k, v in presetdef.params.items())
+                    if presetdef.args:
+                        s = ", ".join(f"{k}={v}" for k, v in presetdef.args.items())
                         s = f" <code>({s})</code>"
                         l += s
                     if (descr:=presetdef.description):
@@ -546,7 +544,7 @@ class PresetManager:
             if instrdef.userDefined and fnmatch.fnmatch(name, pattern):
                 self.savePreset(name)
 
-    def savePreset(self, preset:Union[str, PresetDef]) -> str:
+    def savePreset(self, preset: str | PresetDef) -> str:
         """
         Saves the preset in the presets folder, returns the path to the saved file
 
@@ -559,7 +557,7 @@ class PresetManager:
         fmt = "yaml"
         if isinstance(preset, PresetDef):
             presetdef = preset
-            if not presetdef.name in self.presetdefs:
+            if presetdef.name not in self.presetdefs:
                 self.registerPreset(presetdef)
             else:
                 if presetdef is not self.presetdefs[presetdef.name]:
@@ -637,7 +635,8 @@ class PresetManager:
             if not saved:
                 logger.info("No saved presets, aborting")
                 return False
-            presetName = emlib.dialogs.selectItem(saved, title="Remove Preset")
+
+            presetName = _dialogs.selectFromList(saved, title="Remove Preset")
             if not presetName:
                 return False
         path = os.path.join(self.presetsPath, f"{presetName}.yaml")
@@ -661,14 +660,14 @@ class PresetManager:
         presets = glob.glob(os.path.join(self.presetsPath, "*.yaml"))
         return [os.path.splitext(os.path.split(p)[1])[0] for p in presets]
 
-    def selectPreset(self) -> Optional[str]:
+    def selectPreset(self) -> str | None:
         """
         Select one of the available presets via a GUI
 
         Returns:
             the name of the selected preset, or None if selection was canceled
         """
-        return emlib.dialogs.selectItem(presetManager.definedPresets(),
+        return emlib.dialogs.selectItem(self.definedPresets(),
                                         title="Select Preset")
 
 

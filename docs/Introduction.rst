@@ -130,14 +130,14 @@ processes involved).
     ]
 
     V1 = Voice(v1, 'Violin 1')
-    # Within a jupyter notebook any MusicObj evaluated as last within a cell
+    # Within a jupyter notebook any MObj evaluated as last within a cell
     # will show html including rendered notation
     V1
 
 
 .. image:: assets/ferney1.jpg
 
-Any `MusicObj` (a `Note`, `Chord`, `Chain`, `Voice`, etc) can be subjected to multiple
+Any `MObj` (a `Note`, `Chord`, `Chain`, `Voice`, etc) can be subjected to multiple
 operations. For example::
 
     V1.timeScale(4/3)

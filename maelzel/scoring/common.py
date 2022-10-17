@@ -7,22 +7,34 @@ from dataclasses import dataclass
 import enum
 import logging
 import numbers as _numbers
-from typing import TYPE_CHECKING, NamedTuple
 import pitchtools as pt
 
-if TYPE_CHECKING:
-    from typing import Union, Tuple, List, TypeVar, Optional
-    time_t = Union[float, int, F]
-    pitch_t = Union[int, float, str]
-    timesig_t = Tuple[int, int]
-    division_t = List[Union[int, list]]
-    # division_t = List[Union[int, 'division_t']]
-    timerange_t = Tuple[F, F]
-    T = TypeVar("T")
+from typing import NamedTuple, Union, Optional
+time_t = Union[float, int, F]
+pitch_t = Union[int, float, str]
+timesig_t = tuple[int, int]
+division_t = tuple[Union[int, 'division_t']]
+timerange_t = tuple[F, F]
 
 logger = logging.getLogger("maelzel.scoring")
 
 # This module can't import ANYTHING from .
+
+
+__all__ = (
+    'F',
+    'asF',
+    'logger',
+    'asmidi',
+    'TimeSpan',
+    'NotatedDuration',
+    'GLISS',
+    'time_t',
+    'pitch_t',
+    'timesig_t',
+    'division_t',
+    'timerange_t'
+)
 
 
 def asF(t: _numbers.Real) -> F:
@@ -58,44 +70,13 @@ def asmidi(x) -> float:
         assert 0 <= x < 128
         return float(x)
     elif hasattr(x, "pitch"):
-        return x.pitch
+        return x.notename
     raise TypeError(f"Cannot interpret {x} as a midinote")
 
 
 class TimeSpan(NamedTuple):
     start: F
     end: F
-
-    @property
-    def duration(self) -> F:
-        return self.end-self.start
-
-
-class Annotation:
-    __slots__ = ('text', 'placement', 'fontsize', 'fontstyles', 'box')
-
-    def __init__(self, text: str, placement='above', fontsize: float = None, fontstyle='',
-                 box: str|bool = False):
-        assert not text.isspace()
-        if fontsize is not None:
-            assert isinstance(fontsize, (int, float))
-        self.text = text
-        self.placement = placement
-        self.fontsize = fontsize
-        self.box: str = box if isinstance(box, str) else 'square' if box else ''
-        if not fontstyle:
-            self.fontstyles = None
-        else:
-            styles = fontstyle.split(',')
-            for style in styles:
-                assert style in {'italic', 'bold'}, f'Style {style} not supported'
-            self.fontstyles = styles
-
-    def isItalic(self):
-        return self.fontstyles and 'italic' in self.fontstyles
-
-    def isBold(self):
-        return self.fontstyles and 'bold' in self.fontstyles
 
 
 @dataclass
@@ -111,8 +92,8 @@ class NotatedDuration:
         tuplets: a list of (num, den). Example: [(3, 2)] for a normal triplet
     """
     base: int
-    dots: int=0
-    tuplets: Optional[List[Tuple[int, int]]] = None
+    dots: int = 0
+    tuplets: Optional[list[tuple[int, int]]] = None
 
 
 class GLISS(enum.Enum):

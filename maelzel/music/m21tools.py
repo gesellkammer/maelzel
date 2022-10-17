@@ -35,7 +35,7 @@ def _splitchord(chord: m21.chord.Chord,
     above, below = [], []
     for i in range(len(chord)):
         note = chord[i]
-        if note.pitch.pitch >= split:
+        if note.notename.notename >= split:
             above.append(note)
         else:
             below.append(note)
@@ -187,7 +187,7 @@ def splitVoice(voice: m21.stream.Stream, split: int=60) -> m21.stream.Score:
             above.append(obj)
             below.append(obj)
         else:
-            if obj.pitch.pitch >= split:
+            if obj.notename.notename >= split:
                 above.append(obj)
                 below.append(rest)
             else:
@@ -277,7 +277,7 @@ def needsSplit(notes: Union[Sequence[float], m21.stream.Stream], splitpoint=60) 
     if isinstance(notes, list) and isinstance(notes[0], (int, float)):
         return _needsSplitMidinotes(notes)
     elif isinstance(notes, m21.stream.Stream):
-        midinotes = [note.pitch.pitch for note in notes.getElementsByClass(m21.note.Note)]
+        midinotes = [note.notename.notename for note in notes.getElementsByClass(m21.note.Note)]
         return _needsSplitMidinotes(midinotes)
     else:
         raise TypeError(f"expected a list of midinotes or a m21.Stream, got {notes}")
@@ -1070,7 +1070,7 @@ def hideNotehead(event:m21.note.NotRest, hideAccidental=True) -> None:
         for note in event:
             note.fontstyle.hideObjectOnPrint = True
             if hideAccidental:
-                note.pitch.accidental.displayStatus = False
+                note.notename.accidental.displayStatus = False
     else:
         raise TypeError(f"expected a Note or a Chord, got {type(event)}")
 
@@ -1481,7 +1481,7 @@ def fixNachschlaege(part: m21.stream.Part, convertToRealNote=False, duration=1/8
                 m1.remove(n1)
 
                 n1.quarterLength = n1.quarterLength - realizedDuration
-                replacement, centsdev = makeNote(n0.pitch.pitch, quarterLength=realizedDuration)
+                replacement, centsdev = makeNote(n0.pitch.notename, quarterLength=realizedDuration)
                 m1.insert(n1.offset, replacement)
                 m1.insert(n1.offset + realizedDuration, n1)
 
@@ -1490,15 +1490,15 @@ def makeTupletBrackets(s: m21.stream.Stream, inPlace=False) -> m21.stream.Stream
     returnObj = s if inPlace else copy.deepcopy(s)
     durationList = [n.duration for n in returnObj.notesAndRests if n.duration.quarterLength > 0]
     if not durationList:
-        logger.info(f"No notes or rests to make tuplet brackets on stream: {s}")
+        logger.info(f"No notes or rests to make subdivision brackets on stream: {s}")
         return returnObj
-    tupletMap = []  # a list of (tuplet obj / Duration) pairs
+    tupletMap = []  # a list of (subdivision obj / Duration) pairs
     for dur in durationList:  # all Duration objects
         tupletList = dur.tuplets
         if tupletList in [(), None]:  # no tuplets, length is zero
             tupletMap.append([None, dur])
         elif len(tupletList) > 1:
-            logger.warning('got multi-tuplet duration; cannot yet handle this. %s' % repr(tupletList))
+            logger.warning('got multi-subdivision duration; cannot yet handle this. %s' % repr(tupletList))
         elif len(tupletList) == 1:
             tupletMap.append([tupletList[0], dur])
             if tupletList[0] != dur.tuplets[0]:
@@ -1506,25 +1506,25 @@ def makeTupletBrackets(s: m21.stream.Stream, inPlace=False) -> m21.stream.Stream
         else:
             raise Exception('cannot handle these tuplets: %s'%tupletList)
 
-    # have a list of tuplet, Duration pairs
+    # have a list of subdivision, Duration pairs
     completionCount = 0  # qLen currently filled
-    completionTarget = None  # qLen necessary to fill tuplet
+    completionTarget = None  # qLen necessary to fill subdivision
     for i in range(len(tupletMap)):
         tupletObj, dur = tupletMap[i]
         tupletPrevious = tupletMap[i-1][0] if i>0 else None
         tupletNext = tupletMap[i+1][0] if i<len(tupletMap)-1 else None
         if tupletObj is not None:
             completionCount = opFrac(completionCount+dur.quarterLength)
-            # if previous tuplet is None, always start. Always reset completion target
+            # if previous subdivision is None, always start. Always reset completion target
             if tupletPrevious is None or completionTarget is None:
-                if tupletNext is None:  # single tuplet w/o tuplets either side
+                if tupletNext is None:  # single subdivision w/o tuplets either side
                     tupletObj.type = 'startStop'
                     tupletObj.bracket = False
                     completionCount = 0  # reset
                 else:
                     tupletObj.type = 'start'
                     completionTarget = tupletObj.totalTupletLength()
-                    # if tuplet next is None, always stop
+                    # if subdivision next is None, always stop
             # if both previous and next are None, just keep a start
 
             # this, below, is optional:
@@ -1534,7 +1534,7 @@ def makeTupletBrackets(s: m21.stream.Stream, inPlace=False) -> m21.stream.Stream
                 completionTarget = None  # reset
                 completionCount = 0  # reset
             elif tupletPrevious is not None and tupletNext is not None:
-                # do not need to change tuplet type; should be None
+                # do not need to change subdivision type; should be None
                 pass
     return returnObj
 

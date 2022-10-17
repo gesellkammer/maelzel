@@ -32,7 +32,8 @@ def _asQuantizedScore(s: Union[quant.QuantizedScore, list[quant.QuantizedPart]],
 
 def renderQuantizedScore(score: quant.QuantizedScore,
                          options: RenderOptions,
-                         backend:str=None) -> Renderer:
+                         backend: str = None
+                         ) -> Renderer:
     """
     Render the already quantized parts as notation.
 

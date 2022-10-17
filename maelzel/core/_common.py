@@ -20,7 +20,8 @@ __all__ = (
     'asRat',
     'isNumber',
     'getPath',
-    'logger'
+    'logger',
+    'Rat'
 )
 
 

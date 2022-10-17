@@ -9,51 +9,77 @@ import os
 import tempfile
 import textwrap
 import shutil
-from dataclasses import dataclass
-
+from dataclasses import dataclass, field
+import pitchtools as pt
 import emlib.textlib
 import emlib.filetools
+from emlib.iterlib import first
 
 from maelzel.music import lilytools
 from .common import *
 from . import definitions
+from .attachment import *
 from .core import Notation
 from .render import Renderer, RenderOptions
 from .durationgroup import DurationGroup
 from . import quant, util
 from . import spanner as _spanner
-import logging
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Union
     from .common import pitch_t
 
 
-logger = logging.getLogger("maelzel.scoring")
+__all__ = (
+    'LilypondRenderer',
+    'quantizedPartToLily',
+    'makeScore'
+)
 
 
-def _lilyNote(pitch: pitch_t, baseduration:int, dots:int=0, tied=False, cautionary=False
-              ) -> str:
+def lyNote(pitch: pitch_t, baseduration:int, dots:int=0, tied=False, cautionary=False,
+           fingering: str = ''
+           ) -> str:
     assert baseduration in {0, 1, 2, 4, 8, 16, 32, 64, 128}, \
         f'baseduration should be a power of two, got {baseduration}'
     pitch = lilytools.makePitch(pitch, accidentalParenthesis=cautionary)
     if baseduration == 0:
         # a grace note
         return fr"\grace {pitch}8"
-    return fr"{pitch}{baseduration}{'.'*dots}{'~' if tied else ''}"
+    out = fr"{pitch}{baseduration}{'.'*dots}"
+    if tied:
+        out += '~'
+
+    # This should be last
+    if fingering:
+        out += f'-{fingering}'
+
+    return out
 
 
-_articulations = {
+_articulationToLily = {
     'staccato': r'\staccato',
     'accent': r'\accent',
     'marcato': r'\marcato',
     'tenuto': r'\tenuto',
     'staccatissimo': r'\staccatissimo',
-    'portato': r'\portato'
+    'portato': r'\portato',
+    'arpeggio': r'\arpeggio',
+    'upbow': r'\upbow',
+    'downbow': r'\downbow',
+    'flageolet': r'\flageolet',
+    'openstring': r'\open',
+    'open': r'\open',
+    'closed': r'\stopped',
+    'stopped': r'\stopped',
+    'snappizz': r'\snappizzicato',
+    'snappizzicato': 'r\snappizzicato',
+    'laissezvibrer': 'r\laissezVibrer'
 }
 
-_noteheadToLilypond = {
+
+_noteheadToLily = {
+    'normal': '',
     'cross': 'cross',
     'harmonic': 'harmonic',
     'xcircle': 'xcircle',
@@ -61,9 +87,22 @@ _noteheadToLilypond = {
     'rhombus': 'harmonic-black',
     'square': 'la',
     'rectangle': 'la',
+    'slash': 'slash',
+    'diamond': 'diamond',
+    'triangleup': 'ti',
+    'do': 'do',
+    're': 're',
+    'mi': 'mi',
+    'fa': 'fa',
+    'sol': 'sol',
+    'la': 'la',
+    'ti': 'ti',
+    'cluster': 'slash'
+
 }
 
-_lilyFermata = {
+
+_fermataToLily = {
     'normal': r'\fermata',
     'square': r'\longfermata',
     'angled': r'\shortfermata',
@@ -72,8 +111,41 @@ _lilyFermata = {
 }
 
 
-def _lilyArticulation(articulation:str) -> str:
-    return _articulations[articulation]
+_placementToLily = {
+    '': '',
+    'above': '^',
+    'below': '_'
+}
+
+
+_linetypeToLily = {
+    'solid': 'solid-line',
+    'dashed': 'dashed-line',
+    'dotted': 'dotted-line',
+    'zigzag': 'zigzag',
+    'wavy': 'trill',
+    'trill': 'trill'
+}
+
+_lilyBarlines = {
+    'single': r'|',
+    'double': r'||',
+    'final': r'|.',
+    'solid': r'.',
+    'dashed': r'!',
+    'dotted': r';',
+    'tick': "'",
+    'short': ",",
+    'double-thin': "=",
+    'double-heavy': '||',
+    'none': '',
+    'hidden': ''
+}
+
+
+def lyArticulation(articulation: Articulation) -> str:
+    # TODO: render articulation color if present
+    return _articulationToLily[articulation.kind]
 
 
 @dataclass
@@ -81,7 +153,7 @@ class _Notehead:
     kind: str = ''
     parenthesized: bool = False
     color: str = ''
-    sizefactor: Optional[float] = None
+    sizefactor: float = None
 
 
 def _parseNotehead(notehead: str) -> _Notehead:
@@ -105,7 +177,7 @@ def _parseNotehead(notehead: str) -> _Notehead:
     return _Notehead(kind=kind, parenthesized=parenthesized, color=color, sizefactor=sizefactor)
 
 
-def _lilyNoteheadInsideChord(notehead: str) -> str:
+def lyNoteheadInsideChord(notehead: str) -> str:
     if not notehead:
         return ''
     parts = []
@@ -115,18 +187,18 @@ def _lilyNoteheadInsideChord(notehead: str) -> str:
     if parsedNotehead.sizefactor:
         relsize = lilytools.fontSizeFactorToRelativeSize(parsedNotehead.sizefactor)
         parts.append(fr'\tweak NoteHead.font-size #{relsize}')
-    if parsedNotehead.kind:
-        lilynotehead = _noteheadToLilypond.get(parsedNotehead.kind)
+    if parsedNotehead.kind and parsedNotehead.kind != 'normal':
+        lilynotehead = _noteheadToLily.get(parsedNotehead.kind)
         if not lilynotehead:
             raise ValueError(f'Unknown notehead: {notehead}, '
-                             f'possible noteheads: {_noteheadToLilypond.keys()}')
+                             f'possible noteheads: {_noteheadToLily.keys()}')
         parts.append(fr"\tweak NoteHead.style #'{lilynotehead}")
     if parsedNotehead.parenthesized:
         parts.append(r'\parenthesize')
     return " ".join(parts)
 
 
-def _lilyNotehead(notehead: str) -> str:
+def lyNotehead(notehead: str) -> str:
     """
     Convert a noteshape to its lilypond representation
 
@@ -156,18 +228,27 @@ def _lilyNotehead(notehead: str) -> str:
     if parsedNotehead.sizefactor:
         relsize = lilytools.fontSizeFactorToRelativeSize(parsedNotehead.sizefactor)
         parts.append(fr'\once \override NoteHead.font-size = #{relsize}')
-    if parsedNotehead.kind:
-        lilynotehead = _noteheadToLilypond.get(parsedNotehead.kind)
+    if parsedNotehead.kind and parsedNotehead.kind != 'normal':
+        lilynotehead = _noteheadToLily.get(parsedNotehead.kind)
         if not lilynotehead:
             raise ValueError(f'Unknown notehead: {notehead}, '
-                             f'possible noteheads: {_noteheadToLilypond.keys()}')
+                             f'possible noteheads: {_noteheadToLily.keys()}')
         parts.append(fr"\once \override NoteHead.style = #'{lilynotehead}")
     if parsedNotehead.parenthesized:
         parts.append(r'\parenthesize')
     return " ".join(parts)
 
 
-def notationToLily(n: Notation, options: RenderOptions, state: dict) -> str:
+@dataclass
+class RenderState:
+    insideSlide: bool = False
+    glissando: bool = False
+    dynamic: str = ''
+    insideGraceGroup: bool = False
+    openSpanners: dict[str, _spanner.Spanner] = field(default_factory=dict)
+
+
+def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> str:
     """
     Converts a Notation to its lilypond representation
 
@@ -185,6 +266,8 @@ def notationToLily(n: Notation, options: RenderOptions, state: dict) -> str:
         the lilypond notation corresponding to n, as a string
 
     """
+    if not n.isRest and n.fixedNotenames is not None:
+        assert len(n.fixedNotenames) == len(n.pitches), f"???? notation: {n}, {n.fixedNotenames=}, {n.pitches=}"
     notatedDur = n.notatedDuration()
     base, dots = notatedDur.base, notatedDur.dots
     if n.isRest or len(n.pitches) == 1 and n.pitches[0] == 0:
@@ -219,60 +302,82 @@ def notationToLily(n: Notation, options: RenderOptions, state: dict) -> str:
     graceGroup = n.getProperty("graceGroup")
     if graceGroup == 'start':
         _(r"\grace {")
-        state['insideGraceGroup'] = True
+        state.insideGraceGroup = True
         base, dots = 8, 0
-    elif state.get('insideGraceGroup'):
+    elif state.insideGraceGroup:
         base, dots = 8, 0
     elif n.isGraceNote:
         _(r"\grace")
+        base, dots = 8, 0
+
+    if harmonic := first(a for a in n.attachments if isinstance(a, Harmonic)):
+        if harmonic.interval == 0:
+            n = n.copy()
+            n.setNotehead('harmonic')
+        elif len(n.pitches) > 1:
+            logger.error("Cannot set a chord as artificial harmonic yet")
+        else:
+            fund = n.notename(0)
+            touched = pt.transpose(fund, harmonic.interval)
+            n = n.clone(pitches=(fund, touched))
+            n.setNotehead('harmonic', 1)
 
     if len(n.pitches) == 1:
-        if n.notehead:
-            _(_lilyNotehead(n.notehead if isinstance(n.notehead, str) else n.notehead[0]))
-        _(_lilyNote(n.notename(), baseduration=base, dots=dots, tied=n.tiedNext,
-                    cautionary=n.getProperty('accidentalParenthesis', False)))
+        if n.noteheads:
+            _(lyNotehead(n.noteheads[0]))
+        fingering = first(a for a in n.attachments if isinstance(a, Fingering))
+        _(lyNote(n.notename(),
+                 baseduration=base,
+                 dots=dots,
+                 tied=n.tiedNext,
+                 cautionary=n.accidentalTraits.parenthesis,
+                 fingering=fingering.fingering if fingering else ''))
     else:
-        if not n.notehead:
+        # a chord
+        if not n.noteheads:
             noteheads = None
-        elif isinstance(n.notehead, str):
-            _(_lilyNotehead(n.notehead))
-            noteheads = None   # No individual noteheads
-        elif isinstance(n.notehead, list):
-            noteheads = n.notehead
-            assert len(noteheads) == len(n.pitches), f"noteheads: {noteheads}, pitches: {n.pitches}"
+        elif all(notehead == n.noteheads[0] for notehead in n.noteheads):
+            # All the same noteheads, place it outside the chord
+            _(lyNotehead(n.noteheads[0]))
+            noteheads = None
         else:
-            raise TypeError(f'Notation.notehead can be a str or list[str], got {n.notehead}')
+            noteheads = n.noteheads
+            assert len(noteheads) == len(n.pitches), f"noteheads: {noteheads}, pitches: {n.pitches}"
         _("<")
         for i, pitch in enumerate(n.pitches):
             if noteheads and noteheads[i]:
-                _(_lilyNoteheadInsideChord(noteheads[i]))
+                _(lyNoteheadInsideChord(noteheads[i]))
             _(lilytools.makePitch(n.notename(i),
-                                  accidentalParenthesis=n.getProperty('accidentalParenthesis', False)))
+                                  accidentalParenthesis=n.accidentalTraits.hidden))
         _(f">{base}{'.'*dots}{'~' if n.tiedNext else ''}")
 
-    if (not n.tiedPrev or options.articulationInsideTie) and n.articulation:
-        _(_lilyArticulation(n.articulation))
-
-    if ornament:=n.getProperty('ornament'):
-        _(fr'\{ornament}')
-
-    if fermata:=n.getProperty('fermata'):
-        _(_lilyFermata.get(fermata, r'\fermata'))
+    if trem := first(a for a in n.attachments if isinstance(a, Tremolo)):
+        if trem.tremtype == 'single':
+            _(f":{trem.singleDuration()}")
+        else:
+            # TODO: render this correctly as two note tremolo
+            _(f":{trem.singleDuration()}")
 
     if (not n.tiedPrev or options.articulationInsideTie) and n.dynamic:
         dyn = n.dynamic if not n.dynamic.endswith('!') else n.dynamic[:-1]
         _(fr"\{dyn}")
 
-    if n.gliss:
-        _(r"\glissando")
-
-    if n.annotations:
-        for annotation in n.annotations:
-            # TODO: support box shape
-            _(lilytools.makeText(annotation.text, placement=annotation.placement,
-                                 fontsize=annotation.fontsize,
-                                 italic=annotation.isItalic(), bold=annotation.isBold(),
-                                 boxed=bool(annotation.box)))
+    for attach in n.attachments:
+        if isinstance(attach, Text):
+            _(lilytools.makeText(attach.text, placement=attach.placement,
+                                 fontsize=attach.fontsize,
+                                 italic=attach.isItalic(), bold=attach.isBold(),
+                                 box=attach.box))
+        elif isinstance(attach, Articulation):
+            if not n.tiedPrev or options.articulationInsideTie:
+                _(lyArticulation(attach))
+        elif isinstance(attach, Fermata):
+            _(_fermataToLily.get(attach.kind, r'\fermata'))
+        elif isinstance(attach, Ornament):
+            _(fr'\{attach.kind}')
+        elif isinstance(attach, Bend):
+            interval = ('+' if attach.interval > 0 else '')+str(round(attach.interval, 1))
+            _(fr'\bendAfter #{interval}')
 
     if options.showCents:
         # TODO: cents annotation should follow options (below/above, fontsize)
@@ -284,7 +389,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: dict) -> str:
 
     if graceGroup == "stop":
         _("}")
-        state['insideGraceGroup'] = False
+        state.insideGraceGroup = False
 
     return " ".join(parts)
 
@@ -292,103 +397,231 @@ def notationToLily(n: Notation, options: RenderOptions, state: dict) -> str:
 _spaces = " " * 1000
 
 
-def _renderGroup(seq: list[str],
-                 group: DurationGroup,
-                 durRatios:list[F],
-                 options: RenderOptions,
-                 state: dict,
-                 numIndents: int = 0,
-                 ) -> None:
+def _handleSpannerPre(spanner: _spanner.Spanner, state: RenderState) -> str | None:
+    """
+    Generates lilypond text for spanners which either need to be placed before the note or
+    whose customizations need to be placed before the note
+
+    Args:
+        spanner: the spanner to generate code for
+
+    Returns:
+        the generated lilypond text or None
+    """
+    out = []
+    _ = out.append
+    if isinstance(spanner, _spanner.Slur):
+        if spanner.kind == 'start':
+            _(fr' \slur{spanner.linetype.capitalize()} ')
+
+    elif isinstance(spanner, _spanner.OctaveShift):
+        if spanner.kind == 'start':
+            _(rf"\ottava #{spanner.octaves} ")
+        else:
+            _(rf"\ottava #0 ")
+
+    elif isinstance(spanner, _spanner.Bracket):
+        if spanner.kind == 'start' and spanner.linetype != 'solid':
+            style = _linetypeToLily[spanner.linetype]
+            _(rf" \once \override HorizontalBracket #'style = #'{style} ")
+
+    elif isinstance(spanner, _spanner.LineSpan) and spanner.kind == 'start':
+        y = 1 if spanner.placement == 'below' else -1
+        markup = ''
+        if spanner.starthook:
+            markup += f"\\draw-line  #'(0 . {y}) "
+        if spanner.starttext:
+            if spanner.verticalAlign:
+                _(rf'\once \override TextSpanner.bound-details.left.stencil-align-dir-y = #{spanner.verticalAlign.upper()} ')
+            markup += f' \\upright "{spanner.starttext}"'
+        if markup:
+            _(rf'\once \override TextSpanner.bound-details.left.text = \markup {{ {markup} }} ')
+        if spanner.endtext:
+            if spanner.verticalAlign:
+                _(rf'\once \override TextSpanner.bound-details.right.stencil-align-dir-y = #{spanner.verticalAlign.upper()} ')
+            _(rf'\once \override TextSpanner.bound-details.right.text = \markup {{ \upright "{spanner.endtext}" }} ')
+        elif spanner.endhook:
+            _(rf"\once \override TextSpanner.bound-details.right.text = \markup {{ \draw-line #'(0 . {y}) }} ")
+        _(rf"\once \override TextSpanner.style = #'{_linetypeToLily[spanner.linetype]} ")
+        # TODO: endtext, middletext
+
+    elif isinstance(spanner, _spanner.TrillLine):
+        if spanner.kind == 'start':
+            if not (spanner.startmark or spanner.alteration or spanner.trillpitch):
+                # It will be just a wavy line so we use a textspanner
+                _(rf"\once \override TextSpanner.style = #'trill ")
+            elif  spanner.trillpitch:
+                _(r'\pitchedTrill ')
+
+    elif isinstance(spanner, _spanner.Slide):
+        if spanner.kind == 'start':
+            if spanner.linetype != 'solid':
+                _(rf"\once \override Glissando.style = #'{_linetypeToLily[spanner.linetype]} ")
+        else:
+            if state.insideSlide and not state.glissando:
+                _(r"\glissandoSkipOff ")
+                state.insideSlide = False
+
+    return ''.join(out)
+
+
+def _handleSpannerPost(spanner: _spanner.Spanner, state: RenderState) -> str|None:
+    out = []
+    _ = out.append
+
+    if spanner.lilyPlacementPost and spanner.kind == 'start' and spanner.placement:
+        _(_placementToLily.get(spanner.placement))
+
+    if isinstance(spanner, _spanner.Slur):
+        _("(" if spanner.kind == 'start' else ")")
+
+    elif isinstance(spanner, _spanner.Hairpin):
+        if spanner.kind == 'start':
+            if spanner.niente:
+                _(r"\once \override Hairpin.circled-tip = ##t ")
+            _(fr" \{spanner.direction} ")
+        elif spanner.kind == 'end':
+            _(r" \! ")
+
+    elif isinstance(spanner, _spanner.Bracket):
+        if spanner.kind == 'start':
+            if spanner.text:
+                _(rf' -\tweak HorizontalBracketText.text "{spanner.text}" ')
+            _(r"\startGroup ")
+        else:
+            _(r"\stopGroup ")
+
+    elif isinstance(spanner, _spanner.TrillLine):
+        # If it has a start mark we use a trill line, otherwise we use a textspan
+        if spanner.startmark == 'trill':
+            if spanner.kind == 'start':
+                _(r'\startTrillSpan ')
+                if spanner.trillpitch:
+                    _(lilytools.makePitch(spanner.trillpitch) + " ")
+            else:
+                _(r'\stopTrillSpan ')
+        else:
+            # just a wavy line, the line type should have been customized
+            # in the pre-phase
+            _(r'\startTextSpan ' if spanner.kind == 'start' else r'\stopTextSpan ')
+
+    elif isinstance(spanner, _spanner.LineSpan):
+        _(r'\startTextSpan ' if spanner.kind == 'start' else r'\stopTextSpan ')
+
+    elif isinstance(spanner, _spanner.Slide):
+        if not state.glissando and spanner.kind == 'start':
+            _(r"\glissando \glissandoSkipOn ")
+            state.insideSlide = True
+
+    return ''.join(out)
+
+
+def renderGroup(group: DurationGroup,
+                durRatios:list[F],
+                options: RenderOptions,
+                state: RenderState,
+                numIndents: int = 0,
+                ) -> str:
     """
     A DurationGroup is a sequence of notes which share (and fill) a time modifier.
-    It can be understood as a "tuplet", whereas "normal" durations are interpreted
-    as a 1:1 tuplet. A group can consist of Notations or other DurationGroups
+    It can be understood as a "subdivision", whereas "normal" durations are interpreted
+    as a 1:1 subdivision. A group can consist of Notations or other DurationGroups
 
     Args:
         group: the group to render
         durRatios: a seq. of duration ratios OUTSIDE this group. Can be
-        an empty list
+            an empty list
+        options: the render options to use
+        state: context of the ongoing render
+        numIndents: number of indents for the generated code.
     """
+    seq = []
+    _ = seq.append
     indentSize = 2
-    # \tuplet 3/2 { b4 b b }
+    # \subdivision 3/2 { b4 b b }
     if group.durRatio != (1, 1):
         durRatios.append(F(*group.durRatio))
         tupletStarted = True
         num, den = group.durRatio
-        seq.append(_spaces[:numIndents*indentSize])
-        seq.append(f"\\tuplet {num}/{den} {{\n")
+        _(_spaces[:numIndents*indentSize])
+        # _(f"\\subdivision {num}/{den} {{\n")
+        _(f"\\tuplet {num}/{den} {{\n")
         numIndents += 1
     else:
         tupletStarted = False
-    seq.append(_spaces[:numIndents*indentSize])
+    _(_spaces[:numIndents*indentSize])
     for i, item in enumerate(group.items):
         if isinstance(item, DurationGroup):
-            _renderGroup(seq, item, durRatios, options=options, numIndents=numIndents+1,
-                         state=state)
+            _(renderGroup(item, durRatios, options=options, numIndents=numIndents+1,
+                          state=state))
         else:
             assert isinstance(item, Notation)
-            if not item.gliss and state['glissSkip']:
-                seq.append(r"\glissandoSkipOff ")
-                state['glissSkip'] = False
+            if not item.gliss and state.glissando:
+                _(r"\glissandoSkipOff ")
+                state.glissando = False
 
             if item.isRest:
-                state['dynamic'] = ''
+                state.dynamic = ''
 
             if item.dynamic:
                 dynamic = item.dynamic
                 if (options.removeSuperfluousDynamics and
                         not item.dynamic.endswith('!') and
-                        item.dynamic == state['dynamic'] and
-                        item.dynamic in definitions.dynamicLevels
-                ):
+                        item.dynamic == state.dynamic and
+                        item.dynamic in definitions.dynamicLevels):
                     item.dynamic = ''
-                state['dynamic'] = dynamic
+                state.dynamic = dynamic
 
-            seq.append(notationToLily(item, options=options, state=state))
+            # Slur modifiers (line type, etc) need to go before the start of
+            # the first note of the spanner :-(
+            # Some spanners have customizations which need to be declared
+            # before the note to which the spanner is attached to
+            if item.spanners:
+                for spanner in item.spanners:
+                    if lilytext := _handleSpannerPre(spanner, state=state):
+                        _(lilytext)
+
+            _(notationToLily(item, options=options, state=state))
 
             if item.spanners:
                 for spanner in item.spanners:
                     if ((spanner.endingAtTie == 'last' and item.tiedNext) or
                             (spanner.endingAtTie == 'first' and item.tiedPrev)):
                         continue
-                    if isinstance(spanner, _spanner.Slur):
-                        if spanner.kind == 'start':
-                            seq.append(r"\(")
-                        elif spanner.kind == 'end':
-                            seq.append(r"\)")
-                    elif isinstance(spanner, _spanner.Hairpin):
-                        if spanner.kind == 'start':
-                            seq.append(fr" \{spanner.direction}")
-                        elif spanner.kind  == 'end':
-                            seq.append(r" \!")
+                    if lilytext := _handleSpannerPost(spanner, state=state):
+                        _(lilytext)
 
-            seq.append(" ")
-            if item.gliss and not item.tiedPrev and item.tiedNext:
-                seq.append(r"\glissandoSkipOn ")
-                assert not state['glissSkip']
-                state['glissSkip'] = True
-            elif item.gliss and item.tiedPrev and not item.tiedNext:
-                seq.append(r"\glissandoSkipOff ")
-                # assert state['glissSkip']
-                state['glissSkip'] = False
+            _(" ")
 
-    seq.append("\n")
+            if item.gliss and not state.insideSlide:
+                _(r"\glissando")
+                if item.tiedNext:
+                    state.glissando = True
+                    _(r"\glissandoSkipOn ")
+                elif state.glissando and item.tiedPrev and not item.tiedNext:
+                    _(r"\glissandoSkipOff ")
+                    state.glissando = False
+
+
+    _("\n")
     if tupletStarted:
         numIndents -= 1
-        seq.append(_spaces[:numIndents*indentSize])
-        seq.append("}\n")
+        _(_spaces[:numIndents*indentSize])
+        _("}\n")
+    return ''.join(seq)
+
 
 
 def quantizedPartToLily(part: quant.QuantizedPart,
                         options: RenderOptions,
                         addMeasureMarks=True,
-                        clef:str=None,
+                        clef: str = None,
                         addTempoMarks=True,
                         indents=0,
                         indentSize=2,
-                        numMeasures:int = 0) -> str:
+                        numMeasures: int = 0) -> str:
     """
-    Convert a QuantizedPart to lilypond
+    Convert a QuantizedPart to lilypond code
 
     Args:
         part: the QuantizedPart
@@ -425,9 +658,11 @@ def quantizedPartToLily(part: quant.QuantizedPart,
     def line(t: str, indents: int = 0):
         _(t, indents, preln=True, postln=True)
 
-    if part.label:
+    if part.name:
         line(r"\new Staff \with {", indents)
-        line(f'    instrumentName = #"{part.label}"', indents)
+        line(f'    instrumentName = #"{part.name}"', indents)
+        if part.shortname:
+            line(f'    shortInstrumentName = "{part.shortname}"', indents)
         line("}", indents)
         line("{", indents)
     else:
@@ -444,41 +679,50 @@ def quantizedPartToLily(part: quant.QuantizedPart,
 
     lastTimesig = None
 
-    state = {
-        'glissSkip': False,
-        'dynamic': ''
-    }
+    state = RenderState()
 
     for i, measure in enumerate(part.measures):
-        line(f"% measure {i}", indents)
+        line(f"% measure {i+1}", indents)
         indents += 1
         measureDef = scorestruct.getMeasureDef(i)
 
         if addTempoMarks and measureDef.timesig != lastTimesig:
             lastTimesig = measureDef.timesig
             num, den = measureDef.timesig
-            line(fr"\time {num}/{den}", indents)
+            if symbol := measureDef.properties.get('symbol'):
+                if symbol == 'single-number':
+                    line("\once \override Staff.TimeSignature.style = #'single-digit")
+            if measureDef.subdivisionStructure:
+                # compound meter, like 3+2 / 8
+                # \compoundMeter #'((2 2 2 8))
+                parts = ' '.join(str(part) for part in measureDef.subdivisionStructure)
+                line(fr"\compoundMeter #'(({parts} {den}))")
+            else:
+                line(fr"\time {num}/{den}", indents)
 
         if addTempoMarks and measure.quarterTempo != quarterTempo:
             quarterTempo = measure.quarterTempo
             # lilypond only support integer tempi
             # TODO: convert to a different base if the tempo is too slow/fast for
-            # the quarter, or convert according to the time signature
+            #       the quarter, or convert according to the time signature
             line(fr"\tempo 4 = {int(quarterTempo)}", indents)
+
+        if measureDef.keySignature:
+            line(lilytools.keySignature(fifths=measureDef.keySignature.fifths,
+                                        mode=measureDef.keySignature.mode))
 
         if addMeasureMarks:
             if measureDef.annotation:
                 relfontsize = options.measureAnnotationFontSize - options.staffSize
                 _(lilytools.makeTextMark(measureDef.annotation,
                                          fontsize=relfontsize, fontrelative=True,
-                                         boxed=options.measureAnnotationBoxed))
+                                         box='square' if options.measureAnnotationBoxed else ''))
             if measureDef.rehearsalMark:
                 relfontsize = options.rehearsalMarkFontSize - options.staffSize
-                enclosed = measureDef.rehearsalMark.enclosed
-                boxed = enclosed if enclosed is not None else options.rehearsalMarkBoxed
+                box = measureDef.rehearsalMark.box if options.rehearsalMarkBoxed else ''
                 _(lilytools.makeTextMark(measureDef.rehearsalMark.text,
                                          fontsize=relfontsize, fontrelative=True,
-                                         boxed=boxed))
+                                         box=box))
 
         if measure.isEmpty():
             num, den = measure.timesig
@@ -488,25 +732,21 @@ def quantizedPartToLily(part: quant.QuantizedPart,
                 _(f"R{lilydur}")
             else:
                 _(f"R1*{num}/{den}")
-            state['dynamic'] = ''
+            state.dynamic = ''
         else:
             for group in measure.groups():
-                _renderGroup(seq, group, durRatios=[], options=options,
-                             numIndents=indents, state=state)
+                _(renderGroup(group, durRatios=[], options=options,
+                              numIndents=indents, state=state))
         indents -= 1
 
         if not measureDef.barline or measureDef.barline == 'single':
-            _(f"|   % end measure {i}", indents)
-        elif measureDef.barline == 'final' or numMeasures and i == numMeasures - 1:
-            _(r'\bar "|."    % final bar', indents)
-        elif measureDef.barline == 'double':
-            _(fr'\bar "||"   % end measure {i}', indents)
-        elif measureDef.barline == 'solid':
-            _(fr'\bar "."    % end measure {i}', indents)
-        elif measureDef.barline == 'dashed':
-            _(fr'\bar "!"    % end measure {i}', indents)
+            line(f"|   % end measure {i+1}", indents)
         else:
-            raise ValueError(f"Barline type {measureDef.barline} not known")
+            if (barstyle := _lilyBarlines.get(measureDef.barline)) is None:
+                logger.error(f"Barstile '{measureDef.barline}' unknown. "
+                             f"Supported styles: {_lilyBarlines.keys()}")
+                barstyle = '|'
+            line(rf'\bar "{barstyle}"    |  % end measure {i+1}', indents)
 
     indents -= 1
 
@@ -709,6 +949,10 @@ arrowGlyphs = #`(
     \override Glissando.breakable = ##t
     \override Glissando.after-line-breaking = ##t
     
+    % TODO: This could be configurable...
+    \override TextSpanner.dash-period = #1.5
+    \override TextSpanner.dash-fraction = #0.4
+    
     % <score-overrides>
     
   }
@@ -718,6 +962,25 @@ arrowGlyphs = #`(
   }
   
 }
+
+% Needed for brackets
+\layout {
+  \context {
+    \Voice
+    \consists "Horizontal_bracket_engraver"
+    \override HorizontalBracket.direction = #UP
+  }
+}
+"""
+
+_horizontalSpacingNormal = r"""
+\layout {
+  \context {
+    \Score
+    \override SpacingSpanner.base-shortest-duration = #(ly:make-moment 1/8)
+    % \override SpacingSpanner.shortest-duration-space = #2.0
+  }
+}
 """
 
 _horizontalSpacingMedium = r"""
@@ -725,14 +988,17 @@ _horizontalSpacingMedium = r"""
   \context {
     \Score
     \override SpacingSpanner.base-shortest-duration = #(ly:make-moment 1/16)
+    % \override SpacingSpanner.shortest-duration-space = #2.0
   }
 }
 """
+
 _horizontalSpacingLarge = r"""
 \layout {
   \context {
     \Score
     \override SpacingSpanner.base-shortest-duration = #(ly:make-moment 1/32)
+    \override SpacingSpanner.shortest-duration-space = #4.0
   }
 }  
 """
@@ -742,9 +1008,18 @@ _horizontalSpacingXL = r"""
   \context {
     \Score
     \override SpacingSpanner.base-shortest-duration = #(ly:make-moment 1/64)
+    \override SpacingSpanner.shortest-duration-space = #8.0
   }
 }
 """
+
+_horizontalSpacingPresets = {
+    'normal': _horizontalSpacingNormal,
+    'medium': _horizontalSpacingMedium,
+    'large': _horizontalSpacingLarge,
+    'xl': _horizontalSpacingXL,
+    'xlarge': _horizontalSpacingXL
+}
 
 
 def makeScore(score: quant.QuantizedScore,
@@ -791,8 +1066,7 @@ def makeScore(score: quant.QuantizedScore,
     staffSizePoints = options.staffSize
     if options.renderFormat == 'png':
         staffSizePoints *= options.lilypondPngStaffsizeScale
-    if not midi:
-        assert options.renderFormat in ('png', 'pdf'), f"Render format unknown: '{options.renderFormat}'"
+
     _(f'#(set-global-staff-size {staffSizePoints})')
 
     if options.cropToContent:
@@ -817,12 +1091,8 @@ def makeScore(score: quant.QuantizedScore,
         }
         """ % options.glissandoLineThickness)
 
-    if options.horizontalSpacing == 'medium':
-        _(_horizontalSpacingMedium)
-    elif options.horizontalSpacing == 'large':
-        _(_horizontalSpacingLarge)
-    elif options.horizontalSpacing == 'xlarge':
-        _(_horizontalSpacingXL)
+    if options.horizontalSpacing:
+        _(_horizontalSpacingPresets[options.horizontalSpacing])
 
     _(r"\score {")
     _(r"<<")
@@ -879,7 +1149,7 @@ class LilypondRenderer(Renderer):
         elif fmt == 'ly':
             pass
         else:
-            raise ValueError(f"Format {fmt} unknown. Possible formats: png, pdf, mid")
+            raise ValueError(f"Format {fmt} unknown. Possible formats: png, pdf, mid, ly")
         self.render()
         lilytxt = self._lilyscore
         tempfiles = []

@@ -622,7 +622,7 @@ def normalize(S, *, norm=np.inf, axis=0, threshold=None, fill=None):
            [ 0.1  ,  0.167,  0.25 ,  0.25 ]])
     """
 
-    # Avoid div-by-zero
+    # Avoid division-by-zero
     if threshold is None:
         threshold = tiny(S)
 
@@ -1050,7 +1050,7 @@ def mel_frequencies(n_mels=128, *, fmin=0.0, fmax=11025.0, htk=False):
     .. [#] Slaney, M. Auditory Toolbox: A MATLAB Toolbox for Auditory
         Modeling Work. Technical Report, version 2, Interval Research Corporation, 1998.
 
-    .. [#] Young, S., Evermann, G., Gales, M., Hain, T., Kershaw, D., Liu, X.,
+    .. [#] Young, S., Evermann, G., Gales, M., Hain, MObjT., Kershaw, D., Liu, X.,
         Moore, G., Odell, J., Ollason, D., Povey, D., Valtchev, V., & Woodland, P.
         The HTK book, version 3.4. Cambridge University, March 2009.
 
@@ -3083,7 +3083,7 @@ def _pyin_helper(
 
     yin_probs = np.zeros_like(yin_frames)
 
-    for i, yin_frame in enumerate(yin_frames.T):
+    for i, yin_frame in enumerate(yin_frames.MObjT):
         # 2. For each frame find the troughs.
         is_trough = localmin(yin_frame)
 
@@ -3498,12 +3498,12 @@ def viterbi(prob, transition, *, p_init=None, return_logp=False):
     def _helper(lp):
         # Transpose input
         try:
-            _state, logp = numpyx.viterbi_core(lp.T, log_trans, log_p_init)
+            _state, logp = numpyx.viterbi_core(lp.MObjT, log_trans, log_p_init)
         except:
             print("Exception!")
-            _state, logp = _viterbi(lp.T, log_trans, log_p_init)
+            _state, logp = _viterbi(lp.MObjT, log_trans, log_p_init)
         # Transpose outputs for return
-        return _state.T, logp
+        return _state.MObjT, logp
 
     if log_prob.ndim == 2:
         states, logp = _helper(log_prob)
@@ -3532,7 +3532,7 @@ def _viterbi(log_prob, log_trans, log_p_init):
 
     Parameters
     ----------
-    log_prob : np.ndarray [shape=(T, m)]
+    log_prob : np.ndarray [shape=(MObjT, m)]
         ``log_prob[t, s]`` is the conditional log-likelihood
         ``log P[X = X(t) | State(t) = s]``
     log_trans : np.ndarray [shape=(m, m)]
@@ -3565,7 +3565,7 @@ def _viterbi(log_prob, log_trans, log_p_init):
         #    then take the max over columns
         # We'll do this in log-space for stability
 
-        trans_out = value[t - 1] + log_trans.T
+        trans_out = value[t - 1] + log_trans.MObjT
 
         # Unroll the max/argmax loop to enable numba support
         for j in range(n_states):

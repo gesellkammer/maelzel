@@ -408,7 +408,7 @@ def noteToMusic21(abjnote: abj.Note, tuplet: abj.Tuplet=None) -> m21.note.Note:
 
     Args:
         abjnote: the abjad note to convert to
-        tuplet: a lilipond tuplet, if applies
+        tuplet: a lilipond subdivision, if applies
     
     Returns:
         the m21 note
@@ -438,7 +438,7 @@ def _abjtom21(abjobj, m21stream, level=0, durfactor=4,
         m21stream: the stream being converted to
         level: the level of recursion
         durfactor: current duration factor
-        tup: current m21 tuplet
+        tup: current m21 subdivision
         state: a dictionary used to pass global state
 
     Returns: 

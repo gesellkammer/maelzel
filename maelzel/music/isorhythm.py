@@ -8,7 +8,7 @@ from emlib import iterlib
 
 if TYPE_CHECKING:
     from typing import *
-    T = TypeVar('T')
+    T = TypeVar('MObjT')
     number_t = Union[int, float, Rat]
 
 

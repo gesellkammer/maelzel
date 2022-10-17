@@ -6,28 +6,23 @@ notation to display the object in a certain way. For example a Notehead symbol
 can be attached to a note to modify the notehead shape used.
 
 Dynamics are included as Symbols but they are deprecated, since dynamics
-can be used for playback (see :ref:`config_usedynamics`)
+can be used for playback (see :ref:`config_play_usedynamics`)
 
 """
 from __future__ import annotations
 import random
+import copy
+import weakref
+# from emlib.misc import ReprMixin
 from maelzel import scoring
+from ._common import logger
+import pitchtools as pt
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Optional, Set, Sequence, Union
-    from maelzel.core import musicobj
-    MusicEvent = Union[musicobj.Note, musicobj.Chord]
-
-
-# These are abstract notations used to later convert
-# them to concrete scoring indications
-
-noteAttachedSymbols = [
-    'expression',
-    'notehead',
-    'articulation',
-    'accidental'
-]
+    from typing import Optional, Set, Sequence, Union, Any, TypeVar
+    TSpanner = TypeVar('TSpanner', bound='Spanner')
+    from maelzel.core import mobj
+    Event = Union[mobj.Note, mobj.Chord]
 
 
 _uuid_alphabet = '0123456789abcdefghijklmnopqrstuvwxyz'
@@ -42,12 +37,24 @@ class Symbol:
     exclusive = False
     applyToTieStrategy = 'first'
     appliesToRests = False
+    modifiesScoringContext = False
+
+    def __init__(self):
+        self.properties: dict[str, Any] | None = None
+
+    def getProperty(self, key):
+        return None if not self.properties else self.properties.get(key)
+
+    def setProperty(self, key: str, value):
+        if self.properties is None:
+            self.properties = {}
+        self.properties[key] = value
 
     @property
     def name(self) -> str:
         return self.__class__.__name__.lower()
 
-    def applyTo(self, notation: scoring.Notation) -> None:
+    def applyTo(self, n: scoring.Notation) -> None:
         """Apply this symbol to the given notation, in place"""
         raise NotImplementedError
 
@@ -64,9 +71,14 @@ class Property(Symbol):
     A property is a modifier of an object itself (like a color or a size)
     """
     exclusive = True
+    scopes = set()
 
-    def __init__(self, value):
+    def __init__(self, value, scope=''):
+        super().__init__()
         self.value = value
+        if self.scopes:
+            assert scope in self.scopes
+        self.scope = scope
 
     def __hash__(self):
         return hash((type(self).__name__, self.value))
@@ -78,22 +90,69 @@ class Property(Symbol):
 
 class Spanner(Symbol):
     """
-    A Spanner is a line/curve between two locations (notes/chords/rests)
+    A Spanner is a line/curve between two anchors (notes/chords/rests)
 
+    Spanners always come in pairs start/end.
+
+    Example
+    ~~~~~~~
+
+        >>> from maelzel.core import *
+        >>> from maelzel.core import symbols
+        >>> chain = Chain(["C4:0.5", "D4:1", "E4:0.5"])
+        >>> slur = symbols.Slur()
+        >>> chain[0].addSymbol(slur)
+        >>> chain[2].addSymbol(slur.endSpanner())
+
+    Or you can use the ``.bind`` method which is a shortcut:
+
+        >>> symbols.Slur().bind(chain[0], chain[2])
     """
     exclusive = False
     appliesToRests = True
 
-    def __init__(self, kind='start', uuid: str = ''):
+    def __init__(self, kind='start', uuid: str = '', linetype='solid',
+                 placement='', color=''):
+        super().__init__()
+        assert kind == 'start' or kind == 'end', f"got kind={kind}"
+        assert linetype in {'', 'solid', 'dashed', 'dotted', 'wavy', 'trill', 'zigzag'}, f"got {linetype}"
+        if placement:
+            assert placement == 'above' or placement == 'below'
         self.kind = kind
         self.uuid = uuid or makeuuid(8)
+        self.linetype = linetype
+        self.placement = placement
+        self.color = color
+
+        self.anchor: weakref.ReferenceType[Event] | None = None
+        """The event to which this spanner is anchored to"""
+
+        self.partnerSpanner: weakref.ReferenceType[Spanner] | None = None
+        """The partner spanner"""
+
+    def _attrs(self) -> dict:
+        keys = ('kind', 'uuid', 'linetype', 'placement', 'color')
+        return {k: v for k in keys
+                if (v := getattr(self, k))}
 
     def __repr__(self) -> str:
         cls = type(self).__qualname__
-        return f'{cls}(kind={self.kind})'
+        attrstr = ', '.join(f'{k}={v}' for k, v in self._attrs().items())
+        return f'{cls}({attrstr})'
 
-    @classmethod
-    def bind(cls, startobj, endobj, **kws) -> None:
+    def setAnchor(self, obj: Event) -> None:
+        """
+        Set the anchor for this spanner.
+
+        This is called by :meth:``MusicObj.setSymbol`` or by :meth:``Spanner.bind`` to
+        set the anchor of this spanner. A User should not normally call this method
+
+        Args:
+            obj: the object this spanner is anchored to, either as start or end
+        """
+        self.anchor = weakref.ref(obj)
+
+    def bind(self, startobj: Event, endobj: Event) -> None:
         """
         Bind a Spanner to two notes/chords
 
@@ -101,50 +160,281 @@ class Spanner(Symbol):
             startobj: start Note / Chord
             endobj: end Note / Chord
 
-        Returns:
+        Example
+        ~~~~~~~
+
+            >>> from maelzel.core import *
+            >>> chain = Chain(["4E:1", "4F:1", "4G:1"])
+            # slur the first two notes of the chain, customizing the line-type
+            >>> Slur(linetype='dashed').bind(chain[0], chain[1])
+            # The same can be achieved as:
+            >>> chain[0].addSpanner(Slur(linetype='dashed'), chain[1])
 
         """
-        spanstart = cls(kind='start', **kws)
-        startobj.setSymbol(spanstart)
-        spanend = cls(kind='end', uuid=spanstart.uuid)
-        endobj.setSymbol(spanend)
+        startobj.addSymbol(self)
+        if self.anchor is None:
+            self.setAnchor(startobj)
+        self.endSpanner(endobj)
+        assert self.partnerSpanner is not None
+
+    def endSpanner(self: TSpanner, anchor: Event = None) -> TSpanner:
+        """
+        Creates the end spanner for an already existing start spanner
+
+        start and end spanner share the same uuid and have a weakref to
+        each other, allowing each of the spanners to access their
+        twin. As each spanner also holds a weak ref to their anchor,
+        the anchored events can be made aware of the each other.
+
+        Args:
+            anchor: the event to which the end spanner is anchored to.
+
+        Returns:
+            the created spanner. This is a copy of the start spanner in every
+            way with the only difference that ``kind='end'``
+
+        """
+        endSpanner = copy.copy(self)
+        endSpanner.kind = 'end'
+        endSpanner.partnerSpanner = weakref.ref(self)
+        self.partnerSpanner = weakref.ref(endSpanner)
+        if anchor:
+            anchor.addSymbol(endSpanner)
+        return endSpanner
+
+
+class TrillLine(Spanner):
+
+    def __init__(self,
+                 kind='start',
+                 startmark='trill',
+                 trillpitch='',
+                 alteration='',
+                 placement='above', uuid=''):
+        super().__init__(kind=kind, placement=placement, uuid=uuid)
+        self.startmark = startmark
+        self.trillpitch = trillpitch
+        self.alteration = alteration
+
+    def applyTo(self, n: scoring.Notation) -> None:
+        spanner = scoring.spanner.TrillLine(kind=self.kind, uuid=self.uuid,
+                                            startmark=self.startmark,
+                                            alteration=self.alteration,
+                                            trillpitch=self.trillpitch,
+                                            placement=self.placement)
+        n.addSpanner(spanner)
+
+
+class NoteheadLine(Spanner):
+    """
+    A line conecting two noteheads
+    """
+    def __init__(self, kind='start', uuid='', color='', linetype='solid', text=''):
+        super().__init__(kind=kind, uuid=uuid, color=color, linetype=linetype)
+        self.text = text
+
+    def applyTo(self, n: scoring.Notation) -> None:
+        spanner = scoring.spanner.Slide(kind=self.kind, uuid=self.uuid,
+                                        color=self.color, linetype=self.linetype,
+                                        text=self.text)
+        n.addSpanner(spanner)
+
+
+class OctaveShift(Spanner):
+    modifiesScoringContext = True
+
+    def __init__(self, kind='start', octaves=1, uuid=''):
+        assert octaves != 0 and abs(octaves) <= 3
+        super().__init__(kind=kind, placement='above' if octaves >= 0 else 'below', uuid=uuid)
+        self.octaves = octaves
+
+    def applyTo(self, n: scoring.Notation) -> None:
+        spanner = scoring.spanner.OctaveShift(kind=self.kind, octaves=self.octaves,
+                                              uuid=self.uuid)
+        n.addSpanner(spanner)
 
 
 class Slur(Spanner):
 
-    def applyTo(self, notation: scoring.Notation) -> None:
-        slur = scoring.spanner.Slur(kind=self.kind, uuid=self.uuid)
-        notation.addSpanner(slur)
+    def applyTo(self, n: scoring.Notation) -> None:
+        slur = scoring.spanner.Slur(kind=self.kind, uuid=self.uuid, linetype=self.linetype)
+        n.addSpanner(slur)
 
 
-class HairpinCresc(Spanner):
+class Hairpin(Spanner):
+    """
+    A hairpin crescendo or decrescendo
 
-    def applyTo(self, notation: scoring.Notation) -> None:
-        hairpin = scoring.spanner.Hairpin(kind=self.kind, uuid=self.uuid, direction='<')
-        notation.addSpanner(hairpin)
+    Args:
+        direction: one of "<" or ">"
+        niente: if True, add a niente 'o' to the start or end of the hairpin
+    """
+    def __init__(self, direction, niente=False, kind='start', uuid='', placement='', linetype=''):
+        super().__init__(kind=kind, uuid=uuid, placement=placement, linetype=linetype)
+        assert direction == "<" or direction == ">"
+        self.direction = direction
+        self.niente = niente
+
+    def _attrs(self):
+        attrs = {'direction': self.direction}
+        attrs.update(super()._attrs())
+        return attrs
+
+    def applyTo(self, n: scoring.Notation) -> None:
+        hairpin = scoring.spanner.Hairpin(kind=self.kind, uuid=self.uuid,
+                                          direction=self.direction,
+                                          niente=self.niente,
+                                          placement=self.placement)
+        n.addSpanner(hairpin)
 
 
-class HairpinDecr(Spanner):
+class Bracket(Spanner):
+    def __init__(self, kind='start', uuid: str = '', linetype='solid', placement='',
+                 text=''):
+        super().__init__(kind=kind, uuid=uuid, linetype=linetype, placement=placement)
+        self.text = text
 
-    def applyTo(self, notation: scoring.Notation) -> None:
-        hairpin = scoring.spanner.Hairpin(kind=self.kind, uuid=self.uuid, direction='>')
-        notation.addSpanner(hairpin)
+    def applyTo(self, n: scoring.Notation) -> None:
+        bracket = scoring.spanner.Bracket(kind=self.kind, uuid=self.uuid,
+                                          text=self.text, placement=self.placement,
+                                          linetype=self.linetype)
+        n.addSpanner(bracket)
 
+
+class LineSpan(Spanner):
+    def __init__(self, kind='start', uuid: str = '', linetype='solid', placement='',
+                 starttext='', endtext='', middletext='', verticalAlign='',
+                 starthook=False, endhook=False):
+        """
+        A line spanner
+
+        Args:
+            kind: start or end
+            uuid: the uuid, will be autogenerated if not given.
+            linetype: one of solid, dashed, dotted, wavy, zigzag
+            placement: unset to use default, otherwise above or below
+            starttext: a text to add at the begining of the line
+            endtext: a text to add at the end. If an endtext is specified
+                an endhook is not allowed.
+            middletext: a text to add at the middle (not always supported)
+            verticalAlign: alignment of the text (one of up, down, center)
+            endhook: if true, draw a hook segment at the end of the line.
+                Direction of the hook is opposito to placement. An endhook
+                is mutually exclusive with an endtext
+        """
+        super().__init__(kind=kind, uuid=uuid, linetype=linetype, placement=placement)
+        if verticalAlign:
+            assert verticalAlign in {'up', 'down', 'center'}
+        assert not (endtext and endhook), "An endtext and an endhook are mutually exclusive"
+        self.starttext = starttext
+        self.endtext = endtext
+        self.middletext = middletext
+        self.verticalAlign = verticalAlign
+        self.starthook = starthook
+        self.endhook = endhook
+
+    def applyTo(self, n: scoring.Notation) -> None:
+        spanner = scoring.spanner.LineSpan(kind=self.kind, uuid=self.uuid,
+                                           placement=self.placement, linetype=self.linetype,
+                                           starttext=self.starttext, endtext=self.endtext,
+                                           middletext=self.middletext,
+                                           verticalAlign=self.verticalAlign,
+                                           starthook=self.starthook,
+                                           endhook=self.endhook)
+        n.addSpanner(spanner)
+
+
+_spannerNameToConstructor: dict[str] = {
+    'slur': Slur,
+    'line': LineSpan,
+    'linespan': LineSpan,
+    'trill': TrillLine,
+    'tr': TrillLine,
+    'bracket': Bracket,
+    '<': lambda **kws: Hairpin(direction='<', **kws),
+    '>': lambda **kws: Hairpin(direction='>', **kws),
+    'hairpin': Hairpin
+}
+
+
+def makeSpanner(descr: str) -> Spanner:
+    """
+    Create a spanner from a descriptor
+
+    Possible descriptors:
+
+    * 'slur:dashed'
+    * 'bracket:text=foo'
+    * '<'
+    * '>'
+    * 'linespan:dotted:starttext=foo'
+    * 'trill'
+    * etc.
+
+    Args:
+        descr: a descriptor string
+
+    Returns:
+        the spanner
+
+    Example
+    -------
+
+        >>> from maelzel.core import *
+        >>> chain = Chain(...)
+        >>> spanner = makeSpanner("trill")
+        >>> spanner.bind(chain[0], chain[-1])
+
+    """
+    name, *rest = descr.split(":")
+    name = name.lower()
+    cls = _spannerNameToConstructor.get(name)
+    if cls is None:
+        raise ValueError(f"Spanner class {cls} not understood. "
+                         f"Possible spanners are {_spannerNameToConstructor.keys()}")
+    kws = {}
+    for part in rest:
+        if part in {'solid', 'dashed', 'dotted', 'zigzag', 'trill', 'wavy'}:
+            kws['linetype'] = part
+        elif part in {'above', 'below'}:
+            kws['placement'] = part
+        elif '=' in part:
+            k, v = part.split('=', maxsplit=2)
+            if v == 'True' or v == 'False':
+                v = bool(v)
+            kws[k] = v
+        else:
+            raise ValueError(f"Spanner descriptor not understood: {part} ({descr})")
+    spanner = cls(kind='start', **kws)
+    return spanner
+
+# --------------------------------
 
 
 class SizeFactor(Property):
     """Sets the size of an object (as a factor of default size)"""
+    scopes = {'note'}
     applyToTieStrategy = 'all'
 
-    def applyTo(self, notation: scoring.Notation) -> None:
-        notation.sizeFactor = self.value
+    def __init__(self, size: float, scope='note'):
+        super().__init__(value=size, scope=scope)
+
+    def applyTo(self, n: scoring.Notation) -> None:
+        if self.scope == 'note':
+            n.sizeFactor = self.value
 
 
 class Color(Property):
-
     """Customizes the color of a MusicObj"""
-    def applyTo(self, notation: scoring.Notation) -> None:
-        notation.color = self.value
+
+    scopes = {'note'}
+
+    def __init__(self, color: str, scope='note'):
+        super().__init__(value=color, scope=scope)
+
+    def applyTo(self, n: scoring.Notation) -> None:
+        if self.scope == 'note':
+            n.color = self.value
 
 
 class NoteAttachedSymbol(Symbol):
@@ -156,65 +446,63 @@ class NoteAttachedSymbol(Symbol):
         return None
 
 
-class Dynamic(NoteAttachedSymbol):
-    """A dynamic attached to a note/chord"""
-    exclusive = True
-
-    def __init__(self, kind: str):
-        assert kind in scoring.definitions.dynamicLevels, \
-            f"Dynamic {kind} unknown, possible values: {scoring.definitions.dynamicLevels}"
-        self.kind = kind
-
-    def __hash__(self):
-        return hash((type(self).__name__, self.kind))
-
-    @classmethod
-    def possibleValues(self, key: str = None) -> Optional[Set[str]]:
-        if key is None or key == 'kind':
-            return scoring.definitions.dynamicLevels
-
-    def __str__(self):
-        return self.kind
-
-    def __repr__(self):
-        return f"Dynamic({self.kind})"
-
-    def applyTo(self, n: scoring.Notation) -> None:
-        if not n.tiedPrev:
-            n.dynamic = self.kind
-
-
 class Ornament(NoteAttachedSymbol):
-    exclusive = True
+    exclusive = False
 
     def __init__(self, kind: str):
+        super().__init__()
         self.kind = kind
 
     @classmethod
-    def possibleValues(self, key: str = None) -> Optional[Set[str]]:
+    def possibleValues(cls, key: str = None) -> Optional[Set[str]]:
         if key is None or key == 'kind':
             return scoring.definitions.availableOrnaments
 
-    def applyTo(self, notation: scoring.Notation) -> None:
-        notation.setProperty('ornament', self.kind)
+    def applyTo(self, n: scoring.Notation) -> None:
+        n.addAttachment(scoring.attachment.Ornament(self.kind))
+        # notation.setProperty('o2rnament', self.kind)
+
+
+class Tremolo(Ornament):
+    exclusive = True
+
+    def __init__(self, tremtype='single', nummarks: int = 2):
+        """
+        Args:
+            tremtype: the type of tremolo. 'single' indicates a repeated note/chord,
+                'start' indicates the first of two alternating notes/chords,
+                'end' indicates the second of two alternating notes/chords
+            nummarks: how many tremolo marks (2=16th tremolo, 3=32nd tremolo, ...)
+        """
+        super().__init__(kind='tremolo')
+        assert tremtype in {'single', 'start', 'end'}, f'Unknown tremolo type: {tremtype}'
+        self.tremtype = tremtype
+        self.nummarks = nummarks
+
+    def applyTo(self, n: scoring.Notation) -> None:
+        n.addAttachment(scoring.attachment.Tremolo(tremtype=self.tremtype,
+                                                   nummarks=self.nummarks))
 
 
 class Fermata(NoteAttachedSymbol):
     exclusive = True
+    appliesToRests = True
 
     def __init__(self, kind: str = 'normal'):
+        super().__init__()
         self.kind = kind
 
     @classmethod
-    def possibleValues(self, key: str = None) -> Optional[Set[str]]:
+    def possibleValues(cls, key: str = None) -> Optional[Set[str]]:
         if key is None or key == 'kind':
             return scoring.definitions.availableFermatas
 
-    def applyTo(self, notation: scoring.Notation) -> None:
-        notation.setProperty('fermata', self.kind)
+    def applyTo(self, n: scoring.Notation) -> None:
+        n.addAttachment(scoring.attachment.Fermata(kind=self.kind))
+        # notation.setProperty('fermata', self.kind)
 
 
-class Expression(NoteAttachedSymbol):
+class Text(NoteAttachedSymbol):
     """
     A note attached text expression
 
@@ -230,8 +518,10 @@ class Expression(NoteAttachedSymbol):
     exclusive = False
 
     def __init__(self, text: str, placement='above', fontsize: float = None,
-                 fontstyle: str = None, box: str|bool = False):
-        assert fontsize is None or isinstance(fontsize, (int, float)), f"Invalid fontsize: {fontsize}, type: {type(fontsize)}"
+                 fontstyle: str = None, box: str | bool = False):
+        assert fontsize is None or isinstance(fontsize, (int, float)), \
+            f"Invalid fontsize: {fontsize}, type: {type(fontsize)}"
+        super().__init__()
         self.text = text
         self.placement = placement
         self.fontsize = fontsize
@@ -239,16 +529,110 @@ class Expression(NoteAttachedSymbol):
         self.box = box
 
     def __repr__(self):
-        return f"Expression({self.text})"
+        return f"Text('{self.text}', placement={self.placement})"
 
     def applyTo(self, n: scoring.Notation) -> None:
         if not n.tiedPrev:
             # TODO: add fontsize
-            n.addAnnotation(self.text, placement=self.placement, fontsize=self.fontsize,
-                            fontstyle=self.fontstyle, box=self.box)
+            n.addText(self.text, placement=self.placement, fontsize=self.fontsize,
+                      fontstyle=self.fontstyle, box=self.box)
 
     def __hash__(self):
         return hash((type(self).__name__, self.text, self.placement, self.fontsize, self.fontstyle))
+
+
+class NotatedPitch(NoteAttachedSymbol):
+    """
+    Allows to customize the notated pitch of a note
+    """
+    exclusive = True
+    applyToTieStrategy = 'all'
+    appliesToRests = False
+
+    def __init__(self, notename: str, realpitch: float = 0):
+        super().__init__()
+
+        self.notename = notename
+        self.realpitch = realpitch
+
+    def __repr__(self):
+        return f'NotatedPitch(notename={self.notename}, realpitch={self.realpitch})'
+
+    def applyTo(self, n: scoring.Notation) -> None:
+        if len(n.pitches) == 1:
+            n.fixNotename(self.notename)
+        else:
+            pitchthreshold = 0.04
+            if not self.realpitch:
+                m = pt.n2m(self.notename)
+                nearestidx = min(range(len(n.pitches)),
+                                 key=lambda idx: abs(m - n.pitches[idx]))
+                if abs(m - n.pitches[nearestidx]) < pitchthreshold:
+                    n.fixNotename(self.notename, nearestidx)
+                else:
+                    logger.error(f"Could not fix notename {self.notename} for chord {n.pitches}")
+
+            for i, pitch in enumerate(n.pitches):
+                if abs(pitch - self.realpitch) < pitchthreshold:
+                    n.fixNotename(self.notename, i)
+
+
+class Harmonic(NoteAttachedSymbol):
+    """
+    A natural/artificial harmonic, or a sound-pitch flageolet
+
+    In the case of a natural or artificial harmonic, the notated pitch
+    is the "action" pitch. In the case of a natural harmonic, for a string
+    instrument this means the pitch of the node to lightly touch.
+    Fon an attificial harmonic the note to which this symbol is attached
+    identifies the pressed pitch, the interval will determine the
+    node to touch (for a 4th harmonic the interval should be 5 since the
+    4th is 5 semitones above of the pressed pitch)
+    A flageolet is a harmonic where the written pitch indicates the
+    sounding pitch, and the means of execution is left for the player
+    to determine.
+
+    If the interval is given then an artificial harmonic is assumed.
+
+    Args:
+        kind: one of natural, artificial or sounding. A sounding harmonic
+            (flageolet) will be notated with a small 'o'.
+        interval: the interval between the node touched and the pitch
+            depressed, only needed for artificial harmonics
+    """
+    noteheadAttached = True
+    applyToRests = False
+
+    def __init__(self, kind='natural', interval=0):
+        super().__init__()
+        if interval > 0:
+            kind = 'artificial'
+
+        assert kind in {'natural', 'artificial', 'sounding'}
+        if kind == 'natural':
+            interval = 0
+        else:
+            assert interval >= 1
+        self.kind = kind
+        self.interval = interval
+
+    def __repr__(self):
+        return f'Harmonic(kind={self.kind}, interval={self.interval})'
+
+    def applyTo(self, n: scoring.Notation) -> None:
+        if self.kind == 'sounding':
+            if not n.tiedPrev:
+                n.addArticulation('flageolet')
+        else:
+            n.addAttachment(scoring.attachment.Harmonic(self.interval))
+            # notation.addHarmonic(self.kind, interval=self.interval)
+
+    def applyToTiedGroup(self, notations: Sequence[scoring.Notation]) -> None:
+        if self.kind == 'natural':
+            self.applyTo(notations[0])
+        else:
+            for n in notations:
+                n.addAttachment(scoring.attachment.Harmonic(self.interval))
 
 
 class Notehead(NoteAttachedSymbol):
@@ -268,9 +652,10 @@ class Notehead(NoteAttachedSymbol):
     applyToTieStrategy = 'all'
     appliesToRests = False
 
-
-    def __init__(self, kind: str = None, color: str = None, parenthesis = False,
+    def __init__(self, kind: str = None, color: str = None, parenthesis=False,
                  size: float = None):
+        super().__init__()
+
         self.hidden = False
         if kind and kind.endswith('?'):
             parenthesis = True
@@ -278,9 +663,11 @@ class Notehead(NoteAttachedSymbol):
         elif kind == 'hidden':
             kind = ''
             self.hidden = True
-        assert not kind or kind in scoring.definitions.noteheadShapes, \
-            f"Notehead {kind} unknown. Possible noteheads: " \
-            f"{scoring.definitions.noteheadShapes}"
+        if kind:
+            kind2 = scoring.definitions.normalizeNoteheadShape(kind)
+            assert kind2, f"Notehead '{kind}' unknown. Possible noteheads: " \
+                          f"{scoring.definitions.noteheadShapes}"
+            kind = kind2
         self.kind = kind
         self.color = color
         self.parenthesis = parenthesis
@@ -317,37 +704,34 @@ class Notehead(NoteAttachedSymbol):
             parts.append(f'size={self.size}')
         return f"Notehead({', '.join(parts)})"
 
-    def applyToNotehead(self, notation: scoring.Notation, idx: int=None) -> None:
+    def applyToNotehead(self, n: scoring.Notation, idx: int = None) -> None:
         notehead = self.kind if self.kind else ''
         if self.parenthesis:
             notehead += '?'
 
         if idx is None:
-            notation.notehead = self.asScoringNotehead()
-            #if self.color:
-            #    notation.setProperty('noteheadColor', self.color)
-            #if self.size:
-            #    notation.setProperty('noteheadSizeFactor', self.size)
+            n.setNotehead(self.asScoringNotehead())
+            # TODO: allow customization of color, etc.
         else:
-            if isinstance(notation.notehead, str):
-                notation.notehead = [''] * len(notation.pitches)
-            notation.notehead[idx] = self.asScoringNotehead()
+            n.setNotehead(self.asScoringNotehead(), idx=idx)
 
-    def applyTo(self, notation: scoring.Notation) -> None:
-        self.applyToNotehead(notation)
+    def applyTo(self, n: scoring.Notation) -> None:
+        self.applyToNotehead(n)
 
 
 class Articulation(NoteAttachedSymbol):
     """
     Represents a note attached articulation
     """
-    exclusive = True
+    exclusive = False
     appliesToRests = False
 
     def __init__(self, kind: str):
+        super().__init__()
+
         normalized = scoring.definitions.normalizeArticulation(kind)
         assert normalized, f"Articulation {kind} unknown. Possible values: " \
-                           f"{scoring.definitions.availableArticulations}"
+                           f"{scoring.definitions.articulations}"
         self.kind = normalized
 
     def __hash__(self):
@@ -359,21 +743,72 @@ class Articulation(NoteAttachedSymbol):
     @classmethod
     def possibleValues(cls, key: str = None) -> Optional[Set[str]]:
         if key is None or key == 'kind':
-            return scoring.definitions.availableArticulations
+            return scoring.definitions.articulations
 
     def applyTo(self, n: scoring.Notation) -> None:
         if not n.tiedPrev and not n.isRest:
-            n.articulation = self.kind
+            n.addArticulation(self.kind)
 
 
-class Accidental(NoteAttachedSymbol):
-    """Customizes the accidental of a note"""
+class Fingering(NoteAttachedSymbol):
     exclusive = True
     appliesToRests = False
 
-    def __init__(self, hidden=False, parenthesis=False, color: str = None):
+    def __init__(self, finger: str):
+        super().__init__()
+
+        self.finger = finger
+
+    def applyTo(self, n: scoring.Notation) -> None:
+        n.addAttachment(scoring.attachment.Fingering(self.finger))
+
+
+class Bend(NoteAttachedSymbol):
+    """
+    A (post) bend with an alteration up or down
+
+    A bend is a modification of the pitch starting at the pitch
+    of the note and going in a curve up or down a number of semitones
+
+    Attributes:
+        alter: the alteration of the bend, in semitones (> 0 is an upward bend)
+    """
+    exclusive = True
+    appliesToRests = False
+
+    def __init__(self, alter: float):
+        super().__init__()
+
+        self.alter = alter
+
+    def applyTo(self, n: scoring.Notation) -> None:
+        n.addAttachment(scoring.attachment.Bend(self.alter))
+
+
+class Accidental(NoteAttachedSymbol):
+    """
+    Customizes the accidental of a note
+
+    An accidental applies to a note/chord and is bound to the note/chord. Within
+    a chord any accidental attached to its individual notes is ...
+
+    TODO: clear what happends with symbols within a chord
+
+    Args:
+        hidden: is this accidental hidden?
+        parenthesis: put this accidental between parenthesis?
+        brackets: put this accidental between brackents?
+        color: the color of this accidental
+    """
+    exclusive = True
+    appliesToRests = False
+
+    def __init__(self, hidden=False, parenthesis=False, brackets=False, color: str = None):
+        super().__init__()
+
         self.hidden = hidden
         self.parenthesis = parenthesis
+        self.brackets = brackets
         self.color = color
 
     def __repr__(self):
@@ -382,6 +817,8 @@ class Accidental(NoteAttachedSymbol):
             parts.append('hidden=True')
         if self.parenthesis:
             parts.append('parenthesis=True')
+        if self.brackets:
+            parts.append('brackets=True')
         if self.color:
             parts.append(f'color={self.color}')
         return f'Accidental({", ".join(parts)})'
@@ -392,16 +829,33 @@ class Accidental(NoteAttachedSymbol):
     def applyTo(self, n: scoring.Notation) -> None:
         if n.isRest:
             return
-        n.accidentalHidden = self.hidden
-        if self.parenthesis:
-            n.setProperty('accidentalParenthesis', self.parenthesis)
+        n.accidentalTraits.hidden = self.hidden
         if self.color:
-            n.setProperty('accidentalColor', self.parenthesis)
+            n.accidentalTraits.color = self.color
+        if self.parenthesis:
+            n.accidentalTraits.parenthesis = True
+        elif self.brackets:
+            n.accidentalTraits.brackets = True
 
 
-_symbols = (Dynamic, Notehead, Articulation, Expression,
-            SizeFactor, Color, Accidental, Ornament,
-            Fermata)
+_symbols = (
+    Notehead,
+    Articulation,
+    Text,
+    SizeFactor,
+    Color,
+    Accidental,
+    Ornament,
+    Fermata,
+    NotatedPitch,
+    Slur,
+    Hairpin,
+    LineSpan,
+    TrillLine,
+    NoteheadLine,
+    Bend,
+    Fingering,
+)
 
 
 _symbolNameToClass = {cls.__name__.lower(): cls for cls in _symbols}
@@ -411,7 +865,7 @@ def symbolnameToClass(name: str) -> type:
     return _symbolNameToClass[name]
 
 
-def makeSymbol(clsname:str, *args, **kws) -> Symbol:
+def makeSymbol(clsname: str, *args, **kws) -> Symbol:
     """
     Construct a Symbol from the symbol name and any values and/or keywords passed
 
@@ -469,4 +923,5 @@ def makeSymbol(clsname:str, *args, **kws) -> Symbol:
 def applyGroup(symbols: list[NoteAttachedSymbol], notation: scoring.Notation) -> None:
     cls = next(type(s) for s in symbols if s is not None)
     assert all(isinstance(s, cls) or s is None for s in symbols)
+
 

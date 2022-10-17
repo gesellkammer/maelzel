@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 def _resetCache() -> None:
-    from .musicobj import resetImageCache
+    from .mobj import resetImageCache
     resetImageCache()
 
 

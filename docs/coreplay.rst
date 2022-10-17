@@ -1,3 +1,3 @@
-.. automodapi:: maelzel.core.play
-    :allowed-package-names: maelzel.core.play
+.. automodapi:: maelzel.core.playback
+    :allowed-package-names: maelzel.core.playback
     :no-inheritance-diagram:

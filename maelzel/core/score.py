@@ -1,10 +1,9 @@
 from __future__ import annotations
-from .musicobj import Voice, Chain
-from .musicobjlist import MusicObjList
+from .chain import Voice, Chain
+from .mobjlist import MObjList
 from ._common import Rat
 from maelzel.scorestruct import ScoreStruct
 from maelzel import scoring
-from maelzel.core._common import logger
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -16,22 +15,19 @@ __all__ = (
 )
 
 
-class Score(MusicObjList):
+class Score(MObjList):
     """
     A Score is a list of Voices
 
     Args:
-        voices: the voices of this score
+        voices: the voices of this score.
         scorestruct: it is possible to attach a ScoreStruct to a score instead of depending
             on the active scorestruct
         title: a title for this score
 
-    Attributes:
-        voices: the voices of this score
-
     """
     _acceptsNoteAttachedSymbols = False
-    __slots__ = ('voices', '_scorestruct')
+    __slots__ = ('voices',)
 
     def __init__(self,
                  voices: list = None,
@@ -50,25 +46,42 @@ class Score(MusicObjList):
         else:
             voices = []
         self.voices: list[Voice] = voices
+        """the voices of this score"""
+
         super().__init__(label=title, start=Rat(0))
         self._scorestruct = scorestruct
+        if scorestruct:
+            for v in self.voices:
+                v.setScoreStruct(scorestruct)
 
     def __repr__(self):
         if not self.voices:
             info = ''
         else:
-            # info = f'{len(self.voices)} voices'
-            info = f'voices={self.voices}'
+            info = f'{len(self.voices)} voices'
+            # info = f'voices={self.voices}'
         return f'Score({info})'
 
     def _getItems(self) -> list[Voice]:
         return self.voices
 
     def append(self, voice: Voice) -> None:
+        struct = self.scorestruct
+        voicestruct = voice.scorestruct
+        if struct:
+            if voicestruct:
+                if struct != voicestruct:
+                    raise ValueError("The voice has a scorestruct attached different from the score's")
+            else:
+                voice.setScoreStruct(struct)
+        elif voicestruct:
+            # the score has no scorestruct but the voice has, adopt that
+            assert all(voice.scorestruct == voicestruct for voice in self.voices)
+            self.setScoreStruct(voicestruct)
         self.voices.append(voice)
 
     def resolvedDur(self, start: time_t = None) -> Rat:
-        return max(v.resolvedDur() for v in self.voices)
+        return max(v.resolvedDur(start=start) for v in self.voices)
 
     def scoringParts(self, options: scoring.render.RenderOptions = None
                      ) -> list[scoring.Part]:
@@ -78,16 +91,7 @@ class Score(MusicObjList):
             parts.extend(voiceparts)
         return parts
 
-    def attachedScoreStruct(self) -> ScoreStruct | None:
-        if self._scorestruct is not None:
-            return self._scorestruct
-        structs = set(struct for v in self.voices
-                      if (struct:=v.attachedScoreStruct()) is not None)
-        if not structs:
-            return None
-        if len(structs) > 1:
-            logger.warning("Multiple scorestructs are attached to voices within"
-                         "this score. Returning the first one found")
-        struct = next(iter(structs))
-        assert isinstance(struct, ScoreStruct)
-        return struct
+    def setScoreStruct(self, scorestruct: ScoreStruct):
+        self._scorestruct = scorestruct
+        for v in self.voices:
+            v.setScoreStruct(scorestruct)

@@ -6,7 +6,7 @@ import typing as t
 pitch_t = t.Union[int, float, str]
 timesig_t = t.Tuple[int, int]
 number_t = t.Union[float, _numbers.Rational]
-T = t.TypeVar('T')
+T = t.TypeVar('MObjT')
 
 
 def asmidi(x: pitch_t) -> float:

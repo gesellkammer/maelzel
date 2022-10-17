@@ -1,4 +1,4 @@
-.. py:currentmodule:: maelzel.core.musicobj
+.. py:currentmodule:: maelzel.core.mobj
 
 .. _core:
 
@@ -29,17 +29,18 @@ analyzing or preparing a performance.
 Key Concepts
 ------------
 
-MusicObj
-~~~~~~~~
+MObj
+~~~~
 
-All classes defined in **maelzel.core** inherit from :class:`MusicObj`.
-A :class:`MusicObj` **exists in time** (in has a start and duration attribute),
+All classes defined in **maelzel.core** inherit from :class:`MObj` (*Maelzel Object*, or
+*Music Object*).
+A :class:`MObj` **exists in time** (in has a start and duration attribute),
 it **can be displayed as notation** and, if appropriate, **played as audio**.
 
 Implicit / Explicit Time
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-A :class:`MusicObj` has always a *start* and *dur* attributes.
+A :class:`MObj` has always a *start* and *dur* attributes.
 These can be unset (``None``), meaning that they are not explicitely determined and depend
 on the context. For example, a note might have no start or duration set. When adding such a note
 to a sequence of notes (a :class:`Chain`) its start time will be set to the end of the previous
@@ -48,10 +49,10 @@ note/chord in the chain, or 0 if this is the first note.
 Real Time / Beat (symbolic) Time
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The time attributes (*start*, *dur*, *end*) of a :class:`MusicObj` refer to a symbolic,
-*beat* time, measured in quarternotes. This *quarternote time* depends on the tempo at a given
-time. To map from *quarternote* time to *absolute* time a score structure
-(:class:`~maelzel.scorestruct.ScoreStruct`) is needed, which sets the tempo at any moment in time
+The time attributes (*start*, *dur*, *end*) of a :class:`MObj` refer to a relative time (a *beats*),
+measured in quarternotes. This *quarternote time* depends on the tempo at a given
+moment. To map from *relative* time (in *quarternotes*) to *absolute* time (in *seconds*) a score structure
+(:class:`~maelzel.scorestruct.ScoreStruct`) is needed
 
 Score Structure
 ~~~~~~~~~~~~~~~
@@ -68,7 +69,7 @@ the default being an endless score with a *4/4* time-signature and a tempo of *6
 Configuration - Workspace
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Just as there is an active ScoreStruct, there is at any moment at active
+Just as there is an active ScoreStruct, there is at any moment an active
 :class:`Configuration <maelzel.core.config.CoreConfig>` (see :ref:`config`) which controls multiple
 aspects of **maelzel.core** and enables the user to customize multiple aspects of
 the rendering process, quantization, playback, etc. Both
@@ -81,8 +82,8 @@ Playback
 For playback **maelzel** uses `csound <https://csound.com/>`_ as an audio engine embedded
 in python (see `csoundengine <https://csoundengine.readthedocs.io>`_)
 
-When the :meth:`~maelzel.core.musicobjbase.MusicObj.play` method is called, a
-:class:`~maelzel.core.musicobjbase.MusicObj` generates a list of
+When the :meth:`~maelzel.core.MObj.play` method is called, a
+:class:`~maelzel.core.MObj` generates a list of
 :class:`~maelzel.core.synthevent.SynthEvent`, which tell *csound* how
 to play a :class:`Note`, :class:`Chord`, or an entire :class:`Score`. Using csound it is
 possible to define instrumental presets using any kind of synthesis or by simply loading
@@ -103,13 +104,12 @@ Table of Contents
 .. toctree::
     :maxdepth: 4
 
-    Musical Objects: Note, Chord, Line, Chain, Voice <musicobj>
+    Musical Objects: Note, Chord, Chain, Voice <mobj>
     Score Structure: interfacing symbolic and real time <scorestruct>
+    Score <score>
     coreplayintro
     config
     workspace
     coretools
     symbols
-
-
 

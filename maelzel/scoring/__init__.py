@@ -33,7 +33,7 @@ Rendering
 ---------
 
 Only when an Arrangement has been quantized to a :class:`~maelzel.scoring.quant.QuantizedScore`
-it is possible to render this as `pdf`. The rendering process is done by first converting
+it is possible to render this as pdf. The rendering process is done by first converting
 the quantized intermediate representation to some of the supported backend formats:
 **lilypond** or **musicxml** (rendered via MuseScore). Then the rendering backend is called
 to generate either a ``pdf`` or a ``png``. It is also possible to export the rendered score
@@ -53,3 +53,4 @@ from . import render
 # from . import enharmonics
 from . import definitions
 from . import spanner
+from . import attachment

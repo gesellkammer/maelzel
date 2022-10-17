@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from numbers import Rational
-    from typing import Union, TypeVar
+    from typing import Union
     num_t = Union[float, Rational]
     time_t = Union[float, Rational]
     pitch_t = Union[int, float, str]

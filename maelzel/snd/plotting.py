@@ -110,10 +110,9 @@ def plotPowerSpectrum(samples: np.ndarray,
         samples: the samples to plot
         samplerate: the sr of thesamples
         framesize: the bigger the frame size, the smoother the plot
-        window: As passed to scipy.signal.get_window
-          `blackman`, `hamming`, `hann`, `bartlett`, `flattop`, `parzen`, `bohman`,
-          `blackmanharris`, `nuttall`, `barthann`, `kaiser` (needs beta),
-          `gaussian` (needs standard deviation)
+        window: As passed to scipy.signal.get_window. One of "blackman", "hamming", "hann",
+            "bartlett", "flattop", "parzen", "bohman", "blackmanharris", "nuttall", "barthann", "kaiser" (needs beta),
+            "gaussian" (needs standard deviation)
 
     """
     from scipy import signal
