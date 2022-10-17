@@ -1,5 +1,5 @@
 from __future__ import annotations
-from maelzel.core.musicobj import MusicEvent
+from maelzel.core.mobj import MEvent
 from maelzel.core import _util
 from maelzel.core._common import *
 from maelzel.rational import Rat
@@ -17,10 +17,10 @@ if TYPE_CHECKING:
     from maelzel.scorestruct import ScoreStruct
     from maelzel.core.workspace import Workspace
     from maelzel.core.config import CoreConfig
-    from maelzel.core.musicobj import Note
+    from maelzel.core.mobj import Note
 
 
-class Line(MusicEvent):
+class Line(MEvent):
     """
     A Line is a sequence of breakpoints
 
@@ -155,7 +155,7 @@ class Line(MusicEvent):
         conf = workspace.config
         if self._playargs:
             playargs.overwriteWith(self._playargs)
-        playargs.fillWithConfig(conf)
+        playargs.fillDefaults(conf)
         bps = self.translateBreakpointsToAbsTime(workspace.scorestruct, asfloat=True)
         return [SynthEvent.fromPlayArgs(bps, playargs=playargs)]
 
@@ -224,7 +224,7 @@ class Line(MusicEvent):
             scoring.fixOverlap(notations)
             annot = self._scoringAnnotation()
             if annot:
-                notations[0].addAnnotation(annot)
+                notations[0].addText(annot)
         if self.symbols:
             for symbol in self.symbols:
                 symbol.applyToTiedGroup(notations)

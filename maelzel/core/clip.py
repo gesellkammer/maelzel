@@ -1,15 +1,16 @@
 from __future__ import annotations
-from maelzel.core import musicobj
+from maelzel.core import mobj
 from maelzel.snd import audiosample
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Union, Tuple
 import numpy as np
 from maelzel.core._typedefs import *
+from maelzel.core import _dialogs
 from maelzel.core import tools
 
 
-class Clip(musicobj.Note):
+class Clip(mobj.Note):
     """
     A Clip represent an audio sample in time
 
@@ -29,6 +30,8 @@ class Clip(musicobj.Note):
     Attributes:
         sample: a :class:`maelzel.snd.audiosample.Sample`
     """
+    _isDurationRelative = False
+
     __slots__ = ('skip', 'speed', 'source')
 
     def __init__(self, source: Union[str, audiosample.Sample, Tuple[np.ndarray, int]],
@@ -42,12 +45,11 @@ class Clip(musicobj.Note):
                  speed=1.
                  ):
         if source == '?':
-            source = tools.selectSndfileForOpen()
+            source = _dialogs.selectSndfileForOpen()
             if not source:
                 raise ValueError("No source selected")
-        sample = audiosample.asSample(source)
-        musicobj.Note.__init__(self, dur=dur, start=start, label=label, pitch=pitch,
-                               tied=False, dynamic=dynamic, amp=amp)
+        mobj.Note.__init__(self, dur=dur, start=start, label=label, pitch=pitch,
+                           tied=False, dynamic=dynamic, amp=amp)
         self.source = audiosample.asSample(source)
         self.skip = skip
         self.speed = speed

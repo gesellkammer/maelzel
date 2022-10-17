@@ -186,7 +186,6 @@ _default = {
     'play.unschedFadeout': 0.05,
     'play.backend': 'default',
     'play.presetsPath': '',
-    'play.autosavePresets': True,
     'play.defaultAmplitude': 1.0,
     'play.defaultDynamic': 'f',
     'play.generalMidiSoundfont': '',
@@ -206,7 +205,7 @@ _default = {
     'html.theme': 'light',
     'quant.minBeatFractionAcrossBeats': 1.0,
     'quant.nestedTuples': False,
-    'quant.complexity': 'middle',
+    'quant.complexity': 'high',
     'logger.level': 'INFO',
 }
 
@@ -226,6 +225,8 @@ _validator = {
     'play.gain::range': (0, 1),
     'play.fadeShape::choices': {'linear', 'cos', 'scurve'},
     'play.numChannels::type': int,
+    'play.numChannels::range': (1, 128),
+    'rec.numChannels::range': (1, 128),
     'play.soundfontInterpolation::choices': {'linear', 'cubic'},
     'rec.sr::choices': {44100, 48000, 88200, 96000},
     'rec.compressionBitrate::coices': {64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 500},
@@ -235,9 +236,10 @@ _validator = {
     'app.png::type': str,
     'play.generalMidiSoundfont': lambda cfg, key, val: val == '' or (os.path.exists(val) and os.path.splitext(val)[1] == '.sf2'),
     'play.defaultDynamic::choices': {'pppp', 'ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'ffff'},
+    'play.presetsPath': lambda cfg, key, val: not val or os.path.exists(val),
     'html.theme::choices': {'light', 'dark'},
     'show.lastBreakpointDur::range': (1/64., 1),
-    'quant.complexity::choices': {'low', 'middle', 'high'},
+    'quant.complexity::choices': {'low', 'medium', 'high', 'highest'},
     'show.pageOrientation::choices': {'portrait', 'landscape'},
     'show.pageMarginMillimeters::range': (0, 1000),
     'show.horizontalSpacing::choices': {'normal', 'medium', 'large', 'xlarge'},
@@ -248,7 +250,7 @@ _validator = {
     'dynamicCurve.mindb::range': (-160, 0),
     'dynamicCurve.maxdb::range': (-160, 0),
     'dynamicCurve.dynamics': lambda cfg, key, val: all(d in dynamics.dynamicSteps
-                                                       for d in val.split())
+                                                       for d in val.split()),
 }
 
 _docs = {
@@ -325,9 +327,6 @@ _docs = {
         'If True, when rendering notation, if an object has an amplitude '
         'and does not have an explicit dynamic, add a dynamic according to the amplitude',
     'play.presetsPath': 'The path were presets are saved',
-    'play.autosavePresets':
-        'Automatically save user defined presets, so they will be available '
-        'for a next session',
     'splitAcceptableDeviation':
         'When splitting notes between staves, notes within this range of the '
         'split point will be grouped together if they all fit',
@@ -428,8 +427,8 @@ def _syncCsoundengineTheme(theme:str):
 
 
 def _resetImageCacheCallback():
-    from . import musicobj
-    musicobj.resetImageCache()
+    from . import mobj
+    mobj.resetImageCache()
 
 
 def _propagateA4(config, a4):

@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Optional, TypeVar, List, Sequence
     import matplotlib.pyplot
-    T = TypeVar('T')
+    T = TypeVar('MObjT')
     
 from dataclasses import dataclass
 from functools import partial
@@ -181,7 +181,7 @@ def partitionExpon(n: float, numpart: int, exp=2.0) -> List[float]:
 
     .. note::
 
-        In order to partition into integer values, use ``roundSeqPreservingSum``
+        In order to partition into integer values, use :func:`roundSeqPreservingSum`
     """
     c = bpf4.expon(0, 1, 1, 2, exp=exp)
     y0 = c.map(numpart)
@@ -191,10 +191,10 @@ def partitionExpon(n: float, numpart: int, exp=2.0) -> List[float]:
 
 def chooseBestDistribution(values: Sequence[T], possibleValues: Sequence[T]) -> List[T]:
     """
-    Reconstruct the sequence *values* with items from *possibleValues*
+    Reconstruct the sequence *values* with items from *possiblevals*
 
     Try to follow the distribution of values as close as possible
-    by drawing elements from *possibleValues*, so that
+    by drawing elements from *possiblevals*, so that
     ``sum(chosen)`` is as close as possible to ``sum(values)` at any
     moment of the operation.
 
@@ -204,7 +204,7 @@ def chooseBestDistribution(values: Sequence[T], possibleValues: Sequence[T]) -> 
 
     Returns:
         a "reconstruction" of the sequenve *values* with items drawn from
-        *possibleValues*
+        *possiblevals*
     """
     values = sorted(values)
     possibleValues = sorted(possibleValues)
@@ -329,7 +329,7 @@ def partitionWithCurve(x: float, numpart: int, curve: bpf4.BpfInterface,
                        method='brentq', excluded=None
                        ) -> list[float]:
     """
-    Partition `x` in `numparts` parts following `curve`
+    Partition *x* in *numparts* parts following *curve*
 
     Args:
         x: the value to partition
@@ -401,7 +401,7 @@ def partitionWithCurve(x: float, numpart: int, curve: bpf4.BpfInterface,
 def partitionFollowingCurve(n: int, curve: bpf4.BpfInterface, ratio=0.5, margin=0.1,
                             method='brentq') -> list[float]:
     """
-    Partition `n` following curve
+    Partition *n* following curve
 
     The difference with :func:`partitionWithCurve` is that in that function
     you determine the number of partitions manually whereas here the number
@@ -472,7 +472,7 @@ def onepulse(x: float, resolution:int, entropy=0.) -> List[int]:
 
 def ditherCurve(curve: bpf4.BpfInterface, numsamples: int, resolution=2) -> List[int]:
     """
-    Sample `curve` applying dithering to smooth transitions
+    Sample *curve* applying dithering to smooth transitions
 
     Args:
         curve: a curve defined between 0-numstates.
@@ -849,10 +849,10 @@ def dohndt(numseats: int, votesPerParty: list[int]) -> list[int]:
     a set of weights.
 
         >>> from maelzel.distribute import dohndt
-        >>> numitems = 10
+        >>> levels = 10
         >>> numstreams = 4
         >>> weights = [10, 6, 5, 3]
-        >>> assigned = dohndt(numitems, weights)
+        >>> assigned = dohndt(levels, weights)
         >>> assigned
         [3, 2, 2, 1]
 

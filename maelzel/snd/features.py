@@ -4,13 +4,18 @@ import bpf4 as bpf
 from emlib.numpytools import chunks
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import *
     import csoundengine
 
 
-def onsetsAubio(samples: np.ndarray, sr:int, method='mkl', winsize=1024,
-                hopsize=512, threshold=0.03, mingap=0.050, silencedb=-70
-                ) -> List[float]:
+def onsetsAubio(samples: np.ndarray,
+                sr: int,
+                method='mkl',
+                winsize=1024,
+                hopsize=512,
+                threshold=0.03,
+                mingap=0.050,
+                silencedb=-70
+                ) -> list[float]:
     """
     Detect onsets in samples
 
@@ -53,9 +58,16 @@ def onsetsAubio(samples: np.ndarray, sr:int, method='mkl', winsize=1024,
     return onsets
 
 
-def playTicks(times: List[float], engine: csoundengine.Engine = None, chan=1,
-              midinote:Union[int, float, List[float]] = 69,
-              amp=0.5, attack=0.01, decay=0.05, sustain=0.5, release=0.100, extraLatency=0.
+def playTicks(times: list[float],
+              engine: csoundengine.Engine = None,
+              chan=1,
+              midinote: int|float|list[float] = 69,
+              amp=0.5,
+              attack=0.01,
+              decay=0.05,
+              sustain=0.5,
+              release=0.100,
+              extraLatency=0.
               ) -> csoundengine.synth.SynthGroup:
     """
     Given a list of times offsets, play these as ticks
@@ -80,7 +92,7 @@ def playTicks(times: List[float], engine: csoundengine.Engine = None, chan=1,
 
         >>> import sndfileio
         >>> samples, info = sndfileio.sndget("/path/to/sound.wav")
-        >>> onsets = onsetsAubio(samples, info.sr)
+        >>> onsets = onsetsAubio(samples, info.samplerate)
         >>> synthgroup = playTicks(onsets)
         # if needed to stop the playback at any moment:
         >>> synthgroup.stop()
@@ -112,7 +124,7 @@ def playTicks(times: List[float], engine: csoundengine.Engine = None, chan=1,
 
     for t, m in zip(times, midinotes):
         args[0] = m
-        synths.append(session.sched(instr.name, delay=t+extraLatency, dur=dur, pargs=args))
+        synths.append(session.sched(instr.name, delay=t+extraLatency, dur=dur, args=args))
 
     if lockClock:
         engine.lockClock(False)
@@ -156,7 +168,8 @@ def onsets(samples: np.ndarray, sr: int, winsize=2048,
 
 def plotOnsets(samples: np.ndarray, sr: int, onsets: np.ndarray,
                onsetbpf: bpf.BpfInterface = None, samplesgain=20,
-               envalpha=0.8, samplesalpha=0.4, onsetsalpha=0.3):
+               envalpha=0.8, samplesalpha=0.4, onsetsalpha=0.3
+               ) -> None:
     """
     Plot the results of onsets detection
 

@@ -6,7 +6,7 @@ import emlib.mathlib
 import emlib.misc
 
 from .workspace import getConfig
-
+from ._common import logger
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Any, Callable, Optional, Iterable
@@ -26,14 +26,32 @@ _MAX_NUM_PFIELDS = 1900
 
 
 class PlayArgs:
+    """
+    Playback customizations for an event or a set of events
+
+    Each :class:`~maelzel.core.mobj.MObj` has a :attr:`~maelzel.core.mobj.MObj.playargs` attribute, which is an
+    instance of :class:`PlayArgs` and allows each object to set playback attributes like
+    the instrument used, fade, pan position, etc. Each attribute set is added to the :attr:`PlayArgs.args` dict.
+
+    PlayArgs cascade similarly to css. If a note sets a specific attribute, like 'instr' (the instrument used), then
+    this value is used since it is the most specific. If the note leaves that unset but the note is contained
+    within a :class:`~maelzel.core.mobj.Chain` and this ``Chain`` sets the 'instr' key within its own
+    :attr:`~maelzel.core.mobj.MObj.playargs`, then this value is used. If that chain is contained within a
+    :class:`~maelzel.core.score.Score` and the score itself has the 'instr' key set, then that value is used, etc.
+    Fallback defaults are often defined in the :ref:`configuration <config>`
+    """
     playkeys = {'delay', 'chan', 'gain', 'fade', 'instr', 'pitchinterpol',
-                'fadeshape', 'params', 'priority', 'position', 'sustain'}
+                'fadeshape', 'args', 'priority', 'position', 'sustain', 'transpose'}
+    """Available keys for playback customization"""
+
     __slots__ = ('args', )
 
     def __init__(self, d: dict[str, Any] = None):
         if d is None:
             d = {}
         self.args: dict[str, Any] = d
+        """A dictionary holding the arguments explicitely specified"""
+
         assert not(d.keys() - self.playkeys)
         assert all(v is not None for v in d.values())
 
@@ -57,16 +75,20 @@ class PlayArgs:
         return (args.get(k) for k in self.playkeys)
 
     def items(self) -> dict[str, Any]:
+        """Like dict.items()"""
         args = self.args
         return {k: args.get(k) for k in self.playkeys}
 
     def get(self, key: str, default=None):
+        """Like dict.get()"""
+        assert key in self.playkeys, f"Possible keys are: {self.playkeys}"
         return self.args.get(key, default)
 
     def __getitem__(self, item: str):
         return self.args[item]
 
     def __setitem__(self, key: str, value) -> None:
+        assert key in self.playkeys
         if value is None:
             del self.args[key]
         else:
@@ -143,7 +165,8 @@ class PlayArgs:
                  fadeshape=conf['play.fadeShape'],
                  priority=1,
                  position=-1,
-                 sustain=0)
+                 sustain=0,
+                 transpose=0)
         return PlayArgs(d)
 
     def filledWith(self, other: PlayArgs) -> PlayArgs:
@@ -176,7 +199,16 @@ class PlayArgs:
             if v is not None:
                 args[k] = args.get(k, v)
 
-    def fillWithConfig(self, cfg: CoreConfig) -> None:
+    def fillDefaults(self, cfg: CoreConfig) -> None:
+        """
+        Fill this PlayArgs with defaults (in place)
+
+        Only unset keys are set.
+
+        Args:
+            cfg: a CoreConfig
+
+        """
         args = self.args
         args.setdefault('delay', 0.)
         args.setdefault('gain', cfg['play.gain'])
@@ -188,6 +220,7 @@ class PlayArgs:
         args.setdefault('sustain', 0)
         args.setdefault('chan', 1)
         args.setdefault('fadeshape', cfg['play.fadeShape'])
+        args.setdefault('transpose', 0)
 
 
 def _interpolateBreakpoints(t: float, bp0: list[float], bp1: list[float]
@@ -205,26 +238,13 @@ class SynthEvent:
     """
     Represents a standard event (a line of variable breakpoints)
 
-    A User never creates a ``SynthEvent``: ``SynthEvent``s are
-    created by a :class:`Note` or a :class:`Voice` and are used internally
+    A User never creates a :class:`SynthEvent`: a :class:`SynthEvent` is
+    created by a :class:`Note` or a :class:`Voice`. They are used internally
     to generate a set of events to be played by the playback engine.
 
-    Attributes:
-        bps: breakpoints, where each breakpoint is a tuple of (timeoffset, midi, amp, [...])
-        delay: time delay. The effective time of bp[n] will be delay + bp[n][0]
-        chan: output channel
-        fade: fade time (either a single value or a tuple (fadein, fadeout)
-        gain: a gain to be applied to this event
-        instr: the instr preset
-        pitchinterpol: which pitchinterpolation to use ('linear', 'cos')
-        fadeShape: shape of the fade ('linear', 'cos')
-        namedArgs: params used to initialize named parameters
-        priority: schedule the corresponding instr at this priority
-        sustain: any extra duration given to the event, recorded here for information
-            only (it should actually be accounted for by the breakpoints)
     """
     __slots__ = ("bps", "delay", "chan", "fadein", "fadeout", "gain",
-                 "instr", "pitchInterpolMethod", "fadeShape", "stereo", "namedArgs",
+                 "instr", "pitchinterpol", "fadeShape", "args",
                  "priority", "position", "_namedArgsMethod", "tiednext",
                  "numchans", "whenfinished", "properties", 'sustain')
 
@@ -234,23 +254,25 @@ class SynthEvent:
         'freqlinear': 2,
         'freqcos': 3
     }
+    """Map an interpolation shape to an identifier used inside csound"""
 
     fadeshapeToInt = {
         'linear': 0,
         'cos': 1,
         'scurve': 2,
     }
+    """Map a fadeshape to an identifier used inside csound"""
 
     def __init__(self,
                  bps: list[list[float, ...]],
                  instr: str,
                  delay: float = 0.0,
                  chan: int = 1,
-                 fade: Union[float, tuple[float, float]] = 0,
+                 fade: float | tuple[float, float] = 0,
                  gain: float = 1.0,
                  pitchinterpol: str = 'linear',
                  fadeshape: str = 'cos',
-                 params: dict[str, float] = None,
+                 args: dict[str, float] = None,
                  priority: int = 1,
                  position: float = -1,
                  numchans: int = 2,
@@ -270,16 +292,14 @@ class SynthEvent:
             fade: fade time (either a single value or a tuple (fadein, fadeout)
             gain: a gain to be applied to this event
             instr: the instr preset
-            pitchinterpol: which pitchinterpolation to use ('linear', 'cos')
-            fadeshape: shape of the fade ('linear', 'cos')
-            params: named parameters
+            pitchinterpol: which interpolation to use for pitch ('linear', 'cos', 'freqlinear', 'freqcos')
+            fadeshape: shape of the fade ('linear', 'cos', 'scurve')
+            args: named parameters
             priority: schedule the corresponding instr at this priority
             numchans: the number of channels this event outputs
             tiednext: a hint to merge multiple events into longer lines.
             kws: ignored at the moment
         """
-        cfg = getConfig()
-
         if len(bps[0]) < 2:
             raise ValueError(f"A breakpoint should have at least (delay, pitch), "
                              f"but got {bps}")
@@ -293,35 +313,55 @@ class SynthEvent:
 
         assert isinstance(delay, (int, float)) and delay >= 0
 
-        self.bps = bps
-        dur = self.bps[-1][0] - self.bps[0][0]
-
         if isinstance(fade, tuple):
             fadein, fadeout = fade
         else:
             fadein = fadeout = fade
 
+        self.bps = bps
+        """breakpoints, where each breakpoint is a tuple of (timeoffset, midi, amp, [...])"""
+
+        dur = self.bps[-1][0] - self.bps[0][0]
+
         self.delay = delay
+        """time delay - The effective time of bp[n] will be delay + bp[n][0]"""
+
         self.chan = chan
+        """output channel"""
         self.gain = gain
+        """a gain to be applied to this event"""
         self.fadein = fadein
+        """fade in time"""
         self.fadeout = fadeout if dur < 0 else min(fadeout, dur)
+        """fade out time"""
         self.instr = instr
-        self.pitchInterpolMethod = pitchinterpol
+        """Instrument preset used"""
+        self.pitchinterpol = pitchinterpol
+        """Pitch interpolation"""
         self.fadeShape = fadeshape
+        """Shape of the fades"""
         self.priority = priority
+        """Schedule priority (priorities start with 1)"""
         self.position = position
-        self.namedArgs = params
+        """Panning position (between 0-1)"""
+        self.args = args
+        """Any parameters passed to the instrument"""
         self.tiednext = tiednext
+        """Is this event tied?"""
         self.numchans = numchans
+        """The number of signals produced by the event"""
         self.whenfinished = whenfinished
+        """A function to call when this event has finished"""
         self.properties = properties
+        """User defined properties for an event"""
         self.sustain = sustain
+        """Sustain time after the actual duration"""
         self._namedArgsMethod = 'pargs'
         self._consolidateDelay()
 
     @property
     def dur(self) -> float:
+        """Duration of this event, in seconds"""
         if not self.bps:
             return 0
         return float(self.bps[-1][0] - self.bps[0][0])
@@ -341,9 +381,9 @@ class SynthEvent:
                           fade=self.fade,
                           gain=self.gain,
                           instr=self.instr,
-                          pitchinterpol=self.pitchInterpolMethod,
+                          pitchinterpol=self.pitchinterpol,
                           fadeshape=self.fadeShape,
-                          params=self.namedArgs,
+                          args=self.args,
                           priority=self.priority,
                           position=self.position,
                           numchans=self.numchans,
@@ -371,6 +411,7 @@ class SynthEvent:
 
     @property
     def fade(self) -> tuple[float, float]:
+        """A tuple (fadein, fadeout)"""
         return (self.fadein, self.fadeout)
 
     @fade.setter
@@ -420,6 +461,7 @@ class SynthEvent:
             bp[0] *= timefactor
 
     def timeShifted(self, offset: float) -> SynthEvent:
+        """A clone of this event, shifted in time by the given offset"""
         return self.clone(delay=self.delay+offset)
 
     def cropped(self, start:float, end:float) -> SynthEvent:
@@ -461,8 +503,8 @@ class SynthEvent:
         info = [f"delay={float(self.delay):.3g}, dur={self.dur:.3g}, "
                 f"gain={self.gain:.4g}, chan={self.chan}"
                 f", fade=({self.fadein}, {self.fadeout}), instr={self.instr}"]
-        if self.namedArgs:
-            info.append(f"namedArgs={self.namedArgs}")
+        if self.args:
+            info.append(f"args={self.args}")
         infostr = ", ".join(info)
         return f"SynthEvent({infostr})"
 
@@ -511,7 +553,7 @@ class SynthEvent:
         breakpoint data is appended
 
         """
-        pitchInterpolMethod = SynthEvent.pitchinterpolToInt[self.pitchInterpolMethod]
+        pitchInterpolMethod = SynthEvent.pitchinterpolToInt[self.pitchinterpol]
         fadeshape = SynthEvent.fadeshapeToInt[self.fadeShape]
         # if no userpargs, bpsoffset is 15
         numPargs5 = len(instr.pargsIndexToName)
@@ -538,7 +580,7 @@ class SynthEvent:
             fadeshape
         ]
         if self._namedArgsMethod == 'pargs' and numUserArgs > 0:
-            pfields5 = instr.pargsTranslate(args=pfields5, kws=self.namedArgs)
+            pfields5 = instr.pargsTranslate(args=pfields5, kws=self.args)
         pfields.extend(pfields5)
         for bp in self.bps:
             pfields.extend(bp)

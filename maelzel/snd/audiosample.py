@@ -174,7 +174,7 @@ def getPlayEngine(**kws) -> csoundengine.Engine:
     playback has been performed.
 
     An already existing Engine can be set as the playback engine via
-    `setPlayEngine`
+    :func:`setPlayEngine`
 
     See Also
     ~~~~~~~~

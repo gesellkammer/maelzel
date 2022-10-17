@@ -1,68 +1,72 @@
 from .presetbase import PresetDef
 
 builtinPresets = [
-    PresetDef('simplesin',
+    PresetDef(
+        'simplesin',
         'aout1 oscili a(kamp), mtof(lag(kpitch, 0.01))',
         description="simplest sine wave",
         builtin=True),
 
-    PresetDef('sin',
+    PresetDef(
+        'sin',
         "aout1 oscili a(kamp), mtof(lag(kpitch+ktransp, klag))",
-        params=dict(ktransp=0, klag=0.1),
+        args=dict(ktransp=0, klag=0.1),
         description="transposable sine wave",
         builtin=True),
 
-    PresetDef('tri',
+    PresetDef(
+        'tri',
         r'''
+        |ktransp=0, klag=0,1, kfreqratio=0, kQ=3|
         kfreq = mtof:k(lag(kpitch + ktransp, klag))
         aout1 = vco2(1, kfreq,  12) * a(kamp)
         if kfreqratio > 0 then
            aout1 = K35_lpf(aout1, kfreq*kfreqratio, kQ)
         endif
         ''',
-        params=dict(ktransp=0, klag=0.1, kfreqratio=0, kQ=3),
         description="transposable triangle wave with optional lowpass-filter",
         builtin=True),
 
-    PresetDef('saw',
+    PresetDef(
+        'saw',
         r'''
+        |ktransp=0, klag=0.1, kfreqratio=0,kQ=3|
         kfreq = mtof:k(lag(kpitch + ktransp, klag))
         aout1 = vco2(1, kfreq, 0) * a(kamp)
-        if kfreqratio > 0 then
-          aout1 = K35_lpf(aout1, kfreq*kfreqratio, kQ)
-        endif
+        aout1 = kfreqratio == 0 ? aout1 : K35_lpf(aout1, kfreq*kfreqratio, kQ)
         ''',
-        params = dict(ktransp=0, klag=0.1, kfreqratio=0, kQ=3),
         description="transposable saw with optional low-pass filtering",
         builtin=True),
 
-    PresetDef('sqr',
+    PresetDef(
+        'sqr',
         r'''
+        |ktransp=0, klag=0.1, kcutoff=0, kresonance=0.2|
         aout1 = vco2(1, mtof(lag(kpitch+ktransp, klag), 10) * a(kamp)
-        if kcutoff > 0 then
-          aout1 moogladder aout1, lag(kcutoff, 0.1), kresonance
-        endif          
+        aout1 = kcutoff == 0 ? aout1 : moogladder aout1, lag(kcutoff, 0.1), kresonance
         ''',
-        params=dict(ktransp=0, klag=0.1, kcutoff=0, kresonance=0.2),
         description="square wave with optional filtering",
         builtin=True),
 
-    PresetDef('pulse',
+    PresetDef(
+        'pulse',
         r"aout1 vco2 kamp, mtof:k(lag:k(kpitch+ktransp, klag), 2, kpwm",
-        params=dict(ktransp=0, klag=0.1, kpwm=0.5),
+        args=dict(ktransp=0, klag=0.1, kpwm=0.5),
         description="transposable pulse with modulatable pwm",
         builtin=True),
 
-    PresetDef('_click',
+    PresetDef(
+        '_click',
         r"""
+        |ktransp=24|
         aclickenv expseg db(-120), 0.01, 1, 0.1, db(-120)
         aout1 = oscili:a(aclickenv, mtof:k(kpitch+ktransp))
         """,
-        params={'ktransp': 24},
         description="Default preset used when rendering a click-track",
         builtin=True),
 
-    PresetDef('_sing',
+    PresetDef(
+        '_sing',
         description="Simple vowel singing simulation",
         init = r"""
         gi__formantFreqs__[] fillarray \
@@ -91,8 +95,8 @@ builtinPresets = [
         reshapearray gi__formantAmps__, 5, 5
         reshapearray gi__formantBws__, 5, 5
         """,
-        params = {'kx': 0, 'ky': 0, 'kvibamount': 1},
         audiogen = r"""
+        |kx=0, ky=0, kvibamount=1|
         kvibfreq = linseg:k(0, 0.1, 0, 0.5, 4.5) * randomi:k(0.9, 1.1, 2)
         kvibsemi = linseg:k(0, 0.4, 0, 2.1, 0.25) * randomi:k(0.9, 1.1, 10)
         kvib = oscil:k(kvibsemi/2, kvibfreq) - kvibsemi/2

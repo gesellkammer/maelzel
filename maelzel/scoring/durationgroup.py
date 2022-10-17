@@ -1,12 +1,22 @@
 from __future__ import annotations
 from .core import Notation, notationsCanMerge, mergeNotationsIfPossible
 from .common import *
-import dataclasses
-from typing import List, Tuple, Union as U
+from numbers import Rational
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    durratio_t = tuple[int, int]
 
-durratio_t = Tuple[int, int]
 
-@dataclasses.dataclass
+__all__ = (
+    'DurationGroup',
+    'asDurationGroupTree'
+)
+
+
+def rationalToTuple(r: Rational) -> tuple[int, int]:
+    return r.numerator, r.denominator
+
+
 class DurationGroup:
     """
     A DurationGroup is a container, grouping Notation under one time modifier
@@ -28,12 +38,34 @@ class DurationGroup:
         ...              makeNote(61, duration=F(2, 3))]
         >>> DurationGroup(durRatio=(3, 2), items=notations)
     """
-    durRatio: durratio_t
-    items: List[U[Notation, 'DurationGroup']]
+    def __init__(self, durRatio: durratio_t | Rational, items: list[Notation | 'DurationGroup'] = None):
+        self.durRatio: durratio_t = durRatio if isinstance(durRatio, tuple) else rationalToTuple(durRatio)
+        self.items: list[Notation | 'DurationGroup'] = items if items else []
+
+    @property
+    def ratio(self) -> F:
+        return F(*self.durRatio)
+
+    def __iter__(self):
+        return iter(self.items)
+
+    def __getitem__(self, idx):
+        return self.items[idx]
+
+    def append(self, item: Notation | DurationGroup) -> None:
+        self.items.append(item)
+
+    def duration(self) -> F:
+        """
+        The actual duration of the items in this group
+
+        """
+        return sum((item.duration if isinstance(item, Notation) else item.duration()
+                    for item in self.items), F(0))
 
     def symbolicDuration(self) -> F:
         """
-        The symbolic duration of this Notation.
+        The symbolic duration of this group.
 
         This represents the notated figure (1=quarter, 1/2=eighth note, 1/4=16th note, etc)
         """
@@ -51,27 +83,45 @@ class DurationGroup:
         parts.append(")")
         return "\n".join(parts)
 
-    def mergeNotations(self) -> DurationGroup:
+    def mergedNotations(self) -> DurationGroup:
         """
-        Merge the notations in this group
+        Returns a new group with all notations merged (recursively)
 
         Returns:
             a new DurationGroup with merged notations (whenever possible)
         """
         i0 = self.items[0]
-        out = [i0 if isinstance(i0, Notation) else i0.mergeNotations()]
+        out = [i0 if isinstance(i0, Notation) else i0.mergedNotations()]
         for i1 in self.items[1:]:
-            if isinstance(out[-1], Notation) and isinstance(i1, Notation):
-                if notationsCanMerge(out[-1], i1):
-                    out[-1] = out[-1].mergeWith(i1)
+            i0 = out[-1]
+            if isinstance(i0, Notation) and isinstance(i1, Notation):
+                if notationsCanMerge(i0, i1):
+                    out[-1] = i0.mergeWith(i1)
                 else:
                     out.append(i1)
-            elif isinstance(i1, Notation):
-                assert isinstance(out[-1], DurationGroup)
-                out.append(i1)
             else:
-                assert isinstance(out[-1], Notation) and isinstance(i1, DurationGroup)
-                out.append(i1.mergeNotations())
+                # n+G, G+n or G+G
+                out.append(i1 if isinstance(i1, Notation) else i1.mergedNotations())
+        if len(out) == 1 and isinstance(out[0], Notation):
+            n = out[0]
+            if n.durRatios and n.durRatios[-1] != F(1):
+                n.durRatios.pop()
+            return DurationGroup(durRatio=F(1), items=[n])
         return DurationGroup(durRatio=self.durRatio, items=out)
 
 
+def asDurationGroupTree(groups: list[DurationGroup]) -> DurationGroup:
+    """
+    Transform a list of DurationGroups into a tree structure
+
+    A tree has a root and leaves, where each leave can be the root of a subtree
+
+    Args:
+        groups: the groups to get/make the root for
+
+    Returns:
+        the root of a tree structure
+    """
+    if len(groups) == 1 and groups[0].durRatio == (1, 1):
+        return groups[0]
+    return DurationGroup(durRatio=(1, 1), items=groups)

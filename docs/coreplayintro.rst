@@ -4,16 +4,16 @@ Playback
 The play method
 ---------------
 
-Each :class:`~maelzel.core.musicobj.Note`, :class:`~maelzel.core.musicobj.Chord`,
-:class:`~maelzel.core.musicobj.Line`, can play itself by calling its
-:meth:`~maelzel.core.musicobj.MusicObj.play` method. Internally playback relies
-on csound for realtime and offline audio generation, via
-`csoundengine <https://github.com/gesellkammer/csoundengine>`_. All audio
-playback within **maelzel** is implemented using *csoundengine*. This makes it possible
-to interact between the *core* classes, like :class:`Note` or :class:`Voice` and other
-"unrelated" parts of *maelzel*, like the :class:`maelzel.snd.audiosample.Sample` class.
+Each :class:`~maelzel.core.Note`, :class:`~maelzel.core.Chord`,
+:class:`~maelzel.core.Chain`, can play themselves by calling the 
+:meth:`~maelzel.core.mobj.MObj.play` method. 
 
-Internally each :class:`~maelzel.core.musicobj.MusicObj` expresses its playback in
+All audio playback and offline rendering within **maelzel** is implemented in **csound** using
+`csoundengine <https://github.com/gesellkammer/csoundengine>`_. This makes it possible
+to interact between the *core* classes, like :class:`~maelzel.core.mobj.Note` or :class:`~maelzel.core.mobj.Voice`
+and other "unrelated" parts of *maelzel*, like the :class:`maelzel.snd.audiosample.Sample` class.
+
+Each :class:`~maelzel.core.mobj.MObj` expresses its playback in
 terms of a list of :class:`~maelzel.core.synthevent.SynthEvent`.
 
 .. admonition:: synthesis events
@@ -23,15 +23,15 @@ terms of a list of :class:`~maelzel.core.synthevent.SynthEvent`.
     and any other parameter over time. For more information
     see :class:`~maelzel.core.synthevent.SynthEvent`
 
-To play any :class:`~maelzel.core.musicobj.MusicObj` (a Note, a Voice, a Score), call its
-:meth:`~maelzel.core.musicobj.MusicObj.play` method. Within this method a number of parameters
+To play any :class:`~maelzel.core.mobj.MObj` (a Note, a Voice, a Score), call its
+:meth:`~maelzel.core.mobj.MObj.play` method. Within this method a number of parameters
 regarding playback can be determined. Such parameters are common to all objects. The most
 relevant of these playback parameters are:
 
 instr
-  which instrument ``Preset`` (see :class:`~maelzel.core.presetbase.PresetDef` for more
-  information). If not given the default preset is used, as determined in the configuration
-  (see :ref:`play.instr <config_play_instr>`)
+  which instrument preset (see :class:`~maelzel.core.presetbase.PresetDef` for more
+  information) is used for playback. If not given the default preset is used, as determined
+  in the configuration (see :ref:`play.instr <config_play_instr>`)
 
 delay
   delay in seconds, added to the start of the object
@@ -53,7 +53,7 @@ fade
 position
   the panning position (0=left, 1=right)
 
-params
+args
   a Preset can define custom parameters, like a cutoff frequency for a filter
   or a modulation ratio for FM synthesis, etc.
 
@@ -103,15 +103,15 @@ Example
 Playback attributes (setPlay)
 -----------------------------
 
-Any playback attribute determined via the :meth:`~maelzel.core.musicobj.MusicObj.play`
+Any playback attribute determined via the :meth:`~maelzel.core.mobj.MObj.play`
 method can be set beforehand for each object individually, using
-:meth:`~maelzel.core.musicobj.MusicObj.setPlay`. Then, when this object is played
+:meth:`~maelzel.core.mobj.MObj.setPlay`. Then, when this object is played
 any play settings fixed via ``.setPlay`` is used as if it was passed
-to :meth:`~maelzel.core.musicobj.MusicObj.play`.
+to :meth:`~maelzel.core.mobj.MObj.play`.
 
 In the following example we fix the *instr* of 1 every 4 notes to 'mypiano'. For the
 rest of the notes this settings stays undetermined. When ``.play`` is called on the
-:class:`~maelzel.core.musicobj.Chain`, ``'saw'`` (which is a built-in preset) is set as the
+:class:`~maelzel.core.Chain`, ``'saw'`` (which is a built-in preset) is set as the
 default *instr*. Any fixed playarg will be used for playback, otherwise a group default
 is used (the *instr* set for :class:`Chain`) or, as a fallback, the default *instr* as
 defined in the config (:ref:`key: 'play.instr' <config_play_instr>`).
@@ -166,12 +166,12 @@ Preset parameters can also be defined inline, following the syntax for csoundeng
 Recording / Offline Rendering
 -----------------------------
 
-By replacing a call to :meth:`~maelzel.core.musicobj.MusicObj.play` with a call to
-:meth:`~maelzel.core.musicobj.MusicObj.rec` it is possible to render any
-:class:`~maelzel.core.musicobj.MusicObj` as a soundfile (offline rendering). To
+By replacing a call to :meth:`~maelzel.core.mobj.MObj.play` with a call to
+:meth:`~maelzel.core.mobj.MObj.rec` it is possible to render any
+:class:`~maelzel.core.mobj.MObj` as a soundfile (offline rendering). To
 render multiple objects to the same soundfile you can either group them in a container
-(for example, place multiple notes inside a :class:`~maelzel.core.musicobj.Voice` and
-render that) or render them via :func:`maelzel.core.musicobj.recObjects`
+(for example, place multiple notes inside a :class:`~maelzel.core.Voice` and
+render that) or render them via :func:`maelzel.core.recObjects`
 
 .. code-block:: python
 
@@ -187,10 +187,10 @@ render that) or render them via :func:`maelzel.core.musicobj.recObjects`
 Notice that in this way, any parameter normally passed to ``.rec`` needs to be fixed
 via ``.setPlay``.
 
-Using the ``rendering`` context manager
+Using the ``render`` context manager
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-A simpler method is to use the :func:`~maelzel.core.play.rendering` context
+A simpler method is to use the :func:`~maelzel.core.playback.render` context
 manager:
 
 .. code-block:: python
@@ -200,7 +200,7 @@ manager:
                     for m in range(60, 72)])
     voice2 = Voice([Note(m+0.5, dur=1.75)
                     for m in range(60, 72)])
-    with rendering('out.wav'):
+    with render('out.wav'):
         voice1.play(instr='saw')
         voice2.play(instr='tri')
 
@@ -217,4 +217,5 @@ Playback API
     coreplay
     presetman
     presetdef
+    synthevent
 

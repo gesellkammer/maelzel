@@ -1,6 +1,5 @@
 from __future__ import annotations
 import os
-import emlib.dialogs
 from . import environment
 from ._appstate import appstate as _appstate
 from ._common import logger
@@ -12,6 +11,7 @@ if TYPE_CHECKING:
 
 
 def selectFromList(options: Sequence[str], title="", default=None) -> Optional[str]:
+    import emlib.dialogs
     if environment.insideJupyter():
         return emlib.dialogs.selectItem(options, title=title) or default
     else:
@@ -31,8 +31,8 @@ def selectFileForSave(key:str, filter="All (*.*)", prompt="Save File") -> Option
     Returns:
         the selected file, or None if the operation was cancelled
     """
-
     lastdir = _appstate[key]
+    import emlib.dialogs
     outfile = emlib.dialogs.saveDialog(filter=filter, directory=lastdir, title=prompt)
     if outfile:
         _appstate[key] = os.path.split(outfile)[0]
@@ -56,6 +56,7 @@ def selectFileForOpen(key: str, filter="All (*.*)", prompt="Open", ifcancel:str=
     """
     if _util.checkBuildingDocumentation(logger):
         return None
+    import emlib.dialogs
     lastdir = _appstate.get(key)
     selected = emlib.dialogs.selectFile(filter=filter, directory=lastdir, title=prompt)
     if selected:

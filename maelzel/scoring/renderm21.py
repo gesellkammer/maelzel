@@ -155,8 +155,8 @@ def _renderGroup(measure: m21.stream.Measure,
                  options: render.RenderOptions) -> None:
     """
     A quant.DurationGroup is a sequence of notes which share (and fill) a time modifier.
-    It can be understood as a "tuplet", whereas "normal" durations are interpreted
-    as a 1:1 tuplet. A group can consist of Notations or other quant.DurationGroups
+    It can be understood as a "subdivision", whereas "normal" durations are interpreted
+    as a 1:1 subdivision. A group can consist of Notations or other quant.DurationGroups
 
     Args:
         measure: the measure being rendered to
@@ -280,7 +280,7 @@ def quantizedPartToMusic21(part: quant.QuantizedPart,
         midinotesInPart = [n.notation.meanPitch() for n in part.iterNotations()
                            if not n.notation.isRest]
         clef = util.clefNameFromMidinotes(midinotesInPart)
-    m21part = m21tools.makePart(clef=clef, partName=part.label)
+    m21part = m21tools.makePart(clef=clef, partName=part.name)
     quarterTempo = 60
     timesig = None
     _fixGracenoteAtBeginning(part)

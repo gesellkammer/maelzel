@@ -374,7 +374,7 @@ def showT(f:Optional[F]) -> str:
 
 def showB(b:bool) -> str:
     """Show *b* as boolean"""
-    return "T" if b else "F"
+    return "MObjT" if b else "F"
 
 
 def parseNotehead(s: str) -> Tuple[str, Optional[bool]]:

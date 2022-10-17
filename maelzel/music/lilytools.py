@@ -489,7 +489,6 @@ def pitchName(pitchclass: str, cents: int) -> str:
     if suffix is None:
         raise ValueError(f"Invalid cents value: {cents}, expected one of -150, -125,..., 0, 25, 50,..., 150")
     return pitchclass.lower() + _centsToSuffix[cents]
-    return f"{pitchclass.lower()}"
 
 
 def notenameToLily(notename: str, divsPerSemitone=4) -> str:
@@ -509,10 +508,10 @@ def notenameToLily(notename: str, divsPerSemitone=4) -> str:
     """
 
     notename = pt.quantize_notename(notename, divisions_per_semitone=divsPerSemitone)
-    octave, letter, alteration, cents = pt.split_notename(notename)
+    octave, letter, alteration, cents = pt.split_notename(notename, default_octave=-2)
     if alteration:
         cents += pt.alteration_to_cents(alteration)
-    lilyoctave = lilyOctave(octave)
+    lilyoctave = lilyOctave(octave) if octave >= -1 else ''
     pitchname = pitchName(letter, cents)
     return pitchname + lilyoctave
 
@@ -716,6 +715,36 @@ _clefToLilypondClef = {
 }
 
 
+def keySignature(fifths: int, mode='major') -> str:
+    """
+    Traditional (circle of fifths) key signature
+
+    Args:
+        fifths: the number of fifths, > 0 indicates sharps, < 0 indicates flats
+        mode: 'major' or 'minor'
+
+    Returns:
+        the corresponding lilypond code (for example '\key a major')
+
+    Example
+    ~~~~~~~
+
+        >>> keySignature(3, 'major')
+        \key a major
+
+    """
+    # \key f \major
+    keys = {
+        ('sharp', 'major'): ('c', 'g', 'd', 'a',  'e',  'b',  'fis', 'cis', 'gis', 'dis'),
+        ('sharp', 'minor'): ('a', 'e', 'b', 'fis', 'cis', 'gis', 'dis', 'ais'),
+        ('flat', 'major'): ('c', 'f', 'bes', 'ees', 'aes', 'des', 'ges'),
+        ('flat', 'minor'): ('a', 'd', 'g', 'c', 'f', 'bes', 'ees')
+    }
+    direction = 'sharp' if fifths >= 0 else 'flat'
+    key = keys[(direction, mode)][abs(fifths)]
+    return fr'\key {key} \{mode}'
+
+
 def makeClef(clef: str) -> str:
     """
     Create a lilypond clef indication from the clef given
@@ -843,8 +872,8 @@ def paperBlock(paperWidth:float=None,
 
 
 def makeTextMark(text: str, fontsize:int=None, fontrelative=True,
-                       boxed=False, italic=False, bold=False
-                      ) -> str:
+                 box='', italic=False, bold=False
+                 ) -> str:
     """
     Creates a system text mark - a text above all measures
 
@@ -852,7 +881,7 @@ def makeTextMark(text: str, fontsize:int=None, fontrelative=True,
         text: the text
         fontsize: the size of the text.
         fontrelative: font size is relative or absolute?
-        boxed: enclose the text in a box?
+        box: one of 'square', 'circle', 'rounded' or '' for no box
         italic: italic?
         bold: bold?
 
@@ -866,8 +895,10 @@ def makeTextMark(text: str, fontsize:int=None, fontrelative=True,
             markups.append(fr"\fontsize #{int(fontsize)}")
         else:
             markups.append(fr"\abs-fontsize #{int(fontsize)}")
-    if boxed:
-        markups.append(r"\box")
+    if box:
+        if (markup := _boxMarkup.get(box)) is None:
+            raise KeyError(f"Box shape {box} not supported, possible shapes are {_boxMarkup.keys()}")
+        markups.append(markup)
     if italic:
         markups.append(r"\italic")
     if bold:
@@ -879,9 +910,18 @@ def makeTextMark(text: str, fontsize:int=None, fontrelative=True,
         return fr'\mark "{text}"'
 
 
+_boxMarkup = {
+    'square': r'\box',
+    'box': r'\box',
+    'circle': r'\circle',
+    'rounded': r'\rounded-box',
+    'rounded-box': r'\rounded-box'
+}
+
+
 def makeText(text: str, fontsize:int=None, fontrelative=False,
              placement='above', italic=False, bold=False,
-             boxed=False) -> str:
+             box='') -> str:
     """
     Creates a lilypond text annotation to be attached to a note/rest
 
@@ -894,12 +934,11 @@ def makeText(text: str, fontsize:int=None, fontrelative=False,
         placement: 'above' or 'below'
         italic: if True, the text should be italic
         bold: if True, the text should be bold
-        boxed: if True, a box is drawn around the text
+        box: one of 'square', 'circle', 'rounded' or '' for no box
 
     Returns:
         the lilypond markup to generate the given annotation
     """
-    # TODO: support different box shapes for boxed
     placementchr = "^" if placement == "above" else "_"
     markups = []
     if fontsize:
@@ -911,8 +950,10 @@ def makeText(text: str, fontsize:int=None, fontrelative=False,
         markups.append(r'\italic')
     if bold:
         markups.append(r'\bold')
-    if boxed:
-        markups.append(r"\box")
+    if box:
+        if (markup := _boxMarkup.get(box)) is None:
+            raise KeyError(f"Box shape {box} not supported, possible shapes are {_boxMarkup.keys()}")
+        markups.append(markup)
     if markups:
         markupstr = " ".join(markups)
         return fr'{placementchr}\markup {{ {markupstr} "{text}" }}'

@@ -5,8 +5,8 @@ Musical Objects
 Time
 ~~~~
 
-A MusicObj has always a start and dur attribute. They refer to an abstract time.
-When visualizing a MusicObj as musical notation these times are interpreted/converted
+A MObj has always a start and dur attribute. They refer to an abstract time.
+When visualizing a MObj as musical notation these times are interpreted/converted
 to beats and score locations based on a score structure.
 
 Score Structure
@@ -57,12 +57,12 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Union, Optional, Any, TypeVar, Callable
     from ._typedefs import *
-    T = TypeVar('T', bound='MusicObj')
+    T = TypeVar('MObjT', bound='MObj')
     from .playback import OfflineRenderer
 
 
 __all__ = (
-    'MusicObj',
+    'MObj',
     'resetImageCache'
 )
 
@@ -77,67 +77,67 @@ class _TimeScale:
         return r*self.factor + self.offset
 
 
-class MusicObj:
+class MObj:
     """
     This is the base class for all core objects.
 
-    A MusicObj can display itself via :meth:`show` and play itself via :meth:`play`.
+    This is an abstract class. **It should not be instantiated by itself**
+
+    A :class:`MObj` can display itself via :meth:`show` and play itself via :meth:`play`.
     It can have a duration and a start time.
 
-    **It should not be instantiated by itself**
+    A :class:`MObj` can customize its playback via :meth:`MObj.setPlay`. These attributes can
+    be accessed through the `playargs` property
 
-    A MusicObj has attributes which are for playback only. They can
-    be set via :meth:`MusicObj.setPlay` and accessed via the `playargs` property
-
-    A MusicObj can customize its notation via _symbols. A symbol is an attribute or
-    notation element (like color, size or an attached text expression) which has
-    meaning only in the realm of graphical representation. See :meth:`MusicObj.setSymbol`
+    Elements purely related to notation (text annotations, articulations, etc)
+    are added to a :class:`MObj` through the :meth:`addSymbol` and can be accessed
+    through the :attr:`symbol` attribute.
+    A symbol is an attribute or notation element (like color, size or an attached
+    text expression) which has meaning only in the realm of graphical representation.
 
     Args:
         dur: the (optional) duration of this object, in abstract units (beats)
         start: the (optional) time offset of this object, in abstract units (beats)
         label: a string label to identify this object, if necessary
     """
-    _showableInitialized = False
     _acceptsNoteAttachedSymbols = True
+    _isDurationRelative = True
 
-    __slots__ = ('dur', 'start', 'label', '_playargs', '_hash', 'symbols', '_properties')
+    __slots__ = ('dur', 'start', 'label', '_playargs', 'symbols', '_scorestruct', '_properties')
 
     def __init__(self, dur: time_t = None, start: time_t = None, label: str = '',
                  properties: dict[str, Any] = None):
 
-        self.label: Optional[str] = label
+        self.label = label
         "a label can be used to identify an object within a group of objects"
 
-        # A MusicObj can have a duration. A duration can't be 0
+        # A MObj can have a duration. A duration can't be 0
         # A duration of -1 means max. duration.
 
-        self.dur: Optional[Rat] = dur
+        self.dur: Rat | None = dur
         "the duration of this object (can be None, in which case it is unset)"
 
-        self.start: Optional[Rat] = start
+        self.start: Rat | None = start
         "start specifies a time offset for this object"
+
+        self.symbols: list[_symbols.Symbol] | None = None
+        "A list of all symbols added via addSymbol (can be None)"
 
         # _playargs are set via .setplay and serve the purpose of
         # attaching playing parameters (like pan position, instrument)
         # to an object
-        self._playargs: Optional[PlayArgs] = None
+        self._playargs: PlayArgs | None = None
 
-        # All MusicObjs should be hashable. For the cases where
-        # calculating the hash is expensive, we cache that here
-        self._hash: int = 0
+        self._properties: dict[str, Any] | None = properties
 
-        self.symbols: Optional[list[_symbols.Symbol]] = None
-        self._properties: Optional[dict[str, Any]] = properties
+        self._scorestruct: ScoreStruct | None = None
 
     @property
     def properties(self) -> dict[str, Any]:
+        """A place to put user-defined properties"""
         if self._properties is None:
             self._properties = {}
         return self._properties
-
-    def isEmpty(self) -> bool:
-        return False
 
     def pitchRange(self) -> Optional[tuple[float, float]]:
         """
@@ -208,18 +208,27 @@ class MusicObj:
         """
         A PlayArgs structure, containing any specification regarding playback
 
-        .. seealso:: :meth:`~MusicObj.setPlay`
+        .. seealso:: :meth:`~MObj.setPlay`
         """
         if self._playargs is None:
             self._playargs = PlayArgs()
         return self._playargs
 
-    def setPlay(self:T, /, **kws) -> T:
+    def setPlay(self: T, /, **kws) -> T:
         """
         Set any playback attributes, returns self
 
+        .. note::
+
+            It is possible to access the :attr:`MObj.playargs` attribute directly to set any
+            play parameter, like ``note.playargs['instr'] = 'piano'``
+
+            The advantage of :meth:`MObj.setPlay` is that one can set multiple
+            parameters simultaneously and the method can be chained with
+            the constructor, such as ``note = Note("4C", ...).setPlay(instr=..., gain=...)``
+
         Args:
-            **kws: any argument passed to :meth:`~MusicObj.play` (delay, dur, chan,
+            **kws: any argument passed to :meth:`~MObj.play` (delay, dur, chan,
                 gain, fade, instr, pitchinterpol, fadeshape, params,
                 priority, position).
 
@@ -249,14 +258,12 @@ class MusicObj:
             >>> note = Note("C4+25", dur=0.5).setPlay(instr="piano", position=1)
             # When .play is called, the note will play with the preset instr and position
             >>> note.play()
+
+        .. seealso:: :meth:`~MObj.addSymbol`, :attr:`~MObj.playargs`
         """
         playargs = self.playargs
         for k, v in kws.items():
-            if k not in PlayArgs.playkeys:
-                raise KeyError(f"key {k} not known. "
-                               f"Possible keys are {PlayArgs.playkeys}")
             playargs[k] = v
-        assert self._playargs is not None
         return self
 
     def clone(self: T,
@@ -425,7 +432,7 @@ class MusicObj:
         This happens when a note changes its pitch inplace, the duration is modified, etc.
         This invalidates, among other things, the image cache for this object
         """
-        self._hash = 0
+        pass
 
     def render(self, backend: str = None,
                renderoptions: scoring.render.RenderOptions = None,
@@ -455,7 +462,7 @@ class MusicObj:
         if not renderoptions:
             renderoptions = notation.makeRenderOptionsFromConfig(config)
         if not scorestruct:
-            scorestruct = self.attachedScoreStruct() or w.scorestruct
+            scorestruct = self.scorestruct or w.scorestruct
         return _renderObject(self, backend=backend, renderoptions=renderoptions,
                              scorestruct=scorestruct, config=config)
 
@@ -480,7 +487,7 @@ class MusicObj:
             the path of the generated file. If outfile was given, the returned
             path will be the same as the outfile.
 
-        .. seealso:: :meth:`MusicObj.render`
+        .. seealso:: :meth:`MObj.render`
         """
         w = Workspace.active
         if not config:
@@ -490,7 +497,7 @@ class MusicObj:
         if fmt == 'ly':
             backend = 'lilypond'
         if scorestruct is None:
-            scorestruct = self.attachedScoreStruct() or w.scorestruct
+            scorestruct = self.scorestruct or w.scorestruct
         path = _renderImage(self, outfile, fmt=fmt, backend=backend, scorestruct=scorestruct,
                             config=config or getConfig())
         if not os.path.exists(path):
@@ -500,7 +507,9 @@ class MusicObj:
         return path
 
 
-    def scoringEvents(self, groupid:str=None, config: CoreConfig = None
+    def scoringEvents(self,
+                      groupid: str = None,
+                      config: CoreConfig = None,
                       ) -> list[scoring.Notation]:
         """
         Returns its notated form as scoring.Notations
@@ -511,6 +520,7 @@ class MusicObj:
         Args:
             groupid: passed by an object higher in the hierarchy to
                 mark this objects as belonging to a group
+            config: a configuration to customize rendering
 
         Returns:
             A list of scoring.Notation which best represent this
@@ -530,7 +540,7 @@ class MusicObj:
             a list of scoring.Part
 
         This method is used internally to generate the parts which
-        constitute a given MusicObj prior to rendering,
+        constitute a given MObj prior to rendering,
         but might be of use itself so it is exposed here.
 
         A :class:`maelzel.scoring.Part` is an intermediate format used by the scoring
@@ -541,7 +551,7 @@ class MusicObj:
         if not notations:
             return []
         scoring.stackNotationsInPlace(notations)
-        scoring.enharmonics.fixEnharmonicsInPlace(notations)
+        # scoring.enharmonics.fixEnharmonicsInPlace(notations)
         parts = scoring.distributeNotationsByClef(notations)
         return parts
 
@@ -559,16 +569,15 @@ class MusicObj:
         parts = self.scoringParts()
         return scoring.Arrangement(parts, title=title)
 
-    def _scoringAnnotation(self) -> Optional[scoring.Annotation]:
+    def _scoringAnnotation(self) -> Optional[scoring.attachment.Text]:
         """ Returns owns annotations as a scoring Annotation """
         if not self.label:
             return None
-        return scoring.Annotation(self.label,
-                                  fontSize=getConfig()['show.labelFontSize'])
+        return scoring.attachment.Text(self.label, fontsize=getConfig()['show.labelFontSize'])
 
     def asmusic21(self, **kws) -> m21.stream.Stream:
         """
-        Convert this object into music21.
+        Convert this object to its music21 representation
 
         Args:
 
@@ -581,13 +590,14 @@ class MusicObj:
 
         .. note::
 
-            The music21 representation should be final, not thought to be embedded into
+            The music21 representation is final, not thought to be embedded into
             another stream. For embedding we use an abstract representation of scoring
             objects which can be queried via .scoringEvents
         """
         parts = self.scoringParts()
-        renderer = notation.renderWithActiveWorkspace(parts, backend='music21',
-                                                      scorestruct=self.attachedScoreStruct())
+        renderer = notation.renderWithActiveWorkspace(parts,
+                                                      backend='music21',
+                                                      scorestruct=self.scorestruct)
         stream = renderer.asMusic21()
         if getConfig()['m21.fixStream']:
             m21tools.fixStream(stream, inPlace=True)
@@ -596,18 +606,16 @@ class MusicObj:
     def musicxml(self) -> str:
         """
         Return the music representation of this object as musicxml.
-
-        A subclass can override this method to provide a way of
-        outputting musicxml which bypasses music21
         """
         stream = self.asmusic21()
         return m21tools.getXml(stream)
 
-    def attachedScoreStruct(self) -> Optional[ScoreStruct]:
+    @property
+    def scorestruct(self) -> ScoreStruct | None:
         """
         Returns the ScoreStruct attached to this obj, if Any
         """
-        return None
+        return self._scorestruct
 
     def write(self, outfile: str, backend: str = None,
               scorestruct: ScoreStruct = None,
@@ -648,8 +656,9 @@ class MusicObj:
             backend = cfg['show.backend']
         if resolution is not None:
             cfg = cfg.clone(updates={'show.pngResolution': resolution})
-        r = notation.renderWithActiveWorkspace(self.scoringParts(), backend=backend,
-                                               scorestruct=scorestruct or self.attachedScoreStruct(),
+        r = notation.renderWithActiveWorkspace(self.scoringParts(),
+                                               backend=backend,
+                                               scorestruct=scorestruct or self.scorestruct,
                                                config=cfg)
         r.write(outfile)
 
@@ -678,6 +687,8 @@ class MusicObj:
         print(f'{"  "*indents}{repr(self)}')
         if self._playargs:
             print(f'{"  "*(indents+1)}{self.playargs}')
+        if self.symbols:
+            print(f'{"  " * (indents + 1)}{self.symbols}')
 
     def _synthEvents(self, playargs: PlayArgs, workspace: Workspace,
                      ) -> list[SynthEvent]:
@@ -698,7 +709,7 @@ class MusicObj:
     def events(self,
                instr: str = None,
                delay: float = None,
-               params: dict[str, float] = None,
+               args: dict[str, float] = None,
                gain: float = None,
                chan: int = None,
                pitchinterpol: str = None,
@@ -708,13 +719,15 @@ class MusicObj:
                start: float = None,
                end: float = None,
                sustain: float = None,
-               workspace: Workspace = None
+               workspace: Workspace = None,
+               transpose: float=0,
+               **kwargs
                ) -> list[SynthEvent]:
         """
         Returns the SynthEvents needed to play this object
 
         All these attributes here can be set previously via `playargs` (or
-        using :meth:`MusicObj.setPlay`)
+        using :meth:`~maelzel.core.mobj.MObj.setPlay`)
 
         Args:
             gain: modifies the own amplitude for playback/recording (0-1)
@@ -727,8 +740,7 @@ class MusicObj:
             pitchinterpol: 'linear', 'cos', 'freqlinear', 'freqcos'
             fade: fade duration in seconds, can be a tuple (fadein, fadeout)
             fadeshape: 'linear' | 'cos'
-            params: paramaters passed to the note through an associated table.
-                A dict paramName: value
+            args: named arguments passed to the note. A dict ``{paramName: value}``
             position: the panning position (0=left, 1=right)
             start: start playback at the given offset (in quarternotes). Allows to play
                 a fragment of the object (NB: this trims the playback of the object.
@@ -739,6 +751,7 @@ class MusicObj:
                 notes, or to allow one-shot samples to play completely without being cropped.
             workspace: a Workspace. If given, overrides the current workspace. It's scorestruct
                 is used to to determine the mapping between beat-time and real-time.
+            transpose: an interval to transpose any pitch
 
         Returns:
             A list of SynthEvents (see :class:`SynthEvent`)
@@ -760,27 +773,36 @@ class MusicObj:
             instr = presetManager.selectPreset()
             if not instr:
                 raise ValueError("No preset selected")
-        d = dict(
-            instr=instr,
-            delay=delay,
-            gain=gain,
-            fade=fade,
-            pitchinterpol=pitchinterpol,
-            fadeshape=fadeshape,
-            params=params,
-            position=position,
-            sustain=sustain,
-            chan=chan
+
+        pairs = (
+            ('instr', instr),
+            ('delay', delay),
+            ('gain', gain),
+            ('fade', fade),
+            ('pitchinterpol', pitchinterpol),
+            ('fadeshape', fadeshape),
+            ('args', args),
+            ('position', position),
+            ('chain', chan),
+            ('sustain', sustain),
+            ('transpose', transpose)
         )
-        d = {k:v for k, v in d.items() if v is not None}
+
+        d = {k: v for k, v in pairs if v is not None}
+
+        if kwargs:
+            if args:
+                args.update(kwargs)
+            else:
+                d['args'] = kwargs
         playargs = PlayArgs(d)
         if workspace is None:
             workspace = Workspace.active
-        if struct:=self.attachedScoreStruct():
+        if struct:=self.scorestruct:
             workspace = workspace.clone(scorestruct=struct)
         events = self._synthEvents(playargs, workspace)
         if start is not None or end is not None:
-            scorestruct = self.attachedScoreStruct() or workspace.scorestruct
+            scorestruct = self.scorestruct or workspace.scorestruct
             starttime = None if start is None else scorestruct.beatToTime(start)
             endtime = None if end is None else scorestruct.beatToTime(end)
             events = cropEvents(events, start=starttime, end=endtime, rewind=True)
@@ -789,7 +811,7 @@ class MusicObj:
     def play(self,
              instr: str = None,
              delay: float = None,
-             params: dict[str, float] = None,
+             args: dict[str, float] = None,
              gain: float = None,
              chan: int = None,
              pitchinterpol: str = None,
@@ -800,8 +822,10 @@ class MusicObj:
              end: float = None,
              whenfinished: Callable = None,
              sustain: float = None,
-             workspace: Workspace = None
-    ) -> csoundengine.synth.AbstrSynth:
+             workspace: Workspace = None,
+             transpose: float = 0,
+             **kwargs
+             ) -> csoundengine.synth.AbstrSynth:
         """
         Plays this object.
 
@@ -822,8 +846,7 @@ class MusicObj:
             pitchinterpol: 'linear', 'cos', 'freqlinear', 'freqcos'
             fade: fade duration in seconds, can be a tuple (fadein, fadeout)
             fadeshape: 'linear' | 'cos'
-            params: paramaters passed to the note through an associated table.
-                A dict paramName: value
+            args: arguments passed to the note. A dict ``{paramName: value}``
             position: the panning position (0=left, 1=right)
             start: start time of playback. Allows to play a fragment of the object (NB: this trims the playback
                 of the object. Use `delay` to offset the playback in time while keeping the playback time
@@ -839,8 +862,8 @@ class MusicObj:
 
 
         .. seealso::
-            * :meth:`MusicObj.events`
-            * :meth:`MusicObj.rec`
+            * :meth:`MObj.events`
+            * :meth:`MObj.rec`
             * :func:`~maelzel.core.playback.render`,
             * :class:`~maelzel.core.playbakc.playgroup`
 
@@ -877,12 +900,14 @@ class MusicObj:
                              instr=instr,
                              pitchinterpol=pitchinterpol,
                              fadeshape=fadeshape,
-                             params=params,
+                             args=args,
                              position=position,
                              sustain=sustain,
                              workspace=workspace,
                              start=start,
-                             end=end)
+                             end=end,
+                             transpose=transpose,
+                             **kwargs)
 
         if not events:
             return csoundengine.synth.SynthGroup([playback._dummySynth()])
@@ -902,7 +927,7 @@ class MusicObj:
             nchnls: int = None,
             instr: str = None,
             delay: float = None,
-            params: dict[str, float] = None,
+            args: dict[str, float] = None,
             gain: float = None,
             position: float = None,
             **kws
@@ -925,8 +950,7 @@ class MusicObj:
                 in symbolic (beat) time, the delay is always in real (seconds) time
             instr: which instrument to use (see defPreset, definedPresets). Use "?" to
                 select from a list of defined presets.
-            params: paramaters passed to the note through an associated table.
-                A dict paramName: value
+            args: named arguments passed to the note. A dict ``{paramName: value}``
             position: the panning position (0=left, 1=right)
 
             **kws: any keyword passed to .play
@@ -952,7 +976,7 @@ class MusicObj:
         - :class:`~maelzel.core.playback.OfflineRenderer`
         """
         events = self.events(instr=instr, position=position,
-                             delay=delay, params=params,gain=gain,
+                             delay=delay, args=args, gain=gain,
                              **kws)
         return playback.render(outfile=outfile, events=events, r=sr, wait=wait,
                                quiet=quiet, nchnls=nchnls)
@@ -965,27 +989,17 @@ class MusicObj:
         """
         return False
 
-    def supportedSymbols(self) -> list[str]:
+    def addSymbol(self: T, symbol: Union[str, _symbols.Symbol], *args, **kws) -> T:
         """
-        Returns a list of supported symbols for this object
-        """
-        out = []
-        if self._acceptsNoteAttachedSymbols:
-            out.extend(_symbols.noteAttachedSymbols)
-        return out
+        Add a notation symbol to this object
 
-    def setSymbol(self: T, symbol: Union[str, _symbols.Symbol], *args, **kws) -> T:
-        """
-        Set a notation symbol in this object
+        Notation symbols are any attributes which are for
+        notation purposes only. Such attributes include dynamics,
+        articulations, etc.
 
-        Notation symbols are any attributes of this MusicObj which are for
-        notation purposes only. Such notation only attributes include dynamics,
-        articulations, etc. Each class has a set of symbols which it accepts
-        (see :meth:`MusicObj.supportedSymbols`)
-
-        Many symbols are exclusive, meaning that adding a symbol of this kind will
+        Some symbols are exclusive, meaning that adding a symbol of this kind will
         replace a previously set symbol. Exclusive symbols include any properties
-        (color, size, etc) and graphic symbols like articulation
+        (color, size, etc) and other customizations like notehead shape,
 
         .. note::
 
@@ -996,12 +1010,14 @@ class MusicObj:
 
             >>> from maelzel.core import *
             >>> n = Note(60)
-            >>> n.setSymbol('articulation', 'accent')
-            >>> # setSymbol, like setPlay, returns self so it is possible to chain calls:
-            >>> n = Note(60).setPlay(instr='piano').setSymbol('expression', 'dolce')
+            >>> n.addSymbol('articulation', 'accent')
+            >>> n = Note(60).setPlay(instr='piano').addSymbol('text', 'dolce')
+            >>> from maelzel.core import symbols
+            >>> n2 = Note("4G").addSymbol(symbols.Harmonic(interval=5))
+
 
         Args:
-            symbol: the name of a symbol. See :meth:`MusicObj.supportedSymbols` for symbols
+            symbol: the name of a symbol. See :meth:`MObj.supportedSymbols` for symbols
                 accepted by this object.
             args, keys: passed directly to the class constructor
 
@@ -1033,7 +1049,7 @@ class MusicObj:
         if isinstance(symbol, _symbols.NoteAttachedSymbol) \
                 and not self._acceptsNoteAttachedSymbols:
             raise ValueError(f"A {type(self)} does not accept note attached symbols")
-        if not self.symbols:
+        if self.symbols is None:
             self.symbols = [symboldef]
         else:
             if symboldef.exclusive:
@@ -1041,35 +1057,73 @@ class MusicObj:
                 if any(isinstance(s, cls) for s in self.symbols):
                     self.symbols = [s for s in self.symbols if not isinstance(s, cls)]
             self.symbols.append(symboldef)
+        if isinstance(symboldef, _symbols.Spanner):
+            symboldef.setAnchor(self)
         return self
 
+    def _removeSymbolsOfClass(self, cls: str | type):
+        if isinstance(cls, str):
+            cls = cls.lower()
+            symbols = [s for s in self.symbols if s.name == cls]
+        else:
+            symbols = [s for s in self.symbols if isinstance(s, cls)]
+        for s in symbols:
+            self.symbols.remove(s)
+
     def getSymbol(self, classname: str) -> Optional[_symbols.Symbol]:
+        """
+        Get a symbol of a given class, if present
+
+        This is only supported for symbol classes which are exclusive
+        (notehead, color, ornament, etc.). For symbols like 'articulation',
+        which can be present multiple times, query the symbols attribute
+        directly (**NB**: symbols might be ``None`` if no symbols have been set):
+
+        .. code::
+
+            if note.symbols:
+                articulations = [s for s in note.symbols
+                                 if s.name == 'articulation']
+
+        Args:
+            classname: the class of the symbol. Possible values are
+                'articulation', 'text', 'notehead', 'color', 'ornament',
+                'fermata', 'notatedpitch'. See XXX (TODO) for a complete list
+
+        Returns:
+            a symbol of the given class, or None
+        """
+
         if not self.symbols:
-            return
-        for s in self.symbols:
-            if classname == s.name:
-                return s
+            return None
+        classname = classname.lower()
+        return next((s for s in self.symbols if s.name==classname), None)
 
     def addText(self, text: str, placement='above', fontsize: int = None,
-                fontstyle: str = None, box: str|bool = False
+                fontstyle: str = None, box: str = ''
                 ) -> None:
         """
         Shortcut to add a text annotation to this object
 
-        This is a shortcut to ``self.setSymbol(symbols.Expression(...))``
+        This is a shortcut to ``self.setSymbol(symbols.Text(...))``. Use
+        that for in-depth customization.
 
         Args:
             text: the text annotation
             placement: where to place the annotation ('above', 'below')
             fontsize: the size of the annotation
-            fontstyle: italic, bold or a comma-separated list thereof
+            fontstyle: italic, bold or a comma-separated list thereof ('italic,bold')
+            box: the enclosure shape, or '' for no box around the text. Possible shapes
+                are 'square', 'circle', 'rounded'
 
         """
-        self.setSymbol(_symbols.Expression(text, placement=placement, fontsize=fontsize,
-                                           fontstyle=fontstyle, box=box))
+        self.addSymbol(_symbols.Text(text, placement=placement, fontsize=fontsize,
+                                     fontstyle=fontstyle, box=box))
 
-
-    def addSpanner(self, spannercls: str, endobj: MusicObj = None) -> None:
+    def addSpanner(self,
+                   spannercls: str | _symbols.Spanner,
+                   endobj: MObj
+                   ) -> None:
         """
         Adds a spanner symbol to this object
 
@@ -1077,8 +1131,8 @@ class MusicObj:
         objects. A spanner always has a start and an end.
 
         Args:
-            spannercls: one of 'slur', 'cresc', 'dim'
-            endobj: the object where this spanner ends, if needed
+            spannercls: one of 'slur', '<', '>', or a Spanner object
+            endobj: the object where this spanner ends
 
         Example
         ~~~~~~~
@@ -1094,15 +1148,8 @@ class MusicObj:
 
         """
         spannercls = spannercls.lower()
-        if spannercls == 'slur':
-            _symbols.Slur.bind(self, endobj)
-        elif spannercls == 'cresc' or spannercls == '<':
-            _symbols.HairpinCresc.bind(self, endobj)
-        elif spannercls == 'dim' or spannercls == 'decresc' or spannercls == '>':
-            _symbols.HairpinDecr.bind(self, endobj)
-        else:
-            raise ValueError(f"Spanner class {spannercls} unknown. Possible values: 'slur', "
-                             f"'cresc', 'dim'")
+        spanner = _symbols.makeSpanner(spannercls)
+        spanner.bind(self, endobj)
 
     def timeTransform(self:T, timemap: Callable[[num_t], num_t], inplace=False) -> T:
         """
@@ -1221,7 +1268,7 @@ class MusicObj:
             a clone of self with the modified start and duration
 
         """
-        oldstruct = oldstruct or self.attachedScoreStruct() or getScoreStruct()
+        oldstruct = oldstruct or self.scorestruct or getScoreStruct()
         if newstruct == oldstruct:
             logger.warning("The new scorestruct is the same as the old scorestruct")
             return self
@@ -1269,11 +1316,10 @@ class MusicObj:
         """
         return self.pitchTransform(lambda pitch: pitch+interval)
 
-
 @functools.lru_cache(maxsize=1000)
-def _renderImage(obj: MusicObj, outfile: Optional[str], fmt, backend,
-                  scorestruct: ScoreStruct,
-                  config: CoreConfig):
+def _renderImage(obj: MObj, outfile: Optional[str], fmt, backend,
+                 scorestruct: ScoreStruct,
+                 config: CoreConfig):
     renderoptions = notation.makeRenderOptionsFromConfig(config)
     if scorestruct is None:
         scorestruct = getScoreStruct()
@@ -1285,7 +1331,7 @@ def _renderImage(obj: MusicObj, outfile: Optional[str], fmt, backend,
     return outfile
 
 
-def _renderObject(obj: MusicObj,
+def _renderObject(obj: MObj,
                   backend:str,
                   renderoptions: scoring.render.RenderOptions,
                   scorestruct: ScoreStruct,

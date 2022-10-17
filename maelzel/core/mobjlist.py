@@ -1,22 +1,24 @@
 
 from __future__ import annotations
-from .musicobj import MusicObj, Voice
+from .mobj import MObj
 from .tools import packInVoices
 from .config import CoreConfig
+from . import environment
 from .workspace import Workspace, getConfig
 from maelzel import scoring
 from emlib import misc
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
+    from .chain import Voice
     from maelzel.scorestruct import ScoreStruct
     from ._typedefs import *
     from typing import Any, Callable, TypeVar
     from .synthevent import PlayArgs, SynthEvent
-    T = TypeVar("T", bound="MusicObj")
+    MObjT = TypeVar("MObjT", bound="MObj")
 
 
-class MusicObjList(MusicObj):
+class MObjList(MObj):
     """
     A sequence of music objects
 
@@ -33,7 +35,13 @@ class MusicObjList(MusicObj):
 
         super().__init__(dur=dur, start=start, label=label, properties=properties)
 
-    def append(self, obj: MusicObj) -> None:
+    def append(self, obj: MObj) -> None:
+        """
+        Append an item
+
+        Args:
+            obj: the object to append
+        """
         self._getItems().append(obj)
         self._changed()
 
@@ -44,7 +52,7 @@ class MusicObjList(MusicObj):
         self.dur = end - self.start
         super()._changed()
 
-    def _getItems(self) -> list[MusicObj]:
+    def _getItems(self) -> list[MObj]:
         raise NotImplementedError()
 
     def __iter__(self):
@@ -70,13 +78,14 @@ class MusicObjList(MusicObj):
         pitchRanges = [item.pitchRange() for item in self]
         return min(p[0] for p in pitchRanges), max(p[1] for p in pitchRanges)
 
-    def scoringEvents(self, groupid:str=None, config: CoreConfig = None
+    def scoringEvents(self, groupid: str = None, config: CoreConfig = None
                       ) -> list[scoring.Notation]:
         """
         Returns the scoring events corresponding to this object
 
         Args:
             groupid: if given, all events are given this groupid
+            config: the configuration used
 
         Returns:
             the scoring notations representing this object
@@ -89,7 +98,7 @@ class MusicObjList(MusicObj):
         return misc.sumlist(item._synthEvents(playargs.copy(), workspace)
                             for item in self._getItems())
 
-    def quantizePitch(self: T, step=0.) -> T:
+    def quantizePitch(self: MObjT, step=0.) -> MObjT:
         if step == 0:
             step = 1 / getConfig()['semitoneDivisions']
         items = [i.quantizePitch(step) for i in self]
@@ -100,14 +109,19 @@ class MusicObjList(MusicObj):
         items = [item.timeShift(timeoffset) for item in resolved]
         return self.clone(items=items)
 
-    def pitchTransform(self: T, pitchmap: Callable[[float], float]) -> T:
+    def pitchTransform(self: MObjT, pitchmap: Callable[[float], float]) -> MObjT:
         newitems = [item.pitchTransform(pitchmap) for item in self]
         return self.clone(items=newitems)
 
     def dump(self, indents=0):
-        print(f'{"  "*indents}{type(self).__name__}')
-        if self._playargs:
-            print("  "*(indents+1), self.playargs)
+        if environment.insideJupyter:
+            from IPython.display import HTML, display
+            header = f'{"  " * indents}<strong>{type(self).__name__}</strong>'
+            display(HTML(header))
+        else:
+            print(f'{"  "*indents}{type(self).__name__}')
+            if self._playargs:
+                print("  "*(indents+1), self.playargs)
         for item in self:
             item.dump(indents+1)
 

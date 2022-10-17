@@ -3,7 +3,7 @@ from __future__ import annotations
 from maelzel import scorestruct
 
 from .workspace import getWorkspace
-from . import musicobj as mobj
+from . import mobj as mobj
 from . import score
 from maelzel import packing
 from maelzel.rational import Rat
@@ -11,7 +11,7 @@ from maelzel.rational import Rat
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ._typedefs import time_t
-    from maelzel.core.musicobj import *
+    from maelzel.core.mobj import *
 
 
 __all__ = (
@@ -137,7 +137,7 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
     return score.Score([voice], scorestruct=struct)
 
 
-def packInVoices(objs: list[MusicObj]) -> list[mobj.Voice]:
+def packInVoices(objs: list[MObj]) -> list[mobj.Voice]:
     """
     Distribute the items across voices
     """

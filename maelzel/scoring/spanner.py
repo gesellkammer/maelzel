@@ -1,23 +1,30 @@
 from __future__ import annotations
 from . import util
+from . import definitions
+
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Type, TypeVar
-    T = TypeVar('T', bound='Spanner')
+    T = TypeVar('MObjT', bound='Spanner')
 
 
 class Spanner:
     endingAtTie = 'last'
     basePriority = 0
+    lilyPlacementPost = True
 
     """Should the spanner end at the first or at the last note of a tie"""
 
-    def __init__(self, kind: str, uuid: str = ''):
+    def __init__(self, kind: str, uuid: str = '', linetype='solid', placement='',
+                 color=''):
         assert kind in {'start', 'end', 'continue'}
         if kind != 'start':
             assert uuid, f"A uuid is needed when continuing or closing a spanner"
         self.kind = kind
         self.uuid = uuid or util.makeuuid(8)
+        self.linetype = linetype
+        self.placement = placement
+        self.color = color
 
     def name(self) -> str:
         return type(self).__name__
@@ -32,6 +39,12 @@ class Spanner:
         else:
             return 1 + self.basePriority
 
+    def lilyStart(self) -> str:
+        raise NotImplementedError
+
+    def lilyEnd(self) -> str:
+        raise NotImplementedError
+
 
 
 class Slur(Spanner):
@@ -39,16 +52,87 @@ class Slur(Spanner):
     basePriority = 1
 
 
+class Bracket(Spanner):
+    endingAtTie = 'first'
+
+    def __init__(self, kind='start', uuid: str = '', linetype='solid',
+                 placement='', text=''):
+        super().__init__(kind=kind, uuid=uuid, placement=placement, linetype=linetype)
+        self.text = text
+
+
+class Slide(Spanner):
+    """
+    A line between two noteheads
+
+    The notes to which the noteheads belong do not need to be adjacent
+    """
+    endingAtTie = 'first'
+
+    def __init__(self, kind='start', uuid: str = '', linetype='solid',
+                 placement='', text='', color=''):
+        super().__init__(kind=kind, uuid=uuid, placement=placement,
+                         linetype=linetype, color=color)
+        self.text = text
+
+
+class TrillLine(Spanner):
+    """
+    A trill line
+
+    Args:
+        startmark: the start marking. One of 'trill', 'bisb' (for bisbigliando)
+        alteration: an alteration can be added to the right of the startmark
+        trillpitch: a notename can be given to be placed in parenthesis after the
+            main note
+    """
+    def __init__(self, kind='start', uuid='', startmark='trill', placement='',
+                 alteration='', trillpitch=''):
+        if alteration:
+            assert alteration in definitions.alterations
+        super().__init__(kind=kind, uuid=uuid, placement=placement)
+        self.startmark = startmark
+        self.alteration = alteration
+        self.trillpitch = trillpitch
+
+
+class OctaveShift(Spanner):
+    lilyPlacementPost = False
+
+    def __init__(self, kind='start', octaves=1, uuid=''):
+        placement = 'above' if octaves >= 1 else 'below'
+        super().__init__(kind=kind, uuid=uuid, placement=placement)
+        self.octaves = octaves
+
+    def lilyStart(self) -> str:
+        return rf"\ottava #{self.octaves}"
+
+    def lilyEnd(self) -> str:
+        return r"\ottava #0"
+
+
 class Hairpin(Spanner):
     endingAtTie = 'first'
     basePriority = 2
 
-    def __init__(self, kind: str, uuid: str = '', direction='<'):
-        super().__init__(kind=kind, uuid=uuid)
+    def __init__(self, kind: str, uuid: str = '', direction='<', niente=False, placement=''):
+        super().__init__(kind=kind, uuid=uuid, placement=placement)
         self.direction = direction
+        self.niente = niente
 
     def __repr__(self) -> str:
         cls = type(self).__name__
         return f'{cls}(direction={self.direction}, kind={self.kind}, uuid={self.uuid})'
 
 
+class LineSpan(Spanner):
+    def __init__(self, kind='start', uuid='', linetype='solid', placement='',
+                 starttext='', endtext='', middletext='', verticalAlign='',
+                 starthook=False, endhook=False):
+        super().__init__(kind=kind, uuid=uuid, linetype=linetype, placement=placement)
+        self.starttext = starttext
+        self.endtext = endtext
+        self.middletext = middletext
+        self.verticalAlign = verticalAlign
+        self.starthook = starthook
+        self.endhook = endhook

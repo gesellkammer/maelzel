@@ -5,14 +5,26 @@ stemTypes = {
     'hidden'
 }
 
-availableArticulations = {'accent',         # >
-                          'staccato',       # .
-                          'tenuto',         # -
-                          'marcato',        # ^
-                          'staccatissimo',  # ' wedge
-                          'espressivo',     # <>
-                          'portato'         # - + .
-                          }
+# Articulations are actually any symbol which can be attached to a note in a non-exclusive manner
+articulations = {
+    'accent',  # >
+    'staccato',  # .
+    'tenuto',  # -
+    'marcato',  # ^
+    'staccatissimo',  # ' wedge
+    'espressivo',  # <>
+    'portato',  # - + .
+    'arpeggio',
+    'upbow',
+    'downbow',
+    'flageolet',
+    'open',
+    'closed',
+    'stopped',
+    'openstring',
+    'snappizz',
+    'laissezvibrer'
+}
 
 """
 musicxml articulations
@@ -39,15 +51,26 @@ musicxml articulations
 
 
 articulationMappings = {
+    '>': 'accent',
+    '.': 'staccato',
+    '-': 'tenuto',
+    '^': 'marcato',
+    "'": 'staccatissimo',
+    '<>': 'espressivo',
+
     'strong-accent': 'marcato',
     'soft-accent': 'espressivo',
     'detached-legato': 'portato',
-    'spiccato': 'staccatissimo'
+    'spiccato': 'staccatissimo',
+    'snap-pizzicato': 'snappizz',
+    'snappizzicato': 'snappizz',
+    'l.v.': 'laissezvibrer',
+    'lv': 'laissezvibrer'
 }
 
 
 def normalizeArticulation(articulation: str, default='') -> str:
-    if articulation in availableArticulations:
+    if articulation in articulations:
         return articulation
     elif (mapped := articulationMappings.get(articulation)) is not None:
         return mapped
@@ -56,6 +79,7 @@ def normalizeArticulation(articulation: str, default='') -> str:
 
 
 noteheadShapes = {
+    'normal',
     'cross',
     'harmonic',
     'triangleup',
@@ -63,8 +87,37 @@ noteheadShapes = {
     'triangle',
     'rhombus',
     'square',
-    'rectangle'
+    'rectangle',
+    'slash',
+    'diamond',
+    'do',
+    're',
+    'mi',
+    'fa',
+    'sol',
+    'la',
+    'ti',
+    'cluster'
 }
+
+
+_noteheadShapesMapping = {
+    'x': 'cross',
+    'circle-x': 'xcircle',
+    'unpitched': 'cross',
+    'flageolet': 'harmonic',
+    'inverted triangle': 'triangleup',
+    'slashed': 'diamond',
+    'so': 'sol'
+}
+
+
+def normalizeNoteheadShape(shape: str, default='') -> str:
+    if shape in noteheadShapes:
+        return shape
+    if _:=_noteheadShapesMapping.get(shape):
+        return _
+    return default
 
 
 # These dynamics are supported in both lilypond and musicxml
@@ -97,6 +150,23 @@ dynamicMappings = {
 }
 
 
+alterations = {
+    'natural': 0,
+    'natural-up': 25,
+    'quarter-sharp': 50,
+    'sharp-down': 75,
+    'sharp': 100,
+    'sharp-up': 125,
+    'three-quarters-sharp': 150,
+    'natural-down': -25,
+    'quarter-flat': -50,
+    'flat-up': -75,
+    'flat': -100,
+    'flat-down': -125,
+    'three-quarters-flat': -150
+}
+
+
 def normalizeDynamic(dynamic: str, default='') -> str:
     """
     Normalize a dynamic, returns *default* if the dynamic is invalid
@@ -114,12 +184,13 @@ def normalizeDynamic(dynamic: str, default='') -> str:
     return default
 
 
-availableOrnaments = {'trill', 'mordent', 'prall'}
+availableOrnaments = {'trill', 'mordent', 'prall', 'turn', 'tremolo'}
 
 
 ornamentMappings = {
     'trill-mark': 'trill',
-    'inverted-mordent': 'prall'
+    'inverted-mordent': 'prall',
+    'shake': 'prall'
 }
 
 
@@ -142,3 +213,57 @@ availableFermatas = {
 
 def normalizeFermata(fermata: str) -> str:
     return fermata if fermata in availableFermatas else 'normal'
+
+
+enclosureBoxes = {
+    'square',
+    'circle',
+    'rounded',
+    ''
+}
+
+boxMappings = {
+    'none': '',
+    'rounded-box': 'square',
+    'box': 'square',
+    True: 'square'
+}
+
+
+def normalizeEnclosure(enclosure: str|bool, default='') -> str:
+    if enclosure in enclosureBoxes:
+        return enclosure
+    if (_:=boxMappings.get(enclosure)) is not None:
+        return _
+    return default
+
+
+barstyles = {
+    'single',
+    'double',
+    'final',
+    'dashed',
+    'dotted',
+    'tick',
+    'short',
+    'double-thin',
+    'none'
+}
+
+
+barstyleMapping = {
+    'regular': 'single',
+    'heavy': 'solid',
+    'light-light': 'double-thin',
+    'light-heavy': 'final',
+    'heavy-light': 'final',
+    'heavy-heavy': 'double',
+    'hidden': 'none'
+}
+
+def normalizeBarstyle(barstyle: str, default='') -> str:
+    if barstyle in barstyles:
+        return barstyle
+    if (_:=barstyleMapping.get(barstyle.lower())) is not None:
+        return _
+    return default

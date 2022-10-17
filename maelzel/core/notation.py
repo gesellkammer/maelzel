@@ -3,8 +3,8 @@ Functionality to interface with maelzel.scoring
 
 """
 from __future__ import annotations
-from .config import CoreConfig
 from ._common import *
+from .config import CoreConfig
 from .workspace import getConfig, getWorkspace
 
 from maelzel import scoring
@@ -16,10 +16,10 @@ if TYPE_CHECKING:
     from typing import *
 
 
-def scoringPartToMusic21(part: Union[ scoring.Part, List[scoring.Notation] ],
-                         struct: Optional[ScoreStruct] = None,
-                         config: dict=None
-                         ) -> Union[m21.stream.Score, m21.stream.Part]:
+def scoringPartToMusic21(part: scoring.Part | list[scoring.Notation],
+                         struct: ScoreStruct = None,
+                         config: dict = None
+                         ) -> m21.stream.Score | m21.stream.Part:
     """
     Creates a m21 Part from the given events according to the config
 
@@ -40,10 +40,10 @@ def scoringPartToMusic21(part: Union[ scoring.Part, List[scoring.Notation] ],
     return m21score.voices[0]
 
 
-def scoringPartsToMusic21(parts: List[Union[scoring.Part, List[scoring.Notation]]],
-                          struct: Optional[ScoreStruct] = None,
-                          config:dict=None
-                          ) -> Union[m21.stream.Score]:
+def scoringPartsToMusic21(parts: list[scoring.Part | list[scoring.Notation]],
+                          struct: ScoreStruct = None,
+                          config: dict = None
+                          ) -> m21.stream.Score:
     """
     Render the given scoring Parts as music21
 
@@ -104,7 +104,8 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
         lilypondPngStaffsizeScale=cfg['show.lilypondPngStaffsizeScale'],
         glissHideTiedNotes=cfg['show.glissHideTiedNotes'],
         renderFormat=cfg['show.format'],
-        pngResolution=cfg['show.pngResolution']
+        pngResolution=cfg['show.pngResolution'],
+        horizontalSpacing=cfg['show.horizontalSpacing']
     )
     return renderOptions
 
@@ -113,17 +114,14 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig = None
                                       ) -> scoring.quant.QuantizationProfile:
     if cfg is None:
         cfg = getConfig()
-    complexity = cfg['quant.complexity']
-    preset = scoring.quant.quantdata.complexityPresets[complexity]
-    return scoring.quant.QuantizationProfile(
-            minBeatFractionAcrossBeats=cfg['quant.minBeatFractionAcrossBeats'],
-            nestedTuples=cfg['quant.nestedTuples'],
-            possibleDivisionsByTempo=preset['divisionsByTempo'],
-            divisionPenaltyMap=preset['divisionPenaltyMap']
-    )
+    preset = cfg['quant.complexity']
+    profile = scoring.quant.makeQuantizationProfile(preset)
+    profile.nestedTuples = cfg['quant.nestedTuples']
+    profile.minBeatFractionAcrossBeats = cfg['quant.minBeatFractionAcrossBeats']
+    return profile
 
 
-def renderWithActiveWorkspace(parts: List[scoring.Part],
+def renderWithActiveWorkspace(parts: list[scoring.Part],
                               backend: str = None,
                               renderoptions: scoring.render.RenderOptions = None,
                               scorestruct: ScoreStruct = None,

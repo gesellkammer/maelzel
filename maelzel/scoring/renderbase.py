@@ -114,6 +114,11 @@ class RenderOptions:
 
 
 class Renderer:
+    """
+    Renders a quantizedscore to a given format
+
+    This is an abstract base class for different backend renderers (lilypond, musicxml, etc)
+    """
 
     def __init__(self, score: quant.QuantizedScore, options:RenderOptions):
         assert score
@@ -147,13 +152,14 @@ class Renderer:
         """
         raise NotImplementedError("Please Implement this method")
 
-    def writeFormats(self) -> List[str]:
+    def writeFormats(self) -> list[str]:
         """
         Returns: a list of possible write formats (pdf, xml, musicxml, etc)
         """
         raise NotImplementedError("Please Implement this method")
 
     def write(self, outfile:str) -> None:
+        """Write the rendered score to a file"""
         raise NotImplementedError("Please Implement this method")
 
     def musicxml(self) -> Optional[str]:
@@ -177,9 +183,29 @@ class Renderer:
         return None
 
     def nativeScore(self) -> str:
+        """
+        Returns the string representation of the rendered score
+
+        This will be backend dependent. For a lilypond renderer this would be
+        the actual lilypond score; for a musicxml renderer this would be the
+        xml text, etc.
+
+        Returns:
+            the actual rendered score, as text (in lilypond format, xml format,
+            etc., depending on the backend)
+        """
         raise NotImplementedError("Please Implement this method")
 
-    def show(self, fmt='png', external=None):
+    def show(self, fmt='png', external=None) -> None:
+        """
+        Display the rendered score
+
+        Args:
+            fmt: one of 'png', 'pdf'
+            external: if True, for the use of an external app to open the rendered result.
+                Otherwise, if running inside jupyter this command will try to display
+                the result inline
+        """
         if fmt == 'pdf':
             external = True
         if fmt == 'png' and emlib.misc.inside_jupyter() and not external:

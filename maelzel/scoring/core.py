@@ -8,7 +8,7 @@ import itertools
 import logging
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import *
+    from typing import Union, Iterator
 
 logger = logging.getLogger("maelzel.scoring")
 
@@ -26,7 +26,6 @@ __all__ = (
     'durationsCanMerge',
     'notationsCanMerge',
     'fixOverlap',
-    'Annotation',
     'NotatedDuration',
 )
 
@@ -81,14 +80,12 @@ def notationsCanMerge(n0: Notation, n1: Notation) -> bool:
             (n0.durRatios == n1.durRatios) and
             (n0.pitches == n1.pitches) and
             (not n1.dynamic or n0.dynamic == n1.dynamic) and
-            not n1.annotations and
-            not n1.articulation and
+            # (n0.attachments == n1.attachments) and
+            # (n0.articulations == n1.articulations) and
             (n1.getNoteheads() == n0.getNoteheads()) and
-            not n1.gliss
-        ):
+            not n1.gliss):
         return durationsCanMerge(n0, n1)
     return False
-
 
 
 def mergeNotationsIfPossible(notations: list[Notation]) -> list[Notation]:
@@ -128,19 +125,21 @@ class Part(list):
 
     Args:
         events: the events (notes, chords) in this track
-        label: a label to identify this track in particular (a name)
+        name: a label to identify this track in particular (a name)
         groupid: an identification (given by makeGroupId), used to identify
             tracks which belong to a same group
     """
-    def __init__(self, events: list[Notation] = None, label: str = '', groupid: str = ''):
+    def __init__(self, events: list[Notation] = None, name='', groupid: str = '', shortname=''):
 
         if events:
             super().__init__(events)
         else:
             super().__init__()
         self.groupid: str = groupid
-        self.label: str = label
-        _fixGlissInPart(self)
+        self.name: str = name
+        self.shortname: str = ''
+        if events:
+            _fixGlissInPart(self)
 
     def __getitem__(self, item) -> Notation:
         return super().__getitem__(item)
@@ -220,7 +219,7 @@ class Part(list):
         operating in place.
         """
         notations = stackNotations(self)
-        return Part(notations, label=self.label, groupid=self.groupid)
+        return Part(notations, name=self.name, groupid=self.groupid)
 
 
 class Arrangement(list):
@@ -423,42 +422,48 @@ def distributeNotationsByClef(notations: list[Notation], filterRests=False, grou
         notations: the events to split
         groupid: if given, this id will be used to identify the
             generated tracks (see makeGroupId)
+        filterRests: if True, rests are skipped
 
     Returns:
          list of Parts (between 1 and 3, one for each clef)
     """
     parts = {'g': [], 'f': [], '15a': []}
-    lowPitch = 0.
     lowPitch = sum(60 - p for n in notations for p in n.pitches if p <= 60)
     splitPoint = 60 if lowPitch > 8 else 56
     lastj = len(notations) - 1
     for j, notation in enumerate(notations):
         assert notation.offset is not None
         if notation.isRest:
-            if filterRests:
-                continue
-            parts['g'].append(notation)
+            if not filterRests:
+                parts['g'].append(notation)
         elif len(notation) == 1:
-            pitch = notation.pitches[0]
-            clef = _pitchToClef(pitch, splitPoint)
+            clef = _pitchToClef(notation.pitches[0], splitPoint)
             parts[clef].append(notation)
         else:
             # a chord
-            chords = {'g': [], 'f': [], '15a': []}
+            indexesPerClef = {'g': [], 'f': [], '15a': []}
             noteheads = notation.getNoteheads()
             matchNext = j < lastj and notation.gliss
-            for i, pitch in enumerate(notation.pitches):
-                clef = notation.getClefHint(i)
-                if not clef:
-                    clef = _pitchToClef(pitch, splitPoint)
-                chords[clef].append(i)
-                if j < lastj and matchNext:
-                    notations[j+1].setClefHint(clef, i)
-            for clef, chord in chords.items():
-                if chord:
-                    partialChord = notation.clone(pitches=[notation.notename(i) for i in chord],
-                                                  notehead=[noteheads[i] for i in chord])
+            clefs = [notation.getClefHint(i) or _pitchToClef(pitch, splitPoint)
+                     for i, pitch in enumerate(notation.pitches)]
+            if set(clefs) == 1:
+                print("*** allchord", notation)
+                parts[clefs[0]].append(notation)
+            else:
+                for i, clef in enumerate(clefs):
+                    indexesPerClef[clef].append(i)
+                    if j < lastj and matchNext:
+                        notations[j+1].setClefHint(clef, i)
+                for clef, indexes in indexesPerClef.items():
+                    if not indexes: continue
+                    noteheads = [noteheads[i] for i in indexes]
+                    if not any(noteheads):
+                        noteheads = None
+                    partialChord = notation.clone(pitches=[notation.pitches[i] for i in indexes],
+                                                  noteheads=noteheads)
+                    notation.transferFixedSpellingTo(partialChord)
                     parts[clef].append(partialChord)
+
 
     # groupid = groupid or makeGroupId()
     # parts = [Part(part, groupid=groupid, label=name)

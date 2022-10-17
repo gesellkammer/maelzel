@@ -31,7 +31,7 @@ setup(
     ],
     include_package_data=True,
     install_requires=[
-        "emlib>=1.2.0",
+        "emlib>=1.6.0",
         "numpy",
         "scipy",
         "matplotlib",
@@ -52,11 +52,12 @@ setup(
         "resampy",
         "psutil",
         "csoundengine>=1.1",
-        "pitchtools>=1.3",
+        "pitchtools>=1.7",
         "lxml",
         "quicktions",
         "rich",
-        "risset"
+        "risset",
+        "chardet"
     ],
     license="BSD",
     zip_safe=False,

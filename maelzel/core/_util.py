@@ -14,9 +14,8 @@ from maelzel.colortheory import safeColors
 from . import environment
 
 if TYPE_CHECKING:
-    from typing import Union, Optional, TypeVar
+    from typing import Union, Optional
     from ._typedefs import *
-    # T = TypeVar("T")
 
 
 @cache
@@ -290,7 +289,7 @@ class NoteProperties:
 
     .. seealso:: :func:`parseNote`
     """
-    pitch: Union[str, list[str]]
+    notename: Union[str, list[str]]
     """A pitch or a list of pitches"""
 
     dur: Optional[Rat]
@@ -328,6 +327,7 @@ def parseNote(s: str) -> NoteProperties:
     4G:^                               4G            None  {'articulation': 'accent'}
     4A/8                               4A            0.5
     4Gb/4.:pp                          4Gb           1.5   {dynamic: 'pp'}
+    4A+!                               4A+           None  {'fixPitch': True}
     ================================== ============= ====  ===========
 
 
@@ -339,7 +339,7 @@ def parseNote(s: str) -> NoteProperties:
 
     4C#~
     """
-    dur, properties = None, None
+    dur, properties = None, {}
     if ":" not in s:
         if "/" in s:
             # 4Eb/8. -> 4Eb, dur=0.75
@@ -347,9 +347,16 @@ def parseNote(s: str) -> NoteProperties:
             dur = _parseSymbolicDuration(symbolicdur)
         else:
             pitch = s
+        if pitch[-1] == "~":
+            properties['tied'] = True
+            pitch = pitch[:-1]
+        if pitch[-1] == '!':
+            properties['fixPitch'] = True
+            pitch = pitch[:-1]
+
+
     else:
         pitch, rest = s.split(":", maxsplit=1)
-        properties = {}
         if "/" in pitch:
             # 4Eb/8  = 4Eb, dur=0.5
             pitch, symbolicdur = pitch.split("/")
@@ -357,6 +364,9 @@ def parseNote(s: str) -> NoteProperties:
 
         if pitch[-1] == "~":
             properties['tied'] = True
+            pitch = pitch[:-1]
+        if pitch[-1] == '!':
+            properties['fixPitch'] = True
             pitch = pitch[:-1]
 
         parts = rest.split(":")
@@ -373,10 +383,8 @@ def parseNote(s: str) -> NoteProperties:
                 elif "=" in part:
                     key, value = part.split("=", maxsplit=1)
                     properties[key] = value
-        if not properties:
-            properties = None
     notename = [p.strip() for p in pitch.split(",",)] if "," in pitch else pitch
-    return NoteProperties(pitch=notename, dur=dur, properties=properties)
+    return NoteProperties(notename=notename, dur=dur, properties=properties)
 
 
 _knownDynamics = {
@@ -407,7 +415,16 @@ def dictRemoveNoneKeys(d: dict):
         del d[k]
 
 
-def htmlSpan(text, color: str) -> str:
+def htmlSpan(text, color: str = '', fontsize: str = '', italic=False) -> str:
     if color.startswith(':'):
         color = safeColors[color[1:]]
-    return f'<span style="color:{color}">{str(text)}</span>'
+    styleitems = {}
+    if color:
+        styleitems['color'] = color
+    if fontsize:
+        styleitems['font-size'] = fontsize
+    stylestr = ";".join(f"{k}:{v}" for k, v in styleitems.items())
+    text = str(text)
+    if italic:
+        text = f'<i>{text}</i>'
+    return f'<span style="{stylestr}">{text}</span>'

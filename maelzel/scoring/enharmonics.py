@@ -9,11 +9,14 @@ from dataclasses import dataclass
 import pitchtools as pt
 import functools
 from collections import deque
+from math import sqrt
 
 from .notation import Notation
 
+from typing import Sequence
 
-@dataclass
+
+@dataclass(unsafe_hash=True)
 class EnharmonicOptions:
     groupSize: int = 5
     """Max size of a group to be evaluated for best enharmonic variant"""
@@ -22,7 +25,7 @@ class EnharmonicOptions:
 
     fixedSlotMaxHistory: int = 4
 
-    threeQuarterMicrotonePenalty:int = 10.01
+    threeQuarterMicrotonePenalty: int = 10.01
     """penalty applied for 3/4 microtones like #+ or b- (prefer A+ over Bb-)"""
 
     respellingPenalty: int = 75
@@ -34,6 +37,12 @@ class EnharmonicOptions:
 
     unisonAlterationPenalty: int = 12
     "penalty for C / C+"
+
+    chordUnisonAlterationPenalty: int = 40
+    "penalty for C / C+ within a chord"
+
+    chordMispelledInterval: int = 20
+    "penalty for D - Gb within a chord"
 
     maxPenalty: int = 999999
 
@@ -66,6 +75,19 @@ def isEnharmonicVariantValid(notes: list[str]) -> bool:
 
 
 def groupPenalty(notes: list[str], options: EnharmonicOptions = None) -> tuple[float, str]:
+    """
+    Evaluate the enharmonic variant as a group
+
+    Args:
+        notes: the list of pitches
+        options: an instance of EnharmonicOptions or None to use default
+
+    Returns:
+        a tuple (penalty, penalty sources), where penalty is an abstract
+        number where higher means less fit, and penalty sources is a comma
+        separated string collecting all sources of penalty
+
+    """
     if options is None:
         options = _defaultEnharmonicOptions
     total = 0
@@ -117,7 +139,7 @@ def groupPenalty(notes: list[str], options: EnharmonicOptions = None) -> tuple[f
             penaltysources.append("confusingInterval C Eb-")
             total += options.confusingIntervalPenalty * 3
         if n0.chromatic_alteration != 0 and n1.chromatic_alteration != 0:
-            if(n0.alteration_direction(min_alteration=0.25) != n1.alteration_direction(0.25)):
+            if n0.alteration_direction(min_alteration=0.25) != n1.alteration_direction(0.25):
                 if n0.diatonic_alteration == n1.diatonic_alteration:
                     total += options.confusingIntervalPenalty * 2
                 else:
@@ -137,19 +159,22 @@ def groupPenalty(notes: list[str], options: EnharmonicOptions = None) -> tuple[f
     return total, ", ".join(penaltysources)
 
 
-def intervalsPenalty(notes: list[str], options: EnharmonicOptions
+def intervalsPenalty(notes: list[str], chord=False, options: EnharmonicOptions = None
                      ) -> tuple[float, str]:
+    if options is None:
+        options = _defaultEnharmonicOptions
     total = 0
     sources = []
     for n0, n1 in iterlib.window(notes, 2):
-        penalty, source = intervalPenalty(n0, n1, options)
+        penalty, source = intervalPenalty(n0, n1, chord=chord, options=options)
         total += penalty
         sources.append(source)
     sources = [s for s in sources if s]
     return total, ", ".join(sources)
 
 
-def intervalPenalty(n0: str, n1: str, options: EnharmonicOptions
+@functools.cache
+def intervalPenalty(n0: str, n1: str, chord=False, options: EnharmonicOptions = None
                     ) -> tuple[float, str]:
     """
     Rate the penalty of the interval between n0 and n1
@@ -157,11 +182,15 @@ def intervalPenalty(n0: str, n1: str, options: EnharmonicOptions
     Args:
         n0: the first notename
         n1: the second notename
+        chord: if True, evaluate how proper this interval is in the context
+            of a chord rather than a melody
         options: penalty options
 
     Returns:
         a tuple (penalty, penalty sources)
     """
+    if options is None:
+        options = _defaultEnharmonicOptions
     if pt.n2m(n0) > pt.n2m(n1):
         n0, n1 = n1, n0
     interval = pt.notated_interval(n0, n1)
@@ -186,7 +215,12 @@ def intervalPenalty(n0: str, n1: str, options: EnharmonicOptions
     notated0 = pt.notated_pitch(n0)
     notated1 = pt.notated_pitch(n1)
     penalties = []
+    mispelledInterval = options.chordMispelledInterval if chord else options.mispelledInterval
     _ = penalties.append
+
+    if chord and notated0.vertical_position == notated1.vertical_position:
+        _((options.chordUnisonAlterationPenalty * 3, 'crammed unison'))
+
     if ((notated0.diatonic_alteration <= -1 and notated1.diatonic_alteration >= 1) or
             (notated0.diatonic_alteration >= 1 and notated1.diatonic_alteration <= -1)):
         _((options.confusingIntervalPenalty * 1, "Accidentals in mixed directions"))
@@ -206,23 +240,27 @@ def intervalPenalty(n0: str, n1: str, options: EnharmonicOptions
             _((options.unisonAlterationPenalty*2, "unisonAlteration"))
         elif notated0.chromatic_alteration != 0 and notated1.chromatic_alteration == 0:
             # 4E+ 4E
-            _((options.unisonAlterationPenalty, f"unison"))
+            if not chord:
+                _((options.unisonAlterationPenalty, f"unison"))
+            else:
+                _((options.chordUnisonAlterationPenalty, f"unison"))
         else:
             _((options.unisonAlterationPenalty, "unisonAlteration"))
     elif dpos == 1:
         # 4C 4D#, 4G 4A#  -> better 4C 4Eb or 4G 4Bb
         if dpitch >= 3:
-            _((options.mispelledInterval, "mispelled"))
+            _((mispelledInterval, "mispelled"))
+
     elif dpos7 == 2:
         if dpitch12 > 5:
-            _((options.mispelledInterval , f"mispelledInterval"))
+            _((mispelledInterval, "mispelled"))
         elif dpitch12 >= 4.5:
             _((options.confusingIntervalPenalty, "Db/F+"))
         elif dpitch12 <= 1.5:
             # 4F# 4Ab- (dpitch=2)
-            _((options.mispelledInterval*2, f"mispelledInterval!"))
+            _((mispelledInterval*2, "mispelledInterval!"))
         elif dpitch12 <= 2:
-            _((options.mispelledInterval, f"mispelledInterval"))
+            _((mispelledInterval, "mispelledInterval"))
     elif dpos7 == 3:
         # 4D 4Gb (dpitch=4)
         if dpitch12 < 3.5:
@@ -232,29 +270,30 @@ def intervalPenalty(n0: str, n1: str, options: EnharmonicOptions
             # 4D 4Gb-
             _((options.confusingIntervalPenalty * 10, "confusing"))
         elif dpitch12 <= 4:
-            _((options.mispelledInterval, "mispelled"))
+            _((mispelledInterval, "mispelledInterval"))
         elif dpitch12 == 4.5:
             _((options.confusingIntervalPenalty*1.5, "D/G-"))
         elif dpitch12 >= 7:
             # 4Db 4G#
-            _((options.mispelledInterval, "mispelled"))
-    elif dpos7 == 4: # a 5th
+            _((mispelledInterval, "mispelledInterval"))
+    elif dpos7 == 4:  # a 5th
         if dpitch12 >= 9:
             # 4Db 4A#
-            _((options.mispelledInterval, "mispelled"))
+            _((mispelledInterval, "mispelledInterval"))
         elif dpitch12 <= 5:
             # 4D# 4Ab
-            _((options.mispelledInterval, "mispelled"))
-    elif dpos7 == 5: # a 6th
+            _((mispelledInterval, "mispelledInterval"))
+    elif dpos7 == 5:  # a 6th
         # C# Ab (7) / Db B (10)
         if not 7 < dpitch12 < 10:
-            _((options.mispelledInterval, "mispelled"))
+            _((mispelledInterval, "mispelled"))
     total = sum(p for p, s in penalties)
     source = ", ".join(s for p, s in penalties) + f"({n0}/{n1})"
     return total, source
 
 
-def _enharmonicPenalty(notes: list[str], options:EnharmonicOptions) -> float:
+def enharmonicPenalty(notes: list[str], options: EnharmonicOptions
+                      ) -> float:
     """
     Rate how bad this enharmonic variant is
 
@@ -269,8 +308,7 @@ def _enharmonicPenalty(notes: list[str], options:EnharmonicOptions) -> float:
     """
     intervalpenalty, sources0 = intervalsPenalty(notes, options=options)
     grouppenalty, sources1 = groupPenalty(notes, options=options)
-    total = intervalpenalty + grouppenalty
-    # print(notes, total, "intervals", intervalpenalty, sources0, "group", grouppenalty, sources1)
+    total = sqrt(intervalpenalty**2 + grouppenalty**2)
     return total
 
 
@@ -280,7 +318,7 @@ class _SpellingHistory:
         self.pitchHistory = pitchHistory
         self.dequelen = itemHistory
         self.deque: deque[list[pt.NotatedPitch]] = deque(maxlen=self.dequelen)
-        self.divsPerSemitone= divsPerSemitone
+        self.divsPerSemitone = divsPerSemitone
         numslots = 12 * divsPerSemitone
         self.slots = {idx: 0 for idx in range(numslots)}
         self.refcount = {idx: 0 for idx in range(numslots)}
@@ -288,13 +326,13 @@ class _SpellingHistory:
     def clear(self):
         self.deque.clear()
         numslots = 12 * self.divsPerSemitone
-        self.slots = {idx:0 for idx in range(numslots)}
-        self.refcount = {idx:0 for idx in range(numslots)}
+        self.slots = {idx: 0 for idx in range(numslots)}
+        self.refcount = {idx: 0 for idx in range(numslots)}
 
     def add(self, items: list[str]) -> None:
         ns = [pt.notated_pitch(item) for item in items]
         numpitches = sum(len(item) for item in self.deque)
-        if len(self.deque) == self.itemHistory or numpitches>=self.pitchHistory:
+        if len(self.deque) == self.itemHistory or numpitches >= self.pitchHistory:
             evicted = self.deque.popleft()
             # an append will evict an item
             for n in evicted:
@@ -312,7 +350,6 @@ class _SpellingHistory:
                                  f"(previous direction: {previousDirection}")
             self.slots[idx] = direction
             self.refcount[idx] += 1
-
 
         self.deque.append(ns)
 
@@ -353,23 +390,89 @@ def _rateChordSpelling(notes: list[str], options: EnharmonicOptions) -> tuple[fl
     totalpenalty = 0.
     sources = []
     for a, b in iterlib.combinations(notes, 2):
-        penalty, source = intervalPenalty(a, b, options)
+        penalty, source = intervalPenalty(a, b, chord=True, options=options)
         totalpenalty += penalty
         sources.append(source)
     sourcestr = ":".join(sources)
-    # print(notes, totalpenalty, sourcestr)
     return totalpenalty, sourcestr
 
 
-def fixEnharmonicsInPlace(notations: list[Notation], eraseFixedNotes=True,
+def _makeFixedSlots(fixedNotes: list[str]) -> dict[int, int]:
+    slots = {}
+    for n in fixedNotes:
+        parsed = pt.notated_pitch(n)
+        slots[parsed.chromatic_index] = parsed.alteration_direction()
+    return slots
+
+
+def bestChordSpelling(notes: list[str] | tuple[str], options: EnharmonicOptions=None
+                      ) -> tuple[str]:
+    if isinstance(notes, list):
+        notes = tuple(notes)
+    return _bestChordSpelling(notes, options=options)
+
+
+@functools.cache
+def _bestChordSpelling(notes: tuple[str], options: EnharmonicOptions=None
+                      ) -> tuple[str]:
+    if options is None:
+        options = _defaultEnharmonicOptions
+    fixedNotes = []
+    notelist = list(notes)
+    for i, n in enumerate(notes):
+        if n.endswith('!'):
+            notelist[i] = n = n[:-1]
+            fixedNotes.append(n)
+    slots = _makeFixedSlots(fixedNotes) if fixedNotes else None
+    variants = pt.enharmonic_variations(notelist, fixedslots=slots)
+    if not variants:
+        return notes
+    variants.sort(key=lambda v: _rateChordSpelling(v, options)[0])
+    return variants[0]
+
+
+def pitchSpellings(n: Notation) -> tuple[str]:
+    """
+    Returns the explict spelling or the most appropriate spelling for the given Notation
+
+    Args:
+        n: the notation
+
+    Returns:
+        a tuple of notenames representing the most appropriate spelling for the pitches
+        in this notation
+
+    """
+    if len(n) == 1:
+        return (n.notename(0),)
+    notenames = [n.notename(idx, addExplicitMark=True) for idx in range(len(n))]
+    return bestChordSpelling(notenames)
+
+
+def _notationNotename(n: Notation, idx=0) -> str:
+    if fixed := n.getFixedNotename(idx):
+        return fixed
+    if len(n.pitches) == 0:
+        return pt.m2n(n.pitches[0])
+    bestspelling = bestChordSpelling(n.notenames)
+    return bestspelling[idx]
+
+
+def fixEnharmonicsInPlace(notations: list[Notation], eraseFixedNotes=False,
                           options: EnharmonicOptions = None,
                           ) -> None:
     # First fix single notes and upper note of chords, then fix each chord
     notations = [n for n in notations
                  if not n.isRest and all(p > 10 for p in n.pitches)]
-
     if options is None:
         options = _defaultEnharmonicOptions
+
+    if len(notations) == 1:
+        n = notations[0]
+        spellings = pitchSpellings(n)
+        for i, spelling in enumerate(spellings):
+            n.fixNotename(spelling, i)
+        return
 
     spellingHistory = _SpellingHistory()
 
@@ -382,13 +485,15 @@ def fixEnharmonicsInPlace(notations: list[Notation], eraseFixedNotes=True,
     for group in iterlib.window_fixed_size(notations, groupSize, options.groupStep):
         # Now we need the enharmonic variations but only from those
         # notes which are not fixed yet
-        notenamesInGroup = [n.notename() for n in group]
+        # notenamesInGroup = [n.notename() for n in group]
+        notenamesInGroup = [n.notename(0) for n in group]
+        chordSpelling = [bestChordSpelling(n.notenames) if len(n) > 1 else None
+                         for n in group]
         unfixed = [n for n in group if n.getFixedNotename() is None]
         if not unfixed:
             continue
         unfixedNotenames = [n.notename() for n in unfixed]
         unfixedIndexes = [i for i, n in enumerate(group) if n.getFixedNotename() is None]
-        assert unfixedIndexes
         partialVariations = pt.enharmonic_variations(unfixedNotenames,
                                                      fixedslots=spellingHistory.slots)
         if not partialVariations:
@@ -405,7 +510,7 @@ def fixEnharmonicsInPlace(notations: list[Notation], eraseFixedNotes=True,
         validVariations = [v for v in variations if isEnharmonicVariantValid(v)]
         if not validVariations:
             validVariations = variations
-        validVariations.sort(key=functools.partial(_enharmonicPenalty, options=options))
+        validVariations.sort(key=functools.partial(enharmonicPenalty, options=options))
         solution = validVariations[0]
         for idx, n in enumerate(group):
             if len(n) == 1:
@@ -413,15 +518,15 @@ def fixEnharmonicsInPlace(notations: list[Notation], eraseFixedNotes=True,
                     n.fixNotename(solution[idx])
                     spellingHistory.addNotation(n, force=True)
 
-        # for idx, n in enumerate(group):
-            elif len(n) > 1:
+            else:
+                # A Chord
                 n.fixNotename(solution[idx], 0)
                 fixedslots = spellingHistory.slots.copy()
                 fixedslots[n.pitchIndex(2, 0)] = n.accidentalDirection(0)
                 assert all(abs(value) <= 1 for value in fixedslots.values())
                 chordVariants = pt.enharmonic_variations(n.notenames, fixedslots=fixedslots)
                 _verifyVariants(chordVariants, fixedslots)
-                chordVariants.sort(key=lambda variant:_rateChordSpelling(variant, options)[0])
+                chordVariants.sort(key=lambda variant: _rateChordSpelling(variant, options)[0])
                 chordSolution = chordVariants[0]
                 for i, notename in enumerate(chordSolution):
                     n.fixNotename(notename, idx=i)
@@ -433,18 +538,19 @@ def fixEnharmonicsInPlace(notations: list[Notation], eraseFixedNotes=True,
     for n0, n1 in iterlib.window(notations, 2):
         if n0.isRest or n1.isRest:
             continue
-        if n0.pitches[0]<n1.pitches[0] and \
-                n0.verticalPosition()>n1.verticalPosition():
+        if n0.pitches[0] < n1.pitches[0] and \
+                n0.verticalPosition() > n1.verticalPosition():
             # 4Db- : 4C#  -> 4C+ : 4Db
             n0.fixNotename(pt.enharmonic(n0.notename()))
             n1.fixNotename(pt.enharmonic(n1.notename()))
-        elif n0.pitches[0]>n1.pitches[0] and \
-                n0.verticalPosition()<n1.verticalPosition():
+        elif n0.pitches[0] > n1.pitches[0] and \
+                n0.verticalPosition() < n1.verticalPosition():
             # 4C# : 4Db-  -> 4Db : 4C+
             n0.fixNotename(pt.enharmonic(n0.notename()))
             n1.fixNotename(pt.enharmonic(n1.notename()))
 
     return
+
 
 def _verifyVariants(variants: list[tuple[str, ...]], slots):
     for variant in variants:
