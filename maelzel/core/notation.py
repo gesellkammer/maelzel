@@ -64,7 +64,7 @@ def scoringPartsToMusic21(parts: list[scoring.Part | list[scoring.Notation]],
     renderOptions = scoring.render.RenderOptions(divsPerSemitone=divsPerSemitone,
                                                  showCents=showCents,
                                                  centsFontSize=centsFontSize)
-    quantProfile = scoring.quant.QuantizationProfile(nestedTuples=False)
+    quantProfile = scoring.quant.QuantizationProfile(nestedTuplets=False)
     for part in parts:
         scoring.stackNotationsInPlace(part)
     renderer = scoring.render.quantizeAndRender(parts, struct=struct,
@@ -116,7 +116,7 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig = None
         cfg = getConfig()
     preset = cfg['quant.complexity']
     profile = scoring.quant.makeQuantizationProfile(preset)
-    profile.nestedTuples = cfg['quant.nestedTuples']
+    profile.nestedTuplets = cfg['quant.nestedTuplets']
     profile.minBeatFractionAcrossBeats = cfg['quant.minBeatFractionAcrossBeats']
     return profile
 

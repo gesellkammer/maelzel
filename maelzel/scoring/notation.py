@@ -26,7 +26,10 @@ __all__ = (
     'makeRest',
     'makeGroupId',
     'mergeNotations',
-    'notationsToCoreEvents'
+    'notationsToCoreEvents',
+    'notationsCanMerge',
+    'durationsCanMerge',
+    'mergeNotationsIfPossible'
 )
 
 
@@ -152,6 +155,8 @@ class Notation:
         if predicate:
             attachments = [a for a in attachments if predicate(a)]
         return attachments
+
+
 
     def _queryAttachment(self, cls: str|type, attr: str, default=None):
         if isinstance(cls, str):
@@ -467,8 +472,6 @@ class Notation:
         if self.spanners:
             out.spanners = self.spanners.copy()
         return out
-
-
 
     def symbolicDuration(self) -> F:
         """
@@ -906,7 +909,18 @@ def makeRest(duration: time_t, offset: time_t = None) -> Notation:
     return Notation(duration=asF(duration), offset=offset, isRest=True)
 
 
-def notationsToCoreEvents(notations: list[Notation]) -> list[maelzel.core.Note | maelzel.core.Chord]:
+def notationsToCoreEvents(notations: list[Notation]
+                          ) -> list[maelzel.core.Note | maelzel.core.Chord]:
+    """
+    Convert notations to their corresponding maelzel.core Note or Chord
+
+    Args:
+        notations: a list of Notations to convert
+
+    Returns:
+        a list of Note/Chord, corresponding to the input notations
+
+    """
     from maelzel.core import Note, Chord, Rest
     out = []
     for n in notations:
@@ -938,4 +952,93 @@ def notationsToCoreEvents(notations: list[Notation]) -> list[maelzel.core.Note |
                           gliss=n.gliss,
                           properties=n.properties)
             out.append(chord)
+    return out
+
+
+def durationsCanMerge(n0: Notation, n1: Notation) -> bool:
+    """
+    True if these Notations can be merged based on duration and start/end
+
+    Two durations can be merged if their sum is regular, meaning
+    the sum has a numerator of 1, 2, 3, 4, or 7 (3 means a dotted
+    note, 7 a double dotted note) and the denominator is <= 64
+    (1/1 being a quarter note)
+
+    Args:
+        n0: one Notation
+        n1: the other Notation
+
+    Returns:
+        True if they can be merged
+    """
+    dur0 = n0.symbolicDuration()
+    dur1 = n1.symbolicDuration()
+    sumdur = dur0 + dur1
+    num, den = sumdur.numerator, sumdur.denominator
+    if den > 64 or num not in {1, 2, 3, 4, 7}:
+        return False
+
+    # Allow: r8 8 + 4 = r8 4.
+    # Don't allow: r16 8. + 8. r16 = r16 4. r16
+    grid = F(1, den)
+    if (num == 3 or num == 7) and ((n0.offset % grid) > 0 or (n1.end % grid) > 0):
+        return False
+    return True
+
+
+def notationsCanMerge(n0: Notation, n1: Notation) -> bool:
+    """
+    Returns True if n0 and n1 can me merged
+
+    Two Notations can merge if the resulting duration is regular. A regular
+    duration is one which can be represented via **one** notation (a quarter,
+    a half, a dotted 8th, a double dotted 16th are all regular durations,
+    5/8 of a quarter is not)
+
+    """
+    if n0.isRest and n1.isRest:
+        return (n0.durRatios == n1.durRatios and
+                durationsCanMerge(n0, n1))
+    # TODO: decide what to do about spanners
+    if (
+            n0.tiedNext and
+            n1.tiedPrev and
+            (n0.durRatios == n1.durRatios) and
+            (n0.pitches == n1.pitches) and
+            (not n1.dynamic or n0.dynamic == n1.dynamic) and
+            (not n1.attachments or set(n1.attachments).issubset(set(n0.attachments))) and
+            (n1.getNoteheads() == n0.getNoteheads()) and
+            not n1.gliss):
+        return durationsCanMerge(n0, n1)
+    return False
+
+
+def mergeNotationsIfPossible(notations: list[Notation]) -> list[Notation]:
+    """
+    Merge the given notations into one, if possible
+
+    If two consecutive notations have same .durRatio and merging them
+    would result in a regular note, merge them::
+
+        8 + 8 = q
+        q + 8 = q·
+        q + q = h
+        16 + 16 = 8
+
+    In general::;
+
+        1/x + 1/x     2/x
+        2/x + 1/x     3/x  (and viceversa)
+        3/x + 1/x     4/x  (and viceversa)
+        6/x + 1/x     7/x  (and viceversa)
+    """
+    assert len(notations) > 1
+    out = [notations[0]]
+    for n1 in notations[1:]:
+        if notationsCanMerge(out[-1], n1):
+            out[-1] = out[-1].mergeWith(n1)
+        else:
+            out.append(n1)
+    assert len(out) <= len(notations)
+    assert sum(n.duration for n in out) == sum(n.duration for n in notations)
     return out

@@ -204,7 +204,7 @@ _default = {
     'rec.compressionBitrate': 224,
     'html.theme': 'light',
     'quant.minBeatFractionAcrossBeats': 1.0,
-    'quant.nestedTuples': False,
+    'quant.nestedTuplets': True,
     'quant.complexity': 'high',
     'logger.level': 'INFO',
 }
@@ -411,7 +411,7 @@ _docs = {
     'quant.complexity':
         'Controls the allowed complexity in the notation. The higher the complexity,'
         ' the more accurate the quantization, at the cost of a more complex notation. ',
-    'quant.nestedTuples':
+    'quant.nestedTuplets':
         'Are nested tuples allowed when quantizing? Not all display backends support'
         ' nested tuples (musescore, used to render musicxml '
         ' has no support for nested tuples)',

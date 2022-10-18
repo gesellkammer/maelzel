@@ -516,6 +516,16 @@ def _handleSpannerPost(spanner: _spanner.Spanner, state: RenderState) -> str|Non
     return ''.join(out)
 
 
+def _forceBracketsForNestedTuplets(group: DurationGroup):
+    if group.durRatio != (1, 1):
+        for item in group.items:
+            if isinstance(item, DurationGroup) and item.durRatio != (1, 1):
+                item.setProperty('forceTupletBracket', True)
+    for item in group.items:
+        if isinstance(item, DurationGroup):
+            _forceBracketsForNestedTuplets(item)
+
+
 def renderGroup(group: DurationGroup,
                 durRatios:list[F],
                 options: RenderOptions,
@@ -539,6 +549,7 @@ def renderGroup(group: DurationGroup,
     _ = seq.append
     indentSize = 2
     # \subdivision 3/2 { b4 b b }
+
     if group.durRatio != (1, 1):
         durRatios.append(F(*group.durRatio))
         tupletStarted = True
@@ -547,6 +558,10 @@ def renderGroup(group: DurationGroup,
         # _(f"\\subdivision {num}/{den} {{\n")
         _(f"\\tuplet {num}/{den} {{\n")
         numIndents += 1
+        if group.getProperty('forceTupletBracket'):
+            _(_spaces[:numIndents * indentSize])
+            _("\once \override TupletBracket.bracket-visibility = ##t")
+
     else:
         tupletStarted = False
     _(_spaces[:numIndents*indentSize])
@@ -609,7 +624,6 @@ def renderGroup(group: DurationGroup,
         _(_spaces[:numIndents*indentSize])
         _("}\n")
     return ''.join(seq)
-
 
 
 def quantizedPartToLily(part: quant.QuantizedPart,
@@ -735,6 +749,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
             state.dynamic = ''
         else:
             for group in measure.groups():
+                _forceBracketsForNestedTuplets(group)
                 _(renderGroup(group, durRatios=[], options=options,
                               numIndents=indents, state=state))
         indents -= 1
