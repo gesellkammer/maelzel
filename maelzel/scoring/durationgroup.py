@@ -41,6 +41,17 @@ class DurationGroup:
     def __init__(self, durRatio: durratio_t | Rational, items: list[Notation | 'DurationGroup'] = None):
         self.durRatio: durratio_t = durRatio if isinstance(durRatio, tuple) else rationalToTuple(durRatio)
         self.items: list[Notation | 'DurationGroup'] = items if items else []
+        self.properties: dict | None = None
+
+    def setProperty(self, key: str, value) -> None:
+        if self.properties is None:
+            self.properties = {}
+        self.properties[key] = value
+
+    def getProperty(self, key: str, default=None):
+        if self.properties is None:
+            return default
+        return self.properties.get(key, default)
 
     @property
     def ratio(self) -> F:

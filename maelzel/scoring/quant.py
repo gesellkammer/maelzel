@@ -82,8 +82,8 @@ class QuantizationProfile:
     """
     Most important parameters:
 
-    - nestedTuples: if True, allow nested tuples. NB: musicxml rendered
-      via MuseScore does not support nested tuples
+    - nestedTuplets: if True, allow nested tuplets. NB: musicxml rendered
+      via MuseScore does not support nested tuplets
     - gridErrorWeight: a weight to control the overall effect of offset
       and duration errors when fitting events to a grid. A higher
       weight will cause quantization to minimize offset and duration
@@ -109,11 +109,11 @@ class QuantizationProfile:
 
     Lower level parameters to calculate division complexity:
 
-    - numNestedTuplesPenaltyWeight: how
+    - numNestedTupletsPenaltyWeight: how
 
     """
-    nestedTuples: bool = False
-    """Are nested tuples allowed?"""
+    nestedTuplets: bool = False
+    """Are nested tuplets allowed?"""
 
     gridErrorWeight: float = 0.5
     """Weight of the overall effect of offset and duration errors when fitting events to a grid. 
@@ -143,7 +143,7 @@ class QuantizationProfile:
     divisionCardinalityPenaltyMap: dict[int, float] = _factory({1:0.0, 2:0.1, 3:0.4})
     """Penalty applied when different divisions are used within a beat (e.g 4 where one 8 is a 3-plet and the other a 5-plet)"""
 
-    numNestedTuplesPenalty: list[float] = _factory([0., 0.1, 0.4, 0.5, 0.8, 0.8])
+    numNestedTupletsPenalty: list[float] = _factory([0., 0.1, 0.4, 0.5, 0.8, 0.8])
     """Penalty applied to nested levels by level"""
 
     numSubdivsPenaltyMap: dict[int, float] = _factory({1: 0.0, 2: 0.0, 3: 0.0})
@@ -155,7 +155,7 @@ class QuantizationProfile:
     cardinalityPenaltyWeight: float = 0.1
     """Weight of cardinality"""
 
-    numNestedTuplesPenaltyWeight: float = 1.0
+    numNestedTupletsPenaltyWeight: float = 1.0
     """Weight of sublevel penalty"""
 
     numSubdivisionsPenaltyWeight: float = 0.2
@@ -175,7 +175,7 @@ class QuantizationProfile:
     _cachedDivisionPenalty: dict[tuple[int, ...], tuple[float, str]] = _field(default_factory=dict)
 
     def possibleBeatDivisionsByTempo(self, tempo: number_t) -> list[division_t]:
-        if divs := self._cachedDivisionsByTempo.get((tempo, self.nestedTuples)):
+        if divs := self._cachedDivisionsByTempo.get((tempo, self.nestedTuplets)):
             return divs
         divsByTempo = self.possibleDivisionsByTempo
         divs = None
@@ -185,10 +185,10 @@ class QuantizationProfile:
                 break
         if not divs:
             raise ValueError("No divisions for the given tempo")
-        if not self.nestedTuples:
+        if not self.nestedTuplets:
             divs = [div for div in divs
-                    if not _isNestedTupleDivision(div)]
-        self._cachedDivisionsByTempo[(tempo, self.nestedTuples)] = divs
+                    if not _isNestedTupletDivision(div)]
+        self._cachedDivisionsByTempo[(tempo, self.nestedTuplets)] = divs
         return divs
 
     def divisionPenalty(self, division, nestingLevel=0, maxPenalty=0.7,
@@ -202,8 +202,19 @@ class QuantizationProfile:
             self._cachedDivisionPenalty[division] = (penalty, info)
         return penalty, info
 
+    @staticmethod
+    def fromProfile(profile: str,
+                    nestedTuplets: bool = None,
+                    blacklist: list[division_t] = None,
+                    **kws
+                    ) -> QuantizationProfile:
+        return makeQuantizationProfile(profile=profile,
+                                       nestedTuplets=nestedTuplets,
+                                       blacklist=blacklist,
+                                       **kws)
 
-def _isNestedTupleDivision(div: division_t) -> bool:
+
+def _isNestedTupletDivision(div: division_t) -> bool:
     if isinstance(div, int):
         # A shortcut division, like 3 or 5
         return False
@@ -214,7 +225,8 @@ defaultQuantizationProfile = QuantizationProfile()
 
 
 def makeQuantizationProfile(complexity='high',
-                            nestedTuples=True,
+                            nestedTuplets: bool = None,
+                            blacklist: list[division_t] = None,
                             **kws) -> QuantizationProfile:
     """
     Create a QuantizationProfile from a preset
@@ -222,7 +234,8 @@ def makeQuantizationProfile(complexity='high',
     Args:
         complexity: complexity presets, one of 'low', 'medium', 'high', 'highest'
             (see ``maelzel.scoring.quantdata.complexityPresets``)
-        nestedTuples: if True, allow nested tuples (tuples inside other tuples).
+        nestedTuplets: if True, allow nested tuplets.
+        blacklist: if given, a list of divisions to exclude
         kws: any keywords passed to :class:`QuantizationProfile`
 
     Returns:
@@ -239,9 +252,15 @@ def makeQuantizationProfile(complexity='high',
     for key in keys:
         value = cascade(key, kws, preset, defaultQuantizationProfile)
         kws[key] = value
-    if nestedTuples is not None:
-        kws['nestedTuples'] = nestedTuples
-    return QuantizationProfile(**kws)
+    if nestedTuplets is not None:
+        kws['nestedTuplets'] = nestedTuplets
+    out = QuantizationProfile(**kws)
+    if blacklist:
+        blacklistset = set(blacklist)
+        for maxtempo, divisions  in out.possibleDivisionsByTempo.items():
+            divisions = [div for div in divisions if div not in blacklistset]
+            out.possibleDivisionsByTempo[maxtempo] = divisions
+    return out
 
 
 def _divisionPenalty(division: int | tuple[int, ...],
@@ -284,13 +303,13 @@ def _divisionPenalty(division: int | tuple[int, ...],
 
     cardinalityPenalty = profile.divisionCardinalityPenaltyMap.get(cardinality, maxPenalty)
     # We only calculate level penalty on the outmost level
-    levelPenalty = profile.numNestedTuplesPenalty[_divisionDepth(division)] if nestingLevel == 0 else 0
+    levelPenalty = profile.numNestedTupletsPenalty[_divisionDepth(division)] if nestingLevel == 0 else 0
 
     penalty = mathlib.weighted_euclidian_distance([
         (divPenalty, profile.divisionPenaltyWeight),
         (cardinalityPenalty, profile.cardinalityPenaltyWeight),
         (numSubdivsPenalty, profile.numSubdivisionsPenaltyWeight),
-        (levelPenalty, profile.numNestedTuplesPenaltyWeight)
+        (levelPenalty, profile.numNestedTupletsPenaltyWeight)
     ])
     if debug and nestingLevel == 0:
         info = f"{divPenalty=:.3g}, {cardinalityPenalty=:.3g}, {numSubdivsPenalty=:.3g}, {levelPenalty=:.3g}"
@@ -338,9 +357,9 @@ def generateBeatGrid(beatDuration: number_t, division: division_t, offset=F(0)
     Generates a grid with the beats for the given duration and division
 
     The last value of the grid is the offset of the next beat.
-    *At the moment* irrational tuples are not supported. The beat must is divided
+    *At the moment* irrational tuplets are not supported. The beat must is divided
     regularly and each subdivision can be divided, but there are no tuplets across
-    multiple subdivisions of a parent subdivision. This scheme makes tuples like
+    multiple subdivisions of a parent subdivision. This scheme makes tuplets like
     ``3:2(8 3:2(8 8 8))`` impossible (a triplet across two/thirds
     of a parent triplet). This however is possible: ``3:2(8 3:2(16 16 16) 8)``
     (``generateBeatGrid(1, [1, 3, 1])``) since each subdivision is encapsulated within
@@ -944,7 +963,6 @@ def quantizeBeat(eventsInBeat: list[Notation],
         if simplifiedDiv and simplifiedDiv != div:
             if simplifiedDiv in seen:
                 continue
-            # print(f"division {div} can be reduced to {reducedDiv} (slots={assignedSlots})")
             div = simplifiedDiv
             grid = quantutils.divisionGrid(beatDuration=beatDuration, division=simplifiedDiv, offset=beatOffset)
             assignedSlots, snappedEvents = snapEventsToGrid(eventsInBeat, grid=grid)
@@ -2065,7 +2083,7 @@ def quantize(parts: list[core.Part],
             which divisions of the beat are possible, how a best division
             is weighted and selected, etc. Not all options in a profile
             are supported by all backends (for example, music21 backend
-            does not support nested tuples).
+            does not support nested tuplets).
             See quant.presetQuantizationProfiles, which is a dict with
             some predefined profiles
 

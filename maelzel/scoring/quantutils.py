@@ -32,7 +32,8 @@ def subdivisions(numdivs: int,
 def allSubdivisions(maxsubdivs=5,
                     maxdensity=20,
                     possiblevals: Sequence[int] = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14),
-                    permutations=True
+                    permutations=True,
+                    blacklist: list[tuple[int, ...]] = None
                     ) -> list[tuple[int, ...]]:
     allsubdivs = []
     for numsubdivs in range(maxsubdivs, 0, -1):
@@ -55,7 +56,12 @@ def allSubdivisions(maxsubdivs=5,
             else:
                 out.extend(set(itertools.permutations(p)))
         allsubdivs = out
+
     allsubdivs.sort(key=lambda p: sum(p))
+    if blacklist:
+        blacklistset = set(blacklist)
+        allsubdivs = [div for div in allsubdivs
+                      if div not in blacklistset]
     return allsubdivs
 
 
