@@ -9,7 +9,6 @@ Here we define:
 
 """
 import logging as _logging
-# We want to share the same Rat implementation as scorestruct
 import os
 
 

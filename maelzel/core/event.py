@@ -50,8 +50,8 @@ import pitchtools as pt
 
 from maelzel import scoring
 from maelzel.scoring import enharmonics
-
-from ._common import Rat, asRat, UNSET, MAXDUR, logger
+from maelzel.common import F, asF
+from ._common import UNSET, MAXDUR, logger
 from . import _util
 from .mobj import *
 from .workspace import getConfig, Workspace
@@ -66,9 +66,7 @@ if TYPE_CHECKING:
     from typing import TypeVar, Callable, Any, Sequence, Iterator
     from ._typedefs import *
     MEventT = TypeVar("MEventT", bound="MEvent")
-
     import music21 as m21
-    from maelzel.scorestruct import ScoreStruct
 
 __all__ = (
     'MObj',
@@ -245,9 +243,9 @@ class Note(MEvent):
                 assert 0 <= pitch <= 200, f"Expected a midinote (0-127) but got {pitch}"
 
             if dur is not None:
-                dur = asRat(dur)
+                dur = asF(dur)
             if offset is not None:
-                offset = asRat(offset)
+                offset = asF(offset)
 
             if not isinstance(gliss, bool):
                 gliss = _util.asmidi(gliss)
@@ -279,8 +277,8 @@ class Note(MEvent):
     def makeRest(dur: time_t, offset: time_t = None, label: str = '') -> Note:
         assert dur and dur > 0
         if offset:
-            offset = asRat(offset)
-        return Note(pitch=0, dur=asRat(dur), offset=offset, amp=0, label=label, _init=False)
+            offset = asF(offset)
+        return Note(pitch=0, dur=asF(dur), offset=offset, amp=0, label=label, _init=False)
 
     def transpose(self, interval: float, inplace=False) -> Note:
         """
@@ -554,7 +552,7 @@ class Note(MEvent):
                       ) -> list[scoring.Notation]:
         if not config:
             config = getConfig()
-        dur = self.dur if self.dur is not None else Rat(1)
+        dur = self.dur if self.dur is not None else F(1)
         if self.isRest():
             rest = scoring.makeRest(self.dur, offset=self.offset)
             if annot := self._scoringAnnotation():
@@ -566,7 +564,7 @@ class Note(MEvent):
             return [rest]
 
         notation = scoring.makeNote(pitch=self.pitch,
-                                    duration=asRat(dur),
+                                    duration=asF(dur),
                                     offset=self.offset,
                                     gliss=bool(self.gliss),
                                     dynamic=self.dynamic,
@@ -702,7 +700,7 @@ class Note(MEvent):
 
         endmidi = self.gliss if not isinstance(self.gliss, bool) else self.pitch
         offset = self.offset or 0.
-        dur = self.dur or Rat(1)
+        dur = self.dur or F(1)
         starttime = float(scorestruct.beatToTime(offset))
         endtime   = float(scorestruct.beatToTime(offset + dur))
         transp = playargs.get('transpose', 0)
@@ -753,7 +751,7 @@ class Note(MEvent):
 
     # def trill(self,
     #           other: Note,
-    #           notedur: time_t = Rat(1, 8)
+    #           notedur: time_t = F(1, 8)
     #           ) -> Chain:
     #     """
     #     Create a Chain of Notes representing a trill
@@ -888,7 +886,7 @@ class Chord(MEvent):
         self.amp = amp
         if dur is not None:
             assert dur > 0
-            dur = asRat(dur)
+            dur = asF(dur)
 
         if not notes:
             super().__init__(dur=None, offset=None, label=label)
@@ -995,7 +993,7 @@ class Chord(MEvent):
             config = getConfig()
         notenames = [note.name for note in self.notes]
         annot = self._scoringAnnotation()
-        dur = self.dur if self.dur is not None else Rat(1)
+        dur = self.dur if self.dur is not None else F(1)
 
         notation = scoring.makeChord(pitches=notenames, duration=dur, offset=self.offset,
                                      annotation=annot, group=groupid, dynamic=self.dynamic,
