@@ -5,7 +5,7 @@ Functions and code snippets to make working with abjad less frustrating
 from __future__ import annotations
 import abjad as abj
 
-from maelzel.rational import Rat as F
+from maelzel.common import F
 import copy
 import enum
 from maelzel.music import lilytools

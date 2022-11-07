@@ -10,18 +10,15 @@ Here we define:
 """
 import logging as _logging
 # We want to share the same Rat implementation as scorestruct
-from maelzel.rational import Rat
 import os
 
 
 __all__ = (
     'UNSET',
     'MAXDUR',
-    'asRat',
     'isNumber',
     'getPath',
     'logger',
-    'Rat'
 )
 
 
@@ -41,39 +38,9 @@ UNSET = _UNSET()
 logger = _logging.getLogger(f"maelzel.core")
 
 
-def asRat(x, den: int = None, maxden: int = None) -> Rat:
-    """
-    Create a Fraction
-
-    Args:
-        x: any number
-        den: if given, then x is the numerator and den is the denominator of a fraction
-        maxden: the max. denominator when converting a float to a Fraction
-
-    Returns:
-        x as Rational
-
-    """
-    if isinstance(x, Rat):
-        return x
-    elif isinstance(x, float):
-        out = Rat.from_float(x)
-        if maxden:
-            out = out.limit_denominator(maxden)
-        return out
-    elif den is not None:
-        return Rat(x, den)
-    elif isinstance(x, int):
-        # x is an int
-        return Rat(x)
-    else:
-        raise TypeError("Expected a Rational, an int, a float or a tuple (int, den), "
-                        f"got {x} of type {type(x)}")
-
-
 def isNumber(x) -> bool:
     """ is x builtin number? (int, float or Fraction) """
-    return isinstance(x, (int, float, Rat))
+    return isinstance(x, (int, float, F))
 
 
 def getPath(s: str) -> str:

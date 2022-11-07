@@ -109,6 +109,7 @@ from configdict import ConfigDict
 if typing.TYPE_CHECKING:
     from typing import Optional, Any
     from maelzel.scoring.render import RenderOptions
+    from maelzel.scoring.quant import QuantizationProfile
 
 
 __all__ = (
@@ -130,19 +131,12 @@ def _validateDecibelRange(cfg, key, val):
 _default = {
     'A4': 442,
     'splitAcceptableDeviation': 4,
-    'show.arpeggiateChord': 'auto',
-    'chord.adjustGain': True,
-    'm21.displayhook.install': True,
-    'm21.displayhook.format': 'xml.png',
-    'm21.fixStream': True,
-    'repr.showFreq': False,
+    'chordAdjustGain': True,
+    'reprShowFreq': False,
     'semitoneDivisions': 4,
+    'musescorepath': '',
 
-    'dynamicCurve.shape': 'expon(0.3)',
-    'dynamicCurve.mindb': -60,
-    'dynamicCurve.maxdb': 0,
-    'dynamicCurve.dynamics': 'ppp pp p mp mf f ff fff',
-
+    'show.arpeggiateChord': 'auto',
     'show.lastBreakpointDur':1/8,
     'show.cents': True,
     'show.centsFontSize': 8,
@@ -172,9 +166,6 @@ _default = {
     'show.jupyterMaxImageWidth': 1000,
     'show.hideRedundantDynamics': True,
 
-    'app.png': '',
-    'musescorepath': '',
-    'displayhook.install': True,
     'play.dur': 2.0,
     'play.gain': 1.0,
     'play.engineName': 'maelzel.core',
@@ -191,10 +182,11 @@ _default = {
     'play.generalMidiSoundfont': '',
     'play.soundfontAmpDiv': 16384,
     'play.soundfontInterpolation': 'linear',
-    'play.schedLatency': 0.2,
+    'play.schedLatency': 0.05,
     'play.verbose': False,
     'play.useDynamics': True,
     'play.waitAfterStart': 0.5,
+
     'rec.block': True,
     'rec.sr': 44100,
     'rec.ksmps': 64,
@@ -202,11 +194,27 @@ _default = {
     'rec.path': '',
     'rec.quiet': True,
     'rec.compressionBitrate': 224,
-    'html.theme': 'light',
+
+    'htmlTheme': 'light',
+
     'quant.minBeatFractionAcrossBeats': 1.0,
-    'quant.nestedTuplets': True,
+    'quant.nestedTuplets': None,
     'quant.complexity': 'high',
-    'logger.level': 'INFO',
+    'quant.divisionErrorWeight': None,
+    'quant.gridErrorWeight': None,
+    'quant.rhythmComplexityWeight': None,
+    'quant.gridErrorExp': None,
+    'quant.debug': False,
+    'quant.debugShowNumRows': 50,
+
+    'dynamicCurve.shape': 'expon(0.3)',
+    'dynamicCurve.mindb': -60,
+    'dynamicCurve.maxdb': 0,
+    'dynamicCurve.dynamics': 'ppp pp p mp mf f ff fff',
+
+    'm21.installDisplayHook': True,
+    'm21.displayHookFormat': 'xml.png',
+    'm21.fixStream': True,
 }
 
 _validator = {
@@ -215,7 +223,7 @@ _validator = {
     'play.backend::choices': {'default', 'jack', 'pulse', 'alsa', 'pa_cb',
                               'auhal', 'portaudio'},
     'semitoneDivisions::choices': {1, 2, 4},
-    'm21.displayhook.format::choices': {'xml.png', 'lily.png'},
+    'm21.displayHookFormat::choices': {'xml.png', 'lily.png'},
     'show.backend::choices': {'music21', 'lilypond'},
     'show.format::choices': {'png', 'pdf', 'repr'},
     'show.staffSize::type': float,
@@ -233,24 +241,27 @@ _validator = {
     'rec.ksmps::choices': {1, 16, 32, 64, 128, 256},    
     'play.defaultAmplitude::range': (0, 1),
     'play.pitchInterpolation::choices': {'linear', 'cos'},
-    'app.png::type': str,
     'play.generalMidiSoundfont': lambda cfg, key, val: val == '' or (os.path.exists(val) and os.path.splitext(val)[1] == '.sf2'),
     'play.defaultDynamic::choices': {'pppp', 'ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'ffff'},
     'play.presetsPath': lambda cfg, key, val: not val or os.path.exists(val),
-    'html.theme::choices': {'light', 'dark'},
+    'htmlTheme::choices': {'light', 'dark'},
     'show.lastBreakpointDur::range': (1/64., 1),
     'quant.complexity::choices': {'low', 'medium', 'high', 'highest'},
+    'quant.nestedTuplets::choices': {True, False, None},
     'show.pageOrientation::choices': {'portrait', 'landscape'},
     'show.pageMarginMillimeters::range': (0, 1000),
     'show.horizontalSpacing::choices': {'normal', 'medium', 'large', 'xlarge'},
     'show.glissandoLineThickness::choices': {1, 2, 3, 4},
-    'logger.level::choices': {'DEBUG', 'INFO', 'WARNING', 'ERROR'},
     'show.jupyterMaxImageWidth::type': int,
     'dynamicCurve.shape': lambda cfg, key, val: val.split("(")[0] in {'linear', 'expon', 'halfcos'},
     'dynamicCurve.mindb::range': (-160, 0),
     'dynamicCurve.maxdb::range': (-160, 0),
     'dynamicCurve.dynamics': lambda cfg, key, val: all(d in dynamics.dynamicSteps
                                                        for d in val.split()),
+    'quant.divisionErrorWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,
+    'quant.gridErrorWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,
+    'quant.rhythmComplexityWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,
+
 }
 
 _docs = {
@@ -270,12 +281,12 @@ _docs = {
 
     'semitoneDivisions':
         "The number of divisions per semitone (2=quarter-tones, 4=eighth-tones)",
-    'repr.showFreq':
-        "Show frequency when calling printing a Note in the console",
+    'reprShowFreq':
+        "Show frequency when printing a Note in the console",
     'show.arpeggiateChord':
         "Arpeggiate notes of a chord when showing. In auto mode, only arpeggiate"
         " when needed",
-    'chord.adjustGain':
+    'chordAdjustGain':
         "Adjust the gain of a chord according to the number of notes, to prevent "
         "clipping",
     'show.external':
@@ -399,22 +410,55 @@ _docs = {
         'New instrument presets can be defined via `defPreset`',
     'play.pitchInterpolation':
         'Curve shape for interpolating between pitches',
-    'app.png':
-        'Application used when opening .png files externally. If empty, '
-        'the platform default is used',
     'play.generalMidiSoundfont':
         'Path to a soundfont (sf2 file) with a general midi mapping',
-    'html.theme':
+    'htmlTheme':
         'Theme used when displaying html inside jupyter',
     'play.soundfontAmpDiv':
         'A divisor used to scale the amplitude of soundfonts to a range 0-1',
     'quant.complexity':
-        'Controls the allowed complexity in the notation. The higher the complexity,'
-        ' the more accurate the quantization, at the cost of a more complex notation. ',
+        'Controls the allowed complexity in the notation. The higher the complexity, '
+        'the more accurate the quantization, at the cost of a more complex notation. ',
     'quant.nestedTuplets':
-        'Are nested tuples allowed when quantizing? Not all display backends support'
-        ' nested tuples (musescore, used to render musicxml '
-        ' has no support for nested tuples)',
+        'Are nested tuples allowed when quantizing? Not all display backends support '
+        'nested tuples (musescore, used to render musicxml '
+        'has no support for nested tuples). If None, this flag is determined based on '
+        'the complexity preset (quant.complexity)',
+    'quant.divisionErrorWeight':
+        'A weight (between 0 and 1) applied to the penalty of complex quantization of '
+        'the beat. The higher this value is, the simpler the subdivision chosen. '
+        'If set to None, this value is derived from the complexity preset '
+        '(quant.complexity)',
+    'quant.gridErrorWeight':
+        'A weight (between 0 and 1) applied to the deviation of a quantization to the '
+        'actual attack times and durations during quantization. The higher this value, '
+        'the more accurate the quantization (possibly resulting in more complex '
+        'subdivisions of the beat). If None, the value is derived from the complexity '
+        'preset (quant.complexity)',
+    'quant.rhythmComplexityWeight':
+        'A weight (between 0 and 1) applied to the penalty calculated from the '
+        'complexity of the rhythm during quantization. A higher value results in '
+        'more complex rhythms being considered for quantization. If None, the value '
+        'is derived from the complexity (quant.complexity)',
+    'quant.gridErrorExp':
+        'An exponent applied to the grid error. The grid error is a value between 0-1 '
+        'which indicates how accurate the grid representation is for a given quantization '
+        '(a value of 0 indicates perfect timing). An exponent betwenn 0 < exp <= 1 will '
+        'make grid errors weight more dramatically as they diverge from the most accurate '
+        'solution. If None, the value is derived from the complexity setting (quant.complexity)',
+    'quant.minBeatFractionAcrossBeats':
+        'when merging durations across beats, a mergef duration cannot be smaller than this '
+        'duration. This is to prevent joining durations across beats which might result in '
+        'high rhythmic complexity',
+    'quant.debug':
+        'Turns on debugging for the quantization process. This will show how different '
+        'divisions of the beat are being evaluated by the quantizer in terms of what '
+        'is contributing more to the ranking. With this information it is possible '
+        'to adjust the weights (quant.rhythmCompleityWeight, quant.divisionErrorWeight, '
+        'etc)',
+    'quant.debugShowNumRows':
+        'When quantization debugging is turned on this setting limits the number '
+        'of different quantization possibilities shown',
     'musescorepath':
         'The command to use when calling MuseScore. For macOS users: it must be an '
         'absolute path pointing to the actual binary inside the .app bundle'
@@ -427,7 +471,7 @@ def _syncCsoundengineTheme(theme:str):
 
 
 def _resetImageCacheCallback():
-    from . import mobj
+    from . import event
     mobj.resetImageCache()
 
 
@@ -468,7 +512,7 @@ class CoreConfig(ConfigDict):
         super().__init__('maelzel.core', _default, persistent=False,
                          validator=_validator, docs=_docs, load=load)
         self._prevConfig: Optional[CoreConfig] = None
-        self.registerCallback(lambda d, k, v: _syncCsoundengineTheme(v), re.escape("html.theme"))
+        self.registerCallback(lambda d, k, v: _syncCsoundengineTheme(v), "htmlTheme")
         self.registerCallback(lambda d, k, v: _resetImageCacheCallback(), "show\..+")
         self.registerCallback(lambda d, k, v: _propagateA4(d, v), "A4")
         if updates:
@@ -476,6 +520,9 @@ class CoreConfig(ConfigDict):
         if kws:
             kws = {k:v for k, v in kws.items() if k in self.keys()}
             self.update(kws)
+
+    def _ipython_key_completions_(self):
+        return self.keys()
 
     def copy(self) -> CoreConfig:
         return CoreConfig(load=False, updates=self)
@@ -502,6 +549,17 @@ class CoreConfig(ConfigDict):
         from maelzel.core import notation
         return notation.makeRenderOptionsFromConfig(self)
 
+    def makeQuantizationProfile(self) -> QuantizationProfile:
+        """
+        Create a QuantizationProfile from this config
+
+        This quantization profile can be passed to
+        Returns:
+
+        """
+        from maelzel.core import notation
+        return notation.makeQuantizationProfileFromConfig(self)
+
     def __enter__(self):
         from . import workspace
         w = workspace.Workspace.active
@@ -524,11 +582,17 @@ class CoreConfig(ConfigDict):
         from . import workspace
         workspace.setConfig(self)
 
+    def reset(self, save=False) -> None:
+        super().reset(save=save)
+        from maelzel.core.presetmanager import presetManager
+        if '_piano' in presetManager.presetdefs:
+            self['play.instr'] = '_piano'
+
 
 def onFirstRun():
     print("*** maelzel.core: first run")
-    from maelzel.core import presetman
-    if '_piano' in presetman.presetManager.presetdefs:
+    from maelzel.core.presetmanager import presetManager
+    if '_piano' in presetManager.presetdefs:
         print("*** maelzel.core: found builtin piano soundfont; setting default instrument to '_piano'")
         rootConfig['play.instr'] = '_piano'
         rootConfig.save()

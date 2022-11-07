@@ -3,13 +3,18 @@ Isorhythmic structures
 """
 from __future__ import annotations
 from typing import TYPE_CHECKING
-from maelzel.rational import Rat
 from emlib import iterlib
+
+try:
+    from quicktions import Fraction
+except ImportError:
+    from fractions import Fraction
 
 if TYPE_CHECKING:
     from typing import *
-    T = TypeVar('MObjT')
-    number_t = Union[int, float, Rat]
+    from numbers import Rational
+    T = TypeVar('T')
+    number_t = Union[float, Rational]
 
 
 class Isorhythm:
@@ -34,7 +39,7 @@ class Isorhythm:
         Returns:
             a list of pairs
         """
-        partialdur = Rat(0)
+        partialdur = Fraction(0)
         pairs = []
         for color, talea in self:
             if partialdur + talea > maxdur:

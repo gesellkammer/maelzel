@@ -2,12 +2,16 @@
 Common type definitions and routines
 """
 from __future__ import annotations
-from maelzel.rational import Rat as F
 from dataclasses import dataclass
 import enum
 import logging
 import numbers as _numbers
 import pitchtools as pt
+
+try:
+    from quicktions import Fraction as F
+except ImportError:
+    from fractions import Fraction as F
 
 from typing import NamedTuple, Union, Optional
 time_t = Union[float, int, F]

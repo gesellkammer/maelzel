@@ -2,16 +2,19 @@
 String flageolets
 """
 from __future__ import annotations
-from typing import TYPE_CHECKING, NamedTuple
-if TYPE_CHECKING:
-    from typing import *
-from maelzel.rational import Rat
+from maelzel.common import F
 from pitchtools import *
 from emlib.misc import returns_tuple as _returns_tuple
 from maelzel.core import Note
+from dataclasses import dataclass
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import *
 
 
-class Fret(NamedTuple):
+@dataclass
+class Fret:
     fret: float
     midinote: float
     
@@ -24,12 +27,13 @@ class Fret(NamedTuple):
         return m2f(self.midinote)
     
     def __repr__(self):
-        return f"Fret({self.freq}, {self.note})" 
+        return f"Fret(fret={self.fret}, note={self.note})"
     
 
-class Node(NamedTuple):
+@dataclass
+class Node:
     midinote: float
-    frets: List[int]
+    frets: list[Fret]
     
     @property
     def freq(self):
@@ -55,7 +59,7 @@ class InstrumentString:
         self.fretsPerOctave = fretsPerOctave
         self.freq = m2f(self.midi)
         
-    def ratio2fret(self, ratio:float) -> float:
+    def ratio2fret(self, ratio: float) -> float:
         """
         Args:
             ratio: the position on the string (0-1)
@@ -78,13 +82,14 @@ class InstrumentString:
     def note2fret(self, note: str) -> float:
         return self.midi2fret(n2m(note))
 
-    def findNode(self, harmonic=2, minfret=0, maxfret=24):
+    def findNode(self, harmonic=2, minfret=0, maxfret=24) -> Node:
         """
         Find a node for the given harmonic between the specified frets
 
         Args:
-            harmonic (int)         : The harmonic number to find
-            minfret, maxfret (int) : Search within these fret-numbers
+            harmonic: The harmonic number to find
+            minfret: min. fret number to search
+            maxfret: max. fret number to search
 
         Returns:
             The fret number at which the natural harmonic is found
@@ -92,12 +97,12 @@ class InstrumentString:
         NB: the fundamental (f0) is the 1st harmonic
 
         """
-        frets = []
+        frets: list[Fret] = []
         for i in range(1, harmonic):
             if math.gcd(i, harmonic) > 1:
                 continue
             fret = self.ratio2fret(i / harmonic)
-            if fret >= minfret and fret <= maxfret:
+            if minfret <= fret <= maxfret:
                 positionAsMidi = self.midi + 12 * (fret / self.fretsPerOctave)
                 frets.append(Fret(fret, positionAsMidi))
         freq = self.freq * harmonic
@@ -126,7 +131,7 @@ class InstrumentString:
         fq = n2f(note) if isinstance(note, str) else m2f(note)
         if fq < self.freq:
             raise ValueError("The given note is lower than the fundamental")
-        ratio = Rat(self.freq/fq).limit_denominator(maxHarmonic)
+        ratio = F(self.freq/fq).limit_denominator(maxHarmonic)
         harmonic = ratio.denominator
         frets = self.findNode(harmonic).frets
         diff, fret_pos = min((abs(fret.freq - fq), fret) for fret in frets)
@@ -150,7 +155,7 @@ class InstrumentString:
 
 
 class StringedInstrument:
-    def __init__(self, pitches: List[Union[float, str]]):
+    def __init__(self, pitches: list[Union[float, str]]):
         self.strings = [InstrumentString(pitch) for pitch in pitches]
 
     def __getitem__(self, idx: int) -> InstrumentString:

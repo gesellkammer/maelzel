@@ -15,7 +15,7 @@ def _getBackend() -> str:
         pass
     try:
         import samplerate
-        return "samplerate"
+        return "sr"
     except ImportError:
         pass
     return ''
@@ -69,7 +69,7 @@ def resample(samples: np.ndarray, samplerate:int, newsamplerate:int, backend=''
             range -1 to 1). Can be multichannel
         samplerate: the original sr
         newsamplerate: the new sr
-        backend: one of 'resampy', 'samplerate' or 'cli'
+        backend: one of 'resampy', 'sr' or 'cli'
 
     Returns:
         the resampled samples. The shape of the output will be the same as
@@ -81,8 +81,8 @@ def resample(samples: np.ndarray, samplerate:int, newsamplerate:int, backend=''
         raise RuntimeError("no backend found for resampling. Try installing one of the"
                            "following packages:\n"
                            "    * resampy (pip install resampy) \n"
-                           "    * python-sr (pip install samplerate) \n")
-    if backend == "samplerate":
+                           "    * python-sr (pip install sr) \n")
+    if backend == "sr":
         return _resampleViaSamplerate(samples, samplerate, newsamplerate)
     elif backend == "resampy":
         return _resampleViaResampy(samples, samplerate, newsamplerate)

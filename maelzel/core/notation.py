@@ -9,11 +9,10 @@ from .workspace import getConfig, getWorkspace
 
 from maelzel import scoring
 from maelzel.scorestruct import ScoreStruct
-import music21 as m21
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import *
+    import music21 as m21
 
 
 def scoringPartToMusic21(part: scoring.Part | list[scoring.Notation],
@@ -114,9 +113,17 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig = None
                                       ) -> scoring.quant.QuantizationProfile:
     if cfg is None:
         cfg = getConfig()
-    preset = cfg['quant.complexity']
-    profile = scoring.quant.makeQuantizationProfile(preset)
-    profile.nestedTuplets = cfg['quant.nestedTuplets']
+    profile = scoring.quant.makeQuantizationProfile(complexity=cfg['quant.complexity'],
+                                                    nestedTuplets=cfg['quant.nestedTuplets'])
+    if (gridWeight:=cfg['quant.gridErrorWeight']) is not None:
+        profile.gridErrorWeight = gridWeight
+    if (divisionWeight:=cfg['quant.divisionErrorWeight']) is not None:
+        profile.divisionErrorWeight = divisionWeight
+    if (rhythmWeight:=cfg['quant.rhythmComplexityWeight']) is not None:
+        profile.rhythmComplexityWeight = rhythmWeight
+    if (gridErrorExp:=cfg['quant.gridErrorExp']) is not None:
+        profile.gridErrorExp = gridErrorExp
+
     profile.minBeatFractionAcrossBeats = cfg['quant.minBeatFractionAcrossBeats']
     return profile
 
@@ -126,6 +133,7 @@ def renderWithActiveWorkspace(parts: list[scoring.Part],
                               renderoptions: scoring.render.RenderOptions = None,
                               scorestruct: ScoreStruct = None,
                               config: CoreConfig = None,
+                              quantizationProfile: scoring.quant.QuantizationProfile = None
                               ) -> scoring.render.Renderer:
     """
     Render the given scoring.Parts with the current configuration
@@ -143,7 +151,8 @@ def renderWithActiveWorkspace(parts: list[scoring.Part],
         config = workspace.config
     if not renderoptions:
         renderoptions = makeRenderOptionsFromConfig(config)
-    quantizationProfile = makeQuantizationProfileFromConfig(config)
+    if not quantizationProfile:
+        quantizationProfile = makeQuantizationProfileFromConfig(config)
     backend = backend or config['show.backend']
     if scorestruct is None:
         scorestruct = workspace.scorestruct

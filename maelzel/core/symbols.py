@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Optional, Set, Sequence, Union, Any, TypeVar
     TSpanner = TypeVar('TSpanner', bound='Spanner')
-    from maelzel.core import mobj
+    from maelzel.core import event
     Event = Union[mobj.Note, mobj.Chord]
 
 

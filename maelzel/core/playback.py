@@ -15,8 +15,8 @@ from math import ceil
 from ._common import logger
 from . import _util
 from . import _dialogs
-from .presetbase import *
-from .presetman import presetManager, _csoundPrelude as _prelude
+from .presetdef import *
+from .presetmanager import presetManager, csoundPrelude as _prelude
 from .errors import *
 from .workspace import getConfig, getWorkspace, Workspace
 import csoundengine
@@ -25,7 +25,7 @@ from .synthevent import SynthEvent
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Sequence
-    from .mobjbase import MObj
+    from .mobj import MObj
     from maelzel.snd import audiosample
     import subprocess
 
@@ -58,7 +58,7 @@ class OfflineRenderer:
     Args:
         outfile: the path to the rendered soundfile. If not given, a path
             within the record path [1]_ is returned
-        sr: the samplerate of the render (:ref:`config key: 'rec.sr' <config_rec_sr>`)
+        sr: the sr of the render (:ref:`config key: 'rec.sr' <config_rec_sr>`)
         ksmps: the ksmps used for the recording
         quiet: if True, debugging output is minimized. If None, defaults to
             config (:ref:`key: 'rec.quiet' <config_rec_quiet>`)
@@ -103,7 +103,7 @@ class OfflineRenderer:
         """A value for the reference frequency"""
 
         self.sr = sr or cfg['rec.sr']
-        """The samplerate. If not given, ['rec.sr'] is used """
+        """The sr. If not given, ['rec.sr'] is used """
 
         self.ksmps = ksmps
         """ksmps value (samples per block)"""
@@ -938,7 +938,7 @@ def play(*sources: MObj | Sequence[SynthEvent] | csoundengine.session.SessionEve
         ... ''')
         >>> play(
         >>>     Chord("4C 4E", 7, start=1).events(position=0.5),
-        >>>     Note("4C#", 6, start=1.5),  # No customization,
+        >>>     Note("4C#", 6, offset=1.5),  # No customization,
         >>>     SessionEvent('reverb', dur=10, args={'kfeedback': 0.8}, priority=2),
         >>>     SessionEvent('sin', delay=0.1, dur=3, args={'imidi': 61.33, 'iamp':0.02})
         >>> )

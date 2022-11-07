@@ -102,8 +102,7 @@ def _instrNameFromPresetName(presetName: str) -> str:
 def _makePresetBody(audiogen: str,
                     numsignals: int,
                     withEnvelope=True,
-                    withPanning=True,
-                    withRouting=True,
+                    withOutput=True,
                     epilogue='') -> str:
     """
     Generate the presets body
@@ -113,9 +112,8 @@ def _makePresetBody(audiogen: str,
         numsignals: the number of audio signals used in augiogen (generaly
             the result of analyzing the audiogen via `analyzeAudiogen`
         withEnvelope: do we generate envelope code?
-        withPanning: do we generate panning code?
-        withRouting: do we send the audio to outch?
-        epilogue: any code needed **after** routing (things like turning off
+        withOutput: do we send the audio to outch? This includes also panning
+        epilogue: any code needed **after** output (things like turning off
             the event when silent)
 
     Returns:
@@ -124,7 +122,7 @@ def _makePresetBody(audiogen: str,
     # TODO: generate user pargs
     prologue = r'''
 ;5        6       7      8      9     0    1       2        3          4        
-idataidx_,inumbps,ibplen,igain_,ichan,ipos,ifadein,ifadeout,ipchintrp_,ifadekind_ passign 5
+idataidx_,inumbps,ibplen,igain,ichan,ipos,ifadein,ifadeout,ipchintrp_,ifadekind passign 5
 idatalen_ = inumbps * ibplen
 iArgs[] passign idataidx_, idataidx_ + idatalen_
 ilastidx = idatalen_ - 1
@@ -156,28 +154,30 @@ endif
 
 ifadein = max:i(ifadein, 1/kr)
 ifadeout = max:i(ifadeout, 1/kr)
+
     '''
     envelope1 = r"""
-    if (ifadekind_ == 0) then
-        aenv_ linsegr 0, ifadein, igain_, ifadeout, 0
-    elseif (ifadekind_ == 1) then
-        aenv_ cosseg 0, ifadein, igain_, p3-ifadein-ifadeout, igain_, ifadeout, 0
-        aenv_ *= linenr:a(1, 0, ifadeout, 0.01)
-    elseif (ifadekind_ == 2) then
-        aenv_ transeg 0, ifadein*.5, 2, igain_*0.5, ifadein*.5, -2, igain_, p3-ifadein-ifadeout, igain_, 1, ifadeout*.5, 2, igain_*0.5, ifadeout*.5, -2, 0 	
-        aenv_ *= linenr:a(1, 0, ifadeout, 0.01)
-    endif
+    aenv_ = makePresetEnvelope(ifadein, ifadeout, ifadekind, igain)
     """
+    #if (ifadekind_ == 0) then
+    #    aenv_ linsegr 0, ifadein, igain_, ifadeout, 0
+    #elseif (ifadekind_ == 1) then
+    #    aenv_ cosseg 0, ifadein, igain_, p3-ifadein-ifadeout, igain_, ifadeout, 0
+    #    aenv_ *= linenr:a(1, 0, ifadeout, 0.01)
+    #elseif (ifadekind_ == 2) then
+    #    aenv_ transeg 0, ifadein*.5, 2, igain_*0.5, ifadein*.5, -2, igain_, p3-ifadein-ifadeout, igain_, 1, ifadeout*.5, 2, igain_*0.5, ifadeout*.5, -2, 0
+    #    aenv_ *= linenr:a(1, 0, ifadeout, 0.01)
+    #endif
+    
     parts = [prologue]
     if numsignals == 0:
         withEnvelope = 0
-        withPanning = 0
-        withRouting = 0
+        withOutput = 0
 
     if withEnvelope:
         parts.append(envelope1)
         audiovars = [f'aout{i}' for i in range(1, numsignals+1)]
-        if withPanning and withRouting:
+        if withOutput:
             # apply envelope at the end
             indentation = emlib.textlib.getIndentation(audiogen)
             prefix = ' ' * indentation
@@ -187,19 +187,11 @@ ifadeout = max:i(ifadeout, 1/kr)
             audiogen = presetutils.embedEnvelope(audiogen, audiovars, envelope="aenv_")
 
     parts.append(audiogen)
-    if withPanning:
-        panning = ''
-        if numsignals == 1:
-            panning = r'aout1, aout2 pan2 aout1, ipos'
-        elif numsignals == 2:
-            panning = r'aout1, aout2 panstereo aout1, aout2, ipos'
-        else:
-            logger.error("Panning is only supported for 1 or 2 signals at the moment")
-        parts.append(panning)
 
-    if withRouting:
+    if withOutput:
         if numsignals == 1:
             routing = r"""
+            outch ichan, aout1
             if (ipos <= 0) then
                 outch ichan, aout1
             else
@@ -217,7 +209,7 @@ ifadeout = max:i(ifadeout, 1/kr)
             logger.error("Invalid preset. Audiogen:\n")
             logger.error(_textlib.reindent(audiogen, prefix="    "))
             raise ValueError(f"numsignals can be either 1 or 2 at the moment "
-                             f"if automatic routing is enabled (got {numsignals})")
+                             f"if automatic output is enabled (got {numsignals})")
         parts.append(routing)
     if epilogue:
         parts.append(epilogue)
@@ -243,8 +235,7 @@ class PresetDef:
     need to be loaded, buffers which need to be allocated, etc). A Preset can define
     any number of extra parameters (transposition, filter cutoff frequency, etc.). 
     
-    Attributes:
-        body: the body of the instrument preset
+    Args:
         name: the name of the preset
         init: any init code (global code)
         includes: #include files
@@ -255,7 +246,7 @@ class PresetDef:
         description: a description of this instr definition
         envelope: If True, apply an envelope as determined by the fadein/fadeout
             play arguments. 
-        routing: if True routing code is generated to output the audio
+        routing: if True output code is generated to output the audio
             to its corresponding channel. If False the audiogen code should
             be responsible for applying panning and sending the audio to 
             an output channel, bus, etc.
@@ -286,8 +277,7 @@ class PresetDef:
         body = _makePresetBody(audiogen,
                                numsignals=audiogenInfo.numSignals,
                                withEnvelope=envelope,
-                               withRouting=routing,
-                               withPanning=routing,
+                               withOutput=routing,
                                epilogue=epilogue)
 
         self.name = name
@@ -329,9 +319,6 @@ class PresetDef:
             lines.append(f"  epilogue:")
             lines.append(_textwrap.indent(self.epilogue, "    "))
         return "\n".join(lines)
-
-    def _sortOrder(self):
-        return 1 - int(self.userDefined), 1-int(self.isSoundFont()), self.name
 
     def isSoundFont(self) -> bool:
         """
@@ -434,7 +421,7 @@ class PresetDef:
 
         .. seealso:: :func:`maelzel.core.workspace.presetsPath`
         """
-        from . import presetman
+        from . import presetmanager
         savedpath = presetman.presetManager.savePreset(self.name)
         return savedpath
 

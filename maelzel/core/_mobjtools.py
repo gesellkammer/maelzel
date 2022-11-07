@@ -1,16 +1,13 @@
 from __future__ import annotations
-from maelzel.rational import Rat
+from ._common import Rat
 from emlib.iterlib import pairwise
-from . import mobj as mobj
+from .event import *
 from .workspace import getConfig, Workspace
 from maelzel.core.synthevent import SynthEvent, PlayArgs
-from numbers import Rational
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
-    from .mobj import Note, Chord, Chain,  MEvent
-    from .config import CoreConfig
     MEventT = TypeVar('MEventT', bound=MEvent)
 
 
@@ -46,7 +43,7 @@ def splitNotesOnce(notes: Chord | Sequence[Note], splitpoint: float, deviation=N
 def splitNotesIfNecessary(notes: list[Note], splitpoint: float, deviation=None
                           ) -> list[list[Note]]:
     """
-    Like splitNotesOnce, but returns only groups which have notes in them
+    Like splitNotesOnce, but returns only groupTree which have notes in them
 
     This can be used to split in more than one staves, which should not overlap
 
@@ -62,7 +59,7 @@ def splitNotesIfNecessary(notes: list[Note], splitpoint: float, deviation=None
     return [p for p in splitNotesOnce(notes, splitpoint, deviation) if p]
 
 
-def fillTempDynamics(items: list[Note | Chord], initialDynamic='mf',
+def fillTempDynamics(items: list[MEvent], initialDynamic='mf',
                      resetMinGap=1
                      ) -> None:
     """
@@ -94,7 +91,7 @@ def fillTempDynamics(items: list[Note | Chord], initialDynamic='mf',
         lastDynamic = initialDynamic
         lastEnd = 0
         for item in items:
-            if resetMinGap > 0 and item.start - lastEnd > resetMinGap:
+            if resetMinGap > 0 and item.offset - lastEnd > resetMinGap:
                 lastDynamic = initialDynamic
             if not item.dynamic:
                 item.dynamic = lastDynamic
@@ -131,7 +128,7 @@ def addDurationToGracenotes(chain: list[MEvent], dur: Rat) -> None:
                 nextreal = chain[1]
                 assert nextreal.dur > dur
                 nextreal.dur -= dur
-                nextreal.start += dur
+                nextreal.offset += dur
                 n.dur = dur
             else:
                 gracenotes = d.get(lastRealNote)
@@ -148,7 +145,7 @@ def addDurationToGracenotes(chain: list[MEvent], dur: Rat) -> None:
             gracenote = chain[gracenoteIndex]
             gracenote.dur = dur
             deltapos = (len(gracenotesIndexes) - i) * dur
-            gracenote.start -= deltapos
+            gracenote.offset -= deltapos
 
 
 def groupLinkedEvents(items: list[MEvent]) -> list[MEvent | list[MEvent]]:
@@ -162,7 +159,7 @@ def groupLinkedEvents(items: list[MEvent]) -> list[MEvent | list[MEvent]]:
         items: a list of Note|Chord
 
     Returns:
-        a list of individual notes, chords or groups, where a group is itself a
+        a list of individual notes, chords or groupTree, where a group is itself a
         list of notes/chords
     """
     lastitem = items[0]
@@ -189,16 +186,16 @@ def splitLinkedGroupIntoLines(objs: list[MEvent]
     This is purely intended for playback, so the duplication is not important.
 
     """
-    if all(isinstance(obj, mobj.Note) for obj in objs):
+    if all(isinstance(obj, Note) for obj in objs):
         return [objs]
 
     finished: list[list[Note]] = []
     started: list[list[Note]] = []
     continuations: dict[Note, Note] = {}
     for obj in objs:
-        if isinstance(obj, mobj.Chord):
+        if isinstance(obj, Chord):
             for note in obj.notes:
-                note.start = obj.start
+                note.offset = obj.offset
                 note.dur = obj.dur
                 note.gliss = obj.gliss
                 note.tied = obj.tied
@@ -207,24 +204,24 @@ def splitLinkedGroupIntoLines(objs: list[MEvent]
 
     # gliss pass
     for ev0, ev1 in pairwise(objs):
-        if isinstance(ev0, mobj.Chord) and ev0.gliss is True:
-            if isinstance(ev1, mobj.Chord):
+        if isinstance(ev0, Chord) and ev0.gliss is True:
+            if isinstance(ev1, Chord):
                 for n0, n1 in zip(ev0.notes, ev1.notes):
                     continuations[n0] = n1
-            elif isinstance(ev1, mobj.Note):
+            elif isinstance(ev1, Note):
                 for n0 in ev0.notes:
                     continuations[n0] = ev1
 
     for objidx, obj in enumerate(objs):
-        notes = obj.notes if isinstance(obj, mobj.Chord) else [obj]
+        notes = obj.notes if isinstance(obj, Chord) else [obj]
         usednotes = set()
-        assert all(n.start is not None for n in notes)
+        assert all(n.offset is not None for n in notes)
         if not started:
-            # No started groups, so all notes here will start groups
+            # No started groupTree, so all notes here will start groupTree
             for note in notes:
                 started.append([note])
         else:
-            # there are started groups, so iterate through started groups and
+            # there are started groupTree, so iterate through started groupTree and
             # find if there are matches.
             for groupidx, group in enumerate(started):
                 last = group[-1]
@@ -245,7 +242,6 @@ def splitLinkedGroupIntoLines(objs: list[MEvent]
                                        key=lambda idx: abs(notes[idx].pitch - last.pitch))
                         group.append(notes[matchidx])
                         usednotes.add(notes[matchidx])
-                        # notes.pop(matchidx)
                 else:
                     # This group's last note is not tied and has no gliss: this is the
                     # end of this group, so add it to finished
@@ -257,7 +253,7 @@ def splitLinkedGroupIntoLines(objs: list[MEvent]
                 if note not in usednotes:
                     started.append([note])
 
-    # We finished iterating, are there any started groups? Finish them
+    # We finished iterating, are there any started groupTree? Finish them
     finished.extend(started)
     return finished
 
@@ -281,14 +277,14 @@ def chainSynthEvents(objs: list[MEvent], playargs: PlayArgs, workspace: Workspac
     conf = workspace.config
     transpose = playargs.get('transpose', 0.)
     for group in groups:
-        if isinstance(group, mobj.MEvent):
+        if isinstance(group, MEvent):
             events = group._synthEvents(playargs.copy(), workspace=workspace)
             synthevents.extend(events)
         elif isinstance(group, list):
             lines = splitLinkedGroupIntoLines(group)
             # A line of notes
             for line in lines:
-                bps = [[float(struct.toTime(item.start)), item.pitch+transpose, item.resolvedAmp(workspace=workspace)]
+                bps = [[float(struct.toTime(item.offset)), item.pitch + transpose, item.resolvedAmp(workspace=workspace)]
                        for item in line]
                 lastev = line[-1]
                 pitch = lastev.gliss or lastev.pitch
@@ -308,128 +304,3 @@ def chainSynthEvents(objs: list[MEvent], playargs: PlayArgs, workspace: Workspac
     return synthevents
 
 
-def normalizeChordArpeggio(arpeggio: str | bool, chord: Chord, config: CoreConfig
-                           ) -> bool:
-    if arpeggio is None:
-        arpeggio = config['show.arpeggiateChord']
-    if isinstance(arpeggio, bool):
-        return arpeggio
-    elif arpeggio == 'auto':
-        return chord._isTooCrowded()
-    else:
-        raise ValueError(f"arpeggio should be True, False, 'auto' (got {arpeggio})")
-
-
-def flattenObjs(objs: list[MEvent | Chain], offset=Rat(0)) -> list[MEvent]:
-    collected = []
-    for obj in objs:
-        assert obj.start is not None, \
-            f"This function should be called with objects with resolved start, got {obj}"
-        if isinstance(obj, mobj.MEvent):
-            assert obj.dur is not None
-            collected.append(obj.clone(start=obj.start+offset))
-        elif isinstance(obj, mobj.Chain) and obj.items:
-            collected.extend(flattenObjs(obj.items, offset=offset+obj.start))
-        else:
-            raise TypeError(f"Expected a Note/Chord or a Chain, got {obj} ({type(obj)})")
-    return collected
-
-
-def resolvedTimes(events: list[MEvent | Chain],
-                  defaultDur = Rat(1),
-                  offset = Rat(0),
-                  ) -> list:
-    """
-    Stack events to the left, making any unset start and duration explicit
-
-    After setting all start times and durations an offset is added, if given
-
-    Args:
-        events: the events to modify, either in place or as a copy
-        defaultDur: the default duration used when an event has no duration and
-            the next event does not have an explicit start
-        offset: an offset to add to all start times after stacking them
-
-    Returns:
-        the modified events. If inplace is True, the returned events are the
-        same as the events passed as input
-
-    """
-
-    if not events:
-        raise ValueError("no events given")
-
-    now = Rat(0)
-    lasti = len(events) - 1
-    out = []
-    for i, ev in enumerate(events):
-        if ev.start is None:
-            start = now
-        else:
-            start = ev.start
-        dur = defaultDur
-        if isinstance(ev, MEvent):
-            if ev.dur is None:
-                if i < lasti:
-                    nextev = events[i+1]
-                    if nextev.start is not None:
-                        dur = nextev.start - start
-                        # ev.dur = nextev.start - ev.start
-            now = start + dur
-            out.append((ev, start, dur))
-        elif isinstance(ev, Chain):
-            subitems = resolvedTimes(ev.items)
-            out.append(subitems)
-            dur = _resolvedTimesDur(ev.items)
-            now = start + dur
-
-    return out
-
-
-def _resolvedTimesDur(items: list[tuple[MEvent, Rational, Rational] | list]) -> Rational:
-    return sum(item[2] if isinstance(item, tuple) else _resolvedTimesDur(item)
-               for item in items)
-
-
-def _mergeNotes(n1: Note, n2: Note) -> Note | None:
-    if n1.isRest() and n2.isRest():
-        assert n1.dur and n2.dur
-        out = n1.clone(dur=n1.dur+n2.dur)
-        return out
-
-    if (not n1.tied or
-            n2.gliss or
-            n1.isRest() or
-            n2.isRest() or
-            n1.pitch != n2.pitch or
-            n1.amp != n2.amp or
-            n1.dynamic != n2.dynamic
-    ):
-        return None
-
-    if n1.clone(start=None, dur=None) != n2.clone(start=None, dur=None):
-        return None
-
-    out = n1.clone(dur=n1.dur + n2.dur, tied=n2.tied)
-    return out
-
-def _mergeChords(c1: Chord, c2: Chord) -> Chord | None:
-    if (not c1.tied or c2.gliss or c1.pitches != c2.pitches):
-        return None
-
-    if any(n1 != n2 for n1, n2 in zip(c1.notes, c2.notes)):
-        return None
-
-    return c1.clone(dur=c1.dur+c2.dur)
-
-
-
-def mergeIfPossible(ev1: MEventT, ev2: MEventT) -> MEventT | None:
-    if type(ev1) != type(ev2):
-        return None
-    if isinstance(ev1, mobj.Note):
-        return _mergeNotes(ev1, ev2)
-    elif isinstance(ev1, mobj.Chord):
-        return _mergeChords(ev1, ev2)
-    else:
-        raise TypeError(f"The objects should be both Notes or Chords, got {ev1} and {ev2}")

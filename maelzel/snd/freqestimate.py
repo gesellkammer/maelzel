@@ -297,7 +297,7 @@ def f0curve(sig: np.ndarray, sr: int, minfreq=100, steptime=0.01,
 
     Args:
         sig: the signal, a 1D float numpy array with samples between -1:1
-        sr: the samplerate
+        sr: the sr
         minfreq: the min. frequency of the fundamental. Using this hint
             we estimate the best value for fft size / window size
         steptime: the time step between measurements

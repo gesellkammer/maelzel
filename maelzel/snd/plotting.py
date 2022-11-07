@@ -260,7 +260,7 @@ def plotWaveform(samples, samplerate, profile:str = None, saveas:str=None,
         samples: a mono or multichannel audio array
         samplerate: the sr
         profile: one of 'low', 'medium', 'high', 'highest'. If None or 'auto' is
-            passe, a profile is chosen based on the duration and other parameters given
+            passe, a preset is chosen based on the duration and other parameters given
         saveas: if given, the plot is saved and not displayed
         timelabels: if True, the x axes' labels are shown as MM:SS if needed
 
@@ -275,32 +275,32 @@ def plotWaveform(samples, samplerate, profile:str = None, saveas:str=None,
         >>> from maelzel.snd import plotting
         >>> import sndfileio
         >>> samples, info = sndfileio.sndget("snd/bach-presto-gmoll.mp3")
-        # In this case the profile used will be 'high'
-        >>> plotting.plotWaveform(samples, info.samplerate)
+        # In this case the preset used will be 'high'
+        >>> plotting.plotWaveform(samples, info.sr)
 
     .. image:: ../assets/snd-plotting-plotWaveform-high.png
 
     .. code-block:: python
 
-        >>> plotting.plotWaveform(samples, info.samplerate, profile='low')
+        >>> plotting.plotWaveform(samples, info.sr, preset='low')
 
     .. image:: ../assets/snd-plotting-plotWaveform-low.png
 
     .. code-block:: python
 
-        >>> plotting.plotWaveform(samples, info.samplerate, profile='medium')
+        >>> plotting.plotWaveform(samples, info.sr, preset='medium')
 
     .. image:: ../assets/snd-plotting-plotWaveform-medium.png
 
     .. code-block:: python
 
-        >>> plotting.plotWaveform(samples, info.samplerate, profile='high')
+        >>> plotting.plotWaveform(samples, info.sr, preset='high')
 
     .. image:: ../assets/snd-plotting-plotWaveform-high.png
 
     .. code-block:: python
 
-        >>> plotting.plotWaveform(samples, info.samplerate, profile='highest')
+        >>> plotting.plotWaveform(samples, info.sr, preset='highest')
 
     .. image:: ../assets/snd-plotting-plotWaveform-highest.png
 
@@ -336,7 +336,7 @@ def plotWaveform(samples, samplerate, profile:str = None, saveas:str=None,
     elif profile == 'medium':
         maxpoints, maxsr = 1200, 40
     else:
-        raise ValueError("profile should be one of 'low', 'medium' or 'highest'")
+        raise ValueError("preset should be one of 'low', 'medium' or 'highest'")
 
     targetsr = samplerate
     numch = _get_num_channels(samples)

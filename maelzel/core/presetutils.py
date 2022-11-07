@@ -7,7 +7,7 @@ import csoundengine
 import emlib.textlib
 from .workspace import getConfig, getWorkspace
 from ._common import logger
-from . import presetbase
+from . import presetdef
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
@@ -24,7 +24,8 @@ def _parseIncludeStr(s: str) -> str:
 
 def _parseTabledef(s):
     s = _removeExtranousCharacters(s)
-    rawpairs = re.split(r",|\n", s)
+    # rawpairs = re.split(r",|\n", s)
+    rawpairs = re.split(r"[,\n]", s)
     out = {}
     for rawpair in rawpairs:
         if ":" not in rawpair:
@@ -38,9 +39,9 @@ def _parseTabledef(s):
 _UNSET = object()
 
 
-def saveYamlPreset(p: presetbase.PresetDef, outpath: str) -> None:
+def saveYamlPreset(p: presetdef.PresetDef, outpath: str) -> None:
     """
-    Serialize a presetbase.PresetDef to disk as yaml
+    Serialize a presetdef.PresetDef to disk as yaml
     """
     with open(outpath, "w") as f:
         f.write(f"name: {p.name}\n")
@@ -71,9 +72,9 @@ def saveYamlPreset(p: presetbase.PresetDef, outpath: str) -> None:
                 f.write(f"    {k}: {v}\n")
 
 
-def loadYamlPreset(path: str) -> presetbase.PresetDef:
+def loadYamlPreset(path: str) -> presetdef.PresetDef:
     """
-    Load a presetbase.PresetDef from a yaml file
+    Load a presetdef.PresetDef from a yaml file
     """
     import yaml
     d = yaml.safe_load(open(path))
@@ -84,19 +85,20 @@ def loadYamlPreset(path: str) -> presetbase.PresetDef:
     audiogen = d.get('audiogen')
     if not audiogen:
         raise ValueError("A preset should define an audiogen")
-    return presetbase.PresetDef(name=d.get('name'),
-                                audiogen=audiogen,
-                                includes=d.get('includes'),
-                                init=d.get('init'),
-                                epilogue=d.get('epilogue'),
-                                args=params,
-                                properties=d.get('properties'))
+    return presetdef.PresetDef(name=d.get('name'),
+                               audiogen=audiogen,
+                               includes=d.get('includes'),
+                               init=d.get('init'),
+                               epilogue=d.get('epilogue'),
+                               args=params,
+                               properties=d.get('properties'))
 
 
-def makeSoundfontAudiogen(sf2path: str = None, instrnum:int=None,
-                          preset:tuple[int, int]=None,
+def makeSoundfontAudiogen(sf2path: str = None,
+                          instrnum: int = None,
+                          preset: tuple[int, int] = None,
                           interpolation='linear',
-                          ampDivisor:int=None,
+                          ampDivisor: int = None,
                           mono=False) -> str:
     """
     Generate audiogen code for a soundfont.
@@ -171,7 +173,7 @@ def makeSoundfontAudiogen(sf2path: str = None, instrnum:int=None,
     return textwrap.dedent(audiogen)
 
 
-def loadPreset(presetPath: str) -> presetbase.PresetDef:
+def loadPreset(presetPath: str) -> presetdef.PresetDef:
     """
     load a specific preset.
 
@@ -179,7 +181,7 @@ def loadPreset(presetPath: str) -> presetbase.PresetDef:
         presetPath: the absolute path to a preset
 
     Returns:
-        a presetbase.PresetDef
+        a presetdef.PresetDef
 
     Raises `ValueError` if the preset cannot be loaded
     """
@@ -190,7 +192,7 @@ def loadPreset(presetPath: str) -> presetbase.PresetDef:
         raise ValueError("Only .yaml presets are supported")
 
 
-def loadPresets(skipErrors=True) -> List[presetbase.PresetDef]:
+def loadPresets(skipErrors=True) -> List[presetdef.PresetDef]:
     """
     loads all presets from the presets path
 
@@ -229,7 +231,7 @@ def _fixNumericKeys(d: dict):
         d[int(key)] = v
 
 
-def resolveSoundfontPath(path:str=None) -> Optional[str]:
+def resolveSoundfontPath(path: str = None) -> str | None:
     return (path or
             getConfig()['play.generalMidiSoundfont'] or
             csoundengine.tools.defaultSoundfontPath() or
@@ -244,7 +246,7 @@ def getSoundfontProgram(sf2path: str, presetname: str) -> tuple[int, int]:
     return idx.nameToPreset[presetname]
 
 
-def soundfontSelectProgram(sf2path: str) -> Optional[tuple[str, int, int]]:
+def soundfontSelectProgram(sf2path: str) -> tuple[str, int, int] | None:
     """
     Select a soundfont program using a gui
 
@@ -265,12 +267,12 @@ def soundfontSelectProgram(sf2path: str) -> Optional[tuple[str, int, int]]:
     return programname, bank, presetnum
 
 
-def findSoundfontInPresetdef(presetdef: presetbase.PresetDef) -> Optional[str]:
+def findSoundfontInPresetdef(presetdef: presetdef.PresetDef) -> str | None:
     """
     Searched the presetdef for the used soundfont
 
     Args:
-        presetdef: the presetbase.PresetDef
+        presetdef: the presetdef.PresetDef
 
     Returns:
         the path of the used soundfont, if this preset is soundfont based
@@ -288,7 +290,7 @@ def embedEnvelope(audiogen: str, audiovars: list[str], envelope="aenv_"
     """
     Given an audiogen, multiply its audiovars with envelope var
     We assume that there might be code after  the audiogen which is used
-    for panning, routing, etc. and we want to apply the envelope before.
+    for panning, output, etc. and we want to apply the envelope before.
     For that reason we need to find the line where the audiovars get
     their last value and multiply them by the envelope there
 
@@ -308,7 +310,7 @@ def embedEnvelope(audiogen: str, audiovars: list[str], envelope="aenv_"
             logger.error("Audiogen:\n")
             logger.error(audiogen)
         else:
-            envline  = f'{audiovar} *= {envelope}'
+            envline = f'{audiovar} *= {envelope}'
             envline = emlib.textlib.matchIndentation(envline, lines[lastassign])
             lines = lines[:lastassign+1] + [envline] + lines[lastassign+1:]
     return '\n'.join(lines)

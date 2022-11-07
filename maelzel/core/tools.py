@@ -1,17 +1,14 @@
 from __future__ import annotations
 
 from maelzel import scorestruct
-
-from .workspace import getWorkspace
-from . import mobj as mobj
-from . import score
-from maelzel import packing
-from maelzel.rational import Rat
+from maelzel import core
+from maelzel.common import F
+from .workspace import Workspace, getWorkspace
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ._typedefs import time_t
-    from maelzel.core.mobj import *
+    from . import score
 
 
 __all__ = (
@@ -21,12 +18,14 @@ __all__ = (
 )
 
 
-def amplitudeToDynamics(amp: float) -> str:
+def amplitudeToDynamics(amp: float, workspace: Workspace = None) -> str:
     """
     Convert an amplitude 0-1 to a dynamic according to the current dynamics curve
 
     Args:
         amp: an amplitude between 0-1
+        workspace: if given, use the dynamic curve defined in this workspace to
+            calculate dynamics
 
     Returns:
         a dynamic ('pp', 'f', etc)
@@ -37,9 +36,8 @@ def amplitudeToDynamics(amp: float) -> str:
         TODO
 
     """
-    w = getWorkspace()
-    dyncurve = w.dynamicCurve
-    return dyncurve.amp2dyn(amp)
+    w = workspace or getWorkspace()
+    return w.dynamicCurve.amp2dyn(amp)
 
 
 def makeClickTrack(struct: scorestruct.ScoreStruct,
@@ -103,48 +101,50 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
 
     for m in struct.measuredefs:
         num, den = m.timesig
-        if den  == 4:
+        if den == 4:
             for i, n in enumerate(range(m.timesig[0])):
                 pitch = strongBeatPitch if i == 0 else weakBeatPitch
-                ev = mobj.Note(pitch, start=now, dur=clickdur or 1).setPlay(fade=(0, 0.1))
+                ev = core.Note(pitch, offset=now, dur=clickdur or 1).setPlay(fade=(0, 0.1))
                 events.append(ev)
                 now += 1
         elif den == 8:
             for i, n in enumerate(range(m.timesig[0])):
                 pitch = strongBeatPitch if i == 0 else weakBeatPitch
-                ev = mobj.Note(pitch, start=now, dur=clickdur or 0.5).setPlay(fade=(0, 0.1))
+                ev = core.Note(pitch, offset=now, dur=clickdur or 0.5).setPlay(fade=(0, 0.1))
                 events.append(ev)
                 now += 0.5
         elif den == 16:
             if m.quarterTempo > 80:
                 dur = clickdur or m.durationBeats()
-                ev = mobj.Note(strongBeatPitch, dur=dur, start=now)
+                ev = core.Note(strongBeatPitch, dur=dur, offset=now)
                 events.append(ev)
                 now += m.durationBeats()
             else:
                 beats = m.subdivisions()
                 for i, beat in enumerate(beats):
                     pitch = strongBeatPitch if i == 0 else weakBeatPitch
-                    ev = mobj.Note(pitch, dur=clickdur or beat, start=now)
+                    ev = core.Note(pitch, dur=clickdur or beat, offset=now)
                     events.append(ev)
                     now += beat
         else:
             raise ValueError(f"Timesig {m.timesig} not supported")
-    voice = mobj.Voice(events)
+    voice = core.Voice(events)
     voice.setPlay(fade=fade)
     if playpreset:
         voice.setPlay(instr=playpreset, params=playparams)
+    from . import score
     return score.Score([voice], scorestruct=struct)
 
 
-def packInVoices(objs: list[MObj]) -> list[mobj.Voice]:
+def packInVoices(objs: list[core.MObj]) -> list[core.Voice]:
     """
     Distribute the items across voices
     """
+    from maelzel import packing
     items = []
     unpitched = []
     for obj in objs:
-        assert obj.start is not None and obj.dur is not None, \
+        assert obj.offset is not None and obj.dur is not None, \
             "Only objects with an explict start / duration can be packed"
         r = obj.pitchRange()
         if r is None:
@@ -152,9 +152,9 @@ def packInVoices(objs: list[MObj]) -> list[mobj.Voice]:
         else:
             pitch = (r[0] + r[1]) / 2
             item = packing.Item(obj,
-                                offset=Rat(obj.start.numerator, obj.start.denominator),
-                                dur=Rat(obj.dur.numerator, obj.dur.denominator),
+                                offset=F(obj.offset.numerator, obj.offset.denominator),
+                                dur=F(obj.dur.numerator, obj.dur.denominator),
                                 step=pitch)
             items.append(item)
     tracks = packing.packInTracks(items)
-    return [mobj.Voice(track.unwrap()) for track in tracks]
+    return [core.Voice(track.unwrap()) for track in tracks]

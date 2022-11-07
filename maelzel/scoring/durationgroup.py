@@ -1,5 +1,5 @@
 from __future__ import annotations
-from .core import Notation, notationsCanMerge, mergeNotationsIfPossible
+from .core import Notation, notationsCannotMerge
 from .common import *
 from numbers import Rational
 from typing import TYPE_CHECKING
@@ -57,6 +57,14 @@ class DurationGroup:
     def ratio(self) -> F:
         return F(*self.durRatio)
 
+    @property
+    def offset(self) -> F:
+        return self.items[0].offset
+
+    @property
+    def end(self) -> F:
+        return self.items[-1].end
+
     def __iter__(self):
         return iter(self.items)
 
@@ -94,19 +102,46 @@ class DurationGroup:
         parts.append(")")
         return "\n".join(parts)
 
+    def _flattenUnnecessarySubgroups(self):
+        if self.durRatio != (1, 1):
+            return
+
+        items = []
+        for item in self.items:
+            if isinstance(item, Notation):
+                items.append(item)
+            elif isinstance(item, DurationGroup):
+                if item.durRatio == (1, 1):
+                    item._flattenUnnecessarySubgroups()
+                    items.extend(item.items)
+                else:
+                    items.append(item)
+        self.items = items
+
+    def mergeWith(self, other: DurationGroup) -> DurationGroup:
+        """
+        Merge this group with other
+
+        """
+        # we don't check here, just merge
+        group = DurationGroup(durRatio=self.durRatio, items=self.items + other.items)
+        group = group.mergedNotations()
+        return group
+
     def mergedNotations(self) -> DurationGroup:
         """
-        Returns a new group with all notations merged (recursively)
+        Returns a new group with all items merged (recursively)
 
         Returns:
-            a new DurationGroup with merged notations (whenever possible)
+            a new DurationGroup with merged items (whenever possible)
         """
+        self._flattenUnnecessarySubgroups()
         i0 = self.items[0]
         out = [i0 if isinstance(i0, Notation) else i0.mergedNotations()]
         for i1 in self.items[1:]:
             i0 = out[-1]
             if isinstance(i0, Notation) and isinstance(i1, Notation):
-                if notationsCanMerge(i0, i1):
+                if i0.canMergeWith(i1):
                     out[-1] = i0.mergeWith(i1)
                 else:
                     out.append(i1)
@@ -128,7 +163,7 @@ def asDurationGroupTree(groups: list[DurationGroup]) -> DurationGroup:
     A tree has a root and leaves, where each leave can be the root of a subtree
 
     Args:
-        groups: the groups to get/make the root for
+        groups: the groupTree to get/make the root for
 
     Returns:
         the root of a tree structure
