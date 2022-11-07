@@ -25,7 +25,7 @@ musically meaningful durations.
 For quantization purposes a :class:`~maelzel.scorestruct.ScoreStruct` is needed, where
 the structure of the score is defined (time signatures, tempi, metadata). In order
 to fine-tune the quantization a :class:`~maelzel.scoring.quant.QuantizationProfile` can
-be defined, or the default profile can be used. Such a ``QuantizationProfile`` allows to
+be defined, or the default preset can be used. Such a ``QuantizationProfile`` allows to
 determine the complexity of the resulting rhythms, kinds of tuplets allowed, when to use
 grace-notes, etc.
 

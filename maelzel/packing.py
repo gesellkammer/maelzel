@@ -11,25 +11,21 @@ must be wrapped inside an Item, defining an offset, duration and step
 """
 
 from __future__ import annotations
-from maelzel.rational import Rat
-from typing import Optional, Union
+from maelzel.common import F
 from emlib.iterlib import pairwise
 import operator
 import bisect
 
 
-number_t = Union[int, float, Rat]
-
-
-def _overlap(x0: number_t, x1: number_t, y0: number_t, y1: number_t) -> bool:
+def _overlap(x0: F | float, x1: F | float, y0: F | float, y1: F | float) -> bool:
     """ do (x0, x1) and (y0, y1) overlap? """
     if x0 < y0:
         return x1 > y0
     return y1 > x0
 
 
-def asRat(x: number_t) -> Rat:
-    return x if isinstance(x, Rat) else Rat(x)
+def asF(x) -> F:
+    return x if isinstance(x, F) else F(x)
 
 
 class Item:
@@ -48,13 +44,13 @@ class Item:
     """
     __slots__ = ("obj", "offset", "dur", "step", "weight")
 
-    def __init__(self, obj, offset: number_t, dur: number_t, step: float,
+    def __init__(self, obj, offset: F | float, dur: F | float, step: float,
                  weight: float = 1.0):
         """
         Args:
             obj (Any): the object to pack
-            offset (Rat): the start time of the object
-            dur (Rat): the duration of the object
+            offset (F): the start time of the object
+            dur (F): the duration of the object
             step (float): the pitch step. This is used to distribute
                 the item into a track
             weight: an item can be assigned a weight and this weight can be
@@ -63,17 +59,17 @@ class Item:
 
         """
         self.obj = obj
-        self.offset = asRat(offset)
-        self.dur = asRat(dur)
+        self.offset = asF(offset)
+        self.dur = asF(dur)
         self.step = step
         self.weight = weight
 
     @property
-    def end(self) -> Rat:
+    def end(self) -> F:
         """ end time of item """
         return self.offset + self.dur
 
-    def __lt__(self, other:Item) -> bool:
+    def __lt__(self, other: Item) -> bool:
         return self.offset < other.offset
 
     def __le__(self, other: Item) -> bool:
@@ -164,7 +160,7 @@ class Track(list):
                 maxstep = step
         return minstep, maxstep
 
-    def start(self) -> Rat:
+    def start(self) -> F:
         """
         The offset of the first item
         """
@@ -173,7 +169,7 @@ class Track(list):
         else:
             return min(item.offset for item in self)
 
-    def end(self) -> Rat:
+    def end(self) -> F:
         """
         The end value of the last item
         """
@@ -218,7 +214,8 @@ class Track(list):
 
 def packInTracks(items: list[Item],
                  maxAmbitus: float = float('inf'),
-                 maxJump:int=None) -> list[Track]:
+                 maxJump: int = None
+                 ) -> list[Track]:
     """
     Pack the items into tracks, minimizing the amount of tracks needed
 
@@ -263,7 +260,8 @@ def dumpTracks(tracks: list[Track]) -> None:
 
 
 def _bestTrack(tracks: list[Track], item: Item, maxAmbitus: float,
-               maxJump:int=None) -> Optional[Track]:
+               maxJump: int = None
+               ) -> Track | None:
     """
     Returns the best track in tracks to pack item into
 
@@ -288,7 +286,8 @@ def _bestTrack(tracks: list[Track], item: Item, maxAmbitus: float,
 
 
 def _fitsInTrack(track: Track, item: Item, maxAmbitus: float,
-                 maxJump: int=None) -> bool:
+                 maxJump: int = None
+                 ) -> bool:
     """
     Returns True if item can be added to track, False otherwise
     """

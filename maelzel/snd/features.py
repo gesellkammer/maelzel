@@ -92,7 +92,7 @@ def playTicks(times: list[float],
 
         >>> import sndfileio
         >>> samples, info = sndfileio.sndget("/path/to/sound.wav")
-        >>> onsets = onsetsAubio(samples, info.samplerate)
+        >>> onsets = onsetsAubio(samples, info.sr)
         >>> synthgroup = playTicks(onsets)
         # if needed to stop the playback at any moment:
         >>> synthgroup.stop()
@@ -147,7 +147,7 @@ def onsets(samples: np.ndarray, sr: int, winsize=2048,
 
     Args:
         samples: mono samples
-        sr: samplerate
+        sr: sr
         winsize: the size of the fft window
         hopsize: samples to skip between windows
         threshold: the delta needed to trigger an onset
@@ -175,7 +175,7 @@ def plotOnsets(samples: np.ndarray, sr: int, onsets: np.ndarray,
 
     Args:
         samples: the samples from which onsets were detected
-        sr: the samplerate of samples
+        sr: the sr of samples
         onsets: the onsets as returned via onsetsRosita
         onsetbpf: the onsetbpf as returned via onsetsRosita
         samplesgain: a gain to apply to the samples for plotting

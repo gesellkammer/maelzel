@@ -88,9 +88,9 @@ def _groupNotationsByMeasure(part:core.Part, struct: ScoreStruct
         loc = struct.beatToLocation(n.offset)
         if loc is None:
             logger.error(f"Offset {n.offset} outside of scorestruct, for {n}")
-            logger.error(f"Scorestruct: duration = {struct.durationBeats()} quarters\n{struct.dump()}")
+            logger.error(f"Scorestruct: duration = {struct.totalDurationBeats()} quarters\n{struct.dump()}")
             raise ValueError(f"Offset {float(n.offset):.3f} outside of score structure "
-                             f"(max. offset: {float(struct.durationBeats()):.3f})")
+                             f"(max. offset: {float(struct.totalDurationBeats()):.3f})")
         elif loc.measureIndex == currMeasure:
             groups[-1].append(n)
         else:
@@ -173,9 +173,9 @@ def render(obj: Union[core.Part, core.Notation, list[core.Part], list[core.Notat
         backend: The backend used for rendering. Supported backends at the
             moment: 'lilypond', 'music21'
         quantizationProfile:
-            The quantization profile determines how events are quantized,
+            The quantization preset determines how events are quantized,
             which divisions of the beat are possible, how a best division
-            is weighted and selected, etc. Not all options in a profile
+            is weighted and selected, etc. Not all options in a preset
             are supported by all backends (for example, music21 backend
             does not support nested tuples).
             See quant.presetQuantizationProfiles, which is a dict with

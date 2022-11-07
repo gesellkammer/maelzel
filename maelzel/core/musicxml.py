@@ -1,10 +1,11 @@
 from __future__ import annotations
 import copy
 from maelzel.scorestruct import ScoreStruct, TimeSignature
-from .mobj import Note, Chord, Voice, Rest
+from .event import Note, Chord, Voice, Rest
 from .score import Score
 from . import symbols
-from ._common import Rat, logger
+from maelzel.common import F
+from ._common import logger
 import pitchtools as pt
 from emlib.iterlib import pairwise
 import emlib.mathlib
@@ -70,7 +71,7 @@ def _parseRest(root: ET.Element, context: ParseContext) -> Note:
     measureRest = root.find('rest').attrib.get('measure', False) == 'yes'
     xmldur = int(root.find('duration').text)
     divisions = context.divisions
-    rest = Rest(dur=Rat(xmldur, divisions))
+    rest = Rest(dur=F(xmldur, divisions))
     if measureRest:
         rest.properties['measureRest'] = True
     return rest
@@ -280,7 +281,7 @@ def _parseNote(root: ET.Element, context: ParseContext) -> Note:
         elif node.tag == 'pitch':
             pstep, poct, palter = _parsePitch(node)
         elif node.tag == 'duration':
-            dur = Rat(int(node.text), context.divisions)
+            dur = F(int(node.text), context.divisions)
         elif node.tag == 'accidental':
             accidental = node.text
             properties['mxml/accidental'] = accidental
@@ -460,8 +461,8 @@ def _joinChords(notes: list[Note]) -> list[Note|Chord]:
     return groups
 
 
-def _measureDuration(beats: int, beattype: int) -> Rat:
-    return Rat(beats*4, beattype)
+def _measureDuration(beats: int, beattype: int) -> F:
+    return F(beats*4, beattype)
 
 
 @dataclass
@@ -711,7 +712,7 @@ def _parsePart(part: ET.Element, context: ParseContext
     beats, beattype = 4, 4
     subdivisions = None
     voices: dict[int, list[Note]] = {}
-    measureCursor = Rat(0)
+    measureCursor = F(0)
     directions: list[Direction] = []
 
     for measureidx, measure in enumerate(part.findall('measure')):
@@ -755,18 +756,18 @@ def _parsePart(part: ET.Element, context: ParseContext
                     directions.append(direction)
 
             elif tag == 'backup':
-                dur = Rat(int(item.find('duration').text), context.divisions)
+                dur = F(int(item.find('duration').text), context.divisions)
                 cursor -= dur
 
             elif tag == 'forward':
-                dur = Rat(int(item.find('duration').text), context.divisions)
+                dur = F(int(item.find('duration').text), context.divisions)
                 cursor += dur
 
             elif tag == 'note':
                 note = _parseNote(item, context)
                 voicenum = int(note.properties.get('voice', 1))
                 cursorWithinMeasure = cursor - measureCursor
-                note.start = cursor
+                note.offset = cursor
                 for direction in directions:
                     if direction.kind == 'rehearsal':
                         box = direction.properties.get('enclosure')  # or 'square'
@@ -809,11 +810,11 @@ def _parsePart(part: ET.Element, context: ParseContext
                 unfilledDur = measureDur - filledDur
                 if unfilledDur > 0:
                     for item in voice:
-                        if item.start >= measureCursor:
-                            item.start += unfilledDur
-                    voice.append(Rest(unfilledDur, start=measureCursor))
-                    voice.sort(key=lambda item: item.start)
-        measureCursor += Rat(beats*4, beattype)
+                        if item.offset >= measureCursor:
+                            item.offset += unfilledDur
+                    voice.append(Rest(unfilledDur, offset=measureCursor))
+                    voice.sort(key=lambda item: item.offset)
+        measureCursor += F(beats*4, beattype)
 
     if len(sco) == 0:
         sco.addMeasure((4, 4), quarterTempo=60)

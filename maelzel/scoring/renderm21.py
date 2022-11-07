@@ -307,7 +307,7 @@ def quantizedPartToMusic21(part: quant.QuantizedPart,
             m21measure.append(rest)
         else:
             measure.removeUnnecessaryAccidentals()
-            for group in measure.groups():
+            for group in measure.groupTree():
                 _renderGroup(m21measure, group, [], options=options)
             m21tools.measureFixAccidentals(m21measure)
         m21part.append(m21measure)

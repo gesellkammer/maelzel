@@ -17,8 +17,9 @@ from emlib.iterlib import first
 
 from maelzel.music import lilytools
 from .common import *
+from . import attachment
+# from .attachment import *
 from . import definitions
-from .attachment import *
 from .core import Notation
 from .render import Renderer, RenderOptions
 from .durationgroup import DurationGroup
@@ -37,7 +38,7 @@ __all__ = (
 )
 
 
-def lyNote(pitch: pitch_t, baseduration:int, dots:int=0, tied=False, cautionary=False,
+def lyNote(pitch: pitch_t, baseduration: int, dots: int = 0, tied=False, cautionary=False,
            fingering: str = ''
            ) -> str:
     assert baseduration in {0, 1, 2, 4, 8, 16, 32, 64, 128}, \
@@ -73,8 +74,8 @@ _articulationToLily = {
     'closed': r'\stopped',
     'stopped': r'\stopped',
     'snappizz': r'\snappizzicato',
-    'snappizzicato': 'r\snappizzicato',
-    'laissezvibrer': 'r\laissezVibrer'
+    'snappizzicato': r'\snappizzicato',
+    'laissezvibrer': r'\laissezVibrer'
 }
 
 
@@ -143,7 +144,7 @@ _lilyBarlines = {
 }
 
 
-def lyArticulation(articulation: Articulation) -> str:
+def lyArticulation(articulation: attachment.Articulation) -> str:
     # TODO: render articulation color if present
     return _articulationToLily[articulation.kind]
 
@@ -202,7 +203,7 @@ def lyNotehead(notehead: str) -> str:
     """
     Convert a noteshape to its lilypond representation
 
-    This uses \override so it can't be placed inside a chord
+    This uses ``\override`` so it can't be placed inside a chord
 
     Args:
         notehead: the noteshape. It can end with '?', in which case it will be
@@ -261,6 +262,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
     Args:
         n: the notation
         options: render options
+        state: the render state
 
     Returns:
         the lilypond notation corresponding to n, as a string
@@ -310,7 +312,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         _(r"\grace")
         base, dots = 8, 0
 
-    if harmonic := first(a for a in n.attachments if isinstance(a, Harmonic)):
+    if harmonic := first(a for a in n.attachments if isinstance(a, attachment.Harmonic)):
         if harmonic.interval == 0:
             n = n.copy()
             n.setNotehead('harmonic')
@@ -325,7 +327,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
     if len(n.pitches) == 1:
         if n.noteheads:
             _(lyNotehead(n.noteheads[0]))
-        fingering = first(a for a in n.attachments if isinstance(a, Fingering))
+        fingering = first(a for a in n.attachments if isinstance(a, attachment.Fingering))
         _(lyNote(n.notename(),
                  baseduration=base,
                  dots=dots,
@@ -351,7 +353,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
                                   accidentalParenthesis=n.accidentalTraits.hidden))
         _(f">{base}{'.'*dots}{'~' if n.tiedNext else ''}")
 
-    if trem := first(a for a in n.attachments if isinstance(a, Tremolo)):
+    if trem := first(a for a in n.attachments if isinstance(a, attachment.Tremolo)):
         if trem.tremtype == 'single':
             _(f":{trem.singleDuration()}")
         else:
@@ -363,19 +365,19 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         _(fr"\{dyn}")
 
     for attach in n.attachments:
-        if isinstance(attach, Text):
+        if isinstance(attach, attachment.Text):
             _(lilytools.makeText(attach.text, placement=attach.placement,
                                  fontsize=attach.fontsize,
                                  italic=attach.isItalic(), bold=attach.isBold(),
                                  box=attach.box))
-        elif isinstance(attach, Articulation):
+        elif isinstance(attach, attachment.Articulation):
             if not n.tiedPrev or options.articulationInsideTie:
                 _(lyArticulation(attach))
-        elif isinstance(attach, Fermata):
+        elif isinstance(attach, attachment.Fermata):
             _(_fermataToLily.get(attach.kind, r'\fermata'))
-        elif isinstance(attach, Ornament):
+        elif isinstance(attach, attachment.Ornament):
             _(fr'\{attach.kind}')
-        elif isinstance(attach, Bend):
+        elif isinstance(attach, attachment.Bend):
             interval = ('+' if attach.interval > 0 else '')+str(round(attach.interval, 1))
             _(fr'\bendAfter #{interval}')
 
@@ -450,7 +452,7 @@ def _handleSpannerPre(spanner: _spanner.Spanner, state: RenderState) -> str | No
             if not (spanner.startmark or spanner.alteration or spanner.trillpitch):
                 # It will be just a wavy line so we use a textspanner
                 _(rf"\once \override TextSpanner.style = #'trill ")
-            elif  spanner.trillpitch:
+            elif spanner.trillpitch:
                 _(r'\pitchedTrill ')
 
     elif isinstance(spanner, _spanner.Slide):
@@ -465,7 +467,7 @@ def _handleSpannerPre(spanner: _spanner.Spanner, state: RenderState) -> str | No
     return ''.join(out)
 
 
-def _handleSpannerPost(spanner: _spanner.Spanner, state: RenderState) -> str|None:
+def _handleSpannerPost(spanner: _spanner.Spanner, state: RenderState) -> str | None:
     out = []
     _ = out.append
 
@@ -527,7 +529,7 @@ def _forceBracketsForNestedTuplets(group: DurationGroup):
 
 
 def renderGroup(group: DurationGroup,
-                durRatios:list[F],
+                durRatios: list[F],
                 options: RenderOptions,
                 state: RenderState,
                 numIndents: int = 0,
@@ -560,7 +562,7 @@ def renderGroup(group: DurationGroup,
         numIndents += 1
         if group.getProperty('forceTupletBracket'):
             _(_spaces[:numIndents * indentSize])
-            _("\once \override TupletBracket.bracket-visibility = ##t")
+            _(r"\once \override TupletBracket.bracket-visibility = ##t")
 
     else:
         tupletStarted = False
@@ -616,7 +618,6 @@ def renderGroup(group: DurationGroup,
                 elif state.glissando and item.tiedPrev and not item.tiedNext:
                     _(r"\glissandoSkipOff ")
                     state.glissando = False
-
 
     _("\n")
     if tupletStarted:
@@ -688,7 +689,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
     if clef is not None:
         line(fr'\clef "{clef}"', indents)
     else:
-        clef = quant.bestClefForPart(part)
+        clef = part.bestClef()
         line(lilytools.makeClef(clef), indents)
 
     lastTimesig = None
@@ -705,7 +706,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
             num, den = measureDef.timesig
             if symbol := measureDef.properties.get('symbol'):
                 if symbol == 'single-number':
-                    line("\once \override Staff.TimeSignature.style = #'single-digit")
+                    line(r"\once \override Staff.TimeSignature.style = #'single-digit")
             if measureDef.subdivisionStructure:
                 # compound meter, like 3+2 / 8
                 # \compoundMeter #'((2 2 2 8))
@@ -748,7 +749,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
                 _(f"R1*{num}/{den}")
             state.dynamic = ''
         else:
-            for group in measure.groups():
+            for group in measure.groupTree():
                 _forceBracketsForNestedTuplets(group)
                 _(renderGroup(group, durRatios=[], options=options,
                               numIndents=indents, state=state))
@@ -1122,7 +1123,7 @@ def makeScore(score: quant.QuantizedScore,
         _(partstr)
     _(r">>")
     if midi:
-        _(" "*indentSize + "\midi { }")
+        _(" "*indentSize + r"\midi { }")
     _(r"}")  # end \score
     return emlib.textlib.joinPreservingIndentation(strs)
 
@@ -1142,7 +1143,7 @@ class LilypondRenderer(Renderer):
     def writeFormats(self) -> list[str]:
         return ['pdf', 'ly', 'png']
 
-    def write(self, outfile: str, fmt: str=None, removeTemporaryFiles=False) -> None:
+    def write(self, outfile: str, fmt: str = None, removeTemporaryFiles=False) -> None:
         outfile = emlib.filetools.normalizePath(outfile)
         base, ext = os.path.splitext(outfile)
         if fmt is None:

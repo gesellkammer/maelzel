@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 def _resetCache() -> None:
-    from .mobj import resetImageCache
+    from .event import resetImageCache
     resetImageCache()
 
 

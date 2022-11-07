@@ -1,8 +1,8 @@
 from __future__ import annotations
-from maelzel.core.mobj import MEvent
+from maelzel.core.event import MEvent
 from maelzel.core import _util
 from maelzel.core._common import *
-from maelzel.rational import Rat
+from maelzel.common import F, asF
 from emlib import iterlib
 from emlib import misc
 from maelzel.core.synthevent import PlayArgs, SynthEvent
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from maelzel.scorestruct import ScoreStruct
     from maelzel.core.workspace import Workspace
     from maelzel.core.config import CoreConfig
-    from maelzel.core.mobj import Note
+    from maelzel.core.event import Note
 
 
 class Line(MEvent):
@@ -85,7 +85,7 @@ class Line(MEvent):
         bps = _util.as2dlist(bps)
 
         for bp in bps:
-            bp[0] = asRat(bp[0])
+            bp[0] = asF(bp[0])
             bp[1] = _util.asmidi(bp[1])
 
         if relative:
@@ -102,7 +102,7 @@ class Line(MEvent):
 
         assert all(bp1[0] > bp0[0] for bp0, bp1 in iterlib.pairwise(bps))
 
-        super().__init__(dur=bps[-1][0], start=start, label=label)
+        super().__init__(dur=bps[-1][0], offset=start, label=label)
         self.bps: list[list] = bps
         """The breakpoints of this line, a list of tuples (delay, pitch, [amp, ...])"""
 
@@ -110,17 +110,17 @@ class Line(MEvent):
         self.gliss = gliss
         self.tied = tied
 
-    def resolvedStart(self) -> Rat:
-        if self.start is not None:
-            return self.start
+    def resolvedOffset(self) -> F:
+        if self.offset is not None:
+            return self.offset
         return self.bps[0][0]
 
-    def resolvedDur(self, start: time_t = None) -> Rat:
+    def resolvedDur(self, start: time_t = None) -> F:
         return self.bps[-1][0] - self.bps[0][0]
 
-    def offsets(self) -> list[Rat]:
+    def offsets(self) -> list[F]:
         """ Return absolute offsets of each breakpoint """
-        start = self.start or Rat(0)
+        start = self.offset or F(0)
         return [bp[0] + start for bp in self.bps]
 
     def translateBreakpointsToAbsTime(self,
@@ -139,7 +139,7 @@ class Line(MEvent):
             a copy of this Lines breakpoints where all timing is given in
             absolute time
         """
-        start = self.start or Rat(0)
+        start = self.offset or F(0)
         bps = []
         for bp in self.bps:
             bp2 = bp.copy()
@@ -161,12 +161,12 @@ class Line(MEvent):
 
     def __hash__(self):
         rowhashes = [hash(tuple(bp)) for bp in self.bps]
-        attrs = (self.start, self.dynamic, self.gliss, self.tied)
+        attrs = (self.offset, self.dynamic, self.gliss, self.tied)
         rowhashes.extend(attrs)
         return hash(tuple(rowhashes))
 
     def __repr__(self):
-        return f"Line(start={self.start}, bps={self.bps})"
+        return f"Line(start={self.offset}, bps={self.bps})"
 
     def quantizePitch(self, step=0) -> Line:
         """
@@ -197,7 +197,7 @@ class Line(MEvent):
                       ) -> list[scoring.Notation]:
         if config is None:
             config = getConfig()
-        start = self.start or Rat(0)
+        start = self.offset or F(0)
         # groupid = scoring.makeGroupId(groupid)
         notations: list[scoring.Notation] = []
 
@@ -241,19 +241,19 @@ class Line(MEvent):
         if not inplace:
             bps = []
             for bp in self.bps:
-                t1 = timemap(bp[0] + self.start)
+                t1 = timemap(bp[0] + self.offset)
                 bp2 = bp.copy()
                 bp2[0] = t1
                 bps.append(bp2)
             return Line(bps, label=self.label)
         else:
             for bp in self.bps:
-                bp[0] = timemap(bp[0] + self.start)
+                bp[0] = timemap(bp[0] + self.offset)
 
     def dump(self, indents=0):
         attrs = []
-        if self.start:
-            attrs.append(f"start={self.start}")
+        if self.offset:
+            attrs.append(f"start={self.offset}")
         if self.label:
             attrs.append(f"label={self.label}")
         infostr = ", ".join(attrs)
@@ -266,7 +266,7 @@ class Line(MEvent):
         misc.print_table(rows, headers=headers, showindex=False, )
 
     def timeShift(self, timeoffset: time_t) -> Line:
-        return Line(self.bps, start=(self.start or Rat(0)) + timeoffset)
+        return Line(self.bps, start=(self.offset or F(0)) + timeoffset)
 
     def pitchTransform(self, pitchmap: Callable[[float], float]) -> Line:
         newpitches = [pitchmap(bp[1]) for bp in self.bps]
@@ -277,10 +277,10 @@ class Line(MEvent):
 
 
 def makeLine(notes: list[Note], workspace: Workspace = None) -> Line:
-    assert all(n0.end == n1.start for n0, n1 in iterlib.pairwise(notes))
+    assert all(n0.end == n1.offset for n0, n1 in iterlib.pairwise(notes))
     bps = []
     for note in notes:
-        bp = [note.start, note.pitch, note.resolvedAmp(workspace=workspace)]
+        bp = [note.offset, note.pitch, note.resolvedAmp(workspace=workspace)]
         bps.append(bp)
     lastnote = notes[-1]
     if lastnote.dur > 0:

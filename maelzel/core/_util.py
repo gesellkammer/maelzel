@@ -9,7 +9,7 @@ import os
 import bpf4 as bpf
 import pitchtools as pt
 from dataclasses import dataclass
-from maelzel.rational import Rat
+from maelzel.common import F
 from maelzel.colortheory import safeColors
 from . import environment
 
@@ -93,7 +93,7 @@ def carryColumns(rows: list, sentinel=None) -> list:
     return outrows[1:]
 
 
-def as2dlist(rows: list[list|tuple]) -> list[list]:
+def as2dlist(rows: list[list | tuple]) -> list[list]:
     """
     Ensure that all rows are lists
 
@@ -292,23 +292,23 @@ class NoteProperties:
     notename: Union[str, list[str]]
     """A pitch or a list of pitches"""
 
-    dur: Optional[Rat]
+    dur: Optional[F]
     """An optional duration"""
 
     properties: Optional[dict[str, str]]
     """Any other properties"""
 
 
-_dotRatios = [1, Rat(3, 2), Rat(7, 4), Rat(15, 8), Rat(31, 16)]
+_dotRatios = [1, F(3, 2), F(7, 4), F(15, 8), F(31, 16)]
 
 
-def _parseSymbolicDuration(s: str) -> Rat:
+def _parseSymbolicDuration(s: str) -> F:
     if not s.endswith("."):
-        return Rat(4, int(s))
+        return F(4, int(s))
     dots = s.count(".")
     s = s[:-dots]
     ratio = _dotRatios[dots]
-    return Rat(4, int(s)) * ratio
+    return F(4, int(s)) * ratio
 
 
 def parseNote(s: str) -> NoteProperties:
@@ -353,8 +353,6 @@ def parseNote(s: str) -> NoteProperties:
         if pitch[-1] == '!':
             properties['fixPitch'] = True
             pitch = pitch[:-1]
-
-
     else:
         pitch, rest = s.split(":", maxsplit=1)
         if "/" in pitch:
@@ -372,7 +370,7 @@ def parseNote(s: str) -> NoteProperties:
         parts = rest.split(":")
         for part in parts:
             try:
-                dur = Rat(part)
+                dur = F(part)
             except ValueError:
                 if part in _knownDynamics:
                     properties['dynamic'] = part

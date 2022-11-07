@@ -16,7 +16,7 @@ import sys
 import os
 from typing import TYPE_CHECKING, NamedTuple
 if TYPE_CHECKING:
-    from typing import Tuple, List, Set
+    from typing import Set
 
 try:
     import vamp
@@ -37,13 +37,14 @@ _pyin_threshold_distrs = {
 
 _cache = {}
 
+
 class Note(NamedTuple):
     timestamp: float
     frequency: float
     duration: float
 
 
-def vampFolder():
+def vampFolder() -> str:
     """
     Returns the vamp plugins folder
     """
@@ -84,7 +85,7 @@ def pyinNotes(samples: np.ndarray, sr:int,
               lowAmpSuppression=0.05,
               threshDistr="beta15",
               onsetSensitivity=0.9,
-              pruneThresh=0.1) -> List[Tuple[float, float, float]]:
+              pruneThresh=0.1) -> list[Note]:
     """
     Notes detection. Uses pyin
 
@@ -101,8 +102,7 @@ def pyinNotes(samples: np.ndarray, sr:int,
         pruneThresh (float): duration pruning threshold
 
     Returns:
-        a list of Notes, where each Note is a namedtuple with attributes:
-        (time, freq, duration)
+        a list of Notes, where each Note has the attributes .timestamp, .frequency, .duration
 
     ============   ============
     thresh_distr   Description
@@ -301,7 +301,7 @@ def pyinSmoothPitch(samples: np.ndarray, sr:int,
                     fftSize=2048, stepSize=256,
                     lowAmpSuppression=0.1, threshDistr="beta15",
                     onsetSensitivity=0.7,
-                    pruneThresh=0.1) -> Tuple[float, np.ndarray]:
+                    pruneThresh=0.1) -> tuple[float, np.ndarray]:
     """
     Fundamental frequency analysis
 
@@ -368,4 +368,5 @@ def pyinSmoothPitch(samples: np.ndarray, sr:int,
                            output="smoothedpitchtrack", block_size=fftSize,
                            step_size=stepSize, parameters=params)
     dt, freqs = result1['vector']
-    return (dt, freqs)
+    freqsarray = np.array(freqs, dtype=float)
+    return (dt, freqsarray)

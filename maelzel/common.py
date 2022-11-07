@@ -1,4 +1,4 @@
-from maelzel.rational import Rat as F
+
 from pitchtools import n2m
 import numbers as _numbers
 
@@ -6,7 +6,24 @@ import typing as t
 pitch_t = t.Union[int, float, str]
 timesig_t = t.Tuple[int, int]
 number_t = t.Union[float, _numbers.Rational]
-T = t.TypeVar('MObjT')
+T = t.TypeVar('T')
+
+
+try:
+    from quicktions import Fraction as F
+except ImportError:
+    from fractions import Fraction as F
+
+
+def asF(t) -> F:
+    """
+    Convert ``t`` to a fraction if needed
+    """
+    if isinstance(t, F):
+        return t
+    elif isinstance(t, _numbers.Rational):
+        return F(t.numerator, t.denominator)
+    return F(t)
 
 
 def asmidi(x: pitch_t) -> float:

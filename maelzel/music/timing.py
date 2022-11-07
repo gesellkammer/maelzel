@@ -83,7 +83,7 @@ def framedTime(offsets: List[number_t], durations: List[number_t]
     ... ('B', 2.5,  1)
     ... ])
     >>> a_frames = [frame for frame in frames if frame.id == 'A']
-    >>> offsets = [frame.start for frame in a_frames]
+    >>> offsets = [frame.offset for frame in a_frames]
     >>> durs = [frame.dur for frame in a_frames]
     >>> density = bpf.linear(0, 0, 1, 1)  # linear crescendo in density
     >>> lin2framed, framed2lin = framedTime(offsets, durs)

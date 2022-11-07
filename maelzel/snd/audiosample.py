@@ -3,7 +3,7 @@ audiosample
 ~~~~~~~~~~~
 
 This module is based on the :class:`~maelzel.snd.audiosample.Sample` class,
-which contains the audio of a soundfile as a numpy array and it knows about its sr,
+which contains the audio of a soundfile as a numpy array and it aware of its sr,
 original format and encoding, etc. It can also perform simple actions
 (fade-in/out, cut, insert, reverse, normalize, etc) on its own audio
 destructively or return a new Sample. It implements most math operations
@@ -11,9 +11,10 @@ valid for audio data (+, -, *, /)
 
 .. note::
 
-    All operations are samplerate-aware, meaning that any operation involving
-    multiple samples will broadcast them to the highest samplerate used
+    All operations are sr-aware, meaning that any operation involving
+    multiple Sample instances will broadcast them to the highest sr used
     should they have non-matching samplerates
+
 
 External dependencies
 ~~~~~~~~~~~~~~~~~~~~~
@@ -66,7 +67,6 @@ import atexit as _atexit
 import configdict
 
 from pitchtools import amp2db
-import numpyx
 from emlib import numpytools as _nptools
 import emlib.misc
 
@@ -76,8 +76,13 @@ from maelzel.snd import sndfiletools as _sndfiletools
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import csoundengine
-    from typing import Optional, Union, Iterator, Sequence
+    from typing import Iterator, Sequence
     import matplotlib.pyplot as plt
+
+
+__all__ = (
+    'Sample',
+)
 
 
 logger = logging.getLogger("maelzel.snd")
@@ -109,12 +114,12 @@ def _cleanup():
                 os.remove(f)
 
 
-def _normalize_path(path:str) -> str:
+def _normalize_path(path: str) -> str:
     path = os.path.expanduser(path)
     return os.path.abspath(path)
 
 
-def openInEditor(soundfile:str, wait=False, app=None) -> None:
+def openInEditor(soundfile: str, wait=False, app=None) -> None:
     """
     Open soundfile in an external sound editing appp
     
@@ -125,10 +130,10 @@ def openInEditor(soundfile:str, wait=False, app=None) -> None:
 
     """
     soundfile = _normalize_path(soundfile)
-    emlib.misc.open_with_app(soundfile, app, wait=wait)
+    emlib.misc.open_with_app(soundfile, app, wait=wait, min_wait=5)
 
 
-def readSoundfile(sndfile: str, start:float=0., end:float=0.) -> tuple[np.ndarray, int]:
+def readSoundfile(sndfile: str, start: float = 0., end: float = 0.) -> tuple[np.ndarray, int]:
     """
     Read a soundfile, returns a tuple ``(samples:np.ndarray, sr:int)``
 
@@ -160,60 +165,6 @@ def readSoundfile(sndfile: str, start:float=0., end:float=0.) -> tuple[np.ndarra
     return sndfileio.sndread(sndfile, start=start, end=end)
 
 
-_csoundEngine = None
-
-
-def getPlayEngine(**kws) -> csoundengine.Engine:
-    """
-    Returns the csound Engine used for playback
-
-    If no playback has been performed up to this point, a new Engine
-    is created. Keywords are passed directly to :class:`csoundengine.Engine`
-    (https://csoundengine.readthedocs.io/en/latest/api/csoundengine.engine.Engine.html#csoundengine.engine.Engine)
-    and will only take effect if this function is called before any
-    playback has been performed.
-
-    An already existing Engine can be set as the playback engine via
-    :func:`setPlayEngine`
-
-    See Also
-    ~~~~~~~~
-
-    * :func:`setPlayEngine`
-    """
-    global _csoundEngine
-    if _csoundEngine:
-        return _csoundEngine
-    import csoundengine
-    _csoundEngine = csoundengine.Engine('maelzel.snd.audiosample')
-    return _csoundEngine
-
-
-def setPlayEngine(engine: csoundengine.Engine) -> None:
-    """
-    Sets an external Engine as the playback engine.
-
-    Normally a csound engine is created ad-hoc to take care
-    of all playback operations. For some niche cases where
-    interaction is needed between playback and other operations
-    performed on an already existing engine, it is possible to
-    set an external engine as the playback engine. This will only
-    affect Sample objects created after the external playback engine has
-    been set.
-
-    Args:
-        engine: the Engine to use for playback
-
-    See Also
-    ~~~~~~~~
-
-    * :func:`getPlayEngine`
-
-    """
-    global _csoundEngine
-    _csoundEngine = engine
-
-
 def _vampPyinAvailable() -> bool:
     try:
         import vamp
@@ -229,32 +180,37 @@ class Sample:
     Args:
         sound: str, a Path or a numpy array
             either sample data or a path to a soundfile
-        samplerate: only needed if passed an array
+        sr: only needed if passed an array
         start: the start time (only valid when reading from a soundfile). Can be
             negative, in which case the frame is sought from the end
         end: the end time (only valid when reading from a soundfile). Can be
             negative, in which case the frame is sought from the end
 
-    Attributes:
-        samples (np.ndarray): the audio data
-        samplerate (int): the sr of the audio data
-        numchannels (int): the number of channels
-        duration (float): the duration of the sample
     """
-    def __init__(self, sound:Union[str, Path, np.ndarray], samplerate:int=None,
+
+    _csoundEngine: csoundengine.Engine = None
+
+    def __init__(self, sound: str | Path | np.ndarray, sr: int = None,
                  start=0., end=0.) -> None:
-        self._csoundTabnum = 0
+        self._csoundTable: tuple[str, int] | None = None
+        """Keeps track of any table created in csound for playback"""
+
         self._reprHtml: str = ''
-        self._asbpf: Optional[bpf4.BpfInterface] = None
+        """Caches html representation"""
+
+        self._asbpf: bpf4.BpfInterface | None = None
+        """Caches bpf representation"""
+
+        self._f0: bpf4.BpfInterface | None = None
 
         self.path = ''
         """If non-empty, the path from which the audio data was loaded"""
 
         if isinstance(sound, (str, Path)):
-            samples, samplerate = readSoundfile(sound, start=start, end=end)
+            samples, sr = readSoundfile(sound, start=start, end=end)
             self.path = str(sound)
         elif isinstance(sound, np.ndarray):
-            assert samplerate is not None
+            assert sr is not None
             samples = sound
         else:
             raise TypeError("sound should be a path or an array of samples")
@@ -262,15 +218,18 @@ class Sample:
         self.samples: np.ndarray = samples
         """The actual audio samples as a numpy array. Can be multidimensional"""
 
-        self.sr: int = samplerate
-        """The samplerate"""
+        self.sr: int = sr
+        """The sr"""
 
         self.numchannels = _npsnd.numChannels(self.samples)
         """The number of channels of each frame"""
 
     def __del__(self):
-        if self._csoundTabnum:
-            getPlayEngine().freeTable(self._csoundTabnum)
+        if not self._csoundTable:
+            return
+        enginename, tabnum = self._csoundTable
+        if enginename == Sample.getEngine().name:
+            Sample.getEngine().freeTable(tabnum)
 
     @property
     def numframes(self) -> int:
@@ -286,46 +245,116 @@ class Sample:
         return (f"Sample(dur={self.duration}, sr={self.sr:d}, "
                 f"ch={self.numchannels})")
 
+    @staticmethod
+    def getEngine(**kws) -> csoundengine.Engine:
+        """
+        Returns the csound Engine used for playback
+
+        If no playback has been performed up to this point, a new Engine
+        is created. Keywords are passed directly to :class:`csoundengine.Engine`
+        (https://csoundengine.readthedocs.io/en/latest/api/csoundengine.engine.Engine.html#csoundengine.engine.Engine)
+        and will only take effect if this function is called before any
+        playback has been performed.
+
+        An already existing Engine can be set as the playback engine via
+        :meth:`Sample.setEngine`
+
+        See Also
+        ~~~~~~~~
+
+        * :meth:`Sample.setEngine`
+        """
+        if Sample._csoundEngine:
+            return Sample._csoundEngine
+        else:
+            import csoundengine as ce
+            name = 'maelzel.snd.audiosample'
+            if (engine := ce.getEngine(name)) is not None:
+                Sample._csoundEngine = engine
+            else:
+                Sample._csoundEngine = ce.Engine(name, **kws)
+            return Sample._csoundEngine
+
+    @staticmethod
+    def setEngine(engine: csoundengine.Engine | str):
+        """
+        Sets an external Engine as the playback engine.
+
+        Normally a csound engine is created ad-hoc to take care
+        of all playback operations. For some niche cases where
+        interaction is needed between playback and other operations
+        performed on an already existing engine, it is possible to
+        set an external engine as the playback engine. This will only
+        affect Sample objects created after the external playback engine has
+        been set.
+
+        Args:
+            engine: the Engine to use for playback
+
+        See Also
+        ~~~~~~~~
+
+        * :meth:`Sample.getEngine`
+
+        """
+        if isinstance(engine, str):
+            import csoundengine as ce
+            engineinstance = ce.getEngine(engine)
+            if engineinstance:
+                Sample._csoundEngine = engineinstance
+            else:
+                active = ce.activeEngines()
+                raise KeyError(f"Engine {engine} does not exist. Active engines: {active}")
+        else:
+            Sample._csoundEngine = engine
+
     @classmethod
-    def silent(cls, dur: float, channels: int, sr: int) -> Sample:
+    def createSilent(cls, dur: float, channels: int, sr: int) -> Sample:
         """
         Generate a silent Sample with the given characteristics
+
+        Args:
+            dur: the duration of the new Sample
+            channels: the number of channels
+            sr: the sample rate
+
+        Returns:
+            a new Sample with all samples set to 0
         """
-        if channels == 1:
-            samples = np.zeros((int(dur*sr),), dtype=float)
-        else:
-            samples = np.zeros((int(dur*sr), channels), dtype=float)
-        return cls(samples, sr)
+        numframes = int(dur * sr)
+        return cls(_silentFrames(numframes, channels), sr)
 
     def _makeCsoundTable(self, engine: csoundengine.Engine) -> int:
-        if self._csoundTabnum:
-            usedengine, table = self._csoundTabnum
+        if self._csoundTable:
+            usedengine, table = self._csoundTable
             if usedengine == engine.name:
                 return table
         tabnum = engine.makeTable(self.samples, sr=self.sr, block=True)
-        self._csoundTabnum = (engine.name, tabnum)
+        self._csoundTable = (engine.name, tabnum)
         return tabnum
 
     def preparePlay(self):
-        """Send audio data to the audio engine"""
-        self._makeCsoundTable(getPlayEngine())
+        """Send audio data to the audio engine (blocking)"""
+        self._makeCsoundTable(Sample.getEngine())
 
-    def play(self, loop=False, chan:int=1, gain=1., delay=0.,
-             pan=-1, speed=1.0,
-             engine: Union[str, csoundengine.Engine] = None,
+    def play(self,
+             loop=False,
+             chan: int = 1,
+             gain=1.,
+             delay=0.,
+             pan=-1,
+             speed=1.0,
+             skip=0.,
+             dur=0,
+             engine: str | csoundengine.Engine = '',
              block=False
              ) -> csoundengine.synth.Synth:
         """
         Play the given sample
 
-        If no playback has taken place, a new playback engine is created
-        To create an Engine with specific characteristics use :func:`getPlayEngine`.
-        To use an already existing Engine, see :func:`setPlayEngine`
-
-        .. note::
-
-            To play a section of the sample, slice it first, then play the
-            resulting sample. To slice a sample, use ``sample[starttime:endtime]``
+        * If no playback has taken place, a new playback engine is created
+        * To create an Engine with specific characteristics use :meth:`Sample.getEngine`.
+        * To use an already existing Engine, see :func:`setPlayEngine`
 
         Args:
             loop (bool): should playback be looped?
@@ -338,6 +367,8 @@ class Sample:
                 for stereo. For 3 or more channels pan is currently ignored
             speed(float): the playback speed. A variation in speed will change
                 the pitch accordingly.
+            skip: start playback at a given point in time
+            dur: duration of playback. 0 indicates to play until the end of the sample
             engine: the name of a csoundengine.Engine, or the Engine instance
                 itself. If given, playback will be performed using this engine,
                 otherwise a default Engine will be used.
@@ -350,28 +381,29 @@ class Sample:
         See Also
         ~~~~~~~~
 
-        * :func:`getPlayEngine`
-        * :func:`setPlayEngine`
+        * :meth:`Sample.getEngine`
+        * :meth:`Sample.setEngine`
 
         """
         if engine:
-            import csoundengine
             if isinstance(engine, str):
+                import csoundengine
                 _engine = csoundengine.getEngine(engine)
                 if _engine is None:
                     raise ValueError(f"Engine {engine} unknown. Known engines: {csoundengine.activeEngines()}")
-                else:
-                    engine = _engine
+                engine = _engine
         else:
-            engine = getPlayEngine()
+            engine = Sample.getEngine()
         tabnum = self._makeCsoundTable(engine)
-        synth = engine.session().playSample(tabnum, chan=chan, gain=gain,
-                                            loop=loop, delay=delay, pan=pan,
+        if dur == 0:
+            dur = -1
+        synth = engine.session().playSample(tabnum, chan=chan, gain=gain, loop=loop,
+                                            skip=skip, dur=dur, delay=delay, pan=pan,
                                             speed=speed)
         if block:
             import time
             while synth.isPlaying():
-                time.sleep(0.05)
+                time.sleep(0.02)
         return synth
 
     def asbpf(self) -> bpf4.BpfInterface:
@@ -380,9 +412,8 @@ class Sample:
         """
         if self._asbpf not in (None, False):
             return self._asbpf
-        else:
-            self._asbpf = bpf4.core.Sampled(self.samples, 1/self.sr)
-            return self._asbpf
+        self._asbpf = bpf4.core.Sampled(self.samples, 1/self.sr)
+        return self._asbpf
 
     def plot(self, profile='auto') -> None:
         """
@@ -418,10 +449,8 @@ class Sample:
         -------
 
             >>> from maelzel.snd.audiosample import Sample
-            >>> s = Sample("snd/Numbers_EnglishFemale.flac")
-            >>> s
-            >>> # This will produce the same effect:
-            >>> s.reprHtml()
+            >>> sample = Sample("snd/Numbers_EnglishFemale.flac")
+            >>> sample.reprHtml()
 
         .. image:: ../assets/audiosample-reprhtml.png
 
@@ -442,7 +471,7 @@ class Sample:
             profile = 'low'
         plotting.plotWaveform(self.samples, self.sr, profile=profile,
                               saveas=pngfile)
-        img = emlib.img.htmlImgBase64(pngfile) # , maxwidth='800px')
+        img = emlib.img.htmlImgBase64(pngfile)   # , maxwidth='800px')
         if self.duration > 60:
             durstr = emlib.misc.sec2str(self.duration)
         else:
@@ -496,7 +525,7 @@ class Sample:
         a fraction)
         """
         from . import plotting
-        samples = self.samples if self.numchannels == 1 else self.samples[:,0]
+        samples = self.samples if self.numchannels == 1 else self.samples[:, 0]
         s0 = 0 if start == 0 else int(start*self.sr)
         s1 = self.numframes if dur == 0 else min(self.numframes,
                                                  int(dur*self.sr)-s0)
@@ -508,10 +537,10 @@ class Sample:
     def plotSpectrogram(self,
                         fftsize=2048,
                         window='hamming',
-                        overlap:int=None,
+                        overlap: int = None,
                         mindb=-120,
-                        minfreq:int=40,
-                        maxfreq:int=12000,
+                        minfreq: int = 40,
+                        maxfreq: int = 12000,
                         axes=None) -> plt.Axes:
         """
         Plot the spectrogram of this sound using matplotlib
@@ -542,7 +571,7 @@ class Sample:
                                         maxfreq=maxfreq, axes=axes)
 
     def openInEditor(self, wait=True, app=None, fmt='wav'
-                     ) -> Optional[Sample]:
+                     ) -> Sample | None:
         """
         Open the sample in an external editor.
 
@@ -556,6 +585,7 @@ class Sample:
                 is used
             fmt: the format to write the samples to
 
+
         Returns:
             if wait, it returns the sample after closing editor
         """
@@ -568,8 +598,8 @@ class Sample:
             return Sample(sndfile)
         return None
 
-    def write(self, outfile: str, encoding:str=None, overflow='fail',
-              fmt:str='', bitrate=224, **metadata
+    def write(self, outfile: str, encoding: str = None, overflow='fail',
+              fmt: str = '', bitrate=224, **metadata
               ) -> None:
         """
         Write the samples to outfile
@@ -603,6 +633,7 @@ class Sample:
         if not encoding:
             encoding = sndfileio.util.default_encoding(fmt)
         if overflow != 'nothing' and encoding.startswith('pcm'):
+            import numpyx
             minval, maxval = numpyx.minmax1d(self.getChannel(0).samples)
             if minval < -1 or maxval > 1:
                 if overflow == 'fail':
@@ -622,10 +653,10 @@ class Sample:
         return Sample(self.samples.copy(), self.sr)
 
     def _changed(self) -> None:
-        self._csoundTabnum = 0
+        self._csoundTable = None
         self._reprHtml = ''
 
-    def __add__(self, other: Union[float, Sample]) -> Sample:
+    def __add__(self, other: float | Sample) -> Sample:
         if isinstance(other, (int, float)):
             return Sample(self.samples+other, self.sr)
         elif isinstance(other, Sample):
@@ -635,11 +666,11 @@ class Sample:
             elif len(self) > len(other):
                 return Sample(self.samples[:len(other)]+other.samples, self.sr)
             else:
-                return Sample(self.samples+ other.samples[:len(self)], self.sr)
+                return Sample(self.samples + other.samples[:len(self)], self.sr)
         else:
             raise TypeError(f"Expected a scalar or a sample, got {other}")
 
-    def __iadd__(self, other: Union[float, Sample]) -> None:
+    def __iadd__(self, other: float | Sample) -> None:
         if isinstance(other, (int, float)):
             self.samples += other
         elif isinstance(other, Sample):
@@ -654,7 +685,7 @@ class Sample:
         else:
             raise TypeError(f"Expected a scalar or a sample, got {other}")
 
-    def __sub__(self, other: Union[float, Sample]) -> Sample:
+    def __sub__(self, other: float | Sample) -> Sample:
         if isinstance(other, (int, float)):
             return Sample(self.samples-other, self.sr)
         elif isinstance(other, Sample):
@@ -664,11 +695,11 @@ class Sample:
             elif len(self) > len(other):
                 return Sample(self.samples[:len(other)]-other.samples, self.sr)
             else:
-                return Sample(self.samples- other.samples[:len(self)], self.sr)
+                return Sample(self.samples - other.samples[:len(self)], self.sr)
         else:
             raise TypeError(f"Expected a scalar or a sample, got {other}")
 
-    def __isub__(self, other: Union[float, Sample]) -> None:
+    def __isub__(self, other: float | Sample) -> None:
         if isinstance(other, (int, float)):
             self.samples -= other
         elif isinstance(other, Sample):
@@ -683,7 +714,7 @@ class Sample:
             raise TypeError(f"Expected a scalar or a sample, got {other}")
         self._changed()
 
-    def __mul__(self, other: Union[float, Sample]) -> Sample:
+    def __mul__(self, other: float | Sample) -> Sample:
         if isinstance(other, (int, float)):
             return Sample(self.samples*other, self.sr)
         elif isinstance(other, Sample):
@@ -693,11 +724,11 @@ class Sample:
             elif len(self) > len(other):
                 return Sample(self.samples[:len(other)]*other.samples, self.sr)
             else:
-                return Sample(self.samples* other.samples[:len(self)], self.sr)
+                return Sample(self.samples * other.samples[:len(self)], self.sr)
         else:
             raise TypeError(f"Expected a scalar or a sample, got {other}")
 
-    def __imul__(self, other: Union[float, Sample]) -> Sample:
+    def __imul__(self, other: float | Sample) -> Sample:
         if isinstance(other, (int, float)):
             self.samples *= other
         elif isinstance(other, Sample):
@@ -759,7 +790,7 @@ class Sample:
         frame1 = int(stop*self.sr)
         return Sample(self.samples[frame0:frame1], self.sr)
 
-    def fade(self, fadetime:Union[float, tuple[float, float]], shape:str='linear'
+    def fade(self, fadetime: float | tuple[float, float], shape: str = 'linear'
              ) -> Sample:
         """
         Fade this Sample **in place**, returns self.
@@ -802,16 +833,16 @@ class Sample:
                              mode='inout', shape=shape)
         return self
 
-    def prependSilence(self, dur:float) -> Sample:
+    def prependSilence(self, dur: float) -> Sample:
         """
         Return a new Sample with silence of given dur at the beginning
         """
-        silence = Sample.silent(dur, self.numchannels, self.sr)
-        return concat([silence, self])
+        silence = Sample.createSilent(dur, self.numchannels, self.sr)
+        return joinsamples([silence, self])
 
-    def concat(self, *other: Sample) -> Sample:
+    def append(self, *other: Sample) -> Sample:
         """
-        Concatenate this Sample with other
+        Join (concatenate) this Sample with other(s)
 
         Args:
             *other: one or more Samples to join together
@@ -821,7 +852,7 @@ class Sample:
         """
         samples = [self]
         samples.extend(other)
-        return concat(samples)
+        return joinsamples(samples)
 
     def normalize(self, headroom=0.) -> Sample:
         """Normalize in place, returns self
@@ -878,7 +909,7 @@ class Sample:
     def rms(self) -> float:
         """ Returns the rms of the samples
 
-        This method returns the rms for all the frames at once. As such
+        This method returns the rms for **all** the frames at once. As such
         it is only of use for short samples. The use case is as follows:
 
             >>> from maelzel.snd.audiosample import Sample
@@ -892,7 +923,7 @@ class Sample:
         """
         return _npsnd.rms(self.samples)
 
-    def mono(self) -> Sample:
+    def mixdown(self) -> Sample:
         """
         Return a new Sample with this sample downmixed to mono
 
@@ -900,9 +931,9 @@ class Sample:
         """
         if self.numchannels == 1:
             return self
-        return Sample(_npsnd.asmono(self.samples), samplerate=self.sr)
+        return Sample(_npsnd.asmono(self.samples), sr=self.sr)
 
-    def stripSilenceLeft(self, threshold=-120.0, margin=0.01, window=0.02) -> Sample:
+    def stripLeft(self, threshold=-120.0, margin=0.01, window=0.02) -> Sample:
         """
         Remove silence from the left. Returns a new Sample
 
@@ -922,7 +953,7 @@ class Sample:
             return self[time:]
         return self
 
-    def stripSilenceRight(self, threshold=-120.0, margin=0.01, window=0.02) -> Sample:
+    def stripRight(self, threshold=-120.0, margin=0.01, window=0.02) -> Sample:
         """
         Remove silence from the right. Returns a new Sample
 
@@ -942,7 +973,7 @@ class Sample:
             return self[:time]
         return self
 
-    def stripSilence(self, threshold=-120.0, margin=0.01, window=0.02) -> Sample:
+    def strip(self, threshold=-120.0, margin=0.01, window=0.02) -> Sample:
         """
         Remove silence from the sides. Returns a new Sample
 
@@ -955,19 +986,19 @@ class Sample:
         Returns:
             a new Sample with silence at the sides removed
         """
-        out = self.stripSilenceLeft(threshold, margin, window)
-        out = out.stripSilenceRight(threshold, margin, window)
+        out = self.stripLeft(threshold, margin, window)
+        out = out.stripRight(threshold, margin, window)
         return out
 
-    def resample(self, samplerate: int) -> Sample:
+    def resample(self, sr: int) -> Sample:
         """
         Return a new Sample with the given sr
         """
-        if samplerate == self.sr:
+        if sr == self.sr:
             return self
         from maelzel.snd.resample import resample
-        samples = resample(self.samples, self.sr, samplerate)
-        return Sample(samples, samplerate=samplerate)
+        samples = resample(self.samples, self.sr, sr)
+        return Sample(samples, sr=sr)
 
     def scrub(self, bpf: bpf4.BpfInterface) -> Sample:
         """
@@ -989,7 +1020,7 @@ class Sample:
                                           rewind=False)
         return Sample(samples, self.sr)
 
-    def getChannel(self, n:int, contiguous=False) -> Sample:
+    def getChannel(self, n: int, contiguous=False) -> Sample:
         """
         return a new mono Sample with the given channel
 
@@ -1001,8 +1032,7 @@ class Sample:
         if self.numchannels == 1 and n == 0:
             return self
         if n > (self.numchannels-1):
-            raise ValueError("this sample has only %d channel(s)!"%
-                             self.numchannels)
+            raise ValueError(f"this sample has only {self.numchannels} channel(s)!")
         newsamples = self.samples[:, n]
         if contiguous and not newsamples.flags.c_contiguous:
             newsamples = np.ascontiguousarray(newsamples)
@@ -1023,7 +1053,7 @@ class Sample:
         """
         Detect onsets
 
-        Notice that, depending on the implementation, onsets can be "possitive"
+        Depending on the implementation, onsets can be "possitive"
         onsets, similar to an attack, or just sudden changes in the spectrum; this
         includes "negative" onsets, which would be detected at the sudden end
         of a note. To accurately track onsets it might be useful to use other
@@ -1036,10 +1066,10 @@ class Sample:
         Args:
             fftsize: the size of the window
             overlap: a hop size as a fraction of the fftsize
-            method: one of 'rosita' (using librosa's onset detection algorithm)
-                or 'aubio' (needs aubio to be installed)
-            threshold: the onset sensitivity. rosita has a default of 0.07, while
-                aubio has a default of 0.03
+            method: one of 'rosita' (using a lightweight version of librosa's onset
+                detection algorithm) or 'aubio' (needs aubio to be installed)
+            threshold: the onset sensitivity. This is a value specific for a given
+                method (rosita has a default of 0.07, while aubio has a default of 0.03)
             mingap: the min. time between two onsets
 
         Returns:
@@ -1076,7 +1106,7 @@ class Sample:
             from maelzel.snd import features
             onsets, onsetstrength = features.onsets(self.samples, sr=self.sr,
                                                     winsize=fftsize,
-                                                    hopsize = fftsize // overlap,
+                                                    hopsize=fftsize // overlap,
                                                     threshold=threshold,
                                                     mingap=mingap)
             return onsets
@@ -1091,7 +1121,46 @@ class Sample:
         else:
             raise ValueError(f"method {method} not known. Possible methods: 'rosita', 'aubio'")
 
-    def fundamentalBpf(self, fftsize=2048, overlap=4, method:str=None
+    def fundamentalFreq(self, time: float = None, dur=0.2, fftsize=2048, overlap=4
+                        ) -> float | None:
+        """
+        Calculate the fundamental freq. at a given time
+
+        The returned frequency is averaged over the given duration period
+        At the moment the smooth pyin method is used
+
+        Args:
+            time: the time to start sampling the fundamental frequency. If None is given,
+                the first actual sound within this Sample is used
+            dur: the duration of the estimation period. The returned frequency will be the
+                average frequency over this period of time.
+            fftsize: the fftsize used
+            overlap: amount of overlaps per fftsize, determines the hop time
+
+        Returns:
+            the average frequency within the given period of time, or None if no fundamental
+            was found
+
+        """
+        if time is None:
+            time = self.firstSound()
+            if time is None:
+                return None
+        from maelzel.snd import vamptools
+        import scipy.stats
+        samples = self.samples
+        if len(samples.shape) > 1:
+            samples = samples[:, 0]
+        startsamp = int(time * self.sr)
+        endsamp = min(int((time+dur)*self.sr), len(samples))
+        samples = samples[startsamp:endsamp]
+        dt, freqs = vamptools.pyinSmoothPitch(samples, self.sr, fftSize=fftsize,
+                                              stepSize=fftsize//overlap)
+        minfreq = self.sr / fftsize * 2
+        avgfreq = float(scipy.stats.trim_mean(freqs[freqs > minfreq], proportiontocut=0.1))
+        return avgfreq
+
+    def fundamentalBpf(self, fftsize=2048, overlap=4, method: str = None
                        ) -> bpf4.BpfInterface:
         """
         Construct a bpf which follows the fundamental of this sample in time
@@ -1154,7 +1223,7 @@ class Sample:
                              f"'fft'"
                              f"but got {method}")
 
-    def chunks(self, chunksize:int, hop:int=None, pad=False) -> Iterator[np.ndarray]:
+    def chunks(self, chunksize: int, hop: int = None, pad=False) -> Iterator[np.ndarray]:
         """
         Iterate over the samples in chunks of chunksize.
 
@@ -1174,7 +1243,7 @@ class Sample:
                                padwith=(0 if pad else None))
 
     def firstSound(self, threshold=-120.0, period=0.04, overlap=2, start=0.
-                   ) -> Optional[float]:
+                   ) -> float | None:
         """
         Find the time of the first sound within this sample
 
@@ -1190,13 +1259,13 @@ class Sample:
         """
         idx = _npsnd.firstSound(self.samples,
                                 threshold=threshold,
-                                periodsamps=int(period*self.sr),
+                                periodsamps=int(period * self.sr),
                                 overlap=overlap,
-                                skip=int(start*self.sr))
-        return idx / self.sr if idx>=0 else None
+                                skip=int(start * self.sr))
+        return idx / self.sr if idx >= 0 else None
 
     def firstSilence(self, threshold=-80, period=0.04, overlap=2,
-                     soundthreshold=-50, start=0.) -> Optional[float]:
+                     soundthreshold=-50, start=0.) -> float | None:
         """
         Find the first silence in this sample
 
@@ -1219,6 +1288,56 @@ class Sample:
                                   startidx=int(start*self.sr))
         return idx/self.sr if idx is not None else None
 
+    def addChannels(self, channels: np.ndarray | int) -> Sample:
+        """
+        Create a new Sample with added channels
+
+        Args:
+            channels: the audiodata of the new channels or the number
+                of empty channels to add (as integer). In the case of
+                passing audio data this new samples should have  the
+                exact same number of frames as self
+
+        Returns:
+            a new Sample with the added channels. The returned Sample
+            will have the same duration as self
+
+        """
+        if isinstance(channels, int):
+            channels = _silentFrames(self.numframes, channels)
+        else:
+            assert len(channels) == len(self)
+        frames = np.column_stack((self.samples, channels))
+        return Sample(frames, sr=self.sr)
+
+    @staticmethod
+    def mix(samples: list[Sample], offsets: list[float] = None, gains: list[float] = None
+            ) -> Sample:
+        """
+        Mix the given samples down, optionally with a time offset
+
+        This is a static method. All samples should share the same
+        number of channels and sr
+
+        Args:
+            samples: the Samples to mix
+            offsets: if given, an offset in seconds for each sample
+            gains: if given, a gain for each sample
+
+        Returns:
+            the resulting Sample
+
+        Example::
+
+            >>> from maelzel.snd.audiosample import Sample
+            >>> a = Sample("stereo-2seconds.wav")
+            >>> b = Sample("stereo-3seconds.wav")
+            >>> m = Sample.mix([a, b], offsets=[2, 0])
+            >>> m.duration
+            4.0
+        """
+        return mixsamples(samples, offsets=offsets, gains=gains)
+
 
 def broadcastSamplerate(samples: list[Sample]) -> list[Sample]:
     """
@@ -1233,7 +1352,7 @@ def broadcastSamplerate(samples: list[Sample]) -> list[Sample]:
     return [s.resample(sr) for s in samples]
 
 
-def _asNumpySamples(samples: Union[Sample, np.ndarray]) -> np.ndarray:
+def _asNumpySamples(samples: Sample | np.ndarray) -> np.ndarray:
     if isinstance(samples, Sample):
         return samples.samples
     elif isinstance(samples, np.ndarray):
@@ -1242,7 +1361,7 @@ def _asNumpySamples(samples: Union[Sample, np.ndarray]) -> np.ndarray:
         return np.asarray(samples, dtype=float)
 
 
-def asSample(source: Union[str, Sample, tuple[np.ndarray, int]]) -> Sample:
+def asSample(source: str | Sample | tuple[np.ndarray, int]) -> Sample:
     """
     Return a Sample instance
 
@@ -1263,33 +1382,12 @@ def asSample(source: Union[str, Sample, tuple[np.ndarray, int]]) -> Sample:
         raise TypeError("can't convert source to Sample")
 
 
-def mono(samples: np.ndarray) -> np.ndarray:
-    """
-    Returns a mono version of samples
-
-    If *samples* is already mono, it returns *samples* itself.
-    Otherwise it mixes down the samples, scaling down by the
-    number of channels
-
-    Args:
-        samples: the sample data as numpy array
-
-    Returns:
-        a mono version of *samples*.
-    """
-    samples = _asNumpySamples(samples)
-    channels = _npsnd.numChannels(samples)
-    if channels == 1:
-        return samples
-    return np.sum(samples, axis=1) / channels
-
-
-def concat(sampleseq: Sequence[Sample]) -> Sample:
+def joinsamples(sampleseq: Sequence[Sample]) -> Sample:
     """
     Concatenate a sequence of Samples
 
     Samples should share numchannels. If mismatching samplerates are found,
-    all samples are upsampled to the highest samplerate
+    all samples are upsampled to the highest sr
 
     Args:
         sampleseq: a seq. of Samples
@@ -1297,6 +1395,11 @@ def concat(sampleseq: Sequence[Sample]) -> Sample:
     Returns:
         the concatenated samples as one Sample
     """
+    numchannels = sampleseq[0].numchannels
+    if any(s.numchannels != numchannels for s in sampleseq):
+        s = next(s for s in sampleseq if s.numchannels != numchannels)
+        raise ValueError(f"All samples should have {numchannels} channels, "
+                         f"but one Sample has {s.numchannels} channels")
     sr = max(s.sr for s in sampleseq)
     if any(s.sr != sr for s in sampleseq):
         logger.info(f"concat: Mismatching samplerates. Samples will be upsampled to {sr}")
@@ -1305,7 +1408,7 @@ def concat(sampleseq: Sequence[Sample]) -> Sample:
     return Sample(s, sr)
 
 
-def _mapn_between(func, n:int, t0:float, t1:float) -> np.ndarray:
+def _mapn_between(func, n: int, t0: float, t1: float) -> np.ndarray:
     """
     Returns a numpy array of n-size, mapping func between t0-t1 at a rate of n/(t1-t0)
 
@@ -1322,8 +1425,26 @@ def _mapn_between(func, n:int, t0:float, t1:float) -> np.ndarray:
     return ys
 
 
-def mix(samples: list[Sample], offsets:list[float]=None, gains:list[float]=None
-        ) -> Sample:
+def _silentFrames(numframes: int, channels: int) -> np.ndarray:
+    """
+    Generate silent frames
+
+    Args:
+        numframes: the number of frames
+        channels: the number of channels
+
+    Returns:
+        a new numpy array with zeroed frames
+    """
+    if channels == 1:
+        samples = np.zeros((numframes,), dtype=float)
+    else:
+        samples = np.zeros((numframes, channels), dtype=float)
+    return samples
+
+
+def mixsamples(samples: list[Sample], offsets: list[float] = None, gains: list[float] = None
+               ) -> Sample:
     """
     Mix the given samples down, optionally with a time offset
 
@@ -1339,10 +1460,11 @@ def mix(samples: list[Sample], offsets:list[float]=None, gains:list[float]=None
 
     Example::
 
+        >>> from maelzel.snd.audiosample import Sample
         >>> a = Sample("stereo-2seconds.wav")
         >>> b = Sample("stereo-3seconds.wav")
-        >>> m = mix([a, b], offsets=[2, 0])
-        >>> m.durationSecs
+        >>> m = Sample.mix([a, b], offsets=[2, 0])
+        >>> m.duration
         4.0
     """
     nchannels = samples[0].numchannels
@@ -1359,9 +1481,9 @@ def mix(samples: list[Sample], offsets:list[float]=None, gains:list[float]=None
     else:
         buf = np.zeros((numframes, nchannels), dtype=float)
     for s, offset, gain in zip(samples, offsets, gains):
-        startframe = int(offset*sr)
-        endframe = startframe+len(s)
+        startframe = int(offset * sr)
+        endframe = startframe + len(s)
         buf[startframe:endframe] += s.samples
         if gain != 1.0:
             buf[startframe:endframe] *= gain
-    return Sample(buf, samplerate=sr)
+    return Sample(buf, sr=sr)

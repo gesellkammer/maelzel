@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 import os
 import tempfile
 import warnings
-from maelzel.rational import Rat as F
+from maelzel.common import F
 from dataclasses import dataclass
 import music21 as m21
 from music21.common.numberTools import opFrac

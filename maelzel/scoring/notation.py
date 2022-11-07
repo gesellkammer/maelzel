@@ -2,7 +2,7 @@
 A Notation represents a note/chord/rest
 """
 from __future__ import annotations
-import copy
+from dataclasses import dataclass
 import uuid
 
 from .common import *
@@ -28,6 +28,7 @@ __all__ = (
     'mergeNotations',
     'notationsToCoreEvents',
     'notationsCanMerge',
+    'notationsCannotMerge',
     'durationsCanMerge',
     'mergeNotationsIfPossible'
 )
@@ -75,7 +76,6 @@ class Notation:
                  "tiedPrev",
                  "tiedNext",
                  "dynamic",
-                 "annotations",
                  "durRatios",
                  "groupid",
                  "gliss",
@@ -105,23 +105,30 @@ class Notation:
                  stem='',
                  sizeFactor=1,  # size is relative: 0 is normal, +1 is bigger, -1 is smaller
                  properties: dict[str, Any] = None,
+                 _init=True
                  ):
 
         assert not stem or stem in definitions.stemTypes, \
             f"Stem types: {definitions.stemTypes}"
-        if dynamic:
-            dynamic = definitions.normalizeDynamic(dynamic, '')
+        if _init:
+            if dynamic:
+                dynamic = definitions.normalizeDynamic(dynamic, '')
+            if duration is not None:
+                duration = asF(duration)
+            if pitches:
+                pitches = [asmidi(p) for p in pitches]
+            if offset is not None:
+                offset = asF(offset)
+            if isRest:
+                tiedNext = False
+                tiedPrev = False
 
-        self.duration: Optional[F] = None if duration is None else asF(duration)
-        self.pitches: list[float] = [asmidi(p) for p in pitches] if pitches else []
-        self.offset: Optional[F] = None if offset is None else asF(offset)
+        self.duration: Optional[F] = duration
+        self.pitches: list[float] = pitches
+        self.offset: Optional[F] = offset
         self.isRest = isRest
-        if isRest:
-            self.tiedNext = False
-            self.tiedPrev = False
-        else:
-            self.tiedPrev = tiedPrev
-            self.tiedNext = tiedNext
+        self.tiedNext = tiedNext
+        self.tiedPrev = tiedPrev
         self.dynamic = dynamic
         self.durRatios = durRatios
         self.groupid = group
@@ -155,8 +162,6 @@ class Notation:
         if predicate:
             attachments = [a for a in attachments if predicate(a)]
         return attachments
-
-
 
     def _queryAttachment(self, cls: str|type, attr: str, default=None):
         if isinstance(cls, str):
@@ -452,19 +457,22 @@ class Notation:
         """
         # return copy.deepcopy(self)
         out = Notation(duration=self.duration,
-                       pitches=self.pitches.copy(),
+                       pitches=self.pitches.copy() if self.pitches else None,
+                       # pitches=self.pitches,
                        offset=self.offset,
                        isRest=self.isRest,
                        tiedPrev=self.tiedPrev,
                        tiedNext=self.tiedNext,
                        dynamic=self.dynamic,
                        durRatios=self.durRatios.copy() if self.durRatios else None,
+                       # durRatios=self.durRatios,
                        group=self.groupid,
                        gliss=self.gliss,
                        color=self.color,
                        stem=self.stem,
                        sizeFactor=self.sizeFactor,
-                       properties=self.properties.copy() if self.properties else None)
+                       properties=self.properties.copy() if self.properties else None,
+                       _init=False)
         if self.attachments:
             out.attachments = self.attachments.copy()
         if self.fixedNotenames:
@@ -594,6 +602,9 @@ class Notation:
         """
         return notatedDuration(self.duration, self.durRatios)
 
+    def canMergeWith(self, other: Notation) -> bool:
+        return notationsCanMerge(self, other)
+    
     def mergeWith(self, other: Notation) -> Notation:
         """Merge this Notation with ``other``"""
         return mergeNotations(self, other)
@@ -835,7 +846,6 @@ def makeNote(pitch: pitch_t,
     offset = asF(offset) if offset is not None else None
     out = Notation(pitches=[pitch], duration=duration, offset=offset, gliss=gliss,
                    dynamic=dynamic, **kws)
-    assert not out.isRest
     if annotation:
         out.addText(annotation)
     if withId:
@@ -870,10 +880,7 @@ def makeChord(pitches: list[pitch_t],
     Returns:
         the created Notation
     """
-    duration = asF(duration) if duration is not None else None
-    offset = asF(offset) if offset is not None else None
-    midinotes = [asmidi(pitch) for pitch in pitches]
-    out = Notation(pitches=midinotes, duration=duration, offset=offset,
+    out = Notation(pitches=pitches, duration=duration, offset=offset,
                    dynamic=dynamic, **kws)
     if fixed:
         for i, pitch in enumerate(pitches):
@@ -906,7 +913,8 @@ def makeRest(duration: time_t, offset: time_t = None) -> Notation:
         the created rest (a Notation)
     """
     assert duration > 0
-    return Notation(duration=asF(duration), offset=offset, isRest=True)
+    return Notation(duration=asF(duration), offset=None if offset is None else asF(offset),
+                    isRest=True, _init=False)
 
 
 def notationsToCoreEvents(notations: list[Notation]
@@ -926,13 +934,13 @@ def notationsToCoreEvents(notations: list[Notation]
     for n in notations:
         assert isinstance(n, Notation), f"Expected a Notation, got {n}\n{notations=}"
         if n.isRest:
-            out.append(Rest(n.duration, start=n.offset))
+            out.append(Rest(n.duration, offset=n.offset))
         elif len(n.pitches) == 1:
             # note
             pitch = n.getFixedNotename(0) or n.pitches[0]
             note = Note(pitch=pitch,
                         dur=n.duration,
-                        start=n.offset,
+                        offset=n.offset,
                         dynamic=n.dynamic,
                         tied=n.tiedNext,
                         fixed=isinstance(pitch, str),
@@ -946,7 +954,7 @@ def notationsToCoreEvents(notations: list[Notation]
                          for i in range(len(n))]
             chord = Chord(notes=notenames,
                           dur=n.duration,
-                          start=n.offset,
+                          offset=n.offset,
                           dynamic=n.dynamic,
                           tied=n.tiedNext,
                           gliss=n.gliss,
@@ -980,10 +988,40 @@ def durationsCanMerge(n0: Notation, n1: Notation) -> bool:
 
     # Allow: r8 8 + 4 = r8 4.
     # Don't allow: r16 8. + 8. r16 = r16 4. r16
-    grid = F(1, den)
-    if (num == 3 or num == 7) and ((n0.offset % grid) > 0 or (n1.end % grid) > 0):
+    #grid = F(1, den)
+    #if (num == 3 or num == 7) and ((n0.offset % grid) > 0 or (n1.end % grid) > 0):
+
+    if num not in {1, 2, 3, 4, 6, 7, 8, 12, 16, 32}:
         return False
     return True
+
+
+def notationsCannotMerge(n0: Notation, n1: Notation) -> str:
+    if n0.isRest and n1.isRest:
+        if n0.durRatios != n1.durRatios:
+            return 'Duration ratios not compatible'
+        if not durationsCanMerge(n0, n1):
+            return 'Durations cannot merge'
+    elif n0.isRest or n1.isRest:
+        return 'A rest and a pitches notation cannot merge'
+    else:
+        if not (n0.tiedNext and n1.tiedPrev):
+            return 'Notations not tied'
+        if n0.durRatios != n1.durRatios:
+            return 'Duration ratios not equal'
+        if n0.pitches != n1.pitches:
+            return 'Pitches not equal'
+        if n1.dynamic or n0.dynamic != n1.dynamic:
+            return 'Dynamics differ'
+        if n1.attachments or not set(n1.attachments).issubset(set(n0.attachments)):
+            return 'Attachments differ'
+        if n0.getNoteheads() != n1.getNoteheads():
+            return 'Noteheads differ'
+        if n1.gliss:
+            return 'Last notation has a glissando'
+        if not durationsCanMerge(n0, n1):
+            return 'Durations cannot merge'
+    return ''
 
 
 def notationsCanMerge(n0: Notation, n1: Notation) -> bool:
@@ -1042,3 +1080,16 @@ def mergeNotationsIfPossible(notations: list[Notation]) -> list[Notation]:
     assert len(out) <= len(notations)
     assert sum(n.duration for n in out) == sum(n.duration for n in notations)
     return out
+
+
+@dataclass
+class SnappedNotation:
+    notation: Notation
+    offset: F
+    duration: F
+
+    def snapped(self) -> Notation:
+        return self.notation.clone(offset=self.offset, duration=self.duration)
+
+    def __repr__(self):
+        return repr(self.snapped())

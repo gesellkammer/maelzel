@@ -1,7 +1,11 @@
 from __future__ import annotations
+
+from maelzel.common import F
+from .config import CoreConfig
 from .chain import Voice, Chain
+from .workspace import getConfig
+from .mobj import MObj
 from .mobjlist import MObjList
-from ._common import Rat
 from maelzel.scorestruct import ScoreStruct
 from maelzel import scoring
 
@@ -27,6 +31,7 @@ class Score(MObjList):
 
     """
     _acceptsNoteAttachedSymbols = False
+
     __slots__ = ('voices',)
 
     def __init__(self,
@@ -37,7 +42,7 @@ class Score(MObjList):
         if voices:
             for obj in voices:
                 if isinstance(obj, Voice):
-                    assert obj.start == 0
+                    assert obj.offset == 0
                     asvoices.append(obj)
                 elif isinstance(obj, Chain):
                     asvoices.append(obj.asVoice())
@@ -48,11 +53,12 @@ class Score(MObjList):
         self.voices: list[Voice] = voices
         """the voices of this score"""
 
-        super().__init__(label=title, start=Rat(0))
+        super().__init__(label=title, offset=F(0))
         self._scorestruct = scorestruct
         if scorestruct:
             for v in self.voices:
                 v.setScoreStruct(scorestruct)
+        self._changed()
 
     def __repr__(self):
         if not self.voices:
@@ -62,7 +68,10 @@ class Score(MObjList):
             # info = f'voices={self.voices}'
         return f'Score({info})'
 
-    def _getItems(self) -> list[Voice]:
+    def _changed(self) -> None:
+        self.dur = self.resolvedDur()
+
+    def getItems(self) -> list[Voice]:
         return self.voices
 
     def append(self, voice: Voice) -> None:
@@ -79,17 +88,27 @@ class Score(MObjList):
             assert all(voice.scorestruct == voicestruct for voice in self.voices)
             self.setScoreStruct(voicestruct)
         self.voices.append(voice)
+        self._changed()
 
-    def resolvedDur(self, start: time_t = None) -> Rat:
-        return max(v.resolvedDur(start=start) for v in self.voices)
+    def resolvedDur(self) -> F:
+        return max(v.resolvedDur() for v in self.voices)
 
-    def scoringParts(self, options: scoring.render.RenderOptions = None
+    def scoringParts(self, config: CoreConfig = None
                      ) -> list[scoring.Part]:
         parts = []
         for voice in self.voices:
-            voiceparts = voice.scoringParts(options=options)
+            voiceparts = voice.scoringParts(config or getConfig())
             parts.extend(voiceparts)
         return parts
+
+    def scoringEvents(self, groupid: str = None, config: CoreConfig = None
+                      ) -> list[scoring.Notation]:
+        parts = self.scoringParts(config or getConfig())
+        flatevents = []
+        for part in parts:
+            flatevents.extend(part)
+        # TODO: deal with groupid
+        return flatevents
 
     def setScoreStruct(self, scorestruct: ScoreStruct):
         self._scorestruct = scorestruct

@@ -10,13 +10,13 @@ defaultDivisionPenaltyMap = {
     16:0.4,
 }
 
-
-complexityPresets = {
+# Presets used to create a QuantizationProfile
+presets = {
     'highest': {
         'possibleDivisionsByTempo': {
             10: [],
-            400: quantutils.allSubdivisions(maxsubdivs=6,
-                                            possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
+            400: quantutils.allSubdivisions(maxsubdivs=5,
+                                            possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11),
                                             maxdensity=30),
         },
         'divisionPenaltyMap': {
@@ -27,17 +27,21 @@ complexityPresets = {
        },
         'nestedTuplets': True,
         'numNestedTupletsPenalty': [0., 0.0, 0.0, 0.1, 0.4, 0.8],
-        'gridErrorWeight': 0.5,
-        'divisionErrorWeight': 0.05
+        'gridErrorWeight': 1.0,
+        'divisionErrorWeight': 0.002,
+        'rhythmComplexityWeight': 0.0001,
+        'numSubdivisionsPenaltyWeight': 0.,
+        'gridErrorExp': 0.8,
+        'maxDivPenalty': 0.4,
     },
     'high': {
         'possibleDivisionsByTempo': {
             10: [],
             60: quantutils.allSubdivisions(maxsubdivs=6,
-                                           possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
+                                           possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11),
                                            maxdensity=24),
             80: quantutils.allSubdivisions(maxsubdivs=5,
-                                           possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
+                                           possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11),
                                            maxdensity=21),
             100: quantutils.allSubdivisions(maxsubdivs=4,
                                             possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9),
@@ -54,10 +58,13 @@ complexityPresets = {
         },
         'divisionPenaltyMap': defaultDivisionPenaltyMap,
         'nestedTuplets': True,
-        'numNestedTupletsPenalty': [0, 0.0, 0.05, 0.4, 0.5, 0.8],
-        'gridErrorWeight': 0.5,
+        'numNestedTupletsPenalty': [0., 0., 0.05, 0.4, 0.5, 0.8],
+        'gridErrorWeight': 1.0,
         'divisionErrorWeight': 0.01,
-        'cardinalityPenaltyWeight': 0
+        'rhythmComplexityWeight': 0.001,
+        'cardinalityPenaltyWeight': 0,
+        'gridErrorExp': 0.85,
+        'maxDivPenalty': 0.2,
     },
     'medium': {
         'possibleDivisionsByTempo': {
@@ -84,18 +91,21 @@ complexityPresets = {
         'divisionPenaltyMap': defaultDivisionPenaltyMap,
         'nestedTuplets': False,
         'numNestedTupletsPenalty': [0, 0.0, 0.05, 0.4, 0.5, 0.8],
-        'gridErrorWeight': 0.5,
-        'divisionErrorWeight': 0.25
+        'gridErrorWeight': 1.0,
+        'divisionErrorWeight': 0.01,
+        'rhythmComplexityWeight': 0.01,
+        'gridErrorExp': 0.9,
+        'maxDivPenalty': 0.2,
     },
     'low': {
         'possibleDivisionsByTempo': {
             10: [],
             60: quantutils.allSubdivisions(maxsubdivs=4,
                                            possiblevals=(1, 2, 3, 4, 5, 6, 8),
-                                           maxdensity=20),
+                                           maxdensity=16),
             80: quantutils.allSubdivisions(maxsubdivs=3,
                                            possiblevals=(1, 2, 3, 4, 5, 6, 8),
-                                           maxdensity=16),
+                                           maxdensity=14),
             100: quantutils.allSubdivisions(maxsubdivs=2,
                                             possiblevals=(1, 2, 3, 4, 5, 6, 8),
                                             maxdensity=12),
@@ -112,8 +122,10 @@ complexityPresets = {
         'divisionPenaltyMap': defaultDivisionPenaltyMap,
         'nestedTuplets': False,
         'numNestedTupletsPenalty': [0, 0.0, 0.05, 0.4, 0.5, 0.8],
-        'gridErrorWeight': 0.5,
-        'divisionErrorWeight': 0.5
+        'gridErrorWeight': 1.0,
+        'divisionErrorWeight': 0.5,
+        'rhythmComplexityWeight': 0.1,
+        'gridErrorExp': 1,
     },
 }
 

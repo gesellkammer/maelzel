@@ -11,10 +11,10 @@ import emlib.misc
 import fnmatch
 import glob
 import csoundengine.csoundlib
-from .presetbase import *
+from .presetdef import *
 from .workspace import getConfig, getWorkspace
 from . import presetutils
-from . import playpresets
+from . import builtinpresets
 from ._common import logger
 from . import _dialogs
 from typing import TYPE_CHECKING
@@ -35,7 +35,7 @@ __all__ = (
 )
 
 
-_csoundPrelude = r"""
+csoundPrelude = r"""
 opcode turnoffWhenSilent, 0, a
     asig xin
     ksilent_  trigger detectsilence:k(asig, 0.0001, 0.05), 0.5, 0
@@ -43,6 +43,20 @@ opcode turnoffWhenSilent, 0, a
       turnoff
     endif    
 endop
+
+opcode makePresetEnvelope, a, iiii
+    ifadein, ifadeout, ifadekind, igain xin
+    if (ifadekind == 0) then
+        aenv linsegr 0, ifadein, igain, ifadeout, 0
+    elseif (ifadekind == 1) then
+        aenv cossegr 0, ifadein, igain, ifadeout, 0
+    elseif (ifadekind == 2) then
+        aenv transegr 0, ifadein*.5, 2, igain*0.5, ifadein*.5, -2, igain, p3-ifadein-ifadeout, igain, 1, ifadeout*.5, 2, igain*0.5, ifadeout*.5, -2, 0 	
+        aenv *= linenr:a(1, 0, ifadeout, 0.01)
+    endif
+    xout aenv
+endop
+
 """
 
 
@@ -51,10 +65,10 @@ class _WatchdogPresetsHandler(watchdog.events.FileSystemEventHandler):
         self.manager = manager
 
     def on_modified(self, event):
-        self.manager.loadSavedPresets()
+        self.manager.loadPresets()
 
     def on_created(self, event):
-        self.manager.loadSavedPresets()
+        self.manager.loadPresets()
 
 
 class PresetManager:
@@ -68,7 +82,9 @@ class PresetManager:
 
     Args:
         watchPresets: if True, any saved preset which has been loaded into
-            a session will be re-loaded if the saved file is modified
+            a session will be re-loaded if the saved file is modified. Even if
+            this is False, it is possible to manually load presets by calling
+            :meth:`PresetManager.loadPresets`
     """
     _numinstances = 0
 
@@ -80,14 +96,14 @@ class PresetManager:
         self.presetsPath = getWorkspace().presetsPath()
         self._prepareEnvironment()
         self._makeBuiltinPresets()
-        self.loadSavedPresets()
+        self.loadPresets()
         self._watchdog = self._startWatchdog() if watchPresets else None
 
     def __del__(self):
         if self._watchdog:
             self._watchdog.join()
 
-    def loadSavedPresets(self) -> None:
+    def loadPresets(self) -> None:
         """
         Loads user-defined presets
         """
@@ -109,7 +125,7 @@ class PresetManager:
         """
         Defines all builtin presets
         """
-        for presetdef in playpresets.builtinPresets:
+        for presetdef in builtinpresets.builtinPresets:
             self.registerPreset(presetdef)
 
         sf2 = presetutils.resolveSoundfontPath(path=sf2path)
@@ -118,14 +134,14 @@ class PresetManager:
                         "not be available. Set config['play.generalMidiSoundfont'] to"
                         "the path of an existing soundfont")
 
-        for instr, preset in playpresets.soundfontGeneralMidiPresets.items():
+        for instr, preset in builtinpresets.soundfontGeneralMidiPresets.items():
             if sf2 and sf2 != "?":
                 presetname = 'gm-' + instr
                 descr = f'General MIDI {instr}'
                 self.defPresetSoundfont(presetname, sf2path=sf2, preset=preset, _builtin=True,
                                         description=descr)
 
-        for name, (path, preset, descr) in playpresets.builtinSoundfonts().items():
+        for name, (path, preset, descr) in builtinpresets.builtinSoundfonts().items():
             self.defPresetSoundfont(name, sf2path=path, preset=preset, _builtin=True,
                                     description=descr)
 
@@ -138,7 +154,7 @@ class PresetManager:
                   args: dict[str, float] = None,
                   description: str = None,
                   envelope=True,
-                  routing=True
+                  output=True
                   ) -> PresetDef:
         """
         Define a new instrument preset.
@@ -164,15 +180,19 @@ class PresetManager:
             name: the name of the preset
             audiogen: audio generating csound code
             epilogue: code to include after any other code. Needed when using turnoff,
-                since calling turnoff in the middle of an instrument might cause a crash.
-            init: global code needed by the audiogen part (usually a table definition)
+                since calling turnoff in the middle of an instrument can cause undefined behaviour.
+            init: global code needed for all instances of this preset (usually a table definition). It will
+                be run only once before any event with this preset is scheduled.
             includes: files to include
-            args: a dict {parameter_name: value}
-            description: a description of what this preset is/does
+            args: a dict {parameter_name: value} passed to the instrument. The keys need to match the names
+                of any declared parameter
+            description: an optional description of what this preset is/does
             envelope: If True, apply an envelope as determined by the fadein/fadeout
-                play arguments.
-            routing: if True, generate output routing (panning and output) for this
-                preset. Otherwise the user is responsible for applying panning
+                play arguments. If False, the user is responsible for applying any fadein/fadeout (csound variables:
+                ``ifadein``, ``ifadeout``
+            output: if True, generate output routing (panning and output) for this
+                preset. Otherwise the user is responsible for applying panning (``iposition``)
+                and routing the generated audio to any output channels (``ichan``), buses, etc.
 
         Returns:
             a PresetDef
@@ -234,7 +254,7 @@ class PresetManager:
                               description=description,
                               builtin=False,
                               envelope=envelope,
-                              routing=routing)
+                              routing=output)
         self.registerPreset(presetdef)
         return presetdef
 
@@ -299,6 +319,7 @@ class PresetManager:
                 for sending those signals to some output, to a bus, etc. This code
                 can be included in the *postproc* parameter
             description: a short string describing this preset
+            _builtin: if True, marks this preset as built-in
 
         Example
         ~~~~~~~
@@ -467,43 +488,41 @@ class PresetManager:
                 is show. Otherwise only the audiogen is shown
 
         """
-        selectedPresets = [presetName for presetName in self.presetdefs.keys()
-                           if fnmatch.fnmatch(presetName, pattern)]
-        selectedPresets.sort(key=lambda name: self.presetdefs[name]._sortOrder())
+        matchingPresets = [p for name, p in self.presetdefs.items()
+                           if fnmatch.fnmatch(name, pattern)]
+        matchingPresets.sort(key=lambda p: (1-int(p.usetDefined), 1-int(p.isSoundFont()), p.name))
+
         if showGeneratedCode:
             full = True
         if not emlib.misc.inside_jupyter():
-            for presetName in selectedPresets:
-                presetdef = self.presetdefs[presetName]
+            for preset in matchingPresets:
                 print("")
                 if not showGeneratedCode:
-                    print(presetdef)
+                    print(preset)
                 else:
-                    print(presetdef.getInstr().body)
+                    print(preset.getInstr().body)
         else:
-            theme = getConfig()['html.theme']
+            theme = getConfig()['htmlTheme']
             htmls = []
             if full:
-                for presetName in selectedPresets:
-                    presetdef = self.presetdefs[presetName]
-                    html = presetdef._repr_html_(theme, showGeneratedCode=showGeneratedCode)
+                for preset in matchingPresets:
+                    html = preset._repr_html_(theme, showGeneratedCode=showGeneratedCode)
                     htmls.append(html)
                     htmls.append("<hr>")
             else:
                 # short
-                for presetName in selectedPresets:
-                    presetdef = self.presetdefs[presetName]
-                    l = f"<b>{presetdef.name}</b>"
-                    if presetdef.isSoundFont():
-                        sfpath = presetdef.properties.get('sfpath')
+                for preset in matchingPresets:
+                    l = f"<b>{preset.name}</b>"
+                    if preset.isSoundFont():
+                        sfpath = preset.properties.get('sfpath')
                         if not sfpath:
-                            sfpath = presetutils.findSoundfontInPresetdef(presetdef) or '??'
+                            sfpath = presetutils.findSoundfontInPresetdef(preset) or '??'
                         l += f" [sf: {sfpath}]"
-                    if presetdef.args:
-                        s = ", ".join(f"{k}={v}" for k, v in presetdef.args.items())
+                    if preset.args:
+                        s = ", ".join(f"{k}={v}" for k, v in preset.args.items())
                         s = f" <code>({s})</code>"
                         l += s
-                    if (descr:=presetdef.description):
+                    if descr := preset.description:
                         l += f"<br>&nbsp&nbsp&nbsp&nbsp<i>{descr}</i>"
                     l += "<br>"
                     htmls.append(l)
@@ -600,7 +619,7 @@ class PresetManager:
         workspace = getWorkspace()
         renderer = csoundengine.Renderer(sr=sr, nchnls=numChannels, ksmps=ksmps,
                                          a4=workspace.a4)
-        renderer.addGlobalCode(_csoundPrelude)
+        renderer.addGlobalCode(csoundPrelude)
 
         # Define all instruments
         for presetdef in self.presetdefs.values():
@@ -667,8 +686,7 @@ class PresetManager:
         Returns:
             the name of the selected preset, or None if selection was canceled
         """
-        return emlib.dialogs.selectItem(self.definedPresets(),
-                                        title="Select Preset")
+        return _dialogs.selectFromList(self.definedPresets(), title="Select Preset")
 
 
 presetManager = PresetManager()

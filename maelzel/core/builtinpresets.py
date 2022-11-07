@@ -1,4 +1,4 @@
-from .presetbase import PresetDef
+from .presetdef import PresetDef
 
 builtinPresets = [
     PresetDef(
@@ -63,6 +63,57 @@ builtinPresets = [
         aout1 = oscili:a(aclickenv, mtof:k(kpitch+ktransp))
         """,
         description="Default preset used when rendering a click-track",
+        builtin=True),
+
+    PresetDef(
+        '_playtable',
+        audiogen=r"""
+        |isndtab=0, istart=0, icompensatesr=1, kspeed=1, ixfade=-1|
+        ; ixfade: crossfade time, if negative no looping
+        iloop = ixfade >= 0 ? 1 : 0
+        inumouts = ftchnls(isndtab)
+        inumsamples = nsamp(isndtab)
+        isr = ftsr(isndtab)
+        
+        if isr <= 0 then
+            initerror sprintf("Could not determine sr of table %d", isndtab)
+        endif
+        idur = inumsamples / isr
+        
+        ispeed = icompensatesr==1 ? isr/sr : 1
+        know init istart
+        if inumouts == 0 then
+            ; not a gen1 table, fail
+            initerror sprintf("Table %d was not generated via gen1", isndtab)
+        endif
+
+        kidx init 0
+        aenv = makePresetEnvelope(ifadein, ifadeout, ifadeshape, igain)
+
+        if inumouts == 1 then
+            a1 flooper2 1, ispeed*kspeed, istart, idur, ixfade, isndtab, istart
+            a1 *= aenv
+            ipos = ipos == -1 ? 0 : ipos
+            aout1, aout2 pan2 a1, ipos
+        elseif inumouts == 2 then
+            a1, a2 flooper2 1, ispeed*kspeed, istart, idur, ixfade, isndtab, istart
+            ipos = ipos < 0 ? 0.5 : ipos
+            aout1, aout2 panstereo a1, a2, ipos
+            aout1 *= aenv
+            aout2 *= aenv
+        else
+            initerror sprintf("Multichannel samples (> 2, got %d) not supported yet", inumouts)
+        endif
+        outch ichan, aout1, ichan+1, aout2
+        
+        know += ionecycle * kspeed
+        imaxtime = idur - ifade - ionecycle
+        if iloop == 0 && know >= imaxtime then
+            turnoff
+        endif   
+        """,
+        envelope=False,
+        routing=False,
         builtin=True),
 
     PresetDef(

@@ -1886,7 +1886,7 @@ def onset_detect(y=None, sr=22050, onset_envelope=None, hop_length=512,
     >>> ax[1].legend()
     """
 
-    # First, get the frame->beat strength profile if we don't already have one
+    # First, get the frame->beat strength preset if we don't already have one
     if onset_envelope is None:
         if y is None:
             raise ValueError("y or onset_envelope must be provided")

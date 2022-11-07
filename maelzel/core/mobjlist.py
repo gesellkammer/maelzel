@@ -1,7 +1,7 @@
 
 from __future__ import annotations
-from .mobj import MObj
-from .tools import packInVoices
+from .event import MObj
+from . import tools
 from .config import CoreConfig
 from . import environment
 from .workspace import Workspace, getConfig
@@ -18,6 +18,9 @@ if TYPE_CHECKING:
     MObjT = TypeVar("MObjT", bound="MObj")
 
 
+_EMPTYSLICE = slice(None, None, None)
+
+
 class MObjList(MObj):
     """
     A sequence of music objects
@@ -29,11 +32,11 @@ class MObjList(MObj):
     def __init__(self,
                  label='',
                  properties: dict[str, Any] = None,
-                 start: time_t = None,
+                 offset: time_t = None,
                  dur: time_t = None):
         """a list of MusicObj inside this container"""
 
-        super().__init__(dur=dur, start=start, label=label, properties=properties)
+        super().__init__(dur=dur, offset=offset, label=label, properties=properties)
 
     def append(self, obj: MObj) -> None:
         """
@@ -42,33 +45,28 @@ class MObjList(MObj):
         Args:
             obj: the object to append
         """
-        self._getItems().append(obj)
+        self.getItems().append(obj)
         self._changed()
 
-    def _changed(self) -> None:
-        items = self._getItems()
-        self.start = min(it.start for it in items)
-        end = max(it.end for it in items)
-        self.dur = end - self.start
-        super()._changed()
-
-    def _getItems(self) -> list[MObj]:
+    def getItems(self) -> list[MObj]:
         raise NotImplementedError()
 
     def __iter__(self):
-        return iter(self._getItems())
+        return iter(self.getItems())
 
     def __getitem__(self, idx):
-        return self._getItems().__getitem__(idx)
+        if idx == _EMPTYSLICE:
+            return self.getItems()
+        return self.getItems().__getitem__(idx)
 
     def __len__(self):
-        return len(self._getItems())
+        return len(self.getItems())
 
     def __hash__(self):
-        items = [type(self).__name__, self.label, self.start, len(self)]
+        items = [type(self).__name__, self.label, self.offset, len(self)]
         if self.symbols:
             items.extend(self.symbols)
-        ownitems = self._getItems()
+        ownitems = self.getItems()
         if ownitems:
             items.extend(ownitems)
         out = hash(tuple(items))
@@ -96,7 +94,7 @@ class MObjList(MObj):
                      ) -> list[SynthEvent]:
         playargs.fillWith(self.playargs)
         return misc.sumlist(item._synthEvents(playargs.copy(), workspace)
-                            for item in self._getItems())
+                            for item in self.getItems())
 
     def quantizePitch(self: MObjT, step=0.) -> MObjT:
         if step == 0:
@@ -129,7 +127,7 @@ class MObjList(MObj):
         """
         Construct a list of Voices from this object
         """
-        return packInVoices(self._getItems())
+        return tools.packInVoices(self.getItems())
 
     def adaptToScoreStruct(self, newstruct: ScoreStruct, oldstruct: ScoreStruct = None):
         newitems = [item.adaptToScoreStruct(newstruct, oldstruct)

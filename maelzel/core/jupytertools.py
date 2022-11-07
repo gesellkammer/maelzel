@@ -112,7 +112,7 @@ def m21JupyterHook(enable=True) -> None:
             stream.write('musicxml', xmlfile)
             assert os.path.exists(xmlfile), f"Failed to write {xmlfile}!"
             maelzel.scoring.render.renderMusicxml(xmlfile, outfile=outfile)
-            if cfg['html.theme'] == 'dark':
+            if cfg['htmlTheme'] == 'dark':
                 emlib.img.pngRemoveTransparency(outfile)
             imgwidth, imgheight = emlib.img.imgSize(outfile)
             scaleFactor = cfg['show.scaleFactor']

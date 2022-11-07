@@ -5,6 +5,11 @@ import itertools
 from .common import division_t, F, asF
 from functools import cache
 from emlib import iterlib
+from .notation import SnappedNotation
+
+
+def divisionDensity(division: division_t) -> int:
+    return max(division) * len(division)
 
 
 def subdivisions(numdivs: int,
@@ -40,7 +45,7 @@ def allSubdivisions(maxsubdivs=5,
         allsubdivs.extend(subdivisions(numdivs=numsubdivs, possiblevals=possiblevals, maxdensity=maxdensity))
 
     def issuperfluous(p):
-        if len(p) > 1 and all(x == p[0] for x in p) and p[0] in (2, 4, 8) and sum(p) in possiblevals:
+        if len(p) > 1 and all(x == p[0] for x in p) and sum(p) in possiblevals:
             return True
         if len(p) in (2, 4, 8) and all(x in (1, 2, 4, 8) for x in p) and max(p)*len(p) in possiblevals:
             # (2, 4) == (4, 4) == 8, (2, 2, 2, 4) == 16, (4, 4) == 8
@@ -56,6 +61,14 @@ def allSubdivisions(maxsubdivs=5,
             else:
                 out.extend(set(itertools.permutations(p)))
         allsubdivs = out
+        if blacklist:
+            permutations = []
+            for div in blacklist:
+                if len(div) == 1:
+                    permutations.append(div)
+                else:
+                    permutations.extend(set(itertools.permutations(div)))
+            blacklist = permutations
 
     allsubdivs.sort(key=lambda p: sum(p))
     if blacklist:
@@ -65,113 +78,21 @@ def allSubdivisions(maxsubdivs=5,
     return allsubdivs
 
 
-def partitions(numonsets: int,
-               numsubdivs: int,
-               possiblevals: Sequence[int] = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14),
-               maxvalue=0,
-               maxdensity=0) -> list[tuple[int, ...]]:
-    """
-    Partition *numonsets* into *numsubdivs* partitions
-
-    Args:
-        numonsets: the number to partition
-        numsubdivs: the number of partitions
-        possiblevals: the possible values for each partition
-        maxvalue: if given, a max. value for any partition
-        maxdensity: the max. value if a value would be used for all partitions; a way to limit
-            concentration in one specific partition
-
-    Returns:
-        a list of possible partitions
-
-    Example
-    ~~~~~~~
-
-        >>> partitions(6, 3)
-        [[4, 1, 1], [3, 2, 1], [2, 2, 2]]
-        >>> partitions(7, 3)
-        [[5, 1, 1], [4, 2, 1], [3, 3, 1], [3, 2, 2]]
-
-    """
-
-    if numsubdivs == 1 and numonsets in possiblevals:
-        return [(numonsets,)]
-
-    if maxdensity == 0:
-        maxdensity = numonsets * numsubdivs
-    if maxvalue == 0:
-        maxvalue = numonsets - numsubdivs + 1
-    else:
-        maxvalue = min(maxvalue, numonsets - numsubdivs + 1)
-    minvalue = int(math.ceil(numonsets / numsubdivs))
-
-    if maxvalue == minvalue == 1:
-        # Avoid the unary partition (for ex. for 5, [1, 1, 1, 1, 1], this is the same as [5] itself)
-        return []
-
-    out = []
-    for i in range(maxvalue, minvalue-1, -1):
-        if i * numsubdivs > maxdensity:
-            continue
-        if i not in possiblevals:
-            continue
-        subpartitions = partitions(numonsets - i, numsubdivs=numsubdivs - 1, maxvalue=i,
-                                   possiblevals=possiblevals, maxdensity=maxdensity)
-        for sub in subpartitions:
-            out.append((i,) + sub)
-    assert all(sum(p) == numonsets for p in out)
-    return out
-
-
-def allPartitions(onsets: Sequence[int],
-                  maxsubdivs=8,
-                  possiblevals: Sequence[int] = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14),
-                  maxdensity=0,
-                  makePermutations=True
-                  ) -> list[list[int]]:
-    """
-    All possible partitions for a given set of onsets
-
-    Args:
-        onsets: a list of onsets to partition
-        maxsubdivs: the max number of subdivisions for one partition
-        possiblevals: possible values for any subdivision
-        maxdensity: the max. value for any subdivision if it were to be used for all subdivisions; a way to limit
-            concentration in one specific partition
-        makePermutations: if True, include all permutations for each partition
-
-    Returns:
-
-    """
-    allpartitions = []
-    for onset in onsets:
-        for subdiv in range(1, maxsubdivs+1):
-            divisions = partitions(numonsets=onset, numsubdivs=subdiv, possiblevals=possiblevals, maxdensity=maxdensity)
-            allpartitions.extend(divisions)
-
-    # remove partitions like (2, 2, 2, 2) if 8 is already a possible value
-    def issuperfluos(p):
-        if all(x == p[0] for x in p) and p[0] in (2, 4, 8) and sum(p) in possiblevals:
-            return True
-        if len(p) in (2, 4, 8) and all(x in (1, 2, 4, 8) for x in p) and max(p)*len(p) in possiblevals:
-            # (2, 4) == (4, 4) == 8, (2, 2, 2, 4) == 16, (4, 4) == 8
-            return True
-        return False
-
-    def issubset(p, q):
-        return (y%x==0 for x, y in zip(p, q))
-
-    allpartitions = [p for p in allpartitions if not issuperfluos(p)]
-
-    if makePermutations:
-        out = []
-        for p in allpartitions:
-            if len(p) == 1:
-                out.append(p)
-            else:
-                out.extend(set(itertools.permutations(p)))
-        allpartitions = out
-    return [list(p) for p in allpartitions]
+def resnap(assignedSlots: list[int],
+           grid: list[F],
+           newgrid: list[F]
+           ) -> list[int]:
+    minslot = 0
+    maxslot = len(newgrid)
+    reassigned = []
+    for slot0 in assignedSlots:
+        offset = grid[slot0]
+        for slotidx in range(minslot, maxslot):
+            if offset == newgrid[slotidx]:
+                reassigned.append(slotidx)
+                minslot = slotidx
+                break
+    return reassigned
 
 
 def simplifyDivision(division: division_t, assignedSlots: list[int]) -> division_t:
@@ -179,36 +100,49 @@ def simplifyDivision(division: division_t, assignedSlots: list[int]) -> division
     Checks if a division (a partition of the beat) can be substituted by a simpler one
 
     Args:
-        division:
-        assignedSlots:
+        division: the division to simplify
+        assignedSlots: assigned slots for this division
 
     Returns:
-
+        the simplified version or the original division if no simplification is possible
     """
     # a note always lasts to the next one
-    if len(division) == 1 and division in (3, 5, 7, 11, 13):
-        return division
-    currslot = 0
+    # assert isinstance(division, tuple)
+    if len(division) == 1:
+        if len(assignedSlots) == 1 and assignedSlots[0] == 0:
+            return (1,)
+        elif division[0] in {3, 5, 7, 11, 13}:
+            return division
+    elif all(subdiv == 1 for subdiv in division):
+        if len(assignedSlots) == 1 and assignedSlots[0] == 0:
+            return (1,)
+
+    assigned = set(assignedSlots)
+    cs = 0
     reduced = []
     for subdiv in division:
-        if subdiv == 1:
+        if subdiv == 1 or set(range(cs+1, cs+subdiv)).isdisjoint(assigned):
             reduced.append(1)
-        else:
-            restSlotsInSubdiv = list(range(currslot+1, currslot+subdiv))
-            if not any(slot in assignedSlots for slot in restSlotsInSubdiv):
-                reduced.append(1)
-            elif subdiv == 4 and not any(slot in assignedSlots for slot in (currslot+1, currslot+3)):
-                reduced.append(2)
-            elif subdiv == 6 and not any(slot in assignedSlots for slot in (currslot+1, currslot+3, currslot+5)):
+        elif subdiv == 4 and cs+1 not in assigned and cs+3 not in assigned:
+            reduced.append(2)
+        elif subdiv == 6:
+            if cs+1 not in assigned and cs+3 not in assigned and cs+5 not in assigned:
                 reduced.append(3)
-            elif subdiv == 6 and not any(slot in assignedSlots for slot in (currslot + 1, currslot + 2, currslot + 4, currslot+5)):
+            elif {cs+1,cs+2,cs+4, cs+5}.isdisjoint(assigned):
                 reduced.append(2)
             else:
                 reduced.append(subdiv)
-        currslot += subdiv
+        elif subdiv == 8:
+            if {cs+1, cs+2, cs+3,cs+5, cs+6, cs+7}.isdisjoint(assigned):
+                reduced.append(2)
+            if {cs+1, cs+3, cs+5, cs+7}.isdisjoint(assigned):
+                reduced.append(4)
+            else:
+                reduced.append(subdiv)
+        else:
+            reduced.append(subdiv)
+        cs += subdiv
     return tuple(reduced)
-
-
 
 
 @cache
@@ -232,18 +166,49 @@ def gridDurations(beatDuration: F, division: division_t) -> list[F]:
     return grid
 
 
-@cache
-def _divisionGrid0(division: division_t, beatDuration: F) -> list[F]:
-    beatDuration = asF(beatDuration)
-    durations = gridDurations(beatDuration, division)
-    flatDurations = list(iterlib.flatten(durations))
-    # flatgrid contains a flat list of the duration of each tick
-    # now we need to convert that to offsets
-    grid = [F(0)] + list(iterlib.partialsum(flatDurations))
-    assert grid[-1] == beatDuration
+def gridDurationsFlat(beatDuration: F, division: division_t) -> list[F]:
+    if isinstance(division, int):
+        dt = beatDuration/division
+        return [dt] * division
+
+    if len(division) == 1:
+        return gridDurationsFlat(beatDuration, division[0])
+    else:
+        numDivisions = len(division)
+        subdivDur = beatDuration / numDivisions
+        grid = []
+        for subdiv in division:
+            grid.extend(gridDurationsFlat(subdivDur, subdiv))
     return grid
 
 
-def divisionGrid(division: division_t, beatDuration: F, offset=F(0)) -> list[F]:
-    grid = _divisionGrid0(division, beatDuration)
-    return [tick + offset for tick in grid]
+@cache
+def divisionGrid0(division: division_t, beatDuration: F) -> list[F]:
+    # assert isinstance(beatDuration, F)
+    # durations = iterlib.flatten(gridDurations(beatDuration, division))
+    durations = gridDurationsFlat(beatDuration, division)
+    # flatgrid contains a flat list of the duration of each tick
+    # now we need to convert that to offsets
+    grid = [F(0)]
+    grid.extend(iterlib.partialsum(durations))
+    # assert grid[-1] == beatDuration
+    return grid
+
+
+def divMinSlotDuration(div: division_t, beatDuration: F) -> F:
+    grid = divisionGrid0(div, beatDuration)
+    mindur = min(slot1 - slot0 for slot0, slot1 in iterlib.pairwise(grid))
+    return mindur
+
+
+def primeFactors(d: int, excludeBinary=False) -> set:
+    assert isinstance(d, int), f"expected int, got {d}"
+    factors = set()
+    for p in (3, 5, 7, 11, 13, 17, 19):
+        if d % p == 0:
+            factors.add(p)
+    if not excludeBinary:
+        if d % 2 == 0:
+            factors.add(2)
+    return factors
+
