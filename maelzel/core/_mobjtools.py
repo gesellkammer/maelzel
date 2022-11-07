@@ -1,5 +1,5 @@
 from __future__ import annotations
-from ._common import Rat
+from maelzel.common import F
 from emlib.iterlib import pairwise
 from .event import *
 from .workspace import getConfig, Workspace
@@ -101,7 +101,7 @@ def fillTempDynamics(items: list[MEvent], initialDynamic='mf',
             lastEnd = item.end
 
 
-def addDurationToGracenotes(chain: list[MEvent], dur: Rat) -> None:
+def addDurationToGracenotes(chain: list[MEvent], dur: F) -> None:
     """
     Adds real duration to gracenotes within chain
 

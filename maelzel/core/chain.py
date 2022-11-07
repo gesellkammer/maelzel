@@ -1,5 +1,6 @@
 from __future__ import annotations
-from ._common import UNSET, asRat, Rat
+from ._common import UNSET
+from maelzel.common import F, asF
 from .event import MObj, MEvent, asEvent, Note, Chord
 from . import _mobjtools
 from . import symbols
@@ -46,8 +47,8 @@ def _itemsAreStacked(items: list[MObj]) -> bool:
 
 
 def stackEvents(events: list[MEvent | Chain],
-                defaultDur: time_t = Rat(1),
-                offset: time_t = Rat(0),
+                defaultDur: time_t = F(1),
+                offset: time_t = F(0),
                 inplace=False,
                 check=False
                 ) -> list[MEvent | Chain]:
@@ -84,7 +85,7 @@ def stackEvents(events: list[MEvent | Chain],
         return events
 
     # All offset times given in the events are relative to the start of the chain
-    now = Rat(0)
+    now = F(0)
     lasti = len(events) - 1
     for i, ev in enumerate(events):
         if ev.offset is None:
@@ -136,7 +137,7 @@ class Chain(MObj):
                  label: str = '',
                  properties: dict[str, Any] = None):
         if offset is not None:
-            offset = asRat(offset)
+            offset = asF(offset)
         if items is not None:
             items = [item if isinstance(item, (MEvent, Chain)) else asEvent(item)
                      for item in items]
@@ -176,7 +177,7 @@ class Chain(MObj):
         """
         return self.offset is not None and _itemsAreStacked(self.items)
 
-    def stack(self, offset: time_t = Rat(0)) -> None:
+    def stack(self, offset: time_t = F(0)) -> None:
         """
         Stack events to the left (in place), making any unset offset and duration explicit
 
@@ -199,7 +200,7 @@ class Chain(MObj):
         Args:
             recurse: if True, fill gaps within subchains
         """
-        now = Rat(0)
+        now = F(0)
         items = []
         for item in self.items:
             if item.offset is None or item.dur is None:
@@ -258,7 +259,7 @@ class Chain(MObj):
         chain = self.resolved(offset=offset)
         if offset is not None:
             assert chain.offset == offset
-        offset = chain.offset if chain.offset is not None else Rat(0)
+        offset = chain.offset if chain.offset is not None else F(0)
         items = _flattenObjs(chain.items, offset)
         if chain.offset is not None:
             for item in items:
@@ -307,8 +308,8 @@ class Chain(MObj):
         items = stackEvents(self.items, offset=offset, inplace=False)
         return self.clone(items=items, offset=clonedOffset)
 
-    def resolvedOffset(self) -> Rat:
-        ownstart = self.offset or Rat(0)
+    def resolvedOffset(self) -> F:
+        ownstart = self.offset or F(0)
         if not self.items:
             return ownstart
         item = self.items[0]
@@ -323,7 +324,7 @@ class Chain(MObj):
         items = stackEvents(chain.items, inplace=True, offset=self.offset)
         if any(n.isGracenote() for n in self.items
                if isinstance(n, (Note, Chord))):
-            _mobjtools.addDurationToGracenotes(items, Rat(1, 14))
+            _mobjtools.addDurationToGracenotes(items, F(1, 14))
         if conf['play.useDynamics']:
             _mobjtools.fillTempDynamics(items, initialDynamic=conf['play.defaultDynamic'])
         return _mobjtools.chainSynthEvents(items, playargs=playargs, workspace=workspace)
@@ -380,12 +381,12 @@ class Chain(MObj):
         offset = start - self.items[0].offset
         self.timeShiftInPlace(offset)
 
-    def resolvedDur(self, offset: time_t = None) -> Rat:
+    def resolvedDur(self, offset: time_t = None) -> F:
         if not self.items:
-            return Rat(0)
+            return F(0)
 
-        defaultDur = Rat(1)
-        accum = Rat(0)
+        defaultDur = F(1)
+        accum = F(0)
         items = self.items
         lasti = len(items) - 1
 
@@ -565,9 +566,9 @@ class Chain(MObj):
         Returns:
             the resulting Chain
         """
-        defaultDur = Rat(1)
-        accumDur = Rat(0)
-        maxDur = asRat(dur)
+        defaultDur = F(1)
+        accumDur = F(0)
+        maxDur = asF(dur)
         items: list[MEvent] = []
         ownitems = stackEvents(self.items)
         for item in iterlib.cycle(ownitems):
@@ -591,7 +592,7 @@ class Chain(MObj):
         Remove over-secified start times in this Chain **inplace**
         """
         # This is the relative position (independent of the chain's start)
-        now = Rat(0)
+        now = F(0)
         for item in self.items:
             if isinstance(item, MEvent):
                 if item.dur is None:
@@ -677,7 +678,7 @@ class Chain(MObj):
         items = stackEvents(self.items, offset=timeoffset)
         return self.clone(items=items)
 
-    def timeTransform(self, timemap: Callable[[Rat], Rat], inplace=False) -> Chain:
+    def timeTransform(self, timemap: Callable[[F], F], inplace=False) -> Chain:
         offset = self.resolvedOffset()
         offset2 = timemap(offset)
         if inplace:
@@ -734,7 +735,7 @@ class Chain(MObj):
         assert isinstance(first, (Note, Chord)) and isinstance(last, (Note, Chord))
         spanner.bind(first, last)
 
-    def resolvedTimes(self, defaultDur=Rat(1)) -> list[tuple[MEvent, Rat, Rat] | list]:
+    def resolvedTimes(self, defaultDur=F(1)) -> list[tuple[MEvent, F, F] | list]:
         """
         Resolves the times of the events without modifying them
 
@@ -775,7 +776,7 @@ class Voice(Chain):
                  items: list[MEvent | str] = None,
                  label='',
                  shortname=''):
-        super().__init__(items=items, label=label, offset=Rat(0))
+        super().__init__(items=items, label=label, offset=F(0))
         self.shortname = shortname
 
     def scoringParts(self, config: CoreConfig = None
@@ -790,13 +791,13 @@ class Voice(Chain):
 
 
 def _resolvedTimes(events: list[MEvent | Chain],
-                   offset: Rat = Rat(0),
-                   defaultDur = Rat(1),
-                   ) -> list[tuple[MEvent, Rat, Rat] | list]:
+                   offset: F = F(0),
+                   defaultDur = F(1),
+                   ) -> list[tuple[MEvent, F, F] | list]:
     if not events:
         raise ValueError("no events given")
 
-    now = asRat(offset)
+    now = asF(offset)
     lasti = len(events) - 1
     out = []
     for i, ev in enumerate(events):
@@ -827,7 +828,7 @@ def _resolvedTimesDur(items: list[MEvent | Chain]) -> Rational:
                for x in items)
 
 
-def _flattenObjs(objs: list[MEvent | Chain], offset=Rat(0)) -> list[MEvent]:
+def _flattenObjs(objs: list[MEvent | Chain], offset=F(0)) -> list[MEvent]:
     collected = []
     for obj in objs:
         assert obj.offset is not None, \
