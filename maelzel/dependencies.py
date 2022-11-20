@@ -213,7 +213,7 @@ def checkDependencies(abortIfErrors=False, tryfix=True) -> list[str]:
     return errors
 
 
-def checkDependenciesIfNeeded(daysSinceLastCheck=7) -> bool:
+def checkDependenciesIfNeeded(daysSinceLastCheck=0) -> bool:
     """
     Checks dependencies if needed
 
@@ -222,6 +222,10 @@ def checkDependenciesIfNeeded(daysSinceLastCheck=7) -> bool:
     Returns:
         True if dependencies are installed
     """
+    if daysSinceLastCheck == 0 and not _state.state['first_run']:
+        logger.debug('Skipping dependency check - not first run')
+        return True
+
     lastcheck = datetime.fromisoformat(_state.state['last_dependency_check'])
     if (datetime.now() - lastcheck).days < daysSinceLastCheck:
         logger.debug("Dependency check not needed")

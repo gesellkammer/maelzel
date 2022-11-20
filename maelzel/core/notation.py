@@ -115,6 +115,9 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig = None
         cfg = getConfig()
     profile = scoring.quant.makeQuantizationProfile(complexity=cfg['quant.complexity'],
                                                     nestedTuplets=cfg['quant.nestedTuplets'])
+    profile.debug = cfg['quant.debug']
+    profile.debugMaxDivisions = cfg['quant.debugShowNumRows']
+
     if (gridWeight:=cfg['quant.gridErrorWeight']) is not None:
         profile.gridErrorWeight = gridWeight
     if (divisionWeight:=cfg['quant.divisionErrorWeight']) is not None:

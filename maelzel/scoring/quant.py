@@ -23,11 +23,11 @@ from . import util
 from . import quantdata
 from . import quantutils
 from . import enharmonics
-from .attachment import Articulation
+from . import attachment
 
 from .notation import Notation, makeRest, SnappedNotation
 from .durationgroup import DurationGroup, asDurationGroupTree
-from maelzel.scorestruct import ScoreStruct
+from maelzel.scorestruct import ScoreStruct, measureBeatOffsets
 
 from emlib import iterlib
 from emlib import misc
@@ -51,7 +51,6 @@ __all__ = (
     'QuantizedPart',
     'QuantizedMeasure',
     'QuantizedBeat',
-    'quantizeBeat',
     'quantizeMeasure',
     'quantizePart',
     'splitNotationAtOffsets',
@@ -62,7 +61,7 @@ __all__ = (
 _INDENT = "  "
 
 
-_regularSlotNumbers = {1, 2, 3, 4, 6, 7, 8, 12, 16, 24, 32}
+_regularDurations = {1, 2, 3, 4, 6, 7, 8, 12, 16, 24, 32}
 
 
 def _factory(obj) -> _field:
@@ -147,13 +146,13 @@ class QuantizationProfile:
     rhythmComplexityWeight: float = 0.001
     """Weight of the actual quantized rhythm. This includes evaluating synchopes, ties, etc."""
 
-    rhythmComplexityNotesAcrossSubdivisionWeight = 0.3
+    rhythmComplexityNotesAcrossSubdivisionWeight = 0.1
     """
     When calculating rhythm complexity this weight is applied to the penalty of notes extending
     over subdivisions of the beat (inner-beat syncopes)
     """
 
-    rhythmComplexityIrregularDurationsWeight = 0.7
+    rhythmComplexityIrregularDurationsWeight = 0.9
     """
     When calculating rhythm complexity this weight is applied to the penalty of notes whose
     duration is irregular (durations of 5 or 9 units, which need ties to be represented)
@@ -213,6 +212,9 @@ class QuantizationProfile:
     mergedTupletsMaxDuration: F = F(2)
     """How long can a tuplet over the beat be"""
 
+    mergeTupletsOfDifferentDuration: bool = False
+    """Allow merging tuplets which have different total durations?"""
+
     allowedTupletsAcrossBeat: tuple[int, ...] = (1, 2, 3, 4, 5, 8)
     """Which tuplets are allowed to cross the beat"""
 
@@ -226,6 +228,8 @@ class QuantizationProfile:
     """Max number of quantization possibilities to display when debugging"""
 
     blacklist: set[division_t] = _field(default_factory=set)
+
+    name: str = ''
 
     _cachedDivisionsByTempo: dict[tuple[number_t, bool], list[division_t]] = _field(default_factory=dict)
     _cachedDivisionPenalty: dict[tuple[int, ...], tuple[float, str]] = _field(default_factory=dict)
@@ -360,6 +364,8 @@ def makeQuantizationProfile(complexity='high',
         kws[key] = value
     if nestedTuplets is not None:
         kws['nestedTuplets'] = nestedTuplets
+    if not kws.get('name'):
+        kws['name'] = complexity
     out = QuantizationProfile(**kws)
     if blacklist:
         blacklistset = set(blacklist)
@@ -492,7 +498,6 @@ def snapEventsToGrid(notations: list[Notation], grid: list[F],
     Args:
         notations: a list of unquantized Notation's
         grid: the grid to snap the events to, as returned by generateBeatGrid
-        method: the method to use. Valid values are: "nearest"
 
     Returns:
         tuple (assigned slots, quantized events)
@@ -690,6 +695,8 @@ class QuantizedBeat:
     notations: list[Notation]  # snapped events
     beatDuration: F
     beatOffset: F = F(0)
+    quantizationError: float = 0
+    quantizationInfo: str = ''
 
     def __post_init__(self):
         self.applyDurationRatios()
@@ -722,6 +729,10 @@ class QuantizedMeasure:
     def __post_init__(self):
         if self.beats:
             self.check()
+
+    def __repr__(self):
+        return f'QuantizedMeasure(timesig={self.timesig}, quarterTempo={self.quarterTempo}, ' \
+               f'beats={self.beats}, profile={self.profile.name})'
 
     def __hash__(self):
         return hash((self.timesig, self.quarterTempo) + tuple(hash(b) for b in self.beats))
@@ -920,13 +931,14 @@ def _evalRhythmComplexity(profile: QuantizationProfile,
                           division: division_t,
                           beatDur: F,
                           assignedSlots: list[int]
-                          ) -> float:
+                          ) -> tuple[float, str]:
     # calculate notes across subdivisions
     if len(division) == 1:
         numNotesAcrossSubdivisions = 0
         slots = assignedSlots + [division[0]]
         durs = [b - a for a, b in iterlib.pairwise(slots)]
-        numTies = sum(dur not in _regularSlotNumbers for dur in durs)
+        numTies = sum(dur not in _regularDurations for dur in durs)
+
     else:
         slotsAtSubdivs = [0] + list(iterlib.partialsum(division[:-1]))
         numNotesAcrossSubdivisions = 0
@@ -938,18 +950,23 @@ def _evalRhythmComplexity(profile: QuantizationProfile,
                                 for n in snappedEvents)
         numTies = numIrregularNotes
 
-    return mathlib.weighted_euclidian_distance([
+    penalty = mathlib.weighted_euclidian_distance([
         (numNotesAcrossSubdivisions/len(snappedEvents), profile.rhythmComplexityNotesAcrossSubdivisionWeight),
         (numTies/len(snappedEvents), profile.rhythmComplexityIrregularDurationsWeight)
     ])
+    if profile.debug:
+        debugstr = f'numNotesAcrossSubdics={numNotesAcrossSubdivisions}, {numTies=}'
+    else:
+        debugstr = ''
+    return penalty, debugstr
 
 
-def quantizeBeat(eventsInBeat: list[Notation],
-                 quarterTempo: number_t,
-                 profile: QuantizationProfile,
-                 beatDuration: number_t = F(1),
-                 beatOffset: F = F(0),
-                 ) -> QuantizedBeat:
+def quantizeBeatBinary(eventsInBeat: list[Notation],
+                       quarterTempo: F,
+                       profile: QuantizationProfile,
+                       beatDuration: F,
+                       beatOffset: F,
+                       ) -> QuantizedBeat:
     """
     Calculate the best subdivision
 
@@ -964,49 +981,24 @@ def quantizeBeat(eventsInBeat: list[Notation],
         profile: the subdivision preset used
 
     Returns:
-        a BeatQuantisation, where:
+        a QuantizedBeat, where:
         .divisions constains a list of the subdivisions of the beat where:
-            * [4] = subdivide the beat in four equal parts
-            * [3, 4] = subdivide the beat in two parts, the first part in 3 and the second in 4 parts
-            * [8] = subdivide the beat in eigth equal parts
+            * (4,) = subdivide the beat in four equal parts
+            * (3, 4) = subdivide the beat in two parts, the first part in 3 and the second in 4 parts
+            * (5, 3, 7) = subdivide the beat in three parts, then each of these parts in 5, 3, and 7 slots
         .assignedSlots constains a list of the assigned slot to each attack
-
-    Example::
-
-        >>> offsets = [0, 0.615]
-        >>> attacks = [Notation(F(offset)) for offset in offsets]
-        >>> quantizeBeat(attacks, 60, 1)
-        BeatDivisionResult(divisions=[8], assignedSlots=[0, 5])
-
-    This indicates that the beat was divided in 8 equal parts, where the first attack was
-    assigned the first slot and the second attack was assigned the 5th slot
-
-    # Algorithm
-
-    for each possible division,
-        generate a grid of slots
-        assign one slot to each event
-            rules:
-                * the distance between the unquantized offset of the event and the
-                  quantized offset of the slot can't excede the duration of one slot
-                * if multiple if multiple events are assigned the same slot, the last
-                  gets the slot, the previous ones are given the status of a grace note
-                  and assigned a duration of 0
-                * the solution should minimize the displacement of the attack time and,
-                  with less weight, the displacement of the durations
 
     """
     # assert all(not ev.tiedNext for ev in eventsInBeat), eventsInBeat
     assert beatDuration > 0
     beatDuration = asF(beatDuration)
-    assert beatDuration in {F(1, 1), F(1, 2), F(1, 4), F(2, 1)}
+
+    assert beatDuration in {F(1, 1), F(1, 2), F(1, 4), F(2, 1)}, f"{beatDuration=}"
     if len(eventsInBeat) > 2:
         last = eventsInBeat[-1]
         if 0 < last.duration < F(1, 10000):
             eventsInBeat = eventsInBeat[:-1]
             eventsInBeat[-1].duration += last.duration
-
-    assert sum(n.duration for n in eventsInBeat) == beatDuration
 
     if not isBeatFilled(eventsInBeat, beatDuration=beatDuration):
         eventsInBeat = _fillDuration(eventsInBeat, duration=beatDuration, offset=beatOffset)
@@ -1059,19 +1051,19 @@ def quantizeBeat(eventsInBeat: list[Notation],
             # TODO: optimize the re-snapping to avoid calling  snapeventstogrid again
             div = simplifiedDiv
             newgrid = quantutils.divisionGrid0(beatDuration=beatDuration, division=simplifiedDiv)
-            assignedSlots = quantutils.resnap(assignedSlots, grid0, newgrid)
-            # assignedSlots, snappedEvents = snapEventsToGrid(events0, grid=grid0)
+            # assignedSlots = quantutils.resnap(assignedSlots, grid0, newgrid)
+            assignedSlots, snappedEvents = snapEventsToGrid(events0, grid=newgrid)
 
         gridError = _evalGridError(profile=profile,
                                    snappedEvents=snappedEvents,
                                    beatDuration=beatDuration)
 
 
-        rhythmComplexity = _evalRhythmComplexity(profile=profile,
-                                                 snappedEvents=snappedEvents,
-                                                 division=div,
-                                                 beatDur=beatDuration,
-                                                 assignedSlots=assignedSlots)
+        rhythmComplexity, rhythmInfo = _evalRhythmComplexity(profile=profile,
+                                                             snappedEvents=snappedEvents,
+                                                             division=div,
+                                                             beatDur=beatDuration,
+                                                             assignedSlots=assignedSlots)
 
         totalError = mathlib.weighted_euclidian_distance([
             (gridError, profile.gridErrorWeight),
@@ -1084,11 +1076,10 @@ def quantizeBeat(eventsInBeat: list[Notation],
         if totalError > minError and not profile.debug:
             continue
 
+        debuginfo = ''
         if profile.debug:
-            debuginfo = f"{gridError=:.3g}, {rhythmComplexity=:.3g}, " \
+            debuginfo = f"{gridError=:.3g}, {rhythmComplexity=:.3g} ({rhythmInfo}), " \
                         f"{divPenalty=:.3g} ({divPenalty*profile.divisionErrorWeight:.4g}, {divPenaltyInfo})"
-        else:
-            debuginfo = ''
         rows.append((totalError, div, snappedEvents, assignedSlots, debuginfo))
 
         if totalError == 0:
@@ -1102,7 +1093,7 @@ def quantizeBeat(eventsInBeat: list[Notation],
     rows.sort(key=lambda r: len(r[1]))
 
     if profile.debug:
-        print(f"Beat offset: {beatOffset}")
+        print(f"Beat: {beatOffset} - {beatOffset + beatDuration} (dur: {beatDuration})")
         print(f"Skipped {skipped} divisions with a div. penalty > {profile.maxDivPenalty}")
         rows.sort(key=lambda row: row[0])
         maxrows = min(profile.debugMaxDivisions, len(rows))
@@ -1111,10 +1102,11 @@ def quantizeBeat(eventsInBeat: list[Notation],
         misc.print_table(table, headers="error div snapped slots info".split(), floatfmt='.4f', showindex=False)
 
     error, div, snappedEvents, assignedSlots, debuginfo = min(rows, key=lambda row: row[0])
-    assert sum(_.duration for _ in snappedEvents) == beatDuration, \
-        f"{beatDuration=}, {snappedEvents=}"
     notations = [snapped.notation.clone(offset=snapped.offset+beatOffset, duration=snapped.duration)
                  for snapped in snappedEvents]
+    assert sum(_.duration for _ in notations) == beatDuration, \
+        f"{beatDuration=}, {notations=}"
+
     beatNotations = []
     for n in notations:
         if n.isGraceNote:
@@ -1135,7 +1127,39 @@ def quantizeBeat(eventsInBeat: list[Notation],
     assert sum(ev.duration for ev in beatNotations) == sum(ev.duration for ev in snappedEvents) == beatDuration, f"{beatDuration=}, {beatNotations=}"
 
     return QuantizedBeat(div, assignedSlots=assignedSlots, notations=beatNotations,
-                         beatDuration=beatDuration, beatOffset=beatOffset)
+                         beatDuration=beatDuration, beatOffset=beatOffset,
+                         quantizationError=error, quantizationInfo=debuginfo)
+
+
+def quantizeBeatTernary(eventsInBeat: list[Notation],
+                        quarterTempo: F,
+                        profile: QuantizationProfile,
+                        beatDuration: F,
+                        beatOffset: F
+                        ) -> list[QuantizedBeat]:
+    assert beatDuration.numerator == 3
+    subdiv = beatDuration / 3
+    possibleOffsets = [
+        (beatOffset, beatOffset+subdiv, beatOffset+subdiv*3),    # 1 + 2
+        (beatOffset, beatOffset+subdiv*2, beatOffset+subdiv*3),  # 2 + 1
+        # (beatOffset, beatOffset+subdiv, beatOffset+subdiv*2, beatOffset+subdiv*3)  # 1+1+1
+    ]
+
+    results = []
+    for offsets in possibleOffsets:
+        eventsInSubbeats = splitNotationsAtOffsets(eventsInBeat, offsets)
+        beats = [quantizeBeatBinary(events, quarterTempo=quarterTempo, profile=profile,
+                                    beatDuration=span.duration, beatOffset=span.start)
+                 for span, events in eventsInSubbeats]
+        totalerror = sum(beat.quantizationError * beat.beatDuration for beat in beats)
+        results.append((totalerror, beats))
+    if profile.debug:
+        for result in results:
+            error, beats = result
+            durations = [beat.beatDuration for beat in beats]
+            print(f"Error: {error}, division: {durations}")
+    best = min(results, key=lambda result: result[0])
+    return best[1]
 
 
 def _fillMeasure(eventsInMeasure: list[Notation],
@@ -1158,7 +1182,7 @@ def _fillMeasure(eventsInMeasure: list[Notation],
     return _fillDuration(eventsInMeasure, measureDuration)
 
 
-def splitNotationAtOffsets(n: Notation, offsets: list[Rational]) -> list[Notation]:
+def splitNotationAtOffsets(n: Notation, offsets: Sequence[Rational]) -> list[Notation]:
     """
     Splits a Notation at the given offsets
 
@@ -1193,7 +1217,9 @@ def splitNotationAtOffsets(n: Notation, offsets: list[Rational]) -> list[Notatio
     # Remove superfluous dynamic/articulation
     for part in parts[1:]:
         part.dynamic = ''
-        part.removeAttachments(lambda attachment: isinstance(attachment, Articulation))
+        part.removeAttachments(lambda item: isinstance(item, (attachment.Articulation, attachment.Text)))
+        if part.spanners:
+            part.spanners.clear()
 
     if not n.isRest:
         _tieNotationParts(parts)
@@ -1208,8 +1234,6 @@ def splitNotationAtOffsets(n: Notation, offsets: list[Rational]) -> list[Notatio
         assert parts[-1].tiedNext == n.tiedNext, f"{n=}, {parts=}"
 
     return parts
-
-
 
 
 def notationNeedsBreak(n: Notation, beatDur:F, beatDivision: division_t,
@@ -1246,7 +1270,7 @@ def notationNeedsBreak(n: Notation, beatDur:F, beatDivision: division_t,
         if nslots.denominator != 1:
             raise ValueError(f"n is not quantized with given division.\n  n={n}\n  division={beatDivision}")
         assert isinstance(nslots, F), f"Expected nslots of type {F}, got {type(nslots).__name__} (nslots={nslots})"
-        return nslots.numerator not in _regularSlotNumbers
+        return nslots.numerator not in _regularDurations
     else:
         # check if n extends over subdivision
         dt = beatDur/len(beatDivision)
@@ -1264,14 +1288,17 @@ def notationNeedsBreak(n: Notation, beatDur:F, beatDivision: division_t,
 
 def _tieNotationParts(parts: list[Notation]) -> None:
     """ Tie these notations in place """
+
     for part in parts[:-1]:
-        # assert part.duration > 1/128, f"Duration: {part.duration}, parts: {parts}"
         part.tiedNext = True
+
+    hasGliss = parts[0].gliss
     for part in parts[1:]:
         part.tiedPrev = True
         part.dynamic = ''
-        part.removeAttachments(lambda a: isinstance(a, Articulation))
-
+        part.removeAttachments(lambda a: isinstance(a, (attachment.Text, attachment.Articulation)))
+        if hasGliss:
+            part.gliss = True
 
 def _splitIrregularDuration(n: Notation, slotIndex: int, slotDur: F) -> list[Notation]:
     """
@@ -1340,24 +1367,24 @@ def _splitIrregularDuration(n: Notation, slotIndex: int, slotDur: F) -> list[Not
 def _breakIrregularDuration(n: Notation, beatDur:F, div: int, beatOffset=F(0)
                             ) -> list[Notation] | None:
     # beat is subdivided regularly
-    slotDur = beatDur/div
-    nslots = n.duration/slotDur
+    slotdur = beatDur/div
+    nslots = n.duration/slotdur
     assert isinstance(nslots, F), f"Expected type F, got {type(nslots).__name__}={nslots}"
 
     if nslots.denominator != 1:
-        raise ValueError(f"Duration is not quantized with given division.\n  {n=}, {div=}")
+        raise ValueError(f"Duration is not quantized with given division.\n  {n=}, {div=}, {slotdur=}, {nslots=}")
 
-    if nslots.numerator in _regularSlotNumbers:
+    if nslots.numerator in _regularDurations:
         return None
 
-    slotIndex = (n.offset-beatOffset)/slotDur
+    slotIndex = (n.offset-beatOffset)/slotdur
     assert int(slotIndex) == slotIndex
     slotIndex = int(slotIndex)
 
     if not slotIndex.denominator == 1:
         raise ValueError(f"Offset is not quantized with given division. n={n}, division={div}")
 
-    parts = _splitIrregularDuration(n, slotIndex, slotDur)
+    parts = _splitIrregularDuration(n, slotIndex, slotdur)
     return parts
 
 
@@ -1382,12 +1409,14 @@ def isRegularDuration(dur: Rational, beatDur: Rational) -> bool:
     dur2 = dur / beatDur
     if dur2.denominator > 128:
         return False
-    if dur2.numerator not in _regularSlotNumbers:
+    if dur2.numerator not in _regularDurations:
         return False
     return True
 
 
-def breakIrregularDuration(n: Notation, beatDur: Rational, beatDivision: division_t,
+def breakIrregularDuration(n: Notation,
+                           beatDur: F,
+                           beatDivision: division_t,
                            beatOffset: Rational = F(0)
                            ) -> list[Notation] | None:
     """
@@ -1416,7 +1445,8 @@ def breakIrregularDuration(n: Notation, beatDur: Rational, beatDivision: divisio
     assert isinstance(beatDivision, (int, tuple)), f"Expected type int/tuple, got {type(beatDivision).__name__}={beatDivision}"
     assert isinstance(beatDur, F), f"Expected type F, got {type(beatDur).__name__}={beatDur}"
     assert isinstance(beatOffset, F), f"Expected type F, got {type(beatOffset).__name__}={beatOffset}"
-    assert n.duration>=0
+    assert beatOffset <= n.offset and n.end <= beatOffset + beatDur
+    assert n.duration >= 0
 
     if n.duration == 0:
         return None
@@ -1450,7 +1480,8 @@ def breakIrregularDuration(n: Notation, beatDur: Rational, beatDivision: divisio
         # find the subdivision
         for timespan, numslots in subdivisions:
             if mathlib.intersection(timespan[0], timespan[1], subn.offset, subn.end) is not None:
-                parts = breakIrregularDuration(subn, divDuration, numslots, timespan[0])
+                parts = breakIrregularDuration(n=subn, beatDur=divDuration, beatDivision=numslots,
+                                               beatOffset=timespan[0])
                 if parts is None:
                     # subn is regular
                     allparts.append(subn)
@@ -1476,9 +1507,46 @@ def isMeasureFilled(notations: list[Notation], timesig: timesig_t) -> bool:
     return notationsDuration == measureDuration
 
 
+def splitNotationsAtOffsets(notations: list[Notation],
+                            offsets: Sequence[F]
+                            ) -> list[tuple[TimeSpan, list[Notation]]]:
+    """
+    Split the given notations between the given offsets
+
+    Args:
+        notations: the notations to split
+        offsets: the boundaries.
+
+    Returns:
+        a list of of tuples (timespan, notation)
+
+    """
+    timeSpans = [TimeSpan(beat0, beat1) for beat0, beat1 in iterlib.pairwise(offsets)]
+    splittedEvents = []
+    for ev in notations:
+        if ev.duration > 0:
+            splittedEvents.extend(splitNotationAtOffsets(ev, offsets))
+        else:
+            splittedEvents.append(ev)
+
+    eventsPerBeat = []
+    for timeSpan in timeSpans:
+        eventsInBeat = []
+        for ev in splittedEvents:
+            if timeSpan.start <= ev.offset < timeSpan.end:
+                assert ev.end <= timeSpan.end
+                eventsInBeat.append(ev)
+        eventsPerBeat.append(eventsInBeat)
+        assert sum(ev.duration for ev in eventsInBeat) == timeSpan.end - timeSpan.start
+        assert all(timeSpan.start <= ev.offset <= ev.end <= timeSpan.end
+                   for ev in eventsInBeat)
+    return list(zip(timeSpans, eventsPerBeat))
+
+
 def measureSplitNotationsAtBeats(eventsInMeasure: list[Notation],
                                  timesig: timesig_t,
                                  quarterTempo: number_t,
+                                 subdivisionStructure: list[int] = None
                                  ) -> list[tuple[TimeSpan, list[Notation]]]:
     """
     Split the events in this measure into its individual beats
@@ -1510,27 +1578,9 @@ def measureSplitNotationsAtBeats(eventsInMeasure: list[Notation],
         f"Measure is not filled. Timesig {timesig}, tempo: {quarterTempo}\n" \
         f"events: {eventsInMeasure}"
 
-    beatOffsets = util.measureOffsets(timesig=timesig, quarterTempo=quarterTempo)
-    timeSpans = [TimeSpan(beat0, beat1) for beat0, beat1 in iterlib.pairwise(beatOffsets)]
-    splittedEvents = []
-    for ev in eventsInMeasure:
-        if ev.duration > 0:
-            splittedEvents.extend(splitNotationAtOffsets(ev, beatOffsets))
-        else:
-            splittedEvents.append(ev)
-
-    eventsPerBeat = []
-    for timeSpan in timeSpans:
-        eventsInBeat = []
-        for ev in splittedEvents:
-            if timeSpan.start <= ev.offset < timeSpan.end:
-                assert ev.end <= timeSpan.end
-                eventsInBeat.append(ev)
-        eventsPerBeat.append(eventsInBeat)
-        assert sum(ev.duration for ev in eventsInBeat) == timeSpan.end - timeSpan.start
-        assert all(timeSpan.start <= ev.offset <= ev.end <= timeSpan.end
-                   for ev in eventsInBeat)
-    return list(zip(timeSpans, eventsPerBeat))
+    beatOffsets = measureBeatOffsets(timesig=timesig, quarterTempo=quarterTempo,
+                                     subdivisionStructure=subdivisionStructure)
+    return splitNotationsAtOffsets(eventsInMeasure, beatOffsets)
 
 
 def _groupByRatio(notations: list[Notation], division: int | division_t,
@@ -1606,8 +1656,9 @@ def _applyDurationRatio(notations:list[Notation],
 
 def quantizeMeasure(events: list[Notation],
                     timesig: timesig_t,
-                    quarterTempo: number_t,
-                    profile: QuantizationProfile
+                    quarterTempo: F,
+                    profile: QuantizationProfile,
+                    subdivisionStructure: list[int] = None
                     ) -> QuantizedMeasure:
     """
     Quantize notes in a given measure
@@ -1628,39 +1679,50 @@ def quantizeMeasure(events: list[Notation],
     """
     measureQuarterLength = util.measureQuarterDuration(timesig)
     assert all(0<=ev.offset<=ev.end<=measureQuarterLength
-               for ev in events)
+               for ev in events), f"{events=}, {measureQuarterLength=}"
     for ev0, ev1 in iterlib.pairwise(events):
         if ev0.end != ev1.offset:
             logger.error(f"{ev0} (end={ev0.end}), {ev1} (offset={ev1.offset})")
             raise AssertionError("events are not stacked")
 
-    quantBeats: list[QuantizedBeat] = []
+    quantizedBeats: list[QuantizedBeat] = []
 
     if not isMeasureFilled(events, timesig):
         events = _fillMeasure(events, timesig)
 
     for span, eventsInBeat in measureSplitNotationsAtBeats(eventsInMeasure=events,
                                                            timesig=timesig,
-                                                           quarterTempo=quarterTempo):
-        quantizedBeat = quantizeBeat(eventsInBeat=eventsInBeat,
-                                     quarterTempo=quarterTempo,
-                                     beatDuration=span.end - span.start,
-                                     beatOffset=span.start,
-                                     profile=profile)
-        quantBeats.append(quantizedBeat)
-    return QuantizedMeasure(timesig=timesig, quarterTempo=asF(quarterTempo), beats=quantBeats,
+                                                           quarterTempo=quarterTempo,
+                                                           subdivisionStructure=subdivisionStructure):
+        beatdur = span.end - span.start
+        if beatdur.numerator in (1, 2, 4):
+            quantizedBeat = quantizeBeatBinary(eventsInBeat=eventsInBeat,
+                                               quarterTempo=quarterTempo,
+                                               beatDuration=span.end - span.start,
+                                               beatOffset=span.start,
+                                               profile=profile)
+            quantizedBeats.append(quantizedBeat)
+        elif beatdur.numerator == 3:
+            subBeats = quantizeBeatTernary(eventsInBeat=eventsInBeat,
+                                           quarterTempo=quarterTempo,
+                                           beatDuration=beatdur,
+                                           beatOffset=span.start,
+                                           profile=profile)
+            quantizedBeats.extend(subBeats)
+        else:
+            raise ValueError(f"beat duration not supported: {beatdur}")
+    return QuantizedMeasure(timesig=timesig, quarterTempo=asF(quarterTempo), beats=quantizedBeats,
                             profile=profile)
 
 
-def splitNotationByMeasure(struct: ScoreStruct,
-                           event: Notation,
+def splitNotationByMeasure(n: Notation, struct: ScoreStruct
                            ) -> list[tuple[int, Notation]]:
     """
     Split a Notation if it extends across multiple measures.
 
     Args:
         struct: the ScoreStructure
-        event: the Notation to split
+        n: the Notation to split
 
     Returns:
         a list of tuples (measure number, notation), indicating
@@ -1668,14 +1730,14 @@ def splitNotationByMeasure(struct: ScoreStruct,
         tuple has an offset relative to the beginning of the measure
 
     """
-    assert event.offset >= 0 and event.duration >= 0
-    loc0 = struct.beatToLocation(event.offset)
-    loc1 = struct.beatToLocation(event.end)
+    assert n.offset >= 0 and n.duration >= 0
+    loc0 = struct.beatToLocation(n.offset)
+    loc1 = struct.beatToLocation(n.end)
 
     if loc0 is None or loc1 is None:
-        raise ValueError(f"Could not find a score location for this event: {event}")
+        raise ValueError(f"Could not find a score location for this event: {n}")
 
-    if loc1.beat == 0 and event.duration > 0:
+    if loc1.beat == 0 and n.duration > 0:
         # Note ends at the barline
         loc1.measureIndex -= 1
         loc1.beat = struct.getMeasureDef(loc1.measureIndex).durationBeats()
@@ -1685,56 +1747,37 @@ def splitNotationByMeasure(struct: ScoreStruct,
 
     if numMeasures == 1:
         # The note fits within one measure. Make the offset relative to the measure
-        event = event.clone(offset=loc0.beat, duration=loc1.beat-loc0.beat)
+        event = n.clone(offset=loc0.beat, duration=loc1.beat-loc0.beat)
         return [(loc0.measureIndex, event)]
 
     measuredef = struct.getMeasureDef(loc0.measureIndex)
     dur = measuredef.durationBeats() - loc0.beat
-    notation = event.clone(offset=loc0.beat, duration=dur, tiedNext=True)
+    notation = n.clone(offset=loc0.beat, duration=dur, tiedNext=True)
     pairs = [(loc0.measureIndex, notation)]
 
     # add intermediate measure, if any
     if numMeasures > 2:
         for m in range(loc0.measureIndex + 1, loc1.measureIndex):
             measuredef = struct.getMeasureDef(m)
-            notation = event.clone(offset=F(0),
-                                   duration=measuredef.durationBeats(),
-                                   tiedPrev=True, tiedNext=True, dynamic='')
+            notation = n.clone(offset=F(0),
+                               duration=measuredef.durationBeats(),
+                               tiedPrev=True, tiedNext=True, dynamic='')
             notation.removeAttachmentsByClass('articulation')
             pairs.append((m, notation))
 
     # add last notation
     if loc1.beat > 0:
-        notation = event.clone(offset=F(0), duration=loc1.beat, tiedPrev=True,
-                               dynamic='')
-        notation.removeAttachments(lambda a: isinstance(a, Articulation))
+        notation = n.clone(offset=F(0), duration=loc1.beat, tiedPrev=True,
+                           dynamic='')
+        notation.removeAttachments(lambda a: isinstance(a, attachment.Articulation))
         pairs.append((loc1.measureIndex, notation))
 
+    parts = [part for index, part in pairs]
+    _tieNotationParts(parts)
+
     sumdur = sum(struct.beatDelta((i, n.offset), (i, n.end)) for i, n in pairs)
-    assert sumdur == event.duration, f"{event=}, {sumdur=}, {numMeasures=}\n{pairs=}"
+    assert sumdur == n.duration, f"{n=}, {sumdur=}, {numMeasures=}\n{pairs=}"
     return pairs
-
-
-def _removeOverlapInplace(notations: list[Notation], threshold=F(1,1000)) -> None:
-    """
-    Remove overlap between notations.
-
-    This should be only used to remove small overlaps product of rounding errors.
-    """
-    removed = []
-    for n0, n1 in iterlib.pairwise(notations):
-        assert n0.offset <= n1.offset
-        diff = n0.end-n1.offset
-        if diff > 0:
-            if diff > threshold:
-                raise ValueError(f"Notes overlap by too much: {diff}, {n0}, {n1}")
-            duration = n1.offset - n0.offset
-            if duration <= 0:
-                removed.append(n0)
-            else:
-                n0.duration = duration
-    for n in removed:
-        notations.remove(n)
 
 
 def _mergeGroups(group1: DurationGroup, group2: DurationGroup,
@@ -1761,6 +1804,8 @@ def _groupsCanMerge(g1: DurationGroup, g2: DurationGroup, profile: QuantizationP
             return Result(False, "tuplet not allowed to merge across beat")
         elif (g1.duration() + g2.duration() > profile.mergedTupletsMaxDuration):
             return Result(False, "incompatible duration")
+        elif not profile.mergeTupletsOfDifferentDuration and acrossBeat and g1.duration() != g2.duration():
+            return Result(False, "Groups of different duration cannot merge")
 
     item1, item2 = g1.items[-1], g2.items[0]
     if isinstance(item1, DurationGroup) and isinstance(item2, DurationGroup):
@@ -1792,9 +1837,11 @@ def _mergeSiblings(root: DurationGroup,
 
     Args:
         root: the root of a tree of DurationGroups
-        mergeableTuplets: a seq. of tuplets which can be merged (for example you might
-            want to merge triplets into bigger tuplets but not 7-tuplets, etc)
-        tupletMaxDur: the max. duration of a merged tuplet, in terms of beats
+        profile: the quantization profile
+        beatOffsets: these offsets are used to determine if a merged group
+            would cross a beat boundary. The quantization profile has some
+            rules regarding merging tuplets across beat boundaries which need
+            this information
 
     Returns:
         a new tree
@@ -2049,9 +2096,10 @@ class QuantizedPart:
                 n.tiedPrev = False
 
         for n0, n1 in iterlib.pairwise(notations):
-            if n0.tiedNext and (not n0.pitches or all(x not in n1.pitches for x in n0.pitches)):
-                n0.tiedNext = False
-                n1.tiedPrev = False
+            if n0.tiedNext:
+                if not n0.pitches or not n1.pitches or any(x not in n1.pitches for x in n0.pitches):
+                    n0.tiedNext = False
+                    n1.tiedNext = False
 
     def fixEnharmonics(self):
         """
@@ -2103,7 +2151,8 @@ def quantizePart(part: core.Part,
         profile = QuantizationProfile.fromPreset(profile)
     part.fillGaps()
     notations = core.stackNotations(part)
-    allpairs = [splitNotationByMeasure(struct, n) for n in notations]
+    quantutils.transferAttributesWithinTies(notations)
+    allpairs = [splitNotationByMeasure(n=n, struct=struct) for n in notations]
     maxMeasure = max(pairs[-1][0] for pairs in allpairs)
     notationsPerMeasure: list[list[Notation]] = [[] for _ in range(maxMeasure+1)]
     for pairs in allpairs:
@@ -2117,12 +2166,13 @@ def quantizePart(part: core.Part,
                                               measureDef.quarterTempo))
         else:
             notations.sort(key=lambda notation:notation.offset)
-            _removeOverlapInplace(notations)
+            core.removeOverlapInplace(notations)
             try:
                 qmeasure = quantizeMeasure(notations,
                                            timesig=measureDef.timesig,
                                            quarterTempo=measureDef.quarterTempo,
-                                           profile=profile)
+                                           profile=profile,
+                                           subdivisionStructure=measureDef.subdivisionStructure)
             except QuantError as e:
                 logger.error(f"Error quantizing measure {idx}")
                 logger.error(f"   notations in measure: {notationsPerMeasure}")

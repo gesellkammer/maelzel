@@ -2,10 +2,11 @@ from __future__ import division, annotations
 import math
 from typing import Sequence
 import itertools
+
 from .common import division_t, F, asF
 from functools import cache
 from emlib import iterlib
-from .notation import SnappedNotation
+from .notation import Notation
 
 
 def divisionDensity(division: division_t) -> int:
@@ -108,14 +109,11 @@ def simplifyDivision(division: division_t, assignedSlots: list[int]) -> division
     """
     # a note always lasts to the next one
     # assert isinstance(division, tuple)
-    if len(division) == 1:
-        if len(assignedSlots) == 1 and assignedSlots[0] == 0:
-            return (1,)
-        elif division[0] in {3, 5, 7, 11, 13}:
-            return division
-    elif all(subdiv == 1 for subdiv in division):
-        if len(assignedSlots) == 1 and assignedSlots[0] == 0:
-            return (1,)
+
+    if len(assignedSlots) == 1 and assignedSlots[0] == 0:
+        return (1,)
+    elif len(division) == 1 and division[0] in {3, 5, 7, 11, 13}:
+        return division
 
     assigned = set(assignedSlots)
     cs = 0
@@ -139,6 +137,8 @@ def simplifyDivision(division: division_t, assignedSlots: list[int]) -> division
                 reduced.append(4)
             else:
                 reduced.append(subdiv)
+        elif subdiv == 9 and {cs+1, cs+2, cs+4, cs+5, cs+7, cs+8}.isdisjoint(assigned):
+            reduced.append(3)
         else:
             reduced.append(subdiv)
         cs += subdiv
@@ -212,3 +212,26 @@ def primeFactors(d: int, excludeBinary=False) -> set:
             factors.add(2)
     return factors
 
+
+def transferAttributesWithinTies(notations: list[Notation]) -> None:
+    """
+    When two notes are tied, some attributes need to be copied to the tied note
+
+    This functions works **IN PLACE**.
+
+    Attributes which need to be transferred:
+
+    * gliss: all notes in a tie need to be marked with gliss
+
+    Args:
+        notations: the notations to modify
+
+    """
+    insideGliss = False
+    for n in notations:
+        if n.gliss and not insideGliss:
+            insideGliss = True
+        elif not n.tiedPrev and insideGliss:
+            insideGliss = False
+        elif n.tiedPrev and insideGliss and not n.gliss:
+            n.gliss = True

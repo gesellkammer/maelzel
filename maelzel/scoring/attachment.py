@@ -14,13 +14,31 @@ class AcciddentalTraits:
 
 class Attachment(ReprMixin):
     exclusive = False
+    priority = 100
 
     def __init__(self, color=''):
         self.color = color
 
+    def getPriority(self) -> int:
+        return self.priority
+
+
+class Ornament(Attachment):
+    exclusive = True
+    priority = 1
+
+    def __init__(self, kind: str, color: str = ''):
+        assert kind in definitions.availableOrnaments
+        super().__init__(color=color)
+        self.kind = kind
+
+    def __hash__(self):
+        return hash(('Ornament', self.kind, self.color))
+
 
 class Fingering(Attachment):
     exclusive = True
+    priority = 30
 
     def __init__(self, fingering: str):
         super().__init__()
@@ -31,6 +49,10 @@ class Fingering(Attachment):
 
 
 class Articulation(Attachment):
+    priority = 20
+    extraPriority = {
+        'flageolet': -1
+    }
 
     def __init__(self, kind: str, color: str = '', **kws):
         assert kind in definitions.articulations
@@ -42,17 +64,9 @@ class Articulation(Attachment):
         props = tuple(self.properties.items())
         return hash((type(self).__name__, self.kind, hash(props)))
 
+    def getPriority(self):
+        return self.priority + self.extraPriority.get(self.kind, 0)
 
-class Ornament(Attachment):
-    exclusive = True
-
-    def __init__(self, kind: str, color: str = ''):
-        assert kind in definitions.availableOrnaments
-        super().__init__(color=color)
-        self.kind = kind
-
-    def __hash__(self):
-        return hash(('Ornament', self.kind, self.color))
 
 class Tremolo(Attachment):
     def __init__(self, tremtype='single', nummarks=2, **kws):
@@ -106,6 +120,7 @@ class Harmonic(Attachment):
             has an interval of 0
     """
     exclusive = True
+    priority = 10
 
     def __init__(self, interval: int=0):
         super().__init__()
@@ -119,6 +134,8 @@ class Text(Attachment):
     """
     A text annotation which can be added to a Notation
     """
+    priority = 100
+
     __slots__ = ('text', 'placement', 'fontsize', 'fontstyles', 'box')
 
     def __init__(self, text: str, placement='above', fontsize: float = None, fontstyle='',

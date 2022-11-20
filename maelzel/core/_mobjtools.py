@@ -199,8 +199,11 @@ def splitLinkedGroupIntoLines(objs: list[MEvent]
                 note.dur = obj.dur
                 note.gliss = obj.gliss
                 note.tied = obj.tied
-                if obj._playargs:
-                    note.playargs.fillWith(obj._playargs)
+                if obj.playargs:
+                    if not note.playargs:
+                        note.playargs = obj.playargs.copy()
+                    else:
+                        note.playargs.fillWith(obj.playargs)
 
     # gliss pass
     for ev0, ev1 in pairwise(objs):
@@ -295,8 +298,8 @@ def chainSynthEvents(objs: list[MEvent], playargs: PlayArgs, workspace: Workspac
                 firstev = line[0]
                 # TODO: optimize / revise the playargs handling
                 evplayargs = playargs.copy()
-                if firstev._playargs:
-                    evplayargs.overwriteWith(firstev._playargs)
+                if firstev.playargs:
+                    evplayargs.overwriteWith(firstev.playargs)
                 evplayargs.fillDefaults(conf)
                 synthevents.append(SynthEvent.fromPlayArgs(bps=bps, playargs=evplayargs))
         else:

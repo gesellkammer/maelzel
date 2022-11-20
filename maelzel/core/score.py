@@ -43,14 +43,17 @@ class Score(MObjList):
             for obj in voices:
                 if isinstance(obj, Voice):
                     assert obj.offset == 0
+                    obj.parent = self
                     asvoices.append(obj)
                 elif isinstance(obj, Chain):
-                    asvoices.append(obj.asVoice())
+                    voice = obj.asVoice()
+                    voice.parent = self
+                    asvoices.append(voice)
                 else:
                     raise TypeError(f"Cannot convert {obj} to a voice")
-        else:
-            voices = []
-        self.voices: list[Voice] = voices
+            voices = asvoices
+
+        self.voices: list[Voice] = voices if voices is not None else []
         """the voices of this score"""
 
         super().__init__(label=title, offset=F(0))
@@ -59,6 +62,9 @@ class Score(MObjList):
             for v in self.voices:
                 v.setScoreStruct(scorestruct)
         self._changed()
+
+    def scorestruct(self) -> ScoreStruct | None:
+        return self._scorestruct
 
     def __repr__(self):
         if not self.voices:
@@ -74,23 +80,17 @@ class Score(MObjList):
     def getItems(self) -> list[Voice]:
         return self.voices
 
-    def append(self, voice: Voice) -> None:
-        struct = self.scorestruct
-        voicestruct = voice.scorestruct
-        if struct:
-            if voicestruct:
-                if struct != voicestruct:
-                    raise ValueError("The voice has a scorestruct attached different from the score's")
-            else:
-                voice.setScoreStruct(struct)
-        elif voicestruct:
-            # the score has no scorestruct but the voice has, adopt that
-            assert all(voice.scorestruct == voicestruct for voice in self.voices)
-            self.setScoreStruct(voicestruct)
+    def append(self, voice: Voice | Chain) -> None:
+        if isinstance(voice, Chain):
+            voice = voice.asVoice()
+        voice.parent = self
+        voice.setScoreStruct(None)
         self.voices.append(voice)
         self._changed()
 
     def resolvedDur(self) -> F:
+        if not self.voices:
+            return F(0)
         return max(v.resolvedDur() for v in self.voices)
 
     def scoringParts(self, config: CoreConfig = None

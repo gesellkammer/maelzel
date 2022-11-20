@@ -1,7 +1,8 @@
 from __future__ import annotations
 import copy
 from maelzel.scorestruct import ScoreStruct, TimeSignature
-from .event import Note, Chord, Voice, Rest
+from .event import Note, Chord, Rest
+from .chain import Voice
 from .score import Score
 from . import symbols
 from maelzel.common import F
@@ -15,12 +16,14 @@ from typing import Callable
 
 import xml.etree.ElementTree as ET
 
+
 __all__ = (
     'parseMusicxml',
+    'parseMusicxmlFile',
+    'MusicxmlParseError',
 )
 
 
-class MusicxmlImportError(Exception): pass
 class MusicxmlParseError(Exception): pass
 
 
@@ -105,18 +108,6 @@ def _parsePitch(node, prefix='') -> tuple[int, int, float]:
     oct = int(node.find(f'{prefix}octave').text)
     alter = float(_.text) if (_ := node.find('alter')) is not None else 0
     return step, oct, alter
-
-
-class _Notation:
-    def __init__(self, kind: str, value: str = '', properties: dict = None, **kws):
-        self.kind = kind
-        self.value = value
-        self.properties = properties if properties is not None else {}
-        if kws:
-            self.properties.update(kws)
-
-    def __repr__(self):
-        return f'Notation(kind={self.kind}, value={self.value}, properties={self.properties}'
 
 
 def _makeSpannerId(prefix: str, d: dict, key='number'):
@@ -313,7 +304,7 @@ def _parseNote(root: ET.Element, context: ParseContext) -> Note:
 
     if not pstep:
         ET.dump(root)
-        raise MusicxmlImportError("Did not find pitch-step for note")
+        raise MusicxmlParseError("Did not find pitch-step for note")
 
     # notename = _notename(step=pstep, octave=poct + context.octaveshift, alter=palter)
     notename = _notename(step=pstep, octave=poct, alter=palter)
@@ -359,7 +350,7 @@ def _parseNote(root: ET.Element, context: ParseContext) -> Note:
                     else:
                         assert kind == 'stop'
                         startspanner = context.spanners.pop(key)
-                        startspanner.endSpanner(note)
+                        startspanner.makeEndSpanner(note)
                 elif notation.value == 'tremolo':
                     tremtype = notation.properties.get('tremtype', 'single')
                     nummarks = notation.properties.get('nummarks', 2)
@@ -403,7 +394,7 @@ def _parseNote(root: ET.Element, context: ParseContext) -> Note:
                     if not startspanner:
                         logger.error(f"No start spanner found for key {key}")
                     else:
-                        startspanner.endSpanner(note)
+                        startspanner.makeEndSpanner(note)
 
             elif notation.kind == 'bend':
                 note.addSymbol(symbols.Bend(notation.properties['alter']))
@@ -651,7 +642,7 @@ def _handleDirection(note: Note, direction: Direction, context: ParseContext):
             context.spanners[key] = spanner
         elif direction.value == 'stop':
             spanner = context.spanners.pop(key)
-            spanner.endSpanner(note)
+            spanner.makeEndSpanner(note)
 
     elif direction.kind == 'octaveshift':
         key = _makeSpannerId('octaveshift', direction.properties)
@@ -681,7 +672,7 @@ def _handleDirection(note: Note, direction: Direction, context: ParseContext):
             if not startspanner:
                 logger.error(f"No start spanner found for key {key}")
             else:
-                startspanner.endSpanner(note)
+                startspanner.makeEndSpanner(note)
 
     else:
         logger.warning(f"Direction not supported: {direction}")
@@ -875,6 +866,18 @@ class PartDef:
 
 
 def parseMusicxmlFile(path: str, fixSpelling=False) -> Score:
+    """
+    Read a musicxml file and parse its contents
+
+    Args:
+        path: the path to a musicxml file
+        fixSpelling: if True, do not fix the enharmonic spelling to the
+            note names read in the musicxml definition
+
+    Returns:
+        a Score
+
+    """
     encoding = _guessEncoding(path)
     logger.debug(f"Opening musicxml file '{path}' with encoding: {encoding}")
     xmltext = open(path, "r", encoding=encoding).read()
@@ -882,10 +885,24 @@ def parseMusicxmlFile(path: str, fixSpelling=False) -> Score:
 
 
 def parseMusicxml(xml: str, fixSpelling=False) -> Score:
+    """
+    Parse the musicxml string
+
+    The string should represent a valid musicxml document
+
+    Args:
+        xml: the musicxml string
+        fixSpelling: if True, do not fix the enharmonic spelling to the
+            note names read in the musicxml definition
+
+    Returns:
+        a Score
+
+    """
     metadata = {}
     root = ET.fromstring(xml)
     if root.tag != 'score-partwise':
-        raise MusicxmlImportError(f'Only score-partwise format is supported, got {root.tag}')
+        raise MusicxmlParseError(f'Only score-partwise format is supported, got {root.tag}')
     version = root.get('version')
     if version:
         metadata['mxml/version'] = version
@@ -902,7 +919,7 @@ def parseMusicxml(xml: str, fixSpelling=False) -> Score:
     # part list
     partlist = root.find('part-list')
     if partlist is None:
-        raise MusicxmlImportError("No part-list tag found")
+        raise MusicxmlParseError("No part-list tag found")
 
     partsRegistry: dict[str, PartDef] = {}
     for item in partlist:

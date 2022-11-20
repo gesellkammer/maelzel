@@ -13,6 +13,7 @@ from maelzel import scoring
 from maelzel.colortheory import safeColors
 
 from emlib import iterlib
+from emlib import misc
 
 from typing import TYPE_CHECKING, overload
 if TYPE_CHECKING:
@@ -141,6 +142,9 @@ class Chain(MObj):
         if items is not None:
             items = [item if isinstance(item, (MEvent, Chain)) else asEvent(item)
                      for item in items]
+            for item in items:
+                item.parent = self
+
             for i0, i1 in iterlib.pairwise(items):
                 assert i0.offset is None or i1.offset is None or i0.offset <= i1.offset, f'{i0 = }, {i1 = }'
         else:
@@ -149,9 +153,6 @@ class Chain(MObj):
         super().__init__(offset=offset, dur=None, label=label, properties=properties)
         self.items: list[MEvent | 'Chain'] = items
         self._changed()
-
-    def getItems(self) -> list[MObj]:
-        return self.items
 
     def __hash__(self):
         items = [type(self).__name__, self.label, self.offset, len(self.items)]
@@ -319,8 +320,8 @@ class Chain(MObj):
                      ) -> list[SynthEvent]:
         chain = self.flat(removeRedundantOffsets=False)
         conf = workspace.config
-        if self._playargs:
-            playargs.overwriteWith(self._playargs)
+        if self.playargs:
+            playargs.overwriteWith(self.playargs)
         items = stackEvents(chain.items, inplace=True, offset=self.offset)
         if any(n.isGracenote() for n in self.items
                if isinstance(n, (Note, Chord))):
@@ -414,6 +415,7 @@ class Chain(MObj):
         Args:
             item: the item to add
         """
+        item.parent = self
         self.items.append(item)
         if len(self.items) > 1:
             butlast = self.items[-2]
@@ -489,7 +491,7 @@ class Chain(MObj):
                         name += "~"
                     start = f"{float(item.offset):.3g}" if item.offset is not None else "None"
                     dur = f"{float(item.dur):.3g}" if item.dur is not None else "None"
-                    rowtxt = f"{'  '*indents}{start.ljust(6)}{dur.ljust(durwidth)}{name.ljust(namew)}{str(item.gliss).ljust(6)}{str(item.dynamic).ljust(5)}{self._playargs}</code>"
+                    rowtxt = f"{'  '*indents}{start.ljust(6)}{dur.ljust(durwidth)}{name.ljust(namew)}{str(item.gliss).ljust(6)}{str(item.dynamic).ljust(5)}{self.playargs}</code>"
                     row = f"<code>  {_util.htmlSpan(rowtxt, ':blue1', fontsize=fontsize)}</code>"
                     rows.append(row)
                     if item.symbols:
@@ -655,11 +657,34 @@ class Chain(MObj):
             for s in self.symbols:
                 for n in notations:
                     s.applyTo(n)
+
+        openSpanners: list[scoring.spanner.Spanner] = []
+        lastHairpin: scoring.spanner.Hairpin | None = None
+        for n in notations:
+            if n.spanners:
+                for spanner in n.spanners:
+                    if spanner.kind == 'start':
+                        if isinstance(spanner, symbols.Hairpin):
+                            lastHairpin = spanner
+                        else:
+                            openSpanners.append(spanner)
+                    else:
+                        if isinstance(spanner, symbols.Hairpin):
+                            lastHairpin = None
+                        else:
+                            misc.remove_last_matching(openSpanners, lambda s: type(s) == type(spanner))
+            if n.dynamic and lastHairpin is not None:
+                n.addSpanner(lastHairpin.endSpanner())
+
+        if openSpanners:
+            for spanner in openSpanners:
+                notations[-1].addSpanner(spanner.endSpanner())
+
         return notations
 
     def scoringParts(self, config: CoreConfig = None
                      ) -> list[scoring.Part]:
-        notations = self.scoringEvents(config or getConfig())
+        notations = self.scoringEvents(config=config or getConfig())
         if not notations:
             return []
         scoring.stackNotationsInPlace(notations)

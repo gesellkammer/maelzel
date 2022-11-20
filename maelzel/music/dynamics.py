@@ -147,7 +147,7 @@ class DynamicCurve:
         """
         amp = self._dyns2amps.get(dyn.lower())
         if amp is None:
-            raise ValueError("dynamic %s not known" % dyn)
+            raise ValueError(f"dynamic {dyn} not known")
         return amp
 
     def dyn2db(self, dyn:str) -> float:
@@ -165,7 +165,7 @@ class DynamicCurve:
         try:
             return self.dynamics.index(dyn)
         except ValueError:
-            raise ValueError("Dynamic not defined, should be one of %s" % self.dynamics)
+            raise ValueError(f"Dynamic not defined, should be one of {self.dynamics}")
 
     def index2dyn(self, idx:int) -> str:
         """

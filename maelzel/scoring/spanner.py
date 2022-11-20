@@ -1,11 +1,12 @@
 from __future__ import annotations
 from . import util
 from . import definitions
+import copy
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Type, TypeVar
-    T = TypeVar('MObjT', bound='Spanner')
+    from typing import TypeVar
+    SpannerT = TypeVar('SpannerT', bound='Spanner')
 
 
 class Spanner:
@@ -15,7 +16,7 @@ class Spanner:
 
     """Should the spanner end at the first or at the last note of a tie"""
 
-    def __init__(self, kind: str, uuid: str = '', linetype='solid', placement='',
+    def __init__(self, kind: str = 'start', uuid: str = '', linetype='solid', placement='',
                  color=''):
         assert kind in {'start', 'end', 'continue'}
         if kind != 'start':
@@ -38,6 +39,28 @@ class Spanner:
             return 0 + self.basePriority
         else:
             return 1 + self.basePriority
+
+    def copy(self: SpannerT) -> SpannerT:
+        """
+        Create a copy of this Spanner
+
+        Returns:
+            the copy of this spanner
+        """
+        return copy.copy(self)
+
+    def endSpanner(self: SpannerT) -> SpannerT:
+        """
+        Create an end spanner corresponding to this start/continue spanner
+
+        Returns:
+            a clone of this spanner of kind 'end'
+        """
+        if self.kind == 'end':
+            return self
+        out = self.copy()
+        out.kind = 'end'
+        return out
 
     def lilyStart(self) -> str:
         raise NotImplementedError

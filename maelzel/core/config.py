@@ -5,15 +5,16 @@ CoreConfig: Configuration for maelzel.core
 
 At any given moment there is one active configuration (an instance of :class:`CoreConfig`,
 itself a subclass of `dict`).
-The configuration allows to set default values for many settings to customize different
+The configuration allows to set default values for many settings and customize different
 aspects of **maelzel.core**:
 
 * notation (default page size, rendered image scaling, etc). Prefix: *show*
 * playback (default audio backend, instrument, etc). Prefix: *play*
 * offline rendering. Prefix: *rec*
+* quantization (complexity, quantization strategy, etc). Prefix: *quant*
 * etc.
 
-Settings can be modified by simply changing the values of the config dict::
+Settings can be modified by simply changing the values of the active config dict::
 
     # Get the active config
     >>> from maelzel.core import *
@@ -32,8 +33,7 @@ values, range, etc.::
 Persistence
 -----------
 
-Modifications to the active configuration can be made persistent by
-saving the config.
+Modifications to a configuration can be made persistent by saving the config.
 
     >>> from maelzel.core import *
     # Set the reference frequency to 443 for this and all future sessions
@@ -63,13 +63,13 @@ Active config
 -------------
 
 In order to create a configuration specific for a particular task it is possible
-to create a new config with :func:`~maelzel.core.workspace.makeConfig` or by
+to create a new config with :class:`~maelzel.core.config.CoreConfig` or by
 cloning any CoreConfig.
 
     >>> from maelzel.core import *
-    >>> newconfig = makeConfig({'show.pageSize': 'a3'}, active=True)
+    >>> newconfig = CoreConfig({'show.pageSize': 'a3'}, active=True)
     # This is the same as
-    >>> newconfig = getConfig().clone({'show.pageSize': 'a3'})
+    >>> newconfig = CoreConfig.root.clone({'show.pageSize': 'a3'})
     >>> setConfig(newconfig)
 
 Also creating a new :class:`~maelzel.core.workspace.Workspace` will create a new
@@ -83,7 +83,7 @@ config:
     >>> print(n.freq)
     435
     # Play with default instr
-    >>> n.playgroup()
+    >>> n.play()
     # When finished, deactivate it to return to previous Workspace
     >>> w.deactivate()
     >>> Note("4A").freq
@@ -93,21 +93,18 @@ It is also possible to create a temporary config:
 
     >>> from maelzel.core import *
     >>> scale = Chain([Note(m, dur=0.5) for m in range(60, 72)])
-    >>> with CoreConfig(updates={'show.pageSize':'a3'}):
+    >>> with CoreConfig({'show.pageSize':'a3'}):
     ...     scale.show()
-
-
 """
 from __future__ import annotations
 import os
-import re
-import typing
 from maelzel import _state
 from maelzel.music import dynamics
 from configdict import ConfigDict
 
+import typing
 if typing.TYPE_CHECKING:
-    from typing import Optional, Any
+    from typing import Any
     from maelzel.scoring.render import RenderOptions
     from maelzel.scoring.quant import QuantizationProfile
 
@@ -471,7 +468,7 @@ def _syncCsoundengineTheme(theme:str):
 
 
 def _resetImageCacheCallback():
-    from . import event
+    from . import mobj
     mobj.resetImageCache()
 
 
@@ -497,8 +494,12 @@ class CoreConfig(ConfigDict):
     or by calling its :meth:`CoreConfig.activate` method.
 
     Args:
-        load: if True, the saved version is loaded when creating this CoreConfig
         updates: if given, a dict which will be used to update the newly created instance
+        proto: either a ConfigDict to use as prototype, or 'root', to use the root
+            config (the last persisted config) as prototype. This ConfigDict will be
+            a clone of that prototype
+        load: if True, the saved version is loaded when creating this CoreConfig
+        active: if True, set this CoreConfig as active (modifying the current Workspace)
 
     .. admonition:: See Also
 
@@ -508,24 +509,45 @@ class CoreConfig(ConfigDict):
     .. seealso:: :func:`maelzel.core.workspace.makeConfig`
 
     """
-    def __init__(self, load=False, updates: dict[str, Any] = None, **kws):
+    root: CoreConfig = None
+
+    def __init__(self,
+                 updates: dict[str, Any] = None,
+                 proto: str | ConfigDict | None = 'root',
+                 load=False,
+                 active=False,
+                 **kws):
         super().__init__('maelzel.core', _default, persistent=False,
                          validator=_validator, docs=_docs, load=load)
-        self._prevConfig: Optional[CoreConfig] = None
+        if not load:
+            if proto == 'root' and CoreConfig.root is not None:
+                d = dict(self.root)
+                if updates:
+                    d.update(updates)
+                updates = d
+            elif isinstance(proto, ConfigDict):
+                d = dict(proto)
+                if updates:
+                    d.update(updates)
+                updates = d
+
+        self._prevConfig: CoreConfig | None = None
         self.registerCallback(lambda d, k, v: _syncCsoundengineTheme(v), "htmlTheme")
-        self.registerCallback(lambda d, k, v: _resetImageCacheCallback(), "show\..+")
+        self.registerCallback(lambda d, k, v: _resetImageCacheCallback(), "(show|quant)\..+")
         self.registerCallback(lambda d, k, v: _propagateA4(d, v), "A4")
         if updates:
             self.update(updates)
         if kws:
             kws = {k:v for k, v in kws.items() if k in self.keys()}
             self.update(kws)
+        if active:
+            self.activate()
 
     def _ipython_key_completions_(self):
         return self.keys()
 
     def copy(self) -> CoreConfig:
-        return CoreConfig(load=False, updates=self)
+        return CoreConfig(load=False, updates=self, proto=None)
 
     def clone(self, updates: dict = None, **kws) -> CoreConfig:
         if updates:
@@ -536,7 +558,7 @@ class CoreConfig(ConfigDict):
         if kws:
             kws = self._normalizeDict(kws)
             updates = updates|kws
-        out = CoreConfig(load=False, updates=updates)
+        out = CoreConfig(load=False, updates=updates, proto=None)
         return out
 
     def makeRenderOptions(self) -> RenderOptions:
@@ -577,7 +599,6 @@ class CoreConfig(ConfigDict):
         Make this config the active config
 
         This is just a shortcut for ``setConfig(self)``
-
         """
         from . import workspace
         workspace.setConfig(self)
@@ -594,12 +615,13 @@ def onFirstRun():
     from maelzel.core.presetmanager import presetManager
     if '_piano' in presetManager.presetdefs:
         print("*** maelzel.core: found builtin piano soundfont; setting default instrument to '_piano'")
-        rootConfig['play.instr'] = '_piano'
-        rootConfig.save()
+        CoreConfig.root['play.instr'] = '_piano'
+        CoreConfig.root.save()
     _state.state['first_run'] = False   # state is persistent so no need to save
 
 
-rootConfig = CoreConfig(load=True)
+rootConfig  = CoreConfig(load=True)
+CoreConfig.root = rootConfig
 
 if _state.state['first_run']:
     onFirstRun()

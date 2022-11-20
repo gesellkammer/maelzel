@@ -102,7 +102,7 @@ class Spanner(Symbol):
         >>> chain = Chain(["C4:0.5", "D4:1", "E4:0.5"])
         >>> slur = symbols.Slur()
         >>> chain[0].addSymbol(slur)
-        >>> chain[2].addSymbol(slur.endSpanner())
+        >>> chain[2].addSymbol(slur.makeEndSpanner())
 
     Or you can use the ``.bind`` method which is a shortcut:
 
@@ -157,9 +157,8 @@ class Spanner(Symbol):
         Bind a Spanner to two notes/chords
 
         Args:
-            startobj: start Note / Chord
-            endobj: end Note / Chord
-
+            startobj: start anchor object
+            endobj: end anchor object
         Example
         ~~~~~~~
 
@@ -174,10 +173,10 @@ class Spanner(Symbol):
         startobj.addSymbol(self)
         if self.anchor is None:
             self.setAnchor(startobj)
-        self.endSpanner(endobj)
+        self.makeEndSpanner(anchor=endobj)
         assert self.partnerSpanner is not None
 
-    def endSpanner(self: TSpanner, anchor: Event = None) -> TSpanner:
+    def makeEndSpanner(self: TSpanner, anchor: Event = None) -> TSpanner:
         """
         Creates the end spanner for an already existing start spanner
 
@@ -357,7 +356,7 @@ _spannerNameToConstructor: dict[str] = {
 }
 
 
-def makeSpanner(descr: str) -> Spanner:
+def makeSpanner(descr: str, kind='start') -> Spanner:
     """
     Create a spanner from a descriptor
 
@@ -405,7 +404,7 @@ def makeSpanner(descr: str) -> Spanner:
             kws[k] = v
         else:
             raise ValueError(f"Spanner descriptor not understood: {part} ({descr})")
-    spanner = cls(kind='start', **kws)
+    spanner = cls(kind=kind, **kws)
     return spanner
 
 # --------------------------------
@@ -609,10 +608,10 @@ class Harmonic(NoteAttachedSymbol):
             kind = 'artificial'
 
         assert kind in {'natural', 'artificial', 'sounding'}
-        if kind == 'natural':
-            interval = 0
-        else:
+        if kind == 'artificial':
             assert interval >= 1
+        else:
+            interval = 0
         self.kind = kind
         self.interval = interval
 
@@ -628,7 +627,7 @@ class Harmonic(NoteAttachedSymbol):
             # notation.addHarmonic(self.kind, interval=self.interval)
 
     def applyToTiedGroup(self, notations: Sequence[scoring.Notation]) -> None:
-        if self.kind == 'natural':
+        if self.kind == 'sounding':
             self.applyTo(notations[0])
         else:
             for n in notations:
@@ -855,6 +854,7 @@ _symbols = (
     NoteheadLine,
     Bend,
     Fingering,
+    Harmonic
 )
 
 

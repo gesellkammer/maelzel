@@ -194,6 +194,7 @@ class PlayArgs:
             other: another PlayArgs
 
         """
+        assert isinstance(other, PlayArgs)
         args = self.args
         for k, v in other.args.items():
             if v is not None:

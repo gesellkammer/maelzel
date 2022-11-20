@@ -72,15 +72,15 @@ it. For example complex tuplets are quantized as expected:
 
     from maelzel.core import *
     v = Chain([
-        Note("4C+", dur=Rat(1, 3)),
+        Note("4C+!", dur=F(1, 3)),
 
-        Note("4E",  dur=Rat(1, 3)*Rat(1, 5),
-        Note("4E-", dur=Rat(1, 3)*Rat(1, 5)),
-        Note("4Eb", dur=Rat(1, 3)*Rat(1, 5)),
-        Note("4D",  dur=Rat(1, 3)*Rat(1, 5)),
-        Note("4D+", dur=Rat(1, 3)*Rat(1, 5)),
+        Note("4E",  dur=F(1, 3)*F(1, 5)),
+        Note("4E-", dur=F(1, 3)*F(1, 5)),
+        Note("4Eb", dur=F(1, 3)*F(1, 5)),
+        Note("4D",  dur=F(1, 3)*F(1, 5)),
+        Note("4D+", dur=F(1, 3)*F(1, 5)),
 
-        Note("4F-", dur=Rat(1, 3)),
+        Note("4F-", dur=F(1, 3)),
     ])
     v.show()
 

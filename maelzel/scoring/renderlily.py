@@ -272,12 +272,15 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         assert len(n.fixedNotenames) == len(n.pitches), f"???? notation: {n}, {n.fixedNotenames=}, {n.pitches=}"
     notatedDur = n.notatedDuration()
     base, dots = notatedDur.base, notatedDur.dots
-    if n.isRest or len(n.pitches) == 1 and n.pitches[0] == 0:
-        rest = "r" + str(base) + "."*dots
-        return rest
-
     parts = []
     _ = parts.append
+
+    if n.isRest or len(n.pitches) == 1 and n.pitches[0] == 0:
+        _("r" + str(base) + "."*dots)
+        if (not n.tiedPrev or options.articulationInsideTie) and n.dynamic:
+            dyn = n.dynamic if not n.dynamic.endswith('!') else n.dynamic[:-1]
+            _(fr"\{dyn}")
+        return ' '.join(parts)
 
     if n.color:
         # apply color to notehead, stem and ard accidental
@@ -327,6 +330,8 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
     if len(n.pitches) == 1:
         if n.noteheads:
             _(lyNotehead(n.noteheads[0]))
+        elif n.tiedPrev and n.gliss and state.glissando and options.glissHideTiedNotes:
+            _(lyNotehead('hidden'))
         fingering = first(a for a in n.attachments if isinstance(a, attachment.Fingering))
         _(lyNote(n.notename(),
                  baseduration=base,
@@ -336,7 +341,10 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
                  fingering=fingering.fingering if fingering else ''))
     else:
         # a chord
-        if not n.noteheads:
+        if n.tiedPrev and n.gliss and state.glissando and options.glissHideTiedNotes:
+            _(lyNotehead('hidden'))
+            noteheads = None
+        elif not n.noteheads:
             noteheads = None
         elif all(notehead == n.noteheads[0] for notehead in n.noteheads):
             # All the same noteheads, place it outside the chord
@@ -364,6 +372,8 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         dyn = n.dynamic if not n.dynamic.endswith('!') else n.dynamic[:-1]
         _(fr"\{dyn}")
 
+    if n.attachments:
+        n.attachments.sort(key=lambda a: a.getPriority())
     for attach in n.attachments:
         if isinstance(attach, attachment.Text):
             _(lilytools.makeText(attach.text, placement=attach.placement,
@@ -557,7 +567,6 @@ def renderGroup(group: DurationGroup,
         tupletStarted = True
         num, den = group.durRatio
         _(_spaces[:numIndents*indentSize])
-        # _(f"\\subdivision {num}/{den} {{\n")
         _(f"\\tuplet {num}/{den} {{\n")
         numIndents += 1
         if group.getProperty('forceTupletBracket'):
@@ -602,8 +611,10 @@ def renderGroup(group: DurationGroup,
 
             if item.spanners:
                 for spanner in item.spanners:
-                    if ((spanner.endingAtTie == 'last' and item.tiedNext) or
-                            (spanner.endingAtTie == 'first' and item.tiedPrev)):
+                    if spanner.kind == 'end' and (
+                            (spanner.endingAtTie == 'last' and item.tiedNext) or
+                            (spanner.endingAtTie == 'first' and item.tiedPrev)
+                    ):
                         continue
                     if lilytext := _handleSpannerPost(spanner, state=state):
                         _(lilytext)
@@ -611,7 +622,7 @@ def renderGroup(group: DurationGroup,
             _(" ")
 
             if item.gliss and not state.insideSlide:
-                _(r"\glissando")
+                _(r"\glissando ")
                 if item.tiedNext:
                     state.glissando = True
                     _(r"\glissandoSkipOn ")
