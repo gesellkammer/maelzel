@@ -49,6 +49,7 @@ class Part(list):
         self.name: str = name
         self.shortname: str = ''
         if events:
+            assert all(isinstance(n, Notation) for n in events)
             _fixGlissInPart(self)
 
     def __getitem__(self, item) -> Notation:
@@ -214,7 +215,7 @@ def stackNotations(events: list[Notation], start=F(0), overrideOffset=False
     return events
 
 
-def fixOverlap(notations: list[Notation], mingap=F(1, 10000)) -> None:
+def fixOverlap(notations: list[Notation], maxgap=F(1, 10000)) -> None:
     """
     Fix overlap between notations, in place.
 
@@ -225,7 +226,7 @@ def fixOverlap(notations: list[Notation], mingap=F(1, 10000)) -> None:
 
     Args:
         notations: the notations to fix
-        mingap: min. gap to allow between notations. Any gap smaller than
+        maxgap: max. gap to allow between notations. Any gap smaller than
             this will be removed, growing the previous notation to fill
             the gap (the start times are left unmodified)
 
@@ -238,9 +239,31 @@ def fixOverlap(notations: list[Notation], mingap=F(1, 10000)) -> None:
         assert n0.duration is not None and n0.offset is not None
         assert n1.offset is not None
         assert n0.offset <= n1.offset, "Notes are not sorted!"
-        if n0.end > n1.offset or n1.offset - n0.end < mingap:
+        if n0.end > n1.offset or n1.offset - n0.end < maxgap:
             n0.duration = n1.offset - n0.offset
             assert n0.end == n1.offset
+
+
+def removeOverlapInplace(notations: list[Notation], threshold=F(1,1000)) -> None:
+    """
+    Remove overlap between notations.
+
+    This should be only used to remove small overlaps product of rounding errors.
+    """
+    removed = []
+    for n0, n1 in iterlib.pairwise(notations):
+        assert n0.offset <= n1.offset, "Notes are not sorted!"
+        diff = n0.end - n1.offset
+        if diff > 0:
+            if diff > threshold:
+                raise ValueError(f"Notes overlap by too much: {diff}, {n0}, {n1}")
+            duration = n1.offset - n0.offset
+            if duration <= 0:
+                removed.append(n0)
+            else:
+                n0.duration = duration
+    for n in removed:
+        notations.remove(n)
 
 
 def fillSilences(notations: list[Notation], mingap=1/64, offset: time_t = None
@@ -338,7 +361,8 @@ def distributeNotationsByClef(notations: list[Notation], filterRests=False, grou
          list of Parts (between 1 and 3, one for each clef)
     """
     parts = {'g': [], 'f': [], '15a': []}
-    lowPitch = sum(60 - p for n in notations for p in n.pitches if p <= 60)
+    pitchedNotations = (n for n in notations if not n.isRest)
+    lowPitch = sum(60 - p for n in pitchedNotations for p in n.pitches if p <= 60)
     splitPoint = 60 if lowPitch > 8 else 56
     lastj = len(notations) - 1
     for j, notation in enumerate(notations):

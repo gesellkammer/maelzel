@@ -80,6 +80,7 @@ def normalizeArticulation(articulation: str, default='') -> str:
 
 noteheadShapes = {
     'normal',
+    'hidden',
     'cross',
     'harmonic',
     'triangleup',

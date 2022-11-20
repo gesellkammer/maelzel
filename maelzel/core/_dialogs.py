@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 def selectFromList(options: Sequence[str], title="", default=None) -> Optional[str]:
     import emlib.dialogs
-    if environment.insideJupyter():
+    if environment.insideJupyter:
         return emlib.dialogs.selectItem(options, title=title) or default
     else:
         # TODO: use tty tools, like fzf

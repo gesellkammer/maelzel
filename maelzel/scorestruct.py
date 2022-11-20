@@ -8,6 +8,7 @@ import sys
 
 import emlib.img
 import emlib.misc
+from emlib import iterlib
 import emlib.textlib
 import music21 as m21
 from numbers import Rational
@@ -245,6 +246,8 @@ class MeasureDef:
     properties: dict | None = None
     """A place to put any attribute for this measure"""
 
+    maxEighthTempo: F = F(48)
+
     def __post_init__(self):
         assert isinstance(self.timesig, tuple) and len(self.timesig) == 2
         assert all(isinstance(i, int) for i in self.timesig), f"Expected a tuple of ints, got {self.timesig}"
@@ -302,14 +305,9 @@ class MeasureDef:
             >>> MeasureDef((7, 8), quarterTempo=150, subdivisionStructure=[2, 3, 2]).subdivisions()
             [1, 1.5, 1]
         """
-        num, den = self.timesig
-        if den == 4:
-            return [F(1)] * num
-        elif den == 8 and self.quarterTempo < 120:
-            return [F(1, 2)]*num
-        else:
-            subdivStruct = self.subdivisionStructure or _inferSubdivisions(num, den, self.quarterTempo)
-            return [F(num, den//4) for num in subdivStruct]
+        return measureBeatDurations(timesig=self.timesig, quarterTempo=self.quarterTempo,
+                                    subdivisionStructure=self.subdivisionStructure,
+                                    maxEighthTempo=self.maxEighthTempo)
 
     def clone(self, **kws):
         """Clone this MeasureDef with modified attributes"""
@@ -352,6 +350,106 @@ def _inferSubdivisions(num: int, den: int, quarterTempo
     if num:
         subdivs.append(num)
     return subdivs
+
+
+def measureQuarterDuration(timesig: timesig_t) -> F:
+    """
+    The duration in quarter notes of a measure according to its time signature
+
+    Args:
+        timesig: a tuple (num, den)
+
+    Returns:
+        the duration in quarter notes
+
+    Examples::
+
+        >>> measureQuarterDuration((3,4))
+        Fraction(3, 1)
+
+        >>> measureQuarterDuration((5, 8))
+        Fraction(5, 2)
+
+    """
+    num, den = timesig
+    quarterDuration = F(num)/den * 4
+    return quarterDuration
+
+
+def measureBeatDurations(timesig: timesig_t, quarterTempo: F, maxEighthTempo=48,
+                         subdivisionStructure: list[int] = None
+                         ) -> list[F]:
+    """
+
+    Args:
+        timesig: the timesignature of the measure
+        quarterTempo: the tempo for a quarter note
+        maxEighthTempo: max quarter tempo to divide a measure like 5/8 in all
+            eighth notes instead of, for example, 2+2+1
+
+    Returns:
+        a list of durations, as Fraction
+
+    ::
+
+        4/8 -> [1, 1]
+        2/4 -> [1, 1]
+        3/4 -> [1, 1, 1]
+        5/8 -> [1, 1, 0.5]
+        5/16 -> [0.5, 0.5, 0.25]
+
+    """
+    quarterTempo = asF(quarterTempo)
+    quarters = measureQuarterDuration(timesig)
+    num, den = timesig
+    if subdivisionStructure:
+        return [F(num, den // 4) for num in subdivisionStructure]
+    elif den == 4 or den == 2:
+        return [F(1)] * quarters.numerator
+    elif den == 8:
+        if quarterTempo <= maxEighthTempo:
+            # render all beats as 1/8 notes
+            return [F(1, 2)]*num
+        subdivstruct = _inferSubdivisions(num=num, den=den, quarterTempo=quarterTempo)
+        return [F(num, den // 4) for num in subdivstruct]
+    elif den == 16:
+        if num % 2 == 0:
+            timesig = (num//2, 8)
+            return measureBeatDurations(timesig, quarterTempo=quarterTempo)
+        beats = [F(1, 2)] * (num//2)
+        beats.append(F(1, 4))
+        return beats
+    else:
+        raise ValueError(f"Invalid time signature: {timesig}")
+
+
+def measureBeatOffsets(timesig: timesig_t,
+                       quarterTempo: F | int,
+                       subdivisionStructure: list[int] = None
+                       ) -> list[F]:
+    """
+    Returns a list with the offsets of all beats in measure.
+
+    The last value refers to the offset of the end of the measure
+
+    Args:
+        timesig: the timesignature as a tuple (num, den)
+        quarterTempo: the tempo correponding to a quarter note
+
+    Returns:
+        a list of fractions representing the start time of each beat, plus the
+        end time of the measure (== the start time of the next measure)
+
+    Example::
+        >>> measureBeatOffsets((5, 8), 60)
+        [Fraction(0, 1), Fraction(1, 1), Fraction(2, 1), Fraction(5, 2)]
+        # 0, 1, 2, 2.5
+    """
+    quarterTempo = asF(quarterTempo)
+    beatDurations = measureBeatDurations(timesig, quarterTempo=quarterTempo,
+                                         subdivisionStructure=subdivisionStructure)
+    beatOffsets = [F(0)] + list(iterlib.partialsum(beatDurations))
+    return beatOffsets
 
 
 def _bisect(seq, value) -> int:
@@ -931,7 +1029,7 @@ class ScoreStruct:
         mdef = self.measuredefs[measure]
 
         measureBeats = self._quarternoteDurations[measure]
-        #measureBeats = mdef.totalDurationBeats()
+        #measureBeatDurations = mdef.totalDurationBeats()
         if beat > measureBeats:
             raise ValueError(f"Beat outside of measure, measure={mdef}")
 

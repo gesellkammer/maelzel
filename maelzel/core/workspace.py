@@ -2,32 +2,33 @@ from __future__ import annotations
 import os
 import pitchtools
 import appdirs as _appdirs
+import warnings
 
 from ._common import logger, UNSET
-from . import config as _config
+from .config import CoreConfig
 from maelzel.music.dynamics import DynamicCurve
 from maelzel.scorestruct import ScoreStruct
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Optional, Any, Union, Tuple
-    from .config import CoreConfig
+    from typing import Any
 
 
 def _resetCache() -> None:
-    from .event import resetImageCache
+    from .mobj import resetImageCache
     resetImageCache()
 
 
 __all__ = (
     'Workspace',
-    'getConfig',
-    'makeConfig',
     'getWorkspace',
-    'getScoreStruct',
 
+    'getConfig',
     'setConfig',
+
+    'getScoreStruct',
     'setScoreStruct',
+
     'setTempo',
     'logger'
 )
@@ -83,7 +84,7 @@ class Workspace:
 
     def __init__(self,
                  config: CoreConfig = None,
-                 scorestruct: Optional[ScoreStruct] = None,
+                 scorestruct: ScoreStruct | None = None,
                  renderer: Any = None,
                  dynamicCurve: DynamicCurve = None,
                  name: str = '',
@@ -96,11 +97,11 @@ class Workspace:
         self.renderer = renderer
 
         if config is None or isinstance(config, str):
-            config = makeConfig(updates=updates, source=config)
+            config = CoreConfig(updates=updates, proto=config)
         elif updates:
             config = config.clone(updates=updates)
         else:
-            assert isinstance(config, _config.CoreConfig)
+            assert isinstance(config, CoreConfig)
         self._config: CoreConfig = config
 
         if dynamicCurve is None:
@@ -116,7 +117,7 @@ class Workspace:
         if scorestruct is None:
             scorestruct = ScoreStruct.fromTimesig((4, 4), quarterTempo=60)
         self._scorestruct = scorestruct
-        self._previousWorkspace: Optional[Workspace] = Workspace.active
+        self._previousWorkspace: Workspace | None = Workspace.active
         if active:
             self.activate()
 
@@ -195,7 +196,7 @@ class Workspace:
         return self.config['A4']
 
     @a4.setter
-    def a4(self, value:float):
+    def a4(self, value: float):
         self.config.bypassCallbacks = True
         self.config['A4'] = value
         self.config.bypassCallbacks = False
@@ -263,7 +264,7 @@ class Workspace:
             ...     # Now do something baroque
         """
         if config is UNSET:
-            assert isinstance(self.config, _config.CoreConfig)
+            assert isinstance(self.config, CoreConfig)
             config = self.config.copy()
         if scorestruct is UNSET:
             scorestruct = self.scorestruct.copy()
@@ -347,7 +348,7 @@ def _init() -> None:
         logger.debug("init was already done")
         return
     Workspace._initDone = True
-    w = Workspace(name="root", config=_config.rootConfig, active=True)
+    w = Workspace(name="root", config=CoreConfig.root, active=True)
     Workspace.root = w
 
 
@@ -391,16 +392,14 @@ def cloneWorkspace(workspace: Workspace = None,
                      updates=updates)
 
 
-def setTempo(quarterTempo:float, measureIndex=0) -> None:
+def setTempo(quarterTempo: float, measureIndex=0) -> None:
     """
     Set the current tempo. 
     
-    This is only allowed if the currently active ScoreStruct has only
-    one initial tempo
-
     Args:
         quarterTempo: the new tempo
-        measureIndex: the measure number to modify
+        measureIndex: the measure number to modify. The scorestruct's tempo is modified
+            until the next tempo
 
     See Also
     ~~~~~~~~
@@ -426,7 +425,7 @@ def setTempo(quarterTempo:float, measureIndex=0) -> None:
         # Will play at twice the speed
         scale.play()
 
-        # setTempl is only a shortcut to ScoreStruct's setTempo method
+        # setTempo is a shortcut to ScoreStruct's setTempo method
         struct = getScoreStruct()
         struct.setTempo(40)
 
@@ -452,17 +451,15 @@ def getConfig() -> CoreConfig:
     """
     Return the active config.
 
-    .. seealso:: :func:`makeConfig`
     """
-    return getWorkspace()._config
+    return Workspace.active.config
 
 
 def setConfig(config: CoreConfig) -> None:
     """
     Activate this config
 
-    This is the same as ``getWorkspace().config = config``. It is placed here
-    for visibility
+    This is the same as ``getWorkspace().config = config``.
 
     Args:
         config: the new config
@@ -471,8 +468,8 @@ def setConfig(config: CoreConfig) -> None:
 
 
 def makeConfig(updates: dict = None,
-               source: Union[str, CoreConfig] = 'root',
-               active = False
+               proto: str | CoreConfig = 'root',
+               active=False
                ) -> CoreConfig:
     """
     Create a new config
@@ -482,15 +479,15 @@ def makeConfig(updates: dict = None,
 
     This is the same as::
 
-        # Using root as source
+        # Using root as prototype
         setConfig(rootConfig.clone({...}))
 
-        # Using the active config as source
+        # Using the active config as prototype
         setConfig(getConfig().clone({...})
 
     Args:
         updates: a dict of updates to the new config
-        source: the dict to use as source. If ``None`` or ``'root'`` is given, the root config is used
+        proto: the dict to use as source. If ``None`` or ``'root'`` is given, the root config is used
             Other possible sources are the *active config* (as returned by :func:`getConfig`)
             or the *default config* [2]_ (use ``source='default'``)
         active: if True, set the newly created Config as active within the current
@@ -510,19 +507,20 @@ def makeConfig(updates: dict = None,
         # Using the config as context manager makes it active for the
         # lifetime of the context
         >>> with config:
-        ...     voice.playgroup()
+        ...     voice.play()
 
     .. [1] The root config is the config created at the start of a session, which includes any
         changes persisted via :meth:`CoreConfig.save() <maelzel.core.config.CoreConfig.save>`)
     .. [2] The default config is the config without any user customizations
     """
-    if source is None or source == 'root':
-        source = _config.rootConfig
-    elif source == 'default':
-        source = _config.rootConfig.makeDefault()
-    elif source == 'active':
-        source = getConfig()
-    out = source.clone(updates=updates)
+    warnings.warn("Decreated, use the constructor  CoreConfig instead")
+    if proto is None or proto == 'root':
+        proto = CoreConfig.root
+    elif proto == 'default':
+        proto = CoreConfig.root.makeDefault()
+    elif proto == 'active':
+        proto = getConfig()
+    out = proto.clone(updates=updates)
     if active:
         setConfig(out)
     return out
@@ -565,3 +563,4 @@ def _presetsPath() -> str:
 
 
 _init()
+

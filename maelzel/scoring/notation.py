@@ -217,7 +217,7 @@ class Notation:
         """
         return [a for a in self.attachments if isinstance(a, Articulation)]
 
-    def addAttachment(self, attachment: Attachment) -> None:
+    def addAttachment(self, attachment: Attachment) -> Notation:
         """
         Add an attachment to this Notation
 
@@ -232,6 +232,9 @@ class Notation:
         Args:
             attachment: an instance of scoring.attachment.Attachment
 
+        Returns:
+            self
+
         """
         if self.attachments is None:
             self.attachments = []
@@ -241,6 +244,7 @@ class Notation:
                 self.attachments = [a for a in self.attachments
                                     if not isinstance(a, cls)]
         self.attachments.append(attachment)
+        return self
 
     def setNotehead(self, shape: str, idx: int = None) -> None:
         """
@@ -269,9 +273,8 @@ class Notation:
         else:
             for idx in range(len(self.pitches)):
                 self.noteheads[idx] = shape
-        print("noteheads", self.noteheads)
 
-    def addArticulation(self, articulation: str | Articulation) -> None:
+    def addArticulation(self, articulation: str | Articulation) -> Notation:
         """
         Add an articulation to this Notation.
 
@@ -282,11 +285,18 @@ class Notation:
             articulation: an Articulation object, or one of accent, staccato, tenuto,
                 marcato, staccatissimo, espressivo, portato, arpeggio, upbow,
                 downbow, flageolet, open, closed, stopped, snappizz
+
+        Returns:
+            self
         """
-        assert articulation in definitions.articulations
         if isinstance(articulation, str):
+            articulation = definitions.normalizeArticulation(articulation)
+            if not articulation:
+                raise ValueError(f"Articulation {articulation} unknown. "
+                                 f"Possible values: {definitions.articulations}")
             articulation = Articulation(articulation)
-        self.addAttachment(articulation)
+        assert isinstance(articulation, Articulation)
+        return self.addAttachment(articulation)
 
     def removeAttachments(self, predicate: Callable[Attachment, bool]) -> None:
         """
@@ -308,7 +318,7 @@ class Notation:
             predicate = lambda a, cls: isinstance(a, cls)
         self.removeAttachments(predicate=predicate)
 
-    def addSpanner(self, spanner: _spanner.Spanner) -> None:
+    def addSpanner(self, spanner: _spanner.Spanner, end: Notation = None) -> Notation:
         """
         Add a Spanner to this Notation
 
@@ -319,17 +329,24 @@ class Notation:
         Args:
             spanner: the spanner to add.
 
+        Returns:
+            self
+
         """
         if self.spanners is None:
             self.spanners = []
         self.spanners.append(spanner)
         self.spanners.sort(key=lambda spanner: spanner.priority())
+        if end:
+            end.addSpanner(spanner.endSpanner())
+        return self
 
     @classmethod
     def makeArtificialHarmonic(cls,
                                basepitch: pitch_t,
                                interval: int,
-                               **kws):
+                               **kws
+                               ) -> Notation:
         if not isinstance(basepitch, str):
             basepitch = pt.m2n(basepitch)
         touchpitch = pt.transpose(basepitch, interval)
@@ -794,7 +811,7 @@ def mergeNotations(a: Notation, b: Notation) -> Notation:
     return out
 
 
-def makeGroupId(parent=None) -> str:
+def makeGroupId(parent: str | None = None) -> str:
     """
     Create an id to group notations together
 
@@ -804,6 +821,7 @@ def makeGroupId(parent=None) -> str:
     subgroup = str(uuid.uuid1())
     if parent is None:
         return subgroup
+    assert isinstance(parent, str), f"Expected a str, got {parent}"
     return parent + "/" + subgroup
 
 
@@ -895,7 +913,9 @@ def makeChord(pitches: list[pitch_t],
     return out
 
 
-def makeRest(duration: time_t, offset: time_t = None) -> Notation:
+def makeRest(duration: time_t,
+             offset: time_t = None,
+             dynamic: str = '') -> Notation:
     """
     Shortcut function to create a rest notation.
 
@@ -914,7 +934,7 @@ def makeRest(duration: time_t, offset: time_t = None) -> Notation:
     """
     assert duration > 0
     return Notation(duration=asF(duration), offset=None if offset is None else asF(offset),
-                    isRest=True, _init=False)
+                    isRest=True, _init=False, dynamic=dynamic)
 
 
 def notationsToCoreEvents(notations: list[Notation]
@@ -1042,12 +1062,23 @@ def notationsCanMerge(n0: Notation, n1: Notation) -> bool:
             n0.tiedNext and
             n1.tiedPrev and
             (n0.durRatios == n1.durRatios) and
-            (n0.pitches == n1.pitches) and
-            (not n1.dynamic or n0.dynamic == n1.dynamic) and
-            (not n1.attachments or set(n1.attachments).issubset(set(n0.attachments))) and
-            (n1.getNoteheads() == n0.getNoteheads()) and
-            not n1.gliss):
-        return durationsCanMerge(n0, n1)
+            (n0.pitches == n1.pitches)):
+        if n1.dynamic and n1.dynamic != n0.dynamic:
+            return False
+
+        if n1.attachments and not set(n1.attachments).issubset(set(n0.attachments)):
+            return False
+
+        if any(notehead1 != notehead0 and notehead1 != "hidden"
+               for notehead0, notehead1 in zip(n0.getNoteheads(), n1.getNoteheads())):
+            return False
+
+        if not n0.gliss and n1.gliss:
+            return False
+
+        if durationsCanMerge(n0, n1):
+            return True
+
     return False
 
 
@@ -1081,6 +1112,27 @@ def mergeNotationsIfPossible(notations: list[Notation]) -> list[Notation]:
     assert sum(n.duration for n in out) == sum(n.duration for n in notations)
     return out
 
+
+def transferAttributesWithinTies(notations: list[Notation]) -> None:
+    """
+    When two notes are tied some attributes need to be copied to the tied note
+
+    This functions works **IN PLACE**. Attributes which need to be transferred:
+
+    * gliss: all notes in a tie need to be marked with gliss
+
+    Args:
+        notations: the notations to modify
+
+    """
+    insideGliss = False
+    for n in notations:
+        if n.gliss and not insideGliss:
+            insideGliss = True
+        elif not n.tiedPrev and insideGliss:
+            insideGliss = False
+        elif n.tiedPrev and insideGliss and not n.gliss:
+            n.gliss = True
 
 @dataclass
 class SnappedNotation:

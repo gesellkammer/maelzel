@@ -95,70 +95,9 @@ def measureTimeDuration(timesig: timesig_t, quarterTempo: F) -> F:
     return dur
 
 
-def beatDurationForTimesig(timesig: timesig_t, quarterTempo: Real) -> F:
-    """
-    Beat duration for a given timesignature + tempo combination
-
-    Args:
-        timesig: the timesignature as tuple (num, den)
-        quarterTempo: the tempo in reference to the quarter note
-
-    Returns:
-        the beat duration as fraction of a quarter note
-    """
-    beats = measureBeats(timesig, quarterTempo)
-    return min(beats)
 
 
-def measureBeats(timesig: timesig_t, quarterTempo: Real) -> List[F]:
-    """
-
-    Args:
-        timesig: the timesignature of the measure
-        quarterTempo: the tempo for a quarter note
-
-    Returns:
-        a list of durations, as Fraction
-
-    ::
-
-        4/8 -> [1, 1]
-        2/4 -> [1, 1]
-        3/4 -> [1, 1, 1]
-        5/8 -> [1, 1, 0.5]
-        5/16 -> [0.5, 0.5, 0.25]
-
-    """
-    misc.assert_type(timesig, (int, int))
-    quarterTempo = asF(quarterTempo)
-
-    quarters = measureQuarterDuration(timesig)
-    num, den = timesig
-    if den == 4 or den == 2:
-        return [F(1)] * quarters.numerator
-    elif den == 8:
-        if quarterTempo <= 48:
-            # render all beats as 1/8 notes
-            return [F(1, 2)]*num
-
-        # first whole quarter beats
-        wholeQuarters = quarters.numerator // quarters.denominator
-        beats = [F(1)] * wholeQuarters
-        if num % 2 == 1:
-            beats.append(F(1, 2))
-        return beats
-    elif den == 16:
-        if num % 2 == 0:
-            timesig = (num//2, 8)
-            return measureBeats(timesig, quarterTempo=quarterTempo)
-        beats = [F(1, 2)] * (num//2)
-        beats.append(F(1, 4))
-        return beats
-    else:
-        raise ValueError(f"Invalid time signature: {timesig}")
-
-
-def measureOffsets(timesig: timesig_t, quarterTempo: Real) -> List[F]:
+def _measureOffsets(timesig: timesig_t, quarterTempo: Real) -> List[F]:
     """
     Returns a list with the offsets of all beats in measure.
 

@@ -77,7 +77,7 @@ __all__ = (
 
     'asNote',
     'asEvent',
-    'makeGracenote'
+    'Gracenote'
 )
 
 
@@ -86,7 +86,6 @@ class MEvent(MObj):
     A discrete event in time (a Note, Chord, etc)
     """
     _acceptsNoteAttachedSymbols = True
-
 
     def isRest(self) -> bool:
         return False
@@ -119,8 +118,8 @@ class MEvent(MObj):
     def _copyAttributesTo(self, other: MEvent) -> None:
         if self.symbols:
             other.symbols = self.symbols.copy()
-        if self._playargs:
-            other._playargs = self._playargs.copy()
+        if self.playargs:
+            other.playargs = self.playargs.copy()
         if self._properties:
             other._properties = self._properties.copy()
 
@@ -220,7 +219,7 @@ class Note(MEvent):
             if isinstance(pitch, str):
                 if (":" in pitch or "/" in pitch or '!' in pitch):
                     props = _util.parseNote(pitch)
-                    dur = dur or props.dur
+                    dur = dur if dur is not None else props.dur
                     pitchl = props.notename.lower()
                     if pitchl == 'rest' or pitchl == 'r':
                         pitch, amp = 0, 0
@@ -244,6 +243,7 @@ class Note(MEvent):
 
             if dur is not None:
                 dur = asF(dur)
+
             if offset is not None:
                 offset = asF(offset)
 
@@ -304,7 +304,7 @@ class Note(MEvent):
         return out
 
     def asGracenote(self, slash=True) -> Note:
-        return makeGracenote(self.pitch, slash=slash)
+        return Gracenote(self.pitch, slash=slash)
 
     def mergeWith(self, other: Note) -> Note | None:
         """
@@ -446,8 +446,8 @@ class Note(MEvent):
         if self.symbols:
             for s in self.symbols:
                 chord.addSymbol(s)
-        if self._playargs:
-            chord._playargs = self._playargs.copy()
+        if self.playargs:
+            chord.playargs = self.playargs.copy()
         return chord
 
     def isRest(self) -> bool:
@@ -554,7 +554,7 @@ class Note(MEvent):
             config = getConfig()
         dur = self.dur if self.dur is not None else F(1)
         if self.isRest():
-            rest = scoring.makeRest(self.dur, offset=self.offset)
+            rest = scoring.makeRest(self.dur, offset=self.offset, dynamic=self.dynamic)
             if annot := self._scoringAnnotation():
                 rest.addText(annot)
             if self.symbols:
@@ -568,7 +568,8 @@ class Note(MEvent):
                                     offset=self.offset,
                                     gliss=bool(self.gliss),
                                     dynamic=self.dynamic,
-                                    group=groupid)
+                                    group=groupid,
+                                    gracenote=self.isGracenote())
         if self.pitchSpelling:
             notation.fixNotename(self.pitchSpelling, idx=0)
 
@@ -686,8 +687,8 @@ class Note(MEvent):
             return []
         conf = workspace.config
         scorestruct = workspace.scorestruct
-        if self._playargs:
-            playargs.overwriteWith(self._playargs)
+        if self.playargs:
+            playargs.overwriteWith(self.playargs)
         playargs.fillDefaults(conf)
         if self.amp is not None:
             amp = self.amp
@@ -773,7 +774,7 @@ class Note(MEvent):
     #     return seq.cycle(totaldur)
 
 
-def Rest(dur: time_t, offset: time_t = None, label='') -> Note:
+def Rest(dur: time_t, offset: time_t = None, label='', dynamic: str = None) -> Note:
     """
     Creates a Rest. A Rest is a Note with pitch 0 and amp 0.
 
@@ -782,12 +783,15 @@ def Rest(dur: time_t, offset: time_t = None, label='') -> Note:
     Args:
         dur: duration of the Rest
         offset: time offset of the Rest
+        label: a label for this rest
+        dynamic: a rest may have a dynamic
 
     Returns:
         the created rest
     """
     assert dur and dur > 0
-    return Note(pitch=0, dur=dur, offset=offset, amp=0, label=label, _init=False)
+    return Note(pitch=0, dur=dur, offset=offset, amp=0, label=label,
+                dynamic=dynamic, _init=False)
 
 
 def asNote(n: Note|float|str, **kws) -> Note:
@@ -884,19 +888,23 @@ class Chord(MEvent):
 
         """
         self.amp = amp
+
         if dur is not None:
-            assert dur > 0
             dur = asF(dur)
 
         if not notes:
-            super().__init__(dur=None, offset=None, label=label)
+            super().__init__(dur=dur, offset=None, label=label)
             return
+
+        super().__init__(dur=dur, offset=offset, label=label, properties=properties)
+
+        if dur == 0:
+            self.properties['grace'] = True
 
         # notes might be: Chord([n1, n2, ...]) or Chord("4c 4e 4g", ...)
         if isinstance(notes, str):
             notes = [Note(n, amp=amp, fixed=fixed) for n in notes.split()]
 
-        super().__init__(dur=dur, offset=offset, label=label, properties=properties)
         if _init:
             notes2 = []
             for n in notes:
@@ -949,6 +957,9 @@ class Chord(MEvent):
     def __iter__(self) -> Iterator[Note]:
         return iter(self.notes)
 
+    def asGracenote(self, slash=True) -> Note:
+        return Gracenote(self.pitches, slash=slash)
+
     def setNotatedPitch(self, notenames: str | list[str]) -> None:
         if isinstance(notenames, str):
             return self.setNotatedPitch(notenames.split())
@@ -987,7 +998,7 @@ class Chord(MEvent):
     def pitchRange(self) -> tuple[float, float] | None:
         return min(n.pitch for n in self.notes), max(n.pitch for n in self.notes)
 
-    def scoringEvents(self, groupid:str = None, config: CoreConfig = None
+    def scoringEvents(self, groupid: str = None, config: CoreConfig = None
                       ) -> list[scoring.Notation]:
         if not config:
             config = getConfig()
@@ -1150,7 +1161,7 @@ class Chord(MEvent):
         elif isinstance(other, (Chord, str)):
             # join chords together
             return Chord(self.notes + _asChord(other).notes)
-        raise TypeError("Can't add a Chord to a %s" % other.__class__.__name__)
+        raise TypeError(f"Can't add a Chord to a {other.__class__.__name__}")
 
     def loudest(self, n:int) -> Chord:
         """
@@ -1188,8 +1199,8 @@ class Chord(MEvent):
                      ) -> list[SynthEvent]:
         conf = workspace.config
         scorestruct = workspace.scorestruct
-        if self._playargs:
-            playargs.overwriteWith(self._playargs)
+        if self.playargs:
+            playargs.overwriteWith(self.playargs)
         playargs.fillDefaults(conf)
         if conf['chordAdjustGain']:
             gain = playargs.get('gain', 1.0) / math.sqrt(len(self))
@@ -1260,7 +1271,7 @@ class Chord(MEvent):
     def dump(self, indents=0):
         elements = f'offset={self.offset}, dur={self.dur}, gliss={self.gliss}'
         print(f"{'  '*indents}Chord({elements})")
-        if self._playargs:
+        if self.playargs:
             print("  "*(indents+1), self.playargs)
         for n in reversed(self.notes):
             print("  "*(indents+2), repr(n))
@@ -1406,21 +1417,32 @@ def _asChord(obj, amp: float = None, dur: float = None) -> Chord:
     return out if amp is None and dur is None else out.clone(amp=amp, dur=dur)
 
 
-
-
-def makeGracenote(pitch, slash=True) -> Note | Chord:
+def Gracenote(pitch: pitch_t | list[pitch_t], slash=True) -> Note | Chord:
     """
-    Create a gracenote
+    Create a gracenote (a note or chord)
 
     The resulting gracenote can be a note or a chord, depending on pitch
 
     Args:
-        pitch: a single pitch (as midinote, notename, etc) or a list of pitches
+        pitch: a single pitch (as midinote, notename, etc), a list of pitches or string
+            representing one or more pitches
         slash: if True, the gracenote will be marked as slashed
 
     Returns:
         the Note/Chord representing the gracenote. A gracenote is basically a
         note/chord with 0 duration
+
+    Example
+    ~~~~~~~
+
+        >>> grace = Gracenote('4F')
+        >>> grace2 = Note('4F', dur=0)
+        >>> grace == grace2
+        True
+        >>> gracechord = Gracenote('4F 4A')
+        >>> gracechord2 = Chord('4F 4A', dur=0)
+        >>> gracechord == gracechord2
+        True
 
     """
     out = asEvent(pitch, dur=0)

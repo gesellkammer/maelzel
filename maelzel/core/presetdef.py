@@ -22,7 +22,8 @@ _INSTR_INDENT = "  "
 
 
 @dataclasses.dataclass
-class AudiogenAnalysis:
+class ParsedAudiogen:
+    originalAudiogen: str
     signals: Set[str]
     numSignals: int
     minSignal: int
@@ -30,15 +31,16 @@ class AudiogenAnalysis:
     numOutchs: int
     needsRouting: bool
     numOutputs: int
+    inlineArgs: dict[str, float] | None
+    audiogen: str
 
 
-def analyzeAudiogen(audiogen: str, check=False) -> AudiogenAnalysis:
+def parseAudiogen(audiogen: str, check=False) -> ParsedAudiogen:
     """
-    Analyzes the audio generating part of an instrument definition,
-    returns the analysis results as a dictionary
+    Analyzes the audio generating part of an instrument definition
 
     Args:
-        audiogen: as passed to play.defPreset
+        audiogen: as passed to PresetDef
         check: if True, will check that audiogen is well formed
 
     Returns:
@@ -84,13 +86,18 @@ def analyzeAudiogen(audiogen: str, check=False) -> AudiogenAnalysis:
     else:
         numOuts = numOutchs
 
-    return AudiogenAnalysis(signals=audiovars,
-                            numSignals=numSignals,
-                            minSignal=min(chans) if chans else 0,
-                            maxSignal=max(chans) if chans else 0,
-                            numOutchs=numOutchs,
-                            needsRouting=needsRouting,
-                            numOutputs=numOuts)
+    delimiter, inlineArgs, audiogenWithoutArgs = csoundengine.instr.parseInlineArgs(audiogen)
+
+    return ParsedAudiogen(originalAudiogen=audiogen,
+                          signals=audiovars,
+                          numSignals=numSignals,
+                          minSignal=min(chans) if chans else 0,
+                          maxSignal=max(chans) if chans else 0,
+                          numOutchs=numOutchs,
+                          needsRouting=needsRouting,
+                          numOutputs=numOuts,
+                          inlineArgs=inlineArgs,
+                          audiogen=audiogenWithoutArgs if delimiter else audiogen)
 
 
 def _instrNameFromPresetName(presetName: str) -> str:
@@ -110,7 +117,7 @@ def _makePresetBody(audiogen: str,
     Args:
         audiogen: the audio generating part, needs to declare aout1, aout2, ...
         numsignals: the number of audio signals used in augiogen (generaly
-            the result of analyzing the audiogen via `analyzeAudiogen`
+            the result of analyzing the audiogen via `parseAudiogen`
         withEnvelope: do we generate envelope code?
         withOutput: do we send the audio to outch? This includes also panning
         epilogue: any code needed **after** output (things like turning off
@@ -191,7 +198,6 @@ ifadeout = max:i(ifadeout, 1/kr)
     if withOutput:
         if numsignals == 1:
             routing = r"""
-            outch ichan, aout1
             if (ipos <= 0) then
                 outch ichan, aout1
             else
@@ -208,8 +214,9 @@ ifadeout = max:i(ifadeout, 1/kr)
         else:
             logger.error("Invalid preset. Audiogen:\n")
             logger.error(_textlib.reindent(audiogen, prefix="    "))
-            raise ValueError(f"numsignals can be either 1 or 2 at the moment "
-                             f"if automatic output is enabled (got {numsignals})")
+            raise ValueError(f"For presets with more than 2 outputs (got {numsignals})" 
+                             " the user needs to route these manually, including applying"
+                             " any panning/spatialization needed")
         parts.append(routing)
     if epilogue:
         parts.append(epilogue)
@@ -270,12 +277,17 @@ class PresetDef:
         assert isinstance(audiogen, str)
 
         audiogen = _textwrap.dedent(audiogen)
-        audiogenInfo = analyzeAudiogen(audiogen)
-        if audiogenInfo.numSignals == 0:
+        parsedAudiogen = parseAudiogen(audiogen)
+        if parsedAudiogen.numSignals == 0:
             envelope = False
             routing = False
-        body = _makePresetBody(audiogen,
-                               numsignals=audiogenInfo.numSignals,
+
+        if args and parsedAudiogen.inlineArgs:
+            raise ValueError(f"Inline args ({parsedAudiogen.inlineArgs}) are not supported when "
+                             f"defining named args ({args}) for PresetDef '{name}'")
+
+        body = _makePresetBody(parsedAudiogen.audiogen,
+                               numsignals=parsedAudiogen.numSignals,
                                withEnvelope=envelope,
                                withOutput=routing,
                                epilogue=epilogue)
@@ -285,11 +297,11 @@ class PresetDef:
         self.includes = includes
         self.audiogen = audiogen.strip()
         self.epilogue = epilogue
-        self.args = args
+        self.args: dict[str, float] | None = args or parsedAudiogen.inlineArgs
         self.userDefined = not builtin
-        self.numsignals = numsignals if numsignals is not None else audiogenInfo.numSignals
+        self.numsignals = numsignals if numsignals is not None else parsedAudiogen.numSignals
         self.description = description
-        self.numouts = numouts if numouts is not None else audiogenInfo.numOutputs
+        self.numouts = numouts if numouts is not None else parsedAudiogen.numOutputs
         self._consolidatedInit: str = ''
         self._instr: Optional[csoundengine.instr.Instr] = None
         self.body = body

@@ -17,7 +17,7 @@ builtinPresets = [
     PresetDef(
         'tri',
         r'''
-        |ktransp=0, klag=0,1, kfreqratio=0, kQ=3|
+        |ktransp=0, klag=0.1, kfreqratio=0, kQ=3|
         kfreq = mtof:k(lag(kpitch + ktransp, klag))
         aout1 = vco2(1, kfreq,  12) * a(kamp)
         if kfreqratio > 0 then
@@ -32,8 +32,8 @@ builtinPresets = [
         r'''
         |ktransp=0, klag=0.1, kfreqratio=0,kQ=3|
         kfreq = mtof:k(lag(kpitch + ktransp, klag))
-        aout1 = vco2(1, kfreq, 0) * a(kamp)
-        aout1 = kfreqratio == 0 ? aout1 : K35_lpf(aout1, kfreq*kfreqratio, kQ)
+        asig = vco2(1, kfreq, 0) * a(kamp)
+        aout1 = kfreqratio == 0 ? asig : K35_lpf(asig, kfreq*kfreqratio, kQ)
         ''',
         description="transposable saw with optional low-pass filtering",
         builtin=True),

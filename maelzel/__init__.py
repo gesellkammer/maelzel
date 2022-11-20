@@ -1,3 +1,4 @@
 from maelzel import dependencies
 
-dependencies.checkDependenciesIfNeeded(daysSinceLastCheck=1)
+# Only check dependencies on first run
+dependencies.checkDependenciesIfNeeded(daysSinceLastCheck=0)

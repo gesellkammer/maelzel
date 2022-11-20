@@ -16,7 +16,7 @@ presets = {
         'possibleDivisionsByTempo': {
             10: [],
             400: quantutils.allSubdivisions(maxsubdivs=5,
-                                            possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11),
+                                            possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
                                             maxdensity=30),
         },
         'divisionPenaltyMap': {
@@ -38,10 +38,10 @@ presets = {
         'possibleDivisionsByTempo': {
             10: [],
             60: quantutils.allSubdivisions(maxsubdivs=6,
-                                           possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11),
+                                           possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
                                            maxdensity=24),
             80: quantutils.allSubdivisions(maxsubdivs=5,
-                                           possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11),
+                                           possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
                                            maxdensity=21),
             100: quantutils.allSubdivisions(maxsubdivs=4,
                                             possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9),

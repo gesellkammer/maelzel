@@ -92,7 +92,8 @@ class MObjList(MObj):
 
     def _synthEvents(self, playargs: PlayArgs, workspace: Workspace
                      ) -> list[SynthEvent]:
-        playargs.fillWith(self.playargs)
+        if self.playargs:
+            playargs.fillWith(self.playargs)
         return misc.sumlist(item._synthEvents(playargs.copy(), workspace)
                             for item in self.getItems())
 
@@ -118,7 +119,7 @@ class MObjList(MObj):
             display(HTML(header))
         else:
             print(f'{"  "*indents}{type(self).__name__}')
-            if self._playargs:
+            if self.playargs:
                 print("  "*(indents+1), self.playargs)
         for item in self:
             item.dump(indents+1)

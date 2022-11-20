@@ -153,8 +153,8 @@ class Line(MEvent):
     def _synthEvents(self, playargs: PlayArgs, workspace: Workspace
                      ) -> list[SynthEvent]:
         conf = workspace.config
-        if self._playargs:
-            playargs.overwriteWith(self._playargs)
+        if self.playargs:
+            playargs.overwriteWith(self.playargs)
         playargs.fillDefaults(conf)
         bps = self.translateBreakpointsToAbsTime(workspace.scorestruct, asfloat=True)
         return [SynthEvent.fromPlayArgs(bps, playargs=playargs)]

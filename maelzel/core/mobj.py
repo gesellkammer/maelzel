@@ -102,13 +102,13 @@ class MObj:
     _acceptsNoteAttachedSymbols = True
     _isDurationRelative = True
 
-    __slots__ = ('parent', 'dur', 'offset', 'label', '_playargs', 'symbols', '_scorestruct', '_properties')
+    __slots__ = ('parent', 'dur', 'offset', 'label', 'playargs', 'symbols', '_scorestruct', '_properties')
 
     def __init__(self, dur: time_t = None, offset: time_t = None, label: str = '',
                  parent: MObj = None,
                  properties: dict[str, Any] = None):
 
-        self.parent = parent
+        self.parent: MObj | None = parent
         "The parent of this object (or None if it has no parent)"
 
         self.label = label
@@ -126,10 +126,12 @@ class MObj:
         self.symbols: list[_symbols.Symbol] | None = None
         "A list of all symbols added via addSymbol (can be None)"
 
-        # _playargs are set via .setplay and serve the purpose of
+        # playargs are set via .setPlay and serve the purpose of
         # attaching playing parameters (like pan position, instrument)
         # to an object
-        self._playargs: PlayArgs | None = None
+        self.playargs: PlayArgs | None = None
+        """playargs are set via .setPlay and serve the purpose of attaching playing
+        parameters (like pan position, instrument, ...) to an object"""
 
         self._properties: dict[str, Any] | None = properties
 
@@ -201,17 +203,6 @@ class MObj:
         dur = self.resolvedDur()
         return self.clone(dur=dur, offset=offset)
 
-    @property
-    def playargs(self) -> PlayArgs:
-        """
-        A PlayArgs structure, containing any specification regarding playback
-
-        .. seealso:: :meth:`~MObj.setPlay`
-        """
-        if self._playargs is None:
-            self._playargs = PlayArgs()
-        return self._playargs
-
     def setPlay(self: T, /, **kws) -> T:
         """
         Set any playback attributes, returns self
@@ -260,6 +251,9 @@ class MObj:
         .. seealso:: :meth:`~MObj.addSymbol`, :attr:`~MObj.playargs`
         """
         playargs = self.playargs
+        if playargs is None:
+            playargs  = PlayArgs()
+            self.playargs = playargs
         for k, v in kws.items():
             playargs[k] = v
         return self
@@ -292,15 +286,15 @@ class MObj:
         for k, v in kws.items():
             setattr(out, k, v)
 
-        if self._playargs is not None:
-            out._playargs = self._playargs.copy()
+        if self.playargs is not None:
+            out.playargs = self.playargs.copy()
         if self._properties is not None:
             out._properties = self._properties.copy()
         return out
 
     def copy(self: T) -> T:
         """Returns a copy of this object"""
-        return _copy.deepcopy(self)
+        raise NotImplementedError
 
     def moveTo(self, start: time_t) -> None:
         """Move this to the given start time (**in place**)
@@ -467,7 +461,7 @@ class MObj:
         if not renderoptions:
             renderoptions = notation.makeRenderOptionsFromConfig(config)
         if not scorestruct:
-            scorestruct = self.scorestruct or w.scorestruct
+            scorestruct = self.scorestruct() or w.scorestruct
         if quantizationProfile is not None:
             if isinstance(quantizationProfile, str):
                 quantizationProfile = scoring.quant.QuantizationProfile.fromPreset(quantizationProfile)
@@ -509,7 +503,7 @@ class MObj:
         if fmt == 'ly':
             backend = 'lilypond'
         if scorestruct is None:
-            scorestruct = self.scorestruct or w.scorestruct
+            scorestruct = self.scorestruct() or w.scorestruct
         path = _renderImage(self, outfile, fmt=fmt, backend=backend, scorestruct=scorestruct,
                             config=config or getConfig())
         if not os.path.exists(path):
@@ -608,7 +602,7 @@ class MObj:
         parts = self.scoringParts()
         renderer = notation.renderWithActiveWorkspace(parts,
                                                       backend='music21',
-                                                      scorestruct=self.scorestruct)
+                                                      scorestruct=self.scorestruct())
         stream = renderer.asMusic21()
         if getConfig()['m21.fixStream']:
             m21tools.fixStream(stream, inPlace=True)
@@ -621,12 +615,11 @@ class MObj:
         stream = self.asmusic21()
         return m21tools.getXml(stream)
 
-    @property
     def scorestruct(self) -> ScoreStruct | None:
         """
-        Returns the ScoreStruct attached to this obj, if Any
+        Returns the ScoreStruct active for this obj or its parent
         """
-        return self._scorestruct
+        return self._scorestruct or (self.parent.scorestruct() if self.parent else None)
 
     def write(self,
               outfile: str,
@@ -671,7 +664,7 @@ class MObj:
             cfg = cfg.clone(updates={'show.pngResolution': resolution})
         r = notation.renderWithActiveWorkspace(self.scoringParts(),
                                                backend=backend,
-                                               scorestruct=scorestruct or self.scorestruct,
+                                               scorestruct=scorestruct or self.scorestruct(),
                                                config=cfg)
         r.write(outfile)
 
@@ -698,7 +691,7 @@ class MObj:
         Prints all relevant information about this object
         """
         print(f'{"  "*indents}{repr(self)}')
-        if self._playargs:
+        if self.playargs:
             print(f'{"  "*(indents+1)}{self.playargs}')
         if self.symbols:
             print(f'{"  " * (indents + 1)}{self.symbols}')
@@ -811,11 +804,11 @@ class MObj:
         playargs = PlayArgs(d)
         if workspace is None:
             workspace = Workspace.active
-        if struct:=self.scorestruct:
+        if (struct := self.scorestruct()) is not None:
             workspace = workspace.clone(scorestruct=struct)
         events = self._synthEvents(playargs, workspace)
         if start is not None or end is not None:
-            scorestruct = self.scorestruct or workspace.scorestruct
+            scorestruct = workspace.scorestruct
             starttime = None if start is None else scorestruct.beatToTime(start)
             endtime = None if end is None else scorestruct.beatToTime(end)
             events = cropEvents(events, start=starttime, end=endtime, rewind=True)
@@ -1133,10 +1126,10 @@ class MObj:
         self.addSymbol(_symbols.Text(text, placement=placement, fontsize=fontsize,
                                      fontstyle=fontstyle, box=box))
 
-    def addSpanner(self,
-                   spannercls: str | _symbols.Spanner,
-                   endobj: MObj
-                   ) -> None:
+    def addSpanner(self: T,
+                   spanner: str | _symbols.Spanner,
+                   endobj: MObj = None
+                   ) -> T:
         """
         Adds a spanner symbol to this object
 
@@ -1144,8 +1137,13 @@ class MObj:
         objects. A spanner always has a start and an end.
 
         Args:
-            spannercls: one of 'slur', '<', '>', or a Spanner object
-            endobj: the object where this spanner ends
+            spanner: a Spanner object or a spanner description (one of 'slur', '<', '>',
+                'trill', 'bracket', etc. - see :func:`maelzel.core.symbols.makeSpanner`
+                When passing a string description, prepend it with '~' to create an end spanner
+            endobj: the object where this spanner ends, if known
+
+        Returns:
+            self (allows to chain calls)
 
         Example
         ~~~~~~~
@@ -1159,10 +1157,39 @@ class MObj:
 
         .. seealso:: :meth:`Spanner.bind() <maelzel.core.symbols.Spanner.bind>`
 
+        In some cases the end target can inferred:
+
+            >>> chain = Chain([
+            ... Note("4C", 1, dynamic='p').addSpanner("<"),
+            ... Note("4D", 0.5),
+            ... Note("4E", dynamic='f')   # This ends the hairpin spanner
+            ... ])
+
+        Or it can be set later
+
+            >>> chain = Chain([
+            ... Note("4C", 1).addSpanner("slur"),
+            ... Note("4D", 0.5),
+            ... Note("4E").addSpanner("~slur")   # This ends the last slur spanner
+            ... ])
+
         """
-        spannercls = spannercls.lower()
-        spanner = _symbols.makeSpanner(spannercls)
-        spanner.bind(self, endobj)
+        if isinstance(spanner, str):
+            if spanner.startswith('~'):
+                spanner = spanner[1:].lower()
+                kind = 'end'
+            else:
+                kind = 'start'
+            spanner = _symbols.makeSpanner(spanner.lower(), kind=kind)
+        assert isinstance(spanner, _symbols.Spanner)
+
+        if endobj is not None:
+            assert spanner.kind == 'start'
+            spanner.bind(self, endobj)
+        else:
+            self.addSymbol(spanner)
+            spanner.setAnchor(self)
+        return self
 
     def timeTransform(self:T, timemap: Callable[[num_t], num_t], inplace=False) -> T:
         """
@@ -1289,7 +1316,7 @@ class MObj:
             a clone of self with the modified start and duration
 
         """
-        oldstruct = oldstruct or self.scorestruct or getScoreStruct()
+        oldstruct = oldstruct or self.scorestruct() or getScoreStruct()
         if newstruct == oldstruct:
             logger.warning("The new scorestruct is the same as the old scorestruct")
             return self

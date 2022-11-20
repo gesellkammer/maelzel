@@ -82,6 +82,10 @@ class TimeSpan(NamedTuple):
     start: F
     end: F
 
+    @property
+    def duration(self) -> F:
+        return self.end - self.start
+
 
 @dataclass
 class NotatedDuration:
