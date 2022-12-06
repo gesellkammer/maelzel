@@ -8,11 +8,15 @@ timesig_t = t.Tuple[int, int]
 number_t = t.Union[float, _numbers.Rational]
 T = t.TypeVar('T')
 
+# Rat is like Fraction with the only difference that its __repr__ is float like
+# If quicktions are present it will use that as a base
+from maelzel.rational import Rat as F
+#from quicktions import Fraction as F
 
-try:
-    from quicktions import Fraction as F
-except ImportError:
-    from fractions import Fraction as F
+#try:
+#    from quicktions import Fraction as F
+#except ImportError:
+#    from fractions import Fraction as F
 
 
 def asF(t) -> F:

@@ -7,11 +7,7 @@ import enum
 import logging
 import numbers as _numbers
 import pitchtools as pt
-
-try:
-    from quicktions import Fraction as F
-except ImportError:
-    from fractions import Fraction as F
+from maelzel.common import F, asF
 
 from typing import NamedTuple, Union, Optional
 time_t = Union[float, int, F]
@@ -41,7 +37,7 @@ __all__ = (
 )
 
 
-def asF(t: _numbers.Real) -> F:
+def _asF(t: _numbers.Real) -> F:
     """
     Convert ``t`` to a fraction if needed
     """

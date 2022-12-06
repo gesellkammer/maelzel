@@ -1,26 +1,67 @@
 from __future__ import annotations
 from emlib.misc import ReprMixin
 from . import definitions
-from dataclasses import dataclass
-
-
-@dataclass(unsafe_hash=True)
-class AcciddentalTraits:
-    color: str = ''
-    hidden: bool = False
-    parenthesis: bool = False
-    brackets: bool = False
 
 
 class Attachment(ReprMixin):
+    """
+    An Attachment is any kind of symbol added to a Notation or a pitch thereof
+
+    Args:
+        color: the color of the attachment
+        instancePriority: a priority for this attachment in relation to other attachments
+            of the same kind. A negative priority will place this attachemnt nearer to
+            the note/notehead
+        anchor: if given, an index corresponding to the notehead this attachment should be
+            anchored to. Noteheads are sorted by pitch, from low to high. A value of None
+            anchors the attachment to the whole note/chord
+    """
     exclusive = False
     priority = 100
 
-    def __init__(self, color=''):
-        self.color = color
+    def __init__(self, color='', instancePriority=0, anchor: int = None):
+        self.color: str = color
+        """The color of this attachment, if applicable"""
+
+        self.instancePriority: int = instancePriority
+        """A priority for this attachment in relation to others of the same kind. A 
+        negative priority will place this attachment nearer to the note/notehead"""
+
+        self.anchor: int | None = anchor
+        """if given, in index corresponding to the notehead this attachment should be
+        anchored to."""
 
     def getPriority(self) -> int:
-        return self.priority
+        return self.priority + self.instancePriority
+
+
+class AccidentalTraits(Attachment):
+    _default: AccidentalTraits = None
+
+    def __init__(self, color='', hidden=False, parenthesis=False,
+                 brackets=False, force=False, size: float = None):
+        super().__init__(color=color)
+
+        self.hidden = hidden
+        """Hide accidental"""
+
+        self.parenthesis = parenthesis
+        """Parenthesize accidental"""
+
+        self.brackets = brackets
+        """Place brackets around accidental"""
+
+        self.force = force
+        """If True, the accidental should be forced to be shown"""
+
+        self.size = size
+        """A size factor applied to the accidental (1=normal)"""
+
+    @classmethod
+    def default(cls) -> AccidentalTraits:
+        if cls._default is None:
+            cls._default = cls()
+        return cls._default
 
 
 class Ornament(Attachment):
@@ -65,7 +106,7 @@ class Articulation(Attachment):
         return hash((type(self).__name__, self.kind, hash(props)))
 
     def getPriority(self):
-        return self.priority + self.extraPriority.get(self.kind, 0)
+        return super().getPriority() + self.extraPriority.get(self.kind, 0)
 
 
 class Tremolo(Attachment):

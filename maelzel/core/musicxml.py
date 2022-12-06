@@ -265,7 +265,7 @@ def _parseNote(root: ET.Element, context: ParseContext) -> Note:
             if not shape:
                 logger.warning(f'Notehead shape not supported: "{node.text}"')
             else:
-                notesymbols.append(symbols.Notehead(kind=shape, parenthesis=parens))
+                notesymbols.append(symbols.Notehead(shape=shape, parenthesis=parens))
             properties['mxml/notehead'] = node.text
         elif node.tag == 'grace':
             noteType = 'grace'
@@ -299,7 +299,10 @@ def _parseNote(root: ET.Element, context: ParseContext) -> Note:
     if noteType == 'rest':
         rest = Rest(dur)
         if properties:
-            rest.properties.update(properties)
+            if rest.properties is None:
+                rest.properties = properties
+            else:
+                rest.properties.update(properties)
         return rest
 
     if not pstep:
@@ -371,7 +374,7 @@ def _parseNote(root: ET.Element, context: ParseContext) -> Note:
             elif notation.kind == 'fingering':
                 note.addSymbol(symbols.Fingering(notation.value))
             elif notation.kind == 'notehead':
-                note.addSymbol(symbols.Notehead(kind=notation.value))
+                note.addSymbol(symbols.Notehead(shape=notation.value))
             elif notation.kind == 'text':
                 note.addSymbol(symbols.Text(notation.value,
                                             placement=notation.properties.get('placement', 'above'),
@@ -972,10 +975,16 @@ def parseMusicxml(xml: str, fixSpelling=False) -> Score:
                     voice.shortname = f'{shortname}/{voicenum}'
 
         for voice in voicesdict.values():
-            voice.properties['mxml/part-name'] = partdef.name
-            voice.properties['mxml/part-name-display'] = partdef.nameDisplay
-            voice.properties['mxml/part-abbreviation'] = partdef.shortname
-            voice.properties['mxml/part-abbreviation-display'] = partdef.shortnameDisplay
+            props = {
+                'mxml/part-name': partdef.name,
+                'mxml/part-name-display': partdef.nameDisplay,
+                'mxml/part-abbreviation': partdef.shortname,
+                'mxml/part-abbreviation-display': partdef.shortnameDisplay
+            }
+            if voice.properties is None:
+                voice.properties = props
+            else:
+                voice.properties.update(props)
 
         allvoices.extend(voicesdict.values())
         scorestructs.append(scorestruct)
@@ -986,5 +995,7 @@ def parseMusicxml(xml: str, fixSpelling=False) -> Score:
     scorestruct.title = metadata.get('mxml/movement-title', '')
     scorestruct.composer = metadata.get('mxml/identification/composer', '')
     score = Score(voices=allvoices, scorestruct=scorestruct)
+    if score.properties is None:
+        score.properties = {}
     score.properties.update(metadata)
     return score

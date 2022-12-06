@@ -86,7 +86,7 @@ def fillTempDynamics(items: list[MEvent], initialDynamic='mf',
         item = items[0]
         if not item.dynamic:
             item.dynamic = initialDynamic
-            item.properties['tempdynamic'] = True
+            item.setProperty('tempdynamic', True)
     else:
         lastDynamic = initialDynamic
         lastEnd = 0
@@ -95,7 +95,7 @@ def fillTempDynamics(items: list[MEvent], initialDynamic='mf',
                 lastDynamic = initialDynamic
             if not item.dynamic:
                 item.dynamic = lastDynamic
-                item.properties['tempdynamic'] = True
+                item.setProperty('tempdynamic', True)
             else:
                 lastDynamic = item.dynamic
             lastEnd = item.end
@@ -277,7 +277,6 @@ def chainSynthEvents(objs: list[MEvent], playargs: PlayArgs, workspace: Workspac
     synthevents = []
     groups = groupLinkedEvents(objs)
     struct = workspace.scorestruct
-    conf = workspace.config
     transpose = playargs.get('transpose', 0.)
     for group in groups:
         if isinstance(group, MEvent):
@@ -296,11 +295,10 @@ def chainSynthEvents(objs: list[MEvent], playargs: PlayArgs, workspace: Workspac
                 for bp in bps:
                     assert all(isinstance(x, (int, float)) for x in bp), f"bp: {bp}\n{bps=}"
                 firstev = line[0]
-                # TODO: optimize / revise the playargs handling
-                evplayargs = playargs.copy()
-                if firstev.playargs:
-                    evplayargs.overwriteWith(firstev.playargs)
-                evplayargs.fillDefaults(conf)
+                if not firstev.playargs:
+                    evplayargs = playargs
+                else:
+                    evplayargs = playargs.overwrittenWith(firstev.playargs)
                 synthevents.append(SynthEvent.fromPlayArgs(bps=bps, playargs=evplayargs))
         else:
             raise TypeError(f"Did not expect {group}")

@@ -367,7 +367,7 @@ class OfflineRenderer:
         if quiet is None:
             quiet = self._quiet if self._quiet is not None else cfg['rec.quiet']
         if wait is None:
-            wait = cfg['rec.block']
+            wait = cfg['rec.blocking']
         if compressionBitrate is None:
             compressionBitrate = cfg['rec.compressionBitrate']
         outfile, proc = self.renderer.render(outfile=outfile, wait=wait, quiet=quiet,
@@ -538,7 +538,7 @@ def render(outfile: str = None,
         sr: sample rate of the soundfile (:ref:`config 'rec.sr' <config_rec_sr>`)
         ksmps: number of samples per cycle (:ref:`config 'rec.ksmps' <config_rec_ksmps>`)
         wait: if True, wait until recording is finished. If None,
-            use the :ref:`config 'rec.block' <config_rec_block>`
+            use the :ref:`config 'rec.blocking' <config_rec_blocking>`
         quiet: if True, supress debug information when calling
             the csound subprocess
 
@@ -607,7 +607,7 @@ def _recEvents(events: list[SynthEvent],
         sr: sample rate of the soundfile (:ref:`config 'rec.sr' <config_rec_sr>`)
         ksmps: number of samples per cycle (:ref:`config 'rec.ksmps' <config_rec_ksmps>`)
         wait: if True, wait until recording is finished. If None,
-            use the :ref:`config 'rec.block' <config_rec_block>`
+            use the :ref:`config 'rec.blocking' <config_rec_blocking>`
         quiet: if True, supress debug information when calling
             the csound subprocess
 

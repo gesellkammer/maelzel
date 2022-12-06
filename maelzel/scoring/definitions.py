@@ -1,4 +1,6 @@
 from __future__ import annotations
+from dataclasses import dataclass
+
 
 stemTypes = {
     'normal',
@@ -116,7 +118,7 @@ _noteheadShapesMapping = {
 def normalizeNoteheadShape(shape: str, default='') -> str:
     if shape in noteheadShapes:
         return shape
-    if _:=_noteheadShapesMapping.get(shape):
+    if _ := _noteheadShapesMapping.get(shape):
         return _
     return default
 
@@ -268,3 +270,86 @@ def normalizeBarstyle(barstyle: str, default='') -> str:
     if (_:=barstyleMapping.get(barstyle.lower())) is not None:
         return _
     return default
+
+
+@dataclass(unsafe_hash=True)
+class Notehead:
+    shape: str = ''
+    color: str = ''
+    size: int | float | None = None
+    parenthesis: bool = False
+    hidden: bool = False
+
+    def __post_init__(self):
+        assert isinstance(self.shape, str)
+        assert isinstance(self.color, str)
+
+        if self.shape:
+            if self.shape[-1] == '?':
+                self.shape = self.shape[:-1]
+                self.parenthesis = True
+            if self.shape == 'hidden':
+                self.shape = ''
+                self.hidden = True
+
+        assert not self.shape or self.shape in noteheadShapes, \
+            f'shape "{self.shape}" not in {noteheadShapes}'
+
+    def __copy__(self):
+        return Notehead(shape=self.shape, color=self.color, size=self.size,
+                        parenthesis=self.parenthesis, hidden=self.hidden)
+
+    def copy(self):
+        return self.__copy__()
+
+    def update(self, other: Notehead):
+        if other.shape:
+            self.shape = other.shape
+        if other.color:
+            self.color = other.color
+        if other.size is not None:
+            self.size = other.size
+
+        self.parenthesis = other.parenthesis
+        self.hidden = other.hidden
+
+    def description(self) -> str:
+        shape = self.shape
+        if self.parenthesis:
+            shape += '?'
+        parts = []
+        if shape:
+            parts.append(shape)
+        if self.color:
+            parts.append(f'color={self.color}')
+        if self.size is not None:
+            parts.append(f'size={self.size}')
+        if self.hidden:
+            parts.append('hidden=True')
+        return ';'.join(parts)
+
+    @staticmethod
+    def parseDescription(descr: str):
+        parts = descr.split(';')
+        shape = ''
+        color = ''
+        size = None
+        parenthesis = False
+        for part in parts:
+            if '=' in part:
+                key, value = part.split('=')
+                if key == 'color':
+                    color = value
+                elif key == 'size':
+                    size = float(value)
+                    if int(size) == size:
+                        size = int(size)
+                else:
+                    raise ValueError(f"Key not known {key}")
+            else:
+                shape = part
+                if shape[-1] == '?':
+                    shape = shape[:-1]
+                    parenthesis = True
+        return Notehead(shape=shape, color=color, size=size, parenthesis=parenthesis)
+

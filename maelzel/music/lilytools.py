@@ -666,15 +666,19 @@ def fontSizeFactorToRelativeSize(factor: float) -> int:
     return round(relsize)
 
 
-def makePitch(pitch: pitch_t, divsPerSemitone:int=4, accidentalParenthesis=False) -> str:
+def makePitch(pitch: pitch_t,
+              divsPerSemitone:int=4,
+              parenthesizeAccidental=False,
+              forceAccidental=False,
+              ) -> str:
     """
     Create the liylpond text to render the given pitch
 
     Args:
         pitch: a fractional midinote or a notename
         divsPerSemitone: the resolution of the pitch (num. divisions per semitone)
-        accidentalParenthesis: should the accidental, if any, be within parenthesis?
-        noteshape: one of 'harmonic', 'cross'
+        parenthesizeAccidental: should the accidental, if any, be within parenthesis?
+        forceAccidental: if True, force the given accidental
 
     Returns:
         the lilypond text to render the given pitch (needs a duration suffix)
@@ -689,9 +693,10 @@ def makePitch(pitch: pitch_t, divsPerSemitone:int=4, accidentalParenthesis=False
     else:
         raise TypeError(f"Expected a midinote or a notename, got {pitch} (type: {type(pitch)})")
     lilypitch = notenameToLily(notename, divsPerSemitone=divsPerSemitone)
-    if accidentalParenthesis:
+    if forceAccidental:
+        lilypitch += '!'
+    if parenthesizeAccidental:
         lilypitch += '?'
-
     return lilypitch
 
 
@@ -805,7 +810,7 @@ def makeNote(pitch: pitch_t, duration: Union[float, str], dots=0, tied=False,
     if notehead or parenthesis or noteheadcolor:
         parts.append(customNotehead(notehead=notehead, color=noteheadcolor, parenthesis=parenthesis))
         parts.append(' ')
-    parts.append(makePitch(pitch, divsPerSemitone=divsPerSemitone, accidentalParenthesis=cautionary))
+    parts.append(makePitch(pitch, divsPerSemitone=divsPerSemitone, parenthesizeAccidental=cautionary))
     parts.append(makeDuration(duration, dots=dots))
     if tied:
         parts.append("~")

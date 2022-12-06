@@ -115,10 +115,10 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
                 now += 0.5
         elif den == 16:
             if m.quarterTempo > 80:
-                dur = clickdur or m.durationBeats()
+                dur = clickdur or m.durationBeats
                 ev = core.Note(strongBeatPitch, dur=dur, offset=now)
                 events.append(ev)
-                now += m.durationBeats()
+                now += m.durationBeats
             else:
                 beats = m.subdivisions()
                 for i, beat in enumerate(beats):
@@ -158,3 +158,5 @@ def packInVoices(objs: list[core.MObj]) -> list[core.Voice]:
             items.append(item)
     tracks = packing.packInTracks(items)
     return [core.Voice(track.unwrap()) for track in tracks]
+
+
