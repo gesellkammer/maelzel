@@ -12,6 +12,7 @@ from emlib.iterlib import first
 from . import definitions
 from . import spanner as _spanner
 import pitchtools as pt
+import copy
 
 
 from typing import TYPE_CHECKING
@@ -62,9 +63,6 @@ class Notation:
             case 1/2 (1 being a quarter note). A value of None is the same as
             a value of [(1, 1)] (no modification)
         gliss: if True, a glissando will be rendered between this note and the next
-        notehead: the type of notehead. If the
-            hotehead is hidden, use 'hidden'. If the notehead is parenthesized, end
-            the notehead with ?
         color: the color of this notations
         stem: if given, one of
 
@@ -91,7 +89,7 @@ class Notation:
                  )
 
     def __init__(self,
-                 duration: time_t = None,
+                 duration: time_t,
                  pitches: list[pitch_t] = None,
                  offset: time_t = None,
                  isRest=False,
@@ -108,13 +106,12 @@ class Notation:
                  _init=True
                  ):
 
-        assert not stem or stem in definitions.stemTypes, \
-            f"Stem types: {definitions.stemTypes}"
+        assert duration is not None
+
         if _init:
             if dynamic:
                 dynamic = definitions.normalizeDynamic(dynamic, '')
-            if duration is not None:
-                duration = asF(duration)
+            duration = asF(duration)
             if pitches:
                 pitches = [asmidi(p) for p in pitches]
             if offset is not None:
@@ -123,9 +120,12 @@ class Notation:
                 tiedNext = False
                 tiedPrev = False
 
-        self.duration: Optional[F] = duration
+            assert not stem or stem in definitions.stemTypes, \
+                f"Stem types: {definitions.stemTypes}"
+
+        self.duration: F = duration
         self.pitches: list[float] = pitches
-        self.offset: Optional[F] = offset
+        self.offset: F | None = offset
         self.isRest = isRest
         self.tiedNext = tiedNext
         self.tiedPrev = tiedPrev
@@ -133,15 +133,14 @@ class Notation:
         self.durRatios = durRatios
         self.groupid = group
         self.gliss = gliss
-        self.noteheads: Optional[list[str]] = None
-        self.accidentalTraits = AcciddentalTraits()
+        self.noteheads: dict[int, definitions.Notehead] | None = None
         self.color = color
         self.stem = stem
         self.sizeFactor = sizeFactor
-        self.properties: Optional[dict[str, Any]] = properties
-        self.fixedNotenames: Optional[dict[int, str]] = None
+        self.properties: dict[str, Any] | None = properties
+        self.fixedNotenames: dict[int, str] | None = None
         self.attachments: list[Attachment] = []
-        self.spanners: Optional[list[_spanner.Spanner]] = None
+        self.spanners: list[_spanner.Spanner] | None = None
 
         if self.isRest:
             assert self.duration > 0
@@ -152,28 +151,39 @@ class Notation:
                 if isinstance(n, str):
                     self.fixNotename(n, i)
 
-    def getAttachments(self, classname: str='', predicate: Callable = None) -> list[Attachment]:
-        assert classname or predicate
+    def getAttachments(self,
+                       cls: str | type = '',
+                       predicate: Callable = None,
+                       anchor: int = _UNSET
+                       ) -> list[Attachment]:
+        """
+        Get a list of Attachments matching the given criteria
+
+        Args:
+            cls: the class to match (the class itself or its name, case is not relevant)
+            predicate: a function (attachment) -> bool
+            anchor: if given, the anchor index to match. Some attachments are anchored to
+                a specific component (pitch) in the notation (for example a notehead or
+                an accidental trait are attached to a specific pitch of the chord)
+
+        Returns:
+            the list of attachments matching the given criteria
+        """
         attachments = self.attachments
-        if classname:
-            classname = classname.lower()
-            attachments = [a for a in attachments
-                           if type(a).__name__.lower() == classname]
+        if cls:
+            if isinstance(cls, str):
+                cls = cls.lower()
+                attachments = [a for a in attachments
+                               if type(a).__name__.lower() == cls]
+            else:
+                attachments = [a for a in attachments if isinstance(a, cls)]
         if predicate:
             attachments = [a for a in attachments if predicate(a)]
-        return attachments
 
-    def _queryAttachment(self, cls: str|type, attr: str, default=None):
-        if isinstance(cls, str):
-            clsname = cls.lower()
-            attachment = next((a for a in self.attachments
-                              if type(a.__name__.lower() == clsname)), None)
-        else:
-            attachment = next((a for a in self.attachments
-                              if isinstance(a, cls)), None)
-        if not attachment:
-            return default
-        return getattr(attachment, attr)
+        if anchor is not _UNSET:
+            attachments = [a for a in attachments if a.anchor == anchor]
+
+        return attachments
 
     def findSpanner(self, cls: str  | type, kind='') -> Optional[_spanner.Spanner]:
         if not self.spanners:
@@ -186,36 +196,28 @@ class Notation:
             return first(s for s in self.spanners
                          if isinstance(s, cls) and (not kind or s.kind==kind))
 
-    def findAttachment(self, cls: str | type): # -> Optional[Attachment]:
+    def findAttachment(self,
+                       cls: str | type,
+                       anchor: int | None = _UNSET,
+                       predicate: Callable = None
+                       ) -> Attachment | None:
         """
         Find an attachment by class or classname
 
-        This is mainly conceived for use with exclusive attachments. Always
-        the first attachment matching the given class is returned (or None
-        if no attachment found)
-
+        Similar to getAttachments, returns only one attachment or None
         Args:
-            cls: the class or the classname of the attachment to match.
+            cls: the class to match (the class itself or its name, case is not relevant)
+            predicate: a function (attachment) -> bool
+            anchor: if given, the anchor index to match. Some attachments are anchored to
+                a specific component (pitch) in the notation (for example a notehead or
+                an accidental trait are attached to a specific pitch of the chord)
 
         Returns:
-
+            an Attachment matching the given criteria, or None
         """
-        if isinstance(cls, str):
-            clsname = cls.lower()
-            return next((a for a in self.attachments
-                         if type(a).__name__.lower() == clsname), None)
-        else:
-            return next((a for a in self.attachments
-                         if isinstance(a, cls)), None)
-
-    def getArticulations(self) -> list[Articulation]:
-        """
-        TODO: add docs
-
-        Returns:
-
-        """
-        return [a for a in self.attachments if isinstance(a, Articulation)]
+        attachments = self.getAttachments(cls=cls, anchor=anchor, predicate=predicate)
+        if attachments:
+            return attachments[0]
 
     def addAttachment(self, attachment: Attachment) -> Notation:
         """
@@ -243,36 +245,43 @@ class Notation:
             if any(isinstance(a, cls) for a in self.attachments):
                 self.attachments = [a for a in self.attachments
                                     if not isinstance(a, cls)]
+        if attachment.anchor is not None:
+            assert 0 <= attachment.anchor < len(self.pitches)
         self.attachments.append(attachment)
         return self
 
-    def setNotehead(self, shape: str, idx: int = None) -> None:
+    def setNotehead(self,
+                    notehead: definitions.Notehead | str,
+                    idx: int | None = None,
+                    merge=False) -> None:
         """
-        Set the notehead of this notation
+        Set a notehead in this notation
 
         Args:
-            shape: the shape of the notehead (see scoring.definitions.noteheadShapes). The
-                shape can end with a '?' mark, indicating that it should be parenthesized
+            notehead: a Notehead
             idx: the index, corresponding to the pitch at the same index,
                 or None to set all noteheads
 
         """
-        if shape == 'normal':
-            shape = ''
-        normalShape = shape if not shape.endswith('?') else shape[:-1]
-        assert not normalShape or normalShape in definitions.noteheadShapes, \
-            f'Shape "{shape}" not supported. Known shapes: {definitions.noteheadShapes}'
         if self.noteheads is None:
-            self.noteheads = [''] * len(self.pitches)
+            self.noteheads = {}
+
+        if isinstance(notehead, str):
+            notehead = definitions.Notehead(shape=notehead)
+
         if idx is not None:
-            if idx > len(self.noteheads):
-                assert len(self.noteheads) == len(self.pitches)
+            if not(0 <= idx < len(self.pitches)):
                 raise IndexError(f'Index {idx} out of range. This notation has {len(self.pitches)} '
                                  f'pitches: {self.pitches}')
-            self.noteheads[idx] = shape
+            indexes = [idx]
         else:
-            for idx in range(len(self.pitches)):
-                self.noteheads[idx] = shape
+            indexes = range(len(self.pitches))
+
+        for i in indexes:
+            if merge and (oldnotehead := self.noteheads.get(i)) is not None:
+                oldnotehead.update(notehead)
+            else:
+                self.noteheads[i] = notehead.copy()
 
     def addArticulation(self, articulation: str | Articulation) -> Notation:
         """
@@ -353,7 +362,7 @@ class Notation:
         n = cls(pitches=[basepitch, touchpitch], **kws)
         n.fixNotename(basepitch, 0)
         n.fixNotename(touchpitch, 1)
-        n.setNotehead('harmonic', 1)
+        n.setNotehead(definitions.Notehead('harmonic'), 1)
         return n
 
     def fixNotename(self, notename: str, idx: int | None = None, fail=True) -> None:
@@ -402,8 +411,27 @@ class Notation:
             the fixed spelling of the note, if exists (None otherwise)
 
         """
-        if self.fixedNotenames:
-            return self.fixedNotenames.get(idx)
+        return self.fixedNotenames.get(idx) if self.fixedNotenames else None
+
+    def fixedSlots(self, semitoneDivs=2) -> dict[int, int] | None:
+        """
+        Calculate the fixed slots within this chord
+
+        Args:
+            semitoneDivs: the number of divisions of the semitone.
+
+        Returns:
+            a dict mapping slot to alteration direction
+        """
+        print("here!", self)
+        if not self.fixedNotenames:
+            return None
+        fixedSlots = {}
+        for notename in self.fixedNotenames.values():
+            notated = pt.notated_pitch(notename)
+            slot = notated.microtone_index(divs_per_semitone=semitoneDivs)
+            fixedSlots[slot] = notated.alteration_direction(min_alteration=0.5)
+        return fixedSlots
 
     @property
     def isGraceNote(self) -> bool:
@@ -439,7 +467,7 @@ class Notation:
         if len(pitches) != self.pitches:
             if self.noteheads:
                 logger.info("Notation: setting new pitches in place. Noteheads will be reset")
-            self.noteheads = None
+                self.noteheads = {}
         self.pitches = [asmidi(p) for p in pitches] if pitches else []
         if resetFixedNotenames:
             self.fixedNotenames = None
@@ -459,30 +487,39 @@ class Notation:
                 Any parameter given will override the corresponding value in
                 this Notation
         """
+        noteheads = kws.get('noteheads')
+        if noteheads:
+            assert isinstance(noteheads, dict), f'{self=}, {noteheads=}'
+
         out = self.copy()
         pitches = kws.pop('pitches', None)
-        for key, value in kws.items():
-            setattr(out, key, value)
         if pitches:
             out._setPitches(pitches)
             self.transferFixedSpellingTo(out)
+        for key, value in kws.items():
+            setattr(out, key, value)
         return out
 
     def copy(self) -> Notation:
         """
         Copy this Notation as is
         """
+
+        return self.__copy__()
+
+    def __deepcopy__(self, memo=None):
+        return self.__copy__()
+
+    def __copy__(self) -> Notation:
         # return copy.deepcopy(self)
         out = Notation(duration=self.duration,
                        pitches=self.pitches.copy() if self.pitches else None,
-                       # pitches=self.pitches,
                        offset=self.offset,
                        isRest=self.isRest,
                        tiedPrev=self.tiedPrev,
                        tiedNext=self.tiedNext,
                        dynamic=self.dynamic,
                        durRatios=self.durRatios.copy() if self.durRatios else None,
-                       # durRatios=self.durRatios,
                        group=self.groupid,
                        gliss=self.gliss,
                        color=self.color,
@@ -496,6 +533,8 @@ class Notation:
             out.fixedNotenames = self.fixedNotenames.copy()
         if self.spanners:
             out.spanners = self.spanners.copy()
+        if self.noteheads:
+            out.noteheads = self.noteheads.copy()
         return out
 
     def symbolicDuration(self) -> F:
@@ -515,7 +554,7 @@ class Notation:
         """
         Returns the notename corresponding to the given pitch index
 
-        If there is a fixed notename for the pitch, that will returned; otherwise
+        If there is a fixed notename for the pitch, that will be returned; otherwise
         the notename corresponding to the pitch
 
         Args:
@@ -526,7 +565,9 @@ class Notation:
             the notename corresponing to the given pitch
 
         """
-        assert 0 <= index < len(self.pitches)
+        if index < 0:
+            index = len(self.pitches) + index
+        assert 0 <= index < len(self.pitches), f"Invalid index {index}, num. pitches={len(self.pitches)}"
         if fixed := self.getFixedNotename(index):
             return fixed if not addExplicitMark else fixed+'!'
         return pt.m2n(self.pitches[index])
@@ -626,7 +667,7 @@ class Notation:
         """Merge this Notation with ``other``"""
         return mergeNotations(self, other)
 
-    def setProperty(self, key: str, value) -> None:
+    def setProperty(self, key: str, value = _UNSET) -> None:
         """
         Set any property of this Notation.
 
@@ -635,7 +676,10 @@ class Notation:
         """
         if self.properties is None:
             self.properties = {}
-        self.properties[key] = value
+        if value is not _UNSET:
+            self.properties[key] = value
+        elif self.properties:
+            del self.properties[key]
 
     def getProperty(self, key: str, default=None) -> Any:
         """
@@ -663,11 +707,14 @@ class Notation:
 
         """
         if idx is None:
-            self.setProperty('clefHint', clef)
+            self.setProperty('.clefHint', clef)
         else:
-            hint = self.getProperty('clefHint', {})
+            hint = self.getProperty('.clefHint', {})
             hint[idx] = clef
-            self.setProperty('clefHint', hint)
+            self.setProperty('.clefHint', hint)
+
+    def clearClefHints(self) -> None:
+        self.setProperty('.clefHint')
 
     def getClefHint(self, idx: int = 0) -> Optional[str]:
         """
@@ -685,7 +732,7 @@ class Notation:
             the clef hint, if any
 
         """
-        hints = self.getProperty('clefHint')
+        hints = self.getProperty('.clefHint')
         if not hints:
             return None
         elif isinstance(hints, str):
@@ -721,13 +768,9 @@ class Notation:
             info.append("tiedNext")
         if self.dynamic:
             info.append(self.dynamic)
-        if self.groupid:
-            if len(self.groupid) < 6:
-                info.append(f"group={self.groupid}")
-            else:
-                info.append(f"group={self.groupid[:8]}…")
-        if self.noteheads and any(self.noteheads):
-            info.append(f'noteheads={self.noteheads}')
+        if self.noteheads:
+            descrs = [f'{i}:{n.description()}' for i, n in self.noteheads.items()]
+            info.append(f'noteheads={descrs}')
 
         for attr in ('attachments', 'properties', 'spanners', 'color'):
             val = getattr(self, attr)
@@ -759,13 +802,13 @@ class Notation:
     def __len__(self) -> int:
         return len(self.pitches)
 
-    def accidentalDirection(self, index=0, min_alteration=0.5) -> int:
+    def accidentalDirection(self, index=0, minAlteration=0.5) -> int:
         """
         Returns the direction of the alteration in this notation
 
         Args:
             index: index of the pitch within this Notation
-            min_alteration: threshold (with min_alteration 0.5
+            minAlteration: threshold (with minAlteration 0.5
                 C+ gets a direction of +1, whereas C+25 still gets a direction
                 of 0
 
@@ -775,15 +818,49 @@ class Notation:
         """
         n = self.notename(index=index)
         notated = pt.notated_pitch(n)
-        return notated.alteration_direction(min_alteration=min_alteration)
+        return notated.alteration_direction(min_alteration=minAlteration)
 
-    def getNoteheads(self) -> list[str]:
-        if not self.noteheads:
-            self.noteheads = [''] * len(self.pitches)
-        return self.noteheads
+    def extractPartialNotation(self, indexes: list[int]) -> Notation:
+        """
+        Extract part of a chord with any attachments corresponding to the given pitches
 
-    #def addHarmonic(self, kind='natural', interval=0):
-    #    self.setProperty('harmonic', (kind, interval))
+        Args:
+            indexes: the indexes of the pitches to extract
+
+        Returns:
+            a new Notation with the given pitches
+        """
+        indexes.sort()
+        pitches = [self.pitches[index] for index in indexes]
+        mappedIndexes = {index: indexes.index(index) for index in indexes}
+        if self.noteheads:
+            noteheads = {}
+            for index in indexes:
+                if (notehead := self.noteheads.get(index)) is not None:
+                    noteheads[mappedIndexes[index]] = notehead
+            if not noteheads:
+                noteheads = None
+
+        else:
+            noteheads = None
+        attachments = []
+        for a in self.attachments:
+            if a.anchor in indexes:
+                a = copy.copy(a)
+                a.anchor = mappedIndexes[a.anchor]
+                attachments.append(a)
+            elif a.anchor is None:
+                attachments.append(a)
+
+        out = self.clone(pitches=pitches,
+                         noteheads=noteheads)
+        out.attachments = attachments
+        self.transferFixedSpellingTo(out)
+        out.clearClefHints()
+        for idx in indexes:
+            if hint := self.getClefHint(idx):
+                out.setClefHint(hint, mappedIndexes[idx])
+        return out
 
 
 def mergeNotations(a: Notation, b: Notation) -> Notation:
@@ -1035,7 +1112,7 @@ def notationsCannotMerge(n0: Notation, n1: Notation) -> str:
             return 'Dynamics differ'
         if n1.attachments or not set(n1.attachments).issubset(set(n0.attachments)):
             return 'Attachments differ'
-        if n0.getNoteheads() != n1.getNoteheads():
+        if n0.noteheads != n1.noteheads:
             return 'Noteheads differ'
         if n1.gliss:
             return 'Last notation has a glissando'
@@ -1057,29 +1134,35 @@ def notationsCanMerge(n0: Notation, n1: Notation) -> bool:
     if n0.isRest and n1.isRest:
         return (n0.durRatios == n1.durRatios and
                 durationsCanMerge(n0, n1))
+
     # TODO: decide what to do about spanners
-    if (
-            n0.tiedNext and
-            n1.tiedPrev and
-            (n0.durRatios == n1.durRatios) and
-            (n0.pitches == n1.pitches)):
-        if n1.dynamic and n1.dynamic != n0.dynamic:
+    if not (
+        n0.tiedNext and
+        n1.tiedPrev and
+        n0.durRatios == n1.durRatios and
+        n0.pitches == n1.pitches
+    ):
+        return False
+
+    if n1.dynamic and n1.dynamic != n0.dynamic:
+        return False
+
+    if n1.attachments and not set(n1.attachments).issubset(set(n0.attachments)):
+        return False
+
+    if n0.noteheads != n1.noteheads:
+        visible = {idx: notehead for idx, notehead in n1.noteheads.items()
+                       if not notehead.hidden}
+        if ((n0.noteheads or visible) and n0.noteheads != visible):
             return False
 
-        if n1.attachments and not set(n1.attachments).issubset(set(n0.attachments)):
-            return False
+    if not n0.gliss and n1.gliss:
+        return False
 
-        if any(notehead1 != notehead0 and notehead1 != "hidden"
-               for notehead0, notehead1 in zip(n0.getNoteheads(), n1.getNoteheads())):
-            return False
+    if not durationsCanMerge(n0, n1):
+        return False
 
-        if not n0.gliss and n1.gliss:
-            return False
-
-        if durationsCanMerge(n0, n1):
-            return True
-
-    return False
+    return True
 
 
 def mergeNotationsIfPossible(notations: list[Notation]) -> list[Notation]:
@@ -1094,7 +1177,7 @@ def mergeNotationsIfPossible(notations: list[Notation]) -> list[Notation]:
         q + q = h
         16 + 16 = 8
 
-    In general::;
+    In general::
 
         1/x + 1/x     2/x
         2/x + 1/x     3/x  (and viceversa)

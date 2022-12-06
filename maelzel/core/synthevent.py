@@ -108,6 +108,11 @@ class PlayArgs:
         """
         self.args.update(p.args)
 
+    def overwrittenWith(self, p: PlayArgs) -> PlayArgs:
+        out = self.copy()
+        out.args.update(p.args)
+        return out
+
     def copy(self) -> PlayArgs:
         """
         Returns a copy of self
@@ -199,6 +204,9 @@ class PlayArgs:
         for k, v in other.args.items():
             if v is not None:
                 args[k] = args.get(k, v)
+
+    def update(self, d: dict[str, Any]) -> None:
+        self.args.update(d)
 
     def fillDefaults(self, cfg: CoreConfig) -> None:
         """

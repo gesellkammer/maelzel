@@ -93,8 +93,9 @@ class MObjList(MObj):
     def _synthEvents(self, playargs: PlayArgs, workspace: Workspace
                      ) -> list[SynthEvent]:
         if self.playargs:
-            playargs.fillWith(self.playargs)
-        return misc.sumlist(item._synthEvents(playargs.copy(), workspace)
+            playargs = playargs.overwrittenWith(self.playargs)
+            # playargs.fillWith(self.playargs)
+        return misc.sumlist(item._synthEvents(playargs, workspace)
                             for item in self.getItems())
 
     def quantizePitch(self: MObjT, step=0.) -> MObjT:

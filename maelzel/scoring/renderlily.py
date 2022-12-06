@@ -43,7 +43,7 @@ def lyNote(pitch: pitch_t, baseduration: int, dots: int = 0, tied=False, caution
            ) -> str:
     assert baseduration in {0, 1, 2, 4, 8, 16, 32, 64, 128}, \
         f'baseduration should be a power of two, got {baseduration}'
-    pitch = lilytools.makePitch(pitch, accidentalParenthesis=cautionary)
+    pitch = lilytools.makePitch(pitch, parenthesizeAccidental=cautionary)
     if baseduration == 0:
         # a grace note
         return fr"\grace {pitch}8"
@@ -149,59 +149,9 @@ def lyArticulation(articulation: attachment.Articulation) -> str:
     return _articulationToLily[articulation.kind]
 
 
-@dataclass
-class _Notehead:
-    kind: str = ''
-    parenthesized: bool = False
-    color: str = ''
-    sizefactor: float = None
-
-
-def _parseNotehead(notehead: str) -> _Notehead:
-    kind, *attrs = notehead.split(";")
-    if kind and kind[-1] == '?':
-        parenthesized = True
-        kind = kind[:-1]
-    else:
-        parenthesized = False
-
-    color = ''
-    sizefactor = None
-
-    for attr in attrs:
-        k, v = attr.split("=")
-        if k == 'color':
-            color = v
-        elif k == 'size':
-            sizefactor = float(v)
-
-    return _Notehead(kind=kind, parenthesized=parenthesized, color=color, sizefactor=sizefactor)
-
-
-def lyNoteheadInsideChord(notehead: str) -> str:
-    if not notehead:
-        return ''
-    parts = []
-    parsedNotehead = _parseNotehead(notehead)
-    if parsedNotehead.color:
-        parts.append(fr'\tweak NoteHead.color "{parsedNotehead.color}"')
-    if parsedNotehead.sizefactor:
-        relsize = lilytools.fontSizeFactorToRelativeSize(parsedNotehead.sizefactor)
-        parts.append(fr'\tweak NoteHead.font-size #{relsize}')
-    if parsedNotehead.kind and parsedNotehead.kind != 'normal':
-        lilynotehead = _noteheadToLily.get(parsedNotehead.kind)
-        if not lilynotehead:
-            raise ValueError(f'Unknown notehead: {notehead}, '
-                             f'possible noteheads: {_noteheadToLily.keys()}')
-        parts.append(fr"\tweak NoteHead.style #'{lilynotehead}")
-    if parsedNotehead.parenthesized:
-        parts.append(r'\parenthesize')
-    return " ".join(parts)
-
-
-def lyNotehead(notehead: str) -> str:
+def lyNotehead(notehead: definitions.Notehead, insideChord=False) -> str:
     """
-    Convert a noteshape to its lilypond representation
+    Convert a scoring Notehead to its lilypond representation
 
     This uses ``\override`` so it can't be placed inside a chord
 
@@ -214,29 +164,39 @@ def lyNotehead(notehead: str) -> str:
         the note/chord it will modify.
 
     """
-    assert isinstance(notehead, str), f"Expected a str, got {notehead}"
+    assert isinstance(notehead, definitions.Notehead), f"Expected a Notehead, got {notehead}"
 
-    if not notehead:
-        return ''
-
-    if notehead == 'hidden':
+    if notehead.hidden:
         return r"\once \hide NoteHead"
 
     parts = []
-    parsedNotehead = _parseNotehead(notehead)
-    if parsedNotehead.color:
-        parts.append(fr'\once \override NoteHead.color = "{parsedNotehead.color}"')
-    if parsedNotehead.sizefactor:
-        relsize = lilytools.fontSizeFactorToRelativeSize(parsedNotehead.sizefactor)
-        parts.append(fr'\once \override NoteHead.font-size = #{relsize}')
-    if parsedNotehead.kind and parsedNotehead.kind != 'normal':
-        lilynotehead = _noteheadToLily.get(parsedNotehead.kind)
+
+    if notehead.color:
+        if insideChord:
+            parts.append(fr'\tweak NoteHead.color "{notehead.color}"')
+        else:
+            parts.append(fr'\once \override NoteHead.color = "{notehead.color}"')
+
+    if notehead.size is not None:
+        relsize = lilytools.fontSizeFactorToRelativeSize(notehead.size)
+        if insideChord:
+            parts.append(fr'\tweak NoteHead.font-size #{relsize}')
+        else:
+            parts.append(fr'\once \override NoteHead.font-size = #{relsize}')
+
+    if notehead.shape and notehead.shape != 'normal':
+        lilynotehead = _noteheadToLily.get(notehead.shape)
         if not lilynotehead:
-            raise ValueError(f'Unknown notehead: {notehead}, '
+            raise ValueError(f'Unknown notehead shape: {notehead.shape}, '
                              f'possible noteheads: {_noteheadToLily.keys()}')
-        parts.append(fr"\once \override NoteHead.style = #'{lilynotehead}")
-    if parsedNotehead.parenthesized:
+        if insideChord:
+            parts.append(fr"\tweak NoteHead.style #'{lilynotehead}")
+        else:
+            parts.append(fr"\once \override NoteHead.style = #'{lilynotehead}")
+
+    if notehead.parenthesis:
         parts.append(r'\parenthesize')
+
     return " ".join(parts)
 
 
@@ -268,6 +228,8 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         the lilypond notation corresponding to n, as a string
 
     """
+    assert n.noteheads is None or isinstance(n.noteheads, dict), f"{n=}"
+
     if not n.isRest and n.fixedNotenames is not None:
         assert len(n.fixedNotenames) == len(n.pitches), f"???? notation: {n}, {n.fixedNotenames=}, {n.pitches=}"
     notatedDur = n.notatedDuration()
@@ -325,40 +287,73 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
             fund = n.notename(0)
             touched = pt.transpose(fund, harmonic.interval)
             n = n.clone(pitches=(fund, touched))
-            n.setNotehead('harmonic', 1)
+            n.setNotehead('harmonic', idx=1)
 
     if len(n.pitches) == 1:
-        if n.noteheads:
-            _(lyNotehead(n.noteheads[0]))
+        # ***************************
+        # ********** Note ***********
+        # ***************************
+        if n.noteheads and (notehead:=n.noteheads.get(0)) is not None:
+            _(lyNotehead(notehead))
         elif n.tiedPrev and n.gliss and state.glissando and options.glissHideTiedNotes:
-            _(lyNotehead('hidden'))
+            _(lyNotehead(definitions.Notehead(hidden=True)))
+
         fingering = first(a for a in n.attachments if isinstance(a, attachment.Fingering))
+        accidentalTraits = n.findAttachment(attachment.AccidentalTraits)
+        if accidentalTraits:
+            assert isinstance(accidentalTraits, attachment.AccidentalTraits)
+        else:
+            accidentalTraits = attachment.AccidentalTraits.default()
+
+        if accidentalTraits.color:
+            _(fr'\once \override Accidental.color "{accidentalTraits.color}"')
+
         _(lyNote(n.notename(),
                  baseduration=base,
                  dots=dots,
                  tied=n.tiedNext,
-                 cautionary=n.accidentalTraits.parenthesis,
+                 cautionary=accidentalTraits.parenthesis,
                  fingering=fingering.fingering if fingering else ''))
     else:
-        # a chord
+        # ***************************
+        # ********** Chord **********
+        # ***************************
         if n.tiedPrev and n.gliss and state.glissando and options.glissHideTiedNotes:
-            _(lyNotehead('hidden'))
+            _(lyNotehead(definitions.Notehead(hidden=True)))
             noteheads = None
         elif not n.noteheads:
             noteheads = None
-        elif all(notehead == n.noteheads[0] for notehead in n.noteheads):
+        elif n.noteheads and set(n.noteheads.keys()) == set(range(len(n.pitches))) and len(set(n.noteheads.values())) == 1:
             # All the same noteheads, place it outside the chord
             _(lyNotehead(n.noteheads[0]))
             noteheads = None
         else:
             noteheads = n.noteheads
-            assert len(noteheads) == len(n.pitches), f"noteheads: {noteheads}, pitches: {n.pitches}"
         _("<")
+        notenames = n.notenames
+        notatedpitches = [pt.notated_pitch(notename) for notename in notenames]
+        chordAccidentalTraits = n.findAttachment(cls=attachment.AccidentalTraits, anchor=None) or attachment.AccidentalTraits.default()
         for i, pitch in enumerate(n.pitches):
-            if noteheads and noteheads[i]:
-                _(lyNoteheadInsideChord(noteheads[i]))
-            _(lilytools.makePitch(n.notename(i),
-                                  accidentalParenthesis=n.accidentalTraits.hidden))
+            if noteheads and (notehead := noteheads.get(i)) is not None:
+                _(lyNotehead(notehead, insideChord=True))
+            notename = notenames[i]
+            notatedpitch = notatedpitches[i]
+            pitchAccidentalTraits = n.findAttachment(cls=attachment.AccidentalTraits, anchor=i) or chordAccidentalTraits
+
+            if any(otherpitch.diatonic_index == notatedpitch.diatonic_index for otherpitch in notatedpitches
+                   if otherpitch is not notatedpitch):
+                forceAccidental = True
+            else:
+                forceAccidental = pitchAccidentalTraits.force
+
+            if pitchAccidentalTraits.hidden:
+                _("\once\omit Accidental")
+            if pitchAccidentalTraits.color:
+                _(fr'\tweak Accidental.color "{pitchAccidentalTraits.color}"')
+
+            _(lilytools.makePitch(notename,
+                                  parenthesizeAccidental=pitchAccidentalTraits.parenthesis,
+                                  forceAccidental=forceAccidental))
         _(f">{base}{'.'*dots}{'~' if n.tiedNext else ''}")
 
     if trem := first(a for a in n.attachments if isinstance(a, attachment.Tremolo)):
@@ -1041,7 +1036,8 @@ _horizontalSpacingXL = r"""
 """
 
 _horizontalSpacingPresets = {
-    'normal': _horizontalSpacingNormal,
+    'default': None,
+    'small': _horizontalSpacingNormal,
     'medium': _horizontalSpacingMedium,
     'large': _horizontalSpacingLarge,
     'xl': _horizontalSpacingXL,
@@ -1119,7 +1115,9 @@ def makeScore(score: quant.QuantizedScore,
         """ % options.glissandoLineThickness)
 
     if options.horizontalSpacing:
-        _(_horizontalSpacingPresets[options.horizontalSpacing])
+        spacingPreset = _horizontalSpacingPresets[options.horizontalSpacing]
+        if spacingPreset:
+            _(spacingPreset)
 
     _(r"\score {")
     _(r"<<")

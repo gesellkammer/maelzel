@@ -110,7 +110,7 @@ class RenderOptions:
             f"Invalid page size, it must be one of a1, a2, ..., a5"
         assert self.divsPerSemitone in (1, 2, 4)
         assert self.centsPlacement in ('above', 'below')
-        assert self.horizontalSpacing in ('normal', 'medium', 'large')
+        assert self.horizontalSpacing in ('small', 'medium', 'large', 'xlarge', 'default')
 
 
 class Renderer:

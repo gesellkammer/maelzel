@@ -91,11 +91,11 @@ def _groupNotationsByMeasure(part:core.Part, struct: ScoreStruct
             logger.error(f"Scorestruct: duration = {struct.totalDurationBeats()} quarters\n{struct.dump()}")
             raise ValueError(f"Offset {float(n.offset):.3f} outside of score structure "
                              f"(max. offset: {float(struct.totalDurationBeats()):.3f})")
-        elif loc.measureIndex == currMeasure:
+        elif loc[0] == currMeasure:
             groups[-1].append(n)
         else:
             # new measure
-            currMeasure = loc.measureIndex
+            currMeasure = loc[0]
             groups.append([n])
     return groups
 

@@ -39,7 +39,7 @@ import csoundengine
 from maelzel.common import asmidi, F, asF
 from ._common import *
 from .config import CoreConfig
-from .workspace import Workspace, getConfig, getScoreStruct
+from .workspace import Workspace
 from . import playback
 from . import environment
 from . import symbols as _symbols
@@ -62,6 +62,7 @@ if TYPE_CHECKING:
 
 __all__ = (
     'MObj',
+    'MContainer',
     'resetImageCache'
 )
 
@@ -74,6 +75,37 @@ class _TimeScale:
     def __call__(self, t: num_t):
         r = asF(t)
         return r*self.factor + self.offset
+
+
+class MContainer:
+    """
+    An interface for any class which can be a parent
+    """
+    def childOffset(self, child: MObj) -> F:
+        raise NotImplementedError
+
+    def childDuration(self, child: MObj) -> F:
+        raise NotImplementedError
+
+    def absoluteOffset(self) -> F:
+        raise NotImplementedError
+
+    def scorestruct(self) -> ScoreStruct | None:
+        raise NotImplementedError
+
+    def childChanged(self, child: MObj) -> None:
+        """
+        This should be called by a child when changed
+
+        Not all changes are relevant to a parent. In particular only
+        changes regarding offset or duration should be signaled
+
+        Args:
+            child: the modified child
+
+        """
+        pass
+
 
 
 class MObj:
@@ -102,13 +134,14 @@ class MObj:
     _acceptsNoteAttachedSymbols = True
     _isDurationRelative = True
 
-    __slots__ = ('parent', 'dur', 'offset', 'label', 'playargs', 'symbols', '_scorestruct', '_properties')
+    __slots__ = ('parent', 'dur', 'offset', 'label', 'playargs', 'symbols',
+                 '_scorestruct', 'properties', '_resolvedOffset', '_resolvedDur')
 
     def __init__(self, dur: time_t = None, offset: time_t = None, label: str = '',
                  parent: MObj = None,
                  properties: dict[str, Any] = None):
 
-        self.parent: MObj | None = parent
+        self.parent: MContainer | None = parent
         "The parent of this object (or None if it has no parent)"
 
         self.label = label
@@ -133,43 +166,90 @@ class MObj:
         """playargs are set via .setPlay and serve the purpose of attaching playing
         parameters (like pan position, instrument, ...) to an object"""
 
-        self._properties: dict[str, Any] | None = properties
+        self.properties: dict[str, Any] | None = properties
 
         self._scorestruct: ScoreStruct | None = None
+        self._resolvedOffset: F | None = None
+        self._resolvedDur: F | None = None
 
-    @property
-    def properties(self) -> dict[str, Any]:
-        """A place to put user-defined properties"""
-        if self._properties is None:
-            self._properties = {}
-        return self._properties
+    def setProperty(self: T, key: str, value) -> T:
+        """
+        Set a property, returns self
+
+        Any MObj can have properties but these are optional, meaning
+        that before any property is created the *.properties* attribute
+        is None. This method created the dict if it is still None and
+        sets the property.
+
+        Args:
+            key: the key to set
+            value: the value of the property
+
+        Returns:
+            self (similar to setPlay or setSymbol, to allow for chaining calls)
+
+        Example
+        ~~~~~~~
+
+            >>> from maelzel.core import *
+            >>> n = Note("4C", 1)
+            >>> n.setProperty('foo', 'bar')
+            4C:1♩
+            >>> # To query a property do:
+            >>> if n.properties:
+            ...     foo = n.properties.get('foo')
+            ...     print(foo)
+            bar
+
+        """
+        if self.properties is None:
+            self.properties = {key: value}
+        else:
+            self.properties[key] = value
+        return self
 
     def pitchRange(self) -> tuple[float, float] | None:
         """
         The pitch range of this object, if applicable
 
-        This is useful to assign a proper Voice when distributing
-        objects among voices
+        This is useful in order to assign this object to a proper Voice
+        when distributing objects among voices
 
         Returns:
             either None or a tuple (lowest pitch, highest pitch)
         """
         return None
 
+    def _detachedOffset(self) -> F | None:
+        return offset if (offset:=self.offset) is not None else self._resolvedOffset
+
+    def _detachedDur(self) -> F | None:
+        return dur if (dur:=self.dur) is not None else self._resolvedDur
+
     def resolvedOffset(self) -> F:
         """
-        Resolved start of this object
+        Resolved start of this object, relative to its parent
 
-        If the offset is unset (``None``), a fallback offset is returned
-        For non-container objects (:class:`Note`, :class:`Chord`), this is either the
-        explicitely set ``.offset`` attribute, or 0.
+        If this object has no parent the offset is an absolute offset.
 
-        Derived classes can override this method to match their behaviour
+        The .offset attribute holds the explicit offset. If this attribute
+        is unset (None) this object asks its parent which is its offset
+        based on the durations of any previous objects
 
         Returns:
-            the resolved start time, in quarter notes
+            the resolved offset, in quarter notes
+
+        .. seealso:: :meth:`MObj.absoluteOffset`
         """
-        return self.offset if self.offset is not None else F(0)
+        if (offset := self.offset) is not None:
+            return offset
+        elif self._resolvedOffset is not None:
+            return self._resolvedOffset
+        elif self.parent:
+            self._resolvedOffset = self.parent.childOffset(self)
+            return self._resolvedOffset
+        else:
+            return F(0)
 
     def resolvedDur(self) -> F:
         """
@@ -183,9 +263,16 @@ class MObj:
         the explicitely set ``.dur`` attribute, or 1.0
 
         """
-        return self.dur if self.dur is not None else F(1)
+        if self.dur is not None:
+            return self.dur
+        elif self._resolvedDur is not None:
+            return self._resolvedDur
+        elif self.parent:
+            self._resolvedDur = self.parent.childDuration(self)
+            return self._resolvedDur
+        return F(1)
 
-    def resolved(self, offset: time_t = None):
+    def resolved(self):
         """
         Copy of self with explicit times
 
@@ -193,15 +280,31 @@ class MObj:
             offset: a start time to fill or override self.start.
 
         Returns:
-            a clone of self with dur and start set to explicit
+            a clone of self with dur and offset set to explicit
             values
 
         """
         if self.dur is not None and self.offset is not None:
             return self
-        offset = asF(firstval(offset, self.offset, F(0)))
-        dur = self.resolvedDur()
-        return self.clone(dur=dur, offset=offset)
+        return self.clone(dur=self.resolvedDur(), offset=self.resolvedOffset())
+
+    def absoluteOffset(self) -> F:
+        """
+        Returns the absolute offset of this object in quarternotes
+
+        If this object is embedded (has a parent) in a container,
+        its absolute offset depends on the offset of its parent,
+        recursively. If the object has no parent then the absolute offset
+        is just the resolved offset
+
+        Returns:
+            the absolute start position of this object
+        """
+        if not self.parent:
+            return self.resolvedOffset()
+
+        offset = self.offset if self.offset is not None else self.parent.childOffset(self)
+        return self.parent.absoluteOffset() + offset
 
     def setPlay(self: T, /, **kws) -> T:
         """
@@ -288,8 +391,8 @@ class MObj:
 
         if self.playargs is not None:
             out.playargs = self.playargs.copy()
-        if self._properties is not None:
-            out._properties = self._properties.copy()
+        if self.properties is not None:
+            out.properties = self.properties.copy()
         return out
 
     def copy(self: T) -> T:
@@ -307,7 +410,7 @@ class MObj:
 
     def timeShift(self:T, timeoffset: time_t) -> T:
         """
-        Return a copy of this object with an added time offset
+        Return a copy of this object with an added offset
 
         Args:
             timeoffset: a delta time added
@@ -315,6 +418,7 @@ class MObj:
         Returns:
             a copy of this object shifted in time by the given amount
         """
+        timeoffset = asF(timeoffset)
         return self.timeTransform(lambda t: t+timeoffset)
 
     def __eq__(self, other) -> bool:
@@ -381,7 +485,7 @@ class MObj:
             external: True to force opening the image in an external image viewer,
                 even when inside a jupyter notebook. If False, show will
                 display the image inline if inside a notebook environment.
-                To change the default, modify :ref:`config['show.external'] <config_show_external>`
+                To change the default, modify :ref:`config['openImagesInExternalApp'] <config_openImagesInExternalApp>`
             backend: backend used when rendering to png/pdf.
                 One of 'lilypond', 'music21'. None to use default
                 (see :ref:`config['show.backend'] <config_show_backend>`)
@@ -391,12 +495,12 @@ class MObj:
             resolution: dpi resolution when rendering to an image, overrides the
                 :ref:`config key 'show.pngResolution' <config_show_pngresolution>`
         """
-        cfg = config or getConfig()
+        cfg = config or Workspace.active.config
         if resolution:
             cfg = cfg.clone({'show.pngResolution': resolution})
 
         if external is None:
-            external = cfg['show.external']
+            external = cfg['openImagesInExternalApp']
         if backend is None:
             backend = cfg['show.backend']
         if fmt is None:
@@ -424,7 +528,10 @@ class MObj:
         This happens when a note changes its pitch inplace, the duration is modified, etc.
         This invalidates, among other things, the image cache for this object
         """
-        pass
+        self._resolvedOffset = None
+        self._resolvedDur = None
+        if self.parent:
+            self.parent.childChanged(self)
 
     def render(self,
                backend: str = None,
@@ -472,7 +579,10 @@ class MObj:
                              scorestruct=scorestruct, config=config,
                              quantizationProfile=quantizationProfile)
 
-    def renderImage(self, backend: str = None, outfile: str = None, fmt="png",
+    def renderImage(self,
+                    backend: str = None,
+                    outfile: str = None,
+                    fmt="png",
                     scorestruct: ScoreStruct = None,
                     config: CoreConfig = None
                     ) -> str:
@@ -505,7 +615,7 @@ class MObj:
         if scorestruct is None:
             scorestruct = self.scorestruct() or w.scorestruct
         path = _renderImage(self, outfile, fmt=fmt, backend=backend, scorestruct=scorestruct,
-                            config=config or getConfig())
+                            config=config or Workspace.active.config)
         if not os.path.exists(path):
             # cached image does not exist?
             resetImageCache()
@@ -552,15 +662,14 @@ class MObj:
         package to represent notated events. A :class:`maelzel.scoring.Part`
         is unquantized and independent of any score structure
         """
-        notations = self.scoringEvents(config or getConfig())
+        notations = self.scoringEvents(config=config or Workspace.active.config)
         if not notations:
             return []
         scoring.stackNotationsInPlace(notations)
-        # scoring.enharmonics.fixEnharmonicsInPlace(notations)
         parts = scoring.distributeNotationsByClef(notations)
         return parts
 
-    def scoringArrangement(self, title:str=None) -> scoring.Arrangement:
+    def scoringArrangement(self, title: str = None) -> scoring.Arrangement:
         """
         Create a notation Score from this object
 
@@ -578,7 +687,7 @@ class MObj:
         """ Returns owns annotations as a scoring Annotation """
         if not self.label:
             return None
-        return scoring.attachment.Text(self.label, fontsize=getConfig()['show.labelFontSize'])
+        return scoring.attachment.Text(self.label, fontsize=Workspace.active.config['show.labelFontSize'])
 
     def asmusic21(self, **kws) -> m21.stream.Stream:
         """
@@ -604,7 +713,7 @@ class MObj:
                                                       backend='music21',
                                                       scorestruct=self.scorestruct())
         stream = renderer.asMusic21()
-        if getConfig()['m21.fixStream']:
+        if Workspace.active.config['m21.fixStream']:
             m21tools.fixStream(stream, inPlace=True)
         return stream
 
@@ -624,7 +733,6 @@ class MObj:
     def write(self,
               outfile: str,
               backend: str = None,
-              scorestruct: ScoreStruct = None,
               resolution: int = None
               ) -> None:
         """
@@ -641,7 +749,6 @@ class MObj:
                 (:ref:`key: 'show.backend' <config_show_backend>`).
                 Possible backends: ``lilypond``; ``music21`` (uses MuseScore to render musicxml as
                 image so MuseScore needs to be installed)
-            scorestruct: if given it will overwrite the active ScoreStruct
             resolution: image DPI (only valid if rendering to an image) - overrides
                 the :ref:`config key 'show.pngResolution' <config_show_pngresolution>`
         """
@@ -653,7 +760,7 @@ class MObj:
                 logger.info("File selection cancelled")
                 return
         ext = os.path.splitext(outfile)[1]
-        cfg = getConfig()
+        cfg = Workspace.active.config
         if ext == '.ly' or ext == '.mid' or ext == '.midi':
             backend = 'lilypond'
         elif ext == '.xml' or ext == '.musicxml':
@@ -664,7 +771,7 @@ class MObj:
             cfg = cfg.clone(updates={'show.pngResolution': resolution})
         r = notation.renderWithActiveWorkspace(self.scoringParts(),
                                                backend=backend,
-                                               scorestruct=scorestruct or self.scorestruct(),
+                                               scorestruct=self.scorestruct(),
                                                config=cfg)
         r.write(outfile)
 
@@ -672,7 +779,7 @@ class MObj:
         imgpath = self.renderImage()
         if not imgpath:
             return ''
-        scaleFactor = getConfig().get('show.scaleFactor', 1.0)
+        scaleFactor = Workspace.active.config.get('show.scaleFactor', 1.0)
         width, height = emlib.img.imgSize(imgpath)
         img = emlib.img.htmlImgBase64(imgpath,
                                       width=f'{int(width * scaleFactor)}px')
@@ -693,8 +800,6 @@ class MObj:
         print(f'{"  "*indents}{repr(self)}')
         if self.playargs:
             print(f'{"  "*(indents+1)}{self.playargs}')
-        if self.symbols:
-            print(f'{"  " * (indents + 1)}{self.symbols}')
 
     def _synthEvents(self, playargs: PlayArgs, workspace: Workspace,
                      ) -> list[SynthEvent]:
@@ -783,13 +888,13 @@ class MObj:
         pairs = (
             ('instr', instr),
             ('delay', delay),
-            ('gain', gain),
-            ('fade', fade),
-            ('pitchinterpol', pitchinterpol),
-            ('fadeshape', fadeshape),
             ('args', args),
+            ('gain', gain),
+            ('chan', chan),
+            ('pitchinterpol', pitchinterpol),
+            ('fade', fade),
+            ('fadeshape', fadeshape),
             ('position', position),
-            ('chain', chan),
             ('sustain', sustain),
             ('transpose', transpose)
         )
@@ -801,16 +906,21 @@ class MObj:
                 args.update(kwargs)
             else:
                 d['args'] = kwargs
-        playargs = PlayArgs(d)
+
         if workspace is None:
             workspace = Workspace.active
+
         if (struct := self.scorestruct()) is not None:
             workspace = workspace.clone(scorestruct=struct)
+
+        playargs = PlayArgs.makeDefault(workspace.config)
+        playargs.update(d)
+
         events = self._synthEvents(playargs, workspace)
         if start is not None or end is not None:
-            scorestruct = workspace.scorestruct
-            starttime = None if start is None else scorestruct.beatToTime(start)
-            endtime = None if end is None else scorestruct.beatToTime(end)
+            struct = workspace.scorestruct
+            starttime = None if start is None else struct.beatToTime(start)
+            endtime = None if end is None else struct.beatToTime(end)
             events = cropEvents(events, start=starttime, end=endtime, rewind=True)
         return events
 
@@ -1191,7 +1301,7 @@ class MObj:
             spanner.setAnchor(self)
         return self
 
-    def timeTransform(self:T, timemap: Callable[[num_t], num_t], inplace=False) -> T:
+    def timeTransform(self:T, timemap: Callable[[F], F], inplace=False) -> T:
         """
         Apply a time-transform to this object
 
@@ -1208,17 +1318,17 @@ class MObj:
             The actual time will be also determined by any tempo changes in the
             active score structure.
         """
-        start = 0. if self.offset is None else self.offset
-        dur = 1.0 if self.dur is None else self.dur
-        start2 = timemap(start)
-        dur2 = timemap(start+dur) - start2
+        offset = self.resolvedOffset()
+        dur = self.resolvedDur()
+        offset2 = timemap(offset)
+        dur2 = timemap(offset+dur) - offset2
         if inplace:
-            self.offset = start2
+            self.offset = offset2
             self.dur = dur2
             self._changed()
             return self
         else:
-            return self.clone(start=asF(start2), dur=asF(dur2))
+            return self.clone(offset=offset2, dur=dur2)
 
     def timeShiftInPlace(self, timeoffset: time_t) -> None:
         """
@@ -1233,7 +1343,7 @@ class MObj:
     def timeRangeSecs(self) -> tuple[F, F]:
         if self.offset is None:
             raise ValueError(f"The object {self} has no explicit .start")
-        s = self._scorestruct or getScoreStruct()
+        s = self.scorestruct()
         startabs = s.beatToTime(self.offset)
         if self._isDurationRelative:
             durrel = self.resolvedDur()
@@ -1316,7 +1426,7 @@ class MObj:
             a clone of self with the modified start and duration
 
         """
-        oldstruct = oldstruct or self.scorestruct() or getScoreStruct()
+        oldstruct = oldstruct or self.scorestruct() or Workspace.active.scorestruct
         if newstruct == oldstruct:
             logger.warning("The new scorestruct is the same as the old scorestruct")
             return self
@@ -1371,7 +1481,7 @@ def _renderImage(obj: MObj, outfile: str | None, fmt, backend,
                  config: CoreConfig):
     renderoptions = notation.makeRenderOptionsFromConfig(config)
     if scorestruct is None:
-        scorestruct = getScoreStruct()
+        scorestruct = Workspace.active.scorestruct
     r = obj.render(backend=backend, renderoptions=renderoptions, scorestruct=scorestruct,
                    config=config)
     if not outfile:

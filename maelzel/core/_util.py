@@ -64,12 +64,6 @@ def pngShow(pngpath: str, forceExternal=False, app: str = '') -> None:
         environment.openPngWithExternalApplication(pngpath, app=app)
 
 
-def showTime(f) -> str:
-    if f is None:
-        return "None"
-    return f"{float(f):.3g}"
-
-
 def carryColumns(rows: list, sentinel=None) -> list:
     """
     Carries values from one row to the next, if needed
@@ -311,9 +305,33 @@ def _parseSymbolicDuration(s: str) -> F:
     return F(4, int(s)) * ratio
 
 
+def parsePitch(s: str) -> tuple[str, bool, bool]:
+    """
+    Parse a pitch like 4a~ or 4C#+15!
+
+    Args:
+        s: the notename to parse
+
+    Returns:
+        a tuple (notename, tied, fixed)
+
+    """
+    tied = None
+    fixed = None
+    if s.endswith('~'):
+        tied = True
+        s = s[:-1]
+    if s.endswith('!'):
+        fixed = True
+        s = s[:-1]
+    return s, tied, fixed
+
+
 def parseNote(s: str) -> NoteProperties:
     """
     Parse a note definition string with optional duration and other properties
+
+    Pitch specific modifiers, like ! or ~ are not parsed
 
     ================================== ============= ====  ===========
     Note                               Pitch         Dur   Properties
@@ -327,7 +345,6 @@ def parseNote(s: str) -> NoteProperties:
     4G:^                               4G            None  {'articulation': 'accent'}
     4A/8                               4A            0.5
     4Gb/4.:pp                          4Gb           1.5   {dynamic: 'pp'}
-    4A+!                               4A+           None  {'fixPitch': True}
     ================================== ============= ====  ===========
 
 
@@ -340,33 +357,11 @@ def parseNote(s: str) -> NoteProperties:
     4C#~
     """
     dur, properties = None, {}
+
     if ":" not in s:
-        if "/" in s:
-            # 4Eb/8. -> 4Eb, dur=0.75
-            pitch, symbolicdur = s.split("/")
-            dur = _parseSymbolicDuration(symbolicdur)
-        else:
-            pitch = s
-        if pitch[-1] == "~":
-            properties['tied'] = True
-            pitch = pitch[:-1]
-        if pitch[-1] == '!':
-            properties['fixPitch'] = True
-            pitch = pitch[:-1]
+        note = s
     else:
-        pitch, rest = s.split(":", maxsplit=1)
-        if "/" in pitch:
-            # 4Eb/8  = 4Eb, dur=0.5
-            pitch, symbolicdur = pitch.split("/")
-            dur = _parseSymbolicDuration(symbolicdur)
-
-        if pitch[-1] == "~":
-            properties['tied'] = True
-            pitch = pitch[:-1]
-        if pitch[-1] == '!':
-            properties['fixPitch'] = True
-            pitch = pitch[:-1]
-
+        note, rest = s.split(":", maxsplit=1)
         parts = rest.split(":")
         for part in parts:
             try:
@@ -381,7 +376,13 @@ def parseNote(s: str) -> NoteProperties:
                 elif "=" in part:
                     key, value = part.split("=", maxsplit=1)
                     properties[key] = value
-    notename = [p.strip() for p in pitch.split(",",)] if "," in pitch else pitch
+
+    if "/" in s:
+        # 4Eb/8. -> 4Eb, dur=0.75
+        note, symbolicdur = note.split("/")
+        dur = _parseSymbolicDuration(symbolicdur)
+
+    notename = [p.strip() for p in note.split(",",)] if "," in note else note
     return NoteProperties(notename=notename, dur=dur, properties=properties)
 
 
@@ -413,7 +414,7 @@ def dictRemoveNoneKeys(d: dict):
         del d[k]
 
 
-def htmlSpan(text, color: str = '', fontsize: str = '', italic=False) -> str:
+def htmlSpan(text, color: str = '', fontsize: str = '', italic=False, bold=False) -> str:
     if color.startswith(':'):
         color = safeColors[color[1:]]
     styleitems = {}
@@ -425,4 +426,30 @@ def htmlSpan(text, color: str = '', fontsize: str = '', italic=False) -> str:
     text = str(text)
     if italic:
         text = f'<i>{text}</i>'
+    if bold:
+        text = f'<strong>{text}</strong>'
     return f'<span style="{stylestr}">{text}</span>'
+
+
+def showF(f: F, maxdenom=1000) -> str:
+    """
+    Show a fraction, limit den to *maxdenom*
+
+    Args:
+        f: the fraction to show
+
+    Returns:
+        a readable string representation
+
+    """
+    if f.denominator > maxdenom:
+        f2 = f.limit_denominator(maxdenom)
+        return "*%d/%d" % (f2.numerator, f2.denominator)
+    return "%d/%d" % (f.numerator, f.denominator)
+
+
+def showT(f: F | None) -> str:
+    """Show *f* as time"""
+    if f is None:
+        return "None"
+    return f"{float(f):.3f}".rstrip('0').rstrip('.')

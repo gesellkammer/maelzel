@@ -18,12 +18,11 @@ from maelzel import scoring
 from ._common import logger
 import pitchtools as pt
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
-    from typing import Optional, Set, Sequence, Union, Any, TypeVar
+    from typing import Set, Sequence, Any, TypeVar
     TSpanner = TypeVar('TSpanner', bound='Spanner')
     from maelzel.core import event
-    Event = Union[mobj.Note, mobj.Chord]
-
 
 _uuid_alphabet = '0123456789abcdefghijklmnopqrstuvwxyz'
 
@@ -124,7 +123,7 @@ class Spanner(Symbol):
         self.placement = placement
         self.color = color
 
-        self.anchor: weakref.ReferenceType[Event] | None = None
+        self.anchor: weakref.ReferenceType[event.MEvent] | None = None
         """The event to which this spanner is anchored to"""
 
         self.partnerSpanner: weakref.ReferenceType[Spanner] | None = None
@@ -140,7 +139,7 @@ class Spanner(Symbol):
         attrstr = ', '.join(f'{k}={v}' for k, v in self._attrs().items())
         return f'{cls}({attrstr})'
 
-    def setAnchor(self, obj: Event) -> None:
+    def setAnchor(self, obj: event.MEvent) -> None:
         """
         Set the anchor for this spanner.
 
@@ -152,7 +151,7 @@ class Spanner(Symbol):
         """
         self.anchor = weakref.ref(obj)
 
-    def bind(self, startobj: Event, endobj: Event) -> None:
+    def bind(self, startobj: event.MEvent, endobj: event.MEvent) -> None:
         """
         Bind a Spanner to two notes/chords
 
@@ -176,7 +175,7 @@ class Spanner(Symbol):
         self.makeEndSpanner(anchor=endobj)
         assert self.partnerSpanner is not None
 
-    def makeEndSpanner(self: TSpanner, anchor: Event = None) -> TSpanner:
+    def makeEndSpanner(self: TSpanner, anchor: event.MEvent = None) -> TSpanner:
         """
         Creates the end spanner for an already existing start spanner
 
@@ -438,11 +437,16 @@ class Color(Property):
 
 class NoteAttachedSymbol(Symbol):
     """Base-class for all note attached symbols"""
-    noteheadAttached = False
 
     @classmethod
-    def possibleValues(cls, key: str = None) -> Optional[Set[str]]:
+    def possibleValues(cls, key: str = None) -> Set[str] | None:
         return None
+
+
+class PitchAttachedSymbol(NoteAttachedSymbol):
+
+    def applyToPitch(self, n: scoring.Notation, idx: int = None):
+        raise NotImplementedError
 
 
 class Ornament(NoteAttachedSymbol):
@@ -453,13 +457,12 @@ class Ornament(NoteAttachedSymbol):
         self.kind = kind
 
     @classmethod
-    def possibleValues(cls, key: str = None) -> Optional[Set[str]]:
+    def possibleValues(cls, key: str = None) -> Set[str] | None:
         if key is None or key == 'kind':
             return scoring.definitions.availableOrnaments
 
     def applyTo(self, n: scoring.Notation) -> None:
         n.addAttachment(scoring.attachment.Ornament(self.kind))
-        # notation.setProperty('o2rnament', self.kind)
 
 
 class Tremolo(Ornament):
@@ -492,13 +495,12 @@ class Fermata(NoteAttachedSymbol):
         self.kind = kind
 
     @classmethod
-    def possibleValues(cls, key: str = None) -> Optional[Set[str]]:
+    def possibleValues(cls, key: str = None) -> Set[str] | None:
         if key is None or key == 'kind':
             return scoring.definitions.availableFermatas
 
     def applyTo(self, n: scoring.Notation) -> None:
         n.addAttachment(scoring.attachment.Fermata(kind=self.kind))
-        # notation.setProperty('fermata', self.kind)
 
 
 class Text(NoteAttachedSymbol):
@@ -599,7 +601,6 @@ class Harmonic(NoteAttachedSymbol):
         interval: the interval between the node touched and the pitch
             depressed, only needed for artificial harmonics
     """
-    noteheadAttached = True
     applyToRests = False
 
     def __init__(self, kind='natural', interval=0):
@@ -634,67 +635,54 @@ class Harmonic(NoteAttachedSymbol):
                 n.addAttachment(scoring.attachment.Harmonic(self.interval))
 
 
-class Notehead(NoteAttachedSymbol):
+class Notehead(PitchAttachedSymbol):
     """
     Customizes the notehead shape, color, parenthesis and size
 
     Args:
-        kind: one of 'cross', 'harmonic', 'triangleup', 'xcircle',
+        shape: one of 'cross', 'harmonic', 'triangleup', 'xcircle',
               'triangle', 'rhombus', 'square', 'rectangle'
         color: a css color (str)
         parenthesis: if True, parenthesize the notehead
         size: a size factor (1.0 means the size corresponding to the staff size, 2. indicates
             a notehead twice as big)
     """
-    noteheadAttached = True
-    exclusive = True
+    exclusive = False
     applyToTieStrategy = 'all'
     appliesToRests = False
 
-    def __init__(self, kind: str = None, color: str = None, parenthesis=False,
-                 size: float = None):
+    def __init__(self, shape='', color='', parenthesis=False,
+                 size: float = None, hidden=False):
         super().__init__()
-
-        self.hidden = False
-        if kind and kind.endswith('?'):
+        self.hidden = hidden
+        if shape and shape.endswith('?'):
             parenthesis = True
-            kind = kind[:-1]
-        elif kind == 'hidden':
-            kind = ''
+            shape = shape[:-1]
+        elif shape == 'hidden':
+            shape = ''
             self.hidden = True
-        if kind:
-            kind2 = scoring.definitions.normalizeNoteheadShape(kind)
-            assert kind2, f"Notehead '{kind}' unknown. Possible noteheads: " \
+        if shape:
+            shape2 = scoring.definitions.normalizeNoteheadShape(shape)
+            assert shape2, f"Notehead '{shape}' unknown. Possible noteheads: " \
                           f"{scoring.definitions.noteheadShapes}"
-            kind = kind2
-        self.kind = kind
+            shape = shape2
+        self.shape = shape
         self.color = color
         self.parenthesis = parenthesis
         self.size = size
 
-    def asScoringNotehead(self) -> str:
-        if self.hidden:
-            return 'hidden'
-        kind = self.kind or ''
-        if self.parenthesis:
-            kind += '?'
-        parts = [kind]
-        if self.color:
-            parts.append(f"color={self.color}")
-        if self.size:
-            parts.append(f"size={self.size}")
-        return ";".join(parts)
-
     def __hash__(self):
-        return hash((type(self).__name__, self.kind, self.color, self.parenthesis, self.size))
+        return hash((type(self).__name__, self.shape, self.color, self.parenthesis, self.size))
 
     @classmethod
-    def possibleValues(cls, key: str = None) -> Optional[Set[str]]:
-        if key is None or key == 'kind':
+    def possibleValues(cls, key: str = None) -> Set[str] | None:
+        if key is None or key == 'shape':
             return scoring.definitions.noteheadShapes
 
     def __repr__(self):
-        parts = [self.kind or 'default']
+        parts = []
+        if self.shape:
+            parts.append(self.shape)
         if self.color:
             parts.append(f'color={self.color}')
         if self.parenthesis:
@@ -703,19 +691,17 @@ class Notehead(NoteAttachedSymbol):
             parts.append(f'size={self.size}')
         return f"Notehead({', '.join(parts)})"
 
-    def applyToNotehead(self, n: scoring.Notation, idx: int = None) -> None:
-        notehead = self.kind if self.kind else ''
-        if self.parenthesis:
-            notehead += '?'
+    def asScoringNotehead(self) -> scoring.definitions.Notehead:
+        return scoring.definitions.Notehead(shape=self.shape, color=self.color, size=self.size,
+                                            parenthesis=self.parenthesis, hidden=self.hidden)
 
-        if idx is None:
-            n.setNotehead(self.asScoringNotehead())
-            # TODO: allow customization of color, etc.
-        else:
-            n.setNotehead(self.asScoringNotehead(), idx=idx)
+    def applyToPitch(self, n: scoring.Notation, idx: int = None) -> None:
+        # if idx is None, apply to all noteheads
+        scoringNotehead = self.asScoringNotehead()
+        n.setNotehead(scoringNotehead, idx=idx, merge=True)
 
     def applyTo(self, n: scoring.Notation) -> None:
-        self.applyToNotehead(n)
+        self.applyToPitch(n, idx=None)
 
 
 class Articulation(NoteAttachedSymbol):
@@ -740,7 +726,7 @@ class Articulation(NoteAttachedSymbol):
         return f"Articulation(kind={self.kind})"
 
     @classmethod
-    def possibleValues(cls, key: str = None) -> Optional[Set[str]]:
+    def possibleValues(cls, key: str = None) -> Set[str] | None:
         if key is None or key == 'kind':
             return scoring.definitions.articulations
 
@@ -784,7 +770,7 @@ class Bend(NoteAttachedSymbol):
         n.addAttachment(scoring.attachment.Bend(self.alter))
 
 
-class Accidental(NoteAttachedSymbol):
+class Accidental(PitchAttachedSymbol):
     """
     Customizes the accidental of a note
 
@@ -802,13 +788,15 @@ class Accidental(NoteAttachedSymbol):
     exclusive = True
     appliesToRests = False
 
-    def __init__(self, hidden=False, parenthesis=False, brackets=False, color: str = None):
+    def __init__(self, hidden=False, parenthesis=False, brackets=False, color='',
+                 force=False, size: float = None):
         super().__init__()
 
         self.hidden = hidden
         self.parenthesis = parenthesis
-        self.brackets = brackets
         self.color = color
+        self.force = force
+        self.size = size
 
     def __repr__(self):
         parts = []
@@ -816,25 +804,25 @@ class Accidental(NoteAttachedSymbol):
             parts.append('hidden=True')
         if self.parenthesis:
             parts.append('parenthesis=True')
-        if self.brackets:
-            parts.append('brackets=True')
         if self.color:
             parts.append(f'color={self.color}')
+        if self.size is not None:
+            parts.append(f'size={self.size}')
         return f'Accidental({", ".join(parts)})'
 
     def __hash__(self):
         return hash((type(self).__name__, self.hidden, self.parenthesis, self.color))
 
-    def applyTo(self, n: scoring.Notation) -> None:
+    def applyToPitch(self, n: scoring.Notation, idx: int = None) -> None:
         if n.isRest:
             return
-        n.accidentalTraits.hidden = self.hidden
-        if self.color:
-            n.accidentalTraits.color = self.color
-        if self.parenthesis:
-            n.accidentalTraits.parenthesis = True
-        elif self.brackets:
-            n.accidentalTraits.brackets = True
+        attachment = scoring.attachment.AccidentalTraits(color=self.color,
+                                                         hidden=self.hidden,
+                                                         parenthesis=self.parenthesis,
+                                                         force=self.force,
+                                                         size=self.size)
+        attachment.anchor = idx
+        n.addAttachment(attachment)
 
 
 _symbols = (

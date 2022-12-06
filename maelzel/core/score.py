@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from maelzel.common import F
+from .mobj import MObj, MContainer
 from .config import CoreConfig
 from .chain import Voice, Chain
 from .workspace import getConfig
-from .mobj import MObj
 from .mobjlist import MObjList
 from maelzel.scorestruct import ScoreStruct
 from maelzel import scoring
@@ -19,7 +19,7 @@ __all__ = (
 )
 
 
-class Score(MObjList):
+class Score(MContainer, MObjList):
     """
     A Score is a list of Voices
 
@@ -32,7 +32,7 @@ class Score(MObjList):
     """
     _acceptsNoteAttachedSymbols = False
 
-    __slots__ = ('voices',)
+    __slots__ = ('voices', '_modified')
 
     def __init__(self,
                  voices: list = None,
@@ -56,15 +56,21 @@ class Score(MObjList):
         self.voices: list[Voice] = voices if voices is not None else []
         """the voices of this score"""
 
-        super().__init__(label=title, offset=F(0))
+        MObjList.__init__(self, label=title, offset=F(0))
         self._scorestruct = scorestruct
-        if scorestruct:
-            for v in self.voices:
-                v.setScoreStruct(scorestruct)
-        self._changed()
+        self._modified = True
 
     def scorestruct(self) -> ScoreStruct | None:
         return self._scorestruct
+
+    def __hash__(self):
+        items = [type(self).__name__, self.label, self.offset, len(self.voices)]
+        if self.symbols:
+            items.extend(self.symbols)
+        if self.voices:
+            items.extend(self.voices)
+        out = hash(tuple(items))
+        return out
 
     def __repr__(self):
         if not self.voices:
@@ -75,7 +81,8 @@ class Score(MObjList):
         return f'Score({info})'
 
     def _changed(self) -> None:
-        self.dur = self.resolvedDur()
+        self._modified = True
+        self.dur = None
 
     def getItems(self) -> list[Voice]:
         return self.voices
@@ -89,9 +96,15 @@ class Score(MObjList):
         self._changed()
 
     def resolvedDur(self) -> F:
+        if self.dur is not None:
+            return self.dur
+
         if not self.voices:
             return F(0)
-        return max(v.resolvedDur() for v in self.voices)
+
+        dur = max(v.resolvedDur() for v in self.voices)
+        self.dur = dur
+        return dur
 
     def scoringParts(self, config: CoreConfig = None
                      ) -> list[scoring.Part]:
@@ -112,5 +125,14 @@ class Score(MObjList):
 
     def setScoreStruct(self, scorestruct: ScoreStruct):
         self._scorestruct = scorestruct
-        for v in self.voices:
-            v.setScoreStruct(scorestruct)
+        self._changed()
+
+    def childOffset(self, child: MObj) -> F:
+        offset = child._detachedOffset()
+        return offset if offset is not None else F(0)
+
+    def childDuration(self, child: MObj) -> F:
+        return child.resolvedDur()
+
+    def absoluteOffset(self) -> F:
+        return F(0)

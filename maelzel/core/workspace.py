@@ -45,12 +45,9 @@ class Workspace:
         updates: if given, these are applied to the config
         renderer: will be set to the active offline renderer while rendering offline
         dynamicCurve: a DynamicCurve used to map amplitude to dynamic expressions
-        name: the name of the workspace, or nothing to create a unique name.
-            The name 'root' refers to the root Workspace
         active: if True, make this Workpsace active
 
     Attributes:
-        name: the name of this Workspace
         renderer: if not None, the active offline renderer
         config: the active config for this Workspace
         scorestruct: the active ScoreStruct
@@ -87,17 +84,13 @@ class Workspace:
                  scorestruct: ScoreStruct | None = None,
                  renderer: Any = None,
                  dynamicCurve: DynamicCurve = None,
-                 name: str = '',
                  updates: dict = None,
                  active=False):
 
-        if not name:
-            name = Workspace._createUniqueName()
-        self.name = name
         self.renderer = renderer
 
         if config is None or isinstance(config, str):
-            config = CoreConfig(updates=updates, proto=config)
+            config = CoreConfig(updates=updates, source=config)
         elif updates:
             config = config.clone(updates=updates)
         else:
@@ -105,10 +98,10 @@ class Workspace:
         self._config: CoreConfig = config
 
         if dynamicCurve is None:
-            mindb = config['dynamicCurve.mindb']
-            maxdb = config['dynamicCurve.maxdb']
-            dynamics = config['dynamicCurve.dynamics'].split()
-            dynamicCurve = DynamicCurve.fromdescr(shape=config['dynamicCurve.shape'],
+            mindb = config['dynamicCurveMindb']
+            maxdb = config['dynamicCurveMaxdb']
+            dynamics = config['dynamicCurveDynamics'].split()
+            dynamicCurve = DynamicCurve.fromdescr(shape=config['dynamicCurveShape'],
                                                   mindb=mindb, maxdb=maxdb,
                                                   dynamics=dynamics)
 
@@ -173,7 +166,7 @@ class Workspace:
             self._previousWorkspace = None
 
     def __repr__(self):
-        return (f"Workspace(name={self.name}, scorestruct={repr(self.scorestruct)}, "
+        return (f"Workspace(scorestruct={repr(self.scorestruct)}, "
                 f"dynamicCurve={self.dynamicCurve})")
 
     @property
@@ -185,11 +178,6 @@ class Workspace:
     def scorestruct(self, s: ScoreStruct):
         _resetCache()
         self._scorestruct = s
-
-    @classmethod
-    def _createUniqueName(cls) -> str:
-        cls._counter += 1
-        return f"Workspace-{cls._counter}"
 
     @property
     def a4(self) -> float:
@@ -232,17 +220,16 @@ class Workspace:
         """Is this the active Workspace?"""
         return getWorkspace() is self
     
-    def clone(self, name: str = None,
+    def clone(self,
               config: CoreConfig = UNSET,
               scorestruct: ScoreStruct = UNSET,
-              active=False
-              ) -> Workspace:
+              active=False,
+
+    ) -> Workspace:
         """
         Clone this Workspace
 
         Args:
-            name: the name of the newly created Workspace. None will generate a
-                unique name
             config: the config to use. **Leave unset** to clone the currently active
                 config, use ``rootConfig`` or use ``rootConfig.makeDefault()`` to
                 create a config with all values set to default
@@ -268,12 +255,9 @@ class Workspace:
             config = self.config.copy()
         if scorestruct is UNSET:
             scorestruct = self.scorestruct.copy()
-        if not name or name is UNSET:
-            name = Workspace._createUniqueName()
         return Workspace(config=config,
                          scorestruct=scorestruct or self.scorestruct,
-                         active=active,
-                         name=name)
+                         active=active)
 
     def presetsPath(self) -> str:
         """
@@ -348,7 +332,7 @@ def _init() -> None:
         logger.debug("init was already done")
         return
     Workspace._initDone = True
-    w = Workspace(name="root", config=CoreConfig.root, active=True)
+    w = Workspace(config=CoreConfig.root, active=True)
     Workspace.root = w
 
 

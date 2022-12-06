@@ -215,6 +215,9 @@ class QuantizationProfile:
     mergeTupletsOfDifferentDuration: bool = False
     """Allow merging tuplets which have different total durations?"""
 
+    mergeNestedTupletsAcrossBeats: bool = False
+    """Allow merging nested tuplets across the beat"""
+
     allowedTupletsAcrossBeat: tuple[int, ...] = (1, 2, 3, 4, 5, 8)
     """Which tuplets are allowed to cross the beat"""
 
@@ -588,8 +591,8 @@ def _fillDuration(notations: list[Notation], duration: F, offset=F(0)) -> list[N
 
     """
     assert all(n.offset is not None for n in notations)
-    assert all(n.offset-offset<duration for n in notations), \
-        f"events start after duration ({duration}): {_eventsShow(notations)}"
+    assert all(n.offset-offset <= duration for n in notations), \
+        f"Events start after duration to fill ({duration=}): {_eventsShow(notations)}"
     assert all(n0.offset <= n1.offset for n0, n1 in iterlib.pairwise(notations)), \
         f"events are not sorted: {_eventsShow(notations)}"
     assert all(n0.end <= n1.offset for n0, n1 in iterlib.pairwise(notations) if n0.duration is not None), \
@@ -1731,46 +1734,45 @@ def splitNotationByMeasure(n: Notation, struct: ScoreStruct
 
     """
     assert n.offset >= 0 and n.duration >= 0
-    loc0 = struct.beatToLocation(n.offset)
-    loc1 = struct.beatToLocation(n.end)
+    measureindex0, beat0 = struct.beatToLocation(n.offset)
+    measureindex1, beat1 = struct.beatToLocation(n.end)
 
-    if loc0 is None or loc1 is None:
+    if measureindex0 is None or measureindex1 is None:
         raise ValueError(f"Could not find a score location for this event: {n}")
 
-    if loc1.beat == 0 and n.duration > 0:
+    if beat1 == 0 and n.duration > 0:
         # Note ends at the barline
-        loc1.measureIndex -= 1
-        loc1.beat = struct.getMeasureDef(loc1.measureIndex).durationBeats()
+        measureindex1 -= 1
+        beat1 = struct.getMeasureDef(measureindex1).durationBeats
 
-    numMeasures = loc1.measureIndex - loc0.measureIndex + 1
-    assert numMeasures >= 1, f"{loc0=}, {loc1=}"
+    numMeasures = measureindex1 - measureindex0 + 1
 
     if numMeasures == 1:
         # The note fits within one measure. Make the offset relative to the measure
-        event = n.clone(offset=loc0.beat, duration=loc1.beat-loc0.beat)
-        return [(loc0.measureIndex, event)]
+        event = n.clone(offset=beat0, duration=beat1 - beat0)
+        return [(measureindex0, event)]
 
-    measuredef = struct.getMeasureDef(loc0.measureIndex)
-    dur = measuredef.durationBeats() - loc0.beat
-    notation = n.clone(offset=loc0.beat, duration=dur, tiedNext=True)
-    pairs = [(loc0.measureIndex, notation)]
+    measuredef = struct.getMeasureDef(measureindex0)
+    dur = measuredef.durationBeats - beat0
+    notation = n.clone(offset=beat0, duration=dur, tiedNext=True)
+    pairs = [(measureindex0, notation)]
 
     # add intermediate measure, if any
     if numMeasures > 2:
-        for m in range(loc0.measureIndex + 1, loc1.measureIndex):
+        for m in range(measureindex0 + 1, measureindex1):
             measuredef = struct.getMeasureDef(m)
             notation = n.clone(offset=F(0),
-                               duration=measuredef.durationBeats(),
+                               duration=measuredef.durationBeats,
                                tiedPrev=True, tiedNext=True, dynamic='')
             notation.removeAttachmentsByClass('articulation')
             pairs.append((m, notation))
 
     # add last notation
-    if loc1.beat > 0:
-        notation = n.clone(offset=F(0), duration=loc1.beat, tiedPrev=True,
+    if beat1 > 0:
+        notation = n.clone(offset=F(0), duration=beat1, tiedPrev=True,
                            dynamic='')
         notation.removeAttachments(lambda a: isinstance(a, attachment.Articulation))
-        pairs.append((loc1.measureIndex, notation))
+        pairs.append((measureindex1, notation))
 
     parts = [part for index, part in pairs]
     _tieNotationParts(parts)
@@ -1816,15 +1818,26 @@ def _groupsCanMerge(g1: DurationGroup, g2: DurationGroup, profile: QuantizationP
     if isinstance(item1, DurationGroup) or isinstance(item2, DurationGroup):
         return Result(False, 'A group cannot merge with a single item')
 
-    if (isinstance(item1, Notation) and isinstance(item2, Notation)
-            and item1.canMergeWith(item2) and acrossBeat):
+    if acrossBeat and not profile.mergeNestedTupletsAcrossBeats:
+        g1nested = any(isinstance(item, DurationGroup) and item.durRatio != g1.durRatio for item in g1.items)
+        if g1nested:
+            return Result(False, "Cannot merge nested tuples")
+        g2nested = any(isinstance(item, DurationGroup) and item.durRatio != g2.durRatio for item in g2.items)
+        if g2nested:
+            return Result(False, "Cannot merge nested tuples")
+
+    if isinstance(item1, Notation) and isinstance(item2, Notation) and acrossBeat:
+        if not item1.canMergeWith(item2):
+            return Result(False, f'{item1} cannot merge with {item2}')
         if item1.duration + item2.duration < profile.minBeatFractionAcrossBeats:
             return Result(False, 'Absolute duration of merged Notations across beat too short')
         if item1.symbolicDuration() + item2.symbolicDuration() < profile.minSymbolicDurationAcrossBeat:
             return Result(False, 'Symbolic duration of merged notations across beat too short')
 
-    #if not core.notationsCanMerge(item1, item2):
-    #    return Result(False, 'notations cannot merge')
+    #print(f"*************** ok, merging\n{g1}\n with {g2}")
+    #print(f"::::: {item1=}\n::::: {item2=}")
+    #if isinstance(g1.items[0], DurationGroup):
+    #    print("****", g1.items[0].durRatio, g1.durRatio)
     return Result(True, '')
 
 

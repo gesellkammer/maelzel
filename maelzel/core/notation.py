@@ -56,7 +56,7 @@ def scoringPartsToMusic21(parts: list[scoring.Part | list[scoring.Notation]],
     """
     config = config or getConfig()
     divsPerSemitone = config['show.semitoneDivisions']
-    showCents = config['show.cents']
+    showCents = config['show.centsDeviationAsTextAnnotation']
     centsFontSize = config['show.centsFontSize']
     if struct is None:
         struct = getWorkspace().scorestruct
@@ -91,15 +91,15 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
     renderOptions = scoring.render.RenderOptions(
         staffSize=cfg['show.staffSize'],
         divsPerSemitone=cfg['semitoneDivisions'],
-        showCents=cfg['show.cents'],
-        centsFontSize=cfg['show.centsFontSize'],
+        showCents=cfg['show.centsDeviationAsTextAnnotation'],
+        centsFontSize=cfg['show.centsAnnotationFontSize'],
         noteAnnotationsFontSize=cfg['show.labelFontSize'],
         pageSize = cfg['show.pageSize'],
         orientation= cfg['show.pageOrientation'],
         pageMarginMillimeters=cfg['show.pageMarginMillimeters'],
         measureAnnotationFontSize=cfg['show.measureAnnotationFontSize'],
         respellPitches=cfg['show.respellPitches'],
-        glissandoLineThickness=cfg['show.glissandoLineThickness'],
+        glissandoLineThickness=cfg['show.glissLineThickness'],
         lilypondPngStaffsizeScale=cfg['show.lilypondPngStaffsizeScale'],
         glissHideTiedNotes=cfg['show.glissHideTiedNotes'],
         renderFormat=cfg['show.format'],

@@ -341,7 +341,7 @@ def _pitchToClef(pitch: float, splitPoint=60) -> str:
         return 'f'
 
 
-def distributeNotationsByClef(notations: list[Notation], filterRests=False, groupid=None
+def distributeNotationsByClef(notations: list[Notation], filterRests=False,
                               ) -> list[Part]:
     """
     Split the notations into parts
@@ -353,8 +353,6 @@ def distributeNotationsByClef(notations: list[Notation], filterRests=False, grou
 
     Args:
         notations: the events to split
-        groupid: if given, this id will be used to identify the
-            generated tracks (see makeGroupId)
         filterRests: if True, rests are skipped
 
     Returns:
@@ -376,31 +374,21 @@ def distributeNotationsByClef(notations: list[Notation], filterRests=False, grou
         else:
             # a chord
             indexesPerClef = {'g': [], 'f': [], '15a': []}
-            noteheads = notation.getNoteheads()
-            matchNext = j < lastj and notation.gliss
-            clefs = [notation.getClefHint(i) or _pitchToClef(pitch, splitPoint)
-                     for i, pitch in enumerate(notation.pitches)]
-            if set(clefs) == 1:
-                parts[clefs[0]].append(notation)
+            pitchindexToClef = [notation.getClefHint(i) or _pitchToClef(pitch, splitPoint)
+                                for i, pitch in enumerate(notation.pitches)]
+            if set(pitchindexToClef) == 1:
+                parts[pitchindexToClef[0]].append(notation)
             else:
-                for i, clef in enumerate(clefs):
+                for i, clef in enumerate(pitchindexToClef):
                     indexesPerClef[clef].append(i)
-                    if j < lastj and matchNext:
+                    if j < lastj and notation.gliss:
                         notations[j+1].setClefHint(clef, i)
                 for clef, indexes in indexesPerClef.items():
-                    if not indexes: continue
-                    noteheads = [noteheads[i] for i in indexes]
-                    if not any(noteheads):
-                        noteheads = None
-                    partialChord = notation.clone(pitches=[notation.pitches[i] for i in indexes],
-                                                  noteheads=noteheads)
-                    notation.transferFixedSpellingTo(partialChord)
+                    if not indexes:
+                        continue
+                    partialChord = notation.extractPartialNotation(indexes)
                     parts[clef].append(partialChord)
 
-
-    # groupid = groupid or makeGroupId()
-    # parts = [Part(part, groupid=groupid, label=name)
-    #           for part, name in ((G15a, "G15a"), (G, "G"), (F, "F")) if part]
     parts = [Part(part) for part in parts.values() if part]
     return parts
 
