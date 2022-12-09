@@ -1,21 +1,19 @@
 from __future__ import annotations
 from maelzel.scorestruct import ScoreStruct
-from maelzel.common import F
-from maelzel.core.event import Note
+from maelzel.common import F, asF
+from maelzel.core.mobj import MContainer
+from maelzel.core.event import MEvent
 from maelzel.snd import audiosample
 import numpy as np
 from maelzel.core._typedefs import *
 from maelzel.core import _dialogs
 import sndfileio
 from .synthevent import SynthEvent, PlayArgs
-from .workspace import getWorkspace
-
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from .workspace import Workspace
+from .workspace import Workspace
+import emlib.misc
 
 
-class Clip(Note):
+class Clip(MEvent):
     """
     A Clip represent an audio sample in time
 
@@ -35,18 +33,19 @@ class Clip(Note):
     """
     _isDurationRelative = False
 
-    __slots__ = ('skip', 'speed', 'source', 'soundfile', 'numchannels')
+    __slots__ = ('skip', 'speed', 'source', 'soundfile', 'numchannels', 'samplerate',
+                 'amp', 'dynamic', 'pitch', 'sourcedursecs')
 
     def __init__(self,
                  source: str | audiosample.Sample | tuple[np.ndarray, int],
-                 dur: time_t = None,
                  pitch: pitch_t = None,
                  amp: float = 1.,
                  offset: time_t = None,
                  label: str = '',
-                 dynamic: str = None,
+                 dynamic: str = '',
                  skip=0.,
-                 speed=1.
+                 speed: F | float =F(1),
+                 parent: MContainer | None = None
                  ):
         if source == '?':
             source = _dialogs.selectSndfileForOpen()
@@ -57,25 +56,31 @@ class Clip(Note):
             self.soundfile = source
             info = sndfileio.sndinfo(source)
             self.samplerate = info.samplerate
-            self.dur = info.duration
+            self.sourcedursecs = info.duration
             self.numchannels = info.channels
         elif isinstance(source, audiosample.Sample):
             self.samplerate = source.sr
-            self.dur = source.duration
+            self.sourcedursecs = source.duration
             self.numchannels = source.numchannels
         elif isinstance(source, tuple) and len(source) == 2 and isinstance(source[0], np.ndarray):
             samples, sr = source
             self.samplerate = sr
-            self.dur = len(samples) / sr
+            self.sourcedursecs = len(samples) / sr
             self.numchannels = 1 if len(samples.shape) == 1 else samples.shape[1]
 
         self.source = source
         """The source of this clip"""
 
+        self.amp = amp
+        """An amplitude (gain) applied to this clip"""
+
+        self.dynamic: str = dynamic
+        """A dynamic expression attached to the score representation of this clip"""
+
         self.skip = skip
         """Start offset of the clip relative to the start of the source"""
 
-        self.speed = speed
+        self.speed = asF(speed)
         """Playback speed"""
 
         self._sample: audiosample.Sample|None = None
@@ -84,8 +89,9 @@ class Clip(Note):
             s = self.asSample()
             pitch = s.fundamentalFreq()
 
-        super().__init__(pitch=pitch, dur=dur, offset=offset, label=label,
-                         tied=False, dynamic=dynamic, amp=amp)
+        self.pitch = pitch
+
+        super().__init__(offset=offset, dur=None, label=label, parent=parent)
 
     def asSample(self) -> audiosample.Sample:
         if self._sample is not None:
@@ -100,16 +106,28 @@ class Clip(Note):
         self._sample = sample
         return sample
 
-    def plot(self):
-        self.asSample().plot()
-
     def isRest(self) -> bool:
         return False
 
-    def resolvedDur(self, start: time_t = None, struct: ScoreStruct = None) -> F:
-        if struct is None:
-            struct = getWorkspace().scorestruct
-        return struct.totalDurationBeats()
+    def durSecs(self) -> F:
+        return self.sourcedursecs / self.speed
+
+    def _calculateDuration(self,
+                           relativeOffset: F | None,
+                           parentOffset: F | None,
+                           force=False
+                           ) -> F | None:
+        if not force and (dur := self.offset if self.offset is not None else self._resolvedDur) is not None:
+            return dur
+        offset = emlib.misc.firstval(relativeOffset, self.offset, self._resolvedOffset, F(0))
+        startbeat = (parentOffset or F(0)) + offset
+        struct = self.scorestruct() or Workspace.active.scorestruct
+        starttime = struct.beatToTime(startbeat)
+        dursecs = self.sourcedursecs / self.speed
+        endtime = starttime + dursecs
+        endbeat = struct.timeToBeat(endtime)
+        self._resolvedDur = out = endbeat - startbeat
+        return out
 
     def _synthEvents(self, playargs: PlayArgs, workspace: Workspace
                      ) -> list[SynthEvent]:

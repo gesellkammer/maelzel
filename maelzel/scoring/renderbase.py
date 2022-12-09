@@ -74,10 +74,11 @@ class RenderOptions:
     restsResetDynamics: bool = True
 
     respellPitches: bool = config['respellPitches']
-    glissandoLineThickness: int = config['glissandoLineThickness']
+    glissLineThickness: int = config['glissLineThickness']
 
     enharmonicsGroupSize: int = 6
     enharmonicsStep: int = 3
+    enharmonicsDebug: bool = False
 
     renderFormat: str = ''
 

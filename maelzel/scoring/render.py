@@ -114,7 +114,8 @@ def _fixEnharmonicsInPart(part: core.Part, struct: ScoreStruct,
 def _makeEnharmonicOptionsFromRenderOptions(options: RenderOptions
                                             ) -> enharmonics.EnharmonicOptions:
     return enharmonics.EnharmonicOptions(groupSize=options.enharmonicsGroupSize,
-                                         groupStep=options.enharmonicsStep)
+                                         groupStep=options.enharmonicsStep,
+                                         debug=options.enharmonicsDebug)
 
 
 def quantizeAndRender(parts: list[core.Part],

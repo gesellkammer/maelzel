@@ -125,12 +125,6 @@ class MObjList(MObj):
         for item in self:
             item.dump(indents+1)
 
-    def makeVoices(self) -> list[Voice]:
-        """
-        Construct a list of Voices from this object
-        """
-        return tools.packInVoices(self.getItems())
-
     def adaptToScoreStruct(self, newstruct: ScoreStruct, oldstruct: ScoreStruct = None):
         newitems = [item.adaptToScoreStruct(newstruct, oldstruct)
                     for item in self]

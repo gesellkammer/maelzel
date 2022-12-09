@@ -210,14 +210,14 @@ class Note(MEvent):
 
     def __init__(self,
                  pitch: pitch_t,
-                 dur: time_t = None,
-                 amp: float = None,
-                 offset: time_t = None,
+                 dur: time_t | None = None,
+                 amp: float | None = None,
+                 offset: time_t | None = None,
                  gliss: pitch_t | bool = False,
                  label: str = '',
-                 dynamic: str = None,
+                 dynamic: str = '',
                  tied = False,
-                 properties: dict[str, Any] = None,
+                 properties: dict[str, Any] | None = None,
                  fixed=False,
                  _init=True
                  ):
@@ -227,6 +227,8 @@ class Note(MEvent):
                 if ":" in pitch:
                     props = _util.parseNote(pitch)
                     dur = dur if dur is not None else props.dur
+                    if isinstance(props.notename, list):
+                        raise ValueError(f"Can only accept a single pitch, got {props.notename}")
                     pitch = props.notename
                     if p := props.properties:
                         offset = offset or p.pop('offset', None)
@@ -570,7 +572,7 @@ class Note(MEvent):
                       ) -> list[scoring.Notation]:
         if not config:
             config = getConfig()
-        dur = self.dur if self.dur is not None else F(1)
+        dur = self.resolvedDur()
         if self.isRest():
             rest = scoring.makeRest(self.dur, offset=self.offset, dynamic=self.dynamic)
             if annot := self._scoringAnnotation():
@@ -985,7 +987,7 @@ class Chord(MEvent):
     def __getitem__(self, idx: int) -> Note: ...
 
     @_overload
-    def __getitem__(self, slice_: slice) -> Chord: ...
+    def __getitem__(self, idx: slice) -> Chord: ...
 
     def __getitem__(self, idx):
         out = self.notes.__getitem__(idx)
@@ -1047,7 +1049,7 @@ class Chord(MEvent):
             config = getConfig()
         notenames = [note.name for note in self.notes]
         annot = self._scoringAnnotation()
-        dur = self.dur if self.dur is not None else F(1)
+        dur = self.resolvedDur()
 
         notation = scoring.makeChord(pitches=notenames, duration=dur, offset=self.offset,
                                      annotation=annot, group=groupid, dynamic=self.dynamic,
@@ -1210,7 +1212,9 @@ class Chord(MEvent):
         """
         Return a new Chord with the loudest `n` notes from this chord
         """
-        return self.copy().sort(key='amp', reverse=True)[:n]
+        out = self.copy()
+        out.sort(key='amp', reverse=True)
+        return out[:n]
 
     def sort(self, key='pitch', reverse=False) -> None:
         """
@@ -1229,7 +1233,7 @@ class Chord(MEvent):
         else:
             raise KeyError(f"Unknown sort key {key}. Options: 'pitch', 'amp'")
 
-    def _resolvePlayargs(self, playargs: PlayArgs, config: dict=None) -> PlayArgs:
+    def _resolvePlayargs(self, playargs: PlayArgs, config: dict | None = None) -> PlayArgs:
         playargs = playargs.filledWith(self.playargs)
         playargs.fillDefaults(config or getConfig())
         return playargs
@@ -1247,8 +1251,8 @@ class Chord(MEvent):
             # playargs.overwriteWith(self.playargs)
         # playargs.fillDefaults(conf)
         if conf['chordAdjustGain']:
-            gain = playargs.get('gain', 1.0) / math.sqrt(len(self))
-            playargs['gain'] = gain
+            gain = playargs.get('gain') or 1.0
+            playargs['gain'] = gain / math.sqrt(len(self))
         endpitches = self.pitches
         if self.gliss:
             if isinstance(self.gliss, list):
@@ -1426,7 +1430,7 @@ class Chord(MEvent):
         """
         Is this chord two dense that it needs to be arpeggiated when shown?
         """
-        return any(abs(n0.notename - n1.notename) <= 1 and abs(n1.notename - n2.notename) <= 1
+        return any(abs(n0.pitch - n1.pitch) <= 1 and abs(n1.pitch - n2.pitch) <= 1
                    for n0, n1, n2 in iterlib.window(self, 3))
 
     def pitchTransform(self, pitchmap: Callable[[float], float]) -> Chord:
@@ -1533,10 +1537,12 @@ def asEvent(obj, **kws) -> MEvent:
         raise TypeError(f"Cannot convert {obj} to a Note or Chord")
 
 
-def _normalizeChordArpeggio(arpeggio: str | bool, chord: Chord, config: CoreConfig
+def _normalizeChordArpeggio(arpeggio: str | bool | None, chord: Chord, config: CoreConfig
                             ) -> bool:
     if arpeggio is None:
-        arpeggio = config['show.arpeggiateChord']
+        arpeggioconfig = config['show.arpeggiateChord']
+        assert isinstance(arpeggioconfig, (str, bool))
+
     if isinstance(arpeggio, bool):
         return arpeggio
     elif arpeggio == 'auto':

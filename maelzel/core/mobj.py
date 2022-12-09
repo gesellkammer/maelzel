@@ -17,11 +17,35 @@ the user does not set a different score structure, an endless score with these d
 values will always be used.
 
 """
-
 from __future__ import annotations
+
+"""
+Internal notes
+
+# offset
+
+Each object has an offset. This offset can be None if not explicitely set
+by the object itself. A cached object, ._resolvedOffset, can be set by 
+either the object itself or by the parent
+
+# dur
+
+Each object has a duration (.dur). The duration can be None if  not explicitely
+set. Each object must have an implicit duration, which, in the case of not being
+set explicitely, can be determined by the offset of the next object within a chain
+or a default duration of 1 if any other method fails.
+
+* _calculateDuration: this method should return the duration in beats or None if the
+  object itself cannot determine its own duration
+* the parent should be always able to determine the duration of a child. If the object
+  has no implicit duration, _calculateDuration is called and if this returns None,
+  a default duration is set. 
+
+"""
+
+
 import functools
 import os
-import copy as _copy
 import tempfile as _tempfile
 import html as _html
 from dataclasses import dataclass
@@ -134,14 +158,14 @@ class MObj:
     _acceptsNoteAttachedSymbols = True
     _isDurationRelative = True
 
-    __slots__ = ('parent', 'dur', 'offset', 'label', 'playargs', 'symbols',
+    __slots__ = ('_parent', 'dur', 'offset', 'label', 'playargs', 'symbols',
                  '_scorestruct', 'properties', '_resolvedOffset', '_resolvedDur')
 
     def __init__(self, dur: time_t = None, offset: time_t = None, label: str = '',
                  parent: MObj = None,
                  properties: dict[str, Any] = None):
 
-        self.parent: MContainer | None = parent
+        self._parent: MContainer | None = parent
         "The parent of this object (or None if it has no parent)"
 
         self.label = label
@@ -171,6 +195,14 @@ class MObj:
         self._scorestruct: ScoreStruct | None = None
         self._resolvedOffset: F | None = None
         self._resolvedDur: F | None = None
+
+    @property
+    def parent(self) -> MContainer | None:
+        return self._parent
+
+    @parent.setter
+    def parent(self, parent: MContainer):
+        self._parent = parent
 
     def setProperty(self: T, key: str, value) -> T:
         """
@@ -233,11 +265,12 @@ class MObj:
         If this object has no parent the offset is an absolute offset.
 
         The .offset attribute holds the explicit offset. If this attribute
-        is unset (None) this object asks its parent which is its offset
-        based on the durations of any previous objects
+        is unset (None) this object might ask its parent to determine the
+        offset based on the durations of any previous objects
 
         Returns:
-            the resolved offset, in quarter notes
+            the resolved offset, in quarter notes. If no explicit or implicit
+            offset and the object has no parent it returns 0.
 
         .. seealso:: :meth:`MObj.absoluteOffset`
         """
@@ -251,16 +284,35 @@ class MObj:
         else:
             return F(0)
 
+    def _calculateDuration(self, relativeOffset: F | None, parentOffset: F | None, force=False
+                           ) -> F | None:
+        """
+        This method should calculate its own duration or return None if it cannot
+
+        If it has already done so and force is False it should return the cached (resolved)
+        duration.
+
+        .. note:: this method is not allowed to access its parent
+
+        Args:
+            relativeOffset: the offset of this object relative to its parent
+            parentOffset: the offset of the parent. parentOffset + relativeOffset = absoluteOffset
+            force: if True, do not use cached values
+
+        Returns:
+            the objects duration, or None if it cannot be determined from
+            the object itself
+        """
+        return self.dur if self.dur is not None else self._resolvedDur
+
     def resolvedDur(self) -> F:
         """
-        The explicit duration or a default duration, in quarternotes
+        The explicit or calculated / implicit duration, in quarternotes
 
-        If this object has an explicitely set duration, this method returns
-        that, otherwise returns a default duration. Child
-        classes can override this method to match their behaviour
-
-        For non-container objects (:class:`Note`, :class:`Chord`) this is either
-        the explicitely set ``.dur`` attribute, or 1.0
+        If this object has an explicit duration (its .dur attribute is not None)
+        then that duration is returned; otherwise returns its implicit duration.
+        If this object has a parent it might call the parent to determine its
+        duration based on its context.
 
         """
         if self.dur is not None:
@@ -1341,16 +1393,11 @@ class MObj:
         self._changed()
 
     def timeRangeSecs(self) -> tuple[F, F]:
-        if self.offset is None:
-            raise ValueError(f"The object {self} has no explicit .start")
+        absoffset = self.absoluteOffset()
+        dur = self.resolvedDur()
         s = self.scorestruct()
-        startabs = s.beatToTime(self.offset)
-        if self._isDurationRelative:
-            durrel = self.resolvedDur()
-            durabs = s.beatToTime(self.offset + durrel)
-        else:
-            durabs = self.dur
-        return startabs, durabs
+        startSecs = s.beatToTime(absoffset)
+        return s.beatToTime(absoffset), s.beatToTime(absoffset + dur)
 
     def startSecs(self) -> F:
         """

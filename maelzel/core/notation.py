@@ -99,12 +99,13 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
         pageMarginMillimeters=cfg['show.pageMarginMillimeters'],
         measureAnnotationFontSize=cfg['show.measureAnnotationFontSize'],
         respellPitches=cfg['show.respellPitches'],
-        glissandoLineThickness=cfg['show.glissLineThickness'],
+        glissLineThickness=cfg['show.glissLineThickness'],
         lilypondPngStaffsizeScale=cfg['show.lilypondPngStaffsizeScale'],
         glissHideTiedNotes=cfg['show.glissHideTiedNotes'],
         renderFormat=cfg['show.format'],
         pngResolution=cfg['show.pngResolution'],
-        horizontalSpacing=cfg['show.horizontalSpacing']
+        horizontalSpacing=cfg['show.horizontalSpacing'],
+        enharmonicsDebug=cfg['show.debugEnharmonicSpelling']
     )
     return renderOptions
 

@@ -15,9 +15,18 @@ from .notation import Notation
 
 from typing import Sequence
 
+_quarternote_slotnames = ('C', 'C+', 'C#', 'D-', 'D', 'D+', 'D#',
+                          'E-', 'E', 'E+', 'F', 'F+', 'F#', 'G-',
+                          'G', 'G+', 'G#', 'A-', 'A', 'A+', 'Bb', 'B-',
+                          'B', 'B+', 'C')
+
 
 @dataclass(unsafe_hash=True)
 class EnharmonicOptions:
+
+    debug: bool = False
+    """Display debug information"""
+
     groupSize: int = 5
     """Max size of a group to be evaluated for best enharmonic variant"""
 
@@ -297,6 +306,36 @@ def intervalPenalty(n0: str, n1: str, chord=False, options: EnharmonicOptions = 
     source = ", ".join(s for p, s in penalties) + f"({n0}/{n1})"
     return total, source
 
+def _rateEnharmonicVariation(notations: Sequence[Notation],
+                             spelling: list[str],
+                             anchors: list[int],
+                             options: EnharmonicOptions
+                             ) -> float:
+    """
+    Rate this spelling variation
+
+    Args:
+        notations: the notations in question
+        spelling: the spelling of the anchor notes
+        anchors: the anchor indexes
+        options: the enharmonic options
+
+    Returns:
+        a penalty value. The lower this value the better this spelling is
+    """
+    intervalpenalty, sources0 = intervalsPenalty(spelling, options=options)
+    grouppenalty, sources1 = groupPenalty(spelling, options=options)
+    totalChordPenalty = 0.
+    for i, notation in enumerate(notations):
+        notes = notation.notenames
+        anchor = anchors[i]
+        notes[anchor] = spelling[i]
+        chordrating, sources = _rateChordSpelling(notes, options=options)
+        totalChordPenalty += chordrating
+
+    total = sqrt(intervalpenalty ** 2 + grouppenalty ** 2 + totalChordPenalty ** 2)
+    return total
+
 
 def enharmonicPenalty(notes: list[str], options: EnharmonicOptions
                       ) -> float:
@@ -410,7 +449,7 @@ def _makeFixedSlots(fixedNotes: list[str], semitoneDivs=2) -> dict[int, int]:
         if semitoneDivs == 1:
             slots[parsed.chromatic_index] = parsed.alteration_direction()
         elif semitoneDivs == 2:
-            slots[parsed.microtone_index(divs_per_semitone=semitoneDivs)] = parsed.alteration_direction(min_alteration=0.5)
+            slots[parsed.microtone_index(semitone_divisions=semitoneDivs)] = parsed.alteration_direction(min_alteration=0.5)
         else:
             raise ValueError(f"semitoneDivs can be 1 or 2, got {semitoneDivs}")
     return slots
@@ -539,7 +578,9 @@ def fixEnharmonicsInPlace(notations: list[Notation], eraseFixedNotes=False,
 
         # These are the notenames within the window which are considered horizontally
         # Some might be fixed. Only one note per chord
-        notenamesInGroup = [n.notename(anchorPitchIndex(n)) for n in group]
+        anchorIndexes = [anchorPitchIndex(n) for n in group]
+        notenamesInGroup = [n.notename(idx) for idx, n in zip(anchorIndexes, group)]
+        # notenamesInGroup = [n.notename(anchorPitchIndex(n)) for n in group]
 
         # The notes/chords which do not have any fixed notes
         unfixedNotes = [group[i] for i in unfixedNotesIndexes]
@@ -573,8 +614,14 @@ def fixEnharmonicsInPlace(notations: list[Notation], eraseFixedNotes=False,
         validVariations = [v for v in variations if isEnharmonicVariantValid(v)]
         if not validVariations:
             validVariations = variations
-        validVariations.sort(key=functools.partial(enharmonicPenalty, options=options))
+
+        validVariations.sort(key=lambda seq: _rateEnharmonicVariation(group, seq, anchors=anchorIndexes, options=options))
+        # validVariations.sort(key=functools.partial(enharmonicPenalty, options=options))
+
         solution = validVariations[0]
+        if options.debug:
+            print(f"DEBUG: Enharmonic spelling - orig. {notenamesInGroup}, "
+                  f"horizontal solution={solution}")
         for idx, n in enumerate(group):
             if len(n) == 1:
                 if not n.getFixedNotename():
@@ -583,16 +630,30 @@ def fixEnharmonicsInPlace(notations: list[Notation], eraseFixedNotes=False,
 
             else:
                 # A Chord
-                # print("....", n, solution[idx])
                 n.fixNotename(solution[idx])
-                fixedslots = spellingHistory.slots.copy()
-                fixedslots[n.pitchIndex(2, 0)] = n.accidentalDirection(-1)
-                assert all(abs(value) <= 1 for value in fixedslots.values())
-                fixedslots.update(n.fixedSlots())
+                fixedslots = spellingHistory.slots
+
+                if nslots := n.fixedSlots():
+                    if options.debug:
+                        d1 = {_quarternote_slotnames[k]: v for k, v in fixedslots.items()}
+                        d2 = {_quarternote_slotnames[k]: v for k, v in n.fixedSlots().items()}
+
+                        print(f"DEBUG: Enharmonic spelling - chord {n} - previous slots state:")
+                        print(f"       {d1}")
+                        print(f"       chords fixed slots: {d2}")
+
+                    fixedslots = fixedslots.copy()
+                    fixedslots.update(n.fixedSlots())
+
                 chordVariants = pt.enharmonic_variations(n.notenames, fixedslots=fixedslots)
                 # _verifyVariants(chordVariants, fixedslots)
                 chordVariants.sort(key=lambda variant: _rateChordSpelling(variant, options)[0])
                 chordSolution = chordVariants[0]
+                if options.debug:
+                    d = {_quarternote_slotnames[k]: v for k, v in fixedslots.items()}
+                    print(f"DEBUG: Enharmonic spelling - chord {n} - solution: {chordSolution}")
+                    print(f"       fixed slots: {d}")
+                    print(f"       variants: {chordVariants}")
                 for i, notename in enumerate(chordSolution):
                     n.fixNotename(notename, idx=i)
                 spellingHistory.addNotation(n, force=True)

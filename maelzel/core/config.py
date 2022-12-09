@@ -30,6 +30,16 @@ values, range, etc.::
     >>> config['show.pageSize'] = 'Z1'
     ValueError: key show.pageSize should be one of {'a2', 'a4', 'a3'}, got Z1
 
+
+Alternative key format
+----------------------
+
+For convenience keys are case- and punctiation- independent. This allows
+to create a new CoreConfig as ``CoreConfig(show_staff_size=10)`` instead of
+``CoreConfig(updates={'show.staffSize': 10})`` or query the same key as
+``staffsize = config['show_staff_size']`` instead of ``staffsize = config['show.staffSize']``
+
+
 Persistence
 -----------
 
@@ -57,7 +67,7 @@ In a future session these changes will be picked up as default:
 
 ---------------------
 
-.. _activeconfigh:
+.. _activeconfig:
 
 Active config
 -------------
@@ -188,7 +198,8 @@ class CoreConfig(ConfigDict):
                          persistent=False,
                          validator=configdata.validator,
                          docs=configdata.docs,
-                         load=load)
+                         load=load,
+                         strict=False)
 
         if not load:
             if source == 'root':
@@ -216,7 +227,9 @@ class CoreConfig(ConfigDict):
             self.update(updates)
 
         if kws:
-            kws = {k: v for k, v in kws.items() if k in self.keys()}
+            kws = self._normalizeDict(kws)
+            kws = {k: v for k, v in kws.items()
+                   if k in self.keys()}
             self.update(kws)
 
         if active:
