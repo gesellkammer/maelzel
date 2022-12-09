@@ -1103,7 +1103,7 @@ def makeScore(score: quant.QuantizedScore,
 
     _(_prelude)
 
-    if options.glissandoLineThickness != 1:
+    if options.glissLineThickness != 1:
         _(r"""
         \layout {
           \context { 
@@ -1112,7 +1112,7 @@ def makeScore(score: quant.QuantizedScore,
             \override Glissando #'gap = #0.05
           }
         }
-        """ % options.glissandoLineThickness)
+        """ % options.glissLineThickness)
 
     if options.horizontalSpacing:
         spacingPreset = _horizontalSpacingPresets[options.horizontalSpacing]

@@ -1,4 +1,5 @@
 import os
+
 defaultdict = {
     'A4': 442,
     'splitAcceptableDeviation': 4,
@@ -37,6 +38,7 @@ defaultdict = {
     'show.jupyterMaxImageWidth': 1000,
     'show.hideRedundantDynamics': True,
     'show.asoluteOffsetForDetachedObjects': False,
+    'show.debugEnharmonicSpelling': False,
 
     'play.gain': 1.0,
     'play.engineName': 'maelzel.core',

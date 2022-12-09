@@ -88,7 +88,7 @@ class PlayArgs:
         return self.args[item]
 
     def __setitem__(self, key: str, value) -> None:
-        assert key in self.playkeys
+        assert key in self.playkeys, f'PlayArgs: unknown key "{key}", possible keys: {self.playkeys}'
         if value is None:
             del self.args[key]
         else:

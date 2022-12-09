@@ -423,13 +423,12 @@ class Notation:
         Returns:
             a dict mapping slot to alteration direction
         """
-        print("here!", self)
         if not self.fixedNotenames:
             return None
         fixedSlots = {}
         for notename in self.fixedNotenames.values():
             notated = pt.notated_pitch(notename)
-            slot = notated.microtone_index(divs_per_semitone=semitoneDivs)
+            slot = notated.microtone_index(semitone_divisions=semitoneDivs)
             fixedSlots[slot] = notated.alteration_direction(min_alteration=0.5)
         return fixedSlots
 
@@ -572,9 +571,13 @@ class Notation:
             return fixed if not addExplicitMark else fixed+'!'
         return pt.m2n(self.pitches[index])
 
-    def pitchIndex(self, semitoneDivs=2, index=0) -> int:
+    def pitchclassIndex(self, semitoneDivs=2, index=0) -> int:
         """
         The index of the nearest pitch/microtone
+
+        Args:
+            semitoneDivs: the number of divisions per semitone (1=chromatic, 2=quartertones, ...)
+            index: the index of the pitch within this Notation
 
         For example, if divs_per_semitone is 2, then
 
@@ -590,9 +593,7 @@ class Notation:
         ====   ================
         """
         notename = self.notename(index=index)
-        if semitoneDivs == 1:
-            return pt.notated_pitch(notename).chromatic_index
-        return pt.notated_pitch(notename).microtone_index(divs_per_semitone=semitoneDivs)
+        return pt.pitchclass(notename, semitone_divisions=semitoneDivs)
 
     @property
     def notenames(self) -> list[str]:

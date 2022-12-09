@@ -1678,7 +1678,7 @@ class ScoreStruct:
                                     strongBeatPitch=strongBeatPitch,
                                     weakBeatPitch=weakBeatPitch,
                                     playpreset='_click',
-                                    playparams={'ktransp': playTransposition})
+                                    playargs={'ktransp': playTransposition})
 
 
 def _filledScoreFromStruct(struct: ScoreStruct, pitch='4C') -> maelzel.core.Score:

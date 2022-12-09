@@ -53,7 +53,7 @@ def saveYamlPreset(p: presetdef.PresetDef, outpath: str) -> None:
         if not audiogen.endswith("\n"):
             f.write("\n")
         if p.args:
-            f.write(f"params: {p.args}\n")
+            f.write(f"args: {p.args}\n")
         if p.init:
             f.write(f"init: |\n")
             f.write(textwrap.indent(p.init, "    "))
@@ -81,7 +81,6 @@ def loadYamlPreset(path: str) -> presetdef.PresetDef:
     presetName = d.get('name')
     if not presetName:
         raise ValueError("A preset should have a name")
-    params = d.get('params')
     audiogen = d.get('audiogen')
     if not audiogen:
         raise ValueError("A preset should define an audiogen")
@@ -90,7 +89,7 @@ def loadYamlPreset(path: str) -> presetdef.PresetDef:
                                includes=d.get('includes'),
                                init=d.get('init'),
                                epilogue=d.get('epilogue'),
-                               args=params,
+                               args=d.get('args'),
                                properties=d.get('properties'))
 
 

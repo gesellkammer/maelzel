@@ -46,7 +46,7 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
                    strongBeatPitch="5C",
                    weakBeatPitch="5G",
                    playpreset: str = '_click',
-                   playparams: dict[str, float] = None,
+                   playargs: dict[str, float] = None,
                    fade=0) -> score.Score:
     """
     Creates a score representing a clicktrack of the given ScoreStruct
@@ -62,7 +62,7 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
         weakBeatPitch: the pitch to use as a weak tick
         playpreset: the preset instr to use for playback. The default plays the given
             pitches two octaves higher as very short clicks
-        playparams: parameters passed to the play preset, if needed
+        playargs: parameters passed to the play preset, if needed
         fade: a fadetime for the clicks
 
     Returns:
@@ -131,7 +131,12 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
     voice = core.Voice(events)
     voice.setPlay(fade=fade)
     if playpreset:
-        voice.setPlay(instr=playpreset, params=playparams)
+        from .presetmanager import presetManager
+        presetdef = presetManager.getPreset(playpreset)
+        if playargs:
+            if arg := next((arg for arg in playargs if arg not in presetdef.args), None):
+                raise KeyError(f"arg {arg} not known for preset {playpreset}. Possible args: {presetdef.args}")
+        voice.setPlay(instr=playpreset, args=playargs)
     from . import score
     return score.Score([voice], scorestruct=struct)
 
