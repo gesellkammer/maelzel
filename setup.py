@@ -7,7 +7,7 @@ import sys
 from setuptools import setup
 
 readme = open('README.rst').read()
-version = (0, 5, 0)
+version = (0, 5, 1)
 
 setup(
     name='maelzel',
@@ -52,7 +52,7 @@ setup(
         "resampy",
         "psutil",
         "csoundengine>=1.13.4",
-        "pitchtools>=1.8",
+        "pitchtools>=1.9",
         "lxml",
         "quicktions",
         "rich",
