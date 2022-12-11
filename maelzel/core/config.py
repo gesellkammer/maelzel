@@ -175,6 +175,8 @@ class CoreConfig(ConfigDict):
             config (the last saved config); 'load' to reload the last saved config. 
             This ConfigDict will be a copy of that prototype
         active: if True, set this CoreConfig as active (modifying the current Workspace)
+        kws: any keywords will be used to update the config and must be valid keys for
+            a CoreConfig
 
     .. admonition:: See Also
 
@@ -239,14 +241,14 @@ class CoreConfig(ConfigDict):
         return self.keys()
 
     def copy(self) -> CoreConfig:
-        return CoreConfig(load=False, source=self)
+        return CoreConfig(source=self)
 
     def clone(self, updates: dict = None, **kws) -> CoreConfig:
         if kws:
             kws = self._normalizeDict(kws)
             updates = updates | kws
 
-        return CoreConfig(load=False, updates=updates, source=self)
+        return CoreConfig(updates=updates, source=self)
 
     def getType(self, key: str) -> type | tuple[type, ...]:
         if (t := self._keyToType.get(key, _UNKNOWN)) is not _UNKNOWN:
