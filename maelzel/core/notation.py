@@ -105,7 +105,9 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
         renderFormat=cfg['show.format'],
         pngResolution=cfg['show.pngResolution'],
         horizontalSpacing=cfg['show.horizontalSpacing'],
-        enharmonicsDebug=cfg['show.debugEnharmonicSpelling']
+        enharmonicsDebug=cfg['enharmonicSpellingDebug'],
+        enharmonicSpellingHorizontalWeight=cfg['enharmonicSpellingHorizontalWeight'],
+        enharmonicSpellingVerticalWeight=cfg['enharmonicSpellingVerticalWeight']
     )
     return renderOptions
 

@@ -73,11 +73,14 @@ class Workspace:
 
     """
     root: Workspace = None
-
-    _initDone: bool = False
-    _counter: int = 0
+    """The root workspace. This is the workspace active at the start of a session
+    and is always kept alive since it holds a reference to the root config"""
 
     active: Workspace = None
+    """The currently active workspace. """
+
+    _initDone: bool = False
+
 
     def __init__(self,
                  config: CoreConfig = None,
@@ -136,6 +139,8 @@ class Workspace:
 
             There should always be an active Workspace
 
+        Returns:
+            the now active workspace
         """
         if not getWorkspace() is self:
             logger.warning("Cannot deactivate this Workspace since it is not active")
@@ -218,14 +223,13 @@ class Workspace:
 
     def isActive(self) -> bool:
         """Is this the active Workspace?"""
-        return getWorkspace() is self
+        return Workspace.active is self
     
     def clone(self,
               config: CoreConfig = UNSET,
               scorestruct: ScoreStruct = UNSET,
-              active=False,
-
-    ) -> Workspace:
+              active=False
+              ) -> Workspace:
         """
         Clone this Workspace
 
@@ -272,7 +276,7 @@ class Workspace:
         Example
         ~~~~~~~
 
-        Running in linux using ipython
+        Running in linux
 
         .. code-block:: python
 
@@ -321,7 +325,7 @@ class Workspace:
             maxdb: the db value mapped to the loudest dynamic
 
         Returns:
-
+            self
         """
         self.dynamicCurve = DynamicCurve.fromdescr(shape=shape, mindb=mindb, maxdb=maxdb)
         return self
@@ -346,34 +350,6 @@ def getWorkspace() -> Workspace:
         >>> w = getWorkspace().clone(active=True)
     """
     return Workspace.active
-
-
-def cloneWorkspace(workspace: Workspace = None,
-                   config=None,
-                   scorestruct: ScoreStruct = None,
-                   updates: dict = None,
-                   active=False) -> Workspace:
-    """
-    Clone the active or the given Workspace
-
-    This is just a shortcut for ``getWorkspace().clone(...)``
-
-    Args:
-        workspace: the Workspace to clone, or None to use the active
-        config: if given, use this config for this Workspace
-        scorestruct: if given, use this ScoreStruct for the cloned Workspace
-        updates: any updates for the config
-        active: if True, set the cloned Workspace as active
-
-    Returns:
-        the cloned Workspace
-
-    """
-    w = workspace or getWorkspace()
-    return Workspace(config=config or w.config,
-                     scorestruct=scorestruct or w.scorestruct,
-                     active=active,
-                     updates=updates)
 
 
 def setTempo(quarterTempo: float, measureIndex=0) -> None:
@@ -526,9 +502,7 @@ def getScoreStruct() -> ScoreStruct:
 
     .. seealso:: :func:`~maelzel.core.workpsace.setScoreStruct`, :func:`~maelzel.core.workpsace.setTempo`
     """
-    s = getWorkspace().scorestruct
-    assert s is not None
-    return s
+    return Workspace.active.scorestruct
 
 
 def setScoreStruct(s: ScoreStruct) -> None:
@@ -537,7 +511,7 @@ def setScoreStruct(s: ScoreStruct) -> None:
 
     This is a shortcut to ``getWorkspace().scorestruct = s``
     """
-    getWorkspace().scorestruct = s
+    Workspace.active.scorestruct = s
 
 
 def _presetsPath() -> str:

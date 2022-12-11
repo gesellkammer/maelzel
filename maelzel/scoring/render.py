@@ -115,7 +115,9 @@ def _makeEnharmonicOptionsFromRenderOptions(options: RenderOptions
                                             ) -> enharmonics.EnharmonicOptions:
     return enharmonics.EnharmonicOptions(groupSize=options.enharmonicsGroupSize,
                                          groupStep=options.enharmonicsStep,
-                                         debug=options.enharmonicsDebug)
+                                         debug=options.enharmonicsDebug,
+                                         horizontalWeight=options.enharmonicSpellingHorizontalWeight,
+                                         verticalWeight=options.enharmonicSpellingVerticalWeight)
 
 
 def quantizeAndRender(parts: list[core.Part],

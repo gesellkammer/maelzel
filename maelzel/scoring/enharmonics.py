@@ -10,15 +10,62 @@ import pitchtools as pt
 import functools
 from collections import deque
 from math import sqrt
+from statistics import stdev
 
 from .notation import Notation
 
 from typing import Sequence
 
-_quarternote_slotnames = ('C', 'C+', 'C#', 'D-', 'D', 'D+', 'D#',
-                          'E-', 'E', 'E+', 'F', 'F+', 'F#', 'G-',
-                          'G', 'G+', 'G#', 'A-', 'A', 'A+', 'Bb', 'B-',
-                          'B', 'B+', 'C')
+
+_quarternote_slotnames_up = ('C', 'C+', 'C#',
+                             'C#+', 'D', 'D+', 'D#',
+                             'D#+', 'E', 'E+',
+                             'F', 'F+', 'F#',
+                             'F#+', 'G', 'G+', 'G#',
+                             'G#+', 'A', 'A+', 'A#',
+                             'A#+', 'B', 'B+', 'C')
+
+_quarternote_slotnames_down = ('C', 'Db-', 'Db',
+                               'D-', 'D', 'Eb-', 'Eb',
+                               'E-', 'E', 'F-',
+                               'F', 'Gb-', 'Gb',
+                               'G-', 'G', 'Ab-', 'Ab',
+                               'A-', 'A', 'Bb-', 'Bb',
+                               'B-', 'B', 'C-', 'C')
+
+_quarternote_slotnames = ('C', 'C+', 'C#',
+                          'D-', 'D', 'D+', 'D#',
+                          'E-', 'E', 'E+',
+                          'F', 'F+', 'F#',
+                          'G-', 'G', 'G+', 'G#',
+                          'A-', 'A', 'A+', 'Bb',
+                          'B-', 'B', 'B+', 'C')
+
+_semitone_slotnames_up = ('C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B', 'C')
+_semitone_slotnames_down = ('C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B', 'C')
+
+
+def _reprslots(slots: dict[int, int], semitoneDivs=2) -> str:
+    slotnames = []
+    if semitoneDivs == 2:
+        for slotnum, direction in slots.items():
+            if direction == -1:
+                slotname = _quarternote_slotnames_down[slotnum]
+                slotnames.append(slotname)
+            elif direction == 1:
+                slotname = _quarternote_slotnames_up[slotnum]
+                slotnames.append(slotname)
+    elif semitoneDivs == 1:
+        for slotnum, direction in slots.items():
+            if direction == -1:
+                slotname = _semitone_slotnames_down[slotnum]
+                slotnames.append(slotname)
+            elif direction == 1:
+                slotname = _semitone_slotnames_up[slotnum]
+                slotnames.append(slotname)
+    else:
+        raise ValueError("Only 1 or 2 semitone divisions are supported")
+    return ', '.join(slotnames)
 
 
 @dataclass(unsafe_hash=True)
@@ -52,6 +99,18 @@ class EnharmonicOptions:
 
     chordMispelledInterval: int = 20
     "penalty for D - Gb within a chord"
+
+    intervalPenaltyWeight: float = 1.
+    "The weight of the horizontal intervals, in pairs"
+
+    groupPenaltyWeight: float = 2.
+    "The weight of an enharmonic variant as a group (horizontally)"
+
+    horizontalWeight: float = 1.
+    "Groups both intervalPenaltyWeight and groupPenaltyWeight"
+
+    verticalWeight: float = 0.05
+    "The weight of how a variant affects chords (vertically)"
 
     maxPenalty: int = 999999
 
@@ -112,7 +171,7 @@ def groupPenalty(notes: list[str], options: EnharmonicOptions = None) -> tuple[f
                    if n.is_black_key]
     numDirections = len(set(alterations))
     if numDirections > 1:
-        total += 0
+        total += 1
 
     # Penalize crammed unisons
     accidentalsPerPos = defaultdict(set)
@@ -306,35 +365,72 @@ def intervalPenalty(n0: str, n1: str, chord=False, options: EnharmonicOptions = 
     source = ", ".join(s for p, s in penalties) + f"({n0}/{n1})"
     return total, source
 
-def _rateEnharmonicVariation(notations: Sequence[Notation],
-                             spelling: list[str],
-                             anchors: list[int],
-                             options: EnharmonicOptions
-                             ) -> float:
-    """
-    Rate this spelling variation
 
-    Args:
-        notations: the notations in question
-        spelling: the spelling of the anchor notes
-        anchors: the anchor indexes
-        options: the enharmonic options
+def _weight(values, method='stdev'):
+    if method == 'avg':
+        avg = sum(values) / len(values)
+        if avg == 0:
+            return 0
+        return 1/avg
+    else:
+        if len(values) < 2:
+            return 1
+        d = stdev(values)
+        if d == 0:
+            return 0
+        return 0 if d == 0 else 1/(d**2)
 
-    Returns:
-        a penalty value. The lower this value the better this spelling is
-    """
-    intervalpenalty, sources0 = intervalsPenalty(spelling, options=options)
-    grouppenalty, sources1 = groupPenalty(spelling, options=options)
-    totalChordPenalty = 0.
+
+def _rateEnharmonicVariations(group: Sequence[Notation],
+                              spellings: list[list[str]],
+                              anchors: list[int],
+                              options: EnharmonicOptions
+                              ) -> list[str]:
+    intervalPenalties = [intervalsPenalty(spelling, options=options)[0]
+                         for spelling in spellings]
+    groupPenalties = [groupPenalty(spelling, options=options)[0]
+                      for spelling in spellings]
+    chordPenalties = [_chordPenalty(notations=group,
+                                    spelling=spelling,
+                                    anchors=anchors,
+                                    options=options)
+                      for spelling in spellings]
+
+    weightIntervalPenalty = _weight(intervalPenalties)
+    weightGroupPenalty = _weight(groupPenalties)
+    weightChordPenalty = _weight(chordPenalties)
+    solutions = []
+    intervalPenaltyWeight = options.intervalPenaltyWeight * options.horizontalWeight
+    groupPenaltyWeight = options.groupPenaltyWeight * options.horizontalWeight
+    for i in range(len(spellings)):
+        a = intervalPenalties[i]**2 * weightIntervalPenalty * intervalPenaltyWeight
+        b = groupPenalties[i]**2 * weightGroupPenalty * groupPenaltyWeight
+        c = chordPenalties[i]**2 * weightChordPenalty * options.verticalWeight
+        penalty = sqrt(a+b+c)
+        solutions.append((penalty, spellings[i], a, b, c))
+    solutions.sort(key=lambda solution: solution[0])
+    if options.debug:
+        for s in solutions:
+            penalty, spelling, a, b, c = s
+            print(f'Spelling: {" ".join(spelling)}, penalty={penalty: .4g}, '
+                  f'intervalPenalty={a:.4g}, groupPenalty={b:.4g}, '
+                  f'chordPenalty={c:.4g}')
+    return solutions[0][1]
+
+
+def _chordPenalty(notations: Sequence[Notation],
+                   spelling: list[str],
+                   anchors: list[int],
+                   options: EnharmonicOptions
+                   ) -> float:
+    totalChordPenalty = 0
     for i, notation in enumerate(notations):
         notes = notation.notenames
         anchor = anchors[i]
         notes[anchor] = spelling[i]
         chordrating, sources = _rateChordSpelling(notes, options=options)
         totalChordPenalty += chordrating
-
-    total = sqrt(intervalpenalty ** 2 + grouppenalty ** 2 + totalChordPenalty ** 2)
-    return total
+    return totalChordPenalty
 
 
 def enharmonicPenalty(notes: list[str], options: EnharmonicOptions
@@ -615,10 +711,8 @@ def fixEnharmonicsInPlace(notations: list[Notation], eraseFixedNotes=False,
         if not validVariations:
             validVariations = variations
 
-        validVariations.sort(key=lambda seq: _rateEnharmonicVariation(group, seq, anchors=anchorIndexes, options=options))
-        # validVariations.sort(key=functools.partial(enharmonicPenalty, options=options))
+        solution = _rateEnharmonicVariations(group, spellings=validVariations, anchors=anchorIndexes, options=options)
 
-        solution = validVariations[0]
         if options.debug:
             print(f"DEBUG: Enharmonic spelling - orig. {notenamesInGroup}, "
                   f"horizontal solution={solution}")
@@ -635,12 +729,9 @@ def fixEnharmonicsInPlace(notations: list[Notation], eraseFixedNotes=False,
 
                 if nslots := n.fixedSlots():
                     if options.debug:
-                        d1 = {_quarternote_slotnames[k]: v for k, v in fixedslots.items()}
-                        d2 = {_quarternote_slotnames[k]: v for k, v in n.fixedSlots().items()}
-
                         print(f"DEBUG: Enharmonic spelling - chord {n} - previous slots state:")
-                        print(f"       {d1}")
-                        print(f"       chords fixed slots: {d2}")
+                        print(f"       {_reprslots(fixedslots, semitoneDivs=2)}")
+                        print(f"       chords fixed slots: {_reprslots(fixedslots, semitoneDivs=2)}")
 
                     fixedslots = fixedslots.copy()
                     fixedslots.update(n.fixedSlots())
@@ -650,9 +741,8 @@ def fixEnharmonicsInPlace(notations: list[Notation], eraseFixedNotes=False,
                 chordVariants.sort(key=lambda variant: _rateChordSpelling(variant, options)[0])
                 chordSolution = chordVariants[0]
                 if options.debug:
-                    d = {_quarternote_slotnames[k]: v for k, v in fixedslots.items()}
                     print(f"DEBUG: Enharmonic spelling - chord {n} - solution: {chordSolution}")
-                    print(f"       fixed slots: {d}")
+                    print(f"       fixed slots: {_reprslots(fixedslots, semitoneDivs=2)}")
                     print(f"       variants: {chordVariants}")
                 for i, notename in enumerate(chordSolution):
                     n.fixNotename(notename, idx=i)

@@ -91,6 +91,9 @@ class RenderOptions:
     rehearsalMarkFontSize: Union[int, float] = config['rehearsalMarkFontSize']
     rehearsalMarkBoxed: bool = config['rehearsalMarkBoxed']
 
+    enharmonicSpellingHorizontalWeight: float = 1.,
+    enharmonicSpellingVerticalWeight: float = 0.05,
+
     title: str = ''
     composer: str = ''
 

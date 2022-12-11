@@ -585,7 +585,7 @@ def render(outfile: str = None,
         return _recEvents(events=events, outfile=outfile, sr=sr, wait=wait,
                           ksmps=ksmps, quiet=quiet, numChannels=nchnls)
     else:
-        OfflineRenderer(outfile=outfile, sr=sr, numChannels=nchnls, quiet=quiet, ksmps=ksmps)
+        return OfflineRenderer(outfile=outfile, sr=sr, numChannels=nchnls, quiet=quiet, ksmps=ksmps)
 
 
 def _recEvents(events: list[SynthEvent],

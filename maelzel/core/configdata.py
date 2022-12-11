@@ -10,6 +10,9 @@ defaultdict = {
     'reprShowFractionsAsFloat': True,
     'fixStringNotenames': False,
     'openImagesInExternalApp': False,
+    'enharmonicSpellingHorizontalWeight': 1,
+    'enharmonicSpellingVerticalWeight': 0.01,
+    'enharmonicSpellingDebug': False,
 
     'show.arpeggiateChord': 'auto',
     'show.lastBreakpointDur':1/8,
@@ -38,7 +41,6 @@ defaultdict = {
     'show.jupyterMaxImageWidth': 1000,
     'show.hideRedundantDynamics': True,
     'show.asoluteOffsetForDetachedObjects': False,
-    'show.debugEnharmonicSpelling': False,
 
     'play.gain': 1.0,
     'play.engineName': 'maelzel.core',
@@ -219,6 +221,18 @@ docs = {
         "If True, try to find a suitable enharmonic representation of pitches which"
         "have not been fixed already by the user. Otherwise the canonical form of each"
         "pitch is used, independent of the context",
+
+    'enharmonicSpellingDebug':
+        "If True, print debug information while calculating automatic enharmonic spelling",
+
+    'enharmonicSpellingHorizontalWeight':
+        "The weight of the horizontal dimension (note sequences) when evaluating an "
+        "enharmonic variant",
+
+    'enharmonicSpellingVerticalWeight':
+        "The weight of the vertical dimension (chords within a voice) when evaluating "
+        "an enharmonic variant",
+
     'play.presetsPath': 'The path were presets are saved',
     'splitAcceptableDeviation':
         'When splitting notes between staves, notes within this range of the '
