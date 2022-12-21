@@ -136,7 +136,6 @@ class Fermata(Attachment):
         return hash(('Fermata', self.kind))
 
 
-
 class Bend(Attachment):
     exclusive = True
 

@@ -33,6 +33,46 @@ except ImportError:
     from fractions import Fraction as _F
 
 
+def fractionToDecimal(numerator: int, denominator: int) -> str:
+    """
+    Converts a fraction to a decimal number with repeating period
+
+    Args:
+        numerator: the numerator of the fraction
+        denominator: the denominator of the fraction
+
+    Returns:
+        the string representation of the resulting decimal. Any repeating
+        period will be prefixed with '('
+
+    Example
+    ~~~~~~~
+
+        >>> from emlib.mathlib import *
+        >>> fraction_to_decimal(1, 3)
+        '0.(3'
+        >>> fraction_to_decimal(1, 7)
+        '0.(142857'
+        >>> fraction_to_decimal(100, 7)
+        '14.(285714'
+        >>> fraction_to_decimal(355, 113)
+        '3.(1415929203539823008849557522123893805309734513274336283185840707964601769911504424778761061946902654867256637168'
+    """
+    result = [str(numerator//denominator) + "."]
+    subresults = [numerator % denominator]
+    numerator %= denominator
+    while numerator != 0:
+        numerator *= 10
+        result_digit, numerator = divmod(numerator, denominator)
+        result.append(str(result_digit))
+        if numerator not in subresults:
+            subresults.append(numerator)
+        else:
+            result.insert(subresults.index(numerator) + 1, "(")
+            break
+    return "".join(result)
+
+
 class Rat(_F):
     """
     Drop-in replacement to fractions.Fraction with float-like repr
@@ -66,29 +106,50 @@ class Rat(_F):
 
     """
     _reprWithFraction = False
+    "If True, add the fraction to the repr"
+
     _reprElipsisMaxDenominator = 9999
+    "A fraction with a denom. higher than this adds a ... to its float repr "
+
     _reprMaxDenominator = 99999999
+    "A fraction with a denom. higher than this is shown as ~num/den, when num/den is rounded"
+
+    _reprShowRepeatingPeriod = False
+    "If True, show the repeating period, if any"
 
     def __repr__(self):
+        if self.denominator == 1:
+            return str(self.numerator)
 
         if self.denominator > self._reprElipsisMaxDenominator:
             floatpart = f"{float(self):.8g}…"
+        elif self._reprShowRepeatingPeriod:
+            floatpart = fractionToDecimal(self.numerator, self.denominator)
+            if self.denominator != 1:
+                i, rest = floatpart.split(".")
+                if len(rest) > 8:
+                    rest = rest[:8] + '…'
+                    floatpart = f'{i}.{rest}'
         else:
             floatpart = f"{float(self):.8g}"
 
-        if self._reprWithFraction:
-            if self.denominator > self._reprMaxDenominator:
-                f = self.limit_denominator(self._reprMaxDenominator)
-                return f'{floatpart} (~{f.numerator}/{f.denominator})'
-            else:
-                return f'{floatpart} ({self.numerator}/{self.denominator})'
-        return floatpart
+        if not self._reprWithFraction:
+            return floatpart
+
+        if self.denominator > self._reprMaxDenominator:
+            f = self.limit_denominator(self._reprMaxDenominator)
+            return f'{floatpart} (~{f.numerator}/{f.denominator})'
+        else:
+            return f'{floatpart} ({self.numerator}/{self.denominator})'
+
 
     def __floordiv__(self, other: Any) -> int:
         r = _F.__floordiv__(self, other)
         return Rat(r.numerator, r.denominator) if isinstance(r, _F) else r
 
     def __format__(self, format_spec) -> str:
+        if not format_spec:
+            return self.__repr__()
         return float(self).__format__(format_spec)
 
     def __add__(self, other) -> Rat:

@@ -374,7 +374,7 @@ class Music21Renderer(render.Renderer):
     def render(self, fmt:str = '') -> None:
         if self._rendered:
             return
-        self._m21score = renderScore(self.score, options=self.options)
+        self._m21score = renderScore(self.quantizedScore, options=self.options)
         self._rendered = True
 
     def writeFormats(self) -> List[str]:

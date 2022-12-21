@@ -18,6 +18,9 @@ presets = {
             400: quantutils.allSubdivisions(maxsubdivs=5,
                                             possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
                                             maxdensity=30),
+            800: quantutils.allSubdivisions(maxsubdivs=3,
+                                            possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
+                                            maxdensity=30),
         },
         'divisionPenaltyMap': {
             1:0.0,  2:0.0,  3:0.0,  4:0.02, 5:0.02,
@@ -52,9 +55,14 @@ presets = {
             180: quantutils.allSubdivisions(maxsubdivs=3,
                                             possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9),
                                             maxdensity=10),
+            # 100 for 3/16
             400: quantutils.allSubdivisions(maxsubdivs=3,
                                             possiblevals=(1, 2, 3, 4, 5, 6),
-                                            maxdensity=8)
+                                            maxdensity=8),
+            # 200 for 3/16
+            800: quantutils.allSubdivisions(maxsubdivs=1,
+                                            possiblevals=(1, 2, 3, 4, 5, 6),
+                                            maxdensity=6),
         },
         'divisionPenaltyMap': defaultDivisionPenaltyMap,
         'nestedTuplets': True,
@@ -86,7 +94,11 @@ presets = {
                                             maxdensity=6),
             400: quantutils.allSubdivisions(maxsubdivs=1,
                                             possiblevals=(1, 2, 3, 4),
-                                            maxdensity=4)
+                                            maxdensity=4),
+            800: quantutils.allSubdivisions(maxsubdivs=1,
+                                            possiblevals=(1, 2, 3, 4),
+                                            maxdensity=4),
+
         },
         'divisionPenaltyMap': defaultDivisionPenaltyMap,
         'nestedTuplets': False,
@@ -117,7 +129,11 @@ presets = {
                                             maxdensity=6),
             400: quantutils.allSubdivisions(maxsubdivs=1,
                                             possiblevals=(1, 2, 3, 4),
-                                            maxdensity=4)
+                                            maxdensity=4),
+            800: quantutils.allSubdivisions(maxsubdivs=1,
+                                            possiblevals=(1, 2, 4),
+                                            maxdensity=4),
+
         },
         'divisionPenaltyMap': defaultDivisionPenaltyMap,
         'nestedTuplets': False,

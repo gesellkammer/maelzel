@@ -1,6 +1,7 @@
 # API
 from .mobj import *
 from .event import *
+from .clip import *
 from .chain import *
 from .score import *
 from .playback import *

@@ -127,7 +127,7 @@ class Renderer:
     def __init__(self, score: quant.QuantizedScore, options:RenderOptions):
         assert score
         assert score[0].struct is not None
-        self.score: quant.QuantizedScore = score
+        self.quantizedScore: quant.QuantizedScore = score
         self.struct: ScoreStruct = score[0].struct
         self.options = options
         self._rendered = False
@@ -143,7 +143,7 @@ class Renderer:
         self._rendered = False
 
     def __hash__(self) -> int:
-        return hash((hash(self.score), hash(self.struct), hash(self.options)))
+        return hash((hash(self.quantizedScore), hash(self.struct), hash(self.options)))
 
     def render(self) -> None:
         """
@@ -226,6 +226,6 @@ class Renderer:
         pngfile = tempfile.mktemp(suffix=".png", prefix="render-")
         self.write(pngfile)
         img = emlib.img.htmlImgBase64(pngfile, removeAlpha=True)
-        parts = "1 part" if len(self.score) == 1 else f"{len(self.score)} parts"
+        parts = "1 part" if len(self.quantizedScore) == 1 else f"{len(self.quantizedScore)} parts"
         html = f'<b>{type(self).__name__}</b> ({parts})<br>'+img
         return html

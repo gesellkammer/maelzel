@@ -62,7 +62,7 @@ def asmidi(x) -> float:
 
     """
     if isinstance(x, float):
-        assert 0<=x<=128
+        assert 0<=x<=128, f"Invalid midinote: {x}"
         return x
     elif isinstance(x, str):
         return pt.n2m(x)

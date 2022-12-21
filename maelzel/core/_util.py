@@ -2,6 +2,8 @@
 Internal utilities
 """
 from __future__ import annotations
+
+import logging
 from typing import TYPE_CHECKING
 from functools import cache
 import sys
@@ -369,6 +371,8 @@ def parseNote(s: str) -> NoteProperties:
             except ValueError:
                 if part in _knownDynamics:
                     properties['dynamic'] = part
+                elif part in _knownArticulations:
+                    properties['articulation'] = part
                 elif part == 'gliss':
                     properties['gliss'] = True
                 elif part == 'tied':
@@ -377,17 +381,20 @@ def parseNote(s: str) -> NoteProperties:
                     key, value = part.split("=", maxsplit=1)
                     properties[key] = value
 
-    if "/" in s:
-        # 4Eb/8. -> 4Eb, dur=0.75
+    if "/" in note:
         note, symbolicdur = note.split("/")
         dur = _parseSymbolicDuration(symbolicdur)
 
-    notename = [p.strip() for p in note.split(",",)] if "," in note else note
+    notename = [p.strip() for p in note.split(",")] if "," in note else note
     return NoteProperties(notename=notename, dur=dur, properties=properties)
 
 
 _knownDynamics = {
     'pppp', 'ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'ffff', 'n'
+}
+
+_knownArticulations = {
+    '-', '.', '^', 'accent', 'tenuto', 'staccatto'
 }
 
 
@@ -453,3 +460,4 @@ def showT(f: F | None) -> str:
     if f is None:
         return "None"
     return f"{float(f):.3f}".rstrip('0').rstrip('.')
+

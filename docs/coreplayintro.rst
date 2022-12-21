@@ -4,39 +4,39 @@ Playback
 The play method
 ---------------
 
-Each :class:`~maelzel.core.Note`, :class:`~maelzel.core.Chord`,
-:class:`~maelzel.core.Chain`, can play themselves by calling the 
-:meth:`~maelzel.core.mobj.MObj.play` method. 
+Each :class:`~maelzel.core.mobj.MObj` (:class:`~maelzel.core.event.Note`,
+:class:`~maelzel.core.event.Chord`, :class:`~maelzel.core.chain.Chain`, etc.)
+can play itself by calling the :meth:`~maelzel.core.mobj.MObj.play` method.
 
-All audio playback and offline rendering within **maelzel** is implemented in **csound** using
-`csoundengine <https://github.com/gesellkammer/csoundengine>`_. This makes it possible
-to interact between the *core* classes, like :class:`~maelzel.core.mobj.Note` or :class:`~maelzel.core.mobj.Voice`
-and other "unrelated" parts of *maelzel*, like the :class:`maelzel.snd.audiosample.Sample` class.
+Audio playback and offline rendering within **maelzel** is delegated to **csound**
+(https://csound.com/) using `csoundengine <https://github.com/gesellkammer/csoundengine>`_.
+This makes it possible to interact between the *core* classes, like
+:class:`~maelzel.core.event.Note` or :class:`~maelzel.core.chain.Voice` and other "unrelated"
+parts of *maelzel*, like the :class:`maelzel.snd.audiosample.Sample` class.
 
 Each :class:`~maelzel.core.mobj.MObj` expresses its playback in
 terms of a list of :class:`~maelzel.core.synthevent.SynthEvent`.
 
 .. admonition:: synthesis events
 
-    A SynthEvent is a score line with a number of fixed fields,
+    A :class:`~maelzel.core.synthevent.SynthEvent` is a score line with a number of fixed fields,
     user-defined fields and a sequence of breakpoints to define pitch, amplitude
-    and any other parameter over time. For more information
-    see :class:`~maelzel.core.synthevent.SynthEvent`
+    and any other parameter over time.
 
-To play any :class:`~maelzel.core.mobj.MObj` (a Note, a Voice, a Score), call its
-:meth:`~maelzel.core.mobj.MObj.play` method. Within this method a number of parameters
-regarding playback can be determined. Such parameters are common to all objects. The most
+
+Within the :meth:`~maelzel.core.mobj.MObj.play` method a number of parameters
+regarding playback can be determined. **Such parameters are common to all objects. **The most
 relevant of these playback parameters are:
 
 instr
-  which instrument preset (see :class:`~maelzel.core.presetbase.PresetDef` for more
+  which instrument preset (see :class:`~maelzel.core.presetdef.PresetDef` for more
   information) is used for playback. If not given the default preset is used, as determined
   in the configuration (see :ref:`play.instr <config_play_instr>`)
 
 delay
   delay in seconds, added to the start of the object
-  As opposed to the ``.start`` attribute of each object, which is defined
-  in *symbolic time* (quarternote-time), the delay is always in *absolute time* (seconds)
+  As opposed to the :attr:`~maelzel.core.mobj.MObj.offset` attribute of each object,
+  which is defined in *quarternote beats*, the delay is always a *time* in seconds
 
 gain
   modifies the own amplitude for playback/recording (0-1)
@@ -54,26 +54,25 @@ position
   the panning position (0=left, 1=right)
 
 args
-  a Preset can define custom parameters, like a cutoff frequency for a filter
-  or a modulation ratio for FM synthesis, etc.
+  a :class:`Preset <maelzel.core.presetdef.PresetDef>` can define custom parameters,
+  like a cutoff frequency for a filter or a modulation ratio for FM synthesis, etc.
 
 
 Presets - Introduction
 ----------------------
 
 **maelzel** uses **csound** for audio synthesis in realtime and offline. Within an
-instrument preset (a :class:`~maelzel.core.presetbase.PresetDef`) the user is given
-three variables: *kfreq* (the current frequency of the event), *kamp* (the current
-amplitude of the event) and *kpitch* (the current midinote of the event, corresponds
+instrument preset (a :class:`~maelzel.core.presetdef.PresetDef`) the user is given
+three variables: ``kfreq`` (the current frequency of the event), ``kamp`` (the current
+amplitude of the event) and ``kpitch`` (the current midinote of the event, corresponds
 to *kfreq*). With this information the user needs to provide the audio-generating part
-using csound code, by assigning the audio output to the variable *aout1* for channel 1,
+using csound code, by assigning the audio output to the variable ``aout1`` for channel 1,
 *aout2* for channel 2, etc.
 
-There are a number of built-in Presets, but it is very easy to define new Presets. A new
-Preset is defined via :func:`~maelzel.core.presetman.defPreset` or
-:func:`~maelzel.core.presetman.defPresetSoundfont` (a shortcut to define a preset by
-just pointing to a soundfont). Whenever a note is actually played with a
-given preset, this preset is sent to the csound engine and instantiated/evaluated.
+There are a number of built-in Presets, but it is very easy to **define new Presets**. A new
+Preset is defined via :func:`~maelzel.core.presetmanager.defPreset` or
+:func:`~maelzel.core.presetmanager.defPresetSoundfont` (a shortcut to define a preset by
+just pointing to a soundfont).
 
 
 Example
@@ -85,7 +84,7 @@ Example
     f0 = Note("1E")
     notes = Chain([Note(f2m(f0.freq*i), dur=0.5) for i in range(20)])
     play.defPreset("detuned", r'''
-        ; kfreq and kamp are always available
+        ; kfreq and kamp are always available within the preset body
         a0 = vco2(kamp/3, kfreq)
         a1 = vco2(kamp/3, kfreq+2)
         a2 = vco2(kamp/3, kfreq-3)
@@ -96,8 +95,8 @@ Example
 
 .. admonition:: See Also
 
-    - :func:`~maelzel.core.presetman.defPreset`
-    - :py:mod:`maelzel.core.presetman`
+    - :func:`~maelzel.core.presetmanager.defPreset`
+    - :py:mod:`maelzel.core.presetmanager`
 
 
 Playback attributes (setPlay)
@@ -146,7 +145,7 @@ parameters for its filter. Any custom parameter must define a default value
         a0 vco2 kamp, kfreq, 10
         aout1 moogladder a0, lag:k(kcutoff, 0.1), kq
     ''', params={'kcutoff': 3000, 'kQ': 0.9})
-    Chord("C4 E4 G4", dur=10).play(instr='substractive', params={'kcutoff': 1000})
+    Chord("C4 E4 G4", dur=10).play(instr='substractive', args={'kcutoff': 1000})
 
 Preset parameters can also be defined inline, following the syntax for csoundengine's
 `Instr <https://csoundengine.readthedocs.io/en/latest/instr.html>`_
@@ -159,7 +158,7 @@ Preset parameters can also be defined inline, following the syntax for csoundeng
         a0 vco2 kamp, kfreq, 10
         aout1 moogladder a0, lag:k(kcutoff, 0.1), kq
     ''')
-    Chord("C4 E4 G4", dur=10).play(instr='substractive', params=dict(kcutoff=1000))
+    Chord("C4 E4 G4", dur=10).play(instr='substractive', kcutoff=1000)
 
 
 
@@ -170,8 +169,8 @@ By replacing a call to :meth:`~maelzel.core.mobj.MObj.play` with a call to
 :meth:`~maelzel.core.mobj.MObj.rec` it is possible to render any
 :class:`~maelzel.core.mobj.MObj` as a soundfile (offline rendering). To
 render multiple objects to the same soundfile you can either group them in a container
-(for example, place multiple notes inside a :class:`~maelzel.core.Voice` and
-render that) or render them via :func:`maelzel.core.recObjects`
+(for example, place multiple notes inside a :class:`~maelzel.core.Chain` and
+render that) or render them via :func:`maelzel.core.playback.render`
 
 .. code-block:: python
 
@@ -182,15 +181,16 @@ render that) or render them via :func:`maelzel.core.recObjects`
                     for m in range(60, 72)])
     voice1.setPlay(instr='saw')
     voice2.setPlay(instr='tri')
-    outfile = recObjects([voice1, voice2])
+    render("out.wav", [voice1, voice2])
 
 Notice that in this way, any parameter normally passed to ``.rec`` needs to be fixed
 via ``.setPlay``.
 
-Using the ``render`` context manager
+
+Using ``render`` as context manager
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-A simpler method is to use the :func:`~maelzel.core.playback.render` context
+A simpler method is to use the :func:`~maelzel.core.playback.render` as context
 manager:
 
 .. code-block:: python
@@ -204,7 +204,7 @@ manager:
         voice1.play(instr='saw')
         voice2.play(instr='tri')
 
-With the context manager the same code used for playing in realtime can be used to render offline
+Within the context manager the same code used for playing in realtime can be used to render offline
 (see also: :class:`~maelzel.core.play.OfflineRenderer`)
 
 -----------------
@@ -213,9 +213,10 @@ Playback API
 ------------
 
 .. toctree::
+    :maxdepth: 1
 
-    coreplay
-    presetman
-    presetdef
-    synthevent
+    The playback module <coreplay>
+    Managing Presets <presetman>
+    PresetDef <presetdef>
+    Synthesis Events <synthevent>
 

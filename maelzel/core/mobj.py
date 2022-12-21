@@ -5,16 +5,9 @@ Musical Objects
 Time
 ~~~~
 
-A MObj has always a start and dur attribute. They refer to an abstract time.
+A MObj has always an offset and dur attribute. They refer to an abstract time.
 When visualizing a MObj as musical notation these times are interpreted/converted
 to beats and score locations based on a score structure.
-
-Score Structure
-~~~~~~~~~~~~~~~
-
-A minimal score structure is a default time-signature (4/4) and a default tempo (60). If
-the user does not set a different score structure, an endless score with these default
-values will always be used.
 
 """
 from __future__ import annotations
@@ -62,6 +55,8 @@ import csoundengine
 
 from maelzel.common import asmidi, F, asF
 from ._common import *
+from ._typedefs import *
+
 from .config import CoreConfig
 from .workspace import Workspace
 from . import playback
@@ -75,19 +70,18 @@ from maelzel import scoring
 
 from .synthevent import PlayArgs, SynthEvent, cropEvents
 from maelzel.scorestruct import ScoreStruct
+from .playback import OfflineRenderer
 
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from typing import Any, TypeVar, Callable
-    from ._typedefs import *
-    T = TypeVar('T', bound='MObj')
-    from .playback import OfflineRenderer
+from typing import TypeVar, Any, Callable
+
+
+MObjT = TypeVar('MObjT', bound='MObj')
 
 
 __all__ = (
     'MObj',
     'MContainer',
-    'resetImageCache'
+    'resetImageCache',
 )
 
 
@@ -104,17 +98,25 @@ class _TimeScale:
 class MContainer:
     """
     An interface for any class which can be a parent
+
+    Implemented downstream by classes like Chain or Score.
     """
     def childOffset(self, child: MObj) -> F:
+        """The offset of child relative to this parent"""
         raise NotImplementedError
 
     def childDuration(self, child: MObj) -> F:
+        """The resolved duration of child"""
         raise NotImplementedError
 
     def absoluteOffset(self) -> F:
+        """The absolute offset of this container"""
         raise NotImplementedError
 
     def scorestruct(self) -> ScoreStruct | None:
+        """The scorestructure attached to this container (if any)
+
+        This query will be passed along upstream"""
         raise NotImplementedError
 
     def childChanged(self, child: MObj) -> None:
@@ -136,13 +138,22 @@ class MObj:
     """
     This is the base class for all core objects.
 
-    This is an abstract class. **It should not be instantiated by itself**
-
+    This is an abstract class. **It should not be instantiated by itself**.
     A :class:`MObj` can display itself via :meth:`show` and play itself via :meth:`play`.
-    It can have a duration and a start time.
+    It can have a duration (:attr:`dur`) and a time offset (:attr:`offset`). Both
+    can be left as ``None``, which means that these time attributes are not explicitely
+    determined. When this MObj needs to be displayed or shown (at the latest) the offset
+    and duration are resolved based on the context (is the MObj contained in another
+    object, like a Note within a Voice?) and a resolved offset and duration are calculated.
+    This resolved values can be queried via :meth:`resolvedOffset` and :meth:`resolvedDur`
 
-    A :class:`MObj` can customize its playback via :meth:`MObj.setPlay`. These attributes can
+    A :class:`MObj` can customize its playback via :meth:`setPlay`. These attributes can
     be accessed through the `playargs` property
+
+    Each MObj can be asked to calculate its own duration. When the method
+    :meth:`_calculateDuration` is called, it should return its duration or None if it
+    cannot be determined by the object itself. Within :meth:`_calculateDuration` it is
+    not allowed to access the :attr:`parent`.
 
     Elements purely related to notation (text annotations, articulations, etc)
     are added to a :class:`MObj` through the :meth:`addSymbol` and can be accessed
@@ -181,16 +192,18 @@ class MObj:
         "offset specifies a time offset for this object"
 
         self.symbols: list[_symbols.Symbol] | None = None
-        "A list of all symbols added via addSymbol (can be None)"
+        "A list of all symbols added via :meth:`addSymbol` (None by default)"
 
         # playargs are set via .setPlay and serve the purpose of
         # attaching playing parameters (like pan position, instrument)
         # to an object
         self.playargs: PlayArgs | None = None
-        """playargs are set via .setPlay and serve the purpose of attaching playing
-        parameters (like pan position, instrument, ...) to an object"""
+        "playargs are set via :meth:`.setPlay` and are used to customize playback (instr, gain, …). None by default"
 
         self.properties: dict[str, Any] | None = properties
+        """
+        User-defined properties as a dict (None by default). Set them via :meth:`~maelzel.core.mobj.MObj.setProperty`
+        """
 
         self._scorestruct: ScoreStruct | None = None
         self._resolvedOffset: F | None = None
@@ -198,19 +211,33 @@ class MObj:
 
     @property
     def parent(self) -> MContainer | None:
+        """The parent of this object.
+
+        This attribute is set by the parent when an object is added to it. For
+        example, when adding a Note to a Chain, the Chain is set as the parent
+        of the Note. This enables the Note to query information about the parent,
+        like its absolute position or if a score structure has been set upstream"""
         return self._parent
 
     @parent.setter
     def parent(self, parent: MContainer):
         self._parent = parent
 
-    def setProperty(self: T, key: str, value) -> T:
+    def _copyAttributesTo(self, other: MObj) -> None:
+        if self.symbols:
+            other.symbols = self.symbols.copy()
+        if self.playargs:
+            other.playargs = self.playargs.copy()
+        if self.properties:
+            other.properties = self.properties.copy()
+
+    def setProperty(self: MObjT, key: str, value) -> MObjT:
         """
         Set a property, returns self
 
-        Any MObj can have properties but these are optional, meaning
-        that before any property is created the *.properties* attribute
-        is None. This method created the dict if it is still None and
+        Any MObj can have user-defined properties. These properties are optional:
+        before any property is created the :attr:`.properties <properties>` attribute
+        is ``None``. This method creates the dict if it is still None and
         sets the property.
 
         Args:
@@ -269,7 +296,7 @@ class MObj:
         offset based on the durations of any previous objects
 
         Returns:
-            the resolved offset, in quarter notes. If no explicit or implicit
+            the withExplicitTimes offset, in quarter notes. If no explicit or implicit
             offset and the object has no parent it returns 0.
 
         .. seealso:: :meth:`MObj.absoluteOffset`
@@ -289,8 +316,8 @@ class MObj:
         """
         This method should calculate its own duration or return None if it cannot
 
-        If it has already done so and force is False it should return the cached (resolved)
-        duration.
+        If it has already done so and force is False it should return the cached
+        (resolved) duration.
 
         .. note:: this method is not allowed to access its parent
 
@@ -324,19 +351,38 @@ class MObj:
             return self._resolvedDur
         return F(1)
 
-    def resolved(self):
+    def withExplicitTimes(self, forcecopy=False):
         """
         Copy of self with explicit times
 
+        If self already has explicit offset and duration, self itself
+        is returned. If you relie on the fact that this method returns
+        a copy, use ``forcecopy=True``
+
         Args:
-            offset: a start time to fill or override self.start.
+            forcecopy: if forcecopy, a copy of self will be returned even
+                if self already has explicit times
 
         Returns:
-            a clone of self with dur and offset set to explicit
-            values
+            a clone of self with explicit times
+
+        Example
+        ~~~~~~~
+
+            >>> n = None("4C", dur=0.5)
+            >>> n
+            4C:0.5♩
+            >>> n.offset is None
+            True
+            # An unset offset resolves to 0
+            >>> n.withExplicitTimes()
+            4C:0.5♩:offset=0
+            # An unset duration resolves to 1 quarternote beat
+            >>> Note("4C", offset=2.5).withExplicitTimes()
+            4C:1♩:offset=2.5
 
         """
-        if self.dur is not None and self.offset is not None:
+        if self.dur is not None and self.offset is not None and not forcecopy:
             return self
         return self.clone(dur=self.resolvedDur(), offset=self.resolvedOffset())
 
@@ -358,7 +404,7 @@ class MObj:
         offset = self.offset if self.offset is not None else self.parent.childOffset(self)
         return self.parent.absoluteOffset() + offset
 
-    def setPlay(self: T, /, **kws) -> T:
+    def setPlay(self: MObjT, /, **kws) -> MObjT:
         """
         Set any playback attributes, returns self
 
@@ -413,20 +459,16 @@ class MObj:
             playargs[k] = v
         return self
 
-    def clone(self: T,
-              start: F | None | UNSET = UNSET,
-              **kws) -> T:
+    def clone(self: MObjT,
+              **kws) -> MObjT:
         """
         Clone this object, changing parameters if needed
 
         Args:
-            start: the start of this object (use None to erase an already
-                set start, leave as UNSET to use the object's start)
             **kws: any keywords passed to the constructor
 
         Returns:
-            a clone of this objects, with the given arguments
-            changed
+            a clone of this object, with the given arguments changed
 
         Example::
 
@@ -435,32 +477,17 @@ class MObj:
             >>> b = a.clone(dur=0.5)
         """
         out = self.copy()
-        if start is not UNSET:
-            out.offset = None if start is None else asF(start)
-
         for k, v in kws.items():
             setattr(out, k, v)
 
-        if self.playargs is not None:
-            out.playargs = self.playargs.copy()
-        if self.properties is not None:
-            out.properties = self.properties.copy()
+        self._copyAttributesTo(out)
         return out
 
-    def copy(self: T) -> T:
+    def copy(self: MObjT) -> MObjT:
         """Returns a copy of this object"""
         raise NotImplementedError
 
-    def moveTo(self, start: time_t) -> None:
-        """Move this to the given start time (**in place**)
-
-        Args:
-            start: the new start time
-        """
-        self.offset = start
-        self._changed()
-
-    def timeShift(self:T, timeoffset: time_t) -> T:
+    def timeShift(self: MObjT, timeoffset: time_t) -> MObjT:
         """
         Return a copy of this object with an added offset
 
@@ -498,11 +525,11 @@ class MObj:
             return None
         return self.offset + self.dur
 
-    def quantizePitch(self: T, step=0.) -> T:
+    def quantizePitch(self: MObjT, step=0.) -> MObjT:
         """ Returns a new object, with pitch rounded to step """
         raise NotImplementedError()
 
-    def transposeByRatio(self: T, ratio: float) -> T:
+    def transposeByRatio(self: MObjT, ratio: float) -> MObjT:
         """
         Transpose this by a given frequency ratio, if applicable
 
@@ -655,7 +682,7 @@ class MObj:
             the path of the generated file. If outfile was given, the returned
             path will be the same as the outfile.
 
-        .. seealso:: :meth:`MObj.render`
+        .. seealso:: :meth:`~maelzel.core.mobj.MObj.render`
         """
         w = Workspace.active
         if not config:
@@ -670,12 +697,23 @@ class MObj:
                             config=config or Workspace.active.config)
         if not os.path.exists(path):
             # cached image does not exist?
+            logger.debug(f"_renderImage did not return an existing path for object {self}, "
+                         f"returned path: {path}. This might be a cached path and the cache "
+                         f"might be invalid. Resetting the cache and trying again...")
             resetImageCache()
-            raise RuntimeError("The returned image file does not exist")
+            # Try again, uncached
+            path = _renderImage(self, outfile, fmt=fmt, backend=backend, scorestruct=scorestruct,
+                                config=config or Workspace.active.config)
+            if not os.path.exists(path):
+                raise FileNotFoundError(f"Could not generate image, returned image file '{path}' "
+                                        f"does not exist")
+            else:
+                logger.debug(f"... resetting the cache worked, an image file '{path}' "
+                             f"was generated")
         return path
 
     def scoringEvents(self,
-                      groupid: str = None,
+                      groupid='',
                       config: CoreConfig = None,
                       ) -> list[scoring.Notation]:
         """
@@ -701,7 +739,8 @@ class MObj:
         Returns this object as a list of scoring Parts.
 
         Args:
-            options: render options used
+            config: if given, this config instead of the active config will
+                be used
 
         Returns:
             a list of scoring.Part
@@ -778,7 +817,22 @@ class MObj:
 
     def scorestruct(self) -> ScoreStruct | None:
         """
-        Returns the ScoreStruct active for this obj or its parent
+        Returns the ScoreStruct active for this obj or its parent (recursively)
+
+        If this object has no parent ``None`` is returned
+
+        Example
+        ~~~~~~~
+
+        .. code-block:: python
+
+            >>> from maelzel.core import *
+            >>> n = Note("4C", 1)
+            >>> voice = Voice([n])
+            >>> score = Score([voice])
+            >>> score.setScoreStruct(ScoreStruct(timesig=(3, 4), tempo=72))
+            >>> n.scorestruct()
+            ScoreStruct(timesig=(3, 4), tempo=72)
         """
         return self._scorestruct or (self.parent.scorestruct() if self.parent else None)
 
@@ -845,9 +899,14 @@ class MObj:
         txt = self._repr_html_header()
         return rf'<code style="font-size:0.9em">{txt}</code><br>' + img
 
-    def dump(self, indents=0):
+    def dump(self, indents=0, forcetext=False):
         """
         Prints all relevant information about this object
+
+        Args:
+            indents: number of indents
+            forcetext: if True, force text output via print instead of html
+                even when running inside jupyter
         """
         print(f'{"  "*indents}{repr(self)}')
         if self.playargs:
@@ -1109,7 +1168,7 @@ class MObj:
                 to open a save dialog
             sr: the sampling rate (:ref:`config key: 'rec.sr' <config_rec_sr>`)
             wait: if True, the operation blocks until recording is finishes
-                (:ref:`config 'rec.block' <config_rec_block>`)
+                (:ref:`config 'rec.block' <config_rec_blocking>`)
             nchnls: if given, use this as the number of channels to record.
 
             gain: modifies the own amplitude for playback/recording (0-1)
@@ -1138,10 +1197,7 @@ class MObj:
             >>> renderer.lastOutfile()
             '/home/testuser/.local/share/maelzel/recordings/tmpashdas.wav'
 
-        See Also
-        ~~~~~~~~
-
-        - :class:`~maelzel.core.playback.OfflineRenderer`
+        .. seealso:: :class:`~maelzel.core.playback.OfflineRenderer`
         """
         events = self.events(instr=instr, position=position,
                              delay=delay, args=args, gain=gain,
@@ -1157,7 +1213,7 @@ class MObj:
         """
         return False
 
-    def addSymbol(self: T, symbol: str | _symbols.Symbol, *args, **kws) -> T:
+    def addSymbol(self: MObjT, symbol: str | _symbols.Symbol, *args, **kws) -> MObjT:
         """
         Add a notation symbol to this object
 
@@ -1179,6 +1235,8 @@ class MObj:
             >>> from maelzel.core import *
             >>> n = Note(60)
             >>> n.addSymbol('articulation', 'accent')
+            # This is the same as:
+            >>> n.addSymbol(symbols.Articulation('accent'))
             >>> n = Note(60).setPlay(instr='piano').addSymbol('text', 'dolce')
             >>> from maelzel.core import symbols
             >>> n2 = Note("4G").addSymbol(symbols.Harmonic(interval=5))
@@ -1267,13 +1325,17 @@ class MObj:
         classname = classname.lower()
         return next((s for s in self.symbols if s.name==classname), None)
 
-    def addText(self, text: str, placement='above', fontsize: int = None,
-                fontstyle: str = None, box: str = ''
-                ) -> None:
+    def addText(self: MObjT,
+                text: str,
+                placement='above',
+                fontsize: int = None,
+                fontstyle: str = None,
+                box: str = ''
+                ) -> MObjT:
         """
-        Shortcut to add a text annotation to this object
+        Add a text annotation to this object
 
-        This is a shortcut to ``self.setSymbol(symbols.Text(...))``. Use
+        This is a shortcut to ``self.addSymbol(symbols.Text(...))``. Use
         that for in-depth customization.
 
         Args:
@@ -1284,14 +1346,18 @@ class MObj:
             box: the enclosure shape, or '' for no box around the text. Possible shapes
                 are 'square', 'circle', 'rounded'
 
+        Returns:
+            self
+
         """
         self.addSymbol(_symbols.Text(text, placement=placement, fontsize=fontsize,
                                      fontstyle=fontstyle, box=box))
+        return self
 
-    def addSpanner(self: T,
+    def addSpanner(self: MObjT,
                    spanner: str | _symbols.Spanner,
                    endobj: MObj = None
-                   ) -> T:
+                   ) -> MObjT:
         """
         Adds a spanner symbol to this object
 
@@ -1353,7 +1419,7 @@ class MObj:
             spanner.setAnchor(self)
         return self
 
-    def timeTransform(self:T, timemap: Callable[[F], F], inplace=False) -> T:
+    def timeTransform(self: MObjT, timemap: Callable[[F], F], inplace=False) -> MObjT:
         """
         Apply a time-transform to this object
 
@@ -1393,23 +1459,16 @@ class MObj:
         self._changed()
 
     def timeRangeSecs(self) -> tuple[F, F]:
+        """
+        The absolute time range, in seconds
+
+        Returns:
+            a tuple (absolute start time in seconds, absolute end time in seconds)
+        """
         absoffset = self.absoluteOffset()
         dur = self.resolvedDur()
         s = self.scorestruct()
-        startSecs = s.beatToTime(absoffset)
         return s.beatToTime(absoffset), s.beatToTime(absoffset + dur)
-
-    def startSecs(self) -> F:
-        """
-        Returns the .start time in seconds according to the score
-
-        The absolute time depends on the active ScoreStruct
-        An Exception is raised if self does not have an start time
-
-        This is equivalent to ``activeScoreStruct().beatToTime(obj.start)``
-        """
-        startsecs, dursecs = self.timeRangeSecs()
-        return startsecs
 
     def durSecs(self) -> F:
         """
@@ -1421,19 +1480,7 @@ class MObj:
         _, dursecs = self.timeRangeSecs()
         return dursecs
 
-    def endSecs(self) -> F:
-        """
-        Returns the end of this in seconds according to the active score
-
-        The absolute end time depends on the active ScoreStruct.
-        An Exception is raised if self does not have an end time
-
-        This is equivalent to ``activeScoreStruct().beatToTime(obj.end)``
-        """
-        start, dur = self.timeRangeSecs()
-        return start + dur
-
-    def pitchTransform(self:T, pitchmap: Callable[[float], float]) -> T:
+    def pitchTransform(self: MObjT, pitchmap: Callable[[float], float]) -> MObjT:
         """
         Apply a pitch-transform to this object, returns a copy
 
@@ -1445,7 +1492,7 @@ class MObj:
         """
         raise NotImplementedError("Subclass should implement this")
 
-    def timeScale(self: T, factor: num_t, offset: num_t = 0) -> T:
+    def timeScale(self: MObjT, factor: num_t, offset: num_t = 0) -> MObjT:
         """
         Create a copy with modified timing by applying a linear transformation
 
@@ -1459,30 +1506,7 @@ class MObj:
         transform = _TimeScale(asF(factor), offset=asF(offset))
         return self.timeTransform(transform)
 
-    def adaptToScoreStruct(self: T, newstruct: ScoreStruct, oldstruct: ScoreStruct=None
-                           ) -> T:
-        """
-        Adapts the time to a new ScoreStruct so that its absolute time is unmodified
-
-        Args:
-            newstruct: the new ScoreStruct
-            oldstruct: the old ScoreStruct. If not given either the attached or the
-                current ScoreStruct is used
-
-        Returns:
-            a clone of self with the modified start and duration
-
-        """
-        oldstruct = oldstruct or self.scorestruct() or Workspace.active.scorestruct
-        if newstruct == oldstruct:
-            logger.warning("The new scorestruct is the same as the old scorestruct")
-            return self
-        startTime = oldstruct.beatToTime(self.offset)
-        endTime = oldstruct.beatToTime(self.end)
-        return self.clone(start=newstruct.timeToBeat(startTime),
-                          dur=newstruct.beatDelta(startTime, endTime))
-
-    def invertPitch(self: T, pivot: pitch_t) -> T:
+    def invertPitch(self: MObjT, pivot: pitch_t) -> MObjT:
         """
         Invert the pitch of this object
 
@@ -1509,7 +1533,7 @@ class MObj:
         func = lambda pitch: pivotm*2 - pitch
         return self.pitchTransform(func)
 
-    def transpose(self: T, interval: int | float) -> T:
+    def transpose(self: MObjT, interval: int | float) -> MObjT:
         """
         Transpose this object by the given interval
 

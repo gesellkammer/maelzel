@@ -22,3 +22,7 @@ docs/api
 notebooks/Untitled*.ipynb
 notebooks/tmp
 notebooks/test/tmp
+*.eps
+*.count
+*.tex
+*.texi

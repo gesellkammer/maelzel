@@ -9,7 +9,7 @@ from .mobjlist import MObjList
 from maelzel.scorestruct import ScoreStruct
 from maelzel import scoring
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Sequence
 if TYPE_CHECKING:
     from ._typedefs import *
 
@@ -35,25 +35,15 @@ class Score(MContainer, MObjList):
     __slots__ = ('voices', '_modified')
 
     def __init__(self,
-                 voices: list = None,
-                 scorestruct: ScoreStruct = None,
-                 title: str = ''):
-        asvoices = []
-        if voices:
-            for obj in voices:
-                if isinstance(obj, Voice):
-                    assert obj.offset == 0
-                    obj.parent = self
-                    asvoices.append(obj)
-                elif isinstance(obj, Chain):
-                    voice = obj.asVoice()
-                    voice.parent = self
-                    asvoices.append(voice)
-                else:
-                    raise TypeError(f"Cannot convert {obj} to a voice")
-            voices = asvoices
+                 voices: Sequence[Voice | Chain] = (),
+                 scorestruct: ScoreStruct | None = None,
+                 title=''):
+        asvoices: list[Voice] = [item if isinstance(item, Voice) else item.asVoice()
+                                 for item in voices]
+        for voice in asvoices:
+            voice.parent = self
 
-        self.voices: list[Voice] = voices if voices is not None else []
+        self.voices: list[Voice] = asvoices
         """the voices of this score"""
 
         MObjList.__init__(self, label=title, offset=F(0))
@@ -62,6 +52,22 @@ class Score(MContainer, MObjList):
 
     def scorestruct(self) -> ScoreStruct | None:
         return self._scorestruct
+
+    def setScoreStruct(self, scorestruct: ScoreStruct) -> None:
+        """
+        Set the ScoreStruct for this Score
+
+        Scores are the only objects in maelzel.core which can have a
+        ScoreStruct attached to them. This ScoreStruct will be
+        used for any object embedded downstream
+
+        Args:
+            scorestruct: the ScoreStruct
+
+        """
+        self._scorestruct = scorestruct
+        self._changed()
+
 
     def __hash__(self):
         items = [type(self).__name__, self.label, self.offset, len(self.voices)]
@@ -91,7 +97,6 @@ class Score(MContainer, MObjList):
         if isinstance(voice, Chain):
             voice = voice.asVoice()
         voice.parent = self
-        voice.setScoreStruct(None)
         self.voices.append(voice)
         self._changed()
 
@@ -106,7 +111,7 @@ class Score(MContainer, MObjList):
         self.dur = dur
         return dur
 
-    def scoringParts(self, config: CoreConfig = None
+    def scoringParts(self, config: CoreConfig | None = None
                      ) -> list[scoring.Part]:
         parts = []
         for voice in self.voices:
@@ -114,7 +119,7 @@ class Score(MContainer, MObjList):
             parts.extend(voiceparts)
         return parts
 
-    def scoringEvents(self, groupid: str = None, config: CoreConfig = None
+    def scoringEvents(self, groupid='', config: CoreConfig | None = None
                       ) -> list[scoring.Notation]:
         parts = self.scoringParts(config or getConfig())
         flatevents = []
@@ -122,10 +127,6 @@ class Score(MContainer, MObjList):
             flatevents.extend(part)
         # TODO: deal with groupid
         return flatevents
-
-    def setScoreStruct(self, scorestruct: ScoreStruct):
-        self._scorestruct = scorestruct
-        self._changed()
 
     def childOffset(self, child: MObj) -> F:
         offset = child._detachedOffset()

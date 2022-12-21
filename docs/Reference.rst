@@ -22,7 +22,7 @@ maelzel.scoring
 
 The **maelzel.scoring** package can be used for general purpose musical notation. It provides
 the notation functionality used by **maelzel.core** but it can be used independently. 
-It implements a very flexible and robust quantization engine (see :ref:`scoringquant`) 
+It implements a very flexible and robust quantization engine (see :py:mod:`maelzel.scoring.quant`)
 and can output *musicxml*, *lilypond* and *midi* as well as render to *pdf* and *png* via 
 multiple backends (*lilypond*, *musescore*) 
 

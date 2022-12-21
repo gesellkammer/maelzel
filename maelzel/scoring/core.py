@@ -417,10 +417,11 @@ def packInParts(notations: list[Notation], maxrange=36,
     for group in groups:
         if isinstance(group, Notation):
             n = group
-            if not n.isRest:
-                assert n.offset is not None and n.duration is not None
-                items.append(packing.Item(obj=n, offset=n.offset,
-                                          dur=n.duration, step=n.meanPitch()))
+            if n.isRest and not n.attachments and not n.dynamic:
+                continue
+            assert n.offset is not None and n.duration is not None
+            items.append(packing.Item(obj=n, offset=n.offset,
+                                      dur=n.duration, step=n.meanPitch()))
         else:
             assert isinstance(group, list)
             if keepGroupsTogether:
@@ -459,7 +460,7 @@ def removeRedundantDynamics(notations: list[Notation],
     for n in notations:
         if n.tiedPrev:
             continue
-        if n.isRest:
+        if n.isRest and not n.dynamic:
             if resetAfterRest and n.duration > minRestDuration:
                 lastDynamic = ''
         elif n.dynamic and n.dynamic in definitions.dynamicLevels:

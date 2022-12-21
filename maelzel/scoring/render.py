@@ -128,6 +128,15 @@ def quantizeAndRender(parts: list[core.Part],
                       ) -> Renderer:
     """
     Quantize and render unquantized events organized into parts
+
+    Args:
+        parts: the parts to render
+        struct: the ScoreStruct used
+        options: RenderOptions
+        backend: the backend to use ('lilypond', 'music21')
+
+    Returns:
+        the Renderer object
     """
     if options.respellPitches:
         enharmonicOptions = _makeEnharmonicOptionsFromRenderOptions(options)
@@ -190,7 +199,7 @@ def render(obj: Union[core.Part, core.Notation, list[core.Part], list[core.Notat
     """
     parts = _asParts(obj)
     if struct is None:
-        struct = ScoreStruct.fromTimesig((4, 4), quarterTempo=60)
+        struct = ScoreStruct(timesig=(4, 4), tempo=60)
     if backend is None:
         backend = config['renderBackend']
     if options is None:
@@ -199,8 +208,7 @@ def render(obj: Union[core.Part, core.Notation, list[core.Part], list[core.Notat
                              quantizationProfile=quantizationProfile)
 
 
-def renderMusicxml(xmlfile: str, outfile: str, method:str=None, crop: bool = None,
-                   pngpage=1
+def renderMusicxml(xmlfile: str, outfile: str, method='', crop: bool = None, pngpage=1
                    ) -> None:
     """
     Convert a saved musicxml file to pdf or png
@@ -239,7 +247,7 @@ def renderMusicxml(xmlfile: str, outfile: str, method:str=None, crop: bool = Non
             if not os.path.exists(outfile):
                 raise RuntimeError(f"Could not generate pdf file {outfile} from {xmlfile}")
         else:
-            raise ValueError(f"method {method} unknown, possible values: 'musescore'")
+            raise ValueError(f"Method {method} unknown, possible values: 'musescore'")
     elif fmt == '.png':
         if crop is None:
             crop = True

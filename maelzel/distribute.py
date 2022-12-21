@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Optional, TypeVar, List, Sequence
     import matplotlib.pyplot
-    T = TypeVar('MObjT')
+    T = TypeVar('T')
     
 from dataclasses import dataclass
 from functools import partial
@@ -128,7 +128,7 @@ def roundSeqPreservingSum(seq: list[float], maxdelta=1, maxsolutions=1,
 #
 # ------------------------------------------------------------
 
-def partitionFib(n: int, numpart: int) -> List[float]:
+def partitionFib(n: int, numpart: int) -> list[float]:
     """
     Partition *n* into *numpart* partitions with fibonacci proportions
 
@@ -167,7 +167,7 @@ def partitionFib(n: int, numpart: int) -> List[float]:
     return seq
 
 
-def partitionExpon(n: float, numpart: int, exp=2.0) -> List[float]:
+def partitionExpon(n: float, numpart: int, exp=2.0) -> list[float]:
     """
     Partition *n* into numpart following an exponential curve
 
@@ -189,7 +189,7 @@ def partitionExpon(n: float, numpart: int, exp=2.0) -> List[float]:
     return y0 * r
 
 
-def chooseBestDistribution(values: Sequence[T], possibleValues: Sequence[T]) -> List[T]:
+def chooseBestDistribution(values: Sequence[T], possibleValues: Sequence[T]) -> list[T]:
     """
     Reconstruct the sequence *values* with items from *possiblevals*
 
@@ -437,7 +437,7 @@ def partitionFollowingCurve(n: int, curve: bpf4.BpfInterface, ratio=0.5, margin=
 #
 # ------------------------------------------------------------
 
-def onepulse(x: float, resolution:int, entropy=0.) -> List[int]:
+def onepulse(x: float, resolution: int, entropy=0.) -> list[int]:
     """
     Represents *x* as a seq. of 0 and 1
 
@@ -470,7 +470,7 @@ def onepulse(x: float, resolution:int, entropy=0.) -> List[int]:
     return bins
 
 
-def ditherCurve(curve: bpf4.BpfInterface, numsamples: int, resolution=2) -> List[int]:
+def ditherCurve(curve: bpf4.BpfInterface, numsamples: int, resolution=2) -> list[int]:
     """
     Sample *curve* applying dithering to smooth transitions
 
@@ -513,7 +513,7 @@ def ditherCurve(curve: bpf4.BpfInterface, numsamples: int, resolution=2) -> List
 
 def pulseCurve(curve: bpf4.BpfInterface, n: int, resolution=5, entropy=0.,
                x0:float=None, x1:float=None
-               ) -> List[int]:
+               ) -> list[int]:
     """
     Generates a list of 0s/1s of length n, following the curve
 
@@ -579,7 +579,7 @@ def _dither_resolutions(numsamples, resolution):
     return resolutions
 
 
-def interleave(A: List[T], B: List[T], weight=0.5) -> List[T]:
+def interleave(A: list[T], B: list[T], weight=0.5) -> list[T]:
     """
     interleave the elements of A and B
 
@@ -644,7 +644,7 @@ class _FillMatch:
 
 @dataclass
 class _FillResult:
-    matches: List[_FillMatch]
+    matches: list[_FillMatch]
     unfilledContainers: list
     unusedStreams: list
 
@@ -663,17 +663,19 @@ def fillWithOnePart(containerSizes: list[float], streamSizes: list[float]) -> _F
     =======
 
     Partition 3 and 4 into three values which fill containers of size
-    1, 2, 5 minimizing the amount of unused space in the containers
+    1, 2, 5 minimizing the amount of unused space in the containers.
 
-        >>> out = fillWithOnePart([1,2,5], [3, 4])
+        >>> out = fillWithOnePart([1, 2, 5], [3, 4])
         >>> out
-        _FillResult(matches=[_FillMatch(size=4, container_index=2, stream_index=1),
-                             _FillMatch(size=2, container_index=1, stream_index=0),
-                             _FillMatch(size=1, container_index=0, stream_index=0)],
+        _FillResult(matches=[_FillMatch(size=4, containerIdx=2, streamIdx=1),
+                             _FillMatch(size=2, containerIdx=1, streamIdx=0),
+                             _FillMatch(size=1, containerIdx=0, streamIdx=0)],
                     unfilledContainers=[0, 0, 1],
                     unusedStreams=[0, 0])
-        >>> [match.size for match in out.matches]
-        [4, 2, 1]
+
+    This fills container 2 (size 5) with 4 of 4, container 1 (size 2) with 2 of 3
+    and container 0 (size 1) with 1 of 3. Streams are used in their entirety and
+    only container 2 is partially filled
     """
     unfilledContainers = containerSizes[:]
     unusedStreams = streamSizes[:]
@@ -681,8 +683,8 @@ def fillWithOnePart(containerSizes: list[float], streamSizes: list[float]) -> _F
     containers = [(container, idx) for idx, container in enumerate(containerSizes)]
     containers = sorted(containers, reverse=True)  # sort the containers from big to small
     streamSizes = sorted(streamSizes, reverse=True)        # also sort them from big to small
-    outstreams: List[List[float]] = [[] for _ in range(len(streamSizes))]
-    out: List[_FillMatch] = []
+    outstreams: list[list[float]] = [[] for _ in range(len(streamSizes))]
+    out: list[_FillMatch] = []
     for containerSize, containerId in containers:
         if any(stream[0] >= containerSize for stream in streamSizes):
             bestFitDiff, stream, idx = sorted((stream[0] - containerSize, stream, i)
@@ -691,7 +693,7 @@ def fillWithOnePart(containerSizes: list[float], streamSizes: list[float]) -> _F
         else:
             bestFitDiff, stream, idx = sorted((abs(stream[0] - containerSize), stream, i)
                                                     for i, stream in enumerate(streamSizes))[0]
-        size = min(containerSize, stream[0])
+        size = int(min(containerSize, stream[0]))
         outstreams[stream[1]].append(size)
         out.append(_FillMatch(size, containerId, stream[1]))
         unfilledContainers[containerId] -= size
