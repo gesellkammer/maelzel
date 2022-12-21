@@ -237,11 +237,23 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
     parts = []
     _ = parts.append
 
-    if n.isRest or len(n.pitches) == 1 and n.pitches[0] == 0:
+    if n.isRest or (len(n.pitches) == 1 and n.pitches[0] == 0):
         _("r" + str(base) + "."*dots)
+        # A rest can have: dynamics, fermatas, ..
         if (not n.tiedPrev or options.articulationInsideTie) and n.dynamic:
             dyn = n.dynamic if not n.dynamic.endswith('!') else n.dynamic[:-1]
             _(fr"\{dyn}")
+        for attach in n.attachments:
+            if isinstance(attach, attachment.Text):
+                _(lilytools.makeText(attach.text, placement=attach.placement,
+                                     fontsize=attach.fontsize,
+                                     italic=attach.isItalic(), bold=attach.isBold(),
+                                     box=attach.box))
+            elif isinstance(attach, attachment.Fermata):
+                _(_fermataToLily.get(attach.kind, r'\fermata'))
+            else:
+                logger.warning(f"Attachment {attach} not supported for rests")
+
         return ' '.join(parts)
 
     if n.color:
@@ -1146,7 +1158,7 @@ class LilypondRenderer(Renderer):
     def render(self) -> None:
         if self._rendered:
             return
-        self._lilyscore = makeScore(self.score, options=self.options, midi=self._withMidi)
+        self._lilyscore = makeScore(self.quantizedScore, options=self.options, midi=self._withMidi)
         self._rendered = True
 
     def writeFormats(self) -> list[str]:

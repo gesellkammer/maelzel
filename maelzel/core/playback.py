@@ -313,8 +313,12 @@ class OfflineRenderer:
                                    tabargs=tabargs,
                                    **kws)
 
-    def render(self, outfile:str=None, wait=None, quiet=None, openWhenDone=False,
-               compressionBitrate: int = None
+    def render(self,
+               outfile='',
+               wait: bool | None = None,
+               quiet: bool | None = None,
+               openWhenDone=False,
+               compressionBitrate: int | None = None
                ) -> str:
         """
         Render the events scheduled until now.
@@ -354,7 +358,7 @@ class OfflineRenderer:
         """
         self._renderProc = None
         cfg = getConfig()
-        if outfile is None:
+        if not outfile:
             outfile = self._outfile
         if outfile == '?':
             outfile = _dialogs.saveRecordingDialog()
@@ -363,7 +367,6 @@ class OfflineRenderer:
         elif not outfile:
             outfile = _makeRecordingFilename(ext=".wav")
         outfile = _util.normalizeFilename(outfile)
-        self.renderedSoundfiles.append(outfile)
         if quiet is None:
             quiet = self._quiet if self._quiet is not None else cfg['rec.quiet']
         if wait is None:
@@ -372,6 +375,7 @@ class OfflineRenderer:
             compressionBitrate = cfg['rec.compressionBitrate']
         outfile, proc = self.renderer.render(outfile=outfile, wait=wait, quiet=quiet,
                                              openWhenDone=openWhenDone, compressionBitrate=compressionBitrate)
+        self.renderedSoundfiles.append(outfile)
         self._renderProc = proc
         return outfile
 
@@ -401,7 +405,7 @@ class OfflineRenderer:
             if lastproc.poll() is None:
                 logger.debug(f"Still rendering {lastoutfile}, waiting...")
                 lastproc.wait(timeout=timeout)
-            assert os.path.exists(lastoutfile), "The process has finished but the soundfile" \
+            assert os.path.exists(lastoutfile), "The process has finished but the soundfile " \
                                                 "was not found."
         emlib.misc.open_with_app(lastoutfile)
 
@@ -842,6 +846,10 @@ def stopSynths(stopengine=False, cancelfuture=True):
 
 
 def playSession() -> csoundengine.Session|None:
+    """Returns the csoundengine.Session managing the running Engine
+
+    .. seealso:: :class:`csoundengine.Session <https://csoundengine.readthedocs.io/en/latest/api/csoundengine.session.Session.html>`
+    """
     engine = playEngine()
     return engine.session() if engine else None
 
@@ -1132,7 +1140,7 @@ class playgroup:
     ~~~~~~~
 
         >>> from maelzel.core import *
-        >>> session = playSession()
+        >>> session = playSession()  # returns a csoundengine.session.Session
         >>> session.defInstr('reverb', r'''
         ... |kfeedback=0.85|
         ... a1, a2 monitor
@@ -1287,7 +1295,7 @@ class playgroup:
 
         Schedule a reverb at a higher priority to affect all notes played. Notice
         that the reverb instrument is declared at the play Session (see
-        :func:`play.getPlaySession() <maelzel.core.play.getPlaySession>`). All instruments
+        :func:`playback.playSession <maelzel.core.playback.playSession>`). All instruments
         registered at this Session are immediately available for offline rendering.
 
         >>> from maelzel.core import *

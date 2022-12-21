@@ -12,6 +12,7 @@
 #
 import os
 import sys
+
 sys.path.insert(0, os.path.abspath('../'))
 
 
@@ -28,6 +29,7 @@ author = 'Eduardo Moguillansky'
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
+    # 'sphinx.ext.autosectionlabel',
     'sphinx.ext.autodoc',
     'sphinx_automodapi.automodapi',
     # 'sphinx_automodapi.smart_resolver',
@@ -101,3 +103,4 @@ html_css_files = [
 ]
 
 default_role = 'any'
+

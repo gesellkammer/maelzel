@@ -34,7 +34,7 @@ values, range, etc.::
 Alternative key format
 ----------------------
 
-For convenience keys are case- and punctiation- independent. This allows
+For convenience keys are case- and punctuation- independent. This allows
 to create a new CoreConfig as ``CoreConfig(show_staff_size=10)`` instead of
 ``CoreConfig(updates={'show.staffSize': 10})`` or query the same key as
 ``staffsize = config['show_staff_size']`` instead of ``staffsize = config['show.staffSize']``
@@ -46,7 +46,7 @@ Persistence
 Modifications to a configuration can be made persistent by saving the config.
 
     >>> from maelzel.core import *
-    # Set the reference frequency to 443 for this and all future sessions
+    # Set the reference frequency to 443
     >>> conf = getConfig()
     >>> conf['A4'] = 443
     # Set lilypond as default rendering backend
@@ -60,10 +60,35 @@ In a future session these changes will be picked up as default:
     >>> conf['A4']
     443
 
-
 .. seealso::
 
     :ref:`workspace_mod`
+
+--------------------
+
+.. _rootconfig:
+
+Root Config
+-----------
+
+When ``maelzel.core`` is first imported the persisted config is read (if no persisted
+config is found the builtin default is used). This is the *root config* and is used as a
+prototype for any subsequent :class:`CoreConfig` created. This enables you to
+modify default values based on your personal setup (for example, you can set the
+default rendering samplerate to 48000 if that fits your workflow better).
+
+Example
+~~~~~~~
+
+    >>> from maelzel.core import *
+    >>> config = getConfig()
+    >>> config['rec.sr']
+    44100
+    >>> rootConfig['rec.sr'] = 48000
+    >>> newconfig = CoreConfig()
+    >>> newconfig['rec.sr']
+    48000
+    >>> rootConfig.save()   # If you want this as default, save it for any future sessions
 
 ---------------------
 
@@ -83,7 +108,7 @@ cloning any CoreConfig.
     >>> setConfig(newconfig)
 
 Also creating a new :class:`~maelzel.core.workspace.Workspace` will create a new
-config:
+config based on the root config:
 
     >>> from maelzel.core import *
     # Create a config to work with old tuning and display notation using a3 page size
@@ -99,7 +124,8 @@ config:
     >>> Note("4A").freq
     442
 
-It is also possible to create a temporary config:
+It is also possible to create a temporary config as a context manager. The config
+will be active only within its context:
 
     >>> from maelzel.core import *
     >>> scale = Chain([Note(m, dur=0.5) for m in range(60, 72)])
@@ -153,7 +179,9 @@ def _fractionsAsFloat(val: bool):
         pass
 
 
-
+#####################################
+#            CoreConfig             #
+#####################################
 
 class CoreConfig(ConfigDict):
     """
@@ -272,6 +300,7 @@ class CoreConfig(ConfigDict):
         Create a QuantizationProfile from this config
 
         This quantization profile can be passed to
+
         Returns:
 
         """
@@ -297,7 +326,7 @@ class CoreConfig(ConfigDict):
         This is just a shortcut for ``setConfig(self)``
         """
         from . import workspace
-        workspace.setConfig(self)
+        workspace.Workspace.active.config = self
 
     def reset(self, save=False) -> None:
         super().reset(save=save)

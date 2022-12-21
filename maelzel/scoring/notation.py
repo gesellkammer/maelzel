@@ -503,7 +503,6 @@ class Notation:
         """
         Copy this Notation as is
         """
-
         return self.__copy__()
 
     def __deepcopy__(self, memo=None):
@@ -802,6 +801,14 @@ class Notation:
 
     def __len__(self) -> int:
         return len(self.pitches)
+
+    def hasAttributes(self) -> bool:
+        """
+        True if this notation has information attached
+
+        Information is any dynanic, attachments, spanners, etc.
+        """
+        return bool(self.dynamic or self.attachments or self.spanners)
 
     def accidentalDirection(self, index=0, minAlteration=0.5) -> int:
         """

@@ -139,7 +139,6 @@ def _removeRedundantOffsets(items: list[MEvent | Chain],
 
     """
     # This is the relative position (independent of the chain's start)
-    assert isinstance(items, list) and all(isinstance(item, (MEvent, Chain)) for item in items)
     now = frame
     out = []
     for item in items:
@@ -189,7 +188,7 @@ class Chain(MObj, MContainer):
     __slots__ = ('items', '_modified')
 
     def __init__(self,
-                 items: list[MEvent | Chain | str] = None,
+                 items: list[MEvent | Chain | str] | str | None = None,
                  offset: time_t = None,
                  label: str = '',
                  properties: dict[str, Any] = None,
@@ -198,7 +197,9 @@ class Chain(MObj, MContainer):
         if _init:
             if offset is not None:
                 offset = asF(offset)
-            if items is not None:
+            if isinstance(items, str):
+                items = _parseMultiLineChain(items)
+            elif items is not None:
                 items = [item if isinstance(item, (MEvent, Chain)) else asEvent(item)
                          for item in items]
 
@@ -229,17 +230,46 @@ class Chain(MObj, MContainer):
                      properties=self.properties if properties is UNSET else properties,
                      _init=False)
 
-    def copy(self) -> Chain:
-        # chain's parent is not copied
-        items = [item.copy() for item in self.items]
-        return Chain(items=items, offset=self.offset, label=self.label,
+    def __copy__(self) -> Chain:
+        return Chain(self.items.copy(), offset=self.offset, label=self.label,
                      properties=self.properties, _init=False)
 
-    def isResolved(self) -> bool:
+    def __deepcopy__(self, memodict={}) -> Chain:
+        items = [item.copy() for item in self.items]
+        properties = None if not self.properties else self.properties.copy()
+        out = Chain(items=items, offset=self.offset, label=self.label,
+                    properties=properties, _init=False)
+        self._copyAttributesTo(out)
+        return out
+
+    def copy(self) -> Chain:
+        return self.__deepcopy__()
+
+    def isResolved(self, explicit=False) -> bool:
         """
         True if all items in this chain have an offset and duration
+
+        Args:
+            explicit: if True, items must have an explicit offset and explicit duration
+                Otherwise it is enough that
+
+        Returns:
+            True if all items have a resolved offset and duration
         """
         self._update()
+        if self.offset is None and self._resolvedOffset is None:
+            return False
+
+        if explicit:
+            for item in self.items:
+                if isinstance(item, MEvent):
+                    if item.offset is None or item.dur is None:
+                        return False
+                else:
+                    if not item.isResolved(explicit=True):
+                        return False
+            return True
+
         for item in self.items:
             if isinstance(item, MEvent):
                 if item.offset is None and item._resolvedOffset is None:
@@ -247,7 +277,7 @@ class Chain(MObj, MContainer):
                 if item.dur is None and item._resolvedDur is None:
                     return False
             else:
-                if not item.isResolved():
+                if not item.isResolved(explicit=False):
                     return False
         return True
 
@@ -349,22 +379,49 @@ class Chain(MObj, MContainer):
         pitchRanges = [item.pitchRange() for item in self.items]
         return min(p[0] for p in pitchRanges), max(p[1] for p in pitchRanges)
 
-    def resolved(self) -> Chain:
+    def withExplicitTimes(self, forcecopy=False) -> Chain:
         """
         Copy of self with explicit times
 
-        The items in the returned object have an explicit start and
-        duration.
+        If self already has explicit offset and duration, self itself
+        is returned. If you relie on the fact that this method returns
+        a copy, use ``forcecopy=True``
+
+        Args:
+            forcecopy: if forcecopy, a copy of self will be returned even
+                if self already has explicit times
 
         Returns:
-            a clone of self with dur and offset set to explicit
-            values
+            a clone of self with explicit times
+
+        Example
+        ~~~~~~~
+
+        The offset and dur shown as the first two columns are the resolved
+        times. When an event has an explicit offset or duration these are
+        shown as part of the event repr. See for example the second note, 4C,
+        which in the first version does not have any explicit times and is shown
+        as "4C" and in the second version it appears as "4C:2.5♩:offset=0.5"
+
+            >>> from maelzel.core import *
+            >>> chain = Chain([Rest(0.5), Note("4C"), Chord("4D 4E", offset=3)])
+            >>> chain.dump()
+            Chain
+              offset: 0      dur: 0.5    | Rest:0.5♩
+              offset: 0.5    dur: 2.5    | 4C
+              offset: 3      dur: 1      | ‹4D 4E offset=3›
+            >>> chain.withExplicitTimes().dump()
+            Chain
+              offset: 0      dur: 0.5    | Rest:0.5♩:offset=0
+              offset: 0.5    dur: 2.5    | 4C:2.5♩:offset=0.5
+              offset: 3      dur: 1      | ‹4D 4E 1♩ offset=3›
+
 
         """
-        if self.isResolved():
+        if self.isResolved() and not forcecopy:
             return self
         out = self.copy()
-        out.stack(explicitOffsets=True)
+        out.stack(explicitOffsets=True, explicitDurations=True)
         return out
 
     def _synthEvents(self, playargs: PlayArgs, workspace: Workspace
@@ -527,7 +584,7 @@ class Chain(MObj, MContainer):
         else:
             return self.items.__getitem__(idx)
 
-    def _dumpRows(self, indents=0, now=F(0)) -> list[str]:
+    def _dumpRows(self, indents=0, now=F(0), forcetext=False) -> list[str]:
         fontsize = '85%'
         IND = '  '
         selfstart = f"{float(self.offset):.3g}" if self.offset is not None else 'None'
@@ -549,7 +606,7 @@ class Chain(MObj, MContainer):
 
         self._update()
 
-        if environment.insideJupyter:
+        if environment.insideJupyter and not forcetext:
             _ = _util.htmlSpan
             r = type(self).__name__
 
@@ -602,30 +659,38 @@ class Chain(MObj, MContainer):
                         rows.append(row)
 
                 elif isinstance(item, Chain):
-                    rows.extend(item._dumpRows(indents=indents+1, now=now+itemoffset))
+                    rows.extend(item._dumpRows(indents=indents+1, now=now+itemoffset, forcetext=forcetext))
             return rows
         else:
-            rows = [f"{' ' * indents}Chain"]
-            for item, itemoffset, itemdur in self._iterateWithTimes(recurse=False, frame=now):
+            rows = [f"{IND * indents}Chain -- beat: {self.absoluteOffset()}, offset: {selfstart}, dur: {self.resolvedDur()}",
+                    f'{IND * (indents + 1)}beat   offset  dur    item']
+            items, itemsdur = self._iterateWithTimes(recurse=False, frame=F(0))
+            for item, itemoffset, itemdur in items:
                 if isinstance(item, MEvent):
-                    rows.append(f'{IND}{item} resolved offset: {itemoffset}, resolved dur: {itemdur}')
-                    sublines = repr(item).splitlines()
-                    for subline in sublines:
-                        rows.append(f"{'  ' * (indents + 1)}{subline}")
+                    rows.append(f'{IND * (indents+1)}'
+                                f'{repr(now + itemoffset).ljust(7)}'
+                                f'{repr(itemoffset).ljust(7)} '
+                                f'{repr(itemdur).ljust(7)}'
+                                f'{item}')
                 else:
-                    rows.extend(item._dumpRows(indents=indents+1))
+                    rows.extend(item._dumpRows(indents=indents+1, forcetext=forcetext, now=now+itemoffset))
             return rows
 
-    def dump(self, indents=0) -> None:
+    def dump(self, indents=0, forcetext=False) -> None:
         """
         Dump this chain, recursively
 
         Values inside parenthesis are implicit. For example if an object inside
-        this chain does not have an explicit .offset, its resolved offset will
+        this chain does not have an explicit .offset, its withExplicitTimes offset will
         be shown within parenthesis
+
+        Args:
+            indents: the number of indents to use
+            forcetext: if True, force print output instea of html, even when running
+                inside jupyter
         """
-        rows = self._dumpRows(indents=indents, now=self.offset or F(0))
-        if environment.insideJupyter:
+        rows = self._dumpRows(indents=indents, now=self.offset or F(0), forcetext=forcetext)
+        if environment.insideJupyter and not forcetext:
             html = '<br>'.join(rows)
             from IPython.display import HTML, display
             display(HTML(html))
@@ -685,15 +750,17 @@ class Chain(MObj, MContainer):
         """
         Convert this Chain to a Voice
         """
-        items, itemsdur = stackEvents(self.items)
-        for item in items:
-            item.offset += self.offset
+        items = self.copy().items
+        _ = stackEvents(items, offset=self.offset)
+        if self.offset:
+            for item in items:
+                item.offset += self.offset
         voice = Voice(items, label=self.label)
         voice.removeRedundantOffsets()
         return voice
 
     def scoringEvents(self,
-                      groupid: str = None,
+                      groupid='',
                       config: CoreConfig = None,
                       ) -> list[scoring.Notation]:
         """
@@ -882,12 +949,12 @@ class Chain(MObj, MContainer):
                 now += subdur
         return out, now - frame
 
-    def recurseWithTimes(self, absoluteTimes=False) -> Iterator[tuple[MEvent, F, F]]:
+    def recurseWithTimes(self, absolute=False) -> Iterator[tuple[MEvent, F, F]]:
         """
         Recurse the events in self, yields a tuple (event, offset, duration) for each event
 
         Args:
-            absoluteTimes: if True, the offset returned for each item will be its
+            absolute: if True, the offset returned for each item will be its
                 absolute offset; otherwise the offsets are relative to the start of self
 
         Returns:
@@ -905,7 +972,7 @@ class Chain(MObj, MContainer):
             ... ], offset=1)
 
         """
-        frame = self.absoluteOffset() if absoluteTimes else F(0)
+        frame = self.absoluteOffset() if absolute else F(0)
         itemtuples, totaldur = self._iterateWithTimes(frame=frame, recurse=True)
         for itemtuple in itemtuples:
             item = itemtuple[0]
@@ -914,23 +981,26 @@ class Chain(MObj, MContainer):
             else:
                 yield from item
 
-    def resolvedTimes(self, absoluteTimes=False
-                      ) -> list[tuple[MEvent, F, F] | list]:
+    def iterateWithTimes(self, absolute=False
+                         ) -> list[tuple[MEvent, F, F] | list]:
         """
-        Resolves the times of the events without modifying them
+        Iterates over the items in self, returns a tuple (event, offset, duration) for each
 
-        For each event it returns a tuple (event, offset, duration), where the
-        event is unmodified, the offset is the resolved offset relative to its parent
-        and the duration is the resolved duration. Nested
-        subchains result in nested lists. All times are in beats
+        The explicit times (offset, duration) of the events are not modified. For each event
+        it returns a tuple (event, offset, duration), where the event is unmodified, the
+        offset is the withExplicitTimes offset relative to its parent and the duration is the withExplicitTimes
+        duration. Nested subchains result in nested lists. All times are in beats
 
         Args:
-            absoluteTimes: if True, offsets are returned as absolute offsets
+            absolute: if True, offsets are returned as absolute offsets
 
         Returns:
             a list of tuples, one tuple for each event.
+            Each tuple has the form (event: MEvent, resolvedOffset: F, resolvedDur: F). The
+            explicit times in the events themselves are never modified. *resolvedOffset* will
+            be the offset to self if ``absolute=False`` or the absolute offset of the event
         """
-        offset = self.absoluteOffset() if absoluteTimes else F(0)
+        offset = self.absoluteOffset() if absolute else F(0)
         items, itemsdur = self._iterateWithTimes(frame=offset, recurse=True)
         self.dur = itemsdur
         return items
@@ -943,6 +1013,51 @@ class Chain(MObj, MContainer):
             spanner = symbols.makeSpanner(spanner)
         assert isinstance(first, (Note, Chord)) and isinstance(last, (Note, Chord))
         spanner.bind(first, last)
+
+    def itemsBetween(self, startbeat: time_t, endbeat: time_t, absolute=False
+                     ) -> list[MEvent]:
+        """
+        Returns the events which are **included** by the given times in quarternotes
+
+        Events which start before *startbeat* or end after *endbeat* are not
+        included, even if parts of them might lie between the given time interval.
+        Chains are treated as one item. To access sub-chains, first flatten self.
+
+        Args:
+            startbeat: the start time, relative to the start of self
+            endbeat: end time, relative to the start of self
+
+        Returns:
+            a list of events located between the given time-interval
+
+        """
+        startbeat = asF(startbeat)
+        endbeat = asF(endbeat)
+        items = []
+        for item, itemoffset, itemdur in self.iterateWithTimes(absolute=absolute):
+            if startbeat <= itemoffset and itemoffset+itemdur <= endbeat:
+                items.append(item)
+        return items
+
+    def splitEventsAtOffsets(self, offsets: list[F], tie=True) -> None:
+        """
+        Splits items in self at the given offsets, **inplace**
+
+        The offsets are absolute. Split items are by default tied together
+
+        Args:
+            offsets: the offsets to split items at.
+            tie: if True, parts of an item are tied together
+        """
+        items = []
+        for item, itemoffset, itemdur in self.iterateWithTimes(absolute=True):
+            if isinstance(item, Chain):
+                item.splitEventsAtOffsets(offsets, tie=tie)
+                items.append(item)
+            else:
+                parts = item.splitAtOffsets(offsets, tie=tie)
+                items.extend(parts)
+        self.items = items
 
 
 class Voice(Chain):
@@ -975,4 +1090,11 @@ class Voice(Chain):
         for part in parts:
             part.shortname = self.shortname
         return parts
+
+
+def _parseMultiLineChain(s: str) -> list[MEvent]:
+    s = s.replace(';', '\n')
+    events = [asEvent(line.strip()) for line in s.splitlines() if line]
+    return events
+
 

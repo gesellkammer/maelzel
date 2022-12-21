@@ -1,7 +1,14 @@
 #!/bin/bash
 root=$(realpath $(dirname "$0")/..)
 echo "package root: $root"
+
+
 python "$root/scripts/update-config-docs.py"
 python "$root/docs/convert-notebooks.py" "$root"/docs/*.ipynb
+
 cd "$root/docs"
+
+dot -T png classstruct.dot > classstruct.png
+dot -T svg classstruct.dot > classstruct.svg
+
 make html

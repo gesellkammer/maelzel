@@ -1,2 +1,2 @@
-.. automodapi:: maelzel.core.presetman
+.. automodapi:: maelzel.core.presetmanager
     :no-inheritance-diagram:

@@ -1,5 +1,5 @@
 PresetDef
 ---------
 
-.. autoclass:: maelzel.core.presetbase.PresetDef
+.. autoclass:: maelzel.core.presetdef.PresetDef
     :members:

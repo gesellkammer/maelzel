@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, field as _field, fields as _fields
-
 from .common import *
 from . import core
 from . import definitions
@@ -33,6 +32,7 @@ from emlib import iterlib
 from emlib import misc
 from emlib.misc import Result
 from emlib import mathlib
+from emlib import logutils
 from pitchtools import notated_pitch
 
 from typing import TYPE_CHECKING, NamedTuple
@@ -263,7 +263,10 @@ class QuantizationProfile:
                 divs = possibleDivs
                 break
         if not divs:
-            raise ValueError("No divisions for the given tempo")
+            logger.error("Possible divisions of the beat, by tempo: ")
+            logutils.prettylog(logger, self.possibleDivisionsByTempo)
+            raise ValueError(f"No divisions for the given tempo (q={int(tempo)})")
+
         if not self.nestedTuplets:
             divs = [div for div in divs
                     if not _isNestedTupletDivision(div)]
@@ -630,9 +633,11 @@ def _fillDuration(notations: list[Notation], duration: F, offset=F(0)) -> list[N
         out.append(n.clone(duration=duration-n.offset))
     else:
         out.append(n)
-        if n.end < duration:
-            out.append(makeRest(offset=n.end, duration=duration-n.end))
+        if n.end < offset + duration:
+            out.append(makeRest(offset=n.end, duration=duration + offset - n.end))
     assert sum(n.duration for n in out) == duration
+    end = offset + duration
+    assert all(offset <= n.offset <= end for n in out)
     return out
 
 
@@ -747,7 +752,7 @@ class QuantizedMeasure:
         if not self.beats:
             return True
         for beat in self.beats:
-            if beat.notations and any(not n.isRest or n.spanners for n in beat.notations):
+            if beat.notations and any(not n.isRest or n.hasAttributes() for n in beat.notations):
                 return False
         return True
 
@@ -1124,7 +1129,7 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
     if div != (1,) and len(beatNotations) == 1 and len(assignedSlots) == 1 and assignedSlots[0] == 0:
         div = (1,)
     elif all(n.isRest for n in beatNotations) and len(beatNotations) > 1:
-        beatNotations = [makeRest(duration=beatDuration, offset=beatNotations[0].offset)]
+        beatNotations = [beatNotations[0].clone(duration=beatDuration)]
         div = (1,)
 
     assert sum(ev.duration for ev in beatNotations) == sum(ev.duration for ev in snappedEvents) == beatDuration, f"{beatDuration=}, {beatNotations=}"
@@ -1220,7 +1225,7 @@ def splitNotationAtOffsets(n: Notation, offsets: Sequence[Rational]) -> list[Not
     # Remove superfluous dynamic/articulation
     for part in parts[1:]:
         part.dynamic = ''
-        part.removeAttachments(lambda item: isinstance(item, (attachment.Articulation, attachment.Text)))
+        # part.removeAttachments(lambda item: isinstance(item, (attachment.Articulation, attachment.Text)))
         if part.spanners:
             part.spanners.clear()
 
@@ -2359,7 +2364,7 @@ def quantize(parts: list[core.Part],
         ... (2+1/5, "4F#+"),
         ... (5.8, "4A-10")
         ... ]
-        >>> notations = [scoring.Notation(dur, [p]) for dur, p in notes]
+        >>> notations = [scoring.Notation(duration=dur, pitches=[p]) for dur, p in notes]
         >>> part = scoring.Part(notations)
         >>> qscore = scoring.quant.quantize([part], struct=scorestruct)
         >>> qscore.parts[0].dump()
@@ -2400,7 +2405,7 @@ def quantize(parts: list[core.Part],
     if quantizationProfile is None:
         quantizationProfile = QuantizationProfile()
     if struct is None:
-        struct = ScoreStruct.fromTimesig((4, 4), quarterTempo=60)
+        struct = ScoreStruct(timesig=(4, 4), tempo=60)
     qparts = []
     for part in parts:
         qpart = quantizePart(part, struct=struct, profile=quantizationProfile)

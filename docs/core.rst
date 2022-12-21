@@ -1,5 +1,3 @@
-.. py:currentmodule:: maelzel.core.mobj
-
 .. _core:
 
 Core
@@ -30,71 +28,92 @@ Key Concepts
 ------------
 
 MObj
-~~~~
+    All classes defined in **maelzel.core** inherit from :class:`~maelzel.core.mobj.MObj` (*Maelzel Object*, or
+    *Music Object*). A :class:`~maelzel.core.mobj.MObj` **exists in time** (it has a time offset and
+    duration attributes), it **can be displayed as notation** (:meth:`~maelzel.core.mobj.MObj.show`)
+    and **played as audio** (:meth:`~maelzel.core.mobj.MObj.play`)
 
-All classes defined in **maelzel.core** inherit from :class:`MObj` (*Maelzel Object*, or
-*Music Object*).
-A :class:`MObj` **exists in time** (in has a start and duration attribute),
-it **can be displayed as notation** and, if appropriate, **played as audio**.
 
-Implicit / Explicit Time
-~~~~~~~~~~~~~~~~~~~~~~~~
+Explicit / Implicit Time
+    A :class:`~maelzel.core.mobj.MObj` has always an *offset* and *dur* attributes.
+    These can be unset (``None``), meaning that they are **not explicitely determined** and depend
+    on the context. For example, a :class:`~maelzel.core.event.Note` might have no offset or
+    duration set. When adding such a note to a sequence of notes (a :class:`~maelzel.core.chain.Chain`)
+    its start time will be set to the end of the previous note/chord in the chain, or 0 if this is
+    the first note. Its duration will be determined to last until the next event in the sequence.
 
-A :class:`MObj` has always a *start* and *dur* attributes.
-These can be unset (``None``), meaning that they are not explicitely determined and depend
-on the context. For example, a note might have no start or duration set. When adding such a note
-to a sequence of notes (a :class:`Chain`) its start time will be set to the end of the previous
-note/chord in the chain, or 0 if this is the first note.
+Absolute Time / Relative Time
+    The time attributes (*offset*, *dur*, *end*) of a :class:`~maelzel.core.mobj.MObj` refer to a
+    relative time, measured in quarternotes. To map from *relative* time to *absolute* time
+    (measured in *seconds*) a score structure (:class:`~maelzel.scorestruct.ScoreStruct`)
+    is needed (:ref:`see below<KeyConceptsScoreStructure>`)
 
-Real Time / Beat (symbolic) Time
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Workspace
+    At any moment there is an active :ref:`Workspace <workspace_mod>` (an
+    instance of :class:`~maelzel.core.workspace.Workspace`). It contains the current
+    configuration (:attr:`~maelzel.core.workspace.Workspace.config`,
+    an instance of :class:`~maelzel.core.config.CoreConfig`, see below
+    :ref:`Configuration <KeyConceptsConfiguration>`) and the default score structure
+    (:attr:`~maelzel.core.workspace.Workspace.scorestruct`, a
+    :class:`~maelzel.scorestruct.ScoreStruct`, see below :ref:`Score Structure <KeyConceptsScoreStructure>`)
 
-The time attributes (*start*, *dur*, *end*) of a :class:`MObj` refer to a relative time (a *beats*),
-measured in quarternotes. This *quarternote time* depends on the tempo at a given
-moment. To map from *relative* time (in *quarternotes*) to *absolute* time (in *seconds*) a score structure
-(:class:`~maelzel.scorestruct.ScoreStruct`) is needed
+
+.. _KeyConceptsConfiguration:
+
+Configuration
+    The active configuration (an instance of :class:`~maelzel.core.config.CoreConfig`,
+    see :ref:`config`) controls multiple aspects of **maelzel.core** and enables the user to
+    customize the rendering process, quantization, playback, etc. The active config can be
+    accessed via :func:`~maelzel.core.workspace.getConfig` or
+
+.. _KeyConceptsScoreStructure:
 
 Score Structure
-~~~~~~~~~~~~~~~
-
-A Score Structure (:class:`~maelzel.scorestruct.ScoreStruct`) is a timeline built from
-a sequence of measure definitions. Each measure defines a time signature and tempo.
-A :class:`~maelzel.scorestruct.ScoreStruct` **does not contain any material itself**: it is only
-the "skeleton" of a score.
-
-At any moment there is always an **active score structure**
-(:func:`~maelzel.core.workspace.getScoreStruct`, :func:`~maelzel.core.workspace.setScoreStruct`),
-the default being an endless score with a *4/4* time-signature and a tempo of *60 bpm*.
-
-Configuration - Workspace
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Just as there is an active ScoreStruct, there is at any moment an active
-:class:`Configuration <maelzel.core.config.CoreConfig>` (see :ref:`config`) which controls multiple
-aspects of **maelzel.core** and enables the user to customize multiple aspects of
-the rendering process, quantization, playback, etc. Both
-score structure and config are contained within a :ref:`Workspace <workspace_mod>`
-
+    A Score Structure (:class:`~maelzel.scorestruct.ScoreStruct`) is a timeline built from
+    a sequence of measure definitions. Each measure defines a time signature and tempo.
+    A ScoreStruct **does not contain any material itself**: it is only
+    the "skeleton" of a score. At any moment there is always an **active score structure**
+    (:func:`~maelzel.core.workspace.getScoreStruct`, :func:`~maelzel.core.workspace.setScoreStruct`),
+    the default being an endless score with a *4/4* time-signature and a tempo of *60 bpm*.
 
 Playback
-~~~~~~~~
-
-For playback **maelzel** uses `csound <https://csound.com/>`_ as an audio engine embedded
-in python (see `csoundengine <https://csoundengine.readthedocs.io>`_)
-
-When the :meth:`~maelzel.core.MObj.play` method is called, a
-:class:`~maelzel.core.MObj` generates a list of
-:class:`~maelzel.core.synthevent.SynthEvent`, which tell *csound* how
-to play a :class:`Note`, :class:`Chord`, or an entire :class:`Score`. Using csound it is
-possible to define instrumental presets using any kind of synthesis or by simply loading
-a set of samples or a soundfont.
-
-.. admonition:: See Also
-
-    - :py:mod:`The maelzel.core.play module <maelzel.core.play>`
+    For playback **maelzel** uses `csound <https://csound.com/>`_ as an audio engine embedded
+    in python (see `csoundengine <https://csoundengine.readthedocs.io>`_).
+    When the :meth:`~maelzel.core.MObj.play` method is called, a
+    :class:`~maelzel.core.MObj` generates a list of
+    :class:`~maelzel.core.synthevent.SynthEvent`, which tell *csound* how
+    to play a :class:`Note`, :class:`Chord`, or an entire :class:`Score`. Using csound it is
+    possible to define instrumental presets using any kind of synthesis or by simply loading
+    a set of samples or a soundfont (see also :py:mod:`the maelzel.core.playback module <maelzel.core.playback>`)
 
 ----------------
 
+Class Structure Overview
+------------------------
+
+.. image:: classstruct.svg
+
+In general, there are two kinds of :class:`MObjs`: **events** and **containers**.
+
+:ref:`Events: Note, Chord, Clip <mevent>`
+    Events are all subclasses of :class:`~maelzel.core.event.MEvent` and represent individual events
+    in time: :class:`Notes <maelzel.core.event.Note>`, :class:`Chords <maelzel.core.event.Chord>`,
+    media :class:`Clips <maelzel.core.clip.Clip>`.
+
+Horizontal Containers: Chain, Voice
+    A :class:`~maelzel.core.chain.Chain` is a sequence of events. Within a chain any number
+    of events can be juxtaposed to build more intricate horizontal structures. For example, a
+    sequence of notes can be tied or linked together with glissandi to generate a line of
+    any desired complexity. A :class:`~maelzel.core.chain.Chain` can also contain other Chains
+
+    A :class:`~maelzel.core.chain.Voice` is a special case of a :class:`Chain` with an offset
+    forced to be 0.
+
+Vertical Container: Score
+    The last node in the class structure is the :class:`~maelzel.core.score.Score`: this is
+    simply a list of :class:`Voices <maelel.core.chain.Voice` with some extra attributes
+    which are exclusive to a score (for example a Score can have an attached
+    :class:`score structure <maelzel.scorestruct.ScoreStruct`)
 
 ----------------
 
@@ -102,11 +121,14 @@ Table of Contents
 =================
 
 .. toctree::
-    :maxdepth: 4
+    :maxdepth: 1
 
-    Musical Objects: Note, Chord, Chain, Voice <mobj>
+    MObj: Musical Objects <mobj>
+    Events: Note, Chord <mevent>
+    Containers: Chain, Voice <chain>
     Score Structure: interfacing symbolic and real time <scorestruct>
     Score <score>
+    Media Events <clip>
     coreplayintro
     config
     workspace

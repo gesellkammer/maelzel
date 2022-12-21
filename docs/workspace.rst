@@ -107,4 +107,5 @@ Example Notebooks
 .. automodapi:: maelzel.core.workspace
     :allowed-package-names: maelzel.core.workspace,maelzel.core.config,maelzel.music.dynamics
     :no-inheritance-diagram:
+    :headings: =-
 

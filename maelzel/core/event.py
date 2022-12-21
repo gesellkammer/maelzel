@@ -1,40 +1,19 @@
 """
+All individual events inherit from :class:`MEvent`
 
-All objects within the realm of **maelzel.core** inherit from :class:`MObj`.
-A :class:`MObj` **exists in time** (in has a duration and a time offset),
-it **can display itself as notation** and, if appropriate, **play itself as audio**.
+Events can be chained together (with ties or glissandi )
+within a :class:`~maelzel.core.chain.Chain` or a :class:`~maelzel.core.chain.Chain`
+to produce more complex horizontal structures. When an event is added
+to a chain this chain becomes the event's *parent*.
 
-Time: Absolute Time / Quarternote Time
---------------------------------------
+Absolute / Relative Offset
+--------------------------
 
-A :class:`MObj` has always an *offset* and *dur* attribute. These can be unset (``None``),
-meaning that they are not explicitely determined. For example, a sequence of notes might
-be defined by simply setting their duration (the ``dur`` attribute); their ``start`` time
-would be determined by stacking them one after the other.
-
-These time attributes (*offset*, *dur*, *end*) refer to a symbolic *quarternote* time.
-To map a *quarternote* time to *absolute* time a score structure
-(:class:`maelzel.scorestruct.ScoreStruct`) is needed, which provides information about
-tempo.
-
-Score Structure
----------------
-
-A Score Structure (:class:`~maelzel.scorestruct.ScoreStruct`) is a set of tempos and measure
-definitions. **It does not contain any material itself**: it is only the "skeleton" of a score.
-
-At any moment there is always an **active score structure**, the default being an endless
-score with a *4/4* time-signature and a tempo of *60 bpm*.
-
-Playback
---------
-
-For playback we rely on `csound <https://csound.com/>`_. When the method :meth:`MObj.play` is
-called, a :class:`MObj` generates a list of :class:`~maelzel.core.synthevent.SynthEvent`,
-which tell *csound* how to play a :class:`Note`, :class:`Chord`, or an entire :class:`Score`.
-Using csound it is possible to define instrumental presets using any kind of synthesis or
-by simply loading a set of samples or a soundfont. See :meth:`MObj.play`
-and :py:mod:`maelzel.core.playback`
+The :attr:`~maelzel.core.event.MEvent.offset` attribute of any event determines the
+start of the event **relative** to the parent container (if the event has not parent
+the relative and the absolute offset are the same). The resolved offset can be queried
+via :meth:`~maelzel.core.mobj.MObj.resolvedOffset`, the absolute offset via
+:meth:`~maelzel.core.mobj.MObj.absoluteOffset`
 
 """
 
@@ -45,6 +24,7 @@ import functools
 
 from emlib import misc
 from emlib import iterlib
+from emlib import mathlib
 
 import pitchtools as pt
 
@@ -57,7 +37,7 @@ from .mobj import *
 from .workspace import getConfig, Workspace
 from . import notation
 from .synthevent import PlayArgs, SynthEvent
-from . import symbols
+from . import symbols as _symbols
 
 from typing import TYPE_CHECKING, overload as _overload
 
@@ -74,7 +54,6 @@ __all__ = (
     'Chord',
     'Rest',
 
-    'asNote',
     'asEvent',
     'Gracenote'
 )
@@ -85,6 +64,15 @@ class MEvent(MObj):
     A discrete event in time (a Note, Chord, etc)
     """
     _acceptsNoteAttachedSymbols = True
+
+    def _scoringOffset(self, config: CoreConfig) -> F:
+        if self.parent:
+            if config['show.asoluteOffsetForDetachedObjects']:
+                offset = self.absoluteOffset()
+            else:
+                offset = self.resolvedOffset()
+        else:
+            offset = self.offset
 
     def isRest(self) -> bool:
         return False
@@ -100,7 +88,11 @@ class MEvent(MObj):
         """
         return not self.isRest() and self.dur == 0
 
-    def _markAsGracenote(self, slash=False):
+    def _markAsGracenote(self, slash=False) -> None:
+        """
+        Mark this note as gracenote via properties
+
+        """
         self.setProperty('grace', True)
         self.setProperty('grace-slash', slash)
 
@@ -118,14 +110,6 @@ class MEvent(MObj):
         """
         return False
 
-    def _copyAttributesTo(self, other: MEvent) -> None:
-        if self.symbols:
-            other.symbols = self.symbols.copy()
-        if self.playargs:
-            other.playargs = self.playargs.copy()
-        if self.properties:
-            other.properties = self.properties.copy()
-
     def mergeWith(self: MEventT, other: MEventT) -> MEventT | None:
         """
         Merge this with other, return None if not possible
@@ -142,7 +126,34 @@ class MEvent(MObj):
 
     @property
     def name(self) -> str:
+        """A string representing this event"""
         raise NotImplementedError('Subclass should implement this')
+
+    def splitAtOffsets(self: MEventT, offsets: list[time_t], tie=True, absolute=True
+                       ) -> list[MEventT]:
+        """
+        Split this event at the given offsets
+
+        Args:
+            offsets: absolute offsets
+            tie: if True, tie the parts
+
+        Returns:
+            the parts. The total duration of the parts should sum up to the
+            duration of self
+        """
+        offset = self.absoluteOffset() if absolute else self.resolvedOffset()
+        dur = self.resolvedDur()
+        intervals = mathlib.split_interval_at_values(offset, offset + dur, offsets)
+        events = [self.clone(offset=intervalstart, dur=intervalend-intervalstart)
+                  for intervalstart, intervalend in intervals]
+        if isinstance(self, (Note, Chord)) and tie and len(events) > 1:
+            for event in events[:-1]:
+                if isinstance(event, (Note, Chord)):
+                    event.tied = True
+            for event in events[1:]:
+                event.setProperty('.tiedPrev', True)
+        return events
 
 
 @functools.total_ordering
@@ -218,6 +229,7 @@ class Note(MEvent):
                  dynamic: str = '',
                  tied = False,
                  properties: dict[str, Any] | None = None,
+                 symbols: list[_symbols.Symbol] | None = None,
                  fixed=False,
                  _init=True
                  ):
@@ -238,8 +250,15 @@ class Note(MEvent):
                         fixed = p.pop('fixPitch', False) or fixed
                         label = label or p.pop('label', '')
                         properties = p if not properties else misc.dictmerge(p, properties)
+                        articulation = p.pop('articulation', None)
+                        if articulation:
+                            if symbols is None:
+                                symbols = []
+                            symbols.append(_symbols.Articulation(articulation))
+
                 elif "/" in pitch:
                     parsednote = _util.parseNote(pitch)
+                    assert isinstance(parsednote.notename, str), f"Expected a notename, got {parsednote.notename}"
                     pitch = parsednote.notename
                     dur = parsednote.dur
                 pitch = pitch.lower()
@@ -290,12 +309,30 @@ class Note(MEvent):
         self.pitchSpelling = '' if not fixed else pitchSpelling
         "The pitch representation of this Note. Can be different from the sounding pitch"
 
+        self.symbols: list[_symbols.Symbol] | None = symbols
+
     @staticmethod
-    def makeRest(dur: time_t, offset: time_t = None, label: str = '') -> Note:
+    def makeRest(dur: time_t, offset: time_t = None, label: str = '', dynamic='') -> Note:
+        """
+        Static method to create a Rest
+
+        A Rest is actually a regular Note with pitch == 0.
+
+        Args:
+            dur: duration of the rest
+            offset: explicit offset of the rest
+            label: a label to attach to the rest
+            dynamic: a dynamic for this rest (yes, rests can have dynanic...)
+
+        Returns:
+            the Note object representing the rest
+
+        """
         assert dur and dur > 0
         if offset:
             offset = asF(offset)
-        return Note(pitch=0, dur=asF(dur), offset=offset, amp=0, label=label, _init=False)
+        return Note(pitch=0, dur=asF(dur), offset=offset, amp=0, label=label,
+                    dynamic=dynamic, _init=False)
 
     def transpose(self, interval: float, inplace=False) -> Note:
         """
@@ -321,6 +358,7 @@ class Note(MEvent):
         return out
 
     def asGracenote(self, slash=True) -> Note:
+        """A copy of this note as a gracenote"""
         return Gracenote(self.pitch, slash=slash)
 
     def mergeWith(self, other: Note) -> Note | None:
@@ -364,10 +402,10 @@ class Note(MEvent):
 
         """
         if not notename:
-            self._removeSymbolsOfClass(symbols.NotatedPitch)
+            self._removeSymbolsOfClass(_symbols.NotatedPitch)
             self.pitchSpelling = ''
         else:
-            self.addSymbol(symbols.NotatedPitch(notename))
+            self.addSymbol(_symbols.NotatedPitch(notename))
             self.pitchSpelling = notename
 
     def canBeLinkedTo(self, other: MEvent) -> bool:
@@ -496,13 +534,23 @@ class Note(MEvent):
         out._setpitch(pt.f2m(self.freq + freq))
         return out
 
-    def __lt__(self, other:pitch_t) -> bool:
+    def __lt__(self, other: pitch_t | Note) -> bool:
         if isinstance(other, Note):
             return self.pitch < other.pitch
         elif isinstance(other, (float, Rational)):
             return self.pitch < other
         elif isinstance(other, str):
             return self.pitch < pt.str2midi(other)
+        else:
+            raise NotImplementedError()
+
+    def __gt__(self, other: pitch_t | Note) -> bool:
+        if isinstance(other, Note):
+            return self.pitch > other.pitch
+        elif isinstance(other, (float, Rational)):
+            return self.pitch > other
+        elif isinstance(other, str):
+            return self.pitch > pt.str2midi(other)
         else:
             raise NotImplementedError()
 
@@ -567,7 +615,7 @@ class Note(MEvent):
         return Note(pt.f2m(self.freq * n), _init=False)
 
     def scoringEvents(self,
-                      groupid: str = None,
+                      groupid='',
                       config: CoreConfig = None,
                       ) -> list[scoring.Notation]:
         if not config:
@@ -583,14 +631,7 @@ class Note(MEvent):
                         symbol.applyTo(rest)
             return [rest]
 
-        if self.parent:
-            if config['show.asoluteOffsetForDetachedObjects']:
-                offset = self.absoluteOffset()
-            else:
-                offset = self.resolvedOffset()
-        else:
-            offset = self.offset
-
+        offset = self._scoringOffset(config=config)
         notation = scoring.makeNote(pitch=self.pitch,
                                     duration=asF(dur),
                                     offset=offset,
@@ -637,7 +678,7 @@ class Note(MEvent):
 
             if self.symbols:
                 notatedPitch = next((s for s in self.symbols
-                                     if isinstance(s, symbols.NotatedPitch)), None)
+                                     if isinstance(s, _symbols.NotatedPitch)), None)
                 if notatedPitch and notatedPitch.notename != notename:
                     notename = f'{notename} ({notatedPitch.notename})'
 
@@ -754,6 +795,7 @@ class Note(MEvent):
     def resolvedDynamic(self, conf: CoreConfig = None) -> str:
         if conf is None:
             conf = getConfig()
+        # Should we query the parent?
         return self.dynamic or conf['play.defaultDynamic']
 
     def resolvedAmp(self, workspace: Workspace = None) -> float:
@@ -786,33 +828,13 @@ class Note(MEvent):
         out._setpitch(pitch)
         out._gliss = gliss
 
-    # def trill(self,
-    #           other: Note,
-    #           notedur: time_t = F(1, 8)
-    #           ) -> Chain:
-    #     """
-    #     Create a Chain of Notes representing a trill
-    #
-    #     Args:
-    #         other: the second note of the trill (can also  be a chord)
-    #         notedur: duration of each note. This value will only be used
-    #             if the trill notes have an unset duration
-    #
-    #     Returns:
-    #         A realisation of the trill as a :class:`Chain` of at least the
-    #         given *dur* (can be longer if *dur* is not a multiple
-    #         of *notedur*)
-    #     """
-    #     totaldur = self.resolvedDur()
-    #     note1 = self.clone(dur=notedur)
-    #     note2 = asNote(other, dur=notedur)
-    #     seq = Chain([note1, note2])
-    #     return seq.cycle(totaldur)
-
 
 def Rest(dur: time_t, offset: time_t = None, label='', dynamic: str = None) -> Note:
     """
-    Creates a Rest. A Rest is a Note with pitch 0 and amp 0.
+    Creates a Rest.
+
+    A Rest is just a Note with pitch 0 and amp 0 (that is why this is a function
+    and not a class).
 
     To test if an item is a rest, call :meth:`~MObj.isRest`
 
@@ -824,25 +846,10 @@ def Rest(dur: time_t, offset: time_t = None, label='', dynamic: str = None) -> N
 
     Returns:
         the created rest
+
+    .. note:: this is just a shortcut to Note.makeRest
     """
-    assert dur and dur > 0
-    return Note(pitch=0, dur=dur, offset=offset, amp=0, label=label,
-                dynamic=dynamic, _init=False)
-
-
-def asNote(n: Note|float|str, **kws) -> Note:
-    """
-    Convert *n* to a Note, optionally setting its amp, offset or dur
-
-    Args:
-        n: the pitch
-        kws: any keyword passed to Note
-
-    Returns:
-        the corresponding Note
-
-    """
-    return n if isinstance(n, Note) else Note(n, **kws)
+    return Note.makeRest(dur=dur, offset=offset, label=label, dynamic=dynamic)
 
 
 class Chord(MEvent):
@@ -1043,7 +1050,9 @@ class Chord(MEvent):
     def pitchRange(self) -> tuple[float, float] | None:
         return min(n.pitch for n in self.notes), max(n.pitch for n in self.notes)
 
-    def scoringEvents(self, groupid: str = None, config: CoreConfig = None
+    def scoringEvents(self,
+                      groupid='',
+                      config: CoreConfig = None
                       ) -> list[scoring.Notation]:
         if not config:
             config = getConfig()
@@ -1068,7 +1077,7 @@ class Chord(MEvent):
         for i, n in enumerate(self.notes):
             if n.symbols:
                 for symbol in n.symbols:
-                    if isinstance(symbol, symbols.PitchAttachedSymbol):
+                    if isinstance(symbol, _symbols.PitchAttachedSymbol):
                         symbol.applyToPitch(notation, idx=i)
                     else:
                         logger.debug(f"Cannot apply symbol {symbol} to a pitch inside chord {self}")
@@ -1116,7 +1125,7 @@ class Chord(MEvent):
 
     def append(self, note: float|str|Note) -> None:
         """ append a note to this Chord """
-        note = asNote(note)
+        note = note if isinstance(note, Note) else Note(note)
         if note.freq < 17:
             logger.debug(f"appending a note with very low freq: {note.freq}")
         self.notes.append(note)
@@ -1125,11 +1134,11 @@ class Chord(MEvent):
     def extend(self, notes) -> None:
         """ extend this Chord with the given notes """
         for note in notes:
-            self.notes.append(asNote(note))
+            self.notes.append(note if isinstance(note, Note) else Note(note))
         self._changed()
 
-    def insert(self, index:int, note:pitch_t) -> None:
-        self.notes.insert(index, asNote(note))
+    def insert(self, index: int, note: pitch_t) -> None:
+        self.notes.insert(index, note if isinstance(note, Note) else Note(note))
         self._changed()
 
     def filter(self, predicate) -> Chord:
@@ -1189,8 +1198,8 @@ class Chord(MEvent):
                 notes.append(note2)
         return self._withNewNotes(notes)
 
-    def __setitem__(self, i:int, obj:pitch_t) -> None:
-        self.notes.__setitem__(i, asNote(obj))
+    def __setitem__(self, i: int, note: pitch_t) -> None:
+        self.notes.__setitem__(i, note if isinstance(note, Note) else Note(note))
         self._changed()
 
     def __add__(self, other:pitch_t) -> Chord:
@@ -1233,10 +1242,10 @@ class Chord(MEvent):
         else:
             raise KeyError(f"Unknown sort key {key}. Options: 'pitch', 'amp'")
 
-    def _resolvePlayargs(self, playargs: PlayArgs, config: dict | None = None) -> PlayArgs:
-        playargs = playargs.filledWith(self.playargs)
-        playargs.fillDefaults(config or getConfig())
-        return playargs
+    #def _resolvePlayargs(self, playargs: PlayArgs, config: dict | None = None) -> PlayArgs:
+    #    playargs = playargs.filledWith(self.playargs)
+    #    playargs.fillDefaults(config or getConfig())
+    #    return playargs
 
     @property
     def pitches(self) -> list[float]:
@@ -1310,17 +1319,21 @@ class Chord(MEvent):
             else:
                 endpitches = ','.join([pt.m2n(_) for _ in self.gliss])
                 elements.append(f"gliss={endpitches}")
+        if self.dynamic:
+            elements.append(self.dynamic)
 
         if len(elements) == 1:
             return f'‹{elements[0]}›'
         else:
             return f'‹{elements[0].ljust(3)} {" ".join(elements[1:])}›'
 
-    def dump(self, indents=0):
+    def dump(self, indents=0, forcetext=False):
         elements = f'offset={self.offset}, dur={self.dur}, gliss={self.gliss}'
         print(f"{'  '*indents}Chord({elements})")
         if self.playargs:
             print("  "*(indents+1), self.playargs)
+        if self.symbols:
+            print("  "*(indents+1), "symbols:", self.symbols)
         for n in reversed(self.notes):
             print("  "*(indents+2), repr(n))
 
@@ -1469,7 +1482,12 @@ def Gracenote(pitch: pitch_t | list[pitch_t], slash=True) -> Note | Chord:
     """
     Create a gracenote (a note or chord)
 
-    The resulting gracenote can be a note or a chord, depending on pitch
+    The resulting gracenote will be a Note or a Chord, depending on pitch.
+
+    .. note::
+        A gracenote is just a regular note or chord with a duration of 0.
+        This function is here for visibility and to allow to customize the slash
+        attribute
 
     Args:
         pitch: a single pitch (as midinote, notename, etc), a list of pitches or string
@@ -1516,19 +1534,40 @@ def asEvent(obj, **kws) -> MEvent:
         obj: the object to convert
         kws: any keyword passed to the constructor (Note, Chord)
 
+    Returns:
+        the resulting object, either a Note or a Chord
+
+    Example
+    ~~~~~~~
+
+        >>> from maelzel.core import *
+        >>> asEvent("4C")     # a Note
+        4C
+        >>> asEvent("4C E4")  # a Chord
+        ‹4C 4E›
+        >>> asEvent("4C:1/3:accent")
+        4C:0.333♩:symbols=[Articulation(kind=accent)]
+        # Internally this note has a duration of 1/3
+        >>> asEvent("4C,4E:0.5:mf")
+        ‹4C 4E 0.5♩ mf›
+
+
+
+
     """
     if isinstance(obj, MEvent):
         return obj
     elif isinstance(obj, str):
-        if " " in obj:
-            return Chord(obj.split(), **kws)
-        elif "," in obj:
+        if "," in obj:
             notedef = _util.parseNote(obj)
             dur = kws.pop('dur', None) or notedef.dur
             if notedef.properties:
                 kws = misc.dictmerge(notedef.properties, kws)
             return Chord(notedef.notename, dur=dur, **kws)
-        return Note(obj, **kws)
+        elif " " in obj:
+            return Chord(obj.split(), **kws)
+        else:
+            return Note(obj, **kws)
     elif isinstance(obj, (list, tuple)):
         return Chord(obj, **kws)
     elif isinstance(obj, (int, float)):

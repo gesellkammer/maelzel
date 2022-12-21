@@ -11,41 +11,17 @@ splitAcceptableDeviation:
     | Default: **4**  -- ``int``
     | *When splitting notes between staves, notes within this range of the split point will be grouped together if they all fit*
 
-.. _config_chord_arpeggio:
+.. _config_chordadjustgain:
 
-chord.arpeggio:
-    | Default: **auto**  -- ``(str, bool)``
-    | Choices: ``auto, False, True``
-    | *Arpeggiate notes of a chord when showing. In auto mode, only arpeggiate when needed*
-
-.. _config_chord_adjustgain:
-
-chord.adjustGain:
+chordAdjustGain:
     | Default: **True**  -- ``bool``
     | *Adjust the gain of a chord according to the number of notes, to prevent clipping*
 
-.. _config_m21_displayhook_install:
+.. _config_reprshowfreq:
 
-m21.displayhook.install:
-    | Default: **True**  -- ``bool``
-
-.. _config_m21_displayhook_format:
-
-m21.displayhook.format:
-    | Default: **xml.png**  -- ``str``
-    | Choices: ``lily.png, xml.png``
-
-.. _config_m21_fixstream:
-
-m21.fixStream:
-    | Default: **True**  -- ``bool``
-    | *If True, fix the streams returned by .asmusic21 (see m21fix)*
-
-.. _config_repr_showfreq:
-
-repr.showFreq:
-    | Default: **True**  -- ``bool``
-    | *Show frequency when calling printing a Note in the console*
+reprShowFreq:
+    | Default: **False**  -- ``bool``
+    | *Show frequency when printing a Note in the console*
 
 .. _config_semitonedivisions:
 
@@ -54,31 +30,54 @@ semitoneDivisions:
     | Choices: ``1, 2, 4``
     | *The number of divisions per semitone (2=quarter-tones, 4=eighth-tones)*
 
-.. _config_dynamiccurve_shape:
+.. _config_musescorepath:
 
-dynamicCurve.shape:
-    | Default: **expon(0.3)**  -- ``str``
-    | *The shape used to create the default dynamics curve. The most convenient shape is some variation of an exponential, given as expon(exp), where exp is the exponential used. exp < 1 will result in more resolution for soft dynamics*
+musescorepath:
+    | Default: **''**  -- ``str``
+    | *The command to use when calling MuseScore. For macOS users: it must be an absolute path pointing to the actual binary inside the .app bundle*
 
-.. _config_dynamiccurve_mindb:
+.. _config_reprshowfractionsasfloat:
 
-dynamicCurve.mindb:
-    | Default: **-60**  -- ``int``
-    | Between -160 - 0
-    | *The amplitude (in dB) corresponding to the softest dynamic*
+reprShowFractionsAsFloat:
+    | Default: **True**  -- ``bool``
+    | *All time offsets and durations are kept as rational numbers to avoid rounding errors. If this option is True, these fractions are printed as floats in order to make them more readable. *
 
-.. _config_dynamiccurve_maxdb:
+.. _config_fixstringnotenames:
 
-dynamicCurve.maxdb:
-    | Default: **0**  -- ``int``
-    | Between -160 - 0
-    | *The amplitude (in dB) corresponding to the loudest dynamic*
+fixStringNotenames:
+    | Default: **False**  -- ``bool``
+    | *If True, pitches given as string notenames are fixed at the spelling given at creation. Otherwise pitches might be respelled to match their context for better readability. Pitches given as midi notes or frequencies are always respelled*
 
-.. _config_dynamiccurve_dynamics:
+.. _config_openimagesinexternalapp:
 
-dynamicCurve.dynamics:
-    | Default: **ppp pp p mp mf f ff fff**  -- ``str``
-    | *Possible dynamic steps. A string with all dynamic steps, sorted from softest to loudest*
+openImagesInExternalApp:
+    | Default: **False**  -- ``bool``
+    | *Force opening images with an external tool, even when inside a Jupyter notebook*
+
+.. _config_enharmonicspellinghorizontalweight:
+
+enharmonicSpellingHorizontalWeight:
+    | Default: **1**  -- ``int``
+    | *The weight of the horizontal dimension (note sequences) when evaluating an enharmonic variant*
+
+.. _config_enharmonicspellingverticalweight:
+
+enharmonicSpellingVerticalWeight:
+    | Default: **0.01**  -- ``float``
+    | *The weight of the vertical dimension (chords within a voice) when evaluating an enharmonic variant*
+
+.. _config_enharmonicspellingdebug:
+
+enharmonicSpellingDebug:
+    | Default: **False**  -- ``bool``
+    | *If True, print debug information while calculating automatic enharmonic spelling*
+
+.. _config_show_arpeggiatechord:
+
+show.arpeggiateChord:
+    | Default: **auto**  -- ``(str, bool)``
+    | Choices: ``auto, False, True``
+    | *Arpeggiate notes of a chord when showing. In auto mode, only arpeggiate when needed*
 
 .. _config_show_lastbreakpointdur:
 
@@ -87,29 +86,17 @@ show.lastBreakpointDur:
     | Between 0.015625 - 1
     | *Dur of a note representing the end of a line/gliss, which has no duration per se*
 
-.. _config_show_cents:
+.. _config_show_centsdeviationastextannotation:
 
-show.cents:
+show.centsDeviationAsTextAnnotation:
     | Default: **True**  -- ``bool``
     | *show cents deviation as text when rendering notation*
 
-.. _config_show_centsfontsize:
+.. _config_show_centsannotationfontsize:
 
-show.centsFontSize:
+show.centsAnnotationFontSize:
     | Default: **8**  -- ``int``
     | *Font size used for cents annotations*
-
-.. _config_show_split:
-
-show.split:
-    | Default: **True**  -- ``bool``
-    | *Should a voice be split between two staves?. A midinumber can be given instead*
-
-.. _config_show_gliss:
-
-show.gliss:
-    | Default: **True**  -- ``bool``
-    | *If true, show a glissando line where appropriate*
 
 .. _config_show_centsep:
 
@@ -143,12 +130,6 @@ show.format:
     | Choices: ``pdf, png, repr``
     | *Used when no explicit format is passed to .show*
 
-.. _config_show_external:
-
-show.external:
-    | Default: **False**  -- ``bool``
-    | *Force opening images with an external tool, even when inside a Jupyter notebook*
-
 .. _config_show_cacheimages:
 
 show.cacheImages:
@@ -165,6 +146,7 @@ show.arpeggioDuration:
 
 show.labelFontSize:
     | Default: **10.0**  -- ``float``
+    | *Font size to use for labels*
 
 .. _config_show_pageorientation:
 
@@ -199,6 +181,13 @@ show.glissHideTiedNotes:
     | Default: **True**  -- ``bool``
     | *Hide tied notes which are part of a glissando*
 
+.. _config_show_glisslinethickness:
+
+show.glissLineThickness:
+    | Default: **2**  -- ``int``
+    | Choices: ``1, 2, 3, 4``
+    | *Line thikness when rendering glissandi. The value is abstract and it isup to the renderer to interpret it*
+
 .. _config_show_lilypondpngstaffsizescale:
 
 show.lilypondPngStaffsizeScale:
@@ -222,20 +211,14 @@ show.measureAnnotationFontSize:
 
 show.respellPitches:
     | Default: **True**  -- ``bool``
+    | *If True, try to find a suitable enharmonic representation of pitches whichhave not been fixed already by the user. Otherwise the canonical form of eachpitch is used, independent of the context*
 
 .. _config_show_horizontalspacing:
 
 show.horizontalSpacing:
-    | Default: **normal**  -- ``str``
-    | Choices: ``large, medium, normal, xlarge``
-    | *Hint for the renderer to adjust horizontal spacing. The actual result depends on the backend and the format used*
-
-.. _config_show_glissandolinethickness:
-
-show.glissandoLineThickness:
-    | Default: **2**  -- ``int``
-    | Choices: ``1, 2, 3, 4``
-    | *Line thikness when rendering glissandi. The value is abstract and it isup to the renderer to interpret it*
+    | Default: **medium**  -- ``str``
+    | Choices: ``default, large, medium, small, xlarge``
+    | *Hint for the renderer to adjust horizontal spacing. The actual result depends on the backend and the format used.*
 
 .. _config_show_filldynamicfromamplitude:
 
@@ -255,41 +238,18 @@ show.hideRedundantDynamics:
     | Default: **True**  -- ``bool``
     | *Hide redundant dynamics within a voice*
 
-.. _config_app_png:
+.. _config_show_asoluteoffsetfordetachedobjects:
 
-app.png:
-    | Default: **''**  -- ``str``
-    | *Application used when opening .png files externally. If empty, the platform default is used*
-
-.. _config_musescorepath:
-
-musescorepath:
-    | Default: **''**  -- ``str``
-    | *The command to use when calling MuseScore. For macOS users: it must be an absolute path pointing to the actual binary inside the .app bundle*
-
-.. _config_displayhook_install:
-
-displayhook.install:
-    | Default: **True**  -- ``bool``
-
-.. _config_play_dur:
-
-play.dur:
-    | Default: **2.0**  -- ``float``
-    | *Default duration of any play action if the object has no given duration*
+show.asoluteOffsetForDetachedObjects:
+    | Default: **False**  -- ``bool``
+    | *When showing an object which has a parent but is shown detached from it, shouldthe absolute offset be used?*
 
 .. _config_play_gain:
 
 play.gain:
     | Default: **1.0**  -- ``float``
     | Between 0 - 1
-
-.. _config_play_chan:
-
-play.chan:
-    | Default: **1**  -- ``int``
-    | Between 1 - 64
-    | *Default channel to play to. channels start at 1*
+    | *Default gain used when playing/recording*
 
 .. _config_play_enginename:
 
@@ -327,6 +287,7 @@ play.pitchInterpolation:
 
 play.numChannels:
     | Default: **2**  -- ``int``
+    | Between 1 - 128
     | *Default number of channels (channels can be set explicitely when calling startPlayEngine*
 
 .. _config_play_unschedfadeout:
@@ -334,12 +295,6 @@ play.numChannels:
 play.unschedFadeout:
     | Default: **0.05**  -- ``float``
     | *fade out when stopping a note*
-
-.. _config_play_autostartengine:
-
-play.autostartEngine:
-    | Default: **True**  -- ``bool``
-    | *Start play engine if not started manually?*
 
 .. _config_play_backend:
 
@@ -353,12 +308,6 @@ play.backend:
 play.presetsPath:
     | Default: **''**  -- ``str``
     | *The path were presets are saved*
-
-.. _config_play_autosavepresets:
-
-play.autosavePresets:
-    | Default: **True**  -- ``bool``
-    | *Automatically save user defined presets, so they will be available for a next session*
 
 .. _config_play_defaultamplitude:
 
@@ -380,13 +329,6 @@ play.generalMidiSoundfont:
     | Default: **''**  -- ``str``
     | *Path to a soundfont (sf2 file) with a general midi mapping*
 
-.. _config_play_namedargsmethod:
-
-play.namedArgsMethod:
-    | Default: **pargs**  -- ``str``
-    | Choices: ``pargs, table``
-    | *Method used to convert named parameters defined in a Preset to their corresponding function in a csoundengine.Instr*
-
 .. _config_play_soundfontampdiv:
 
 play.soundfontAmpDiv:
@@ -403,7 +345,7 @@ play.soundfontInterpolation:
 .. _config_play_schedlatency:
 
 play.schedLatency:
-    | Default: **0.2**  -- ``float``
+    | Default: **0.05**  -- ``float``
     | *Added latency when scheduling events to ensure time precission*
 
 .. _config_play_verbose:
@@ -418,9 +360,15 @@ play.useDynamics:
     | Default: **True**  -- ``bool``
     | *If True, any note/chord with a set dynamic will use that to modify its playback amplitude if no explicit amplitude is set*
 
-.. _config_rec_block:
+.. _config_play_waitafterstart:
 
-rec.block:
+play.waitAfterStart:
+    | Default: **0.5**  -- ``float``
+    | *How much to wait for the sound engine to be operational after starting it*
+
+.. _config_rec_blocking:
+
+rec.blocking:
     | Default: **True**  -- ``bool``
     | *Should recording be blocking or should be done async?*
 
@@ -428,7 +376,7 @@ rec.block:
 
 rec.sr:
     | Default: **44100**  -- ``int``
-    | Choices: ``44100, 48000, 88200, 96000``
+    | Choices: ``44100, 48000, 88200, 96000, 144000, 176400, 192000, 352800, 384000``
     | *Sample rate used when rendering offline*
 
 .. _config_rec_ksmps:
@@ -436,12 +384,14 @@ rec.sr:
 rec.ksmps:
     | Default: **64**  -- ``int``
     | Choices: ``1, 16, 32, 64, 128, 256``
-    | *samples per cycle when rendering offline (passed as ksmps to csound)*
+    | *Samples per cycle when rendering offline (passed as ksmps to csound)*
 
-.. _config_rec_nchnls:
+.. _config_rec_numchannels:
 
-rec.nchnls:
+rec.numChannels:
     | Default: **2**  -- ``int``
+    | Between 1 - 128
+    | *The default number of channels when rendering to disk*
 
 .. _config_rec_path:
 
@@ -459,11 +409,11 @@ rec.quiet:
 
 rec.compressionBitrate:
     | Default: **224**  -- ``int``
-    | *bitrate to use by default when encoding to ogg*
+    | *default bitrate to use when encoding to ogg or mp3*
 
-.. _config_html_theme:
+.. _config_htmltheme:
 
-html.theme:
+htmlTheme:
     | Default: **light**  -- ``str``
     | Choices: ``dark, light``
     | *Theme used when displaying html inside jupyter*
@@ -472,22 +422,80 @@ html.theme:
 
 quant.minBeatFractionAcrossBeats:
     | Default: **1.0**  -- ``float``
+    | *when merging durations across beats, a mergef duration cannot be smaller than this duration. This is to prevent joining durations across beats which might result in high rhythmic complexity*
 
-.. _config_quant_nestedtuples:
+.. _config_quant_nestedtuplets:
 
-quant.nestedTuples:
-    | Default: **False**  -- ``bool``
-    | *Are nested tuples allowed when quantizing? Not all display backends support nested tuples (musescore, used to render musicxml  has no support for nested tuples)*
+quant.nestedTuplets:
+    | Default: **None**  -- ``(NoneType, bool)``
+    | Choices: ``False, None, True``
+    | *Are nested tuples allowed when quantizing? Not all display backends support nested tuples (musescore, used to render musicxml has no support for nested tuples). If None, this flag is determined based on the complexity preset (quant.complexity)*
 
 .. _config_quant_complexity:
 
 quant.complexity:
-    | Default: **middle**  -- ``str``
-    | Choices: ``high, low, middle``
+    | Default: **high**  -- ``str``
+    | Choices: ``high, highest, low, medium``
     | *Controls the allowed complexity in the notation. The higher the complexity, the more accurate the quantization, at the cost of a more complex notation. *
 
-.. _config_logger_level:
+.. _config_quant_divisionerrorweight:
 
-logger.level:
-    | Default: **INFO**  -- ``str``
-    | Choices: ``DEBUG, ERROR, INFO, WARNING``
+quant.divisionErrorWeight:
+    | Default: **None**  -- ``NoneType``
+    | *A weight (between 0 and 1) applied to the penalty of complex quantization of the beat. The higher this value is, the simpler the subdivision chosen. If set to None, this value is derived from the complexity preset (quant.complexity)*
+
+.. _config_quant_griderrorweight:
+
+quant.gridErrorWeight:
+    | Default: **None**  -- ``NoneType``
+    | *A weight (between 0 and 1) applied to the deviation of a quantization to the actual attack times and durations during quantization. The higher this value, the more accurate the quantization (possibly resulting in more complex subdivisions of the beat). If None, the value is derived from the complexity preset (quant.complexity)*
+
+.. _config_quant_rhythmcomplexityweight:
+
+quant.rhythmComplexityWeight:
+    | Default: **None**  -- ``NoneType``
+    | *A weight (between 0 and 1) applied to the penalty calculated from the complexity of the rhythm during quantization. A higher value results in more complex rhythms being considered for quantization. If None, the value is derived from the complexity (quant.complexity)*
+
+.. _config_quant_griderrorexp:
+
+quant.gridErrorExp:
+    | Default: **None**  -- ``NoneType``
+    | *An exponent applied to the grid error. The grid error is a value between 0-1 which indicates how accurate the grid representation is for a given quantization (a value of 0 indicates perfect timing). An exponent betwenn 0 < exp <= 1 will make grid errors weight more dramatically as they diverge from the most accurate solution. If None, the value is derived from the complexity setting (quant.complexity)*
+
+.. _config_quant_debug:
+
+quant.debug:
+    | Default: **False**  -- ``bool``
+    | *Turns on debugging for the quantization process. This will show how different divisions of the beat are being evaluated by the quantizer in terms of what is contributing more to the ranking. With this information it is possible to adjust the weights (quant.rhythmCompleityWeight, quant.divisionErrorWeight, etc)*
+
+.. _config_quant_debugshownumrows:
+
+quant.debugShowNumRows:
+    | Default: **50**  -- ``int``
+    | *When quantization debugging is turned on this setting limits the number of different quantization possibilities shown*
+
+.. _config_dynamiccurveshape:
+
+dynamicCurveShape:
+    | Default: **expon(0.3)**  -- ``str``
+    | *The shape used to create the default dynamics curve. The most convenient shape is some variation of an exponential, given as expon(exp), where exp is the exponential used. exp < 1 will result in more resolution for soft dynamics*
+
+.. _config_dynamiccurvemindb:
+
+dynamicCurveMindb:
+    | Default: **-60**  -- ``int``
+    | Between -160 - 0
+    | *The amplitude (in dB) corresponding to the softest dynamic*
+
+.. _config_dynamiccurvemaxdb:
+
+dynamicCurveMaxdb:
+    | Default: **0**  -- ``int``
+    | Between -160 - 0
+    | *The amplitude (in dB) corresponding to the loudest dynamic*
+
+.. _config_dynamiccurvedynamics:
+
+dynamicCurveDynamics:
+    | Default: **ppp pp p mp mf f ff fff**  -- ``str``
+    | *Possible dynamic steps. A string with all dynamic steps, sorted from softest to loudest*
