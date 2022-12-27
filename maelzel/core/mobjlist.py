@@ -90,13 +90,20 @@ class MObjList(MObj):
         """
         raise NotImplementedError()
 
-    def _synthEvents(self, playargs: PlayArgs, workspace: Workspace
+    def _synthEvents(self,
+                     playargs: PlayArgs,
+                     parentOffset: F,
+                     workspace: Workspace
                      ) -> list[SynthEvent]:
         if self.playargs:
             playargs = playargs.overwrittenWith(self.playargs)
-            # playargs.fillWith(self.playargs)
-        return misc.sumlist(item._synthEvents(playargs, workspace)
-                            for item in self.getItems())
+        out = []
+        parentOffset = self.parent.absoluteOffset() if self.parent else F(0)
+        for item in self.getItems():
+            events = item._synthEvents(playargs=playargs, workspace=workspace,
+                                       parentOffset=parentOffset)
+            out.extend(events)
+        return out
 
     def quantizePitch(self: MObjT, step=0.) -> MObjT:
         if step == 0:

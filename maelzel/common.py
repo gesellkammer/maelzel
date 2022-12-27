@@ -45,3 +45,6 @@ def asmidi(x: pitch_t) -> float:
     except TypeError:
         raise TypeError(f"could not convert {x} to a midi note")
 
+
+F0 = F(0)
+F1 = F(1)

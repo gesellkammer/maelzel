@@ -76,7 +76,7 @@ class QuantError(Exception):
     pass
 
 
-@dataclass
+@dataclass(slots=True)
 class QuantizationProfile:
     """
     A QuantizationProfile is used to configure quantization
@@ -693,7 +693,7 @@ def _evalGridError(profile: QuantizationProfile,
     return error
 
 
-@dataclass
+@dataclass(slots=True)
 class QuantizedBeat:
     """
     A QuantizedBeat holds notations inside a beat filling the beat
@@ -724,7 +724,7 @@ class QuantizedBeat:
         return hash(tuple(data))
 
 
-@dataclass
+@dataclass(slots=True)
 class QuantizedMeasure:
     """
     A QuantizedMeasure holds a list of QuantizedBeats
@@ -1909,7 +1909,7 @@ class PartLocation(NamedTuple):
     notation: Notation
 
 
-@dataclass
+@dataclass(slots=True)
 class QuantizedPart:
     """
     A Part which has already been quantized following a ScoreStruct
@@ -2210,7 +2210,7 @@ def quantizePart(part: core.Part,
     return qpart
 
 
-@dataclass
+@dataclass(slots=True)
 class QuantizedScore:
     """
     A QuantizedScore represents a list of quantized parts

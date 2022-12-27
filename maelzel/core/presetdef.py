@@ -16,12 +16,10 @@ if TYPE_CHECKING:
     from typing import *
 
 
-
-
 _INSTR_INDENT = "  "
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ParsedAudiogen:
     originalAudiogen: str
     signals: Set[str]

@@ -153,14 +153,17 @@ def groupLinkedEvents(items: list[MEvent]) -> list[MEvent | list[MEvent]]:
     Group linked events together
 
     Two events are linked if they are adjacent and the first event is either tied
-    or has a glissando to the second event
+    or has a glissando to the second event. This is used, for example, to merge
+    the synth events of such linked groups into one line
 
     Args:
         items: a list of Note|Chord
 
     Returns:
-        a list of individual notes, chords or groupTree, where a group is itself a
-        list of notes/chords
+        a list where each item is a note, a chord or itself a list of such
+        notes or chords. A list indicates a linked event, where each item
+        in such list is linked by either a tie or a gliss
+
     """
     lastitem = items[0]
     groups = [[lastitem]]
@@ -179,7 +182,7 @@ def splitLinkedGroupIntoLines(objs: list[MEvent]
     Given a group as a list of Notes/Chords, split it in subgroups matching
     each note with its continuation.
 
-    For example, when one chords is followed by another chord and the first chord
+    When one chords is followed by another chord and the first chord
     should do a glissando to the second, each note in the first chord is matched with
     a second note of the second chord (possibly duplicating the notes).
 
@@ -209,6 +212,7 @@ def splitLinkedGroupIntoLines(objs: list[MEvent]
     for ev0, ev1 in pairwise(objs):
         if isinstance(ev0, Chord) and ev0.gliss is True:
             if isinstance(ev1, Chord):
+                # Notes are matched in sort order (which is normally by pitch)
                 for n0, n1 in zip(ev0.notes, ev1.notes):
                     continuations[n0] = n1
             elif isinstance(ev1, Note):
@@ -261,7 +265,10 @@ def splitLinkedGroupIntoLines(objs: list[MEvent]
     return finished
 
 
-def chainSynthEvents(objs: list[MEvent], playargs: PlayArgs, workspace: Workspace
+def chainSynthEvents(objs: list[MEvent],
+                     playargs: PlayArgs,
+                     parentOffset: F,
+                     workspace: Workspace
                      ) -> list[SynthEvent]:
     """
     Calculate synthevents for a chain of events
@@ -280,13 +287,14 @@ def chainSynthEvents(objs: list[MEvent], playargs: PlayArgs, workspace: Workspac
     transpose = playargs.get('transpose', 0.)
     for group in groups:
         if isinstance(group, MEvent):
-            events = group._synthEvents(playargs.copy(), workspace=workspace)
+            events = group._synthEvents(playargs.copy(), parentOffset=parentOffset,
+                                        workspace=workspace)
             synthevents.extend(events)
         elif isinstance(group, list):
             lines = splitLinkedGroupIntoLines(group)
             # A line of notes
             for line in lines:
-                bps = [[float(struct.toTime(item.offset)), item.pitch + transpose, item.resolvedAmp(workspace=workspace)]
+                bps = [[float(struct.beatToTime(item.offset)), item.pitch + transpose, item.resolvedAmp(workspace=workspace)]
                        for item in line]
                 lastev = line[-1]
                 pitch = lastev.gliss or lastev.pitch
@@ -294,11 +302,8 @@ def chainSynthEvents(objs: list[MEvent], playargs: PlayArgs, workspace: Workspac
                 bps.append([float(struct.toTime(lastev.end)), pitch+transpose, lastev.resolvedAmp(workspace=workspace)])
                 for bp in bps:
                     assert all(isinstance(x, (int, float)) for x in bp), f"bp: {bp}\n{bps=}"
-                firstev = line[0]
-                if not firstev.playargs:
-                    evplayargs = playargs
-                else:
-                    evplayargs = playargs.overwrittenWith(firstev.playargs)
+                first = line[0]
+                evplayargs = playargs if not first.playargs else playargs.overwrittenWith(first.playargs)
                 synthevents.append(SynthEvent.fromPlayArgs(bps=bps, playargs=evplayargs))
         else:
             raise TypeError(f"Did not expect {group}")

@@ -12,7 +12,7 @@ Absolute / Relative Offset
 The :attr:`~maelzel.core.event.MEvent.offset` attribute of any event determines the
 start of the event **relative** to the parent container (if the event has not parent
 the relative and the absolute offset are the same). The resolved offset can be queried
-via :meth:`~maelzel.core.mobj.MObj.resolvedOffset`, the absolute offset via
+via :meth:`~maelzel.core.mobj.MObj.resolveOffset`, the absolute offset via
 :meth:`~maelzel.core.mobj.MObj.absoluteOffset`
 
 """
@@ -30,7 +30,7 @@ import pitchtools as pt
 
 from maelzel import scoring
 from maelzel.scoring import enharmonics
-from maelzel.common import F, asF
+from maelzel.common import *
 from ._common import UNSET, MAXDUR, logger
 from . import _util
 from .mobj import *
@@ -70,7 +70,7 @@ class MEvent(MObj):
             if config['show.asoluteOffsetForDetachedObjects']:
                 offset = self.absoluteOffset()
             else:
-                offset = self.resolvedOffset()
+                offset = self.resolveOffset()
         else:
             offset = self.offset
 
@@ -142,8 +142,8 @@ class MEvent(MObj):
             the parts. The total duration of the parts should sum up to the
             duration of self
         """
-        offset = self.absoluteOffset() if absolute else self.resolvedOffset()
-        dur = self.resolvedDur()
+        offset = self.absoluteOffset() if absolute else self.resolveOffset()
+        dur = self.resolveDur()
         intervals = mathlib.split_interval_at_values(offset, offset + dur, offsets)
         events = [self.clone(offset=intervalstart, dur=intervalend-intervalstart)
                   for intervalstart, intervalend in intervals]
@@ -153,7 +153,7 @@ class MEvent(MObj):
                     event.tied = True
             for event in events[1:]:
                 event.setProperty('.tiedPrev', True)
-        return events
+        return events3w
 
 
 @functools.total_ordering
@@ -620,7 +620,7 @@ class Note(MEvent):
                       ) -> list[scoring.Notation]:
         if not config:
             config = getConfig()
-        dur = self.resolvedDur()
+        dur = self.resolveDur()
         if self.isRest():
             rest = scoring.makeRest(self.dur, offset=self.offset, dynamic=self.dynamic)
             if annot := self._scoringAnnotation():
@@ -757,7 +757,10 @@ class Note(MEvent):
         out.pitchSpelling = ''
         return out
 
-    def _synthEvents(self, playargs: PlayArgs, workspace: Workspace,
+    def _synthEvents(self,
+                     playargs: PlayArgs,
+                     parentOffset: F,
+                     workspace: Workspace,
                      ) -> list[SynthEvent]:
         if self.isRest():
             return []
@@ -765,8 +768,6 @@ class Note(MEvent):
         scorestruct = workspace.scorestruct
         if self.playargs:
             playargs = playargs.overwrittenWith(self.playargs)
-            # playargs.overwriteWith(self.playargs)
-        # playargs.fillDefaults(conf)
         if self.amp is not None:
             amp = self.amp
         else:
@@ -775,10 +776,9 @@ class Note(MEvent):
                 amp = workspace.dynamicCurve.dyn2amp(dyn)
             else:
                 amp = conf['play.defaultAmplitude']
-
-        endmidi = self.gliss if not isinstance(self.gliss, bool) else self.pitch
-        offset = self.offset or 0.
-        dur = self.dur or F(1)
+        endmidi = self.resolveGliss()
+        offset = self._detachedOffset(F0) + parentOffset
+        dur = self._detachedDur(F1)
         starttime = float(scorestruct.beatToTime(offset))
         endtime   = float(scorestruct.beatToTime(offset + dur))
         transp = playargs.get('transpose', 0)
@@ -791,6 +791,37 @@ class Note(MEvent):
             bps.append([endtime + sustain, endmidi+transp, amp])
 
         return [SynthEvent.fromPlayArgs(bps=bps, playargs=playargs, tiednext=self.tied)]
+
+    def resolveGliss(self) -> float:
+        """
+        Resolve the target pitch for this note's glissando
+
+        Returns:
+            the target pitch or this note's own pitch if its target
+            pitch cannot be determined
+        """
+        if not self.gliss:
+            raise ValueError("This Note does not have a glissando")
+        if not isinstance(self.gliss, bool):
+            # If .gliss is already a pitch, return that
+            return self.gliss
+        if not self.parent:
+            # .gliss is a bool so we need to know the next event, but we are parentless
+            return self.pitch
+        nextev = self.parent.eventAfter(self)
+        if nextev is None:
+            # No next event, the gliss target is cannot be determined
+            return self.pitch
+        if isinstance(nextev, Note):
+            return nextev.pitch
+        elif isinstance(nextev, Chord):
+            # A gliss to the highest note of the chord. This is an arbitrary decission,
+            # it could be configured or be something different, like the  nearest pitch of
+            # the chord. In such a case the user could set the .gliss attr to a concrete value
+            return max(n.pitch for n in nextev.notes)
+        else:
+            return self.pitch
+
 
     def resolvedDynamic(self, conf: CoreConfig = None) -> str:
         if conf is None:
@@ -1058,7 +1089,7 @@ class Chord(MEvent):
             config = getConfig()
         notenames = [note.name for note in self.notes]
         annot = self._scoringAnnotation()
-        dur = self.resolvedDur()
+        dur = self.resolveDur()
 
         notation = scoring.makeChord(pitches=notenames, duration=dur, offset=self.offset,
                                      annotation=annot, group=groupid, dynamic=self.dynamic,
@@ -1257,8 +1288,6 @@ class Chord(MEvent):
         scorestruct = workspace.scorestruct
         if self.playargs:
             playargs = playargs.overwrittenWith(self.playargs)
-            # playargs.overwriteWith(self.playargs)
-        # playargs.fillDefaults(conf)
         if conf['chordAdjustGain']:
             gain = playargs.get('gain') or 1.0
             playargs['gain'] = gain / math.sqrt(len(self))
@@ -1271,7 +1300,8 @@ class Chord(MEvent):
                 endpitches = glisstarget
 
         events = []
-        start, dur = self.resolvedOffset(), self.resolvedDur()
+        start = self.absoluteOffset()
+        dur = self.resolveDur()
         starttime = float(scorestruct.beatToTime(start))
         endtime = float(scorestruct.beatToTime(start + dur))
         useDynamics = conf['play.useDynamics']

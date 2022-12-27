@@ -85,7 +85,7 @@ __all__ = (
 )
 
 
-@dataclass
+@dataclass(slots=True)
 class _TimeScale:
     factor: F
     offset: F
@@ -132,6 +132,9 @@ class MContainer:
         """
         pass
 
+    def itemAfter(self, item: MObj) -> MObj | None:
+        pass
+
 
 
 class MObj:
@@ -145,7 +148,7 @@ class MObj:
     determined. When this MObj needs to be displayed or shown (at the latest) the offset
     and duration are resolved based on the context (is the MObj contained in another
     object, like a Note within a Voice?) and a resolved offset and duration are calculated.
-    This resolved values can be queried via :meth:`resolvedOffset` and :meth:`resolvedDur`
+    This resolved values can be queried via :meth:`resolveOffset` and :meth:`resolveDur`
 
     A :class:`MObj` can customize its playback via :meth:`setPlay`. These attributes can
     be accessed through the `playargs` property
@@ -279,24 +282,42 @@ class MObj:
         """
         return None
 
-    def _detachedOffset(self) -> F | None:
-        return offset if (offset:=self.offset) is not None else self._resolvedOffset
-
-    def _detachedDur(self) -> F | None:
-        return dur if (dur:=self.dur) is not None else self._resolvedDur
-
-    def resolvedOffset(self) -> F:
+    def _detachedOffset(self, default=None) -> F | None:
         """
-        Resolved start of this object, relative to its parent
+        The explicit or implicit offset (if it has been resolved), or None otherwise
+
+        This method does not call the parent
+
+        Args:
+            default: value returned if this object has no explicit or implicit default
+
+        Returns:
+             the explicit or implicit offset, or *default* otherwise
+        """
+        return _ if (_:=self.offset) is not None else _ if (_:=self._resolvedOffset) is not None else default
+        # return offset if (offset:=self.offset) is not None else self._resolvedOffset
+
+    def _detachedDur(self, default=None) -> F | None:
+        """
+        The explict or implici duration (if it has been resolved), or None otherwise
+
+        This method does not call the parent
+
+        """
+        return _ if (_:=self.dur) is not None else _ if (_:=self._resolvedDur) is not None else default
+
+    def resolveOffset(self) -> F:
+        """
+        Resolve the start of this object, relative to its parent
 
         If this object has no parent the offset is an absolute offset.
 
-        The .offset attribute holds the explicit offset. If this attribute
-        is unset (None) this object might ask its parent to determine the
+        The ``.offset`` attribute holds the explicit offset. If this attribute
+        is unset (``None``) this object might ask its parent to determine the
         offset based on the durations of any previous objects
 
         Returns:
-            the withExplicitTimes offset, in quarter notes. If no explicit or implicit
+            the offset, in quarter notes. If no explicit or implicit
             offset and the object has no parent it returns 0.
 
         .. seealso:: :meth:`MObj.absoluteOffset`
@@ -332,14 +353,17 @@ class MObj:
         """
         return self.dur if self.dur is not None else self._resolvedDur
 
-    def resolvedDur(self) -> F:
+    def resolveDur(self) -> F:
         """
         The explicit or calculated / implicit duration, in quarternotes
 
-        If this object has an explicit duration (its .dur attribute is not None)
+        If this object has an explicit duration (its :attr:`dur` attribute is not None)
         then that duration is returned; otherwise returns its implicit duration.
-        If this object has a parent it might call the parent to determine its
+        If this object has a parent it might call that parent to determine its
         duration based on its context.
+
+        Returns:
+            the resolved duration
 
         """
         if self.dur is not None:
@@ -384,7 +408,7 @@ class MObj:
         """
         if self.dur is not None and self.offset is not None and not forcecopy:
             return self
-        return self.clone(dur=self.resolvedDur(), offset=self.resolvedOffset())
+        return self.clone(dur=self.resolveDur(), offset=self.resolveOffset())
 
     def absoluteOffset(self) -> F:
         """
@@ -399,7 +423,7 @@ class MObj:
             the absolute start position of this object
         """
         if not self.parent:
-            return self.resolvedOffset()
+            return self.resolveOffset()
 
         offset = self.offset if self.offset is not None else self.parent.childOffset(self)
         return self.parent.absoluteOffset() + offset
@@ -912,7 +936,10 @@ class MObj:
         if self.playargs:
             print(f'{"  "*(indents+1)}{self.playargs}')
 
-    def _synthEvents(self, playargs: PlayArgs, workspace: Workspace,
+    def _synthEvents(self,
+                     playargs: PlayArgs,
+                     parentOffset: F,
+                     workspace: Workspace,
                      ) -> list[SynthEvent]:
         """
         Must be overriden by each class to generate SynthEvents
@@ -920,6 +947,8 @@ class MObj:
         Args:
             playargs: a :class:`PlayArgs`, structure, filled with given values,
                 own .playargs values and config defaults (in that order)
+            parentOffset: the absolute offset of the parent of this object.
+                If the object has no parent, this will be F(0)
             workspace: a Workspace. This is used to determine the scorestruct, the
                 configuration and a mapping between dynamics and amplitudes
 
@@ -1022,12 +1051,15 @@ class MObj:
             workspace = Workspace.active
 
         if (struct := self.scorestruct()) is not None:
-            workspace = workspace.clone(scorestruct=struct)
+            workspace = workspace.clone(scorestruct=struct, config=workspace.config)
 
         playargs = PlayArgs.makeDefault(workspace.config)
         playargs.update(d)
 
-        events = self._synthEvents(playargs, workspace)
+        parentOffset = self.parent.absoluteOffset() if self.parent else F(0)
+
+        events = self._synthEvents(playargs=playargs, parentOffset=parentOffset,
+                                   workspace=workspace)
         if start is not None or end is not None:
             struct = workspace.scorestruct
             starttime = None if start is None else struct.beatToTime(start)
@@ -1436,8 +1468,8 @@ class MObj:
             The actual time will be also determined by any tempo changes in the
             active score structure.
         """
-        offset = self.resolvedOffset()
-        dur = self.resolvedDur()
+        offset = self.resolveOffset()
+        dur = self.resolveDur()
         offset2 = timemap(offset)
         dur2 = timemap(offset+dur) - offset2
         if inplace:
@@ -1466,7 +1498,7 @@ class MObj:
             a tuple (absolute start time in seconds, absolute end time in seconds)
         """
         absoffset = self.absoluteOffset()
-        dur = self.resolvedDur()
+        dur = self.resolveDur()
         s = self.scorestruct()
         return s.beatToTime(absoffset), s.beatToTime(absoffset + dur)
 

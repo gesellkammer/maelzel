@@ -181,10 +181,10 @@ class Clip(MEvent):
         self._resolvedDur = out = endbeat - startbeat
         return out
 
-    def resolvedDur(self) -> F:
+    def resolveDur(self) -> F:
         if not self.parent:
             return self._calculateDuration(relativeOffset=self.offset, parentOffset=F(0))
-        return self._calculateDuration(relativeOffset=self.resolvedOffset(),
+        return self._calculateDuration(relativeOffset=self.resolveOffset(),
                                        parentOffset=self.parent.absoluteOffset())
 
     def _synthEvents(self, playargs: PlayArgs, workspace: Workspace
@@ -198,7 +198,7 @@ class Clip(MEvent):
                       ) -> list[scoring.Notation]:
         if not config:
             config = getConfig()
-        dur = self.resolvedDur()
+        dur = self.resolveDur()
         offset = self.absoluteOffset()
         # offset = self._scoringOffset(config=config)
 

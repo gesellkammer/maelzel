@@ -1225,7 +1225,7 @@ def transferAttributesWithinTies(notations: list[Notation]) -> None:
         elif n.tiedPrev and insideGliss and not n.gliss:
             n.gliss = True
 
-@dataclass
+@dataclass(slots=True)
 class SnappedNotation:
     notation: Notation
     offset: F
