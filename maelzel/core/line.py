@@ -110,12 +110,12 @@ class Line(MEvent):
         self.gliss = gliss
         self.tied = tied
 
-    def resolvedOffset(self) -> F:
+    def resolveOffset(self) -> F:
         if self.offset is not None:
             return self.offset
         return self.bps[0][0]
 
-    def resolvedDur(self, start: time_t = None) -> F:
+    def resolveDur(self, start: time_t = None) -> F:
         return self.bps[-1][0] - self.bps[0][0]
 
     def offsets(self) -> list[F]:

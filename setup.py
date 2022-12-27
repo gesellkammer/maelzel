@@ -11,7 +11,7 @@ version = (0, 5, 1)
 
 setup(
     name='maelzel',
-    python_requires=">=3.9",
+    python_requires=">=3.10",
     version=".".join(map(str, version)),
     description='Utilities for sound, music notation, acoustics, etc',
     long_description=readme,

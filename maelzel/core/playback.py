@@ -778,7 +778,7 @@ def playEngine(numchannels: int = None,
                latency: float = None,
                ) -> csoundengine.Engine:
     """
-    Get the play engine; start it if needed
+    Get the play engine, start it if needed
 
     **maelzel** relies on csound for any sound related task (synthesis, sample
     playback, etc). To interact with csound it relies on the

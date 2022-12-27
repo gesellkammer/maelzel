@@ -9,15 +9,19 @@ from . import workspace
 __all__ = ('appstate')
 
 
-with ConfigDict("maelzel.core.state", persistent=True) as appstate:
-    home = os.path.expanduser("~")
-    appstate.addKey('saveCsdLastDir', home)
-    appstate.addKey('writeLastDir', home)
-    appstate.addKey('recLastDir', workspace.getWorkspace().recordPath())
-    appstate.addKey('loadSndfileLastDir', home)
-    if sys.platform == 'linux':
-        appstate.addKey('soundfontLastDirectory',
-                        emlib.misc.first_existing_path("/usr/share/sounds/sf2",
-                                                       "~/Documents"))
-    else:
-        appstate.addKey('soundfontLastDirectory', home)
+_home = os.path.expanduser("~")
+
+
+appstate = ConfigDict(
+    'maelzel.core.state',
+    persistent=True,
+    default={
+        'saveCsdLastDict': _home,
+        'writeLastDir': _home,
+        'recLastDir': workspace.Workspace.active.recordPath(),
+        'loadSndfileLastDir': _home,
+        'firstRun': True,
+        'soundfontLastDir': _home
+    }
+)
+

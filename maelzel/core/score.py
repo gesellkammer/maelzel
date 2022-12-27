@@ -100,14 +100,14 @@ class Score(MContainer, MObjList):
         self.voices.append(voice)
         self._changed()
 
-    def resolvedDur(self) -> F:
+    def resolveDur(self) -> F:
         if self.dur is not None:
             return self.dur
 
         if not self.voices:
             return F(0)
 
-        dur = max(v.resolvedDur() for v in self.voices)
+        dur = max(v.resolveDur() for v in self.voices)
         self.dur = dur
         return dur
 
@@ -133,7 +133,7 @@ class Score(MContainer, MObjList):
         return offset if offset is not None else F(0)
 
     def childDuration(self, child: MObj) -> F:
-        return child.resolvedDur()
+        return child.resolveDur()
 
     def absoluteOffset(self) -> F:
         return F(0)

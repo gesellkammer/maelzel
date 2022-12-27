@@ -200,7 +200,7 @@ def lyNotehead(notehead: definitions.Notehead, insideChord=False) -> str:
     return " ".join(parts)
 
 
-@dataclass
+@dataclass(slots=True)
 class RenderState:
     insideSlide: bool = False
     glissando: bool = False

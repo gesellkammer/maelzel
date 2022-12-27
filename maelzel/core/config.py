@@ -134,7 +134,6 @@ will be active only within its context:
 """
 from __future__ import annotations
 from maelzel.core import configdata
-from maelzel import _state
 from configdict import ConfigDict
 from maelzel.common import F
 from ._common import logger
@@ -147,7 +146,6 @@ if typing.TYPE_CHECKING:
 
 
 __all__ = (
-    'rootConfig',
     'CoreConfig'
 )
 
@@ -334,23 +332,3 @@ class CoreConfig(ConfigDict):
         if '_piano' in presetManager.presetdefs:
             self['play.instr'] = '_piano'
 
-
-def onFirstRun():
-    print("*** maelzel.core: first run")
-    from maelzel.core.presetmanager import presetManager
-    if '_piano' in presetManager.presetdefs:
-        print("*** maelzel.core: found builtin piano soundfont; setting default instrument to '_piano'")
-        CoreConfig.root['play.instr'] = '_piano'
-        CoreConfig.root.save()
-    _state.state['first_run'] = False   # state is persistent so no need to save
-
-
-rootConfig = CoreConfig(source='load')
-for key in rootConfig.keys():
-    doc = rootConfig.getDoc(key)
-    if not doc:
-        logger.warning(f"CoreConfig: key {key} does not have documentation")
-
-
-if _state.state['first_run']:
-    onFirstRun()

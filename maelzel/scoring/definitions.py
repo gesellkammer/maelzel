@@ -272,7 +272,7 @@ def normalizeBarstyle(barstyle: str, default='') -> str:
     return default
 
 
-@dataclass(unsafe_hash=True)
+@dataclass(unsafe_hash=True, slots=True)
 class Notehead:
     shape: str = ''
     color: str = ''

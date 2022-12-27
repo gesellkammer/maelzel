@@ -19,7 +19,7 @@ import emlib.misc
 
 from typing import Optional, Union
 
-@dataclass
+@dataclass(slots=True)
 class RenderOptions:
     """
     Holds all options needed for rendering
