@@ -15,6 +15,13 @@ from typing import List
 logger = logging.getLogger("maelzel.wavesim")
 
 
+ENGINE = 'maelzel.wavesim'
+
+
+def _getEngine() -> csoundengine.Engine:
+    return csoundengine.getEngine(ENGINE)
+
+
 class Instr:
     def __init__(self, name, instrBody, instrInit, nchnls, args=None, minDur=0.1, simTime=0.5):
         self.name = name
@@ -47,7 +54,7 @@ class Instr:
         """
         if self._csoundInstr is None:
             logger.debug(f"creating CsoundInstr {self.name}")
-            session = csoundengine.getSession()
+            session = _getEngine().session()
             self._csoundInstr = session.defInstr(name=self.name, body=self.instrBody,
                                                  init=self.instrInit)
         return self._csoundInstr

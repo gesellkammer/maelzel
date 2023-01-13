@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, field as _field, fields as _fields
+from collections import defaultdict
+
 from .common import *
 from . import core
 from . import definitions
@@ -1918,6 +1920,7 @@ class QuantizedPart:
     measures: list[QuantizedMeasure]
     name: str = ''
     shortname: str = ''
+    groupid: str = ''
 
     def __post_init__(self):
         self._fixTies()
@@ -2204,7 +2207,8 @@ def quantizePart(part: core.Part,
             qmeasure = QuantizedMeasure(timesig=measureDef.timesig,
                                         quarterTempo=measureDef.quarterTempo, beats=[])
             qmeasures.append(qmeasure)
-    qpart = QuantizedPart(struct, qmeasures, name=part.name, shortname=part.shortname)
+    qpart = QuantizedPart(struct, qmeasures, name=part.name, shortname=part.shortname,
+                          groupid=part.groupid)
     qpart.glissMarkTiedNotesAsHidden()
     qpart.removeUnnecessaryGracenotes()
     return qpart
@@ -2271,6 +2275,28 @@ class QuantizedScore:
         numMeasures = self.numMeasures()
         for part in self.parts:
             part.pad(numMeasures - len(part.measures))
+
+    def groupParts(self) -> list[QuantizedPart | list[QuantizedPart]]:
+        """
+        Group parts which have the same id
+
+        Returns:
+            A list of groups where a group is a list of parts with the same id
+        """
+        groups = {}
+        out: list[QuantizedPart | list[QuantizedPart]] = []
+        for part in self.parts:
+            if part.groupid:
+                if part.groupid not in groups:
+                    group = [part]
+                    groups[part.groupid] = group
+                    out.append(group)
+                else:
+                    groups[part.groupid].append(part)
+            else:
+                out.append(part)
+        return [item if isinstance(item, QuantizedPart) or len(item) > 1 else item[0]
+                for item in out]
 
     def toCoreScore(self, mergeTies=True) -> maelzel.core.Score:
         """

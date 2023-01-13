@@ -29,7 +29,6 @@ __all__ = (
     'mergeNotations',
     'notationsToCoreEvents',
     'notationsCanMerge',
-    'notationsCannotMerge',
     'durationsCanMerge',
     'mergeNotationsIfPossible'
 )
@@ -185,14 +184,14 @@ class Notation:
 
         return attachments
 
-    def findSpanner(self, cls: str  | type, kind='') -> Optional[_spanner.Spanner]:
+    def findSpanner(self, cls: str | type, kind='') -> Optional[_spanner.Spanner]:
         if not self.spanners:
             return
         if isinstance(cls, str):
             clsname = cls.lower()
             return first(s for s in self.spanners
                          if type(s).__name__.lower() == clsname and (not kind or s.kind==kind))
-        else:
+        elif isinstance(cls, type):
             return first(s for s in self.spanners
                          if isinstance(s, cls) and (not kind or s.kind==kind))
 
@@ -896,18 +895,18 @@ def mergeNotations(a: Notation, b: Notation) -> Notation:
     return out
 
 
-def makeGroupId(parent: str | None = None) -> str:
+def makeGroupId(parent: str = '') -> str:
     """
     Create an id to group notations together
+
+    Args:
+        parent: if given it will be prepended as {parent}/{groupid}
 
     Returns:
         the group id as string
     """
-    subgroup = str(uuid.uuid1())
-    if parent is None:
-        return subgroup
-    assert isinstance(parent, str), f"Expected a str, got {parent}"
-    return parent + "/" + subgroup
+    groupid = str(uuid.uuid1())
+    return groupid if parent is None else f'{parent}/{groupid}'
 
 
 def makeNote(pitch: pitch_t,
@@ -1000,7 +999,9 @@ def makeChord(pitches: list[pitch_t],
 
 def makeRest(duration: time_t,
              offset: time_t = None,
-             dynamic: str = '') -> Notation:
+             dynamic: str = '',
+             annotation: str = ''
+             ) -> Notation:
     """
     Shortcut function to create a rest notation.
 
@@ -1018,8 +1019,14 @@ def makeRest(duration: time_t,
         the created rest (a Notation)
     """
     assert duration > 0
-    return Notation(duration=asF(duration), offset=None if offset is None else asF(offset),
-                    isRest=True, _init=False, dynamic=dynamic)
+    out = Notation(duration=asF(duration),
+                   offset=None if offset is None else asF(offset),
+                   dynamic=dynamic,
+                   isRest=True,
+                   _init=False)
+    if annotation:
+        out.addText(annotation)
+    return out
 
 
 def notationsToCoreEvents(notations: list[Notation]
@@ -1101,34 +1108,6 @@ def durationsCanMerge(n0: Notation, n1: Notation) -> bool:
     return True
 
 
-def notationsCannotMerge(n0: Notation, n1: Notation) -> str:
-    if n0.isRest and n1.isRest:
-        if n0.durRatios != n1.durRatios:
-            return 'Duration ratios not compatible'
-        if not durationsCanMerge(n0, n1):
-            return 'Durations cannot merge'
-    elif n0.isRest or n1.isRest:
-        return 'A rest and a pitches notation cannot merge'
-    else:
-        if not (n0.tiedNext and n1.tiedPrev):
-            return 'Notations not tied'
-        if n0.durRatios != n1.durRatios:
-            return 'Duration ratios not equal'
-        if n0.pitches != n1.pitches:
-            return 'Pitches not equal'
-        if n1.dynamic or n0.dynamic != n1.dynamic:
-            return 'Dynamics differ'
-        if n1.attachments or not set(n1.attachments).issubset(set(n0.attachments)):
-            return 'Attachments differ'
-        if n0.noteheads != n1.noteheads:
-            return 'Noteheads differ'
-        if n1.gliss:
-            return 'Last notation has a glissando'
-        if not durationsCanMerge(n0, n1):
-            return 'Durations cannot merge'
-    return ''
-
-
 def notationsCanMerge(n0: Notation, n1: Notation) -> bool:
     """
     Returns True if n0 and n1 can me merged
@@ -1158,10 +1137,13 @@ def notationsCanMerge(n0: Notation, n1: Notation) -> bool:
     if n1.attachments and not set(n1.attachments).issubset(set(n0.attachments)):
         return False
 
-    if n0.noteheads != n1.noteheads:
-        visible = {idx: notehead for idx, notehead in n1.noteheads.items()
+    if not n0.gliss and (n0.noteheads or n1.noteheads) and n0.noteheads != n1.noteheads:
+        if not n1.noteheads:
+            return False
+
+        n1visiblenoteheads = {idx: notehead for idx, notehead in n1.noteheads.items()
                        if not notehead.hidden}
-        if ((n0.noteheads or visible) and n0.noteheads != visible):
+        if n0.noteheads != n1visiblenoteheads:
             return False
 
     if not n0.gliss and n1.gliss:

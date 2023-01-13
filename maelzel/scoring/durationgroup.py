@@ -1,5 +1,5 @@
 from __future__ import annotations
-from .core import Notation, notationsCannotMerge
+from .core import Notation
 from .common import *
 from numbers import Rational
 from typing import TYPE_CHECKING

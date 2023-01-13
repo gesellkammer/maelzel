@@ -4,15 +4,14 @@
    contain the root `toctree` directive.
 
 
-maelzel - Documentation
-=======================
+maelzel
+=======
 
-**maelzel** is a framework for computer music in python. It is
-based on a :ref:`core<core>` package, which provides datatypes to define *notes*,
-*chords*, *sequences*, *lines*, *voices*, *scores*, etc. Other modules 
-provide functionality for working with sound (loading soundfiles, working
-with samples, applying filters, fading, mixing, playback), 
-sound analysis, music, acoustics, music notation, etc.
+**maelzel** is a framework for computer music in python. It provides datatypes
+to define *notes*, *chords*, *sequences*, *lines*, *voices*, *scores*, etc. These
+can be represented as notation and used for audio synthesis. Other functionality
+includes working with sound (loading soundfiles and samples, applying filters,
+fading, mixing, playback), sound analysis, acoustics, etc.
 
 Demo Notebook
 -------------

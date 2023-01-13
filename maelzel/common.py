@@ -18,7 +18,6 @@ from maelzel.rational import Rat as F
 #except ImportError:
 #    from fractions import Fraction as F
 
-
 def asF(t) -> F:
     """
     Convert ``t`` to a fraction if needed

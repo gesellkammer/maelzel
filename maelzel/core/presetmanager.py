@@ -225,26 +225,27 @@ class PresetManager:
             >>> synth = Note("4C", dur=60).play(instr='mypreset', args={'kcutoff': 1000})
 
         ``.play`` returns a SynthGroup, even if in this case a Note generates only one synth.
-        (for example a Chord would generate one synth per note)
+        (for example a Chord generates one synth per note)
 
         **NB**: Parameters can be modified while the synth is running :
 
             >>> synth.setp(kcutoff=2000)
 
-        .. admonition:: See Also
+        .. seealso::
 
             - :func:`defPresetSoundfont`
+            - :meth:`PresetManager.getPreset`
             - :meth:`maelzel.core.MObj.play`
 
         """
         audiogen = emlib.textlib.stripLines(audiogen)
         firstLine = audiogen.split('\n', maxsplit=1)[0].strip()
         if firstLine[0] == '|' and firstLine[-1] == '|':
-            delimiter, inlineParams, audiogen = csoundengine.instr.parseInlineArgs(audiogen)
+            inlineargs = csoundengine.instr.parseInlineArgs(audiogen)
             if args:
-                args.update(inlineParams)
+                args.update(inlineargs.args)
             else:
-                args = inlineParams
+                args = inlineargs.args
         presetdef = PresetDef(name=name,
                               audiogen=audiogen,
                               init=init,
@@ -490,7 +491,11 @@ class PresetManager:
         """
         matchingPresets = [p for name, p in self.presetdefs.items()
                            if fnmatch.fnmatch(name, pattern)]
-        matchingPresets.sort(key=lambda p: (1-int(p.usetDefined), 1-int(p.isSoundFont()), p.name))
+
+        def key(p: PresetDef):
+            return 1 - int(p.userDefined), 1 - int(p.isSoundFont()), p.name
+
+        matchingPresets.sort(key=key)
 
         if showGeneratedCode:
             full = True
@@ -690,6 +695,7 @@ class PresetManager:
 
 
 presetManager = PresetManager()
+
 defPresetSoundfont = presetManager.defPresetSoundfont
 showPresets = presetManager.showPresets
 definedPresets = presetManager.definedPresets

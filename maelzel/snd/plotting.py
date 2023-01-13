@@ -349,7 +349,6 @@ def plotWaveform(samples, samplerate, profile:str = None, saveas:str=None,
     ax1 = None
     timeFormatter = matplotlib.ticker.FuncFormatter(
         lambda s, x:emlib.misc.sec2str(s, msdigits=3))
-    locator = TimeLocator(sr=samplerate)
     for i in range(numch):
         if i == 0:
             axes = ax1 = f.add_subplot(numch, 1, i + 1)

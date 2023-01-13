@@ -9,6 +9,7 @@ Here we define:
 
 """
 import logging as _logging
+import textwrap as _textwrap
 import os
 
 
@@ -18,6 +19,7 @@ __all__ = (
     'isNumber',
     'getPath',
     'logger',
+    'prettylog'
 )
 
 
@@ -48,3 +50,14 @@ def getPath(s: str) -> str:
         return dialogs.selectFile()
     else:
         return os.path.expanduser(s)
+
+
+def prettylog(level: str, msg: str, width=80, indent=4) -> None:
+    levelint = _logging.getLevelName(level)
+    lines = _textwrap.wrap(msg, width=width,
+                           initial_indent='\n' + ' '*(indent-1),
+                           subsequent_indent=' '*indent,
+                           replace_whitespace=False)
+
+    msg = '\n'.join(lines)
+    logger.log(level=levelint, msg=msg)

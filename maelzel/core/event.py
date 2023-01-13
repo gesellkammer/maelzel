@@ -28,16 +28,19 @@ from emlib import mathlib
 
 import pitchtools as pt
 
+from maelzel.common import *
 from maelzel import scoring
 from maelzel.scoring import enharmonics
-from maelzel.common import *
+from maelzel.music.dynamics import DynamicCurve
+
 from ._common import UNSET, MAXDUR, logger
-from . import _util
 from .mobj import *
 from .workspace import getConfig, Workspace
-from . import notation
 from .synthevent import PlayArgs, SynthEvent
+
+from . import notation
 from . import symbols as _symbols
+from . import _util
 
 from typing import TYPE_CHECKING, overload as _overload
 
@@ -65,15 +68,6 @@ class MEvent(MObj):
     """
     _acceptsNoteAttachedSymbols = True
 
-    def _scoringOffset(self, config: CoreConfig) -> F:
-        if self.parent:
-            if config['show.asoluteOffsetForDetachedObjects']:
-                offset = self.absoluteOffset()
-            else:
-                offset = self.resolveOffset()
-        else:
-            offset = self.offset
-
     def isRest(self) -> bool:
         return False
 
@@ -93,8 +87,8 @@ class MEvent(MObj):
         Mark this note as gracenote via properties
 
         """
-        self.setProperty('grace', True)
-        self.setProperty('grace-slash', slash)
+        self.setProperty('.grace', True)
+        self.setProperty('.grace-slash', slash)
 
     def canBeLinkedTo(self, other: MEvent) -> bool:
         """
@@ -147,13 +141,9 @@ class MEvent(MObj):
         intervals = mathlib.split_interval_at_values(offset, offset + dur, offsets)
         events = [self.clone(offset=intervalstart, dur=intervalend-intervalstart)
                   for intervalstart, intervalend in intervals]
-        if isinstance(self, (Note, Chord)) and tie and len(events) > 1:
-            for event in events[:-1]:
-                if isinstance(event, (Note, Chord)):
-                    event.tied = True
-            for event in events[1:]:
-                event.setProperty('.tiedPrev', True)
-        return events3w
+        for event in events[:-1]:
+            event.tied = True
+        return events
 
 
 @functools.total_ordering
@@ -373,13 +363,13 @@ class Note(MEvent):
 
         """
         if self.isRest() and other.isRest():
-            assert self.dur and other.dur
+            assert self.dur is not None and other.dur is not None
             out = self.clone(dur=self.dur + other.dur)
             return out
 
         if (not self.tied or
                 self.gliss or
-                self.isRest() or
+                other.isRest() or
                 self.isRest() or
                 self.pitch != other.pitch or
                 self.amp != other.amp or
@@ -617,21 +607,22 @@ class Note(MEvent):
     def scoringEvents(self,
                       groupid='',
                       config: CoreConfig = None,
+                      parentOffset: F | None = None
                       ) -> list[scoring.Notation]:
         if not config:
             config = getConfig()
+        offset = self.absoluteOffset() if parentOffset is None else self.resolveOffset() + parentOffset
         dur = self.resolveDur()
         if self.isRest():
-            rest = scoring.makeRest(self.dur, offset=self.offset, dynamic=self.dynamic)
-            if annot := self._scoringAnnotation():
-                rest.addText(annot)
+            rest = scoring.makeRest(dur, offset=offset, dynamic=self.dynamic)
+            if self.label:
+                rest.addText(self._scoringAnnotation(config=config))
             if self.symbols:
                 for symbol in self.symbols:
                     if symbol.appliesToRests:
                         symbol.applyTo(rest)
             return [rest]
 
-        offset = self._scoringOffset(config=config)
         notation = scoring.makeNote(pitch=self.pitch,
                                     duration=asF(dur),
                                     offset=offset,
@@ -660,9 +651,7 @@ class Note(MEvent):
                 notes[-1].stem = 'hidden'
 
         if self.label:
-            annot = self._scoringAnnotation()
-            if annot is not None:
-                notes[0].addText(annot)
+            notes[0].addText(self._scoringAnnotation(config=config))
         if self.symbols:
             for symbol in self.symbols:
                 symbol.applyToTiedGroup(notes)
@@ -776,7 +765,9 @@ class Note(MEvent):
                 amp = workspace.dynamicCurve.dyn2amp(dyn)
             else:
                 amp = conf['play.defaultAmplitude']
-        endmidi = self.resolveGliss()
+        endmidi = self.pitch if not self.gliss else self.resolveGliss()
+        if self.parent:
+            assert (self.offset is not None or self._resolvedOffset is not None) and (self.dur is not None or self._resolvedDur is not None)
         offset = self._detachedOffset(F0) + parentOffset
         dur = self._detachedDur(F1)
         starttime = float(scorestruct.beatToTime(offset))
@@ -790,7 +781,8 @@ class Note(MEvent):
         if sustain:=playargs.get('sustain'):
             bps.append([endtime + sustain, endmidi+transp, amp])
 
-        return [SynthEvent.fromPlayArgs(bps=bps, playargs=playargs, tiednext=self.tied)]
+        linkednext = self.tied or self.gliss is True
+        return [SynthEvent.fromPlayArgs(bps=bps, playargs=playargs, linkednext=linkednext)]
 
     def resolveGliss(self) -> float:
         """
@@ -802,34 +794,35 @@ class Note(MEvent):
         """
         if not self.gliss:
             raise ValueError("This Note does not have a glissando")
-        if not isinstance(self.gliss, bool):
-            # If .gliss is already a pitch, return that
+        elif not isinstance(self.gliss, bool):
+            # .gliss is already a pitch, return that
             return self.gliss
-        if not self.parent:
+        elif self.properties and (target := self.properties.get('.glisstarget')) is not None:
+            return target
+        elif not self.parent:
             # .gliss is a bool so we need to know the next event, but we are parentless
             return self.pitch
+
         nextev = self.parent.eventAfter(self)
         if nextev is None:
-            # No next event, the gliss target is cannot be determined
+            # No next event, the gliss target cannot be determined
             return self.pitch
-        if isinstance(nextev, Note):
+        elif isinstance(nextev, Note):
             return nextev.pitch
         elif isinstance(nextev, Chord):
             # A gliss to the highest note of the chord. This is an arbitrary decission,
-            # it could be configured or be something different, like the  nearest pitch of
-            # the chord. In such a case the user could set the .gliss attr to a concrete value
+            # it could be something else, like the nearest pitch of the chord.
+            # But in such a case the user could just set the .gliss attr to a concrete value
             return max(n.pitch for n in nextev.notes)
         else:
             return self.pitch
 
-
-    def resolvedDynamic(self, conf: CoreConfig = None) -> str:
-        if conf is None:
-            conf = getConfig()
-        # Should we query the parent?
+    def resolveDynamic(self, conf: CoreConfig = None) -> str:
+        if conf is None: conf = getConfig()
+        # Should we query the parent to see the currently active dynamic?
         return self.dynamic or conf['play.defaultDynamic']
 
-    def resolvedAmp(self, workspace: Workspace = None) -> float:
+    def resolveAmp(self, workspace: Workspace = None) -> float:
         """
         Get the amplitude of this object, or a default amplitude
 
@@ -846,7 +839,7 @@ class Note(MEvent):
             workspace = Workspace.active
         conf = workspace.config
         if conf['play.useDynamics']:
-            return workspace.dynamicCurve.dyn2amp(self.resolvedDynamic(conf))
+            return workspace.dynamicCurve.dyn2amp(self.resolveDynamic(conf))
         else:
             return conf['play.defaultAmplitude']
 
@@ -900,7 +893,9 @@ class Chord(MEvent):
             pitch is either a fractional midinote or a notename (str); notes
             can be already created ``Note`` instances; or a string with multiple
             notes separated by a space
-        amp: the amplitude (volume) of this chord
+        amp: the amplitude of this chord. To specify a different amplitude for each
+            pitch within the chord, first create a Note for each pitch with its
+            corresponding amplitude and use that list as the *notes* argument
         dur: the duration of this chord (in quarternotes)
         offset: the offset time (in quarternotes)
         gliss: either a list of end pitches (with the same size as the chord), or
@@ -1081,17 +1076,53 @@ class Chord(MEvent):
     def pitchRange(self) -> tuple[float, float] | None:
         return min(n.pitch for n in self.notes), max(n.pitch for n in self.notes)
 
+    def resolveGliss(self) -> list[float]:
+        """
+        Resolve the target pitch for this chord's glissando
+
+        Returns:
+            the target pitch or this note's own pitch if its target
+            pitch cannot be determined
+        """
+        if not self.gliss:
+            raise ValueError("This Chord does not have a glissando")
+
+        if not isinstance(self.gliss, bool):
+            assert all(isinstance(_, (int, float)) for _ in self.gliss)
+            return self.gliss
+
+        # self.gliss is True
+
+        if self.properties and (target := self.properties.get('.glisstarget')) is not None:
+            return target
+
+        if not self.parent:
+            # .gliss is a bool so we need to know the next event, but we are parentless
+            return self.pitches
+
+        nextev = self.parent.eventAfter(self)
+        if nextev is None:
+            # No next event, the gliss target is cannot be determined
+            return self.pitches
+        if isinstance(nextev, Note):
+            return [nextev.pitch] * len(self.notes)
+        elif isinstance(nextev, Chord):
+            return nextev.pitches
+        else:
+            return self.pitches
+
     def scoringEvents(self,
                       groupid='',
-                      config: CoreConfig = None
+                      config: CoreConfig = None,
+                      parentOffset: F | None = None
                       ) -> list[scoring.Notation]:
         if not config:
             config = getConfig()
         notenames = [note.name for note in self.notes]
-        annot = self._scoringAnnotation()
+        annot = None if not self.label else self._scoringAnnotation(config=config)
         dur = self.resolveDur()
-
-        notation = scoring.makeChord(pitches=notenames, duration=dur, offset=self.offset,
+        offset = self.absoluteOffset() if parentOffset is None else self.resolveOffset() + parentOffset
+        notation = scoring.makeChord(pitches=notenames, duration=dur, offset=offset,
                                      annotation=annot, group=groupid, dynamic=self.dynamic,
                                      tiedNext=self.tied)
 
@@ -1282,51 +1313,77 @@ class Chord(MEvent):
     def pitches(self) -> list[float]:
         return [n.pitch for n in self.notes]
 
-    def _synthEvents(self, playargs: PlayArgs, workspace: Workspace
-                     ) -> list[SynthEvent]:
-        conf = workspace.config
-        scorestruct = workspace.scorestruct
-        if self.playargs:
-            playargs = playargs.overwrittenWith(self.playargs)
-        if conf['chordAdjustGain']:
-            gain = playargs.get('gain') or 1.0
-            playargs['gain'] = gain / math.sqrt(len(self))
-        endpitches = self.pitches
-        if self.gliss:
-            if isinstance(self.gliss, list):
-                endpitches = self.gliss
-            elif self.properties and (glisstarget:=self.properties.get('glisstarget')):
-                # This property is filled when resolving a sequence
-                endpitches = glisstarget
-
-        events = []
-        start = self.absoluteOffset()
-        dur = self.resolveDur()
-        starttime = float(scorestruct.beatToTime(start))
-        endtime = float(scorestruct.beatToTime(start + dur))
-        useDynamics = conf['play.useDynamics']
+    def resolveAmps(self,
+                    config: CoreConfig,
+                    dyncurve: DynamicCurve,
+                    ) -> list[float]:
+        useDynamics = config['play.useDynamics']
         if self.amp is not None:
             chordamp = self.amp
         else:
             if not useDynamics:
-                chordamp = conf['play.defaultAmplitude']
+                chordamp = config['play.defaultAmplitude']
             else:
-                dyn = self.dynamic or conf['play.defaultDynamic']
-                chordamp = workspace.dynamicCurve.dyn2amp(dyn)
+                dyn = self.dynamic or config['play.defaultDynamic']
+                chordamp = dyncurve.dyn2amp(dyn)
+        amps = [n.amp or dyncurve.dyn2amp(n.dynamic) if n.dynamic and useDynamics else chordamp
+                for n in self.notes]
+        return amps
+
+    def _synthEvents(self,
+                     playargs: PlayArgs,
+                     parentOffset: F,
+                     workspace: Workspace
+                     ) -> list[SynthEvent]:
+        conf = workspace.config
+        struct = workspace.scorestruct
+        if self.playargs:
+            playargs = playargs.overwrittenWith(self.playargs)
+
+        if conf['chordAdjustGain']:
+            gain = playargs.get('gain', 1.0)
+            playargs['gain'] = gain / math.sqrt(len(self))
+        endpitches = self.pitches if not self.gliss else self.resolveGliss()
+        startsecs, endsecs = self.timeRangeSecs(parentOffset=parentOffset, scorestruct=struct)
+        amps = self.resolveAmps(config=conf, dyncurve=workspace.dynamicCurve)
         transpose = playargs.get('transpose', 0.)
-        for note, endpitch in zip(self.notes, endpitches):
-            if note.amp:
-                noteamp = note.amp
-            elif note.dynamic and useDynamics:
-                noteamp = workspace.dynamicCurve.dyn2amp(note.dynamic)
-            else:
-                noteamp = chordamp
-            bps = [[starttime, note.pitch+transpose, noteamp],
-                   [endtime,   endpitch+transpose,   noteamp]]
+        synthevents = []
+        for note, endpitch, amp in zip(self.notes, endpitches, amps):
+            bps = [[startsecs, note.pitch+transpose, amp],
+                   [endsecs,   endpitch+transpose,   amp]]
             if sustain:=playargs.get('sustain'):
-                bps.append([endtime + sustain, endpitch+transpose, noteamp])
-            events.append(SynthEvent.fromPlayArgs(bps=bps, playargs=playargs))
-        return events
+                bps.append([endsecs + sustain, endpitch+transpose, amp])
+            # Find if this specific note is tied
+            linkednext = self.gliss is True or self._isNoteTied(note)
+            synthevents.append(SynthEvent.fromPlayArgs(bps=bps, playargs=playargs, linkednext=linkednext))
+        return synthevents
+
+    def _isNoteTied(self, note: Note) -> bool:
+        """
+        Query if the given note within this chord is tied to the following note/chord
+
+        Args:
+            note: a note within this chord
+
+        Returns:
+            True if this note is tied to the next chord/note
+
+        """
+        assert note in self.notes
+        if not self.tied:
+            return False
+        if self.parent:
+            nextitem = self.parent.itemAfter(self)
+            if not nextitem:
+                return False
+            elif isinstance(nextitem, Chord):
+                return next((candidate.pitch == note.pitch for candidate in nextitem), None) is not None
+            elif isinstance(nextitem, Note):
+                return nextitem.pitch == note.pitch
+            else:
+                return False
+        # no parent
+        return True
 
     def _bestSpelling(self) -> tuple[str]:
         notenames = [n.pitchSpelling + '!' if n.pitchSpelling else n.name
@@ -1581,19 +1638,21 @@ def asEvent(obj, **kws) -> MEvent:
         >>> asEvent("4C,4E:0.5:mf")
         ‹4C 4E 0.5♩ mf›
 
-
-
-
     """
     if isinstance(obj, MEvent):
         return obj
     elif isinstance(obj, str):
-        if "," in obj:
+        if " " in obj:
+            return Chord(obj.split(), **kws)
+        elif ":" or "," in obj:
             notedef = _util.parseNote(obj)
             dur = kws.pop('dur', None) or notedef.dur
             if notedef.properties:
                 kws = misc.dictmerge(notedef.properties, kws)
-            return Chord(notedef.notename, dur=dur, **kws)
+            if isinstance(notedef.notename, list) and len(notedef.notename) > 1:
+                return Chord(notedef.notename, dur=dur, **kws)
+            else:
+                return Note(notedef.notename, dur=dur, **kws)
         elif " " in obj:
             return Chord(obj.split(), **kws)
         else:

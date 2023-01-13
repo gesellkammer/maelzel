@@ -65,7 +65,7 @@ def fillTempDynamics(items: list[MEvent], initialDynamic='mf',
     """
     Fill notes/chords with context dynamic as temporary (in place)
 
-    To mark that the dynamic is temporary the property 'tempdynamic' is set to
+    To mark that the dynamic is temporary the property '.tempdynamic' is set to
     True. This routine is used for playback when config['play.useDynamics'] is True,
     to set the dynamic from the last dynamic if a note/chord of the same voice does
     not have a dynamic set
@@ -86,7 +86,7 @@ def fillTempDynamics(items: list[MEvent], initialDynamic='mf',
         item = items[0]
         if not item.dynamic:
             item.dynamic = initialDynamic
-            item.setProperty('tempdynamic', True)
+            item.setProperty('.tempdynamic', True)
     else:
         lastDynamic = initialDynamic
         lastEnd = 0
@@ -95,7 +95,7 @@ def fillTempDynamics(items: list[MEvent], initialDynamic='mf',
                 lastDynamic = initialDynamic
             if not item.dynamic:
                 item.dynamic = lastDynamic
-                item.setProperty('tempdynamic', True)
+                item.setProperty('.tempdynamic', True)
             else:
                 lastDynamic = item.dynamic
             lastEnd = item.end
@@ -105,7 +105,7 @@ def addDurationToGracenotes(chain: list[MEvent], dur: F) -> None:
     """
     Adds real duration to gracenotes within chain
 
-    Previous to playback, gracenotes have a duration of 0. When playing back
+    Previous to playback, gracenotes have a duration of 0. Before playing
     they are assigned a duration, which is substracted from the previous "real"
     note or silence.
 
@@ -294,12 +294,12 @@ def chainSynthEvents(objs: list[MEvent],
             lines = splitLinkedGroupIntoLines(group)
             # A line of notes
             for line in lines:
-                bps = [[float(struct.beatToTime(item.offset)), item.pitch + transpose, item.resolvedAmp(workspace=workspace)]
+                bps = [[float(struct.beatToTime(item.offset)), item.pitch + transpose, item.resolveAmp(workspace=workspace)]
                        for item in line]
                 lastev = line[-1]
                 pitch = lastev.gliss or lastev.pitch
                 assert lastev.end is not None
-                bps.append([float(struct.toTime(lastev.end)), pitch+transpose, lastev.resolvedAmp(workspace=workspace)])
+                bps.append([float(struct.toTime(lastev.end)), pitch + transpose, lastev.resolveAmp(workspace=workspace)])
                 for bp in bps:
                     assert all(isinstance(x, (int, float)) for x in bp), f"bp: {bp}\n{bps=}"
                 first = line[0]
