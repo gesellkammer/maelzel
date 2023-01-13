@@ -1138,7 +1138,7 @@ class MObj:
             * :meth:`MObj.events`
             * :meth:`MObj.rec`
             * :func:`~maelzel.core.playback.render`,
-            * :class:`~maelzel.core.playbakc.playgroup`
+            * :class:`~maelzel.core.playback.synchedplay`
 
 
         Example
@@ -1151,7 +1151,7 @@ class MObj:
 
         Play multiple objects synchronised
 
-            >>> with playgroup():
+            >>> with synchedplay():
             ...     Note(60, 1.5).play(gain=0.1, position=0.5)
             ...     Chord("4E 4G", 2, start=1.2).play(instr='piano')
             ...     ...
@@ -1187,8 +1187,8 @@ class MObj:
 
         if (renderer:=workspace.renderer) is not None:
             # schedule offline
-            for ev in events:
-                renderer.schedEvent(ev)
+            renderer.schedEvents(events)
+
         else:
             return playback._playFlatEvents(events, whenfinished=whenfinished)
 

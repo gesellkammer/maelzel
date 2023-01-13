@@ -21,7 +21,7 @@ examples/Untitled*
 docs/api
 notebooks/Untitled*.ipynb
 notebooks/tmp
-notebooks/test/tmp
+Untitled*.ipynb
 *.eps
 *.count
 *.tex

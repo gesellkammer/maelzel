@@ -2422,18 +2422,18 @@ def sync(data, idx, *, aggregate=None, pad=True, axis=-1):
 
     By default, use mean aggregation
 
-    >>> C_avg = librosa.util.playgroup(C, beats)
+    >>> C_avg = librosa.util.synchedplay(C, beats)
 
     Use median-aggregation instead of mean
 
-    >>> C_med = librosa.util.playgroup(C, beats,
+    >>> C_med = librosa.util.synchedplay(C, beats,
     ...                              aggregate=np.median)
 
     Or sub-beat synchronization
 
     >>> sub_beats = librosa.segment.subsegment(C, beats)
     >>> sub_beats = librosa.util.fix_frames(sub_beats)
-    >>> C_med_sub = librosa.util.playgroup(C, sub_beats, aggregate=np.median)
+    >>> C_med_sub = librosa.util.synchedplay(C, sub_beats, aggregate=np.median)
 
     Plot the results
 
