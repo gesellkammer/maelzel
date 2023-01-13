@@ -193,7 +193,7 @@ def plotOnsets(samples: np.ndarray, sr: int, onsets: np.ndarray,
         >>> import csoundengine
         >>> e = csoundengine.Engine()
         >>> with e.lockedClock():
-        ...     s.playgroup(engine=e)
+        ...     s.synchedplay(engine=e)
         ...     playTicks(times=onsets, engine=e)
         >>> features.plotOnsets(samples=s.samples, sr=s.sr, onsets=onsets,
         ...                     onsetbpf=onsetstrength)

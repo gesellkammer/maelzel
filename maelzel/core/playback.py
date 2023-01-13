@@ -16,7 +16,7 @@ from ._common import logger, prettylog
 from . import _util
 from . import _dialogs
 from .presetdef import *
-from .presetmanager import presetManager, csoundPrelude as _prelude
+from .presetmanager import presetManager
 from .errors import *
 from .workspace import getConfig, getWorkspace, Workspace
 import csoundengine
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
 __all__ = (
     'render',
-    'playgroup',
+    'synchedplay',
     'play',
     'testAudio',
     'playEngine',
@@ -778,7 +778,7 @@ def playEngine(numchannels: int = None,
                latency: float = None,
                ) -> csoundengine.Engine:
     """
-    Get the play engine (start it if needed)
+    Get the play engine; start it if needed
 
     **maelzel** used csound for any sound related task (synthesis, sample
     playback, etc). To interact with csound it relies on the
@@ -828,7 +828,7 @@ def playEngine(numchannels: int = None,
                                  nchnls=numchannels,
                                  backend=backend,
                                  outdev=outdev,
-                                 globalcode=_prelude,
+                                 globalcode=presetManager.csoundPrelude,
                                  quiet=not verbose,
                                  latency=latency,
                                  buffersize=buffersize,
@@ -958,7 +958,7 @@ def play(*sources: MObj | Sequence[SynthEvent] | csoundengine.session.SessionEve
         >>>     SessionEvent('sin', delay=0.1, dur=3, args={'imidi': 61.33, 'iamp':0.02})
         >>> )
 
-    .. seealso:: :class:`playgroup`
+    .. seealso:: :class:`synchedplay`
     """
     flatevents, sessionevents = _collectEvents(sources, eventparams=eventparams, workspace=workspace)
     return _playFlatEvents(flatevents, sessionevents=sessionevents, whenfinished=whenfinished)
@@ -1118,7 +1118,7 @@ def _resolvePfields(event: SynthEvent, instr: csoundengine.Instr
     return pfields
 
 
-class playgroup:
+class synchedplay:
     """
     Context manager to group realtime events to ensure synched playback
 
@@ -1155,9 +1155,9 @@ class playgroup:
         ... outch 1, aL - a1, 2, aR - a2
         ... ''')
         >>> chain = Chain([Note(m, 0.5) for m in range(60, 72)])
-        >>> with playgroup() as g:
+        >>> with synchedplay() as s:
         ...     chain.play(position=1, instr='piano')
-        ...     g.sched('reverb', 0, dur=10, priority=2)
+        ...     s.sched('reverb', 0, dur=10, priority=2)
     """
     def __init__(self, whenfinished: Callable = None):
         self.lock = True
@@ -1180,6 +1180,7 @@ class playgroup:
 
         self._realtimeEvents: list[csoundengine.session.SessionEvent] = []
         self._oldRenderer = None
+        self._oldSchedCallback = None
         self._finishedCallback = whenfinished
 
     def _repr_html_(self):
@@ -1221,6 +1222,8 @@ class playgroup:
         workspace = getWorkspace()
         self._oldRenderer = workspace.renderer
         workspace.renderer = self
+        self._oldSchedCallback = self.session._schedCallback
+        self.session._schedCallback = self.sched
         if self.lock:
             self.engine.pushLock()
 
@@ -1259,6 +1262,7 @@ class playgroup:
         self.synthgroup = synthgroup
         workspace = getWorkspace()
         workspace.renderer = self._oldRenderer
+        self.session._schedCallback = self._oldSchedCallback
 
     def __enter__(self):
         self.enterContext()
@@ -1314,9 +1318,9 @@ class playgroup:
         ... outch 1, aL - a1, 2, aR - a2
         ... ''')
         >>> chain = Chain([Note(m, 0.5) for m in range(60, 72)])
-        >>> with playgroup() as p:
+        >>> with synchedplay() as s:
         >>>     chain.play(position=1, instr='piano')
-        >>>     p.sched('reverb', 0, dur=10, priority=2, args={'kfeedback':0.9})
+        >>>     s.sched('reverb', 0, dur=10, priority=2, args={'kfeedback':0.9})
        """
         if not instrname in self.session.instrs:
             logger.error(f"Unknown instrument {instrname}. "

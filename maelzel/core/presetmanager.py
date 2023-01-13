@@ -12,7 +12,7 @@ import fnmatch
 import glob
 import csoundengine.csoundlib
 from .presetdef import *
-from .workspace import getConfig, getWorkspace
+from .workspace import Workspace
 from . import presetutils
 from . import builtinpresets
 from ._common import logger
@@ -30,34 +30,11 @@ __all__ = (
     'showPresets',
     'defPreset',
     'defPresetSoundfont',
-    'definedPresets',
     'PresetManager',
+    'getPreset'
 )
 
 
-csoundPrelude = r"""
-opcode turnoffWhenSilent, 0, a
-    asig xin
-    ksilent_  trigger detectsilence:k(asig, 0.0001, 0.05), 0.5, 0
-    if ksilent_ == 1  then
-      turnoff
-    endif    
-endop
-
-opcode makePresetEnvelope, a, iiii
-    ifadein, ifadeout, ifadekind, igain xin
-    if (ifadekind == 0) then
-        aenv linsegr 0, ifadein, igain, ifadeout, 0
-    elseif (ifadekind == 1) then
-        aenv cossegr 0, ifadein, igain, ifadeout, 0
-    elseif (ifadekind == 2) then
-        aenv transegr 0, ifadein*.5, 2, igain*0.5, ifadein*.5, -2, igain, p3-ifadein-ifadeout, igain, 1, ifadeout*.5, 2, igain*0.5, ifadeout*.5, -2, 0 	
-        aenv *= linenr:a(1, 0, ifadeout, 0.01)
-    endif
-    xout aenv
-endop
-
-"""
 
 
 class _WatchdogPresetsHandler(watchdog.events.FileSystemEventHandler):
@@ -87,13 +64,35 @@ class PresetManager:
             :meth:`PresetManager.loadPresets`
     """
     _numinstances = 0
+    csoundPrelude = r"""
+    opcode turnoffWhenSilent, 0, a
+        asig xin
+        ksilent_  trigger detectsilence:k(asig, 0.0001, 0.05), 0.5, 0
+        if ksilent_ == 1  then
+          turnoff
+        endif    
+    endop
+
+    opcode makePresetEnvelope, a, iiii
+        ifadein, ifadeout, ifadekind, igain xin
+        if (ifadekind == 0) then
+            aenv linsegr 0, ifadein, igain, ifadeout, 0
+        elseif (ifadekind == 1) then
+            aenv cossegr 0, ifadein, igain, ifadeout, 0
+        elseif (ifadekind == 2) then
+            aenv transegr 0, ifadein*.5, 2, igain*0.5, ifadein*.5, -2, igain, p3-ifadein-ifadeout, igain, 1, ifadeout*.5, 2, igain*0.5, ifadeout*.5, -2, 0 	
+            aenv *= linenr:a(1, 0, ifadeout, 0.01)
+        endif
+        xout aenv
+    endop
+    """
 
     def __init__(self, watchPresets=False):
         if self._numinstances > 0:
             raise RuntimeError("Only one PresetManager should be active")
         self._numinstances = 1
         self.presetdefs: dict[str, PresetDef] = {}
-        self.presetsPath = getWorkspace().presetsPath()
+        self.presetsPath = Workspace.active.presetsPath()
         self._prepareEnvironment()
         self._makeBuiltinPresets()
         self.loadPresets()
@@ -159,7 +158,7 @@ class PresetManager:
         """
         Define a new instrument preset.
 
-        The defined preset can be used as mynote.play(..., instr='name'), where name
+        The defined preset can be used as note.play(..., instr='name'), where name
         is the name of the preset. A preset is created by defining the audio generating
         part as csound code. Each preset has access to the following variables:
 
@@ -186,7 +185,8 @@ class PresetManager:
             includes: files to include
             args: a dict {parameter_name: value} passed to the instrument. The keys need to match the names
                 of any declared parameter
-            description: an optional description of what this preset is/does
+            description: an optional description of the preset. The description can include
+                documentation for the parameters (see Example)
             envelope: If True, apply an envelope as determined by the fadein/fadeout
                 play arguments. If False, the user is responsible for applying any fadein/fadeout (csound variables:
                 ``ifadein``, ``ifadeout``
@@ -205,17 +205,25 @@ class PresetManager:
         .. code-block:: python
 
             >>> from maelzel.core import *
-            >>> audiogen = r'''
-            ... aout1 vco2 kamp, kfreq, 10
-            ... aout1 moogladder aout1, lag:k(kcutoff, 0.1), kq
-            ... '''
-            >>> presetManager.defPreset(name='mypreset', audiogen=audiogen,
-            ...                         args=dict(kcutoff=4000, kq=1))
+            >>> presetManager.defPreset('mypreset', r'''
+            ...     aout1 vco2 kamp, kfreq, 10
+            ...     aout1 moogladder aout1, lag:k(kcutoff, 0.1), iq''',
+            ...     args={'kcutoff': 4000, 'iq': 1},
+            ...     description=r'''
+            ...         A filtered saw-tooth
+            ...         Args:
+            ...             kcutoff: the cutoff frequency of the filter
+            ...             iq: the filter resonance
+            ...     ''')
 
         Or simply:
 
             >>> defPreset('mypreset', r'''
             ... |kcutoff=4000, kq=1|
+            ... ; A filtered saw-tooth
+            ... ; Args:
+            ... ;   kcutoff: cutoff freq. of the filter
+            ... ;   kq: filter resonance
             ... aout1 vco2 kamp, kfreq, 10
             ... aout1 moogladder aout1, lag:k(kcutoff, 0.1), kq
             ... ''')
@@ -224,8 +232,8 @@ class PresetManager:
 
             >>> synth = Note("4C", dur=60).play(instr='mypreset', args={'kcutoff': 1000})
 
-        ``.play`` returns a SynthGroup, even if in this case a Note generates only one synth.
-        (for example a Chord generates one synth per note)
+        The :meth:`maelzel.core.mobj.MObj.play` method returns a SynthGroup, even if in
+        this case a Note generates only one synth (for example a Chord generates one synth per note)
 
         **NB**: Parameters can be modified while the synth is running :
 
@@ -414,7 +422,7 @@ class PresetManager:
                 of defined presets)
         """
         if name is None:
-            name = getConfig()['play.instr']
+            name = Workspace.active.config['play.instr']
         elif name == "?":
             name = _dialogs.selectFromList(list(self.presetdefs.keys()),
                                            title="Select Preset",
@@ -431,7 +439,7 @@ class PresetManager:
         ~~~~~~~
 
             >>> from maelzel.core import *
-            >>> definedPresets()
+            >>> presetManager.definedPresets()
             ['sin',
              'saw',
              'pulse',
@@ -507,7 +515,7 @@ class PresetManager:
                 else:
                     print(preset.getInstr().body)
         else:
-            theme = getConfig()['htmlTheme']
+            theme = Workspace.active.config['htmlTheme']
             htmls = []
             if full:
                 for preset in matchingPresets:
@@ -617,11 +625,11 @@ class PresetManager:
         Returns:
             a csoundengine.Renderer
         """
-        config = getConfig()
+        workspace = Workspace.active
+        config = workspace.config
         sr = sr or config['rec.sr']
         ksmps = ksmps or config['rec.ksmps']
         numChannels = numChannels or config['rec.numChannels']
-        workspace = getWorkspace()
         renderer = csoundengine.Renderer(sr=sr, nchnls=numChannels, ksmps=ksmps,
                                          a4=workspace.a4)
         renderer.addGlobalCode(csoundPrelude)
@@ -696,7 +704,7 @@ class PresetManager:
 
 presetManager = PresetManager()
 
-defPresetSoundfont = presetManager.defPresetSoundfont
-showPresets = presetManager.showPresets
-definedPresets = presetManager.definedPresets
 defPreset = presetManager.defPreset
+defPresetSoundfont = presetManager.defPresetSoundfont
+getPreset = presetManager.getPreset
+showPresets = presetManager.showPresets
