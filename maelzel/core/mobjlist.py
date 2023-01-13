@@ -1,12 +1,11 @@
 
 from __future__ import annotations
 from .event import MObj
-from . import tools
 from .config import CoreConfig
 from . import environment
 from .workspace import Workspace, getConfig
 from maelzel import scoring
-from emlib import misc
+from maelzel.common import F
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -76,8 +75,12 @@ class MObjList(MObj):
         pitchRanges = [item.pitchRange() for item in self]
         return min(p[0] for p in pitchRanges), max(p[1] for p in pitchRanges)
 
-    def scoringEvents(self, groupid: str = None, config: CoreConfig = None
+    def scoringEvents(self,
+                      groupid='',
+                      config: CoreConfig = None,
+                      parentOffset: F | None = None
                       ) -> list[scoring.Notation]:
+
         """
         Returns the scoring events corresponding to this object
 
@@ -120,8 +123,8 @@ class MObjList(MObj):
         newitems = [item.pitchTransform(pitchmap) for item in self]
         return self.clone(items=newitems)
 
-    def dump(self, indents=0):
-        if environment.insideJupyter:
+    def dump(self, indents=0, forcetext=False):
+        if environment.insideJupyter and not forcetext:
             from IPython.display import HTML, display
             header = f'{"  " * indents}<strong>{type(self).__name__}</strong>'
             display(HTML(header))
@@ -132,7 +135,3 @@ class MObjList(MObj):
         for item in self:
             item.dump(indents+1)
 
-    def adaptToScoreStruct(self, newstruct: ScoreStruct, oldstruct: ScoreStruct = None):
-        newitems = [item.adaptToScoreStruct(newstruct, oldstruct)
-                    for item in self]
-        return self.clone(items=newitems)

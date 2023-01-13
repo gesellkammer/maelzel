@@ -14,6 +14,7 @@ from emlib.iterlib import flatten
 from emlib.misc import runonce
 
 from maelzel.core import Chord, Note
+from maelzel.snd import playback
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -291,7 +292,7 @@ def _vowelInstrFof2():
         aout *= aenv
         outs aout, aout
     """
-    instr = csoundengine.getSession().defInstr('vowels.fof2', body)
+    instr = csoundengine.instr.Instr('vowelsfof2', body)
     return instr
 
 
@@ -302,8 +303,13 @@ def instrData(vowel: Union[str, Vowel]) -> List[float]:
     return data
 
 
-def _synthVowelFof2(midinote: Union[float, Tuple[float, float]], vowel: Union[str, Vowel], dur:float,
-                    vibrate=0., vibamount=0.25, gain=1.0
+def _synthVowelFof2(engine: csoundengine.Engine,
+                    midinote: Union[float, Tuple[float, float]],
+                    vowel: Union[str, Vowel],
+                    dur:float,
+                    vibrate=0.,
+                    vibamount=0.25,
+                    gain=1.0
                     ) -> csoundengine.synth.AbstrSynth:
     """
     Synthesize the vowel via csoundengine
@@ -319,13 +325,14 @@ def _synthVowelFof2(midinote: Union[float, Tuple[float, float]], vowel: Union[st
     Returns:
         the synth
     """
-    midi0, midi1 = midinote if isinstance(midinote, tuple) else (midinote,
-                                                                 midinote)
+    midi0, midi1 = midinote if isinstance(midinote, tuple) else (midinote, midinote)
     vowel = asVowel(vowel)
     data = instrData(vowel)
     args = [gain, midi0, midi1, vibrate, vibamount] + data
-    session = csoundengine.getSession()
-    synth = session.sched('fof2', 0, dur=dur, pargs=args)
+    session = engine.session()
+    instr = _vowelInstrFof2()
+    session.registerInstr(instr)
+    synth = session.sched(instr.name, 0, dur=dur, args=args)
     return synth
 
 
@@ -335,7 +342,9 @@ def synthVowel(midinote: Union[float, Tuple[float, float]],
                gain=1.0,
                method='fof2',
                vibrate=0.,
-               vibamount=0.25) -> csoundengine.synth.AbstrSynth:
+               vibamount=0.25,
+               enginename: str = ''
+               ) -> csoundengine.synth.AbstrSynth:
     """
     Synthesize a vowel
 
@@ -353,8 +362,13 @@ def synthVowel(midinote: Union[float, Tuple[float, float]],
         the synth
 
     """
+    if enginename:
+        engine = csoundengine.getEngine(enginename)
+    else:
+        engine = playback.getEngine()
     if method == 'fof2':
-        return _synthVowelFof2(midinote,
+        return _synthVowelFof2(engine,
+                               midinote,
                                vowel,
                                dur,
                                gain=gain,

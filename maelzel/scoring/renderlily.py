@@ -683,7 +683,9 @@ def quantizedPartToLily(part: quant.QuantizedPart,
         if preln and seq and seq[-1][-1] != "\n":
             seq.append("\n")
         if indents:
-            seq.append(_spaces[:indents*indentSize])
+            t = textwrap.dedent(t)
+            t = textwrap.indent(t, prefix=_spaces[:indents*indentSize])
+            # seq.append(_spaces[:indents*indentSize])
         seq.append(t)
         if postln:
             seq.append("\n")
@@ -769,8 +771,9 @@ def quantizedPartToLily(part: quant.QuantizedPart,
         else:
             for group in measure.groupTree():
                 _forceBracketsForNestedTuplets(group)
-                _(renderGroup(group, durRatios=[], options=options,
-                              numIndents=indents, state=state))
+                grouply = renderGroup(group, durRatios=[], options=options,
+                                      numIndents=0, state=state)
+                _(grouply, indents=indents)
         indents -= 1
 
         if not measureDef.barline or measureDef.barline == 'single':
@@ -1074,6 +1077,7 @@ def makeScore(score: quant.QuantizedScore,
         the generated score as str
     """
     indentSize = 2
+    IND = " " * indentSize
     numMeasures = max(len(part.measures)
                       for part in score.parts)
     struct = score.scorestruct.copy()
@@ -1081,7 +1085,15 @@ def makeScore(score: quant.QuantizedScore,
     score.scorestruct = struct
 
     strs = []
-    _ = strs.append
+
+    def _(s, dedent=False, indent=0):
+        if dedent:
+            s = textwrap.dedent(s)
+        elif indent:
+            s = textwrap.dedent(s)
+            s = textwrap.indent(s, prefix=IND * indent)
+        strs.append(s)
+
     lilypondVersion = lilytools.getLilypondVersion()
     _(f'\\version "{lilypondVersion}"\n')
 
@@ -1124,7 +1136,7 @@ def makeScore(score: quant.QuantizedScore,
             \override Glissando #'gap = #0.05
           }
         }
-        """ % options.glissLineThickness)
+        """ % options.glissLineThickness, dedent=True)
 
     if options.horizontalSpacing:
         spacingPreset = _horizontalSpacingPresets[options.horizontalSpacing]
@@ -1133,20 +1145,35 @@ def makeScore(score: quant.QuantizedScore,
 
     _(r"\score {")
     _(r"<<")
-    for i, part in enumerate(score):
-        partstr = quantizedPartToLily(part,
-                                      addMeasureMarks=i==0,
-                                      addTempoMarks=i==0,
-                                      options=options,
-                                      indents=1,
-                                      indentSize=indentSize,
-                                      numMeasures=numMeasures)
-        _(partstr)
+    indents = 1
+    groups = score.groupParts()
+    partindex = 0
+    for group in groups:
+        if isinstance(group, quant.QuantizedPart):
+            group = [group]
+        if len(group) > 1:
+            _(r"\new StaffGroup <<", indent=1)
+            indents += 1
+        for part in group:
+            partstr = quantizedPartToLily(part,
+                                          addMeasureMarks=partindex == 0,
+                                          addTempoMarks=partindex == 0,
+                                          options=options,
+                                          indents=indents,
+                                          indentSize=indentSize,
+                                          numMeasures=numMeasures)
+            _(partstr)
+            partindex += 1
+        if len(group) > 1:
+            _(rf">>", indent=1)
+            indents -= 1
+
     _(r">>")
     if midi:
         _(" "*indentSize + r"\midi { }")
     _(r"}")  # end \score
-    return emlib.textlib.joinPreservingIndentation(strs)
+    return "\n".join(strs)
+    # return emlib.textlib.joinPreservingIndentation(strs)
 
 
 class LilypondRenderer(Renderer):

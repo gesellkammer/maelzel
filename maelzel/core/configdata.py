@@ -41,6 +41,7 @@ defaultdict = {
     'show.jupyterMaxImageWidth': 1000,
     'show.hideRedundantDynamics': True,
     'show.asoluteOffsetForDetachedObjects': False,
+    'show.voiceMaxStaves': 1,
 
     'play.gain': 1.0,
     'play.engineName': 'maelzel.core',
@@ -61,6 +62,7 @@ defaultdict = {
     'play.verbose': False,
     'play.useDynamics': True,
     'play.waitAfterStart': 0.5,
+    'play.gracenoteDuration': '1/14',
 
     'rec.blocking': True,
     'rec.sr': 44100,
@@ -117,6 +119,7 @@ validator = {
     'play.generalMidiSoundfont': lambda cfg, key, val: val == '' or (os.path.exists(val) and os.path.splitext(val)[1] == '.sf2'),
     'play.defaultDynamic::choices': {'pppp', 'ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'ffff'},
     'play.presetsPath': lambda cfg, key, val: not val or os.path.exists(val),
+    'play.gracenoteDuration::type': (int, float, str),
     'htmlTheme::choices': {'light', 'dark'},
     'show.lastBreakpointDur::range': (1/64., 1),
     'quant.complexity::choices': {'low', 'medium', 'high', 'highest'},
@@ -126,6 +129,8 @@ validator = {
     'show.horizontalSpacing::choices': {'default', 'small', 'medium', 'large', 'xlarge'},
     'show.glissLineThickness::choices': {1, 2, 3, 4},
     'show.jupyterMaxImageWidth::type': int,
+    'show.voiceMaxStaves::type': int,
+    'show.voiceMaxStaves::range': (1, 2),
     'dynamicCurveShape': lambda cfg, key, val: val.split("(")[0] in {'linear', 'expon', 'halfcos'},
     'dynamicCurveMindb::range': (-160, 0),
     'dynamicCurveMaxdb::range': (-160, 0),
@@ -200,6 +205,8 @@ docs = {
         "Name of the play engine used",
     'play.waitAfterStart':
         'How much to wait for the sound engine to be operational after starting it',
+    'play.gracenoteDuration':
+        'Duration assigned to a gracenote for playback (in quarternotes)',
     'show.labelFontSize':
         "Font size to use for labels",
     'show.centsAnnotationFontSize':
@@ -221,6 +228,11 @@ docs = {
         "If True, try to find a suitable enharmonic representation of pitches which"
         "have not been fixed already by the user. Otherwise the canonical form of each"
         "pitch is used, independent of the context",
+    'show.voiceMaxStaves':
+        "The maximum number of staves per voice when showing a Voice as notation. A voice"
+        "is a sequence of non-simultaneous events (notes, chords, etc.) but these can"
+        "be exploded over multiple staves (for example, a chord might expand across a"
+        "wide range and would need multiple extra lines in any clef",
 
     'enharmonicSpellingDebug':
         "If True, print debug information while calculating automatic enharmonic spelling",

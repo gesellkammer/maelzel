@@ -31,6 +31,9 @@ class ParsedAudiogen:
     numOutputs: int
     inlineArgs: dict[str, float] | None
     audiogen: str
+    shortdescr: str = '',
+    longdescr: str = '',
+    argdocs: dict[str, str] | None = None
 
 
 def parseAudiogen(audiogen: str, check=False) -> ParsedAudiogen:
@@ -49,7 +52,8 @@ def parseAudiogen(audiogen: str, check=False) -> ParsedAudiogen:
     outOpcodeRx = re.compile(r"^.*\b(outch)\b")
     audiovarsList = []
     numOutchs = 0
-    for line in audiogen.splitlines():
+    audiogenlines = audiogen.splitlines()
+    for line in audiogenlines:
         foundAudiovars = audiovarRx.findall(line)
         audiovarsList.extend(foundAudiovars)
         outOpcode = outOpcodeRx.fullmatch(line)
@@ -84,7 +88,11 @@ def parseAudiogen(audiogen: str, check=False) -> ParsedAudiogen:
     else:
         numOuts = numOutchs
 
-    delimiter, inlineArgs, audiogenWithoutArgs = csoundengine.instr.parseInlineArgs(audiogen)
+    inlineargs = csoundengine.instr.parseInlineArgs(audiogenlines)
+    if inlineargs:
+        docstring = csoundengine.instr.parseDocstring(audiogenlines[inlineargs.linenum+1:])
+    else:
+        docstring = None
 
     return ParsedAudiogen(originalAudiogen=audiogen,
                           signals=audiovars,
@@ -94,8 +102,11 @@ def parseAudiogen(audiogen: str, check=False) -> ParsedAudiogen:
                           numOutchs=numOutchs,
                           needsRouting=needsRouting,
                           numOutputs=numOuts,
-                          inlineArgs=inlineArgs,
-                          audiogen=audiogenWithoutArgs if delimiter else audiogen)
+                          inlineArgs=inlineargs.args if inlineargs else None,
+                          audiogen=inlineargs.audiogen if inlineargs else audiogen,
+                          shortdescr=docstring.shortdescr if docstring else '',
+                          longdescr=docstring.longdescr if docstring else '',
+                          argdocs=docstring.args if docstring else None)
 
 
 def _instrNameFromPresetName(presetName: str) -> str:
@@ -231,7 +242,7 @@ class PresetDef:
     An instrument preset definition
     
     Normally a user does not create a PresetDef directly. A PresetDef is created
-    when calling :func:`~maelzel.core.presetman.defPreset` .
+    when calling :func:`~maelzel.core.presetmanager.defPreset` .
     
     A Preset is aware the pitch and amplitude of a SynthEvent and generates all the
     interface code regarding play parameters like panning position, fadetime, 
@@ -242,9 +253,11 @@ class PresetDef:
     
     Args:
         name: the name of the preset
+        audiogen: the audio generating code
         init: any init code (global code)
         includes: #include files
-        audiogen: the audio generating code
+        epilogue: code to include after any other code. Needed when using turnoff,
+            since calling turnoff in the middle of an instrument can cause undefined behaviour.    
         args: a dict(arg1: value1, arg2: value2, ...). Parameter names
             need to follow csound's naming: init-only parameters need to start with 'i',
             variable parameters need to start with 'k', string parameters start with 'S'. 
@@ -293,7 +306,8 @@ class PresetDef:
         self.name = name
         self.init = init
         self.includes = includes
-        self.audiogen = audiogen.strip()
+        self.parsedAudiogen = parsedAudiogen
+        self.audiogen = parsedAudiogen.audiogen
         self.epilogue = epilogue
         self.args: dict[str, float] | None = args or parsedAudiogen.inlineArgs
         self.userDefined = not builtin
@@ -342,15 +356,32 @@ class PresetDef:
     def _repr_html_(self, theme=None, showGeneratedCode=False):
         if self.description:
             descr = _util.htmlSpan(self.description, italic=True, color=':grey3')
+        elif self.parsedAudiogen.shortdescr:
+            descr = _util.htmlSpan(self.parsedAudiogen.shortdescr, italic=True, color=':grey3')
         else:
             descr = ''
-        ps = [f"Preset: <b>{self.name}</b> {descr}<br>"]
-        info = [f"hasRouting={self.hasRouting}"]
+        header = f"Preset: <b>{self.name}</b>"
+        if descr:
+            header += f' - {descr}'
+        ps = [header, '<br>']
+        info = []
+        if self.hasRouting:
+            info.append(f"hasRouting={self.hasRouting}")
+
         if self.properties:
             info.append(f"properties={self.properties}")
-        infostr = "(" + ', '.join(info) + ")"
+
         fontsize = "92%"
-        ps.append(f"<code>{_INSTR_INDENT}{_util.htmlSpan(infostr, color=':grey1', fontsize=fontsize)}</code>")
+
+        if info:
+            infostr = "(" + ', '.join(info) + ")\n"
+            ps.append(f"<code>{_INSTR_INDENT}{_util.htmlSpan(infostr, color=':grey1', fontsize=fontsize)}</code>")
+
+        if self.parsedAudiogen.argdocs:
+            ps.append('<ul>')
+            for argname, argdoc in self.parsedAudiogen.argdocs.items():
+                ps.append(f'<li>{argname}: {argdoc}</li>')
+            ps.append('</ul>')
 
         if self.init:
             init = _textwrap.indent(self.init, _INSTR_INDENT)
@@ -432,7 +463,7 @@ class PresetDef:
         .. seealso:: :func:`maelzel.core.workspace.presetsPath`
         """
         from . import presetmanager
-        savedpath = presetman.presetManager.savePreset(self.name)
+        savedpath = presetmanager.presetManager.savePreset(self.name)
         return savedpath
 
 

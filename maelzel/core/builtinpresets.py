@@ -17,11 +17,17 @@ builtinPresets = [
     PresetDef(
         'tri',
         r'''
-        |ktransp=0, klag=0.1, kfreqratio=0, kQ=3|
+        |ktransp=0, klag=0.1, kcutoffratio=0, kfilterq=3|
+        ; transposable triangle wave with optional lowpass-filter
+        ; Args:
+        ;   ktransp: transposition interval
+        ;   klag: lag time when modifying pitch
+        ;   kcutoffratio: cutoff frequency of the filter as a factor of the osc frequency
+        ;   kfilterq: filter resonance
         kfreq = mtof:k(lag(kpitch + ktransp, klag))
         aout1 = vco2(1, kfreq,  12) * a(kamp)
-        if kfreqratio > 0 then
-           aout1 = K35_lpf(aout1, kfreq*kfreqratio, kQ)
+        if kcutoffratio > 0 then
+           aout1 = K35_lpf(aout1, kfreq*kcutoffratio, kfilterq)
         endif
         ''',
         description="transposable triangle wave with optional lowpass-filter",
@@ -30,18 +36,28 @@ builtinPresets = [
     PresetDef(
         'saw',
         r'''
-        |ktransp=0, klag=0.1, kfreqratio=0,kQ=3|
+        |ktransp=0, klag=0.1, kcutoffratio=0, kfilterq=3|
+        ; Transposable saw with optional low-pass filtering
+        ;  Args:
+        ;    ktransp: transposition interval
+        ;   klag: lag time when modifying pitch
+        ;   kcutoffratio: cutoff frequency of the filter as a factor of the osc frequency
+        ;   kfilterq: filter resonance
         kfreq = mtof:k(lag(kpitch + ktransp, klag))
         asig = vco2(1, kfreq, 0) * a(kamp)
-        aout1 = kfreqratio == 0 ? asig : K35_lpf(asig, kfreq*kfreqratio, kQ)
+        aout1 = kcutoffratio == 0 ? asig : K35_lpf(asig, kfreq*kcutoffratio, kfilterq)
         ''',
-        description="transposable saw with optional low-pass filtering",
+        description="Transposable saw with optional low-pass filtering",
         builtin=True),
 
     PresetDef(
         'sqr',
         r'''
         |ktransp=0, klag=0.1, kcutoff=0, kresonance=0.2|
+        ; square wave with optional filtering
+        ; Args:
+        ;    kcutoff: filter cutoff frequency
+        ;    kresonance: resonance of the filter
         aout1 = vco2(1, mtof(lag(kpitch+ktransp, klag), 10) * a(kamp)
         aout1 = kcutoff == 0 ? aout1 : moogladder aout1, lag(kcutoff, 0.1), kresonance
         ''',
@@ -59,6 +75,9 @@ builtinPresets = [
         '_click',
         r"""
         |ktransp=24|
+        ; Default preset used when rendering a click-track
+        ; Args:
+        ;   ktransp: transposition interval
         aclickenv expseg db(-120), 0.01, 1, 0.1, db(-120)
         aout1 = oscili:a(aclickenv, mtof:k(kpitch+ktransp))
         """,
@@ -69,7 +88,13 @@ builtinPresets = [
         '_playtable',
         audiogen=r"""
         |isndtab=0, istart=0, icompensatesr=1, kspeed=1, ixfade=-1|
-        ; ixfade: crossfade time, if negative no looping
+        ; Built-in presetdef to playback a table
+        ; Args:
+        ;   isndtab: table number to play
+        ;   istart: skip time
+        ;   icompensatesr: if 1, compensate for diff in sr between soundfile and system
+        ;   kspeed: playback speed
+        ;   ixfade: crossfade time, if negative no looping
         iloop = ixfade >= 0 ? 1 : 0
         inumouts = ftchnls(isndtab)
         inumsamples = nsamp(isndtab)
@@ -148,6 +173,12 @@ builtinPresets = [
         """,
         audiogen = r"""
         |kx=0, ky=0, kvibamount=1|
+        ; Simple vowel singing simulation
+        ; Args:
+        ;   kx: x coordinate, from 0 to 1
+        ;   ky: y coordinate, from 0 to 1
+        ;   kvibamount: vibrato amount, 0 to 1
+        
         kvibfreq = linseg:k(0, 0.1, 0, 0.5, 4.5) * randomi:k(0.9, 1.1, 2)
         kvibsemi = linseg:k(0, 0.4, 0, 2.1, 0.25) * randomi:k(0.9, 1.1, 10)
         kvib = oscil:k(kvibsemi/2, kvibfreq) - kvibsemi/2

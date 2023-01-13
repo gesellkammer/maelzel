@@ -136,7 +136,6 @@ from __future__ import annotations
 from maelzel.core import configdata
 from configdict import ConfigDict
 from maelzel.common import F
-from ._common import logger
 
 import typing
 if typing.TYPE_CHECKING:
@@ -146,7 +145,7 @@ if typing.TYPE_CHECKING:
 
 
 __all__ = (
-    'CoreConfig'
+    'CoreConfig',
 )
 
 
@@ -158,14 +157,17 @@ def _syncCsoundengineTheme(theme:str):
     csoundengine.config['html_theme'] = theme
 
 
-def _resetImageCacheCallback():
-    from . import mobj
-    mobj.resetImageCache()
-
-
-def _propagateA4(config, a4):
+def _resetImageCacheCallback(config: CoreConfig, force=False):
     from . import workspace
-    w = workspace.getWorkspace()
+    if force or config is workspace.Workspace.active.config:
+        from . import mobj
+        mobj.resetImageCache()
+
+
+def _propagateA4(config: CoreConfig, a4: float) -> None:
+    from . import workspace
+    w = workspace.Workspace.active
+    # Is it the active config?
     if config is w.config:
         w.a4 = a4
 
@@ -180,6 +182,7 @@ def _fractionsAsFloat(val: bool):
 #####################################
 #            CoreConfig             #
 #####################################
+
 
 class CoreConfig(ConfigDict):
     """
@@ -215,6 +218,15 @@ class CoreConfig(ConfigDict):
     root: CoreConfig = None
     _keyToType: dict[str, type|tuple[type, ...]] = {}
 
+    # A config callback has the form (config: CoreConfig, key: str, val: Any) -> None
+    # It is called with the config being modified, the key being modified and the new value
+    _builtinCallbacks = {
+        'htmlTheme': lambda config, key, val: _syncCsoundengineTheme(val),
+        "(show|quant)\..+": lambda config, key, val: _resetImageCacheCallback(config, force=True),
+        "A4": lambda config, key, val: _propagateA4(config, val),
+        "reprShowFractionsAsFloat": lambda config, key, val: _fractionsAsFloat(val)
+    }
+
     def __init__(self,
                  updates: dict[str, Any] = None,
                  source: str | ConfigDict | None = 'root',
@@ -241,14 +253,8 @@ class CoreConfig(ConfigDict):
             CoreConfig.root = self
 
         self._prevConfig: CoreConfig | None = None
-        callbacks = {
-            'htmlTheme': lambda d, k, v: _syncCsoundengineTheme(v),
-            "(show|quant)\..+": lambda d, k, v: _resetImageCacheCallback(),
-            "A4": lambda d, k, v: _propagateA4(d, v),
-            "reprShowFractionsAsFloat": lambda d, k, v: _fractionsAsFloat(v)
 
-        }
-        for regex, func in callbacks.items():
+        for regex, func in self._builtinCallbacks.items():
             self.registerCallback(func, pattern=regex)
 
         if updates:

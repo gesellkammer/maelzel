@@ -299,6 +299,7 @@ class Workspace:
 
         The default record path can be customized by modifying the config
         'rec.path'
+
         """
         userpath = self.config['rec.path']
         if userpath:
@@ -335,8 +336,7 @@ def _init() -> None:
 
 
 def getWorkspace() -> Workspace:
-    """
-    Get the active workspace
+    """Get the active workspace
 
     Example
     ~~~~~~~

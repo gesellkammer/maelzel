@@ -1,14 +1,15 @@
 from __future__ import annotations
-from ._common import UNSET
+
 from maelzel.common import F, asF
 from .mobj import MObj, MContainer
 from .event import MEvent, asEvent, Note, Chord
-from . import _mobjtools
-from . import symbols
-from . import _util
-from . import environment
 from .workspace import getConfig, Workspace
 from .synthevent import PlayArgs, SynthEvent
+from . import symbols
+from . import environment
+from . import _mobjtools
+from . import _util
+from ._common import UNSET
 
 from maelzel import scoring
 from maelzel.colortheory import safeColors
@@ -57,7 +58,7 @@ def stackEvents(events: list[MEvent | Chain],
                 explicitOffsets=True,
                 explicitDurations=True,
                 defaultDur=F(1),
-                offset=F(0)
+                offset=F(0),
                 ) -> F:
     """
     Stack events to the left **in place**, making any unset offset and duration explicit
@@ -141,11 +142,11 @@ def _removeRedundantOffsets(items: list[MEvent | Chain],
     # This is the relative position (independent of the chain's start)
     now = frame
     out = []
-    for item in items:
+    for i, item in enumerate(items):
         itemoffset = item._detachedOffset()
         absoffset = itemoffset + frame if itemoffset is not None else None
         if itemoffset is not None:
-            if absoffset == now:
+            if absoffset == now and (i == 0 or items[i-1].dur is not None):
                 item.offset = None
             elif absoffset < now:
                 raise ValueError(f"Items overlap: {item} (offset={_util.showT(absoffset)}) "
@@ -156,7 +157,7 @@ def _removeRedundantOffsets(items: list[MEvent | Chain],
                 now = absoffset
 
         if isinstance(item, MEvent):
-            dur = dur if (dur := item.dur) is not None else item._resolvedDur
+            dur = item._detachedDur()
             if dur is None:
                 raise ValueError(f"This Chain contains events with unspecified duration: {item}")
             now += dur
@@ -366,13 +367,13 @@ class Chain(MObj, MContainer):
             >>> chain.itemAfter(chain[1])
             Chain([4E, 4F])
         """
-        idx = self.items.index(item)
+        idx = self.items.index(event)
         if idx >= len(self.items) - 1:
             return None
         item = self.items[idx]
         return item if isinstance(item, MEvent) else next(item.recurse())
 
-        def flat(self, forcecopy=False) -> Chain:
+    def flat(self, forcecopy=False) -> Chain:
         """
         A flat version of this Chain
 
@@ -452,11 +453,45 @@ class Chain(MObj, MContainer):
         out.stack(explicitOffsets=True, explicitDurations=True)
         return out
 
-    def _synthEvents(self, playargs: PlayArgs, workspace: Workspace
+    def _resolveGlissandi(self, force=False) -> None:
+        """
+        Set the .glisstarget property with the pitch of the gliss target
+        if a note or chord has an unset gliss target
+
+        Args:
+            force: if True, calculate/update all glissando targets
+
+        """
+        for ev1, ev2 in iterlib.pairwise(self.recurse()):
+            if not ev1.gliss or not isinstance(ev1.gliss, bool):
+                continue
+            if not force and ev1.properties and ev1.properties.get('.glisstarget'):
+                continue
+            if isinstance(ev1, Note):
+                if isinstance(ev2, Note):
+                    ev1.setProperty('.glisstarget', ev2.pitch)
+                elif isinstance(ev2, Chord):
+                    ev1.setProperty('.glisstarget', max(n.pitch for n in ev2.notes))
+            elif isinstance(ev1, Chord):
+                if isinstance(ev2, Note):
+                    ev1.setProperty('.glisstarget', [ev2.pitch] * len(ev1.notes))
+                elif isinstance(ev2, Chord):
+                    ev2pitches = ev2.pitches
+                    if len(ev2pitches) > len(ev1.notes):
+                        ev2pitches = ev2pitches[-len(ev1.notes):]
+                    ev1.setProperty('.glisstarget', ev2pitches)
+
+    def _synthEvents(self,
+                     playargs: PlayArgs,
+                     parentOffset: F,
+                     workspace: Workspace
                      ) -> list[SynthEvent]:
+        if self._modified:
+            self._update()
+        self._resolveGlissandi()
         chain = self.flat(forcecopy=True)
         chain.stack()
-        assert all(item.offset is not None and item.dur is not None for item  in chain)
+        # assert all(item.offset is not None and item.dur is not None for item in chain)
 
         conf = workspace.config
         if self.playargs:
@@ -466,41 +501,58 @@ class Chain(MObj, MContainer):
             for item in chain.items:
                 item.offset += self.offset
 
-        if any(n.isGracenote() for n in chain.items
-               if isinstance(n, (Note, Chord))):
-            _mobjtools.addDurationToGracenotes(chain.items, F(1, 14))
+        if any(n.isGracenote() for n in chain.items):
+            gracenoteDur = F(conf['play.gracenoteDuration'])
+            _mobjtools.addDurationToGracenotes(chain.items, gracenoteDur)
         if conf['play.useDynamics']:
             _mobjtools.fillTempDynamics(chain.items, initialDynamic=conf['play.defaultDynamic'])
 
         synthevents = []
-        groups = groupLinkedEvents(self.items)
-        struct = workspace.scorestruct
-        parentOffset = self.parent.absoluteOffset() if self.parent else F(0)
-        transpose = playargs.get('transpose', 0.)
+        offset = parentOffset + self.resolveOffset()
+        groups = _mobjtools.groupLinkedEvents(chain.items)
         for group in groups:
             if isinstance(group, MEvent):
-                events = group._synthEvents(playargs.copy(), parentOffset=parentOffset,
+                events = group._synthEvents(playargs,   # should we copy playargs??
+                                            parentOffset=offset,
                                             workspace=workspace)
                 synthevents.extend(events)
             elif isinstance(group, list):
-                lines = splitLinkedGroupIntoLines(group)
+                # lines = _mobjtools.splitLinkedGroupIntoLines(group)
+                synthgroups = [event._synthEvents(playargs, parentOffset=offset, workspace=workspace)
+                               for event in group]
+                synthlines = _splitSynthGroupsIntoLines(synthgroups)
+                for synthline in synthlines:
+                    if isinstance(synthline, SynthEvent):
+                        synthevent = synthline
+                    elif isinstance(synthline, list):
+                        if len(synthline) == 1:
+                            synthevent = synthline[0]
+                        else:
+                            synthevent = SynthEvent.mergeTiedEvents(synthline)
+                    else:
+                        raise TypeError(f"Expected a SynthEvent or a list thereof, got {synthline}")
+                    assert isinstance(synthevent, SynthEvent)
+                    synthevents.append(synthevent)
+                    # TODO: fix / add playargs (see below)
                 # A line of notes
-                for line in lines:
-                    bps = [[float(struct.beatToTime(item.offset + parentOffset)),
-                            item.pitch + transpose,
-                            item.resolvedAmp(workspace=workspace)]
-                           for item in line]
-                    lastev = line[-1]
-                    pitch = lastev.gliss or lastev.pitch
-                    assert lastev.end is not None
-                    bps.append([float(struct.beatToTime(lastev.end + parentOffset)),
-                                pitch + transpose,
-                                lastev.resolvedAmp(workspace=workspace)])
-                    for bp in bps:
-                        assert all(isinstance(x, (int, float)) for x in bp), f"bp: {bp}\n{bps=}"
-                    first = line[0]
-                    evplayargs = playargs if not first.playargs else playargs.overwrittenWith(first.playargs)
-                    synthevents.append(SynthEvent.fromPlayArgs(bps=bps, playargs=evplayargs))
+                # for line in lines:
+                #     # bps = [item._synthEvents(playargs=playargs, parentOffset=offset, workspace=workspace)]
+                #     # TODO: use _synthEvents instead of calculating the breakpoints by hand
+                #     bps = [[float(struct.beatToTime(item.offset + offset)),
+                #             item.pitch + transpose,
+                #             item.resolveAmp(workspace=workspace)]
+                #            for item in line]
+                #     lastev = line[-1]
+                #     pitch = lastev.gliss or lastev.pitch
+                #     assert lastev.end is not None
+                #     bps.append([float(struct.beatToTime(lastev.end + offset)),
+                #                 pitch + transpose,
+                #                 lastev.resolveAmp(workspace=workspace)])
+                #     for bp in bps:
+                #         assert all(isinstance(x, (int, float)) for x in bp), f"bp: {bp}\n{bps=}"
+                #     first = line[0]
+                #     evplayargs = playargs if not first.playargs else playargs.overwrittenWith(first.playargs)
+                #     synthevents.append(SynthEvent.fromPlayArgs(bps=bps, playargs=evplayargs))
             else:
                 raise TypeError(f"Did not expect {group}")
         return synthevents
@@ -618,6 +670,9 @@ class Chain(MObj, MContainer):
             return
         self.stack(explicitOffsets=False, explicitDurations=False)
         self._modified = False
+        for item in self.items:
+            if item.properties and '.glisstarget' in item.properties:
+                del item.properties['.glisstarget']
 
     def _changed(self) -> None:
         self._modified = True
@@ -732,8 +787,10 @@ class Chain(MObj, MContainer):
                                 f'{repr(itemoffset).ljust(7)} '
                                 f'{repr(itemdur).ljust(7)}'
                                 f'{item}')
-                else:
+                elif isinstance(item, Chain):
                     rows.extend(item._dumpRows(indents=indents+1, forcetext=forcetext, now=now+itemoffset))
+                else:
+                    raise TypeError(f"Expected an MEvent or a Chain, got {item}")
             return rows
 
     def dump(self, indents=0, forcetext=False) -> None:
@@ -803,7 +860,7 @@ class Chain(MObj, MContainer):
         """
         # This is the relative position (independent of the chain's start)
         self._update()
-        _removeRedundantOffsets(self.items, fillGaps=fillGaps, frame=self.resolveOffset())
+        _removeRedundantOffsets(self.items, fillGaps=fillGaps, frame=F(0))
         self._modified = True
 
     def asVoice(self) -> Voice:
@@ -822,6 +879,7 @@ class Chain(MObj, MContainer):
     def scoringEvents(self,
                       groupid='',
                       config: CoreConfig = None,
+                      parentOffset: F | None = None
                       ) -> list[scoring.Notation]:
         """
         Returns the scoring events corresponding to this object
@@ -829,6 +887,7 @@ class Chain(MObj, MContainer):
         Args:
             groupid: if given, all events are given this groupid
             config: the configuration used (None to use the active config)
+            parentOffset: if given will override the parent's offset
 
         Returns:
             the scoring notations representing this object
@@ -837,20 +896,27 @@ class Chain(MObj, MContainer):
             return []
 
         if config is None:
-            config = getConfig()
+            config = Workspace.active.config
 
+        if parentOffset is None:
+            parentOffset = self.parent.absoluteOffset() if self.parent else F(0)
+
+        offset = parentOffset + self.resolveOffset()
         chain = self.flat()
         notations: list[scoring.Notation] = []
+        if self.label and chain and chain[0].offset > 0:
+            notations.append(scoring.makeRest(duration=chain[0].offset, annotation=self.label))
         for item in chain.items:
-            notations.extend(item.scoringEvents(groupid=groupid, config=config))
+            notations.extend(item.scoringEvents(groupid=groupid, config=config, parentOffset=offset))
         if self.label:
             annot = self._scoringAnnotation()
             annot.instancePriority = -1
             notations[0].addAttachment(annot)
         scoring.stackNotationsInPlace(notations)
-        if self.offset is not None and self.offset > 0 and not config['show.asoluteOffsetForDetachedObjects']:
-            for notation in notations:
-                notation.offset += self.offset
+
+        #if self.offset is not None and self.offset > 0 and not config['show.asoluteOffsetForDetachedObjects']:
+        #    for notation in notations:
+        #        notation.offset += self.offset
 
         for n0, n1 in iterlib.pairwise(notations):
             if n0.tiedNext and not n1.isRest:
@@ -885,14 +951,21 @@ class Chain(MObj, MContainer):
 
         return notations
 
-    def scoringParts(self, config: CoreConfig = None
+    def scoringParts(self,
+                     config: CoreConfig = None
                      ) -> list[scoring.Part]:
-        notations = self.scoringEvents(config=config or getConfig())
+        if config is None:
+            config = Workspace.active.config
+        notations = self.scoringEvents(config=config)
         if not notations:
             return []
         scoring.stackNotationsInPlace(notations)
-        part = scoring.Part(notations, name=self.label)
-        return [part]
+        if config['show.voiceMaxStaves'] == 1:
+            parts = [scoring.Part(notations, name=self.label)]
+        else:
+            groupid = scoring.makeGroupId()
+            parts = scoring.distributeNotationsByClef(notations, groupid=groupid)
+        return parts
 
     def quantizePitch(self, step=0.25):
         if step == 0:
@@ -1140,9 +1213,11 @@ class Voice(Chain):
     def __init__(self,
                  items: list[MEvent | str] = None,
                  label='',
-                 shortname=''):
+                 shortname='',
+                 maxstaves: int = None):
         super().__init__(items=items, label=label, offset=F(0))
         self.shortname = shortname
+        self.maxstaves = maxstaves if maxstaves is not None else Workspace.active.config['show.voiceMaxStaves']
 
     def scoringParts(self, config: CoreConfig = None
                      ) -> list[scoring.Part]:
@@ -1156,5 +1231,86 @@ def _parseMultiLineChain(s: str) -> list[MEvent]:
     s = s.replace(';', '\n')
     events = [asEvent(line.strip()) for line in s.splitlines() if line]
     return events
+
+
+def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
+                               ) -> list[SynthEvent | list[SynthEvent]]:
+    """
+    Split synthevent groups into individual lines
+
+    When resolving the synthevents of a chain, each item in the chain is asked to
+    deliver its synthevents. For an individual item which is neither tied to a
+    following item nor makes a glissando the result are one or multiple synthevents
+    which are independent from any other. Such synthevents are placed in the output
+    list as is, flattened. Any tied events are packed inside a list
+
+    .. code::
+
+        C4 --gliss-- D4 --tied-- D4
+                                 G3
+
+     This results in the list [[C4, D4, D4], G3]
+
+    Args:
+        groups: A list of synthevents. Each synthevent group corresponds
+            to the synthevents returned by a note/chord
+
+    Returns:
+        a list of either a single SynthEvent or a list thereof, in which case
+        these enclosed synthevents build together a line
+
+
+    **Algorithm**
+
+    TODO
+    """
+    def bestContinuation(event: SynthEvent, candidates: list[SynthEvent]
+                         ) -> int | None:
+        assert event.linkednext, f"Event {event} is not tied"
+        pitch = event.bps[-1][1]
+        for i, candidate in enumerate(candidates):
+            candidatepitch = candidate.bps[0][1]
+            if abs(pitch - candidatepitch) < 1e-6:
+                return i
+        return None
+
+    def makeLine(nodeindex: int, groupindex: int, availableNodesPerGroup: list[set[int]]
+                 ) -> list[SynthEvent]:
+        # group = groups[groupindex]
+        # event = group[nodeindex]
+        event = groups[groupindex][nodeindex]
+        out = [event]
+        if not event.linkednext or groupindex == len(groups) - 1:
+            return out
+        availableNodes = availableNodesPerGroup[groupindex + 1]
+        if not availableNodes:
+            return out
+        nextGroup = groups[groupindex + 1]
+        candidates = [nextGroup[index] for index in availableNodes]
+        nextEventIndex = bestContinuation(event, candidates)
+        if nextEventIndex is None:
+            return out
+        availableNodes.discard(nextEventIndex)
+        continuationLine = makeLine(nextEventIndex, groupindex + 1, availableNodesPerGroup=availableNodesPerGroup)
+        out.extend(continuationLine)
+        return out
+
+    out: list[SynthEvent | list[SynthEvent]] = []
+    availableNodesPerGroup: list[set[int]] = [set(range(len(group))) for group in groups]
+    for groupindex in range(len(groups)):
+        for nodeindex in availableNodesPerGroup[groupindex]:
+            line = makeLine(nodeindex, groupindex=groupindex, availableNodesPerGroup=availableNodesPerGroup)
+            assert isinstance(line, list) and len(line) >= 1, f"{nodeindex=}, event={groups[groupindex][nodeindex]}"
+            if len(line) == 1:
+                out.append(line[0])
+            else:
+                out.append(line)
+
+    # last group
+    lastGroupIndexes = availableNodesPerGroup[-1]
+    if lastGroupIndexes:
+        lastGroup = groups[-1]
+        out.extend(lastGroup[idx] for idx in lastGroupIndexes)
+    return out
 
 

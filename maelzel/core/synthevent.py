@@ -1,24 +1,24 @@
 from __future__ import annotations
-from dataclasses import dataclass
-import dataclasses as _dataclasses
 
 import emlib.mathlib
 import emlib.misc
+import pitchtools as pt
 
-from .workspace import getConfig
 from ._common import logger
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Any, Callable, Optional, Iterable
+    from typing import Any, Callable, Iterable, Sequence
     import csoundengine.instr
     from .config import CoreConfig
     from ._typedefs import *
+    import matplotlib.pyplot as plt
 
 
 __all__ = (
     'PlayArgs',
     'SynthEvent',
-    'cropEvents'
+    'cropEvents',
+    'plotEvents'
 )
 
 
@@ -254,7 +254,7 @@ class SynthEvent:
     """
     __slots__ = ("bps", "delay", "chan", "fadein", "fadeout", "gain",
                  "instr", "pitchinterpol", "fadeShape", "args",
-                 "priority", "position", "_namedArgsMethod", "tiednext",
+                 "priority", "position", "_namedArgsMethod", "linkednext",
                  "numchans", "whenfinished", "properties", 'sustain')
 
     pitchinterpolToInt = {
@@ -285,9 +285,9 @@ class SynthEvent:
                  priority: int = 1,
                  position: float = -1,
                  numchans: int = 2,
-                 tiednext=False,
+                 linkednext=False,
                  whenfinished: Callable = None,
-                 properties: Optional[dict[str, Any]] = None,
+                 properties: dict[str, Any] | None = None,
                  sustain: float = 0.,
                  **kws):
         """
@@ -306,7 +306,7 @@ class SynthEvent:
             args: named parameters
             priority: schedule the corresponding instr at this priority
             numchans: the number of channels this event outputs
-            tiednext: a hint to merge multiple events into longer lines.
+            linkednext: a hint to merge multiple events into longer lines.
             kws: ignored at the moment
         """
         if len(bps[0]) < 2:
@@ -314,13 +314,14 @@ class SynthEvent:
                              f"but got {bps}")
 
         bpslen = len(bps[0])
-        if any (len(bp) != bpslen for bp in bps):
+        if any(len(bp) != bpslen for bp in bps):
             raise ValueError("Not all breakpoints have the same length")
 
         if len(bps[0]) < 3:
             raise ValueError("A breakpoint needs to have at least (time, pitch, amp)")
 
-        assert isinstance(delay, (int, float)) and delay >= 0
+        delay = float(delay)
+        # assert isinstance(delay, (int, float)) and delay >= 0, f"Expected int|float >= 0, got {delay} ({type(delay)})"
 
         if isinstance(fade, tuple):
             fadein, fadeout = fade
@@ -355,18 +356,30 @@ class SynthEvent:
         """Panning position (between 0-1)"""
         self.args = args
         """Any parameters passed to the instrument"""
-        self.tiednext = tiednext
-        """Is this event tied?"""
+        self.linkednext = linkednext
+        """Is this event linked to the next? 
+        A linked synthevent is a tied note or a note with a glissando followed by 
+        some continuation. In any case, the last breakpoint of this synthevent and the 
+        first breakpoint of the following event should be equal for a two events to 
+        be linked. NB: since we are dealing with floats, code should always check that
+        the numbers are near instead of using ==
+        """
         self.numchans = numchans
         """The number of signals produced by the event"""
         self.whenfinished = whenfinished
         """A function to call when this event has finished"""
+
         self.properties = properties
         """User defined properties for an event"""
         self.sustain = sustain
         """Sustain time after the actual duration"""
         self._namedArgsMethod = 'pargs'
         self._consolidateDelay()
+
+    @property
+    def end(self) -> float:
+        """Absolute end time of this event, in seconds"""
+        return self.delay + self.bps[-1][0]
 
     @property
     def dur(self) -> float:
@@ -396,32 +409,14 @@ class SynthEvent:
                           priority=self.priority,
                           position=self.position,
                           numchans=self.numchans,
-                          tiednext=self.tiednext,
+                          linkednext=self.linkednext,
                           whenfinished=self.whenfinished,
                           properties=self.properties.copy() if self.properties else None)
 
     @property
-    def start(self) -> float:
-        """time of first breakpoint
-
-        This should be normally 0 since we consolidate the delay and start time
-        """
-        return self.bps[0][0]
-
-    @property
-    def end(self) -> float:
-        """The last time of the breakpoints (does not take delay into account)"""
-        return self.bps[-1][0]
-
-    @property
-    def endtime(self) -> float:
-        """The time this event ends (delay + duration)"""
-        return self.delay + self.dur
-
-    @property
     def fade(self) -> tuple[float, float]:
         """A tuple (fadein, fadeout)"""
-        return (self.fadein, self.fadeout)
+        return self.fadein, self.fadeout
 
     @fade.setter
     def fade(self, value: tuple[float, float]):
@@ -431,7 +426,8 @@ class SynthEvent:
     def fromPlayArgs(cls,
                      bps: list[breakpoint_t],
                      playargs: PlayArgs,
-                     properties: Optional[dict[str, Any]] = None,
+                     properties: dict[str, Any] | None = None,
+                     linkednext=False,
                      **kws
                      ) -> SynthEvent:
         """
@@ -440,18 +436,21 @@ class SynthEvent:
         Args:
             bps: the breakpoints
             playargs: playargs
+            properties: any properties passed to the constructor
+            linkednext: if True, mark this SynthEvent as linked to the next
             kws: any argument passed to SynthEvent's constructor
 
         Returns:
             a new SynthEvent
         """
-        d = SynthEvent(bps=bps,
-                       properties=properties,
-                       **playargs.args)
+        args = playargs.args
         if kws:
-            for k, v in kws.items():
-                setattr(d, k, v)
-        return d
+            args = args.copy()
+            args.update(kws)
+        return SynthEvent(bps=bps,
+                          properties=properties,
+                          linkednext=linkednext,
+                          **args)
 
     def _consolidateDelay(self) -> None:
         delay0 = self.bps[0][0]
@@ -473,7 +472,7 @@ class SynthEvent:
         """A clone of this event, shifted in time by the given offset"""
         return self.clone(delay=self.delay+offset)
 
-    def cropped(self, start:float, end:float) -> SynthEvent:
+    def cropped(self, start: float, end: float) -> SynthEvent:
         """
         Return a cropped version of this SynthEvent
         """
@@ -512,6 +511,8 @@ class SynthEvent:
         info = [f"delay={float(self.delay):.3g}, dur={self.dur:.3g}, "
                 f"gain={self.gain:.4g}, chan={self.chan}"
                 f", fade=({self.fadein}, {self.fadeout}), instr={self.instr}"]
+        if self.linkednext:
+            info.append(f'tiednext=True')
         if self.args:
             info.append(f"args={self.args}")
         infostr = ", ".join(info)
@@ -531,6 +532,10 @@ class SynthEvent:
                 lines.append(f"    {bpline(bp)}")
         lines.append("")
         return "\n".join(lines)
+
+    @staticmethod
+    def mergeTiedEvents(events: Sequence[SynthEvent]) -> SynthEvent:
+        return mergeLinkedEvents(events)
 
     def resolvePfields(self: SynthEvent,
                        instr: csoundengine.instr.Instr
@@ -597,6 +602,77 @@ class SynthEvent:
             logger.error(f"This SynthEvent has too many pfields: {len(pfields)}")
         return pfields
 
+    def plot(self, axes: plt.Axes = None, notenames=False) -> plt.Axes:
+        """
+        Plot the trajectory of this synthevent
+
+        Args:
+            axes: a matplotlib.pyplot.Axes, will be used if given
+            notenames: if True, use notenames for the y axes
+
+        Returns:
+            the axes used
+        """
+        import matplotlib.pyplot as plt
+        import matplotlib
+        ownaxes = axes is None
+        if axes is None:
+            # f: plt.Figure = plt.figure(figsize=figsize)
+            f: plt.Figure = plt.figure()
+            axes: plt.Axes = f.add_subplot(1, 1, 1)
+        times = [bp[0] for bp in self.bps]
+        midis = [bp[1] for bp in self.bps]
+        if notenames:
+            noteformatter = matplotlib.ticker.FuncFormatter(lambda s, y: f'{str(s).ljust(3)}: {pt.m2n(s)}')
+            axes.yaxis.set_major_formatter(noteformatter)
+            axes.tick_params(axis='y', labelsize=8)
+
+        if ownaxes:
+            axes.grid()
+        axes.plot(times, midis)
+        return axes
+
+
+def mergeLinkedEvents(events: Sequence[SynthEvent]) -> SynthEvent:
+    """
+    Merge linked events
+
+    Two events are linked if the first event has its `.linkednext` attribute set as True
+    and the last breakpoint of the first event is equal to the first breakpoint of the
+    second. This is used within a Chain or Voice to join the playback events of
+    multiple chords/notes to single synthevents
+
+    .. note::
+
+        raises ValueError if the events cannot be merged
+
+    Args:
+        events: the events to merge
+
+    Returns:
+        the merged event
+
+    """
+    assert all(ev.linkednext for ev in events[:-1]), f"Cannot merge events not marked as linked: {events}"
+    firstevent = events[0]
+    bps = []
+    eps = 1.e-10
+    lastevent: SynthEvent | None = None
+    for event in events:
+        if lastevent and abs(event.delay - lastevent.end) > eps:
+            raise ValueError(f"Trying to merge {events=}, event {event}'s start ({event.delay}) "
+                             f"is not aligned with {lastevent}'s end ({lastevent.end})")
+        for bp in event.bps[:-1]:
+            bp[0] += event.delay
+            bps.append(bp)
+        lastevent = event
+    lastevent = events[-1]
+    lastbp = lastevent.bps[-1]
+    lastbp[0] += lastevent.delay
+    bps.append(lastbp)
+    mergedevent = firstevent.clone(bps=bps, linkednext=events[-1].linkednext)
+    return mergedevent
+
 
 def cropEvents(events: list[SynthEvent], start: float = None, end: float = None,
                rewind=False
@@ -623,16 +699,56 @@ def cropEvents(events: list[SynthEvent], start: float = None, end: float = None,
     else:
         start = float(start)
     if end is None:
-        end = max(ev.endtime for ev in events)
+        end = max(ev.end for ev in events)
         assert start < end, f"{start=}, {end=}"
     else:
         end = float(end)
     from emlib.mathlib import intersection
     events = [event.cropped(start, end) for event in events
-              if intersection(start, end, event.delay, event.endtime) is not None]
+              if intersection(start, end, event.delay, event.end) is not None]
     if rewind:
         events = [event.timeShifted(-start)
                   for event in events]
     return events
 
 
+def plotEvents(events: list[SynthEvent], axes: plt.Axes = None, notenames=False
+               ) -> plt.Axes:
+    """
+    Plot all given events within the same axes (static method)
+
+    Args:
+        events: the events to plot
+        axes: the axes to use, if given
+        notenames: if True, use notenames for the y axes
+
+    Returns:
+        the axes used
+
+    Example
+    ~~~~~~~
+
+        >>> from maelzel.core import *
+        >>> from maelzel.core import synthevent
+        >>> chord = Chord("4E 4G# 4B", 2, gliss="4Eb 4F 4G")
+        >>> synthevent.plotEvents(chord.events(), notenames=True)
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib
+
+    if axes is None:
+        # f: plt.Figure = plt.figure(figsize=figsize)
+        f: plt.Figure = plt.figure()
+        axes: plt.Axes = f.add_subplot(1, 1, 1)
+
+    for event in events:
+        event.plot(axes=axes, notenames=False)
+
+    axes.grid()
+
+    if notenames:
+        noteformatter = matplotlib.ticker.FuncFormatter(lambda s, y: f'{str(s).ljust(3)}: {pt.m2n(s)}')
+        axes.yaxis.set_major_formatter(noteformatter)
+        axes.tick_params(axis='y', labelsize=8)
+
+    return axes

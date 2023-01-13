@@ -365,26 +365,34 @@ def parseNote(s: str) -> NoteProperties:
     else:
         note, rest = s.split(":", maxsplit=1)
         parts = rest.split(":")
+        try:
+            dur = F(parts[0])
+            parts = parts[1:]
+        except ValueError:
+            pass
         for part in parts:
-            try:
-                dur = F(part)
-            except ValueError:
-                if part in _knownDynamics:
-                    properties['dynamic'] = part
-                elif part in _knownArticulations:
-                    properties['articulation'] = part
-                elif part == 'gliss':
-                    properties['gliss'] = True
-                elif part == 'tied':
-                    properties['tied'] = True
-                elif "=" in part:
-                    key, value = part.split("=", maxsplit=1)
-                    properties[key] = value
+            if part in _knownDynamics:
+                properties['dynamic'] = part
+            elif part in _knownArticulations:
+                properties['articulation'] = part
+            elif part == 'gliss':
+                properties['gliss'] = True
+            elif part == 'tied':
+                properties['tied'] = True
+            elif "=" in part:
+                key, value = part.split("=", maxsplit=1)
+                if key == 'offset':
+                    value = F(value)
+                elif key == 'gliss':
+                    if "," in value:
+                        value = [pt.str2midi(pitch) for pitch in value.split(",")]
+                    else:
+                        value = pt.str2midi(value)
+                properties[key] = value
 
     if "/" in note:
         note, symbolicdur = note.split("/")
         dur = _parseSymbolicDuration(symbolicdur)
-
     notename = [p.strip() for p in note.split(",")] if "," in note else note
     return NoteProperties(notename=notename, dur=dur, properties=properties)
 

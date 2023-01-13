@@ -341,7 +341,9 @@ def _pitchToClef(pitch: float, splitPoint=60) -> str:
         return 'f'
 
 
-def distributeNotationsByClef(notations: list[Notation], filterRests=False,
+def distributeNotationsByClef(notations: list[Notation],
+                              filterRests=False,
+                              groupid: str = ''
                               ) -> list[Part]:
     """
     Split the notations into parts
@@ -354,6 +356,9 @@ def distributeNotationsByClef(notations: list[Notation], filterRests=False,
     Args:
         notations: the events to split
         filterRests: if True, rests are skipped
+        groupid: if True, mark the created Parts with the same groupid. When rendering
+            it is possible to show parts with the same id as belonging to one staff
+            group. To create a groupid see
 
     Returns:
          list of Parts (between 1 and 3, one for each clef)
@@ -390,6 +395,9 @@ def distributeNotationsByClef(notations: list[Notation], filterRests=False,
                     parts[clef].append(partialChord)
 
     parts = [Part(part) for part in parts.values() if part]
+    if groupid:
+        for p in parts:
+            p.groupid = groupid
     return parts
 
 

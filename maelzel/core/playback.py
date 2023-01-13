@@ -12,7 +12,7 @@ import emlib.iterlib
 
 from math import ceil
 
-from ._common import logger
+from ._common import logger, prettylog
 from . import _util
 from . import _dialogs
 from .presetdef import *
@@ -778,15 +778,14 @@ def playEngine(numchannels: int = None,
                latency: float = None,
                ) -> csoundengine.Engine:
     """
-    Get the play engine, start it if needed
+    Get the play engine (start it if needed)
 
-    **maelzel** relies on csound for any sound related task (synthesis, sample
+    **maelzel** used csound for any sound related task (synthesis, sample
     playback, etc). To interact with csound it relies on the
     :class:`Engine <https://csoundengine.readthedocs.io/en/latest/api/csoundengine.engine.Engine.html>` class
 
-    If an Engine is already active, nothing happens,
-    even if the configuration is different. To start the play engine with a different
-    configuration, stop the engine first.
+    If an Engine is already active, that Engine is returned, even if the configuration
+    is different. **To start the play engine with a different configuration, stop the engine first**
 
     Args:
         numchannels: the number of output channels, overrides config 'play.numChannels'
@@ -808,7 +807,15 @@ def playEngine(numchannels: int = None,
     config = getConfig()
     engineName = config['play.engineName']
     if engineName in csoundengine.activeEngines():
-        return csoundengine.getEngine(engineName)
+        engine = csoundengine.getEngine(engineName)
+        if any(_ is not None for _ in (numchannels, backend, outdev, verbose, buffersize, latency)):
+            prettylog('WARNING',
+                      "\nThe sound engine has been started already. Any configuration passed "
+                      f"will have no effect. To modify the configuration of the engine first "
+                      f"stop the engine (`playEngine().stop()`) and call `playEngine(...)` "
+                      f"with the desired configuration. "
+                      f"\nCurrent sound engine: {engine}")
+        return engine
     numchannels = numchannels or config['play.numChannels']
     if backend == "?":
         backends = [b.name for b in csoundengine.csoundlib.audioBackends(available=True)]

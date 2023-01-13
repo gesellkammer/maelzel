@@ -280,10 +280,10 @@ def makeLine(notes: list[Note], workspace: Workspace = None) -> Line:
     assert all(n0.end == n1.offset for n0, n1 in iterlib.pairwise(notes))
     bps = []
     for note in notes:
-        bp = [note.offset, note.pitch, note.resolvedAmp(workspace=workspace)]
+        bp = [note.offset, note.pitch, note.resolveAmp(workspace=workspace)]
         bps.append(bp)
     lastnote = notes[-1]
     if lastnote.dur > 0:
         pitch = lastnote.gliss if lastnote.gliss else lastnote.pitch
-        bps.append([lastnote.end, pitch, lastnote.resolvedAmp()])
+        bps.append([lastnote.end, pitch, lastnote.resolveAmp()])
     return Line(bps, label=notes[0].label)
