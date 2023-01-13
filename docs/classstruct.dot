@@ -1,0 +1,50 @@
+digraph G {
+    fontname = "Bitstream Vera Sans"
+    fontsize = 8
+    rankdir = TB
+
+    bgcolor = "#ffffff00"
+    
+    node [
+        fontname = "Bitstream Vera Sans"
+        fontsize = 8
+        shape = "box"
+     ]
+
+	MObj [ color = "gray" ]
+	MEvent [ color = "gray" ]
+	Note
+	Chord 
+	Clip
+	Chain [ color = "red"]
+	Voice [ color = "#cf5555"]
+	Score [ color = "red" ]
+	
+    edge [ arrowhead = "empty"; style = "solid" ]
+
+
+	MObj -> MEvent
+
+	MEvent -> Note
+	MEvent -> Chord
+	MEvent -> Clip
+	
+	MObj -> Chain 
+	Chain -> Voice
+	MObj -> Score
+
+	Note -> Chain [ style=invis ]
+	
+    edge [
+        dir=none 
+        style=dotted
+        fontname = "Bitstream Vera Sans"
+        fontsize = 7
+        arrowhead = none
+    ]
+
+	Voice -> Score [nojustify=false; label = "A list of Voices", color = "#666666" ]
+	MEvent -> Chain [nojustify=false; label = "A list of MEvents | Chains", color = "#666666"] 
+	Chain -> Chain [nojustify=false, color = "#666666"]
+}
+
