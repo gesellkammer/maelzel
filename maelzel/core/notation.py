@@ -13,6 +13,7 @@ from maelzel.scorestruct import ScoreStruct
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import music21 as m21
+    import scoring.enharmonics
 
 
 def scoringPartToMusic21(part: scoring.Part | list[scoring.Notation],
@@ -74,6 +75,27 @@ def scoringPartsToMusic21(parts: list[scoring.Part | list[scoring.Notation]],
     return m21score
 
 
+def makeEnharmonicOptionsFromConfig(cfg: CoreConfig) -> scoring.enharmonics.EnharmonicOptions:
+    """
+    Generate EnharmonicOptions needed for respelling during quantization
+
+    Respelling happens at the notation level, before quantization
+
+    Args:
+        cfg: the CoreConfig
+
+    Returns:
+        a scoring.enharmonics.EnharmonicOptions
+
+    """
+    from maelzel.scoring.enharmonics import EnharmonicOptions
+    return EnharmonicOptions(
+        debug=cfg['enharmonicSpellingDebug'],
+        horizontalWeight=cfg['enharmonicSpellingHorizontalWeight'],
+        verticalWeight=cfg['enharmonicSpellingVerticalWeight']
+    )
+
+
 def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
                                 ) -> scoring.render.RenderOptions:
     """
@@ -101,6 +123,7 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
         respellPitches=cfg['show.respellPitches'],
         glissLineThickness=cfg['show.glissLineThickness'],
         lilypondPngStaffsizeScale=cfg['show.lilypondPngStaffsizeScale'],
+        lilypondGlissandoMinimumLength=cfg['show.lilypondGlissandoMinimumLength'],
         glissHideTiedNotes=cfg['show.glissHideTiedNotes'],
         renderFormat=cfg['show.format'],
         pngResolution=cfg['show.pngResolution'],
@@ -114,10 +137,19 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
 
 def makeQuantizationProfileFromConfig(cfg: CoreConfig = None
                                       ) -> scoring.quant.QuantizationProfile:
+    """
+    Creates a scoring.quant.QuantizationProfile from a preset
+
+    Args:
+        cfg: a CoreConfig
+
+    Returns:
+        a scoring.quant.QuantizationProfile
+    """
     if cfg is None:
         cfg = getConfig()
-    profile = scoring.quant.makeQuantizationProfile(complexity=cfg['quant.complexity'],
-                                                    nestedTuplets=cfg['quant.nestedTuplets'])
+    profile = scoring.quant.QuantizationProfile.fromPreset(complexity=cfg['quant.complexity'],
+                                                           nestedTuplets=cfg['quant.nestedTuplets'])
     profile.debug = cfg['quant.debug']
     profile.debugMaxDivisions = cfg['quant.debugShowNumRows']
 
@@ -156,17 +188,17 @@ def renderWithActiveWorkspace(parts: list[scoring.Part],
     if not config:
         config = workspace.config
     if not renderoptions:
-        renderoptions = makeRenderOptionsFromConfig(config)
+        renderoptions = config.makeRenderOptions()
     if not quantizationProfile:
-        quantizationProfile = makeQuantizationProfileFromConfig(config)
-    backend = backend or config['show.backend']
+        quantizationProfile = config.makeQuantizationProfile()
+    if backend:
+        renderoptions.backend = backend
     if scorestruct is None:
         scorestruct = workspace.scorestruct
     if config['show.hideRedundantDynamics']:
         for part in parts:
             scoring.core.removeRedundantDynamics(part)
     return scoring.render.quantizeAndRender(parts,
-                                            backend=backend,
                                             struct=scorestruct,
                                             options=renderoptions,
                                             quantizationProfile=quantizationProfile)

@@ -136,19 +136,23 @@ def addDurationToGracenotes(chain: list[MEvent], dur: F) -> None:
                     gracenotes.append(i)
                 else:
                     d[lastRealNote] = [i]
+
     for realnoteIndex, gracenotesIndexes in d.items():
         realnote = chain[realnoteIndex]
-        assert realnote.dur is not None
-        realnote.dur -= dur * len(gracenotesIndexes)
-        assert realnote.dur > 0
+        assert realnote.dur is not None and realnote.dur > 0
+        maxGracenoteDur = realnote.dur / (len(gracenotesIndexes) + 1)
+        gracenoteDur = min(dur, maxGracenoteDur)
+        realnote.dur -= gracenoteDur * len(gracenotesIndexes)
+        assert realnote.dur > 0, f"{realnote=}"
         for i, gracenoteIndex in enumerate(gracenotesIndexes):
             gracenote = chain[gracenoteIndex]
-            gracenote.dur = dur
-            deltapos = (len(gracenotesIndexes) - i) * dur
+            gracenote.dur = gracenoteDur
+            deltapos = (len(gracenotesIndexes) - i) * gracenoteDur
             gracenote.offset -= deltapos
 
 
-def groupLinkedEvents(items: list[MEvent]) -> list[MEvent | list[MEvent]]:
+def groupLinkedEvents(items: list[MEvent],
+                      mingap=F(1, 1000)) -> list[MEvent | list[MEvent]]:
     """
     Group linked events together
 
@@ -168,10 +172,15 @@ def groupLinkedEvents(items: list[MEvent]) -> list[MEvent | list[MEvent]]:
     lastitem = items[0]
     groups = [[lastitem]]
     for item in items[1:]:
-        if lastitem.canBeLinkedTo(item):
-            groups[-1].append(item)
-        else:
+        assert item.offset is not None
+        assert lastitem.end is not None
+        gap = item.offset - lastitem.end
+        if gap < 0:
+            raise ValueError(f"Events supperpose: {lastitem=}, {item=}")
+        elif gap > mingap or not lastitem.canBeLinkedTo(item):
             groups.append([item])
+        else:
+            groups[-1].append(item)
         lastitem = item
     return [group[0] if len(group) == 1 else group for group in groups]
 

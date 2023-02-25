@@ -14,7 +14,8 @@ import numpy as np
 import numpyx
 import sys
 import os
-from typing import TYPE_CHECKING, NamedTuple
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Set
 
@@ -25,7 +26,7 @@ except ImportError:
     raise ImportError("vamp-host not installed. Install it via 'pip install vamphost'")
 
 
-_pyin_threshold_distrs = {
+_pyinThresholdDistrs = {
     "uniform": 0,
     "beta10": 1,
     "beta15": 2,
@@ -38,7 +39,8 @@ _pyin_threshold_distrs = {
 _cache = {}
 
 
-class Note(NamedTuple):
+@dataclass(slots=True)
+class Note:
     timestamp: float
     frequency: float
     duration: float
@@ -77,15 +79,19 @@ def listPlugins(cached=True) -> Set[str]:
 
 
 def pyinAvailable() -> bool:
+    """Is the pyin plugin available?"""
     return 'pyin:pyin' in listPlugins()
 
 
-def pyinNotes(samples: np.ndarray, sr:int,
-              fftSize=2048, stepSize=256,
+def pyinNotes(samples: np.ndarray,
+              sr: int,
+              fftSize=2048,
+              stepSize=256,
               lowAmpSuppression=0.05,
               threshDistr="beta15",
               onsetSensitivity=0.9,
-              pruneThresh=0.1) -> list[Note]:
+              pruneThresh=0.1
+              ) -> list[Note]:
     """
     Notes detection. Uses pyin
 
@@ -116,25 +122,18 @@ def pyinNotes(samples: np.ndarray, sr:int,
     single20       Single value 0.20
     ============   ============
     """
-    if 'pyin:pyin' not in listPlugins():
-        import webbrowser
-        url = "https://code.soundsoftware.ac.uk/projects/pyin"
-        downloadurl = "https://code.soundsoftware.ac.uk/projects/pyin/files"
-        infourl = "https://www.vamp-plugins.org/download.html?platform=linux64&search=key&go=Go#install"
-        webbrowser.open(url)
-        webbrowser.open(infourl)
-        print(f"Vamp plugin 'pyin' not found. Download it from {downloadurl}, "
-              f"install it by following these instructions: {infourl}\n"
-              f"Check the installation by calling list_plugins() and verify that"
-              f"pyin:pyin is listed")
-        raise RuntimeError("Plugin 'pyin' not found")
+    assert 'pyin:pyin' in listPlugins(), \
+        "Vamp plugin 'pyin' not found. Install it from https://code.soundsoftware.ac.uk/projects/pyin"
+
+    if fftSize < 2048:
+        raise ValueError("The pyin vamp plugin does not accept fft size less than 2048")
 
     if len(samples.shape) > 1:
         samples = samples[:,0]
-    threshdistridx = _pyin_threshold_distrs.get(threshDistr)
+    threshdistridx = _pyinThresholdDistrs.get(threshDistr)
     if threshdistridx is None:
         raise ValueError(f"Unknown threshold distribution: {threshDistr}. "
-                         f"It must be one of {', '.join(_pyin_threshold_distrs.keys())}")
+                         f"It must be one of {', '.join(_pyinThresholdDistrs.keys())}")
 
     output_unvoiced = "negative"
     output_unvoiced_idx = {
@@ -158,18 +157,20 @@ def pyinNotes(samples: np.ndarray, sr:int,
                           step_size=stepSize, parameters=params)
     notes = []
     for onset in result['list']:
-        n = Note(onset['timestamp'], onset['values'][0], onset['duration'])
+        n = Note(onset['timestamp'].to_float(), float(onset['values'][0]), onset['duration'].to_float())
         notes.append(n)
     return notes
 
 
-def pyinPitchTrack(samples:np.ndarray, sr:int,
-                   fftSize=2048, overlap=4,
+def pyinPitchTrack(samples: np.ndarray,
+                   sr: int,
+                   fftSize=2048,
+                   overlap=8,
                    lowAmpSuppression=0.1,
                    threshDistr="beta15",
                    onsetSensitivity=0.7,
                    pruneThresh=0.1,
-                   unvoiced_freqs='negative'
+                   outputUnvoiced='negative'
                    ) -> np.ndarray:
     """
     Analyze the samples and extract fundamental and voicedness
@@ -179,18 +180,20 @@ def pyinPitchTrack(samples:np.ndarray, sr:int,
 
     pYIN vamp plugin: https://code.soundsoftware.ac.uk/projects/pyin/files
 
-    **NB**: the returned array is of type float32
-
     Args:
-        samples (np.ndarray): the audio samples (mono). If a multichannel sample
+        samples: the audio samples (mono). If a multichannel sample
             is given, only the first channel will be processed
         sr (int): sample rate
-        fftSize (int): fft size (vamp names this "block_size")
-        overlap (int): determines the hop size (hop size = fft_size / overlap)
-        lowAmpSuppression (float): supress low amplitude pitch estimates
-        threshDistr (str): yin threshold distribution. See table 1 below
-        onsetSensitivity (float): onset sensitivity
-        pruneThresh (float): duration pruning threshold
+        fftSize: fft size (vamp names this "block_size"). Must be >= 2048
+        overlap: determines the hop size (hop size = fftSize // overlap)
+        lowAmpSuppression: supress low amplitude pitch estimates
+        threshDistr: yin threshold distribution. See table 1 below
+        onsetSensitivity: onset sensitivity
+        pruneThresh: duration pruning threshold
+        outputUnvoiced: method used to output frequencies when the sound is
+            unvoiced (there is no reliable pitch detected). Choices are True (sets
+            the frequency to 'nan' for unvoiced breakpoints), False (the breakpoint
+            is skipped) or 'negative' (outputs the detected frequency as negative)
 
 
     Returns:
@@ -237,22 +240,25 @@ def pyinPitchTrack(samples:np.ndarray, sr:int,
     assert 'pyin:pyin' in listPlugins(), \
         "Vamp plugin 'pyin' not found. Install it from https://code.soundsoftware.ac.uk/projects/pyin"
 
+    if fftSize < 2048:
+        raise ValueError("The pyin vamp plugin does not accept fft size less than 2048")
+
     if len(samples.shape) > 1:
         samples = samples[:,0]
-    threshdistridx = _pyin_threshold_distrs.get(threshDistr)
+    threshdistridx = _pyinThresholdDistrs.get(threshDistr)
     if threshdistridx is None:
         raise ValueError(f"Unknown threshold distribution: {threshDistr}. "
-                         f"It must be one of {', '.join(_pyin_threshold_distrs.keys())}")
+                         f"It must be one of {', '.join(_pyinThresholdDistrs.keys())}")
 
-    output_unvoiced = "negative"
     output_unvoiced_idx = {
         False: 0,
         True: 1,
-        "negative": 2
-    }.get(output_unvoiced)
+        "negative": 2,
+        "nan": 2
+    }.get(outputUnvoiced)
 
     if output_unvoiced_idx is None:
-        raise ValueError(f"Unknown output_unvoiced value {output_unvoiced}. "
+        raise ValueError(f"Unknown output_unvoiced value {outputUnvoiced}. "
                          f"possible values: {False, True, 'negative'}")
     step_size = fftSize // overlap
     kwargs = {'step_size': step_size, "block_size": fftSize}
@@ -269,8 +275,11 @@ def pyinPitchTrack(samples:np.ndarray, sr:int,
 
     ff = vamp.frames.frames_from_array(samples, step_size, block_size)
     outputs = ['smoothedpitchtrack', 'voicedprob', 'f0candidates']
-    results = list(vamp.process.process_with_initialised_plugin(
-            ff, sr, step_size, plugin, outputs))
+    results = list(vamp.process.process_with_initialised_plugin(ff,
+                                                                sample_rate=sr,
+                                                                step_size=step_size,
+                                                                plugin=plugin,
+                                                                outputs=outputs))
 
     vps = [d['voicedprob'] for d in results if 'voicedprob' in d]
     pts = [d['smoothedpitchtrack'] for d in results if 'smoothedpitchtrack' in d]
@@ -278,12 +287,17 @@ def pyinPitchTrack(samples:np.ndarray, sr:int,
 
     arr = np.empty((len(vps), 3))
     i = 0
+    NAN = float('nan')
     for vp, pt, f0 in zip(vps, pts, f0s):
         t = vp['timestamp']
         probs = vp['values']
         candidates = f0.get('values', None)
         freq = float(pt['values'][0])
-        if freq < 0 or candidates is None:
+        if freq < 0:
+            if outputUnvoiced == 'nan':
+                freq = NAN
+            prob = 0
+        elif candidates is None:
             prob = 0
         else:
             candidates = candidates.astype('float64')
@@ -297,9 +311,12 @@ def pyinPitchTrack(samples:np.ndarray, sr:int,
     return arr
 
 
-def pyinSmoothPitch(samples: np.ndarray, sr:int,
-                    fftSize=2048, stepSize=256,
-                    lowAmpSuppression=0.1, threshDistr="beta15",
+def pyinSmoothPitch(samples: np.ndarray,
+                    sr:int,
+                    fftSize=2048,
+                    stepSize=256,
+                    lowAmpSuppression=0.1,
+                    threshDistr="beta15",
                     onsetSensitivity=0.7,
                     pruneThresh=0.1) -> tuple[float, np.ndarray]:
     """
@@ -340,12 +357,15 @@ def pyinSmoothPitch(samples: np.ndarray, sr:int,
     assert 'pyin:pyin' in listPlugins(), \
         "Vamp plugin 'pyin' not found. Install it from https://code.soundsoftware.ac.uk/projects/pyin"
 
+    if fftSize < 2048:
+        raise ValueError("The pyin vamp plugin does not accept fft size less than 2048")
+
     if len(samples.shape) > 1:
         samples = samples[:,0]
-    threshdistridx = _pyin_threshold_distrs.get(threshDistr)
+    threshdistridx = _pyinThresholdDistrs.get(threshDistr)
     if threshdistridx is None:
         raise ValueError(f"Unknown threshold distribution: {threshDistr}. "
-                         f"It must be one of {', '.join(_pyin_threshold_distrs.keys())}")
+                         f"It must be one of {', '.join(_pyinThresholdDistrs.keys())}")
 
     output_unvoiced = "negative"
     output_unvoiced_idx = {

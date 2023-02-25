@@ -120,6 +120,7 @@ class Workspace:
         if self.isActive():
             self._activateConfig()
 
+
     def _activateConfig(self) -> None:
         config = self._config
         pitchtools.set_reference_freq(config['A4'])
@@ -325,6 +326,10 @@ class Workspace:
         self.dynamicCurve = DynamicCurve.fromdescr(shape=shape, mindb=mindb, maxdb=maxdb)
         return self
 
+    @staticmethod
+    def rootConfig():
+        return Workspace.root.config
+
 
 def _init() -> None:
     if Workspace._initDone:
@@ -336,7 +341,11 @@ def _init() -> None:
 
 
 def getWorkspace() -> Workspace:
-    """Get the active workspace
+    """
+    Get the active workspace
+
+    The active Workspace can be accessed via ``Workspace.active``. This function
+    is simply a shortcut, placed here for visibility
 
     Example
     ~~~~~~~
@@ -407,14 +416,12 @@ def setTempo(quarterTempo: float, measureIndex=0) -> None:
         2, 5/8, 132
 
     """
-    w = getWorkspace()
-    w.scorestruct.setTempo(quarterTempo, measureIndex=measureIndex)
+    Workspace.active.scorestruct.setTempo(quarterTempo, measureIndex=measureIndex)
 
 
 def getConfig() -> CoreConfig:
     """
     Return the active config.
-
     """
     return Workspace.active.config
 

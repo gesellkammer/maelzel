@@ -13,12 +13,17 @@ from configdict import ConfigDict
 import bpf4
 import matplotlib.ticker
 import matplotlib.pyplot as plt
+from maelzel.snd.numpysnd import numChannels, getChannel
+import logging
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from typing import Union
     import matplotlib.pyplot as plt
+
+
+logger = logging.getLogger('maelzel.snd')
 
 
 # the result of matplotlib.pyplot.colormaps()
@@ -120,25 +125,6 @@ def plotPowerSpectrum(samples: np.ndarray,
     return plt.psd(samples, framesize, samplerate, window=lambda s, w=w: s*w)
 
 
-def _get_channel(samples, channel):
-    if len(samples.shape) == 1:
-        return samples
-    return samples[:, channel]
-
-
-def _get_num_channels(samples):
-    if len(samples.shape) == 1:
-        return 1
-    return samples.shape[1]
-
-
-def _iter_channels(samples, start=0, end=0):
-    numch = _get_num_channels(samples)
-    if end == 0 or end > numch:
-        end = numch
-    for i in range(start, end):
-        yield _get_channel(samples, i)
-
 
 def _envelope(x, hop):
     return numpytools.overlapping_frames(x, hop_length=hop,
@@ -156,7 +142,7 @@ def _frames_to_samples(frames, hop_length=512, n_fft=None):
 
 
 def _plot_matplotlib(samples:np.ndarray, samplerate:int, timelabels:bool) -> plt.Figure:
-    numch = _get_num_channels(samples)
+    numch = numChannels(samples)
     numsamples = samples.shape[0]
     figsize = config['matplotlib.samplesplot.figsize']
     f = plt.figure(figsize=figsize)
@@ -175,7 +161,7 @@ def _plot_matplotlib(samples:np.ndarray, samplerate:int, timelabels:bool) -> plt
             axes = f.add_subplot(numch, 1, i + 1, sharex=ax1, sharey=ax1)
         if i < numch - 1:
             plt.setp(axes.get_xticklabels(), visible=False)
-        chan = _get_channel(samples, i)
+        chan = getChannel(samples, i)
         # axes.plot(times, chan, linewidth=1)
         axes.plot(chan, linewidth=1)
         axes.xaxis.set_major_formatter(formatter)
@@ -339,7 +325,7 @@ def plotWaveform(samples, samplerate, profile:str = None, saveas:str=None,
         raise ValueError("preset should be one of 'low', 'medium' or 'highest'")
 
     targetsr = samplerate
-    numch = _get_num_channels(samples)
+    numch = numChannels(samples)
     numsamples = samples.shape[0]
     if maxpoints < numsamples:
         targetsr = min(maxsr, (samplerate * numsamples) // maxpoints)
@@ -357,7 +343,7 @@ def plotWaveform(samples, samplerate, profile:str = None, saveas:str=None,
         if i < numch - 1:
             plt.setp(axes.get_xticklabels(), visible=False)
 
-        chan = _get_channel(samples, i)
+        chan = getChannel(samples, i)
         env = _envelope(np.ascontiguousarray(chan), hop_length)
         samples_top = env
         samples_bottom = -env
@@ -402,6 +388,10 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:s
     Returns:
         the matplotlib axes object
     """
+    if numChannels(samples) > 1:
+        logger.info(f"plotSpectrogram only works on mono samples. Will use channel 0")
+        samples = getChannel(samples, 0)
+
     from scipy import signal
 
     if axes is None:

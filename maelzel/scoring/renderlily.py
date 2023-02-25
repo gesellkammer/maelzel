@@ -11,9 +11,10 @@ import textwrap
 import shutil
 from dataclasses import dataclass, field
 import pitchtools as pt
+
 import emlib.textlib
 import emlib.filetools
-from emlib.iterlib import first
+from emlib import iterlib
 
 from maelzel.music import lilytools
 from .common import *
@@ -25,6 +26,7 @@ from .render import Renderer, RenderOptions
 from .durationgroup import DurationGroup
 from . import quant, util
 from . import spanner as _spanner
+from . import lilypondsnippets
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -44,9 +46,6 @@ def lyNote(pitch: pitch_t, baseduration: int, dots: int = 0, tied=False, caution
     assert baseduration in {0, 1, 2, 4, 8, 16, 32, 64, 128}, \
         f'baseduration should be a power of two, got {baseduration}'
     pitch = lilytools.makePitch(pitch, parenthesizeAccidental=cautionary)
-    if baseduration == 0:
-        # a grace note
-        return fr"\grace {pitch}8"
     out = fr"{pitch}{baseduration}{'.'*dots}"
     if tied:
         out += '~'
@@ -144,6 +143,40 @@ _lilyBarlines = {
 }
 
 
+def markConsecutiveGracenotes(root: DurationGroup) -> None:
+    """
+    Marks consecutive gracenotes by setting their 'graceGroup' attribute inplace
+
+    This is needed in lilypond since groups of gracenotes need to
+    be placed within curly brackets, like ``\grace { a8 e8 }``,
+    but when we are rendering we are iterating recursively
+    so we need to look ahead before
+
+    Args:
+        root: the root of the tree to work on
+
+    """
+    graceGroupOpen = False
+    for n0, n1 in iterlib.pairwise(root.recurse()):
+        if n0.isRest or not n0.isGracenote:
+            assert not graceGroupOpen
+            continue
+        if n1.isGracenote:
+            if not graceGroupOpen:
+                n0.setProperty(".graceGroup", "start")
+                graceGroupOpen = True
+            else:
+                n0.setProperty(".graceGroup", "continue")
+        else:
+            if graceGroupOpen:
+                n0.setProperty(".graceGroup", "stop")
+                graceGroupOpen = False
+    if graceGroupOpen:
+        lastn = iterlib.first(root.recurse(reverse=True))
+        assert lastn.isGracenote
+        lastn.setProperty('.graceGroup', 'stop')
+
+
 def lyArticulation(articulation: attachment.Articulation) -> str:
     # TODO: render articulation color if present
     return _articulationToLily[articulation.kind]
@@ -158,6 +191,7 @@ def lyNotehead(notehead: definitions.Notehead, insideChord=False) -> str:
     Args:
         notehead: the noteshape. It can end with '?', in which case it will be
             parenthesized
+        insideChord: is this notehead inside a chord?
 
     Returns:
         the lilypond code representing this notehead. This needs to be placed **before**
@@ -189,10 +223,11 @@ def lyNotehead(notehead: definitions.Notehead, insideChord=False) -> str:
         if not lilynotehead:
             raise ValueError(f'Unknown notehead shape: {notehead.shape}, '
                              f'possible noteheads: {_noteheadToLily.keys()}')
-        if insideChord:
-            parts.append(fr"\tweak NoteHead.style #'{lilynotehead}")
-        else:
-            parts.append(fr"\once \override NoteHead.style = #'{lilynotehead}")
+        #if insideChord:
+        #    parts.append(fr"\tweak NoteHead.style #'{lilynotehead}")
+        #else:
+        #    parts.append(fr"\once \override NoteHead.style = #'{lilynotehead}")
+        parts.append(fr"\tweak NoteHead.style #'{lilynotehead}")
 
     if notehead.parenthesis:
         parts.append(r'\parenthesize')
@@ -202,6 +237,7 @@ def lyNotehead(notehead: definitions.Notehead, insideChord=False) -> str:
 
 @dataclass(slots=True)
 class RenderState:
+    measure: quant.QuantizedMeasure | None = None
     insideSlide: bool = False
     glissando: bool = False
     dynamic: str = ''
@@ -265,12 +301,12 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         if n.properties and 'noteheadColor' not in n.properties:
             _(fr'\once \override NoteHead.color = "{n.color}"')
 
-    if n.properties:
-        if color := n.properties.get('noteheadColor'):
-            _(fr'\once \override NoteHead.color = "{color}"')
-        if sizeFactor := n.properties.get('noteheadSizeFactor'):
-            relsize = lilytools.fontSizeFactorToRelativeSize(sizeFactor)
-            _(fr'\once \override NoteHead.font-size =#{relsize}')
+    #if n.properties:
+    #    if color := n.properties.get('noteheadColor'):
+    #        _(fr'\once \override NoteHead.color = "{color}"')
+    #    if sizeFactor := n.properties.get('noteheadSizeFactor'):
+    #        relsize = lilytools.fontSizeFactorToRelativeSize(sizeFactor)
+    #        _(fr'\once \override NoteHead.font-size =#{relsize}')
 
     if n.sizeFactor is not None and n.sizeFactor != 1:
         _(rf"\once \magnifyMusic {n.sizeFactor}")
@@ -278,28 +314,45 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
     if n.stem == 'hidden':
         _(r"\once \override Stem.transparent = ##t")
 
-    graceGroup = n.getProperty("graceGroup")
-    if graceGroup == 'start':
-        _(r"\grace {")
-        state.insideGraceGroup = True
+    if n.isGracenote:
         base, dots = 8, 0
-    elif state.insideGraceGroup:
-        base, dots = 8, 0
-    elif n.isGraceNote:
-        _(r"\grace")
-        base, dots = 8, 0
+        graceGroupProp = n.getProperty('.graceGroup')
+        if graceGroupProp == 'start':
+            assert not state.insideGraceGroup
+            _(r"\grace {")
+            state.insideGraceGroup = True
+        elif graceGroupProp == 'continue' or graceGroupProp == 'stop':
 
-    if harmonic := first(a for a in n.attachments if isinstance(a, attachment.Harmonic)):
-        if harmonic.interval == 0:
-            n = n.copy()
-            n.setNotehead('harmonic')
-        elif len(n.pitches) > 1:
-            logger.error("Cannot set a chord as artificial harmonic yet")
+            assert state.insideGraceGroup, f"{n=}"
+            pass
         else:
-            fund = n.notename(0)
-            touched = pt.transpose(fund, harmonic.interval)
-            n = n.clone(pitches=(fund, touched))
-            n.setNotehead('harmonic', idx=1)
+            assert not graceGroupProp and not state.insideGraceGroup
+            _(r"\grace")
+
+    # Attachments PRE pitch
+    for attach in n.attachments:
+        if isinstance(attach, attachment.Harmonic):
+            if attach.interval == 0:
+                n = n.copy()
+                n.setNotehead('harmonic')
+            elif len(n.pitches) > 1:
+                logger.error("Cannot set a chord as artificial harmonic yet")
+            else:
+                fund = n.notename(0)
+                touched = pt.transpose(fund, attach.interval)
+                n = n.clone(pitches=(fund, touched))
+                n.setNotehead('harmonic', idx=1)
+        elif isinstance(attach, attachment.Breath):
+            if attach.visible:
+                if attach.kind:
+                    logger.info("Setting breath type is not supported yet")
+                    # _(fr"\once \set breathMarkType = #'{attach.kind}")
+                _(r"\breathe")
+            else:
+                _(r'\beamBreak')
+        elif isinstance(attach, attachment.Property) and attach.key == 'hidden':
+            _("\single \hideNotes")
+
 
     if len(n.pitches) == 1:
         # ***************************
@@ -310,7 +363,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         elif n.tiedPrev and n.gliss and state.glissando and options.glissHideTiedNotes:
             _(lyNotehead(definitions.Notehead(hidden=True)))
 
-        fingering = first(a for a in n.attachments if isinstance(a, attachment.Fingering))
+        fingering = next((a for a in n.attachments if isinstance(a, attachment.Fingering)), None)
         accidentalTraits = n.findAttachment(attachment.AccidentalTraits)
         if accidentalTraits:
             assert isinstance(accidentalTraits, attachment.AccidentalTraits)
@@ -350,25 +403,25 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
                 _(lyNotehead(notehead, insideChord=True))
             notename = notenames[i]
             notatedpitch = notatedpitches[i]
-            pitchAccidentalTraits = n.findAttachment(cls=attachment.AccidentalTraits, anchor=i) or chordAccidentalTraits
+            accidentalTraits = n.findAttachment(cls=attachment.AccidentalTraits, anchor=i) or chordAccidentalTraits
 
             if any(otherpitch.diatonic_index == notatedpitch.diatonic_index for otherpitch in notatedpitches
                    if otherpitch is not notatedpitch):
                 forceAccidental = True
             else:
-                forceAccidental = pitchAccidentalTraits.force
+                forceAccidental = accidentalTraits.force
 
-            if pitchAccidentalTraits.hidden:
+            if accidentalTraits.hidden:
                 _("\once\omit Accidental")
-            if pitchAccidentalTraits.color:
-                _(fr'\tweak Accidental.color "{pitchAccidentalTraits.color}"')
+            if accidentalTraits.color:
+                _(fr'\tweak Accidental.color "{accidentalTraits.color}"')
 
             _(lilytools.makePitch(notename,
-                                  parenthesizeAccidental=pitchAccidentalTraits.parenthesis,
+                                  parenthesizeAccidental=accidentalTraits.parenthesis,
                                   forceAccidental=forceAccidental))
         _(f">{base}{'.'*dots}{'~' if n.tiedNext else ''}")
 
-    if trem := first(a for a in n.attachments if isinstance(a, attachment.Tremolo)):
+    if trem := next((a for a in n.attachments if isinstance(a, attachment.Tremolo)), None):
         if trem.tremtype == 'single':
             _(f":{trem.singleDuration()}")
         else:
@@ -398,6 +451,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
             interval = ('+' if attach.interval > 0 else '')+str(round(attach.interval, 1))
             _(fr'\bendAfter #{interval}')
 
+
     if options.showCents:
         # TODO: cents annotation should follow options (below/above, fontsize)
         centsText = util.centsAnnotation(n.pitches, divsPerSemitone=options.divsPerSemitone)
@@ -406,9 +460,12 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
             _(lilytools.makeText(centsText, fontsize=fontrelsize,
                                  fontrelative=True, placement='below'))
 
-    if graceGroup == "stop":
-        _("}")
-        state.insideGraceGroup = False
+    #if n.isGracenote:
+    #    if state.insideGraceGroup and n.getProperty('graceGroup') == 'stop':
+    #        _("}")
+    #        state.insideGraceGroup = False
+    #else:
+    #    state.insideGraceGroup = False
 
     return " ".join(parts)
 
@@ -494,6 +551,9 @@ def _handleSpannerPost(spanner: _spanner.Spanner, state: RenderState) -> str | N
     if isinstance(spanner, _spanner.Slur):
         _("(" if spanner.kind == 'start' else ")")
 
+    elif isinstance(spanner, _spanner.Beam):
+        _("[" if spanner.kind == 'start' else "]")
+
     elif isinstance(spanner, _spanner.Hairpin):
         if spanner.kind == 'start':
             if spanner.niente:
@@ -535,11 +595,12 @@ def _handleSpannerPost(spanner: _spanner.Spanner, state: RenderState) -> str | N
     return ''.join(out)
 
 
+
 def _forceBracketsForNestedTuplets(group: DurationGroup):
     if group.durRatio != (1, 1):
         for item in group.items:
             if isinstance(item, DurationGroup) and item.durRatio != (1, 1):
-                item.setProperty('forceTupletBracket', True)
+                item.setProperty('.forceTupletBracket', True)
     for item in group.items:
         if isinstance(item, DurationGroup):
             _forceBracketsForNestedTuplets(item)
@@ -567,7 +628,6 @@ def renderGroup(group: DurationGroup,
     seq = []
     _ = seq.append
     indentSize = 2
-    # \subdivision 3/2 { b4 b b }
 
     if group.durRatio != (1, 1):
         durRatios.append(F(*group.durRatio))
@@ -576,7 +636,7 @@ def renderGroup(group: DurationGroup,
         _(_spaces[:numIndents*indentSize])
         _(f"\\tuplet {num}/{den} {{\n")
         numIndents += 1
-        if group.getProperty('forceTupletBracket'):
+        if group.getProperty('.forceTupletBracket'):
             _(_spaces[:numIndents * indentSize])
             _(r"\once \override TupletBracket.bracket-visibility = ##t")
 
@@ -605,11 +665,16 @@ def renderGroup(group: DurationGroup,
                     item.dynamic = ''
                 state.dynamic = dynamic
 
+            #if item.offset in beatOffsets[1:-1]:
+            #    _(r'\beamBreak ')
+
             # Slur modifiers (line type, etc) need to go before the start of
             # the first note of the spanner :-(
             # Some spanners have customizations which need to be declared
             # before the note to which the spanner is attached to
             if item.spanners:
+                item.spanners.sort(key=lambda spanner: spanner.priority())
+
                 for spanner in item.spanners:
                     if lilytext := _handleSpannerPre(spanner, state=state):
                         _(lilytext)
@@ -618,22 +683,44 @@ def renderGroup(group: DurationGroup,
 
             if item.spanners:
                 for spanner in item.spanners:
-                    if spanner.kind == 'end' and (
-                            (spanner.endingAtTie == 'last' and item.tiedNext) or
-                            (spanner.endingAtTie == 'first' and item.tiedPrev)
-                    ):
-                        continue
+                    #if spanner.kind == 'end' and (
+                    #        (spanner.endingAtTie == 'last' and item.tiedNext) or
+                    #        (spanner.endingAtTie == 'first' and item.tiedPrev)
+                    #):
+                    #    continue
                     if lilytext := _handleSpannerPost(spanner, state=state):
                         _(lilytext)
 
+            if item.isGracenote:
+                if state.insideGraceGroup and item.getProperty('.graceGroup') == 'stop':
+                    _("}")
+                    state.insideGraceGroup = False
+            else:
+                state.insideGraceGroup = False
+
             _(" ")
 
-            if item.gliss and not state.insideSlide:
-                _(r"\glissando ")
+            # * If the item has a glissando, add \glissando
+            #   * If it is tied, add glissandoSkipOn IF not already on
+            #   * If not tied, turn off skip if already on
+            # * else (no gliss): turn off skip if on
+
+            if item.gliss:
+                if not state.glissando:
+                    _(r"\glissando ")
                 if item.tiedNext:
-                    state.glissando = True
-                    _(r"\glissandoSkipOn ")
-                elif state.glissando and item.tiedPrev and not item.tiedNext:
+                    if not state.glissando:
+                        state.glissando = True
+                        print("skip on", item)
+                        _(r"\glissandoSkipOn ")
+                else:
+                    if state.glissando:
+                        state.glissando = False
+                        print("skip off", item)
+                        _(r"\glissandoSkipOff ")
+            else:
+                if state.glissando:
+                    print("skip off")
                     _(r"\glissandoSkipOff ")
                     state.glissando = False
 
@@ -652,7 +739,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
                         addTempoMarks=True,
                         indents=0,
                         indentSize=2,
-                        numMeasures: int = 0) -> str:
+                        ) -> str:
     """
     Convert a QuantizedPart to lilypond code
 
@@ -667,8 +754,6 @@ def quantizedPartToLily(part: quant.QuantizedPart,
         addTempoMarks: if True, add any tempo marks to this Part
         indents: how many indents to use as a base
         indentSize: the number of spaces to indent per indent number
-        numMeasures: if given, indicates the number of measures in this score. This will
-            be used to render the final barline if this part reaches the end
 
     Returns:
         the rendered lilypond code
@@ -717,6 +802,10 @@ def quantizedPartToLily(part: quant.QuantizedPart,
     state = RenderState()
 
     for i, measure in enumerate(part.measures):
+        # Start measure
+        # Reset state
+        state.measure = measure
+
         line(f"% measure {i+1}", indents)
         indents += 1
         measureDef = scorestruct.getMeasureDef(i)
@@ -769,11 +858,13 @@ def quantizedPartToLily(part: quant.QuantizedPart,
                 _(f"R1*{num}/{den}")
             state.dynamic = ''
         else:
-            for group in measure.groupTree():
-                _forceBracketsForNestedTuplets(group)
-                grouply = renderGroup(group, durRatios=[], options=options,
-                                      numIndents=0, state=state)
-                _(grouply, indents=indents)
+            root = measure.groupTree()
+            _forceBracketsForNestedTuplets(root)
+            root.removeUnnecessaryGracenotes()
+            markConsecutiveGracenotes(root)
+            lilytext = renderGroup(root, durRatios=[], options=options,
+                                   numIndents=0, state=state)
+            _(lilytext, indents=indents)
         indents -= 1
 
         if not measureDef.barline or measureDef.barline == 'single':
@@ -787,278 +878,11 @@ def quantizedPartToLily(part: quant.QuantizedPart,
 
     indents -= 1
 
-    line("}", indents)
+    line(f"}}   % end staff {part.name}", indents)
     return "".join(seq)
 
 
 # --------------------------------------------------------------
-
-_prelude = r"""
-
-glissandoSkipOn = {
-  \override NoteColumn.glissando-skip = ##t
-  % \hide NoteHead
-  \override NoteHead.no-ledgers = ##t
-}
-
-glissandoSkipOff = {
-  \revert NoteColumn.glissando-skip
-  % \undo \hide NoteHead
-  \revert NoteHead.no-ledgers
-}
-
-% adapted from http://lsr.di.unimi.it/LSR/Item?id=784
-
-% Define the alterations as fraction of the equal-tempered whole tone.
-#(define-public SEVEN-E-SHARP  7/8)
-#(define-public SHARP-RAISE    5/8)
-#(define-public SHARP-LOWER    3/8)
-#(define-public NATURAL-RAISE  1/8)
-#(define-public NATURAL-LOWER -1/8)
-#(define-public FLAT-RAISE    -3/8)
-#(define-public FLAT-LOWER    -5/8)
-#(define-public SEVEN-E-FLAT  -7/8)
-
-% Note names can now be defined to represent these pitches in our
-% Lilypond input.  We extend the list of Dutch note names:
-arrowedPitchNames =  #`(
-                   (ceses . ,(ly:make-pitch -1 0 DOUBLE-FLAT))
-                   (cesqq . ,(ly:make-pitch -1 0 SEVEN-E-FLAT))
-                   (ceseh . ,(ly:make-pitch -1 0 THREE-Q-FLAT))
-                   (ceseq . ,(ly:make-pitch -1 0 FLAT-LOWER))
-                   (ces   . ,(ly:make-pitch -1 0 FLAT))
-                   (cesiq . ,(ly:make-pitch -1 0 FLAT-RAISE))
-                   (ceh   . ,(ly:make-pitch -1 0 SEMI-FLAT))
-                   (ceq   . ,(ly:make-pitch -1 0 NATURAL-LOWER))
-                   (c     . ,(ly:make-pitch -1 0 NATURAL))
-                   (ciq   . ,(ly:make-pitch -1 0 NATURAL-RAISE))
-                   (cih   . ,(ly:make-pitch -1 0 SEMI-SHARP))
-                   (ciseq . ,(ly:make-pitch -1 0 SHARP-LOWER))
-                   (cis   . ,(ly:make-pitch -1 0 SHARP))
-                   (cisiq . ,(ly:make-pitch -1 0 SHARP-RAISE))
-                   (cisih . ,(ly:make-pitch -1 0 THREE-Q-SHARP))
-                   (cisqq . ,(ly:make-pitch -1 0 SEVEN-E-SHARP))
-                   (cisis . ,(ly:make-pitch -1 0 DOUBLE-SHARP))
-
-                   (deses . ,(ly:make-pitch -1 1 DOUBLE-FLAT))
-                   (desqq . ,(ly:make-pitch -1 1 SEVEN-E-FLAT))
-                   (deseh . ,(ly:make-pitch -1 1 THREE-Q-FLAT))
-                   (deseq . ,(ly:make-pitch -1 1 FLAT-LOWER))
-                   (des   . ,(ly:make-pitch -1 1 FLAT))
-                   (desiq . ,(ly:make-pitch -1 1 FLAT-RAISE))
-                   (deh   . ,(ly:make-pitch -1 1 SEMI-FLAT))
-                   (deq   . ,(ly:make-pitch -1 1 NATURAL-LOWER))
-                   (d     . ,(ly:make-pitch -1 1 NATURAL))
-                   (diq   . ,(ly:make-pitch -1 1 NATURAL-RAISE))
-                   (dih   . ,(ly:make-pitch -1 1 SEMI-SHARP))
-                   (diseq . ,(ly:make-pitch -1 1 SHARP-LOWER))
-                   (dis   . ,(ly:make-pitch -1 1 SHARP))
-                   (disiq . ,(ly:make-pitch -1 1 SHARP-RAISE))
-                   (disih . ,(ly:make-pitch -1 1 THREE-Q-SHARP))
-                   (disqq . ,(ly:make-pitch -1 1 SEVEN-E-SHARP))
-                   (disis . ,(ly:make-pitch -1 1 DOUBLE-SHARP))
-
-                   (eeses . ,(ly:make-pitch -1 2 DOUBLE-FLAT))
-                   (eesqq . ,(ly:make-pitch -1 2 SEVEN-E-FLAT))
-                   (eeseh . ,(ly:make-pitch -1 2 THREE-Q-FLAT))
-                   (eeseq . ,(ly:make-pitch -1 2 FLAT-LOWER))
-                   (ees   . ,(ly:make-pitch -1 2 FLAT))
-                   (eesiq . ,(ly:make-pitch -1 2 FLAT-RAISE))
-                   (eeh   . ,(ly:make-pitch -1 2 SEMI-FLAT))
-                   (eeq   . ,(ly:make-pitch -1 2 NATURAL-LOWER))
-                   (e     . ,(ly:make-pitch -1 2 NATURAL))
-                   (eiq   . ,(ly:make-pitch -1 2 NATURAL-RAISE))
-                   (eih   . ,(ly:make-pitch -1 2 SEMI-SHARP))
-                   (eiseq . ,(ly:make-pitch -1 2 SHARP-LOWER))
-                   (eis   . ,(ly:make-pitch -1 2 SHARP))
-                   (eisiq . ,(ly:make-pitch -1 2 SHARP-RAISE))
-                   (eisih . ,(ly:make-pitch -1 2 THREE-Q-SHARP))
-                   (eisqq . ,(ly:make-pitch -1 2 SEVEN-E-SHARP))
-                   (eisis . ,(ly:make-pitch -1 2 DOUBLE-SHARP))
-
-                   (feses . ,(ly:make-pitch -1 3 DOUBLE-FLAT))
-                   (fesqq . ,(ly:make-pitch -1 3 SEVEN-E-FLAT))
-                   (feseh . ,(ly:make-pitch -1 3 THREE-Q-FLAT))
-                   (feseq . ,(ly:make-pitch -1 3 FLAT-LOWER))
-                   (fes   . ,(ly:make-pitch -1 3 FLAT))
-                   (fesiq . ,(ly:make-pitch -1 3 FLAT-RAISE))
-                   (feh   . ,(ly:make-pitch -1 3 SEMI-FLAT))
-                   (feq   . ,(ly:make-pitch -1 3 NATURAL-LOWER))
-                   (f     . ,(ly:make-pitch -1 3 NATURAL))
-                   (fiq   . ,(ly:make-pitch -1 3 NATURAL-RAISE))
-                   (fih   . ,(ly:make-pitch -1 3 SEMI-SHARP))
-                   (fiseq . ,(ly:make-pitch -1 3 SHARP-LOWER))
-                   (fis   . ,(ly:make-pitch -1 3 SHARP))
-                   (fisiq . ,(ly:make-pitch -1 3 SHARP-RAISE))
-                   (fisih . ,(ly:make-pitch -1 3 THREE-Q-SHARP))
-                   (fisqq . ,(ly:make-pitch -1 3 SEVEN-E-SHARP))
-                   (fisis . ,(ly:make-pitch -1 3 DOUBLE-SHARP))
-
-                   (geses . ,(ly:make-pitch -1 4 DOUBLE-FLAT))
-                   (gesqq . ,(ly:make-pitch -1 4 SEVEN-E-FLAT))
-                   (geseh . ,(ly:make-pitch -1 4 THREE-Q-FLAT))
-                   (geseq . ,(ly:make-pitch -1 4 FLAT-LOWER))
-                   (ges   . ,(ly:make-pitch -1 4 FLAT))
-                   (gesiq . ,(ly:make-pitch -1 4 FLAT-RAISE))
-                   (geh   . ,(ly:make-pitch -1 4 SEMI-FLAT))
-                   (geq   . ,(ly:make-pitch -1 4 NATURAL-LOWER))
-                   (g     . ,(ly:make-pitch -1 4 NATURAL))
-                   (giq   . ,(ly:make-pitch -1 4 NATURAL-RAISE))
-                   (gih   . ,(ly:make-pitch -1 4 SEMI-SHARP))
-                   (giseq . ,(ly:make-pitch -1 4 SHARP-LOWER))
-                   (gis   . ,(ly:make-pitch -1 4 SHARP))
-                   (gisiq . ,(ly:make-pitch -1 4 SHARP-RAISE))
-                   (gisih . ,(ly:make-pitch -1 4 THREE-Q-SHARP))
-                   (gisqq . ,(ly:make-pitch -1 4 SEVEN-E-SHARP))
-                   (gisis . ,(ly:make-pitch -1 4 DOUBLE-SHARP))
-
-                   (aeses . ,(ly:make-pitch -1 5 DOUBLE-FLAT))
-                   (aesqq . ,(ly:make-pitch -1 5 SEVEN-E-FLAT))
-                   (aeseh . ,(ly:make-pitch -1 5 THREE-Q-FLAT))
-                   (aeseq . ,(ly:make-pitch -1 5 FLAT-LOWER))
-                   (aes   . ,(ly:make-pitch -1 5 FLAT))
-                   (aesiq . ,(ly:make-pitch -1 5 FLAT-RAISE))
-                   (aeh   . ,(ly:make-pitch -1 5 SEMI-FLAT))
-                   (aeq   . ,(ly:make-pitch -1 5 NATURAL-LOWER))
-                   (a     . ,(ly:make-pitch -1 5 NATURAL))
-                   (aiq   . ,(ly:make-pitch -1 5 NATURAL-RAISE))
-                   (aih   . ,(ly:make-pitch -1 5 SEMI-SHARP))
-                   (aiseq . ,(ly:make-pitch -1 5 SHARP-LOWER))
-                   (ais   . ,(ly:make-pitch -1 5 SHARP))
-                   (aisiq . ,(ly:make-pitch -1 5 SHARP-RAISE))
-                   (aisih . ,(ly:make-pitch -1 5 THREE-Q-SHARP))
-                   (aisqq . ,(ly:make-pitch -1 5 SEVEN-E-SHARP))
-                   (aisis . ,(ly:make-pitch -1 5 DOUBLE-SHARP))
-
-                   (beses . ,(ly:make-pitch -1 6 DOUBLE-FLAT))
-                   (besqq . ,(ly:make-pitch -1 6 SEVEN-E-FLAT))
-                   (beseh . ,(ly:make-pitch -1 6 THREE-Q-FLAT))
-                   (beseq . ,(ly:make-pitch -1 6 FLAT-LOWER))
-                   (bes   . ,(ly:make-pitch -1 6 FLAT))
-                   (besiq . ,(ly:make-pitch -1 6 FLAT-RAISE))
-                   (beh   . ,(ly:make-pitch -1 6 SEMI-FLAT))
-                   (beq   . ,(ly:make-pitch -1 6 NATURAL-LOWER))
-                   (b     . ,(ly:make-pitch -1 6 NATURAL))
-                   (biq   . ,(ly:make-pitch -1 6 NATURAL-RAISE))
-                   (bih   . ,(ly:make-pitch -1 6 SEMI-SHARP))
-                   (biseq . ,(ly:make-pitch -1 6 SHARP-LOWER))
-                   (bis   . ,(ly:make-pitch -1 6 SHARP))
-                   (bisiq . ,(ly:make-pitch -1 6 SHARP-RAISE))
-                   (bisih . ,(ly:make-pitch -1 6 THREE-Q-SHARP))
-                   (bisqq . ,(ly:make-pitch -1 6 SEVEN-E-SHARP))
-                   (bisis . ,(ly:make-pitch -1 6 DOUBLE-SHARP)))
-pitchnames = \arrowedPitchNames
-#(ly:parser-set-note-names pitchnames)
-
-% The symbols for each alteration
-arrowGlyphs = #`(
-        ( 1                     . "accidentals.doublesharp")
-        (,SEVEN-E-SHARP         . "accidentals.sharp.slashslashslash.stemstem")
-        ( 3/4                   . "accidentals.sharp.slashslash.stemstemstem")
-        (,SHARP-RAISE           . "accidentals.sharp.arrowup")
-        ( 1/2                   . "accidentals.sharp")
-        (,SHARP-LOWER           . "accidentals.sharp.arrowdown")
-        ( 1/4                   . "accidentals.sharp.slashslash.stem")
-        (,NATURAL-RAISE         . "accidentals.natural.arrowup")
-        ( 0                     . "accidentals.natural")
-        (,NATURAL-LOWER         . "accidentals.natural.arrowdown")
-        (-1/4                   . "accidentals.mirroredflat")
-        (,FLAT-RAISE            . "accidentals.flat.arrowup")
-        (-1/2                   . "accidentals.flat")
-        (,FLAT-LOWER            . "accidentals.flat.arrowdown")
-        (-3/4                   . "accidentals.mirroredflat.flat")
-        (,SEVEN-E-FLAT          . "accidentals.flatflat.slash")
-        (-1                     . "accidentals.flatflat")
-)
-
-% The glyph-list needs to be loaded into each object that
-%  draws accidentals.
-\layout {
-  \context {
-    \Score
-    \override KeySignature.glyph-name-alist = \arrowGlyphs
-    \override Accidental.glyph-name-alist = \arrowGlyphs
-    \override AccidentalCautionary.glyph-name-alist = \arrowGlyphs
-    \override TrillPitchAccidental.glyph-name-alist = \arrowGlyphs
-    \override AmbitusAccidental.glyph-name-alist = \arrowGlyphs
-    
-    % overrides to allow glissandi across systembreaks
-    \override Glissando.breakable = ##t
-    \override Glissando.after-line-breaking = ##t
-    
-    % TODO: This could be configurable...
-    \override TextSpanner.dash-period = #1.5
-    \override TextSpanner.dash-fraction = #0.4
-    
-    % <score-overrides>
-    
-  }
-  \context {
-    \Staff
-    extraNatural = ##f % this is a workaround for bug #1701
-  }
-  
-}
-
-% Needed for brackets
-\layout {
-  \context {
-    \Voice
-    \consists "Horizontal_bracket_engraver"
-    \override HorizontalBracket.direction = #UP
-  }
-}
-"""
-
-_horizontalSpacingNormal = r"""
-\layout {
-  \context {
-    \Score
-    \override SpacingSpanner.base-shortest-duration = #(ly:make-moment 1/8)
-    % \override SpacingSpanner.shortest-duration-space = #2.0
-  }
-}
-"""
-
-_horizontalSpacingMedium = r"""
-\layout {
-  \context {
-    \Score
-    \override SpacingSpanner.base-shortest-duration = #(ly:make-moment 1/16)
-    % \override SpacingSpanner.shortest-duration-space = #2.0
-  }
-}
-"""
-
-_horizontalSpacingLarge = r"""
-\layout {
-  \context {
-    \Score
-    \override SpacingSpanner.base-shortest-duration = #(ly:make-moment 1/32)
-    \override SpacingSpanner.shortest-duration-space = #4.0
-  }
-}  
-"""
-
-_horizontalSpacingXL = r"""
-\layout {
-  \context {
-    \Score
-    \override SpacingSpanner.base-shortest-duration = #(ly:make-moment 1/64)
-    \override SpacingSpanner.shortest-duration-space = #8.0
-  }
-}
-"""
-
-_horizontalSpacingPresets = {
-    'default': None,
-    'small': _horizontalSpacingNormal,
-    'medium': _horizontalSpacingMedium,
-    'large': _horizontalSpacingLarge,
-    'xl': _horizontalSpacingXL,
-    'xlarge': _horizontalSpacingXL
-}
-
 
 def makeScore(score: quant.QuantizedScore,
               options: RenderOptions,
@@ -1125,7 +949,7 @@ def makeScore(score: quant.QuantizedScore,
         _(f"#(set-default-paper-size \"{options.pageSize}\" '{options.orientation})")
         _(lilytools.paperBlock(margin=options.pageMarginMillimeters, unit="mm"))
 
-    _(_prelude)
+    _(lilypondsnippets.prelude)
 
     if options.glissLineThickness != 1:
         _(r"""
@@ -1139,9 +963,12 @@ def makeScore(score: quant.QuantizedScore,
         """ % options.glissLineThickness, dedent=True)
 
     if options.horizontalSpacing:
-        spacingPreset = _horizontalSpacingPresets[options.horizontalSpacing]
+        spacingPreset = lilypondsnippets.horizontalSpacingPresets[options.horizontalSpacing]
         if spacingPreset:
             _(spacingPreset)
+
+    if options.lilypondGlissandoMinimumLength:
+        _(lilypondsnippets.glissandoMinimumLength(options.lilypondGlissandoMinimumLength))
 
     _(r"\score {")
     _(r"<<")
@@ -1160,8 +987,7 @@ def makeScore(score: quant.QuantizedScore,
                                           addTempoMarks=partindex == 0,
                                           options=options,
                                           indents=indents,
-                                          indentSize=indentSize,
-                                          numMeasures=numMeasures)
+                                          indentSize=indentSize)
             _(partstr)
             partindex += 1
         if len(group) > 1:
@@ -1171,9 +997,8 @@ def makeScore(score: quant.QuantizedScore,
     _(r">>")
     if midi:
         _(" "*indentSize + r"\midi { }")
-    _(r"}")  # end \score
+    _(r"}   % end score")  # end \score
     return "\n".join(strs)
-    # return emlib.textlib.joinPreservingIndentation(strs)
 
 
 class LilypondRenderer(Renderer):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from functools import cache
 
 
 stemTypes = {
@@ -25,7 +26,7 @@ articulations = {
     'stopped',
     'openstring',
     'snappizz',
-    'laissezvibrer'
+    'laissezvibrer',
 }
 
 """
@@ -69,6 +70,16 @@ articulationMappings = {
     'l.v.': 'laissezvibrer',
     'lv': 'laissezvibrer'
 }
+
+
+
+@cache
+def allArticulations() -> set[str]:
+    """Returns all possible articulations including alternatives
+
+    This will return both 'accent' and '>', staccato and '.'
+    """
+    return articulations | articulationMappings.keys()
 
 
 def normalizeArticulation(articulation: str, default='') -> str:
@@ -270,6 +281,18 @@ def normalizeBarstyle(barstyle: str, default='') -> str:
     if (_:=barstyleMapping.get(barstyle.lower())) is not None:
         return _
     return default
+
+
+# These are taken mostly from lilypond and are not supported in musicxml as breah-marks
+# https://lilypond.org/doc/v2.23/Documentation/notation/list-of-breath-marks
+breathMarks = {
+    'comma',
+    'varcomma',
+    'upbow',
+    'outsidecomma',
+    'caesura',
+    'chant'
+}
 
 
 @dataclass(unsafe_hash=True, slots=True)

@@ -1,7 +1,11 @@
 from __future__ import annotations
 import numpy as np
-import bpf4 as bpf
+import bpf4
+import bpf4.core
 from emlib.numpytools import chunks
+from .numpysnd import numChannels, rmsbpf
+from pitchtools import db2amp, amp2db
+
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import csoundengine
@@ -40,7 +44,7 @@ def onsetsAubio(samples: np.ndarray,
         silencedb: onsets will only be detected if the amplitude exceeds this value (in dB)
 
     Returns:
-        a list of floats, representing the times of the offsets
+        a list of floats, representing the times of the onsets
     """
     assert isinstance(samples, np.ndarray) and len(samples.shape) == 1
     try:
@@ -58,8 +62,8 @@ def onsetsAubio(samples: np.ndarray,
     return onsets
 
 
-def playTicks(times: list[float],
-              engine: csoundengine.Engine = None,
+def playTicks(times: list[float] | np.ndarray,
+              engine: csoundengine.Engine | str = 'maelzel.snd',
               chan=1,
               midinote: int|float|list[float] = 69,
               amp=0.5,
@@ -81,8 +85,6 @@ def playTicks(times: list[float],
         decay: decay duration
         sustain: sustain amplitude
         release: release dur.
-        latency: extra delay added to each tick, to account for the
-            initial latency product of scheduling a large amount of events
 
     Returns:
         a csoundengine.SynthGroup, which constrols playback.
@@ -98,11 +100,14 @@ def playTicks(times: list[float],
         >>> synthgroup.stop()
     """
     import csoundengine
-    if engine is None:
-        engine = csoundengine.getEngine("maelzel.snd")
-        lockClock = True
-    else:
-        lockClock = False
+    locked = False
+    if isinstance(engine, str):
+        name = engine
+        engine = csoundengine.getEngine(name) #
+        if engine is None:
+            engine = csoundengine.Engine(name)
+            locked = True
+
     session = engine.session()
     instr = session.defInstr("features.tick", body=r"""
         iPitch, iAmp, iAtt, iDec, iSust, iRel, iChan passign 5
@@ -119,22 +124,27 @@ def playTicks(times: list[float],
         midinotes = midinote
 
     synths = []
-    if lockClock:
+    if locked:
         engine.lockClock(True)
 
     for t, m in zip(times, midinotes):
         args[0] = m
         synths.append(session.sched(instr.name, delay=t+extraLatency, dur=dur, args=args))
 
-    if lockClock:
+    if locked:
         engine.lockClock(False)
 
     return csoundengine.synth.SynthGroup(synths)
 
 
-def onsets(samples: np.ndarray, sr: int, winsize=2048,
-           hopsize=512, threshold=0.07, mingap=0.050
-           ) -> tuple[np.ndarray, bpf.BpfInterface]:
+def onsets(samples: np.ndarray,
+           sr: int,
+           winsize=2048,
+           hopsize=512,
+           threshold=0.07,
+           mingap=0.050,
+           backtrack=False,
+           ) -> tuple[np.ndarray, bpf4.core.BpfBase]:
     """
     Detect onsets
 
@@ -156,19 +166,29 @@ def onsets(samples: np.ndarray, sr: int, winsize=2048,
     Returns:
         a tuple (onset array, onset strength bpf)
     """
+    if (n := numChannels(samples)) != 1:
+        raise ValueError(f"Only mono samples are accepted, but got {n} channels of audio")
+
     from maelzel.snd import rosita
     env = rosita.onset_strength(y=samples, sr=sr, hop_length=hopsize, n_fft=winsize)
     envtimes = rosita.times_like(env, sr=sr, hop_length=hopsize, n_fft=winsize)
     onsets = rosita.onset_detect(samples, sr, onset_envelope=env, hop_length=hopsize,
                                  units='time', delta=threshold, mingap=mingap, n_fft=winsize,
-                                 backtrack=False)
-    onsetbpf = bpf.core.Linear(envtimes, env)
+                                 backtrack=backtrack)
+    onsetbpf = bpf4.core.Linear(envtimes, env)
     return onsets, onsetbpf
 
 
-def plotOnsets(samples: np.ndarray, sr: int, onsets: np.ndarray,
-               onsetbpf: bpf.BpfInterface = None, samplesgain=20,
-               envalpha=0.8, samplesalpha=0.4, onsetsalpha=0.3
+def plotOnsets(samples: np.ndarray,
+               sr: int,
+               onsets: np.ndarray,
+               onsetbpf: bpf4.core.BpfBase = None,
+               samplesgain=20,
+               envalpha=0.8,
+               samplesalpha=0.4,
+               onsetsalpha=0.3,
+               figsize: tuple[int, int] | None = None,
+               offsets: np.ndarray | list[float] = None
                ) -> None:
     """
     Plot the results of onsets detection
@@ -182,6 +202,9 @@ def plotOnsets(samples: np.ndarray, sr: int, onsets: np.ndarray,
         envalpha: alpha channel for onsets strength
         samplesalpha: alpha channel for samples plot
         onsetsalpha: alpha channel for onsets
+        offsets: if given, a region is plotted instead of a line. An offset of
+            0 indicates that the given onset has no offset and in this case
+            also a line will be plotted
 
     Example
     -------
@@ -190,21 +213,166 @@ def plotOnsets(samples: np.ndarray, sr: int, onsets: np.ndarray,
         >>> from maelzel.snd import features
         >>> s = Sample("/path/to/sndfile.wav").getChannel(0)
         >>> onsets, onsetstrength = features.onsets(s.samples, s.sr)
-        >>> import csoundengine
-        >>> e = csoundengine.Engine()
-        >>> with e.lockedClock():
-        ...     s.synchedplay(engine=e)
-        ...     playTicks(times=onsets, engine=e)
         >>> features.plotOnsets(samples=s.samples, sr=s.sr, onsets=onsets,
         ...                     onsetbpf=onsetstrength)
 
 
     """
     import matplotlib.pyplot as plt
+    if figsize:
+        plt.figure(figsize=figsize)
     if onsetbpf:
         xs, ys = onsetbpf.points()
         plt.plot(xs, ys, alpha=envalpha)
     duration = len(samples) / sr
     plt.plot(np.arange(0, duration, 1 / sr), samples ** 2 * samplesgain, alpha=samplesalpha, linewidth=1)
-    for onset in onsets:
-        plt.axvline(x=onset, alpha=onsetsalpha, linewidth=1)
+    if offsets:
+        for onset, offset in zip(onsets, offsets):
+            if offset > 0:
+                plt.axvspan(xmin=onset, xmax=offset, alpha=onsetsalpha)
+            else:
+                plt.axvline(x=onset, ymin=0, alpha=onsetsalpha, linewidth=1)
+
+    else:
+        for onset in onsets:
+            plt.axvline(x=onset, alpha=onsetsalpha, linewidth=1, ymin=0)
+
+
+def filterOnsets(onsets: np.ndarray,
+                 samples: np.ndarray,
+                 sr: int,
+                 minampdb = -60,
+                 rmscurve: bpf4.core.BpfInterface = None,
+                 rmsperiod = 0.05,
+                 onsetStrengthBpf: bpf4.core.BpfInterface = None,
+                 ) -> np.ndarray:
+    """
+    Returns a selection array where a value of 1 marks an onset as relevant
+
+    The returned array can be used to remove superfluous onsets, based on
+    secondary features (rms, ...)
+
+    Args:
+        onsets: the list of onsets
+        samples: the samples for which these onsets where calculated
+        sr: the sample rate of the samples
+        minampdb: the min. amptliude of audio in order for an onset to be valid (in dB)
+        rmsperiod: the period in seconds to use for calculating the RMS
+        rmscurve: an rms curve can be given if it has been already calculated.
+        onsetStrengthBpf: the onset strength as returned by the :func:`onsets` function
+
+    Returns:
+        a tuple (onsets selection array, rmscurve), where the array is of the same size
+        of *onsets*. For each onset a value of 1 marks the onset as relevant, a value
+        of 0 indicates that the onset might be superfluous. During the filtering a rms
+        curve is calculated. This curve is returned to the user, who might use it
+        later (for example, to calculate the offsets via :func:`findOffsets`
+
+    Example
+    ~~~~~~~
+
+    TODO!!!
+
+    """
+    sel = np.ones_like(onsets, dtype=bool)
+    if onsetStrengthBpf:
+        before = onsets - 0.05
+        after = onsets + 0.15
+        sel *= onsetStrengthBpf.map(after) - onsetStrengthBpf.map(before) > -0.1
+
+    if rmsperiod > 0:
+        if rmscurve is None:
+            rmscurve = rmsbpf(samples, sr=sr, dt=rmsperiod, overlap=2)
+        rmsdelay = rmsperiod * 2
+        sel *= rmscurve.map(onsets + rmsdelay) > db2amp(minampdb)
+    return sel
+
+
+def findOffsets(onsets: list[float] | np.ndarray,
+                samples: np.ndarray,
+                sr: int,
+                rmscurve: bpf4.core.BpfInterface = None,
+                silenceThreshold=-60,
+                relativeThreshold: int = 90,
+                rmsperiod=0.05,
+                notfoundValue=-1
+                ) -> list[float]:
+    """For each onset find its corresponding offset
+
+    If no offset is found before the next onset, the corresponding offset
+    time is set to be *notfoundValue*
+
+    Args:
+        onsets: the onset times
+        samples: the samples for which the onsets where calculated
+        sr: the samplerate of the samples
+        silenceThreshold: silence threshold in dB
+        relativeThreshold: if the sound falls this amount of dB relative to the onset
+            then it is also considered an offset (possitive dB)
+        notfoundValue: the value used to indicate that no offset was found for a given
+            onset, indicating that a new onset was found before the previous onset
+            was allowed to decay into silence
+
+    Returns:
+        a list of offsets, one for each onset given. An offset is -1 if a new onset
+        is found before any silence is found
+    """
+    if rmscurve is None:
+        rmscurve = rmsbpf(samples, sr, dt=rmsperiod, overlap=2)
+    end = len(samples) / sr
+    offsets = []
+    lasti = len(onsets) - 1
+    for i, onset in enumerate(onsets):
+
+        nextonset = onsets[i + 1] if i < lasti else end
+        rmsfragm = rmscurve[onset:nextonset]
+        threshdb = max(amp2db(rmscurve(onset)) - relativeThreshold, silenceThreshold)
+        thresh = db2amp(threshdb)
+        intersect = rmsfragm - thresh
+        zeros = intersect.zeros(maxzeros=1)
+        if zeros:
+            zero = zeros[0]
+            assert onset < zero < nextonset, f'{onset=}, {zero=}, {nextonset=}'
+        else:
+            zero = notfoundValue
+        offsets.append(zero)
+    for i in range(len(onsets)-1):
+        assert offsets[i] < 0 or (onsets[i] < offsets[i] < onsets[i+1]), f"{i=}, {onsets[i]=}, {offsets[i]=}, {offsets[i+1]=}"
+    return offsets
+
+
+def centroidbpf(samples: np.ndarray,
+                sr: int,
+                fftsize: int = 2048,
+                overlap: int = 4,
+                winsize: int | None = None,
+                window='hann'
+                ) -> bpf4.core.Sampled:
+    """
+    Construct a bpf representing the centroid of the given audio over time
+
+    Args:
+        samples: a 1D numpy array representing a mono audio fragment
+        sr: the sampling rate
+        fftsize: the fft size
+        overlap: amount of overlap
+        winsize: the size of the window. If not given then winsize is assumed to be
+            the same as fftsize. if given it must be <= fftsize
+        window: kind of window
+
+    Returns:
+        a bpf representing the centroid over time
+
+    """
+    from maelzel.snd import rosita
+    if len(samples.shape) > 1:
+        raise ValueError("Only mono samples are supported")
+    winsize = winsize or fftsize
+    hopsize = winsize // overlap
+    frames = rosita.spectral_centroid(y=samples,
+                                      sr=sr,
+                                      n_fft=fftsize,
+                                      hop_length=hopsize,
+                                      win_length=winsize,
+                                      window=window)
+    return bpf4.core.Sampled(frames[0], x0=0, dx=hopsize/sr)

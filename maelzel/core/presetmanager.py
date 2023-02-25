@@ -17,6 +17,7 @@ from . import presetutils
 from . import builtinpresets
 from ._common import logger
 from . import _dialogs
+from . import environment
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .synthevent import SynthEvent
@@ -246,14 +247,14 @@ class PresetManager:
             - :meth:`maelzel.core.MObj.play`
 
         """
-        audiogen = emlib.textlib.stripLines(audiogen)
-        firstLine = audiogen.split('\n', maxsplit=1)[0].strip()
-        if firstLine[0] == '|' and firstLine[-1] == '|':
-            inlineargs = csoundengine.instr.parseInlineArgs(audiogen)
-            if args:
-                args.update(inlineargs.args)
-            else:
-                args = inlineargs.args
+        #audiogen = emlib.textlib.stripLines(audiogen)
+        #firstLine = audiogen.split('\n', maxsplit=1)[0].strip()
+        #if firstLine[0] == '|' and firstLine[-1] == '|':
+        #    inlineargs = csoundengine.instr.parseInlineArgs(audiogen)
+        #    if args:
+        #        args.update(inlineargs.args)
+        #    else:
+        #        args = inlineargs.args
         presetdef = PresetDef(name=name,
                               audiogen=audiogen,
                               init=init,
@@ -354,7 +355,7 @@ class PresetManager:
             sf2path = _dialogs.selectFileForOpen('soundfontLastDirectory',
                                                  filter="*.sf2", prompt="Select Soundfont",
                                                  ifcancel="No soundfont selected, aborting")
-        cfg = getConfig()
+        cfg = Workspace.active.config
         if interpolation is None:
             interpolation = cfg['play.soundfontInterpolation']
         assert interpolation in ('linear', 'cubic')
@@ -426,7 +427,7 @@ class PresetManager:
         elif name == "?":
             name = _dialogs.selectFromList(list(self.presetdefs.keys()),
                                            title="Select Preset",
-                                           default=getConfig()['play.instr'])
+                                           default=Workspace.active.config['play.instr'])
         preset = self.presetdefs.get(name)
         if not preset:
             raise KeyError(f"Preset {name} not known. Available presets: {self.presetdefs.keys()}")
@@ -507,7 +508,7 @@ class PresetManager:
 
         if showGeneratedCode:
             full = True
-        if not emlib.misc.inside_jupyter():
+        if not environment.insideJupyter:
             for preset in matchingPresets:
                 print("")
                 if not showGeneratedCode:
@@ -632,7 +633,7 @@ class PresetManager:
         numChannels = numChannels or config['rec.numChannels']
         renderer = csoundengine.Renderer(sr=sr, nchnls=numChannels, ksmps=ksmps,
                                          a4=workspace.a4)
-        renderer.addGlobalCode(csoundPrelude)
+        renderer.addGlobalCode(presetManager.csoundPrelude)
 
         # Define all instruments
         for presetdef in self.presetdefs.values():

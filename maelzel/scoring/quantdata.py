@@ -1,4 +1,5 @@
 from . import quantutils
+from functools import cache
 
 # A quantization preset consists of presetname.key, where needed keys are:
 # divisionsByTempo and divisionPenaltyMap
@@ -143,6 +144,40 @@ presets = {
         'rhythmComplexityWeight': 0.1,
         'gridErrorExp': 1,
     },
+    'lowest': {
+        'possibleDivisionsByTempo': {
+            10: [],
+            60: quantutils.allSubdivisions(maxsubdivs=2,
+                                           possiblevals=(1, 2, 3, 4, 5, 6, 8),
+                                           maxdensity=16),
+            80: quantutils.allSubdivisions(maxsubdivs=2,
+                                           possiblevals=(1, 2, 3, 4, 5, 6, 8),
+                                           maxdensity=14),
+            100: quantutils.allSubdivisions(maxsubdivs=1,
+                                            possiblevals=(1, 2, 3, 4, 5, 6, 8, 12),
+                                            maxdensity=12),
+            132: quantutils.allSubdivisions(maxsubdivs=1,
+                                            possiblevals=(1, 2, 3, 4, 6, 8),
+                                            maxdensity=8),
+            180: quantutils.allSubdivisions(maxsubdivs=1,
+                                            possiblevals=(1, 2, 3, 4, 6, 8),
+                                            maxdensity=6),
+            400: quantutils.allSubdivisions(maxsubdivs=1,
+                                            possiblevals=(1, 2, 3, 4),
+                                            maxdensity=4),
+            800: quantutils.allSubdivisions(maxsubdivs=1,
+                                            possiblevals=(1, 2, 4),
+                                            maxdensity=4),
+
+        },
+        'divisionPenaltyMap': defaultDivisionPenaltyMap,
+        'nestedTuplets': False,
+        'numNestedTupletsPenalty': [0, 0.0, 0.05, 0.4, 0.5, 0.8],
+        'gridErrorWeight': 1.0,
+        'divisionErrorWeight': 0.5,
+        'rhythmComplexityWeight': 0.1,
+        'gridErrorExp': 1,
+    }
 }
 
 
@@ -166,6 +201,14 @@ slotDivisionStrategy = {
     23: (16, 4, 3),
     25: (16, 8, 1)
 }
+
+
+@cache
+def splitIrregularSlots(numslots: int, slotindex: int) -> tuple[int, ...]:
+    slotDivisions = slotDivisionStrategy[numslots]
+    if slotindex % 2 == 1 and slotDivisions[-1] % 2 == 1:
+        slotDivisions = tuple(reversed(slotDivisions))
+    return slotDivisions
 
 
 # these are ratios to convert a duration back to its representation

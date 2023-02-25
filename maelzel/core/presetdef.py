@@ -103,7 +103,7 @@ def parseAudiogen(audiogen: str, check=False) -> ParsedAudiogen:
                           needsRouting=needsRouting,
                           numOutputs=numOuts,
                           inlineArgs=inlineargs.args if inlineargs else None,
-                          audiogen=inlineargs.audiogen if inlineargs else audiogen,
+                          audiogen=inlineargs.body if inlineargs else audiogen,
                           shortdescr=docstring.shortdescr if docstring else '',
                           longdescr=docstring.longdescr if docstring else '',
                           argdocs=docstring.args if docstring else None)
@@ -264,7 +264,7 @@ class PresetDef:
         description: a description of this instr definition
         envelope: If True, apply an envelope as determined by the fadein/fadeout
             play arguments. 
-        routing: if True output code is generated to output the audio
+        routing: if True code is generated to output the audio
             to its corresponding channel. If False the audiogen code should
             be responsible for applying panning and sending the audio to 
             an output channel, bus, etc.
@@ -304,21 +304,49 @@ class PresetDef:
                                epilogue=epilogue)
 
         self.name = name
+        "Name of this preset"
+
         self.init = init
+        "Code run before any instance is created"
+
         self.includes = includes
-        self.parsedAudiogen = parsedAudiogen
+        "Include files needed"
+
+        self.parsedAudiogen: ParsedAudiogen = parsedAudiogen
+        "The parsed audiogen (a ParsedAudiogen instance)"
+
         self.audiogen = parsedAudiogen.audiogen
+        "The audiogen itself"
+
         self.epilogue = epilogue
+        "Code run after any other code"
+
         self.args: dict[str, float] | None = args or parsedAudiogen.inlineArgs
+        "Named args, if present"
+
         self.userDefined = not builtin
+        "Is this PresetDef user defined?"
+
         self.numsignals = numsignals if numsignals is not None else parsedAudiogen.numSignals
+        "Number of audio signals used in the audiogen (aout1, aout2, ...)"
+
         self.description = description
+        "An optional description"
+
         self.numouts = numouts if numouts is not None else parsedAudiogen.numOutputs
+        "Number of outputs"
+
+        self.body = body
+        "The body of the instrument with all generated code"
+
+        self.properties: dict[str, Any] = properties or {}
+        "A dict to place user defined properties"
+
+        self.hasRouting = routing
+        "Does this PresetDef need routing code to be generated (panning, output)"
+
         self._consolidatedInit: str = ''
         self._instr: Optional[csoundengine.instr.Instr] = None
-        self.body = body
-        self.properties: dict[str, Any] = properties or {}
-        self.hasRouting = routing
 
     def __repr__(self):
         lines = []

@@ -53,9 +53,9 @@ def rmsbpf(samples: np.ndarray, sr:int, dt=0.01, overlap=1) -> bpf4.core.Sampled
     """
     s = samples
     period = int(sr * dt + 0.5)
-    dt2 = period / sr
-    hopsamps = period//overlap
-    numperiods = int(len(s) / hopsamps)
+    hopsamps = period // overlap
+    dt2 = hopsamps / sr
+    numperiods = len(s) // hopsamps
     data = np.empty((numperiods,), dtype=float)
     for i in range(numperiods):
         idx0 = i * hopsamps
@@ -333,3 +333,5 @@ def normalizationRatio(samples: np.ndarray, maxdb=0.) -> float:
     peak = np.abs(samples).max()
     ratio = max_peak_possible / peak
     return ratio
+
+

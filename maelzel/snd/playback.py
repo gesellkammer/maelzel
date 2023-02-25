@@ -6,7 +6,7 @@ ENGINENAME = 'maelzel.snd'
 
 
 def getEngine() -> csoundengine.Engine:
-    engine = csoundengine.getEngine('maelzel.snd')
+    engine = csoundengine.getEngine(ENGINENAME)
     if not engine:
-        engine = csoundengine.Engine(name='maelzel.snd')
+        engine = csoundengine.Engine(name=ENGINENAME)
     return engine

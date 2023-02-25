@@ -35,6 +35,14 @@ class Attachment(ReprMixin):
         return self.priority + self.instancePriority
 
 
+class Property(Attachment):
+
+    def __init__(self, key: str, value=True, anchor: int = None):
+        super().__init__(anchor=anchor)
+        self.key = key
+        self.value = value
+
+
 class AccidentalTraits(Attachment):
     _default: AccidentalTraits = None
 
@@ -147,6 +155,20 @@ class Bend(Attachment):
         return hash(('Bend', self.interval))
 
 
+class Breath(Attachment):
+    exclusive = True
+
+    def __init__(self, kind='', visible=True):
+        super().__init__()
+        if kind:
+            assert kind in definitions.breathMarks, f'Kind unknown, supported values are {definitions.breathMarks}'
+        self.kind = kind
+        self.visible = visible
+
+    def __hash__(self):
+        return hash(('Breath', self.kind, self.visible))
+
+
 class Harmonic(Attachment):
     """
     A natural or artificial harmonic
@@ -217,4 +239,5 @@ class Text(Attachment):
 
     def isBold(self):
         return self.fontstyles and 'bold' in self.fontstyles
+
 

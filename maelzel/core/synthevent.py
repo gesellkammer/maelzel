@@ -39,24 +39,51 @@ class PlayArgs:
     :attr:`~maelzel.core.mobj.MObj.playargs`, then this value is used. If that chain is contained within a
     :class:`~maelzel.core.score.Score` and the score itself has the 'instr' key set, then that value is used, etc.
     Fallback defaults are often defined in the :ref:`configuration <config>`
+
+    Keys
+    ~~~~
+
+    * delay: when to schedule this synth. This time is added to the absolute offset of an object
+    * chan: the channel to output to. If the synth is multichannel this is the first of many
+        adjacent channels (TODO: implement channel mappings or similar strategies for spatialization)
+    * gain: an overall gain of the synth
+    * fade: a fade value or a tuple (fadein, fadeout), in seconds
+    * instr: the instrument preset to use
+    * pitchinterpol: interpolation mode for pitch ('linear', 'cos', 'freqlinear', 'freqcos')
+    * fadeshape: shape of the fade curve (TODO)
+    * args: any args passed to the instr preset (a dict {'pname': value}
+    * priority: the priority of this synth. Priorities start with 1, low priorities are evaluated
+        first. An instr with a higher priority is used to receive audio from an instr with
+        a lower priority
+    * position: the horizontal placement in place. 0=left, 1=right. For multichannel (> 2)
+        presets this value is interpreted freely by the instrument, which does its own spatialization
+    * sustain: if positive the last breakpoint is extended by this duration. This is used mainly for
+        sample based instruments (soundfont) to extend the playback. It can be used to implement
+        one-shot sample playback
+    * transpose: add an extra transposition to all breakpoints
+    * linkednext: is this event linked to a next one? This normally depends on the .gliss attribute
+        of a note/chord, but can be used to create a glissando which is only valid for playback
+        and not displayed as notation
     """
     playkeys = {'delay', 'chan', 'gain', 'fade', 'instr', 'pitchinterpol',
-                'fadeshape', 'args', 'priority', 'position', 'sustain', 'transpose'}
+                'fadeshape', 'args', 'priority', 'position', 'sustain', 'transpose',
+                'linkednext'}
+
     """Available keys for playback customization"""
 
-    __slots__ = ('args', )
+    __slots__ = ('db',)
 
-    def __init__(self, d: dict[str, Any] = None):
-        if d is None:
-            d = {}
-        self.args: dict[str, Any] = d
+    def __init__(self, db: dict[str, Any] = None):
+        if db is None:
+            db = {}
+        self.db: dict[str, Any] = db
         """A dictionary holding the arguments explicitely specified"""
 
-        assert not(d.keys() - self.playkeys)
-        assert all(v is not None for v in d.values())
+        assert not(db.keys() - self.playkeys)
+        assert all(v is not None for v in db.values())
 
     def __bool__(self):
-        return bool(self.args)
+        return bool(self.db)
 
     def keys(self) -> set[str]:
         """All possible keys for a PlayArgs instance
@@ -71,28 +98,29 @@ class PlayArgs:
 
         This might contain unset values. For only the actually set
          values, use ``playargs.args.values()``"""
-        args = self.args
+        args = self.db
         return (args.get(k) for k in self.playkeys)
 
     def items(self) -> dict[str, Any]:
         """Like dict.items()"""
-        args = self.args
+        args = self.db
         return {k: args.get(k) for k in self.playkeys}
 
     def get(self, key: str, default=None):
         """Like dict.get()"""
-        assert key in self.playkeys, f"Possible keys are: {self.playkeys}"
-        return self.args.get(key, default)
+        if not key in self.playkeys:
+            raise KeyError(f"Unknown key {key}. Possible keys are: {self.playkeys}")
+        return self.db.get(key, default)
 
     def __getitem__(self, item: str):
-        return self.args[item]
+        return self.db[item]
 
     def __setitem__(self, key: str, value) -> None:
         assert key in self.playkeys, f'PlayArgs: unknown key "{key}", possible keys: {self.playkeys}'
         if value is None:
-            del self.args[key]
+            del self.db[key]
         else:
-            self.args[key] = value
+            self.db[key] = value
 
     def overwriteWith(self, p: PlayArgs) -> None:
         """
@@ -106,18 +134,18 @@ class PlayArgs:
             p: another PlayArgs instance
 
         """
-        self.args.update(p.args)
+        self.db.update(p.db)
 
     def overwrittenWith(self, p: PlayArgs) -> PlayArgs:
         out = self.copy()
-        out.args.update(p.args)
+        out.db.update(p.db)
         return out
 
     def copy(self) -> PlayArgs:
         """
         Returns a copy of self
         """
-        return PlayArgs(self.args.copy())
+        return PlayArgs(self.db.copy())
 
     def clone(self, **kws) -> PlayArgs:
         """
@@ -130,12 +158,12 @@ class PlayArgs:
             the cloned PlayArgs
 
         """
-        outargs = self.args.copy()
+        outargs = self.db.copy()
         outargs.update(kws)
         return PlayArgs(outargs)
 
     def __repr__(self):
-        args = ', '.join(f'{k}={v}' for k, v in self.args.items())
+        args = ', '.join(f'{k}={v}' for k, v in self.db.items())
         return f"PlayArgs({args})"
 
     def asdict(self) -> dict[str, Any]:
@@ -147,7 +175,7 @@ class PlayArgs:
         Returns:
             the set key:value pairs, as dict
         """
-        return self.args
+        return self.db
 
     @staticmethod
     def makeDefault(conf: CoreConfig) -> PlayArgs:
@@ -185,11 +213,11 @@ class PlayArgs:
             a clone of self with unset values set from *other*
 
         """
-        args = self.args.copy()
-        for k, v in other.args.items():
+        db = self.db.copy()
+        for k, v in other.db.items():
             if v is not None:
-                args[k] = args.get(k, v)
-        return PlayArgs(args)
+                db[k] = db.get(k, v)
+        return PlayArgs(db)
 
     def fillWith(self, other: PlayArgs) -> None:
         """
@@ -200,13 +228,13 @@ class PlayArgs:
 
         """
         assert isinstance(other, PlayArgs)
-        args = self.args
-        for k, v in other.args.items():
+        args = self.db
+        for k, v in other.db.items():
             if v is not None:
                 args[k] = args.get(k, v)
 
     def update(self, d: dict[str, Any]) -> None:
-        self.args.update(d)
+        self.db.update(d)
 
     def fillDefaults(self, cfg: CoreConfig) -> None:
         """
@@ -218,7 +246,7 @@ class PlayArgs:
             cfg: a CoreConfig
 
         """
-        args = self.args
+        args = self.db
         args.setdefault('delay', 0.)
         args.setdefault('gain', cfg['play.gain'])
         args.setdefault('instr', cfg['play.instr'])
@@ -230,6 +258,7 @@ class PlayArgs:
         args.setdefault('chan', 1)
         args.setdefault('fadeshape', cfg['play.fadeShape'])
         args.setdefault('transpose', 0)
+        args.setdefault('linkednext', False)
 
 
 def _interpolateBreakpoints(t: float, bp0: list[float], bp1: list[float]
@@ -338,24 +367,34 @@ class SynthEvent:
 
         self.chan = chan
         """output channel"""
+
         self.gain = gain
         """a gain to be applied to this event"""
+
         self.fadein = fadein
         """fade in time"""
+
         self.fadeout = fadeout if dur < 0 else min(fadeout, dur)
         """fade out time"""
+
         self.instr = instr
         """Instrument preset used"""
+
         self.pitchinterpol = pitchinterpol
         """Pitch interpolation"""
+
         self.fadeShape = fadeshape
         """Shape of the fades"""
+
         self.priority = priority
         """Schedule priority (priorities start with 1)"""
+
         self.position = position
         """Panning position (between 0-1)"""
+
         self.args = args
         """Any parameters passed to the instrument"""
+
         self.linkednext = linkednext
         """Is this event linked to the next? 
         A linked synthevent is a tied note or a note with a glissando followed by 
@@ -364,17 +403,31 @@ class SynthEvent:
         be linked. NB: since we are dealing with floats, code should always check that
         the numbers are near instead of using ==
         """
+
         self.numchans = numchans
         """The number of signals produced by the event"""
+
         self.whenfinished = whenfinished
         """A function to call when this event has finished"""
 
         self.properties = properties
         """User defined properties for an event"""
+
         self.sustain = sustain
         """Sustain time after the actual duration"""
+
         self._namedArgsMethod = 'pargs'
         self._consolidateDelay()
+        assert self.dur > 0, f"Duration of a synth event must be possitive: {self}"
+        assert self.bps[0][0] == 0
+
+    def _applySustain(self) -> None:
+        assert not self.linkednext and self.sustain > 0
+        last = self.bps[-1]
+        bp = last.copy()
+        bp[0] = last[0] + self.sustain
+        self.bps.append(bp)
+        assert self.dur < 20
 
     @property
     def end(self) -> float:
@@ -427,7 +480,6 @@ class SynthEvent:
                      bps: list[breakpoint_t],
                      playargs: PlayArgs,
                      properties: dict[str, Any] | None = None,
-                     linkednext=False,
                      **kws
                      ) -> SynthEvent:
         """
@@ -437,19 +489,17 @@ class SynthEvent:
             bps: the breakpoints
             playargs: playargs
             properties: any properties passed to the constructor
-            linkednext: if True, mark this SynthEvent as linked to the next
             kws: any argument passed to SynthEvent's constructor
 
         Returns:
             a new SynthEvent
         """
-        args = playargs.args
+        args = playargs.db
         if kws:
             args = args.copy()
             args.update(kws)
         return SynthEvent(bps=bps,
                           properties=properties,
-                          linkednext=linkednext,
                           **args)
 
     def _consolidateDelay(self) -> None:
@@ -512,7 +562,7 @@ class SynthEvent:
                 f"gain={self.gain:.4g}, chan={self.chan}"
                 f", fade=({self.fadein}, {self.fadeout}), instr={self.instr}"]
         if self.linkednext:
-            info.append(f'tiednext=True')
+            info.append(f'linkednext=True')
         if self.args:
             info.append(f"args={self.args}")
         infostr = ", ".join(info)
@@ -567,6 +617,9 @@ class SynthEvent:
         breakpoint data is appended
 
         """
+        if self.linkednext and self.sustain > 0:
+            self._applySustain()
+
         pitchInterpolMethod = SynthEvent.pitchinterpolToInt[self.pitchinterpol]
         fadeshape = SynthEvent.fadeshapeToInt[self.fadeShape]
         # if no userpargs, bpsoffset is 15
@@ -653,23 +706,36 @@ def mergeLinkedEvents(events: Sequence[SynthEvent]) -> SynthEvent:
         the merged event
 
     """
+    assert len(events) >= 2
     assert all(ev.linkednext for ev in events[:-1]), f"Cannot merge events not marked as linked: {events}"
+    assert all(ev.bps[0][0] == 0 for ev in events)
+    origdur = sum(ev.dur for ev in events)
     firstevent = events[0]
     bps = []
     eps = 1.e-10
-    lastevent: SynthEvent | None = None
+    firstdelay = firstevent.delay
+    now = firstevent.delay
     for event in events:
-        if lastevent and abs(event.delay - lastevent.end) > eps:
-            raise ValueError(f"Trying to merge {events=}, event {event}'s start ({event.delay}) "
-                             f"is not aligned with {lastevent}'s end ({lastevent.end})")
+        if event.delay < now:
+            raise ValueError(f"Trying to merge {events=}\nEvent {event} starts before the end "
+                             f"of last event ({now=})")
+        elif event.delay - now > eps:
+            raise ValueError(f"Trying to merge {events=}\nEvent {event} is not aligned with the "
+                             f"end of last event ({now=}, gap = {event.delay-now})")
+        assert event.bps[0][0] == 0
+        now = event.bps[-1][0] + event.delay
+
         for bp in event.bps[:-1]:
-            bp[0] += event.delay
+            bp = bp.copy()
+            bp[0] += event.delay - firstdelay
             bps.append(bp)
-        lastevent = event
+
+    # Add the last breakpoint of the last event
     lastevent = events[-1]
     lastbp = lastevent.bps[-1]
-    lastbp[0] += lastevent.delay
+    lastbp[0] += lastevent.delay - firstdelay
     bps.append(lastbp)
+
     mergedevent = firstevent.clone(bps=bps, linkednext=events[-1].linkednext)
     return mergedevent
 

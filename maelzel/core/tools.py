@@ -134,8 +134,8 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
         from .presetmanager import presetManager
         presetdef = presetManager.getPreset(playpreset)
         if playargs:
-            if arg := next((arg for arg in playargs if arg not in presetdef.args), None):
-                raise KeyError(f"arg {arg} not known for preset {playpreset}. Possible args: {presetdef.args}")
+            if arg := next((arg for arg in playargs if arg not in presetdef.db), None):
+                raise KeyError(f"arg {arg} not known for preset {playpreset}. Possible args: {presetdef.db}")
         voice.setPlay(instr=playpreset, args=playargs)
     from . import score
     return score.Score([voice], scorestruct=struct)

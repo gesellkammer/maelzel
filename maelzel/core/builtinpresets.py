@@ -5,14 +5,16 @@ builtinPresets = [
         'simplesin',
         'aout1 oscili a(kamp), mtof(lag(kpitch, 0.01))',
         description="simplest sine wave",
-        builtin=True),
+        builtin=True
+    ),
 
     PresetDef(
         'sin',
         "aout1 oscili a(kamp), mtof(lag(kpitch+ktransp, klag))",
         args=dict(ktransp=0, klag=0.1),
         description="transposable sine wave",
-        builtin=True),
+        builtin=True
+    ),
 
     PresetDef(
         'tri',
@@ -31,7 +33,8 @@ builtinPresets = [
         endif
         ''',
         description="transposable triangle wave with optional lowpass-filter",
-        builtin=True),
+        builtin=True
+    ),
 
     PresetDef(
         'saw',
@@ -40,15 +43,16 @@ builtinPresets = [
         ; Transposable saw with optional low-pass filtering
         ;  Args:
         ;    ktransp: transposition interval
-        ;   klag: lag time when modifying pitch
-        ;   kcutoffratio: cutoff frequency of the filter as a factor of the osc frequency
-        ;   kfilterq: filter resonance
+        ;    klag: lag time when modifying pitch
+        ;    kcutoffratio: filter cutoff frequency as factor of the osc frequency
+        ;    kfilterq: filter resonance
         kfreq = mtof:k(lag(kpitch + ktransp, klag))
         asig = vco2(1, kfreq, 0) * a(kamp)
         aout1 = kcutoffratio == 0 ? asig : K35_lpf(asig, kfreq*kcutoffratio, kfilterq)
         ''',
         description="Transposable saw with optional low-pass filtering",
-        builtin=True),
+        builtin=True
+    ),
 
     PresetDef(
         'sqr',
@@ -62,14 +66,16 @@ builtinPresets = [
         aout1 = kcutoff == 0 ? aout1 : moogladder aout1, lag(kcutoff, 0.1), kresonance
         ''',
         description="square wave with optional filtering",
-        builtin=True),
+        builtin=True
+    ),
 
     PresetDef(
         'pulse',
         r"aout1 vco2 kamp, mtof:k(lag:k(kpitch+ktransp, klag), 2, kpwm",
         args=dict(ktransp=0, klag=0.1, kpwm=0.5),
         description="transposable pulse with modulatable pwm",
-        builtin=True),
+        builtin=True
+    ),
 
     PresetDef(
         '_click',
@@ -82,30 +88,63 @@ builtinPresets = [
         aout1 = oscili:a(aclickenv, mtof:k(kpitch+ktransp))
         """,
         description="Default preset used when rendering a click-track",
-        builtin=True),
+        builtin=True
+    ),
+
+    PresetDef(
+        '_clip_diskin',
+        audiogen=r'''
+        |ipath, kspeed=1, iskip=0, iwrap=0, iwinsize=4|
+        ; Builtin-in preset to play a clip using diskin
+        ; Args:
+        ;   ipath: the path to the soundfile, as set via strSet
+        ;   kspeed: the speed of the playback
+        ;   iskip: number of seconds to skip from beginning (assuming kspeed=1)
+        ;   iwrap: if non-zero, locations wrap (results in looping)
+        ;   iwinsize: interpolation size (1=no interpol, 2=linear, 4=cubic, 8=sinc)
+        Spath = strget(ipath)
+        iformat = 0
+        ibufsize = 0   ; 0 sets the buffer to the default of 4096
+        aenv = makePresetEnvelope(ifadein, ifadeout, ifadekind, igain)
+        asig[] diskin2 Spath, kspeed, iskip, iwrap, iformat, iwinsize, ibufsize
+        asig *= aenv
+        inumchannels = filenchnls(Spath)
+        if inumchannels == 1 then
+            a1 = asig[0]
+            ipos = ipos == -1 ? 0 : ipos
+            aout1, aout2 pan2 a1, ipos
+        elseif inumchannels == 2 then
+            aout1, aout2 panstereo asig[0], asig[1], ipos
+        else
+            initerror sprintf("Multichannel samples (> 2, got %d) not supported yet", inumchannels)
+        endif
+        outch ichan, aout1, ichan+1, aout2
+        ''',
+        routing=False,
+        envelope=False
+    ),
 
     PresetDef(
         '_playtable',
         audiogen=r"""
-        |isndtab=0, istart=0, icompensatesr=1, kspeed=1, ixfade=-1|
+        |isndtab=0, istart=0, kspeed=1, ixfade=-1|
         ; Built-in presetdef to playback a table
         ; Args:
         ;   isndtab: table number to play
         ;   istart: skip time
-        ;   icompensatesr: if 1, compensate for diff in sr between soundfile and system
         ;   kspeed: playback speed
         ;   ixfade: crossfade time, if negative no looping
         iloop = ixfade >= 0 ? 1 : 0
         inumouts = ftchnls(isndtab)
         inumsamples = nsamp(isndtab)
         isr = ftsr(isndtab)
+        ionecycle = ksmps/sr
         
         if isr <= 0 then
             initerror sprintf("Could not determine sr of table %d", isndtab)
         endif
         idur = inumsamples / isr
         
-        ispeed = icompensatesr==1 ? isr/sr : 1
         know init istart
         if inumouts == 0 then
             ; not a gen1 table, fail
@@ -113,15 +152,15 @@ builtinPresets = [
         endif
 
         kidx init 0
-        aenv = makePresetEnvelope(ifadein, ifadeout, ifadeshape, igain)
+        aenv = makePresetEnvelope(ifadein, ifadeout, ifadekind, igain)
 
         if inumouts == 1 then
-            a1 flooper2 1, ispeed*kspeed, istart, idur, ixfade, isndtab, istart
+            a1 flooper2 1, kspeed, istart, idur, ixfade, isndtab, istart
             a1 *= aenv
             ipos = ipos == -1 ? 0 : ipos
             aout1, aout2 pan2 a1, ipos
         elseif inumouts == 2 then
-            a1, a2 flooper2 1, ispeed*kspeed, istart, idur, ixfade, isndtab, istart
+            a1, a2 flooper2 1, kspeed, istart, idur, ixfade, isndtab, istart
             ipos = ipos < 0 ? 0.5 : ipos
             aout1, aout2 panstereo a1, a2, ipos
             aout1 *= aenv
@@ -132,14 +171,15 @@ builtinPresets = [
         outch ichan, aout1, ichan+1, aout2
         
         know += ionecycle * kspeed
-        imaxtime = idur - ifade - ionecycle
+        imaxtime = idur - ifadeout - ionecycle
         if iloop == 0 && know >= imaxtime then
             turnoff
         endif   
         """,
         envelope=False,
         routing=False,
-        builtin=True),
+        builtin=True
+    ),
 
     PresetDef(
         '_sing',
@@ -200,7 +240,8 @@ builtinPresets = [
         aformants *= kformantAmps
         aout1 = sumarray(aformants) * 0.1
         """,
-        builtin=True)
+        builtin=True
+    )
 ]
 
 

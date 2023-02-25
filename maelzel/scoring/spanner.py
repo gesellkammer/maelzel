@@ -1,11 +1,14 @@
 from __future__ import annotations
 from . import util
 from . import definitions
+import weakref
 import copy
+from .common import logger
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import TypeVar
+    from maelzel.scoring import Notation
+    from typing import TypeVar, Iterable
     SpannerT = TypeVar('SpannerT', bound='Spanner')
 
 
@@ -26,6 +29,7 @@ class Spanner:
         self.linetype = linetype
         self.placement = placement
         self.color = color
+        assert self.uuid
 
     def name(self) -> str:
         return type(self).__name__
@@ -60,6 +64,7 @@ class Spanner:
             return self
         out = self.copy()
         out.kind = 'end'
+        assert out.uuid == self.uuid
         return out
 
     def lilyStart(self) -> str:
@@ -69,8 +74,36 @@ class Spanner:
         raise NotImplementedError
 
 
+def removeUnmatchedSpanners(notations: Iterable[Notation]) -> int:
+    registry: dict[tuple[str, str], tuple[Spanner, Notation]] = {}
+    count = 0
+    for n in notations:
+        if n.spanners:
+            for spanner in n.spanners:
+                key = (spanner.uuid, spanner.kind)
+                if key in registry:
+
+                    logger.error(f"Duplicate spanner: {spanner} found in {n}, already seen in {registry[key][1]}")
+                registry[key] = (spanner, n)
+
+    for (uuid, kind), (spanner, n) in registry.items():
+        assert kind in ('start', 'end')
+        other = 'start' if kind == 'end' else 'end'
+        partner = registry.get((uuid, other))
+        if not partner:
+            logger.debug(f"Found unmatched spanner: {spanner} ({kind=}) in notation {n}")
+            n.removeSpanner(spanner)
+            count += 1
+    return count
+
 
 class Slur(Spanner):
+    endingAtTie = 'last'
+    basePriority = 1
+
+
+class Beam(Spanner):
+    """A forced beam"""
     endingAtTie = 'last'
     basePriority = 1
 
@@ -159,3 +192,4 @@ class LineSpan(Spanner):
         self.verticalAlign = verticalAlign
         self.starthook = starthook
         self.endhook = endhook
+

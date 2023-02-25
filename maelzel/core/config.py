@@ -133,6 +133,7 @@ will be active only within its context:
     ...     scale.show()
 """
 from __future__ import annotations
+
 from maelzel.core import configdata
 from configdict import ConfigDict
 from maelzel.common import F
@@ -142,7 +143,7 @@ if typing.TYPE_CHECKING:
     from typing import Any
     from maelzel.scoring.render import RenderOptions
     from maelzel.scoring.quant import QuantizationProfile
-
+    import scoring.enharmonics
 
 __all__ = (
     'CoreConfig',
@@ -310,6 +311,10 @@ class CoreConfig(ConfigDict):
         """
         from maelzel.core import notation
         return notation.makeQuantizationProfileFromConfig(self)
+
+    def makeEnharmonicOptions(self) -> scoring.enharmonics.EnharmonicOptions:
+        from maelzel.core import notation
+        return notation.makeEnharmonicOptionsFromConfig(self)
 
     def __enter__(self):
         from . import workspace

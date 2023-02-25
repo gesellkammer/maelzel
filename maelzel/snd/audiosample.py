@@ -57,6 +57,7 @@ Examples
 from __future__ import annotations
 import numpy as np
 import os
+import math
 import tempfile
 import shutil
 import bpf4
@@ -119,9 +120,9 @@ def _normalize_path(path: str) -> str:
     return os.path.abspath(path)
 
 
-def openInEditor(soundfile: str, wait=False, app=None) -> None:
+def _openInEditor(soundfile: str, wait=False, app=None) -> None:
     """
-    Open soundfile in an external sound editing appp
+    Open soundfile in an external app
     
     Args:
         soundfile: the file to open
@@ -190,8 +191,12 @@ class Sample:
 
     _csoundEngine: csoundengine.Engine = None
 
-    def __init__(self, sound: str | Path | np.ndarray, sr: int = None,
-                 start=0., end=0.) -> None:
+    def __init__(self,
+                 sound: str | Path | np.ndarray,
+                 sr: int = 0,
+                 start=0.,
+                 end=0.,
+                 engine: str | csoundengine.Engine | None = None):
         self._csoundTable: tuple[str, int] | None = None
         """Keeps track of any table created in csound for playback"""
 
@@ -210,7 +215,7 @@ class Sample:
             samples, sr = readSoundfile(sound, start=start, end=end)
             self.path = str(sound)
         elif isinstance(sound, np.ndarray):
-            assert sr is not None
+            assert sr
             samples = sound
         else:
             raise TypeError("sound should be a path or an array of samples")
@@ -223,6 +228,15 @@ class Sample:
 
         self.numchannels = _npsnd.numChannels(self.samples)
         """The number of channels of each frame"""
+
+        if not engine:
+            engine = None
+
+        if engine and isinstance(engine, str):
+            engine = csoundengine.getEngine(engine)
+            assert engine is not None
+
+        self.engine: csoundengine.Engine | None = engine
 
     def __del__(self):
         if not self._csoundTable:
@@ -268,7 +282,7 @@ class Sample:
             return Sample._csoundEngine
         else:
             import csoundengine as ce
-            name = 'maelzel.snd.audiosample'
+            name = _config['csoundengine']
             if (engine := ce.getEngine(name)) is not None:
                 Sample._csoundEngine = engine
             else:
@@ -333,9 +347,12 @@ class Sample:
         self._csoundTable = (engine.name, tabnum)
         return tabnum
 
-    def preparePlay(self):
+    def preparePlay(self, engine=None):
         """Send audio data to the audio engine (blocking)"""
-        self._makeCsoundTable(Sample.getEngine())
+        if engine is None:
+            engine = Sample.getEngine()
+        self._makeCsoundTable(engine)
+        engine.session().prepareSched('.playSample')
 
     def play(self,
              loop=False,
@@ -415,7 +432,7 @@ class Sample:
         self._asbpf = bpf4.core.Sampled(self.samples, 1/self.sr)
         return self._asbpf
 
-    def plot(self, profile='auto') -> None:
+    def plot(self, profile='auto') -> list[plt.Axes]:
         """
         plot the sample data
 
@@ -423,7 +440,7 @@ class Sample:
             profile: one of 'low', 'medium', 'high'
         """
         from . import plotting
-        plotting.plotWaveform(self.samples, self.sr, profile=profile)
+        return plotting.plotWaveform(self.samples, self.sr, profile=profile)
 
     def _repr_html_(self) -> str:
         return self.reprHtml()
@@ -593,7 +610,7 @@ class Sample:
         sndfile = tempfile.mktemp(suffix="." + fmt)
         self.write(sndfile)
         logger.debug(f"open_in_editor: opening {sndfile}")
-        openInEditor(sndfile, wait=wait, app=app)
+        _openInEditor(sndfile, wait=wait, app=app)
         if wait:
             return Sample(sndfile)
         return None
@@ -840,6 +857,24 @@ class Sample:
         silence = Sample.createSilent(dur, self.numchannels, self.sr)
         return joinsamples([silence, self])
 
+    def appendSilence(self, dur: float) -> Sample:
+        """
+        Return a new Sample with added silence at the end
+
+        Args:
+            dur: the duration of the added silence
+
+        Returns:
+            a new Sample
+
+        .. seealso:: :meth:`Sample.prependSilence`, :meth:`Sample.join`, :meth:`Sample.append`
+
+        """
+        silence = _silentFrames(numframes=int(self.sr*dur), channels=self.numchannels)
+        samples = np.concatenate([self.samples, silence])
+        return Sample(samples, sr=self.sr)
+
+
     def append(self, *other: Sample) -> Sample:
         """
         Join (concatenate) this Sample with other(s)
@@ -849,6 +884,8 @@ class Sample:
 
         Returns:
             the resulting Sample
+
+        .. seealso:: :meth:`Sample.join`
         """
         samples = [self]
         samples.extend(other)
@@ -1121,7 +1158,8 @@ class Sample:
         else:
             raise ValueError(f"method {method} not known. Possible methods: 'rosita', 'aubio'")
 
-    def fundamentalFreq(self, time: float = None, dur=0.2, fftsize=2048, overlap=4
+    def fundamentalFreq(self, time: float = None, dur=0.2, fftsize=2048, overlap=4,
+                        fallbackfreq=0
                         ) -> float | None:
         """
         Calculate the fundamental freq. at a given time
@@ -1143,9 +1181,9 @@ class Sample:
 
         """
         if time is None:
-            time = self.firstSound()
-            if time is None:
-                return None
+            time, freq = self.firstPitch()
+            return freq if freq else None
+
         from maelzel.snd import vamptools
         import scipy.stats
         samples = self.samples
@@ -1156,8 +1194,13 @@ class Sample:
         samples = samples[startsamp:endsamp]
         dt, freqs = vamptools.pyinSmoothPitch(samples, self.sr, fftSize=fftsize,
                                               stepSize=fftsize//overlap)
-        minfreq = self.sr / fftsize * 2
-        avgfreq = float(scipy.stats.trim_mean(freqs[freqs > minfreq], proportiontocut=0.1))
+        freqs = freqs[~np.isnan(freqs)]
+        if len(freqs) == 0:
+            avgfreq = fallbackfreq
+        else:
+            minfreq = self.sr / fftsize * 2
+            avgfreq = float(scipy.stats.trim_mean(freqs[freqs > minfreq], proportiontocut=0.1))
+        assert not math.isnan(avgfreq)
         return avgfreq
 
     def fundamentalBpf(self, fftsize=2048, overlap=4, method: str = None
@@ -1242,7 +1285,38 @@ class Sample:
                                hop=hop,
                                padwith=(0 if pad else None))
 
-    def firstSound(self, threshold=-120.0, period=0.04, overlap=2, start=0.
+    def firstPitch(self, threshold=-120, minfreq=60, overlap=4) -> tuple[float, float]:
+        """
+        Returns the first (monophonic) pitch found
+
+        Args:
+            threshold: the silence threhsold
+
+        Returns:
+            a tuple (time, freq) of the first pitched sound found.
+            If no pitched sound found, returns (0, 0)
+
+        """
+        firstidx = _npsnd.firstSound(self.samples, threshold=threshold)
+        lastidx = _npsnd.lastSound(self.samples, threshold=threshold)
+        from maelzel.snd import freqestimate
+        chunksize = self.sr // 4
+        for idx in range(firstidx, lastidx, chunksize):
+            fragm = self.samples[idx:idx+chunksize]
+            f0, prob = freqestimate.f0curve(fragm, sr=self.sr, minfreq=minfreq,
+                                            overlap=overlap, unvoicedFreqs='negative')
+            times, freqs = f0.points()
+            mask = freqs > minfreq
+            if not mask.any():
+                continue
+            selfreqs = freqs[mask]
+            seltimes = times[mask]
+            idx = min(len(selfreqs), 3)
+            return  seltimes[idx] + idx / self.sr, selfreqs[idx]
+        return 0, 0
+
+    def firstSound(self, threshold=-120.0, period=0.04, overlap=2, start=0.,
+                   pitched=False
                    ) -> float | None:
         """
         Find the time of the first sound within this sample
@@ -1262,6 +1336,8 @@ class Sample:
                                 periodsamps=int(period * self.sr),
                                 overlap=overlap,
                                 skip=int(start * self.sr))
+        if idx is None:
+            return None
         return idx / self.sr if idx >= 0 else None
 
     def firstSilence(self, threshold=-80, period=0.04, overlap=2,
@@ -1337,6 +1413,22 @@ class Sample:
             4.0
         """
         return mixsamples(samples, offsets=offsets, gains=gains)
+
+    @staticmethod
+    def join(samples: Sequence[Sample]) -> Sample:
+        """
+        Concatenate a sequence of Samples
+
+        Samples should share numchannels. If mismatching samplerates are found,
+        all samples are upsampled to the highest sr
+
+        Args:
+            sampleseq: a seq. of Samples
+
+        Returns:
+            the concatenated samples as one Sample
+        """
+        return joinsamples(samples)
 
 
 def broadcastSamplerate(samples: list[Sample]) -> list[Sample]:
