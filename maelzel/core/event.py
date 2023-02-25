@@ -68,6 +68,10 @@ class MEvent(MObj):
     """
     _acceptsNoteAttachedSymbols = True
 
+    @property
+    def gliss(self):
+        return None
+
     def isRest(self) -> bool:
         return False
 
@@ -144,6 +148,71 @@ class MEvent(MObj):
         for event in events[:-1]:
             event.tied = True
         return events
+
+    def addSpanner(self: MEventT,
+                   spanner: str | _symbols.Spanner,
+                   endobj: MEvent = None
+                   ) -> MEventT:
+        """
+        Adds a spanner symbol to this object
+
+        A spanner is a slur, line or any other symbol attached to two or more
+        objects. A spanner always has a start and an end.
+
+        Args:
+            spanner: a Spanner object or a spanner description (one of 'slur', '<', '>',
+                'trill', 'bracket', etc. - see :func:`maelzel.core.symbols.makeSpanner`
+                When passing a string description, prepend it with '~' to create an end spanner
+            endobj: the object where this spanner ends, if known
+
+        Returns:
+            self (allows to chain calls)
+
+        Example
+        ~~~~~~~
+
+            >>> from maelzel.core import *
+            >>> a = Note("4C")
+            >>> b = Note("4E")
+            >>> c = Note("4G")
+            >>> a.addSpanner('slur', c)
+            >>> chain = Chain([a, b, c])
+
+        .. seealso:: :meth:`Spanner.bind() <maelzel.core.symbols.Spanner.bind>`
+
+        In some cases the end target can be inferred:
+
+            >>> chain = Chain([
+            ... Note("4C", 1, dynamic='p').addSpanner("<"),
+            ... Note("4D", 0.5),
+            ... Note("4E", dynamic='f')   # This ends the hairpin spanner
+            ... ])
+
+        Or it can be set later
+
+            >>> chain = Chain([
+            ... Note("4C", 1).addSpanner("slur"),
+            ... Note("4D", 0.5),
+            ... Note("4E").addSpanner("~slur")   # This ends the last slur spanner
+            ... ])
+
+        """
+        if isinstance(spanner, str):
+            if spanner.startswith('~'):
+                spanner = spanner[1:].lower()
+                kind = 'end'
+            else:
+                kind = 'start'
+            spanner = _symbols.makeSpanner(spanner.lower(), kind=kind)
+        assert isinstance(spanner, _symbols.Spanner)
+
+        if endobj is not None:
+            assert spanner.kind == 'start'
+            spanner.bind(self, endobj)
+        else:
+            self.addSymbol(spanner)
+            spanner.setAnchor(self)
+        return self
 
 
 @functools.total_ordering
@@ -232,7 +301,7 @@ class Note(MEvent):
                     if isinstance(props.notename, list):
                         raise ValueError(f"Can only accept a single pitch, got {props.notename}")
                     pitch = props.notename
-                    if p := props.properties:
+                    if p := props.keywords:
                         offset = offset or p.pop('offset', None)
                         dynamic = dynamic or p.pop('dynamic', None)
                         tied = tied or p.pop('tied', False)
@@ -282,7 +351,6 @@ class Note(MEvent):
 
             assert properties is None or isinstance(properties, dict)
 
-        super().__init__(dur=dur, offset=offset, label=label, properties=properties)
         self.pitch: float = pitch
         "The pitch of this note"
 
@@ -300,6 +368,8 @@ class Note(MEvent):
         "The pitch representation of this Note. Can be different from the sounding pitch"
 
         self.symbols: list[_symbols.Symbol] | None = symbols
+        super().__init__(dur=dur, offset=offset, label=label, properties=properties)
+        assert self.dur is None or self.dur >= 0
 
     @staticmethod
     def makeRest(dur: time_t, offset: time_t = None, label: str = '', dynamic='') -> Note:
@@ -407,7 +477,7 @@ class Note(MEvent):
             if self.tied and self.pitch == other.pitch:
                 return True
         elif isinstance(other, Chord):
-            if self.pitch in other.pitches:
+            if self.tied and self.pitch in other.pitches:
                 return True
         return False
 
@@ -415,7 +485,7 @@ class Note(MEvent):
         return not self.isRest() and self.dur == 0
 
     @property
-    def gliss(self):
+    def gliss(self) -> float | None:
         """the end pitch (as midinote), or None"""
         return self._gliss
 
@@ -757,6 +827,7 @@ class Note(MEvent):
         scorestruct = workspace.scorestruct
         if self.playargs:
             playargs = playargs.overwrittenWith(self.playargs)
+
         if self.amp is not None:
             amp = self.amp
         else:
@@ -778,11 +849,11 @@ class Note(MEvent):
                              f"Object: {self}")
         bps = [[starttime, self.pitch+transp, amp],
                [endtime,   endmidi+transp,    amp]]
-        if sustain:=playargs.get('sustain'):
-            bps.append([endtime + sustain, endmidi+transp, amp])
 
-        linkednext = self.tied or self.gliss is True
-        return [SynthEvent.fromPlayArgs(bps=bps, playargs=playargs, linkednext=linkednext)]
+        event = SynthEvent.fromPlayArgs(bps=bps, playargs=playargs)
+        if self.tied or self.gliss is True:
+            event.linkednext = True
+        return [event]
 
     def resolveGliss(self) -> float:
         """
@@ -1351,11 +1422,10 @@ class Chord(MEvent):
         for note, endpitch, amp in zip(self.notes, endpitches, amps):
             bps = [[startsecs, note.pitch+transpose, amp],
                    [endsecs,   endpitch+transpose,   amp]]
-            if sustain:=playargs.get('sustain'):
-                bps.append([endsecs + sustain, endpitch+transpose, amp])
-            # Find if this specific note is tied
-            linkednext = self.gliss is True or self._isNoteTied(note)
-            synthevents.append(SynthEvent.fromPlayArgs(bps=bps, playargs=playargs, linkednext=linkednext))
+            event = SynthEvent.fromPlayArgs(bps=bps, playargs=playargs)
+            if event.linkednext is None and self.gliss or self._isNoteTied(note):
+                event.linkednext = True
+            synthevents.append(event)
         return synthevents
 
     def _isNoteTied(self, note: Note) -> bool:
@@ -1565,7 +1635,11 @@ def _asChord(obj, amp: float = None, dur: float = None) -> Chord:
     return out if amp is None and dur is None else out.clone(amp=amp, dur=dur)
 
 
-def Gracenote(pitch: pitch_t | list[pitch_t], slash=True) -> Note | Chord:
+def Gracenote(pitch: pitch_t | list[pitch_t],
+              slash=True,
+              offset: time_t | None = None,
+              **kws
+              ) -> Note | Chord:
     """
     Create a gracenote (a note or chord)
 
@@ -1598,7 +1672,7 @@ def Gracenote(pitch: pitch_t | list[pitch_t], slash=True) -> Note | Chord:
         True
 
     """
-    out = asEvent(pitch, dur=0)
+    out = asEvent(pitch, dur=0, offset=offset, **kws)
     assert isinstance(out, (Note, Chord))
     out._markAsGracenote(slash=slash)
     return out
@@ -1639,6 +1713,7 @@ def asEvent(obj, **kws) -> MEvent:
         ‹4C 4E 0.5♩ mf›
 
     """
+    symbols: None | list[tuple[str, str]] = None
     if isinstance(obj, MEvent):
         return obj
     elif isinstance(obj, str):
@@ -1647,22 +1722,27 @@ def asEvent(obj, **kws) -> MEvent:
         elif ":" or "," in obj:
             notedef = _util.parseNote(obj)
             dur = kws.pop('dur', None) or notedef.dur
-            if notedef.properties:
-                kws = misc.dictmerge(notedef.properties, kws)
+            if notedef.keywords:
+                props, symbols = notedef.classifyKeywords()
+                kws = misc.dictmerge(props, kws)
             if isinstance(notedef.notename, list) and len(notedef.notename) > 1:
-                return Chord(notedef.notename, dur=dur, **kws)
+                out = Chord(notedef.notename, dur=dur, **kws)
             else:
-                return Note(notedef.notename, dur=dur, **kws)
+                out = Note(notedef.notename, dur=dur, **kws)
         elif " " in obj:
-            return Chord(obj.split(), **kws)
+            out = Chord(obj.split(), **kws)
         else:
-            return Note(obj, **kws)
+            out = Note(obj, **kws)
     elif isinstance(obj, (list, tuple)):
-        return Chord(obj, **kws)
+        out = Chord(obj, **kws)
     elif isinstance(obj, (int, float)):
-        return Note(obj, **kws)
+        out = Note(obj, **kws)
     else:
         raise TypeError(f"Cannot convert {obj} to a Note or Chord")
+    if symbols:
+        for name, value in symbols:
+            out.addSymbol(name, value)
+    return out
 
 
 def _normalizeChordArpeggio(arpeggio: str | bool | None, chord: Chord, config: CoreConfig

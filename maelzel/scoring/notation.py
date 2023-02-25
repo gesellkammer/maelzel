@@ -14,10 +14,9 @@ from . import spanner as _spanner
 import pitchtools as pt
 import copy
 
-
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import *
+    from typing import Callable
     import maelzel.core
 
 __all__ = (
@@ -66,6 +65,14 @@ class Notation:
         stem: if given, one of
 
     """
+    _privateKeys = {
+        '.snappedGracenote',
+        '.clefHint',
+        '.breakBeam',
+        '.graceGroup',
+        '.forceTupletBracket'
+    }
+
     __slots__ = ("duration",
                  "pitches",
                  "offset",
@@ -84,7 +91,7 @@ class Notation:
                  "sizeFactor",
                  "spanners",
                  "attachments",
-                 "accidentalTraits"
+                 "__weakref__"
                  )
 
     def __init__(self,
@@ -150,6 +157,12 @@ class Notation:
                 if isinstance(n, str):
                     self.fixNotename(n, i)
 
+    def __hash__(self):
+        return id(self)
+
+    def quantizedPitches(self, divs=4) -> list[float]:
+        return [round(p*4)/4 for p in self.pitches]
+
     def getAttachments(self,
                        cls: str | type = '',
                        predicate: Callable = None,
@@ -184,7 +197,7 @@ class Notation:
 
         return attachments
 
-    def findSpanner(self, cls: str | type, kind='') -> Optional[_spanner.Spanner]:
+    def findSpanner(self, cls: str | type, kind='') -> _spanner.Spanner | None:
         if not self.spanners:
             return
         if isinstance(cls, str):
@@ -237,9 +250,10 @@ class Notation:
             self
 
         """
-        if self.attachments is None:
-            self.attachments = []
-        if attachment.exclusive:
+        assert self.attachments is not None
+        # if self.attachments is None:
+        #     self.attachments = []
+        if False and attachment.exclusive:
             cls = type(attachment)
             if any(isinstance(a, cls) for a in self.attachments):
                 self.attachments = [a for a in self.attachments
@@ -252,14 +266,20 @@ class Notation:
     def setNotehead(self,
                     notehead: definitions.Notehead | str,
                     idx: int | None = None,
-                    merge=False) -> None:
+                    merge=False
+                    ) -> None:
         """
         Set a notehead in this notation
 
         Args:
-            notehead: a Notehead
+            notehead: a Notehead or the notehead shape, as string (one of 'normal',
+                'hidden', 'cross', 'harmonic', 'rhombus', 'square', etc.). See
+                maelzel.scoring.definitions.noteheadShapes for a complete list
             idx: the index, corresponding to the pitch at the same index,
                 or None to set all noteheads
+            merge: if True and there is already a Notehead set for the given index,
+                the new properties are merged with the properties of the already
+                existing notehead
 
         """
         if self.noteheads is None:
@@ -306,7 +326,7 @@ class Notation:
         assert isinstance(articulation, Articulation)
         return self.addAttachment(articulation)
 
-    def removeAttachments(self, predicate: Callable[Attachment, bool]) -> None:
+    def removeAttachments(self, predicate: Callable[[Attachment], bool]) -> None:
         """
         Remove attachments where predicate is  True
 
@@ -326,6 +346,10 @@ class Notation:
             predicate = lambda a, cls: isinstance(a, cls)
         self.removeAttachments(predicate=predicate)
 
+    def hasSpanner(self, uuid: str) -> bool:
+        """Returns true if a spanner with the given uuid is found"""
+        return any(s.uuid == uuid for s in self.spanners) if self.spanners else False
+
     def addSpanner(self, spanner: _spanner.Spanner, end: Notation = None) -> Notation:
         """
         Add a Spanner to this Notation
@@ -336,6 +360,7 @@ class Notation:
 
         Args:
             spanner: the spanner to add.
+            end: the end anchor of the spanner
 
         Returns:
             self
@@ -343,11 +368,43 @@ class Notation:
         """
         if self.spanners is None:
             self.spanners = []
+        if spanner in self.spanners:
+            raise ValueError(f"Spanner {spanner} was already added to this Notation ({self})")
+        elif any(s.uuid == spanner.uuid for s in self.spanners):
+            raise ValueError(f"A spanner with the uuid {spanner.uuid} is already part of this Notation")
         self.spanners.append(spanner)
-        self.spanners.sort(key=lambda spanner: spanner.priority())
+        # self.spanners.sort(key=lambda spanner: spanner.priority())
+        #spanner.anchor = self
         if end:
             end.addSpanner(spanner.endSpanner())
         return self
+
+    def transferSpanner(self, spanner: _spanner.Spanner, other: Notation):
+        self.spanners.remove(spanner)
+        if not other.spanners or spanner not in other.spanners:
+            if not other.hasSpanner(spanner.uuid):
+                other.addSpanner(spanner)
+
+    def removeSpanner(self, spanner: _spanner.Spanner) -> None:
+        """
+        Removes the given spanner from this Notation and from its partner
+
+        Args:
+            spanner: the spanner to remove
+
+        """
+        if not self.spanners:
+            raise ValueError(f"spanner {spanner} not found in notation {self}")
+        try:
+            self.spanners.remove(spanner)
+        except ValueError as e:
+            raise ValueError(f"Cannot remove {spanner} from {self}: spanner not found. Spanners: {self.spanners}")
+
+    def removeSpanners(self) -> None:
+        if self.spanners:
+            for spanner in self.spanners:
+                self.removeSpanner(spanner)
+
 
     @classmethod
     def makeArtificialHarmonic(cls,
@@ -399,7 +456,7 @@ class Notation:
 
         self.fixedNotenames[idx] = notename
 
-    def getFixedNotename(self, idx: int = 0) -> Optional[str]:
+    def getFixedNotename(self, idx: int = 0) -> str | None:
         """
         Returns the fixed notename of this notation, if any
 
@@ -432,8 +489,13 @@ class Notation:
         return fixedSlots
 
     @property
-    def isGraceNote(self) -> bool:
+    def isGracenote(self) -> bool:
         return not self.isRest and self.duration == 0
+
+    @property
+    def isRealnote(self) -> bool:
+        """A real note is not a rest and not a gracenote"""
+        return not self.isRest and self.duration > 0
 
     def meanPitch(self) -> float:
         """
@@ -453,7 +515,7 @@ class Notation:
         return self.pitches[0] if L == 1 else sum(self.pitches) / L
 
     @property
-    def end(self) -> Optional[F]:
+    def end(self) -> F | None:
         """
         The end time of this notation (if set)
         """
@@ -470,7 +532,7 @@ class Notation:
         if resetFixedNotenames:
             self.fixedNotenames = None
 
-    def transferFixedSpellingTo(self, other: Notation):
+    def copyFixedSpellingTo(self, other: Notation):
         if not self.fixedNotenames:
             return
         for notename in self.fixedNotenames.values():
@@ -493,7 +555,7 @@ class Notation:
         pitches = kws.pop('pitches', None)
         if pitches:
             out._setPitches(pitches)
-            self.transferFixedSpellingTo(out)
+            self.copyFixedSpellingTo(out)
         for key, value in kws.items():
             setattr(out, key, value)
         return out
@@ -528,10 +590,10 @@ class Notation:
             out.attachments = self.attachments.copy()
         if self.fixedNotenames:
             out.fixedNotenames = self.fixedNotenames.copy()
-        if self.spanners:
-            out.spanners = self.spanners.copy()
         if self.noteheads:
             out.noteheads = self.noteheads.copy()
+        if self.spanners:
+            out.spanners = self.spanners.copy()
         return out
 
     def symbolicDuration(self) -> F:
@@ -624,11 +686,12 @@ class Notation:
         return pt.vertical_position(self.notename(index))
 
     def addText(self,
-                text: Union[str, Text],
+                text: str | Text,
                 placement='above',
-                fontsize: int|float = None,
+                fontsize: int | float = None,
                 fontstyle: str = None,
-                box: str|bool = False
+                box: str | bool = False,
+                exclusive=False
                 ) -> None:
         """
         Add a text annotation to this Notation.
@@ -641,14 +704,22 @@ class Notation:
             fontsize: the size of the font
             box: if True, the text is enclosed in a box. A string indicates the shape
                 of the box
+            fontstyle: the style ('bold', 'italic')
+            exclusive: if True, only one text annotation with the given text and attributes
+                is allowed. This enables to set a given text for a Notation without needing
+                to check at the callsite that this text is already present
         """
         if isinstance(text, Text):
-            assert text.text.strip()
+            assert not text.text.isspace()
             annotation = text
         else:
             assert not text.isspace()
             annotation = Text(text=text, placement=placement, fontsize=fontsize,
                               fontstyle=fontstyle, box=box)
+        if exclusive and self.attachments:
+            for attach in self.attachments:
+                if attach == annotation:
+                    return
         self.addAttachment(annotation)
 
     def notatedDuration(self) -> NotatedDuration:
@@ -666,19 +737,28 @@ class Notation:
         """Merge this Notation with ``other``"""
         return mergeNotations(self, other)
 
-    def setProperty(self, key: str, value = _UNSET) -> None:
+    def setProperty(self, key: str, value=_UNSET) -> None:
         """
         Set any property of this Notation.
 
         Properties can be used, for example, for any rendering backend to
         pass directives which are specific to that rendering backend.
+
+        Args:
+            key: the key to set
+            value: if not given then the key is deleted if found, similar to
+                ``dict.pop(key, None)``
         """
-        if self.properties is None:
-            self.properties = {}
-        if value is not _UNSET:
+        if value is _UNSET:
+            if not self.properties:
+                return
+            self.properties.pop(key, None)
+        else:
+            if self.properties is None:
+                self.properties = {}
+            if key.startswith('.'):
+                assert key in self._privateKeys, f"Key {key} unknown. Possible private keys: {self._privateKeys}"
             self.properties[key] = value
-        elif self.properties:
-            del self.properties[key]
 
     def getProperty(self, key: str, default=None) -> Any:
         """
@@ -686,6 +766,8 @@ class Notation:
         """
         if not self.properties:
             return default
+        if key.startswith('.'):
+            assert key in self._privateKeys, f"Key {key} unknown. Possible private keys: {self._privateKeys}"
         return self.properties.get(key, default)
 
     def setClefHint(self, clef: str, idx: int = None) -> None:
@@ -715,7 +797,7 @@ class Notation:
     def clearClefHints(self) -> None:
         self.setProperty('.clefHint')
 
-    def getClefHint(self, idx: int = 0) -> Optional[str]:
+    def getClefHint(self, idx: int = 0) -> str | None:
         """
         Get any clef hint for this notation or a particular pitch thereof
 
@@ -779,24 +861,35 @@ class Notation:
         infostr = " ".join(info)
         return f"«{infostr}»"
 
-    def transferAttributesTo(self: Notation, dest: Notation) -> None:
+    def copyAttributesTo(self: Notation, dest: Notation, spelling=True) -> None:
         """
         Copy attributes of self to dest
         """
+        assert dest is not self
+
         exclude = {'duration', 'pitches', 'offset', 'durRatios', 'group',
-                   'properties'}
+                   'properties', 'attachments', 'spanners', '__weakref__'}
 
         for attr in self.__slots__:
             if attr not in exclude:
-                setattr(dest, attr, getattr(self, attr))
+                value = getattr(self, attr)
+                if isinstance(value, (list, dict)):
+                    value = value.copy()
+                setattr(dest, attr, value)
 
         if self.properties:
-            for prop, value in self.properties.items():
-                dest.setProperty(prop, value)
+            if dest.properties:
+                for prop, value in self.properties.items():
+                    dest.setProperty(prop, value)
+            else:
+                dest.properties = self.properties.copy()
 
         if self.attachments:
-            for a in self.attachments:
+            for i, a in enumerate(self.attachments):
                 dest.addAttachment(a)
+
+        if spelling:
+            self.copyFixedSpellingTo(dest)
 
     def __len__(self) -> int:
         return len(self.pitches)
@@ -807,7 +900,10 @@ class Notation:
 
         Information is any dynanic, attachments, spanners, etc.
         """
-        return bool(self.dynamic or self.attachments or self.spanners)
+        return bool(self.dynamic or
+                    self.attachments or
+                    self.spanners or
+                    self.noteheads)
 
     def accidentalDirection(self, index=0, minAlteration=0.5) -> int:
         """
@@ -862,7 +958,7 @@ class Notation:
         out = self.clone(pitches=pitches,
                          noteheads=noteheads)
         out.attachments = attachments
-        self.transferFixedSpellingTo(out)
+        self.copyFixedSpellingTo(out)
         out.clearClefHints()
         for idx in indexes:
             if hint := self.getClefHint(idx):
@@ -890,9 +986,39 @@ def mergeNotations(a: Notation, b: Notation) -> Notation:
     assert b.offset is None or (a.end == b.offset)
     out = a.clone(duration=a.duration + b.duration,
                   tiedNext=b.tiedNext)
+
     if b.fixedNotenames:
-        b.transferFixedSpellingTo(out)
+        b.copyFixedSpellingTo(out)
+
+    spanners = mergeSpanners(a, b)
+    out.spanners = spanners
     return out
+
+
+def mergeSpanners(a: Notation, b: Notation
+                  ) -> list[_spanner.Spanner] | None:
+    """
+    Merge the spanner of two Notations
+
+    Shared spanners (for example, a crescendo from a to b) are removed
+
+    Args:
+        a: the first notation
+        b: the second notation
+
+    Returns:
+        a list of merged spanners, or None if both a and b have no spanners
+    """
+    if not a.spanners and not b.spanners:
+        spanners = None
+    elif not a.spanners:
+        spanners = b.spanners
+    elif not b.spanners:
+        spanners = a.spanners
+    else:
+        spanners = a.spanners + b.spanners
+
+    return spanners
 
 
 def makeGroupId(parent: str = '') -> str:
@@ -1014,6 +1140,8 @@ def makeRest(duration: time_t,
         duration: the duration of the rest
         offset: the start time of the rest. Normally a rest's offset
             is left unspecified (None)
+        dynamic: if given, attach this dynamic to the rest
+        annotation: if given, attach this text annotation to the rest
 
     Returns:
         the created rest (a Notation)
@@ -1100,8 +1228,8 @@ def durationsCanMerge(n0: Notation, n1: Notation) -> bool:
 
     # Allow: r8 8 + 4 = r8 4.
     # Don't allow: r16 8. + 8. r16 = r16 4. r16
-    #grid = F(1, den)
-    #if (num == 3 or num == 7) and ((n0.offset % grid) > 0 or (n1.end % grid) > 0):
+    # grid = F(1, den)
+    # if (num == 3 or num == 7) and ((n0.offset % grid) > 0 or (n1.end % grid) > 0):
 
     if num not in {1, 2, 3, 4, 6, 7, 8, 12, 16, 32}:
         return False
@@ -1142,7 +1270,7 @@ def notationsCanMerge(n0: Notation, n1: Notation) -> bool:
             return False
 
         n1visiblenoteheads = {idx: notehead for idx, notehead in n1.noteheads.items()
-                       if not notehead.hidden}
+                              if not notehead.hidden}
         if n0.noteheads != n1visiblenoteheads:
             return False
 
@@ -1207,14 +1335,29 @@ def transferAttributesWithinTies(notations: list[Notation]) -> None:
         elif n.tiedPrev and insideGliss and not n.gliss:
             n.gliss = True
 
+
 @dataclass(slots=True)
 class SnappedNotation:
     notation: Notation
     offset: F
     duration: F
 
-    def snapped(self) -> Notation:
-        return self.notation.clone(offset=self.offset, duration=self.duration)
+    def makeSnappedNotation(self, extraOffset: F | None = None) -> Notation:
+        """
+        Clone the original notation to be snapped to offset and duration
+
+        Args:
+            extraOffset: if given, an extra offset to apply to the snapped notation
+
+        Returns:
+            the snapped notation
+
+        """
+        offset = self.offset if not extraOffset else self.offset + extraOffset
+        notation = self.notation.clone(offset=offset, duration=self.duration)
+        if self.duration == 0 and self.notation.duration > 0:
+            notation.setProperty('.snappedGracenote', True)
+        return notation
 
     def __repr__(self):
-        return repr(self.snapped())
+        return repr(self.makeSnappedNotation())

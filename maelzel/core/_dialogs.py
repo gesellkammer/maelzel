@@ -1,25 +1,48 @@
 from __future__ import annotations
 import os
-from . import environment
 from ._appstate import appstate as _appstate
 from ._common import logger
 from maelzel.core import _util
+from emlib import misc
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Sequence, Optional
 
 
-def selectFromList(options: Sequence[str], title="", default=None) -> Optional[str]:
-    import emlib.dialogs
-    if environment.insideJupyter:
+def selectFromList(options: list[str], title="", default=None, gui: bool = None) -> str | None:
+    """
+    Select an option from a list of options
+
+    None is returned if no selection was done
+
+    Args:
+        options: the options as a list of str
+        title: the title of the selection widget (might not be used in text mode)
+        default: the value returned if no selection was made
+        gui: if None, detect the environment. Otherwise, if True a gui dialog is forced
+            and if False a terminal dialog is forced
+
+    Returns:
+        the option selected, or *default* if not selection was done
+    """
+    if gui is None:
+        if misc.running_inside_terminal() and misc.is_interactive_session:
+            gui = False
+        else:
+            gui = True
+
+    if gui:
+        import emlib.dialogs
         return emlib.dialogs.selectItem(options, title=title) or default
     else:
-        # TODO: use tty tools, like fzf
-        return emlib.dialogs.selectItem(options, title=title) or default
+        from maelzel import tui
+        idx = tui.menu(options)
+        return default if idx is None else options[idx]
 
 
-def selectFileForSave(key:str, filter="All (*.*)", prompt="Save File") -> Optional[str]:
+def selectFileForSave(key: str, filter="All (*.*)", prompt="Save File"
+                      ) -> str | None:
     """
     Select a file for open via a gui dialog, remember the last directory
 
@@ -69,7 +92,7 @@ def selectFileForOpen(key: str, filter="All (*.*)", prompt="Open", ifcancel:str=
 def selectSndfileForOpen(prompt="Open Soundfile",
                          filter='Audio (*.wav, *.aif, *.flac, *.mp3)',
                          ifcancel: str = None
-                         ) -> Optional[str]:
+                         ) -> str | None:
     """
     Select a soundfile for open via a gui dialog, remember the last directory
 

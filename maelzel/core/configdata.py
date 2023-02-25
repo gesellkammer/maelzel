@@ -33,6 +33,7 @@ defaultdict = {
     'show.glissHideTiedNotes': True,
     'show.glissLineThickness': 2,
     'show.lilypondPngStaffsizeScale': 1.5,
+    'show.lilypondGlissandoMinimumLength': 5,
     'show.pngResolution': 200,
     'show.measureAnnotationFontSize': 12,
     'show.respellPitches': True,
@@ -122,7 +123,7 @@ validator = {
     'play.gracenoteDuration::type': (int, float, str),
     'htmlTheme::choices': {'light', 'dark'},
     'show.lastBreakpointDur::range': (1/64., 1),
-    'quant.complexity::choices': {'low', 'medium', 'high', 'highest'},
+    'quant.complexity::choices': {'lowest', 'low', 'medium', 'high', 'highest'},
     'quant.nestedTuplets::choices': {True, False, None},
     'show.pageOrientation::choices': {'portrait', 'landscape'},
     'show.pageMarginMillimeters::range': (0, 1000),
@@ -284,6 +285,10 @@ docs = {
     'show.lilypondPngStaffsizeScale':
         'A factor applied to the staffsize when rendering to png via lilypond. Useful '
         'if rendered images appear too small in a jupyter notebook',
+    'show.lilypondGlissandoMinimumLength':
+        'The minimum length of a glissando in points. Increase this value if glissando lines'
+        'are not shown or are too short (this might be the case within the context of dotted'
+        'notes or accidentals)',
     'show.pngResolution':
         'DPI used when rendering to png',
     'show.horizontalSpacing':

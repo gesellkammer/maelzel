@@ -4,6 +4,12 @@ Functionality to deal with the environment in which maelzel.core is running
 By environment we understand the platform, os and external applications
 needed to perform certain tasks
 """
+
+# *******************************************************************************
+# **** NB: This module should not import anything from the maelzel namespace ****
+# *******************************************************************************
+
+
 from __future__ import annotations
 import sys
 import os

@@ -31,7 +31,7 @@ setup(
     ],
     include_package_data=True,
     install_requires=[
-        "emlib>=1.7.0",
+        "emlib>=1.7.3",
         "numpy",
         "scipy",
         "matplotlib",
@@ -57,7 +57,9 @@ setup(
         "quicktions",
         "rich",
         "risset",
-        "chardet"
+        "chardet",
+        "simple-term-menu",
+        "visvalingamwyatt"
     ],
     license="BSD",
     zip_safe=False,

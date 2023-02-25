@@ -1,5 +1,7 @@
 from __future__ import annotations
-import numpy as _np
+
+import bpf4
+import numpy as np
 from scipy import signal as _signal
 from scipy.fftpack import hilbert
 from emlib.misc import returns_tuple as _returns_tuple
@@ -8,15 +10,22 @@ from math import pi
 import warnings
 
 
-@_returns_tuple("b0 b1 b2 a0 a1 a2", "SOSCoeffs")
-def biquad_coeffs(filtertype, fc, param, dbgain=0, fs=48000, normalized=True):
+def biquadCoefficients(filtertype: str, fc: float, param: float, dbgain=0., 
+                       fs=48000, normalized=True
+                       ) -> tuple[float, float, float, float, float, float]:
     """various iir biquad filters for audio processing
-    arguments:
-    filtertype = options: "lpf", "hpf", "bpf"
-    fc     = filter frequency
-    param  = Depending on filter, acts as Q, bandwidth, or shelf slope.
-    dbgain = gain  in db for peaking/shelving filters (defaults to 0)
-    fs     = sampling frequency (defaults to 48000)
+    
+    Args:
+        filtertype: one of "lpf", "hpf", "bpf"
+        fc: filter frequency
+        param: depending on filter, acts as Q, bandwidth, or shelf slope.
+        dbgain: gain  in db for peaking/shelving filters (defaults to 0)
+        fs: sampling frequency (defaults to 48000)
+    
+    Returns:
+        a tuple (b0, b1, b2, a0, a1, a2)
+    
+    
     """
     sel = filtertype
     aval = 10**(dbgain/40.0)
@@ -63,35 +72,42 @@ def biquad_coeffs(filtertype, fc, param, dbgain=0, fs=48000, normalized=True):
         return (b0, b1, b2, a0, a1, a2)
 
 
-def sos6(samples, b0, b1, b2, a0, a1, a2):
+def sos6(samples: np.ndarray, b0: float, b1: float, b2: float, a0: float, a1: float, a2: float
+         ) -> np.ndarray:
     xx = samples
     yy = [0]*len(samples)
     for n in range(2, len(xx)):
         yy[n] = b1 * xx[n-1] + b2 * xx[n-2] - a1 * yy[n-1] - a2 * yy[n-2]
-    return yy
+    return np.asarray(yy, dtype=float)
 
 
-def biquad(xx, sel, fc, param, dbgain=0, fs=48000):
-    """various iir biquad filters for audio processing
+def biquad(xx, sel, fc, param, dbgain=0, fs=48000) -> np.ndarray:
+    """
+    Various iir biquad filters for audio processing
 
-    xx     : input signal to be filtered
-    sel    : filter type
-             options: "lpf", "hpf", "bpf"
-    fc     : filter frequency
-    param  : Depending on filter, acts as Q, bandwidth, or shelf slope.
-    dbgain : gain  in db for peaking/shelving filters (defaults to 0)
-    fs     : sampling frequency
+    Args:
+        xx     : input signal to be filtered
+        sel    : filter type
+                 options: "lpf", "hpf", "bpf"
+        fc     : filter frequency
+        param  : Depending on filter, acts as Q, bandwidth, or shelf slope.
+        dbgain : gain  in db for peaking/shelving filters (defaults to 0)
+        fs     : sampling frequency
+
+    Returns:
+        the resulting samples after being filtered
 
     Example
     =======
 
     # TODO: create an example
     """   
-    b0, b1, b2, a0, a1, a2 = biquad_coeffs(sel, fc, param, dbgain, fs, normalized=True)
+    b0, b1, b2, a0, a1, a2 = biquadCoefficients(sel, fc, param, dbgain, fs, normalized=True)
     return sos6(xx, b0, b1, b2, a0, a1, a2)
 
 
-def butter_bandpass(lowcut, highcut, fs, order=5):
+def butterBandpassCoefficients(lowcut: float, highcut: float, fs: int, order=5
+                               ) -> tuple[np.ndarray, np.ndarray]:
     """
     return the b and a coefficients to design the digital filter.
     """
@@ -102,71 +118,117 @@ def butter_bandpass(lowcut, highcut, fs, order=5):
     return b, a
 
 
-def butter_bandpass_filter(data, lowcut, highcut, fs, order=5):
-    b, a = butter_bandpass(lowcut, highcut, fs, order=order)
+def butterBandpassFilter(data: np.ndarray, lowcut: float, highcut: float, fs: int, order=5
+                         ) -> np.ndarray:
+    b, a = butterBandpassCoefficients(lowcut, highcut, fs, order=order)
     y = _signal.lfilter(b, a, data)
     return y
 
 
-def freq_response(bb, aa, fs, worN=None):
+def butterBandpassFrequencyResponse(bb: np.ndarray | list[float],
+                                    aa: np.ndarray | list[float],
+                                    fs: int,
+                                    worN=None
+                                    ) -> tuple[np.ndarray, np.ndarray]:
     """
-    bb, aa: the filter coefficients
-    fs: sampling rate
-    worN: see scipy._signal.freqz
+    Calculate the frequency response of a bandpass filter with the given coefficients
+
+    Args:
+        bb: b filter coefficients (a numpy array or a list of floats
+        aa: a filter coefficients (a numpy array or a list of floats
+        fs: sampling rate
+        worN: see scipy.signal.freqz
+
+    Returns:
+        a tuple (w: np.ndarray, h: np.ndarray) where *w* contains frequencies at which h
+        was computed, in the same units as fs. By default, w is normalized to the range [0, pi)
+        (radians/sample); *h*: The frequency response, as complex numbers. Both values can be
+        used to plot the frequency response (see example)
+
 
     Example
     =======
 
-    >>> bb, aa = butter_bandpass(50, 4000, 44100, order=3)
-    >>> xx, yy = freq_response(bb, aa, worN=200)
+    >>> bb, aa = butterBandpassCoefficients(50, 4000, 44100, order=3)
+    >>> xx, yy = butterBandpassFrequencyResponse(bb, aa, worN=200)
     >>> pyplot.plot(xx, yy)
     """
     from scipy.signal import freqz
     
     w, h = freqz(bb, aa, worN=worN)
-    return (fs * 0.5 / pi) * w, _np.abs(h)
+    return (fs * 0.5 / pi) * w, np.abs(h)
 
 
-def gen_sine(freq=440, amp=1, iphase=0, dur=1, sr=48000):
+def genSine(freq=440, amp=1, iphase=0, dur=1, sr=48000):
     """
     generate a sine tone
 
-    y = A * math.sin(2pi * freq * t + ph) = A * math.sin(w * t + ph)
+    Args:
+        freq: frequency to generate
+        amp: amplitude
+        iphase: initial phase
+        dur: duration
+        sr: sample rate
+
+    .. code::
+
+        y = A * math.sin(2pi * freq * t + ph) = A * math.sin(w * t + ph)
     """
-    ts = _np.linspace(0, dur, sr, endpoint=False)
-    samples = _np.sin(freq * (pi*2) * ts + iphase) * amp
+    ts = np.linspace(0, dur, sr, endpoint=False)
+    samples = np.sin(freq * (pi*2) * ts + iphase) * amp
     return samples
 
 
-def gen_square(freq=440, duty=0.5, amp=1, iphase=0, dur=1, sr=48000):
-    ts = _np.linspace(0, dur, sr, endpoint=False)
+def genSquare(freq=440, duty=0.5, amp=1, iphase=0, dur=1, sr=48000):
+    ts = np.linspace(0, dur, sr, endpoint=False)
     phase = iphase + ts * (freq * pi * 2)
     return _signal.waveforms.square(phase, duty) * amp
 
 
-def gen_sine_mod(freq=440, amp=1, iphase=0, dur=1, sr=48000):
+def genSineMod(freq: float|int|bpf4.BpfInterface=440,
+               amp=1.,
+               iphase=0.,
+               dur=1.,
+               sr=48000
+               ) -> np.ndarray:
     """
-    the same as gen_sin but freq and amp can be modulated by a bpf
+    The same as genSine but freq and amp can be modulated by a bpf
+
+    Args:
+        freq: the frequency of the sine tone. Can be a scalar or a time varying
+            bpf
+        amp: the amplitude. Can be a scalar or a time varying bpf
+        iphase: initial phase
+        dur: duration in seconds
+        sr: sample rate
+
+    Returns:
+        the generated samples as numpy array
     """
-    from bpf4 import bpf
-    freq = bpf.asbpf(freq)
-    amp = bpf.asbpf(amp)
-    ts = _np.linspace(0, dur, sr, endpoint=False)
+    import bpf4
+    freq = bpf4.asbpf(freq)
+    amp = bpf4.asbpf(amp)
+    ts = np.linspace(0, dur, sr, endpoint=False)
     freqs = freq.map(ts)
     amps = amp.map(ts)
-    samples = _np.math.sin(freqs*(pi*2) * ts + iphase) * amps
+    samples = np.math.sin(freqs*(pi*2) * ts + iphase) * amps
     return samples
 
 
-def prime_power_delays(N, pathmin, pathmax, sr):
+def primePowerDelays(N: int, pathmin: float, pathmax: float, sr: int = 48000
+                     ) -> list[int]:
     """
     Calculate the delay lines of a reverberator
 
-    @param N: the number of delay lines (>= 3)
-    @param pathmin: minimum acoustic ray length in the reverberator (in meters)
-    @param pathmax: max. acoustic ray lngth (meters) - think "room size"
-    @param sr: sr
-    @return: a list of N elements, each being the delay time in samples
+    Args:
+        N: the number of delay lines (>= 3)
+        pathmin: minimum acoustic ray length in the reverberator (in meters)
+        pathmax: max. acoustic ray lngth (meters) - think "room size"
+        sr: sr
+
+    Returns:
+        a list of N elements, each being the delay time in samples
+
     """
     primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 41, 43, 47, 53]
     # maxdel = 8192
@@ -188,7 +250,7 @@ def prime_power_delay(i, N, pathmin, pathmax, sr):
     """
     i: which delay (0 to N-1)
 
-    for the rest of the parameters, see prime_power_delays
+    for the rest of the parameters, see primePowerDelays
     """
     primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 41, 43, 47, 53]
     # maxdel = 8192
@@ -323,10 +385,4 @@ def compressor_makeupgain(thresh, ratio, refdb=0):
     refdb: reference, normally 0 dB
     """
     return refdb - (1.0/ratio) * (refdb - thresh) - thresh
-
-
-try:
-    from fastdsp import sos6
-except ImportError:
-    pass
 

@@ -4,6 +4,7 @@ Internal utilities
 from __future__ import annotations
 
 import logging
+from maelzel.scoring import definitions
 from typing import TYPE_CHECKING
 from functools import cache
 import sys
@@ -285,14 +286,34 @@ class NoteProperties:
 
     .. seealso:: :func:`parseNote`
     """
-    notename: Union[str, list[str]]
+    notename: str | list[str]
     """A pitch or a list of pitches"""
 
-    dur: Optional[F]
+    dur: F | None
     """An optional duration"""
 
-    properties: Optional[dict[str, str]]
-    """Any other properties"""
+    keywords: dict[str, str] | None = None
+    """Any other properties (gliss, tied, ...)"""
+
+    def classifyKeywords(self) -> tuple[dict, list[tuple[str, str]]]:
+        """
+        Splits keywords into properties and symbols
+
+        Properties are any keyword passed to the constructor (gliss, tied, offset, dynamic, etc)
+        Symbols are articulations, notehead shapes, etc.
+
+        Returns:
+            a tuple (properties, symbols)
+        """
+        props = {}
+        symbols = []
+        for k, v in self.keywords.items():
+            if k in _knownSymbols:
+                symbols.append((k, v))
+            else:
+                props[k] = v
+        return props, symbols
+
 
 
 _dotRatios = [1, F(3, 2), F(7, 4), F(15, 8), F(31, 16)]
@@ -305,6 +326,24 @@ def _parseSymbolicDuration(s: str) -> F:
     s = s[:-dots]
     ratio = _dotRatios[dots]
     return F(4, int(s)) * ratio
+
+
+def parseDuration(s: str) -> F:
+    """
+    Parse a duration given a str
+
+    Possible expressions include '3/4', '1+3/4', '4+1/3+2/5'
+    Raises ValueError if the expression cannot be parsed
+
+    Args:
+        s: the duration as string
+
+    Returns:
+        the parsed duration as fraction
+    """
+    terms = s.split('+')
+    fterms = [F(term) for term in terms]
+    return sum(fterms)
 
 
 def parsePitch(s: str) -> tuple[str, bool, bool]:
@@ -366,7 +405,7 @@ def parseNote(s: str) -> NoteProperties:
         note, rest = s.split(":", maxsplit=1)
         parts = rest.split(":")
         try:
-            dur = F(parts[0])
+            dur = parseDuration(parts[0])
             parts = parts[1:]
         except ValueError:
             pass
@@ -394,15 +433,23 @@ def parseNote(s: str) -> NoteProperties:
         note, symbolicdur = note.split("/")
         dur = _parseSymbolicDuration(symbolicdur)
     notename = [p.strip() for p in note.split(",")] if "," in note else note
-    return NoteProperties(notename=notename, dur=dur, properties=properties)
+    return NoteProperties(notename=notename, dur=dur, keywords=properties)
 
 
 _knownDynamics = {
     'pppp', 'ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'ffff', 'n'
 }
 
-_knownArticulations = {
-    '-', '.', '^', 'accent', 'tenuto', 'staccatto'
+_knownArticulations_ = {
+    '-', '.', '^', 'accent', 'tenuto', 'staccato'
+}
+
+
+_knownArticulations = definitions.allArticulations()
+
+
+_knownSymbols = {
+    'articulation', 'notehead', 'size', 'color'
 }
 
 
@@ -463,9 +510,11 @@ def showF(f: F, maxdenom=1000) -> str:
     return "%d/%d" % (f.numerator, f.denominator)
 
 
-def showT(f: F | None) -> str:
+def showT(f: F | float | None) -> str:
     """Show *f* as time"""
     if f is None:
         return "None"
-    return f"{float(f):.3f}".rstrip('0').rstrip('.')
+    if not isinstance(f, float):
+        f = float(f)
+    return f"{f:.3f}".rstrip('0').rstrip('.')
 

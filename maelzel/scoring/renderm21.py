@@ -44,7 +44,7 @@ def noteToMusic21(n: Notation, divsPerSemitone=4, durRatios=None, tupleType=None
                   ) -> Tuple[m21.note.Note, int]:
     assert len(n.pitches) == 1
 
-    if n.isGraceNote():
+    if n.isGracenote():
         duration = m21tools.makeDuration(n.getProperty("graceNoteType", "eighth"))
     else:
         notatedDur = n.notatedDuration()
@@ -89,7 +89,7 @@ def notationToMusic21(n: Notation, durRatios: List[F], tupleType: Optional[str],
         a m21 GeneralNote (a Note, a Chord, a GraceNote or a Rest)
 
     """
-    if n.isGraceNote():
+    if n.isGracenote():
         duration = m21tools.makeDuration(n.getProperty("graceNoteType", "eighth"))
 
     else:
@@ -129,7 +129,7 @@ def notationToMusic21(n: Notation, durRatios: List[F], tupleType: Optional[str],
                                            hideAccidental=n.accidentalHidden)
 
     out.noteheadParenthesis = n.noteheadParenthesis
-    if n.isGraceNote():
+    if n.isGracenote():
         out = out.getGrace()
         out.duration.slash = n.getProperty("graceNoteSlash", True)
     else:

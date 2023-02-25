@@ -92,7 +92,12 @@ class OfflineRenderer:
     the context manager, all calls to .play are intersected and scheduled
     via the OfflineRenderer
     """
-    def __init__(self, outfile: str = None, sr=None, ksmps=64, numChannels=2, quiet:bool=None):
+    def __init__(self,
+                 outfile: str = None,
+                 sr=None,
+                 ksmps=64,
+                 numchannels=2,
+                 quiet: bool = None):
         w = getWorkspace()
         cfg = w.config
 
@@ -108,11 +113,11 @@ class OfflineRenderer:
         self.ksmps = ksmps
         """ksmps value (samples per block)"""
 
-        self.renderer: csoundengine.Renderer = presetManager.makeRenderer(sr, ksmps=ksmps, numChannels=numChannels)
+        self.renderer: csoundengine.Renderer = presetManager.makeRenderer(sr, ksmps=ksmps, numChannels=numchannels)
         """The actual csoundengine.Renderer"""
 
-        self.events: list[SynthEvent] = []
-        """A list of all events rendered"""
+        #self.events: list[SynthEvent] = []
+        #"""A list of all events rendered"""
 
         self.instrDefs: dict[str, csoundengine.Instr] = {}
         """An index of registered Instrs"""
@@ -123,6 +128,23 @@ class OfflineRenderer:
         self._quiet = quiet
 
         self._renderProc: subprocess.Popen|None = None
+
+    @property
+    def scheduledEvents(self) -> dict[int, csoundengine.offline.ScoreEvent]:
+        """The scheduled events"""
+        return self.renderer.scheduledEvents
+
+    def timeRange(self) -> tuple[float, float]:
+        """
+        The time range of the scheduled events
+
+        Returns:
+            a tuple (start, end)
+        """
+        events = self.scheduledEvents.values()
+        start = min(ev.start for ev in events)
+        end = max(ev.end for ev in events)
+        return start, end
 
     def __repr__(self):
         return f"OfflineRenderer(sr={self.sr})"
@@ -318,7 +340,8 @@ class OfflineRenderer:
                wait: bool | None = None,
                quiet: bool | None = None,
                openWhenDone=False,
-               compressionBitrate: int | None = None
+               compressionBitrate: int | None = None,
+               endtime=0.
                ) -> str:
         """
         Render the events scheduled until now.
@@ -374,7 +397,9 @@ class OfflineRenderer:
         if compressionBitrate is None:
             compressionBitrate = cfg['rec.compressionBitrate']
         outfile, proc = self.renderer.render(outfile=outfile, wait=wait, quiet=quiet,
-                                             openWhenDone=openWhenDone, compressionBitrate=compressionBitrate)
+                                             openWhenDone=openWhenDone,
+                                             compressionBitrate=compressionBitrate,
+                                             endtime=endtime)
         self.renderedSoundfiles.append(outfile)
         self._renderProc = proc
         return outfile
@@ -522,6 +547,7 @@ def render(outfile: str = None,
            quiet: bool = None,
            nchnls: int = None,
            workspace: Workspace = None,
+           extratime=0.,
            **kws
            ) -> OfflineRenderer:
     """
@@ -545,6 +571,7 @@ def render(outfile: str = None,
             use the :ref:`config 'rec.blocking' <config_rec_blocking>`
         quiet: if True, supress debug information when calling
             the csound subprocess
+        extratime: extra time added at the end of the render to allow
 
     Returns:
         the :class:`OfflineRenderer` used to render the events. If the outfile
@@ -587,9 +614,10 @@ def render(outfile: str = None,
     if events:
         events, sessionevents = _collectEvents(events, eventparams=kws, workspace=workspace)
         return _recEvents(events=events, outfile=outfile, sr=sr, wait=wait,
-                          ksmps=ksmps, quiet=quiet, numChannels=nchnls)
+                          ksmps=ksmps, quiet=quiet, numchannels=nchnls,
+                          extratime=extratime)
     else:
-        return OfflineRenderer(outfile=outfile, sr=sr, numChannels=nchnls, quiet=quiet, ksmps=ksmps)
+        return OfflineRenderer(outfile=outfile, sr=sr, numchannels=nchnls, quiet=quiet, ksmps=ksmps)
 
 
 def _recEvents(events: list[SynthEvent],
@@ -599,7 +627,8 @@ def _recEvents(events: list[SynthEvent],
                wait: bool = None,
                ksmps: int = None,
                quiet: bool = None,
-               numChannels: int = None,
+               numchannels: int = None,
+               extratime: float = 0.
                ) -> OfflineRenderer:
     """
     Record the events to a soundfile
@@ -639,10 +668,11 @@ def _recEvents(events: list[SynthEvent],
     :class:`OfflineRenderer`
     """
     assert events or sessionevents, "Nothin to render"
-    if not numChannels:
-        numChannels = max(int(ceil(ev.position + ev.chan)) for ev in events)
+    if not numchannels:
+        numchannels = max(int(ceil(ev.position + ev.chan)) for ev in events)
         # nchnls = max(nchnls, getConfig()['rec.numChannels'])
-    renderer = OfflineRenderer(sr=sr, ksmps=ksmps, numChannels=numChannels)
+    # endtime = max(ev.end for ev in events)
+    renderer = OfflineRenderer(sr=sr, ksmps=ksmps, numchannels=numchannels)
     for ev in events:
         renderer.schedEvent(ev)
     if sessionevents:
@@ -653,7 +683,12 @@ def _recEvents(events: list[SynthEvent],
                            priority=ev.priority,
                            args=ev.args,
                            tabargs=ev.tabargs)
-    renderer.render(outfile=outfile, wait=wait, quiet=quiet)
+    if extratime:
+        starttime, endtime = renderer.timeRange()
+        endtime += extratime
+    else:
+        endtime = 0.
+    renderer.render(outfile=outfile, wait=wait, quiet=quiet, endtime=endtime)
     return renderer
 
 
@@ -804,10 +839,9 @@ def playEngine(numchannels: int = None,
 
     .. seealso:: :func:`getAudioDevices`
     """
-    config = getConfig()
+    config = Workspace.active.config
     engineName = config['play.engineName']
-    if engineName in csoundengine.activeEngines():
-        engine = csoundengine.getEngine(engineName)
+    if engine := csoundengine.getEngine(engineName):
         if any(_ is not None for _ in (numchannels, backend, outdev, verbose, buffersize, latency)):
             prettylog('WARNING',
                       "\nThe sound engine has been started already. Any configuration passed "
@@ -837,6 +871,9 @@ def playEngine(numchannels: int = None,
     if waitAfterStart > 0:
         import time
         time.sleep(waitAfterStart)
+    # We create the session as soon as possible, to configure the engine for
+    # the session's reserved instrument ranges / tables
+    _ = engine.session()
     return engine
 
 
@@ -1003,7 +1040,7 @@ def _playFlatEvents(events: list[SynthEvent],
         presetToInstr: normally None, otherwise a dict mapping preset name to
             csoundengine's Instr as calculated within _prepareEvents. It should only be
             given if _prepareEvents was previously called for the events passed here
-            and should not be called again (see synched for this pattern of usage)
+            and should not be called again (see synchedplay for this pattern of usage)
 
     Returns:
         A SynthGroup
@@ -1180,7 +1217,7 @@ class synchedplay:
 
         self._realtimeEvents: list[csoundengine.session.SessionEvent] = []
         self._oldRenderer = None
-        self._oldSchedCallback = None
+        self._oldSessionSchedCallback = None
         self._finishedCallback = whenfinished
 
     def _repr_html_(self):
@@ -1208,7 +1245,7 @@ class synchedplay:
         """
         self.events.extend(events)
 
-    def enterContext(self) -> None:
+    def __enter__(self):
         """
         Performs initialization of the context
 
@@ -1222,22 +1259,25 @@ class synchedplay:
         workspace = getWorkspace()
         self._oldRenderer = workspace.renderer
         workspace.renderer = self
-        self._oldSchedCallback = self.session._schedCallback
+        self._oldSessionSchedCallback = self.session._schedCallback
         self.session._schedCallback = self.sched
+
         if self.lock:
             self.engine.pushLock()
+        return self
 
-    def exitContext(self) -> None:
+    def __exit__(self, exc_type, exc_val, exc_tb):
         """
         Executes the operations at context end
 
         This includes preparing all resources and then actually
         scheduling all events
-
-        If not called as a context manager, this method together with `enterContext`
-        can be called manually to produce the same effect.
-
         """
+        if exc_type is not None:
+            # There was an exception since entering
+            logger.warning("Playing aborted")
+            return
+
         if not self.events:
             logger.debug("No events scheduled, exiting context")
             self.synthgroup = None
@@ -1250,6 +1290,9 @@ class synchedplay:
                                           priority=ev.priority,
                                           block=False)
         self.engine.sync()
+        self.session._schedCallback = self._oldSessionSchedCallback
+        self._oldSessionSchedCallback = None
+
         synthgroup = _playFlatEvents(self.events, presetToInstr=presetToInstr,
                                      whenfinished=self._finishedCallback)
 
@@ -1262,18 +1305,8 @@ class synchedplay:
         self.synthgroup = synthgroup
         workspace = getWorkspace()
         workspace.renderer = self._oldRenderer
-        self.session._schedCallback = self._oldSchedCallback
-
-    def __enter__(self):
-        self.enterContext()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type is not None:
-            # There was an exception since entering
-            logger.warning("Playing aborted")
-            return
-        self.exitContext()
+        self._oldRenderer = None
+        self._oldSessionSchedCallback = None
 
     def sched(self,
               instrname: str,
@@ -1282,6 +1315,8 @@ class synchedplay:
               priority=1,
               args: list[float] | dict[str, float] = None,
               tabargs: dict[str, float] = None,
+              whenfinished=None,
+              relative=None,
               **kws) -> csoundengine.session.SessionEvent:
         """
         Schedule a csound event in the active Session
@@ -1296,6 +1331,8 @@ class synchedplay:
             priority: priority of the event
             args: any pfields passed to the instr., starting at p5
             tabargs: table args accepted by the instr.
+            whenfinished: dummy arg, just included to keep the signature of Session.sched
+            relative: the same as whenfinished: just a placeholder
             **kws: named pfields
 
         Returns:

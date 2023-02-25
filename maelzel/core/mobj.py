@@ -53,7 +53,7 @@ import pitchtools as pt
 
 import csoundengine
 
-from maelzel.common import asmidi, F, asF, F0, F1
+from maelzel.common import asmidi, F, asF, F0
 from ._common import *
 from ._typedefs import *
 
@@ -222,6 +222,8 @@ class MObj:
         self._resolvedOffset: F | None = None
         self._resolvedDur: F | None = None
 
+        assert dur is None or dur >= 0, f"A Duration cannot be negative: {self}"
+
     @property
     def parent(self) -> MContainer | None:
         """The parent of this object.
@@ -279,6 +281,11 @@ class MObj:
         else:
             self.properties[key] = value
         return self
+
+    def getProperty(self, key: str, default=None):
+        if not self.properties:
+            return default
+        return self.properties.get(key, default)
 
     def pitchRange(self) -> tuple[float, float] | None:
         """
@@ -342,7 +349,10 @@ class MObj:
         else:
             return F(0)
 
-    def _calculateDuration(self, relativeOffset: F | None, parentOffset: F | None, force=False
+    def _calculateDuration(self,
+                           relativeOffset: F | None,
+                           parentOffset: F | None,
+                           force=False
                            ) -> F | None:
         """
         This method should calculate its own duration or return None if it cannot
@@ -645,6 +655,29 @@ class MObj:
         if self.parent:
             self.parent.childChanged(self)
 
+    def quantizedScore(self,
+                       scorestruct: ScoreStruct = None,
+                       config: CoreConfig = None,
+                       quantizationProfile: str | scoring.quant.QuantizationProfile = None
+                       ) -> scoring.quant.QuantizedScore:
+        w = Workspace.active
+        if config is None:
+            config = w.config
+        if not scorestruct:
+            scorestruct = self.scorestruct() or w.scorestruct
+        if quantizationProfile is None:
+            quantizationProfile = config.makeQuantizationProfile()
+        elif isinstance(quantizationProfile, str):
+            quantizationProfile = scoring.quant.QuantizationProfile.fromPreset(quantizationProfile)
+        else:
+            assert isinstance(quantizationProfile, scoring.quant.QuantizationProfile)
+        parts = self.scoringParts()
+        qscore = scoring.quant.quantize(parts,
+                                        struct=scorestruct,
+                                        quantizationProfile=quantizationProfile)
+        qscore.enharmonicOptions = config.makeEnharmonicOptions()
+        return qscore
+
     def render(self,
                backend: str = None,
                renderoptions: scoring.render.RenderOptions = None,
@@ -653,7 +686,11 @@ class MObj:
                quantizationProfile: str | scoring.quant.QuantizationProfile = None
                ) -> scoring.render.Renderer:
         """
-        Renders this object as a quantized score
+        Renders this object as notation
+
+        First the object is quantized to abstract notation, then it is passed to the backend
+        to render it for the specific format (lilypond, musicxml, ...), which is then used
+        to generate a document (pdf, png, ...)
 
         Args:
             backend: the backend to use, one of 'lilypond', 'music21'. If not given,
@@ -666,11 +703,25 @@ class MObj:
             quantizationProfile: if given, it is used to customize the quantization process
                 and will override any config option related to quantization.
                 A QuantizationProfile can be created from a config via
-                :meth:`maelzel.core.config.CoreConfig.makeQuantizationProfile`.
+                :meth:`maelzel.core.config.CoreConfig.makeQuantizationProfileFromPreset`.
 
         Returns:
             a scoring.render.Renderer. This can be used to write the rendered structure
             to an image (png, pdf) or as a musicxml or lilypond file.
+
+        Example
+        ~~~~~~~
+
+            >>> from maelzel.core import *
+            >>> voice = Voice(...)
+            # Render with the settings defined in the config
+            >>> voice.render()
+            # Customize the rendering process
+            >>> from maelzel.scoring.renderer import RenderOptions
+            >>> from maelzel.scoring.quant import QuantizationProfile
+            >>> quantprofile = QuantizationProfile.simple(
+            ...     possibleDivisionsByTempo={80: []
+            ...     })
         """
         w = Workspace.active
         if config is None:
@@ -1203,6 +1254,7 @@ class MObj:
             args: dict[str, float] = None,
             gain: float = None,
             position: float = None,
+            extratime=0.,
             **kws
             ) -> OfflineRenderer:
         """
@@ -1249,7 +1301,7 @@ class MObj:
                              delay=delay, args=args, gain=gain,
                              **kws)
         return playback.render(outfile=outfile, events=events, r=sr, wait=wait,
-                               quiet=quiet, nchnls=nchnls)
+                               quiet=quiet, nchnls=nchnls, extratime=extratime)
 
     def isRest(self) -> bool:
         """
@@ -1400,7 +1452,7 @@ class MObj:
                                      fontstyle=fontstyle, box=box))
         return self
 
-    def addSpanner(self: MObjT,
+    def _addSpanner(self: MObjT,
                    spanner: str | _symbols.Spanner,
                    endobj: MObj = None
                    ) -> MObjT:

@@ -3,14 +3,14 @@ Find the best enharmonic spelling for a sequence of notes
 """
 from __future__ import annotations
 from collections import defaultdict
-
-from emlib import iterlib
-from dataclasses import dataclass
-import pitchtools as pt
+from statistics import stdev
 import functools
+from dataclasses import dataclass
 from collections import deque
 from math import sqrt
-from statistics import stdev
+
+from emlib import iterlib
+import pitchtools as pt
 
 from .notation import Notation
 
@@ -419,10 +419,10 @@ def _rateEnharmonicVariations(group: Sequence[Notation],
 
 
 def _chordPenalty(notations: Sequence[Notation],
-                   spelling: list[str],
-                   anchors: list[int],
-                   options: EnharmonicOptions
-                   ) -> float:
+                  spelling: list[str],
+                  anchors: list[int],
+                  options: EnharmonicOptions
+                  ) -> float:
     totalChordPenalty = 0
     for i, notation in enumerate(notations):
         notes = notation.notenames
@@ -560,7 +560,7 @@ def bestChordSpelling(notes: list[str] | tuple[str], options: EnharmonicOptions=
 
 @functools.cache
 def _bestChordSpelling(notes: tuple[str], options: EnharmonicOptions=None
-                      ) -> tuple[str]:
+                      ) -> tuple[str, ...]:
     if options is None:
         options = _defaultEnharmonicOptions
     fixedNotes = []
@@ -751,19 +751,35 @@ def fixEnharmonicsInPlace(notations: list[Notation], eraseFixedNotes=False,
     # Fix wrong accidentals
     # In pairs, we check glissandi and notes with inverted vertical position / pitch
     # (things like 4C# 4Db-)
+    tiestart = None
     for n0, n1 in iterlib.window(notations, 2):
-        if n0.isRest or n1.isRest:
+        if not n0.tiedPrev and n0.tiedNext:
+            tiestart = n0
+        elif n0.isRest or n0.isGracenote:
+            tiestart = None
+        if n0.isRest or n1.isRest or len(n0.pitches) > 1 or len(n1.pitches) > 1:
             continue
-        if n0.pitches[0] < n1.pitches[0] and \
-                n0.verticalPosition() > n1.verticalPosition():
+        if n0.pitches[0] < n1.pitches[0] and n0.verticalPosition() > n1.verticalPosition():
             # 4Db- : 4C#  -> 4C+ : 4Db
+            # print(f"### 1", n0, n0.getAttachments('text'))
+
             n0.fixNotename(pt.enharmonic(n0.notename()))
             n1.fixNotename(pt.enharmonic(n1.notename()))
-        elif n0.pitches[0] > n1.pitches[0] and \
-                n0.verticalPosition() < n1.verticalPosition():
+        elif n0.pitches[0] > n1.pitches[0] and n0.verticalPosition() < n1.verticalPosition():
             # 4C# : 4Db-  -> 4Db : 4C+
+            # print(f"### 2", n0, n0.getAttachments('text'))
+
             n0.fixNotename(pt.enharmonic(n0.notename()))
             n1.fixNotename(pt.enharmonic(n1.notename()))
+        elif (n0.gliss and
+              not n0.tiedNext and
+              n0.verticalPosition() == n1.verticalPosition()):
+            n0fixed, n1fixed = _bestChordSpelling((n0.notename(), n1.notename()), options=options)
+            n1.fixNotename(n1fixed)
+            if n0.tiedPrev and tiestart is not None:
+                tiestart.fixNotename(n0fixed)
+            else:
+                n0.fixNotename(n0fixed)
 
     return
 

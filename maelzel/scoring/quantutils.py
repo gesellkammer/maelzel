@@ -166,7 +166,8 @@ def gridDurations(beatDuration: F, division: division_t) -> list[F]:
     return grid
 
 
-def gridDurationsFlat(beatDuration: F, division: division_t) -> list[F]:
+def gridDurationsFlat(beatDuration: F, division: division_t
+                      ) -> list[F]:
     if isinstance(division, int):
         dt = beatDuration/division
         return [dt] * division
@@ -184,23 +185,19 @@ def gridDurationsFlat(beatDuration: F, division: division_t) -> list[F]:
 
 @cache
 def divisionGrid0(division: division_t, beatDuration: F) -> list[F]:
-    # assert isinstance(beatDuration, F)
-    # durations = iterlib.flatten(gridDurations(beatDuration, division))
     durations = gridDurationsFlat(beatDuration, division)
-    # flatgrid contains a flat list of the duration of each tick
-    # now we need to convert that to offsets
     grid = [F(0)]
     grid.extend(iterlib.partialsum(durations))
-    # assert grid[-1] == beatDuration
     return grid
 
 
-def divMinSlotDuration(div: division_t, beatDuration: F) -> F:
-    grid = divisionGrid0(div, beatDuration)
-    mindur = min(slot1 - slot0 for slot0, slot1 in iterlib.pairwise(grid))
-    return mindur
+#def divMinSlotDuration(div: division_t, beatDuration: F) -> F:
+#    grid = divisionGrid0(div, beatDuration)
+#    mindur = min(slot1 - slot0 for slot0, slot1 in iterlib.pairwise(grid))
+#    return mindur
 
 
+@cache
 def primeFactors(d: int, excludeBinary=False) -> set:
     assert isinstance(d, int), f"expected int, got {d}"
     factors = set()

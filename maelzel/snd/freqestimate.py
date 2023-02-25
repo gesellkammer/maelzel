@@ -12,7 +12,9 @@ import scipy.signal
 import logging
 import bpf4
 from maelzel.snd import vamptools
-
+from math import ceil
+from emlib.mathlib import nextpowerof2
+from maelzel.snd import numpysnd
 
 logger = logging.getLogger(__name__)
 
@@ -208,12 +210,12 @@ def f0curvePyin(sig: np.ndarray, sr: int, minfreq=50, maxfreq=5000,
     return bpf4.core.Linear(times, f0), bpf4.core.Linear(times, voiced_probs)
 
 
-def _fftWinlength(sr: int, minfreq: int) -> int:
-    return _nextPow2(int(sr/minfreq))
-
-
-def f0curvePyinVamp(sig: np.ndarray, sr: int, fftsize=2048, overlap=4,
-                    lowAmpSupression=0.1, onsetSensitivity=0.7,
+def f0curvePyinVamp(sig: np.ndarray,
+                    sr: int,
+                    fftsize=2048,
+                    overlap=4,
+                    lowAmpSuppression=0.1,
+                    onsetSensitivity=0.7,
                     pruneThreshold=0.1,
                     threshDistr='beta15',
                     unvoicedFreqs='nan'
@@ -225,9 +227,9 @@ def f0curvePyinVamp(sig: np.ndarray, sr: int, fftsize=2048, overlap=4,
     Args:
         sig: the signal as numpy array
         sr: the sr
-        fftsize: with sizes greater than 2048 the result might be unstable
+        fftsize: with sizes lower than 2048 the result might be unstable
         overlap: hop size as fftsize//overlap
-        lowAmpSupression: supress low amplitude pitch estimates
+        lowAmpSuppression: supress low amplitude pitch estimates
         onsetSensitivity: onset sensitivity
         pruneThreshold: duration pruning threshold
         threshDistr: yin threshold distribution (see table below) - One of
@@ -257,20 +259,21 @@ def f0curvePyinVamp(sig: np.ndarray, sr: int, fftsize=2048, overlap=4,
     if _sigNumChannels(sig) > 1:
         raise ValueError("sig should be a mono signal")
 
+    if fftsize < 2048:
+        logger.warning(f"The fft size ({fftsize}) is too small for f0 tracking, it needs to be"
+                       f" at least 2048. Using 2048 instead")
+        fftsize = 2048
+
     from maelzel.snd import vamptools
     data = vamptools.pyinPitchTrack(sig, sr=sr, fftSize=fftsize, overlap=overlap,
-                                    lowAmpSuppression=lowAmpSupression,
+                                    lowAmpSuppression=lowAmpSuppression,
                                     onsetSensitivity=onsetSensitivity,
                                     pruneThresh=pruneThreshold,
-                                    threshDistr=threshDistr)
+                                    threshDistr=threshDistr,
+                                    outputUnvoiced=unvoicedFreqs)
     times = np.ascontiguousarray(data[:, 0])
     f0 = np.ascontiguousarray(data[:, 1])
     probs = np.ascontiguousarray(data[:, 2])
-    # Unvoiced estimates are given a negative frequency. Convert to nan
-    # if needed
-    if unvoicedFreqs == 'nan':
-        f0[f0 <= 0] = np.nan
-
     return bpf4.core.Linear(times, f0), bpf4.core.Linear(times, probs)
 
 
@@ -278,8 +281,29 @@ def _sigNumChannels(sig: np.ndarray):
     return sig.shape[1] if len(sig.shape) > 1 else 1
 
 
-def f0curve(sig: np.ndarray, sr: int, minfreq=100, steptime=0.01,
-            method='pyin'
+def frequencyToWindowSize(freq: int, sr: int, powerof2=False, factor=2.0) -> int:
+    """
+    Return the size of a window in samples which can fit the given frequency
+
+    Args:
+        freq: the lowest frequency to fit in the window
+        sr: the sampling rate
+        powerof2: if True, force the size to the next power of two
+        factor: the factor used to fit to account for phase shifts. Without this
+            the window will not fit an entire cycle of the given frequency unless
+            the signal is in perfect sync with the window.
+
+    Returns:
+        the size of the window in samples
+    """
+    winsize = int(ceil(1/freq  * sr * factor))
+    if powerof2:
+        winsize = nextpowerof2(winsize)
+    return winsize
+
+
+def f0curve(sig: np.ndarray, sr: int, minfreq=60, overlap=4,
+            method='pyin', unvoicedFreqs='nan'
             ) -> tuple[bpf4.BpfInterface, bpf4.BpfInterface]:
     """
     Estimate the fundamental and its voicedness
@@ -300,12 +324,17 @@ def f0curve(sig: np.ndarray, sr: int, minfreq=100, steptime=0.01,
         sr: the sr
         minfreq: the min. frequency of the fundamental. Using this hint
             we estimate the best value for fft size / window size
-        steptime: the time step between measurements
+        overlap: the amount of overlap between analysis windows
         method: the method used. One of 'pyin', 'fft', 'hps', 'autocorrelation'.
             For pyin make sure that you are using the vamp plugin, since the
             fallback version (using an implementation based on librosa's version
             of the algorithm) is very slow at the moment. **If the vamp plugin
             is not available you should see a warning**
+        unvoicedFreqs: (only relevant for method 'pyin'). One of 'nan', 'negative'.
+            If 'nan' unvoiced  frequencies (frequencies for segments where the
+            f0 confidence is too low) are given as `nan`. If 'negative' unvoiced
+            freqs are given as negative.
+
 
     Returns:
         a tuple (f0curve, f0voicedness)
@@ -336,24 +365,22 @@ def f0curve(sig: np.ndarray, sr: int, minfreq=100, steptime=0.01,
             logger.warning("The pyin vamp plugin was not found. Falling back to"
                            "the python version, this might be very slow")
 
+
     if method == 'pyin-native':
-        hoplength = int(steptime * sr)
-        winlength = _fftWinlength(sr, minfreq)
+        winlength = frequencyToWindowSize(minfreq, sr=sr, powerof2=False)
+        hoplength = winlength // overlap
+        fftlength = nextpowerof2(winlength)
         return f0curvePyin(sig, sr, minfreq=minfreq,
-                           framelength=winlength*2,
+                           framelength=fftlength,
                            winlength=winlength, hoplength=hoplength)
     elif method == 'pyin-vamp':
-        for f0, f1, fftsize in [(0,   30, 8192),
-                                (30,  60, 4096),
-                                (60, 600, 2048),
-                                (600, 99999, 1024)]:
-            if f0 <= minfreq < f1:
-                break
-        return f0curvePyinVamp(sig, sr, fftsize=fftsize)
+        fftsize = frequencyToWindowSize(minfreq, sr=sr, powerof2=True)
+        return f0curvePyinVamp(sig, sr, fftsize=fftsize, overlap=overlap,
+                               unvoicedFreqs=unvoicedFreqs)
 
-    stepsize = int(steptime*sr)
-    windowsize = _fftWinlength(sr, minfreq)
-    maxidx = len(sig) - windowsize
+    winsize = frequencyToWindowSize(minfreq, sr, powerof2=True)
+    stepsize = winsize // overlap
+    maxidx = len(sig) - winsize
     maxn = int(maxidx / stepsize)
     func = {
         'autocorrelation': f0Autocorr,
@@ -363,9 +390,53 @@ def f0curve(sig: np.ndarray, sr: int, minfreq=100, steptime=0.01,
     freqs, times, probs = [], [], []
     for n in range(maxn):
         idx = n * stepsize
-        arr = sig[idx: idx+windowsize]
+        arr = sig[idx: idx+winsize]
         freq, prob = func(arr, sr)
         freqs.append(freq)
         times.append(idx/sr)
         probs.append(prob)
     return bpf4.core.Linear(times, freqs), bpf4.core.Linear(times, probs)
+
+
+def detectMinFrequency(samples: np.ndarray, sr: int, freqThreshold=30, overlap=4,
+                       lowAmpSuppression=0.1,
+                       refine=True
+                       ) -> tuple[float, float]:
+    """
+    Detect the min. frequency in this audio sample
+
+    Args:
+        samples: the samples to analyze
+        sr: the sample rate
+        freqThreshold: the lowest freq. to considere
+        overlap: the amount of overlap analysis per window
+        lowAmpSuppression: how much to supress low amplitudes
+        refine: if True, refine the freq and time data. This allows to
+            performe a more coarse pass with a low overlap (for example, 4)
+            and then a short pass with a higher overlap to obtain a more
+            accurate value
+
+    Returns:
+        a tuple (min. freq, corresponding time) or (0., 0.) if no pitched sound was detected
+
+    """
+    fftsize = frequencyToWindowSize(freqThreshold, sr=sr)
+    f0data = vamptools.pyinPitchTrack(samples, sr=sr, fftSize=fftsize, overlap=overlap,
+                                      lowAmpSuppression=lowAmpSuppression,
+                                      outputUnvoiced='nan')
+    freqs = f0data[:,1]
+    mask  = freqs > freqThreshold
+    selected = freqs[mask]
+    if len(selected) == 0:
+        return 0., 0.
+    idx = selected.argmin()
+    time = f0data[:,0][mask][idx]
+    if refine:
+        margin = 0.2
+        start = int((time - margin)*sr)
+        end = int((time + margin)*sr)
+        f, t = detectMinFrequency(samples[start:end], sr=sr, freqThreshold=freqThreshold,
+                                  overlap=overlap*4, lowAmpSuppression=lowAmpSuppression,
+                                  refine=False)
+        return f, time - margin + t
+    return selected[idx], time

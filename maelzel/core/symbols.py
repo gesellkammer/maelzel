@@ -169,6 +169,9 @@ class Spanner(Symbol):
             >>> chain[0].addSpanner(Slur(linetype='dashed'), chain[1])
 
         """
+        if startobj is endobj:
+            raise ValueError("Cannot bind a spanner to the same object as start and end anchor")
+
         startobj.addSymbol(self)
         if self.anchor is None:
             self.setAnchor(startobj)
@@ -192,6 +195,8 @@ class Spanner(Symbol):
             way with the only difference that ``kind='end'``
 
         """
+        if anchor and self.anchor is anchor:
+            raise ValueError("Start anchor and end anchor cannot be the same object")
         endSpanner = copy.copy(self)
         endSpanner.kind = 'end'
         endSpanner.partnerSpanner = weakref.ref(self)
@@ -257,6 +262,13 @@ class Slur(Spanner):
     def applyTo(self, n: scoring.Notation) -> None:
         slur = scoring.spanner.Slur(kind=self.kind, uuid=self.uuid, linetype=self.linetype)
         n.addSpanner(slur)
+
+
+class Beam(Spanner):
+
+    def applyTo(self, n: scoring.Notation) -> None:
+        spanner = scoring.spanner.Beam(kind=self.kind, uuid=self.uuid)
+        n.addSpanner(spanner)
 
 
 class Hairpin(Spanner):
@@ -351,7 +363,8 @@ _spannerNameToConstructor: dict[str] = {
     'bracket': Bracket,
     '<': lambda **kws: Hairpin(direction='<', **kws),
     '>': lambda **kws: Hairpin(direction='>', **kws),
-    'hairpin': Hairpin
+    'hairpin': Hairpin,
+    'beam': Beam
 }
 
 
@@ -409,6 +422,7 @@ def makeSpanner(descr: str, kind='start') -> Spanner:
 # --------------------------------
 
 
+
 class SizeFactor(Property):
     """Sets the size of an object (as a factor of default size)"""
     scopes = {'note'}
@@ -423,7 +437,7 @@ class SizeFactor(Property):
 
 
 class Color(Property):
-    """Customizes the color of a MusicObj"""
+    """Customizes the color of an object"""
 
     scopes = {'note'}
 
@@ -433,6 +447,14 @@ class Color(Property):
     def applyTo(self, n: scoring.Notation) -> None:
         if self.scope == 'note':
             n.color = self.value
+
+
+class Hidden(Property):
+    def __init__(self, scope='note'):
+        super().__init__(value=True, scope=scope)
+
+    def applyTo(self, n: scoring.Notation) -> None:
+        n.addAttachment(scoring.attachment.Property('hidden', value=True))
 
 
 class NoteAttachedSymbol(Symbol):
@@ -501,6 +523,19 @@ class Fermata(NoteAttachedSymbol):
 
     def applyTo(self, n: scoring.Notation) -> None:
         n.addAttachment(scoring.attachment.Fermata(kind=self.kind))
+
+
+class Breath(NoteAttachedSymbol):
+    exclusive = True
+    appliesToRests = False
+
+    def __init__(self, kind='', visible=True):
+        super().__init__()
+        self.visible = visible
+        self.kind = kind
+
+    def applyTo(self, n: scoring.Notation) -> None:
+        n.addAttachment(scoring.attachment.Breath(kind=self.kind, visible=self.visible))
 
 
 class Text(NoteAttachedSymbol):
@@ -770,6 +805,23 @@ class Bend(NoteAttachedSymbol):
         n.addAttachment(scoring.attachment.Bend(self.alter))
 
 
+class Stem(NoteAttachedSymbol):
+    """
+    Customize the stem of a note
+
+    Attributes:
+        hidden: if True, the stem will be hidden
+    """
+
+    def __init__(self, hidden: bool = False):
+        super().__init__()
+        self.hidden = hidden
+
+    def applyTo(self, n: scoring.Notation) -> None:
+        if self.hidden:
+            n.stem = 'hidden'
+
+
 class Accidental(PitchAttachedSymbol):
     """
     Customizes the accidental of a note
@@ -825,6 +877,8 @@ class Accidental(PitchAttachedSymbol):
         n.addAttachment(attachment)
 
 
+# -------------------------------------------------------------------
+
 _symbols = (
     Notehead,
     Articulation,
@@ -842,7 +896,8 @@ _symbols = (
     NoteheadLine,
     Bend,
     Fingering,
-    Harmonic
+    Harmonic,
+    Breath
 )
 
 

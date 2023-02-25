@@ -1,11 +1,15 @@
 from __future__ import annotations
+import itertools
+import logging
+
 from emlib import iterlib
+
 from .common import *
 from .notation import *
 from . import definitions
 from . import util
-import itertools
-import logging
+from maelzel import scorestruct
+
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Union, Iterator
@@ -24,7 +28,7 @@ __all__ = (
     'packInParts',
     'mergeNotationsIfPossible',
     'notationsCanMerge',
-    'fixOverlap',
+    'removeOverlap',
     'NotatedDuration',
 )
 
@@ -50,7 +54,7 @@ class Part(list):
         self.shortname: str = ''
         if events:
             assert all(isinstance(n, Notation) for n in events)
-            _fixGlissInPart(self)
+            _repairGracenoteAsTargetGliss(self)
 
     def __getitem__(self, item) -> Notation:
         return super().__getitem__(item)
@@ -132,6 +136,26 @@ class Part(list):
         notations = stackNotations(self)
         return Part(notations, name=self.name, groupid=self.groupid)
 
+    def groupNotationsByMeasure(self, struct: scorestruct.ScoreStruct
+                                ) -> list[list[Notation]]:
+        currMeasure = -1
+        groups = []
+        for n in self:
+            assert n.offset is not None and n.duration is not None
+            loc = struct.beatToLocation(n.offset)
+            if loc is None:
+                logger.error(f"Offset {n.offset} outside of scorestruct, for {n}")
+                logger.error(f"Scorestruct: duration = {struct.totalDurationBeats()} quarters\n{struct.dump()}")
+                raise ValueError(f"Offset {float(n.offset):.3f} outside of score structure "
+                                 f"(max. offset: {float(struct.totalDurationBeats()):.3f})")
+            elif loc[0] == currMeasure:
+                groups[-1].append(n)
+            else:
+                # new measure
+                currMeasure = loc[0]
+                groups.append([n])
+        return groups
+
 
 class Arrangement(list):
     """
@@ -145,7 +169,7 @@ class Arrangement(list):
         self.title = title
 
 
-def _fixGlissInPart(notations: list[Notation]):
+def _repairGracenoteAsTargetGliss(notations: list[Notation]) -> None:
     """
     Removes superfluous end glissandi notes **in place**
 
@@ -153,9 +177,16 @@ def _fixGlissInPart(notations: list[Notation]):
     end glissandi notes when the endgliss is the same as the next note
     """
     toBeRemoved = []
+    skip = False
     for n0, n1, n2 in iterlib.window(notations, 3):
-        if n0.gliss and n1.isGraceNote and n1.pitches == n2.pitches:
-            toBeRemoved.append(n1)
+        if skip:
+            skip = False
+            continue
+        if n0.gliss and n1.isGracenote and n1.pitches == n2.pitches:
+            # check if the gracenote is empty
+            if not n1.hasAttributes():
+                toBeRemoved.append(n1)
+                skip = True
     for item in toBeRemoved:
         notations.remove(item)
     stackNotationsInPlace(notations)
@@ -190,7 +221,7 @@ def stackNotationsInPlace(events: list[Notation], start=F(0), overrideOffset=Fal
             ev.duration = events[i+1].offset - ev.offset
         now += ev.duration
     assert all(ev1.offset <= ev2.offset for ev1, ev2 in iterlib.pairwise(events))
-    fixOverlap(events)
+    removeOverlap(events)
 
 
 def stackNotations(events: list[Notation], start=F(0), overrideOffset=False
@@ -215,7 +246,7 @@ def stackNotations(events: list[Notation], start=F(0), overrideOffset=False
     return events
 
 
-def fixOverlap(notations: list[Notation], maxgap=F(1, 10000)) -> None:
+def removeOverlap(notations: list[Notation], maxgap=F(1, 10000)) -> None:
     """
     Fix overlap between notations, in place.
 
@@ -373,7 +404,7 @@ def distributeNotationsByClef(notations: list[Notation],
         if notation.isRest:
             if not filterRests:
                 parts['g'].append(notation)
-        elif len(notation) == 1:
+        elif len(notation.pitches) == 1:
             clef = _pitchToClef(notation.pitches[0], splitPoint)
             parts[clef].append(notation)
         else:

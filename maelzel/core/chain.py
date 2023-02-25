@@ -83,9 +83,14 @@ def stackEvents(events: list[MEvent | Chain],
     lasti = len(events) - 1
     for i, ev in enumerate(events):
         if ev.offset is not None:
-            assert ev.offset >= now, (f'{ev} has an explicit offset={ev.offset}, but it overlaps with '
-                                      f'the calculated offset ({now})')
-            now = ev.offset
+            if ev.offset < now:
+                if now - ev.offset < 1e-10:
+                    ev.offset = now
+                else:
+                    raise ValueError(f'{ev} (#{i}) has an explicit offset={ev.offset}, but it overlaps with '
+                                     f'the calculated offset by {now - ev.offset})')
+            else:
+                now = ev.offset
         elif explicitOffsets:
             ev.offset = now
 
@@ -328,7 +333,7 @@ class Chain(MObj, MContainer):
         self.items = items
         self._modified = True
 
-    def itemAfter(self, item: MEvent) -> MEvent | Chain | None:
+    def itemAfter(self, item: MEvent | Chain) -> MEvent | Chain | None:
         """
         Returns the next item after *item*
 
@@ -491,7 +496,9 @@ class Chain(MObj, MContainer):
         self._resolveGlissandi()
         chain = self.flat(forcecopy=True)
         chain.stack()
-        # assert all(item.offset is not None and item.dur is not None for item in chain)
+
+        for item in chain.items:
+            assert item.dur >= 0, f"{item=}"
 
         conf = workspace.config
         if self.playargs:
@@ -504,6 +511,7 @@ class Chain(MObj, MContainer):
         if any(n.isGracenote() for n in chain.items):
             gracenoteDur = F(conf['play.gracenoteDuration'])
             _mobjtools.addDurationToGracenotes(chain.items, gracenoteDur)
+
         if conf['play.useDynamics']:
             _mobjtools.fillTempDynamics(chain.items, initialDynamic=conf['play.defaultDynamic'])
 
@@ -517,7 +525,6 @@ class Chain(MObj, MContainer):
                                             workspace=workspace)
                 synthevents.extend(events)
             elif isinstance(group, list):
-                # lines = _mobjtools.splitLinkedGroupIntoLines(group)
                 synthgroups = [event._synthEvents(playargs, parentOffset=offset, workspace=workspace)
                                for event in group]
                 synthlines = _splitSynthGroupsIntoLines(synthgroups)
@@ -528,33 +535,19 @@ class Chain(MObj, MContainer):
                         if len(synthline) == 1:
                             synthevent = synthline[0]
                         else:
+                            for ev1, ev2 in iterlib.pairwise(synthline):
+                                assert abs(ev1.end - ev2.delay) < 1e-6, f"gap={ev1.end - ev1.delay}, {ev1=}, {ev2=}"
+
                             synthevent = SynthEvent.mergeTiedEvents(synthline)
                     else:
                         raise TypeError(f"Expected a SynthEvent or a list thereof, got {synthline}")
-                    assert isinstance(synthevent, SynthEvent)
                     synthevents.append(synthevent)
-                    # TODO: fix / add playargs (see below)
-                # A line of notes
-                # for line in lines:
-                #     # bps = [item._synthEvents(playargs=playargs, parentOffset=offset, workspace=workspace)]
-                #     # TODO: use _synthEvents instead of calculating the breakpoints by hand
-                #     bps = [[float(struct.beatToTime(item.offset + offset)),
-                #             item.pitch + transpose,
-                #             item.resolveAmp(workspace=workspace)]
-                #            for item in line]
-                #     lastev = line[-1]
-                #     pitch = lastev.gliss or lastev.pitch
-                #     assert lastev.end is not None
-                #     bps.append([float(struct.beatToTime(lastev.end + offset)),
-                #                 pitch + transpose,
-                #                 lastev.resolveAmp(workspace=workspace)])
-                #     for bp in bps:
-                #         assert all(isinstance(x, (int, float)) for x in bp), f"bp: {bp}\n{bps=}"
-                #     first = line[0]
-                #     evplayargs = playargs if not first.playargs else playargs.overwrittenWith(first.playargs)
-                #     synthevents.append(SynthEvent.fromPlayArgs(bps=bps, playargs=evplayargs))
+                    # TODO: fix / add playargs
             else:
                 raise TypeError(f"Did not expect {group}")
+        for event in synthevents:
+            event.linkednext = False
+            # assert isinstance(event, SynthEvent) and not event.linkednext, f"{event=}"
         return synthevents
 
     def mergeTiedEvents(self) -> None:
@@ -744,6 +737,8 @@ class Chain(MObj, MContainer):
                 infoparts = []
                 if item.label:
                     infoparts.append(f'label: {item.label}')
+                if item.properties:
+                    infoparts.append(f'properties: {item.properties}')
 
                 if isinstance(item, MEvent):
                     name = item.name
@@ -757,6 +752,7 @@ class Chain(MObj, MContainer):
                         durstr = _util.showT(item.dur).ljust(widths['dur'])
                     else:
                         durstr = f'({itemdur})'.ljust(widths['dur'])
+                    playargs = 'None' if not item.playargs else ', '.join(f'{k}={v}' for k, v in item.playargs.db.items())
                     rowparts = [IND*(indents+1),
                                 _util.showT(now + itemoffset).ljust(widths['beat']),
                                 offsetstr,
@@ -764,7 +760,7 @@ class Chain(MObj, MContainer):
                                 name.ljust(widths['name']),
                                 str(item.gliss).ljust(widths['gliss']),
                                 str(item.dynamic).ljust(widths['dyn']),
-                                str(self.playargs).ljust(widths['playargs']),
+                                playargs.ljust(widths['playargs']),
                                 ' '.join(infoparts) if infoparts else '-'
                                 ]
                     row = f"<code>{_util.htmlSpan(''.join(rowparts), ':blue1', fontsize=fontsize)}</code>"
@@ -775,6 +771,8 @@ class Chain(MObj, MContainer):
 
                 elif isinstance(item, Chain):
                     rows.extend(item._dumpRows(indents=indents+1, now=now+itemoffset, forcetext=forcetext))
+                else:
+                    1/0
             return rows
         else:
             rows = [f"{IND * indents}Chain -- beat: {self.absoluteOffset()}, offset: {selfstart}, dur: {self.resolveDur()}",
@@ -1138,8 +1136,37 @@ class Chain(MObj, MContainer):
         self.dur = itemsdur
         return items
 
-    def addSpanner(self, spanner: str | symbols.Spanner, endobj: MObj = None
+    def addSpanner(self, spanner: str | symbols.Spanner
                    ) -> None:
+        """
+        Adds a spanner symbol across this object
+
+        A spanner is a slur, line or any other symbol attached to two or more
+        objects. A spanner always has a start and an end.
+
+        Args:
+            spanner: a Spanner object or a spanner description (one of 'slur', '<', '>',
+                'trill', 'bracket', etc. - see :func:`maelzel.core.symbols.makeSpanner`
+                When passing a string description, prepend it with '~' to create an end spanner
+
+        Returns:
+            self (allows to chain calls)
+
+        Example
+        ~~~~~~~
+
+            >>> chain = Chain([
+            ... Note("4C", 1),
+            ... Note("4D", 0.5),
+            ... Note("4E")   # This ends the hairpin spanner
+            ... ])
+            >>> chain.addSpanner('slur')
+
+        This is the same as:
+
+            >>> chain[0].addSpanner('slur', chain[-1])
+
+        """
         first = next(self.recurse())
         last = next(self.recurse(reverse=True))
         if isinstance(spanner, str):
@@ -1147,8 +1174,14 @@ class Chain(MObj, MContainer):
         assert isinstance(first, (Note, Chord)) and isinstance(last, (Note, Chord))
         spanner.bind(first, last)
 
-    def itemsBetween(self, startbeat: time_t, endbeat: time_t, absolute=False
-                     ) -> list[MEvent]:
+    def firstEvent(self) -> MEvent | None:
+        return next(self.recurse(), None)
+
+    def lastEvent(self) -> MEvent | None:
+        return next(self.recurse(reverse=True))
+
+    def eventsBetween(self, startbeat: time_t, endbeat: time_t, absolute=False
+                      ) -> list[MEvent]:
         """
         Returns the events which are **included** by the given times in quarternotes
 
@@ -1264,7 +1297,7 @@ def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
 
     TODO
     """
-    def bestContinuation(event: SynthEvent, candidates: list[SynthEvent]
+    def bestContinuation(event: SynthEvent, candidates: list[SynthEvent],
                          ) -> int | None:
         assert event.linkednext, f"Event {event} is not tied"
         pitch = event.bps[-1][1]
@@ -1291,7 +1324,8 @@ def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
         if nextEventIndex is None:
             return out
         availableNodes.discard(nextEventIndex)
-        continuationLine = makeLine(nextEventIndex, groupindex + 1, availableNodesPerGroup=availableNodesPerGroup)
+        continuationLine = makeLine(nextEventIndex, groupindex + 1,
+                                    availableNodesPerGroup=availableNodesPerGroup)
         out.extend(continuationLine)
         return out
 
@@ -1299,7 +1333,9 @@ def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
     availableNodesPerGroup: list[set[int]] = [set(range(len(group))) for group in groups]
     for groupindex in range(len(groups)):
         for nodeindex in availableNodesPerGroup[groupindex]:
-            line = makeLine(nodeindex, groupindex=groupindex, availableNodesPerGroup=availableNodesPerGroup)
+            line = makeLine(nodeindex, groupindex=groupindex,
+                            availableNodesPerGroup=availableNodesPerGroup)
+            line[-1].linkednext = False
             assert isinstance(line, list) and len(line) >= 1, f"{nodeindex=}, event={groups[groupindex][nodeindex]}"
             if len(line) == 1:
                 out.append(line[0])
@@ -1311,6 +1347,7 @@ def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
     if lastGroupIndexes:
         lastGroup = groups[-1]
         out.extend(lastGroup[idx] for idx in lastGroupIndexes)
+
     return out
 
 

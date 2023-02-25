@@ -3,7 +3,11 @@ Functions and code snippets to make working with abjad less frustrating
 
 """
 from __future__ import annotations
-import abjad as abj
+
+try:
+    import abjad as abj
+except ImportError:
+    raise ImportError("Abjad was not found. Install it in order to use this module")
 
 from maelzel.common import F
 import copy

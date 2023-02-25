@@ -221,7 +221,7 @@ class Line(MEvent):
                                               gracenote=True,
                                               group=groupid))
         if notations:
-            scoring.fixOverlap(notations)
+            scoring.removeOverlap(notations)
             annot = self._scoringAnnotation()
             if annot:
                 notations[0].addText(annot)

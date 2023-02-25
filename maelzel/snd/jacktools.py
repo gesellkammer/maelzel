@@ -10,6 +10,7 @@ from typing import Optional
 
 _jackclient = None
 
+
 class PlatformNotSupportedError(Exception): pass
 
 
@@ -86,12 +87,15 @@ def clients_connected_to(name_pattern):
     Example
     =======
 
-    clientA:out_1   ----->   system:playback1
-    clientB:out_1   ----->   system:playback1
-    clientB:out_2   ----->   system:playback2 
-    clientC:out_1   ----->   clinetA:in_1
+    .. code::
 
-    clients_connected_to("system:playback") --> {"clientA", "clientB"}
+        clientA:out_1   ----->   system:playback1
+        clientB:out_1   ----->   system:playback1
+        clientB:out_2   ----->   system:playback2
+        clientC:out_1   ----->   clinetA:in_1
+
+    >>> clients_connected_to("system:playback")
+    {"clientA", "clientB"}
     """
     myjack = get_client()
     connectedto_ports = myjack.get_ports(name_pattern, is_audio=True, is_input=True)
@@ -111,12 +115,15 @@ def _disconnect_port(port:jack.Port):
             print(e)
 
 
-def connect_client(source:str, dest:str, disconnect=False):
+def connect_client(source: str, dest: str, disconnect=False) -> None:
     """
     Connect all ports of source to matching ports of dest
 
-    disconnect: if True, disconnect source from all other destinations before
-                connecting to dest
+    Args:
+        source: the name of the source client
+        dest: the name of the destination client
+        disconnect: if True, disconnect source from all other destinations before
+            connecting to dest
     """
     myjack = get_client()
     sourceports = myjack.get_ports(source, is_audio=True, is_output=True)
