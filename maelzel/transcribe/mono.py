@@ -346,6 +346,10 @@ class FundamentalAnalysisMono:
             bp1.duration = bp2.time - bp1.time
 
     def flatBreakpoints(self) -> Iterator[Breakpoint]:
+        """
+        Returns an iterator over all breakpoints in this analysis
+
+        """
         for group in self.groups:
             yield from group
 
@@ -357,20 +361,30 @@ class FundamentalAnalysisMono:
         return html
 
     def plot(self, linewidth=2, axes=None, spanAlpha=0.2):
-        """Plot the breakpoints of this analysis"""
+        """
+        Plot the breakpoints of this analysis
+
+        Args:
+            linewidth: the line width used in the plot
+            axes: if given, a pyplot Axes instance to plot on
+            spanAlpha: the alpha value for the axvspan used to mark the
+                onset-offset regions
+
+        """
         import matplotlib.pyplot as plt
         if not axes:
             axes = plt.axes()
         for group in self.groups:
             times = [bp.time for bp in group]
             freqs = [bp.freq for bp in group]
-            axes.plot(times, freqs)
+            axes.plot(times, freqs, linewidth=linewidth)
             t0 = group[0].time
             if len(group) > 1:
                 t1 = group[-1].time
                 axes.axvspan(t0, t1, alpha=spanAlpha, color='red')
             else:
                 axes.axvline(t0, color='red')
+
 
 
     def simplify(self, algorithm='visvalingam', threshold=0.05) -> None:
@@ -418,7 +432,8 @@ class FundamentalAnalysisMono:
             the  resulting maelzel.core Voice
 
         """
-        from maelzel.core import Note, Voice
+        from maelzel.core.event import Note
+        from maelzel.core.chain import Voice
         notes = []
         lastgroupidx = len(self.groups) - 1
         pitchconv = self._pitchconv
@@ -453,7 +468,7 @@ class FundamentalAnalysisMono:
             # TODO
             nextgroup = self.groups[groupidx + 1] if groupidx < lastgroupidx else None
 
-            if last.kind == 'offset' and pitchconv.f2m(last.freq):
+            if last.kind == 'offset' and last.freq:
                 fragment.append(Note(pitchconv.f2m(last.freq) or unvoicedPitch, dur=0, amp=last.amp))
             else:
                 fragment[-1].gliss = False

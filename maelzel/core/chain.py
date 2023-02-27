@@ -547,7 +547,6 @@ class Chain(MObj, MContainer):
                 raise TypeError(f"Did not expect {group}")
         for event in synthevents:
             event.linkednext = False
-            # assert isinstance(event, SynthEvent) and not event.linkednext, f"{event=}"
         return synthevents
 
     def mergeTiedEvents(self) -> None:
