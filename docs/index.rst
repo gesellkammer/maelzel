@@ -8,41 +8,26 @@ maelzel
 =======
 
 **maelzel** is a framework for computer music in python. It provides datatypes
-to define *notes*, *chords*, *sequences*, *lines*, *voices*, *scores*, etc. These
-can be represented as notation and used for audio synthesis. Other functionality
-includes working with sound (loading soundfiles and samples, applying filters,
-fading, mixing, playback), sound analysis, acoustics, etc.
-
-Demo Notebook
--------------
-
-`Analysis / Recreation of Messiaen's *Liturgie de Cristal* <https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/examples/Messiaen-La%20Liturgie%20de%20Cristal.ipynb>`_
-
-.. image:: assets/messiaen-notebook.jpg
-  :target: https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/examples/Messiaen-La%20Liturgie%20de%20Cristal.ipynb
-  :alt: Jupyter Session 1
+to define *notes*, *chords*, *sequences*, *voices*, *scores*, etc. These
+can be represented as notation or used for audio synthesis. Other functionality
+includes working with sound (audio samples, sound analysis, dsp),
+transcription, acoustics, etc.
 
 ----------------
 
 Quick Start
 -----------
 
-**maelzel** needs a python version >= 3.9
+**maelzel** needs a python version >= 3.9. Installation::
 
     pip install maelzel
 
-There are some **external dependencies** which need to be installed manually:
+There are **external dependencies** which need to be installed manually:
 
-* **csound** >= 6.16. (https://csound.com/download.html).
+* **csound** >= 6.18. (https://csound.com/download.html).
 * **lilypond** (https://lilypond.org/download.html)
-* **MuseScore** (https://musescore.org) - Optional - useful for quick rendering to png
 
 For more information see :ref:`installation`
-
------------------
-
-.. include:: Tutorial.rst
-
 
 -----------------
 

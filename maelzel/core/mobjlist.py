@@ -24,7 +24,7 @@ class MObjList(MObj):
     """
     A sequence of music objects
 
-    This class serves as a base for all container classes (Chain, Group, Voice)
+    This class serves as a base for container classes like Score
     **It should not be instantiated by itself**
 
     """

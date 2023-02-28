@@ -232,7 +232,7 @@ class Workspace:
 
         Args:
             config: the config to use. **Leave unset** to clone this Workspace's config.
-             scorestruct: if unset, use this Workspace's scorestruct
+            scorestruct: if unset, use this Workspace's scorestruct
             active: if True, activate the cloned Workspace
 
         Returns:
