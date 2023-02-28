@@ -5,11 +5,13 @@ from .mobj import MObj, MContainer
 from .config import CoreConfig
 from .chain import Voice, Chain
 from .workspace import getConfig
-from .mobjlist import MObjList
+from .synthevent import PlayArgs, SynthEvent
+from .workspace import Workspace
 from maelzel.scorestruct import ScoreStruct
 from maelzel import scoring
+from ._common import UNSET
 
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, Sequence, Callable
 if TYPE_CHECKING:
     from ._typedefs import *
 
@@ -19,7 +21,7 @@ __all__ = (
 )
 
 
-class Score(MContainer, MObjList):
+class Score(MObj, MContainer):
     """
     A Score is a list of Voices
 
@@ -46,7 +48,8 @@ class Score(MContainer, MObjList):
         self.voices: list[Voice] = asvoices
         """the voices of this score"""
 
-        MObjList.__init__(self, label=title, offset=F(0))
+        super().__init__(label=title, offset=F(0))
+
         self._scorestruct = scorestruct
         self._modified = True
 
@@ -90,9 +93,6 @@ class Score(MContainer, MObjList):
         self._modified = True
         self.dur = None
 
-    def getItems(self) -> list[Voice]:
-        return self.voices
-
     def append(self, voice: Voice | Chain) -> None:
         if isinstance(voice, Chain):
             voice = voice.asVoice()
@@ -119,7 +119,10 @@ class Score(MContainer, MObjList):
             parts.extend(voiceparts)
         return parts
 
-    def scoringEvents(self, groupid='', config: CoreConfig | None = None
+    def scoringEvents(self,
+                      groupid='',
+                      config: CoreConfig = None,
+                      parentOffset: F | None = None
                       ) -> list[scoring.Notation]:
         parts = self.scoringParts(config or getConfig())
         flatevents = []
@@ -127,6 +130,41 @@ class Score(MContainer, MObjList):
             flatevents.extend(part)
         # TODO: deal with groupid
         return flatevents
+
+    def _synthEvents(self,
+                     playargs: PlayArgs,
+                     parentOffset: F,
+                     workspace: Workspace
+                     ) -> list[SynthEvent]:
+        if self.playargs:
+            playargs = playargs.overwrittenWith(self.playargs)
+        parentOffset = self.parent.absoluteOffset() if self.parent else F(0)
+        out = []
+        for voice in self.voices:
+            events = voice._synthEvents(playargs=playargs, workspace=workspace,
+                                        parentOffset=parentOffset)
+            out.extend(events)
+        return out
+
+    def __copy__(self):
+        voices = [voice for voice in self.voices]
+        return Score(voices=voices, scorestruct=self._scorestruct, title=self.label)
+
+    def copy(self):
+        return self.__deepcopy__()
+
+    def __deepcopy__(self, memodict={}):
+        voices = [voice for voice in self.voices]
+        return Score(voices=voices.copy(), scorestruct=self._scorestruct, title=self.label)
+
+    def clone(self,
+              voices: list[Voice] = UNSET,
+              scorestruct: ScoreStruct = UNSET,
+              label: str = UNSET,
+              ):
+        return Score(voices=self.voices.copy() if voices is UNSET else voices,
+                     scorestruct=self.scorestruct() if scorestruct is UNSET else scorestruct,
+                     title=self.label if label is UNSET else label)
 
     def childOffset(self, child: MObj) -> F:
         offset = child._detachedOffset()
@@ -137,3 +175,7 @@ class Score(MContainer, MObjList):
 
     def absoluteOffset(self) -> F:
         return F(0)
+
+    def pitchTransform(self, pitchmap: Callable[[float], float]) -> Score:
+        voices = [voice.pitchTransform(pitchmap) for voice in self.voices]
+        return self.clone(voices=voices)

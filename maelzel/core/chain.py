@@ -213,6 +213,7 @@ class Chain(MObj, MContainer):
                          properties=properties, parent=parent)
         if items is not None:
             for item in items:
+                assert isinstance(item, MEvent)
                 item.parent = self
         else:
             items = []
@@ -407,6 +408,7 @@ class Chain(MObj, MContainer):
             event.offset = offset
             event.dur = eventdur
             items.append(event)
+        assert all(item.offset is not None for item in items)
         return self.clone(items=items)
 
     def pitchRange(self) -> tuple[float, float] | None:
@@ -901,14 +903,14 @@ class Chain(MObj, MContainer):
         offset = parentOffset + self.resolveOffset()
         chain = self.flat()
         notations: list[scoring.Notation] = []
-        if self.label and chain and chain[0].offset > 0:
-            notations.append(scoring.makeRest(duration=chain[0].offset, annotation=self.label))
+        if self.label and chain and chain[0].resolveOffset() > 0:
+            notations.append(scoring.makeRest(duration=chain[0].resolveOffset(), annotation=self.label))
         for item in chain.items:
             notations.extend(item.scoringEvents(groupid=groupid, config=config, parentOffset=offset))
-        if self.label:
-            annot = self._scoringAnnotation()
-            annot.instancePriority = -1
-            notations[0].addAttachment(annot)
+        #if self.label:
+        #    annot = self._scoringAnnotation()
+        #    annot.instancePriority = -1
+        #    notations[0].addAttachment(annot)
         scoring.stackNotationsInPlace(notations)
 
         #if self.offset is not None and self.offset > 0 and not config['show.asoluteOffsetForDetachedObjects']:
@@ -1243,10 +1245,14 @@ class Voice(Chain):
     _acceptsNoteAttachedSymbols = False
 
     def __init__(self,
-                 items: list[MEvent | str] = None,
+                 items: list[MEvent | str] | Chain = None,
                  label='',
                  shortname='',
                  maxstaves: int = None):
+        if isinstance(items, Chain):
+            if items.label and not label:
+                label = items.label
+            items = items.items
         super().__init__(items=items, label=label, offset=F(0))
         self.shortname = shortname
         self.maxstaves = maxstaves if maxstaves is not None else Workspace.active.config['show.voiceMaxStaves']

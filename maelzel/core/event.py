@@ -529,9 +529,9 @@ class Note(MEvent):
         Returns a new note
         """
         out = Note(pitch=pitch if pitch is not UNSET else self.pitch,
-                   dur=dur if dur is not UNSET else self.dur,
+                   dur=asF(dur) if dur is not UNSET else self.dur,
                    amp=amp if amp is not UNSET else self.amp,
-                   offset=offset if offset is not UNSET else self.offset,
+                   offset=asF(offset) if offset is not UNSET else self.offset,
                    gliss=gliss if gliss is not UNSET else self.gliss,
                    label=label if label is not UNSET else self.label,
                    tied=tied if tied is not UNSET else self.tied,
@@ -922,6 +922,7 @@ class Note(MEvent):
         out = self.copy()
         out._setpitch(pitch)
         out._gliss = gliss
+        return out
 
 
 def Rest(dur: time_t, offset: time_t = None, label='', dynamic: str = None) -> Note:
