@@ -658,8 +658,29 @@ class MObj:
     def quantizedScore(self,
                        scorestruct: ScoreStruct = None,
                        config: CoreConfig = None,
-                       quantizationProfile: str | scoring.quant.QuantizationProfile = None
+                       quantizationProfile: str | scoring.quant.QuantizationProfile = None,
+                       enharmonicOptions: scoring.enharmonics.EnharmonicOptions = None
                        ) -> scoring.quant.QuantizedScore:
+        """
+        Returns a QuantizedScore representing this object
+
+        Args:
+            scorestruct: if given it will override the scorestructure active for this object
+            config: if given will override the active config
+            quantizationProfile: if given it is used to customize the quantization process.
+                Otherwise, a profile is constructed based on the config
+            enharmonicOptions: if given it is used to customize enharmonic respelling.
+                Otherwise, the enharmonic options used for respelling are constructed based
+                on the config
+
+        Returns:
+            a quantized score. To render such a quantized score as notation call
+            its :meth:`~maelzel.scoring.quant.QuantizedScore.render` method
+
+        A QuantizedScore contains a list of QuantizedParts, which each consists of
+        list of QuantizedMeasures. To access the recursive notation structure of each measure
+        call its `tree` method
+        """
         w = Workspace.active
         if config is None:
             config = w.config
@@ -675,7 +696,8 @@ class MObj:
         qscore = scoring.quant.quantize(parts,
                                         struct=scorestruct,
                                         quantizationProfile=quantizationProfile)
-        qscore.enharmonicOptions = config.makeEnharmonicOptions()
+        if config['show.respellPitches'] or enharmonicOptions is not None:
+            qscore.fixEnharmonics(enharmonicOptions or config.makeEnharmonicOptions())
         return qscore
 
     def render(self,

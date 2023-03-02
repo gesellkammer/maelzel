@@ -93,7 +93,7 @@ class PresetManager:
             raise RuntimeError("Only one PresetManager should be active")
         self._numinstances = 1
         self.presetdefs: dict[str, PresetDef] = {}
-        self.presetsPath = Workspace.active.presetsPath()
+        self.presetsPath = Workspace.presetsPath()
         self._prepareEnvironment()
         self._makeBuiltinPresets()
         self.loadPresets()

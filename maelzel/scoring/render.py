@@ -90,12 +90,11 @@ def quantizeAndRender(parts: list[core.Part],
     Returns:
         the Renderer object
     """
-    qscore = quant.quantize(parts, struct=struct, quantizationProfile=quantizationProfile)
-    if options.respellPitches:
-        enharmonicOptions = options.makeEnharmonicOptions()
-        for part in qscore:
-            part.fixEnharmonics(enharmonicOptions)
-
+    enharmonicOptions = options.makeEnharmonicOptions() if options.respellPitches else None
+    qscore = quant.quantize(parts,
+                            struct=struct,
+                            quantizationProfile=quantizationProfile,
+                            enharmonicOptions=enharmonicOptions)
     return renderQuantizedScore(score=qscore, options=options)
 
 

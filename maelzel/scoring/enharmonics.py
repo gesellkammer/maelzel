@@ -17,6 +17,8 @@ from .notation import Notation
 from typing import Sequence
 
 
+MAXPENALTY = 999999
+
 _quarternote_slotnames_up = ('C', 'C+', 'C#',
                              'C#+', 'D', 'D+', 'D#',
                              'D#+', 'E', 'E+',
@@ -81,23 +83,23 @@ class EnharmonicOptions:
 
     fixedSlotMaxHistory: int = 4
 
-    threeQuarterMicrotonePenalty: int = 10.01
+    threeQuarterMicrotonePenalty: float = 100.
     """penalty applied for 3/4 microtones like #+ or b- (prefer A+ over Bb-)"""
 
-    respellingPenalty: int = 75
+    respellingPenalty: float = 75.
     """penalty for respelling a pitch (C+ / Db-)"""
 
-    confusingIntervalPenalty: int = 21
+    confusingIntervalPenalty: float = 21.
 
-    mispelledInterval: int = 50
+    mispelledInterval: float = 50.
 
-    unisonAlterationPenalty: int = 12
+    unisonAlterationPenalty: float = 12.
     "penalty for C / C+"
 
-    chordUnisonAlterationPenalty: int = 40
+    chordUnisonAlterationPenalty: float = 40.
     "penalty for C / C+ within a chord"
 
-    chordMispelledInterval: int = 20
+    chordMispelledInterval: float = 20.
     "penalty for D - Gb within a chord"
 
     intervalPenaltyWeight: float = 1.
@@ -111,9 +113,6 @@ class EnharmonicOptions:
 
     verticalWeight: float = 0.05
     "The weight of how a variant affects chords (vertically)"
-
-    maxPenalty: int = 999999
-
 
 _defaultEnharmonicOptions = EnharmonicOptions()
 
@@ -202,7 +201,7 @@ def groupPenalty(notes: list[str], options: EnharmonicOptions = None) -> tuple[f
     # Penalize 1.5 microtones (#+, b-)
     for n in notated:
         if abs(n.diatonic_alteration) == 1.5:
-            penaltysources.append("threeQuarterMcrotone")
+            penaltysources.append("threeQuarterMicrotone")
             total += options.threeQuarterMicrotonePenalty
 
     # Penalize successive microtones going in different directions
@@ -272,17 +271,17 @@ def intervalPenalty(n0: str, n1: str, chord=False, options: EnharmonicOptions = 
     assert dpitch >= 0
     if dpos < 0:
         # 4Eb- / 4D#
-        return options.maxPenalty, "Really confusing interval"
+        return MAXPENALTY, "Really confusing interval"
 
     if dpitch == 0:
         if dpos == 0:
             # same pitch, no penalty
             return 0, ""
-        return options.maxPenalty, "Respelled pitch"
+        return MAXPENALTY, "Respelled pitch"
 
     if (dpos > 0 and dpitch < 0) or (dpos < 0 and dpitch > 0):
         # ex: 4C# 4Db- or 4E+ 4Fb
-        return options.maxPenalty, "Inverse pitch"
+        return MAXPENALTY, "Inverse pitch"
 
     dpos7 = dpos % 7
     dpitch12 = dpitch % 12

@@ -7,7 +7,7 @@ from ._common import logger, UNSET
 from .config import CoreConfig
 from maelzel.music.dynamics import DynamicCurve
 from maelzel.scorestruct import ScoreStruct
-
+from functools import cache
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from . import playback
@@ -72,7 +72,7 @@ class Workspace:
     active: Workspace = None
     """The currently active workspace. """
 
-    _initDone: bool = False
+    _initdone: bool = False
 
 
     def __init__(self,
@@ -81,6 +81,8 @@ class Workspace:
                  dynamicCurve: DynamicCurve = None,
                  updates: dict = None,
                  active=False):
+
+        assert self._initdone
 
         self.renderer: playback.OfflineRenderer | None = None
 
@@ -125,6 +127,17 @@ class Workspace:
         config = self._config
         pitchtools.set_reference_freq(config['A4'])
         _resetCache()
+
+    @staticmethod
+    def _initclass() -> None:
+        if Workspace._initdone:
+            logger.debug("init was already done")
+            return
+        Workspace._initdone = True
+        if CoreConfig.root is None:
+            CoreConfig(source='load')
+        w = Workspace(config=CoreConfig.root, active=True)
+        Workspace.root = w
 
     def deactivate(self) -> Workspace:
         """
@@ -258,15 +271,10 @@ class Workspace:
                          scorestruct=scorestruct or self.scorestruct,
                          active=active)
 
-    def presetsPath(self) -> str:
+    @staticmethod
+    def presetsPath() -> str:
         """
-        Returns the path were instrument presets are read/written
-
-        The path can be configured with the core configuration::
-
-            getConfig()['play.presetsPath'] = '/my/custom/path'
-
-        Otherwise the default for the current platform is returned.
+        Returns the path where instrument presets are read/written
 
         Example
         ~~~~~~~
@@ -288,7 +296,7 @@ class Workspace:
              'voiceclick.yaml']
 
         """
-        return self.config.get('play.presetsPath') or _presetsPath()
+        return presetsPath()
 
     def recordPath(self) -> str:
         """
@@ -328,16 +336,8 @@ class Workspace:
 
     @staticmethod
     def rootConfig():
-        return Workspace.root.config
-
-
-def _init() -> None:
-    if Workspace._initDone:
-        logger.debug("init was already done")
-        return
-    Workspace._initDone = True
-    w = Workspace(config=CoreConfig.root, active=True)
-    Workspace.root = w
+        return CoreConfig.root
+        # return Workspace.root.config
 
 
 def getWorkspace() -> Workspace:
@@ -512,11 +512,11 @@ def setScoreStruct(score: str | ScoreStruct | None = None,
     w.scorestruct = s
 
 
-def _presetsPath() -> str:
+@cache
+def presetsPath() -> str:
     datadirbase = _appdirs.user_data_dir("maelzel")
     path = os.path.join(datadirbase, "core", "presets")
     return path
 
 
-_init()
-
+Workspace._initclass()

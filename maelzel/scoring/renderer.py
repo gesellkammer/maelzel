@@ -75,10 +75,6 @@ class RenderOptions:
     respellPitches: bool = True
     glissLineThickness: int = 1
 
-    enharmonicsGroupSize: int = 6
-    enharmonicsStep: int = 3
-    enharmonicsDebug: bool = False
-
     renderFormat: str = ''
 
     cropToContent: bool = False
@@ -90,8 +86,12 @@ class RenderOptions:
     rehearsalMarkFontSize: int | float = 13
     rehearsalMarkBoxed: bool = True
 
-    enharmonicSpellingHorizontalWeight: float = 1.
-    enharmonicSpellingVerticalWeight: float = 0.05
+    enharmonicGroupSize: int = 6
+    enharmonicStep: int = 3
+    enharmonicDebug: bool = False
+    enharmonicHorizontalWeight: float = 1.
+    enharmonicVerticalWeight: float = 0.05
+    enharmonicThreeQuarterMicrotonePenalty: float = 100
 
     backend: str = 'lilypond'
 
@@ -146,11 +146,12 @@ class RenderOptions:
         assert self.backend in ('lilypond', 'musicxml')
 
     def makeEnharmonicOptions(self) -> enharmonics.EnharmonicOptions:
-        return enharmonics.EnharmonicOptions(groupSize=self.enharmonicsGroupSize,
-                                             groupStep=self.enharmonicsStep,
-                                             debug=self.enharmonicsDebug,
-                                             horizontalWeight=self.enharmonicSpellingHorizontalWeight,
-                                             verticalWeight=self.enharmonicSpellingVerticalWeight)
+        return enharmonics.EnharmonicOptions(groupSize=self.enharmonicGroupSize,
+                                             groupStep=self.enharmonicStep,
+                                             debug=self.enharmonicDebug,
+                                             threeQuarterMicrotonePenalty=self.enharmonicThreeQuarterMicrotonePenalty,
+                                             horizontalWeight=self.enharmonicHorizontalWeight,
+                                             verticalWeight=self.enharmonicVerticalWeight)
 
 
 class Renderer:

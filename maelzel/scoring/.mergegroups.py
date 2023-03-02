@@ -18,10 +18,10 @@ def _mergeAcrossBeats(groups: list[DurationGroup],
     """
     After quantization of a measure, no group extends over the barrier of a beat.
     Here we merge notations across those boundaries for compatible
-    duration groupTree.
+    duration tree.
 
     Args:
-        groups: a list of duration groupTree, as returned by QuantizedMeasure.beatGroups
+        groups: a list of duration tree, as returned by QuantizedMeasure.beatGroups
         timesig: the time-signature of the measure
         quarterTempo: the quarternote tempo of the measure
         minBeatFractionAcrossBeats:
@@ -32,7 +32,7 @@ def _mergeAcrossBeats(groups: list[DurationGroup],
 
     """
     # mark the beginning of each group. This is needed later on when rebuilding the
-    # groupTree after merging across beats.
+    # tree after merging across beats.
     def markGrouping(group: DurationGroup) -> None:
         for i, item in enumerate(group):
             if isinstance(item, Notation):
@@ -77,7 +77,7 @@ def _mergeNotationsAcrossBeats(notations: list[Notation],
         quarterTempo: the tempo of the measure
 
     Returns:
-        a list of merged notations. These notations are flat but the groupTree can be reconstructed based
+        a list of merged notations. These notations are flat but the tree can be reconstructed based
         on their durRatios attributes (see _buildGroups)
 
     """
@@ -127,7 +127,7 @@ class GroupStack:
         self.ratios.append(F(*group.durRatio))
 
     def __repr__(self):
-        return f"GroupStack(ratios={self.ratios}, groupTree={self.groups})"
+        return f"GroupStack(ratios={self.ratios}, tree={self.groups})"
 
 
 def _buildGroups(notations: list[Notation], timesig: timesig_t, mergedTupletsMaxDur: number_t

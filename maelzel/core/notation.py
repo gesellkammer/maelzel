@@ -16,65 +16,6 @@ if TYPE_CHECKING:
     import scoring.enharmonics
 
 
-def scoringPartToMusic21(part: scoring.Part | list[scoring.Notation],
-                         struct: ScoreStruct = None,
-                         config: dict = None
-                         ) -> m21.stream.Score | m21.stream.Part:
-    """
-    Creates a m21 Part from the given events according to the config
-
-    Assumes that the events fit in one Part.
-
-    Args:
-        part: the events to convert
-        struct: the score structure used.
-        config: the configuration used. If None, the `currentConfig()` is used
-
-    Returns:
-        a music21 Part
-
-    """
-    m21score = scoringPartsToMusic21([part], struct=struct,
-                                     config=config)
-    assert len(m21score.voices) == 1
-    return m21score.voices[0]
-
-
-def scoringPartsToMusic21(parts: list[scoring.Part | list[scoring.Notation]],
-                          struct: ScoreStruct = None,
-                          config: dict = None
-                          ) -> m21.stream.Score:
-    """
-    Render the given scoring Parts as music21
-
-    Args:
-        parts: the parts to render
-        struct: the score structure
-        config ():
-
-    Returns:
-
-    """
-    config = config or getConfig()
-    divsPerSemitone = config['show.semitoneDivisions']
-    showCents = config['show.centsDeviationAsTextAnnotation']
-    centsFontSize = config['show.centsFontSize']
-    if struct is None:
-        struct = getWorkspace().scorestruct
-    renderOptions = scoring.render.RenderOptions(divsPerSemitone=divsPerSemitone,
-                                                 showCents=showCents,
-                                                 centsFontSize=centsFontSize)
-    quantProfile = scoring.quant.QuantizationProfile(nestedTuplets=False)
-    for part in parts:
-        scoring.stackNotationsInPlace(part)
-    renderer = scoring.render.quantizeAndRender(parts, struct=struct,
-                                                options=renderOptions,
-                                                backend="music21",
-                                                quantizationProfile=quantProfile)
-    m21score = renderer.asMusic21()
-    return m21score
-
-
 def makeEnharmonicOptionsFromConfig(cfg: CoreConfig) -> scoring.enharmonics.EnharmonicOptions:
     """
     Generate EnharmonicOptions needed for respelling during quantization
@@ -88,12 +29,8 @@ def makeEnharmonicOptionsFromConfig(cfg: CoreConfig) -> scoring.enharmonics.Enha
         a scoring.enharmonics.EnharmonicOptions
 
     """
-    from maelzel.scoring.enharmonics import EnharmonicOptions
-    return EnharmonicOptions(
-        debug=cfg['enharmonicSpellingDebug'],
-        horizontalWeight=cfg['enharmonicSpellingHorizontalWeight'],
-        verticalWeight=cfg['enharmonicSpellingVerticalWeight']
-    )
+    renderoptions = cfg.makeRenderOptions()
+    return renderoptions.makeEnharmonicOptions()
 
 
 def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
@@ -128,9 +65,10 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
         renderFormat=cfg['show.format'],
         pngResolution=cfg['show.pngResolution'],
         horizontalSpacing=cfg['show.horizontalSpacing'],
-        enharmonicsDebug=cfg['enharmonicSpellingDebug'],
-        enharmonicSpellingHorizontalWeight=cfg['enharmonicSpellingHorizontalWeight'],
-        enharmonicSpellingVerticalWeight=cfg['enharmonicSpellingVerticalWeight']
+        enharmonicDebug=cfg['enharmonic.debug'],
+        enharmonicHorizontalWeight=cfg['enharmonic.horizontalWeight'],
+        enharmonicVerticalWeight=cfg['enharmonic.verticalWeight'],
+        enharmonicThreeQuarterMicrotonePenalty=cfg['enharmonic.threeQuarterMicrotonePenalty']
     )
     return renderOptions
 

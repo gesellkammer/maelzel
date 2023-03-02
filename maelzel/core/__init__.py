@@ -1,4 +1,6 @@
 # API
+from .config import CoreConfig
+from .workspace import *
 from .mobj import *
 from .event import *
 from .clip import *
@@ -6,8 +8,6 @@ from .chain import *
 from .score import *
 from .playback import *
 from .presetmanager import *
-from .workspace import *
-from .config import CoreConfig
 from . import _appstate
 
 from maelzel.scorestruct import ScoreStruct
@@ -27,7 +27,8 @@ def _onFirstRun():
     _appstate.appstate['firstRun'] = False   # state is persistent so no need to save
 
 
-rootConfig = CoreConfig(source='load')
+# rootConfig = CoreConfig(source='load')
+# Workspace._initclass()
 
 
 if _appstate.appstate['firstRun']:

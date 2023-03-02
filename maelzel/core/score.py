@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from maelzel.common import F
 from .mobj import MObj, MContainer
+from .event import MEvent
 from .config import CoreConfig
 from .chain import Voice, Chain
 from .workspace import getConfig
@@ -21,6 +22,15 @@ __all__ = (
 )
 
 
+def _asvoice(o: MObj):
+    if isinstance(o, MEvent):
+        return Voice([o])
+    elif isinstance(o, Chain):
+        return o.asVoice()
+    else:
+        raise TypeError(f"Cannot create a Voice from {o} (type: {type(o)})")
+
+
 class Score(MObj, MContainer):
     """
     A Score is a list of Voices
@@ -37,10 +47,10 @@ class Score(MObj, MContainer):
     __slots__ = ('voices', '_modified')
 
     def __init__(self,
-                 voices: Sequence[Voice | Chain] = (),
+                 voices: Sequence[Voice | Chain | MEvent] = (),
                  scorestruct: ScoreStruct | None = None,
                  title=''):
-        asvoices: list[Voice] = [item if isinstance(item, Voice) else item.asVoice()
+        asvoices: list[Voice] = [item if isinstance(item, Voice) else _asvoice(item)
                                  for item in voices]
         for voice in asvoices:
             voice.parent = self

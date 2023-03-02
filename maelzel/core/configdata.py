@@ -10,9 +10,10 @@ defaultdict = {
     'reprShowFractionsAsFloat': True,
     'fixStringNotenames': False,
     'openImagesInExternalApp': False,
-    'enharmonicSpellingHorizontalWeight': 1,
-    'enharmonicSpellingVerticalWeight': 0.01,
-    'enharmonicSpellingDebug': False,
+    'enharmonic.horizontalWeight': 1,
+    'enharmonic.verticalWeight': 0.01,
+    'enharmonic.debug': False,
+    'enharmonic.threeQuarterMicrotonePenalty': 20,
 
     'show.arpeggiateChord': 'auto',
     'show.lastBreakpointDur':1/8,
@@ -53,7 +54,6 @@ defaultdict = {
     'play.numChannels': 2,
     'play.unschedFadeout': 0.05,
     'play.backend': 'default',
-    'play.presetsPath': '',
     'play.defaultAmplitude': 1.0,
     'play.defaultDynamic': 'f',
     'play.generalMidiSoundfont': '',
@@ -75,7 +75,7 @@ defaultdict = {
 
     'htmlTheme': 'light',
 
-    'quant.minBeatFractionAcrossBeats': 1.0,
+    'quant.minBeatFractionAcrossBeats': 0.5,
     'quant.nestedTuplets': None,
     'quant.complexity': 'high',
     'quant.divisionErrorWeight': None,
@@ -119,7 +119,6 @@ validator = {
     'play.pitchInterpolation::choices': {'linear', 'cos'},
     'play.generalMidiSoundfont': lambda cfg, key, val: val == '' or (os.path.exists(val) and os.path.splitext(val)[1] == '.sf2'),
     'play.defaultDynamic::choices': {'pppp', 'ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'ffff'},
-    'play.presetsPath': lambda cfg, key, val: not val or os.path.exists(val),
     'play.gracenoteDuration::type': (int, float, str),
     'htmlTheme::choices': {'light', 'dark'},
     'show.lastBreakpointDur::range': (1/64., 1),
@@ -235,18 +234,17 @@ docs = {
         "be exploded over multiple staves (for example, a chord might expand across a"
         "wide range and would need multiple extra lines in any clef",
 
-    'enharmonicSpellingDebug':
+    'enharmonic.debug':
         "If True, print debug information while calculating automatic enharmonic spelling",
 
-    'enharmonicSpellingHorizontalWeight':
+    'enharmonic.horizontalWeight':
         "The weight of the horizontal dimension (note sequences) when evaluating an "
         "enharmonic variant",
 
-    'enharmonicSpellingVerticalWeight':
+    'enharmonic.verticalWeight':
         "The weight of the vertical dimension (chords within a voice) when evaluating "
         "an enharmonic variant",
 
-    'play.presetsPath': 'The path were presets are saved',
     'splitAcceptableDeviation':
         'When splitting notes between staves, notes within this range of the '
         'split point will be grouped together if they all fit',
@@ -360,7 +358,7 @@ docs = {
         'make grid errors weight more dramatically as they diverge from the most accurate '
         'solution. If None, the value is derived from the complexity setting (quant.complexity)',
     'quant.minBeatFractionAcrossBeats':
-        'when merging durations across beats, a mergef duration cannot be smaller than this '
+        'when merging durations across beats, a merged duration cannot be smaller than this '
         'duration. This is to prevent joining durations across beats which might result in '
         'high rhythmic complexity',
     'quant.debug':

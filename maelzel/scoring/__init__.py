@@ -53,4 +53,4 @@ from . import render
 from . import definitions
 from . import spanner
 from . import attachment
-# from . import enharmonics
+from . import enharmonics

@@ -382,10 +382,7 @@ class DurationGroup:
             if self.removeUnnecessaryGracenotes() == 0:
                 break
 
-    def fixEnharmonics(self, options: enharmonics.EnharmonicOptions=None):
-        if options is None:
-            from maelzel.core.workspace import Workspace
-            options = Workspace.active.config.makeEnharmonicOptions()
+    def fixEnharmonics(self, options: enharmonics.EnharmonicOptions):
         notations = list(self.recurse())
         from . import enharmonics
         enharmonics.fixEnharmonicsInPlace(notations, options=options)
@@ -399,7 +396,7 @@ def asDurationGroupTree(groups: list[DurationGroup]
     A tree has a root and leaves, where each leave can be the root of a subtree
 
     Args:
-        groups: the groupTree to get/make the root for
+        groups: the tree to get/make the root for
 
     Returns:
         the root of a tree structure
