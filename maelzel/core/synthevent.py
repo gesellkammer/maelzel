@@ -258,7 +258,6 @@ class PlayArgs:
         args.setdefault('chan', 1)
         args.setdefault('fadeshape', cfg['play.fadeShape'])
         args.setdefault('transpose', 0)
-        args.setdefault('linkednext', False)
 
 
 def _interpolateBreakpoints(t: float, bp0: list[float], bp1: list[float]
@@ -314,7 +313,7 @@ class SynthEvent:
                  priority: int = 1,
                  position: float = -1,
                  numchans: int = 2,
-                 linkednext=False,
+                 linkednext=None,
                  whenfinished: Callable = None,
                  properties: dict[str, Any] | None = None,
                  sustain: float = 0.,
@@ -565,6 +564,8 @@ class SynthEvent:
             info.append(f'linkednext=True')
         if self.args:
             info.append(f"args={self.args}")
+        if self.sustain:
+            info.append(f"sustain={self.sustain}")
         infostr = ", ".join(info)
         return f"SynthEvent({infostr})"
 
@@ -617,7 +618,7 @@ class SynthEvent:
         breakpoint data is appended
 
         """
-        if self.linkednext and self.sustain > 0:
+        if not self.linkednext and self.sustain > 0:
             self._applySustain()
 
         pitchInterpolMethod = SynthEvent.pitchinterpolToInt[self.pitchinterpol]

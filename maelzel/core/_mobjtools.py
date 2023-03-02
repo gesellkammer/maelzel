@@ -43,7 +43,7 @@ def splitNotesOnce(notes: Chord | Sequence[Note], splitpoint: float, deviation=N
 def splitNotesIfNecessary(notes: list[Note], splitpoint: float, deviation=None
                           ) -> list[list[Note]]:
     """
-    Like splitNotesOnce, but returns only groupTree which have notes in them
+    Like splitNotesOnce, but returns only tree which have notes in them
 
     This can be used to split in more than one staves, which should not overlap
 
@@ -177,7 +177,9 @@ def groupLinkedEvents(items: list[MEvent],
         gap = item.offset - lastitem.end
         if gap < 0:
             raise ValueError(f"Events supperpose: {lastitem=}, {item=}")
-        elif gap > mingap or not lastitem.canBeLinkedTo(item):
+        elif gap > mingap:
+            groups.append([item])
+        elif not lastitem.canBeLinkedTo(item) or (lastitem.playargs and lastitem.playargs.get('linkednext') is False):
             groups.append([item])
         else:
             groups[-1].append(item)
@@ -233,11 +235,11 @@ def splitLinkedGroupIntoLines(objs: list[MEvent]
         usednotes = set()
         assert all(n.offset is not None for n in notes)
         if not started:
-            # No started groupTree, so all notes here will start groupTree
+            # No started tree, so all notes here will start tree
             for note in notes:
                 started.append([note])
         else:
-            # there are started groupTree, so iterate through started groupTree and
+            # there are started tree, so iterate through started tree and
             # find if there are matches.
             for groupidx, group in enumerate(started):
                 last = group[-1]
@@ -269,7 +271,7 @@ def splitLinkedGroupIntoLines(objs: list[MEvent]
                 if note not in usednotes:
                     started.append([note])
 
-    # We finished iterating, are there any started groupTree? Finish them
+    # We finished iterating, are there any started tree? Finish them
     finished.extend(started)
     return finished
 

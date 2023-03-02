@@ -266,8 +266,6 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
     """
     assert n.noteheads is None or isinstance(n.noteheads, dict), f"{n=}"
 
-    if not n.isRest and n.fixedNotenames is not None:
-        assert len(n.fixedNotenames) == len(n.pitches), f"???? notation: {n}, {n.fixedNotenames=}, {n.pitches=}"
     notatedDur = n.notatedDuration()
     base, dots = notatedDur.base, notatedDur.dots
     parts = []
@@ -297,9 +295,8 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         _(fr'\once \override Beam.color = "{n.color}" '
           fr'\once \override Stem.color = "{n.color}" '
           fr'\once \override Accidental.color = "{n.color}" '
-          fr'\once \override Flag.color = "{n.color}"')
-        if n.properties and 'noteheadColor' not in n.properties:
-            _(fr'\once \override NoteHead.color = "{n.color}"')
+          fr'\once \override Flag.color = "{n.color}" ' 
+          fr'\once \override NoteHead.color = "{n.color}"')
 
     #if n.properties:
     #    if color := n.properties.get('noteheadColor'):
@@ -711,16 +708,13 @@ def renderGroup(group: DurationGroup,
                 if item.tiedNext:
                     if not state.glissando:
                         state.glissando = True
-                        print("skip on", item)
                         _(r"\glissandoSkipOn ")
                 else:
                     if state.glissando:
                         state.glissando = False
-                        print("skip off", item)
                         _(r"\glissandoSkipOff ")
             else:
                 if state.glissando:
-                    print("skip off")
                     _(r"\glissandoSkipOff ")
                     state.glissando = False
 
@@ -761,6 +755,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
     """
     quarterTempo = 0
     scorestruct = part.struct
+    enharmonicOptions = options.makeEnharmonicOptions()
 
     seq = []
 
@@ -858,7 +853,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
                 _(f"R1*{num}/{den}")
             state.dynamic = ''
         else:
-            root = measure.groupTree()
+            root = measure.tree()
             _forceBracketsForNestedTuplets(root)
             root.removeUnnecessaryGracenotes()
             markConsecutiveGracenotes(root)

@@ -744,6 +744,9 @@ class QuantizedBeat:
 class QuantizedMeasure:
     """
     A QuantizedMeasure holds a list of QuantizedBeats
+
+    Those QuantizedBeats are merged together in a recursive structure
+    to generate a tree of DurationGroups. See :meth:`QuantizedMeasure.tree`
     """
     def __init__(self,
                  timesig: timesig_t,
@@ -810,7 +813,7 @@ class QuantizedMeasure:
         if self.isEmpty():
             print(f"{ind}EMPTY", file=stream)
         elif tree:
-            self.groupTree().dump(numindents, indent=indent, stream=stream)
+            self.tree().dump(numindents, indent=indent, stream=stream)
         else:
             for beat in self.beats:
                 beat.dump(indents=numindents, indent=indent, stream=stream)
@@ -849,16 +852,14 @@ class QuantizedMeasure:
 
         return groups
 
-    def groupTree(self) -> DurationGroup:
+    def tree(self) -> DurationGroup:
         """
-        Returnes the root of a tree of DurationGroups representing the items in this measure
+        Returns the root of a tree of DurationGroups representing the items in this measure
 
-        The difference with ``beatGroups()`` is that this method will merge
-        notations across beats (for example, when there is a synchopation)
         """
         if self._root is not None:
             return self._root
-        assert self.profile, f"Cannot create groupTree without a QuantizationProfile"
+        assert self.profile, f"Cannot create tree without a QuantizationProfile"
         groups = self.beatGroups()
         root = asDurationGroupTree(groups)
         self._root = root = _mergeSiblings(root, profile=self.profile, beatOffsets=self.beatOffsets())
@@ -899,11 +900,8 @@ class QuantizedMeasure:
                 self.dump()
                 raise AssertionError(f"Duration mismatch in beat {i}")
 
-    def fixEnharmonics(self, options: enharmonics.EnharmonicOptions) -> None:
-        enharmonics.fixEnharmonicsInPlace(self.notations(), options=options)
-
     def breakBeamsAtBeats(self) -> None:
-        _breakBeamsAtOffsets(self.groupTree(), self.beatOffsets())
+        _breakBeamsAtOffsets(self.tree(), self.beatOffsets())
 
 
 def _breakBeamsAtOffsets(root: DurationGroup, offsets: list[F]) -> None:
@@ -1836,7 +1834,7 @@ def _mergeSiblings(root: DurationGroup,
                    beatOffsets: list[F],
                    ) -> DurationGroup:
     """
-    Merge sibling groupTree of the same kind, if possible
+    Merge sibling tree of the same kind, if possible
 
     Args:
         root: the root of a tree of DurationGroups
@@ -1849,7 +1847,7 @@ def _mergeSiblings(root: DurationGroup,
     Returns:
         a new tree
     """
-    # merge only groupTree (not Notations) across groupTree of same level
+    # merge only tree (not Notations) across tree of same level
     if len(root.items) <= 1:
         return root
     items = []
@@ -1862,7 +1860,7 @@ def _mergeSiblings(root: DurationGroup,
         if isinstance(item2, DurationGroup):
             item2 = _mergeSiblings(item2, profile=profile, beatOffsets=beatOffsets)
         if isinstance(item1, DurationGroup) and isinstance(item2, DurationGroup):
-            # check if the groupTree should merge
+            # check if the tree should merge
             if (r:=_groupsCanMerge(item1, item2, profile=profile, beatOffsets=beatOffsets)):
                 mergedgroup = _mergeGroups(item1, item2, profile=profile, beatOffsets=beatOffsets)
                 items[-1] = mergedgroup
@@ -2223,14 +2221,6 @@ class QuantizedPart:
                                      quarterTempo=measuredef.quarterTempo)
             self.measures.append(empty)
 
-    def fixEnharmonics(self, options: enharmonics.EnharmonicOptions = None):
-        if options is None:
-            from maelzel.core.workspace import Workspace
-            cfg = Workspace.active.config
-            options = cfg.makeEnharmonicOptions()
-        for measure in self.measures:
-            measure.fixEnharmonics(options)
-
     def removeUnmatchedSpanners(self) -> int:
         """
 
@@ -2326,7 +2316,6 @@ class QuantizedScore:
                  parts: list[QuantizedPart],
                  title='',
                  composer='',
-                 enharmonicOptions: enharmonics.EnharmonicOptions | None = None
                  ):
         self.parts: list[QuantizedPart] = parts
         """A list of QuantizedParts"""
@@ -2337,8 +2326,11 @@ class QuantizedScore:
         self.composer: str = composer
         """Composer of the score, used for rendering"""
 
-        self.enharmonicOptions = enharmonicOptions
-        """Options for enharmonic respelling"""
+    def fixEnharmonics(self, enharmonicOptions: enharmonics.EnharmonicOptions):
+        for part in self.parts:
+            for measure in part.measures:
+                tree = measure.tree()
+                tree.fixEnharmonics(enharmonicOptions)
 
     def __hash__(self):
         partHashes = [hash(p) for p in self.parts]
@@ -2440,14 +2432,6 @@ class QuantizedScore:
         elif backend:
             options = options.clone(backend=backend)
         return render.renderQuantizedScore(self, options=options)
-
-    def fixEnharmonics(self, options: enharmonics.EnharmonicOptions = None) -> None:
-        options = options or self.enharmonicOptions
-        if options is None:
-            from maelzel.core.workspace import Workspace
-            options = Workspace.active.config.makeEnharmonicOptions()
-        for part in self.parts:
-            part.fixEnharmonics(options)
 
     def toCoreScore(self, mergeTies=True) -> maelzel.core.Score:
         """

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import math
 import functools
+from numbers import Rational
 
 from emlib import misc
 from emlib import iterlib
@@ -325,7 +326,10 @@ class Note(MEvent):
                     pitch, amp = 0, 0
                 else:
                     pitch, tied, fixed = _util.parsePitch(pitch)
-                    pitchSpelling = pt.notename_upper(pitch)
+                    if pitch.endswith('hz'):
+                        pitchSpelling = ''
+                    else:
+                        pitchSpelling = pt.notename_upper(pitch)
                     pitch = pt.str2midi(pitch)
 
                 if not fixed and Workspace.active.config['fixStringNotenames']:
@@ -1398,8 +1402,14 @@ class Chord(MEvent):
             else:
                 dyn = self.dynamic or config['play.defaultDynamic']
                 chordamp = dyncurve.dyn2amp(dyn)
-        amps = [n.amp or dyncurve.dyn2amp(n.dynamic) if n.dynamic and useDynamics else chordamp
-                for n in self.notes]
+        amps = []
+        for n in self.notes:
+            if n.amp:
+                amps.append(n.amp)
+            elif n.dynamic and useDynamics:
+                amps.append(dyncurve.dyn2amp(n.dynamic))
+            else:
+                amps.append(chordamp)
         return amps
 
     def _synthEvents(self,
@@ -1421,11 +1431,13 @@ class Chord(MEvent):
         transpose = playargs.get('transpose', 0.)
         synthevents = []
         for note, endpitch, amp in zip(self.notes, endpitches, amps):
-            bps = [[startsecs, note.pitch+transpose, amp],
-                   [endsecs,   endpitch+transpose,   amp]]
+            bps = [[float(startsecs), note.pitch+transpose, amp],
+                   [float(endsecs),   endpitch+transpose,   amp]]
             event = SynthEvent.fromPlayArgs(bps=bps, playargs=playargs)
-            if event.linkednext is None and self.gliss or self._isNoteTied(note):
+            if playargs.get('linkednext') is not False and (self.gliss or self._isNoteTied(note)):
                 event.linkednext = True
+            else:
+                print(f"Not linked, {playargs.get('linkednext')=}, {self.gliss=}, {self._isNoteTied(note)=}")
             synthevents.append(event)
         return synthevents
 
