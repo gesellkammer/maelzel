@@ -1436,8 +1436,6 @@ class Chord(MEvent):
             event = SynthEvent.fromPlayArgs(bps=bps, playargs=playargs)
             if playargs.get('linkednext') is not False and (self.gliss or self._isNoteTied(note)):
                 event.linkednext = True
-            else:
-                print(f"Not linked, {playargs.get('linkednext')=}, {self.gliss=}, {self._isNoteTied(note)=}")
             synthevents.append(event)
         return synthevents
 
