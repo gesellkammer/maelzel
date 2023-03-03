@@ -213,7 +213,6 @@ class Chain(MObj, MContainer):
                          properties=properties, parent=parent)
         if items is not None:
             for item in items:
-                assert isinstance(item, MEvent)
                 item.parent = self
         else:
             items = []
