@@ -41,7 +41,7 @@ class Part(list):
         events: the events (notes, chords) in this track
         name: a label to identify this track in particular (a name)
         groupid: an identification (given by makeGroupId), used to identify
-            tracks which belong to a same group
+            tracks which belong to a same tree
     """
     def __init__(self, events: list[Notation] = None, name='', groupid: str = '', shortname=''):
 
@@ -87,16 +87,16 @@ class Part(list):
         """
         Stack the notations of this part **in place**.
 
-        Stacking means filling in any unresolved offset/duration of the notations
+        Stacking means filling in any unresolved offset/totalDuration of the notations
         in this part. After this operation, all Notations in this Part have an
-        explicit duration and start. See :meth:`stacked` for a version which
+        explicit totalDuration and start. See :meth:`stacked` for a version which
         returns a new Part instead of operating in place
         """
         stackNotationsInPlace(self)
 
     def meanPitch(self) -> float:
         """
-        The mean pitch of this part, weighted by the duration of each pitch
+        The mean pitch of this part, weighted by the totalDuration of each pitch
 
         Returns:
             a float representing the mean pitch as midinote
@@ -128,7 +128,7 @@ class Part(list):
 
     def stacked(self) -> Part:
         """
-        Stack the Notations to make them adjacent if they have unset offset/duration
+        Stack the Notations to make them adjacent if they have unset offset/totalDuration
 
         Similar to :meth:`stack`, **this method returns a new Part** instead of
         operating in place.
@@ -145,7 +145,7 @@ class Part(list):
             loc = struct.beatToLocation(n.offset)
             if loc is None:
                 logger.error(f"Offset {n.offset} outside of scorestruct, for {n}")
-                logger.error(f"Scorestruct: duration = {struct.totalDurationBeats()} quarters\n{struct.dump()}")
+                logger.error(f"Scorestruct: totalDuration = {struct.totalDurationBeats()} quarters\n{struct.dump()}")
                 raise ValueError(f"Offset {float(n.offset):.3f} outside of score structure "
                                  f"(max. offset: {float(struct.totalDurationBeats()):.3f})")
             elif loc[0] == currMeasure:
@@ -217,7 +217,7 @@ def stackNotationsInPlace(events: list[Notation], start=F(0), overrideOffset=Fal
             ev.offset = now
         elif ev.duration is None:
             if i == lasti:
-                raise ValueError("The last event should have a duration")
+                raise ValueError("The last event should have a totalDuration")
             ev.duration = events[i+1].offset - ev.offset
         now += ev.duration
     assert all(ev1.offset <= ev2.offset for ev1, ev2 in iterlib.pairwise(events))
@@ -231,7 +231,7 @@ def stackNotations(events: list[Notation], start=F(0), overrideOffset=False
 
     This function stacks events together by placing an event at the end of the
     previous event whenever an event does not define its own offset, or sets
-    the duration of an event if events are specified via offset alone
+    the totalDuration of an event if events are specified via offset alone
 
     Args:
         events: a list of notations
@@ -348,7 +348,7 @@ def fillSilences(notations: list[Notation], mingap=1/64, offset: time_t = None
 def _groupById(notations: list[Notation]) -> list[Union[Notation, list[Notation]]]:
     """
     Given a seq. of events, elements which are grouped together are wrapped
-    in a list, whereas elements which don't belong to any group are
+    in a list, whereas elements which don't belong to any tree are
     appended as is
 
     """
@@ -389,7 +389,7 @@ def distributeNotationsByClef(notations: list[Notation],
         filterRests: if True, rests are skipped
         groupid: if True, mark the created Parts with the same groupid. When rendering
             it is possible to show parts with the same id as belonging to one staff
-            group. To create a groupid see
+            tree. To create a groupid see
 
     Returns:
          list of Parts (between 1 and 3, one for each clef)
@@ -438,12 +438,12 @@ def packInParts(notations: list[Notation], maxrange=36,
     Pack a list of possibly simultaneous notations into tracks
 
     The notations within one track are NOT simulatenous. Notations belonging
-    to the same group are kept in the same track.
+    to the same tree are kept in the same track.
 
     Args:
         notations: the Notations to pack
         maxrange: the max. distance between the highest and lowest Notation
-        keepGroupsTogether: if True, items belonging to a same group are
+        keepGroupsTogether: if True, items belonging to a same tree are
             kept in a same track
 
     Returns:
@@ -493,7 +493,7 @@ def removeRedundantDynamics(notations: list[Notation],
         notations: the notations to remove redundant dynamics from
         resetAfterRest: if True, any dynamic after a rest is not considered
             redundant
-        minRestDuration: the min. duration of a rest to reset dynamic, in quarternotes
+        minRestDuration: the min. totalDuration of a rest to reset dynamic, in quarternotes
     """
     lastDynamic = ''
     for n in notations:

@@ -60,8 +60,9 @@ class RenderOptions:
     centsPlacement: str = "above"
     centsFontSize: int | float = 10
 
-    measureAnnotationFontSize: int | float = 13
-    measureAnnotationBoxed: bool = False
+    measureAnnotationFontSize: int | float = 12
+    measureAnnotationBox: str = 'square'
+
     noteAnnotationsFontSize: int | float = 10
 
     glissAllowNonContiguous: bool = False

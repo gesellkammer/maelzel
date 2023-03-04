@@ -1269,7 +1269,7 @@ def stft(y, *, n_fft=2048, hop_length=None,
         length of the windowed signal after padding with zeros.
         The number of rows in the STFT matrix ``D`` is ``(1 + n_fft/2)``.
         The default value, ``n_fft=2048`` samples, corresponds to a physical
-        duration of 93 milliseconds at a sample rate of 22050 Hz, i.e. the
+        totalDuration of 93 milliseconds at a sample rate of 22050 Hz, i.e. the
         default sample rate in librosa. This value is well adapted for music
         signals. However, in speech processing, the recommended value is 512,
         corresponding to 23 milliseconds at a sample rate of 22050 Hz.
@@ -2036,7 +2036,7 @@ def onset_strength(
     First, load some audio and plot the spectrogram
 
     >>> import matplotlib.pyplot as plt
-    >>> y, sr = librosa.load(librosa.ex('trumpet'), duration=3)
+    >>> y, sr = librosa.load(librosa.ex('trumpet'), totalDuration=3)
     >>> D = np.abs(librosa.stft(y))
     >>> times = librosa.times_like(D)
     >>> fig, ax = plt.subplots(nrows=2, sharex=True)
@@ -2123,7 +2123,7 @@ def onset_backtrack(events, energy):
     --------
     Backtrack the events using the onset envelope
 
-    >>> y, sr = librosa.load(librosa.ex('trumpet'), duration=3)
+    >>> y, sr = librosa.load(librosa.ex('trumpet'), totalDuration=3)
     >>> oenv = librosa.onset.onset_strength(y=y, sr=sr)
     >>> times = librosa.times_like(oenv)
     >>> # Detect events without backtracking
@@ -2276,7 +2276,7 @@ def onset_strength_multi(
     First, load some audio and plot the spectrogram
 
     >>> import matplotlib.pyplot as plt
-    >>> y, sr = librosa.load(librosa.ex('choice'), duration=5)
+    >>> y, sr = librosa.load(librosa.ex('choice'), totalDuration=5)
     >>> D = np.abs(librosa.stft(y))
     >>> fig, ax = plt.subplots(nrows=2, sharex=True)
     >>> img1 = librosa.display.specshow(librosa.amplitude_to_db(D, ref=np.max),
@@ -2362,7 +2362,7 @@ def onset_strength_multi(
     if detrend:
         onset_env = scipy.signal.lfilter([1.0, -1.0], [1.0, -0.99], onset_env, axis=-1)
 
-    # Trim to match the input duration
+    # Trim to match the input totalDuration
     if center:
         onset_env = onset_env[..., : S.shape[-1]]
 

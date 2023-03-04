@@ -92,7 +92,7 @@ def addLiteral(obj, text:str, position:str= "after") -> None:
 
 def isAttack(note:abj.Note) -> bool:
     """
-    an attack is the first of a group of tied notes. The group
+    an attack is the first of a tree of tied notes. The tree
     can be of length 1 for a single note.
     """
     insp = abj.inspect(note)
@@ -334,7 +334,7 @@ def voiceAddGliss(voice: abj.Voice, glisses: t.List[bool],
 
 def objDuration(obj) -> F:
     """
-    Calculate the duration of obj. Raises TypeError if obj has no duration
+    Calculate the totalDuration of obj. Raises TypeError if obj has no totalDuration
 
     1/4 = 1 quarter note
     """
@@ -441,7 +441,7 @@ def _abjtom21(abjobj, m21stream, level=0, durfactor=4,
         abjobj: the abjad object to convert
         m21stream: the stream being converted to
         level: the level of recursion
-        durfactor: current duration factor
+        durfactor: current totalDuration factor
         tup: current m21 subdivision
         state: a dictionary used to pass global state
 
@@ -516,7 +516,7 @@ def _abjtom21(abjobj, m21stream, level=0, durfactor=4,
                         append(m21stream, m21grace)
             # abjdur = abjobj.written_duration
             # durtype, dots = _abjDurClassify(abjdur.numerator, abjdur.denominator)
-            # dur = m21.duration.Duration(durtype, dots=dots)
+            # dur = m21.totalDuration.Duration(durtype, dots=dots)
 
             abjdur = abjobj.written_duration*4
             dur = m21.duration.Duration(F(abjdur.numerator, abjdur.denominator))

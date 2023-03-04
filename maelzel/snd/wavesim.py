@@ -69,7 +69,7 @@ class Instr:
         Record this Instr, return the soundfile generated
 
         Args:
-            dur: the duration of the recording
+            dur: the totalDuration of the recording
             outfile: if given, the path to the generated soundfile.
                 Otherwise a temp. file is generated
             sr: the sr of the sound

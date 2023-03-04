@@ -167,7 +167,7 @@ def genSine(freq=440, amp=1, iphase=0, dur=1, sr=48000):
         freq: frequency to generate
         amp: amplitude
         iphase: initial phase
-        dur: duration
+        dur: totalDuration
         sr: sample rate
 
     .. code::
@@ -199,7 +199,7 @@ def genSineMod(freq: float|int|bpf4.BpfInterface=440,
             bpf
         amp: the amplitude. Can be a scalar or a time varying bpf
         iphase: initial phase
-        dur: duration in seconds
+        dur: totalDuration in seconds
         sr: sample rate
 
     Returns:
@@ -268,14 +268,14 @@ def prime_power_delay(i, N, pathmin, pathmax, sr):
 def decay2feedback(decaydur, delaytime):
     """
     Returns the feedback needed to decrease its volume in 60 dB 
-    in the given duration for the indicated delaytime
+    in the given totalDuration for the indicated delaytime
     """
     return math.exp(-4.605170185988091 * delaytime / decaydur)
 
 
 def feedback2decay(feedback, delaytime):
     """
-    The decay duration needed for a comb filter to decrease its 
+    The decay totalDuration needed for a comb filter to decrease its
     volume in 60 dB given the indicated feedback level (0-1) and
     delaytime
     """

@@ -36,7 +36,7 @@ class Clip(MEvent):
         source: the source of the clip (a filename, audiosample, samples as numpy array)
         pitch: the pitch representation of this clip. It has no influence in the playback
             itself, it is only for notation purposes
-        dur: the duration of the clip. If not given, the duration of the
+        dur: the totalDuration of the clip. If not given, the totalDuration of the
             source is used
         offset: the time offset of this clip. Like in a Note, if not given,
             the start time depends on the context (previous events) where this
@@ -85,7 +85,7 @@ class Clip(MEvent):
         """The samplerate of this Clip"""
 
         self.sourceDurSecs = 0
-        """The duration in seconds of the source of this Clip"""
+        """The totalDuration in seconds of the source of this Clip"""
 
         self.tied = tied
         """Is this clip tied to the next?"""
@@ -211,7 +211,7 @@ class Clip(MEvent):
                            force=False
                            ) -> F | None:
         struct = self.scorestruct() or Workspace.active.scorestruct
-        # TODO: use _durContext to validate the cached duration
+        # TODO: use _durContext to validate the cached totalDuration
 
         if not force and self._resolvedDur is not None:
             return self._resolvedDur

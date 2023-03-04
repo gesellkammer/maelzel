@@ -72,7 +72,7 @@ def _parseMetronome(metronome: ET.Element) -> float:
 
 def _parseRest(root: ET.Element, context: ParseContext) -> Note:
     measureRest = root.find('rest').attrib.get('measure', False) == 'yes'
-    xmldur = int(root.find('duration').text)
+    xmldur = int(root.find('totalDuration').text)
     divisions = context.divisions
     rest = Rest(dur=F(xmldur, divisions))
     if measureRest:
@@ -271,7 +271,7 @@ def _parseNote(root: ET.Element, context: ParseContext) -> Note:
             noteType = 'grace'
         elif node.tag == 'pitch':
             pstep, poct, palter = _parsePitch(node)
-        elif node.tag == 'duration':
+        elif node.tag == 'totalDuration':
             dur = F(int(node.text), context.divisions)
         elif node.tag == 'accidental':
             accidental = node.text
@@ -415,12 +415,12 @@ def _joinChords(notes: list[Note]) -> list[Note|Chord]:
     the first note of a chord is just a regular note
     followed by other notes which contain the <chord/>
     tag. Those notes should be merged to the previous
-    note into a chord. The duration is given by the
+    note into a chord. The totalDuration is given by the
     first note and no subsequent note can be longer
     (but they might be shorted).
 
     Since at the time in maelzel.core all notes within
-    a chord share the same duration we discard
+    a chord share the same totalDuration we discard
     all durations but the first one.
 
     Args:
@@ -750,11 +750,11 @@ def _parsePart(part: ET.Element, context: ParseContext
                     directions.append(direction)
 
             elif tag == 'backup':
-                dur = F(int(item.find('duration').text), context.divisions)
+                dur = F(int(item.find('totalDuration').text), context.divisions)
                 cursor -= dur
 
             elif tag == 'forward':
-                dur = F(int(item.find('duration').text), context.divisions)
+                dur = F(int(item.find('totalDuration').text), context.divisions)
                 cursor += dur
 
             elif tag == 'note':

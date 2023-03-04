@@ -17,7 +17,7 @@ config.addKey('showCents', False, type=bool,
 config.addKey('horizontalSpacing', 'large', choices=('small', 'medium', 'large', 'xlarge'))
 config.addKey('glissLineThickness', 1,
               choices=(1, 2, 3, 4))
-config.addKey('measureAnnotationBoxed', False,
+config.addKey('measureAnnotationBoxed', True,
               doc="Add a square box around a measure label")
 config.addKey('removeSuperfluousDynamics', True,
               doc="Remove superfluous dynamics within a part")
@@ -26,7 +26,7 @@ config.addKey('respellPitches', True,
                   'certain pitches')
 config.addKey('pngResolution', 200,
               doc='DPI resolution used when rendering to png')
-config.addKey('rehearsalMarkFontSize', 13, int,
+config.addKey('rehearsalMarkFontSize', 12, int,
               doc="Font size for rehearsal marks")
 config.addKey('rehearsalMarkBoxed', True,
               doc="Add a square box around a rehearsal mark")

@@ -444,7 +444,7 @@ def detectRegions(sndfile: str, attackthresh: float, decaythresh: float,
         attackthresh (dB): the amplitude necessary to start a region
         decaythresh (dB) : the amplitude under which to stop a region
             (should be lower than attackthresh)
-        mindur (sec): minimal duration of a region
+        mindur (sec): minimal totalDuration of a region
         func: the function to use to calculate the envelope. One of
             'rms', 'peak', 'mean'
         resolution (sec): the resolution of the analysis
@@ -509,7 +509,7 @@ def extractRegions(sndfile: str,
         times: a seq. of times (start, end)
         outfile: a path to the outfile
         mode: 'seq' or 'original'. With 'seq', extract regions and stack them sequentially.
-            The end duration = sum(duration of each region). With 'original', generates
+            The end totalDuration = sum(totalDuration of each region). With 'original', generates
             a file where the regions stay in their original place and everything else
             is erased
         fadetimes: fade applied to the samples before writing them to avoid clicks

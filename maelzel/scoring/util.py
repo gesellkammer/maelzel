@@ -51,13 +51,13 @@ def roundMidinote(a: float, divsPerSemitone=4) -> float:
 
 def measureQuarterDuration(timesig: timesig_t) -> F:
     """
-    The duration in quarter notes of a measure according to its time signature
+    The totalDuration in quarter notes of a measure according to its time signature
 
     Args:
         timesig: a tuple (num, den)
 
     Returns:
-        the duration in quarter notes
+        the totalDuration in quarter notes
 
     Examples::
 
@@ -77,14 +77,14 @@ def measureQuarterDuration(timesig: timesig_t) -> F:
 
 def measureTimeDuration(timesig: timesig_t, quarterTempo: F) -> F:
     """
-    The duration of a measure in seconds
+    The totalDuration of a measure in seconds
 
     Args:
         timesig: the time signature, a tuple (num, den)
         quarterTempo: the tempo of the quarter note
 
     Returns:
-        The duration **in seconds**
+        The totalDuration **in seconds**
 
     """
     misc.assert_type(timesig, (int, int))
@@ -267,15 +267,15 @@ def snapTime(start: F,
 
     Args:
         start: the start of the event
-        duration: the duration of the event
+        duration: the totalDuration of the event
         divisors: a list of divisions of the pulse
-        mindur: the min. duration of the note
+        mindur: the min. totalDuration of the note
         durdivisors: if left unspecified, then the same list of divisors
             is used for start and end of the note. Otherwise, it is possible
             to define a specific grid for the end also
 
     Returns:
-        a tuple (start, duration) quantized to the given grids
+        a tuple (start, totalDuration) quantized to the given grids
     """
     if durdivisors is None:
         durdivisors = divisors
@@ -353,14 +353,14 @@ def parseNotehead(s: str) -> Tuple[str, Optional[bool]]:
 
 def quarterDurationToBaseDuration(d: F) -> int:
     """
-    Convert duration in quarters to its base duration
+    Convert totalDuration in quarters to its base totalDuration
 
 
     Args:
-        d: the duration
+        d: the totalDuration
 
     Returns:
-        the base duration
+        the base totalDuration
 
 
     ================  ===============
@@ -395,10 +395,10 @@ _baseDurationToName = {
 
 def baseDurationToName(baseDur: int) -> str:
     """
-    Convert base duration to its name
+    Convert base totalDuration to its name
 
     Args:
-        baseDur: the base duration (1, 2, 4, 8, …)
+        baseDur: the base totalDuration (1, 2, 4, 8, …)
 
     Returns:
         the corresponding name
@@ -419,7 +419,7 @@ def baseDurationToName(baseDur: int) -> str:
 
 
 def baseDurationToQuarterDuration(b: int) -> F:
-    """Convert base duration to quarter duration
+    """Convert base totalDuration to quarter totalDuration
 
     Example
     ~~~~~~~
@@ -593,7 +593,7 @@ def notatedDuration(duration: F, durRatios: Optional[List[F]]
     elif den == 1 and num in {2, 4}:
         return NotatedDuration(base=4//num, dots=0, tuplets=tuplets)
     else:
-        raise ValueError(f"Invalid duration: {dur}")
+        raise ValueError(f"Invalid totalDuration: {dur}")
 
 
 _uuid_alphabet = '0123456789abcdefghijklmnopqrstuvwxyz'

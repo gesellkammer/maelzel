@@ -252,7 +252,7 @@ class Sample:
 
     @property
     def duration(self) -> float:
-        """The duration in seconds"""
+        """The totalDuration in seconds"""
         return len(self.samples)/self.sr
 
     def __repr__(self):
@@ -328,7 +328,7 @@ class Sample:
         Generate a silent Sample with the given characteristics
 
         Args:
-            dur: the duration of the new Sample
+            dur: the totalDuration of the new Sample
             channels: the number of channels
             sr: the sample rate
 
@@ -385,7 +385,7 @@ class Sample:
             speed(float): the playback speed. A variation in speed will change
                 the pitch accordingly.
             skip: start playback at a given point in time
-            dur: duration of playback. 0 indicates to play until the end of the sample
+            dur: totalDuration of playback. 0 indicates to play until the end of the sample
             engine: the name of a csoundengine.Engine, or the Engine instance
                 itself. If given, playback will be performed using this engine,
                 otherwise a default Engine will be used.
@@ -494,7 +494,7 @@ class Sample:
         else:
             durstr = f"{self.duration:.3g}"
         if withHeader:
-            s = (f"<b>Sample</b>(duration=<code>{durstr}</code>, "
+            s = (f"<b>Sample</b>(totalDuration=<code>{durstr}</code>, "
                  f"sr=<code>{self.sr}</code>, "
                  f"numchannels=<code>{self.numchannels}</code>)<br>")
         else:
@@ -816,7 +816,7 @@ class Sample:
         this fadetime. A tuple can be used to apply a different fadetime for in and out.
 
         Args:
-            fadetime: the duration of the fade.
+            fadetime: the totalDuration of the fade.
             shape: the shape of the fade. One of 'linear', 'expon(x)', 'halfcos'
 
         Returns:
@@ -862,7 +862,7 @@ class Sample:
         Return a new Sample with added silence at the end
 
         Args:
-            dur: the duration of the added silence
+            dur: the totalDuration of the added silence
 
         Returns:
             a new Sample
@@ -913,7 +913,7 @@ class Sample:
         Create a bpf representing the peaks envelope of the source
 
         Args:
-            framedur: the duration of an analysis frame (in seconds)
+            framedur: the totalDuration of an analysis frame (in seconds)
             overlap: determines the hop time between analysis frames.
                 ``hoptime = framedur / overlap``
 
@@ -978,7 +978,7 @@ class Sample:
             threshold: dynamic of silence, in dB
             margin: leave at list this amount of time between the first sample
                     and the beginning of silence
-            window: the duration of the analysis window, in seconds
+            window: the totalDuration of the analysis window, in seconds
 
         Returns:
             a new Sample with silence removed
@@ -998,7 +998,7 @@ class Sample:
             threshold: dynamic of silence, in dB
             margin: leave at list this amount of time between the first/last sample
                     and the beginning of silence or
-            window: the duration of the analysis window, in seconds
+            window: the totalDuration of the analysis window, in seconds
 
         Returns:
             a new Sample with silence removed
@@ -1018,7 +1018,7 @@ class Sample:
             threshold: dynamic of silence, in dB
             margin: leave at list this amount of time between the first/last sample
                     and the beginning of silence or
-            window: the duration of the analysis window, in seconds
+            window: the totalDuration of the analysis window, in seconds
 
         Returns:
             a new Sample with silence at the sides removed
@@ -1049,7 +1049,7 @@ class Sample:
             Read sample at half speed
             >>> import bpf4
             >>> sample = Sample("path.wav")
-            >>> dur = sample.duration
+            >>> dur = sample.totalDuration
             >>> sample2 = sample.scrub(bpf4.linear([(0, 0), (dur*2, dur)]))
 
         """
@@ -1164,13 +1164,13 @@ class Sample:
         """
         Calculate the fundamental freq. at a given time
 
-        The returned frequency is averaged over the given duration period
+        The returned frequency is averaged over the given totalDuration period
         At the moment the smooth pyin method is used
 
         Args:
             time: the time to start sampling the fundamental frequency. If None is given,
                 the first actual sound within this Sample is used
-            dur: the duration of the estimation period. The returned frequency will be the
+            dur: the totalDuration of the estimation period. The returned frequency will be the
                 average frequency over this period of time.
             fftsize: the fftsize used
             overlap: amount of overlaps per fftsize, determines the hop time
@@ -1376,7 +1376,7 @@ class Sample:
 
         Returns:
             a new Sample with the added channels. The returned Sample
-            will have the same duration as self
+            will have the same totalDuration as self
 
         """
         if isinstance(channels, int):
@@ -1409,7 +1409,7 @@ class Sample:
             >>> a = Sample("stereo-2seconds.wav")
             >>> b = Sample("stereo-3seconds.wav")
             >>> m = Sample.mix([a, b], offsets=[2, 0])
-            >>> m.duration
+            >>> m.totalDuration
             4.0
         """
         return mixsamples(samples, offsets=offsets, gains=gains)
@@ -1556,7 +1556,7 @@ def mixsamples(samples: list[Sample], offsets: list[float] = None, gains: list[f
         >>> a = Sample("stereo-2seconds.wav")
         >>> b = Sample("stereo-3seconds.wav")
         >>> m = Sample.mix([a, b], offsets=[2, 0])
-        >>> m.duration
+        >>> m.totalDuration
         4.0
     """
     nchannels = samples[0].numchannels

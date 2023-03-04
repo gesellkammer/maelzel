@@ -298,10 +298,10 @@ class MeasureDef:
 
         n, d = self._timesig
         self.durationBeats = F(4*n, d)
-        """The duration of this measure in quarter-notes"""
+        """The totalDuration of this measure in quarter-notes"""
 
         self.durationSecs = self.durationBeats * (F(60) / self._quarterTempo)
-        """The duration of this measure in seconds"""
+        """The totalDuration of this measure in seconds"""
 
     @property
     def timesig(self) -> timesig_t:
@@ -367,10 +367,10 @@ class MeasureDef:
         """
         Returns a list of the subdivisions of this measure.
 
-        A subdivision is a duration, in quarters.
+        A subdivision is a totalDuration, in quarters.
 
         Returns:
-            a list of durations which sum up to the duration of this measure
+            a list of durations which sum up to the totalDuration of this measure
 
         Example
         -------
@@ -431,13 +431,13 @@ def _inferSubdivisions(num: int, den: int, quarterTempo
 
 def measureQuarterDuration(timesig: timesig_t) -> F:
     """
-    The duration in quarter notes of a measure according to its time signature
+    The totalDuration in quarter notes of a measure according to its time signature
 
     Args:
         timesig: a tuple (num, den)
 
     Returns:
-        the duration in quarter notes
+        the totalDuration in quarter notes
 
     Examples::
 
@@ -636,7 +636,7 @@ class ScoreStruct:
 
         self._beatOffsets: list[F] = []
 
-        # the quarternote duration of each measure
+        # the quarternote totalDuration of each measure
         self._quarternoteDurations: list[F] = []
 
         self._modified = True
@@ -977,32 +977,32 @@ class ScoreStruct:
         * When exporting a scorestruct to midi
 
         Args:
-            duration: the duration in seconds to ensure
+            duration: the totalDuration in seconds to ensure
 
         """
         mindex, mbeat = self.timeToLocation(duration)
         if mindex is None:
-            raise ValueError(f"duration {duration} outside of score")
+            raise ValueError(f"totalDuration {duration} outside of score")
         self.ensureDurationInMeasures(mindex + 1)
 
     def totalDurationBeats(self) -> F:
         """
-        The duration of this score, in beats (quarters)
+        The totalDuration of this score, in beats (quarters)
 
         Raises ValueError if this score is endless
         """
         if self.endless:
-            raise ValueError("An endless score does not have a duration in beats")
+            raise ValueError("An endless score does not have a totalDuration in beats")
         return sum(m.durationBeats for m in self.measuredefs)
 
     def totalDuratioSecs(self) -> F:
         """
-        The duration of this score, in seconds
+        The totalDuration of this score, in seconds
 
         Raises ValueError if this score is endless
         """
         if self.endless:
-            raise ValueError("An endless score does not have a duration in seconds")
+            raise ValueError("An endless score does not have a totalDuration in seconds")
         return sum(m.durationSecs for m in self.measuredefs)
 
     def _update(self) -> None:
@@ -1438,7 +1438,12 @@ class ScoreStruct:
         endBeat = self.locationToBeat(*end) if isinstance(start, tuple) else self.timeToBeat(end)
         return endBeat - startBeat
 
-    def show(self, fmt='png', app: str = '', scalefactor: float = None, backend: str = None
+    def show(self,
+             fmt='png',
+             app: str = '',
+             scalefactor: float = None,
+             backend: str = None,
+             renderoptions: scoring.render.RenderOptions = None
              ) -> None:
         """
         Render and show this ScoreStruct
@@ -1454,7 +1459,7 @@ class ScoreStruct:
         import tempfile
         from maelzel.core import environment
         outfile = tempfile.mktemp(suffix='.' + fmt)
-        self.write(outfile, backend=backend)
+        self.write(outfile, backend=backend, renderoptions=renderoptions)
         if fmt == 'png':
             from maelzel.core import jupytertools
             if environment.insideJupyter and not app:
@@ -1563,14 +1568,19 @@ class ScoreStruct:
         parts.append(htmltable)
         return "".join(parts)
 
-    def _render(self, backend: str = None) -> scoring.render.Renderer:
+    def _render(self, backend: str = None, renderoptions: scoring.render.RenderOptions = None
+                ) -> scoring.render.Renderer:
         from maelzel import scoring
+        quantprofile = scoring.quant.QuantizationProfile()
         measures = [scoring.quant.QuantizedMeasure(timesig=m.timesig, quarterTempo=m.quarterTempo)
                     for m in self.measuredefs]
-        part = scoring.quant.QuantizedPart(struct=self, measures=measures)
+        part = scoring.quant.QuantizedPart(struct=self, measures=measures, quantprofile=quantprofile)
         qscore = scoring.quant.QuantizedScore([part], title=self.title, composer=self.composer)
-        options = scoring.render.RenderOptions()
-        return scoring.render.renderQuantizedScore(qscore, options=options, backend=backend)
+        if not renderoptions:
+            renderoptions = scoring.render.RenderOptions()
+        if backend:
+            renderoptions.backend = backend
+        return scoring.render.renderQuantizedScore(qscore, options=renderoptions)
 
     def asMusic21(self, fillMeasures=False) -> m21.stream.Score:
         """
@@ -1698,7 +1708,11 @@ class ScoreStruct:
                 return False
         return True
 
-    def write(self, path: str | Path, backend: str = None) -> None:
+    def write(self,
+              path: str | Path,
+              backend: str = None,
+              renderoptions: scoring.render.RenderOptions = None
+              ) -> None:
         """
         Export this score structure
 
@@ -1717,16 +1731,9 @@ class ScoreStruct:
         if path.suffix == ".xml":
             m21score = self.asMusic21(fillMeasures=False)
             m21score.write("xml", path)
-        elif path.suffix == ".pdf":
-            r = self._render(backend=backend)
+        elif path.suffix in (".pdf", '.png', '.ly'):
+            r = self._render(backend=backend, renderoptions=renderoptions)
             r.write(str(path))
-        elif path.suffix == ".png":
-            r = self._render(backend=backend)
-            r.write(str(path))
-        elif path.suffix == ".ly":
-            m21score = self.asMusic21(fillMeasures=True)
-            from maelzel.music import m21tools
-            m21tools.saveLily(m21score, path.as_posix())
         elif path.suffix == '.mid' or path.suffix == '.midi':
             sco = _filledScoreFromStruct(self)
             sco.write(str(path))
@@ -1789,11 +1796,11 @@ class ScoreStruct:
 
         .. note::
 
-            The duration of the playback can be set individually from the duration
+            The totalDuration of the playback can be set individually from the totalDuration
             of the displayed pitch
 
         Args:
-            clickdur: the length of each tick. Use None to use the duration of the beat.
+            clickdur: the length of each tick. Use None to use the totalDuration of the beat.
             strongBeatPitch: the pitch used as a strong beat (at the beginning of each
                 measure
             weakBeatPitch: the pitch used as a weak beat

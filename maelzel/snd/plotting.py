@@ -246,7 +246,7 @@ def plotWaveform(samples, samplerate, profile:str = None, saveas:str=None,
         samples: a mono or multichannel audio array
         samplerate: the sr
         profile: one of 'low', 'medium', 'high', 'highest'. If None or 'auto' is
-            passe, a preset is chosen based on the duration and other parameters given
+            passe, a preset is chosen based on the totalDuration and other parameters given
         saveas: if given, the plot is saved and not displayed
         timelabels: if True, the x axes' labels are shown as MM:SS if needed
 

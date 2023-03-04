@@ -86,7 +86,7 @@ class TimeSpan(NamedTuple):
 @dataclass
 class NotatedDuration:
     """
-    Class representing the duration of a note
+    Class representing the totalDuration of a note
 
     To convert base to quarterDuration: base/4
 

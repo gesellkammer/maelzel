@@ -31,10 +31,10 @@ class Isorhythm:
 
     def generate(self, maxdur: number_t) -> List[Tuple[T, number_t]]:
         """
-        Generate pairs until the given max. duration is reached
+        Generate pairs until the given max. totalDuration is reached
 
         Args:
-            maxdur: the max. accumulated duration
+            maxdur: the max. accumulated totalDuration
 
         Returns:
             a list of pairs

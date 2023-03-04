@@ -231,7 +231,7 @@ def f0curvePyinVamp(sig: np.ndarray,
         overlap: hop size as fftsize//overlap
         lowAmpSuppression: supress low amplitude pitch estimates
         onsetSensitivity: onset sensitivity
-        pruneThreshold: duration pruning threshold
+        pruneThreshold: totalDuration pruning threshold
         threshDistr: yin threshold distribution (see table below) - One of
             uniform, beta10, beta15, beta30, single10, single20-
         unvoicedFreqs: one of 'nan', 'negative'. If 'nan' unvoiced  frequencies

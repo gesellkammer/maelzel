@@ -129,12 +129,12 @@ class FundamentalAnalysisMono:
             min. frequency as unvoiced. Under certain circumstances the f0 tracking algorithm
             might predict frequencies lower than the given min. frequency. An alternative
             way to mitigate such false predictions is to increase the overlap
-        unvoicedMinamplitudePercentile: any group consisting of unvoiced breakpoints
+        unvoicedMinamplitudePercentile: any tree consisting of unvoiced breakpoints
             will be removed if all its breakpoints have an amplitude percentile below this
             value. This helps remove spurious groups detected within background noise regions
 
     Attributes:
-        groups: each group is a list of Breakpoints representing a note
+        groups: each tree is a list of Breakpoints representing a note
         breakpoints: all breakpoints within the .groups attribute, flattened
         rms: the RMS curve of the sound. A mpf mapping to to rms
         dbToPercentile: maps db to percentile
@@ -227,7 +227,7 @@ class FundamentalAnalysisMono:
                                                        unvoicedFreqs='nan',
                                                        lowAmpSuppression=lowAmpSuppression)
         groupSamplingPeriod = hoptime * 0.68
-        # The min. duration of a note. Groups with a shorter duration will not be
+        # The min. totalDuration of a note. Groups with a shorter totalDuration will not be
         # split into breakpoints
         minDuration = max(groupSamplingPeriod, minSilence)
 
@@ -252,9 +252,9 @@ class FundamentalAnalysisMono:
         # * if there is an offset, sample f0 between onset and offset and simplify. Both onset and
         #   offset should be included in the simplification
         # * if there is no offset, sample f0 between onset and next onset and simplify.
-        #   The next onset should NOT be part of the group
-        # * In both cases, do not simplify if the duration between onset-offset (or onset and next
-        #   onset) is less than minDuration. In this case make a group with just the onset breakpoint
+        #   The next onset should NOT be part of the tree
+        # * In both cases, do not simplify if the totalDuration between onset-offset (or onset and next
+        #   onset) is less than minDuration. In this case make a tree with just the onset breakpoint
 
         def makeGroup(onset: float, offset: float) -> list[Breakpoint]:
             if offset - onset < minDuration:
@@ -311,10 +311,10 @@ class FundamentalAnalysisMono:
 
             groups.append(group)
 
-        # TODO: minSilence - remove short silences between breakpoints within a group
+        # TODO: minSilence - remove short silences between breakpoints within a tree
 
         self.groups: list[list[Breakpoint]] = groups
-        """Each group is a list of Breakpoints representing a note"""
+        """Each tree is a list of Breakpoints representing a note"""
 
         self.rms = rmscurve
         """The RMS curve of the sound. A bpf mapping time to rms"""
@@ -388,7 +388,7 @@ class FundamentalAnalysisMono:
 
 
     def simplify(self, algorithm='visvalingam', threshold=0.05) -> None:
-        """Simplify the breakpoints inside each group, in place
+        """Simplify the breakpoints inside each tree, in place
 
         Groups themselves are never simplified
 
@@ -417,15 +417,15 @@ class FundamentalAnalysisMono:
 
         Args:
             scorestruct: the score structure to use for conversion
-            addGliss: if True, add a gliss. symbol between parts of a same note group
+            addGliss: if True, add a gliss. symbol between parts of a same note tree
             addAccents: if True, add an accent symbol to breakpoints with a detected accent
-            addSlurs: if True, add a slur encompasing notes within a group
+            addSlurs: if True, add a slur encompasing notes within a tree
             unvoicedNotehead: notehead to use for unvoiced (unpitched) notes. An empty string
                 will leave such notes unmodified
             unvoicedPitch: the pitch to use for note groups where no pitch was detected. For
-                unpitched breakpoints within a group where other pitched breakpoints were
+                unpitched breakpoints within a tree where other pitched breakpoints were
                 found the next pitched found will be used.
-            unvoicedMinAmpDb: any breakpoint belonging to an unvoiced group whose amplitude
+            unvoicedMinAmpDb: any breakpoint belonging to an unvoiced tree whose amplitude
                 falls beneath this value will not be transcribed.
 
         Returns:

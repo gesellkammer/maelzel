@@ -6,7 +6,7 @@ from __future__ import annotations
 from ._common import *
 from .config import CoreConfig
 from .workspace import getConfig, getWorkspace
-
+from dataclasses import dataclass
 from maelzel import scoring
 from maelzel.scorestruct import ScoreStruct
 
@@ -33,6 +33,28 @@ def makeEnharmonicOptionsFromConfig(cfg: CoreConfig) -> scoring.enharmonics.Enha
     return renderoptions.makeEnharmonicOptions()
 
 
+@dataclass
+class AnnotationStyle:
+    fontsize: float | None = None
+    box: str = ''
+
+    def __post_init__(self):
+        if self.box:
+            assert self.box in ('square',)
+
+
+def _parseAnnotationStyle(style: str, fontsize=12.) -> AnnotationStyle:
+    parts = style.split(';')
+    box = ''
+    for part in parts:
+        key, value = part.split('=')
+        if key == 'box':
+            box = value.strip()
+        elif key == 'fontsize':
+            fontsize = float(value)
+    return AnnotationStyle(box=box, fontsize=fontsize)
+
+
 def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
                                 ) -> scoring.render.RenderOptions:
     """
@@ -47,6 +69,9 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
     """
     if cfg is None:
         cfg = getConfig()
+
+    measureAnnotationStyle = _parseAnnotationStyle(cfg['show.measureAnnotationStyle'])
+
     renderOptions = scoring.render.RenderOptions(
         staffSize=cfg['show.staffSize'],
         divsPerSemitone=cfg['semitoneDivisions'],
@@ -56,7 +81,8 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
         pageSize = cfg['show.pageSize'],
         orientation= cfg['show.pageOrientation'],
         pageMarginMillimeters=cfg['show.pageMarginMillimeters'],
-        measureAnnotationFontSize=cfg['show.measureAnnotationFontSize'],
+        measureAnnotationFontSize=measureAnnotationStyle.fontsize,
+        measureAnnotationBox=measureAnnotationStyle.box,
         respellPitches=cfg['show.respellPitches'],
         glissLineThickness=cfg['show.glissLineThickness'],
         lilypondPngStaffsizeScale=cfg['show.lilypondPngStaffsizeScale'],

@@ -290,7 +290,7 @@ class NoteProperties:
     """A pitch or a list of pitches"""
 
     dur: F | None
-    """An optional duration"""
+    """An optional totalDuration"""
 
     keywords: dict[str, str] | None = None
     """Any other properties (gliss, tied, ...)"""
@@ -330,16 +330,16 @@ def _parseSymbolicDuration(s: str) -> F:
 
 def parseDuration(s: str) -> F:
     """
-    Parse a duration given a str
+    Parse a totalDuration given a str
 
     Possible expressions include '3/4', '1+3/4', '4+1/3+2/5'
     Raises ValueError if the expression cannot be parsed
 
     Args:
-        s: the duration as string
+        s: the totalDuration as string
 
     Returns:
-        the parsed duration as fraction
+        the parsed totalDuration as fraction
     """
     terms = s.split('+')
     fterms = [F(term) for term in terms]
@@ -370,7 +370,7 @@ def parsePitch(s: str) -> tuple[str, bool, bool]:
 
 def parseNote(s: str) -> NoteProperties:
     """
-    Parse a note definition string with optional duration and other properties
+    Parse a note definition string with optional totalDuration and other properties
 
     Pitch specific modifiers, like ! or ~ are not parsed
 

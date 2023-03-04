@@ -256,7 +256,7 @@ def partitionCurvedSpace(x, numpart, curve, minval=1, maxdev=1, accuracy=1):
         [1, 1, 2, 4, 6, 9]
 
     Partition a distance following, an arbitraty curve, where the y defines the
-    relative duration of the partitions. In this case, the curve defined the
+    relative totalDuration of the partitions. In this case, the curve defined the
     derivative of our space.
 
         >>> import bpf4
@@ -773,7 +773,7 @@ def plotFrames(xs, ids: list = None, top=1., bottom=0., durs: list[float] = None
     Plot a seq. of stacked frames
 
     Imagine a section divided in measures. Each of these measures can be thought
-    of as a frame. This function permits to visualize their relative duration
+    of as a frame. This function permits to visualize their relative totalDuration
     by plotting these frames stacked to the left.
 
     Args:
@@ -782,7 +782,7 @@ def plotFrames(xs, ids: list = None, top=1., bottom=0., durs: list[float] = None
         top, bottom : (number) The frames are defined between these y values.
             it only makes sense if plotting against something else,
             which shares the x coord
-        durs: (seq, optional) The duration of each section.
+        durs: (seq, optional) The totalDuration of each section.
             If not given, it is assumed that the frames are non-overlapping,
             each frame ending where the next one begins. In this case, there are
             len(xs) - 1 number of frames (the last x value is used to determine the

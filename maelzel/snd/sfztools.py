@@ -189,7 +189,7 @@ def group_template(name=None, release=0.1, loopmode='one_shot', **attrs):
         attr_str = '\n'.join(attr_strs)
     else:
         attr_str = ""
-    s = """<group>
+    s = """<tree>
 name=%s
 ampeg_release=%s
 loop_mode=%s
