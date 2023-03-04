@@ -55,8 +55,8 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
         struct: the ScoreStruct
         minMeasures: if given, the minimum number of measures. This might be needed
             in the case of an endless scorestruct
-        clickdur: the length of each tick. Use None to use the duration of the beat.
-            **NB**: the duration of the playback can be set individually from the duration
+        clickdur: the length of each tick. Use None to use the totalDuration of the beat.
+            **NB**: the totalDuration of the playback can be set individually from the totalDuration
             of the displayed pitch
         strongBeatPitch: the pitch to use as a strong tick
         weakBeatPitch: the pitch to use as a weak tick
@@ -134,7 +134,7 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
         from .presetmanager import presetManager
         presetdef = presetManager.getPreset(playpreset)
         if playargs:
-            if arg := next((arg for arg in playargs if arg not in presetdef.db), None):
+            if arg := next((arg for arg in playargs if arg not in presetdef.args), None):
                 raise KeyError(f"arg {arg} not known for preset {playpreset}. Possible args: {presetdef.db}")
         voice.setPlay(instr=playpreset, args=playargs)
     from . import score
@@ -150,7 +150,7 @@ def packInVoices(objs: list[core.MObj]) -> list[core.Voice]:
     unpitched = []
     for obj in objs:
         assert obj.offset is not None and obj.dur is not None, \
-            "Only objects with an explict start / duration can be packed"
+            "Only objects with an explict start / totalDuration can be packed"
         r = obj.pitchRange()
         if r is None:
             unpitched.append(r)

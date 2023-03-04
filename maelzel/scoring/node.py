@@ -13,8 +13,8 @@ if TYPE_CHECKING:
     from . import enharmonics
 
 __all__ = (
-    'DurationGroup',
-    'asDurationGroupTree'
+    'Node',
+    'asTree'
 )
 
 
@@ -26,77 +26,72 @@ def _mergeProperties(a: dict | None, b: dict | None) -> dict | None:
     return a | b if (a and b) else (a or b)
 
 
-class DurationGroup:
+class Node:
     """
-    A DurationGroup is a container, grouping Notation under one time modifier
+    A Node is a container, grouping Notation under one time modifier
 
-    A DurationGroup consists of a sequence of Notations or DurationGroups, allowing to
-    define nested tuplets or beats. The notations inside a DurationGroup already hold the
-    real beat-duration. The durRatio is a ratio by which to multiply a given duration to
-    obtain the notated duration.
+    A Node consists of a sequence of Notations or Nodes, allowing to
+    define nested tuplets or beats. The notations inside a Node already hold the
+    real beat-totalDuration. The durRatio is a ratio by which to multiply a given totalDuration to
+    obtain the notated totalDuration.
 
     Attributes:
-        durRatio: a tuple (num, den) indication the ratio by which to multiply the duration
-            of the items to obtain the notated items: the items inside this group
+        durRatio: a tuple (num, den) indication the ratio by which to multiply the totalDuration
+            of the items to obtain the notated items: the items inside this tree
             For example, an quarternote triplet would have a durRatio (3, 2) and the items
-            inside it would have a duration of 1/3. When multiplied by the durRatio each
-            item would have a duration of 1/2
-        items: the items in this group
+            inside it would have a totalDuration of 1/3. When multiplied by the durRatio each
+            item would have a totalDuration of 1/2
+        items: the items in this tree
 
     In the case of a simple triplet, the items would hold something like::
 
         >>> from maelzel.scoring import *
-        >>> notations = [makeNote(60, duration=F(1, 3)),
-        ...              makeNote(61, duration=F(2, 3))]
-        >>> DurationGroup(durRatio=(3, 2), items=notations)
+        >>> notations = [makeNote(60, totalDuration=F(1, 3)),
+        ...              makeNote(61, totalDuration=F(2, 3))]
+        >>> Node(ratio=(3, 2), items=notations)
     """
     def __init__(self,
-                 durRatio: durratio_t | Rational,
-                 items: list[Notation | 'DurationGroup'] = None,
+                 ratio: tuple[int, int] | Rational,
+                 items: list[Notation | 'Node'] = None,
                  properties: dict | None = None,
-                 parent: DurationGroup | None = None):
-        assert isinstance(items, list), f"Expected a list of Notation|DurationGroup, got {items}"
-        self.durRatio: durratio_t = durRatio if isinstance(durRatio, tuple) else _unpackRational(durRatio)
-        self.items: list[Notation | 'DurationGroup'] = items
+                 parent: Node | None = None):
+        assert isinstance(items, list), f"Expected a list of Notation|Node, got {items}"
+        self.durRatio: tuple[int, int] = ratio if isinstance(ratio, tuple) else _unpackRational(ratio)
+        self.items: list[Notation | 'Node'] = items
         self.properties = properties
-        self.parent: weakref.ReferenceType[DurationGroup] | None = weakref.ref(parent) if parent else None
+        self.parent: weakref.ReferenceType[Node] | None = weakref.ref(parent) if parent else None
 
-    def setParent(self, parent: DurationGroup, recurse=True):
+    def setParent(self, parent: Node, recurse=True):
         self.parent = weakref.ref(parent)
         if recurse:
             for item in self.items:
-                if isinstance(item, DurationGroup):
+                if isinstance(item, Node):
                     item.setParent(self, recurse=True)
 
-    def findRoot(self) -> DurationGroup:
+    def findRoot(self) -> Node:
         return self if not self.parent else self.parent().findRoot()
 
     def setProperty(self, key: str, value) -> None:
-        """Set a property for this DurationGroup"""
+        """Set a property for this Node"""
         if self.properties is None:
             self.properties = {key: value}
         else:
             self.properties[key] = value
 
     def getProperty(self, key: str, default=None):
-        """Get the value of a property for this DurationGroup"""
+        """Get the value of a property for this Node"""
         if self.properties is None:
             return default
         return self.properties.get(key, default)
 
     @property
-    def ratio(self) -> F:
-        """The durRatio of this DurationGroup as a fraction"""
-        return F(*self.durRatio)
-
-    @property
     def offset(self) -> F:
-        """The offset of this DurationGroup within the measure"""
+        """The offset of this Node within the measure"""
         return self.items[0].offset
 
     @property
     def end(self) -> F:
-        """The end of the last item within this DurationGroup"""
+        """The end of the last item within this Node"""
         return self.items[-1].end
 
     def __iter__(self):
@@ -105,20 +100,20 @@ class DurationGroup:
     def __getitem__(self, idx):
         return self.items[idx]
 
-    def append(self, item: Notation | DurationGroup) -> None:
+    def append(self, item: Notation | Node) -> None:
         self.items.append(item)
 
-    def duration(self) -> F:
+    def totalDuration(self) -> F:
         """
-        The actual duration of the items in this group
+        The actual totalDuration of the items in this tree
 
         """
-        return sum((item.duration if isinstance(item, Notation) else item.duration()
+        return sum((item.duration if isinstance(item, Notation) else item.totalDuration()
                     for item in self.items), F(0))
 
     def symbolicDuration(self) -> F:
         """
-        The symbolic duration of this group.
+        The symbolic total duration of this tree.
 
         This represents the notated figure (1=quarter, 1/2=eighth note, 1/4=16th note, etc)
         """
@@ -126,7 +121,7 @@ class DurationGroup:
 
     def dump(self, indents=0, indent='  ', stream=None):
         stream = stream or sys.stdout
-        print(f"{indent*indents}DurationGroup({self.durRatio[0]}/{self.durRatio[1]})", file=stream)
+        print(f"{indent*indents}Node({self.durRatio[0]}/{self.durRatio[1]})", file=stream)
         for item in self.items:
             if isinstance(item, Notation):
                 print(indent*(indents+1), item, sep='', file=stream)
@@ -134,7 +129,7 @@ class DurationGroup:
                 item.dump(indents=indents+1, stream=stream)
 
     def __repr__(self):
-        parts = [f"DurationGroup({self.durRatio[0]}/{self.durRatio[1]}, "]
+        parts = [f"Node({self.durRatio[0]}/{self.durRatio[1]}, "]
         for item in self.items:
             if isinstance(item, Notation):
                 parts.append("  " + str(item))
@@ -145,7 +140,7 @@ class DurationGroup:
         parts.append(")")
         return "\n".join(parts)
 
-    def _flattenUnnecessarySubgroups(self):
+    def _flattenUnnecessaryChildren(self):
         if self.durRatio != (1, 1):
             return
         items = []
@@ -154,34 +149,34 @@ class DurationGroup:
                 items.append(item)
             else:
                 if item.durRatio == (1, 1):
-                    item._flattenUnnecessarySubgroups()
+                    item._flattenUnnecessaryChildren()
                     items.extend(item.items)
                 else:
                     items.append(item)
         self.items = items
 
-    def mergeWith(self, other: DurationGroup) -> DurationGroup:
+    def mergeWith(self, other: Node) -> Node:
         """
-        Merge this group with other
+        Merge this tree with other
         """
         # we don't check here, just merge
-        group = DurationGroup(durRatio=self.durRatio, items=self.items + other.items,
-                              properties=_mergeProperties(self.properties, other.properties))
-        group = group.mergedNotations()
-        return group
+        node = Node(ratio=self.durRatio, items=self.items + other.items,
+                    properties=_mergeProperties(self.properties, other.properties))
+        node = node.mergedNotations()
+        return node
 
-    def mergedNotations(self, flatten=True) -> DurationGroup:
+    def mergedNotations(self, flatten=True) -> Node:
         """
-        Returns a new group with all items merged (recursively)
+        Returns a new tree with all items merged (recursively)
 
         Args:
-            flatten: if True, superfluous subgrups are flattened
+            flatten: if True, superfluous children are flattened
 
         Returns:
-            a new DurationGroup with merged items (whenever possible)
+            a new Node with merged items (whenever possible)
         """
         if flatten:
-            self._flattenUnnecessarySubgroups()
+            self._flattenUnnecessaryChildren()
         i0 = self.items[0]
         out = [i0 if isinstance(i0, Notation) else i0.mergedNotations(flatten=False)]
         for i1 in self.items[1:]:
@@ -198,8 +193,25 @@ class DurationGroup:
             n = out[0]
             if n.durRatios and n.durRatios[-1] != F(1):
                 n.durRatios.pop()
-            return DurationGroup(durRatio=F(1), items=[n])
-        return DurationGroup(durRatio=self.durRatio, items=out)
+            return Node(ratio=F(1), items=[n])
+        return Node(ratio=self.durRatio, items=out)
+
+    def lastNotation(self) -> Notation:
+        """
+        Return the last Notation of this Node (recursively)
+        """
+        last = self.items[-1]
+        if isinstance(last, Notation):
+            return last
+        else:
+            return last.lastNotation()
+
+    def firstNotation(self) -> Notation:
+        """
+        Return the first Notation of this Node (recursively)
+        """
+        first = self.items[0]
+        return first if isinstance(first, Notation) else first.firstNotation()
 
     def recurse(self, reverse=False) -> Iterator[Notation]:
         """
@@ -209,7 +221,7 @@ class DurationGroup:
             reverse: if True, iterate backwards
 
         Returns:
-            an iterator over all Notations within this DurationGroup
+            an iterator over all Notations within this Node
         """
         items = self.items if not reverse else reversed(self.items)
         for item in items:
@@ -218,20 +230,20 @@ class DurationGroup:
             else:
                 yield from item.recurse(reverse=reverse)
 
-    def recurseWithGroup(self, reverse=False
-                         ) -> Iterator[tuple[Notation, DurationGroup]]:
+    def recurseWithNode(self, reverse=False
+                        ) -> Iterator[tuple[Notation, Node]]:
         """
         Iterate over the items if self, recursively
 
-        The same as :meth:`DurationGroup.recurse` but for each item yields a tuple (notation, group)
-        where group is the group to which the notation belongs. This is useful in order to
-        modify the group in the case on needs to, for example, remove a notation from its group
+        The same as :meth:`Node.recurse` but for each item yields a tuple (notation, node)
+        where node is the node to which the notation belongs. This is useful in order to
+        modify the tree in the case one needs to, for example, remove a notation from its tree
 
         Args:
             reverse: if True, iterate in reverse
 
         Returns:
-            an iterator of tuples (notation, durationgroup)
+            an iterator of tuples (notation, node)
 
         """
         items = self.items if not reverse else reversed(self.items)
@@ -239,7 +251,7 @@ class DurationGroup:
             if isinstance(item, Notation):
                 yield (item, self)
             else:
-                yield from item.recurseWithGroup(reverse=reverse)
+                yield from item.recurseWithNode(reverse=reverse)
 
     def removeUnmatchedSpanners(self):
         from . import spanner
@@ -261,7 +273,7 @@ class DurationGroup:
             return next((tie for tie in ties if n in tie), None)
 
         skip = False
-        for (n0, g0), (n1, g1) in iterlib.pairwise(self.recurseWithGroup()):
+        for (n0, g0), (n1, g1) in iterlib.pairwise(self.recurseWithNode()):
             if skip:
                 skip = False
                 continue
@@ -341,7 +353,7 @@ class DurationGroup:
         skip = False
         n0: Notation
         n1: Notation
-        for (n0, group0), (n1, group1) in iterlib.pairwise(self.recurseWithGroup()):
+        for (n0, node0), (n1, node1) in iterlib.pairwise(self.recurseWithNode()):
             if skip:
                 skip = False
                 continue
@@ -351,7 +363,7 @@ class DurationGroup:
             if n0.quantizedPitches() == n1.quantizedPitches():
                 if n0.isGracenote and n1.isRealnote:
                     n0.copyAttributesTo(n1)
-                    group0.items.remove(n0)
+                    node0.items.remove(n0)
                     count += 1
                     if n0.spanners:
                         for spanner in n0.spanners.copy():
@@ -361,7 +373,7 @@ class DurationGroup:
                     n0.gliss = n1.gliss
                     n0.tiedNext = n1.tiedNext
                     n1.copyAttributesTo(n0)
-                    group1.items.remove(n1)
+                    node1.items.remove(n1)
                     count += 1
                     skip = True
                     if n1.spanners:
@@ -382,25 +394,37 @@ class DurationGroup:
             if self.removeUnnecessaryGracenotes() == 0:
                 break
 
-    def fixEnharmonics(self, options: enharmonics.EnharmonicOptions):
+    def fixEnharmonics(self,
+                       options: enharmonics.EnharmonicOptions,
+                       prevTree: Node = None
+                       ):
         notations = list(self.recurse())
+        n0 = notations[0]
+        if not n0.isRest and n0.tiedPrev and prevTree is not None:
+            # get previous note's spelling and fix n0 with it
+            last = prevTree.lastNotation()
+            if last.tiedNext and last.pitches == n0.pitches:
+                spellings = last.notenames
+                for i, spelling in enumerate(spellings):
+                    n0.fixNotename(spelling, idx=i)
+
         from . import enharmonics
         enharmonics.fixEnharmonicsInPlace(notations, options=options)
 
 
-def asDurationGroupTree(groups: list[DurationGroup]
-                        ) -> DurationGroup:
+def asTree(nodes: list[Node]
+           ) -> Node:
     """
-    Transform a list of DurationGroups into a tree structure
+    Transform a list of Nodes into a tree structure
 
     A tree has a root and leaves, where each leave can be the root of a subtree
 
     Args:
-        groups: the tree to get/make the root for
+        nodes: the tree to get/make the root for
 
     Returns:
         the root of a tree structure
     """
-    if len(groups) == 1 and groups[0].durRatio == (1, 1):
-        return groups[0]
-    return DurationGroup(durRatio=(1, 1), items=groups)
+    if len(nodes) == 1 and nodes[0].durRatio == (1, 1):
+        return nodes[0]
+    return Node(ratio=(1, 1), items=nodes)

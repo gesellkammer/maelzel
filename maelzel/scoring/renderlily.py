@@ -23,7 +23,7 @@ from . import attachment
 from . import definitions
 from .core import Notation
 from .render import Renderer, RenderOptions
-from .durationgroup import DurationGroup
+from .node import Node
 from . import quant, util
 from . import spanner as _spanner
 from . import lilypondsnippets
@@ -143,13 +143,13 @@ _lilyBarlines = {
 }
 
 
-def markConsecutiveGracenotes(root: DurationGroup) -> None:
+def markConsecutiveGracenotes(root: Node) -> None:
     """
     Marks consecutive gracenotes by setting their 'graceGroup' attribute inplace
 
     This is needed in lilypond since groups of gracenotes need to
     be placed within curly brackets, like ``\grace { a8 e8 }``,
-    but when we are rendering we are iterating recursively
+    but when we are rendering we are iterating recursively,
     so we need to look ahead before
 
     Args:
@@ -253,7 +253,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
 
         We do not take tuplets into consideration here,
         since they should be taken care of at a higher level
-        (see renderGroup)
+        (see renderNode)
 
     Args:
         n: the notation
@@ -521,7 +521,7 @@ def _handleSpannerPre(spanner: _spanner.Spanner, state: RenderState) -> str | No
     elif isinstance(spanner, _spanner.TrillLine):
         if spanner.kind == 'start':
             if not (spanner.startmark or spanner.alteration or spanner.trillpitch):
-                # It will be just a wavy line so we use a textspanner
+                # It will be just a wavy line, so we use a textspanner
                 _(rf"\once \override TextSpanner.style = #'trill ")
             elif spanner.trillpitch:
                 _(r'\pitchedTrill ')
@@ -592,31 +592,30 @@ def _handleSpannerPost(spanner: _spanner.Spanner, state: RenderState) -> str | N
     return ''.join(out)
 
 
-
-def _forceBracketsForNestedTuplets(group: DurationGroup):
-    if group.durRatio != (1, 1):
-        for item in group.items:
-            if isinstance(item, DurationGroup) and item.durRatio != (1, 1):
+def _forceBracketsForNestedTuplets(node: Node):
+    if node.durRatio != (1, 1):
+        for item in node.items:
+            if isinstance(item, Node) and item.durRatio != (1, 1):
                 item.setProperty('.forceTupletBracket', True)
-    for item in group.items:
-        if isinstance(item, DurationGroup):
+    for item in node.items:
+        if isinstance(item, Node):
             _forceBracketsForNestedTuplets(item)
 
 
-def renderGroup(group: DurationGroup,
-                durRatios: list[F],
-                options: RenderOptions,
-                state: RenderState,
-                numIndents: int = 0,
-                ) -> str:
+def renderNode(node: Node,
+               durRatios: list[F],
+               options: RenderOptions,
+               state: RenderState,
+               numIndents: int = 0,
+               ) -> str:
     """
-    A DurationGroup is a sequence of notes which share (and fill) a time modifier.
+    A node is a sequence of notes which share (and fill) a time modifier.
     It can be understood as a "subdivision", whereas "normal" durations are interpreted
-    as a 1:1 subdivision. A group can consist of Notations or other DurationGroups
+    as a 1:1 subdivision. A node can consist of Notations or other Nodes
 
     Args:
-        group: the group to render
-        durRatios: a seq. of duration ratios OUTSIDE this group. Can be
+        node: the node to render
+        durRatios: a seq. of duration ratios OUTSIDE this node. Can be
             an empty list
         options: the render options to use
         state: context of the ongoing render
@@ -626,24 +625,24 @@ def renderGroup(group: DurationGroup,
     _ = seq.append
     indentSize = 2
 
-    if group.durRatio != (1, 1):
-        durRatios.append(F(*group.durRatio))
+    if node.durRatio != (1, 1):
+        durRatios.append(F(*node.durRatio))
         tupletStarted = True
-        num, den = group.durRatio
+        num, den = node.durRatio
         _(_spaces[:numIndents*indentSize])
         _(f"\\tuplet {num}/{den} {{\n")
         numIndents += 1
-        if group.getProperty('.forceTupletBracket'):
+        if node.getProperty('.forceTupletBracket'):
             _(_spaces[:numIndents * indentSize])
             _(r"\once \override TupletBracket.bracket-visibility = ##t")
 
     else:
         tupletStarted = False
     _(_spaces[:numIndents*indentSize])
-    for i, item in enumerate(group.items):
-        if isinstance(item, DurationGroup):
-            _(renderGroup(item, durRatios, options=options, numIndents=numIndents+1,
-                          state=state))
+    for i, item in enumerate(node.items):
+        if isinstance(item, Node):
+            _(renderNode(item, durRatios, options=options, numIndents=numIndents + 1,
+                         state=state))
         else:
             assert isinstance(item, Notation)
             if not item.gliss and state.glissando:
@@ -665,7 +664,7 @@ def renderGroup(group: DurationGroup,
             #if item.offset in beatOffsets[1:-1]:
             #    _(r'\beamBreak ')
 
-            # Slur modifiers (line type, etc) need to go before the start of
+            # Slur modifiers (line type, etc.) need to go before the start of
             # the first note of the spanner :-(
             # Some spanners have customizations which need to be declared
             # before the note to which the spanner is attached to
@@ -755,7 +754,6 @@ def quantizedPartToLily(part: quant.QuantizedPart,
     """
     quarterTempo = 0
     scorestruct = part.struct
-    enharmonicOptions = options.makeEnharmonicOptions()
 
     seq = []
 
@@ -835,7 +833,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
                 relfontsize = options.measureAnnotationFontSize - options.staffSize
                 _(lilytools.makeTextMark(measureDef.annotation,
                                          fontsize=relfontsize, fontrelative=True,
-                                         box='square' if options.measureAnnotationBoxed else ''))
+                                         box=options.measureAnnotationBox))
             if measureDef.rehearsalMark:
                 relfontsize = options.rehearsalMarkFontSize - options.staffSize
                 box = measureDef.rehearsalMark.box if options.rehearsalMarkBoxed else ''
@@ -857,8 +855,8 @@ def quantizedPartToLily(part: quant.QuantizedPart,
             _forceBracketsForNestedTuplets(root)
             root.removeUnnecessaryGracenotes()
             markConsecutiveGracenotes(root)
-            lilytext = renderGroup(root, durRatios=[], options=options,
-                                   numIndents=0, state=state)
+            lilytext = renderNode(root, durRatios=[], options=options,
+                                  numIndents=0, state=state)
             _(lilytext, indents=indents)
         indents -= 1
 

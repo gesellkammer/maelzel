@@ -57,7 +57,7 @@ class PlayArgs:
         a lower priority
     * position: the horizontal placement in place. 0=left, 1=right. For multichannel (> 2)
         presets this value is interpreted freely by the instrument, which does its own spatialization
-    * sustain: if positive the last breakpoint is extended by this duration. This is used mainly for
+    * sustain: if positive the last breakpoint is extended by this totalDuration. This is used mainly for
         sample based instruments (soundfont) to extend the playback. It can be used to implement
         one-shot sample playback
     * transpose: add an extra transposition to all breakpoints
@@ -413,7 +413,7 @@ class SynthEvent:
         """User defined properties for an event"""
 
         self.sustain = sustain
-        """Sustain time after the actual duration"""
+        """Sustain time after the actual totalDuration"""
 
         self._namedArgsMethod = 'pargs'
         self._consolidateDelay()
@@ -598,7 +598,7 @@ class SynthEvent:
         idx  parg    desc
         ==== =====  ============================================
         0    2       delay
-        1    3       duration
+        1    3       totalDuration
         2    4       tabnum
         3    5       bpsoffset (pfield index, starting with 1)
         4    6       bpsrows

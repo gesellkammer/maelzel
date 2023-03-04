@@ -290,7 +290,7 @@ class OfflineRenderer:
         Args:
             instrname: the instr. name
             delay: start time
-            dur: duration
+            dur: totalDuration
             priority: priority of the event
             args: any pfields passed to the instr., starting at p5
             tabargs: table args accepted by the instr.
@@ -758,7 +758,7 @@ def testAudio(duration=4, period=0.5, numChannels: int = None, delay=0.5,
     Test the audio engine by sending pink to each channel
 
     Args:
-        duration: the duration of the test
+        duration: the totalDuration of the test
         period: how long to test each channel. Channels are cycled
         numChannels: the number of channels to use if starting the engine
         delay: how long to wait before starting the test.
@@ -1098,7 +1098,7 @@ def _resolvePfields(event: SynthEvent, instr: csoundengine.Instr
     idx  parg    desc
     ==== =====  ======
     0    2       delay
-    1    3       duration
+    1    3       totalDuration
     2    4       tabnum
     3    5       bpsoffset (pfield index, starting with 1)
     4    6       bpsrows
@@ -1157,7 +1157,7 @@ def _resolvePfields(event: SynthEvent, instr: csoundengine.Instr
 
 class synchedplay:
     """
-    Context manager to group realtime events to ensure synched playback
+    Context manager to tree realtime events to ensure synched playback
 
     When playing multiple objects via their respective .play method, initialization
     (loading soundfiles, soundfonts, etc) might result in events getting out of sync
@@ -1327,7 +1327,7 @@ class synchedplay:
         Args:
             instrname: the instr. name
             delay: start time
-            dur: duration
+            dur: totalDuration
             priority: priority of the event
             args: any pfields passed to the instr., starting at p5
             tabargs: table args accepted by the instr.

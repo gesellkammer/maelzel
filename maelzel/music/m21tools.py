@@ -91,10 +91,10 @@ def logicalTies(stream:m21.stream.Stream) -> List[List[m21.note.NotRest]]:
 def noteLogicalTie(note: m21.note.Note, stream: m21.stream.Stream
                    ) -> List[m21.note.Note]:
     """
-    Return the group of notes tied to `note`
+    Return the tree of notes tied to `note`
 
     Args:
-        note: the note starting the tied group
+        note: the note starting the tied tree
         stream: the stream the note belongs to
 
     Returns:
@@ -286,7 +286,7 @@ def needsSplit(notes: Union[Sequence[float], m21.stream.Stream], splitpoint=60) 
 def makeTimesig(num_or_dur: Union[int, float], den:int=0) -> m21.meter.TimeSignature:
     """
     Create a m21 TimeSignature from either a numerator, denominator or from
-    a duration in quarter notes.
+    a totalDuration in quarter notes.
 
     makeTimesig(2.5) -> 5/8
     makeTimesig(4)   -> 4/4
@@ -344,11 +344,11 @@ def _makeDuration(durType: Union[str, number_t], dots=0, durRatios: List[F]=None
                  ) -> m21.duration.Duration:
     """
     Args:
-        durType: the notated duration, BEFORE applying any time modification
+        durType: the notated totalDuration, BEFORE applying any time modification
             1 = quarter note, 0.5 = eighth note, etc. Or a string, like 'half',
             'quarter', 'eighth', '16th', etc.
         dots: how many dots
-        durRatios: the duration ratios to apply, if any. None indicates no time
+        durRatios: the totalDuration ratios to apply, if any. None indicates no time
             modification
 
     Returns:
@@ -636,7 +636,7 @@ def _makeNote(pitch: Union[str, float], divsPerSemitone=4, centsAsLyrics=False,
     m21 Note with a max. 1/8 tone resolution.
 
     Any keyword option will be passed to m21.note.Note (for example,
-    `duration` or `quarterLength`)
+    `totalDuration` or `quarterLength`)
 
     Args:
         pitch: the pitch of the resulting note (for example, 60.20, or "4C+20")
@@ -716,7 +716,7 @@ def makeChord(pitches: Sequence[float], divsPerSemitone:int=4, centsAsLyric=Fals
         noteheadFill: should the notehead be filled or hollow (None=default)
         hideAccidental: if True, hide the accidentals
         tiedToPrevious: is this chord tied to the previous?
-        options: options passed to the Chord constructor (duration, quarterLength, etc)
+        options: options passed to the Chord constructor (totalDuration, quarterLength, etc)
 
     Returns:
         a tuple (Chord, list of cents deviations)
@@ -769,7 +769,7 @@ def addGraceNote(pitch:Union[float, str, Sequence[float]], anchorNote:m21.note.G
     Args:
         pitch: the pitch of the grace note (as midinote, or notename)
         anchorNote: the note the grace note will be added to
-        dur: the written duration of the grace note
+        dur: the written totalDuration of the grace note
         nachschlag: if True, the grace note is added as nachschlag, after the anchor
         context: the context where anchor note is defined, as a str, or the
                  stream itself
@@ -1152,12 +1152,12 @@ def scoreSchema(durs: Sequence[float],
                 tempo: int = None,
                 ) -> m21.stream.Part:
     """
-    Make an empty score where each measure is indicated by the duration
+    Make an empty score where each measure is indicated by the totalDuration
     in quarters.
 
     Args:
 
-        durs: a seq. of durations, where each duration indicates the length
+        durs: a seq. of durations, where each totalDuration indicates the length
               of each measure.
               e.g: 1.5 -> 3/8, 1.25 -> 5/16, 4 -> 4/4
         barlines:
@@ -1171,7 +1171,7 @@ def scoreSchema(durs: Sequence[float],
             This note will be used instead of the default
         separators:
             if given, a dict of measure_idx: sep_dict where sep_dict
-            can have the keys {'dur': duration, 'fill': 'rest' / 'fill': midinote}
+            can have the keys {'dur': totalDuration, 'fill': 'rest' / 'fill': midinote}
             A separator adds a measure before the given idx. Separators don't affect
             measure indices used in other indicators (barlines, labels, notes)
         default: either 'rest' or a midinote, will be used to fill measures
@@ -1434,7 +1434,7 @@ def fixNachschlag(n: m21.note.Note, durtype:str=None, priority=0) -> None:
 
     Args:
         n: the note to fix. It must be a grace note
-        durtype: the displayed duration. It must be an eighth note or shorter
+        durtype: the displayed totalDuration. It must be an eighth note or shorter
         priority: higher priorities are sorted later for the same offset
     """
     assert n.duration.isGrace
@@ -1498,7 +1498,7 @@ def makeTupletBrackets(s: m21.stream.Stream, inPlace=False) -> m21.stream.Stream
         if tupletList in [(), None]:  # no tuplets, length is zero
             tupletMap.append([None, dur])
         elif len(tupletList) > 1:
-            logger.warning('got multi-subdivision duration; cannot yet handle this. %s' % repr(tupletList))
+            logger.warning('got multi-subdivision totalDuration; cannot yet handle this. %s' % repr(tupletList))
         elif len(tupletList) == 1:
             tupletMap.append([tupletList[0], dur])
             if tupletList[0] != dur.tuplets[0]:

@@ -80,8 +80,8 @@ def notationToMusic21(n: Notation, durRatios: List[F], tupleType: Optional[str],
 
     Args:
         n: the notation
-        durRatios: the duration ratios of the context in which the notation
-            is. A Notation has already duration ratios,
+        durRatios: the totalDuration ratios of the context in which the notation
+            is. A Notation has already totalDuration ratios,
         tupleType: either "start", "stop", or None
         options: the render options
 
@@ -131,7 +131,7 @@ def notationToMusic21(n: Notation, durRatios: List[F], tupleType: Optional[str],
     out.noteheadParenthesis = n.noteheadParenthesis
     if n.isGracenote():
         out = out.getGrace()
-        out.duration.slash = n.getProperty("graceNoteSlash", True)
+        out.totalDuration.slash = n.getProperty("graceNoteSlash", True)
     else:
         m21tools.makeTie(out, tiedPrev=n.tiedPrev, tiedNext=n.tiedNext)
 
@@ -150,18 +150,18 @@ def notationToMusic21(n: Notation, durRatios: List[F], tupleType: Optional[str],
 
 
 def _renderGroup(measure: m21.stream.Measure,
-                 group: quant.DurationGroup,
+                 group: quant.Node,
                  durRatios:List[F],
                  options: render.RenderOptions) -> None:
     """
     A quant.DurationGroup is a sequence of notes which share (and fill) a time modifier.
     It can be understood as a "subdivision", whereas "normal" durations are interpreted
-    as a 1:1 subdivision. A group can consist of Notations or other quant.DurationGroups
+    as a 1:1 subdivision. A tree can consist of Notations or other quant.DurationGroups
 
     Args:
         measure: the measure being rendered to
-        group: the group to render
-        durRatios: a seq. of duration ratios OUTSIDE this group. Can be
+        group: the tree to render
+        durRatios: a seq. of totalDuration ratios OUTSIDE this tree. Can be
         an empty list
     """
     if group.durRatio != 1:
@@ -169,7 +169,7 @@ def _renderGroup(measure: m21.stream.Measure,
     centsLabelOrder = 'ascending' if options.centsPlacement == 'below' else 'descending'
 
     for i, item in enumerate(group.items):
-        if isinstance(item, quant.DurationGroup):
+        if isinstance(item, quant.Node):
             _renderGroup(measure, item, durRatios, options=options)
             continue
         assert isinstance(item, Notation)

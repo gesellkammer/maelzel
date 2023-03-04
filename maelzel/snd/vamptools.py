@@ -105,10 +105,10 @@ def pyinNotes(samples: np.ndarray,
         lowAmpSuppression (float): supress low amplitude pitch estimates
         threshDistr (str): yin threshold distribution. See table 1 below
         onsetSensitivity (float): onset sensitivity
-        pruneThresh (float): duration pruning threshold
+        pruneThresh (float): totalDuration pruning threshold
 
     Returns:
-        a list of Notes, where each Note has the attributes .timestamp, .frequency, .duration
+        a list of Notes, where each Note has the attributes .timestamp, .frequency, .totalDuration
 
     ============   ============
     thresh_distr   Description
@@ -157,7 +157,7 @@ def pyinNotes(samples: np.ndarray,
                           step_size=stepSize, parameters=params)
     notes = []
     for onset in result['list']:
-        n = Note(onset['timestamp'].to_float(), float(onset['values'][0]), onset['duration'].to_float())
+        n = Note(onset['timestamp'].to_float(), float(onset['values'][0]), onset['totalDuration'].to_float())
         notes.append(n)
     return notes
 
@@ -189,7 +189,7 @@ def pyinPitchTrack(samples: np.ndarray,
         lowAmpSuppression: supress low amplitude pitch estimates
         threshDistr: yin threshold distribution. See table 1 below
         onsetSensitivity: onset sensitivity
-        pruneThresh: duration pruning threshold
+        pruneThresh: totalDuration pruning threshold
         outputUnvoiced: method used to output frequencies when the sound is
             unvoiced (there is no reliable pitch detected). Choices are True (sets
             the frequency to 'nan' for unvoiced breakpoints), False (the breakpoint
@@ -331,7 +331,7 @@ def pyinSmoothPitch(samples: np.ndarray,
         lowAmpSuppression (float): supress low amplitude pitch estimates
         threshDistr (str): yin threshold distribution. See table 1 below
         onsetSensitivity (float): onset sensitivity
-        pruneThresh (float): duration pruning threshold
+        pruneThresh (float): totalDuration pruning threshold
 
     Returns:
         a tuple (delta time, frequencies: np.ndarray)

@@ -317,7 +317,7 @@ def _synthVowelFof2(engine: csoundengine.Engine,
     Args:
         midinote: either a midinote as float, or a tuple (start, end)
         vowel: the vowel to synthesize
-        dur: the duration
+        dur: the totalDuration
         vibrate: the vibrato rate
         vibamount: how much vibrato
         gain: the gain of the note
@@ -352,7 +352,7 @@ def synthVowel(midinote: Union[float, Tuple[float, float]],
         midinote: the pitch to synthesize, either a single pitch or a glissando if a tuple
             (start pitch, end pitch) is given
         vowel: the vowel to use
-        dur: the duration
+        dur: the totalDuration
         gain: gain
         method: 'fof2' at the moment
         vibrate: vibrato rate

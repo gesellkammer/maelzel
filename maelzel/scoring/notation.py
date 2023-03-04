@@ -41,9 +41,9 @@ class Notation:
     This represents a notation (a rest, a note or a chord)
 
     Args:
-        duration: the duration of this Notation, in quarter-notes. A value of
-            None indicates an unset duration. During quantization an unset
-            duration is interpreted as lasting to the next notation.
+        duration: the totalDuration of this Notation, in quarter-notes. A value of
+            None indicates an unset totalDuration. During quantization an unset
+            totalDuration is interpreted as lasting to the next notation.
             0 indicates a grace note
         pitches: if given, a list of pitches as midinote or notename. If a notename
             is given, the spelling is fixed. Otherwise a suitable spelling is calculated
@@ -53,11 +53,11 @@ class Notation:
         tiedPrev: is this Notation tied to the previous one?
         tiedNext: is it tied to the next
         dynamic: the dynamic of this notation, one of "p", "pp", "f", etc.
-        group: a str identification, can be used to group Notations together
+        group: a str identification, can be used to tree Notations together
         durRatios: a list of tuples (x, y) indicating a tuple relationship.
             For example, a Notation used to represent one 8th note in a triplet
-            would have the duration 1/3 and durRatios=[(3, 2)]. Multiplying the
-            duration by the durRatios would result in the notated value, in this
+            would have the totalDuration 1/3 and durRatios=[(3, 2)]. Multiplying the
+            totalDuration by the durRatios would result in the notated value, in this
             case 1/2 (1 being a quarter note). A value of None is the same as
             a value of [(1, 1)] (no modification)
         gliss: if True, a glissando will be rendered between this note and the next
@@ -433,8 +433,8 @@ class Notation:
             idx: the index of the note to modify. If None, a matching pitch in this notation
                 is searched
             fail: if idx was set to None (to search for a matching fit) and there
-                is not match, an Exception will be raised if fail is set to True.
-                Otherwise we fail silently.
+                is no match, an Exception will be raised if fail is set to True.
+                Otherwise, we fail silently.
 
         .. seealso:: :meth:`Notation.notenames`
         """
@@ -598,7 +598,7 @@ class Notation:
 
     def symbolicDuration(self) -> F:
         """
-        The symbolic duration of this Notation.
+        The symbolic totalDuration of this Notation.
 
         This represents the notated figure (1=quarter, 1/2=eighth note,
         1/4=16th note, etc)
@@ -724,7 +724,7 @@ class Notation:
 
     def notatedDuration(self) -> NotatedDuration:
         """
-        The duration of the notated figure, in quarter-notes, independent of any tuples.
+        The totalDuration of the notated figure, in quarter-notes, independent of any tuples.
 
         A quarter-note inside a triplet would have a notatedDuration of 1
         """
@@ -867,7 +867,7 @@ class Notation:
         """
         assert dest is not self
 
-        exclude = {'duration', 'pitches', 'offset', 'durRatios', 'group',
+        exclude = {'totalDuration', 'pitches', 'offset', 'durRatios', 'tree',
                    'properties', 'attachments', 'spanners', '__weakref__'}
 
         for attr in self.__slots__:
@@ -973,11 +973,11 @@ def mergeNotations(a: Notation, b: Notation) -> Notation:
     For two notations to be mergeable they need to:
 
     - be adjacent or have unset offset
-    - have a duration
+    - have a totalDuration
     - have the same pitch/pitches.
 
     All other attributes are taken from the first notation and the
-    duration of this first notation is extended to cover both notations
+    totalDuration of this first notation is extended to cover both notations
     """
     if a.pitches != b.pitches:
         raise ValueError("Attempting to merge two Notations with "
@@ -1023,13 +1023,13 @@ def mergeSpanners(a: Notation, b: Notation
 
 def makeGroupId(parent: str = '') -> str:
     """
-    Create an id to group notations together
+    Create an id to tree notations together
 
     Args:
         parent: if given it will be prepended as {parent}/{groupid}
 
     Returns:
-        the group id as string
+        the tree id as string
     """
     groupid = str(uuid.uuid1())
     return groupid if parent is None else f'{parent}/{groupid}'
@@ -1052,13 +1052,13 @@ def makeNote(pitch: pitch_t,
     Args:
         pitch: the pitch as midinote or notename. If given a pitch as str,
             the note in question is fixed at the given enharmonic representation.
-        duration: the duration of this Notation. Use None to leave this unset,
+        duration: the totalDuration of this Notation. Use None to leave this unset,
             0 creates a grace note
         offset: the offset of this Notation (None to leave unset)
         annotation: an optional text annotation for this note
         gliss: does this Notation start a glissando?
-        withId: if True, this Notation has a group id and this id
-            can be used to mark multiple notes as belonging to a same group
+        withId: if True, this Notation has a tree id and this id
+            can be used to mark multiple notes as belonging to a same tree
         gracenote: make this a grace note.
         enharmonicSpelling: if given, this spelling of pitch will be used
         dynamic: a dynamic such as 'p', 'mf', 'ff', etc.
@@ -1097,7 +1097,7 @@ def makeChord(pitches: list[pitch_t],
     Args:
         pitches: the pitches as midinotes or notenames. If given a note as str,
             the note in question is fixed at the given enharmonic representation.
-        duration: the duration of this Notation. Use None to leave this unset,
+        duration: the totalDuration of this Notation. Use None to leave this unset,
             use 0 to create a grace note
         offset: the offset of this Notation (None to leave unset)
         annotation: a text annotation
@@ -1137,7 +1137,7 @@ def makeRest(duration: time_t,
     same effect
 
     Args:
-        duration: the duration of the rest
+        duration: the totalDuration of the rest
         offset: the start time of the rest. Normally a rest's offset
             is left unspecified (None)
         dynamic: if given, attach this dynamic to the rest
@@ -1205,7 +1205,7 @@ def notationsToCoreEvents(notations: list[Notation]
 
 def durationsCanMerge(n0: Notation, n1: Notation) -> bool:
     """
-    True if these Notations can be merged based on duration and start/end
+    True if these Notations can be merged based on totalDuration and start/end
 
     Two durations can be merged if their sum is regular, meaning
     the sum has a numerator of 1, 2, 3, 4, or 7 (3 means a dotted
@@ -1240,8 +1240,8 @@ def notationsCanMerge(n0: Notation, n1: Notation) -> bool:
     """
     Returns True if n0 and n1 can me merged
 
-    Two Notations can merge if the resulting duration is regular. A regular
-    duration is one which can be represented via **one** notation (a quarter,
+    Two Notations can merge if the resulting totalDuration is regular. A regular
+    totalDuration is one which can be represented via **one** notation (a quarter,
     a half, a dotted 8th, a double dotted 16th are all regular durations,
     5/8 of a quarter is not)
 
@@ -1344,7 +1344,7 @@ class SnappedNotation:
 
     def makeSnappedNotation(self, extraOffset: F | None = None) -> Notation:
         """
-        Clone the original notation to be snapped to offset and duration
+        Clone the original notation to be snapped to offset and totalDuration
 
         Args:
             extraOffset: if given, an extra offset to apply to the snapped notation

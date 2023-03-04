@@ -36,7 +36,7 @@ defaultdict = {
     'show.lilypondPngStaffsizeScale': 1.5,
     'show.lilypondGlissandoMinimumLength': 5,
     'show.pngResolution': 200,
-    'show.measureAnnotationFontSize': 12,
+    'show.measureAnnotationStyle': 'box=square; fontsize=12',
     'show.respellPitches': True,
     'show.horizontalSpacing': 'medium',
     'show.fillDynamicFromAmplitude': False,
@@ -181,7 +181,7 @@ docs = {
         "clipping",
     'show.lastBreakpointDur':
         "Dur of a note representing the end of a line/gliss, which has "
-        "no duration per se",
+        "no totalDuration per se",
     'show.scaleFactor':
         "Affects the size of the generated image when using png format",
     'show.staffSize':
@@ -253,7 +253,7 @@ docs = {
     'rec.quiet':
         'Supress debug output when calling csound as a subprocess',
     'play.dur':
-        'Default duration of any play action if the object has no given duration',
+        'Default totalDuration of any play action if the object has no given totalDuration',
     'rec.ksmps':
         'Samples per cycle when rendering offline (passed as ksmps to csound)',
     'rec.compressionBitrate':
@@ -358,8 +358,8 @@ docs = {
         'make grid errors weight more dramatically as they diverge from the most accurate '
         'solution. If None, the value is derived from the complexity setting (quant.complexity)',
     'quant.minBeatFractionAcrossBeats':
-        'when merging durations across beats, a merged duration cannot be smaller than this '
-        'duration. This is to prevent joining durations across beats which might result in '
+        'when merging durations across beats, a merged totalDuration cannot be smaller than this '
+        'totalDuration. This is to prevent joining durations across beats which might result in '
         'high rhythmic complexity',
     'quant.debug':
         'Turns on debugging for the quantization process. This will show how different '

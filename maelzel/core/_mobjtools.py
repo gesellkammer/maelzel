@@ -20,7 +20,7 @@ def splitNotesOnce(notes: Chord | Sequence[Note], splitpoint: float, deviation=N
         notes: a seq. of Notes
         splitpoint: the pitch to split the notes
         deviation: an acceptable deviation to fit all notes
-            in one group (config: 'splitAcceptableDeviation')
+            in one tree (config: 'splitAcceptableDeviation')
 
     Returns:
         notes above and below
@@ -103,15 +103,15 @@ def fillTempDynamics(items: list[MEvent], initialDynamic='mf',
 
 def addDurationToGracenotes(chain: list[MEvent], dur: F) -> None:
     """
-    Adds real duration to gracenotes within chain
+    Adds real totalDuration to gracenotes within chain
 
-    Previous to playback, gracenotes have a duration of 0. Before playing
-    they are assigned a duration, which is substracted from the previous "real"
+    Previous to playback, gracenotes have a totalDuration of 0. Before playing
+    they are assigned a totalDuration, which is substracted from the previous "real"
     note or silence.
 
     Args:
         chain: the sequence of notes to modify (in place)
-        dur: the duration of a single gracenote
+        dur: the totalDuration of a single gracenote
 
     """
     lastRealNote = None
@@ -190,7 +190,7 @@ def groupLinkedEvents(items: list[MEvent],
 def splitLinkedGroupIntoLines(objs: list[MEvent]
                               ) -> list[list[Note]]:
     """
-    Given a group as a list of Notes/Chords, split it in subgroups matching
+    Given a tree as a list of Notes/Chords, split it in subgroups matching
     each note with its continuation.
 
     When one chords is followed by another chord and the first chord
@@ -261,12 +261,12 @@ def splitLinkedGroupIntoLines(objs: list[MEvent]
                         group.append(notes[matchidx])
                         usednotes.add(notes[matchidx])
                 else:
-                    # This group's last note is not tied and has no gliss: this is the
-                    # end of this group, so add it to finished
+                    # This tree's last note is not tied and has no gliss: this is the
+                    # end of this tree, so add it to finished
                     finished.append(group)
                     started.pop(groupidx)
-            # Are there notes left? If yes, this notes did not match any started group,
-            # so they must start a group themselves
+            # Are there notes left? If yes, this notes did not match any started tree,
+            # so they must start a tree themselves
             for note in notes:
                 if note not in usednotes:
                     started.append([note])

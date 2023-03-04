@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 def measureDuration(timesig: Union[str, timesig_t], tempo: number_t) -> F:
     """
-    calculate the duration of a given measure with the given tempo
+    calculate the totalDuration of a given measure with the given tempo
 
     Args:
         timesig: can be of the form "4/4" or (4, 4)
@@ -60,7 +60,7 @@ def framedTime(offsets: List[number_t], durations: List[number_t]
 
     Args:
         offsets: the start x of each frame
-        durations: the duration of each frame
+        durations: the totalDuration of each frame
 
     Returns:
         linear2framed, framed2linear
@@ -170,7 +170,7 @@ def tempo2beatdur(tempo):
 def bestTempo(duration, possible_tempi=DEFAULT_TEMPI,
               num_solutions=5, verbose=True):
     """
-    Find best tempi that fit the given duration
+    Find best tempi that fit the given totalDuration
     """
     remainings = [(duration % tempo2beatdur(tempo), i)
                   for i, tempo in enumerate(possible_tempi)]
@@ -182,7 +182,7 @@ def bestTempo(duration, possible_tempi=DEFAULT_TEMPI,
                       for tempo, n in zip(best_tempi, numbeats)]
     if verbose:
         for tempo, dur, n in zip(best_tempi, resulting_durs, numbeats):
-            print("Tempo: %f \t Resulting duration: %f \t Number of Beats: %d" %
+            print("Tempo: %f \t Resulting totalDuration: %f \t Number of Beats: %d" %
                   (tempo, dur, n))
     else:
         return best_tempi, resulting_durs, numbeats
@@ -225,7 +225,7 @@ def possibleTimesigs(tempo: float) -> List[float]:
 
 def quartersToTimesig(quarters:float, snap=True, mindiv=64) -> Tuple[int, int]:
     """
-    Transform a duration in quarters to a timesig
+    Transform a totalDuration in quarters to a timesig
 
     =========   ========
     quarters    timesig
@@ -237,7 +237,7 @@ def quartersToTimesig(quarters:float, snap=True, mindiv=64) -> Tuple[int, int]:
     =========   =======
 
     Args:
-        quarters: duration in quarter notes
+        quarters: totalDuration in quarter notes
         snap: if True, quantize quarters
         mindiv: min. division
 
@@ -269,14 +269,14 @@ def bestTimesig(duration: float,
                 timesigs: List[float]=None,
                 tolerance=0.25) -> List[float]:
     """
-    Best timesignature for the given duration
+    Best timesignature for the given totalDuration
 
     Args:
-        duration: the duration in quarter notes
+        duration: the totalDuration in quarter notes
         tempo: the tempo
         timesigs: a list of timesigs as fractional quarter notes
             (1.5 = 3/8).
-        tolerance: how much can the resulting duration differ from the given
+        tolerance: how much can the resulting totalDuration differ from the given
     
     Returns:
         the solutions, sorted from best to worst, where each solution is a float
@@ -303,15 +303,15 @@ def bestTimesigWithCombinations(duration: float,
                                 tolerance=0.25
                                 ) -> List[List[float]]:
     """
-    Best timesignature to cover the given duration with multiple measures
+    Best timesignature to cover the given totalDuration with multiple measures
 
     Args:
-        duration: the duration
+        duration: the totalDuration
         tempo: the tempo
         timesigs: possible timesignatures, as float (2.5 = 5/8)
         maxcombinations: max number of measures
-        tolerance: acceptable difference between the given duration and the resulting
-            duration
+        tolerance: acceptable difference between the given totalDuration and the resulting
+            totalDuration
 
     Returns:
         the solutions, sorted from best to worst (solutions[0] is the best solution).

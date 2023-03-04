@@ -470,6 +470,9 @@ class PitchAttachedSymbol(NoteAttachedSymbol):
     def applyToPitch(self, n: scoring.Notation, idx: int = None):
         raise NotImplementedError
 
+    def applyTo(self, n: scoring.Notation) -> None:
+        self.applyToPitch(n, idx=None)
+
 
 class Ornament(NoteAttachedSymbol):
     exclusive = False
@@ -723,7 +726,7 @@ class Notehead(PitchAttachedSymbol):
         if self.parenthesis:
             parts.append(f'parenthesis=True')
         if self.size is not None and self.size != 1.0:
-            parts.append(f'size={self.size}')
+            parts.append(f'size={self.size:.6g}')
         return f"Notehead({', '.join(parts)})"
 
     def asScoringNotehead(self) -> scoring.definitions.Notehead:
@@ -735,8 +738,6 @@ class Notehead(PitchAttachedSymbol):
         scoringNotehead = self.asScoringNotehead()
         n.setNotehead(scoringNotehead, idx=idx, merge=True)
 
-    def applyTo(self, n: scoring.Notation) -> None:
-        self.applyToPitch(n, idx=None)
 
 
 class Articulation(NoteAttachedSymbol):
@@ -834,14 +835,19 @@ class Accidental(PitchAttachedSymbol):
     Args:
         hidden: is this accidental hidden?
         parenthesis: put this accidental between parenthesis?
-        brackets: put this accidental between brackents?
         color: the color of this accidental
+        force: if True, force the accidental to be shown
+        size: a size factor
     """
     exclusive = True
     appliesToRests = False
 
-    def __init__(self, hidden=False, parenthesis=False, brackets=False, color='',
-                 force=False, size: float = None):
+    def __init__(self,
+                 hidden=False,
+                 parenthesis=False,
+                 color='',
+                 force=False,
+                 size: float = None):
         super().__init__()
 
         self.hidden = hidden
@@ -860,10 +866,12 @@ class Accidental(PitchAttachedSymbol):
             parts.append(f'color={self.color}')
         if self.size is not None:
             parts.append(f'size={self.size}')
+        if self.force:
+            parts.append('force=True')
         return f'Accidental({", ".join(parts)})'
 
     def __hash__(self):
-        return hash((type(self).__name__, self.hidden, self.parenthesis, self.color))
+        return hash((type(self).__name__, self.hidden, self.parenthesis, self.color, self.force))
 
     def applyToPitch(self, n: scoring.Notation, idx: int = None) -> None:
         if n.isRest:

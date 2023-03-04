@@ -61,18 +61,18 @@ def stackEvents(events: list[MEvent | Chain],
                 offset=F(0),
                 ) -> F:
     """
-    Stack events to the left **in place**, making any unset offset and duration explicit
+    Stack events to the left **in place**, making any unset offset and totalDuration explicit
 
     Args:
         events: the events to modify, either in place or as a copy
         explicitOffsets: if True, all offsets are made explicit, recursively
         explicitDurations: if True, all durations are made explicit, recursively
-        defaultDur: the default duration used when an event has no duration and
+        defaultDur: the default totalDuration used when an event has no totalDuration and
             the next event does not have an explicit offset
         offset: the offset of the events given
 
     Returns:
-        the accumulated duration of all events
+        the accumulated totalDuration of all events
 
     """
     if not events:
@@ -141,7 +141,7 @@ def _removeRedundantOffsets(items: list[MEvent | Chain],
             becomes redundant)
 
     Returns:
-        the total duration of *items*
+        the total totalDuration of *items*
 
     """
     # This is the relative position (independent of the chain's start)
@@ -164,7 +164,7 @@ def _removeRedundantOffsets(items: list[MEvent | Chain],
         if isinstance(item, MEvent):
             dur = item._detachedDur()
             if dur is None:
-                raise ValueError(f"This Chain contains events with unspecified duration: {item}")
+                raise ValueError(f"This Chain contains events with unspecified totalDuration: {item}")
             now += dur
         elif isinstance(item, Chain):  # a Chain
             dur = _removeRedundantOffsets(item.items, fillGaps=fillGaps, frame=now)
@@ -253,14 +253,14 @@ class Chain(MObj, MContainer):
 
     def isResolved(self, explicit=False) -> bool:
         """
-        True if all items in this chain have an offset and duration
+        True if all items in this chain have an offset and totalDuration
 
         Args:
-            explicit: if True, items must have an explicit offset and explicit duration
+            explicit: if True, items must have an explicit offset and explicit totalDuration
                 Otherwise it is enough that
 
         Returns:
-            True if all items have a resolved offset and duration
+            True if all items have a resolved offset and totalDuration
         """
         self._update()
         if self.offset is None and self._resolvedOffset is None:
@@ -289,7 +289,7 @@ class Chain(MObj, MContainer):
 
     def stack(self, explicitOffsets=True, explicitDurations=True) -> F:
         """
-        Stack events to the left **INPLACE**, optionally making offset/duration explicit
+        Stack events to the left **INPLACE**, optionally making offset/totalDuration explicit
 
         Args:
             explicitDurations: make all durations explicit (sets the .dur attribute of all
@@ -298,7 +298,7 @@ class Chain(MObj, MContainer):
                 all items in this chain, recursively)
 
         Returns:
-            the total duration of self
+            the total totalDuration of self
         """
         dur = stackEvents(self.items, explicitDurations=explicitDurations, explicitOffsets=explicitOffsets)
         self.dur = dur
@@ -310,7 +310,7 @@ class Chain(MObj, MContainer):
 
         A gap is produced when an event within a chain has an explicit offset
         later than the offset calculated by stacking the previous objects in terms
-        of their duration
+        of their totalDuration
 
         Args:
             recurse: if True, fill gaps within subchains
@@ -418,7 +418,7 @@ class Chain(MObj, MContainer):
         """
         Copy of self with explicit times
 
-        If self already has explicit offset and duration, self itself
+        If self already has explicit offset and totalDuration, self itself
         is returned. If you relie on the fact that this method returns
         a copy, use ``forcecopy=True``
 
@@ -433,7 +433,7 @@ class Chain(MObj, MContainer):
         ~~~~~~~
 
         The offset and dur shown as the first two columns are the resolved
-        times. When an event has an explicit offset or duration these are
+        times. When an event has an explicit offset or totalDuration these are
         shown as part of the event repr. See for example the second note, 4C,
         which in the first version does not have any explicit times and is shown
         as "4C" and in the second version it appears as "4C:2.5♩:offset=0.5"
@@ -1028,7 +1028,7 @@ class Chain(MObj, MContainer):
                           frame: F,
                           ) -> tuple[list[tuple[MEvent | list, F, F]], F]:
         """
-        For each item returns a tuple (item, offset, duration)
+        For each item returns a tuple (item, offset, totalDuration)
 
         Each event is represented as a tuple (event, offset, dur), a chain
         is represented as a list of such tuples
@@ -1038,13 +1038,13 @@ class Chain(MObj, MContainer):
             frame: the frame of reference
 
         Returns:
-            a tuple (eventtuples, duration) where eventtuples is a list of
+            a tuple (eventtuples, totalDuration) where eventtuples is a list of
             tuples (event, offset, dur). If recurse is True,
             any subchain is returned as a list of eventtuples. Otherwise
             a flat list is returned. In each eventtuple, the offset is relative
             to the first frame passed, so if the first offset was 0
             the offsets will hold the absolute offset of each event. Duration
-            is the total duration of the items in
+            is the total totalDuration of the items in
             the chain (not including its own offset)
 
         """
@@ -1084,14 +1084,14 @@ class Chain(MObj, MContainer):
 
     def recurseWithTimes(self, absolute=False) -> Iterator[tuple[MEvent, F, F]]:
         """
-        Recurse the events in self, yields a tuple (event, offset, duration) for each event
+        Recurse the events in self, yields a tuple (event, offset, totalDuration) for each event
 
         Args:
             absolute: if True, the offset returned for each item will be its
                 absolute offset; otherwise the offsets are relative to the start of self
 
         Returns:
-            a generator of tuples (event, offset, duration), where offset is either the
+            a generator of tuples (event, offset, totalDuration), where offset is either the
             offset relative to the start of self, or absolute if absoluteTimes is True
 
         Example
@@ -1117,12 +1117,12 @@ class Chain(MObj, MContainer):
     def iterateWithTimes(self, absolute=False
                          ) -> list[tuple[MEvent, F, F] | list]:
         """
-        Iterates over the items in self, returns a tuple (event, offset, duration) for each
+        Iterates over the items in self, returns a tuple (event, offset, totalDuration) for each
 
-        The explicit times (offset, duration) of the events are not modified. For each event
-        it returns a tuple (event, offset, duration), where the event is unmodified, the
-        offset is the withExplicitTimes offset relative to its parent and the duration is the withExplicitTimes
-        duration. Nested subchains result in nested lists. All times are in beats
+        The explicit times (offset, totalDuration) of the events are not modified. For each event
+        it returns a tuple (event, offset, totalDuration), where the event is unmodified, the
+        offset is the withExplicitTimes offset relative to its parent and the totalDuration is the withExplicitTimes
+        totalDuration. Nested subchains result in nested lists. All times are in beats
 
         Args:
             absolute: if True, offsets are returned as absolute offsets
@@ -1291,7 +1291,7 @@ def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
      This results in the list [[C4, D4, D4], G3]
 
     Args:
-        groups: A list of synthevents. Each synthevent group corresponds
+        groups: A list of synthevents. Each synthevent tree corresponds
             to the synthevents returned by a note/chord
 
     Returns:
@@ -1313,8 +1313,8 @@ def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
 
     def makeLine(nodeindex: int, groupindex: int, availableNodesPerGroup: list[set[int]]
                  ) -> list[SynthEvent]:
-        # group = groups[groupindex]
-        # event = group[nodeindex]
+        # tree = groups[groupindex]
+        # event = tree[nodeindex]
         event = groups[groupindex][nodeindex]
         out = [event]
         if not event.linkednext or groupindex == len(groups) - 1:
@@ -1335,8 +1335,8 @@ def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
 
     out: list[SynthEvent | list[SynthEvent]] = []
     availableNodesPerGroup: list[set[int]] = [set(range(len(group))) for group in groups]
-    # Iterate over each group. A group is just the list of events generated by a given chord
-    # Within a group, iterate over the nodes of each group
+    # Iterate over each tree. A tree is just the list of events generated by a given chord
+    # Within a tree, iterate over the nodes of each tree
     for groupindex in range(len(groups)):
         for nodeindex in availableNodesPerGroup[groupindex]:
             line = makeLine(nodeindex, groupindex=groupindex,
@@ -1348,7 +1348,7 @@ def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
             else:
                 out.append(line)
 
-    # last group
+    # last tree
     if len(groups) > 1 and (lastGroupIndexes := availableNodesPerGroup[-1]):
         lastGroup = groups[-1]
         out.extend(lastGroup[idx] for idx in lastGroupIndexes)
