@@ -696,11 +696,12 @@ class MObj:
         else:
             assert isinstance(quantizationProfile, scoring.quant.QuantizationProfile)
         parts = self.scoringParts()
+        if config['show.respellPitches'] and enharmonicOptions is None:
+            enharmonicOptions = config.makeEnharmonicOptions()
         qscore = scoring.quant.quantize(parts,
                                         struct=scorestruct,
-                                        quantizationProfile=quantizationProfile)
-        if config['show.respellPitches'] or enharmonicOptions is not None:
-            qscore.fixEnharmonics(enharmonicOptions or config.makeEnharmonicOptions())
+                                        quantizationProfile=quantizationProfile,
+                                        enharmonicOptions=enharmonicOptions)
         return qscore
 
     def render(self,

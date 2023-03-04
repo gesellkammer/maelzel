@@ -632,7 +632,7 @@ class SynthEvent:
         bpscols = self.breakpointSize()
         pfields = [
             float(self.delay),
-            self.dur,
+            float(self.dur),
             0,  # table index, to be filled later
         ]
         pfields5 = [
@@ -652,6 +652,7 @@ class SynthEvent:
         pfields.extend(pfields5)
         for bp in self.bps:
             pfields.extend(bp)
+        pfields = [x if isinstance(x, str) else float(x) for x in pfields]
         if len(pfields) > _MAX_NUM_PFIELDS:
             logger.error(f"This SynthEvent has too many pfields: {len(pfields)}")
         return pfields

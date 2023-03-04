@@ -853,7 +853,6 @@ def quantizedPartToLily(part: quant.QuantizedPart,
         else:
             root = measure.tree()
             _forceBracketsForNestedTuplets(root)
-            root.removeUnnecessaryGracenotes()
             markConsecutiveGracenotes(root)
             lilytext = renderNode(root, durRatios=[], options=options,
                                   numIndents=0, state=state)

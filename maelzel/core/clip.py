@@ -62,8 +62,8 @@ class Clip(MEvent):
                  offset: time_t = None,
                  label: str = '',
                  dynamic: str = '',
-                 startsecs=0.,
-                 endsecs=0.,
+                 startsecs: float | F = 0.,
+                 endsecs: float | F = 0.,
                  channel: int = None,
                  speed: F | float =F(1),
                  parent: MContainer | None = None,
@@ -84,7 +84,7 @@ class Clip(MEvent):
         self.sr = 0
         """The samplerate of this Clip"""
 
-        self.sourceDurSecs = 0
+        self.sourceDurSecs: F = F0
         """The totalDuration in seconds of the source of this Clip"""
 
         self.tied = tied
@@ -134,12 +134,12 @@ class Clip(MEvent):
         self.dynamic: str = dynamic
         """A dynamic expression attached to the score representation of this clip"""
 
-        self.startSecs = startsecs
+        self.startSecs: F = asF(startsecs)
         """Start offset of the clip relative to the start of the source (in seconds)"""
 
-        self.endSecs = endsecs if endsecs > 0 else self.sourceDurSecs
+        self.endSecs: F = asF(endsecs if endsecs > 0 else self.sourceDurSecs)
 
-        self.speed = asF(speed)
+        self.speed: F = asF(speed)
         """Playback speed"""
 
         self._sample: audiosample.Sample|None = None
@@ -203,6 +203,9 @@ class Clip(MEvent):
         return False
 
     def durSecs(self) -> F:
+        assert isinstance(self.endSecs, F)
+        assert isinstance(self.startSecs, F)
+        assert isinstance(self.speed, F)
         return (self.endSecs - self.startSecs) / self.speed
 
     def _calculateDuration(self,
@@ -223,6 +226,7 @@ class Clip(MEvent):
         endbeat = struct.timeToBeat(starttime + dursecs)
         self._resolvedDur = out = endbeat - startbeat
         self._durContext = (struct, startbeat)
+        assert isinstance(out, F)
         return out
 
     def resolveDur(self) -> F:
@@ -247,8 +251,8 @@ class Clip(MEvent):
         reloffset = self.resolveOffset()
         offset = reloffset + parentOffset
         starttime = float(scorestruct.beatToTime(offset))
-        endtime = starttime + self.durSecs()
-        amp = firstval(self.amp, 1)
+        endtime = float(starttime + self.durSecs())
+        amp = firstval(self.amp, 1.0)
         bps = [[starttime, self.pitch, amp],
                [endtime, self.pitch, amp]]
 

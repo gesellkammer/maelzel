@@ -404,7 +404,7 @@ class FundamentalAnalysisMono:
         self.groups = groups
 
     def transcribe(self,
-                   scorestruct: ScoreStruct,
+                   scorestruct: ScoreStruct = None,
                    addGliss=True,
                    addAccents=True,
                    addSlurs=True,
@@ -432,8 +432,10 @@ class FundamentalAnalysisMono:
             the  resulting maelzel.core Voice
 
         """
-        from maelzel.core.event import Note
-        from maelzel.core.chain import Voice
+        from maelzel.core import Note, Voice, getScoreStruct
+        if scorestruct is None:
+            scorestruct = getScoreStruct()
+
         notes = []
         lastgroupidx = len(self.groups) - 1
         pitchconv = self._pitchconv

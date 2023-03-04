@@ -891,6 +891,11 @@ class Notation:
         if spelling:
             self.copyFixedSpellingTo(dest)
 
+    def copyAttachmentsTo(self, dest: Notation) -> None:
+        if self.attachments:
+            for a in self.attachments:
+                dest.addAttachment(a)
+
     def __len__(self) -> int:
         return len(self.pitches)
 
@@ -1357,6 +1362,7 @@ class SnappedNotation:
         notation = self.notation.clone(offset=offset, duration=self.duration)
         if self.duration == 0 and self.notation.duration > 0:
             notation.setProperty('.snappedGracenote', True)
+            notation.setProperty('originalDuration', self.notation.duration)
         return notation
 
     def __repr__(self):

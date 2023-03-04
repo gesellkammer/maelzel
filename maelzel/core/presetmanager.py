@@ -49,6 +49,31 @@ class _WatchdogPresetsHandler(watchdog.events.FileSystemEventHandler):
         self.manager.loadPresets()
 
 
+
+_csoundPrelude = r"""
+opcode turnoffWhenSilent, 0, a
+    asig xin
+    ksilent_  trigger detectsilence:k(asig, 0.0001, 0.05), 0.5, 0
+    if ksilent_ == 1  then
+      turnoff
+    endif    
+endop
+
+opcode makePresetEnvelope, a, iiii
+    ifadein, ifadeout, ifadekind, igain xin
+    if (ifadekind == 0) then
+        aenv linsegr 0, ifadein, igain, ifadeout, 0
+    elseif (ifadekind == 1) then
+        aenv cossegr 0, ifadein, igain, ifadeout, 0
+    elseif (ifadekind == 2) then
+        aenv transegr 0, ifadein*.5, 2, igain*0.5, ifadein*.5, -2, igain, p3-ifadein-ifadeout, igain, 1, ifadeout*.5, 2, igain*0.5, ifadeout*.5, -2, 0 	
+        aenv *= linenr:a(1, 0, ifadeout, 0.01)
+    endif
+    xout aenv
+endop
+"""
+
+
 class PresetManager:
     """
     Singleton object, manages all instrument Presets
@@ -65,28 +90,7 @@ class PresetManager:
             :meth:`PresetManager.loadPresets`
     """
     _numinstances = 0
-    csoundPrelude = r"""
-    opcode turnoffWhenSilent, 0, a
-        asig xin
-        ksilent_  trigger detectsilence:k(asig, 0.0001, 0.05), 0.5, 0
-        if ksilent_ == 1  then
-          turnoff
-        endif    
-    endop
-
-    opcode makePresetEnvelope, a, iiii
-        ifadein, ifadeout, ifadekind, igain xin
-        if (ifadekind == 0) then
-            aenv linsegr 0, ifadein, igain, ifadeout, 0
-        elseif (ifadekind == 1) then
-            aenv cossegr 0, ifadein, igain, ifadeout, 0
-        elseif (ifadekind == 2) then
-            aenv transegr 0, ifadein*.5, 2, igain*0.5, ifadein*.5, -2, igain, p3-ifadein-ifadeout, igain, 1, ifadeout*.5, 2, igain*0.5, ifadeout*.5, -2, 0 	
-            aenv *= linenr:a(1, 0, ifadeout, 0.01)
-        endif
-        xout aenv
-    endop
-    """
+    csoundPrelude = _csoundPrelude
 
     def __init__(self, watchPresets=False):
         if self._numinstances > 0:
@@ -634,15 +638,6 @@ class PresetManager:
         renderer = csoundengine.Renderer(sr=sr, nchnls=numChannels, ksmps=ksmps,
                                          a4=workspace.a4)
         renderer.addGlobalCode(presetManager.csoundPrelude)
-
-        # Define all instruments
-        for presetdef in self.presetdefs.values():
-            instr = presetdef.getInstr()
-            renderer.registerInstr(instr)
-            globalCode = presetdef.globalCode()
-            if globalCode:
-                logger.debug(f"makeRenderer: adding global code for instr {instr.name}:\n{globalCode}")
-                renderer.addGlobalCode(globalCode)
         return renderer
 
     def openPresetsDir(self) -> None:

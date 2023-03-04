@@ -867,7 +867,9 @@ class QuantizedMeasure:
         for beat in self.beats:
             notations.extend(beat.notations)
         assert len(notations) > 0
-        assert all(n0.end == n1.offset for n0, n1 in iterlib.pairwise(notations))
+        for n0, n1 in iterlib.pairwise(notations):
+            if n0.end != n1.offset:
+                print(f"Error in durations:\n\t{n0=},\t{n1=}")
         return notations
 
     def nodes(self) -> list[Node]:
@@ -889,6 +891,8 @@ class QuantizedMeasure:
         for node in nodes:
             removeUnnecessaryChildrenInplace(node)
 
+        dur = sum(node.totalDuration() for node in nodes)
+        assert dur == self.duration()
         return nodes
 
     def tree(self) -> Node:
@@ -901,10 +905,19 @@ class QuantizedMeasure:
             raise ValueError("This measure is empty")
         if not self.quantprofile:
             raise ValueError(f"Cannot create tree without a QuantizationProfile")
+        self.check()
         nodes = self.nodes()
         root = asTree(nodes)
         self._root = root = _mergeSiblings(root, profile=self.quantprofile, beatOffsets=self.beatOffsets())
         root.repair()
+        if root.totalDuration() != self.duration():
+            logger.error(f"Measure index: {self.getMeasureIndex()}")
+            self.dump(tree=False)
+            self.dump(tree=True)
+            raise ValueError(f"Duration mismatch in tree. "
+                             f"Tree duration: {root.totalDuration()}, "
+                             f"measure duration: {self.duration()}")
+        assert root.totalDuration() == self.duration()
         return root
 
     def beatDurations(self) -> list[F]:
@@ -936,10 +949,12 @@ class QuantizedMeasure:
                     assert n.duration >= 0, n
             durNotations = sum(n.duration for n in beat.notations)
             if durNotations != beat.beatDuration:
-                logger.error(f"beat dur: {beat.beatDuration}, notations dur: {durNotations}")
+                measnum = self.getMeasureIndex()
+                logger.error(f"Duration mismatch, loc: ({measnum}, {i}). Beat dur: {beat.beatDuration}, Notations dur: {durNotations}")
                 logger.error(beat.notations)
-                self.dump()
-                raise AssertionError(f"Duration mismatch in beat {i}")
+                self.dump(tree=False)
+                self.dump(tree=True)
+                raise ValueError(f"Duration mismatch in beat {i}")
 
     def breakBeamsAtBeats(self) -> None:
         if self.isEmpty():
@@ -1141,7 +1156,7 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
     error, div, snappedEvents, assignedSlots, debuginfo = min(rows, key=lambda row: row[0])
     notations = [snapped.makeSnappedNotation(extraOffset=beatOffset)
                  for snapped in snappedEvents]
-    assert sum(_.duration for _ in notations) == beatDuration, \
+    assert sum(n.duration for n in notations) == beatDuration, \
         f"{beatDuration=}, {notations=}"
 
     beatNotations = []
@@ -1154,6 +1169,9 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
                 beatNotations.extend(eventParts)
             elif n.duration > 0 or (n.duration == 0 and not n.isRest):
                 beatNotations.append(n)
+            else:
+                assert n.isRest and n.duration == 0
+                # Do not add a null-duration rest
 
     if div != (1,) and len(beatNotations) == 1 and len(assignedSlots) == 1 and assignedSlots[0] == 0:
         div = (1,)
@@ -1161,7 +1179,7 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
         beatNotations = [beatNotations[0].clone(duration=beatDuration)]
         div = (1,)
 
-    assert sum(ev.duration for ev in beatNotations) == sum(ev.duration for ev in snappedEvents) == beatDuration, f"{beatDuration=}, {beatNotations=}"
+    assert sum(n.duration for n in beatNotations) == beatDuration, f"{beatDuration=}, {beatNotations=}"
 
     return QuantizedBeat(div, assignedSlots=assignedSlots, notations=beatNotations,
                          beatDuration=beatDuration, beatOffset=beatOffset,
@@ -1239,7 +1257,7 @@ def splitNotationAtOffsets(n: Notation, offsets: Sequence[Rational]) -> list[Not
     if not offsets:
         raise ValueError("offsets is empty")
 
-    assert n.duration is not None and n.duration>=0
+    assert n.duration>=0
 
     intervals = mathlib.split_interval_at_values(n.offset, n.end, offsets)
     assert all(isinstance(x0, F) and isinstance(x1, F)
@@ -1489,17 +1507,16 @@ def breakIrregularDuration(n: Notation,
     if n.duration == 0:
         return None
 
-    if n.end > beatOffset + beatDur:
-        raise ValueError(f"n extends over the beat. "
-                         f"n={n.offset} - {n.end}, beat={beatOffset} - {beatOffset+beatDur}")
+    #if n.end > beatOffset + beatDur:
+    #    raise ValueError(f"n extends over the beat. "
+    #                     f"n={n.offset} - {n.end}, beat={beatOffset} - {beatOffset+beatDur}")
+
+    if isinstance(beatDivision, (tuple, list)) and len(beatDivision) == 1:
+        beatDivision = beatDivision[0]
 
     if isinstance(beatDivision, int):
         return _breakIrregularDuration(n, beatDur=beatDur,
                                        div=beatDivision, beatOffset=beatOffset)
-
-    if len(beatDivision) == 1:
-        return _breakIrregularDuration(n, beatDur=beatDur,
-                                       div=beatDivision[0], beatOffset=beatOffset)
 
     # beat is not subdivided regularly. check if n extends over subdivision
     numDivisions = len(beatDivision)
@@ -1509,8 +1526,6 @@ def breakIrregularDuration(n: Notation,
     assert len(ticks) == numDivisions + 1
 
     subdivisionTimespans = list(iterlib.pairwise(ticks))
-    assert len(subdivisionTimespans) == numDivisions, \
-        f"{subdivisionTimespans=}, {beatDivision=}"
     subdivisions = list(zip(subdivisionTimespans, beatDivision))
     subns = splitNotationAtOffsets(n, ticks)
     allparts: list[Notation] = []
@@ -1529,8 +1544,8 @@ def breakIrregularDuration(n: Notation,
     _tieNotationParts(allparts)
     #assert all(isinstance(part, Notation) for part in allparts)
     #assert sum(p.totalDuration for p in allparts) == n.totalDuration
-    assert allparts[0].tiedPrev == n.tiedPrev
-    assert allparts[-1].tiedNext == n.tiedNext
+    #assert allparts[0].tiedPrev == n.tiedPrev
+    #assert allparts[-1].tiedNext == n.tiedNext
     return allparts
 
 
@@ -1915,7 +1930,10 @@ def _mergeSiblings(root: Node,
             items[-1] = item1.mergeWith(item2)
         else:
             items.append(item2)
-    return Node(ratio=root.durRatio, items=items)
+    outnode = Node(ratio=root.durRatio, items=items)
+    assert root.totalDuration() == outnode.totalDuration()
+    return outnode
+
 
 
 def _maxTupletLength(timesig: timesig_t, subdivision: int):
@@ -2167,7 +2185,6 @@ class QuantizedPart:
                         skip = True
                         n1.removeSpanners()
 
-
             numRemoved = len(trash)
             for loc in trash:
                 loc.beat.notations.remove(loc.notation)
@@ -2374,6 +2391,15 @@ class QuantizedScore:
 
         self.composer: str = composer
         """Composer of the score, used for rendering"""
+
+    def check(self):
+        for pidx, part in enumerate(self.parts):
+            for midx, measure in enumerate(part.measures):
+                try:
+                    measure.check()
+                except ValueError as e:
+                    logger.error(f"Check error in part {pidx}, measure {midx}")
+                    raise e
 
     def fixEnharmonics(self, enharmonicOptions: enharmonics.EnharmonicOptions):
         for part in self.parts:
@@ -2625,4 +2651,5 @@ def quantize(parts: list[core.Part],
     qscore = QuantizedScore(qparts)
     if enharmonicOptions:
         qscore.fixEnharmonics(enharmonicOptions)
+    qscore.check()
     return qscore
