@@ -113,8 +113,7 @@ class OfflineRenderer:
         self.ksmps = ksmps
         """ksmps value (samples per block)"""
 
-        self.renderer: csoundengine.Renderer = presetManager.makeRenderer(sr, ksmps=ksmps, numChannels=numchannels)
-        """The actual csoundengine.Renderer"""
+        self.numChannels = numchannels
 
         #self.events: list[SynthEvent] = []
         #"""A list of all events rendered"""
@@ -128,6 +127,20 @@ class OfflineRenderer:
         self._quiet = quiet
 
         self._renderProc: subprocess.Popen|None = None
+
+        self.renderer: csoundengine.Renderer = self.makeRenderer()
+        """The actual csoundengine.Renderer"""
+
+    def makeRenderer(self) -> csoundengine.Renderer:
+        renderer = presetManager.makeRenderer(self.sr, ksmps=self.ksmps, numChannels=self.numChannels)
+        engine = playEngine()
+        assert engine is not None
+        strings = engine.definedStrings()
+        for s, idx in strings.items():
+            renderer.strSet(s, idx)
+        return renderer
+
+
 
     @property
     def scheduledEvents(self) -> dict[int, csoundengine.offline.ScoreEvent]:
@@ -171,6 +184,17 @@ class OfflineRenderer:
                f'{_(format(sample.duration, ".2f"))} secs, {_(sample.sr)} Hz'
         header = f'{header}({info})'
         return '<br>'.join([header, samplehtml])
+
+    def registerPreset(self, preset: str) -> None:
+        presetdef = presetManager.get(preset)
+        if not presetdef:
+            raise KeyError(f"preset '{preset} not defined. "
+                           f"Known presets: {presetManager.definedPresets()}")
+        instr = presetdef.getInstr()
+        self.renderer.registerInstr(instr)
+        globalCode = presetdef.globalCode()
+        if globalCode:
+            self.renderer.addGlobalCode(globalCode)
 
     def registerInstr(self, instrname: str, instrdef: csoundengine.Instr) -> None:
         """
@@ -889,7 +913,7 @@ def stopSynths(stopengine=False, cancelfuture=True):
         playEngine().stop()
 
 
-def playSession() -> csoundengine.Session|None:
+def playSession() -> csoundengine.Session | None:
     """Returns the csoundengine.Session managing the running Engine
 
     .. seealso:: :class:`csoundengine.Session <https://csoundengine.readthedocs.io/en/latest/api/csoundengine.session.Session.html>`

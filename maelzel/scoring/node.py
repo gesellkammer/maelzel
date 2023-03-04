@@ -362,17 +362,20 @@ class Node:
 
             if n0.quantizedPitches() == n1.quantizedPitches():
                 if n0.isGracenote and n1.isRealnote:
-                    n0.copyAttributesTo(n1)
+                    # n0.copyAttributesTo(n1)
+                    n0.copyAttachmentsTo(n1)
+                    n0.copyFixedSpellingTo(n1)
                     node0.items.remove(n0)
                     count += 1
                     if n0.spanners:
                         for spanner in n0.spanners.copy():
                             n0.transferSpanner(spanner, n1)
 
-                elif n0.isRealnote and n1.isGracenote:
+                # elif n0.isRealnote and n1.isGracenote:
+                elif n1.isGracenote:
                     n0.gliss = n1.gliss
                     n0.tiedNext = n1.tiedNext
-                    n1.copyAttributesTo(n0)
+                    n1.copyAttachmentsTo(n0)
                     node1.items.remove(n1)
                     count += 1
                     skip = True
@@ -380,12 +383,15 @@ class Node:
                         for spanner in n1.spanners.copy():
                             n1.transferSpanner(spanner, n0)
 
+
+
         self.removeUnmatchedSpanners()
         return count
 
     def repair(self):
         modcount = self.repairLinks()
         modcount += self.removeUnnecessaryGracenotes()
+
         if modcount == 0:
             return
         for i in range(10):
@@ -426,5 +432,7 @@ def asTree(nodes: list[Node]
         the root of a tree structure
     """
     if len(nodes) == 1 and nodes[0].durRatio == (1, 1):
-        return nodes[0]
-    return Node(ratio=(1, 1), items=nodes)
+        root = nodes[0]
+    root = Node(ratio=(1, 1), items=nodes)
+    assert root.totalDuration() == sum(n.totalDuration() for n in nodes)
+    return root

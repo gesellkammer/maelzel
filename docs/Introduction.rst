@@ -7,10 +7,28 @@ Introduction
 Demos
 -----
 
-#. :ref:`Messiaen - Quatour pur la fin du temps <demo_messiaen>`
-#. :ref:`Fundamental analysis and resynthesis <demo_audiosample>`
-#. :ref:`Complex Rhythms - Ferneyhough's 3rd String Quartet <demo_ferneyhough>`
-#. :ref:`Speech transcription <demo_speechtranscription>`
+1. `Messiaen - Quatour pur la fin du temps <https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/notebooks/Messiaen-La%20Liturgie%20de%20Cristal.ipynb>`_
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. image:: assets/messiaen-notebook.jpg
+  :width: 400px
+  :target: https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/notebooks/Messiaen-La%20Liturgie%20de%20Cristal.ipynb
+
+Analysis and reconstruction of the rhythmic ostinati in Messiaen's "La liturgie de Cristal"
+
+-----------------------------------------------------------------------------------------------------------
+
+
+2. `Speech Transcription <https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/notebooks/demo-transcribe.ipynb>`_
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. image:: assets/demo-transcribe-notebook.png
+  :width: 400px
+  :target: https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/notebooks/demo-transcribe.ipynb
+
+3. `Complex Rhythms - Ferneyhough's 3rd String Quartet <https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/notebooks/ferneyhough-demo.ipynb>`_
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 
 .. tip::
 
@@ -18,40 +36,6 @@ Demos
 
 -----------------
 
-.. _demo_messiaen:
-
-Messiaen - Quatour pour la fin du temps - La liturgie de Cristal
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-This notebook contains an analysis and reconstruction of the rhythmic
-ostinati in Messiaen's "La liturgie de Cristal"
-
-.. image:: assets/messiaen-notebook.jpg
-  :target: https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/examples/Messiaen-La%20Liturgie%20de%20Cristal.ipynb
-  :alt: Screenshot of jupyter notebook
-
-`Notebook: Analysis and reconstruction of the piano and cello isorhythmic structures <https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/examples/Messiaen-La%20Liturgie%20de%20Cristal.ipynb>`_
-
-
-----
-
-.. _demo_audiosample:
-
-
-Audiosample - Fundamental analysis and resynthesis
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Example of the `audiosample` module. It analyzes an audio file to
-extract its fundamental, later plays the soundfile and the synthesized
-fundamental simultaneously to validate the analysis
-
-.. image:: assets/audiosample-notebook.jpg
-  :target: https://nbviewer.org/github/gesellkammer/maelzel/blob/master/examples/audiosample.ipynb
-  :alt: Screenshot of audiosample notebook
-
-`Notebook: spectrogram and fundamental analysis / resynthesis using the pyin method <https://nbviewer.org/github/gesellkammer/maelzel/blob/master/examples/audiosample.ipynb?flush_cache=true>`_
-
-----
 
 .. _demo_ferneyhough:
 
