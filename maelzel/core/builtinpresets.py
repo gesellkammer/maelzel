@@ -36,9 +36,7 @@ builtinPresets = [
         builtin=True
     ),
 
-    PresetDef(
-        'saw',
-        r'''
+    PresetDef('saw', r'''
         |ktransp=0, klag=0.1, kcutoffratio=0, kfilterq=3|
         ; Transposable saw with optional low-pass filtering
         ;  Args:
@@ -54,9 +52,7 @@ builtinPresets = [
         builtin=True
     ),
 
-    PresetDef(
-        'sqr',
-        r'''
+    PresetDef('sqr', r'''
         |ktransp=0, klag=0.1, kcutoff=0, kresonance=0.2|
         ; square wave with optional filtering
         ; Args:
@@ -69,17 +65,19 @@ builtinPresets = [
         builtin=True
     ),
 
-    PresetDef(
-        'pulse',
-        r"aout1 vco2 kamp, mtof:k(lag:k(kpitch+ktransp, klag), 2, kpwm",
-        args=dict(ktransp=0, klag=0.1, kpwm=0.5),
-        description="transposable pulse with modulatable pwm",
+    PresetDef('pulse', r"""
+        |ktransp=0, klag=0.1, kpwm=0.5|
+        ; transposable pulse with pwm
+        ; Args:
+        ;   ktransp: transposition
+        ;   klag: lag time for pitch
+        ;   kpwm: pwm between 0-1
+        aout1 vco2 kamp, mtof:k(lag:k(kpitch+ktransp, klag), 2, kpwm
+        """,
         builtin=True
     ),
 
-    PresetDef(
-        '_click',
-        r"""
+    PresetDef('_click', r"""
         |ktransp=24|
         ; Default preset used when rendering a click-track
         ; Args:
@@ -91,32 +89,43 @@ builtinPresets = [
         builtin=True
     ),
 
-    PresetDef(
-        '_clip_diskin',
-        audiogen=r'''
-        |ipath, kspeed=1, iskip=0, iwrap=0, iwinsize=4|
+    PresetDef('_clip_diskin', audiogen=r'''
+        |ipath, isndfilechan=-1, kspeed=1, iskip=0, iwrap=0, iwinsize=4|
         ; Builtin-in preset to play a clip using diskin
         ; Args:
         ;   ipath: the path to the soundfile, as set via strSet
+        ;   isndfilechan: if given, play only this channel from the soundfile
         ;   kspeed: the speed of the playback
         ;   iskip: number of seconds to skip from beginning (assuming kspeed=1)
         ;   iwrap: if non-zero, locations wrap (results in looping)
         ;   iwinsize: interpolation size (1=no interpol, 2=linear, 4=cubic, 8=sinc)
         Spath = strget(ipath)
+        if strlen(Spath) == 0 then
+            initerror sprintf("Soundfile '%s' not found", Spath)
+        endif
+        
         iformat = 0
         ibufsize = 0   ; 0 sets the buffer to the default of 4096
+        inumchannels = filenchnls(Spath)
+        if inumchannels == 0 || inumchannels > 2 then
+            initerror sprintf("Multichannel samples (> 2, got %d) not supported yet", inumchannels)
+        endif
+        
         aenv = makePresetEnvelope(ifadein, ifadeout, ifadekind, igain)
         asig[] diskin2 Spath, kspeed, iskip, iwrap, iformat, iwinsize, ibufsize
-        asig *= aenv
-        inumchannels = filenchnls(Spath)
-        if inumchannels == 1 then
+        if isndfilechan >= 0 then
+            a1 = asig[isndfilechan]
+            ipos = ipos == -1 ? 0 : ipos
+            a1 *= aenv
+            aout1, aout2 pan2 a1, ipos
+        elseif inumchannels == 1 then
             a1 = asig[0]
+            a1 *= aenv
             ipos = ipos == -1 ? 0 : ipos
             aout1, aout2 pan2 a1, ipos
         elseif inumchannels == 2 then
+            asig *= aenv
             aout1, aout2 panstereo asig[0], asig[1], ipos
-        else
-            initerror sprintf("Multichannel samples (> 2, got %d) not supported yet", inumchannels)
         endif
         outch ichan, aout1, ichan+1, aout2
         ''',
@@ -124,9 +133,7 @@ builtinPresets = [
         envelope=False
     ),
 
-    PresetDef(
-        '_playtable',
-        audiogen=r"""
+    PresetDef('_playtable', audiogen=r"""
         |isndtab=0, istart=0, kspeed=1, ixfade=-1|
         ; Built-in presetdef to playback a table
         ; Args:
@@ -181,9 +188,7 @@ builtinPresets = [
         builtin=True
     ),
 
-    PresetDef(
-        '_sing',
-        description="Simple vowel singing simulation",
+    PresetDef('.sing', description="Simple vowel singing simulation",
         init = r"""
         gi__formantFreqs__[] fillarray \
             668, 1191, 2428, 3321, 4600, \  ; A
@@ -257,7 +262,7 @@ soundfontGeneralMidiPresets = {
 
 _builtinSoundfonts = {
     # relative paths are relative to the package root
-    '_piano': ('data/sf2/SalC5Light2.sf2', (0, 0), "Default piano sound")
+    '.piano': ('data/sf2/SalC5Light2.sf2', (0, 0), "Default piano sound")
 }
 
 

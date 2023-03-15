@@ -96,8 +96,9 @@ def stackEvents(events: list[MEvent | Chain],
 
         ev._resolvedOffset = now
         if isinstance(ev, MEvent):
-            if (_ := ev._calculateDuration(relativeOffset=now, parentOffset=offset)) is not None:
-                dur = _
+            calcdur = ev._calculateDuration(relativeOffset=now, parentOffset=offset)
+            if calcdur is not None:
+                dur = calcdur
             elif i == lasti:
                 dur = defaultDur
             else:
@@ -714,8 +715,6 @@ class Chain(MObj, MContainer):
             'info': 20
         }
 
-        self._update()
-
         if environment.insideJupyter and not forcetext:
             _ = _util.htmlSpan
             r = type(self).__name__
@@ -806,6 +805,7 @@ class Chain(MObj, MContainer):
             forcetext: if True, force print output instea of html, even when running
                 inside jupyter
         """
+        self._update()
         rows = self._dumpRows(indents=indents, now=self.offset or F(0), forcetext=forcetext)
         if environment.insideJupyter and not forcetext:
             html = '<br>'.join(rows)
@@ -1056,8 +1056,11 @@ class Chain(MObj, MContainer):
                 assert t >= now
                 now = t
             if isinstance(item, MEvent):
-                if item.dur is not None:
-                    dur = item.dur
+                itemdur = item._calculateDuration(relativeOffset=now - frame, parentOffset=frame)
+                #if item.dur is not None:
+                #    dur = item.dur
+                if itemdur is not None:
+                    dur = itemdur
                 elif i == len(self.items) - 1:
                     dur = F(1)
                 else:

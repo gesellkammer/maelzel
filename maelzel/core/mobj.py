@@ -181,6 +181,7 @@ class MObj:
     """
     _acceptsNoteAttachedSymbols = True
     _isDurationRelative = True
+    _excludedPlayKeys: tuple[str] = ()
 
     __slots__ = ('_parent', 'dur', 'offset', 'label', 'playargs', 'symbols',
                  '_scorestruct', 'properties', '_resolvedOffset', '_resolvedDur')
@@ -495,10 +496,12 @@ class MObj:
         """
         playargs = self.playargs
         if playargs is None:
-            playargs  = PlayArgs()
-            self.playargs = playargs
+            self.playargs = playargs = PlayArgs()
         for k, v in kws.items():
-            playargs[k] = v
+            if k is self._excludedPlayKeys:
+                logger.warning(f'Key {k} cannot be set for object {self}')
+            else:
+                playargs[k] = v
         return self
 
     def clone(self: MObjT,
@@ -887,13 +890,15 @@ class MObj:
         parts = self.scoringParts()
         return scoring.Arrangement(parts, title=title)
 
-    def _scoringAnnotation(self, config: CoreConfig = None
+    def _scoringAnnotation(self, text: str = None, config: CoreConfig = None
                            ) -> scoring.attachment.Text:
         """ Returns owns annotations as a scoring Annotation """
         assert self.label
         if config is None:
             config = Workspace.active.config
-        return scoring.attachment.Text(self.label, fontsize=config['show.labelFontSize'])
+        if text is None:
+            text = self.label
+        return scoring.attachment.Text(text, fontsize=config['show.labelFontSize'])
 
     def asmusic21(self, **kws) -> m21.stream.Stream:
         """
@@ -1267,7 +1272,9 @@ class MObj:
             renderer.schedEvents(events)
 
         else:
-            return playback._playFlatEvents(events, whenfinished=whenfinished)
+            rtrenderer = playback.RealtimeRenderer()
+            return rtrenderer.schedEvents(events, whenfinished=whenfinished)
+            # return playback._playFlatEvents(events, whenfinished=whenfinished)
 
     def rec(self,
             outfile: str = None,
@@ -1329,7 +1336,7 @@ class MObj:
                              delay=delay, args=args, gain=gain,
                              workspace=workspace,
                              **kws)
-        return playback.render(outfile=outfile, events=events, r=sr, wait=wait,
+        return playback.render(outfile=outfile, events=events, sr=sr, wait=wait,
                                quiet=quiet, nchnls=nchnls, extratime=extratime)
 
     def isRest(self) -> bool:

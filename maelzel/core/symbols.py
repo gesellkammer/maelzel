@@ -438,7 +438,6 @@ class SizeFactor(Property):
 
 class Color(Property):
     """Customizes the color of an object"""
-
     scopes = {'note'}
 
     def __init__(self, color: str, scope='note'):

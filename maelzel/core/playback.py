@@ -9,6 +9,7 @@ from datetime import datetime
 
 import emlib.misc
 import emlib.iterlib
+import numpy as np
 
 from math import ceil
 
@@ -20,11 +21,13 @@ from .presetmanager import presetManager
 from .errors import *
 from .workspace import getConfig, getWorkspace, Workspace
 import csoundengine
+
 from .synthevent import SynthEvent
+from .renderer import Renderer
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Sequence
+    from typing import Sequence, Callable
     from .mobj import MObj
     from maelzel.snd import audiosample
     import subprocess
@@ -36,14 +39,118 @@ __all__ = (
     'play',
     'testAudio',
     'playEngine',
-    'playSession'
+    'playSession',
+    'RealtimeRenderer',
+    'OfflineRenderer'
 )
 
 
-_invalidVariables = {"kfreq", "kamp", "kpitch"}
+class RealtimeRenderer(Renderer):
+    """
+    A RealtimeRenderer is created whenever realtime playback is initiated.
+
+    Normally a user does not create a RealtimeRenderer. It is created during
+    playback. There are three gateways to initiate a playback process:
+
+    * :meth:`maelzel.core.MObj.play`. The play method of an object
+      (a :class:`~maelzel.core.event.Note`, a :class:`~maelzel.core.chain.Chain`, a
+      :class:`~maelzel.core.score.Score`)
+      is called, this creates a :class:`RealtimeRenderer` which immediately calls its
+      :meth:`RealtimeRenderer.schedEvents` method
+    * :func:`maelzel.core.playback.play`. This initiates playback for multiple
+      objects / events and synchs the playback as if all the objects where part
+      of a group.
+    * :func:`maelzel.core.playback.synchedplay`. This context manager acts very similar
+      to the `play` function, ensureing that playback is synched.
+
+    """
+
+    def __init__(self, engine: csoundengine.Engine = None):
+        super().__init__(presetManager=presetManager)
+        if engine is None:
+            engine = playEngine()
+        self.engine = engine
+        self.session = engine.session()
+
+    def isRealtime(self) -> bool:
+        return True
+
+    def registerPreset(self, presetdef: PresetDef) -> None:
+        instrname = presetdef.instrname
+        if instrname in self.session.instrs:
+            return
+        instr = presetdef.getInstr()
+        self.session.registerInstr(instr)
+        self.registeredPresets[presetdef.name] = presetdef
+
+    def prepareInstr(self, instrname: str, priority: int):
+        self.session.prepareSched(instrname, priority=priority)
+
+    def prepareSessionEvent(self, sessionevent: csoundengine.session.SessionEvent):
+        self.session.prepareSched(instrname=sessionevent.instrname,
+                                  priority=sessionevent.priority)
+
+    def schedSessionEvent(self, event: csoundengine.session.SessionEvent
+                          ) -> csoundengine.synth.Synth:
+        assert event.instrname in self.session.instrs
+        kws = event.kws if event.kws is not None else {}
+        return self.session.sched(instrname=event.instrname,
+                                  delay=event.delay,
+                                  dur=event.dur,
+                                  priority=event.priority,
+                                  args=event.args,
+                                  tabargs=event.tabargs,
+                                  **kws)
+
+    def schedEvent(self, event: SynthEvent) -> csoundengine.synth.Synth:
+        group = self.schedEvents([event])
+        return group[0]
+
+    def schedEvents(self,
+                    coreevents: list[SynthEvent],
+                    sessionevents: list[csoundengine.session.SessionEvent] = None,
+                    whenfinished: Callable = None
+                    ) -> csoundengine.synth.SynthGroup:
+        synths = _schedFlatEvents(self, coreevents=coreevents, sessionevents=sessionevents,
+                                  whenfinished=whenfinished)
+        return csoundengine.synth.SynthGroup(synths)
 
 
-class OfflineRenderer:
+    def includeFile(self, path: str) -> None:
+        self.engine.includeFile(path)
+
+    def makeTable(self,
+                  data: np.ndarray | list[float] | None = None,
+                  size: int = 0,
+                  sr: int = 0,
+                  tabnum: int = 0
+                  ) -> int:
+        table = self.session.makeTable(data=data, size=size, sr=sr, tabnum=tabnum)
+        return table.tabnum
+
+    def sched(self,
+             instrname: str,
+             delay: float,
+             dur: float,
+             args: list[float|str],
+             priority: int,
+             whenfinished: Callable = None):
+        return self.session.sched(instrname=instrname,
+                                  delay=delay,
+                                  dur=dur,
+                                  args=args,
+                                  priority=priority,
+                                  whenfinished=whenfinished)
+
+    def pushLock(self):
+        self.engine.sync()
+        self.engine.pushLock()
+
+    def popLock(self):
+        self.engine.popLock()
+
+
+class OfflineRenderer(Renderer):
     """
     An OfflineRenderer is created to render musical objects to a soundfile
 
@@ -98,6 +205,8 @@ class OfflineRenderer:
                  ksmps=64,
                  numchannels=2,
                  quiet: bool = None):
+
+        super().__init__(presetManager=presetManager)
         w = getWorkspace()
         cfg = w.config
 
@@ -115,9 +224,6 @@ class OfflineRenderer:
 
         self.numChannels = numchannels
 
-        #self.events: list[SynthEvent] = []
-        #"""A list of all events rendered"""
-
         self.instrDefs: dict[str, csoundengine.Instr] = {}
         """An index of registered Instrs"""
 
@@ -128,24 +234,42 @@ class OfflineRenderer:
 
         self._renderProc: subprocess.Popen|None = None
 
-        self.renderer: csoundengine.Renderer = self.makeRenderer()
+        self.csoundRenderer: csoundengine.Renderer = self.makeRenderer()
         """The actual csoundengine.Renderer"""
 
+        self._session: csoundengine.session.Session | None = None
+        """A reference to the playback Session"""
+
+        self._oldSessionSchedCallback: Callable | None = None
+        """A reference to a schedCallback of the Session pre __enter__"""
+
+        self._workspace: Workspace | None = None
+        """The workspace at the moment of __enter__. Its renderer attr is modified
+        and needs to be restored at __exit__"""
+
+    def isRealtime(self) -> bool:
+        return False
+
     def makeRenderer(self) -> csoundengine.Renderer:
-        renderer = presetManager.makeRenderer(self.sr, ksmps=self.ksmps, numChannels=self.numChannels)
-        engine = playEngine()
-        assert engine is not None
-        strings = engine.definedStrings()
-        for s, idx in strings.items():
-            renderer.strSet(s, idx)
+        renderer = presetManager.makeRenderer(self.sr, ksmps=self.ksmps,
+                                              numChannels=self.numChannels)
+        if isEngineActive():
+            engine = playEngine()
+            for s, idx in engine.definedStrings().items():
+                renderer.strSet(s, idx)
         return renderer
 
-
+    def prepareInstr(self, instrname: str, priority: int) -> int:
+        assert self.csoundRenderer.isInstrDefined(instrname)
+        return self.csoundRenderer.commitInstrument(instrname, priority)
 
     @property
     def scheduledEvents(self) -> dict[int, csoundengine.offline.ScoreEvent]:
         """The scheduled events"""
-        return self.renderer.scheduledEvents
+        return self.csoundRenderer.scheduledEvents
+
+    def includeFile(self, path: str) -> None:
+        self.csoundRenderer.addInclude(path)
 
     def timeRange(self) -> tuple[float, float]:
         """
@@ -185,18 +309,21 @@ class OfflineRenderer:
         header = f'{header}({info})'
         return '<br>'.join([header, samplehtml])
 
-    def registerPreset(self, preset: str) -> None:
-        presetdef = presetManager.get(preset)
-        if not presetdef:
-            raise KeyError(f"preset '{preset} not defined. "
-                           f"Known presets: {presetManager.definedPresets()}")
+    def registerPreset(self, presetdef: PresetDef) -> None:
+        if presetdef.name  in self.registeredPresets:
+            return
         instr = presetdef.getInstr()
-        self.renderer.registerInstr(instr)
-        globalCode = presetdef.globalCode()
-        if globalCode:
-            self.renderer.addGlobalCode(globalCode)
+        self.registerInstr(instr.name, instr)
+        if presetdef.includes:
+            for include in presetdef.includes:
+                self.includeFile(include)
+        if presetdef.init:
+            self.csoundRenderer.addGlobalCode(presetdef.init)
+        #if globalCode:
+        #    self.csoundRenderer.addGlobalCode(globalCode)
+        self.registeredPresets[presetdef.name] = presetdef
 
-    def registerInstr(self, instrname: str, instrdef: csoundengine.Instr) -> None:
+    def registerInstr(self, name: str, instrdef: csoundengine.Instr) -> None:
         """
         Register a csoundengine.Instr to be used with this OfflineRenderer
 
@@ -206,12 +333,12 @@ class OfflineRenderer:
             available to be rendered offline without the need to be registered
 
         Args:
-            instrname: the name of this preset/instrument
+            name: the name of this preset
             instrdef: the csoundengine.Instr instance
 
         """
-        self.instrDefs[instrname] = instrdef
-        self.renderer.registerInstr(instrdef)
+        self.instrDefs[name] = instrdef
+        self.csoundRenderer.registerInstr(instrdef)
 
     def play(self, obj: MObj, **kws) -> list[csoundengine.offline.ScoreEvent]:
         """
@@ -225,13 +352,26 @@ class OfflineRenderer:
             the offline score events
         """
         events = obj.events(**kws)
-        scoreEvents = [self.schedEvent(ev) for ev in events]
-        return scoreEvents
+        return self.schedEvents(events)
 
-    def schedEvent(self, event: SynthEvent) -> csoundengine.offline.ScoreEvent:
+    def prepareSessionEvent(self, sessionevent: csoundengine.session.SessionEvent):
+        pass
+
+    def schedSessionEvent(self, event: csoundengine.session.SessionEvent
+                          ) -> csoundengine.offline.ScoreEvent:
+        kws = event.kws if event.kws is not None else {}
+        return self.sched(instrname=event.instrname,
+                          delay=event.delay,
+                          dur=event.dur,
+                          priority=event.priority,
+                          args=event.args,
+                          tabargs=event.tabargs,
+                          **kws)
+
+    def schedEvent(self, event: SynthEvent
+                   ) -> csoundengine.offline.ScoreEvent:
         """
-        Schedule a SynthEvent as returned by
-        :meth:`MObj.events() <maelzel.core.MObj.events>`
+        Schedule a SynthEvent or a SessionEvent
 
         Args:
             event: a :class:`~maelzel.core.synthevent.SynthEvent`
@@ -239,29 +379,35 @@ class OfflineRenderer:
         Returns:
             a ScoreEvent
 
-        See Also:
-            sched
         """
-        # NB: the instrname is actually the preset name.
-        instrname = event.instr
-        instrdef = self.instrDefs.get(instrname)
+        if event.initfunc:
+            event.initfunc(event, self)
+        presetname = event.instr
+        instrdef = self.instrDefs.get(presetname)
         if instrdef is None:
-            preset = presetManager.getPreset(instrname)
+            preset = presetManager.getPreset(presetname)
             if not preset:
-                raise ValueError(f"Unknown preset instr: {instrname}")
+                raise ValueError(f"Unknown preset instr: {presetname}")
+            self.preparePreset(preset, event.priority)
             instrdef = preset.getInstr()
-            self.registerInstr(instrname, instrdef)
         args = event.resolvePfields(instrdef)
-        return self.renderer.sched(instrdef.name, delay=event.delay, dur=event.dur,
-                                   args=args[3:], priority=event.priority,
-                                   tabargs=event.args)
+        return self.csoundRenderer.sched(instrdef.name, delay=event.delay, dur=event.dur,
+                                         args=args[3:], priority=event.priority,
+                                         tabargs=event.args)
 
-    def schedEvents(self, events: list[SynthEvent]) -> list[csoundengine.offline.ScoreEvent]:
+    def schedEvents(self,
+                    coreevents: list[SynthEvent],
+                    sessionevents: list[csoundengine.session.SessionEvent] = None,
+                    whenfinished: Callable = None
+                    ) -> list[csoundengine.offline.ScoreEvent] :
         """
         Schedule multiple events as returned by :meth:`MObj.events() <maelzel.core.MObj.events>`
 
         Args:
-            events: the events to schedule
+            coreevents: the maelzel.core events to schedule
+            sessionevents: csound events as packed within a csoundengine.session.SessionEvent
+            whenfinished: dummy arg, here to conform to the signature of the parent. Only makes
+                sense in realtime
 
         Returns:
             a list of :class:`ScoreEvent`
@@ -276,7 +422,9 @@ class OfflineRenderer:
             >>> renderer.render('outfile.wav')
         """
         out = [self.schedEvent(ev)
-               for ev in events]
+               for ev in coreevents]
+        if sessionevents:
+            out.extend(self.schedSessionEvent(ev) for ev in sessionevents)
         return out
 
     def definedInstrs(self) -> dict[str, csoundengine.Instr]:
@@ -291,7 +439,7 @@ class OfflineRenderer:
 
         """
         instrs = {}
-        instrs.update(self.renderer.registeredInstrs())
+        instrs.update(self.csoundRenderer.registeredInstrs())
         instrs.update(playSession().registeredInstrs())
         return instrs
 
@@ -301,15 +449,19 @@ class OfflineRenderer:
               dur=-1.,
               priority=1,
               args: list[float] | dict[str, float] = None,
-              tabargs: dict[str, float] = None,
+              whenfinished=None,
               **kws) -> csoundengine.offline.ScoreEvent:
         """
         Schedule a csound event
 
-        This method should be used to schedule non-preset based instruments
+        This method cab be used to schedule non-preset based instruments
         when rendering offline (things like global effects, for example),
         similarly to how a user might schedule a non-preset based instrument
         in real-time.
+
+        If an OfflineRenderer is used as a context manager it is also possible
+        to call the session's .sched method directly since its sched callback is
+        rerouted to call this OfflineRenderer instead
 
         Args:
             instrname: the instr. name
@@ -318,6 +470,8 @@ class OfflineRenderer:
             priority: priority of the event
             args: any pfields passed to the instr., starting at p5
             tabargs: table args accepted by the instr.
+            whenfinished: this argument does nothing under this context. It is only
+                present to make the signature compatible with the interface
             **kws: named pfields
 
         Returns:
@@ -346,18 +500,17 @@ class OfflineRenderer:
             ...     scale.play('piano')
 
         """
-        if not self.renderer.isInstrDefined(instrname):
+        if not self.csoundRenderer.isInstrDefined(instrname):
             session = playSession()
             instr = session.getInstr(instrname)
             if not instr:
                 logger.error(f"Unknown instrument {instrname}. "
-                             f"Defined instruments: {self.renderer.registeredInstrs().keys()}")
+                             f"Defined instruments: {self.csoundRenderer.registeredInstrs().keys()}")
                 raise ValueError(f"Instrument {instrname} unknown")
-            self.renderer.registerInstr(instr)
-        return self.renderer.sched(instrname=instrname, delay=delay, dur=dur,
-                                   priority=priority, args=args,
-                                   tabargs=tabargs,
-                                   **kws)
+            self.csoundRenderer.registerInstr(instr)
+        return self.csoundRenderer.sched(instrname=instrname, delay=delay, dur=dur,
+                                         priority=priority, args=args,
+                                         **kws)
 
     def render(self,
                outfile='',
@@ -420,10 +573,10 @@ class OfflineRenderer:
             wait = cfg['rec.blocking']
         if compressionBitrate is None:
             compressionBitrate = cfg['rec.compressionBitrate']
-        outfile, proc = self.renderer.render(outfile=outfile, wait=wait, quiet=quiet,
-                                             openWhenDone=openWhenDone,
-                                             compressionBitrate=compressionBitrate,
-                                             endtime=endtime)
+        outfile, proc = self.csoundRenderer.render(outfile=outfile, wait=wait, quiet=quiet,
+                                                   openWhenDone=openWhenDone,
+                                                   compressionBitrate=compressionBitrate,
+                                                   endtime=endtime)
         self.renderedSoundfiles.append(outfile)
         self._renderProc = proc
         return outfile
@@ -494,7 +647,7 @@ class OfflineRenderer:
         """
         Return the .csd as string
         """
-        return self.renderer.generateCsdString()
+        return self.csoundRenderer.generateCsdString()
 
     def writeCsd(self, outfile: str = '?') -> str:
         """
@@ -510,13 +663,23 @@ class OfflineRenderer:
             outfile = _dialogs.selectFileForSave("saveCsdLastDir", filter="Csd (*.csd)")
             if not outfile:
                 raise CancelledError("Save operation cancelled")
-        self.renderer.writeCsd(outfile)
+        self.csoundRenderer.writeCsd(outfile)
         return outfile
 
     def __enter__(self):
-        workspace = getWorkspace()
-        self._oldRenderer = workspace.renderer
-        workspace.renderer = self
+        """
+        When used as a context manager, every call to .play will be diverted to be
+        recorded offline
+
+        """
+        self._workspace = Workspace.active
+        self._oldRenderer = self._workspace.renderer
+        self._workspace.renderer = self
+
+        self._session = playSession()
+        self._oldSessionSchedCallback = self._session._schedCallback
+        self._session._schedCallback = self.sched
+
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -524,8 +687,14 @@ class OfflineRenderer:
             # There was an exception since entering
             logger.warning("Offline rendering aborted")
             return
-        w = getWorkspace()
-        w.renderer = self._oldRenderer
+        self._workspace.renderer = self._oldRenderer
+        self._workspace = None
+        self._oldRenderer = None
+
+        self._session._schedCallback = self._oldSessionSchedCallback
+        self._oldSessionSchedCallback = None
+        self._session = None
+
         outfile = self._outfile or _makeRecordingFilename()
         logger.info(f"Rendering to {outfile}")
         self.render(outfile=outfile, wait=True)
@@ -549,6 +718,18 @@ class OfflineRenderer:
         """
         proc = self.lastRenderProc()
         return proc.poll() is None
+
+    def makeTable(self,
+                  data: np.ndarray | list[float] | None = None,
+                  size: int = 0,
+                  sr: int = 0,
+                  tabnum: int = 0
+                  ) -> int:
+        if data is not None and size > 0:
+            raise ValueError("Either data or size must be given, not both")
+        if data is None and not size:
+            raise ValueError("Either data or size must be given")
+        return self.csoundRenderer.makeTable(data=data, size=size, sr=sr, tabnum=tabnum)
 
     def wait(self, timeout=0) -> None:
         """
@@ -580,9 +761,13 @@ def render(outfile: str = None,
     When not used as a context manager the events / objects must be given. The soundfile
     will be generated immediately.
 
-    When used as a context manager events should be left unset. Within this context any
-    call to :meth:`MObj.play` will be redirected to the offline renderer and at
-    the exit of the context all events will be rendered to a soundfile.
+    When used as a context manager the `events` argument should be left unset.
+    Within this context any call to :meth:`maelzel.core.MObj.play` will be redirected to
+    the offline renderer and at the exit of the context all events will be rendered to a
+    soundfile. Also, any pure csound events scheduled via ``playSession().sched(...)``
+    will also be redirected to be renderer offline.
+
+    This enables to use the exact same code when doing realtime and offline rendering.
 
     Args:
         outfile: the generated file. If None, a file inside the recording
@@ -629,86 +814,27 @@ def render(outfile: str = None,
         ...     r.sched('reverb', priority=2)
 
 
-
     See Also
     ~~~~~~~~
 
     :class:`OfflineRenderer`
     """
-    if events:
-        events, sessionevents = _collectEvents(events, eventparams=kws, workspace=workspace)
-        return _recEvents(events=events, outfile=outfile, sr=sr, wait=wait,
-                          ksmps=ksmps, quiet=quiet, numchannels=nchnls,
-                          extratime=extratime)
-    else:
+    if not events:
         return OfflineRenderer(outfile=outfile, sr=sr, numchannels=nchnls, quiet=quiet, ksmps=ksmps)
 
+    coreEvents, sessionEvents = _collectEvents(events, eventparams=kws, workspace=workspace)
+    if not nchnls:
+        nchnls = max(int(ceil(ev.resolvedPosition() + ev.chan)) for ev in events)
+    renderer = OfflineRenderer(sr=sr, ksmps=ksmps, numchannels=nchnls)
+    if coreEvents:
+        renderer.schedEvents(coreEvents)
 
-def _recEvents(events: list[SynthEvent],
-               sessionevents: list[csoundengine.session.SessionEvent] = None,
-               outfile: str = None,
-               sr: int = None,
-               wait: bool = None,
-               ksmps: int = None,
-               quiet: bool = None,
-               numchannels: int = None,
-               extratime: float = 0.
-               ) -> OfflineRenderer:
-    """
-    Record the events to a soundfile
+    if sessionEvents:
+        for sessionevent in sessionEvents:
+            renderer.schedSessionEvent(sessionevent)
 
-    Args:
-        events: a flat list of events
-        outfile: the generated file. If left unset, a file inside the recording
-            path is created (see `recordPath`). Use "?" to save via a GUI dialog
-        sr: sample rate of the soundfile (:ref:`config 'rec.sr' <config_rec_sr>`)
-        ksmps: number of samples per cycle (:ref:`config 'rec.ksmps' <config_rec_ksmps>`)
-        wait: if True, wait until recording is finished. If None,
-            use the :ref:`config 'rec.blocking' <config_rec_blocking>`
-        quiet: if True, supress debug information when calling
-            the csound subprocess
-
-    Returns:
-        the :class:`OfflineRenderer` used to render the events. If the outfile
-        was not given, the path of the recording can be retrieved from
-        ``renderer.outfile``
-
-    Example
-    ~~~~~~~
-
-    .. code-block:: python
-
-        a = Chord("A4 C5", start=1, dur=2)
-        b = Note("G#4", dur=4)
-        events = sum([
-            a.events(chan=1),
-            b.events(chan=2, gain=0.2)
-        ], [])
-        recEvents(events, outfile="out.wav")
-
-    See Also
-    ~~~~~~~~
-
-    :class:`OfflineRenderer`
-    """
-    assert events or sessionevents, "Nothin to render"
-    if not numchannels:
-        numchannels = max(int(ceil(ev.position + ev.chan)) for ev in events)
-        # nchnls = max(nchnls, getConfig()['rec.numChannels'])
-    # endtime = max(ev.end for ev in events)
-    renderer = OfflineRenderer(sr=sr, ksmps=ksmps, numchannels=numchannels)
-    for ev in events:
-        renderer.schedEvent(ev)
-    if sessionevents:
-        for ev in sessionevents:
-            renderer.sched(instrname=ev.instrname,
-                           delay=ev.delay,
-                           dur=ev.dur,
-                           priority=ev.priority,
-                           args=ev.args,
-                           tabargs=ev.tabargs)
     if extratime:
-        starttime, endtime = renderer.timeRange()
+        _, endtime = renderer.timeRange()
         endtime += extratime
     else:
         endtime = 0.
@@ -1021,12 +1147,28 @@ def play(*sources: MObj | Sequence[SynthEvent] | csoundengine.session.SessionEve
 
     .. seealso:: :class:`synchedplay`
     """
-    flatevents, sessionevents = _collectEvents(sources, eventparams=eventparams, workspace=workspace)
-    return _playFlatEvents(flatevents, sessionevents=sessionevents, whenfinished=whenfinished)
+    coreevents, sessionevents = _collectEvents(sources, eventparams=eventparams, workspace=workspace)
+    numChannels = _nchnlsForEvents(coreevents)
+    if not isEngineActive():
+        playEngine(numchannels=numChannels)
+    else:
+        engine = playEngine()
+        if engine.nchnls < numChannels:
+            logger.error("Some events output to channels outside of the engine's range")
+
+    rtrenderer = RealtimeRenderer()
+    return rtrenderer.schedEvents(coreevents=coreevents, sessionevents=sessionevents, whenfinished=whenfinished)
+    # return _playFlatEvents(coreevents, sessionevents=sessionevents, whenfinished=whenfinished)
 
 
-def _prepareEvents(events: list[SynthEvent], session: csoundengine.Session, block=True
-                   ) -> dict[str, csoundengine.Instr]:
+def _nchnlsForEvents(events: list[SynthEvent]) -> int:
+    return max(int(ceil(ev.resolvedPosition() + ev.chan)) for ev in events)
+
+
+def _prepareEventsRealtime(events: list[SynthEvent],
+                           session: csoundengine.Session,
+                           block=True
+                           ) -> dict[str, csoundengine.Instr]:
     assert events
     presetNames = {ev.instr for ev in events}
     presetDefs = [presetManager.getPreset(name) for name in presetNames]
@@ -1039,6 +1181,8 @@ def _prepareEvents(events: list[SynthEvent], session: csoundengine.Session, bloc
             sync = True
             session.registerInstr(instrdef)
     for event in events:
+        if event.initfunc:
+            event.initfunc(event, session)
         instrdef = presetToInstr[event.instr]
         session.prepareSched(instrdef.name, event.priority, block=False)
     if sync and block:
@@ -1046,11 +1190,56 @@ def _prepareEvents(events: list[SynthEvent], session: csoundengine.Session, bloc
     return presetToInstr
 
 
-def _playFlatEvents(events: list[SynthEvent],
-                    sessionevents: list[csoundengine.session.SessionEvent] = None,
-                    whenfinished: Callable = None,
-                    presetToInstr: dict[str, csoundengine.Instr] = None
-                    ) -> csoundengine.synth.SynthGroup:
+def _schedFlatEvents(renderer: Renderer,
+                     coreevents: list[SynthEvent],
+                     sessionevents: list[csoundengine.session.SessionEvent] = None,
+                     whenfinished: Callable = None,
+                     ) -> list[csoundengine.synth.Synth]:
+
+    for coreevent in coreevents:
+        renderer.prepareEvent(coreevent)
+
+    if sessionevents:
+        for sessionevent in sessionevents:
+            renderer.prepareInstr(sessionevent.instrname, priority=sessionevent.priority)
+
+    synths = []
+
+    resolvedArgs = [ev.resolvePfields(presetManager.presetnameToInstr(ev.instr))
+                    for ev in coreevents]
+
+    if whenfinished and renderer.isRealtime():
+        lastevent = max(coreevents, key=lambda ev: ev.end if ev.end > 0 else float('inf'))
+        lastevent.whenfinished = lambda id: whenfinished() if not lastevent.whenfinished else lambda id, ev=lastevent: ev.whenfinished(id) or whenfinished()
+
+    # We take a reference time before starting scheduling,
+    # so we can guarantee that events which are supposed to be
+    # in sync, are in fact in sync.
+    renderer.pushLock()
+    for coreevent, args in zip(coreevents, resolvedArgs):
+        instr = presetManager.presetnameToInstr(coreevent.instr)
+        synth = renderer.sched(instr.name,
+                               delay=args[0],
+                               dur=args[1],
+                               args=args[3:],
+                               priority=coreevent.priority,
+                               whenfinished=coreevent.whenfinished)
+        synths.append(synth)
+
+    if sessionevents:
+        sessionsynths = [renderer.schedSessionEvent(ev)
+                         for ev in sessionevents]
+        synths.extend(sessionsynths)
+
+    renderer.popLock()
+    return synths
+
+
+def _playFlatEvents_old(events: list[SynthEvent],
+                        sessionevents: list[csoundengine.session.SessionEvent] = None,
+                        whenfinished: Callable = None,
+                        presetToInstr: dict[str, csoundengine.Instr] = None
+                        ) -> csoundengine.synth.SynthGroup:
     """
     Play a list of events
 
@@ -1062,8 +1251,8 @@ def _playFlatEvents(events: list[SynthEvent],
         whenfinished: call this function when the last event is finished. A function taking
             no arguments and returning None
         presetToInstr: normally None, otherwise a dict mapping preset name to
-            csoundengine's Instr as calculated within _prepareEvents. It should only be
-            given if _prepareEvents was previously called for the events passed here
+            csoundengine's Instr as calculated within _prepareEventsRealtime. It should only be
+            given if _prepareEventsRealtime was previously called for the events passed here
             and should not be called again (see synchedplay for this pattern of usage)
 
     Returns:
@@ -1071,12 +1260,11 @@ def _playFlatEvents(events: list[SynthEvent],
 
     """
     if not isEngineActive():
-        numChannels = max(int(ceil(ev.position + ev.chan)) for ev in events)
-        numChannels = max(numChannels, 2)
+        numChannels = _nchnlsForEvents(events)
         playEngine(numchannels=numChannels)
     session = playSession()
     if presetToInstr is None:
-        presetToInstr = _prepareEvents(events, session)
+        presetToInstr = _prepareEventsRealtime(events, session)
 
     if sessionevents:
         for ev in sessionevents:
@@ -1181,7 +1369,7 @@ def _resolvePfields(event: SynthEvent, instr: csoundengine.Instr
 
 class synchedplay:
     """
-    Context manager to tree realtime events to ensure synched playback
+    Context manager to group realtime events to ensure synched playback
 
     When playing multiple objects via their respective .play method, initialization
     (loading soundfiles, soundfonts, etc) might result in events getting out of sync
@@ -1190,7 +1378,9 @@ class synchedplay:
     Within this context all ``.play`` calls are collected and all events are
     scheduled at the end of the context. Any initialization is done beforehand
     as to ensure that events keep in sync. Pure csound events can also be
-    scheduled in sync during this context, using the ``sched`` method.
+    scheduled in sync during this context, using the ``sched`` method
+    of the context manager or simply calling the .sched method of
+    the active session.
 
     After exiting the context all scheduled synths can be
     accessed via the ``synthgroup`` attribute.
@@ -1198,7 +1388,9 @@ class synchedplay:
     .. note::
 
         Use this context manager whenever you are mixing multiple objects with
-        customized play arguments, and external csoundengine instruments
+        customized play arguments, and external csoundengine instruments. As an alternative
+        it is possible to use :func:`play` and wrap any pure csound event into a
+        :class:`csoundengine.session.SessionEvent` (see https://csoundengine.readthedocs.io/en/latest/session.html#sessionevent-class)
 
     Args:
         whenfinished: call this function when the last event is finished. A function taking
@@ -1216,14 +1408,16 @@ class synchedplay:
         ... outch 1, aL - a1, 2, aR - a2
         ... ''')
         >>> chain = Chain([Note(m, 0.5) for m in range(60, 72)])
-        >>> with synchedplay() as s:
-        ...     chain.play(position=1, instr='piano')
-        ...     s.sched('reverb', 0, dur=10, priority=2)
+        >>> with synchedplay() as ctx:
+        ...     chain.play(instr='piano', gain=0.5)
+        ...     session.sched('reverb', 0, dur=10, priority=2)
+        # Within a jupyter session placing the context after exit will display the
+        # html generated by the SynthGroup generated during playback. This allows
+        # outputs information about the synths and creates a Stop button to cancel
+        # playback at any moment
+        >>> ctx
     """
     def __init__(self, whenfinished: Callable = None):
-        self.lock = True
-        """Should the engine's clock be locked during play?"""
-
         self.events: list[SynthEvent] = []
         """A list of all events rendered"""
 
@@ -1239,7 +1433,8 @@ class synchedplay:
         self.session: csoundengine.Session
         """The corresponding Session, can be used to access the session during the context"""
 
-        self._realtimeEvents: list[csoundengine.session.SessionEvent] = []
+        self.workspace: Workspace = Workspace.active
+        self.sessionEvents: list[csoundengine.session.SessionEvent] = []
         self._oldRenderer = None
         self._oldSessionSchedCallback = None
         self._finishedCallback = whenfinished
@@ -1279,15 +1474,11 @@ class synchedplay:
         """
         self.engine = playEngine()
         self.session = self.engine.session()
-
-        workspace = getWorkspace()
+        self.workspace = workspace = Workspace.active
         self._oldRenderer = workspace.renderer
         workspace.renderer = self
         self._oldSessionSchedCallback = self.session._schedCallback
         self.session._schedCallback = self.sched
-
-        if self.lock:
-            self.engine.pushLock()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -1297,40 +1488,25 @@ class synchedplay:
         This includes preparing all resources and then actually
         scheduling all events
         """
+        # first, restore the state prior to the context
+        self.session._schedCallback = self._oldSessionSchedCallback
+        self._oldSessionSchedCallback = None
+        self.workspace.renderer = self._oldRenderer
+        self._oldRenderer = None
+
         if exc_type is not None:
             # There was an exception since entering
             logger.warning("Playing aborted")
             return
 
-        if not self.events:
+        if not self.events and not self.sessionEvents:
             logger.debug("No events scheduled, exiting context")
             self.synthgroup = None
             return
 
-        presetToInstr = _prepareEvents(self.events, self.session, block=False)
-        if self._realtimeEvents:
-            for ev in self._realtimeEvents:
-                self.session.prepareSched(instrname=ev.instrname,
-                                          priority=ev.priority,
-                                          block=False)
-        self.engine.sync()
-        self.session._schedCallback = self._oldSessionSchedCallback
-        self._oldSessionSchedCallback = None
-
-        synthgroup = _playFlatEvents(self.events, presetToInstr=presetToInstr,
-                                     whenfinished=self._finishedCallback)
-
-        if self._realtimeEvents:
-            livesynths = [self.session.schedEvent(ev)
-                          for ev in self._realtimeEvents]
-            synthgroup.extend(livesynths)
-        if self.lock:
-            self.engine.popLock()
-        self.synthgroup = synthgroup
-        workspace = getWorkspace()
-        workspace.renderer = self._oldRenderer
-        self._oldRenderer = None
-        self._oldSessionSchedCallback = None
+        r = RealtimeRenderer()
+        self.synthgroup = r.schedEvents(self.events, sessionevents=self.sessionEvents,
+                                        whenfinished=self._finishedCallback)
 
     def sched(self,
               instrname: str,
@@ -1339,8 +1515,6 @@ class synchedplay:
               priority=1,
               args: list[float] | dict[str, float] = None,
               tabargs: dict[str, float] = None,
-              whenfinished=None,
-              relative=None,
               **kws) -> csoundengine.session.SessionEvent:
         """
         Schedule a csound event in the active Session
@@ -1395,7 +1569,7 @@ class synchedplay:
                                                   args=args,
                                                   tabargs=tabargs,
                                                   kws=kws)
-        self._realtimeEvents.append(event)
+        self.sessionEvents.append(event)
         return event
 
 

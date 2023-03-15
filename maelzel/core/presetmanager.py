@@ -18,6 +18,7 @@ from . import builtinpresets
 from ._common import logger
 from . import _dialogs
 from . import environment
+from . import playback
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .synthevent import SynthEvent
@@ -270,6 +271,9 @@ class PresetManager:
                               envelope=envelope,
                               routing=output)
         self.registerPreset(presetdef)
+        if playback.isEngineActive():
+            session = playback.playSession()
+            session.registerInstr(presetdef.getInstr())
         return presetdef
 
     def defPresetSoundfont(self,
@@ -417,6 +421,7 @@ class PresetManager:
         """
         self.presetdefs[presetdef.name] = presetdef
 
+
     def getPreset(self, name: str) -> PresetDef:
         """Get a preset by name
 
@@ -434,8 +439,11 @@ class PresetManager:
                                            default=Workspace.active.config['play.instr'])
         preset = self.presetdefs.get(name)
         if not preset:
-            raise KeyError(f"Preset {name} not known. Available presets: {self.presetdefs.keys()}")
+            raise KeyError(f"Preset {name} not known. Available presets: {self.definedPresets()}")
         return preset
+
+    def presetnameToInstr(self, presetname: str) -> csoundengine.Instr:
+        return self.presetdefs[presetname].getInstr()
 
     def definedPresets(self) -> list[str]:
         """Returns a list with the names of all defined presets
@@ -448,7 +456,7 @@ class PresetManager:
             ['sin',
              'saw',
              'pulse',
-             '_piano',
+             '.piano',
              'gm-clarinet',
              'gm-oboe']
             >>> preset = presetManager.getPreset('sin')
@@ -463,7 +471,7 @@ class PresetManager:
             :func:`~maelzel.core.presetman.showPresets`. You can also access all
             presets via :attr:`PresetManager.presetdefs`
         """
-        return list(self.presetdefs.keys())
+        return list(k for k in self.presetdefs.keys() if not k.startswith('_'))
 
     def showPresets(self, pattern="*", full=False, showGeneratedCode=False) -> None:
         """

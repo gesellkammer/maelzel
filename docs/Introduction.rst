@@ -26,13 +26,15 @@ Analysis and reconstruction of the rhythmic ostinati in Messiaen's "La liturgie 
   :width: 400px
   :target: https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/notebooks/demo-transcribe.ipynb
 
+Transcription of a monophonic speaking voice combining fundamental tracking (using
+the pYin algorithm), onset/offset detection and other extracted features.
+
+
+-----------------------------------------------------------------------------------------------------------
+
+
 3. `Complex Rhythms - Ferneyhough's 3rd String Quartet <https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/notebooks/ferneyhough-demo.ipynb>`_
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-
-.. tip::
-
-    To learn more, take a look at the :ref:`Tutorial <core_jupyter_tutorial>`
 
 -----------------
 

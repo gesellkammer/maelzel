@@ -27,7 +27,8 @@ setup(
         'maelzel.ext',
         'maelzel.music',
         'maelzel.scoring',
-        'maelzel.musicxml'
+        'maelzel.musicxml',
+        'maelzel.translate'
     ],
     include_package_data=True,
     install_requires=[
@@ -51,8 +52,8 @@ setup(
         "rtmidi2",
         "resampy",
         "psutil",
-        "csoundengine>=1.13.4",
-        "pitchtools>=1.9",
+        "csoundengine>=1.16.2",
+        "pitchtools>=1.9.2",
         "lxml",
         "quicktions",
         "rich",

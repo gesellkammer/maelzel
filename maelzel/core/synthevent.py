@@ -6,6 +6,8 @@ import pitchtools as pt
 
 from ._common import logger
 from typing import TYPE_CHECKING
+from maelzel.core import renderer
+
 if TYPE_CHECKING:
     from typing import Any, Callable, Iterable, Sequence
     import csoundengine.instr
@@ -277,13 +279,14 @@ class SynthEvent:
 
     A User never creates a :class:`SynthEvent`: a :class:`SynthEvent` is
     created by a :class:`Note` or a :class:`Voice`. They are used internally
-    to generate a set of events to be played by the playback engine.
+    to generate a set of events to be played/recorded by the playback engine.
 
     """
     __slots__ = ("bps", "delay", "chan", "fadein", "fadeout", "gain",
                  "instr", "pitchinterpol", "fadeShape", "args",
                  "priority", "position", "_namedArgsMethod", "linkednext",
-                 "numchans", "whenfinished", "properties", 'sustain')
+                 "numchans", "whenfinished", "properties", 'sustain',
+                 'initfunc', '_initdone')
 
     pitchinterpolToInt = {
         'linear': 0,
@@ -309,7 +312,7 @@ class SynthEvent:
                  gain: float = 1.0,
                  pitchinterpol: str = 'linear',
                  fadeshape: str = 'cos',
-                 args: dict[str, float] = None,
+                 args: dict[str, float|str] = None,
                  priority: int = 1,
                  position: float = -1,
                  numchans: int = 2,
@@ -317,6 +320,7 @@ class SynthEvent:
                  whenfinished: Callable = None,
                  properties: dict[str, Any] | None = None,
                  sustain: float = 0.,
+                 initfunc: Callable[[SynthEvent, renderer.Renderer], None]=None,
                  **kws):
         """
         bps (breakpoints): a seq of (delay, midi, amp, ...) of len >= 1.
@@ -391,7 +395,7 @@ class SynthEvent:
         self.position = position
         """Panning position (between 0-1)"""
 
-        self.args = args
+        self.args: dict[str, float|str] = args
         """Any parameters passed to the instrument"""
 
         self.linkednext = linkednext
@@ -415,10 +419,24 @@ class SynthEvent:
         self.sustain = sustain
         """Sustain time after the actual totalDuration"""
 
+        self.initfunc = initfunc
+        """A function called when the event is being scheduled. 
+        It has the form (synthevent, renderer) -> None, where synthevent is 
+        the event being rendered and renderer is the renderer performing the render 
+        (either a maelzel.core.playback.RealtimeRenderer or a 
+        maelzel.core.playback.OfflineRenderer). It can be used to initialize any 
+        resources needed by the event (load/make tables, add includes, global code, etc)"""
+
+        self._initdone = False
+
         self._namedArgsMethod = 'pargs'
         self._consolidateDelay()
         assert self.dur > 0, f"Duration of a synth event must be possitive: {self}"
         assert self.bps[0][0] == 0
+
+    def initialize(self, renderer):
+        if not self._initdone and self.initfunc:
+            self.initfunc(self, renderer)
 
     def _applySustain(self) -> None:
         assert not self.linkednext and self.sustain > 0
@@ -439,6 +457,15 @@ class SynthEvent:
         if not self.bps:
             return 0
         return float(self.bps[-1][0] - self.bps[0][0])
+
+    def resolvedPosition(self) -> float:
+        if self.position >= 0:
+            return self.position
+        if self.numchans == 1:
+            return 0.
+        else:
+            return 0.5
+
 
     def clone(self, **kws) -> SynthEvent:
         out = self.copy()
@@ -590,7 +617,7 @@ class SynthEvent:
 
     def resolvePfields(self: SynthEvent,
                        instr: csoundengine.instr.Instr
-                       ) -> list[float]:
+                       ) -> list[float|str]:
         """
         Returns pfields, **beginning with p2**.
 
@@ -625,9 +652,6 @@ class SynthEvent:
         fadeshape = SynthEvent.fadeshapeToInt[self.fadeShape]
         # if no userpargs, bpsoffset is 15
         numPargs5 = len(instr.pargsIndexToName)
-        numBuiltinPargs = 10
-        numUserArgs = numPargs5 - numBuiltinPargs
-        bpsoffset = 15 + numUserArgs
         bpsrows = len(self.bps)
         bpscols = self.breakpointSize()
         pfields = [
@@ -635,8 +659,9 @@ class SynthEvent:
             float(self.dur),
             0,  # table index, to be filled later
         ]
+
         pfields5 = [
-            bpsoffset,  # p5, idx: 4
+            0,            # p5, idx: 4 (bpsoffset)
             bpsrows,
             bpscols,
             self.gain,
@@ -647,6 +672,11 @@ class SynthEvent:
             pitchInterpolMethod,
             fadeshape
         ]
+        numBuiltinPargs = len(pfields5)  # 10
+        numUserArgs = numPargs5 - numBuiltinPargs
+        bpsoffset = 15 + numUserArgs
+        pfields5[0] = bpsoffset
+
         if self._namedArgsMethod == 'pargs' and numUserArgs > 0:
             pfields5 = instr.pargsTranslate(args=pfields5, kws=self.args)
         pfields.extend(pfields5)
@@ -711,7 +741,6 @@ def mergeLinkedEvents(events: Sequence[SynthEvent]) -> SynthEvent:
     assert len(events) >= 2
     assert all(ev.linkednext for ev in events[:-1]), f"Cannot merge events not marked as linked: {events}"
     assert all(ev.bps[0][0] == 0 for ev in events)
-    origdur = sum(ev.dur for ev in events)
     firstevent = events[0]
     bps = []
     eps = 1.e-10
