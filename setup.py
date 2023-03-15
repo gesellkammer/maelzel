@@ -28,7 +28,7 @@ setup(
         'maelzel.music',
         'maelzel.scoring',
         'maelzel.musicxml',
-        'maelzel.translate'
+        'maelzel.transcribe'
     ],
     include_package_data=True,
     install_requires=[
