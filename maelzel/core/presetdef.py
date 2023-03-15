@@ -4,17 +4,16 @@ import math
 import re
 import textwrap as _textwrap
 
-import emlib.textlib
 import emlib.textlib as _textlib
 from . import presetutils
 from ._common import logger
 from . import _util
 import csoundengine
+from functools import cache
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
-
 
 _INSTR_INDENT = "  "
 
@@ -109,12 +108,6 @@ def parseAudiogen(audiogen: str, check=False) -> ParsedAudiogen:
                           argdocs=docstring.args if docstring else None)
 
 
-def _instrNameFromPresetName(presetName: str) -> str:
-    # an Instr derived from a PresetDef gets a prefix to prevent collisions
-    # with Instrs a user might want to define in the same Session
-    return f'preset.{presetName}'
-
-
 def _makePresetBody(audiogen: str,
                     numsignals: int,
                     withEnvelope=True,
@@ -195,7 +188,7 @@ ifadeout = max:i(ifadeout, 1/kr)
         audiovars = [f'aout{i}' for i in range(1, numsignals+1)]
         if withOutput:
             # apply envelope at the end
-            indentation = emlib.textlib.getIndentation(audiogen)
+            indentation = _textlib.getIndentation(audiogen)
             prefix = ' ' * indentation
             envlines = [f'{prefix}{audiovar} *= aenv_' for audiovar in audiovars]
             audiogen = '\n'.join([audiogen] + envlines)
@@ -270,6 +263,8 @@ class PresetDef:
             an output channel, bus, etc.
             
     """
+    _builtinVariables = ('kfreq', 'kamp', 'kpitch')
+
     def __init__(self,
                  name: str,
                  audiogen: str = None,
@@ -305,6 +300,9 @@ class PresetDef:
 
         self.name = name
         "Name of this preset"
+
+        self.instrname = self.presetNameToInstrName(name)
+        "The name of the corresponding Instrument"
 
         self.init = init
         "Code run before any instance is created"
@@ -347,6 +345,17 @@ class PresetDef:
 
         self._consolidatedInit: str = ''
         self._instr: Optional[csoundengine.instr.Instr] = None
+
+        if self.args:
+            for arg in self.args.keys():
+                if arg in self._builtinVariables:
+                    raise ValueError(f"Cannot use builtin variables as arguments "
+                                     f"({arg} is a builtin variable)")
+
+    @staticmethod
+    @cache
+    def presetNameToInstrName(presetname: str) -> str:
+        return f'preset:{presetname}'
 
     def __repr__(self):
         lines = []
@@ -433,12 +442,6 @@ class PresetDef:
             ps.append(csoundengine.csoundlib.highlightCsoundOrc(epilogue, theme=theme))
         return "\n".join(ps)
 
-    def instrName(self) -> str:
-        """
-        Returns the Instr name corresponding to this Preset
-        """
-        return _instrNameFromPresetName(self.name)
-
     def getInstr(self, namedArgsMethod: str = 'pargs') -> csoundengine.Instr:
         """
         Returns the csoundengine's Instr corresponding to this PresetDef
@@ -455,31 +458,29 @@ class PresetDef:
         """
         if self._instr:
             return self._instr
-        instrName = self.instrName()
 
-        if namedArgsMethod == 'table':
-            self._instr = csoundengine.Instr(name=instrName,
+        if namedArgsMethod == 'pargs':
+            self._instr = csoundengine.Instr(name=self.instrname,
                                              body=self.body,
-                                             init=self.globalCode(),
-                                             tabargs=self.args,
-                                             numchans=self.numouts)
-        elif namedArgsMethod == 'pargs':
-            self._instr = csoundengine.Instr(name=instrName,
-                                             body=self.body,
-                                             init=self.globalCode(),
+                                             init=self.init,
+                                             includes=self.includes,
                                              args=self.args,
                                              userPargsStart=PresetDef.userPargsStart,
                                              numchans=self.numouts)
+
+
+        elif namedArgsMethod == 'table':
+            self._instr = csoundengine.Instr(name=self.instrname,
+                                             body=self.body,
+                                             init=self.init,
+                                             includes=self.includes,
+                                             tabargs=self.args,
+                                             numchans=self.numouts)
+
         else:
             raise ValueError(f"namedArgsMethod expected 'table' or 'pargs', "
                              f"got {namedArgsMethod}")
         return self._instr
-
-    def globalCode(self) -> str:
-        if self._consolidatedInit:
-            return self._consolidatedInit
-        self._consolidatedInit = _consolidateInitCode(self.init, self.includes)
-        return self._consolidatedInit
 
     def save(self) -> str:
         """
@@ -494,7 +495,6 @@ class PresetDef:
         savedpath = presetmanager.presetManager.savePreset(self.name)
         return savedpath
 
-
 def _consolidateInitCode(init: str, includes: list[str]) -> str:
     if includes:
         includesCode = _genIncludes(includes)
@@ -503,11 +503,6 @@ def _consolidateInitCode(init: str, includes: list[str]) -> str:
 
 
 def _genIncludes(includes: list[str]) -> str:
-    return "\n".join(_makeIncludeLine(inc) for inc in includes)
+    return "\n".join(csoundengine.csoundlib.makeIncludeLine(inc) for inc in includes)
 
 
-def _makeIncludeLine(include: str) -> str:
-    if include.startswith('"'):
-        return f'#include {include}'
-    else:
-        return f'#include "{include}"'

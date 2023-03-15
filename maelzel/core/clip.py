@@ -3,6 +3,7 @@ import pitchtools as pt
 
 import sndfileio
 import numpy as np
+import os
 
 from maelzel.scorestruct import ScoreStruct
 from maelzel.common import F, asF, F0, asmidi
@@ -19,6 +20,8 @@ from maelzel.core import _util
 
 from maelzel import scoring
 from emlib.misc import firstval
+
+import csoundengine
 
 
 __all__ = (
@@ -50,13 +53,13 @@ class Clip(MEvent):
 
     """
     _isDurationRelative = False
+    _excludedPlayKeys: tuple[str] = ('instr', 'args')
 
-    __slots__ = ('startSecs', 'endSecs', 'speed', 'source', 'soundfile', 'numChannels',
+    __slots__ = ('startSecs', 'endSecs', '_speed', 'source', 'soundfile', 'numChannels',
                  'sr', 'amp', 'dynamic', 'pitch', 'sourceDurSecs')
 
     def __init__(self,
                  source: str | audiosample.Sample | tuple[np.ndarray, int],
-                 dur: time_t = None,
                  pitch: pitch_t = None,
                  amp: float = 1.,
                  offset: time_t = None,
@@ -68,7 +71,8 @@ class Clip(MEvent):
                  speed: F | float =F(1),
                  parent: MContainer | None = None,
                  loop=False,
-                 tied=False
+                 tied=False,
+                 noteheadShape: str = None
                  ):
         if source == '?':
             source = _dialogs.selectSndfileForOpen()
@@ -93,12 +97,20 @@ class Clip(MEvent):
         self.loop = loop
         """Should this clip loop?"""
 
-        self._soundfileCsoundStringNum = 0
-        self._soundfileCsoundTable = 0
-        self._playbackMethod = 'diskin'
+        self.channel = channel
+        """Which channel to load from soundfile. If None, all channels are loaded"""
 
-        self._engine = playback.playEngine()
-        self._session = self._engine.session()
+        self._playbackMethod = 'diskin'
+        """One of 'diskin' | 'table' """
+
+        self._engine: csoundengine.Engine | None = None
+        """Will be set to the playback engine when realtime has been initialized"""
+
+        self._csoundTable: int = 0
+        """Will be filled during event initialization"""
+
+        self.noteheadShape = noteheadShape
+        """The shape to use as notehead"""
 
         if isinstance(source, tuple) and len(source) == 2 and isinstance(source[0], np.ndarray):
             data, sr = source
@@ -106,20 +118,19 @@ class Clip(MEvent):
             source = audiosample.Sample(data, sr=sr)
 
         if isinstance(source, str):
+            if not os.path.exists(source):
+                raise FileNotFoundError(f"Soundfile not found: '{source}'")
             self.soundfile = source
             info = sndfileio.sndinfo(source)
             self.sr = info.samplerate
             self.sourceDurSecs = info.duration
-            self.numChannels = info.channels
-            self._soundfileCsoundStringNum = self._engine.strSet(self.soundfile)
+            self.numChannels = info.channels if self.channel is None else 1
+            self._playbackMethod = 'diskin'
 
         elif isinstance(source, audiosample.Sample):
             self.sr = source.sr
             self.sourceDurSecs = source.duration
             self.numChannels = source.numchannels
-            self._soundfileCsoundTable = self._session.makeTable(data=source.samples,
-                                                                 sr=source.sr,
-                                                                 unique=False)
             self._playbackMethod = 'table'
 
         else:
@@ -139,7 +150,7 @@ class Clip(MEvent):
 
         self.endSecs: F = asF(endsecs if endsecs > 0 else self.sourceDurSecs)
 
-        self.speed: F = asF(speed)
+        self._speed: F = asF(speed)
         """Playback speed"""
 
         self._sample: audiosample.Sample|None = None
@@ -162,10 +173,40 @@ class Clip(MEvent):
 
         super().__init__(offset=offset, dur=None, label=label, parent=parent)
 
+    @property
+    def speed(self) -> F:
+        return self._speed
+
+    @speed.setter
+    def speed(self, speed: time_t):
+        self._speed = asF(speed)
+
+    @property
+    def name(self) -> str:
+        return f"Clip(source={self.source})"
+
+    def copy(self) -> Clip:
+        # We do not copy the parent attr
+        out = Clip(source=self.source,
+                   pitch=self.pitch,
+                   amp=self.amp,
+                   offset=self.offset,
+                   label=self.label,
+                   dynamic=self.dynamic,
+                   startsecs=self.startSecs,
+                   endsecs=self.endSecs,
+                   channel=self.channel,
+                   speed=self.speed,
+                   loop=self.loop,
+                   tied=self.tied)
+        self._copyAttributesTo(out)
+        return out
+
     def __hash__(self):
         source = self.source if isinstance(self.source, str) else id(self.source)
         parts = (source, self.startSecs, self.endSecs, self.speed, self.sr,
-                 self.numChannels, self.sourceDurSecs, self.amp)
+                 self.numChannels, self.sourceDurSecs, self.amp,
+                 self.dynamic, self.noteheadShape)
         return hash(parts)
 
     def __getitem__(self, item):
@@ -224,10 +265,11 @@ class Clip(MEvent):
         starttime = struct.beatToTime(startbeat)
         dursecs = self.durSecs()
         endbeat = struct.timeToBeat(starttime + dursecs)
-        self._resolvedDur = out = endbeat - startbeat
+        dur = endbeat - startbeat
+        self._resolvedDur = dur
         self._durContext = (struct, startbeat)
-        assert isinstance(out, F)
-        return out
+        assert isinstance(dur, F)
+        return dur
 
     def resolveDur(self) -> F:
         if not self.parent:
@@ -239,7 +281,7 @@ class Clip(MEvent):
         return self._calculateDuration(relativeOffset=reloffset, parentOffset=parentoffset, force=True)
 
     def __repr__(self):
-        return f"Clip(source={self.source}, sr={self.sr}, dur={self.dur}, resolvedDur={self.resolveDur()}, sourcedursecs={_util.showT(self.sourceDurSecs)}secs)"
+        return f"Clip(source={self.source}, numChannels={self.numChannels}, sr={self.sr}, dur={self.dur}, resolvedDur={self.resolveDur()}, sourcedursecs={_util.showT(self.sourceDurSecs)}secs)"
 
     def _synthEvents(self,
                      playargs: PlayArgs,
@@ -259,22 +301,31 @@ class Clip(MEvent):
         if self._playbackMethod == 'diskin':
             assert isinstance(self.source, str), f"The diskin playback method needs a path " \
                                                  f"as source, got {self.source}"
-            args = {'ipath': self._soundfileCsoundStringNum,
+            assert os.path.exists(self.soundfile)
+            args = {'ipath': self.soundfile,
+                    'isndfilechan': -1 if self.channel is None else self.channel,
                     'kspeed': self.speed,
                     'iskip': skip}
             playargs = playargs.clone(instr='_clip_diskin', args=args)
 
         elif self._playbackMethod == 'table':
-            args = {'isndtab': self._soundfileCsoundTable.tabnum,
+            args = {'isndtab': 0,  # The table number will be filled later
                     'kspeed': self.speed,
                     'istart': skip,
                     'ixfade': -1 if not self.loop else 0.1}
             playargs = playargs.clone(instr='_playtable', args=args)
         else:
             raise RuntimeError(f"Playback method {self._playbackMethod} not supported")
-        event = SynthEvent(bps=bps, linkednext=self.tied, **playargs.db)
-        event.linkednext = self.tied
+        event = SynthEvent(bps=bps, linkednext=self.tied, numchans=self.numChannels,
+                           initfunc=self._initEvent,
+                           **playargs.db)
         return [event]
+
+    def _initEvent(self, event: SynthEvent, renderer: playback.Renderer):
+        if self._playbackMethod == 'table':
+            if not self._csoundTable:
+                self._csoundTable = renderer.makeTable(self.source.samples, sr=self.sr)
+            event.args['isndtab'] = self._csoundTable
 
     def scoringEvents(self,
                       groupid='',
@@ -287,6 +338,19 @@ class Clip(MEvent):
         dur = self.resolveDur()
         notation = scoring.makeNote(pitch=self.pitch,
                                     duration=dur,
-                                    offset=offset)
-        notation.setNotehead('square')
+                                    offset=offset,
+                                    dynamic=self.dynamic,
+                                    gliss=bool(self.gliss))
+        if self.tied:
+            notation.tiedNext = True
+
+        if self.label:
+            notation.addText(self._scoringAnnotation(config=config))
+
+        shape = self.noteheadShape if self.noteheadShape is not None else config['show.clipNoteheadShape']
+        if shape:
+            notation.setNotehead(shape)
+        if self.symbols:
+            for symbol in self.symbols:
+                symbol.applyTo(notation)
         return [notation]

@@ -19,10 +19,10 @@ from . import synthevent
 def _onFirstRun():
     print("*** maelzel.core: first run")
     from maelzel.core.presetmanager import presetManager
-    if '_piano' in presetManager.presetdefs:
-        print("*** maelzel.core: found builtin piano soundfont; setting default instrument to '_piano'")
+    if '.piano' in presetManager.presetdefs:
+        print("*** maelzel.core: found builtin piano soundfont; setting default instrument to '.piano'")
         assert CoreConfig.root is not None
-        CoreConfig.root['play.instr'] = '_piano'
+        CoreConfig.root['play.instr'] = '.piano'
         CoreConfig.root.save()
     _appstate.appstate['firstRun'] = False   # state is persistent so no need to save
 

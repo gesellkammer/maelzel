@@ -44,6 +44,7 @@ defaultdict = {
     'show.hideRedundantDynamics': True,
     'show.asoluteOffsetForDetachedObjects': False,
     'show.voiceMaxStaves': 1,
+    'show.clipNoteheadShape': 'square',
 
     'play.gain': 1.0,
     'play.engineName': 'maelzel.core',
@@ -126,12 +127,15 @@ validator = {
     'quant.nestedTuplets::choices': {True, False, None},
     'show.pageOrientation::choices': {'portrait', 'landscape'},
     'show.pageMarginMillimeters::range': (0, 1000),
-    'show.horizontalSpacing::choices': {'default', 'small', 'medium', 'large', 'xlarge'},
-    'show.glissLineThickness::choices': {1, 2, 3, 4},
+    'show.horizontalSpacing::choices': ('default', 'small', 'medium', 'large', 'xlarge'),
+    'show.glissLineThickness::choices': (1, 2, 3, 4),
     'show.jupyterMaxImageWidth::type': int,
     'show.voiceMaxStaves::type': int,
     'show.voiceMaxStaves::range': (1, 2),
-    'dynamicCurveShape': lambda cfg, key, val: val.split("(")[0] in {'linear', 'expon', 'halfcos'},
+    'show.clipNoteheadShape::choices': ('', 'square', 'normal', 'cross', 'harmonic', 'triangle',
+                                        'xcircle', 'rhombus', 'rectangle', 'slash', 'diamond',
+                                        'cluster'),
+    'dynamicCurveShape': lambda cfg, key, val: val.split("(")[0] in ('linear', 'expon', 'halfcos'),
     'dynamicCurveMindb::range': (-160, 0),
     'dynamicCurveMaxdb::range': (-160, 0),
     'dynamicCurveDynamics': lambda cfg, key, val: all(d in dynamics.dynamicSteps
@@ -233,7 +237,8 @@ docs = {
         "is a sequence of non-simultaneous events (notes, chords, etc.) but these can"
         "be exploded over multiple staves (for example, a chord might expand across a"
         "wide range and would need multiple extra lines in any clef",
-
+    'show.clipNoteheadShape':
+        "Notehead shape to use for clips",
     'enharmonic.debug':
         "If True, print debug information while calculating automatic enharmonic spelling",
 
