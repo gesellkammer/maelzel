@@ -20,6 +20,12 @@ class Renderer:
     def isRealtime(self) -> bool:
         raise NotImplementedError
 
+    def assignBus(self, kind='audio') -> int:
+        raise NotImplementedError
+
+    def releaseBus(self, busnum: int):
+        raise NotImplementedError
+
     def prepareEvent(self, event: synthevent.SynthEvent) -> None:
         presetname = event.instr
         if not presetname in self.registeredPresets:

@@ -200,6 +200,7 @@ class PresetManager:
                 preset. Otherwise the user is responsible for applying panning (``iposition``)
                 and routing the generated audio to any output channels (``ichan``), buses, etc.
 
+
         Returns:
             a PresetDef
 

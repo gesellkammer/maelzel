@@ -69,11 +69,17 @@ class RealtimeRenderer(Renderer):
         super().__init__(presetManager=presetManager)
         if engine is None:
             engine = playEngine()
-        self.engine = engine
-        self.session = engine.session()
+        self.engine: csoundengine.Engine = engine
+        self.session: csoundengine.Session = engine.session()
 
     def isRealtime(self) -> bool:
         return True
+
+    def assignBus(self, kind='audio') -> int:
+        return self.engine.assignBus(kind=kind, persist=True)
+
+    def releaseBus(self, busnum: int):
+        self.engine.releaseBus(busnum)
 
     def registerPreset(self, presetdef: PresetDef) -> None:
         instrname = presetdef.instrname
@@ -267,6 +273,12 @@ class OfflineRenderer(Renderer):
     def scheduledEvents(self) -> dict[int, csoundengine.offline.ScoreEvent]:
         """The scheduled events"""
         return self.csoundRenderer.scheduledEvents
+
+    def assignBus(self, kind='audio') -> int:
+        return self.csoundRenderer.assignBus()
+
+    def releaseBus(self, busnum: int):
+        pass
 
     def includeFile(self, path: str) -> None:
         self.csoundRenderer.addInclude(path)
