@@ -7,7 +7,7 @@ import sys
 from setuptools import setup
 
 readme = open('README.rst').read()
-version = (0, 7, 0)
+version = (0, 7, 1)
 
 setup(
     name='maelzel',
