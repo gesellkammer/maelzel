@@ -52,7 +52,7 @@ setup(
         "rtmidi2",
         "resampy",
         "psutil",
-        "csoundengine>=1.16.2",
+        "csoundengine>=1.17.0",
         "pitchtools>=1.9.2",
         "lxml",
         "quicktions",

@@ -4,6 +4,7 @@ import math
 import re
 import textwrap as _textwrap
 
+import emlib.misc
 import emlib.textlib as _textlib
 from . import presetutils
 from ._common import logger
@@ -168,16 +169,6 @@ ifadeout = max:i(ifadeout, 1/kr)
     envelope1 = r"""
     aenv_ = makePresetEnvelope(ifadein, ifadeout, ifadekind, igain)
     """
-    #if (ifadekind_ == 0) then
-    #    aenv_ linsegr 0, ifadein, igain_, ifadeout, 0
-    #elseif (ifadekind_ == 1) then
-    #    aenv_ cosseg 0, ifadein, igain_, p3-ifadein-ifadeout, igain_, ifadeout, 0
-    #    aenv_ *= linenr:a(1, 0, ifadeout, 0.01)
-    #elseif (ifadekind_ == 2) then
-    #    aenv_ transeg 0, ifadein*.5, 2, igain_*0.5, ifadein*.5, -2, igain_, p3-ifadein-ifadeout, igain_, 1, ifadeout*.5, 2, igain_*0.5, ifadeout*.5, -2, 0
-    #    aenv_ *= linenr:a(1, 0, ifadeout, 0.01)
-    #endif
-    
     parts = [prologue]
     if numsignals == 0:
         withEnvelope = 0
@@ -196,7 +187,6 @@ ifadeout = max:i(ifadeout, 1/kr)
             audiogen = presetutils.embedEnvelope(audiogen, audiovars, envelope="aenv_")
 
     parts.append(audiogen)
-
     if withOutput:
         if numsignals == 1:
             routing = r"""
@@ -340,8 +330,8 @@ class PresetDef:
         self.properties: dict[str, Any] = properties or {}
         "A dict to place user defined properties"
 
-        self.hasRouting = routing
-        "Does this PresetDef need routing code to be generated (panning, output)"
+        self.routing = routing
+        "Does this PresetDef need routing (panning, output) code to be generated?"
 
         self._consolidatedInit: str = ''
         self._instr: Optional[csoundengine.instr.Instr] = None
@@ -361,7 +351,7 @@ class PresetDef:
         lines = []
         descr = f"({self.description})" if self.description else ""
         lines.append(f"Preset: {self.name}  {descr}")
-        info = [f"hasRouting={self.hasRouting}"]
+        info = [f"routing={self.routing}"]
         if self.properties:
             info.append(f"properties={self.properties}")
         lines.append(_textwrap.indent(', '.join(info), "    "))
@@ -390,6 +380,14 @@ class PresetDef:
         """
         return re.search(r"\bsfplay(3m|m|3)?\b", self.body) is not None
 
+    def dump(self):
+        if emlib.misc.inside_jupyter():
+            from IPython import display
+            display.display(display.HTML(self._repr_html_(showGeneratedCode=True)))
+
+        else:
+            print(self.__repr__())
+
     def _repr_html_(self, theme=None, showGeneratedCode=False):
         if self.description:
             descr = _util.htmlSpan(self.description, italic=True, color=':grey3')
@@ -402,11 +400,14 @@ class PresetDef:
             header += f' - {descr}'
         ps = [header, '<br>']
         info = []
-        if self.hasRouting:
-            info.append(f"hasRouting={self.hasRouting}")
+        if self.routing:
+            info.append(f"routing={self.routing}")
 
         if self.properties:
             info.append(f"properties={self.properties}")
+        if self.includes:
+            info.append(f"includes={self.includes}")
+        info.append(f"numouts={self.numouts}, numsignals={self.numsignals}")
 
         fontsize = "92%"
 
