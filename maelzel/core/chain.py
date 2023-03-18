@@ -876,6 +876,13 @@ class Chain(MObj, MContainer):
         voice.removeRedundantOffsets()
         return voice
 
+    def timeTransform(self: ChainT, timemap: Callable[[F], F], inplace=False
+                      ) -> ChainT:
+        items = []
+        for item in self.items:
+            items.append(item.timeTransform(timemap, inplace=inplace))
+        return self if inplace else self.clone(items=items)
+
     def scoringEvents(self,
                       groupid='',
                       config: CoreConfig = None,

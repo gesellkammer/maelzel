@@ -215,6 +215,19 @@ class MEvent(MObj):
             spanner.setAnchor(self)
         return self
 
+    def timeTransform(self: MEventT, timemap: Callable[[F], F], inplace=False) -> MEventT:
+        offset = self.resolveOffset()
+        dur = self.resolveDur()
+        offset2 = timemap(offset)
+        dur2 = timemap(offset + dur) - offset2
+        if inplace:
+            self.offset = offset2
+            self.dur = dur2
+            self._changed()
+            return self
+        else:
+            return self.clone(offset=offset2, dur=dur2)
+
 
 @functools.total_ordering
 class Note(MEvent):
@@ -371,8 +384,8 @@ class Note(MEvent):
         self.pitchSpelling = '' if not fixed else pitchSpelling
         "The pitch representation of this Note. Can be different from the sounding pitch"
 
-        self.symbols: list[_symbols.Symbol] | None = symbols
-        super().__init__(dur=dur, offset=offset, label=label, properties=properties)
+        super().__init__(dur=dur, offset=offset, label=label, properties=properties,
+                         symbols=symbols)
         assert self.dur is None or self.dur >= 0
 
     @staticmethod

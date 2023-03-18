@@ -374,9 +374,9 @@ class Notation:
             raise ValueError(f"A spanner with the uuid {spanner.uuid} is already part of this Notation")
         self.spanners.append(spanner)
         # self.spanners.sort(key=lambda spanner: spanner.priority())
-        #spanner.anchor = self
         if end:
             end.addSpanner(spanner.endSpanner())
+        self.spanners.sort(key=lambda spanner: spanner.priority())
         return self
 
     def transferSpanner(self, spanner: _spanner.Spanner, other: Notation):
@@ -547,17 +547,16 @@ class Notation:
                 Any parameter given will override the corresponding value in
                 this Notation
         """
-        noteheads = kws.get('noteheads')
-        if noteheads:
+        if noteheads := kws.get('noteheads'):
             assert isinstance(noteheads, dict), f'{self=}, {noteheads=}'
 
         out = self.copy()
-        pitches = kws.pop('pitches', None)
-        if pitches:
+        if (pitches := kws.pop('pitches', None)) is not None:
             out._setPitches(pitches)
             self.copyFixedSpellingTo(out)
-        for key, value in kws.items():
-            setattr(out, key, value)
+        if kws:
+            for key, value in kws.items():
+                setattr(out, key, value)
         return out
 
     def copy(self) -> Notation:

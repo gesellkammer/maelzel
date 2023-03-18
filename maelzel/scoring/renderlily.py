@@ -597,6 +597,7 @@ def _forceBracketsForNestedTuplets(node: Node):
         for item in node.items:
             if isinstance(item, Node) and item.durRatio != (1, 1):
                 item.setProperty('.forceTupletBracket', True)
+                node.setProperty('.forceTupletBracket', True)
     for item in node.items:
         if isinstance(item, Node):
             _forceBracketsForNestedTuplets(item)
@@ -677,16 +678,6 @@ def renderNode(node: Node,
 
             _(notationToLily(item, options=options, state=state))
 
-            if item.spanners:
-                for spanner in item.spanners:
-                    #if spanner.kind == 'end' and (
-                    #        (spanner.endingAtTie == 'last' and item.tiedNext) or
-                    #        (spanner.endingAtTie == 'first' and item.tiedPrev)
-                    #):
-                    #    continue
-                    if lilytext := _handleSpannerPost(spanner, state=state):
-                        _(lilytext)
-
             if item.isGracenote:
                 if state.insideGraceGroup and item.getProperty('.graceGroup') == 'stop':
                     _("}")
@@ -694,7 +685,6 @@ def renderNode(node: Node,
             else:
                 state.insideGraceGroup = False
 
-            _(" ")
 
             # * If the item has a glissando, add \glissando
             #   * If it is tied, add glissandoSkipOn IF not already on
@@ -716,6 +706,16 @@ def renderNode(node: Node,
                 if state.glissando:
                     _(r"\glissandoSkipOff ")
                     state.glissando = False
+
+            if item.spanners:
+                for spanner in item.spanners:
+                    if lilytext := _handleSpannerPost(spanner, state=state):
+                        _(lilytext)
+
+
+            _(" ")
+
+
 
     _("\n")
     if tupletStarted:

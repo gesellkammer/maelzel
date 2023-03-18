@@ -5,7 +5,9 @@ import sys
 from .core import Notation
 from .common import *
 from numbers import Rational
+import textwrap
 from typing import TYPE_CHECKING
+
 import weakref
 if TYPE_CHECKING:
     from typing import Iterator
@@ -119,14 +121,19 @@ class Node:
         """
         return sum(item.symbolicDuration() for item in self.items)
 
-    def dump(self, indents=0, indent='  ', stream=None):
+    def dump(self, numindents=0, indent='  ', stream=None):
         stream = stream or sys.stdout
-        print(f"{indent*indents}Node({self.durRatio[0]}/{self.durRatio[1]})", file=stream)
+        MAXWIDTH = 90
+        print(f"{indent * numindents}Node({self.durRatio[0]}/{self.durRatio[1]})", file=stream)
+        IND = indent * (numindents + 1)
         for item in self.items:
             if isinstance(item, Notation):
-                print(indent*(indents+1), item, sep='', file=stream)
+                itemlines = textwrap.wrap(repr(item), width=MAXWIDTH)
+                print(IND, itemlines[0], file=stream, sep='')
+                for l in itemlines[1:]:
+                    print(IND, '  ', l, file=stream, sep='')
             else:
-                item.dump(indents=indents+1, stream=stream)
+                item.dump(numindents=numindents + 1, stream=stream)
 
     def __repr__(self):
         parts = [f"Node({self.durRatio[0]}/{self.durRatio[1]}, "]
@@ -253,10 +260,6 @@ class Node:
             else:
                 yield from item.recurseWithNode(reverse=reverse)
 
-    def removeUnmatchedSpanners(self):
-        from . import spanner
-        spanner.removeUnmatchedSpanners(self.recurse())
-
     def repairLinks(self) -> int:
         """
         Repair ties and glissandi in place
@@ -382,10 +385,6 @@ class Node:
                     if n1.spanners:
                         for spanner in n1.spanners.copy():
                             n1.transferSpanner(spanner, n0)
-
-
-
-        self.removeUnmatchedSpanners()
         return count
 
     def repair(self):

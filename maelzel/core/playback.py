@@ -765,6 +765,7 @@ def render(outfile: str = None,
            nchnls: int = None,
            workspace: Workspace = None,
            extratime=0.,
+           render=True,
            **kws
            ) -> OfflineRenderer:
     """
@@ -793,6 +794,7 @@ def render(outfile: str = None,
         quiet: if True, supress debug information when calling
             the csound subprocess
         extratime: extra time added at the end of the render to allow
+        render: if True, perform the render itself
 
     Returns:
         the :class:`OfflineRenderer` used to render the events. If the outfile
@@ -836,7 +838,7 @@ def render(outfile: str = None,
 
     coreEvents, sessionEvents = _collectEvents(events, eventparams=kws, workspace=workspace)
     if not nchnls:
-        nchnls = max(int(ceil(ev.resolvedPosition() + ev.chan)) for ev in events)
+        nchnls = max(int(ceil(ev.resolvedPosition() + ev.chan)) for ev in coreEvents)
     renderer = OfflineRenderer(sr=sr, ksmps=ksmps, numchannels=nchnls)
     if coreEvents:
         renderer.schedEvents(coreEvents)
@@ -850,7 +852,8 @@ def render(outfile: str = None,
         endtime += extratime
     else:
         endtime = 0.
-    renderer.render(outfile=outfile, wait=wait, quiet=quiet, endtime=endtime)
+    if render:
+        renderer.render(outfile=outfile, wait=wait, quiet=quiet, endtime=endtime)
     return renderer
 
 

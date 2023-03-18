@@ -39,7 +39,7 @@ def renderQuantizedScore(score: quant.QuantizedScore,
 
     if options.removeSuperfluousDynamics:
         for part in score:
-            part.removeUnnecessaryDynamics()
+            part.removeUnnecessaryDynamics(tree=True)
     #for part in score:
     #    part.removeUnnecessaryGracenotes()
     if backend == 'music21':
