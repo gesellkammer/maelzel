@@ -310,7 +310,7 @@ def chainSynthEvents(objs: list[MEvent],
                 lastev = line[-1]
                 pitch = lastev.gliss or lastev.pitch
                 assert lastev.end is not None
-                bps.append([float(struct.toTime(lastev.end)), pitch + transpose, lastev.resolveAmp(workspace=workspace)])
+                bps.append([float(struct.time(lastev.end)), pitch + transpose, lastev.resolveAmp(workspace=workspace)])
                 for bp in bps:
                     assert all(isinstance(x, (int, float)) for x in bp), f"bp: {bp}\n{bps=}"
                 first = line[0]

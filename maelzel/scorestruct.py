@@ -1254,12 +1254,14 @@ class ScoreStruct:
     def __iter__(self) -> Iterator[MeasureDef]:
         return self.iterMeasureDefs()
 
-    def toBeat(self, x: number_t | tuple[int, number_t]) -> F:
+    def beat(self, x: number_t | tuple[int, number_t], y: number_t | None = None
+             ) -> F:
+
         """
         Convert a time in secs or a location (measure, beat) to a quarter-note beat
 
         Args:
-            x: the time/location to convert
+            x: the time/location to convert. Either a time
 
         Returns:
             the corresponding quarter note beat according to this ScoreStruct
@@ -1269,25 +1271,36 @@ class ScoreStruct:
 
             >>> sco = ScoreStruct.fromTimesig('3/4', 120)
             # Convert time to beat
-            >>> sco.toBeat(0.5)
+            >>> sco.beat(0.5)
             1.0
             # Convert score location (measure 1, beat 2) to beats
-            >>> sco.toBeat((1, 2))
+            >>> sco.beat((1, 2))
+            5.0
+            # Also supported, similar to the previous operation:
+            >>> sco.beat(1, 2)
             5.0
 
-        .. seealso:: :meth:`~ScoreSctruct.toTime`
+
+        .. seealso:: :meth:`~ScoreSctruct.time`
         """
         if isinstance(x, tuple):
+            assert y is None
             return self.locationToBeat(*x)
+        elif y is not None:
+            assert isinstance(x, int)
+            return self.locationToBeat(x, y)
         else:
             return self.timeToBeat(x)
 
-    def toTime(self, x: number_t | tuple[int, number_t]) -> F:
+    def time(self, a: number_t | tuple[int, number_t], b: number_t | None = None
+             ) -> F:
         """
         Convert a quarter-note beat or a location (measure, beat) to an absolute time in secs
 
         Args:
-            x: the beat/location to convert
+            a: the beat/location to convert. Either a beat, a tuple (measureindex, beat) or
+                the measureindex itself, in which case `b` is also needed
+            b: if given, then `a` is the measureindex and `b` is the beat
 
         Returns:
             the corresponding time according to this ScoreStruct
@@ -1297,16 +1310,23 @@ class ScoreStruct:
 
             >>> sco = ScoreStruct.fromTimesig('3/4', 120)
             # Convert time to beat
-            >>> sco.toTime(1)
+            >>> sco.time(1)
             0.5
             # Convert score location (measure 1, beat 2) to beats
-            >>> sco.toTime((1, 2))
+            >>> sco.time((1, 2))
             2.5
 
-        .. seealso:: :meth:`~ScoreSctruct.toBeat`
+        .. seealso:: :meth:`~ScoreSctruct.beat`
 
         """
-        return self.locationToTime(*x) if isinstance(x, tuple) else self.beatToTime(x)
+        if isinstance(a, tuple):
+            assert b is None
+            return self.locationToTime(*a)
+        elif b is not None:
+            assert isinstance(a, int)
+            return self.locationToTime(a, b)
+        else:
+            return self.beatToTime(a)
 
     def locationToBeat(self, measure: int, beat: number_t = F(0)) -> F:
         """

@@ -171,6 +171,9 @@ class Clip(MEvent):
         This is used for notation purposes, it has no influence on the playback
         of this clip"""
 
+        if offset is not None:
+            offset = asF(offset)
+
         super().__init__(offset=offset, dur=None, label=label, parent=parent)
 
     @property
@@ -260,6 +263,12 @@ class Clip(MEvent):
         if not force and self._resolvedDur is not None:
             return self._resolvedDur
 
+        if parentOffset is not None and not isinstance(parentOffset, Rational):
+            raise TypeError(f"Expected a Rational, got {parentOffset=} ({type(parentOffset)})")
+
+        if relativeOffset is not None and not isinstance(relativeOffset, Rational):
+            raise TypeError(f"Expected a Rational, got {relativeOffset=} ({type(relativeOffset)})")
+
         offset = firstval(relativeOffset, self.offset, self._resolvedOffset, F0)
         startbeat = (parentOffset or F0) + offset
         starttime = struct.beatToTime(startbeat)
@@ -270,6 +279,9 @@ class Clip(MEvent):
         self._durContext = (struct, startbeat)
         assert isinstance(dur, F)
         return dur
+
+    def pitchRange(self) -> tuple[float, float]:
+        return (self.pitch, self.pitch)
 
     def resolveDur(self) -> F:
         if not self.parent:

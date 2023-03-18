@@ -79,19 +79,22 @@ def removeUnmatchedSpanners(notations: Iterable[Notation]) -> int:
     count = 0
     for n in notations:
         if n.spanners:
-            for spanner in n.spanners:
+            for spanner in n.spanners.copy():
                 key = (spanner.uuid, spanner.kind)
                 if key in registry:
-
-                    logger.error(f"Duplicate spanner: {spanner} found in {n}, already seen in {registry[key][1]}")
-                registry[key] = (spanner, n)
+                    logger.debug(f"Duplicate spanner in {n}: {spanner}\n"
+                                 f"   already seen in {registry[key][1]}  -- removing it")
+                    n.removeSpanner(spanner)
+                else:
+                    registry[key] = (spanner, n)
 
     for (uuid, kind), (spanner, n) in registry.items():
         assert kind in ('start', 'end')
         other = 'start' if kind == 'end' else 'end'
         partner = registry.get((uuid, other))
         if not partner:
-            logger.debug(f"Found unmatched spanner: {spanner} ({kind=}) in notation {n}")
+            logger.debug(f"Found unmatched spanner: {spanner} ({kind=}) in notation {n}, removing")
+            logger.debug(f"Registry: {registry.keys()}")
             n.removeSpanner(spanner)
             count += 1
     return count

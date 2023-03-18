@@ -27,6 +27,7 @@ from . import quantutils
 from . import enharmonics
 from . import attachment
 from . import renderer
+from . import spanner as _spanner
 
 
 from .notation import Notation, makeRest, SnappedNotation
@@ -780,6 +781,10 @@ class QuantizedMeasure:
     def __hash__(self):
         return hash((self.timesig, self.quarterTempo) + tuple(hash(b) for b in self.beats))
 
+    def resetTree(self):
+        """Remove any cached tree representation of this measure"""
+        self._root = None
+
     def getMeasureIndex(self) -> int | None:
         if not self.parent:
             return None
@@ -857,10 +862,20 @@ class QuantizedMeasure:
             for beat in self.beats:
                 beat.dump(indents=numindents, indent=indent, stream=stream)
 
-    def notations(self) -> list[Notation]:
+    def notations(self, tree: bool) -> list[Notation]:
         """
         Returns a flat list of all notations in this measure
+
+        Args:
+            tree: if True, use the tree representation of the measure. Otherwise,
+                the beat representation is used
         """
+        if self.isEmpty():
+            return []
+        if tree:
+            root = self.tree()
+            return list(root.recurse())
+
         if not self.beats:
             return []
         notations = []
@@ -1287,7 +1302,6 @@ def splitNotationAtOffsets(n: Notation, offsets: Sequence[Rational]) -> list[Not
     if not n.isRest:
         assert parts[0].tiedPrev == n.tiedPrev
         assert parts[-1].tiedNext == n.tiedNext, f"{n=}, {parts=}"
-
     return parts
 
 
@@ -1360,7 +1374,7 @@ def _splitIrregularDuration(n: Notation, slotIndex: int, slotDur: F) -> list[Not
     """
     Split irregular durations
 
-    An irregular totalDuration is a totalDuration which cannot be extpressed as a quarter/eights/16th/etc
+    An irregular duration is a duration which cannot be extpressed as a quarter/eights/16th/etc
     For example a beat filled with a sextuplet with durations (1, 5), the second
     note is irregular and must be split. Since it begins in an uneven slot, it is
     split as 1+4
@@ -1400,9 +1414,6 @@ def _splitIrregularDuration(n: Notation, slotIndex: int, slotDur: F) -> list[Not
         raise ValueError("Division not supported")
 
     slotDivisions = quantdata.splitIrregularSlots(numSlots, slotIndex)
-    #slotDivisions = quantdata.slotDivisionStrategy[numSlots]
-    #if slotIndex % 2 == 1 and slotDivisions[-1] % 2 == 1:
-    #    slotDivisions = list(reversed(slotDivisions))
 
     offset = F(n.offset)
     parts: list[Notation] = []
@@ -1418,6 +1429,7 @@ def _splitIrregularDuration(n: Notation, slotIndex: int, slotDur: F) -> list[Not
     assert parts[-1].end == n.end
     assert parts[0].tiedPrev == n.tiedPrev
     assert parts[-1].tiedNext == n.tiedNext
+    assert parts[0].spanners == n.spanners
     return parts
 
 
@@ -1476,7 +1488,7 @@ def breakIrregularDuration(n: Notation,
                            beatOffset: Rational = F(0)
                            ) -> list[Notation] | None:
     """
-    Breaks a notation with irregular totalDuration into its parts
+    Breaks a notation with irregular duration into its parts
 
     - a Notations should not extend over a subdivision of the beat if the
       subdivisions in question are coprimes
@@ -1977,6 +1989,7 @@ class QuantizedPart:
             measure.quantprofile = self.quantprofile
         self._repairGracenotes()
         self._repairLinks()
+        self.removeUnnecessarySpanners(tree=False)
 
     def __iter__(self) -> Iterator[QuantizedMeasure]:
         return iter(self.measures)
@@ -1985,11 +1998,15 @@ class QuantizedPart:
         measureHashes = tuple(hash(m) for m in self.measures)
         return hash(('QuantizedPart', self.name) + measureHashes)
 
-    def flatNotations(self) -> Iterator[Notation]:
+    def resetTrees(self):
+        """Remove any cached tree representation of the measures in this part"""
+        for measure in self.measures:
+            measure.resetTree()
+
+    def flatNotations(self, tree: bool) -> Iterator[Notation]:
         """Iterate over all notations in this part"""
-        for m in self.measures:
-            for n in m.notations():
-                yield n
+        for measure in self.measures:
+            yield from measure.notations(tree=tree)
 
     def averagePitch(self, maxNotations=0) -> float:
         """
@@ -2129,7 +2146,7 @@ class QuantizedPart:
         else:
             return "bass8"
 
-    def removeUnnecessaryDynamics(self, resetAfterEmptyMeasure=True) -> None:
+    def removeUnnecessaryDynamics(self, tree: bool, resetAfterEmptyMeasure=True) -> None:
         """
         Remove superfluous dynamics in this part, in place
         """
@@ -2138,7 +2155,7 @@ class QuantizedPart:
             if meas.isEmpty() and resetAfterEmptyMeasure:
                 dynamic = ''
                 continue
-            for n in meas.notations():
+            for n in meas.notations(tree=tree):
                 if n.isRest:
                     continue
                 if not n.tiedPrev and n.dynamic and n.dynamic in definitions.dynamicLevels:
@@ -2149,7 +2166,7 @@ class QuantizedPart:
                     else:
                         dynamic = n.dynamic
 
-    def removeUnnecessaryGracenotes(self) -> None:
+    def removeUnnecessaryGracenotes(self, tree) -> None:
         """
         Removes unnecessary gracenotes
 
@@ -2161,6 +2178,12 @@ class QuantizedPart:
         * n0/real -- gliss -- n1/grace n2/real and n1.pitches == n2.pitches
 
         """
+        if tree:
+            for measure in self.measures:
+                root = measure.tree()
+                root.removeUnnecessaryGracenotes()
+            return
+
         trash: list[PartLocation] = []
         maxiter = 10
         for _ in range(maxiter):
@@ -2209,9 +2232,17 @@ class QuantizedPart:
             logger.warning(f"Reached max. number of iterations ({maxiter}) while "
                            "attempting to remove superfluous gracenotes")
 
+    def removeUnnecessarySpanners(self, tree: bool) -> None:
+        _spanner.removeUnmatchedSpanners(self.flatNotations(tree=tree))
+        if not tree:
+            self.resetTrees()
+
     def _repairGracenotes(self):
         """
         Repair some corner cases where gracenotes cause rendering problems
+
+        This should be called before creating node trees in each measure,  since
+        this works at the beat level.
         """
         for measureidx, measure in enumerate(self.measures):
             if not measure.beats:
@@ -2249,7 +2280,7 @@ class QuantizedPart:
         """
         Repairs ties and glissandi
         """
-        for n0, n1 in iterlib.pairwise(self.flatNotations()):
+        for n0, n1 in iterlib.pairwise(self.flatNotations(tree=False)):
             if n0.tiedNext:
                 if n0.isRest or not n0.pitches or n0.pitches != n1.pitches:
                     n0.tiedNext = False
@@ -2284,7 +2315,7 @@ class QuantizedPart:
                                      parent=self)
             self.measures.append(empty)
 
-    def removeUnmatchedSpanners(self) -> int:
+    def removeUnmatchedSpanners(self, tree: bool) -> int:
         """
 
         Algorithm:
@@ -2294,8 +2325,10 @@ class QuantizedPart:
         iterate over the registered spanner. for each spanner, look for
         the partner. if it has no partner, remove the spanner from the original notation
         """
-        from .spanner import removeUnmatchedSpanners
-        return removeUnmatchedSpanners(self.flatNotations())
+        out = _spanner.removeUnmatchedSpanners(self.flatNotations(tree=tree))
+        if not tree:
+            self.resetTrees()
+        return out
 
 
 def quantizePart(part: core.Part,
@@ -2425,9 +2458,10 @@ class QuantizedScore:
         s = self.dump(tree=False, stream=stream)
         return stream.getvalue()
 
-    def dump(self, tree=True, indent=_INDENT, stream=None) -> None:
-        for part in self:
-            part.dump(tree=tree, indent=indent, stream=stream)
+    def dump(self, tree=True, indent=_INDENT, stream=None, numindents: int = 0) -> None:
+        for i, part in enumerate(self):
+            print(f"{indent*numindents}Part #{i}:", file=stream)
+            part.dump(tree=tree, numindents=numindents+1, indent=indent, stream=stream)
 
     @property
     def scorestruct(self) -> ScoreStruct:
@@ -2442,10 +2476,21 @@ class QuantizedScore:
             for part in self.parts:
                 part.struct = struct
 
-    def removeUnnecessaryDynamics(self):
-        """Removes any unnecessary dynamics in this score"""
+    def resetTrees(self):
+        """Remove any cached tree representation of the measures in this score"""
+        for part in self.parts:
+            part.resetTrees()
+
+    def removeUnnecessaryDynamics(self, tree: bool):
+        """Removes any unnecessary dynamics in this score
+
+        Args:
+            tree: if True, apply the transformation to the tree representation
+        """
         for part in self:
-            part.removeUnnecessaryDynamics()
+            part.removeUnnecessaryDynamics(tree=tree)
+        if not tree:
+            self.resetTrees()
 
     def numMeasures(self) -> int:
         """Returns the number of measures in this score"""

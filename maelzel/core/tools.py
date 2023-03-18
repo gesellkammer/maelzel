@@ -149,16 +149,17 @@ def packInVoices(objs: list[core.MObj]) -> list[core.Voice]:
     items = []
     unpitched = []
     for obj in objs:
-        assert obj.offset is not None and obj.dur is not None, \
-            "Only objects with an explict start / totalDuration can be packed"
+        if obj.offset is None:
+            raise ValueError(f"Only objects with an explict offset can be packed, got {obj}")
         r = obj.pitchRange()
         if r is None:
             unpitched.append(r)
         else:
             pitch = (r[0] + r[1]) / 2
+            dur = obj.resolveDur()
             item = packing.Item(obj,
                                 offset=F(obj.offset.numerator, obj.offset.denominator),
-                                dur=F(obj.dur.numerator, obj.dur.denominator),
+                                dur=F(dur.numerator, dur.denominator),
                                 step=pitch)
             items.append(item)
     tracks = packing.packInTracks(items)

@@ -528,6 +528,15 @@ class Fermata(NoteAttachedSymbol):
 
 
 class Breath(NoteAttachedSymbol):
+    """
+    A breathmark symbol, will also break the beam at the given instant
+
+    Args:
+        kind: one of 'comma', 'varcomma', 'upbow', 'outsidecomma', 'caesura', 'chant'
+            (see maelzel.scoring.definitions.breathMarks)
+        visible: if False, the mark will not be shown in notation but will still have
+            an effect on beaming
+    """
     exclusive = True
     appliesToRests = False
 

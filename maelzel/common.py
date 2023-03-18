@@ -26,7 +26,10 @@ def asF(t) -> F:
         return t
     elif isinstance(t, _numbers.Rational):
         return F(t.numerator, t.denominator)
-    return F(t)
+    elif isinstance(t, (int, float, str)):
+        return F(t)
+    else:
+        raise TypeError(f"Could not convert {t} to a rational")
 
 
 def asmidi(x: pitch_t) -> float:

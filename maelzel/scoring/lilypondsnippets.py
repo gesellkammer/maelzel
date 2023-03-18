@@ -224,8 +224,8 @@ _horizontalSpacingNormal = r"""
 \layout {
   \context {
     \Score
-    \override SpacingSpanner.base-shortest-totalDuration = #(ly:make-moment 1/8)
-    % \override SpacingSpanner.shortest-totalDuration-space = #2.0
+    \override SpacingSpanner.base-shortest-duration = #(ly:make-moment 1/8)
+    % \override SpacingSpanner.shortest-duration-space = #2.0
   }
 }
 """
@@ -234,8 +234,8 @@ _horizontalSpacingMedium = r"""
 \layout {
   \context {
     \Score
-    \override SpacingSpanner.base-shortest-totalDuration = #(ly:make-moment 1/16)
-    % \override SpacingSpanner.shortest-totalDuration-space = #2.0
+    \override SpacingSpanner.base-shortest-duration = #(ly:make-moment 1/16)
+    % \override SpacingSpanner.shortest-duration-space = #2.0
   }
 }
 """
@@ -244,8 +244,8 @@ _horizontalSpacingLarge = r"""
 \layout {
   \context {
     \Score
-    \override SpacingSpanner.base-shortest-totalDuration = #(ly:make-moment 1/32)
-    \override SpacingSpanner.shortest-totalDuration-space = #4.0
+    \override SpacingSpanner.base-shortest-duration = #(ly:make-moment 1/32)
+    \override SpacingSpanner.shortest-duration-space = #4.0
   }
 }  
 """
@@ -254,8 +254,8 @@ _horizontalSpacingXL = r"""
 \layout {
   \context {
     \Score
-    \override SpacingSpanner.base-shortest-totalDuration = #(ly:make-moment 1/64)
-    \override SpacingSpanner.shortest-totalDuration-space = #8.0
+    \override SpacingSpanner.base-shortest-duration = #(ly:make-moment 1/64)
+    \override SpacingSpanner.shortest-duration-space = #8.0
   }
 }
 """

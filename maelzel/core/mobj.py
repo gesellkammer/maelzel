@@ -188,7 +188,8 @@ class MObj:
 
     def __init__(self, dur: time_t = None, offset: time_t = None, label: str = '',
                  parent: MObj = None,
-                 properties: dict[str, Any] = None):
+                 properties: dict[str, Any] = None,
+                 symbols: list[_symbols.Symbol] | None = None):
 
         self._parent: MContainer | None = parent
         "The parent of this object (or None if it has no parent)"
@@ -205,7 +206,7 @@ class MObj:
         self.offset: F | None = offset
         "offset specifies a time offset for this object"
 
-        self.symbols: list[_symbols.Symbol] | None = None
+        self.symbols: list[_symbols.Symbol] | None = symbols
         "A list of all symbols added via :meth:`addSymbol` (None by default)"
 
         # playargs are set via .setPlay and serve the purpose of
@@ -298,7 +299,7 @@ class MObj:
         Returns:
             either None or a tuple (lowest pitch, highest pitch)
         """
-        return None
+        raise NotImplementedError
 
     def _detachedOffset(self, default=None) -> F | None:
         """
@@ -523,6 +524,8 @@ class MObj:
         """
         out = self.copy()
         for k, v in kws.items():
+            if k == 'offset' or k == 'dur':
+                v = asF(v)
             setattr(out, k, v)
 
         self._copyAttributesTo(out)
@@ -674,7 +677,9 @@ class MObj:
             scorestruct: if given it will override the scorestructure active for this object
             config: if given will override the active config
             quantizationProfile: if given it is used to customize the quantization process.
-                Otherwise, a profile is constructed based on the config
+                Otherwise, a profile is constructed based on the config. It is also possible
+                to pass the name of a quantization preset (possible values: 'lowest', 'low',
+                'medium', 'high', 'highest', see :meth:`maelzel.scoring.quant.QuantizationProfile.fromPreset`)
             enharmonicOptions: if given it is used to customize enharmonic respelling.
                 Otherwise, the enharmonic options used for respelling are constructed based
                 on the config
@@ -685,7 +690,7 @@ class MObj:
 
         A QuantizedScore contains a list of QuantizedParts, which each consists of
         list of QuantizedMeasures. To access the recursive notation structure of each measure
-        call its `tree` method
+        call its :meth:`~maelzel.scoring.QuantizedMeasure.tree` method
         """
         w = Workspace.active
         if config is None:
@@ -969,7 +974,8 @@ class MObj:
 
         Args:
             outfile: the path of the output file. The extension determines
-                the format
+                the format. Formats available are pdf, png, lilypond, musicxml,
+                midi and csd.
             backend: the backend used when writing as pdf or png. If not given,
                 the default defined in the active config is used
                 (:ref:`key: 'show.backend' <config_show_backend>`).
@@ -991,6 +997,10 @@ class MObj:
             backend = 'lilypond'
         elif ext == '.xml' or ext == '.musicxml':
             backend = 'music21'
+        elif ext == '.csd':
+            renderer = self.makeRenderer()
+            renderer.writeCsd(outfile)
+            return
         elif backend is None:
             backend = cfg['show.backend']
         if resolution is not None:
@@ -1274,7 +1284,26 @@ class MObj:
         else:
             rtrenderer = playback.RealtimeRenderer()
             return rtrenderer.schedEvents(events, whenfinished=whenfinished)
-            # return playback._playFlatEvents(events, whenfinished=whenfinished)
+
+    def makeRenderer(self, **kws):
+        """
+        Create an OfflineRenderer able to render this object
+
+        .. note::
+
+            This is equivalent to calling :func:`Maelzel.core.playback.render` with
+            ``render=False``
+
+        Args:
+            **kws: any argument passed to :meth:`~MObj.rec` can also be passed here
+
+        Returns:
+            an :class:`OfflineRenderer`. To render to a soundfile call its
+            :meth:`OfflineRenderer.render` method, or you can generate the
+            rendering script by calling :meth:`OfflineRenderer.writeCsd`
+
+        """
+        return playback.render(events=[self], render=False, **kws)
 
     def rec(self,
             outfile: str = None,
@@ -1570,17 +1599,7 @@ class MObj:
             The actual time will be also determined by any tempo changes in the
             active score structure.
         """
-        offset = self.resolveOffset()
-        dur = self.resolveDur()
-        offset2 = timemap(offset)
-        dur2 = timemap(offset+dur) - offset2
-        if inplace:
-            self.offset = offset2
-            self.dur = dur2
-            self._changed()
-            return self
-        else:
-            return self.clone(offset=offset2, dur=dur2)
+        raise NotImplementedError
 
     def timeShiftInPlace(self, timeoffset: time_t) -> None:
         """
