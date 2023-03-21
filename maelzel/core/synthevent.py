@@ -444,7 +444,6 @@ class SynthEvent:
         bp = last.copy()
         bp[0] = last[0] + self.sustain
         self.bps.append(bp)
-        assert self.dur < 20
 
     @property
     def end(self) -> float:

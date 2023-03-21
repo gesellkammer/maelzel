@@ -7,7 +7,7 @@ setTempo
 Tempo and playback
 ~~~~~~~~~~~~~~~~~~
 
-.. code:: ipython3
+.. code:: python
 
     from maelzel.core import *
     from maelzel.snd.audiosample import Sample
@@ -24,7 +24,7 @@ Tempo and playback
     Magics available: %csound, %%csound, %%definstr
 
 
-.. code:: ipython3
+.. code:: python
 
     scale.rec('snd/setTempo-60bpm.flac', nchnls=1, wait=True, quiet=True)
 
@@ -46,11 +46,11 @@ Tempo and playback
 
 
 
-.. code:: ipython3
+.. code:: python
 
     setTempo(120)
 
-.. code:: ipython3
+.. code:: python
 
     scale.rec('snd/setTempo-120bpm.flac', nchnls=1, wait=True, quiet=True)
 
@@ -72,7 +72,7 @@ Tempo and playback
 
 
 
-.. code:: ipython3
+.. code:: python
 
     setScoreStruct(ScoreStruct(r'''
         3/4, 120,
@@ -89,7 +89,7 @@ Tempo and playback
    :width: 617px
 
 
-.. code:: ipython3
+.. code:: python
 
     setTempo(84, 2)
     getScoreStruct().show()

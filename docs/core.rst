@@ -93,14 +93,17 @@ Class Structure Overview
 
 .. image:: classstruct.svg
 
-In general, there are two kinds of :class:`MObjs`: **events** and **containers**.
+In general, there are two kinds of :class:`~maelzel.core.mobj.MObj`: **events**
+(:class:`~maelzel.core.event.Note`, :class:`~maelzel.core.event.Chord`,
+:class:`~maelzel.core.clip.Clip`) and **containers** (:class:`~maelzel.core.chain.Chain`,
+:class:`~maelzel.core.chain.Voice`, :class:`~maelzel.core.score.Score`).
 
 :ref:`Events: Note, Chord, Clip <mevent>`
     Events are all subclasses of :class:`~maelzel.core.event.MEvent` and represent individual events
     in time: :class:`Notes <maelzel.core.event.Note>`, :class:`Chords <maelzel.core.event.Chord>`,
     media :class:`Clips <maelzel.core.clip.Clip>`.
 
-Horizontal Containers: Chain, Voice
+:ref:`Horizontal Containers: Chain, Voice <chainmod>`
     A :class:`~maelzel.core.chain.Chain` is a sequence of events. Within a chain any number
     of events can be juxtaposed to build more intricate horizontal structures. For example, a
     sequence of notes can be tied or linked together with glissandi to generate a line of
@@ -109,7 +112,7 @@ Horizontal Containers: Chain, Voice
     A :class:`~maelzel.core.chain.Voice` is a special case of a :class:`Chain` with an offset
     forced to be 0.
 
-Vertical Container: Score
+:ref:`Vertical Container: Score <scoremod>`
     The last node in the class structure is the :class:`~maelzel.core.score.Score`: this is
     simply a list of :class:`Voices <maelel.core.chain.Voice` with some extra attributes
     which are exclusive to a score (for example a Score can have an attached
@@ -120,15 +123,18 @@ Vertical Container: Score
 Table of Contents
 =================
 
+
 .. toctree::
     :maxdepth: 1
 
     MObj: Musical Objects <mobj>
     Events: Note, Chord <mevent>
+    Note class <api/maelzel.core.event.Note>
+    Chord class <api/maelzel.core.event.Chord>
     Containers: Chain, Voice <chain>
     Score Structure: interfacing symbolic and real time <scorestruct>
     Score <score>
-    Media Events <clip>
+    Clip <api/maelzel.core.clip.Clip>
     coreplayintro
     config
     workspace

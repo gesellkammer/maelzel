@@ -20,7 +20,8 @@ if TYPE_CHECKING:
     timesig_t = tuple[int, int]
     number_t = Union[float, Rational]
     import maelzel.core
-    from maelzel import scoring
+    from maelzel.scoring.renderoptions import RenderOptions
+    from maelzel.scoring.renderer import Renderer
 
 
 __all__ = (
@@ -326,6 +327,16 @@ class MeasureDef:
         self.tempoInherited = False
         if self.parent:
             self.parent.modified()
+
+    def asScoreLine(self) -> str:
+        """
+        The representation of this MeasureDef as a score line
+        """
+        num, den = self.timesig
+        parts = [f'{num}/{den}, {self.quarterTempo}']
+        if self.annotation:
+            parts.append(self.annotation)
+        return ', '.join(parts)
 
     def __copy__(self):
         return MeasureDef(timesig=self._timesig,
@@ -1254,14 +1265,16 @@ class ScoreStruct:
     def __iter__(self) -> Iterator[MeasureDef]:
         return self.iterMeasureDefs()
 
-    def beat(self, x: number_t | tuple[int, number_t], y: number_t | None = None
+    def beat(self, a: number_t | tuple[int, number_t], b: number_t | None = None
              ) -> F:
 
         """
         Convert a time in secs or a location (measure, beat) to a quarter-note beat
 
         Args:
-            x: the time/location to convert. Either a time
+            a: the time/location to convert. Either a time
+            b: when passign a location, the beat within the measure (`a` contains
+                the measure index)
 
         Returns:
             the corresponding quarter note beat according to this ScoreStruct
@@ -1280,17 +1293,16 @@ class ScoreStruct:
             >>> sco.beat(1, 2)
             5.0
 
-
         .. seealso:: :meth:`~ScoreSctruct.time`
         """
-        if isinstance(x, tuple):
-            assert y is None
-            return self.locationToBeat(*x)
-        elif y is not None:
-            assert isinstance(x, int)
-            return self.locationToBeat(x, y)
+        if isinstance(a, tuple):
+            assert b is None
+            return self.locationToBeat(*a)
+        elif b is not None:
+            assert isinstance(a, int)
+            return self.locationToBeat(a, b)
         else:
-            return self.timeToBeat(x)
+            return self.timeToBeat(a)
 
     def time(self, a: number_t | tuple[int, number_t], b: number_t | None = None
              ) -> F:
@@ -1463,7 +1475,7 @@ class ScoreStruct:
              app: str = '',
              scalefactor: float = None,
              backend: str = None,
-             renderoptions: scoring.render.RenderOptions = None
+             renderoptions: RenderOptions = None
              ) -> None:
         """
         Render and show this ScoreStruct
@@ -1474,6 +1486,17 @@ class ScoreStruct:
             scalefactor: if given, a scale factor to enlarge or reduce the prduce image
             backend: the backend used (None to use a sensible default). If given, one of
                 'lilypond' or 'musicxml'
+            renderoptions: if given, these options will be used for rendering this
+                score structure as image.
+
+        Example
+        ~~~~~~~
+
+            >>> from maelzel.scorestruct import ScoreStruct
+            >>> sco = ScoreStruct(r'''
+            ... ...
+            ... ''')
+            >>> from maelzel.scoring.render import RenderOptions
 
         """
         import tempfile
@@ -1567,7 +1590,7 @@ class ScoreStruct:
         tempo = -1
         rows = []
         for i, m in enumerate(self.measuredefs):
-            num, den = m.timesig
+            # num, den = m.timesig
             if m.quarterTempo != tempo:
                 tempo = m.quarterTempo
                 tempostr = ("%.3f" % tempo).rstrip("0").rstrip(".")
@@ -1588,8 +1611,8 @@ class ScoreStruct:
         parts.append(htmltable)
         return "".join(parts)
 
-    def _render(self, backend: str = None, renderoptions: scoring.render.RenderOptions = None
-                ) -> scoring.render.Renderer:
+    def _render(self, backend: str = None, renderoptions: RenderOptions = None
+                ) -> Renderer:
         from maelzel import scoring
         quantprofile = scoring.quant.QuantizationProfile()
         measures = [scoring.quant.QuantizedMeasure(timesig=m.timesig, quarterTempo=m.quarterTempo)
@@ -1731,13 +1754,15 @@ class ScoreStruct:
     def write(self,
               path: str | Path,
               backend: str = None,
-              renderoptions: scoring.render.RenderOptions = None
+              renderoptions: RenderOptions = None
               ) -> None:
         """
         Export this score structure
 
         Write this as musicxml (.xml), lilypond (.ly), MIDI (.mid) or render as
-        pdf or png. The format is determined by the extension of the file
+        pdf or png. The format is determined by the extension of the file. It is
+        also possible to write the score as text (in its own format) in order to
+        load it later (.txt)
 
         .. note:: when saving as MIDI, notes are used to fill each beat because an empty
             MIDI score is not supported by the MIDI standard
@@ -1746,6 +1771,8 @@ class ScoreStruct:
             path: the path of the written file
             backend: for pdf or png only - the backend to use for rendering, one
                 of 'lilypond' or 'music21'
+            renderoptions: if given, they will be used to customize the rendering
+                process.
         """
         path = Path(path)
         if path.suffix == ".xml":
@@ -1757,6 +1784,10 @@ class ScoreStruct:
         elif path.suffix == '.mid' or path.suffix == '.midi':
             sco = _filledScoreFromStruct(self)
             sco.write(str(path))
+        elif path.suffix == '.txt':
+            text = self.asText()
+            with open(path, 'w') as f:
+                f.write(text)
         else:
             raise ValueError(f"Extension {path.suffix} not supported, "
                              f"should be one of .xml, .pdf, .png or .ly")
@@ -1797,6 +1828,21 @@ class ScoreStruct:
         """
         assert linetype in {'single', 'double', 'final'}
         self.getMeasureDef(measureIndex, extend=True).barline = linetype
+
+    def asText(self) -> str:
+        """
+        This ScoreStruct as parsable text format
+
+        Returns:
+            this score as text
+        """
+        lines = []
+        for i, measuredef in enumerate(self.measuredefs):
+            line = measuredef.asScoreLine()
+            lines.append(f'{i}, {line}')
+        if self.endless:
+            lines.append('...')
+        return '\n'.join(lines)
 
     def makeClickTrack(self,
                        minMeasures: int = 0,

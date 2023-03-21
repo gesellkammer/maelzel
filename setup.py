@@ -42,7 +42,6 @@ setup(
         "appdirs",
         "tabulate",
         "sndfileio>=1.8.1",
-        "pillow",
         "cachetools",
         "ctcsound",
         "numpyx>=1.2.0",
@@ -60,7 +59,8 @@ setup(
         "risset",
         "chardet",
         "simple-term-menu",
-        "visvalingamwyatt"
+        "visvalingamwyatt",
+        "loristrck"
     ],
     license="BSD",
     zip_safe=False,

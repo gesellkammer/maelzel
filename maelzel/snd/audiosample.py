@@ -196,6 +196,7 @@ class Sample:
                  sr: int = 0,
                  start=0.,
                  end=0.,
+                 readonly=False,
                  engine: str | csoundengine.Engine | None = None):
         self._csoundTable: tuple[str, int] | None = None
         """Keeps track of any table created in csound for playback"""
@@ -210,6 +211,8 @@ class Sample:
 
         self.path = ''
         """If non-empty, the path from which the audio data was loaded"""
+
+        self.readonly = readonly
 
         if isinstance(sound, (str, Path)):
             samples, sr = readSoundfile(sound, start=start, end=end)
@@ -666,7 +669,11 @@ class Sample:
 
     def copy(self) -> Sample:
         """
-        return a copy of this Sample
+        Return a copy of this Sample
+
+        .. note::
+
+            if self is readonly, the copied Sample will not be readonly.
         """
         return Sample(self.samples.copy(), self.sr)
 
@@ -838,6 +845,7 @@ class Sample:
             >>> sample3 = sample2.copy().fade((0, 0.2))
 
         """
+        self._checkWrite()
         if isinstance(fadetime, tuple):
             fadein, fadeout = fadetime
             if fadein:
@@ -892,6 +900,11 @@ class Sample:
         samples.extend(other)
         return joinsamples(samples)
 
+    def _checkWrite(self) -> None:
+        if self.readonly:
+            raise RuntimeError("This Sample is readonly. Create a copy (which will"
+                               " be writable) and operate on that copy")
+
     def normalize(self, headroom=0.) -> Sample:
         """Normalize in place, returns self
 
@@ -901,6 +914,8 @@ class Sample:
         Returns:
             self
         """
+
+        self._checkWrite()
         ratio = _npsnd.normalizationRatio(self.samples, headroom)
         self.samples *= ratio
         return self
@@ -934,6 +949,7 @@ class Sample:
 
     def reverse(self) -> Sample:
         """ reverse the sample **in-place**, returns self """
+        self._checkWrite()
         self.samples[:] = self.samples[-1::-1]
         self._changed()
         return self
@@ -1159,16 +1175,16 @@ class Sample:
         else:
             raise ValueError(f"method {method} not known. Possible methods: 'rosita', 'aubio'")
 
-    def harmonicsAt(self,
-                    time: float,
-                    resolution: float = 50.,
-                    channel=0,
-                    windowsize: float = -1,
-                    mindb=-90,
-                    minfreq: int | None = None,
-                    maxfreq = 12000,
-                    maxcount=0
-                    ) -> list[tuple[float, float]]:
+    def spectrumAt(self,
+                   time: float,
+                   resolution: float = 50.,
+                   channel=0,
+                   windowsize: float = -1,
+                   mindb=-90,
+                   minfreq: int | None = None,
+                   maxfreq = 12000,
+                   maxcount=0
+                   ) -> list[tuple[float, float]]:
         """
         Analyze sinusoidal components of this Sample at the given time
 
@@ -1186,25 +1202,9 @@ class Sample:
             a list of pairs (frequency, amplitude) where each pair represents a sinusoidal
             component of this sample at the given time. Amplitudes are in the range 0-1
         """
-        resolutionperiod = 1/resolution
-        margin = resolutionperiod * 4
-        starttime = max(0., time - margin)
-        endtime = min(time + margin, self.duration)
-        startsample = int(starttime * self.sr)
-        endsample = int(endtime * self.sr)
-        # print(f"{resolutionperiod=}, start sample: {startsample}, end sample: {endsample}")
-        samples = _npsnd.getChannel(self.samples, channel)[startsample:endsample]
-        samples = np.ascontiguousarray(samples)
-        import loristrck
-        partials = loristrck.analyze(samples, sr=self.sr, resolution=resolution, windowsize=windowsize)
-        if minfreq is None:
-            minfreq = resolution * 1.3
-        validpartials, rest = loristrck.util.select(partials, mindur=margin, minamp=mindb,
-                                                    maxfreq=maxfreq, minfreq=minfreq)
-        breakpoints = loristrck.util.partials_at(validpartials, t=margin, maxcount=maxcount)
-        pairs = [(float(bp[0]), float(bp[1])) for bp in breakpoints]
-        pairs.sort(key=lambda pair: pair[0])
-        return pairs
+        return spectrumAt(self.samples, sr=self.sr, time=time, resolution=resolution,
+                          channel=channel, windowsize=windowsize, mindb=mindb,
+                          minfreq=minfreq, maxfreq=maxfreq, maxcount=maxcount)
 
     def fundamentalFreq(self, time: float = None, dur=0.2, fftsize=2048, overlap=4,
                         fallbackfreq=0
@@ -1627,3 +1627,62 @@ def mixsamples(samples: list[Sample], offsets: list[float] = None, gains: list[f
         if gain != 1.0:
             buf[startframe:endframe] *= gain
     return Sample(buf, sr=sr)
+
+
+def spectrumAt(samples: np.ndarray,
+               sr: int,
+               time: float,
+               resolution: float,
+               channel=0,
+               windowsize: float = -1,
+               mindb=-90,
+               minfreq: int | None = None,
+               maxfreq  = 12000,
+               maxcount=0
+               ) -> list[tuple[float, float]]:
+    """
+    Analyze sinusoidal components of this Sample at the given time
+
+    Args:
+        samples: the samples, a 1D numpy array. If it is not contiguous it will
+            be made contiguous.
+        sr: the sample rate
+        time: the time to analyze
+        resolution: the resolution of the analysis, in hz
+        channel: if this sample has multiple channels, which channel to analyze
+        windowsize: the window size in hz
+        mindb: the min. amplitude in dB for a component to be included
+        minfreq: the min. frequency of a component to be included
+        maxfreq: the max. frequency of a component to be included
+        maxcount: the max. number of components to include (0 to include all)
+
+    Returns:
+        a list of pairs (frequency, amplitude) where each pair represents a sinusoidal
+        component of this sample at the given time. Amplitudes are in the range 0-1
+
+    """
+    if _npsnd.numChannels(samples) > 1:
+        samples = _npsnd.getChannel(samples, channel)
+    resolutionperiod = 1 / resolution
+    margin = resolutionperiod * 4
+    starttime = max(0., time - margin)
+    duration = len(samples) / sr
+    endtime = min(time + margin, duration)
+    startsample = int(starttime * sr)
+    endsample = int(endtime * sr)
+    samples = samples[startsample:endsample]
+    samples = np.ascontiguousarray(samples)
+    try:
+        import loristrck
+    except ImportError:
+        raise ImportError("loristrck is needed to perform this operation. Install it via "
+                          "'pip install loristrck'")
+    partials = loristrck.analyze(samples, sr=sr, resolution=resolution, windowsize=windowsize)
+    if minfreq is None:
+        minfreq = resolution * 1.3
+    validpartials, rest = loristrck.util.select(partials, mindur=margin, minamp=mindb,
+                                                maxfreq=maxfreq, minfreq=minfreq)
+    breakpoints = loristrck.util.partials_at(validpartials, t=margin, maxcount=maxcount)
+    pairs = [(float(bp[0]), float(bp[1])) for bp in breakpoints]
+    pairs.sort(key=lambda pair: pair[0])
+    return pairs

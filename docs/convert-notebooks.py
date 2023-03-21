@@ -16,9 +16,12 @@ for notebook in args.notebooks:
     rst = os.path.splitext(notebook)[0] + '.rst'
     if not os.path.exists(rst):
         print(f"rst file {rst} not found!")
+    txt = open(rst).read()
+    txt = txt.replace('.. code:: ipython3', '.. code:: python')
+    txt = txt.replace('0.9em', '0.8em')
     if addlabel:
         base = os.path.splitext(os.path.split(notebook)[1])[0]
         label = f'{base}_notebook'
-        txt = open(rst).read()
         txt = f"\n.. _{label}:\n\n" + txt
-        open(rst, "w").write(txt)
+    open(rst, "w").write(txt)
+    

@@ -1933,7 +1933,7 @@ def _mergeSiblings(root: Node,
             item2 = _mergeSiblings(item2, profile=profile, beatOffsets=beatOffsets)
         if isinstance(item1, Node) and isinstance(item2, Node):
             # check if the tree should merge
-            if (r:=_nodesCanMerge(item1, item2, profile=profile, beatOffsets=beatOffsets)):
+            if r:=_nodesCanMerge(item1, item2, profile=profile, beatOffsets=beatOffsets):
                 mergednode = _mergeNodes(item1, item2, profile=profile, beatOffsets=beatOffsets)
                 items[-1] = mergednode
             else:
@@ -2330,6 +2330,24 @@ class QuantizedPart:
             self.resetTrees()
         return out
 
+    def fixChordSpellings(self, tree=True, enharmonicOptions: enharmonics.EnharmonicOptions = None
+                          ) -> None:
+        """
+        Finds the best spelling for each chord individually
+
+        As an alternative for finding the best global spelling it is possible to
+        just fix each chord individually
+
+        """
+        for measure in self.measures:
+            for n in measure.notations(tree=tree):
+                if n.isRest or len(n) <= 1:
+                    continue
+                notenames = n.resolveNotenames(addFixedAnnotation=True)
+                spellings = enharmonics.bestChordSpelling(notenames, options=enharmonicOptions)
+                for i, spelling in enumerate(spellings):
+                    n.fixNotename(spelling, i)
+
 
 def quantizePart(part: core.Part,
                  struct: ScoreStruct,
@@ -2439,6 +2457,18 @@ class QuantizedScore:
             for measure in part.measures:
                 measure.fixEnharmonics(enharmonicOptions)
 
+    def fixChordSpellings(self, tree=True, enharmonicOptions: enharmonics.EnharmonicOptions = None
+                          ) -> None:
+        """
+        Finds the best spelling for each chord individually
+
+        As an alternative for finding the best global spelling it is possible to
+        just fix each chord individually
+
+        """
+        for part in self.parts:
+            part.fixChordSpellings(tree=tree, enharmonicOptions=enharmonicOptions)
+
     def __hash__(self):
         partHashes = [hash(p) for p in self.parts]
         return hash((self.title, self.composer) + tuple(partHashes))
@@ -2455,7 +2485,7 @@ class QuantizedScore:
     def __repr__(self):
         import io
         stream = io.StringIO()
-        s = self.dump(tree=False, stream=stream)
+        self.dump(tree=False, stream=stream)
         return stream.getvalue()
 
     def dump(self, tree=True, indent=_INDENT, stream=None, numindents: int = 0) -> None:
@@ -2696,5 +2726,8 @@ def quantize(parts: list[core.Part],
     qscore = QuantizedScore(qparts)
     if enharmonicOptions:
         qscore.fixEnharmonics(enharmonicOptions)
+    else:
+        qscore.fixChordSpellings(tree=True, enharmonicOptions=enharmonicOptions)
+
     qscore.check()
     return qscore

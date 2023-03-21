@@ -5,11 +5,7 @@ Musical Events
 
 All individual events inherit from :class:`~maelzel.core.event.MEvent`. Such an event can be a
 a :class:`~maelzel.core.event.Note`, a :class:`~maelzel.core.event.Chord`, a media
-:class:`~maelzel.core.clip.Clip` or anything derived from those clases. Events can be combined
-into bigger structures by creating chains (a :class:`~maelzel.core.chain.Chain` is a horizontal
-sequence of events) or voices (see :class:`~maelzel.core.chain.Voice`).
-
-There are two main kind of events:
+:class:`~maelzel.core.clip.Clip` or anything derived from those clases.
 
 1. Musical Events
     - :class:`~maelzel.core.event.Note`: a one-pitch event, can represent any
@@ -18,13 +14,9 @@ There are two main kind of events:
     - :class:`~maelzel.core.event.Chord`: a Chord is a collection of one or more Notes with
       a shared duration
 
-2. :ref:`Media Events <clipmodule>`
-    Media events (like a soundfile) have a duration which is not expressed in quarternote
-    beats but in real-time seconds. In the context of different tempi this results in
-    different quarternote durations. Since the tempo might change along the timeline
-    their quarternote duration is dependent on their offset.
+2. Media Events
 
-    - :class:`~maelzel.core.clip.Clip`
+    - :class:`~maelzel.core.clip.Clip`: an Event representing a soundfile
 
 
 Within a a :class:`~maelzel.core.chain.Chain` / :class:`~maelzel.core.chain.Voice` events
@@ -34,16 +26,16 @@ When an event is added to a container that container becomes its
 
 
 Absolute / Relative Offset
---------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The :attr:`~maelzel.core.event.MEvent.offset` attribute of any event determines the
-start of the event **relative** to the parent container (if the event has not parent
-the relative and the absolute offset are the same). The resolved offset can be queried
-via :meth:`~maelzel.core.mobj.MObj.resolvedOffset`, the absolute offset via
-:meth:`~maelzel.core.mobj.MObj.absoluteOffset`
+The :attr:`~maelzel.core.event.MEvent.offset` attribute of an event determines its
+start time **relative** to the parent container. This offset can be ``None``,
+in which case it is resolved based on the context of the event
+(is the object part of a Chain / Voice, which events precede it, etc).
+The resolved offset can be queried via :meth:`~maelzel.core.mobj.MObj.resolveOffset`,
+the absolute offset via :meth:`~maelzel.core.mobj.MObj.absoluteOffset`
 
-Example
-~~~~~~~
+**Example**
 
 In the following example the 2nd note (``4D``), which has an unset offset (offset is ``None``),
 has a *resolved offset* of **0.5** since it is placed after the first note (``4C``), which
@@ -71,7 +63,7 @@ has a duration of **0.5**. Since the chain itself has an offset of **1**, the re
 
 
 Real-Time / Quarternote-Time
-----------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 All time attributes (*offset*, *dur*, *end*) are expressed in *quarternote* beats.
 To map a beat (measured in quarternotes) to its corresponding *real-time* (measured in
@@ -79,12 +71,9 @@ seconds) a score structure (:class:`~maelzel.scorestruct.ScoreStruct`) is needed
 score structure defines the overall structure of a score (measures, time-signatures, etc)
 , providing information about the tempo and tempo changes along the timeline.
 
-.. seealso:: :py:mod:`maelzel.scorestruct`
-
-
 -------------------------
-
 
 .. automodapi:: maelzel.core.event
     :no-main-docstr:
+    :no-heading:
 

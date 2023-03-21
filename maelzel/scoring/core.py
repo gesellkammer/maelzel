@@ -394,7 +394,8 @@ def distributeNotationsByClef(notations: list[Notation],
     Returns:
          list of Parts (between 1 and 3, one for each clef)
     """
-    parts = {'g': [], 'f': [], '15a': []}
+    # The order is important
+    parts = {'15a': [], 'g': [], 'f': []}
     pitchedNotations = (n for n in notations if not n.isRest)
     lowPitch = sum(60 - p for n in pitchedNotations for p in n.pitches if p <= 60)
     splitPoint = 60 if lowPitch > 8 else 56

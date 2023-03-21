@@ -131,7 +131,7 @@ validator = {
     'show.glissLineThickness::choices': (1, 2, 3, 4),
     'show.jupyterMaxImageWidth::type': int,
     'show.voiceMaxStaves::type': int,
-    'show.voiceMaxStaves::range': (1, 2),
+    'show.voiceMaxStaves::range': (1, 4),
     'show.clipNoteheadShape::choices': ('', 'square', 'normal', 'cross', 'harmonic', 'triangle',
                                         'xcircle', 'rhombus', 'rectangle', 'slash', 'diamond',
                                         'cluster'),
