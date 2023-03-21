@@ -43,12 +43,12 @@ the pYin algorithm), onset/offset detection and other extracted features.
 
 .. _demo3:
 
-3. `Complex Rhythms - Ferneyhough's 3rd String Quartet <https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/notebooks/ferneyhough-demo.ipynb>`_
+3. `Complex Rhythms - Ferneyhough's 3rd String Quartet <https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/notebooks/demo-complex-rhythms.ipynb>`_
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. image:: assets/demo-complex-rhythms-notebook.png
   :width: 400px
-  :target: https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/notebooks/demo-complex-rhyhms.ipynb
+  :target: https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/notebooks/demo-complex-rhythms.ipynb
 
 Complex rhythms and rhythmic transformations
 
