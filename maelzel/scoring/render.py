@@ -3,13 +3,12 @@ import logging
 import os
 import subprocess
 import glob
-from emlib import iterlib
 
 from maelzel.scorestruct import *
 from . import core
-from . import enharmonics
 from . import quant
-from .renderer import Renderer, RenderOptions
+from .renderer import Renderer
+from .renderoptions import RenderOptions
 from . import renderlily
 
 from typing import TYPE_CHECKING
@@ -156,7 +155,7 @@ def render(obj: core.Part | core.Notation | list[core.Part] | list[core.Notation
         options = RenderOptions()
     if not backend:
         backend = options.backend
-    return quantizeAndRender(parts, struct=struct, options=options, backend=backend,
+    return quantizeAndRender(parts, struct=struct, options=options,
                              quantizationProfile=quantizationProfile)
 
 

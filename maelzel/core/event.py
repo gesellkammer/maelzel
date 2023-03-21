@@ -71,9 +71,11 @@ class MEvent(MObj):
 
     @property
     def gliss(self):
+        """The end target of this event, if any"""
         return None
 
     def isRest(self) -> bool:
+        """Is this a rest?"""
         return False
 
     def isGracenote(self) -> bool:
@@ -1432,11 +1434,15 @@ class Chord(MEvent):
                      ) -> list[SynthEvent]:
         conf = workspace.config
         struct = workspace.scorestruct
+        playargs0 = playargs
         if self.playargs:
             playargs = playargs.overwrittenWith(self.playargs)
 
+
         if conf['chordAdjustGain']:
             gain = playargs.get('gain', 1.0)
+            if playargs is playargs0:
+                playargs = playargs.copy()
             playargs['gain'] = gain / math.sqrt(len(self))
         endpitches = self.pitches if not self.gliss else self.resolveGliss()
         startsecs, endsecs = self.timeRangeSecs(parentOffset=parentOffset, scorestruct=struct)

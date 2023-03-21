@@ -231,7 +231,7 @@ def pyinPitchTrack(samples: np.ndarray,
         # play both the sample and the f0 to check
         tabnum = ce.makeTable(samples, sr=sr, block=True)
         ce.playSample(tabnum)
-        synth = ce.session().sched('.sine', pargs={'kmidi':pitch(0)})
+        synth = ce.session()._sched('.sine', pargs={'kmidi':pitch(0)})
         synth.automatePargs('kmidi', pitch.flat_pairs())
         synth.automatePargs('kamp', pitchpitch.flat_pairs())
 

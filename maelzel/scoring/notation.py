@@ -451,7 +451,7 @@ class Notation:
             if idx is None:
                 if fail:
                     raise ValueError(f"No pitch in this notation matches the given notename {notename}"
-                                     f" (pitches: {self.notenames})")
+                                     f" (pitches: {self.resolveNotenames()})")
                 return
 
         self.fixedNotenames[idx] = notename
@@ -654,8 +654,19 @@ class Notation:
         notename = self.notename(index=index)
         return pt.pitchclass(notename, semitone_divisions=semitoneDivs)
 
+    def resolveNotenames(self, addFixedAnnotation=False) -> list[str]:
+        out = []
+        for i, p in enumerate(self.pitches):
+            notename = self.getFixedNotename(i)
+            if not notename:
+                notename = pt.m2n(p)
+            elif addFixedAnnotation and not notename.endswith('!'):
+                notename += '!'
+            out.append(notename)
+        return out
+
     @property
-    def notenames(self) -> list[str]:
+    def _notenames(self) -> list[str]:
         return [self.getFixedNotename(i) or pt.m2n(p) for i, p in enumerate(self.pitches)]
 
     def verticalPosition(self, index=0) -> int:
@@ -836,9 +847,9 @@ class Notation:
             info.append("rest")
         elif self.pitches:
             if len(self.pitches) > 1:
-                info.append("[" + " ".join(self.notenames) + "]")
+                info.append("[" + " ".join(self.resolveNotenames()) + "]")
             else:
-                info.append(self.notenames[0])
+                info.append(self.resolveNotenames()[0])
             if self.gliss:
                 info.append("gliss")
 

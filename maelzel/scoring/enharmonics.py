@@ -8,6 +8,7 @@ import functools
 from dataclasses import dataclass
 from collections import deque
 from math import sqrt
+import logging
 
 from emlib import iterlib
 import pitchtools as pt
@@ -16,6 +17,8 @@ from .notation import Notation
 
 from typing import Sequence
 
+
+logger = logging.getLogger('maelzel.scoring')
 
 MAXPENALTY = 999999
 
@@ -424,7 +427,7 @@ def _chordPenalty(notations: Sequence[Notation],
                   ) -> float:
     totalChordPenalty = 0
     for i, notation in enumerate(notations):
-        notes = notation.notenames
+        notes = notation.resolveNotenames()
         anchor = anchors[i]
         notes[anchor] = spelling[i]
         chordrating, sources = _rateChordSpelling(notes, options=options)
@@ -486,8 +489,8 @@ class SpellingHistory:
             direction = n.alteration_direction()
             previousDirection = self.slots[idx]
             if previousDirection and previousDirection != direction:
-                raise ValueError(f"spelling error with {item}, spelling already fixed "
-                                 f"(previous direction: {previousDirection}")
+                logger.error(f"spelling error with {item}, spelling already fixed "
+                             f"(previous direction: {previousDirection}")
             self.slots[idx] = direction
             self.refcount[idx] += 1
 
@@ -519,9 +522,8 @@ class SpellingHistory:
 
         Args:
             notation: the notation to add
-            force: if True, add it even if the slot is already set
         """
-        notenames = notation.notenames
+        notenames = notation.resolveNotenames()
         self.add(notenames)
 
 
@@ -598,7 +600,7 @@ def _notationNotename(n: Notation, idx=0) -> str:
         return fixed
     if len(n.pitches) == 0:
         return pt.m2n(n.pitches[0])
-    bestspelling = bestChordSpelling(n.notenames)
+    bestspelling = bestChordSpelling(n.resolveNotenames())
     return bestspelling[idx]
 
 
@@ -616,6 +618,7 @@ def fixEnharmonicsInPlace(notations: list[Notation],
         options: an EnharmonicOptions object. If not given a default is
             created. Many customizations can be modified here regarding the
             spelling algorithm
+        spellingHistory: a SpellingHistory instance, if applicable
 
     Returns:
         nothing, spelling is fixed inplace
@@ -737,8 +740,7 @@ def fixEnharmonicsInPlace(notations: list[Notation],
                     fixedslots = fixedslots.copy()
                     fixedslots.update(nslots)
 
-                chordVariants = pt.enharmonic_variations(n.notenames, fixedslots=fixedslots)
-                # _verifyVariants(chordVariants, fixedslots)
+                chordVariants = pt.enharmonic_variations(n.resolveNotenames(), fixedslots=fixedslots, force=True)
                 chordVariants.sort(key=lambda variant: _rateChordSpelling(variant, options)[0])
                 chordSolution = chordVariants[0]
                 if options.debug:

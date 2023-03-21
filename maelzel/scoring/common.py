@@ -48,7 +48,7 @@ def _asF(t: _numbers.Real) -> F:
     return F(t)
 
 
-def asmidi(x) -> float:
+def asmidi(x, maxmidi=130) -> float:
     """
     Convert x to midi
 
@@ -62,12 +62,12 @@ def asmidi(x) -> float:
 
     """
     if isinstance(x, float):
-        assert 0<=x<=128, f"Invalid midinote: {x}"
+        assert 0<=x<=maxmidi, f"Invalid midinote: {x}"
         return x
     elif isinstance(x, str):
         return pt.n2m(x)
     elif isinstance(x, int):
-        assert 0 <= x < 128
+        assert 0 <= x < maxmidi
         return float(x)
     elif hasattr(x, "pitch"):
         return x.notename

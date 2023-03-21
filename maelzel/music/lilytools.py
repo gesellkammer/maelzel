@@ -439,7 +439,8 @@ _octaveMapping = {
     5: "''",
     6: "'''",
     7: "''''",
-    8: "'''''"
+    8: "'''''",
+    9: "''''''"
 }
 
 _centsToSuffix = {
@@ -460,7 +461,7 @@ _centsToSuffix = {
 }
 
 
-def lilyOctave(octave:int) -> str:
+def lilyOctave(octave: int) -> str:
     """
     Convert an octave number to its lilypond representation
 
@@ -471,6 +472,8 @@ def lilyOctave(octave:int) -> str:
     5 -> ''
     ...
     """
+    assert isinstance(octave, int), f"Expected an int, got {octave}"
+    assert -1 <= octave <= 9, f"Expected an octave between -1 and 9, got {octave}"
     return _octaveMapping[octave]
 
 

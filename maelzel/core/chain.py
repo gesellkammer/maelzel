@@ -3,7 +3,7 @@ from __future__ import annotations
 from maelzel.common import F, asF
 from .mobj import MObj, MContainer
 from .event import MEvent, asEvent, Note, Chord
-from .workspace import getConfig, Workspace
+from .workspace import Workspace
 from .synthevent import PlayArgs, SynthEvent
 from . import symbols
 from . import environment
@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from typing import Any, Iterator, overload, TypeVar, Callable
     from ._typedefs import time_t
     from .config import CoreConfig
-    from maelzel.scorestruct import ScoreStruct
     ChainT = TypeVar("ChainT", bound="Chain")
 
 
@@ -493,18 +492,19 @@ class Chain(MObj, MContainer):
                      parentOffset: F,
                      workspace: Workspace
                      ) -> list[SynthEvent]:
+        conf = workspace.config
+        if self.playargs:
+            playargs = playargs.overwrittenWith(self.playargs)
+
         if self._modified:
             self._update()
         self._resolveGlissandi()
+
         chain = self.flat(forcecopy=True)
         chain.stack()
 
         for item in chain.items:
             assert item.dur >= 0, f"{item=}"
-
-        conf = workspace.config
-        if self.playargs:
-            playargs = playargs.overwrittenWith(self.playargs)
 
         if self.offset:
             for item in chain.items:
@@ -530,8 +530,6 @@ class Chain(MObj, MContainer):
                 synthgroups = [event._synthEvents(playargs, parentOffset=offset, workspace=workspace)
                                for event in group]
                 synthlines = _splitSynthGroupsIntoLines(synthgroups)
-                #print("synthlines", synthlines)
-                #print("synthgroups", synthgroups, "\n------------")
                 for synthline in synthlines:
                     if isinstance(synthline, SynthEvent):
                         synthevent = synthline
@@ -833,7 +831,7 @@ class Chain(MObj, MContainer):
     def _repr_html_header(self) -> str:
         itemcolor = safeColors['blue2']
         items = self.items if len(self.items) < 10 else self.items[:10]
-        itemstr = ", ".join(f'<span style="color:{itemcolor}">{repr(_)}</span>'
+        itemstr = ", ".join(f'<span style="color:{itemcolor}; white-space: pre-wrap;">{repr(_)}</span>'
                             for _ in items)
         if len(self.items) >= 10:
             itemstr += ", …"

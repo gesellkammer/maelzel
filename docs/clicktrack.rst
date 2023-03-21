@@ -1,7 +1,7 @@
 
 .. _clicktrack_notebook:
 
-.. code:: ipython3
+.. code:: python
 
     from maelzel.core import *
     
@@ -36,7 +36,7 @@
    :width: 683px
 
 
-.. code:: ipython3
+.. code:: python
 
     clicktrack.rec('clicktrack.flac', quiet=True, wait=True, nchnls=1)
 
@@ -58,7 +58,7 @@
 
 
 
-.. code:: ipython3
+.. code:: python
 
     from maelzel.core import *
     
@@ -75,7 +75,7 @@
    :width: 683px
 
 
-.. code:: ipython3
+.. code:: python
 
     from maelzel.scorestruct import ScoreStruct
     s = ScoreStruct('4/4,60; 3/4; 3/8')
@@ -91,7 +91,7 @@
 
 
 
-.. code:: ipython3
+.. code:: python
 
     s.timeDelta(3, (1, 2))
 

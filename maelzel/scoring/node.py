@@ -409,7 +409,7 @@ class Node:
             # get previous note's spelling and fix n0 with it
             last = prevTree.lastNotation()
             if last.tiedNext and last.pitches == n0.pitches:
-                spellings = last.notenames
+                spellings = last.resolveNotenames()
                 for i, spelling in enumerate(spellings):
                     n0.fixNotename(spelling, idx=i)
 
@@ -431,7 +431,7 @@ def asTree(nodes: list[Node]
         the root of a tree structure
     """
     if len(nodes) == 1 and nodes[0].durRatio == (1, 1):
-        root = nodes[0]
+        return nodes[0]
     root = Node(ratio=(1, 1), items=nodes)
     assert root.totalDuration() == sum(n.totalDuration() for n in nodes)
     return root

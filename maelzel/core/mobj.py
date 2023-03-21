@@ -285,6 +285,15 @@ class MObj:
         return self
 
     def getProperty(self, key: str, default=None):
+        """Get a property of this objects
+
+        Any MObj can have multiple properties. A property is a key:value pair,
+        where the key is a string and the value can be anything. Properties can
+        be used to attach information to an object, to tag it in any way needed.
+
+        Properties are set via :meth:`MObj.setProperty`. The :attr:`MObj.properties`
+        attribute can be queries directly, but bear in mind that **if no properties have
+        been set, this attribute is ``None`` by default**."""
         if not self.properties:
             return default
         return self.properties.get(key, default)
@@ -1027,7 +1036,9 @@ class MObj:
     def _repr_html_(self) -> str:
         img = self._htmlImage()
         txt = self._repr_html_header()
-        return rf'<code style="font-size:0.9em">{txt}</code><br>' + img
+        # return rf'<code style="font-size:0.9em">{txt}</code><br>' + img
+        return rf'<pre style="white-space: pre-wrap; font-size:0.9em">{txt}</pre><br>' + img
+
 
     def dump(self, indents=0, forcetext=False):
         """
@@ -1189,8 +1200,10 @@ class MObj:
              sustain: float = None,
              workspace: Workspace = None,
              transpose: float = 0,
+             config: CoreConfig = None,
+             forcedisplay=False,
              **kwargs
-             ) -> csoundengine.synth.AbstrSynth:
+             ) -> csoundengine.synth.SynthGroup:
         """
         Plays this object.
 
@@ -1230,7 +1243,7 @@ class MObj:
             * :meth:`MObj.events`
             * :meth:`MObj.rec`
             * :func:`~maelzel.core.playback.render`,
-            * :class:`~maelzel.core.playback.synchedplay`
+            * :class:`~maelzel.core.playback.play`
 
 
         Example
@@ -1243,11 +1256,17 @@ class MObj:
 
         Play multiple objects synchronised
 
-            >>> with synchedplay():
+            >>> play(
+            ... Note(60, 1.5).events(gain=0.1, position=0.5)
+            ... Chord("4E 4G", 2, start=1.2).events(instr='piano')
+            ... )
+
+        Or using play as a context managger:
+
+            >>> with play():
             ...     Note(60, 1.5).play(gain=0.1, position=0.5)
             ...     Chord("4E 4G", 2, start=1.2).play(instr='piano')
             ...     ...
-
 
         Render offline
 
@@ -1255,7 +1274,10 @@ class MObj:
             ...     Note(60, 5).play(gain=0.1, chan=2)
             ...     Chord("4E 4G", 3).play(instr='piano')
         """
-        if workspace is None:
+        if config is not None:
+            assert workspace is None
+            workspace = Workspace.active.clone(config=config)
+        elif workspace is None:
             workspace = Workspace.active
 
         events = self.events(delay=delay,
@@ -1283,7 +1305,11 @@ class MObj:
 
         else:
             rtrenderer = playback.RealtimeRenderer()
-            return rtrenderer.schedEvents(events, whenfinished=whenfinished)
+            out = rtrenderer.schedEvents(events, whenfinished=whenfinished)
+            if forcedisplay and emlib.misc.inside_jupyter():
+                from IPython.display import display
+                display(out)
+            return out
 
     def makeRenderer(self, **kws):
         """

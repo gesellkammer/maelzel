@@ -392,7 +392,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         else:
             noteheads = n.noteheads
         _("<")
-        notenames = n.notenames
+        notenames = n.resolveNotenames()
         notatedpitches = [pt.notated_pitch(notename) for notename in notenames]
         chordAccidentalTraits = n.findAttachment(cls=attachment.AccidentalTraits, anchor=None) or attachment.AccidentalTraits.default()
         for i, pitch in enumerate(n.pitches):

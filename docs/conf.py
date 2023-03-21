@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.abspath('../'))
 # -- Project information -----------------------------------------------------
 
 project = 'maelzel'
-copyright = '2021, Eduardo Moguillansky'
+copyright = '2023, Eduardo Moguillansky'
 author = 'Eduardo Moguillansky'
 
 

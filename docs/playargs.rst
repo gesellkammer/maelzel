@@ -4,7 +4,7 @@
 Extra sustain time (``extrasustain``)
 -------------------------------------
 
-.. code:: ipython3
+.. code:: python
 
     from maelzel.core import*
 
@@ -15,11 +15,11 @@ Extra sustain time (``extrasustain``)
     Magics available: %csound, %%csound, %%definstr
 
 
-.. code:: ipython3
+.. code:: python
 
     n = Note("4A", dur=1).setPlay(instr='piano', extrasustain=20)
 
-.. code:: ipython3
+.. code:: python
 
     n.play()
 
@@ -66,7 +66,7 @@ Extra sustain time (``extrasustain``)
 
 
 
-.. code:: ipython3
+.. code:: python
 
     from maelzel.core import *
     from maelzel.music.scale import *
@@ -83,7 +83,7 @@ Extra sustain time (``extrasustain``)
    :width: 574px
 
 
-.. code:: ipython3
+.. code:: python
 
     scale.play()
 
@@ -110,7 +110,7 @@ Extra sustain time (``extrasustain``)
 
 
 
-.. code:: ipython3
+.. code:: python
 
     from maelzel.core import *
 
@@ -121,7 +121,7 @@ Extra sustain time (``extrasustain``)
     Magics available: %csound, %%csound, %%definstr
 
 
-.. code:: ipython3
+.. code:: python
 
     play.getPlayEngine().testAudio()
 
@@ -159,7 +159,7 @@ Extra sustain time (``extrasustain``)
     [mChannel: 2 / 2
 
 
-.. code:: ipython3
+.. code:: python
 
     from maelzel.music.scale import *
     
@@ -190,7 +190,7 @@ Extra sustain time (``extrasustain``)
 
 
 
-.. code:: ipython3
+.. code:: python
 
     Note(60, amp=0.1, dur=8).play()
 

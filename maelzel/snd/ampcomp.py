@@ -6,25 +6,59 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
 from math import sqrt
+import numpy as np
 
 
 _AMPCOMP_MINLEVEL = -0.1575371167435
 
 
 class AmpcompA:
-    def __init__(self, root=0, minAmp=0.32, rootAmp=1.0, minlevel=_AMPCOMP_MINLEVEL):
+    def __init__(self, root=0, minamp=0.32, rootamp=1.0, minlevel=_AMPCOMP_MINLEVEL):
         self.root = root
-        self.minAmp = minAmp
-        self.rootAmp = rootAmp
-        rootLevel = acurve_amplitude_compensation(root)
-        self.scale = (rootAmp - minAmp) / (rootLevel - minlevel)
-        self.offset = minAmp - self.scale * minlevel
+        self.minamp = minamp
+        self.rootamp = rootamp
+        rootlevel = acurveAmplitudeCompensation(root)
+        self.scale = (rootamp - minamp) / (rootlevel - minlevel)
+        self.offset = minamp - self.scale * minlevel
 
     def level(self, freq):
-        return acurve_amplitude_compensation(freq) * self.scale+self.offset
+        return acurveAmplitudeCompensation(freq) * self.scale + self.offset
 
 
-def acurve_amplitude_compensation(freq):
+def acurveAmplitudeCompensationArray(freqs: np.ndarray):
+    """
+    Calculate the ampltude compensation for freq according to an A-Curve
+
+    Argss:
+        freqs: the frequencys to evaluate the curve at
+
+    Returns:
+        the resulting amplitude compensation
+    """
+    k = 3.5041384 * 10e15
+    c1 = 20.598997 ** 2
+    c2 = 107.65265 ** 2
+    c3 = 737.86223 ** 2
+    c4 = 12194.217 ** 2
+    r = freqs * freqs
+    r2 = r*r
+    level = r2*r2 * k
+    n1 = r + c1
+    n2 = r + c4
+    levels = level / (n1 * n1 * (c2 + r) * (c3 + r) * n2 * n2)
+    return 1 - np.sqrt(levels)
+
+
+def acurveAmplitudeCompensation(freq: float):
+    """
+    Calculate the ampltude compensation for freq according to an A-Curve
+
+    Args:
+        freq: the frequency to evaluate the curve at
+
+    Returns:
+
+    """
     k = 3.5041384 * 10e15
     c1 = 20.598997 ** 2
     c2 = 107.65265 ** 2

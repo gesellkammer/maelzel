@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
 __all__ = (
     'render',
-    'synchedplay',
+    'Synched',
     'play',
     'testAudio',
     'playEngine',
@@ -136,10 +136,10 @@ class RealtimeRenderer(Renderer):
 
     def sched(self,
              instrname: str,
-             delay: float,
-             dur: float,
-             args: list[float|str],
-             priority: int,
+             delay: float = 0.,
+             dur: float = -1,
+             args: list[float|str] | None = None,
+             priority: int = 1,
              whenfinished: Callable = None):
         return self.session.sched(instrname=instrname,
                                   delay=delay,
@@ -472,7 +472,7 @@ class OfflineRenderer(Renderer):
         in real-time.
 
         If an OfflineRenderer is used as a context manager it is also possible
-        to call the session's .sched method directly since its sched callback is
+        to call the session's ._sched method directly since its _sched callback is
         rerouted to call this OfflineRenderer instead
 
         Args:
@@ -508,7 +508,7 @@ class OfflineRenderer(Renderer):
             ... ''')
             >>> presetManager.defPresetSoundfont('piano', '/path/to/piano.sf2')
             >>> with playback.OfflineRenderer() as r:
-            ...     r.sched('reverb', priority=2)
+            ...     r._sched('reverb', priority=2)
             ...     scale.play('piano')
 
         """
@@ -564,7 +564,7 @@ class OfflineRenderer(Renderer):
             >>> presetManager.defPresetSoundfont('piano', '/path/to/piano.sf2')
             >>> renderer = playback.OfflineRenderer()
             >>> renderer.schedEvents(scale.events(instr='piano'))
-            >>> renderer.sched('reverb', priority=2)
+            >>> renderer._sched('reverb', priority=2)
             >>> renderer.render('outfile.wav')
 
         """
@@ -631,7 +631,7 @@ class OfflineRenderer(Renderer):
         ~~~~~~~
 
             >>> r = OfflineRenderer(...)
-            >>> r.sched(...)
+            >>> r._sched(...)
             >>> r.render(wait=True)
             >>> r.lastOutfile()
             '~/.local/share/maelzel/recordings/tmpsasjdas.wav'
@@ -646,7 +646,7 @@ class OfflineRenderer(Renderer):
         ~~~~~~~
 
             >>> r = OfflineRenderer(...)
-            >>> r.sched(...)
+            >>> r._sched(...)
             >>> r.render("outfile.wav", wait=False)
             >>> if (proc := r.lastRenderProc()) is not None:
             ...     proc.wait()
@@ -777,7 +777,7 @@ def render(outfile: str = None,
     When used as a context manager the `events` argument should be left unset.
     Within this context any call to :meth:`maelzel.core.MObj.play` will be redirected to
     the offline renderer and at the exit of the context all events will be rendered to a
-    soundfile. Also, any pure csound events scheduled via ``playSession().sched(...)``
+    soundfile. Also, any pure csound events scheduled via ``playSession()._sched(...)``
     will also be redirected to be renderer offline.
 
     This enables to use the exact same code when doing realtime and offline rendering.
@@ -825,7 +825,7 @@ def render(outfile: str = None,
         >>> presetManager.defPresetSoundfont('piano', '/path/to/piano.sf2')
         >>> with render() as r:
         ...     scale.play('piano')
-        ...     r.sched('reverb', priority=2)
+        ...     r._sched('reverb', priority=2)
 
 
     See Also
@@ -1104,19 +1104,21 @@ def _collectEvents(events: Sequence[MObj | Sequence[SynthEvent]],
 
 def play(*sources: MObj | Sequence[SynthEvent] | csoundengine.session.SessionEvent,
          whenfinished: Callable = None,
-         workspace: Workspace = None,
          **eventparams
-         ) -> csoundengine.synth.SynthGroup:
+         ) -> csoundengine.synth.SynthGroup | Synched:
     """
     Play a sequence of objects / events
 
     When playing multiple objects via their respective .play method, initialization
-    (loading soundfiles, soundfonts, etc) might result in events getting out of sync
+    (loading soundfiles, soundfonts, etc.) might result in events getting out of sync
     with each other.
 
     This function first collects all events; any initialization is done beforehand
     as to ensure that events keep in sync. After initialization all events are scheduled
     and their synths are gathered in a SynthGroup
+
+    This function can also be used as context manager if not given any sources (see
+    example below)
 
     .. note::
 
@@ -1125,17 +1127,17 @@ def play(*sources: MObj | Sequence[SynthEvent] | csoundengine.session.SessionEve
 
     Args:
         sources: a possibly nested sequence of MObjs or events as returned from
-            :meth:`MObj.events`
-        whenfinished: call this function when the last event is finished. A function taking
-            no arguments and returning None
-        workspace: if given it will override the active workspace
+            :meth:`MObj.events`. Empty when used as a context manager.
+        whenfinished: a callback taking no arguments and returning None. It will be called
+            when the last event is finished
         eventparams: any keyword arguments will be passed to :meth:`MObj.events` if
             events need to be generated
 
     Returns:
         A SynthGroup holding all scheduled synths
 
-    Example::
+    Example
+    ~~~~~~~
 
         >>> from maelzel.core import *
         >>> from csoundengine.session import SessionEvent
@@ -1160,9 +1162,24 @@ def play(*sources: MObj | Sequence[SynthEvent] | csoundengine.session.SessionEve
         >>>     SessionEvent('sin', delay=0.1, dur=3, args={'imidi': 61.33, 'iamp':0.02})
         >>> )
 
-    .. seealso:: :class:`synchedplay`
+    As context manager
+
+        >>> note = Note(...)
+        >>> clip = Clip(...)
+        >>> with play() as p:
+        ...     note.play(...)
+        ...     clip.play(...)
+
+    .. seealso::
+
+        :class:`Synched`, :func:`render`, :meth:`maelzel.core.MObj.play`,
+        :meth:`maelzel.core.MObj.events`
+
     """
-    coreevents, sessionevents = _collectEvents(sources, eventparams=eventparams, workspace=workspace)
+    if not sources:
+        return Synched(whenfinished=whenfinished)
+
+    coreevents, sessionevents = _collectEvents(sources, eventparams=eventparams)
     numChannels = _nchnlsForEvents(coreevents)
     if not isEngineActive():
         playEngine(numchannels=numChannels)
@@ -1173,7 +1190,6 @@ def play(*sources: MObj | Sequence[SynthEvent] | csoundengine.session.SessionEve
 
     rtrenderer = RealtimeRenderer()
     return rtrenderer.schedEvents(coreevents=coreevents, sessionevents=sessionevents, whenfinished=whenfinished)
-    # return _playFlatEvents(coreevents, sessionevents=sessionevents, whenfinished=whenfinished)
 
 
 def _nchnlsForEvents(events: list[SynthEvent]) -> int:
@@ -1381,8 +1397,10 @@ def _resolvePfields(event: SynthEvent, instr: csoundengine.Instr
     assert all(isinstance(p, (int, float)) for p in pfields), [(p, type(p)) for p in pfields if not isinstance(p, (int, float))]
     return pfields
 
+# TODO: rename this class and make it internal. Use `with play() as p:` instead
 
-class synchedplay:
+
+class Synched:
     """
     Context manager to group realtime events to ensure synched playback
 
@@ -1393,8 +1411,8 @@ class synchedplay:
     Within this context all ``.play`` calls are collected and all events are
     scheduled at the end of the context. Any initialization is done beforehand
     as to ensure that events keep in sync. Pure csound events can also be
-    scheduled in sync during this context, using the ``sched`` method
-    of the context manager or simply calling the .sched method of
+    scheduled in sync during this context, using the ``_sched`` method
+    of the context manager or simply calling the ._sched method of
     the active session.
 
     After exiting the context all scheduled synths can be
@@ -1423,9 +1441,9 @@ class synchedplay:
         ... outch 1, aL - a1, 2, aR - a2
         ... ''')
         >>> chain = Chain([Note(m, 0.5) for m in range(60, 72)])
-        >>> with synchedplay() as ctx:
+        >>> with Synched() as ctx:
         ...     chain.play(instr='piano', gain=0.5)
-        ...     session.sched('reverb', 0, dur=10, priority=2)
+        ...     session._sched('reverb', 0, dur=10, priority=2)
         # Within a jupyter session placing the context after exit will display the
         # html generated by the SynthGroup generated during playback. This allows
         # outputs information about the synths and creates a Stop button to cancel
@@ -1442,13 +1460,13 @@ class synchedplay:
         self.synthgroup: csoundengine.synth.SynthGroup | None = None
         """A SynthGroup holding all scheduled synths during the context"""
 
-        self.engine: csoundengine.Engine
+        self.engine: csoundengine.Engine | None = None
         """The play engine, can be used during the context"""
 
-        self.session: csoundengine.Session
+        self.session: csoundengine.Session | None = None
         """The corresponding Session, can be used to access the session during the context"""
 
-        self.workspace: Workspace = Workspace.active
+        self.workspace: Workspace | None = None
         self.sessionEvents: list[csoundengine.session.SessionEvent] = []
         self._oldRenderer = None
         self._oldSessionSchedCallback = None
@@ -1492,8 +1510,7 @@ class synchedplay:
         self.workspace = workspace = Workspace.active
         self._oldRenderer = workspace.renderer
         workspace.renderer = self
-        self._oldSessionSchedCallback = self.session._schedCallback
-        self.session._schedCallback = self.sched
+        self._oldSessionSchedCallback = self.session.setSchedCallback(self._sched)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -1504,7 +1521,7 @@ class synchedplay:
         scheduling all events
         """
         # first, restore the state prior to the context
-        self.session._schedCallback = self._oldSessionSchedCallback
+        self.session.setSchedCallback(self._oldSessionSchedCallback)
         self._oldSessionSchedCallback = None
         self.workspace.renderer = self._oldRenderer
         self._oldRenderer = None
@@ -1523,19 +1540,19 @@ class synchedplay:
         self.synthgroup = r.schedEvents(self.events, sessionevents=self.sessionEvents,
                                         whenfinished=self._finishedCallback)
 
-    def sched(self,
-              instrname: str,
-              delay=0.,
-              dur=-1.,
-              priority=1,
-              args: list[float] | dict[str, float] = None,
-              tabargs: dict[str, float] = None,
-              **kws) -> csoundengine.session.SessionEvent:
+    def _sched(self,
+               instrname: str,
+               delay=0.,
+               dur=-1.,
+               priority=1,
+               args: list[float] | dict[str, float] = None,
+               tabargs: dict[str, float] = None,
+               **kws) -> csoundengine.session.SessionEvent:
         """
         Schedule a csound event in the active Session
 
-        This method should be used to schedule non-preset based instruments
-        when rendering in realtime (things like global effects, for example),
+        This is an internal method. The user can simply call .sched on the session
+        itself and it will be redirected here via its schedule callbach.
 
         Args:
             instrname: the instr. name
@@ -1544,12 +1561,12 @@ class synchedplay:
             priority: priority of the event
             args: any pfields passed to the instr., starting at p5
             tabargs: table args accepted by the instr.
-            whenfinished: dummy arg, just included to keep the signature of Session.sched
+            whenfinished: dummy arg, just included to keep the signature of Session._sched
             relative: the same as whenfinished: just a placeholder
             **kws: named pfields
 
         Returns:
-            a csoundengine's SessionEvent (TODO: add link to documentation of SessionEvent)
+            a csoundengine's SessionEvent
 
         Example
         ~~~~~~~
@@ -1570,7 +1587,7 @@ class synchedplay:
         >>> chain = Chain([Note(m, 0.5) for m in range(60, 72)])
         >>> with synchedplay() as s:
         >>>     chain.play(position=1, instr='piano')
-        >>>     s.sched('reverb', 0, dur=10, priority=2, args={'kfeedback':0.9})
+        >>>     session.sched('reverb', 0, dur=10, priority=2, args={'kfeedback':0.9})
        """
         if not instrname in self.session.instrs:
             logger.error(f"Unknown instrument {instrname}. "

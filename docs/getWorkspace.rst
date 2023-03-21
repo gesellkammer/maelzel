@@ -4,14 +4,14 @@
 The active wokspace
 ===================
 
-.. code:: ipython3
+.. code:: python
 
     from maelzel.core import *
 
 There is always an active Workspace. When maelzel.core is imported a new
 Workspace is created. ``getWorkspace`` returns the active Workspace
 
-.. code:: ipython3
+.. code:: python
 
     w = getWorkspace()
     w
@@ -28,7 +28,7 @@ Workspace is created. ``getWorkspace`` returns the active Workspace
 Alternatively the active workspace can be accessed via the ``active``
 class variable, as ``Workspace.active``
 
-.. code:: ipython3
+.. code:: python
 
     w is Workspace.active
 
@@ -48,7 +48,7 @@ important attributes encapsulated here are the score structure
 Each new ``Workspace`` contains a basic ``ScoreStruct`` (4/4,
 quarter=60) and a copy of the root config
 
-.. code:: ipython3
+.. code:: python
 
     w.scorestruct
 
@@ -61,7 +61,7 @@ quarter=60) and a copy of the root config
 
 
 
-.. code:: ipython3
+.. code:: python
 
     w.config
 
@@ -82,7 +82,7 @@ the most convenient way to setup your own score structure or to
 customize the configuration is to **modify the active workspace**. For
 example, the score structure can be set via ``setScoreStruct``
 
-.. code:: ipython3
+.. code:: python
 
     # Reset the scorestruct to the default
     setScoreStruct()
@@ -100,7 +100,7 @@ example, the score structure can be set via ``setScoreStruct``
 
 .. raw:: html
 
-    <code style="font-size:0.9em">Chain([<span style="color:#6666E0">4C:0.5♩</span>, <span style="color:#6666E0">4D:2♩</span>, <span style="color:#6666E0">4E:1♩</span>], dur=3.5)</code><br>
+    <code style="font-size:0.8em">Chain([<span style="color:#6666E0">4C:0.5♩</span>, <span style="color:#6666E0">4D:2♩</span>, <span style="color:#6666E0">4E:1♩</span>], dur=3.5)</code><br>
             <img style="display:inline; padding:10px;
     margin-top:14px;
     width:147px"
@@ -108,7 +108,7 @@ example, the score structure can be set via ``setScoreStruct``
 
 
 
-.. code:: ipython3
+.. code:: python
 
     setScoreStruct(timesig=(3, 4), tempo=96)
     chain.play()
@@ -119,7 +119,7 @@ example, the score structure can be set via ``setScoreStruct``
 
 .. raw:: html
 
-    <code style="font-size:0.9em">Chain([<span style="color:#6666E0">4C:0.5♩</span>, <span style="color:#6666E0">4D:2♩</span>, <span style="color:#6666E0">4E:1♩</span>], dur=3.5)</code><br>
+    <code style="font-size:0.8em">Chain([<span style="color:#6666E0">4C:0.5♩</span>, <span style="color:#6666E0">4D:2♩</span>, <span style="color:#6666E0">4E:1♩</span>], dur=3.5)</code><br>
             <img style="display:inline; padding:10px;
     margin-top:14px;
     width:196px"
@@ -129,7 +129,7 @@ example, the score structure can be set via ``setScoreStruct``
 
 Or you can create an independent Workspace with its own scorestruct:
 
-.. code:: ipython3
+.. code:: python
 
     w = Workspace(scorestruct=ScoreStruct(timesig=(5, 8), tempo=112), active=True)
     chain
@@ -139,7 +139,7 @@ Or you can create an independent Workspace with its own scorestruct:
 
 .. raw:: html
 
-    <code style="font-size:0.9em">Chain([<span style="color:#6666E0">4C:0.5♩</span>, <span style="color:#6666E0">4D:2♩</span>, <span style="color:#6666E0">4E:1♩</span>], dur=3.5)</code><br>
+    <code style="font-size:0.8em">Chain([<span style="color:#6666E0">4C:0.5♩</span>, <span style="color:#6666E0">4D:2♩</span>, <span style="color:#6666E0">4E:1♩</span>], dur=3.5)</code><br>
             <img style="display:inline; padding:10px;
     margin-top:14px;
     width:196px"
@@ -150,7 +150,7 @@ Or you can create an independent Workspace with its own scorestruct:
 Deactivating the active Workspace activates the previous workspace
 (there should always be an active Workspace)
 
-.. code:: ipython3
+.. code:: python
 
     w.deactivate()
     chain
@@ -160,7 +160,7 @@ Deactivating the active Workspace activates the previous workspace
 
 .. raw:: html
 
-    <code style="font-size:0.9em">Chain([<span style="color:#6666E0">4C:0.5♩</span>, <span style="color:#6666E0">4D:2♩</span>, <span style="color:#6666E0">4E:1♩</span>], dur=3.5)</code><br>
+    <code style="font-size:0.8em">Chain([<span style="color:#6666E0">4C:0.5♩</span>, <span style="color:#6666E0">4D:2♩</span>, <span style="color:#6666E0">4E:1♩</span>], dur=3.5)</code><br>
             <img style="display:inline; padding:10px;
     margin-top:14px;
     width:196px"
@@ -174,7 +174,7 @@ This clones the active Workspace with the given ``ScoreStruct`` and
 activates this newly created Workspace, to deactivate it when to context
 is exited.
 
-.. code:: ipython3
+.. code:: python
 
     with ScoreStruct(r'''
         7/16, 116
@@ -193,7 +193,7 @@ The same is valid for the configuration. You can modify the active
 Workspace by changing its config, either via ``setConfig`` or by
 directly assigning to ``.config``:
 
-.. code:: ipython3
+.. code:: python
 
     Note("+15", 1)
 
@@ -202,7 +202,7 @@ directly assigning to ``.config``:
 
 .. raw:: html
 
-    <code style="font-size:0.9em">4C+15:1♩</code><br>
+    <code style="font-size:0.8em">4C+15:1♩</code><br>
             <img style="display:inline; padding:10px;
     margin-top:14px;
     width:116px"
@@ -210,7 +210,7 @@ directly assigning to ``.config``:
 
 
 
-.. code:: ipython3
+.. code:: python
 
     setScoreStruct()
     
@@ -226,7 +226,7 @@ directly assigning to ``.config``:
 
 .. raw:: html
 
-    <code style="font-size:0.9em">Chain([<span style="color:#6666E0">4C+15:1♩</span>, <span style="color:#6666E0">4Eb-19:0.5♩</span>, <span style="color:#6666E0">3B+:1.5♩</span>], dur=3)</code><br>
+    <code style="font-size:0.8em">Chain([<span style="color:#6666E0">4C+15:1♩</span>, <span style="color:#6666E0">4Eb-19:0.5♩</span>, <span style="color:#6666E0">3B+:1.5♩</span>], dur=3)</code><br>
             <img style="display:inline; padding:10px;
     margin-top:14px;
     width:160px"
@@ -234,7 +234,7 @@ directly assigning to ``.config``:
 
 
 
-.. code:: ipython3
+.. code:: python
 
     config = CoreConfig()
     config['show.centsDeviationAsTextAnnotation'] = False
@@ -247,7 +247,7 @@ directly assigning to ``.config``:
 
 .. raw:: html
 
-    <code style="font-size:0.9em">Chain([<span style="color:#6666E0">4C+15:1♩</span>, <span style="color:#6666E0">4Eb-19:0.5♩</span>, <span style="color:#6666E0">3B+:1.5♩</span>], dur=3)</code><br>
+    <code style="font-size:0.8em">Chain([<span style="color:#6666E0">4C+15:1♩</span>, <span style="color:#6666E0">4Eb-19:0.5♩</span>, <span style="color:#6666E0">3B+:1.5♩</span>], dur=3)</code><br>
             <img style="display:inline; padding:10px;
     margin-top:14px;
     width:160px"
@@ -257,7 +257,7 @@ directly assigning to ``.config``:
 
 Reset the config to the root config
 
-.. code:: ipython3
+.. code:: python
 
     setConfig(rootConfig)
     chain
@@ -267,7 +267,7 @@ Reset the config to the root config
 
 .. raw:: html
 
-    <code style="font-size:0.9em">Chain([<span style="color:#6666E0">4C+15:1♩</span>, <span style="color:#6666E0">4Eb-19:0.5♩</span>, <span style="color:#6666E0">3B+:1.5♩</span>], dur=3)</code><br>
+    <code style="font-size:0.8em">Chain([<span style="color:#6666E0">4C+15:1♩</span>, <span style="color:#6666E0">4Eb-19:0.5♩</span>, <span style="color:#6666E0">3B+:1.5♩</span>], dur=3)</code><br>
             <img style="display:inline; padding:10px;
     margin-top:14px;
     width:160px"
