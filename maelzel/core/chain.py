@@ -831,7 +831,7 @@ class Chain(MObj, MContainer):
     def _repr_html_header(self) -> str:
         itemcolor = safeColors['blue2']
         items = self.items if len(self.items) < 10 else self.items[:10]
-        itemstr = ", ".join(f'<span style="color:{itemcolor}; white-space: pre-wrap;">{repr(_)}</span>'
+        itemstr = ", ".join(f'<span style="color:{itemcolor}">{repr(_)}</span>'
                             for _ in items)
         if len(self.items) >= 10:
             itemstr += ", …"

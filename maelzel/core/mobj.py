@@ -1037,7 +1037,7 @@ class MObj:
         img = self._htmlImage()
         txt = self._repr_html_header()
         # return rf'<code style="font-size:0.9em">{txt}</code><br>' + img
-        return rf'<pre style="white-space: pre-wrap; font-size:0.9em">{txt}</pre><br>' + img
+        return rf'<pre style="white-space: pre-wrap; font-size:0.9em;">{txt}</pre><br>' + img
 
 
     def dump(self, indents=0, forcetext=False):
