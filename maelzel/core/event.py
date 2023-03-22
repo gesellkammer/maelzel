@@ -23,6 +23,7 @@ import math
 import functools
 from numbers import Rational
 
+import pitchtools
 from emlib import misc
 from emlib import iterlib
 from emlib import mathlib
@@ -82,7 +83,7 @@ class MEvent(MObj):
         """
         Is this a grace note?
 
-        A grace note has a pitch but no totalDuration
+        A grace note has a pitch but no duration
 
         Returns:
             True if this can be considered a grace note
@@ -140,8 +141,8 @@ class MEvent(MObj):
             tie: if True, tie the parts
 
         Returns:
-            the parts. The total totalDuration of the parts should sum up to the
-            totalDuration of self
+            the parts. The total duration of the parts should sum up to the
+            duration of self
         """
         offset = self.absoluteOffset() if absolute else self.resolveOffset()
         dur = self.resolveDur()
@@ -258,8 +259,8 @@ class Note(MEvent):
         * The spelling of the notename can be fixed by suffixing the notename with
           a '!' sign. For example, ``Note('4Db!')`` will fix the spelling of this note
  -         to Db instead of C#. This is the same as ``Note('4Db', fixed=True)``
-        * The totalDuration can be set as ``Note('4C#:0.5')`` to set a totalDuration of 0.5, or
-          also Note('4C#/8') to set a totalDuration of an 8th note
+        * The duration can be set as ``Note('4C#:0.5')`` to set a duration of 0.5, or
+          also Note('4C#/8') to set a duration of an 8th note
         * Dynamics can also be set: ``Note('4C#:mf')``. Multiple settings can be combined:
           ``Note('4C#:0.5:mf')``.
         * Offset time can be set like: ``Note('4C#:offset=0.5')``
@@ -267,7 +268,7 @@ class Note(MEvent):
     Args:
         pitch: a midinote or a note as a string. A pitch can be
             a midinote (a float) or a notename (a string).
-        dur: the totalDuration of this note (optional)
+        dur: the duration of this note (optional)
         amp: amplitude 0-1 (optional)
         offset: offset time fot the note, in quarternotes (optional). If None,
             the offset time will depend on the context (previous notes) where
@@ -292,7 +293,7 @@ class Note(MEvent):
         pitchSpelling: the notated pitch, can differ from the pitch attribute
     """
 
-    __slots__ = ('pitch', 'amp', '_gliss', 'tied', 'dynamic', 'pitchSpelling')
+    __slots__ = ('pitch', 'amp', '_gliss', 'tied', 'dynamic', 'pitchSpelling', 'transposition')
 
     def __init__(self,
                  pitch: pitch_t,
@@ -302,6 +303,7 @@ class Note(MEvent):
                  gliss: pitch_t | bool = False,
                  label: str = '',
                  dynamic: str = '',
+                 transposition=0.,
                  tied = False,
                  properties: dict[str, Any] | None = None,
                  symbols: list[_symbols.Symbol] | None = None,
@@ -398,7 +400,7 @@ class Note(MEvent):
         A Rest is actually a regular Note with pitch == 0.
 
         Args:
-            dur: totalDuration of the rest
+            dur: duration of the rest
             offset: explicit offset of the rest
             label: a label to attach to the rest
             dynamic: a dynamic for this rest (yes, rests can have dynanic...)
@@ -864,7 +866,7 @@ class Note(MEvent):
         endtime   = float(scorestruct.beatToTime(offset + dur))
         transp = playargs.get('transpose', 0)
         if starttime >= endtime:
-            raise ValueError(f"Trying to play an event with 0 or negative totalDuration: {endtime-starttime}. "
+            raise ValueError(f"Trying to play an event with 0 or negative duration: {endtime-starttime}. "
                              f"Object: {self}")
         bps = [[starttime, self.pitch+transp, amp],
                [endtime,   endmidi+transp,    amp]]
@@ -954,7 +956,7 @@ def Rest(dur: time_t, offset: time_t = None, label='', dynamic: str = None) -> N
     To test if an item is a rest, call :meth:`~MObj.isRest`
 
     Args:
-        dur: totalDuration of the Rest
+        dur: duration of the Rest
         offset: time offset of the Rest
         label: a label for this rest
         dynamic: a rest may have a dynamic
@@ -987,7 +989,7 @@ class Chord(MEvent):
         amp: the amplitude of this chord. To specify a different amplitude for each
             pitch within the chord, first create a Note for each pitch with its
             corresponding amplitude and use that list as the *notes* argument
-        dur: the totalDuration of this chord (in quarternotes)
+        dur: the duration of this chord (in quarternotes)
         offset: the offset time (in quarternotes)
         gliss: either a list of end pitches (with the same size as the chord), or
             True to leave the end pitches unspecified (a gliss to the next chord)
@@ -1037,7 +1039,7 @@ class Chord(MEvent):
 
         Args:
             amp: the amplitude (volume) of this chord
-            dur: the totalDuration of this chord (in quarternotes)
+            dur: the duration of this chord (in quarternotes)
             offset: the offset time (in quarternotes)
             gliss: either a list of end pitches (with the same size as the chord), or
                 True to leave the end pitches unspecified (a gliss to the next chord)
@@ -1647,7 +1649,7 @@ def _asChord(obj, amp: float = None, dur: float = None) -> Chord:
     Args:
         obj: a string with spaces in it, a list of notes, a single Note, a Chord
         amp: the amp of the chord
-        dur: the totalDuration of the chord
+        dur: the duration of the chord
 
     Returns:
         a Chord
@@ -1676,7 +1678,7 @@ def Gracenote(pitch: pitch_t | list[pitch_t],
     The resulting gracenote will be a Note or a Chord, depending on pitch.
 
     .. note::
-        A gracenote is just a regular note or chord with a totalDuration of 0.
+        A gracenote is just a regular note or chord with a duration of 0.
         This function is here for visibility and to allow to customize the slash
         attribute
 
@@ -1687,7 +1689,7 @@ def Gracenote(pitch: pitch_t | list[pitch_t],
 
     Returns:
         the Note/Chord representing the gracenote. A gracenote is basically a
-        note/chord with 0 totalDuration
+        note/chord with 0 duration
 
     Example
     ~~~~~~~
@@ -1738,7 +1740,7 @@ def asEvent(obj, **kws) -> MEvent:
         ‹4C 4E›
         >>> asEvent("4C:1/3:accent")
         4C:0.333♩:symbols=[Articulation(kind=accent)]
-        # Internally this note has a totalDuration of 1/3
+        # Internally this note has a duration of 1/3
         >>> asEvent("4C,4E:0.5:mf")
         ‹4C 4E 0.5♩ mf›
 

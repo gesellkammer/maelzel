@@ -82,14 +82,19 @@ class RealtimeRenderer(Renderer):
         self.engine.releaseBus(busnum)
 
     def registerPreset(self, presetdef: PresetDef) -> None:
-        instrname = presetdef.instrname
-        if instrname in self.session.instrs:
-            return
         instr = presetdef.getInstr()
-        self.session.registerInstr(instr)
+        # The Session itself caches instrs and checks definitions
+        isnew = self.session.registerInstr(instr)
+        if isnew:
+            logger.debug("*********** Session registered new instr: ", instr.name)
         self.registeredPresets[presetdef.name] = presetdef
 
-    def prepareInstr(self, instrname: str, priority: int):
+    def getInstr(self, instrname: str) -> csoundengine.instr.Instr | None:
+        return self.session.getInstr(instrname)
+
+    def prepareInstr(self, instr: csoundengine.instr.Instr, priority: int):
+        instrname = instr.name
+        # TODO
         self.session.prepareSched(instrname, priority=priority)
 
     def prepareSessionEvent(self, sessionevent: csoundengine.session.SessionEvent):
@@ -265,9 +270,13 @@ class OfflineRenderer(Renderer):
                 renderer.strSet(s, idx)
         return renderer
 
-    def prepareInstr(self, instrname: str, priority: int) -> int:
+    def prepareInstr(self, instr: csoundengine.instr.Instr, priority: int) -> int:
+        instrname = instr.name
         assert self.csoundRenderer.isInstrDefined(instrname)
         return self.csoundRenderer.commitInstrument(instrname, priority)
+
+    def getInstr(self, instrname: str) -> csoundengine.instr.Instr | None:
+        return self.csoundRenderer.getInstr(instrname)
 
     @property
     def scheduledEvents(self) -> dict[int, csoundengine.offline.ScoreEvent]:
@@ -462,6 +471,7 @@ class OfflineRenderer(Renderer):
               priority=1,
               args: list[float] | dict[str, float] = None,
               whenfinished=None,
+              relative=True,
               **kws) -> csoundengine.offline.ScoreEvent:
         """
         Schedule a csound event
@@ -484,6 +494,9 @@ class OfflineRenderer(Renderer):
             tabargs: table args accepted by the instr.
             whenfinished: this argument does nothing under this context. It is only
                 present to make the signature compatible with the interface
+            relative: dummy argument, here to conform to the signature of
+                csoundengine's Session.sched, which is redirected to this
+                method when an OfflineRenderer is used as a context manager
             **kws: named pfields
 
         Returns:
@@ -688,10 +701,8 @@ class OfflineRenderer(Renderer):
         self._oldRenderer = self._workspace.renderer
         self._workspace.renderer = self
 
-        self._session = playSession()
-        self._oldSessionSchedCallback = self._session._schedCallback
-        self._session._schedCallback = self.sched
-
+        self._session = session = playSession()
+        self._oldSessionSchedCallback = session.setSchedCallback(self.sched)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -703,7 +714,7 @@ class OfflineRenderer(Renderer):
         self._workspace = None
         self._oldRenderer = None
 
-        self._session._schedCallback = self._oldSessionSchedCallback
+        self._session.setSchedCallback(self._oldSessionSchedCallback)
         self._oldSessionSchedCallback = None
         self._session = None
 
@@ -834,6 +845,7 @@ def render(outfile: str = None,
     :class:`OfflineRenderer`
     """
     if not events:
+        # called as a context manager
         return OfflineRenderer(outfile=outfile, sr=sr, numchannels=nchnls, quiet=quiet, ksmps=ksmps)
 
     coreEvents, sessionEvents = _collectEvents(events, eventparams=kws, workspace=workspace)
@@ -1196,31 +1208,6 @@ def _nchnlsForEvents(events: list[SynthEvent]) -> int:
     return max(int(ceil(ev.resolvedPosition() + ev.chan)) for ev in events)
 
 
-def _prepareEventsRealtime(events: list[SynthEvent],
-                           session: csoundengine.Session,
-                           block=True
-                           ) -> dict[str, csoundengine.Instr]:
-    assert events
-    presetNames = {ev.instr for ev in events}
-    presetDefs = [presetManager.getPreset(name) for name in presetNames]
-    presetToInstr: dict[str, csoundengine.Instr] = {}
-    sync = False
-    for preset in presetDefs:
-        instrdef = preset.getInstr()
-        presetToInstr[preset.name] = instrdef
-        if not session.isInstrRegistered(instrdef):
-            sync = True
-            session.registerInstr(instrdef)
-    for event in events:
-        if event.initfunc:
-            event.initfunc(event, session)
-        instrdef = presetToInstr[event.instr]
-        session.prepareSched(instrdef.name, event.priority, block=False)
-    if sync and block:
-        session.engine.sync()
-    return presetToInstr
-
-
 def _schedFlatEvents(renderer: Renderer,
                      coreevents: list[SynthEvent],
                      sessionevents: list[csoundengine.session.SessionEvent] = None,
@@ -1232,7 +1219,10 @@ def _schedFlatEvents(renderer: Renderer,
 
     if sessionevents:
         for sessionevent in sessionevents:
-            renderer.prepareInstr(sessionevent.instrname, priority=sessionevent.priority)
+            instr = renderer.getInstr(sessionevent.instrname)
+            if instr is None:
+                raise ValueError(f"Instrument {sessionevent.instrname} is not defined")
+            renderer.prepareInstr(instr, priority=sessionevent.priority)
 
     synths = []
 
@@ -1264,72 +1254,6 @@ def _schedFlatEvents(renderer: Renderer,
 
     renderer.popLock()
     return synths
-
-
-def _playFlatEvents_old(events: list[SynthEvent],
-                        sessionevents: list[csoundengine.session.SessionEvent] = None,
-                        whenfinished: Callable = None,
-                        presetToInstr: dict[str, csoundengine.Instr] = None
-                        ) -> csoundengine.synth.SynthGroup:
-    """
-    Play a list of events
-
-    Args:
-        events: a list of SynthEvents
-        sessionevents: if given, a list of csoundengine SessionEvents, which are events
-            played directly at the csoundengine's Session level but are gathered in the
-            returned synthgroup
-        whenfinished: call this function when the last event is finished. A function taking
-            no arguments and returning None
-        presetToInstr: normally None, otherwise a dict mapping preset name to
-            csoundengine's Instr as calculated within _prepareEventsRealtime. It should only be
-            given if _prepareEventsRealtime was previously called for the events passed here
-            and should not be called again (see synchedplay for this pattern of usage)
-
-    Returns:
-        A SynthGroup
-
-    """
-    if not isEngineActive():
-        numChannels = _nchnlsForEvents(events)
-        playEngine(numchannels=numChannels)
-    session = playSession()
-    if presetToInstr is None:
-        presetToInstr = _prepareEventsRealtime(events, session)
-
-    if sessionevents:
-        for ev in sessionevents:
-            session.prepareSched(ev.instrname, priority=ev.priority)
-    synths = []
-
-    resolvedArgs = [ev.resolvePfields(presetToInstr[ev.instr]) for ev in events]
-
-    if whenfinished:
-        ev = max(events, key=lambda ev: ev.end if ev.end > 0 else float('inf'))
-        ev.whenfinished = lambda id: whenfinished() if not ev.whenfinished else lambda id, ev=ev: ev.whenfinished(id) or whenfinished()
-
-    # We take a reference time before starting scheduling,
-    # so we can guarantee that events which are supposed to be
-    # in sync, are in fact in sync. We could use Engine.lockReferenceTime
-    # but we might interfere with another caller doing the same.
-    elapsed = session.engine.elapsedTime() + session.engine.extraLatency
-    for ev, args in zip(events, resolvedArgs):
-        instr = presetToInstr[ev.instr]
-        synth = session.sched(instr.name,
-                              delay=args[0]+elapsed,
-                              dur=args[1],
-                              args=args[3:],
-                              tabargs=ev.args,
-                              priority=ev.priority,
-                              relative=False,
-                              whenfinished=ev.whenfinished)
-        synths.append(synth)
-
-    if sessionevents:
-        sessionsynths = [session.schedEvent(ev)
-                         for ev in sessionevents]
-        synths.extend(sessionsynths)
-    return csoundengine.synth.SynthGroup(synths)
 
 
 def _resolvePfields(event: SynthEvent, instr: csoundengine.Instr

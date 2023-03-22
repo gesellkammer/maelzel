@@ -241,3 +241,15 @@ class Text(Attachment):
         return self.fontstyles and 'bold' in self.fontstyles
 
 
+class Clef(Attachment):
+
+    def __init__(self, kind: str, color=''):
+        super().__init__(color=color)
+        self.kind = kind
+
+    def __hash__(self):
+        return hash(('Clef', self.kind))
+
+
+
+

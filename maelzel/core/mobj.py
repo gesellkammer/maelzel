@@ -23,16 +23,16 @@ either the object itself or by the parent
 
 # dur
 
-Each object has a totalDuration (.dur). The totalDuration can be None if  not explicitely
-set. Each object must have an implicit totalDuration, which, in the case of not being
+Each object has a duration (.dur). The duration can be None if  not explicitely
+set. Each object must have an implicit duration, which, in the case of not being
 set explicitely, can be determined by the offset of the next object within a chain
-or a default totalDuration of 1 if any other method fails.
+or a default duration of 1 if any other method fails.
 
-* _calculateDuration: this method should return the totalDuration in beats or None if the
-  object itself cannot determine its own totalDuration
-* the parent should be always able to determine the totalDuration of a child. If the object
-  has no implicit totalDuration, _calculateDuration is called and if this returns None,
-  a default totalDuration is set. 
+* _calculateDuration: this method should return the duration in beats or None if the
+  object itself cannot determine its own duration
+* the parent should be always able to determine the duration of a child. If the object
+  has no implicit duration, _calculateDuration is called and if this returns None,
+  a default duration is set. 
 
 """
 
@@ -116,7 +116,7 @@ class MContainer:
         raise NotImplementedError
 
     def childDuration(self, child: MObj) -> F:
-        """The resolved totalDuration of child"""
+        """The resolved duration of child"""
         raise NotImplementedError
 
     def absoluteOffset(self) -> F:
@@ -134,7 +134,7 @@ class MContainer:
         This should be called by a child when changed
 
         Not all changes are relevant to a parent. In particular only
-        changes regarding offset or totalDuration should be signaled
+        changes regarding offset or duration should be signaled
 
         Args:
             child: the modified child
@@ -153,18 +153,18 @@ class MObj:
 
     This is an abstract class. **It should not be instantiated by itself**.
     A :class:`MObj` can display itself via :meth:`show` and play itself via :meth:`play`.
-    It can have a totalDuration (:attr:`dur`) and a time offset (:attr:`offset`). Both
+    It can have a duration (:attr:`dur`) and a time offset (:attr:`offset`). Both
     can be left as ``None``, which means that these time attributes are not explicitely
     determined. When this MObj needs to be displayed or shown (at the latest) the offset
-    and totalDuration are resolved based on the context (is the MObj contained in another
-    object, like a Note within a Voice?) and a resolved offset and totalDuration are calculated.
+    and duration are resolved based on the context (is the MObj contained in another
+    object, like a Note within a Voice?) and a resolved offset and duration are calculated.
     This resolved values can be queried via :meth:`resolveOffset` and :meth:`resolveDur`
 
     A :class:`MObj` can customize its playback via :meth:`setPlay`. These attributes can
     be accessed through the `playargs` property
 
-    Each MObj can be asked to calculate its own totalDuration. When the method
-    :meth:`_calculateDuration` is called, it should return its totalDuration or None if it
+    Each MObj can be asked to calculate its own duration. When the method
+    :meth:`_calculateDuration` is called, it should return its duration or None if it
     cannot be determined by the object itself. Within :meth:`_calculateDuration` it is
     not allowed to access the :attr:`parent`.
 
@@ -175,7 +175,7 @@ class MObj:
     text expression) which has meaning only in the realm of graphical representation.
 
     Args:
-        dur: the (optional) totalDuration of this object, in abstract units (beats)
+        dur: the (optional) duration of this object, in abstract units (beats)
         offset: the (optional) time offset of this object, in abstract units (beats)
         label: a string label to identify this object, if necessary
     """
@@ -197,11 +197,10 @@ class MObj:
         self.label = label
         "a label can be used to identify an object within a tree of objects"
 
-        # A MObj can have a totalDuration. A totalDuration can't be 0
-        # A totalDuration of -1 means max. totalDuration.
+        # A MObj can have a duration. A duration can't be 0
 
         self.dur: F | None = dur
-        "the totalDuration of this object (can be None, in which case it is unset)"
+        "the duration of this object (can be None, in which case it is unset)"
 
         self.offset: F | None = offset
         "offset specifies a time offset for this object"
@@ -327,16 +326,28 @@ class MObj:
 
     def _detachedDur(self, default=None) -> F | None:
         """
-        The explict or implici totalDuration (if it has been resolved), or None otherwise
+        The explict or implici duration (if it has been resolved), or None otherwise
 
         This method does not call the parent
 
         """
         return _ if (_:=self.dur) is not None else _ if (_:=self._resolvedDur) is not None else default
 
+    def resolveEnd(self) -> F:
+        """
+        Returns the resolved end of this object
+
+        An object's offset and duration can be explicit (set in their corresponding
+        ``.offset`` or ``.dur`` attributes) or implicit, as calculated from the context
+
+        Returns:
+            the resolved end of this object, relative to its parent
+        """
+        return self.resolveOffset() + self.resolveDur()
+
     def resolveOffset(self) -> F:
         """
-        Resolve the start of this object, relative to its parent
+        Resolve the offset of this object, relative to its parent
 
         If this object has no parent the offset is an absolute offset.
 
@@ -366,10 +377,10 @@ class MObj:
                            force=False
                            ) -> F | None:
         """
-        This method should calculate its own totalDuration or return None if it cannot
+        This method should calculate its own duration or return None if it cannot
 
         If it has already done so and force is False it should return the cached
-        (resolved) totalDuration.
+        (resolved) duration.
 
         .. note:: this method is not allowed to access its parent
 
@@ -379,22 +390,22 @@ class MObj:
             force: if True, do not use cached values
 
         Returns:
-            the objects totalDuration, or None if it cannot be determined from
+            the objects duration, or None if it cannot be determined from
             the object itself
         """
         return self.dur if self.dur is not None else self._resolvedDur
 
     def resolveDur(self) -> F:
         """
-        The explicit or calculated / implicit totalDuration, in quarternotes
+        The explicit or calculated / implicit duration, in quarternotes
 
-        If this object has an explicit totalDuration (its :attr:`dur` attribute is not None)
-        then that totalDuration is returned; otherwise returns its implicit totalDuration.
+        If this object has an explicit duration (its :attr:`dur` attribute is not None)
+        then that duration is returned; otherwise returns its implicit duration.
         If this object has a parent it might call that parent to determine its
-        totalDuration based on its context.
+        duration based on its context.
 
         Returns:
-            the resolved totalDuration
+            the resolved duration
 
         """
         if self.dur is not None:
@@ -410,7 +421,7 @@ class MObj:
         """
         Copy of self with explicit times
 
-        If self already has explicit offset and totalDuration, self itself
+        If self already has explicit offset and duration, self itself
         is returned. If you relie on the fact that this method returns
         a copy, use ``forcecopy=True``
 
@@ -432,7 +443,7 @@ class MObj:
             # An unset offset resolves to 0
             >>> n.withExplicitTimes()
             4C:0.5♩:offset=0
-            # An unset totalDuration resolves to 1 quarternote beat
+            # An unset duration resolves to 1 quarternote beat
             >>> Note("4C", offset=2.5).withExplicitTimes()
             4C:1♩:offset=2.5
 
@@ -577,7 +588,7 @@ class MObj:
         """
         The end time of this object.
 
-        Will be None if this object has no explicit offset or explicit totalDuration
+        Will be None if this object has no explicit offset or explicit duration
         """
         if self.dur is None or self.offset is None:
             return None
@@ -665,7 +676,7 @@ class MObj:
         """
         This method is called whenever the object changes its representation
 
-        This happens when a note changes its pitch inplace, the totalDuration is modified, etc.
+        This happens when a note changes its pitch inplace, the duration is modified, etc.
         This invalidates, among other things, the image cache for this object
         """
         self._resolvedOffset = None
@@ -1106,7 +1117,7 @@ class MObj:
                 select from a list of defined presets.
             chan: the channel to output to. **Channels start at 1**
             pitchinterpol: 'linear', 'cos', 'freqlinear', 'freqcos'
-            fade: fade totalDuration in seconds, can be a tuple (fadein, fadeout)
+            fade: fade duration in seconds, can be a tuple (fadein, fadeout)
             fadeshape: 'linear' | 'cos'
             args: named arguments passed to the note. A dict ``{paramName: value}``
             position: the panning position (0=left, 1=right)
@@ -1222,7 +1233,7 @@ class MObj:
                 select from a list of defined presets.
             chan: the channel to output to. **Channels start at 1**
             pitchinterpol: 'linear', 'cos', 'freqlinear', 'freqcos'
-            fade: fade totalDuration in seconds, can be a tuple (fadein, fadeout)
+            fade: fade duration in seconds, can be a tuple (fadein, fadeout)
             fadeshape: 'linear' | 'cos'
             args: arguments passed to the note. A dict ``{paramName: value}``
             position: the panning position (0=left, 1=right)
@@ -1661,10 +1672,10 @@ class MObj:
 
     def durSecs(self) -> F:
         """
-        Returns the totalDuration in seconds according to the active score
+        Returns the duration in seconds according to the active score
 
         Returns:
-            the totalDuration of self in seconds
+            the duration of self in seconds
         """
         _, dursecs = self.timeRangeSecs()
         return dursecs

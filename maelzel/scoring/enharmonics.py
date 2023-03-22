@@ -489,8 +489,8 @@ class SpellingHistory:
             direction = n.alteration_direction()
             previousDirection = self.slots[idx]
             if previousDirection and previousDirection != direction:
-                logger.error(f"spelling error with {item}, spelling already fixed "
-                             f"(previous direction: {previousDirection}")
+                logger.info(f"Spelling error with {item}, spelling already fixed "
+                            f"(previous direction: {previousDirection}")
             self.slots[idx] = direction
             self.refcount[idx] += 1
 

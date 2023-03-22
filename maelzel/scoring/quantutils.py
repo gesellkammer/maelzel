@@ -79,24 +79,31 @@ def allSubdivisions(maxsubdivs=5,
     return allsubdivs
 
 
-def resnap(assignedSlots: list[int],
-           grid: list[F],
-           newgrid: list[F]
-           ) -> list[int]:
+def resnap(assignedSlots: list[int], oldgrid: list[F], newgrid: list[F]) -> list[int]:
     minslot = 0
     maxslot = len(newgrid)
     reassigned = []
-    for slot0 in assignedSlots:
-        offset = grid[slot0]
-        for slotidx in range(minslot, maxslot):
-            if offset == newgrid[slotidx]:
-                reassigned.append(slotidx)
-                minslot = slotidx
+    for slot in assignedSlots:
+        oldoffset = oldgrid[slot]
+        for newslotidx in range(minslot, maxslot):
+            newoffset = newgrid[newslotidx]
+            if oldoffset == newoffset:
+                reassigned.append(newslotidx)
+                minslot = newslotidx
                 break
+        else:
+            raise ValueError(f"No corresponding slot {oldoffset=}, {newgrid=}")
+
+    if not len(reassigned) == len(assignedSlots):
+        oldoffsets = [oldgrid[i] for i in assignedSlots]
+        newoffsets = [newgrid[i] for i in reassigned]
+        print(f'{oldoffsets=}, {newoffsets=}, {assignedSlots=}, {reassigned=}, {oldgrid=}, {newgrid=}')
+        raise RuntimeError("resnap error")
     return reassigned
 
 
-def simplifyDivision(division: division_t, assignedSlots: list[int]) -> division_t:
+def simplifyDivision(division: division_t, assignedSlots: list[int], reduce=True
+                     ) -> division_t:
     """
     Checks if a division (a partition of the beat) can be substituted by a simpler one
 
@@ -112,37 +119,66 @@ def simplifyDivision(division: division_t, assignedSlots: list[int]) -> division
 
     if len(assignedSlots) == 1 and assignedSlots[0] == 0:
         return (1,)
-    elif len(division) == 1 and division[0] in {3, 5, 7, 11, 13}:
+    elif len(division) == 1 and division[0] in (3, 5, 7, 11, 13):
         return division
 
     assigned = set(assignedSlots)
+
+    #grid = divisionGrid0(beatDuration=F(1), division=division)
+    #offsets = [grid[slot] for slot in assignedSlots]
+
+    def makeset(start, end, exclude):
+        out = set(x for x in range(start, end))
+        for item in exclude:
+            out.remove(item)
+        return out
+
     cs = 0
     reduced = []
     for subdiv in division:
-        if subdiv == 1 or set(range(cs+1, cs+subdiv)).isdisjoint(assigned):
+        if subdiv == 1 or all(slot not in assigned for slot in range(cs+1, cs+subdiv)):
             reduced.append(1)
         elif subdiv == 4 and cs+1 not in assigned and cs+3 not in assigned:
             reduced.append(2)
-        elif subdiv == 6:
-            if cs+1 not in assigned and cs+3 not in assigned and cs+5 not in assigned:
-                reduced.append(3)
-            elif {cs+1,cs+2,cs+4, cs+5}.isdisjoint(assigned):
-                reduced.append(2)
-            else:
-                reduced.append(subdiv)
-        elif subdiv == 8:
-            if {cs+1, cs+2, cs+3,cs+5, cs+6, cs+7}.isdisjoint(assigned):
-                reduced.append(2)
-            if {cs+1, cs+3, cs+5, cs+7}.isdisjoint(assigned):
-                reduced.append(4)
-            else:
-                reduced.append(subdiv)
         elif subdiv == 9 and {cs+1, cs+2, cs+4, cs+5, cs+7, cs+8}.isdisjoint(assigned):
             reduced.append(3)
+        elif subdiv %2 == 1:
+            reduced.append(subdiv)
+        elif makeset(cs+1, cs+subdiv, (cs+subdiv//2,)).isdisjoint(assigned):
+            reduced.append(2)
+        elif set(range(cs+1, cs+subdiv, 2)).isdisjoint(assigned):
+            reduced.append(subdiv//2)
         else:
             reduced.append(subdiv)
         cs += subdiv
-    return tuple(reduced)
+
+    newdiv = tuple(reduced)
+    assert len(newdiv) == len(division), f'{division=}, {newdiv=}'
+
+    if all(subdiv==1 for subdiv in newdiv):
+        newdiv = (len(newdiv),)
+
+    # last check: unnest and check
+    # for example, (1, 2, 1) with slots 0 (0) and 2 (1/2) can be reduced to (2,)
+    # first expand (1, 2, 1) to (6,) then reduce again
+    if len(newdiv) > 1 and reduce:
+        newdiv = reduceDivision(division=division, newdiv=newdiv, assignedSlots=assignedSlots)
+    return newdiv
+
+
+def reduceDivision(division: division_t, newdiv: division_t, assignedSlots: list[int], maxslots=20
+                   ) -> division_t:
+    assert len(newdiv) > 1
+    subdiv = math.lcm(*newdiv)
+    numslots = subdiv * len(newdiv)
+    if numslots > maxslots:
+        return newdiv
+    expandeddiv = (numslots,)
+    oldgrid = divisionGrid0(division=division)
+    expandedgrid = divisionGrid0(expandeddiv)
+    newslots = resnap(assignedSlots, oldgrid, expandedgrid)
+    newdiv2 = simplifyDivision(expandeddiv, newslots, reduce=False)
+    return newdiv2 if numslots < sum(newdiv) else newdiv
 
 
 @cache
@@ -184,7 +220,7 @@ def gridDurationsFlat(beatDuration: F, division: division_t
 
 
 @cache
-def divisionGrid0(division: division_t, beatDuration: F) -> list[F]:
+def divisionGrid0(division: division_t, beatDuration: F = F(1)) -> list[F]:
     durations = gridDurationsFlat(beatDuration, division)
     grid = [F(0)]
     grid.extend(iterlib.partialsum(durations))

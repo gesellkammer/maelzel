@@ -14,8 +14,8 @@ Demos
 
 .. _demo1:
 
-1. `Messiaen - Quatour pur la fin du temps <https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/notebooks/Messiaen-La%20Liturgie%20de%20Cristal.ipynb>`_
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+1. Messiaen - Quatour pur la fin du temps
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. image:: assets/messiaen-notebook.jpg
   :width: 400px
@@ -28,8 +28,8 @@ Analysis and reconstruction of the rhythmic ostinati in Messiaen's "La liturgie 
 
 .. _demo2:
 
-2. `Speech Transcription <https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/notebooks/demo-transcribe.ipynb>`_
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+2. Speech Transcription
+~~~~~~~~~~~~~~~~~~~~~~~
 
 .. image:: assets/demo-transcribe-notebook.png
   :width: 400px
@@ -43,8 +43,8 @@ the pYin algorithm), onset/offset detection and other extracted features.
 
 .. _demo3:
 
-3. `Complex Rhythms - Ferneyhough's 3rd String Quartet <demo-complex-rhythms>`
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+3. Complex Rhythms - Ferneyhough's 3rd String Quartet
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. image:: assets/demo-complex-rhythms-notebook.png
   :width: 400px
@@ -55,8 +55,8 @@ Complex rhythms and rhythmic transformations
 
 .. _demo4:
 
-4. `Soundfile Chords <clip-chords>`
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+4. Soundfile chords
+~~~~~~~~~~~~~~~~~~~
 
 .. image:: assets/demo-clip-chords.png
   :width: 400px

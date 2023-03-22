@@ -42,8 +42,14 @@ class Part(list):
         name: a label to identify this track in particular (a name)
         groupid: an identification (given by makeGroupId), used to identify
             tracks which belong to a same tree
+        shortname: a name abbreviation used as staf name after the first system
     """
-    def __init__(self, events: list[Notation] = None, name='', groupid: str = '', shortname=''):
+    def __init__(self,
+                 events: list[Notation] = None,
+                 name='',
+                 groupid: str = '',
+                 shortname='',
+                 firstclef: str = ''):
 
         if events:
             super().__init__(events)
@@ -51,7 +57,8 @@ class Part(list):
             super().__init__()
         self.groupid: str = groupid
         self.name: str = name
-        self.shortname: str = ''
+        self.shortname: str = shortname
+        self.firstclef = firstclef
         if events:
             assert all(isinstance(n, Notation) for n in events)
             _repairGracenoteAsTargetGliss(self)
@@ -134,7 +141,8 @@ class Part(list):
         operating in place.
         """
         notations = stackNotations(self)
-        return Part(notations, name=self.name, groupid=self.groupid)
+        return Part(events=notations, name=self.name, groupid=self.groupid,
+                    shortname=self.shortname, firstclef=self.firstclef)
 
     def groupNotationsByMeasure(self, struct: scorestruct.ScoreStruct
                                 ) -> list[list[Notation]]:
