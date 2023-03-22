@@ -285,6 +285,8 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
                                      box=attach.box))
             elif isinstance(attach, attachment.Fermata):
                 _(_fermataToLily.get(attach.kind, r'\fermata'))
+            elif isinstance(attach, attachment.Clef):
+                _(lilytools.makeClef(attach.kind))
             else:
                 logger.warning(f"Attachment {attach} not supported for rests")
 
@@ -328,6 +330,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
 
     # Attachments PRE pitch
     for attach in n.attachments:
+
         if isinstance(attach, attachment.Harmonic):
             if attach.interval == 0:
                 n = n.copy()
@@ -338,7 +341,10 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
                 fund = n.notename(0)
                 touched = pt.transpose(fund, attach.interval)
                 n = n.clone(pitches=(fund, touched))
+                n.fixNotename(touched, idx=1)
                 n.setNotehead('harmonic', idx=1)
+        elif isinstance(attach, attachment.Clef):
+            _(lilytools.makeClef(attach.kind))
         elif isinstance(attach, attachment.Breath):
             if attach.visible:
                 if attach.kind:
@@ -784,11 +790,9 @@ def quantizedPartToLily(part: quant.QuantizedPart,
     indents += 1
     line(r"\numericTimeSignature", indents)
 
-    if clef is not None:
-        line(fr'\clef "{clef}"', indents)
-    else:
+    if not clef:
         clef = part.bestClef()
-        line(lilytools.makeClef(clef), indents)
+    line(lilytools.makeClef(clef), indents)
 
     lastTimesig = None
 
@@ -979,7 +983,8 @@ def makeScore(score: quant.QuantizedScore,
                                           addTempoMarks=partindex == 0,
                                           options=options,
                                           indents=indents,
-                                          indentSize=indentSize)
+                                          indentSize=indentSize,
+                                          clef=part.firstclef)
             _(partstr)
             partindex += 1
         if len(group) > 1:

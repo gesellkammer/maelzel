@@ -1098,7 +1098,7 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
     skipped = 0
 
     for div in possibleDivisions:
-        if div in profile.blacklist:
+        if div in profile.blacklist or div in seen:
             continue
         divPenalty, divPenaltyInfo = profile.divisionPenalty(div)
 
@@ -1111,15 +1111,20 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
 
         grid0 = quantutils.divisionGrid0(beatDuration=beatDuration, division=div)
         assignedSlots, snappedEvents = snapEventsToGrid(events0, grid=grid0)
-        simplifiedDiv = quantutils.simplifyDivision(div, assignedSlots)
+        simplifiedDiv = quantutils.simplifyDivision(div, assignedSlots, reduce=False)
         if simplifiedDiv in seen or simplifiedDiv in profile.blacklist:
             continue
+        if len(simplifiedDiv) > 1:
+            simplifiedDiv2 = quantutils.reduceDivision(div, newdiv=simplifiedDiv, assignedSlots=assignedSlots)
+            if simplifiedDiv2 in seen:
+                continue
+            elif simplifiedDiv2 != simplifiedDiv:
+                seen.add(simplifiedDiv)
+            simplifiedDiv = simplifiedDiv2
         if simplifiedDiv != div:
-            # TODO: optimize the re-snapping to avoid calling  snapeventstogrid again
             div = simplifiedDiv
             newgrid = quantutils.divisionGrid0(beatDuration=beatDuration, division=simplifiedDiv)
-            # assignedSlots = quantutils.resnap(assignedSlots, grid0, newgrid)
-            assignedSlots, snappedEvents = snapEventsToGrid(events0, grid=newgrid)
+            assignedSlots = quantutils.resnap(assignedSlots, newgrid=newgrid, oldgrid=grid0)
 
         gridError = _evalGridError(profile=profile,
                                    snappedEvents=snappedEvents,
@@ -1982,6 +1987,7 @@ class QuantizedPart:
     name: str = ''
     shortname: str = ''
     groupid: str = ''
+    firstclef: str = ''
 
     def __post_init__(self):
         for measure in self.measures:
@@ -2419,7 +2425,8 @@ def quantizePart(part: core.Part,
                                         quantprofile=quantprofile)
             qmeasures.append(qmeasure)
     qpart = QuantizedPart(struct, qmeasures, name=part.name, shortname=part.shortname,
-                          groupid=part.groupid, quantprofile=quantprofile)
+                          groupid=part.groupid, quantprofile=quantprofile,
+                          firstclef=part.firstclef)
     return qpart
 
 

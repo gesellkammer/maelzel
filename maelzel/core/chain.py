@@ -913,15 +913,7 @@ class Chain(MObj, MContainer):
             notations.append(scoring.makeRest(duration=chain[0].resolveOffset(), annotation=self.label))
         for item in chain.items:
             notations.extend(item.scoringEvents(groupid=groupid, config=config, parentOffset=offset))
-        #if self.label:
-        #    annot = self._scoringAnnotation()
-        #    annot.instancePriority = -1
-        #    notations[0].addAttachment(annot)
         scoring.stackNotationsInPlace(notations)
-
-        #if self.offset is not None and self.offset > 0 and not config['show.asoluteOffsetForDetachedObjects']:
-        #    for notation in notations:
-        #        notation.offset += self.offset
 
         for n0, n1 in iterlib.pairwise(notations):
             if n0.tiedNext and not n1.isRest:
@@ -978,10 +970,9 @@ class Chain(MObj, MContainer):
         items = [i.quantizePitch(step) for i in self.items]
         return self.clone(items=items)
 
-    def timeShift(self, timeoffset: time_t) -> Chain:
-        if self.offset is not None:
-            return self.clone(offset=self.offset+timeoffset)
-        return self.clone(offset=timeoffset)
+    def timeShift(self: ChainT, timeoffset: time_t) -> ChainT:
+        items = [item.timeShift(timeoffset) for item in self.items]
+        return self.clone(items=items)
 
     def firstOffset(self) -> F | None:
         """
@@ -1255,22 +1246,52 @@ class Voice(Chain):
 
     def __init__(self,
                  items: list[MEvent | str] | Chain = None,
-                 label='',
+                 name='',
                  shortname='',
-                 maxstaves: int = None):
+                 maxstaves: int = None,
+                 clef: str = ''):
         if isinstance(items, Chain):
-            if items.label and not label:
-                label = items.label
             items = items.items
-        super().__init__(items=items, label=label, offset=F(0))
+        super().__init__(items=items, offset=F(0))
+        self.name = name
+        """The name of this voice/staff"""
+
         self.shortname = shortname
+        """A shortname to display as abbreviation after the first system"""
+
         self.maxstaves = maxstaves if maxstaves is not None else Workspace.active.config['show.voiceMaxStaves']
+        """The max. number of staves this voice can be expanded to"""
+
+        self.clef = clef
+        """If given, force this voice to use this clef for the case of a single staff"""
+
+
+    def clone(self, **kws) -> Voice:
+        if not 'items' in kws:
+            kws['items'] = self.items.copy()
+        if not 'shortname' in kws:
+            kws['shortname'] = self.shortname
+        if not 'name' in kws:
+            kws['name'] = self.name
+        if not 'clef' in kws:
+            kws['clef'] = self.clef
+        out = Voice(**kws)
+        if self.label:
+            out.label = self.label
+        return out
 
     def scoringParts(self, config: CoreConfig = None
                      ) -> list[scoring.Part]:
         parts = super().scoringParts(config=config)
-        for part in parts:
+        if len(parts) == 1:
+            part = parts[0]
+            part.name = self.name
             part.shortname = self.shortname
+            part.firstclef = self.clef
+        else:
+            for i, part in enumerate(parts):
+                part.name = f'{self.name}-{i+1}'
+                part.shortname = f'{self.shortname}{i+1}'
         return parts
 
 

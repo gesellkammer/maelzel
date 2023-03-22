@@ -154,7 +154,7 @@ class Rat(_F):
 
     def __add__(self, other) -> Rat:
         r = _F.__add__(self, other)
-        return Rat(r.numerator, r.denominator) # if isinstance(r, _F) else r
+        return Rat(r.numerator, r.denominator) if isinstance(r, _F) else r
 
     def __radd__(self, other) -> Rat:
         r = _F.__radd__(self, other)
@@ -180,7 +180,7 @@ class Rat(_F):
 
     def __sub__(self, other) -> Rat:
         r = _F.__sub__(self, other)
-        return Rat(r.numerator, r.denominator) # if isinstance(r, _F) else r
+        return Rat(r.numerator, r.denominator) if isinstance(r, _F) else r
 
     def __rsub__(self, other) -> Rat:
         r = _F.__rsub__(self, other)

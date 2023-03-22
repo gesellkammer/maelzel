@@ -272,9 +272,14 @@ class PresetManager:
                               envelope=envelope,
                               routing=output)
         self.registerPreset(presetdef)
-        if playback.isEngineActive():
-            session = playback.playSession()
-            session.registerInstr(presetdef.getInstr())
+        # We need to enclose it in a try/except because the playback module
+        # might not be loaded
+        try:
+            if playback.isEngineActive():
+                session = playback.playSession()
+                session.registerInstr(presetdef.getInstr())
+        except AttributeError:
+            pass
         return presetdef
 
     def defPresetSoundfont(self,
@@ -287,9 +292,9 @@ class PresetManager:
                            args: list[float] | dict[str, float] | None = None,
                            interpolation: str = None,
                            mono=False,
+                           ampDivisor: int = None,
                            turnoffWhenSilent=True,
                            description='',
-                           routing=True,
                            _builtin=False) -> PresetDef:
         """
         Define a new instrument preset based on a soundfont
@@ -327,6 +332,10 @@ class PresetManager:
             includes: files to include (if needed by init or postproc)
             args: mutable values needed by postproc (if any). See :meth:`~PresetManager.defPreset`
             mono: if True, only the left channel of the soundfont is read
+            ampDivisor: most soundfonts are PCM 16bit files and need to be scaled down
+                to use them in the range of -1:1. This value is used to scale amp down.
+                The default is 16384 but it can be changed in the config
+                (:ref:`key 'play.soundfontAmpDiv' <config_play_soundfontampdiv>`)
             interpolation: one of 'linear', 'cubic'. Refers to the interpolation used
                 when reading the sample waveform. If None, use the default defined
                 in the config (:ref:`key 'play.soundfontInterpolation' <config_play_soundfontinterpolation>`)
@@ -388,6 +397,7 @@ class PresetManager:
         audiogen = presetutils.makeSoundfontAudiogen(sf2path=sf2path,
                                                      preset=(bank, presetnum),
                                                      interpolation=interpolation,
+                                                     ampDivisor=ampDivisor,
                                                      mono=mono)
         # We don't need to use a global variable because sfloadonce
         # saved the table num into a channel
@@ -399,17 +409,15 @@ class PresetManager:
         if postproc:
             audiogen = emlib.textlib.joinPreservingIndentation((audiogen, '\n;; postproc\n', postproc))
         epilogue = "turnoffWhenSilent aout1" if turnoffWhenSilent else ''
-        presetdef = PresetDef(name=name,
-                              audiogen=audiogen,
-                              init=init,
-                              epilogue=epilogue,
-                              includes=includes,
-                              args=args,
-                              builtin=_builtin,
-                              description=description,
-                              properties={'sfpath': sf2path},
-                              routing=routing)
-        self.registerPreset(presetdef)
+        presetdef = self.defPreset(name=name,
+                                   audiogen=audiogen,
+                                   init=init,
+                                   epilogue=epilogue,
+                                   includes=includes,
+                                   args=args,
+                                   description=description)
+        presetdef.userDefined = not _builtin
+        presetdef.properties = {'sfpath': sf2path}
         return presetdef
 
     def registerPreset(self, presetdef: PresetDef) -> None:

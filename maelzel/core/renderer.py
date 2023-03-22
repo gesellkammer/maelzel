@@ -4,6 +4,7 @@ Interface for online and offline rendering
 from __future__ import annotations
 from maelzel.core import presetdef
 from maelzel.core import synthevent
+import csoundengine
 from csoundengine.session import SessionEvent
 from typing import Callable
 import numpy as np
@@ -45,12 +46,15 @@ class Renderer:
             assert presetdef is not None, f"Preset {presetname} does not exist"
             self.registerPreset(presetdef)
         instr = presetdef.getInstr()
-        self.prepareInstr(instr.name, priority)
+        self.prepareInstr(instr, priority)
 
-    def registerPreset(self, presetdef: presetdef.PresetDef) -> None:
+    def prepareInstr(self, instr: csoundengine.instr.Instr, priority: int):
+        pass
+
+    def getInstr(self, instrname: str):
         raise NotImplementedError
 
-    def prepareInstr(self, instrname: str, priority: int):
+    def registerPreset(self, presetdef: presetdef.PresetDef) -> None:
         raise NotImplementedError
 
     def schedSessionEvent(self, event: SessionEvent):
