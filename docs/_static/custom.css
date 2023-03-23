@@ -1,5 +1,5 @@
 .wy-nav-content {
-    max-width: 920px !important;
+    max-width: 1200px !important;
 }
 
 
@@ -12,4 +12,13 @@ div.leftside {
 div.rightside {
   margin-left: 45%;
   /* float: right; */
+}
+
+
+table {
+	font-size: 12px !important;
+}
+
+h2,h3 {
+	margin-top: 20px;
 }

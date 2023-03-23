@@ -4,44 +4,38 @@ Introduction
 **maelzel** provides a framework to work with both *symbolic* (music) and *concrete*
 (audio) sound. Here are some short demonstrations of some of its features
 
-1. `Messiaen - Quatour pur la fin du temps <demo1>`
-2. `Speech Transcription <demo2>`
-3. `Complex Rhythms (Ferneyhough's 3rd String Quartet) <demo3>`
-4. `Soundfile chords <demo3>`
+1. `Messiaen - Quatour pur la fin du temps <messiaen-la-liturgie>`
+2. `Speech Transcription <demo-transcribe>`
+3. `Complex Rhythms (Ferneyhough's 3rd String Quartet) <demo-complex-rhythms>`
+4. `Soundfile chords <clip-chords>`
 
 Demos
 -----
-
-.. _demo1:
 
 1. Messiaen - Quatour pur la fin du temps
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. image:: assets/messiaen-notebook.jpg
   :width: 400px
-  :target: https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/notebooks/Messiaen-La%20Liturgie%20de%20Cristal.ipynb
+  :target: messiaen-la-liturgie.html
 
 Analysis and reconstruction of the rhythmic ostinati in Messiaen's "La liturgie de Cristal"
 
 -----------------------------------------------------------------------------------------------------------
 
 
-.. _demo2:
-
 2. Speech Transcription
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 .. image:: assets/demo-transcribe-notebook.png
   :width: 400px
-  :target: https://nbviewer.jupyter.org/github/gesellkammer/maelzel/blob/master/notebooks/demo-transcribe.ipynb
+  :target: demo-transcribe.html
 
 Transcription of a monophonic speaking voice combining fundamental tracking (using
 the pYin algorithm), onset/offset detection and other extracted features.
 
 
 -----------------------------------------------------------------------------------------------------------
-
-.. _demo3:
 
 3. Complex Rhythms - Ferneyhough's 3rd String Quartet
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -52,8 +46,6 @@ the pYin algorithm), onset/offset detection and other extracted features.
 
 Complex rhythms and rhythmic transformations
 
-
-.. _demo4:
 
 4. Soundfile chords
 ~~~~~~~~~~~~~~~~~~~
