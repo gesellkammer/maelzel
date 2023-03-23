@@ -11,7 +11,7 @@ computation related to music/sound. They can be played in real time, recorded
 and displayed as notation.
 
 .. toctree::
-    :maxdepth: 3
+    :maxdepth: 2
 
     core
 

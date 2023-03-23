@@ -1191,7 +1191,8 @@ def play(*sources: MObj | Sequence[SynthEvent] | csoundengine.session.SessionEve
     if not sources:
         return Synched(whenfinished=whenfinished)
 
-    coreevents, sessionevents = _collectEvents(sources, eventparams=eventparams)
+    coreevents, sessionevents = _collectEvents(sources, eventparams=eventparams,
+                                               workspace=Workspace.active)
     numChannels = _nchnlsForEvents(coreevents)
     if not isEngineActive():
         playEngine(numchannels=numChannels)

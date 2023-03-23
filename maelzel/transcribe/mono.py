@@ -357,7 +357,7 @@ class FundamentalAnalysisMono:
         import tabulate
         columnnames = self.groups[0][0].fields()
         rows = [_astuple(bp) for bp in self.flatBreakpoints()]
-        html = tabulate.tabulate(rows, tablefmt='html', headers=columnnames)
+        html = tabulate.tabulate(rows, tablefmt='html', headers=columnnames, floatfmt=".4f")
         return html
 
     def plot(self, linewidth=2, axes=None, spanAlpha=0.2):
