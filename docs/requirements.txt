@@ -15,9 +15,12 @@ csoundengine>=1.13
 pitchtools>=1.9
 lxml
 quicktions
+rich
+visvalingamwyatt
 
 sphinx-autodoc-typehints
 sphinx-automodapi
 sphinx_rtd_theme
 nbsphinx
 sphinx-design
+furo
