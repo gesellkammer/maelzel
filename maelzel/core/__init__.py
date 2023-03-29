@@ -23,12 +23,12 @@ def _onFirstRun():
         print("*** maelzel.core: found builtin piano soundfont; setting default instrument to '.piano'")
         assert CoreConfig.root is not None
         CoreConfig.root['play.instr'] = '.piano'
-        CoreConfig.root.save()
+        try:
+            CoreConfig.root.save()
+        except FileNotFoundError:
+            print(f"*** maelzel.core: Could not save config: {CoreConfig.root.getPath()}")
+
     _appstate.appstate['firstRun'] = False   # state is persistent so no need to save
-
-
-# rootConfig = CoreConfig(source='load')
-# Workspace._initclass()
 
 
 if _appstate.appstate['firstRun']:

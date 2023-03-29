@@ -171,6 +171,14 @@ def installVampPlugins() -> None:
                   width=80)
 
 
+def installAssets():
+    """
+    Install necessary assets (csound plugins, vamp plugins, ...)
+    """
+    checkCsoundPlugins(fix=True)
+    checkVampPlugins(fix=True)
+
+
 def checkDependencies(abortIfErrors=False, tryfix=True) -> list[str]:
     """
     Checks the dependencies of all maelzel subpackages
