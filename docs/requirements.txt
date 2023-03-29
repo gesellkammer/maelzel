@@ -17,6 +17,7 @@ lxml
 quicktions
 rich
 visvalingamwyatt
+vamphost
 
 sphinx-autodoc-typehints
 sphinx-automodapi
