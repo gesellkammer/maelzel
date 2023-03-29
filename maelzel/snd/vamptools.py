@@ -16,14 +16,11 @@ import sys
 import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+import vamp
+import vamp.frames
+
 if TYPE_CHECKING:
     from typing import Set
-
-try:
-    import vamp
-    import vamp.frames
-except ImportError:
-    raise ImportError("vamp-host not installed. Install it via 'pip install vamphost'")
 
 
 _pyinThresholdDistrs = {
