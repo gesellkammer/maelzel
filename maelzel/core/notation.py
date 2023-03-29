@@ -117,6 +117,7 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig = None
     profile.debug = cfg['quant.debug']
     profile.debugMaxDivisions = cfg['quant.debugShowNumRows']
 
+
     if (gridWeight:=cfg['quant.gridErrorWeight']) is not None:
         profile.gridErrorWeight = gridWeight
     if (divisionWeight:=cfg['quant.divisionErrorWeight']) is not None:
@@ -127,6 +128,9 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig = None
         profile.gridErrorExp = gridErrorExp
 
     profile.minBeatFractionAcrossBeats = cfg['quant.minBeatFractionAcrossBeats']
+    profile.breakSyncopationsLevel = cfg['quant.breakSyncopationsLevel']
+    profile.breakLongGlissandi = cfg['show.glissHideTiedNotes']
+
     return profile
 
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import re
 from maelzel.common import F, asF
+from maelzel.core.config import CoreConfig
 from .mobj import MObj, MContainer
 from .event import MEvent, asEvent, Note, Chord
 from .workspace import Workspace
@@ -21,65 +23,34 @@ from typing import TYPE_CHECKING, overload
 if TYPE_CHECKING:
     from typing import Any, Iterator, overload, TypeVar, Callable
     from ._typedefs import time_t
-    from .config import CoreConfig
     ChainT = TypeVar("ChainT", bound="Chain")
 
 
 __all__ = (
     'Chain',
     'Voice',
-    'stackEvents',
 )
 
 
-def _stacked(items: list[MEvent | Chain], now=F(0), ensureOffsets=False) -> bool:
-    frame = now
-    for item in items:
-        if item.offset is not None:
-            if item.offset + frame < now:
-                raise ValueError(f"items overlap... now={_util.showT(now)}, "
-                                 f"{item=} (offset={_util.showT(item.offset)})")
-            now = item.offset + frame
-        elif ensureOffsets:
-            return False
-        if isinstance(item, MEvent):
-            if item.dur is None:
-                return False
-            now += item.dur
-        else:
-            if not _stacked(item.items, now=now):
-                return False
-            now += item.resolveDur()
-    return True
-
-
-def stackEvents(events: list[MEvent | Chain],
-                explicitOffsets=True,
-                explicitDurations=True,
-                defaultDur=F(1),
-                offset=F(0),
-                ) -> F:
+def _stackEvents(events: list[MEvent | Chain],
+                 explicitOffsets=True,
+                 ) -> F:
     """
-    Stack events to the left **in place**, making any unset offset and totalDuration explicit
+    Stack events to the left **in place**, making any unset offset explicit
 
     Args:
-        events: the events to modify, either in place or as a copy
+        events: the events to modify
         explicitOffsets: if True, all offsets are made explicit, recursively
-        explicitDurations: if True, all durations are made explicit, recursively
-        defaultDur: the default totalDuration used when an event has no totalDuration and
-            the next event does not have an explicit offset
-        offset: the offset of the events given
 
     Returns:
         the accumulated totalDuration of all events
 
     """
     if not events:
-        raise ValueError("No events given")
+        return F(0)
 
     # All offset times given in the events are relative to the start of the chain
     now = F(0)
-    lasti = len(events) - 1
     for i, ev in enumerate(events):
         if ev.offset is not None:
             if ev.offset < now:
@@ -95,35 +66,13 @@ def stackEvents(events: list[MEvent | Chain],
 
         ev._resolvedOffset = now
         if isinstance(ev, MEvent):
-            calcdur = ev._calculateDuration(relativeOffset=now, parentOffset=offset)
-            if calcdur is not None:
-                dur = calcdur
-            elif i == lasti:
-                dur = defaultDur
-            else:
-                nextev = events[i+1]
-                if nextev.offset is not None:
-                    dur = nextev.offset - now
-                elif nextev._resolvedOffset is not None:
-                    dur = nextev._resolvedOffset - now
-                else:
-                    dur = defaultDur
-            now += dur
-            ev._resolvedDur = dur
-            if explicitDurations:
-                ev.dur = dur
+            now += ev.dur
         elif isinstance(ev, Chain):
-            stackeddur = stackEvents(ev.items,
-                                     explicitOffsets=explicitOffsets,
-                                     explicitDurations=explicitDurations,
-                                     offset=now)
+            stackeddur = _stackEvents(ev.items, explicitOffsets=explicitOffsets)
+            ev._dur = stackeddur
             now = ev._resolvedOffset + stackeddur
-            ev.dur = stackeddur
         else:
             raise TypeError(f"Expected an MEvent (Note, Chord, ...) or a Chain, got {ev}")
-
-    if explicitDurations:
-        assert all(ev.dur is not None for ev in events if isinstance(ev, MEvent))
     return now
 
 
@@ -162,10 +111,7 @@ def _removeRedundantOffsets(items: list[MEvent | Chain],
                 now = absoffset
 
         if isinstance(item, MEvent):
-            dur = item._detachedDur()
-            if dur is None:
-                raise ValueError(f"This Chain contains events with unspecified totalDuration: {item}")
-            now += dur
+            now += item.dur
         elif isinstance(item, Chain):  # a Chain
             dur = _removeRedundantOffsets(item.items, fillGaps=fillGaps, frame=now)
             item._modified = True
@@ -209,15 +155,18 @@ class Chain(MObj, MContainer):
                 items = [item if isinstance(item, (MEvent, Chain)) else asEvent(item)
                          for item in items]
 
-        super().__init__(offset=offset, dur=None, label=label,
-                         properties=properties, parent=parent)
         if items is not None:
             for item in items:
                 item.parent = self
         else:
             items = []
         assert isinstance(items, list)
+        super().__init__(offset=offset, dur=None, label=label,
+                         properties=properties, parent=parent)
+
         self.items: list[MEvent | Chain] = items
+        """The items in this chain, a list of events of other chains"""
+
         self._modified = items is not None
 
     def __hash__(self):
@@ -251,57 +200,20 @@ class Chain(MObj, MContainer):
     def copy(self) -> Chain:
         return self.__deepcopy__()
 
-    def isResolved(self, explicit=False) -> bool:
+    def stack(self, explicitOffsets=True) -> F:
         """
-        True if all items in this chain have an offset and totalDuration
+        Stack events to the left **INPLACE**, optionally making offsets explicit
 
         Args:
-            explicit: if True, items must have an explicit offset and explicit totalDuration
-                Otherwise it is enough that
-
-        Returns:
-            True if all items have a resolved offset and totalDuration
-        """
-        self._update()
-        if self.offset is None and self._resolvedOffset is None:
-            return False
-
-        if explicit:
-            for item in self.items:
-                if isinstance(item, MEvent):
-                    if item.offset is None or item.dur is None:
-                        return False
-                else:
-                    if not item.isResolved(explicit=True):
-                        return False
-            return True
-
-        for item in self.items:
-            if isinstance(item, MEvent):
-                if item.offset is None and item._resolvedOffset is None:
-                    return False
-                if item.dur is None and item._resolvedDur is None:
-                    return False
-            else:
-                if not item.isResolved(explicit=False):
-                    return False
-        return True
-
-    def stack(self, explicitOffsets=True, explicitDurations=True) -> F:
-        """
-        Stack events to the left **INPLACE**, optionally making offset/totalDuration explicit
-
-        Args:
-            explicitDurations: make all durations explicit (sets the .dur attribute of all
-                items in this chain, recursively)
             explicitOffsets: make all offset explicit (sets the .offset attribute of
                 all items in this chain, recursively)
 
         Returns:
             the total totalDuration of self
         """
-        dur = stackEvents(self.items, explicitDurations=explicitDurations, explicitOffsets=explicitOffsets)
-        self.dur = dur
+        dur = _stackEvents(self.items, explicitOffsets=explicitOffsets)
+        self._dur = dur
+        self._modified = False
         return dur
 
     def fillGaps(self, recurse=True) -> None:
@@ -327,11 +239,9 @@ class Chain(MObj, MContainer):
             items.append(item)
             if isinstance(item, Chain) and recurse:
                 item.fillGaps(recurse=True)
-            dur = item.dur if item.dur is not None else item._resolvedDur
-            assert dur is not None
-            now += dur
+            now += item.dur
         self.items = items
-        self._modified = True
+        self._changed()
 
     def itemAfter(self, item: MEvent | Chain) -> MEvent | Chain | None:
         """
@@ -378,6 +288,13 @@ class Chain(MObj, MContainer):
         item = self.items[idx]
         return item if isinstance(item, MEvent) else next(item.recurse())
 
+    def isFlat(self) -> bool:
+        """Is self flat?
+
+        A flat sequence contains only events, not other containers
+        """
+        return all(isinstance(item, MEvent) for item in self.items)
+
     def flat(self, forcecopy=False) -> Chain:
         """
         A flat version of this Chain
@@ -386,7 +303,8 @@ class Chain(MObj, MContainer):
         this Chain and any sub-chains to a flat chain of notes/chords.
 
         If this Chain is already flat (it does not contain any
-        Chains), self is returned unmodified.
+        Chains), self is returned unmodified. **NB**: all items in the returned
+        Chain have an explicit ``.offset``
 
         Args:
             forcecopy: if True the returned Chain is completely independent
@@ -401,11 +319,10 @@ class Chain(MObj, MContainer):
             return self
 
         items = []
-        for event, offset, eventdur in self.recurseWithTimes():
-            if forcecopy or event.offset != offset or event.dur != eventdur:
+        for event, offset in self.recurseWithOffset():
+            if forcecopy or event.offset != offset:
                 event = event.copy()
             event.offset = offset
-            event.dur = eventdur
             items.append(event)
         assert all(item.offset is not None for item in items)
         return self.clone(items=items)
@@ -418,7 +335,7 @@ class Chain(MObj, MContainer):
         """
         Copy of self with explicit times
 
-        If self already has explicit offset and totalDuration, self itself
+        If self already has explicit offset, self itself
         is returned. If you relie on the fact that this method returns
         a copy, use ``forcecopy=True``
 
@@ -456,8 +373,21 @@ class Chain(MObj, MContainer):
         if self.isResolved() and not forcecopy:
             return self
         out = self.copy()
-        out.stack(explicitOffsets=True, explicitDurations=True)
+        out.stack(explicitOffsets=True)
         return out
+
+    def isResolved(self) -> bool:
+        """
+        True if self has an explicit offset and all items as well (recursively)
+
+        Returns:
+            True if all items in self have explicit offsets
+        """
+        if self.offset is None:
+            return False
+
+        return all(item.offset is not None if isinstance(item, MEvent) else item.isResolved()
+                   for item in self.items)
 
     def _resolveGlissandi(self, force=False) -> None:
         """
@@ -555,9 +485,9 @@ class Chain(MObj, MContainer):
         """
         Merge tied events in place
 
-        Two events can be merged if they are tied and the second second
+        Two events can be merged if they are tied and the second
         event does not provide any extra information (does not have
-        an individual amplitude, dynamic, does not start a gliss, etc)
+        an individual amplitude, dynamic, does not start a gliss, etc.)
         """
         out = []
         last = None
@@ -588,16 +518,6 @@ class Chain(MObj, MContainer):
         self.items = out
         self._changed()
 
-    def childDuration(self, child: MObj) -> F:
-        if child.dur is not None:
-            assert child in self.items
-            return child.dur
-
-        self._update()
-        dur = child.dur if child.dur is not None else child._resolvedDur
-        assert dur is not None
-        return dur
-
     def childOffset(self, child: MObj) -> F:
         """
         Returns the offset of child within this chain
@@ -608,28 +528,33 @@ class Chain(MObj, MContainer):
         Returns:
             The offset of this child within this chain
         """
+        if child not in self.items:
+            raise ValueError(f"The item {child} is not a child of {self}")
+
         if child.offset is not None:
-            assert child in self.items
             return child.offset
 
         self._update()
-        for item in self.items:
-            if item is child:
-                return item.offset if item.offset is not None else item._resolvedOffset
+        return child._resolvedOffset
 
-        raise ValueError(f"The item {child} is not a child of {self}")
-
-    def resolveDur(self) -> F:
-        if self.dur is not None and not self._modified:
-            return self.dur
+    @property
+    def dur(self) -> F:
+        """The duration of this sequence"""
+        if self._dur is not None and not self._modified:
+            return self._dur
 
         if not self.items:
-            self.dur = F(0)
-            return self.dur
+            self._dur = F(0)
+            return self._dur
 
         self._update()
-        assert self.dur is not None
-        return self.dur
+        assert self._dur is not None
+        return self._dur
+
+    @dur.setter
+    def dur(self, value):
+        cls = type(self).__name__
+        raise AttributeError(f"Objects of class {cls} cannot set their duration")
 
     def append(self, item: MEvent) -> None:
         """
@@ -662,7 +587,7 @@ class Chain(MObj, MContainer):
     def _update(self):
         if not self._modified and self.dur is not None:
             return
-        self.stack(explicitOffsets=False, explicitDurations=False)
+        self._dur = _stackEvents(self.items, explicitOffsets=False)
         self._modified = False
         for item in self.items:
             if item.properties and '.glisstarget' in item.properties:
@@ -670,7 +595,9 @@ class Chain(MObj, MContainer):
 
     def _changed(self) -> None:
         self._modified = True
-        self.dur = None
+        self._dur = None
+        if self.parent:
+            self.parent.childChanged(self)
 
     def childChanged(self, child: MObj) -> None:
         self._changed()
@@ -718,7 +645,7 @@ class Chain(MObj, MContainer):
             r = type(self).__name__
 
             header = (f'<code><span style="font-size: {fontsize}">{IND*indents}<b>{r}</b> - '
-                      f'beat: {self.absoluteOffset()}, offset: {selfstart}, dur: {_util.showT(self.resolveDur())}'
+                      f'beat: {self.absoluteOffset()}, offset: {selfstart}, dur: {_util.showT(self.dur)}'
                       )
             if self.label:
                 header += f', label: {self.label}'
@@ -770,11 +697,9 @@ class Chain(MObj, MContainer):
 
                 elif isinstance(item, Chain):
                     rows.extend(item._dumpRows(indents=indents+1, now=now+itemoffset, forcetext=forcetext))
-                else:
-                    1/0
             return rows
         else:
-            rows = [f"{IND * indents}Chain -- beat: {self.absoluteOffset()}, offset: {selfstart}, dur: {self.resolveDur()}",
+            rows = [f"{IND * indents}Chain -- beat: {self.absoluteOffset()}, offset: {selfstart}, dur: {self.dur}",
                     f'{IND * (indents + 1)}beat   offset  dur    item']
             items, itemsdur = self._iterateWithTimes(recurse=False, frame=F(0))
             for item, itemoffset, itemdur in items:
@@ -829,6 +754,7 @@ class Chain(MObj, MContainer):
         return f'{cls}([{itemstr}]{info})'
 
     def _repr_html_header(self) -> str:
+        self._update()
         itemcolor = safeColors['blue2']
         items = self.items if len(self.items) < 10 else self.items[:10]
         itemstr = ", ".join(f'<span style="color:{itemcolor}">{repr(_)}</span>'
@@ -836,7 +762,7 @@ class Chain(MObj, MContainer):
         if len(self.items) >= 10:
             itemstr += ", …"
         cls = self.__class__.__name__
-        namedargs = [f'dur={_util.showT(self.resolveDur())}']
+        namedargs = [f'dur={_util.showT(self.dur)}']
         if self.offset is not None:
             namedargs.append(f'offset={self.offset}')
         info = ', ' + ', '.join(namedargs)
@@ -844,7 +770,7 @@ class Chain(MObj, MContainer):
 
     def removeRedundantOffsets(self, fillGaps=False) -> None:
         """
-        Remove over-secified start times in this Chain
+        Remove over-specified start times in this Chain
 
         Args:
             fillGaps: if True, any gap resulting of an event's starting
@@ -866,11 +792,11 @@ class Chain(MObj, MContainer):
         Convert this Chain to a Voice
         """
         items = self.copy().items
-        _ = stackEvents(items, offset=self.offset)
+        _ = _stackEvents(items, explicitOffsets=True)
         if self.offset:
             for item in items:
                 item.offset += self.offset
-        voice = Voice(items, label=self.label)
+        voice = Voice(items, name=self.label)
         voice.removeRedundantOffsets()
         return voice
 
@@ -965,8 +891,8 @@ class Chain(MObj, MContainer):
         return parts
 
     def quantizePitch(self, step=0.25):
-        if step == 0:
-            raise ValueError("Step should be possitive")
+        if step <= 0:
+            raise ValueError(f"Step should be possitive, got {step}")
         items = [i.quantizePitch(step) for i in self.items]
         return self.clone(items=items)
 
@@ -978,10 +904,8 @@ class Chain(MObj, MContainer):
         """
         Returns the offset (relative to the start of this chain) of the first event in this chain
         """
-        if not self.items:
-            return None
-        item = next(item for item in self.recurse())
-        return item.absoluteOffset() - self.absoluteOffset()
+        event  = self.firstEvent()
+        return None if not event else event.absoluteOffset() - self.absoluteOffset()
 
     def pitchTransform(self, pitchmap: Callable[[float], float]) -> Chain:
         newitems = [item.pitchTransform(pitchmap) for item in self.items]
@@ -1024,7 +948,7 @@ class Chain(MObj, MContainer):
                           frame: F,
                           ) -> tuple[list[tuple[MEvent | list, F, F]], F]:
         """
-        For each item returns a tuple (item, offset, totalDuration)
+        For each item returns a tuple (item, dur)
 
         Each event is represented as a tuple (event, offset, dur), a chain
         is represented as a list of such tuples
@@ -1036,7 +960,7 @@ class Chain(MObj, MContainer):
         Returns:
             a tuple (eventtuples, totalDuration) where eventtuples is a list of
             tuples (event, offset, dur). If recurse is True,
-            any subchain is returned as a list of eventtuples. Otherwise
+            any subchain is returned as a list of eventtuples. Otherwise,
             a flat list is returned. In each eventtuple, the offset is relative
             to the first frame passed, so if the first offset was 0
             the offsets will hold the absolute offset of each event. Duration
@@ -1052,45 +976,32 @@ class Chain(MObj, MContainer):
                 assert t >= now
                 now = t
             if isinstance(item, MEvent):
-                itemdur = item._calculateDuration(relativeOffset=now - frame, parentOffset=frame)
-                #if item.dur is not None:
-                #    dur = item.dur
-                if itemdur is not None:
-                    dur = itemdur
-                elif i == len(self.items) - 1:
-                    dur = F(1)
-                else:
-                    nextobj = self.items[i + 1]
-                    if nextobj.offset is not None:
-                        dur = nextobj.offset + frame - now
-                    else:
-                        dur = F(1)
+                dur = item.dur
                 out.append((item, now, dur))
-                item._resolvedDur = dur
                 item._resolvedOffset = now - frame
                 now += dur
             else:
                 if recurse:
                     subitems, subdur = item._iterateWithTimes(frame=now, recurse=True)
-                    item.dur = subdur
+                    item._dur = subdur
                     item._resolvedOffset = now - frame
                     out.append((subitems, now, subdur))
                 else:
-                    subdur = item.resolveDur()
+                    subdur = item.dur
                     out.append((item, now, subdur))
                 now += subdur
         return out, now - frame
 
-    def recurseWithTimes(self, absolute=False) -> Iterator[tuple[MEvent, F, F]]:
+    def recurseWithOffset(self, absolute=False) -> Iterator[tuple[MEvent, F]]:
         """
-        Recurse the events in self, yields a tuple (event, offset, totalDuration) for each event
+        Recurse the events in self, yields a tuple (event, offset, duration) for each event
 
         Args:
             absolute: if True, the offset returned for each item will be its
                 absolute offset; otherwise the offsets are relative to the start of self
 
         Returns:
-            a generator of tuples (event, offset, totalDuration), where offset is either the
+            a generator of tuples (event, offset, duration), where offset is either the
             offset relative to the start of self, or absolute if absoluteTimes is True
 
         Example
@@ -1109,17 +1020,19 @@ class Chain(MObj, MContainer):
         for itemtuple in itemtuples:
             item = itemtuple[0]
             if isinstance(item, MEvent):
-                yield itemtuple
+                item, offset, dur = itemtuple
+                yield item, offset
             else:
-                yield from item
+                for item, offset, dur in item:
+                    yield item, offset
 
     def iterateWithTimes(self, absolute=False
                          ) -> list[tuple[MEvent, F, F] | list]:
         """
-        Iterates over the items in self, returns a tuple (event, offset, totalDuration) for each
+        Iterates over the items in self, returns a tuple (event, offset, duration) for each
 
-        The explicit times (offset, totalDuration) of the events are not modified. For each event
-        it returns a tuple (event, offset, totalDuration), where the event is unmodified, the
+        The explicit times (offset, duration) of the events are not modified. For each event
+        it returns a tuple (event, offset, duration), where the event is unmodified, the
         offset is the withExplicitTimes offset relative to its parent and the totalDuration is the withExplicitTimes
         totalDuration. Nested subchains result in nested lists. All times are in beats
 
@@ -1128,13 +1041,13 @@ class Chain(MObj, MContainer):
 
         Returns:
             a list of tuples, one tuple for each event.
-            Each tuple has the form (event: MEvent, resolveOffset: F, resolveDur: F). The
-            explicit times in the events themselves are never modified. *resolveOffset* will
-            be the offset to self if ``absolute=False`` or the absolute offset of the event
+            Each tuple has the form (event: MEvent, offset: F, duration: F). The
+            explicit times in the events themselves are never modified. *offset* will
+            be the offset to self if ``absolute=False`` or the absolute offset otherwise
         """
         offset = self.absoluteOffset() if absolute else F(0)
         items, itemsdur = self._iterateWithTimes(frame=offset, recurse=True)
-        self.dur = itemsdur
+        self._dur = itemsdur
         return items
 
     def addSpanner(self, spanner: str | symbols.Spanner
@@ -1176,9 +1089,11 @@ class Chain(MObj, MContainer):
         spanner.bind(first, last)
 
     def firstEvent(self) -> MEvent | None:
+        """The first event in this chain, recursively"""
         return next(self.recurse(), None)
 
     def lastEvent(self) -> MEvent | None:
+        """The last event in this chain, recursively"""
         return next(self.recurse(reverse=True))
 
     def eventsBetween(self, startbeat: time_t, endbeat: time_t, absolute=False
@@ -1193,6 +1108,7 @@ class Chain(MObj, MContainer):
         Args:
             startbeat: the start time, relative to the start of self
             endbeat: end time, relative to the start of self
+            absolute: if True, interpret startbeat and endbeat as absolute
 
         Returns:
             a list of events located between the given time-interval
@@ -1243,6 +1159,7 @@ class Voice(Chain):
     """
 
     _acceptsNoteAttachedSymbols = False
+    _configKeys: set[str] | None = None
 
     def __init__(self,
                  items: list[MEvent | str] | Chain = None,
@@ -1265,6 +1182,86 @@ class Voice(Chain):
         self.clef = clef
         """If given, force this voice to use this clef for the case of a single staff"""
 
+        self._config: dict[str, Any] = {}
+        """Any key set here will override keys from the coreconfig for rendering
+        Any key in CoreConfig is supported"""
+
+    def setConfig(self, key: str, value) -> Voice:
+        """
+        Set a configuration key for this object.
+
+        Possible keys are any CoreConfig keys with the prefixes 'quant.' and 'show.'
+
+        Args:
+            key: the key to set
+            value: the value. It will be validated via CoreConfig
+
+        Returns:
+            self. This allows multiple calls to be chained
+
+        Example
+        ~~~~~~~
+
+        Configure the voice to break syncopations at every beat when
+        rendered or quantized as a QuantizedScore
+
+            >>> voice = Voice(...)
+            >>> voice.setConfig('quant.brakeSyncopationsLevel', 'all')
+
+        Now, whenever the voice is shown in itself or as part of a score
+        all syncopations across beat boundaries will be split into tied notes.
+
+        This is the same as:
+
+            >>> voice = Voice(...)
+            >>> score = Score([voice])
+            >>> quantizedscore = score.quantizedScore()
+            >>> quantizedscore.parts[0].brakeSyncopations(level='all')
+            >>> quantizedscore.render()
+        """
+        configkeys = Voice._configKeys
+        if not configkeys:
+            pattern = r'(quant|show)\..+'
+            corekeys = CoreConfig.root.keys()
+            configkeys= set(k for k in corekeys if re.match(pattern, k))
+            Voice._configKeys = configkeys
+        if key not in configkeys:
+            raise KeyError(f"Key {key} not known. Possible keys: {configkeys}")
+        if errormsg := CoreConfig.root.checkValue(key, value):
+            raise ValueError(f"Cannot set {key} to {value}: {errormsg}")
+        self._config[key] = value
+        return self
+
+    def getConfig(self, prototype: CoreConfig = None) -> CoreConfig | None:
+        """
+        Returns a CoreConfig overloaded with any option set via :meth:`~Voice.setConfig`
+
+        Args:
+            prototype: the config to use as prototype. If not given, the active config
+                will be used
+
+        Returns:
+            the resulting CoreConfig set via :meth:`Voice.setConfig`. If not prototype
+            and no changes have been made, None is returned
+
+        """
+        if not self._config:
+            return prototype
+        return (prototype or Workspace.active.config).clone(self._config)
+
+    def configQuantization(self,
+                           breakSyncopationsLevel: str = None,
+                           ) -> None:
+        """
+        Customize the quantization process for this Voice
+
+        Args:
+            breakSyncopationsLevel: one of 'all', 'weak', 'strong' (see
+                config key `quant.breakSyncopationsLevel <config_quant_breaksyncopationslevel>`)
+
+        """
+        if breakSyncopationsLevel is not None:
+            self.setConfig('quant.breakSyncopationsLevel', breakSyncopationsLevel)
 
     def clone(self, **kws) -> Voice:
         if not 'items' in kws:
@@ -1282,6 +1279,7 @@ class Voice(Chain):
 
     def scoringParts(self, config: CoreConfig = None
                      ) -> list[scoring.Part]:
+        config = self.getConfig(config)
         parts = super().scoringParts(config=config)
         if len(parts) == 1:
             part = parts[0]
@@ -1292,6 +1290,10 @@ class Voice(Chain):
             for i, part in enumerate(parts):
                 part.name = f'{self.name}-{i+1}'
                 part.shortname = f'{self.shortname}{i+1}'
+        if config:
+            quantProfile = config.makeQuantizationProfile()
+            for part in parts:
+                part.quantProfile = quantProfile
         return parts
 
 
@@ -1351,8 +1353,8 @@ def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
         availableNodes = availableNodesPerGroup[groupindex + 1]
         if not availableNodes:
             return out
-        nextGroup = groups[groupindex + 1]
-        candidates = [nextGroup[index] for index in availableNodes]
+        # nextGroup = groups[groupindex + 1]
+        # candidates = [nextGroup[index] for index in availableNodes]
         nextEventIndex = matchNext(event, group=groups[groupindex+1], availableNodes=availableNodes)
         if nextEventIndex is None:
             return out
@@ -1383,5 +1385,3 @@ def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
         out.extend(lastGroup[idx] for idx in lastGroupIndexes)
 
     return out
-
-

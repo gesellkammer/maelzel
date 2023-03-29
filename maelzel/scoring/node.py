@@ -124,7 +124,7 @@ class Node:
     def dump(self, numindents=0, indent='  ', stream=None):
         stream = stream or sys.stdout
         MAXWIDTH = 90
-        print(f"{indent * numindents}Node({self.durRatio[0]}/{self.durRatio[1]})", file=stream)
+        print(f"{indent * numindents}Node ratio: {self.durRatio[0]}/{self.durRatio[1]}, offset={self.offset}, end={self.end}", file=stream)
         IND = indent * (numindents + 1)
         for item in self.items:
             if isinstance(item, Notation):
@@ -172,6 +172,7 @@ class Node:
         node = node.mergedNotations()
         return node
 
+
     def mergedNotations(self, flatten=True) -> Node:
         """
         Returns a new tree with all items merged (recursively)
@@ -200,7 +201,7 @@ class Node:
             n = out[0]
             if n.durRatios and n.durRatios[-1] != F(1):
                 n.durRatios.pop()
-            return Node(ratio=F(1), items=[n])
+            return Node(ratio=(1, 1), items=[n])
         return Node(ratio=self.durRatio, items=out)
 
     def lastNotation(self) -> Notation:
@@ -415,6 +416,39 @@ class Node:
 
         from . import enharmonics
         enharmonics.fixEnharmonicsInPlace(notations, options=options)
+
+    def splitAtBeatBoundary(self, offset: F, key=None) -> None:
+        """
+        Split any notation which crosses the given offset
+
+        A notation will be split if it crosses the given offset
+        and its duration is less than *maxdur*
+
+        Args:
+            offset: the offset of the desired split. It should be a beat boundary
+            maxdur: the max. duration of the notation
+
+        Returns:
+        """
+        if not self.offset < offset < self.end:
+            logger.debug(f"This Node (offset: {self.offset}, end: {self.end}) does not contain offset {offset}")
+            return
+
+        for i, item in enumerate(self.items):
+            if item.offset < offset < item.end:
+                if isinstance(item, Notation):
+                    symdur = item.symbolicDuration()
+                    assert symdur.denominator in (1, 2, 4, 8, 16)
+                    assert symdur.numerator in (1, 2, 3, 4, 7), f"Symbolic duration for {item}: {symdur}"
+                    if key and not key(item):
+                        break
+                    parts = item.splitNotationAtOffsets([offset])
+                    assert len(parts) == 2
+                    newitems = self.items[:i] + parts + self.items[i+1:]
+                    self.items = newitems
+                    return
+                else:
+                    item.splitAtBeatBoundary(offset=offset, key=key)
 
 
 def asTree(nodes: list[Node]

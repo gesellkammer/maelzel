@@ -1,4 +1,6 @@
 import os
+import math
+
 
 defaultdict = {
     'A4': 442,
@@ -8,6 +10,7 @@ defaultdict = {
     'semitoneDivisions': 4,
     'musescorepath': '',
     'reprShowFractionsAsFloat': True,
+    'jupyterHtmlRepr': True,
     'fixStringNotenames': False,
     'openImagesInExternalApp': False,
     'enharmonic.horizontalWeight': 1,
@@ -73,11 +76,13 @@ defaultdict = {
     'rec.path': '',
     'rec.quiet': True,
     'rec.compressionBitrate': 224,
+    'rec.extratime': 0.,
 
     'htmlTheme': 'light',
 
     'quant.minBeatFractionAcrossBeats': 0.5,
     'quant.nestedTuplets': None,
+    'quant.breakSyncopationsLevel': 'weak',
     'quant.complexity': 'high',
     'quant.divisionErrorWeight': None,
     'quant.gridErrorWeight': None,
@@ -85,6 +90,7 @@ defaultdict = {
     'quant.gridErrorExp': None,
     'quant.debug': False,
     'quant.debugShowNumRows': 50,
+
 
     'dynamicCurveShape': 'expon(0.3)',
     'dynamicCurveMindb': -60,
@@ -116,6 +122,7 @@ validator = {
     'rec.sr::choices': {44100, 88200, 176400, 352800, 48000, 96000, 144000, 192000, 384000},
     'rec.compressionBitrate::coices': {64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 500},
     'rec.ksmps::choices': {1, 16, 32, 64, 128, 256},
+    'rec.extratime::range': (0., math.inf),
     'play.defaultAmplitude::range': (0, 1),
     'play.pitchInterpolation::choices': {'linear', 'cos'},
     'play.generalMidiSoundfont': lambda cfg, key, val: val == '' or (os.path.exists(val) and os.path.splitext(val)[1] == '.sf2'),
@@ -143,6 +150,7 @@ validator = {
     'quant.divisionErrorWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,
     'quant.gridErrorWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,
     'quant.rhythmComplexityWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,
+    'quant.breakSyncopationsLevel::choices': ('none', 'all', 'weak', 'strong')
 
 }
 
@@ -158,6 +166,11 @@ docs = {
         "All time offsets and durations are kept as rational numbers to avoid rounding errors. "
         "If this option is True, these fractions are printed as floats in order to make them "
         "more readable. ",
+    "jupyterHtmlRepr":
+        "If True, output html inside jupyter as part of the _repr_html_ hook. Under "
+        "certain circumstances (for example, when generating documentation from a notebook) "
+        "this html might result in style conflict. Setting in False will just output "
+        "plain text",
     'openImagesInExternalApp':
         "Force opening images with an external tool, even when inside a Jupyter "
         "notebook",
@@ -265,6 +278,8 @@ docs = {
         'default bitrate to use when encoding to ogg or mp3',
     'rec.numChannels':
         'The default number of channels when rendering to disk',
+    'rec.extreatime':
+        'Default extratime added when recording',
     'play.fade':
         'default fade time',
     'play.unschedFadeout':
@@ -340,6 +355,10 @@ docs = {
         'nested tuples (musescore, used to render musicxml '
         'has no support for nested tuples). If None, this flag is determined based on '
         'the complexity preset (quant.complexity)',
+    'quant.breakSyncopationsLevel':
+        'Level at which to break syncopations, one of "all" (break all syncopations), '
+        '"weak (break only syncopations over secondary beats)", "strong" (break '
+        'syncopations at strong beats) or "none" (do not break any syncopations)',
     'quant.divisionErrorWeight':
         'A weight (between 0 and 1) applied to the penalty of complex quantization of '
         'the beat. The higher this value is, the simpler the subdivision chosen. '

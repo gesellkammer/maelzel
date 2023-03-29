@@ -141,7 +141,7 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
     return score.Score([voice], scorestruct=struct)
 
 
-def packInVoices(objs: list[core.MObj]) -> list[core.Voice]:
+def packInVoices(objs: list[core.MEvent | core.Chain]) -> list[core.Voice]:
     """
     Distribute the items across voices
     """
@@ -156,7 +156,7 @@ def packInVoices(objs: list[core.MObj]) -> list[core.Voice]:
             unpitched.append(r)
         else:
             pitch = (r[0] + r[1]) / 2
-            dur = obj.resolveDur()
+            dur = obj.dur
             item = packing.Item(obj,
                                 offset=F(obj.offset.numerator, obj.offset.denominator),
                                 dur=F(dur.numerator, dur.denominator),

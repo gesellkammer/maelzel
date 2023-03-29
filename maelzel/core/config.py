@@ -343,3 +343,4 @@ class CoreConfig(ConfigDict):
         from maelzel.core.presetmanager import presetManager
         if '_piano' in presetManager.presetdefs:
             self['play.instr'] = '_piano'
+

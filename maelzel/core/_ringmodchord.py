@@ -73,13 +73,14 @@ class RingmodChord(Chord):
         notes.extend(bandnotes)
         if parentOffset is None:
             parentOffset = self.parent.absoluteOffset() if self.parent else F(0)
-        if not self.gliss:
+        if self.gliss:
+            gliss = self.resolveGliss()
+            glisschord = RingmodChord(gliss, dur=0, offset=self.resolveOffset() + self.dur)
+            events = self.clone(notes=notes, gliss=True).scoringEvents(groupid=groupid, config=config, parentOffset=parentOffset)
+            events.extend(glisschord.scoringEvents(groupid=groupid, config=config, parentOffset=parentOffset))
+            return events
+        else:
             return self.clone(notes=notes).scoringEvents(groupid=groupid, config=config, parentOffset=parentOffset)
-        gliss = self.resolveGliss()
-        glisschord = RingmodChord(gliss, dur=0, offset=self.resolveOffset() + self.resolveDur())
-        events = self.clone(notes=notes, gliss=True).scoringEvents(groupid=groupid, config=config, parentOffset=parentOffset)
-        events.extend(glisschord.scoringEvents(groupid=groupid, config=config, parentOffset=parentOffset))
-        return events
 
 
 

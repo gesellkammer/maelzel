@@ -330,6 +330,11 @@ class OfflineRenderer(Renderer):
         header = f'{header}({info})'
         return '<br>'.join([header, samplehtml])
 
+    def show(self) -> None:
+        if emlib.misc.inside_jupyter():
+            from IPython.display import display
+            display(self)
+
     def registerPreset(self, presetdef: PresetDef) -> None:
         if presetdef.name  in self.registeredPresets:
             return
@@ -775,7 +780,7 @@ def render(outfile: str = None,
            quiet: bool = None,
            nchnls: int = None,
            workspace: Workspace = None,
-           extratime=0.,
+           extratime: float = None,
            render=True,
            **kws
            ) -> OfflineRenderer:
@@ -858,6 +863,10 @@ def render(outfile: str = None,
     if sessionEvents:
         for sessionevent in sessionEvents:
             renderer.schedSessionEvent(sessionevent)
+
+    if extratime is None:
+        cfg = getConfig()
+        extratime = cfg['rec.extratime']
 
     if extratime:
         _, endtime = renderer.timeRange()

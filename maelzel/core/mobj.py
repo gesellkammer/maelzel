@@ -5,9 +5,10 @@ Musical Objects
 Time
 ~~~~
 
-A MObj has always an offset and dur attribute. They refer to an abstract time.
-When visualizing a MObj as musical notation these times are interpreted/converted
-to beats and score locations based on a score structure.
+A MObj has always an offset and dur attribute. The offset can be unset (None).
+They refer to an abstract time. When visualizing a MObj as musical notation
+these times are interpreted/converted to beats and score locations based on
+a score structure.
 
 """
 from __future__ import annotations
@@ -23,10 +24,10 @@ either the object itself or by the parent
 
 # dur
 
-Each object has a duration (.dur). The duration can be None if  not explicitely
-set. Each object must have an implicit duration, which, in the case of not being
-set explicitely, can be determined by the offset of the next object within a chain
-or a default duration of 1 if any other method fails.
+Each object has a duration (.dur). The duration is always explicit. It is implemented
+as a property since it might be calculated. 
+
+TODO: revise this docs
 
 * _calculateDuration: this method should return the duration in beats or None if the
   object itself cannot determine its own duration
@@ -53,7 +54,7 @@ import pitchtools as pt
 
 import csoundengine
 
-from maelzel.common import asmidi, F, asF, F0
+from maelzel.common import asmidi, F, asF, F0, F1
 from ._common import *
 from ._typedefs import *
 
@@ -115,10 +116,6 @@ class MContainer:
         """The offset of child relative to this parent"""
         raise NotImplementedError
 
-    def childDuration(self, child: MObj) -> F:
-        """The resolved duration of child"""
-        raise NotImplementedError
-
     def absoluteOffset(self) -> F:
         """The absolute offset of this container"""
         raise NotImplementedError
@@ -143,6 +140,7 @@ class MContainer:
         pass
 
     def itemAfter(self, item: MObj) -> MObj | None:
+        """Returns the item after *item*, if any (None otherwise)"""
         pass
 
 
@@ -153,38 +151,34 @@ class MObj:
 
     This is an abstract class. **It should not be instantiated by itself**.
     A :class:`MObj` can display itself via :meth:`show` and play itself via :meth:`play`.
-    It can have a duration (:attr:`dur`) and a time offset (:attr:`offset`). Both
-    can be left as ``None``, which means that these time attributes are not explicitely
-    determined. When this MObj needs to be displayed or shown (at the latest) the offset
-    and duration are resolved based on the context (is the MObj contained in another
-    object, like a Note within a Voice?) and a resolved offset and duration are calculated.
-    This resolved values can be queried via :meth:`resolveOffset` and :meth:`resolveDur`
+    Any MObj has a duration (:attr:`dur`) and a time offset (:attr:`offset`). The offset
+    can be left as ``None``, indicating that it is not explicitely set, in which case it
+    will be calculated from the context. In the case of events or chains, which can be
+    contained within other objects, the offset depends on the previous objects. The
+    resolved (implicit) offset can be queried via :meth:`MObj.resolveOffset`. This offset
+    is relative to the parent, or an absolute offset if the object has no parent. The absolute
+    offset can be queried via :meth:`MObj.absoluteOffset`.
 
-    A :class:`MObj` can customize its playback via :meth:`setPlay`. These attributes can
-    be accessed through the `playargs` property
-
-    Each MObj can be asked to calculate its own duration. When the method
-    :meth:`_calculateDuration` is called, it should return its duration or None if it
-    cannot be determined by the object itself. Within :meth:`_calculateDuration` it is
-    not allowed to access the :attr:`parent`.
+    A :class:`MObj` can customize its playback via :meth:`setPlay`. The playback attributes can
+    be accessed through the `playargs` attribute
 
     Elements purely related to notation (text annotations, articulations, etc)
     are added to a :class:`MObj` through the :meth:`addSymbol` and can be accessed
-    through the :attr:`symbol` attribute.
-    A symbol is an attribute or notation element (like color, size or an attached
-    text expression) which has meaning only in the realm of graphical representation.
+    through the :attr:`MObj.symbols` attribute. A symbol is an attribute or notation
+    element (like color, size or an attached text expression) which has meaning only
+    in the realm of graphical representation.
 
     Args:
-        dur: the (optional) duration of this object, in abstract units (beats)
-        offset: the (optional) time offset of this object, in abstract units (beats)
+        dur: the duration of this object, in quarternotes
+        offset: the (optional) time offset of this object, in quarternotes
         label: a string label to identify this object, if necessary
     """
     _acceptsNoteAttachedSymbols = True
     _isDurationRelative = True
     _excludedPlayKeys: tuple[str] = ()
 
-    __slots__ = ('_parent', 'dur', 'offset', 'label', 'playargs', 'symbols',
-                 '_scorestruct', 'properties', '_resolvedOffset', '_resolvedDur')
+    __slots__ = ('_parent', '_dur', 'offset', 'label', 'playargs', 'symbols',
+                 '_scorestruct', 'properties', '_resolvedOffset')
 
     def __init__(self, dur: time_t = None, offset: time_t = None, label: str = '',
                  parent: MObj = None,
@@ -199,7 +193,7 @@ class MObj:
 
         # A MObj can have a duration. A duration can't be 0
 
-        self.dur: F | None = dur
+        self._dur: F | None = dur
         "the duration of this object (can be None, in which case it is unset)"
 
         self.offset: F | None = offset
@@ -221,9 +215,19 @@ class MObj:
 
         self._scorestruct: ScoreStruct | None = None
         self._resolvedOffset: F | None = None
-        self._resolvedDur: F | None = None
-
+        
         assert dur is None or dur >= 0, f"A Duration cannot be negative: {self}"
+
+    @property
+    def dur(self) -> F:
+        "The duration of this object, in quarternotes"
+        d = self._dur
+        return F1 if d is None else d
+
+    @dur.setter
+    def dur(self, dur: time_t):
+        self._dur = asF(dur)
+        self._changed()
 
     @property
     def parent(self) -> MContainer | None:
@@ -322,16 +326,6 @@ class MObj:
              the explicit or implicit offset, or *default* otherwise
         """
         return _ if (_:=self.offset) is not None else _ if (_:=self._resolvedOffset) is not None else default
-        # return offset if (offset:=self.offset) is not None else self._resolvedOffset
-
-    def _detachedDur(self, default=None) -> F | None:
-        """
-        The explict or implici duration (if it has been resolved), or None otherwise
-
-        This method does not call the parent
-
-        """
-        return _ if (_:=self.dur) is not None else _ if (_:=self._resolvedDur) is not None else default
 
     def resolveEnd(self) -> F:
         """
@@ -343,7 +337,7 @@ class MObj:
         Returns:
             the resolved end of this object, relative to its parent
         """
-        return self.resolveOffset() + self.resolveDur()
+        return self.resolveOffset() + self.dur
 
     def resolveOffset(self) -> F:
         """
@@ -369,53 +363,7 @@ class MObj:
             self._resolvedOffset = offset = self.parent.childOffset(self)
             return offset
         else:
-            return F(0)
-
-    def _calculateDuration(self,
-                           relativeOffset: F | None,
-                           parentOffset: F | None,
-                           force=False
-                           ) -> F | None:
-        """
-        This method should calculate its own duration or return None if it cannot
-
-        If it has already done so and force is False it should return the cached
-        (resolved) duration.
-
-        .. note:: this method is not allowed to access its parent
-
-        Args:
-            relativeOffset: the offset of this object relative to its parent
-            parentOffset: the offset of the parent. parentOffset + relativeOffset = absoluteOffset
-            force: if True, do not use cached values
-
-        Returns:
-            the objects duration, or None if it cannot be determined from
-            the object itself
-        """
-        return self.dur if self.dur is not None else self._resolvedDur
-
-    def resolveDur(self) -> F:
-        """
-        The explicit or calculated / implicit duration, in quarternotes
-
-        If this object has an explicit duration (its :attr:`dur` attribute is not None)
-        then that duration is returned; otherwise returns its implicit duration.
-        If this object has a parent it might call that parent to determine its
-        duration based on its context.
-
-        Returns:
-            the resolved duration
-
-        """
-        if self.dur is not None:
-            return self.dur
-        elif self._resolvedDur is not None:
-            return self._resolvedDur
-        elif self.parent:
-            self._resolvedDur = self.parent.childDuration(self)
-            return self._resolvedDur
-        return F(1)
+            return F0
 
     def withExplicitTimes(self, forcecopy=False):
         """
@@ -448,9 +396,9 @@ class MObj:
             4C:1♩:offset=2.5
 
         """
-        if self.dur is not None and self.offset is not None and not forcecopy:
+        if self.offset is not None and not forcecopy:
             return self
-        return self.clone(dur=self.resolveDur(), offset=self.resolveOffset())
+        return self.clone(offset=self.resolveOffset())
 
     def absoluteOffset(self) -> F:
         """
@@ -544,7 +492,7 @@ class MObj:
         """
         out = self.copy()
         for k, v in kws.items():
-            if k == 'offset' or k == 'dur':
+            if k == 'offset':
                 v = asF(v)
             setattr(out, k, v)
 
@@ -588,11 +536,9 @@ class MObj:
         """
         The end time of this object.
 
-        Will be None if this object has no explicit offset or explicit duration
+        Will be None if this object has no explicit offset
         """
-        if self.dur is None or self.offset is None:
-            return None
-        return self.offset + self.dur
+        return None if self.offset is None else self.offset + self.dur
 
     def quantizePitch(self: MObjT, step=0.) -> MObjT:
         """ Returns a new object, with pitch rounded to step """
@@ -679,8 +625,6 @@ class MObj:
         This happens when a note changes its pitch inplace, the duration is modified, etc.
         This invalidates, among other things, the image cache for this object
         """
-        self._resolvedOffset = None
-        self._resolvedDur = None
         if self.parent:
             self.parent.childChanged(self)
 
@@ -1048,7 +992,7 @@ class MObj:
         img = self._htmlImage()
         txt = self._repr_html_header()
         # return rf'<code style="font-size:0.9em">{txt}</code><br>' + img
-        return rf'<pre style="white-space: pre-wrap; font-size:0.9em;">{txt}</pre><br>' + img
+        return rf'<code style="white-space: pre-line; font-size:0.9em;">{txt}</code><br>' + img
 
 
     def dump(self, indents=0, forcetext=False):
@@ -1353,7 +1297,7 @@ class MObj:
             args: dict[str, float] = None,
             gain: float = None,
             position: float = None,
-            extratime=0.,
+            extratime: float = None,
             workspace: Workspace = None,
             **kws
             ) -> OfflineRenderer:
@@ -1378,6 +1322,7 @@ class MObj:
             args: named arguments passed to the note. A dict ``{paramName: value}``
             position: the panning position (0=left, 1=right)
             workspace: if given it overrides the active workspace
+            extratime: extratime added to the recording (:ref:`config key: 'rec.extratime' <config_rec_extratime>`)
 
             **kws: any keyword passed to .play
 
@@ -1665,10 +1610,9 @@ class MObj:
             absoffset = self.absoluteOffset()
         else:
             absoffset = self._detachedOffset(F0) + parentOffset
-        dur = self.resolveDur()
         if scorestruct is None:
             scorestruct = self.scorestruct() or Workspace.active.scorestruct
-        return scorestruct.beatToTime(absoffset), scorestruct.beatToTime(absoffset + dur)
+        return scorestruct.beatToTime(absoffset), scorestruct.beatToTime(absoffset + self.dur)
 
     def durSecs(self) -> F:
         """

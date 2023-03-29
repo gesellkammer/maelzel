@@ -1,24 +1,60 @@
 .wy-nav-content {
-    max-width: 1200px !important;
+    max-width: 1120px !important;
+    padding-left: 2.00em;
+    padding-right: 2.00em;
 }
 
-
-div.leftside {
-  width: 43%;
-  padding: 0px 3px 0px 0px;
-  float: left;
+.autosummary table {
+	font-size: 16px !important;
 }
 
-div.rightside {
-  margin-left: 45%;
-  /* float: right; */
+h1 {
+	font-size: 2.0em;	
 }
 
+h2 {
+	font-size: 1.58em;
+}
 
-table {
-	font-size: 12px !important;
+h3 {
+	font-size: 1.21em;
 }
 
 h2,h3 {
-	margin-top: 20px;
+	margin-top: 24px;
+}
+
+h4 {
+	margin-top: 16px;
+}
+
+.output_area code {
+	border: none !important;
+	font-size: 12px !important;
+	white-space: pre-line !important;
+}
+
+.input_area pre {
+	font-size: 13px !important;
+}
+
+
+.nbinput {
+	margin-bottom: 8px !important;	
+}
+	
+.cardtitle {
+	margin-bottom: 0.9em;
+	font-size: 18px;
+}
+
+
+
+/* furo */
+.content {
+	width: 54em;
+}
+
+div.autosummary {
+	align: left;
 }

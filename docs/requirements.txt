@@ -19,3 +19,5 @@ quicktions
 sphinx-autodoc-typehints
 sphinx-automodapi
 sphinx_rtd_theme
+nbsphinx
+sphinx-design

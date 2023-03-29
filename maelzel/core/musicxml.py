@@ -37,12 +37,29 @@ _unitToFactor = {
 
 
 class ParseContext:
-    def __init__(self, divisions: int, fixSpelling=True):
+    """
+    A musicxml parsing context
+
+    Args:
+        divisions: the musicxml divisions per quarternote
+        enforceParsedSpelling: if True, use the original enharmonic spelling as read from musicxml
+    """
+    def __init__(self, divisions: int, enforceParsedSpelling=True):
+
         self.divisions = divisions
-        self.fixSpelling = fixSpelling
+        "The number of divisions per quarter note"
+
+        self.enforceParsedSpelling = enforceParsedSpelling
+        "If True, use the parsed enharmonic spelling of the musicxml"
+
         self.spanners: dict[str, symbols.Spanner] = {}
+        "A registry of open spanners"
+
         self.octaveshift: int = 0
+        "Octave shift context"
+
         self.transposition: int = 0
+        "Transposition context"
 
     def copy(self) -> ParseContext:
         out = copy.copy(self)
@@ -325,7 +342,7 @@ def _parseNote(root: ET.Element, context: ParseContext) -> Note:
     if noteType == 'unpitched':
         note.addSymbol(symbols.Notehead('x'))
 
-    if context.fixSpelling:
+    if context.enforceParsedSpelling:
         note.pitchSpelling = notename
 
     if notations:
@@ -868,13 +885,13 @@ class PartDef:
             self.shortnameDisplay = _escapeString(shortnameDisp.find('display-text').text)
 
 
-def parseMusicxmlFile(path: str, fixSpelling=False) -> Score:
+def parseMusicxmlFile(path: str, enforceParsedSpelling=False) -> Score:
     """
-    Read a musicxml file and parse its contents
+    Read a musicxml file and parse its contents, creates a Score
 
     Args:
         path: the path to a musicxml file
-        fixSpelling: if True, do not fix the enharmonic spelling to the
+        enforceParsedSpelling: if True, do not fix the enharmonic spelling to the
             note names read in the musicxml definition
 
     Returns:
@@ -884,10 +901,10 @@ def parseMusicxmlFile(path: str, fixSpelling=False) -> Score:
     encoding = _guessEncoding(path)
     logger.debug(f"Opening musicxml file '{path}' with encoding: {encoding}")
     xmltext = open(path, "r", encoding=encoding).read()
-    return parseMusicxml(xmltext, fixSpelling=fixSpelling)
+    return parseMusicxml(xmltext, enforceParsedSpelling=enforceParsedSpelling)
 
 
-def parseMusicxml(xml: str, fixSpelling=False) -> Score:
+def parseMusicxml(xml: str, enforceParsedSpelling=False) -> Score:
     """
     Parse the musicxml string
 
@@ -895,8 +912,8 @@ def parseMusicxml(xml: str, fixSpelling=False) -> Score:
 
     Args:
         xml: the musicxml string
-        fixSpelling: if True, do not fix the enharmonic spelling to the
-            note names read in the musicxml definition
+        enforceParsedSpelling: if True, pin the enharmonic spelling as defined in the musicxml
+            text parsed. Otherwise, let maelzel find the best enharmonic spelling for this score
 
     Returns:
         a Score
@@ -939,7 +956,7 @@ def parseMusicxml(xml: str, fixSpelling=False) -> Score:
         divisions = int(divisionsNode.text)
 
     rootcontext = ParseContext(divisions=divisions,
-                               fixSpelling=fixSpelling)
+                               enforceParsedSpelling=enforceParsedSpelling)
 
     scorestructs: list[ScoreStruct] = []
     allvoices: list[Voice] = []

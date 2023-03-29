@@ -17,8 +17,8 @@ and displayed as notation.
 
 ---------------------
 
-maelzel.scoring
----------------
+maelzel.scoring - General Purpose notation
+------------------------------------------
 
 The **maelzel.scoring** package can be used for general purpose musical notation. It provides
 the notation functionality used by **maelzel.core** but it can be used independently. 
@@ -34,8 +34,8 @@ multiple backends (*lilypond*, *musescore*)
 
 --------------------
 
-maelzel.snd
------------
+maelzel.snd - Audiosamples, analysis, synthesis, feature extraction
+-------------------------------------------------------------------
 
 All functionality related to *sound* is contained within this package
 
@@ -54,7 +54,6 @@ Miscellaneous Functionality
 .. toctree::
     :maxdepth: 1
 
-    rationalnumbers
     distribute
 
 

@@ -27,16 +27,35 @@ There are **external dependencies** which need to be installed manually:
 * **csound** >= 6.18. (https://csound.com/download.html).
 * **lilypond** (https://lilypond.org/download.html)
 
-For more information see :ref:`installation`
+For more information see :doc:`Installation`
 
 -----------------
 
+Introduction
+------------
+
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 2
 
    Introduction
+
+Tutorial
+--------
+
+.. toctree::
+   :maxdepth: 2
+
    Tutorial
+
+
+-----------------
+
+Reference
+---------
+
+.. toctree::
+   :maxdepth: 2
+
    Reference
-   Installation
 
 

@@ -13,6 +13,7 @@ from maelzel import scorestruct
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Union, Iterator
+    from maelzel.scoring import quant
 
 logger = logging.getLogger("maelzel.scoring")
 
@@ -49,7 +50,8 @@ class Part(list):
                  name='',
                  groupid: str = '',
                  shortname='',
-                 firstclef: str = ''):
+                 firstclef: str = '',
+                 quantProfile: quant.QuantizationProfile | None = None):
 
         if events:
             super().__init__(events)
@@ -59,6 +61,8 @@ class Part(list):
         self.name: str = name
         self.shortname: str = shortname
         self.firstclef = firstclef
+        self.quantProfile = quantProfile
+
         if events:
             assert all(isinstance(n, Notation) for n in events)
             _repairGracenoteAsTargetGliss(self)

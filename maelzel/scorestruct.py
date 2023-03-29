@@ -13,12 +13,13 @@ import emlib.textlib
 import music21 as m21
 from numbers import Rational
 from maelzel.common import F, asF
+import functools
 
 from typing import TYPE_CHECKING, overload as _overload
 if TYPE_CHECKING:
     from typing import Iterator, Sequence, Union
     timesig_t = tuple[int, int]
-    number_t = Union[float, Rational]
+    number_t = Union[float, Rational, F]
     import maelzel.core
     from maelzel.scoring.renderoptions import RenderOptions
     from maelzel.scoring.renderer import Renderer
@@ -45,6 +46,44 @@ _unicodeFractions = {
     (5, 4): '⁵⁄₄',
     (6, 4): '⁶⁄₄'
 }
+
+
+@functools.cache
+def beatWeightsByTimeSignature(num: int, den: int) -> tuple[int]:
+    """
+    Given a time signature, returns a sequence of beat weights
+
+    A beat weight is a number from 0 to 2, where 0 means unweighted,
+    1 means weak weight and 2 means strong weight. For example, for
+    a 4/4 measure the returned weights are (2, 0, 1, 0), where the
+    first beat is strong, the second unweighted, the 3rd has a weak
+    weight and the 4th unweighted again.
+
+    Args:
+        num: numerator of the time signature
+        den: denominator ot the time signature
+
+    Returns:
+        a sequence of weights (a value 0, 1, or 2) as a tuple
+
+    """
+    if num % 2 == 0:
+        # 2, 0, 1, 0, 1, 0, ...
+        weights = [1, 0] * (num//2)
+        weights[0] = 2
+        return tuple(weights)
+    elif num % 3 == 0:
+        weights = [1, 0, 0] * (num//3)
+        weights[0] = 2
+        return tuple(weights)
+    elif num % 5 == 0:
+        return tuple([2, 0, 1, 0, 0] * (num//5))
+    else:
+        # All uneven signatures: binary pairs and the last ternary
+        weights = [1, 0] * (num//2)
+        weights.append(0)
+        weights[0] = 2
+        return tuple(weights)
 
 
 class TimeSignature:
@@ -328,6 +367,18 @@ class MeasureDef:
         if self.parent:
             self.parent.modified()
 
+    def beatStructure(self) -> list[BeatStructure]:
+        """
+        Beat structure of this measure
+
+        Returns:
+            a list of tuple with the form (beatOffset: F, beatDur: F, beatWeight: int)
+            for each beat of this measure
+        """
+        return measureBeatStructure(self.timesig, quarterTempo=self.quarterTempo,
+                                    subdivisionStructure=self.subdivisionStructure)
+
+
     def asScoreLine(self) -> str:
         """
         The representation of this MeasureDef as a score line
@@ -362,8 +413,8 @@ class MeasureDef:
             parts.append('tempoInherited=True')
         if self.barline:
             parts.append(f'barline={self.barline}')
-        if self.parent:
-            parts.append(f'parent={id(self.parent)}')
+        #if self.parent:
+        #    parts.append(f'parent={id(self.parent)}')
         if self.keySignature:
             parts.append(f'keySignature={self.keySignature}')
         if self.rehearsalMark:
@@ -429,8 +480,10 @@ class MeasureDef:
 
 
 
-def _inferSubdivisions(num: int, den: int, quarterTempo
-                       ) -> list[int]:
+def inferSubdivisions(num: int, den: int, quarterTempo
+                      ) -> list[int]:
+    if (den == 8 or den == 16) and num%3 == 0:
+        return [3] * (num // 3)
     subdivs = []
     while num > 3:
         subdivs.append(2)
@@ -466,7 +519,7 @@ def measureQuarterDuration(timesig: timesig_t) -> F:
 
 def measureBeatDurations(timesig: timesig_t,
                          quarterTempo: F,
-                         maxEighthTempo: Rational | float = 48,
+                         maxEighthTempo: number_t = 48,
                          subdivisionStructure: list[int] = None
                          ) -> list[F]:
     """
@@ -502,7 +555,7 @@ def measureBeatDurations(timesig: timesig_t,
         if quarterTempo <= maxEighthTempo:
             # render all beats as 1/8 notes
             return [F(1, 2)]*num
-        subdivstruct = _inferSubdivisions(num=num, den=den, quarterTempo=quarterTempo)
+        subdivstruct = inferSubdivisions(num=num, den=den, quarterTempo=quarterTempo)
         return [F(num, den // 4) for num in subdivstruct]
     elif den == 16:
         if num % 2 == 0:
@@ -515,7 +568,67 @@ def measureBeatDurations(timesig: timesig_t,
         raise ValueError(f"Invalid time signature: {timesig}")
 
 
-def measureBeatOffsets(timesig: timesig_t,
+@dataclass
+class BeatStructure:
+    offset: F
+    duration: F
+    weight: int = 0
+
+    def isBinary(self) -> bool:
+        return self.duration.numerator != 3
+
+    @property
+    def end(self) -> F:
+        return self.offset + self.duration
+
+
+def measureBeatStructure(timesig: timesig_t,
+                         quarterTempo: F|int,
+                         subdivisionStructure: list[int] = None
+                         ) -> list[BeatStructure]:
+    """
+    Returns the beat structure for this measure
+
+    For each beat returns a tu
+
+    Args:
+        timesig:
+        quarterTempo:
+        subdivisionStructure:
+
+    Returns:
+        a list of (beat offset: F, beat duration: F, beat weight: int)
+    """
+    beatDurations = measureBeatDurations(timesig, quarterTempo=quarterTempo,
+                                         subdivisionStructure=subdivisionStructure)
+    N = len(beatDurations)
+    if N == 1:
+        weights = [1]
+    elif N % 2 == 0:
+        weights = [1, 0] * (N//2)
+    elif N % 3 == 0:
+        weights = [1, 0, 0] * (N//3)
+    else:
+        weights = [1, 0] * (N//2)
+        weights.append(0)
+
+    weights[0] = 2
+
+    now = F(0)
+    beatOffsets = []
+    for i, dur in enumerate(beatDurations):
+        beatOffsets.append(now)
+        now += dur
+        if dur.numerator == 3:
+            weights[i] = 1
+
+
+    assert len(beatOffsets) == len(beatDurations) == len(weights)
+    return [BeatStructure(offset, duration, weight)
+            for offset, duration, weight in zip(beatOffsets, beatDurations, weights)]
+
+
+def _measureBeatOffsets(timesig: timesig_t,
                        quarterTempo: F | int,
                        subdivisionStructure: list[int] = None
                        ) -> list[F]:
@@ -1586,7 +1699,7 @@ class ScoreStruct:
         else:
             haskey = False
 
-        parts = [f'<h5><strong>ScoreStruct<strong></strong></h5>']
+        parts = [f'<p><strong>ScoreStruct</strong></p>']
         tempo = -1
         rows = []
         for i, m in enumerate(self.measuredefs):
@@ -1668,18 +1781,20 @@ class ScoreStruct:
         m21tools.scoreSetMetadata(score, title=self.title)
         return score
 
-    def setTempo(self, quarterTempo: float, measureIndex: int = 0) -> None:
+    def setTempo(self, tempo: float, reference=1, measureIndex: int = 0) -> None:
         """
         Set the tempo of the given measure, until the next tempo change
 
         Args:
-            quarterTempo: the new tempo
+            tempo: the new tempo
+            reference: the reference duration (1=quarternote, 2=halfnote, 0.5: 8th note, etc)
             measureIndex: the first measure to modify
 
         """
         if measureIndex > len(self) and not self.endless:
             raise IndexError(f"Index {measureIndex} out of rage; this ScoreStruct has only "
                              f"{len(self)} measures defined")
+        quarterTempo = asF(tempo) / asF(reference)
         mdef = self.getMeasureDef(measureIndex, extend=True)
         mdef.quarterTempo = quarterTempo
         mdef.tempoInherited = False

@@ -23,7 +23,6 @@ import math
 import functools
 from numbers import Rational
 
-import pitchtools
 from emlib import misc
 from emlib import iterlib
 from emlib import mathlib
@@ -145,7 +144,7 @@ class MEvent(MObj):
             duration of self
         """
         offset = self.absoluteOffset() if absolute else self.resolveOffset()
-        dur = self.resolveDur()
+        dur = self.dur
         intervals = mathlib.split_interval_at_values(offset, offset + dur, offsets)
         events = [self.clone(offset=intervalstart, dur=intervalend-intervalstart)
                   for intervalstart, intervalend in intervals]
@@ -220,7 +219,7 @@ class MEvent(MObj):
 
     def timeTransform(self: MEventT, timemap: Callable[[F], F], inplace=False) -> MEventT:
         offset = self.resolveOffset()
-        dur = self.resolveDur()
+        dur = self.dur
         offset2 = timemap(offset)
         dur2 = timemap(offset + dur) - offset2
         if inplace:
@@ -243,46 +242,41 @@ class Note(MEvent):
     in the same Note.
 
     A Note makes a clear division between the value itself and the
-    representation as notation or as sound. **Playback specific options**
+    representation as notation or as sound. Playback specific options
     (instrument, pan position, etc) can be set via the
     :meth:`~Note.setPlay` method.
 
-    **Any aspects regarding **notation** (articulation, enharmonic variant, etc)
+    Any aspects regarding notation (articulation, enharmonic variant, etc)
     can be set via :meth:`~Note.setSymbol`
 
-    .. note::
+    The *pitch* parameter can be used to set the pitch and other attributes in
+    multiple ways.
 
-        The *pitch* parameter can be used to set the pitch and other attributes in
-        multiple ways.
-
-        * To set the pitch from a frequency, use `pitchtools.f2m` or use a string as '400hz'.
-        * The spelling of the notename can be fixed by suffixing the notename with
-          a '!' sign. For example, ``Note('4Db!')`` will fix the spelling of this note
- -         to Db instead of C#. This is the same as ``Note('4Db', fixed=True)``
-        * The duration can be set as ``Note('4C#:0.5')`` to set a duration of 0.5, or
-          also Note('4C#/8') to set a duration of an 8th note
-        * Dynamics can also be set: ``Note('4C#:mf')``. Multiple settings can be combined:
-          ``Note('4C#:0.5:mf')``.
-        * Offset time can be set like: ``Note('4C#:offset=0.5')``
+    * To set the pitch from a frequency, use `pitchtools.f2m` or use a string as '400hz'.
+    * The spelling of the notename can be fixed by suffixing the notename with a '!' sign.
+      For example, ``Note('4Db!')`` will fix the spelling of this note to Db
+      instead of C#. This is the same as ``Note('4Db', fixed=True)``
+    * The duration can be set as ``Note('4C#:0.5')`` to set a duration of 0.5, or
+      also Note('4C#/8') to set a duration of an 8th note
+    * Dynamics can also be set: ``Note('4C#:mf')``. Multiple settings can be combined:
+      ``Note('4C#:0.5:mf')``.
 
     Args:
-        pitch: a midinote or a note as a string. A pitch can be
-            a midinote (a float) or a notename (a string).
+        pitch: a midinote or a note as a string. A pitch can be a midinote (a float) or a notename (a string).
         dur: the duration of this note (optional)
         amp: amplitude 0-1 (optional)
-        offset: offset time fot the note, in quarternotes (optional). If None,
-            the offset time will depend on the context (previous notes) where
-            this Note is evaluated.
-        gliss: if given, defines a glissando. It can be either the endpitch of
-            the glissando, or True, in which case the endpitch remains undefined
+        offset: offset time fot the note, in quarternotes (optional). If None, the offset time
+                will depend on the context (previous notes) where this Note is evaluated.
+        gliss: if given, defines a glissando. It can be either the endpitch of the glissando, or
+               True, in which case the endpitch remains undefined
         label: a label str to identify this note
         dynamic: allows to attach a dynamic expression to this Note. This dynamic
--            is only for notation purposes, it does not modify playback
+                 is only for notation purposes, it does not modify playback
         tied: is this Note tied to the next?
         fixed: if True, fix the spelling of the note to the notename given (this is
-            only taken into account if the pitch was given as a notename)
+               only taken into account if the pitch was given as a notename)
         _init: if True, fast initialization is performed, skipping any checks. This is
-            used internally for fast copying/cloning of objects.
+               used internally for fast copying/cloning of objects.
 
     Attributes:
         amp: the amplitude (0-1), or None
@@ -293,7 +287,7 @@ class Note(MEvent):
         pitchSpelling: the notated pitch, can differ from the pitch attribute
     """
 
-    __slots__ = ('pitch', 'amp', '_gliss', 'tied', 'dynamic', 'pitchSpelling', 'transposition')
+    __slots__ = ('pitch', 'amp', '_gliss', 'tied', 'dynamic', 'pitchSpelling')
 
     def __init__(self,
                  pitch: pitch_t,
@@ -303,7 +297,6 @@ class Note(MEvent):
                  gliss: pitch_t | bool = False,
                  label: str = '',
                  dynamic: str = '',
-                 transposition=0.,
                  tied = False,
                  properties: dict[str, Any] | None = None,
                  symbols: list[_symbols.Symbol] | None = None,
@@ -703,7 +696,7 @@ class Note(MEvent):
         if not config:
             config = getConfig()
         offset = self.absoluteOffset() if parentOffset is None else self.resolveOffset() + parentOffset
-        dur = self.resolveDur()
+        dur = self.dur
         if self.isRest():
             rest = scoring.makeRest(dur, offset=offset, dynamic=self.dynamic)
             if self.label:
@@ -858,10 +851,8 @@ class Note(MEvent):
             else:
                 amp = conf['play.defaultAmplitude']
         endmidi = self.pitch if not self.gliss else self.resolveGliss()
-        if self.parent:
-            assert (self.offset is not None or self._resolvedOffset is not None) and (self.dur is not None or self._resolvedDur is not None)
         offset = self._detachedOffset(F0) + parentOffset
-        dur = self._detachedDur(F1)
+        dur = self.dur
         starttime = float(scorestruct.beatToTime(offset))
         endtime   = float(scorestruct.beatToTime(offset + dur))
         transp = playargs.get('transpose', 0)
@@ -1074,10 +1065,10 @@ class Chord(MEvent):
             notes2 = []
             for n in notes:
                 if isinstance(n, Note):
-                    if n.dur is None and n.offset is None:
+                    if n.offset is None:
                         notes2.append(n)
                     else:
-                        notes2.append(n.clone(dur=None, offset=None))
+                        notes2.append(n.clone(offset=None))
                 elif isinstance(n, (int, float, str)):
                     notes2.append(Note(n, amp=amp))
                 else:
@@ -1213,7 +1204,7 @@ class Chord(MEvent):
             config = getConfig()
         notenames = [note.name for note in self.notes]
         annot = None if not self.label else self._scoringAnnotation(config=config)
-        dur = self.resolveDur()
+        dur = self.dur
         offset = self.absoluteOffset() if parentOffset is None else self.resolveOffset() + parentOffset
         notation = scoring.makeChord(pitches=notenames, duration=dur, offset=offset,
                                      annotation=annot, group=groupid, dynamic=self.dynamic,

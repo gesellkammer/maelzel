@@ -6,7 +6,7 @@ import numpy as np
 import os
 
 from maelzel.scorestruct import ScoreStruct
-from maelzel.common import F, asF, F0, asmidi
+from maelzel.common import F, asF, F0, F1, asmidi
 from maelzel.core.config import CoreConfig
 from maelzel.core.mobj import MContainer
 from maelzel.core import event
@@ -40,8 +40,6 @@ class Clip(event.MEvent):
         source: the source of the clip (a filename, audiosample, samples as numpy array)
         pitch: the pitch representation of this clip. It has no influence in the playback
             itself, it is only for notation purposes
-        dur: the totalDuration of the clip. If not given, the totalDuration of the
-            source is used
         offset: the time offset of this clip. Like in a Note, if not given,
             the start time depends on the context (previous events) where this
             clip is evaluated
@@ -53,7 +51,6 @@ class Clip(event.MEvent):
         speed: playback speed of the clip
 
     """
-    _isDurationRelative = False
     _excludedPlayKeys: tuple[str] = ('instr', 'args')
 
     __slots__ = ('selectionStartSecs', 'selectionEndSecs', '_speed', 'source', 'soundfile', 'numChannels',
@@ -69,7 +66,7 @@ class Clip(event.MEvent):
                  startsecs: float | F = 0.,
                  endsecs: float | F = 0.,
                  channel: int = None,
-                 speed: F | float =F(1),
+                 speed: F | float = F1,
                  parent: MContainer | None = None,
                  loop=False,
                  tied=False,
@@ -255,48 +252,29 @@ class Clip(event.MEvent):
         assert isinstance(self.speed, F)
         return (self.selectionEndSecs - self.selectionStartSecs) / self.speed
 
-    def _calculateDuration(self,
-                           relativeOffset: F | None,
-                           parentOffset: F | None,
-                           force=False
-                           ) -> F | None:
-        struct = self.scorestruct() or Workspace.active.scorestruct
-        # TODO: use _durContext to validate the cached totalDuration
-
-        if not force and self._resolvedDur is not None:
-            return self._resolvedDur
-
-        if parentOffset is not None and not isinstance(parentOffset, Rational):
-            raise TypeError(f"Expected a Rational, got {parentOffset=} ({type(parentOffset)})")
-
-        if relativeOffset is not None and not isinstance(relativeOffset, Rational):
-            raise TypeError(f"Expected a Rational, got {relativeOffset=} ({type(relativeOffset)})")
-
-        offset = firstval(relativeOffset, self.offset, self._resolvedOffset, F0)
-        startbeat = (parentOffset or F0) + offset
-        starttime = struct.beatToTime(startbeat)
-        dursecs = self.durSecs()
-        endbeat = struct.timeToBeat(starttime + dursecs)
-        dur = endbeat - startbeat
-        self._resolvedDur = dur
-        self._durContext = (struct, startbeat)
-        assert isinstance(dur, F)
-        return dur
-
     def pitchRange(self) -> tuple[float, float]:
         return (self.pitch, self.pitch)
 
-    def resolveDur(self) -> F:
-        if not self.parent:
-            reloffset = self.offset
-            parentoffset = F(0)
-        else:
-            reloffset = self.resolveOffset()
-            parentoffset = self.parent.absoluteOffset()
-        return self._calculateDuration(relativeOffset=reloffset, parentOffset=parentoffset, force=True)
+    @property
+    def dur(self) -> F:
+        "The duration of this Clip, in quarter notes"
+        absoffset = self.absoluteOffset()
+        struct = self.scorestruct() or Workspace.active.scorestruct
+        if self._dur is not None and self._durContext is not None:
+            cachedstruct, cachedbeat = self._durContext
+            if struct is cachedstruct and cachedbeat == absoffset:
+                return self._dur
+        starttime = struct.beatToTime(absoffset)
+        dursecs = self.durSecs()
+        endbeat = struct.timeToBeat(starttime + dursecs)
+        dur = endbeat - absoffset
+        self._dur = dur
+        self._durContext = (struct, absoffset)
+        return dur
 
     def __repr__(self):
-        return f"Clip(source={self.source}, numChannels={self.numChannels}, sr={self.sr}, dur={self.dur}, resolvedDur={self.resolveDur()}, sourcedursecs={_util.showT(self.sourceDurSecs)}secs)"
+        return (f"Clip(source={self.source}, numChannels={self.numChannels}, sr={self.sr}, "
+                f"dur={self.dur}, sourcedursecs={_util.showT(self.sourceDurSecs)}secs)")
 
     def _synthEvents(self,
                      playargs: PlayArgs,
@@ -397,7 +375,7 @@ class Clip(event.MEvent):
         if not config:
             config = Workspace.active.config
         offset = self.absoluteOffset()
-        dur = self.resolveDur()
+        dur = self.dur
         notation = scoring.makeNote(pitch=self.pitch,
                                     duration=dur,
                                     offset=offset,

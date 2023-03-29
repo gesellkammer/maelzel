@@ -4,11 +4,8 @@
 Clip
 ====
 
-1. Demo
-2. `Reference <
-
-
 .. _clip_reference:
 
 .. automodapi:: maelzel.core.clip
+    :no-inherited-members:
     :no-heading:
