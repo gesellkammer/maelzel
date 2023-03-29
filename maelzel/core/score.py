@@ -63,7 +63,24 @@ class Score(MObj, MContainer):
         self._scorestruct = scorestruct
         self._modified = True
 
+    @staticmethod
+    def fromMusicxml(musicxml: str, enforceParsedSpelling=True) -> Score:
+        """
+        Create a Score from musicxml text
+
+        Args:
+            musicxml: the musicxml text to parse (read from a .musicxml file)
+            enforceParsedSpelling: if True, the enharmonic spelling defined in the
+                musicxml text will be enforced
+
+        Returns:
+            a Score
+        """
+        from maelzel.core import musicxml as mxml
+        return mxml.parseMusicxml(musicxml, enforceParsedSpelling=enforceParsedSpelling)
+
     def scorestruct(self) -> ScoreStruct | None:
+        """The attached ScoreStruct, if present"""
         return self._scorestruct
 
     def setScoreStruct(self, scorestruct: ScoreStruct) -> None:
@@ -101,25 +118,29 @@ class Score(MObj, MContainer):
 
     def _changed(self) -> None:
         self._modified = True
-        self.dur = None
+        self._dur = None
+
+    def _update(self):
+        if not self._modified:
+            return
+        self._dur = max(v.dur for v in self.voices) if self.voices else F(0)
+        self._modified = False
 
     def append(self, voice: Voice | Chain) -> None:
+        """Append a Voice to this Score"""
         if isinstance(voice, Chain):
             voice = voice.asVoice()
         voice.parent = self
         self.voices.append(voice)
         self._changed()
 
-    def resolveDur(self) -> F:
-        if self.dur is not None:
-            return self.dur
-
-        if not self.voices:
-            return F(0)
-
-        dur = max(v.resolveDur() for v in self.voices)
-        self.dur = dur
-        return dur
+    @property
+    def dur(self) -> F:
+        "The duration of this object"
+        if self._modified:
+            self._update()
+        assert self._dur is not None
+        return self._dur
 
     def scoringParts(self, config: CoreConfig | None = None
                      ) -> list[scoring.Part]:
@@ -179,9 +200,6 @@ class Score(MObj, MContainer):
     def childOffset(self, child: MObj) -> F:
         offset = child._detachedOffset()
         return offset if offset is not None else F(0)
-
-    def childDuration(self, child: MObj) -> F:
-        return child.resolveDur()
 
     def absoluteOffset(self) -> F:
         return F(0)

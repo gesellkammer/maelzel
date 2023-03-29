@@ -94,7 +94,7 @@ class EnharmonicOptions:
 
     confusingIntervalPenalty: float = 21.
 
-    mispelledInterval: float = 50.
+    mispelledInterval: float = 60.
 
     unisonAlterationPenalty: float = 12.
     "penalty for C / C+"
@@ -152,7 +152,7 @@ def isEnharmonicVariantValid(notes: list[str]) -> bool:
 
 def groupPenalty(notes: list[str], options: EnharmonicOptions = None) -> tuple[float, str]:
     """
-    Evaluate the enharmonic variant as a tree
+    Evaluate the enharmonic variant as a group
 
     Args:
         notes: the list of pitches
@@ -172,8 +172,8 @@ def groupPenalty(notes: list[str], options: EnharmonicOptions = None) -> tuple[f
     alterations = [n.alteration_direction() for n in notated
                    if n.is_black_key]
     numDirections = len(set(alterations))
-    if numDirections > 1:
-        total += 1
+    #if numDirections > 1:
+    #    total += options.mispelledInterval * 0.1
 
     # Penalize crammed unisons
     accidentalsPerPos = defaultdict(set)
@@ -269,8 +269,7 @@ def intervalPenalty(n0: str, n1: str, chord=False, options: EnharmonicOptions = 
         options = _defaultEnharmonicOptions
     if pt.n2m(n0) > pt.n2m(n1):
         n0, n1 = n1, n0
-    interval = pt.notated_interval(n0, n1)
-    dpos, dpitch = interval
+    dpos, dpitch = pt.notated_interval(n0, n1)
     assert dpitch >= 0
     if dpos < 0:
         # 4Eb- / 4D#

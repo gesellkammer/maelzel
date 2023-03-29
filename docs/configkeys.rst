@@ -42,6 +42,12 @@ reprShowFractionsAsFloat:
     | Default: **True**  -- ``bool``
     | *All time offsets and durations are kept as rational numbers to avoid rounding errors. If this option is True, these fractions are printed as floats in order to make them more readable. *
 
+.. _config_jupyterhtmlrepr:
+
+jupyterHtmlRepr:
+    | Default: **True**  -- ``bool``
+    | *If True, output html inside jupyter as part of the _repr_html_ hook. Under certain circumstances (for example, when generating documentation from a notebook) this html might result in style conflict. Setting in False will just output plain text*
+
 .. _config_fixstringnotenames:
 
 fixStringNotenames:
@@ -54,23 +60,28 @@ openImagesInExternalApp:
     | Default: **False**  -- ``bool``
     | *Force opening images with an external tool, even when inside a Jupyter notebook*
 
-.. _config_enharmonicspellinghorizontalweight:
+.. _config_enharmonic_horizontalweight:
 
-enharmonicSpellingHorizontalWeight:
+enharmonic.horizontalWeight:
     | Default: **1**  -- ``int``
     | *The weight of the horizontal dimension (note sequences) when evaluating an enharmonic variant*
 
-.. _config_enharmonicspellingverticalweight:
+.. _config_enharmonic_verticalweight:
 
-enharmonicSpellingVerticalWeight:
+enharmonic.verticalWeight:
     | Default: **0.01**  -- ``float``
     | *The weight of the vertical dimension (chords within a voice) when evaluating an enharmonic variant*
 
-.. _config_enharmonicspellingdebug:
+.. _config_enharmonic_debug:
 
-enharmonicSpellingDebug:
+enharmonic.debug:
     | Default: **False**  -- ``bool``
     | *If True, print debug information while calculating automatic enharmonic spelling*
+
+.. _config_enharmonic_threequartermicrotonepenalty:
+
+enharmonic.threeQuarterMicrotonePenalty:
+    | Default: **20**  -- ``int``
 
 .. _config_show_arpeggiatechord:
 
@@ -84,7 +95,7 @@ show.arpeggiateChord:
 show.lastBreakpointDur:
     | Default: **0.125**  -- ``float``
     | Between 0.015625 - 1
-    | *Dur of a note representing the end of a line/gliss, which has no duration per se*
+    | *Dur of a note representing the end of a line/gliss, which has no totalDuration per se*
 
 .. _config_show_centsdeviationastextannotation:
 
@@ -194,6 +205,12 @@ show.lilypondPngStaffsizeScale:
     | Default: **1.5**  -- ``float``
     | *A factor applied to the staffsize when rendering to png via lilypond. Useful if rendered images appear too small in a jupyter notebook*
 
+.. _config_show_lilypondglissandominimumlength:
+
+show.lilypondGlissandoMinimumLength:
+    | Default: **5**  -- ``int``
+    | *The minimum length of a glissando in points. Increase this value if glissando linesare not shown or are too short (this might be the case within the context of dottednotes or accidentals)*
+
 .. _config_show_pngresolution:
 
 show.pngResolution:
@@ -201,11 +218,10 @@ show.pngResolution:
     | Choices: ``100, 200, 300, 600, 1200``
     | *DPI used when rendering to png*
 
-.. _config_show_measureannotationfontsize:
+.. _config_show_measureannotationstyle:
 
-show.measureAnnotationFontSize:
-    | Default: **12**  -- ``int``
-    | *Font size used for measure annotations*
+show.measureAnnotationStyle:
+    | Default: **box=square; fontsize=12**  -- ``str``
 
 .. _config_show_respellpitches:
 
@@ -243,6 +259,20 @@ show.hideRedundantDynamics:
 show.asoluteOffsetForDetachedObjects:
     | Default: **False**  -- ``bool``
     | *When showing an object which has a parent but is shown detached from it, shouldthe absolute offset be used?*
+
+.. _config_show_voicemaxstaves:
+
+show.voiceMaxStaves:
+    | Default: **1**  -- ``int``
+    | Between 1 - 4
+    | *The maximum number of staves per voice when showing a Voice as notation. A voiceis a sequence of non-simultaneous events (notes, chords, etc.) but these canbe exploded over multiple staves (for example, a chord might expand across awide range and would need multiple extra lines in any clef*
+
+.. _config_show_clipnoteheadshape:
+
+show.clipNoteheadShape:
+    | Default: **square**  -- ``str``
+    | Choices: ``, cluster, cross, diamond, harmonic, normal, rectangle, rhombus, slash, square, triangle, xcircle``
+    | *Notehead shape to use for clips*
 
 .. _config_play_gain:
 
@@ -303,12 +333,6 @@ play.backend:
     | Choices: ``alsa, auhal, default, jack, pa_cb, portaudio, pulse``
     | *backend used for playback*
 
-.. _config_play_presetspath:
-
-play.presetsPath:
-    | Default: **''**  -- ``str``
-    | *The path were presets are saved*
-
 .. _config_play_defaultamplitude:
 
 play.defaultAmplitude:
@@ -366,6 +390,12 @@ play.waitAfterStart:
     | Default: **0.5**  -- ``float``
     | *How much to wait for the sound engine to be operational after starting it*
 
+.. _config_play_gracenoteduration:
+
+play.gracenoteDuration:
+    | Default: **1/14**  -- ``(int, float, str)``
+    | *Duration assigned to a gracenote for playback (in quarternotes)*
+
 .. _config_rec_blocking:
 
 rec.blocking:
@@ -421,8 +451,8 @@ htmlTheme:
 .. _config_quant_minbeatfractionacrossbeats:
 
 quant.minBeatFractionAcrossBeats:
-    | Default: **1.0**  -- ``float``
-    | *when merging durations across beats, a mergef duration cannot be smaller than this duration. This is to prevent joining durations across beats which might result in high rhythmic complexity*
+    | Default: **0.5**  -- ``float``
+    | *when merging durations across beats, a merged totalDuration cannot be smaller than this totalDuration. This is to prevent joining durations across beats which might result in high rhythmic complexity*
 
 .. _config_quant_nestedtuplets:
 
@@ -431,11 +461,18 @@ quant.nestedTuplets:
     | Choices: ``False, None, True``
     | *Are nested tuples allowed when quantizing? Not all display backends support nested tuples (musescore, used to render musicxml has no support for nested tuples). If None, this flag is determined based on the complexity preset (quant.complexity)*
 
+.. _config_quant_breaksyncopationslevel:
+
+quant.breakSyncopationsLevel:
+    | Default: **weak**  -- ``str``
+    | Choices: ``all, none, strong, weak``
+    | *Level at which to break syncopations, one of "all" (break all syncopations), "weak (break only syncopations over secondary beats)", "strong" (break syncopations at strong beats) or "none" (do not break any syncopations)*
+
 .. _config_quant_complexity:
 
 quant.complexity:
     | Default: **high**  -- ``str``
-    | Choices: ``high, highest, low, medium``
+    | Choices: ``high, highest, low, lowest, medium``
     | *Controls the allowed complexity in the notation. The higher the complexity, the more accurate the quantization, at the cost of a more complex notation. *
 
 .. _config_quant_divisionerrorweight:

@@ -11,6 +11,7 @@ from ._common import logger
 from . import _util
 import csoundengine
 from functools import cache
+from maelzel.core.workspace import Workspace
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -389,6 +390,9 @@ class PresetDef:
             print(self.__repr__())
 
     def _repr_html_(self, theme=None, showGeneratedCode=False):
+        if not Workspace.active.config['jupyterHtmlRepr']:
+            return f'<pre style="font-size: 0.9em">{self.__repr__()}</pre>'
+
         if self.description:
             descr = _util.htmlSpan(self.description, italic=True, color=':grey3')
         elif self.parsedAudiogen.shortdescr:

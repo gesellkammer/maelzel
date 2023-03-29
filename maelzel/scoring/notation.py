@@ -9,6 +9,7 @@ from .common import *
 from .util import *
 from .attachment import *
 from emlib.iterlib import first
+from emlib import mathlib
 from . import definitions
 from . import spanner as _spanner
 import pitchtools as pt
@@ -29,7 +30,8 @@ __all__ = (
     'notationsToCoreEvents',
     'notationsCanMerge',
     'durationsCanMerge',
-    'mergeNotationsIfPossible'
+    'mergeNotationsIfPossible',
+    'tieNotationParts'
 )
 
 
@@ -595,6 +597,59 @@ class Notation:
             out.spanners = self.spanners.copy()
         return out
 
+    def splitNotationAtOffsets(self: Notation, offsets: Sequence[F]
+                               ) -> list[Notation]:
+        """
+        Splits a Notation at the given offsets
+
+        Args:
+            self: the Notation to split
+            offsets: the offsets at which to split n
+
+        Returns:
+            the parts after splitting
+
+        Example::
+
+            >>> splitNotationAtOffsets(Notation(F(0.5), totalDuration=F(1)))
+            [Notation(0.5, totalDuration=0.5), Notation(1, totalDuration=0.5)]
+
+        """
+        if not offsets:
+            raise ValueError("offsets is empty")
+
+        assert self.duration >= 0
+
+        intervals = mathlib.split_interval_at_values(self.offset, self.end, offsets)
+        assert all(isinstance(x0, F) and isinstance(x1, F)
+                   for x0, x1 in intervals)
+
+        if len(intervals) == 1:
+            return [self]
+
+        parts: list[Notation] = [self.clone(offset=start, duration=end - start)
+                                 for start, end in intervals]
+
+        # Remove superfluous dynamic/articulation
+        for part in parts[1:]:
+            part.dynamic = ''
+            # part.removeAttachments(lambda item: isinstance(item, (attachment.Articulation, attachment.Text)))
+            if part.spanners:
+                part.spanners.clear()
+
+        if not self.isRest:
+            tieNotationParts(parts)
+            parts[0].tiedPrev = self.tiedPrev
+            parts[-1].tiedNext = self.tiedNext
+
+        assert sum(part.duration for part in parts) == self.duration
+        assert parts[0].offset == self.offset
+        assert parts[-1].end == self.end
+        if not self.isRest:
+            assert parts[0].tiedPrev == self.tiedPrev
+            assert parts[-1].tiedNext == self.tiedNext, f"{self=}, {parts=}"
+        return parts
+
     def symbolicDuration(self) -> F:
         """
         The symbolic totalDuration of this Notation.
@@ -839,6 +894,10 @@ class Notation:
             info.append(f"{showT(self.offset)}:grace")
         else:
             info.append(f"{showT(self.offset)}:{showT(self.end)}")
+            if self.duration.denominator < 100:
+                info.append(f"{self.duration.numerator}/{self.duration.denominator}")
+            else:
+                info.append(showT(self.duration))
 
         if self.durRatios and self.durRatios != [F(1)]:
             info.append(",".join(showF(r) for r in self.durRatios))
@@ -1349,6 +1408,22 @@ def transferAttributesWithinTies(notations: list[Notation]) -> None:
             insideGliss = False
         elif n.tiedPrev and insideGliss and not n.gliss:
             n.gliss = True
+
+
+def tieNotationParts(parts: list[Notation]) -> None:
+    """ Tie these notations in place """
+
+    for part in parts[:-1]:
+        part.tiedNext = True
+
+    hasGliss = parts[0].gliss
+    for part in parts[1:]:
+        part.tiedPrev = True
+        part.dynamic = ''
+        part.removeAttachments(lambda a: isinstance(a, (Text, Articulation)))
+        if hasGliss:
+            part.gliss = True
+
 
 
 @dataclass(slots=True)

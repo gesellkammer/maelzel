@@ -1333,24 +1333,29 @@ class Sample:
                                hop=hop,
                                padwith=(0 if pad else None))
 
-    def firstPitch(self, threshold=-120, minfreq=60, overlap=4) -> tuple[float, float]:
+    def firstPitch(self, threshold=-120, minfreq=60, overlap=4, channel=0
+                   ) -> tuple[float, float]:
         """
         Returns the first (monophonic) pitch found
 
         Args:
             threshold: the silence threhsold
+            minfreq: the min. frequency to considere valid
+            overlap: pitch analysis overlap
+            channel: for multichannel audio, which channel to use
 
         Returns:
             a tuple (time, freq) of the first pitched sound found.
             If no pitched sound found, returns (0, 0)
 
         """
-        firstidx = _npsnd.firstSound(self.samples, threshold=threshold)
-        lastidx = _npsnd.lastSound(self.samples, threshold=threshold)
+        samples = self.samples if self.numchannels == 1 else self.samples[:,channel]
+        firstidx = _npsnd.firstSound(samples, threshold=threshold)
+        lastidx = _npsnd.lastSound(samples, threshold=threshold)
         from maelzel.snd import freqestimate
         chunksize = self.sr // 4
         for idx in range(firstidx, lastidx, chunksize):
-            fragm = self.samples[idx:idx+chunksize]
+            fragm = samples[idx:idx+chunksize]
             f0, prob = freqestimate.f0curve(fragm, sr=self.sr, minfreq=minfreq,
                                             overlap=overlap, unvoicedFreqs='negative')
             times, freqs = f0.points()

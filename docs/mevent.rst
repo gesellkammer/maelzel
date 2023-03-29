@@ -7,16 +7,11 @@ All individual events inherit from :class:`~maelzel.core.event.MEvent`. Such an 
 a :class:`~maelzel.core.event.Note`, a :class:`~maelzel.core.event.Chord`, a media
 :class:`~maelzel.core.clip.Clip` or anything derived from those clases.
 
-1. Musical Events
-    - :class:`~maelzel.core.event.Note`: a one-pitch event, can represent any
-      microtonal pitch.
-
-    - :class:`~maelzel.core.event.Chord`: a Chord is a collection of one or more Notes with
-      a shared duration
-
-2. Media Events
-
-    - :class:`~maelzel.core.clip.Clip`: an Event representing a soundfile
+* **Musical Events**
+    * :class:`~maelzel.core.event.Note`: a one-pitch event, can represent any microtonal pitch.
+    * :class:`~maelzel.core.event.Chord`: a Chord is a collection of one or more Notes with a shared duration
+* **Media Events**
+    * :class:`~maelzel.core.clip.Clip`: an Event representing a soundfile
 
 
 Within a a :class:`~maelzel.core.chain.Chain` / :class:`~maelzel.core.chain.Voice` events

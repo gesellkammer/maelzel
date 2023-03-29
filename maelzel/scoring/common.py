@@ -9,12 +9,13 @@ import numbers as _numbers
 import pitchtools as pt
 from maelzel.common import F, asF
 
-from typing import NamedTuple, Union, Optional
-time_t = Union[float, int, F]
-pitch_t = Union[int, float, str]
-timesig_t = tuple[int, int]
-division_t = tuple[Union[int, 'division_t']]
-timerange_t = tuple[F, F]
+from typing import NamedTuple, TypeAlias, Union
+
+time_t: TypeAlias = float|int|F
+pitch_t: TypeAlias = int|float|str
+timesig_t: TypeAlias = tuple[int, int]
+division_t: TypeAlias = tuple[Union[int, 'division_t'], ...]
+timerange_t: TypeAlias = tuple[F, F]
 
 logger = logging.getLogger("maelzel.scoring")
 
@@ -56,6 +57,8 @@ def asmidi(x, maxmidi=130) -> float:
 
     Args:
         x: a notename as str or a midinote as int/float
+        maxmidi: the max. value to accept as midi. Any value higher will
+            generate an error
 
     Returns:
         a (possibly fractional) midinote
@@ -91,13 +94,13 @@ class NotatedDuration:
     To convert base to quarterDuration: base/4
 
     Attributes:
-        base: 4=quarter note, 8=8th, etc
+        base: 4=quarter note, 8=8th, etc.
         dots: number of dots
         tuplets: a list of (num, den). Example: [(3, 2)] for a normal triplet
     """
     base: int
     dots: int = 0
-    tuplets: Optional[list[tuple[int, int]]] = None
+    tuplets: list[tuple[int, int]] | None = None
 
 
 class GLISS(enum.Enum):

@@ -35,7 +35,7 @@ class Symbol:
     """Base class for all symbols"""
     exclusive = False
     applyToTieStrategy = 'first'
-    appliesToRests = False
+    appliesToRests = True
     modifiesScoringContext = False
 
     def __init__(self):
@@ -229,6 +229,8 @@ class TrillLine(Spanner):
 
 
 class NoteheadLine(Spanner):
+    appliesToRests = False
+
     """
     A line conecting two noteheads
     """
@@ -265,6 +267,7 @@ class Slur(Spanner):
 
 
 class Beam(Spanner):
+    appliesToRests = False
 
     def applyTo(self, n: scoring.Notation) -> None:
         spanner = scoring.spanner.Beam(kind=self.kind, uuid=self.uuid)
@@ -312,6 +315,7 @@ class Bracket(Spanner):
 
 
 class LineSpan(Spanner):
+
     def __init__(self, kind='start', uuid: str = '', linetype='solid', placement='',
                  starttext='', endtext='', middletext='', verticalAlign='',
                  starthook=False, endhook=False):
@@ -465,6 +469,7 @@ class NoteAttachedSymbol(Symbol):
 
 
 class PitchAttachedSymbol(NoteAttachedSymbol):
+    appliesToRests = False
 
     def applyToPitch(self, n: scoring.Notation, idx: int = None):
         raise NotImplementedError
@@ -475,6 +480,7 @@ class PitchAttachedSymbol(NoteAttachedSymbol):
 
 class Ornament(NoteAttachedSymbol):
     exclusive = False
+    appliesToRests = False
 
     def __init__(self, kind: str):
         super().__init__()
@@ -491,6 +497,7 @@ class Ornament(NoteAttachedSymbol):
 
 class Tremolo(Ornament):
     exclusive = True
+    appliesToRests = False
 
     def __init__(self, tremtype='single', nummarks: int = 2):
         """
@@ -527,6 +534,14 @@ class Fermata(NoteAttachedSymbol):
         n.addAttachment(scoring.attachment.Fermata(kind=self.kind))
 
 
+class BeamBreak(NoteAttachedSymbol):
+    """
+    An invisible breathmark, only useful to break a beam
+    """
+    def applyTo(self, n: scoring.Notation) -> None:
+        n.addAttachment(scoring.attachment.Breath(visible=False))
+
+
 class Breath(NoteAttachedSymbol):
     """
     A breathmark symbol, will also break the beam at the given instant
@@ -538,7 +553,7 @@ class Breath(NoteAttachedSymbol):
             an effect on beaming
     """
     exclusive = True
-    appliesToRests = False
+    appliesToRests = True
 
     def __init__(self, kind='', visible=True):
         super().__init__()
@@ -563,6 +578,7 @@ class Text(NoteAttachedSymbol):
 
     """
     exclusive = False
+    appliesToRests = True
 
     def __init__(self, text: str, placement='above', fontsize: float = None,
                  fontstyle: str = None, box: str | bool = False):
@@ -821,6 +837,7 @@ class Stem(NoteAttachedSymbol):
     Attributes:
         hidden: if True, the stem will be hidden
     """
+    appliesToRests = False
 
     def __init__(self, hidden: bool = False):
         super().__init__()
@@ -913,7 +930,8 @@ _symbols = (
     Bend,
     Fingering,
     Harmonic,
-    Breath
+    Breath,
+    BeamBreak
 )
 
 

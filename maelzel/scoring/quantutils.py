@@ -124,9 +124,6 @@ def simplifyDivision(division: division_t, assignedSlots: list[int], reduce=True
 
     assigned = set(assignedSlots)
 
-    #grid = divisionGrid0(beatDuration=F(1), division=division)
-    #offsets = [grid[slot] for slot in assignedSlots]
-
     def makeset(start, end, exclude):
         out = set(x for x in range(start, end))
         for item in exclude:

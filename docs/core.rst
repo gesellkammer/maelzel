@@ -1,7 +1,7 @@
 .. _core:
 
-Core
-====
+Core - Overview
+===============
 
 **maelzel.core** provides a set of classes to define notes, chords,
 lines, sequences, voices or entire scores. Any of these objects can
@@ -133,7 +133,7 @@ Table of Contents
     Chord class <api/maelzel.core.event.Chord>
     Containers: Chain, Voice <chain>
     Score Structure: interfacing symbolic and real time <scorestruct>
-    Score <score>
+    Score <api/maelzel.core.score.Score>
     Clip <api/maelzel.core.clip.Clip>
     coreplayintro
     config

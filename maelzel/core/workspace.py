@@ -365,12 +365,13 @@ def getWorkspace() -> Workspace:
     return Workspace.active
 
 
-def setTempo(quarterTempo: float, measureIndex=0) -> None:
+def setTempo(tempo: float, reference=1, measureIndex=0) -> None:
     """
     Set the current tempo. 
     
     Args:
-        quarterTempo: the new tempo
+        tempo: the new tempo.
+        reference: the reference value (1=quarternote, 2=halfnote, 0.5: 8th note)
         measureIndex: the measure number to modify. The scorestruct's tempo is modified
             until the next tempo
 
@@ -416,7 +417,7 @@ def setTempo(quarterTempo: float, measureIndex=0) -> None:
         2, 5/8, 132
 
     """
-    Workspace.active.scorestruct.setTempo(quarterTempo, measureIndex=measureIndex)
+    Workspace.active.scorestruct.setTempo(tempo, reference=reference, measureIndex=measureIndex)
 
 
 def getConfig() -> CoreConfig:

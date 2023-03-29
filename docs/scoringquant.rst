@@ -1,4 +1,4 @@
-**maelzel.scoring.quant**: Quantization Engine
-==============================================
+maelzel.scoring.quant: Quantization Engine
+==========================================
 
 .. automodapi:: maelzel.scoring.quant
