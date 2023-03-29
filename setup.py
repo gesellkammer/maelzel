@@ -48,7 +48,6 @@ setup(
         "watchdog",
         "python-constraint",
         "pyyaml",
-        "rtmidi2",
         "resampy",
         "psutil",
         "csoundengine>=1.17.0",
