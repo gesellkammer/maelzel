@@ -59,7 +59,8 @@ setup(
         "chardet",
         "simple-term-menu",
         "visvalingamwyatt",
-        "loristrck"
+        "loristrck",
+        "vamphost"
     ],
     license="BSD",
     zip_safe=False,
