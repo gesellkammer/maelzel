@@ -21,6 +21,7 @@ examples/Untitled*
 docs/api
 notebooks/Untitled*.ipynb
 notebooks/tmp
+docs/notebooks/tmp
 Untitled*.ipynb
 *.eps
 *.count
