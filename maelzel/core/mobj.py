@@ -1195,10 +1195,10 @@ class MObj:
 
 
         .. seealso::
-            * :meth:`MObj.events`
-            * :meth:`MObj.rec`
+            * :meth:`MObj.events <maelzel.core.mobj.MObj.events>`
+            * :meth:`MObj.rec <maelzel.core.mobj.MObj.rec>`
             * :func:`~maelzel.core.playback.render`,
-            * :class:`~maelzel.core.playback.play`
+            * :func:`~maelzel.core.playback.play`
 
 
         Example
@@ -1272,7 +1272,7 @@ class MObj:
 
         .. note::
 
-            This is equivalent to calling :func:`Maelzel.core.playback.render` with
+            This is equivalent to calling :func:`~maelzel.core.playback.render` with
             ``render=False``
 
         Args:

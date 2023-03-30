@@ -34,8 +34,13 @@ import scipy
 import warnings
 from numpy.lib.stride_tricks import as_strided
 import numpyx
-from typing import Optional
+import pitchtools as pt
+import matplotlib.ticker as mplticker
+import matplotlib.pyplot as plt
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from matplotlib.collections import QuadMesh
 
 # Constrain STFT block sizes to 256 KB
 MAX_MEM_BLOCK = 2 ** 8 * 2 ** 10
@@ -1017,11 +1022,12 @@ def mel_to_hz(mels, *, htk=False):
     return freqs
 
 
-def fft_frequencies(*, sr=22050, n_fft=2048):
+def fft_frequencies(*, sr: float = 22050, n_fft: int = 2048):
     """
     Alternative implementation of `np.fft.fftfreq`
     """
     return np.fft.rfftfreq(n=n_fft, d=1.0 / sr)
+
 
 def mel_frequencies(n_mels=128, *, fmin=0.0, fmax=11025.0, htk=False):
     """Compute an array of acoustic frequencies tuned to the mel scale.
@@ -1657,6 +1663,7 @@ def melspectrogram(*, y=None, sr=22050,
     center=True,
     pad_mode="constant",
     power=2.0,
+    n_mels=128,
     **kwargs,
 ):
     """Compute a mel-scaled spectrogram.
@@ -1778,7 +1785,7 @@ def melspectrogram(*, y=None, sr=22050,
     )
 
     # Build a Mel filter
-    mel_basis = mel(sr=sr, n_fft=n_fft, **kwargs)
+    mel_basis = mel(sr=sr, n_fft=n_fft, n_mels=n_mels, **kwargs)
 
     return np.einsum("...ft,mf->...mt", S, mel_basis, optimize=True)
 
@@ -3576,13 +3583,13 @@ def _viterbi(log_prob, log_trans, log_p_init):
 
 def spectral_centroid(
     *,
-    y: Optional[np.ndarray] = None,
+    y: np.ndarray | None = None,
     sr: float = 22050,
-    S: Optional[np.ndarray] = None,
+    S: np.ndarray | None = None,
     n_fft: int = 2048,
     hop_length: int = 512,
-    freq: Optional[np.ndarray] = None,
-    win_length: Optional[int] = None,
+    freq: np.ndarray | None = None,
+    win_length: int | None = None,
     window="hann",
     center: bool = True,
     pad_mode="constant",
@@ -3720,3 +3727,992 @@ def spectral_centroid(
         freq * normalize(S, norm=1, axis=-2), axis=-2, keepdims=True
     )
     return centroid
+
+
+def __coord_chroma(n: int, bins_per_octave: int = 12, **_kwargs) -> np.ndarray:
+    """Get chroma bin numbers"""
+    return np.linspace(0, (12.0 * n) / bins_per_octave, num=n, endpoint=False)
+
+
+def __coord_mel_hz(n: int,
+                   fmin: float | None = 0.0,
+                   fmax: float | None = None,
+                   sr: float = 22050,
+                   htk: bool = False,
+                   **_kwargs
+                   ) -> np.ndarray:
+    """Get the frequencies for Mel bins"""
+
+    if fmin is None:
+        fmin = 0.0
+    if fmax is None:
+        fmax = 0.5 * sr
+
+    basis = mel_frequencies(n, fmin=fmin, fmax=fmax, htk=htk)
+    return basis
+
+
+def __coord_fft_hz(n: int, sr: float = 22050, n_fft: int | None = None, **_kwargs
+                   ) -> np.ndarray:
+    """Get the frequencies for FFT bins"""
+    if n_fft is None:
+        n_fft = 2 * (n - 1)
+    # The following code centers the FFT bins at their frequencies
+    # and clips to the non-negative frequency range [0, nyquist]
+    basis = fft_frequencies(sr=sr, n_fft=n_fft)
+    return basis
+
+
+def __coord_n(n: int, **_kwargs) -> np.ndarray:
+    """Get bare positions"""
+    return np.arange(n)
+
+
+def __coord_time(n: int, sr: float = 22050, hop_length: int = 512, **_kwargs
+                 ) -> np.ndarray:
+    """Get time coordinates from frames"""
+    times: np.ndarray = frames_to_time(np.arange(n), sr=sr, hop_length=hop_length)
+    return times
+
+
+def __mesh_coords(ax_type, coords, n, **kwargs):
+    """Compute axis coordinates"""
+
+    if coords is not None:
+        if len(coords) not in (n, n + 1):
+            raise ParameterError(
+                f"Coordinate shape mismatch: {len(coords)}!={n} or {n}+1"
+            )
+        return coords
+
+    coord_map  = {
+        "linear": __coord_fft_hz,
+        "fft": __coord_fft_hz,
+        "fft_note": __coord_fft_hz,
+        "fft_svara": __coord_fft_hz,
+        "hz": __coord_fft_hz,
+        "log": __coord_fft_hz,
+        "mel": __coord_mel_hz,
+        # "cqt": __coord_cqt_hz,
+        # "cqt_hz": __coord_cqt_hz,
+        # "cqt_note": __coord_cqt_hz,
+        # "cqt_svara": __coord_cqt_hz,
+        # "vqt_fjs": __coord_vqt_hz,
+        # "vqt_hz": __coord_vqt_hz,
+        # "vqt_note": __coord_vqt_hz,
+        "chroma": __coord_chroma,
+        "chroma_c": __coord_chroma,
+        "chroma_h": __coord_chroma,
+        "chroma_fjs": __coord_n,  # We can't use a 12-normalized tick locator here
+        "time": __coord_time,
+        "h": __coord_time,
+        "m": __coord_time,
+        "s": __coord_time,
+        "ms": __coord_time,
+        "lag": __coord_time,
+        "lag_h": __coord_time,
+        "lag_m": __coord_time,
+        "lag_s": __coord_time,
+        "lag_ms": __coord_time,
+        "tonnetz": __coord_n,
+        "off": __coord_n,
+        # "tempo": __coord_tempo,
+        # "fourier_tempo": __coord_fourier_tempo,
+        "frames": __coord_n,
+        None: __coord_n,
+    }
+
+    if ax_type not in coord_map:
+        raise ParameterError(f"Unknown axis type: {ax_type}")
+    return coord_map[ax_type](n, **kwargs)
+
+
+def __check_axes(axes: plt.Axes | None) -> plt.Axes:
+    """Check if "axes" is an instance of an axis object. If not, use `gca`."""
+    if axes is None:
+        axes = plt.gca()
+    elif not isinstance(axes, plt.Axes):
+        raise ParameterError(f"`axes` must be an instance of matplotlib.axes.Axes. "
+                             f"Found type(axes)={type(axes)}")
+    return axes
+
+
+def __scale_axes(axes, ax_type, which):
+    """Set the axis scaling"""
+
+    kwargs = dict()
+    thresh = "linthresh"
+    base = "base"
+    scale = "linscale"
+
+    if which == "x":
+        scaler = axes.set_xscale
+        limit = axes.set_xlim
+    else:
+        scaler = axes.set_yscale
+        limit = axes.set_ylim
+
+    # Map ticker scales
+    if ax_type == "mel":
+        mode = "symlog"
+        kwargs[thresh] = 1000.0
+        kwargs[base] = 2
+    elif ax_type in ("cqt", "cqt_hz", "cqt_note", "cqt_svara", "vqt_hz", "vqt_note", "vqt_fjs"):
+        mode = "log"
+        kwargs[base] = 2
+    elif ax_type in ("log", "fft_note", "fft_svara"):
+        mode = "symlog"
+        kwargs[base] = 2
+        kwargs[thresh] = float(pt.n2f("C2"))
+        kwargs[scale] = 0.5
+    elif ax_type in ["tempo", "fourier_tempo"]:
+        mode = "log"
+        kwargs[base] = 2
+        limit(16, 480)
+    else:
+        return
+
+    scaler(mode, **kwargs)
+
+
+class TimeFormatter(mplticker.Formatter):
+    """A tick formatter for time axes.
+
+    Automatically switches between seconds, minutes:seconds,
+    or hours:minutes:seconds.
+
+    Parameters
+    ----------
+    lag : bool
+        If ``True``, then the time axis is interpreted in lag coordinates.
+        Anything past the midpoint will be converted to negative time.
+
+    unit : str or None
+        Abbreviation of the string representation for axis labels and ticks.
+        List of supported units:
+        * `"h"`: hour-based format (`H:MM:SS`)
+        * `"m"`: minute-based format (`M:SS`)
+        * `"s"`: second-based format (`S.sss` in scientific notation)
+        * `"ms"`: millisecond-based format (`s.µµµ` in scientific notation)
+        * `None`: adaptive to the duration of the underlying time range: similar
+        to `"h"` above 3600 seconds; to `"m"` between 60 and 3600 seconds; to
+        `"s"` between 1 and 60 seconds; and to `"ms"` below 1 second.
+
+
+    See also
+    --------
+    matplotlib.ticker.Formatter
+
+
+    Examples
+    --------
+
+    For normal time
+
+    >>> import matplotlib.pyplot as plt
+    >>> times = np.arange(30)
+    >>> values = np.random.randn(len(times))
+    >>> fig, ax = plt.subplots()
+    >>> ax.plot(times, values)
+    >>> ax.xaxis.set_major_formatter(librosa.display.TimeFormatter())
+    >>> ax.set(xlabel='Time')
+
+    Manually set the physical time unit of the x-axis to milliseconds
+
+    >>> times = np.arange(100)
+    >>> values = np.random.randn(len(times))
+    >>> fig, ax = plt.subplots()
+    >>> ax.plot(times, values)
+    >>> ax.xaxis.set_major_formatter(librosa.display.TimeFormatter(unit='ms'))
+    >>> ax.set(xlabel='Time (ms)')
+
+    For lag plots
+
+    >>> times = np.arange(60)
+    >>> values = np.random.randn(len(times))
+    >>> fig, ax = plt.subplots()
+    >>> ax.plot(times, values)
+    >>> ax.xaxis.set_major_formatter(librosa.display.TimeFormatter(lag=True))
+    >>> ax.set(xlabel='Lag')
+    """
+
+    def __init__(self, lag: bool = False, unit: str | None = None):
+        if unit not in ["h", "m", "s", "ms", None]:
+            raise ParameterError(f"Unknown time unit: {unit}")
+
+        self.unit = unit
+        self.lag = lag
+
+    def __call__(self, x: float, pos: int | None = None) -> str:
+        """Return the time format as pos"""
+
+        _, dmax = self.axis.get_data_interval()
+        vmin, vmax = self.axis.get_view_interval()
+
+        # In lag-time axes, anything greater than dmax / 2 is negative time
+        if self.lag and x >= dmax * 0.5:
+            # In lag mode, don't tick past the limits of the data
+            if x > dmax:
+                return ""
+            value = np.abs(x - dmax)
+            # Do we need to tweak vmin/vmax here?
+            sign = "-"
+        else:
+            value = x
+            sign = ""
+
+        if self.unit == "h" or ((self.unit is None) and (vmax - vmin > 3600)):
+            s = "{:d}:{:02d}:{:02d}".format(
+                int(value / 3600.0),
+                int(np.mod(value / 60.0, 60)),
+                int(np.mod(value, 60)),
+            )
+        elif self.unit == "m" or ((self.unit is None) and (vmax - vmin > 60)):
+            s = "{:d}:{:02d}".format(int(value / 60.0), int(np.mod(value, 60)))
+        elif self.unit == "s":
+            s = f"{value:.3g}"
+        elif self.unit == None and (vmax - vmin >= 1):
+            s = f"{value:.2g}"
+        elif self.unit == "ms":
+            s = "{:.3g}".format(value * 1000)
+        elif self.unit == None and (vmax - vmin < 1):
+            s = f"{value:.3f}"
+
+        return f"{sign:s}{s:s}"
+
+
+class NoteFormatter(mplticker.Formatter):
+    """Ticker formatter for Notes
+
+    Parameters
+    ----------
+    major : bool
+        If ``True``, ticks are always labeled.
+
+        If ``False``, ticks are only labeled if the span is less than 2 octaves
+
+    See also
+    --------
+    LogHzFormatter
+    matplotlib.ticker.Formatter
+
+    Examples
+    --------
+    >>> import matplotlib.pyplot as plt
+    >>> values = librosa.midi_to_hz(np.arange(48, 72))
+    >>> fig, ax = plt.subplots(nrows=2)
+    >>> ax[0].bar(np.arange(len(values)), values)
+    >>> ax[0].set(ylabel='Hz')
+    >>> ax[1].bar(np.arange(len(values)), values)
+    >>> ax[1].yaxis.set_major_formatter(librosa.display.NoteFormatter())
+    >>> ax[1].set(ylabel='Note')
+    """
+
+    def __init__(self, major: bool = True):
+        self.major = major
+
+    def __call__(self, x: float, pos: int | None = None) -> str:
+        if x <= 0:
+            return ""
+
+        # Only use cent precision if our vspan is less than an octave
+        vmin, vmax = self.axis.get_view_interval()
+        if not self.major and vmax > 4 * max(1, vmin):
+            return ""
+        # cents = vmax <= 2 * max(1, vmin)
+        return pt.f2n(x)
+
+
+class LogHzFormatter(mplticker.Formatter):
+    """Ticker formatter for logarithmic frequency
+
+    Parameters
+    ----------
+    major : bool
+        If ``True``, ticks are always labeled.
+
+        If ``False``, ticks are only labeled if the span is less than 2 octaves
+
+    See also
+    --------
+    NoteFormatter
+    matplotlib.ticker.Formatter
+
+    Examples
+    --------
+    >>> import matplotlib.pyplot as plt
+    >>> values = librosa.midi_to_hz(np.arange(48, 72))
+    >>> fig, ax = plt.subplots(nrows=2)
+    >>> ax[0].bar(np.arange(len(values)), values)
+    >>> ax[0].yaxis.set_major_formatter(librosa.display.LogHzFormatter())
+    >>> ax[0].set(ylabel='Hz')
+    >>> ax[1].bar(np.arange(len(values)), values)
+    >>> ax[1].yaxis.set_major_formatter(librosa.display.NoteFormatter())
+    >>> ax[1].set(ylabel='Note')
+    """
+
+    def __init__(self, major: bool = True):
+        self.major = major
+
+    def __call__(self, x: float, pos: int | None = None) -> str:
+        if x <= 0:
+            return ""
+
+        vmin, vmax = self.axis.get_view_interval()
+
+        if not self.major and vmax > 4 * max(1, vmin):
+            return ""
+
+        return f"{x:g}"
+
+
+def __decorate_axis(
+    axis,
+    ax_type,
+    key="C:maj",
+    Sa=None,
+    mela=None,
+    thaat=None,
+    unicode=True,
+    fmin=None,
+    unison=None,
+    intervals=None,
+    bins_per_octave=None,
+    n_bins=None,
+    setlabel=True
+):
+    """Configure axis tickers, locators, and labels"""
+    time_units = {"h": "hours", "m": "minutes", "s": "seconds", "ms": "milliseconds"}
+    import matplotlib.ticker as mplticker
+
+    #if ax_type == "tonnetz":
+    #    axis.set_major_formatter(TonnetzFormatter())
+    #    axis.set_major_locator(mplticker.FixedLocator(np.arange(6)))
+    #    axis.set_label_text("Tonnetz")
+
+    # if ax_type == "chroma":
+    #     axis.set_major_formatter(ChromaFormatter(key=key, unicode=unicode))
+    #     degrees = core.key_to_degrees(key)
+    #     axis.set_major_locator(
+    #         mplticker.FixedLocator(np.add.outer(12 * np.arange(10), degrees).ravel())
+    #     )
+    #     axis.set_label_text("Pitch class")
+    #
+    # elif ax_type == "chroma_h":
+    #     if Sa is None:
+    #         Sa = 0
+    #     axis.set_major_formatter(ChromaSvaraFormatter(Sa=Sa, unicode=unicode))
+    #     if thaat is None:
+    #         # If no thaat is given, show all svara
+    #         degrees = np.arange(12)
+    #     else:
+    #         degrees = core.thaat_to_degrees(thaat)
+    #     # Rotate degrees relative to Sa
+    #     degrees = np.mod(degrees + Sa, 12)
+    #     axis.set_major_locator(
+    #         mplticker.FixedLocator(np.add.outer(12 * np.arange(10), degrees).ravel())
+    #     )
+    #     axis.set_label_text("Svara")
+
+    #elif ax_type == "chroma_c":
+    #    if Sa is None:
+    #        Sa = 0
+    #    axis.set_major_formatter(
+    #        ChromaSvaraFormatter(Sa=Sa, mela=mela, unicode=unicode)
+    #    )
+    #    degrees = core.mela_to_degrees(mela)
+    #    # Rotate degrees relative to Sa
+    #    degrees = np.mod(degrees + Sa, 12)
+    #    axis.set_major_locator(
+    #        mplticker.FixedLocator(np.add.outer(12 * np.arange(10), degrees).ravel())
+    #    )
+    #    axis.set_label_text("Svara")
+
+    # elif ax_type == "chroma_fjs":
+    #     if fmin is None:
+    #         fmin = core.note_to_hz("C1")
+    #
+    #     if unison is None:
+    #         unison = core.hz_to_note(fmin, octave=False, cents=False)
+    #
+    #     axis.set_major_formatter(
+    #         ChromaFJSFormatter(
+    #             intervals=intervals,
+    #             unison=unison,
+    #             unicode=unicode,
+    #             bins_per_octave=bins_per_octave,
+    #         )
+    #     )
+    #
+    #     if isinstance(intervals, str) and bins_per_octave > 7:
+    #         # If intervals are implicit, generate the first 7 and identify
+    #         # them in the sorted set
+    #         tick_intervals = core.interval_frequencies(
+    #             7,
+    #             fmin=1,
+    #             intervals=intervals,
+    #             bins_per_octave=bins_per_octave,
+    #             sort=False,
+    #         )
+    #
+    #         all_intervals = core.interval_frequencies(
+    #             bins_per_octave,
+    #             fmin=1,
+    #             intervals=intervals,
+    #             bins_per_octave=bins_per_octave,
+    #             sort=True,
+    #         )
+    #
+    #         degrees = util.match_events(tick_intervals, all_intervals)
+    #     else:
+    #         # If intervals are explicit, tick them all
+    #         degrees = np.arange(bins_per_octave)
+    #
+    #     axis.set_major_locator(mplticker.FixedLocator(degrees))
+    #     axis.set_label_text("Pitch class")
+
+    # elif ax_type in ["tempo", "fourier_tempo"]:
+    #     axis.set_major_formatter(mplticker.ScalarFormatter())
+    #     axis.set_major_locator(mplticker.LogLocator(base=2.0))
+    #     axis.set_label_text("BPM")
+
+    if ax_type == "time":
+        axis.set_major_formatter(TimeFormatter(unit=None, lag=False))
+        axis.set_major_locator(
+            mplticker.MaxNLocator(prune=None, steps=[1, 1.5, 5, 6, 10])
+        )
+        axis.set_label_text("Time")
+
+    elif ax_type in time_units:
+        axis.set_major_formatter(TimeFormatter(unit=ax_type, lag=False))
+        axis.set_major_locator(
+            mplticker.MaxNLocator(prune=None, steps=[1, 1.5, 5, 6, 10])
+        )
+        axis.set_label_text("Time ({:s})".format(time_units[ax_type]))
+
+    # elif ax_type == "lag":
+    #     axis.set_major_formatter(TimeFormatter(unit=None, lag=True))
+    #     axis.set_major_locator(
+    #         mplticker.MaxNLocator(prune=None, steps=[1, 1.5, 5, 6, 10])
+    #     )
+    #     axis.set_label_text("Lag")
+
+    # elif isinstance(ax_type, str) and ax_type.startswith("lag_"):
+    #     unit = ax_type[4:]
+    #     axis.set_major_formatter(TimeFormatter(unit=unit, lag=True))
+    #     axis.set_major_locator(
+    #         mplticker.MaxNLocator(prune=None, steps=[1, 1.5, 5, 6, 10])
+    #     )
+    #     axis.set_label_text("Lag ({:s})".format(time_units[unit]))
+
+    # elif ax_type == "cqt_note":
+    #     axis.set_major_formatter(NoteFormatter(key=key, unicode=unicode))
+    #     # Where is C1 relative to 2**k hz?
+    #     log_C1 = np.log2(core.note_to_hz("C1"))
+    #     C_offset = 2.0 ** (log_C1 - np.floor(log_C1))
+    #     axis.set_major_locator(mplticker.LogLocator(base=2.0, subs=(C_offset,)))
+    #     axis.set_minor_formatter(NoteFormatter(key=key, major=False, unicode=unicode))
+    #     axis.set_minor_locator(
+    #         mplticker.LogLocator(
+    #             base=2.0, subs=C_offset * 2.0 ** (np.arange(1, 12) / 12.0)
+    #         )
+    #     )
+    #     axis.set_label_text("Note")
+
+    # elif ax_type == "cqt_svara":
+    #     axis.set_major_formatter(SvaraFormatter(Sa=Sa, mela=mela, unicode=unicode))
+    #     # Find the offset of Sa relative to 2**k Hz
+    #     sa_offset = 2.0 ** (np.log2(Sa) - np.floor(np.log2(Sa)))
+    #
+    #     axis.set_major_locator(mplticker.LogLocator(base=2.0, subs=(sa_offset,)))
+    #     axis.set_minor_formatter(
+    #         SvaraFormatter(Sa=Sa, mela=mela, major=False, unicode=unicode)
+    #     )
+    #     axis.set_minor_locator(
+    #         mplticker.LogLocator(
+    #             base=2.0, subs=sa_offset * 2.0 ** (np.arange(1, 12) / 12.0)
+    #         )
+    #     )
+    #     axis.set_label_text("Svara")
+
+    # elif ax_type == "vqt_fjs":
+    #     if fmin is None:
+    #         fmin = core.note_to_hz("C1")
+    #     axis.set_major_formatter(
+    #         FJSFormatter(
+    #             intervals=intervals,
+    #             fmin=fmin,
+    #             unison=unison,
+    #             unicode=unicode,
+    #             bins_per_octave=bins_per_octave,
+    #             n_bins=n_bins,
+    #         )
+    #     )
+    #     log_fmin = np.log2(fmin)
+    #     fmin_offset = 2.0 ** (log_fmin - np.floor(log_fmin))
+    #     axis.set_major_locator(mplticker.LogLocator(base=2.0, subs=(fmin_offset,)))
+    #
+    #     axis.set_minor_formatter(
+    #         FJSFormatter(
+    #             intervals=intervals,
+    #             fmin=fmin,
+    #             unison=unison,
+    #             unicode=unicode,
+    #             bins_per_octave=bins_per_octave,
+    #             n_bins=n_bins,
+    #             major=False,
+    #         )
+    #     )
+    #     axis.set_minor_locator(
+    #         mplticker.FixedLocator(
+    #             core.interval_frequencies(
+    #                 n_bins * 12 // bins_per_octave,
+    #                 fmin=fmin,
+    #                 intervals=intervals,
+    #                 bins_per_octave=12,
+    #             )
+    #         )
+    #     )
+    #     axis.set_label_text("Note")
+
+    # elif ax_type == "vqt_hz":
+    #     if fmin is None:
+    #         fmin = core.note_to_hz("C1")
+    #     axis.set_major_formatter(LogHzFormatter())
+    #     log_fmin = np.log2(fmin)
+    #     fmin_offset = 2.0 ** (log_fmin - np.floor(log_fmin))
+    #     axis.set_major_locator(mplticker.LogLocator(base=2.0, subs=(fmin_offset,)))
+    #     axis.set_minor_formatter(LogHzFormatter(major=False))
+    #     axis.set_minor_locator(
+    #         mplticker.LogLocator(
+    #             base=2.0,
+    #             subs=core.interval_frequencies(
+    #                 12, fmin=fmin_offset, intervals=intervals, bins_per_octave=12
+    #             ),
+    #         )
+    #     )
+    #     axis.set_label_text("Hz")
+    #
+    # elif ax_type == "vqt_note":
+    #     if fmin is None:
+    #         fmin = core.note_to_hz("C1")
+    #     axis.set_major_formatter(NoteFormatter(key=key, unicode=unicode))
+    #     log_fmin = np.log2(fmin)
+    #     fmin_offset = 2.0 ** (log_fmin - np.floor(log_fmin))
+    #     axis.set_major_locator(mplticker.LogLocator(base=2.0, subs=(fmin_offset,)))
+    #     axis.set_minor_formatter(NoteFormatter(key=key, unicode=unicode, major=False))
+    #     axis.set_minor_locator(
+    #         mplticker.LogLocator(
+    #             base=2.0,
+    #             subs=core.interval_frequencies(
+    #                 12, fmin=fmin_offset, intervals=intervals, bins_per_octave=12
+    #             ),
+    #         )
+    #     )
+    #     axis.set_label_text("Note")
+
+    elif ax_type in ["cqt_hz"]:
+        axis.set_major_formatter(LogHzFormatter())
+        log_C1 = np.log2(pt.n2f("C1"))
+        C_offset = 2.0 ** (log_C1 - np.floor(log_C1))
+        axis.set_major_locator(mplticker.LogLocator(base=2.0, subs=(C_offset,)))
+        axis.set_major_locator(mplticker.LogLocator(base=2.0))
+        axis.set_minor_formatter(LogHzFormatter(major=False))
+        axis.set_minor_locator(
+            mplticker.LogLocator(
+                base=2.0, subs=C_offset * 2.0 ** (np.arange(1, 12) / 12.0)
+            )
+        )
+        if setlabel:
+            axis.set_label_text("Hz")
+
+    elif ax_type == "fft_note":
+        axis.set_major_formatter(NoteFormatter())
+        # Where is C1 relative to 2**k hz?
+        log_C1 = np.log2(pt.n2f("C1"))
+        C_offset = 2.0 ** (log_C1 - np.floor(log_C1))
+        axis.set_major_locator(mplticker.SymmetricalLogLocator(axis.get_transform()))
+        axis.set_minor_formatter(NoteFormatter(major=False))
+        axis.set_minor_locator(
+            mplticker.LogLocator(base=2.0, subs=2.0 ** (np.arange(1, 12) / 12.0))
+        )
+        if setlabel:
+            axis.set_label_text("Note")
+
+    # elif ax_type == "fft_svara":
+    #     axis.set_major_formatter(SvaraFormatter(Sa=Sa, mela=mela, unicode=unicode))
+    #     # Find the offset of Sa relative to 2**k Hz
+    #     log_Sa = np.log2(Sa)
+    #     sa_offset = 2.0 ** (log_Sa - np.floor(log_Sa))
+    #
+    #     axis.set_major_locator(
+    #         mplticker.SymmetricalLogLocator(
+    #             axis.get_transform(), base=2.0, subs=[sa_offset]
+    #         )
+    #     )
+    #     axis.set_minor_formatter(
+    #         SvaraFormatter(Sa=Sa, mela=mela, major=False, unicode=unicode)
+    #     )
+    #     axis.set_minor_locator(
+    #         mplticker.LogLocator(
+    #             base=2.0, subs=sa_offset * 2.0 ** (np.arange(1, 12) / 12.0)
+    #         )
+    #     )
+    #     axis.set_label_text("Svara")
+
+    elif ax_type in ["mel", "log"]:
+        axis.set_major_formatter(mplticker.ScalarFormatter())
+        axis.set_major_locator(mplticker.SymmetricalLogLocator(axis.get_transform()))
+        if setlabel:
+            axis.set_label_text("Hz")
+
+    elif ax_type in ["linear", "hz", "fft"]:
+        axis.set_major_formatter(mplticker.ScalarFormatter())
+        if setlabel:
+            axis.set_label_text("Hz")
+
+    elif ax_type in ["frames"]:
+        if setlabel:
+            axis.set_label_text("Frames")
+
+    elif ax_type in ["off", "none", None]:
+        axis.set_label_text("")
+        axis.set_ticks([])
+
+    else:
+        raise ParameterError(f"Unsupported axis type: {ax_type}")
+
+
+def specshow(
+        data: np.ndarray,
+        *,
+        x_coords: np.ndarray | None = None,
+        y_coords: np.ndarray | None = None,
+        x_axis: str | None = None,
+        y_axis: str | None = None,
+        sr: float = 22050,
+        hop_length: int = 512,
+        n_fft: int | None = None,
+        win_length: int | None = None,
+        fmin: float | None = None,
+        fmax: float | None = None,
+        tuning: float = 0.0,
+        bins_per_octave: int = 12,
+        key: str = "C:maj",
+        Sa: float | int | None = None,
+        mela: str | int | None = None,
+        thaat: str | None = None,
+        auto_aspect: bool = True,
+        htk: bool = False,
+        unicode: bool = True,
+        intervals: str | np.ndarray | None = None,
+        unison: str | None = None,
+        ax: plt.Axes | None = None,
+        cmap: str = 'magma',
+        setlabel=True,
+        **kwargs,
+    ) -> QuadMesh:
+    """Display a spectrogram/chromagram/cqt/etc.
+
+    For a detailed overview of this function, see :ref:`sphx_glr_auto_examples_plot_display.py`
+
+    Parameters
+    ----------
+    data : np.ndarray [shape=(d, n)]
+        Matrix to display (e.g., spectrogram)
+
+    sr : number > 0 [scalar]
+        Sample rate used to determine time scale in x-axis.
+
+    hop_length : int > 0 [scalar]
+        Hop length, also used to determine time scale in x-axis
+
+    n_fft : int > 0 or None
+        Number of samples per frame in STFT/spectrogram displays.
+        By default, this will be inferred from the shape of ``data``
+        as ``2 * (d - 1)``.
+        If ``data`` was generated using an odd frame length, the correct
+        value can be specified here.
+
+    win_length : int > 0 or None
+        The number of samples per window.
+        By default, this will be inferred to match ``n_fft``.
+        This is primarily useful for specifying odd window lengths in
+        Fourier tempogram displays.
+
+    x_axis, y_axis : None or str
+        Range for the x- and y-axes.
+
+        Valid types are:
+
+        - None, 'none', or 'off' : no axis decoration is displayed.
+
+        Frequency types:
+
+        - 'linear', 'fft', 'hz' : frequency range is determined by
+          the FFT window and sampling rate.
+        - 'log' : the spectrum is displayed on a log scale.
+        - 'fft_note': the spectrum is displayed on a log scale with pitches marked.
+        - 'fft_svara': the spectrum is displayed on a log scale with svara marked.
+        - 'mel' : frequencies are determined by the mel scale.
+        - 'cqt_hz' : frequencies are determined by the CQT scale.
+        - 'cqt_note' : pitches are determined by the CQT scale.
+        - 'cqt_svara' : like `cqt_note` but using Hindustani or Carnatic svara
+        - 'vqt_fjs' : like `cqt_note` but using Functional Just System (FJS)
+          notation.  This requires a just intonation-based variable-Q
+          transform representation.
+
+        All frequency types are plotted in units of Hz.
+
+        Any spectrogram parameters (hop_length, sr, bins_per_octave, etc.)
+        used to generate the input data should also be provided when
+        calling `specshow`.
+
+        Categorical types:
+
+        - 'chroma' : pitches are determined by the chroma filters.
+          Pitch classes are arranged at integer locations (0-11) according to
+          a given key.
+
+        - `chroma_h`, `chroma_c`: pitches are determined by chroma filters,
+          and labeled as svara in the Hindustani (`chroma_h`) or Carnatic (`chroma_c`)
+          according to a given thaat (Hindustani) or melakarta raga (Carnatic).
+
+        - 'chroma_fjs': pitches are determined by chroma filters using just
+          intonation.  All pitch classes are annotated.
+
+        - 'tonnetz' : axes are labeled by Tonnetz dimensions (0-5)
+        - 'frames' : markers are shown as frame counts.
+
+        Time types:
+
+        - 'time' : markers are shown as milliseconds, seconds, minutes, or hours.
+                Values are plotted in units of seconds.
+        - 'h' : markers are shown as hours, minutes, and seconds.
+        - 'm' : markers are shown as minutes and seconds.
+        - 's' : markers are shown as seconds.
+        - 'ms' : markers are shown as milliseconds.
+        - 'lag' : like time, but past the halfway point counts as negative values.
+        - 'lag_h' : same as lag, but in hours, minutes and seconds.
+        - 'lag_m' : same as lag, but in minutes and seconds.
+        - 'lag_s' : same as lag, but in seconds.
+        - 'lag_ms' : same as lag, but in milliseconds.
+
+        Rhythm:
+
+        - 'tempo' : markers are shown as beats-per-minute (BPM)
+            using a logarithmic scale.  This is useful for
+            visualizing the outputs of `feature.tempogram`.
+
+        - 'fourier_tempo' : same as `'tempo'`, but used when
+            tempograms are calculated in the Frequency domain
+            using `feature.fourier_tempogram`.
+
+    x_coords, y_coords : np.ndarray [shape=data.shape[0 or 1]]
+        Optional positioning coordinates of the input data.
+        These can be use to explicitly set the location of each
+        element ``data[i, j]``, e.g., for displaying beat-synchronous
+        features in natural time coordinates.
+
+        If not provided, they are inferred from ``x_axis`` and ``y_axis``.
+
+    fmin : float > 0 [scalar] or None
+        Frequency of the lowest spectrogram bin.  Used for Mel, CQT, and VQT
+        scales.
+
+        If ``y_axis`` is `cqt_hz` or `cqt_note` and ``fmin`` is not given,
+        it is set by default to ``note_to_hz('C1')``.
+
+    fmax : float > 0 [scalar] or None
+        Used for setting the Mel frequency scales
+
+    tuning : float
+        Tuning deviation from A440, in fractions of a bin.
+
+        This is used for CQT frequency scales, so that ``fmin`` is adjusted
+        to ``fmin * 2**(tuning / bins_per_octave)``.
+
+    bins_per_octave : int > 0 [scalar]
+        Number of bins per octave.  Used for CQT frequency scale.
+
+    key : str
+        The reference key to use when using note axes (`cqt_note`, `chroma`).
+
+    Sa : float or int
+        If using Hindustani or Carnatic svara axis decorations, specify Sa.
+
+        For `cqt_svara`, ``Sa`` should be specified as a frequency in Hz.
+
+        For `chroma_c` or `chroma_h`, ``Sa`` should correspond to the position
+        of Sa within the chromagram.
+        If not provided, Sa will default to 0 (equivalent to `C`)
+
+    mela : str or int, optional
+        If using `chroma_c` or `cqt_svara` display mode, specify the melakarta raga.
+
+    thaat : str, optional
+        If using `chroma_h` display mode, specify the parent thaat.
+
+    intervals : str or array of floats in [1, 2), optional
+        If using an FJS notation (`chroma_fjs`, `vqt_fjs`), the interval specification.
+
+        See `core.interval_frequencies` for a description of supported values.
+
+    unison : str, optional
+        If using an FJS notation (`chroma_fjs`, `vqt_fjs`), the pitch name of the unison
+        interval.  If not provided, it will be inferred from `fmin` (for VQT display) or
+        assumed as `'C'` (for chroma display).
+
+    auto_aspect : bool
+        Axes will have 'equal' aspect if the horizontal and vertical dimensions
+        cover the same extent and their types match.
+
+        To override, set to `False`.
+
+    htk : bool
+        If plotting on a mel frequency axis, specify which version of the mel
+        scale to use.
+
+            - `False`: use Slaney formula (default)
+            - `True`: use HTK formula
+
+        See `core.mel_frequencies` for more information.
+
+    unicode : bool
+        If using note or svara decorations, setting `unicode=True`
+        will use unicode glyphs for accidentals and octave encoding.
+
+        Setting `unicode=False` will use ASCII glyphs.  This can be helpful
+        if your font does not support musical notation symbols.
+
+    ax : matplotlib.axes.Axes or None
+        Axes to plot on instead of the default `plt.gca()`.
+
+    **kwargs : additional keyword arguments
+        Arguments passed through to `matplotlib.pyplot.pcolormesh`.
+
+        By default, the following options are set:
+
+            - ``rasterized=True``
+            - ``shading='auto'``
+            - ``edgecolors='None'``
+
+        The ``cmap`` option if not provided, is inferred from data automatically.
+        Set ``cmap=None`` to use matplotlib's default colormap.
+
+    Returns
+    -------
+    colormesh : `matplotlib.collections.QuadMesh`
+        The color mesh object produced by `matplotlib.pyplot.pcolormesh`
+
+    See Also
+    --------
+    cmap : Automatic colormap detection
+    matplotlib.pyplot.pcolormesh
+
+    Examples
+    --------
+    Visualize an STFT power spectrum using default parameters
+
+    >>> import matplotlib.pyplot as plt
+    >>> y, sr = librosa.load(librosa.ex('choice'), duration=15)
+    >>> fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True)
+    >>> D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
+    >>> img = librosa.display.specshow(D, y_axis='linear', x_axis='time',
+    ...                                sr=sr, ax=ax[0])
+    >>> ax[0].set(title='Linear-frequency power spectrogram')
+    >>> ax[0].label_outer()
+
+    Or on a logarithmic scale, and using a larger hop
+
+    >>> hop_length = 1024
+    >>> D = librosa.amplitude_to_db(np.abs(librosa.stft(y, hop_length=hop_length)),
+    ...                             ref=np.max)
+    >>> librosa.display.specshow(D, y_axis='log', sr=sr, hop_length=hop_length,
+    ...                          x_axis='time', ax=ax[1])
+    >>> ax[1].set(title='Log-frequency power spectrogram')
+    >>> ax[1].label_outer()
+    >>> fig.colorbar(img, ax=ax, format="%+2.f dB")
+    """
+    if np.issubdtype(data.dtype, np.complexfloating):
+        warnings.warn(
+            "Trying to display complex-valued input. " "Showing magnitude instead.",
+            stacklevel=2,
+        )
+        data = np.abs(data)
+
+    kwargs.setdefault("cmap", cmap)
+    # kwargs.setdefault("cmap", cmap(data))
+    kwargs.setdefault("rasterized", True)
+    kwargs.setdefault("edgecolors", "None")
+    kwargs.setdefault("shading", "auto")
+
+    all_params = dict(
+        kwargs=kwargs,
+        sr=sr,
+        fmin=fmin,
+        fmax=fmax,
+        tuning=tuning,
+        bins_per_octave=bins_per_octave,
+        hop_length=hop_length,
+        n_fft=n_fft,
+        win_length=win_length,
+        key=key,
+        htk=htk,
+        unicode=unicode,
+        intervals=intervals,
+        unison=unison,
+    )
+
+    # Get the x and y coordinates
+    y_coords = __mesh_coords(y_axis, y_coords, data.shape[0], **all_params)
+    x_coords = __mesh_coords(x_axis, x_coords, data.shape[1], **all_params)
+
+    axes = __check_axes(ax)
+
+    out = axes.pcolormesh(x_coords, y_coords, data, **kwargs)
+
+    if ax is None:
+        plt.sci(out)
+
+    # Set up axis scaling
+    __scale_axes(axes, x_axis, "x")
+    __scale_axes(axes, y_axis, "y")
+
+    # Construct tickers and locators
+    __decorate_axis(
+        axes.xaxis,
+        x_axis,
+        key=key,
+        Sa=Sa,
+        mela=mela,
+        thaat=thaat,
+        unicode=unicode,
+        fmin=fmin,
+        unison=unison,
+        intervals=intervals,
+        bins_per_octave=bins_per_octave,
+        n_bins=len(x_coords),
+        setlabel=setlabel
+    )
+    __decorate_axis(
+        axes.yaxis,
+        y_axis,
+        key=key,
+        Sa=Sa,
+        mela=mela,
+        thaat=thaat,
+        unicode=unicode,
+        fmin=fmin,
+        unison=unison,
+        intervals=intervals,
+        bins_per_octave=bins_per_octave,
+        n_bins=len(y_coords),
+        setlabel=setlabel
+    )
+
+    # If the plot is a self-similarity/covariance etc. plot, square it
+    #if __same_axes(x_axis, y_axis, axes.get_xlim(), axes.get_ylim()) and auto_aspect:
+    #    axes.set_aspect("equal")
+
+    return out

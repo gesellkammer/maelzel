@@ -364,7 +364,7 @@ def plotWaveform(samples, samplerate, profile:str = None, saveas:str=None,
 def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:str=None,
                     overlap:int=None, axes:plt.Axes=None, cmap=None, interpolation='bilinear',
                     minfreq=40, maxfreq=None,
-                    mindb=-90
+                    mindb=-90, setlabel=False
                     ) -> plt.Axes:
     """
     Plot the spectrogram of a sound
@@ -422,4 +422,31 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:s
     if maxfreq is None:
         maxfreq = config['spectrogram.maxfreq']
     axes.set_ylim(minfreq, maxfreq)
+    if setlabel:
+        axes.xaxis.set_label_text('Time')
+        axes.yaxis.set_label_text('Hz')
+    return axes
+
+
+def plotMelSpectrogram(samples: np.ndarray, sr: int, fftsize=2048, overlap=4,
+                       winlength: int = None, axes=None, setlabel=False,
+                       nmels=128, cmap='magma'
+                       ) -> plt.Axes:
+    if len(samples.shape) > 1:
+        samples = samples[:, 0]
+    if winlength is None:
+        winlength = fftsize
+    from maelzel.snd import rosita
+    hoplength = winlength // overlap
+    if axes is None:
+        fig: plt.Figure = plt.figure(figsize=config['matplotlib.spectrogram.figsize'])
+        axes: plt.Axes = fig.add_subplot(1, 1, 1)
+
+    melspec = rosita.melspectrogram(y=samples, sr=sr, n_fft=fftsize,
+                                    hop_length=hoplength, win_length=winlength,
+                                    power=2.0, n_mels=nmels)
+    SdB = rosita.power_to_db(melspec, ref=np.max)
+    img = rosita.specshow(SdB, x_axis='time', y_axis='mel', sr=sr, fmax=8000, axes=axes,
+                          setlabel=setlabel, cmap=cmap, hop_length=hoplength)
+    # axes.set(title='Mel-frequency spectrogram')
     return axes

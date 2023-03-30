@@ -83,7 +83,7 @@ Example
     from maelzel.core import *
     f0 = Note("1E")
     notes = Chain([Note(f2m(f0.freq*i), dur=0.5) for i in range(20)])
-    play.defPreset("detuned", r'''
+    defPreset("detuned", r'''
         ; kfreq and kamp are always available within the preset body
         a0 = vco2(kamp/3, kfreq)
         a1 = vco2(kamp/3, kfreq+2)

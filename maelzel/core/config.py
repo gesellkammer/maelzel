@@ -274,6 +274,16 @@ class CoreConfig(ConfigDict):
     def _ipython_key_completions_(self):
         return self.keys()
 
+    def save(self, path: str = None, header:str='') -> None:
+        """
+        Save this config. The saved settings are loaded as default in the next session
+
+        Args:
+            path: dummy arg, only here to conform to the signature of the parent class
+            header: dummy arg, only here to conform to the signature of the parent class
+        """
+        super().save()
+
     def copy(self) -> CoreConfig:
         return CoreConfig(source=self)
 

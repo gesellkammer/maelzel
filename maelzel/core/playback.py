@@ -154,10 +154,18 @@ class RealtimeRenderer(Renderer):
                                   whenfinished=whenfinished)
 
     def pushLock(self):
+        """Lock the sound engine's clock, to schedule a number of synths in sync.
+
+        This is mostly used internally
+        """
         self.engine.sync()
         self.engine.pushLock()
 
     def popLock(self):
+        """Pop a previously pushed clock lock
+
+        This method is mostly used internally
+        """
         self.engine.popLock()
 
 
@@ -259,9 +267,16 @@ class OfflineRenderer(Renderer):
         and needs to be restored at __exit__"""
 
     def isRealtime(self) -> bool:
+        """Is this a realtime renderer?"""
         return False
 
     def makeRenderer(self) -> csoundengine.Renderer:
+        """
+        Construct a :class:`csoundengine.Renderer` from this OfflineRenderer
+
+        Returns:
+            the corresponding :class:`csoundengine.Renderer`
+        """
         renderer = presetManager.makeRenderer(self.sr, ksmps=self.ksmps,
                                               numChannels=self.numChannels)
         if isEngineActive():
@@ -271,11 +286,34 @@ class OfflineRenderer(Renderer):
         return renderer
 
     def prepareInstr(self, instr: csoundengine.instr.Instr, priority: int) -> int:
+        """
+        Reify an instance of *instr* at the given priority
+
+        This method also prepares any resources and initialization that the given
+        Instr might have
+
+        Args:
+            instr: a csoundengine's Instr
+            priority: the priority to instantiate this instr with. Priorities
+                start with 1
+
+        Returns:
+
+        """
         instrname = instr.name
         assert self.csoundRenderer.isInstrDefined(instrname)
         return self.csoundRenderer.commitInstrument(instrname, priority)
 
     def getInstr(self, instrname: str) -> csoundengine.instr.Instr | None:
+        """
+        Get the csoundengine's Instr corresponding to *instrname*
+
+        Args:
+            instrname: the name of the csoundengine's Instr
+
+        Returns:
+            If found, the csoundengine's Instr
+        """
         return self.csoundRenderer.getInstr(instrname)
 
     @property
@@ -284,12 +322,35 @@ class OfflineRenderer(Renderer):
         return self.csoundRenderer.scheduledEvents
 
     def assignBus(self, kind='audio') -> int:
+        """
+        Assign a bus of the given kind
+
+        Returns:
+            the bus token. Can be used with any bus opcode (busin, busout, busmux, etc)
+        """
         return self.csoundRenderer.assignBus()
 
-    def releaseBus(self, busnum: int):
+    def releaseBus(self, busnum: int) -> None:
+        """
+        Signal that we no longer use the given bus
+
+        Args:
+            busnum: the bus token as returned by :meth:`OfflineRenderer.assignBus`
+
+        """
         pass
 
     def includeFile(self, path: str) -> None:
+        """
+        Add an include clause to this renderer.
+
+        OfflineRenderer keeps track of includes so trying to include the same file
+        multiple times will generate only one #include clause
+
+        Args:
+            path: the path of the file to include
+
+        """
         self.csoundRenderer.addInclude(path)
 
     def timeRange(self) -> tuple[float, float]:
@@ -331,11 +392,23 @@ class OfflineRenderer(Renderer):
         return '<br>'.join([header, samplehtml])
 
     def show(self) -> None:
+        """
+        If inside jupyter, force a display of this OfflineRenderer
+
+        """
         if emlib.misc.inside_jupyter():
             from IPython.display import display
             display(self)
 
     def registerPreset(self, presetdef: PresetDef) -> None:
+        """
+        Register the given PresetDef with this renderer
+
+        Args:
+            presetdef: the preset to register. Any global/init code declared by
+                the preset will be made available to this renderer
+
+        """
         if presetdef.name  in self.registeredPresets:
             return
         instr = presetdef.getInstr()
@@ -380,11 +453,30 @@ class OfflineRenderer(Renderer):
         events = obj.events(**kws)
         return self.schedEvents(events)
 
-    def prepareSessionEvent(self, sessionevent: csoundengine.session.SessionEvent):
+    def prepareSessionEvent(self, sessionevent: csoundengine.session.SessionEvent) -> None:
+        """
+        Prepare a session event
+
+        Args:
+            sessionevent: the session event to prepare. This is mostly used internally
+
+        """
         pass
 
     def schedSessionEvent(self, event: csoundengine.session.SessionEvent
                           ) -> csoundengine.offline.ScoreEvent:
+        """
+        Schedule a Session event at this renderer
+
+        Args:
+            event: the event to schedule
+
+        Returns:
+            a ScoreEvent corresponding to keep track of the scheduled event
+
+        .. seealso:: https://csoundengine.readthedocs.io/en/latest/api/csoundengine.offline.ScoreEvent.html#csoundengine.offline.ScoreEvent
+
+        """
         kws = event.kws if event.kws is not None else {}
         return self.sched(instrname=event.instrname,
                           delay=event.delay,
@@ -753,6 +845,19 @@ class OfflineRenderer(Renderer):
                   sr: int = 0,
                   tabnum: int = 0
                   ) -> int:
+        """
+        Create a table in this renderer
+
+        Args:
+            data: if given, the table will be created with the given data
+            size: if data is not given, an empty table of the given size is created. Otherwise,
+                this parameter is ignored
+            sr: the sample rate of the data, if applicable
+            tabnum: leave it as 0 to let the renderer assign a table number
+
+        Returns:
+            the assigned table number
+        """
         if data is not None and size > 0:
             raise ValueError("Either data or size must be given, not both")
         if data is None and not size:
@@ -1193,8 +1298,8 @@ def play(*sources: MObj | Sequence[SynthEvent] | csoundengine.session.SessionEve
 
     .. seealso::
 
-        :class:`Synched`, :func:`render`, :meth:`maelzel.core.MObj.play`,
-        :meth:`maelzel.core.MObj.events`
+        :class:`Synched`, :func:`render`, :meth:`MObj.play() <maelzel.core.mobj.MObj.play>`,
+        :meth:`MObj.events() <maelzel.core.mobj.MObj.events>`
 
     """
     if not sources:

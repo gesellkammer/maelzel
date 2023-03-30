@@ -14,7 +14,7 @@ There are some **external dependencies** which need to be installed manually:
 
 * **csound** >= 6.17. (https://csound.com/download.html). Csound 7 is not supported yet.
 * **lilypond** (https://lilypond.org/download.html)
-* **MuseScore** (https://musescore.org/en) - Useful for quick rendering to png
+* **MuseScore** (https://musescore.org/en) - **Optional** - Useful when rendering musicxml
 
 ----------------
 
@@ -24,16 +24,16 @@ Dependencies
 MacOS
 -----
 
-- Download csound from https://csound.com/download.html
-- Install lilypond from http://lilypond.org/macos-x.html
-- Install MuseScore from https://musescore.org/en/download
+- Install csound: https://csound.com/download.html
+- Install lilypond: http://lilypond.org/macos-x.html
+- Install MuseScore: https://musescore.org/en/download
 
 Windows
 -------
 
-- Download csound from https://csound.com/download.html
-- Install lilypond from http://lilypond.org/windows.html
-- Install MuseScore from https://musescore.org/en/download
+- Install csound: https://csound.com/download.html
+- Install lilypond: http://lilypond.org/windows.html
+- Install MuseScore: https://musescore.org/en/download
 
 Linux
 -----
@@ -48,7 +48,7 @@ Arch
 Debian / Ubuntu
 ~~~~~~~~~~~~~~~
 
-**csound**: The *csound* package provided is probably too old. *csound* can easily be installed
+**csound**: The *csound* package provided is probably too old. *csound* can be easily installed
 from source (see also the
 `official instructions <https://github.com/csound/csound/blob/develop/BUILD.md#debian>`_)::
 
@@ -68,4 +68,4 @@ from source (see also the
     sudo apt-get install lilypond
 
 **MuseScore**: install it via their distributed AppImages:
-https://musescore.org/en/download/musescore-x86_64.AppImage
+https://musescore.org/en/download

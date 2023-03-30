@@ -4,14 +4,15 @@ Introduction
 **maelzel** provides a framework to work with both *symbolic* (music) and *concrete*
 (audio) sound.
 
-
-Installation
-~~~~~~~~~~~~
-
 .. toctree::
     :maxdepth: 1
+    :hidden:
 
     Installation
+
+.. admonition:: Installation & Dependencies
+
+    See :ref:`installation` for a detailed guide about installing the necessary external dependencies
 
 
 Demo Notebooks
