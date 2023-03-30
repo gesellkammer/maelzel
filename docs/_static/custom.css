@@ -55,6 +55,32 @@ h4 {
 	width: 54em;
 }
 
-div.autosummary {
-	align: left;
+table.autosummary {
+	text-align: left;
+	margin-left: 1em;
+}
+
+.admonition.note {
+	--admonition-font-size: 0.9rem;
+}
+
+.admonition {
+	--admonition-font-size: 0.9rem;
+	--admonition-title-font-size: 0.9rem;
+}
+
+
+@media (min-width: 97em) {
+html {
+  font-size: 104%;
+}
+
+.content {
+	width: 60em;
+}
+}
+
+
+.sidebar-drawer {
+	width: calc(50% - 35em);
 }

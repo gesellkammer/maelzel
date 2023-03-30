@@ -132,23 +132,61 @@ class Notation:
                 f"Stem types: {definitions.stemTypes}"
 
         self.duration: F = duration
+        "The duration of this Notation, in quarternotes"
+
         self.pitches: list[float] = pitches
+        "The pitches of this Notation (without spelling, just midinotes)"
+
         self.offset: F | None = offset
+        "The start time in quarternotes"
+
         self.isRest = isRest
+        "Is this a Rest?"
+
         self.tiedNext = tiedNext
+        "Is this Notation tied to the next one?"
+
         self.tiedPrev = tiedPrev
+        "Is this Notation tied to the previous one?"
+
         self.dynamic = dynamic
+        "A dynamic mark"
+
         self.durRatios = durRatios
+        """A set of ratios to apply to .duration to convert it to its notated duration
+        
+        see :meth:`Notation.notatedDuration`
+        """
+
         self.groupid = group
+        "The group id this Notation belongs to, if applicable"
+
         self.gliss = gliss
+        "Is this Notation part of a glissando?"
+
         self.noteheads: dict[int, definitions.Notehead] | None = None
+        "A dict mapping pitch index to notehead definition"
+
         self.color = color
+        "The color of this entire Notation"
+
         self.stem = stem
-        self.sizeFactor = sizeFactor
+        "A stem modifier (one of 'normal', 'hidden'"
+
+        self.sizeFactor: int = sizeFactor
+        "A size factor applied to this Notation (0: normal, 1: bigger, 2: even bigger, -1: smaller, etc.)"
+
         self.properties: dict[str, Any] | None = properties
+        "A dict of user properties. To be set via setProperty"
+
         self.fixedNotenames: dict[int, str] | None = None
+        "A dict mapping pitch index to spelling"
+
         self.attachments: list[Attachment] = []
+        "Attachments are gathered here"
+
         self.spanners: list[_spanner.Spanner] | None = None
+        "A list of spanners this Notations is part of"
 
         if self.isRest:
             assert self.duration > 0
@@ -163,6 +201,14 @@ class Notation:
         return id(self)
 
     def quantizedPitches(self, divs=4) -> list[float]:
+        """Quantize the pitches of this Notation
+
+        Args:
+            divs: the number of divisions per semitone
+
+        Returns:
+            the quantized pitches as midinotes
+        """
         return [round(p*4)/4 for p in self.pitches]
 
     def getAttachments(self,
@@ -198,17 +244,6 @@ class Notation:
             attachments = [a for a in attachments if a.anchor == anchor]
 
         return attachments
-
-    def findSpanner(self, cls: str | type, kind='') -> _spanner.Spanner | None:
-        if not self.spanners:
-            return
-        if isinstance(cls, str):
-            clsname = cls.lower()
-            return first(s for s in self.spanners
-                         if type(s).__name__.lower() == clsname and (not kind or s.kind==kind))
-        elif isinstance(cls, type):
-            return first(s for s in self.spanners
-                         if isinstance(s, cls) and (not kind or s.kind==kind))
 
     def findAttachment(self,
                        cls: str | type,
@@ -341,6 +376,7 @@ class Notation:
                                if not(predicate(a))]
 
     def removeAttachmentsByClass(self, cls: str | type) -> None:
+        """Remove attachments which match the given class"""
         if isinstance(cls, str):
             cls = cls.lower()
             predicate = lambda a, cls=cls: type(a).__name__.lower() == cls
@@ -382,6 +418,11 @@ class Notation:
         return self
 
     def transferSpanner(self, spanner: _spanner.Spanner, other: Notation):
+        """Move the given spanner to another Notation
+
+        This is done when replacing a Notation within a Node but there is a need
+        to keep the spanner
+        """
         self.spanners.remove(spanner)
         if not other.spanners or spanner not in other.spanners:
             if not other.hasSpanner(spanner.uuid):
@@ -403,6 +444,7 @@ class Notation:
             raise ValueError(f"Cannot remove {spanner} from {self}: spanner not found. Spanners: {self.spanners}")
 
     def removeSpanners(self) -> None:
+        """Remove all spanners from this Notation"""
         if self.spanners:
             for spanner in self.spanners:
                 self.removeSpanner(spanner)
@@ -492,6 +534,7 @@ class Notation:
 
     @property
     def isGracenote(self) -> bool:
+        """Is this a gracenote?"""
         return not self.isRest and self.duration == 0
 
     @property
@@ -535,6 +578,7 @@ class Notation:
             self.fixedNotenames = None
 
     def copyFixedSpellingTo(self, other: Notation):
+        """Copy fixed spelling to *other*"""
         if not self.fixedNotenames:
             return
         for notename in self.fixedNotenames.values():
@@ -710,6 +754,14 @@ class Notation:
         return pt.pitchclass(notename, semitone_divisions=semitoneDivs)
 
     def resolveNotenames(self, addFixedAnnotation=False) -> list[str]:
+        """Resolve the enharmonic spellings for this Notation
+
+        Args:
+           addFixedAnnotation: if True, enforce the returned spelling
+
+        Returns:
+            the notenames of each pitch in this Notation
+        """
         out = []
         for i, p in enumerate(self.pitches):
             notename = self.getFixedNotename(i)
@@ -796,6 +848,7 @@ class Notation:
         return notatedDuration(self.duration, self.durRatios)
 
     def canMergeWith(self, other: Notation) -> bool:
+        """Can this Notation merge with *other*?"""
         return notationsCanMerge(self, other)
     
     def mergeWith(self, other: Notation) -> Notation:
@@ -860,6 +913,9 @@ class Notation:
             self.setProperty('.clefHint', hint)
 
     def clearClefHints(self) -> None:
+        """Remove any clef hints from this Notation
+
+        .. seealso:: :meth:`Notation.getClefHint`, :meth:`Notation.setClefHint`"""
         self.setProperty('.clefHint')
 
     def getClefHint(self, idx: int = 0) -> str | None:
@@ -961,6 +1017,7 @@ class Notation:
             self.copyFixedSpellingTo(dest)
 
     def copyAttachmentsTo(self, dest: Notation) -> None:
+        """Copy any attachments in self to *dest* Notation"""
         if self.attachments:
             for a in self.attachments:
                 dest.addAttachment(a)

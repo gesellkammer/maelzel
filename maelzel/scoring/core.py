@@ -36,7 +36,7 @@ __all__ = (
 
 class Part(list):
     """
-    A Part is a list of non-simultaneous events
+    A Part is a list of unquantized non-simultaneous :class:`Notation`
 
     Args:
         events: the events (notes, chords) in this track
@@ -44,6 +44,8 @@ class Part(list):
         groupid: an identification (given by makeGroupId), used to identify
             tracks which belong to a same tree
         shortname: a name abbreviation used as staf name after the first system
+
+    .. seealso:: :class:`~maelzel.scoring.quant.QuantizedPart`,
     """
     def __init__(self,
                  events: list[Notation] = None,
@@ -78,6 +80,7 @@ class Part(list):
         return "Part"+s0
 
     def dump(self) -> None:
+        """Dump this Part to stdout"""
         for n in self:
             print(n)
 
@@ -148,26 +151,26 @@ class Part(list):
         return Part(events=notations, name=self.name, groupid=self.groupid,
                     shortname=self.shortname, firstclef=self.firstclef)
 
-    def groupNotationsByMeasure(self, struct: scorestruct.ScoreStruct
-                                ) -> list[list[Notation]]:
-        currMeasure = -1
-        groups = []
-        for n in self:
-            assert n.offset is not None and n.duration is not None
-            loc = struct.beatToLocation(n.offset)
-            if loc is None:
-                logger.error(f"Offset {n.offset} outside of scorestruct, for {n}")
-                logger.error(f"Scorestruct: totalDuration = {struct.totalDurationBeats()} quarters\n{struct.dump()}")
-                raise ValueError(f"Offset {float(n.offset):.3f} outside of score structure "
-                                 f"(max. offset: {float(struct.totalDurationBeats()):.3f})")
-            elif loc[0] == currMeasure:
-                groups[-1].append(n)
-            else:
-                # new measure
-                currMeasure = loc[0]
-                groups.append([n])
-        return groups
-
+    # def groupNotationsByMeasure(self, struct: scorestruct.ScoreStruct
+    #                             ) -> list[list[Notation]]:
+    #     currMeasure = -1
+    #     groups = []
+    #     for n in self:
+    #         assert n.offset is not None and n.duration is not None
+    #         loc = struct.beatToLocation(n.offset)
+    #         if loc is None:
+    #             logger.error(f"Offset {n.offset} outside of scorestruct, for {n}")
+    #             logger.error(f"Scorestruct: totalDuration = {struct.totalDurationBeats()} quarters\n{struct.dump()}")
+    #             raise ValueError(f"Offset {float(n.offset):.3f} outside of score structure "
+    #                              f"(max. offset: {float(struct.totalDurationBeats()):.3f})")
+    #         elif loc[0] == currMeasure:
+    #             groups[-1].append(n)
+    #         else:
+    #             # new measure
+    #             currMeasure = loc[0]
+    #             groups.append([n])
+    #     return groups
+    #
 
 class Arrangement(list):
     """

@@ -4,12 +4,6 @@ Quantize durations to musical notation
 The most important function here is :func:`quantize`, which treturns
 a :class:`QuantizedScore`
 
-Example
--------
-
-.. code-block:: python
-
-    XXX
 """
 from __future__ import annotations
 
@@ -723,22 +717,39 @@ class QuantizedBeat:
     A QuantizedBeat holds notations inside a beat filling the beat
     """
     divisions: division_t
+    "The division of this beat"
+
     assignedSlots: list[int]
+    "Which slots are assigned to notations in this beat"
+
     notations: list[Notation]  # makeSnappedNotation events
+    "The notations in this beat. They are cropped to fit"
+
     beatDuration: F
+    "The duration of the beat in quarter notes"
+
     beatOffset: F = F(0)
+    "The offset of the beat in relation to the measure"
+
     quantizationError: float = 0
+    "The error calculated during quantization. The higher the error, the less accurate the quantization"
+
     quantizationInfo: str = ''
+    "Info collected during quantization"
+
     weight: int = 0
+    "The weight of this beat within the measure. 2=strong, 1=weak, 0=no weight"
 
     def __post_init__(self):
         self.applyDurationRatios()
 
     @property
     def beatEnd(self) -> F:
+        """The end of this beat in quarternotes"""
         return self.beatOffset + self.beatDuration
 
     def dump(self, indents=0, indent='  ', stream=None):
+        """Dump this beat"""
         stream = stream or sys.stdout
         print(f"{indent*indents}QuantizedBeat(divisions={self.divisions}, assignedSlots={self.assignedSlots}, "
               f"beatDuration={self.beatDuration}, beatOffset={self.beatOffset}, "
@@ -783,12 +794,23 @@ class QuantizedMeasure:
                  quantprofile: QuantizationProfile | None = None,
                  parent: QuantizedPart | None = None):
         self.timesig = timesig
+        "The time signature (a tuple num, den)"
+
         self.quarterTempo = quarterTempo
+        "The tempo for the quarter note"
+
         self.beats = beats
+        "A list of QuantizedBeats"
+
         self.quantprofile = quantprofile
+        "The quantization profile used to generate this measure"
+
         self.parent = parent
+        "The parent of this measure (a QuantizedPart)"
+
         self._offsets = None
         self._root: Node | None = None
+
         if self.beats:
             self.check()
 
@@ -806,11 +828,13 @@ class QuantizedMeasure:
         self._root = None
 
     def getMeasureIndex(self) -> int | None:
+        """Return the measure index of this measure within the QUantizedPart"""
         if not self.parent:
             return None
         return self.parent.measures.index(self)
 
     def getPreviousMeasure(self) -> QuantizedMeasure | None:
+        """Returns the previous measure in the part"""
         idx = self.getMeasureIndex()
         if idx is None:
             return None
@@ -829,6 +853,7 @@ class QuantizedMeasure:
         return sum(self.beatDurations())
 
     def beatBoundaries(self) -> list[F]:
+        """The beat offsets, including the end of the measure"""
         boundaries = [F(0)]
         now = F(0)
         for dur in self.beatDurations():
@@ -848,6 +873,13 @@ class QuantizedMeasure:
         return self._offsets
 
     def fixEnharmonics(self, options: enharmonics.EnharmonicOptions) -> None:
+        """
+        Pin the enharmonic spellings within this measure (in place)
+
+        Args:
+            options: the EnharmonicOptions to use
+
+        """
         if self.isEmpty():
             return
         tree = self.tree()
@@ -2055,24 +2087,48 @@ class PartLocation:
     inside a part
     """
     measureIndex: int
+    "The measure index"
+
     beatIndex: int
+    "The beat index"
+
     notationIndex: int
+    "The notation index within the beat"
+
     beat: QuantizedBeat
+    "A reference to the beat"
+
     notation: Notation
+    "The notation at this location"
 
 
 @dataclass(slots=True)
 class QuantizedPart:
     """
     A Part which has already been quantized following a ScoreStruct
+
+    A QuantizedPart is a part of a :class:`QuantizedScore`
     """
     struct: st.ScoreStruct
+    """The scorestructure used for quantization"""
+
     measures: list[QuantizedMeasure]
+    """The measures of this part"""
+
     quantprofile: QuantizationProfile
+    """QuantizationProfile used for quantization"""
+
     name: str = ''
+    """The name of this part, used as staff name"""
+
     shortname: str = ''
+    """The abbreviated staff name"""
+
     groupid: str = ''
+    """A groupid, if applicable"""
+
     firstclef: str = ''
+    """The first clef of this part"""
 
     def __post_init__(self):
         for measure in self.measures:
@@ -2200,6 +2256,7 @@ class QuantizedPart:
                     yield PartLocation(measureidx, beatIndex=beatidx, beat=b, notation=n, notationIndex=notationidx)
 
     def dump(self, numindents=0, indent=_INDENT, tree=True, stream=None):
+        """Dump this part to a stream or stdout"""
         for i, m in enumerate(self.measures):
             ind = _INDENT * numindents
             print(f'{ind}Measure #{i}', file=stream or sys.stdout)
@@ -2322,6 +2379,12 @@ class QuantizedPart:
                            "attempting to remove superfluous gracenotes")
 
     def removeUnnecessarySpanners(self, tree: bool) -> None:
+        """
+        Remove unmatched spanners in this part
+
+        Args:
+            tree: if True, use the tree representation for each measure
+        """
         _spanner.removeUnmatchedSpanners(self.flatNotations(tree=tree))
         if not tree:
             self.resetTrees()
@@ -2355,6 +2418,16 @@ class QuantizedPart:
                         nextbeat.notations.insert(0, last)
 
     def getMeasure(self, idx: int) -> QuantizedMeasure:
+        """
+        Get a measure within this part
+
+        Args:
+            idx: the measure index (starts at 0)
+
+        Returns:
+            The corresponding measure. If outside of the defined measures a new
+            empty QuantizedMeasure will be created
+        """
         if idx > len(self.measures) - 1:
             for i in range(len(self.measures) - 1, idx+1):
                 mdef = self.struct.getMeasureDef(i)
@@ -2404,21 +2477,6 @@ class QuantizedPart:
                                      parent=self)
             self.measures.append(empty)
 
-    def removeUnmatchedSpanners(self, tree: bool) -> int:
-        """
-
-        Algorithm:
-
-        iterate over all notations
-        for each spanner, register it as {(uuid, kind): (spanner, notation)}
-        iterate over the registered spanner. for each spanner, look for
-        the partner. if it has no partner, remove the spanner from the original notation
-        """
-        out = _spanner.removeUnmatchedSpanners(self.flatNotations(tree=tree))
-        if not tree:
-            self.resetTrees()
-        return out
-
     def fixChordSpellings(self, tree=True, enharmonicOptions: enharmonics.EnharmonicOptions = None
                           ) -> None:
         """
@@ -2439,7 +2497,7 @@ class QuantizedPart:
 
     def breakSyncopations(self, level: str = 'weak') -> None:
         """
-        Break notes extending over beat boundaries
+        Break notes extending over beat boundaries, in place
 
         * 'all': break syncopations at any beat boundary
         * 'weak': break syncopations at weak accent beats (for example, the 3rd
@@ -2537,7 +2595,19 @@ class QuantizedScore:
     A QuantizedScore represents a list of quantized parts
 
     See :func:`quantize` for an example
+
+    Args:
+        parts: the parts of this QuantizedScore
+        title: an optional title for this score
+        composer: an optional composer for this score
+
+    Attributes:
+        parts: the parts of this score
+        title: an optional title
+        composer: an optional composer
     """
+    __slots__ = ('parts', 'title', 'composer')
+
     def __init__(self,
                  parts: list[QuantizedPart],
                  title='',
@@ -2553,6 +2623,8 @@ class QuantizedScore:
         """Composer of the score, used for rendering"""
 
     def check(self):
+        """Check this QuantizedScore"""
+
         for pidx, part in enumerate(self.parts):
             for midx, measure in enumerate(part.measures):
                 try:
@@ -2561,7 +2633,13 @@ class QuantizedScore:
                     logger.error(f"Check error in part {pidx}, measure {midx}")
                     raise e
 
-    def fixEnharmonics(self, enharmonicOptions: enharmonics.EnharmonicOptions):
+    def fixEnharmonics(self, enharmonicOptions: enharmonics.EnharmonicOptions) -> None:
+        """
+        Finds the best spelling for each part in this score, in place
+
+        Args:
+            enharmonicOptions: the enharmonic options to use
+        """
         for part in self.parts:
             for measure in part.measures:
                 measure.fixEnharmonics(enharmonicOptions)
@@ -2598,6 +2676,16 @@ class QuantizedScore:
         return stream.getvalue()
 
     def dump(self, tree=True, indent=_INDENT, stream=None, numindents: int = 0) -> None:
+        """
+        Dump this QuantizedScore to a given stream or to stdout
+
+        Args:
+            tree: if True, use the tree representation for each measure
+            indent: the indentation to use
+            stream: the stream to write to
+            numindents: the starting indentation
+
+        """
         for i, part in enumerate(self):
             print(f"{indent*numindents}Part #{i}:", file=stream)
             part.dump(tree=tree, numindents=numindents+1, indent=indent, stream=stream)
@@ -2668,6 +2756,15 @@ class QuantizedScore:
               outfile: str,
               options: renderer.RenderOptions | None = None
               ) -> renderer.Renderer:
+        """
+        Export this score as pdf, png, lilypond, MIDI or musicxml
+        Args:
+            outfile:
+            options:
+
+        Returns:
+
+        """
         ext = os.path.splitext(outfile)[1]
         if ext == '.ly':
             r = self.render(options=options, backend='lilypond')
@@ -2677,7 +2774,8 @@ class QuantizedScore:
             r = self.render(options=options)
             r.write(outfile)
             return r
-
+        else:
+            raise ValueError(f"Format {ext} not supported")
 
     def render(self,
                options: renderer.RenderOptions | None = None,

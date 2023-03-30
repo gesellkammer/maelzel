@@ -144,7 +144,7 @@ def arrayFade(samples: np.ndarray, sr: int, fadetime: float,
     """
     assert isinstance(samples, np.ndarray)
     assert isinstance(sr, int)
-    assert isinstance(fadetime, float)
+    assert isinstance(fadetime, (int, float))
     assert isinstance(mode, str)
     assert isinstance(shape, str)
 

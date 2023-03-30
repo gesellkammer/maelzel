@@ -30,26 +30,32 @@ def _mergeProperties(a: dict | None, b: dict | None) -> dict | None:
 
 class Node:
     """
-    A Node is a container, grouping Notation under one time modifier
+    A Node is a container, grouping Notation and other Nodes under one time modifier
 
     A Node consists of a sequence of Notations or Nodes, allowing to
     define nested tuplets or beats. The notations inside a Node already hold the
-    real beat-totalDuration. The durRatio is a ratio by which to multiply a given totalDuration to
-    obtain the notated totalDuration.
+    real beat-duration. The durRatio is a ratio by which to multiply a given duration to
+    obtain the notated duration.
+
+    A Node is used to represent the result of quantization. Quantization happens first
+    at the beat level and after that all quantized beats within a measure are merged
+    together to create a tree structure spanning along the entire measure
+
+    .. seealso:: :meth:`QuantizedMeasure.tree <maelzel.scoring.quant.QuantizedMeasure.tree>`
 
     Attributes:
-        durRatio: a tuple (num, den) indication the ratio by which to multiply the totalDuration
+        durRatio: a tuple (num, den) indication the ratio by which to multiply the duration
             of the items to obtain the notated items: the items inside this tree
             For example, an quarternote triplet would have a durRatio (3, 2) and the items
-            inside it would have a totalDuration of 1/3. When multiplied by the durRatio each
-            item would have a totalDuration of 1/2
+            inside it would have a duration of 1/3. When multiplied by the durRatio each
+            item would have a duration of 1/2
         items: the items in this tree
 
     In the case of a simple triplet, the items would hold something like::
 
         >>> from maelzel.scoring import *
-        >>> notations = [makeNote(60, totalDuration=F(1, 3)),
-        ...              makeNote(61, totalDuration=F(2, 3))]
+        >>> notations = [makeNote(60, duration=F(1, 3)),
+        ...              makeNote(61, duration=F(2, 3))]
         >>> Node(ratio=(3, 2), items=notations)
     """
     def __init__(self,
@@ -64,6 +70,7 @@ class Node:
         self.parent: weakref.ReferenceType[Node] | None = weakref.ref(parent) if parent else None
 
     def setParent(self, parent: Node, recurse=True):
+        """Set the parent of this None"""
         self.parent = weakref.ref(parent)
         if recurse:
             for item in self.items:
@@ -71,6 +78,12 @@ class Node:
                     item.setParent(self, recurse=True)
 
     def findRoot(self) -> Node:
+        """
+        Find the root of this node
+
+        Nodes are organized in tree structures. This method will climb the tree structure
+        until the root of the tree (the node without a parent) is found
+        """
         return self if not self.parent else self.parent().findRoot()
 
     def setProperty(self, key: str, value) -> None:
@@ -103,11 +116,12 @@ class Node:
         return self.items[idx]
 
     def append(self, item: Notation | Node) -> None:
+        """Add an item or Node to this Node"""
         self.items.append(item)
 
     def totalDuration(self) -> F:
         """
-        The actual totalDuration of the items in this tree
+        The actual duration of the items in this tree
 
         """
         return sum((item.duration if isinstance(item, Notation) else item.totalDuration()
@@ -122,6 +136,7 @@ class Node:
         return sum(item.symbolicDuration() for item in self.items)
 
     def dump(self, numindents=0, indent='  ', stream=None):
+        """Dump this node, recursively"""
         stream = stream or sys.stdout
         MAXWIDTH = 90
         print(f"{indent * numindents}Node ratio: {self.durRatio[0]}/{self.durRatio[1]}, offset={self.offset}, end={self.end}", file=stream)
@@ -309,7 +324,8 @@ class Node:
         """
         Iterate over all logical ties within self (recursively)
 
-        Returns: an iterator over the logical ties within self (recursively)
+        Returns:
+            an iterator over the logical ties within self (recursively)
 
         """
         last = []
@@ -403,7 +419,15 @@ class Node:
     def fixEnharmonics(self,
                        options: enharmonics.EnharmonicOptions,
                        prevTree: Node = None
-                       ):
+                       ) -> None:
+        """
+        Find the best enharmonic spelling for the notations within this tree, in place
+
+        Args:
+            options: the enharmonic options used
+            prevTree: the previous tree (the tree corrsponding to the previous measure)
+
+        """
         notations = list(self.recurse())
         n0 = notations[0]
         if not n0.isRest and n0.tiedPrev and prevTree is not None:
@@ -419,7 +443,7 @@ class Node:
 
     def splitAtBeatBoundary(self, offset: F, key=None) -> None:
         """
-        Split any notation which crosses the given offset
+        Split any notation which crosses the given offset, in place
 
         A notation will be split if it crosses the given offset
         and its duration is less than *maxdur*
@@ -428,7 +452,6 @@ class Node:
             offset: the offset of the desired split. It should be a beat boundary
             maxdur: the max. duration of the notation
 
-        Returns:
         """
         if not self.offset < offset < self.end:
             logger.debug(f"This Node (offset: {self.offset}, end: {self.end}) does not contain offset {offset}")

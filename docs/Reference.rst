@@ -2,8 +2,8 @@
 Reference 
 =========
 
-maelzel.core
-------------
+Core (maelzel.core)
+-------------------
 
 **maelzel.core** provides a set of classes to define notes, chords, sequences, voices or
 entire scores. These musical objects can be used for composition, analysis or any kind of
@@ -17,8 +17,8 @@ and displayed as notation.
 
 ---------------------
 
-maelzel.scoring - General Purpose notation
-------------------------------------------
+Scoring - General Purpose notation (maelzel.scoring)
+----------------------------------------------------
 
 The **maelzel.scoring** package can be used for general purpose musical notation. It provides
 the notation functionality used by **maelzel.core** but it can be used independently. 
@@ -34,10 +34,10 @@ multiple backends (*lilypond*, *musescore*)
 
 --------------------
 
-maelzel.snd - Audiosamples, analysis, synthesis, feature extraction
+Audiosamples, analysis, synthesis, feature extraction (maelzel.snd)
 -------------------------------------------------------------------
 
-All functionality related to *sound* is contained within this package
+All functionality related to *sound* is contained within **maelzel.snd**
 
 .. toctree::
     :maxdepth: 1

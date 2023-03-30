@@ -7,25 +7,12 @@ which contains the audio of a soundfile as a numpy array and it aware of its sr,
 original format and encoding, etc. It can also perform simple actions
 (fade-in/out, cut, insert, reverse, normalize, etc) on its own audio
 destructively or return a new Sample. It implements most math operations
-valid for audio data (+, -, *, /)
+valid for audio data (``+``, ``-``, ``*``, ``/``)
 
 .. note::
 
-    All operations are sr-aware, meaning that any operation involving
-    multiple Sample instances will broadcast them to the highest sr used
-    should they have non-matching samplerates
-
-
-External dependencies
-~~~~~~~~~~~~~~~~~~~~~
-
-For some functionality (fundamental pitch analysis) we rely at the moment
-on some external dependencies
-
-* pyin vamp plugin: https://code.soundsoftware.ac.uk/projects/pyin/files
-
-These dependencies are shipped together with **maelzel** and installed
-automatically if not already present in the system
+    All operations are samplerate-aware: any operation involving
+    multiple :class:`Sample` instances will broadcast these to the highest samplerate used
 
 
 Examples
@@ -372,21 +359,21 @@ class Sample:
         """
         Play the given sample
 
-        * If no playback has taken place, a new playback engine is created
-        * To create an Engine with specific characteristics use :meth:`Sample.getEngine`.
-        * To use an already existing Engine, see :func:`setPlayEngine` or pass the engine
-          explicitely as an argument
+        csoundengine is used for playback. If no playback has taken place, a new
+        playback engine is created. To create an Engine with specific characteristics
+        use :meth:`Sample.getEngine`. To use an already existing Engine, see
+        :func:`setPlayEngine` or pass the engine explicitely as an argument
 
         Args:
-            loop (bool): should playback be looped?
-            chan (int): first channel to play to. For stereo samples, output
+            loop: should playback be looped?
+            chan: first channel to play to. For stereo samples, output
                 is routed to consecutive channels starting with this channel
-            gain (float): a gain modifier
-            delay (float): start delay in seconds
-            pan (float): a value between 0 (left) and 1 (right). Use -1
+            gain: a gain modifier
+            delay: start delay in seconds
+            pan: a value between 0 (left) and 1 (right). Use -1
                 for a default value, which is 0 for mono samples and 0.5
                 for stereo. For 3 or more channels pan is currently ignored
-            speed(float): the playback speed. A variation in speed will change
+            speed: the playback speed. A variation in speed will change
                 the pitch accordingly.
             skip: start playback at a given point in time
             dur: totalDuration of playback. 0 indicates to play until the end of the sample
@@ -397,7 +384,7 @@ class Sample:
 
         Returns:
             a :class:`csoundengine.synth.Synth`. This synth can be used to
-            control playback.
+            control or stop playback.
 
         See Also
         ~~~~~~~~
@@ -442,6 +429,9 @@ class Sample:
 
         Args:
             profile: one of 'low', 'medium', 'high'
+
+        Returns:
+            a list of pyplot Axes
         """
         from . import plotting
         return plotting.plotWaveform(self.samples, self.sr, profile=profile)
@@ -591,6 +581,31 @@ class Sample:
                                         overlap=overlap, mindb=mindb, minfreq=minfreq,
                                         maxfreq=maxfreq, axes=axes)
 
+    def plotMelSpectrogram(self, fftsize=2048, overlap=4, winlength: int = None,
+                           nmels=128, axes=None, axislabels=False, cmap: str = 'magma'
+                           ) -> plt.Axes:
+        """
+        Plot a mel-scale spectrogram
+
+        Args:
+            fftsize: the fftsize in samples
+            overlap: the amount of overlap. An overlap of 4 will result in a hop-size of
+                winlength samples // overlap
+            winlength: the window length in samples. If None, fftsize is used. If given,
+                winlength <= fftsize
+            nmels: number of mel bins
+            axes: if given, plot on this Axes
+            axislabels: if True, include labels on the axes
+            cmap: a color map byname
+
+        Returns:
+            the Axes used
+        """
+        from . import plotting
+        return plotting.plotMelSpectrogram(self.samples, sr=self.sr, fftsize=fftsize,
+                                           overlap=overlap, winlength=winlength, axes=axes,
+                                           setlabel=axislabels, nmels=nmels, cmap=cmap)
+
     def openInEditor(self, wait=True, app=None, fmt='wav'
                      ) -> Sample | None:
         """
@@ -605,7 +620,6 @@ class Sample:
                 Otherwise, the application configured via the key 'editor'
                 is used
             fmt: the format to write the samples to
-
 
         Returns:
             if wait, it returns the sample after closing editor
@@ -857,7 +871,9 @@ class Sample:
         else:
             _npsnd.arrayFade(self.samples, self.sr, fadetime=fadetime,
                              mode='inout', shape=shape)
+        self._changed()
         return self
+
 
     def prependSilence(self, dur: float) -> Sample:
         """
@@ -918,6 +934,7 @@ class Sample:
         self._checkWrite()
         ratio = _npsnd.normalizationRatio(self.samples, headroom)
         self.samples *= ratio
+        self._changed()
         return self
 
     def peak(self) -> float:
