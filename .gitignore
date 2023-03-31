@@ -1,7 +1,7 @@
 build/
 dist/
 docs/tmp/
-_build/
+docs/_build
 *.egg*
 __pycache__
 *.pyc
