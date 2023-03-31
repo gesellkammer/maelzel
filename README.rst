@@ -20,29 +20,6 @@ Documentation
 
 https://maelzel.readthedocs.io/en/latest/index.html
 
-----------------
-
-
-Structure
----------
- 
-
-- **core**: core module defining basic classes for computer music
-  (Note, Chord, Voice, Score, etc). Any of these objects can be
-  representated as notation and played back. 
-- **snd**: read/write soundfiles, process samples, apply filters,
-  fades, etc.
-- **music**: music representation, algorithmic music, etc
-- **scoring**: music representation. Offers support for microtones (up
-  to 1/8 tones or any cent deviation), very refined cotrol of
-  automatic quantization, glissandi, grace-notes, annotations,
-  etc. Supports multiple backends (lilypond and musicxml at the
-  moment).
-- **acoustics**: formulas for helmholtz resonators, speed of sound, etc.
-- **midi**: read/write midi files, general midi
-- **ext**: wrappers around external software, like sonic-visualizer,
-  audacity, reaper
-
 
 --------------
 
