@@ -1,3 +1,5 @@
+.. image:: docs/assets/maelzel-logo.png
+
 maelzel
 =======
 
