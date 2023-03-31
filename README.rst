@@ -59,3 +59,7 @@ https://maelzel.readthedocs.io/en/latest/Introduction.html#demo-notebooks
 .. figure:: docs/assets/maelzel-demos.png
   :target: https://maelzel.readthedocs.io/en/latest/Introduction.html#demo-notebooks
 
+
+Or check the example notebooks:
+
+https://github.com/gesellkammer/maelzel/tree/master/docs/notebooks
