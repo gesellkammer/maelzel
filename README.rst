@@ -1,5 +1,5 @@
 .. image:: docs/assets/maelzel-logo.png
-	:height: 400px
+	:width: 400px
 	
 
 maelzel
