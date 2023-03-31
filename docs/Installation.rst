@@ -28,6 +28,8 @@ MacOS
 - Install lilypond: http://lilypond.org/macos-x.html
 - Install MuseScore: https://musescore.org/en/download
 
+--------------
+
 Windows
 -------
 
@@ -35,11 +37,14 @@ Windows
 - Install lilypond: http://lilypond.org/windows.html
 - Install MuseScore: https://musescore.org/en/download
 
+
+----------------
+
 Linux
 -----
 
 Arch
-~~~~
+~~~~~
 
 .. code-block:: bash
 
