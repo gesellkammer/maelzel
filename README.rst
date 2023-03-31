@@ -2,6 +2,9 @@
     :width: 320px
     :align: center
 
+
+-----------------
+
 |sh-pypi| |sh-license| |sh-docs|
 
 .. |sh-pypi| image:: https://img.shields.io/pypi/v/maelzel?color=green
