@@ -1,12 +1,10 @@
-.. image:: docs/assets/maelzel-logo.png
+.. figure:: docs/assets/maelzel-logo.png
     :width: 320px
     :align: center
 
 .. image:: https://img.shields.io/pypi/v/maelzel?color=green
-    :width: 50%
+.. image:: https://img.shields.io/badge/license-lgpl__2__1-blue
 
-.. figure:: https://img.shields.io/badge/license-lgpl__2__1-blue
-    :width: 50%
 
 maelzel
 =======
