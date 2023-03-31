@@ -1,5 +1,6 @@
 .. image:: docs/assets/maelzel-logo.png
 	:width: 400px
+	:align: center
 	
 
 maelzel
