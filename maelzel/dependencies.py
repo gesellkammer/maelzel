@@ -81,7 +81,7 @@ def maelzelRootFolder() -> Path:
     """
     Returns the root folder of the maelzel installation
     """
-    return Path(os.path.split(__file__)[0]).parent
+    return Path(os.path.split(__file__)[0])
 
 
 def checkCsoundPlugins(fix=True) -> str:
@@ -123,6 +123,37 @@ def checkCsoundPlugins(fix=True) -> str:
     return ''
 
 
+def dataPath() -> Path:
+    return maelzelRootFolder() / 'data'
+
+
+def vampPluginsDataFolder() -> Path:
+    subfolder = {
+        'darwin': 'macos',
+        'windows': 'windows',
+        'linux': 'linux'
+    }.get(sys.platform, None)
+    return dataPath() / 'vamp' / subfolder
+
+
+def checkDataFiles() -> bool:
+    data = dataPath()
+    if not data.exists():
+        print(f"Data path not found: {data}")
+        return False
+    vampdir = vampPluginsDataFolder()
+    if not vampdir.exists():
+        print(f"Data folder with vamp plugins not found: {vampdir}")
+        return False
+
+    knownfiles = ['pyin.cat', 'pyin.n3']
+    for knownfile in knownfiles:
+        path = vampdir / knownfile
+        if not path.exists():
+            print(f"Vamp plugin component {path} not found")
+            return False
+    return True
+
 def installVampPlugins() -> None:
     """
     Install needed vamp plugins in the user folder
@@ -134,8 +165,6 @@ def installVampPlugins() -> None:
     plugins to the correct folder for the platform
     """
     from maelzel.snd import vamptools
-    rootfolder = maelzelRootFolder()
-    assert rootfolder.exists()
     subfolder = {
         'darwin': 'macos',
         'windows': 'windows',
@@ -143,12 +172,12 @@ def installVampPlugins() -> None:
     }.get(sys.platform, None)
     if subfolder is None:
         raise RuntimeError(f"Platform {sys.platform} not supported")
-    pluginspath = rootfolder/'data/vamp'/subfolder
+    pluginspath = dataPath() / 'vamp' / subfolder
     if not pluginspath.exists():
         raise RuntimeError(f"Could not find own vamp plugins. Folder: {pluginspath}")
     components = list(pluginspath.glob("*"))
     if not components:
-        raise RuntimeError(f"Plugins not found in out distribution. "
+        raise RuntimeError(f"Plugins not found in our distribution. "
                            f"Plugins folder: {pluginspath}")
     pluginsDest = vamptools.vampFolder()
     os.makedirs(pluginsDest, exist_ok=True)

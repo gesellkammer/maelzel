@@ -3,11 +3,23 @@
 
 import os
 import sys
+import glob
 
 from setuptools import setup
 
 readme = open('README.rst').read()
-version = (0, 8, 3)
+version = (0, 8, 4)
+
+
+def package_files(directory):
+    paths = []
+    for (path, directories, filenames) in os.walk(directory):
+        for filename in filenames:
+            paths.append(os.path.join('..', path, filename))
+    return paths
+
+extra_files = package_files('maelzel/data')
+print(extra_files)
 
 setup(
     name='maelzel',
@@ -30,7 +42,6 @@ setup(
         'maelzel.musicxml',
         'maelzel.transcribe'
     ],
-    include_package_data=True,
     install_requires=[
         "emlib>=1.7.3",
         "numpy",
@@ -69,5 +80,6 @@ setup(
         'Natural Language :: English',
         'Programming Language :: Python :: 3.9'
     ],
-    package_data={'': ['data/*']},
+    include_package_data=True,
+    package_data={'maelzel': extra_files},
 )
