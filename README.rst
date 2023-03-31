@@ -4,7 +4,8 @@
 
 .. image:: https://img.shields.io/pypi/v/maelzel?color=green
 .. image:: https://img.shields.io/badge/license-lgpl__2__1-blue
-
+.. image:: https://readthedocs.org/projects/maelzel/badge/?version=latest
+    :target: http://maelzel.readthedocs.io/?badge=latest
 
 maelzel
 =======
