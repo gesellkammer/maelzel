@@ -2,8 +2,9 @@
 	:width: 320px
 	:align: center
 
-[![PyPI](https://img.shields.io/pypi/v/maelzel.svg)](https://pypi.python.org/pypi/maelzel)
-[![License](https://img.shields.io/pypi/l/maelzel.svg)](https://github.com/gesellkammer/maelzel/blob/main/LICENSE.md)
+.. image:: https://img.shields.io/pypi/v/maelzel?color=green
+
+.. image:: https://img.shields.io/badge/license-lgpl__2__1-blue
 
 maelzel
 =======
