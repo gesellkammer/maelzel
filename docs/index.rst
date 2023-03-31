@@ -1,8 +1,5 @@
-.. maelzel documentation master file, created by
-   sphinx-quickstart on Sun Jan 31 20:13:32 2021.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
-
+.. figure:: assets/maelzel-logo.svg
+   :width: 400px
 
 maelzel
 =======
@@ -28,6 +25,8 @@ There are **external dependencies** which need to be installed manually:
 * **lilypond** (https://lilypond.org/download.html)
 
 For more information see :doc:`Installation`
+
+
 
 -----------------
 
