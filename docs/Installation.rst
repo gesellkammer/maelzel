@@ -26,7 +26,7 @@ MacOS
 
 - Install csound: https://csound.com/download.html
 - Install lilypond: http://lilypond.org/macos-x.html
-- Install MuseScore: https://musescore.org/en/download
+- Install MuseScore: https://musescore.org/en/download (optional)
 
 --------------
 
@@ -35,7 +35,7 @@ Windows
 
 - Install csound: https://csound.com/download.html
 - Install lilypond: http://lilypond.org/windows.html
-- Install MuseScore: https://musescore.org/en/download
+- Install MuseScore: https://musescore.org/en/download (optional)
 
 
 ----------------
@@ -53,16 +53,15 @@ Arch
 Debian / Ubuntu
 ~~~~~~~~~~~~~~~
 
-**csound**: The *csound* package provided is probably too old. *csound* can be easily installed
-from source (see also the
+**csound**: The *csound* package provided by the package manager is probably too old.
+*csound* must be installed from source (see also the
 `official instructions <https://github.com/csound/csound/blob/develop/BUILD.md#debian>`_)::
 
     sudo apt-get build-dep csound
     sudo apt-get install cmake
     git clone -b csound6 https://github.com/csound/csound.git csound
     cd csound
-    mkdir build
-    cd build
+    mkdir build && cd build
     cmake ..
     make -j $(nproc)
     sudo make install
@@ -72,5 +71,3 @@ from source (see also the
 
     sudo apt-get install lilypond
 
-**MuseScore**: install it via their distributed AppImages:
-https://musescore.org/en/download
