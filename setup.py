@@ -8,7 +8,7 @@ import glob
 from setuptools import setup
 
 readme = open('README.rst').read()
-version = (0, 8, 6)
+version = (0, 8, 7)
 
 
 def package_files(directory):
