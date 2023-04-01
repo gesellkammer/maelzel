@@ -94,27 +94,28 @@ def checkCsoundPlugins(fix=True) -> str:
     logger.debug("Checking dependencies for csound plugins")
     import risset
     logger.debug("Reading risset's main index")
-    idx = risset.MainIndex(update=True)
+    rissetindex = risset.MainIndex(update=True)
     neededopcodes = {
+        'dict_get': 'klib',
         'presetinterp': 'else',
         'weightedsum': 'else',
         'poly': 'poly'
     }
     errors = []
-    installedopcodes = {opcode.name for opcode in idx.defined_opcodes()
+    installedopcodes = {opcode.name for opcode in rissetindex.defined_opcodes()
                         if opcode.installed}
     for opcodename, pluginname in neededopcodes.items():
         if opcodename not in installedopcodes:
             if fix:
-                logger.info(f"Opcode {opcodename} (from plugin {pluginname}) not found, I will"
-                            f"try to install it now")
-                plugin = idx.plugins[pluginname]
-                errmsg = idx.install_plugin(plugin)
+                print(f"Opcode {opcodename} (from plugin {pluginname}) not found, I will"
+                      f"try to install it now")
+                plugin = rissetindex.plugins[pluginname]
+                errmsg = rissetindex.install_plugin(plugin)
                 if errmsg:
                     logger.error(f"Could not install plugin {pluginname}")
                     errors.append(errmsg)
                 else:
-                    logger.info(f"Installed {pluginname} OK")
+                    print(f"Installed {pluginname} OK")
             else:
                 logger.error(f"Opcode {opcodename} (from plugin {pluginname}) not found!")
                 errors.append(f"Opcode {opcodename} (plugin: {pluginname}) not found")

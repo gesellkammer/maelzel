@@ -20,7 +20,6 @@ def package_files(directory):
 
 extra_files = package_files('maelzel/data')
 print(extra_files)
-
 setup(
     name='maelzel',
     python_requires=">=3.10",
@@ -48,38 +47,42 @@ setup(
         "scipy",
         "matplotlib",
         "music21",
-        "bpf4",
-        "configdict>=2.6",
         "appdirs",
         "tabulate",
-        "sndfileio>=1.8.1",
-        "cachetools",
         "ctcsound",
-        "numpyx>=1.2.0",
-        "watchdog",
-        "python-constraint",
+        "cachetools",
         "pyyaml",
-        "resampy",
+        "watchdog",
         "psutil",
-        "csoundengine>=1.17.1",
-        "pitchtools>=1.9.2",
         "lxml",
         "quicktions",
         "rich",
-        "risset",
         "chardet",
         "simple-term-menu",
         "visvalingamwyatt",
-        "loristrck",
-        "vamphost"
+        # "resampy",  # Do not include it by default, since this pulls numba
+
+        "bpf4>=1.8.4",
+        "configdict>=2.6",
+        "sndfileio>=1.8.1",
+        "numpyx>=1.3.1",
+        "python-constraint",
+        "csoundengine>=1.17.1",
+        "pitchtools>=1.9.2",
+        "risset>=2.1.0",
+        "loristrck>=1.5.2",
+        "vamphost>=1.2.1"
     ],
-    license="BSD",
+    license="LGPLv2",
     zip_safe=False,
     classifiers=[
-        'License :: OSI Approved :: BSD License',
+        'License :: OSI Approved :: GNU Lesser General Public License v2 (LGPLv2)'
         'Natural Language :: English',
-        'Programming Language :: Python :: 3.9'
+        'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
+        'Topic :: Multimedia :: Sound/Audio'
     ],
     include_package_data=True,
     package_data={'maelzel': extra_files},
 )
+
