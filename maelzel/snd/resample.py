@@ -4,7 +4,6 @@ Multiple backends to perform resampling on numpy arrays
 from __future__ import annotations
 import os
 import numpy as np
-from typing import Optional 
 
 
 def _getBackend() -> str:
