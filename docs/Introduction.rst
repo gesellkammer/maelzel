@@ -36,7 +36,7 @@ Here is a selection of short demonstrations showcasing some of its features:
     :gutter: 3
 
     .. grid-item-card:: Messiaen - Quatour pour la fin du temps
-        :link: messiaen-la-liturgie
+        :link: notebooks/messiaen-la-liturgie
         :link-type: doc
         :class-title: cardtitle
 
@@ -49,7 +49,7 @@ Here is a selection of short demonstrations showcasing some of its features:
         * **Resynthesis**. Interaction with the *csound* engine (routing events through a reverb)
 
     .. grid-item-card:: Speech Transcription
-        :link: demo-transcribe
+        :link: notebooks/demo-transcribe
         :link-type: doc
         :class-title: cardtitle
 
@@ -66,7 +66,7 @@ Here is a selection of short demonstrations showcasing some of its features:
     :gutter: 3
 
     .. grid-item-card:: Complex Rhythms and Transformations
-        :link: demo-complex-rhythms
+        :link: notebooks/demo-complex-rhythms
         :link-type: doc
         :class-title: cardtitle
 
@@ -79,7 +79,7 @@ Here is a selection of short demonstrations showcasing some of its features:
 
 
     .. grid-item-card:: Soundfile chords
-        :link: clip-chords
+        :link: demo/clip-chords
         :link-type: doc
         :class-title: cardtitle
 
