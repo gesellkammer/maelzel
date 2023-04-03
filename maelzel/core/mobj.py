@@ -862,10 +862,10 @@ class MObj:
     def _scoringAnnotation(self, text: str = None, config: CoreConfig = None
                            ) -> scoring.attachment.Text:
         """ Returns owns annotations as a scoring Annotation """
-        assert self.label
         if config is None:
             config = Workspace.active.config
         if text is None:
+            assert self.label
             text = self.label
         return scoring.attachment.Text(text, fontsize=config['show.labelFontSize'])
 

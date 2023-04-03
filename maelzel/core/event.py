@@ -736,6 +736,9 @@ class Note(MEvent):
 
         if self.label:
             notes[0].addText(self._scoringAnnotation(config=config))
+        elif chainlabel := self.getProperty('.chainlabel'):
+            notes[0].addText(self._scoringAnnotation(text=chainlabel, config=config))
+
         if self.symbols:
             for symbol in self.symbols:
                 symbol.applyToTiedGroup(notes)
@@ -1209,6 +1212,8 @@ class Chord(MEvent):
         notation = scoring.makeChord(pitches=notenames, duration=dur, offset=offset,
                                      annotation=annot, group=groupid, dynamic=self.dynamic,
                                      tiedNext=self.tied)
+        if chainlabel := self.getProperty('.chainlabel'):
+            notation.addText(self._scoringAnnotation(chainlabel, config=config))
 
         # Transfer any pitch spelling
         for i, note in enumerate(self.notes):
