@@ -8,7 +8,7 @@ import glob
 from setuptools import setup
 
 readme = open('README.rst').read()
-version = (0, 9, 0)
+version = (0, 9, 1)
 
 
 def package_files(directory):
@@ -67,7 +67,7 @@ setup(
         "sndfileio>=1.8.1",
         "numpyx>=1.3.1",
         "python-constraint",
-        "csoundengine>=1.18.0",
+        "csoundengine>=1.18.1",
         "pitchtools>=1.9.2",
         "risset>=2.1.0",
         "loristrck>=1.5.2",
