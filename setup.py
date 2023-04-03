@@ -76,8 +76,6 @@ setup(
     license="LGPLv2",
     zip_safe=False,
     classifiers=[
-        'License :: OSI Approved :: GNU Lesser General Public License v2 (LGPLv2)'
-        'Natural Language :: English',
         'Programming Language :: Python :: 3.10',
         'Programming Language :: Python :: 3.11',
         'Topic :: Multimedia :: Sound/Audio'
