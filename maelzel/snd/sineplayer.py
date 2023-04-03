@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from typing import *
 
 import sys
-import ctcsound
+import ctcsound7 as ctcsound
 import time
 
 
