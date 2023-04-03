@@ -836,9 +836,11 @@ class Chain(MObj, MContainer):
         chain = self.flat()
         notations: list[scoring.Notation] = []
         if self.label and chain and chain[0].resolveOffset() > 0:
-            notations.append(scoring.makeRest(duration=chain[0].resolveOffset(), annotation=self.label))
+            notations.append(scoring.makeRest(duration=chain[0].resolveOffset()))
         for item in chain.items:
             notations.extend(item.scoringEvents(groupid=groupid, config=config, parentOffset=offset))
+        #if self.label:
+        #y    notations[0].addText(self._scoringAnnotation(text=self.label))
         scoring.stackNotationsInPlace(notations)
 
         for n0, n1 in iterlib.pairwise(notations):
@@ -979,6 +981,8 @@ class Chain(MObj, MContainer):
                 dur = item.dur
                 out.append((item, now, dur))
                 item._resolvedOffset = now - frame
+                if i == 0 and self.label:
+                    item.setProperty('.chainlabel', self.label)
                 now += dur
             else:
                 if recurse:
@@ -994,15 +998,15 @@ class Chain(MObj, MContainer):
 
     def recurseWithOffset(self, absolute=False) -> Iterator[tuple[MEvent, F]]:
         """
-        Recurse the events in self, yields a tuple (event, offset, duration) for each event
+        Recurse the events in self, yields a tuple (event, offset) for each event
 
         Args:
             absolute: if True, the offset returned for each item will be its
                 absolute offset; otherwise the offsets are relative to the start of self
 
         Returns:
-            a generator of tuples (event, offset, duration), where offset is either the
-            offset relative to the start of self, or absolute if absoluteTimes is True
+            a generator of tuples (event, offset), where offset is either the
+            offset relative to the start of self, or absolute if absolute is True
 
         Example
         ~~~~~~~
@@ -1023,7 +1027,7 @@ class Chain(MObj, MContainer):
                 item, offset, dur = itemtuple
                 yield item, offset
             else:
-                for item, offset, dur in item:
+                for subitem, offset, dur in item:
                     yield item, offset
 
     def iterateWithTimes(self, absolute=False
