@@ -56,5 +56,6 @@ Reference
    :maxdepth: 2
 
    Reference
+   Installation
 
 
