@@ -1,5 +1,6 @@
-Introduction
-------------
+
+
+.. rubric:: Introduction
 
 **maelzel** provides a framework to work with both *symbolic* (music) and *concrete*
 (audio) sound.
@@ -9,21 +10,25 @@ Introduction
     See :ref:`installation` for a detailed guide about installing the necessary external dependencies
 
 
+
 Demo Notebooks
---------------
+==============
+
 
 Here is a selection of short demonstrations showcasing some of its features:
-
 
 .. toctree::
     :maxdepth: 1
     :numbered:
 
-    Messiaen - Quatour pour la fin du temps <messiaen-la-liturgie>
-    Speech Transcription <demo-transcribe>
-    Complex Rhythms (Ferneyhough's 3rd String Quartet) <demo-complex-rhythms>
-    Soundfile chords <clip-chords>
+    Messiaen - Quatour pour la fin du temps <notebooks/messiaen-la-liturgie>
+    Speech Transcription <notebooks/demo-transcribe>
+    Complex Rhythms (Ferneyhough's 3rd String Quartet) <notebooks/demo-complex-rhythms>
+    Soundfile chords <notebooks/clip-chords>
 
+
+
+------------------
 
 .. grid:: 1 1 2 2
     :margin: 3
