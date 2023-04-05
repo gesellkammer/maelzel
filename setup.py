@@ -67,7 +67,7 @@ setup(
         "sndfileio>=1.8.1",
         "numpyx>=1.3.1",
         "python-constraint",
-        "csoundengine>=1.18.1",
+        "csoundengine>=1.18.2",
         "pitchtools>=1.9.2",
         "risset>=2.1.0",
         "loristrck>=1.5.2",
