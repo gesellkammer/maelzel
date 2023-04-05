@@ -1,6 +1,7 @@
 .. figure:: assets/maelzel-logo.svg
    :width: 400px
 
+=======
 maelzel
 =======
 
@@ -27,24 +28,24 @@ There are **external dependencies** which need to be installed manually:
 For more information see :doc:`Installation`
 
 
-
 -----------------
 
 Introduction
 ------------
 
 .. toctree::
-   :maxdepth: 2
+    :maxdepth: 2
 
-   Introduction
+    Introduction
+
 
 Tutorial
 --------
 
 .. toctree::
-   :maxdepth: 2
+    :maxdepth: 2
 
-   Tutorial
+    Tutorial
 
 
 -----------------
@@ -53,9 +54,9 @@ Reference
 ---------
 
 .. toctree::
-   :maxdepth: 2
+    :maxdepth: 2
 
-   Reference
-   Installation
+    Reference
+    Installation
 
 
