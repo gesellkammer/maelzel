@@ -6,16 +6,47 @@ import sys
 import logging
 from datetime import datetime
 from maelzel import _state
-
+from functools import cache
 
 logger = logging.getLogger('maelzel')
 
 
-def checkCsound() -> str:
-    """ Returns True if csound is installed """
-    if shutil.which("csound") is not None:
-        return ""
-    return "Could not find csound in the path (checked via shutil.which)"
+@cache
+def csoundLibVersion() -> int | None:
+    """
+    Query the version of the installed csound lib, or None if not found
+
+    Returns:
+        the version times 1000 (so 6.19 = 6190) or None if csound was not found
+    """
+    try:
+        import ctcsound7
+    except Exception as e:
+        logger.error("Could not import ctcsound7: {e}")
+        return None
+    return ctcsound7.VERSION
+
+
+def checkCsound(minversion="6.18", checkBinaryInPath=True) -> str:
+    """
+    Returns True if csound is installed
+
+    Args:
+        minversion: min. csound version, as "{major}.{minor}"
+    """
+    version = csoundLibVersion()
+    if version is None:
+        return "Could not find csound library"
+    major, minor = map(int, minversion.split("."))
+    versionid = major * 1000 + minor * 10
+    if version < versionid:
+        return f"Csound is too old (detected version: {version/1000}, " \
+               f"min. version: {minversion})"
+
+    if checkBinaryInPath and shutil.which("csound") is None:
+        return "Could not find csound in the path (checked via shutil.which)"
+
+    return ""
 
 
 def vampPluginsInstalled(cached=True) -> bool:
