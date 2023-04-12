@@ -27,6 +27,21 @@ jobs:
           csound --version
           cd ..
 
+      - name: macos - test install from pypi
+        if: runner.os == 'macos'
+        run: |
+          set -x
+          python -m venv maelzelenv
+          source maelzelenv/bin/activate
+          pip install maelzel
+          mkdir -p artifacts
+
+          cd test
+          python test-rec.py
+          cp *.wav ../artifacts
+          cd ..
+          deactivate
+
       - name: macos - test install from git
         if: runner.os == 'macos'
         run: |
@@ -40,20 +55,6 @@ jobs:
           cd ..
           pip uninstall -y maelzel
 
-      - name: macos - test install from pypi
-        if: runner.os == 'macos'
-        run: |
-          set -x
-          python -m venv maelzelenv
-          source maelzelenv/bin/activate
-          pip install maelzel
-          mkdir -p artifacts
-          
-          cd test
-          python test-rec.py
-          cp *.wav ../artifacts
-          cd ..
-          deactivate
 
       - uses: actions/upload-artifact@v3
         with:
