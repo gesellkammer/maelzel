@@ -38,7 +38,7 @@ jobs:
           python test-rec.py
           cp *.wav ../artifacts
           cd ..
-          pip uninstall maelzel
+          pip uninstall -y maelzel
 
       - name: macos - test install from pypi
         if: runner.os == 'macos'
