@@ -32,10 +32,10 @@ jobs:
         run: |
           set -x
           pip install .
+          
           python test/test-rec.py
-          mkdir -p artifacts
+          tree
           cp test/*.wav artifacts
-          ls -l
 
       - uses: actions/upload-artifact@v3
         with:
