@@ -34,7 +34,7 @@ jobs:
           pip install .
           
           python test/test-rec.py
-          tree
+          find .
           cp test/*.wav artifacts
 
       - uses: actions/upload-artifact@v3
