@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: macos - install csound
+      - name: macos - setup
         if: runner.os == 'macos'
         run: |
           set -x
@@ -33,4 +33,10 @@ jobs:
           set -x
           pip install .
           python test/test-rec.py
+          mkdir -p artifacts
+          cp test/*.wav artifacts
           ls -l
+
+      - uses: actions/upload-artifact@v3
+        with:
+          path: artifacts
