@@ -31,3 +31,4 @@ jobs:
         run: |
           pip install .
           python test/test-rec.py
+          ls -l
