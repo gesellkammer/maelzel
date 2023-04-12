@@ -32,6 +32,22 @@ jobs:
         run: |
           set -x
           pip install .
+          mkdir -p artifacts
+          
+          cd test
+          python test-rec.py
+          cp *.wav ../artifacts
+          cd ..
+          pip uninstall maelzel
+
+      - name: macos - test install from pypi
+        if: runner.os == 'macos'
+        run: |
+          set -x
+          python -m venv maelzelenv
+          source maelzelenv/bin/activate
+          pip install maelzel
+          mkdir -p artifacts
           
           cd test
           python test-rec.py
