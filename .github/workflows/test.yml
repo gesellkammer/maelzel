@@ -33,9 +33,10 @@ jobs:
           set -x
           pip install .
           
-          python test/test-rec.py
-          find .
-          cp test/*.wav artifacts
+          cd test
+          python test-rec.py
+          cp *.wav ../artifacts
+          cd ..
 
       - uses: actions/upload-artifact@v3
         with:
