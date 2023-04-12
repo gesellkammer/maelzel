@@ -49,7 +49,6 @@ setup(
         "music21",
         "appdirs",
         "tabulate",
-        "ctcsound",
         "cachetools",
         "pyyaml",
         "watchdog",
@@ -60,6 +59,7 @@ setup(
         "chardet",
         "simple-term-menu",
         "visvalingamwyatt",
+        "ctcsound7",
         # "resampy",  # Do not include it by default, since this pulls numba
 
         "bpf4>=1.8.4",
