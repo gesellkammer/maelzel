@@ -53,6 +53,7 @@ jobs:
           python test-rec.py
           cp *.wav ../artifacts
           cd ..
+          deactivate
 
       - uses: actions/upload-artifact@v3
         with:
