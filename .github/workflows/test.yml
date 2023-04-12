@@ -18,6 +18,7 @@ jobs:
       - name: macos - install csound
         if: runner.os == 'macos'
         run: |
+          set -x
           curl -L -o csound6.18.dmg https://github.com/csound/csound/releases/download/6.18.1/Csound-MacOS-universal-6.18.1.dmg
           brew install p7zip
           7z x csound6.18.dmg
@@ -29,6 +30,7 @@ jobs:
       - name: macos - test install from git
         if: runner.os == 'macos'
         run: |
+          set -x
           pip install .
           python test/test-rec.py
           ls -l
