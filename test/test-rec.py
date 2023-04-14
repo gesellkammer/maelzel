@@ -1,3 +1,9 @@
+import argparse
 from maelzel.core import *
+
+parser = argparse.ArgumentParser()
+parser.add_argument('-o', '--output', default='test-rec.wav')
+args = parser.parse_args()
+
 n = Note(69, dur=4)
-n.rec('a4-sine.wav', instr='sin', fade=0.1, nchnls=1)
+n.rec(args.output, instr='sin', fade=0.1, nchnls=1)
