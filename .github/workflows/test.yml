@@ -2,7 +2,7 @@ on: [push]
 
 jobs:
   testlinux:
-    name: Test maelzel in mac
+    name: Test maelzel in linux
     runs-on: ubuntu-latest
     strategy:
       matrix:
