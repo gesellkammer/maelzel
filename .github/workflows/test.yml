@@ -1,12 +1,61 @@
 on: [push]
 
 jobs:
-  test:
-    name: Test maelzel in ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+  testlinux:
+    name: Test maelzel in mac
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        os: [macos-latest]
+        python-version: ["3.10"]
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: linux - setup
+        run: |
+          set -x
+          sudo apt install csound csound libcsnd-dev
+          csound --version
+
+      - name: linux - test install from pypi
+        run: |
+          set -x
+          python -m venv maelzelenv
+          source maelzelenv/bin/activate
+          pip install maelzel
+          mkdir -p artifacts
+
+          cd test
+          python test-rec.py -o test-rec--linuxpip.wav
+          cp *.wav ../artifacts
+          cd ..
+          deactivate
+
+      - name: linux - test install from git
+        run: |
+          set -x
+          pip install .
+          mkdir -p artifacts
+
+          cd test
+          python test-rec.py -o test-rec--linuxgit.wav
+          cp *.wav ../artifacts
+          cd ..
+          pip uninstall -y maelzel
+
+
+      - uses: actions/upload-artifact@v3
+        with:
+          path: artifacts
+
+  testmac:
+    name: Test maelzel in mac
+    runs-on: macos-latest
+    strategy:
+      matrix:
         python-version: ["3.10"]
     steps:
       - uses: actions/checkout@v3
@@ -16,7 +65,6 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: macos - setup
-        if: runner.os == 'macos'
         run: |
           set -x
           curl -L -o csound6.18.dmg https://github.com/csound/csound/releases/download/6.18.1/Csound-MacOS-universal-6.18.1.dmg
@@ -28,7 +76,6 @@ jobs:
           cd ..
 
       - name: macos - test install from pypi
-        if: runner.os == 'macos'
         run: |
           set -x
           python -m venv maelzelenv
@@ -43,12 +90,11 @@ jobs:
           deactivate
 
       - name: macos - test install from git
-        if: runner.os == 'macos'
         run: |
           set -x
           pip install .
           mkdir -p artifacts
-          
+
           cd test
           python test-rec.py
           cp *.wav ../artifacts
