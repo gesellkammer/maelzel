@@ -14,7 +14,6 @@ import numpy as np
 import numpyx
 import sys
 import os
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 import vamp
 import vamp.frames
@@ -36,11 +35,20 @@ _pyinThresholdDistrs = {
 _cache = {}
 
 
-@dataclass(slots=True)
 class Note:
-    timestamp: float
-    frequency: float
-    duration: float
+    """A Note represents an event in time with duration and frequency"""
+
+    __slots__ = ('timestamp', 'frequency', 'duration')
+
+    def __init__(self, timestamp: float, frequency: float, duration: float):
+        self.timestamp = timestamp
+        """The start time"""
+
+        self.frequency = frequency
+        """The frequency in Hz"""
+
+        self.duration = duration
+        """The duration of the event"""
 
 
 def vampFolder() -> str:

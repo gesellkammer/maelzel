@@ -22,7 +22,7 @@ extra_files = package_files('maelzel/data')
 print(extra_files)
 setup(
     name='maelzel',
-    python_requires=">=3.10",
+    python_requires=">=3.9",
     version=".".join(map(str, version)),
     description='Utilities for sound, music notation, acoustics, etc',
     long_description=readme,
@@ -42,7 +42,6 @@ setup(
         'maelzel.transcribe'
     ],
     install_requires=[
-        "emlib>=1.7.3",
         "numpy",
         "scipy",
         "matplotlib",
@@ -59,15 +58,16 @@ setup(
         "chardet",
         "simple-term-menu",
         "visvalingamwyatt",
-        "ctcsound7",
         # "resampy",  # Do not include it by default, since this pulls numba
 
+        "emlib>=1.7.3",
+        "ctcsound7>=0.3.0",
         "bpf4>=1.8.4",
         "configdict>=2.6",
         "sndfileio>=1.8.1",
         "numpyx>=1.3.1",
         "python-constraint",
-        "csoundengine>=1.19.1",
+        "csoundengine>=1.20.0",
         "pitchtools>=1.9.2",
         "risset>=2.4.0",
         "loristrck>=1.5.2",
@@ -76,6 +76,7 @@ setup(
     license="LGPLv2",
     zip_safe=False,
     classifiers=[
+        'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
         'Programming Language :: Python :: 3.11',
         'Topic :: Multimedia :: Sound/Audio'

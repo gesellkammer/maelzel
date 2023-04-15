@@ -173,7 +173,7 @@ def _asTimesig(t: str | timesig_t) -> timesig_t:
         raise TypeError(f"Expected a tuple (5, 8) or a string '5/8', got {t}, {type(t)}")
 
 
-@dataclass(slots=True)
+@dataclass
 class _ScoreLine:
     measureIndex: int | None
     timesig: timesig_t | None
@@ -183,7 +183,7 @@ class _ScoreLine:
     rehearsalMark: str = ''
 
 
-@dataclass(slots=True)
+@dataclass
 class RehearsalMark:
     text: str
     box: str = 'square'

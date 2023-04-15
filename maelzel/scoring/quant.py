@@ -74,7 +74,7 @@ class QuantError(Exception):
     pass
 
 
-@dataclass(slots=True)
+@dataclass
 class QuantizationProfile:
     """
     A QuantizationProfile is used to configure quantization
@@ -711,37 +711,73 @@ def _evalGridError(profile: QuantizationProfile,
     return error
 
 
-@dataclass(slots=True)
 class QuantizedBeat:
     """
     A QuantizedBeat holds notations inside a beat filling the beat
+
+    Args:
+        divisions: The division of this beat
+        assignedSlots: Which slots are assigned to notations in this beat
+        notations: The notations in this beat. They are cropped to fit
+        beatDuration: The duration of the beat in quarter notes
+        beatOffset: The offset of the beat in relation to the measure
+        quantizationError: The error calculated during quantization.
+            The higher the error, the less accurate the quantization
+        quantizationInfo: Info collected during quantization
+        weight: The weight of this beat within the measure. 2=strong, 1=weak, 0=no weight
+
     """
-    divisions: division_t
-    "The division of this beat"
 
-    assignedSlots: list[int]
-    "Which slots are assigned to notations in this beat"
+    __slots__ = ('divisions', 'assignedSlots', 'notations', 'beatDuration',
+                 'beatOffset', 'quantizationError', 'quantizationInfo',
+                 'weight')
 
-    notations: list[Notation]  # makeSnappedNotation events
-    "The notations in this beat. They are cropped to fit"
+    def __init__(self,
+                 divisions: division_t,
+                 assignedSlots: list[int],
+                 notations: list[Notation],
+                 beatDuration: F,
+                 beatOffset: F = F(0),
+                 quantizationError: float = 0.,
+                 quantizationInfo: str = '',
+                 weight: int = 0):
 
-    beatDuration: F
-    "The duration of the beat in quarter notes"
+        self.divisions: division_t = divisions
+        "The division of this beat"
 
-    beatOffset: F = F(0)
-    "The offset of the beat in relation to the measure"
+        self.assignedSlots: list[int] = assignedSlots
+        "Which slots are assigned to notations in this beat"
 
-    quantizationError: float = 0
-    "The error calculated during quantization. The higher the error, the less accurate the quantization"
+        self.notations: list[Notation] = notations
+        "The notations in this beat. They are cropped to fit"
 
-    quantizationInfo: str = ''
-    "Info collected during quantization"
+        self.beatDuration: F = beatDuration
+        "The duration of the beat in quarter notes"
 
-    weight: int = 0
-    "The weight of this beat within the measure. 2=strong, 1=weak, 0=no weight"
+        self.beatOffset: F = beatOffset
+        "The offset of the beat in relation to the measure"
 
-    def __post_init__(self):
+        self.quantizationError: float = quantizationError
+        "The error calculated during quantization. The higher the error, the less accurate the quantization"
+
+        self.quantizationInfo: str = quantizationInfo
+        "Info collected during quantization"
+
+        self.weight: int = weight
+        "The weight of this beat within the measure. 2=strong, 1=weak, 0=no weight"
+
         self.applyDurationRatios()
+
+
+    def __repr__(self):
+        parts = [
+            "divisions: {self.divisions}, assignedSlots={self.assignedSlots}, "
+             f"notations={self.notations}, beatDuration={self.beatDuration}, beatOffset={self.beatOffset}, "
+             f"quantizationError={self.quantizationInfo:.5g}, weight={self.weight}"
+        ]
+        if self.quantizationInfo:
+            parts.append(f'quantizationInfo={self.quantizationInfo}')
+        return f'QuantizedBeat({", ".join(parts)})'
 
     @property
     def beatEnd(self) -> F:
@@ -778,6 +814,7 @@ class QuantizedBeat:
         data = [self.divisions, self.beatDuration, self.beatOffset]
         data.extend(notationHashes)
         return hash(tuple(data))
+
 
 
 class QuantizedMeasure:
@@ -2080,7 +2117,7 @@ def _maxTupletLength(timesig: timesig_t, subdivision: int):
         return 1
 
 
-@dataclass(slots=True)
+@dataclass
 class PartLocation:
     """
     Represents a location (a Notation inside a beat, inside a measure, inside a part)
@@ -2102,7 +2139,7 @@ class PartLocation:
     "The notation at this location"
 
 
-@dataclass(slots=True)
+@dataclass
 class QuantizedPart:
     """
     A Part which has already been quantized following a ScoreStruct

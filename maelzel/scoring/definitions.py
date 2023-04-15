@@ -295,7 +295,7 @@ breathMarks = {
 }
 
 
-@dataclass(unsafe_hash=True, slots=True)
+@dataclass(unsafe_hash=True)
 class Notehead:
     shape: str = ''
     color: str = ''
