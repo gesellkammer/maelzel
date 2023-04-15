@@ -16,7 +16,7 @@ transcription, acoustics, etc.
 Quick Start
 -----------
 
-**maelzel** needs a python version >= 3.10. Installation::
+**maelzel** needs a python version >= 3.9. Installation::
 
     pip install maelzel
 
