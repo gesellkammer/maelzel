@@ -1,5 +1,3 @@
-from maelzel.dependencies import checkDependencies
+from maelzel import dependencies
 
-print("Checking dependencies")
-print(checkDependencies(abortIfErrors=False, tryfix=True))
-
+dependencies.checkDependencies()

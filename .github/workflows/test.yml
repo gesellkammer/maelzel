@@ -17,8 +17,9 @@ jobs:
       - name: linux - setup
         run: |
           set -x
-          sudo apt install csound csound libcsnd-dev
+          sudo apt install csound csound libcsnd-dev lilypond
           csound --version
+          lilypond --version
 
       - name: linux - test install from pypi
         run: |
@@ -31,7 +32,9 @@ jobs:
           cd test
           python test-rec.py -o test-rec--linuxpip.wav
           python test-dependencies.py
+          python test-notation.py -o 'test-notation-linux-${{ matrix.python-version }}.pdf'
           cp *.wav ../artifacts
+          cp *.pdf ../artifacts
           cd ..
           deactivate
 
@@ -43,7 +46,10 @@ jobs:
 
           cd test
           python test-rec.py -o test-rec--linuxgit.wav
+          python test-dependencies.py
+          python test-notation.py -o 'test-notation-linux-${{ matrix.python-version }}.pdf'
           cp *.wav ../artifacts
+          cp *.pdf ../artifacts
           cd ..
           pip uninstall -y maelzel
 
@@ -75,6 +81,8 @@ jobs:
           sudo installer -pkg csound-MacOS-universal-6.18.1.pkg -target /
           csound --version
           cd ..
+          brew install lilypond
+          lilypond --version
 
       - name: macos - test install from pypi
         run: |
@@ -86,7 +94,11 @@ jobs:
 
           cd test
           python test-rec.py
+          python test-dependencies.py
+          python test-notation.py -o 'test-notation-macos-${{ matrix.python-version }}.pdf'
+
           cp *.wav ../artifacts
+          cp *.pdf ../artifacts
           cd ..
           deactivate
 
@@ -98,7 +110,11 @@ jobs:
 
           cd test
           python test-rec.py
+          python test-dependencies.py
+          python test-notation.py -o 'test-notation-macos-${{ matrix.python-version }}.pdf'
           cp *.wav ../artifacts
+          cp *.pdf ../artifacts
+
           cd ..
           pip uninstall -y maelzel
 
