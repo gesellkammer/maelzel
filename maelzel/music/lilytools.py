@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import shutil
 import sys
 import logging
 import subprocess
@@ -72,13 +73,13 @@ def findLilypond() -> Optional[str]:
     """
     Find lilypond binary, or None if not found
     """
+    # try which
+    lilypond = shutil.which('lilypond')
+    if lilypond:
+        return lilypond
+
     platform = os.uname()[0].lower()
     if platform == 'linux':
-        path = _checkOutput(["which", "lilypond"])
-        if path is not None:
-            path = path.strip()
-            assert os.path.exists(path)
-            return path
         paths = ("/usr/bin/lilypond", "/usr/local/bin/lilypond",
                  "~/.local/bin/lilypond")
         paths = [os.path.expanduser(p) for p in paths]
