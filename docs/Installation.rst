@@ -4,7 +4,7 @@
 Installation
 ************
 
-**maelzel** needs a python version >= 3.10. For all platforms, the installation is
+**maelzel** needs a python version >= 3.9. For all platforms, the installation is
 the same::
 
     pip install maelzel

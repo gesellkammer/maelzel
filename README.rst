@@ -44,7 +44,7 @@ Installation
 Dependencies
 ~~~~~~~~~~~~
 
-- python >= 3.10
+- python >= 3.9
 - csound (>= 6.18)
 - lilypond
 
