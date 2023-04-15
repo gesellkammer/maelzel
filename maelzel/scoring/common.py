@@ -8,14 +8,24 @@ import logging
 import numbers as _numbers
 import pitchtools as pt
 from maelzel.common import F, asF
+import sys
 
-from typing import NamedTuple, TypeAlias, Union
+from typing import NamedTuple, Union
 
-time_t: TypeAlias = float|int|F
-pitch_t: TypeAlias = int|float|str
-timesig_t: TypeAlias = tuple[int, int]
-division_t: TypeAlias = tuple[Union[int, 'division_t'], ...]
-timerange_t: TypeAlias = tuple[F, F]
+if sys.version_info.minor >= 10:
+    from typing import TypeAlias
+    time_t: TypeAlias = float | int | F
+    pitch_t: TypeAlias = int | float | str
+    timesig_t: TypeAlias = tuple[int, int]
+    division_t: TypeAlias = tuple[Union[int, 'division_t'], ...]
+    timerange_t: TypeAlias = tuple[F, F]
+else:
+    time_t = Union[float, int, F]
+    pitch_t = Union[int, float, str]
+    timesig_t = tuple[int, int]
+    division_t = tuple[Union[int, 'division_t'], ...]
+    timerange_t = tuple[F, F]
+
 
 logger = logging.getLogger("maelzel.scoring")
 

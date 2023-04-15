@@ -35,12 +35,12 @@ from emlib.misc import Result
 from emlib import mathlib
 from emlib import logutils
 
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TYPE_CHECKING, Union
 if TYPE_CHECKING:
     from numbers import Rational
     from typing import Iterator, Sequence
     import maelzel.core
-    number_t: TypeAlias = int|float|Rational|F
+    number_t = Union[int, float, Rational, F]
 
 
 __all__ = (
@@ -1044,7 +1044,7 @@ class QuantizedMeasure:
         quarternote in a 7/8 measure with the form 2+2+3
 
         Args:
-            which: one of 'all', 'weak', 'strong'
+            level: one of 'all', 'weak', 'strong'
 
         """
         minWeight = {
@@ -1449,7 +1449,7 @@ def _splitNotationAtOffsets(n: Notation, offsets: Sequence[F]) -> list[Notation]
     """
     return n.splitNotationAtOffsets(offsets)
 
-def _splitNotationAtOffsets(n: Notation, offsets: Sequence[Rational]) -> list[Notation]:
+def _splitNotationAtOffsets_old(n: Notation, offsets: Sequence[Rational]) -> list[Notation]:
     """
     Splits a Notation at the given offsets
 
