@@ -17,7 +17,9 @@ jobs:
       - name: linux - setup
         run: |
           set -x
-          sudo apt install csound csound libcsnd-dev lilypond
+          sudo apt update
+          suod apt install lilypond
+          sudo apt install csound csound libcsnd-dev
           csound --version
           lilypond --version
 
