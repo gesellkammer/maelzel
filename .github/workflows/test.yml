@@ -23,6 +23,21 @@ jobs:
           csound --version
           lilypond --version
 
+      - name: linux - test install from git
+        run: |
+          set -x
+          pip install .
+          mkdir -p artifacts
+
+          cd test
+          python test-rec.py -o test-rec--linuxgit.wav
+          python test-dependencies.py
+          python test-notation.py -o 'test-notation-linux-${{ matrix.python-version }}.pdf'
+          cp *.wav ../artifacts
+          cp *.pdf ../artifacts
+          cd ..
+          pip uninstall -y maelzel
+
       - name: linux - test install from pypi
         run: |
           set -x
@@ -40,20 +55,6 @@ jobs:
           cd ..
           deactivate
 
-      - name: linux - test install from git
-        run: |
-          set -x
-          pip install .
-          mkdir -p artifacts
-
-          cd test
-          python test-rec.py -o test-rec--linuxgit.wav
-          python test-dependencies.py
-          python test-notation.py -o 'test-notation-linux-${{ matrix.python-version }}.pdf'
-          cp *.wav ../artifacts
-          cp *.pdf ../artifacts
-          cd ..
-          pip uninstall -y maelzel
 
 
       - uses: actions/upload-artifact@v3
@@ -86,6 +87,23 @@ jobs:
           brew install lilypond
           lilypond --version
 
+      - name: macos - test install from git
+        run: |
+          set -x
+          pip install .
+          mkdir -p artifacts
+
+          cd test
+          python test-rec.py
+          python test-dependencies.py
+          python test-notation.py -o 'test-notation-macos-${{ matrix.python-version }}.pdf'
+          cp *.wav ../artifacts
+          cp *.pdf ../artifacts
+
+          cd ..
+          pip uninstall -y maelzel
+
+
       - name: macos - test install from pypi
         run: |
           set -x
@@ -103,23 +121,6 @@ jobs:
           cp *.pdf ../artifacts
           cd ..
           deactivate
-
-      - name: macos - test install from git
-        run: |
-          set -x
-          pip install .
-          mkdir -p artifacts
-
-          cd test
-          python test-rec.py
-          python test-dependencies.py
-          python test-notation.py -o 'test-notation-macos-${{ matrix.python-version }}.pdf'
-          cp *.wav ../artifacts
-          cp *.pdf ../artifacts
-
-          cd ..
-          pip uninstall -y maelzel
-
 
       - uses: actions/upload-artifact@v3
         with:
