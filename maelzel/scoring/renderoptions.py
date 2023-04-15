@@ -3,7 +3,8 @@ from dataclasses import dataclass, replace as _dataclassreplace
 from maelzel.scoring import enharmonics
 import emlib.misc
 
-@dataclass(slots=True)
+
+@dataclass
 class RenderOptions:
     """
     Holds all options needed for rendering

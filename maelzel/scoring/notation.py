@@ -1483,7 +1483,7 @@ def tieNotationParts(parts: list[Notation]) -> None:
 
 
 
-@dataclass(slots=True)
+@dataclass
 class SnappedNotation:
     notation: Notation
     offset: F

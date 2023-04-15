@@ -86,7 +86,7 @@ __all__ = (
 )
 
 
-@dataclass(slots=True)
+@dataclass
 class _TimeScale:
     factor: F
     offset: F

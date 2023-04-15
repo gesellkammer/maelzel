@@ -235,7 +235,7 @@ def lyNotehead(notehead: definitions.Notehead, insideChord=False) -> str:
     return " ".join(parts)
 
 
-@dataclass(slots=True)
+@dataclass
 class RenderState:
     measure: quant.QuantizedMeasure | None = None
     insideSlide: bool = False

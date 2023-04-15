@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 _INSTR_INDENT = "  "
 
 
-@dataclasses.dataclass(slots=True)
+@dataclasses.dataclass
 class ParsedAudiogen:
     originalAudiogen: str
     signals: Set[str]
