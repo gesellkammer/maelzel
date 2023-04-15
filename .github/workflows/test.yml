@@ -30,6 +30,7 @@ jobs:
 
           cd test
           python test-rec.py -o test-rec--linuxpip.wav
+          python test-dependencies.py
           cp *.wav ../artifacts
           cd ..
           deactivate
