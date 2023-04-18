@@ -69,7 +69,7 @@ def _checkOutput(args: List[str], encoding="utf-8") -> Optional[str]:
         return None
 
 
-def findLilypond(verbose=False) -> Optional[str]:
+def findLilypond(verbose=True) -> Optional[str]:
     """
     Find lilypond binary, or None if not found
     """
@@ -101,12 +101,6 @@ def findLilypond(verbose=False) -> Optional[str]:
                 logger.warning("Install it via 'pacman -S lilypond'")
         return None
     elif platform == 'darwin':
-        paths = ['/Applications/LilyPond.app/Contents/Resources/bin/lilypond',
-                 ]
-        paths = [os.path.expanduser(p) for p in paths]
-        for path in paths:
-            if os.path.exists(path):
-                return path
         if verbose:
             logger.warning("lilypond not found. Install it via homebrew ('brew install lilypond')")
         return None

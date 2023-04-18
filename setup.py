@@ -8,7 +8,7 @@ import glob
 from setuptools import setup
 
 readme = open('README.rst').read()
-version = (0, 11, 0)
+version = (0, 11, 1)
 
 
 def package_files(directory):
@@ -19,7 +19,7 @@ def package_files(directory):
     return paths
 
 extra_files = package_files('maelzel/data')
-print(extra_files)
+
 setup(
     name='maelzel',
     python_requires=">=3.9",
@@ -50,7 +50,6 @@ setup(
         "tabulate",
         "cachetools",
         "pyyaml",
-        "watchdog",
         "psutil",
         "lxml",
         "quicktions",
@@ -60,6 +59,7 @@ setup(
         "visvalingamwyatt",
         "distro",
         # "resampy",  # Do not include it by default, since this pulls numba
+        "python-constraint",
 
         "emlib>=1.8.1",
         "ctcsound7>=0.3.0",
@@ -67,12 +67,12 @@ setup(
         "configdict>=2.6",
         "sndfileio>=1.8.1",
         "numpyx>=1.3.1",
-        "python-constraint",
         "csoundengine>=1.20.0",
         "pitchtools>=1.9.2",
-        "risset>=2.4.0",
+        "risset>=2.4.1",
         "loristrck>=1.5.2",
-        "vamphost>=1.2.1"
+        "vamphost>=1.2.1",
+        "lilyponddist>=0.3.0"
     ],
     license="LGPLv2",
     zip_safe=False,
