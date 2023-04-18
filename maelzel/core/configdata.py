@@ -9,6 +9,7 @@ defaultdict = {
     'reprShowFreq': False,
     'semitoneDivisions': 4,
     'musescorepath': '',
+    'lilypondpath': '',
     'reprShowFractionsAsFloat': True,
     'jupyterHtmlRepr': True,
     'fixStringNotenames': False,
@@ -102,6 +103,7 @@ from maelzel.music import dynamics
 
 
 validator = {
+    'lilypondpath': lambda cfg, key, val: val == '' or os.path.exists(val),
     'A4::type': int,
     'A4::range': (10, 10000),
     'play.backend::choices': {'default', 'jack', 'pulse', 'alsa', 'pa_cb',
@@ -396,5 +398,7 @@ docs = {
         'of different quantization possibilities shown',
     'musescorepath':
         'The command to use when calling MuseScore. For macOS users: it must be an '
-        'absolute path pointing to the actual binary inside the .app bundle'
+        'absolute path pointing to the actual binary inside the .app bundle',
+    'lilypondpath':
+        'The path to the lilypond binary. It must be an absolute, existing path'
 }

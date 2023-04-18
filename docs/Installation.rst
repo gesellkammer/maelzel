@@ -14,7 +14,6 @@ There are some **external dependencies** which need to be installed manually:
 
 * **csound** >= 6.17. (https://csound.com/download.html). Csound 7 is not supported yet.
 * **lilypond** (https://lilypond.org/download.html)
-* **MuseScore** (https://musescore.org/en) - **Optional** - Useful when rendering musicxml
 
 ----------------
 
@@ -24,19 +23,37 @@ Dependencies
 MacOS
 -----
 
-- Install csound: https://csound.com/download.html
-- Install lilypond: http://lilypond.org/macos-x.html
-- Install MuseScore: https://musescore.org/en/download (optional)
+.. rubric:: Install Csound
+
+    Download the ``.dmg`` package from https://csound.com/download.html (latest release:
+    https://github.com/csound/csound/releases/download/6.18.1/Csound-MacOS-universal-6.18.1.dmg)
+
+.. rubric:: Install Lilypond
+
+    At the moment the best method to install lilypond is via homebrew: ``brew install lilypond``.
+    This will install the last version for your platform (both intel and arm64 architectures are
+    supported) and add it to your ``PATH``.
+
+    For more information visit http://lilypond.org
 
 --------------
 
 Windows
 -------
 
-- Install csound: https://csound.com/download.html
-- Install lilypond: http://lilypond.org/windows.html
-- Install MuseScore: https://musescore.org/en/download (optional)
+.. rubric:: Install Csound
 
+    Install csound from https://csound.com/download.html. Use the installer: this will take care
+    of setting up the ``PATH`` and install csound so that it can be found by *maelzel*)
+
+.. rubric:: Install lilypond
+
+    1. Download https://gitlab.com/lilypond/lilypond/-/releases/v2.24.1/downloads/lilypond-2.24.1-mingw-x86_64.zip.
+    2. Unzip it and place the folder ``lilypond-2.X.Y`` in ``C:\Program Files``.
+    3. Add the path ``C:\Program Files\lilypond-X.Y\bin`` to your ``PATH`` environmental
+       variable (as "System Variable")
+
+http://lilypond.org/windows.html
 
 ----------------
 
@@ -48,13 +65,16 @@ Arch
 
 .. code-block:: bash
 
-    sudo pacman -S csound lilypond musescore
+    sudo pacman -S csound lilypond
 
 Debian / Ubuntu
 ~~~~~~~~~~~~~~~
 
-**csound**: The *csound* package provided by the package manager is probably too old.
-*csound* must be installed from source (see also the
+It is possible to install *csound* via the package manager::
+
+    sudo apt install csound libcsnd-dev
+
+However it is highly recommended to install csound from sources (see also the
 `official instructions <https://github.com/csound/csound/blob/develop/BUILD.md#debian>`_)::
 
     sudo apt-get build-dep csound
@@ -63,8 +83,8 @@ Debian / Ubuntu
     cd csound
     mkdir build && cd build
     cmake ..
-    make -j $(nproc)
-    sudo make install
+    cmake --build . --parallel
+    sudo cmake --install .
     sudo ldconfig
 
 **lilypond**: install from official repositories::

@@ -94,7 +94,8 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
         enharmonicDebug=cfg['enharmonic.debug'],
         enharmonicHorizontalWeight=cfg['enharmonic.horizontalWeight'],
         enharmonicVerticalWeight=cfg['enharmonic.verticalWeight'],
-        enharmonicThreeQuarterMicrotonePenalty=cfg['enharmonic.threeQuarterMicrotonePenalty']
+        enharmonicThreeQuarterMicrotonePenalty=cfg['enharmonic.threeQuarterMicrotonePenalty'],
+        lilypondBinary=cfg['lilypondpath']
     )
     return renderOptions
 
