@@ -915,6 +915,9 @@ def makeScore(score: quant.QuantizedScore,
         strs.append(s)
 
     lilypondVersion = lilytools.getLilypondVersion()
+    if not lilypondVersion:
+        raise RuntimeError("Could not determine lilypond version")
+
     _(f'\\version "{lilypondVersion}"\n')
 
     if options.title or options.composer:
@@ -999,7 +1002,9 @@ def makeScore(score: quant.QuantizedScore,
 
 
 class LilypondRenderer(Renderer):
-    def __init__(self, score: quant.QuantizedScore, options: RenderOptions):
+    def __init__(self,
+                 score: quant.QuantizedScore,
+                 options: RenderOptions):
         super().__init__(score, options=options)
         self._lilyscore = ''
         self._withMidi = False
@@ -1039,21 +1044,27 @@ class LilypondRenderer(Renderer):
         self.render()
         lilytxt = self._lilyscore
         tempfiles = []
+        lilypondBinary = self.options.lilypondBinary
         if fmt == 'png' or fmt == 'pdf':
             lilyfile = tempfile.mktemp(suffix=".ly")
             open(lilyfile, "w").write(lilytxt)
             if fmt != ext[1:]:
                 outfile2 = f"{outfile}.{fmt}"
-                lilytools.renderLily(lilyfile, outfile2,
-                                     imageResolution=self.options.pngResolution)
+                lilytools.renderLily(lilyfile=lilyfile,
+                                     outfile=outfile2,
+                                     imageResolution=self.options.pngResolution,
+                                     lilypondBinary=lilypondBinary)
                 shutil.move(outfile2, outfile)
             else:
-                lilytools.renderLily(lilyfile, outfile)
+                lilytools.renderLily(lilyfile=lilyfile,
+                                     outfile=outfile,
+                                     imageResolution=self.options.pngResolution,
+                                     lilypondBinary=lilypondBinary)
             tempfiles.append(lilyfile)
         elif fmt == 'mid' or fmt == 'midi':
             lilyfile = tempfile.mktemp(suffix='.ly')
             open(lilyfile, "w").write(lilytxt)
-            lilytools.renderLily(lilyfile)
+            lilytools.renderLily(lilyfile=lilyfile, lilypondBinary=lilypondBinary)
             midifile = emlib.filetools.withExtension(lilyfile, "midi")
             assert os.path.exists(midifile), f"Failed to generate MIDI file. Expected path: {midifile}"
             tempfiles.append(lilyfile)

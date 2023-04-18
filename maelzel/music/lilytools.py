@@ -69,15 +69,18 @@ def _checkOutput(args: List[str], encoding="utf-8") -> Optional[str]:
         return None
 
 
-def findLilypond() -> Optional[str]:
+def findLilypond(verbose=False) -> Optional[str]:
     """
     Find lilypond binary, or None if not found
     """
     # try which
+    logger.debug("findLilypond: searching via shutil.which")
     lilypond = shutil.which('lilypond')
     if lilypond:
+        logger.debug(f"... found! lilypond path: {lilypond}")
         return lilypond
 
+    logger.debug("findLilypond: Lilypond is not in the path. Searching common paths")
     platform = os.uname()[0].lower()
     if platform == 'linux':
         paths = ("/usr/bin/lilypond", "/usr/local/bin/lilypond",
@@ -86,16 +89,39 @@ def findLilypond() -> Optional[str]:
         for path in paths:
             if os.path.exists(path):
                 return path
+        if verbose:
+            logger.warning("lilypond not found in the path")
+            import distro
+            distroid = distro.id()
+            if distroid == 'ubuntu':
+                logger.warning("Install it via 'sudo apt install lilypond'")
+            elif distroid == 'fedora':
+                logger.warning("Install it via 'sudo dnf install lilypond'")
+            elif distroid == 'arch':
+                logger.warning("Install it via 'pacman -S lilypond'")
         return None
     elif platform == 'darwin':
-        paths = ['/Applications/LilyPond.app/Contents/Resources/bin/lilypond']
+        paths = ['/Applications/LilyPond.app/Contents/Resources/bin/lilypond',
+                 ]
         paths = [os.path.expanduser(p) for p in paths]
         for path in paths:
             if os.path.exists(path):
                 return path
+        if verbose:
+            logger.warning("lilypond not found. Install it via homebrew ('brew install lilypond')")
         return None
+    elif platform == 'win32':
+        try:
+            import lilyponddist
+        except ImportError:
+            logger.debug("Installing lilyponddist")
+            import pip
+            pip.main(['install', 'lilyponddist'])
+            import lilyponddist
+            logger.debug("lilyponddist installed")
+        return str(lilyponddist.lilypondbin())
     else:
-        raise PlatformNotSupported(f"Platform {platform} is not supported")
+        raise RuntimeError(f"Platform {platform} not supported")
 
 
 def musicxml2ly(xmlfile: str, outfile: str = None) -> str:
@@ -123,10 +149,29 @@ def renderScore(score:str, outfile:str=None,
     return out
 
 
-def renderLily(lilyfile:str, outfile:str=None,
-               removeHeader:bool=None, book:bool=None,
-               imageResolution:int=None,
-               openWhenFinished=False) -> Optional[str]:
+def renderLily(lilyfile: str,
+               outfile: str = None,
+               removeHeader: bool = None,
+               book: bool = None,
+               imageResolution: int = None,
+               openWhenFinished=False,
+               lilypondBinary: str = ''
+               ) -> Optional[str]:
+    """
+    Call lilypond to render the given file
+
+    Args:
+        lilyfile: the .ly file to render
+        outfile: the output file to generate (pdf, png)
+        removeHeader: if True, remove the default header
+        book: if True, use book formatting
+        imageResolution: the image resolution in dpi when rendering to png
+        openWhenFinished: if True, open the generated file when finished
+        lilypondBinary: if given, use this binary for rendering
+
+    Returns:
+        the generated outfile, or None if nothing was generated
+    """
     assert os.path.exists(lilyfile)
     assert imageResolution is None or imageResolution in {150, 200, 300, 600, 1200}
     if outfile is None:
@@ -144,13 +189,12 @@ def renderLily(lilyfile:str, outfile:str=None,
         lilyfile = tmply
 
     basefile = os.path.splitext(outfile)[0]
-    if sys.platform == "win32":
-        lilybinary = 'lilypond'
-        shell = True
-    else:
-        lilybinary = findLilypond()
-        shell = False
-    args = [lilybinary, f'--{fmt}', '-o', basefile]
+    shell = True if sys.platform == 'win32' else False
+    if not lilypondBinary:
+        lilypondBinary = findLilypond()
+        if not lilypondBinary:
+            raise RuntimeError("lilypond binary not found")
+    args = [lilypondBinary, f'--{fmt}', '-o', basefile]
     if fmt == 'png' and imageResolution:
         args.append(f'-dresolution={imageResolution}')
     args.append(lilyfile)

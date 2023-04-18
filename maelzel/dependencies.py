@@ -11,7 +11,6 @@ from functools import cache
 logger = logging.getLogger('maelzel')
 
 
-@cache
 def csoundLibVersion() -> int | None:
     """
     Query the version of the installed csound lib, or None if not found
@@ -34,8 +33,12 @@ def checkCsound(minversion="6.18", checkBinaryInPath=True) -> str:
     Args:
         minversion: min. csound version, as "{major}.{minor}"
     """
+    logger.debug("Checking the csound installation")
+    if not isinstance(minversion, str) or minversion.count('.') != 1:
+        raise ValueError(f"minversion should be of the form <major>.<minor>, got {minversion}")
     version = csoundLibVersion()
     if version is None:
+        logger.error("Could not find csound library (csoundLibVersion returned None)")
         return "Could not find csound library"
     major, minor = map(int, minversion.split("."))
     versionid = major * 1000 + minor * 10
@@ -75,6 +78,7 @@ def checkVampPlugins(fix=True) -> str:
         an error string or an empty string if everything is ok
 
     """
+    logger.debug("Checking vamp plugins")
     if vampPluginsInstalled():
         return ""
     if not fix:
@@ -95,9 +99,13 @@ def checkLilypond() -> str:
         an error string if something went wrong, an empty string if lilypond is
         installed
     """
-    if shutil.which("lilypond") is not None:
-        return ""
-    return "Could not find lilypond in the path"
+    logger.debug("Checking lilypond")
+    from maelzel.music import lilytools
+    lilybin = lilytools.findLilypond()
+    if not lilybin:
+        return "Could not find lilypond"
+    logger.debug(f"lilypond ok. lilypond binary: {lilybin}")
+    return ""
 
 
 def _copyFiles(files: list[str], dest: str, verbose=False) -> None:
@@ -138,18 +146,19 @@ def checkCsoundPlugins(fix=True) -> str:
     for opcodename, pluginname in neededopcodes.items():
         if opcodename not in installedopcodes:
             if fix:
-                print(f"Opcode {opcodename} (from plugin {pluginname}) not found, I will"
-                      f"try to install it now")
+                print(f"Opcode {opcodename} (from plugin {pluginname}) not found, I will "
+                      f"try to install it now...")
                 plugin = rissetindex.plugins[pluginname]
                 errmsg = rissetindex.install_plugin(plugin)
                 if errmsg:
-                    logger.error(f"Could not install plugin {pluginname}")
+                    logger.error(f"Could not install plugin {pluginname}, error: {errmsg}")
                     errors.append(errmsg)
                 else:
-                    print(f"Installed {pluginname} OK")
+                    print(f"... Installed {pluginname} OK")
             else:
-                logger.error(f"Opcode {opcodename} (from plugin {pluginname}) not found!")
-                errors.append(f"Opcode {opcodename} (plugin: {pluginname}) not found")
+                logger.error(f"Opcode {opcodename} (from plugin {pluginname}) not found! "
+                             f"Called with fix=False, so the issue will not be fixed")
+                errors.append(f"Opcode {opcodename} (plugin: {pluginname}) not found, fix=False")
     if errors:
         return "\n".join(errors)
     return ''
@@ -196,6 +205,7 @@ def installVampPlugins() -> None:
     plugins at the moment. Installation is thus reduced to copying the
     plugins to the correct folder for the platform
     """
+    logger.debug("Installing vamp plugins")
     from maelzel.snd import vamptools
     subfolder = {
         'darwin': 'macos',
@@ -240,7 +250,7 @@ def installAssets():
     checkVampPlugins(fix=True)
 
 
-def checkDependencies(abortIfErrors=False, tryfix=True) -> list[str]:
+def checkDependencies(abortIfErrors=False, fix=True) -> list[str]:
     """
     Checks the dependencies of all maelzel subpackages
 
@@ -250,7 +260,7 @@ def checkDependencies(abortIfErrors=False, tryfix=True) -> list[str]:
         abortIfErrors: if True, abort the check if any errors are found
             Otherwise all checks are performed even if some checks return
             errors
-        tryfix: if True, try to fix errors along the way, if possible. Some
+        fix: if True, try to fix errors along the way, if possible. Some
             fixes might require to restart the current python session
 
     Returns:
@@ -259,8 +269,8 @@ def checkDependencies(abortIfErrors=False, tryfix=True) -> list[str]:
     steps = [
         checkCsound,
         checkLilypond,
-        lambda: checkCsoundPlugins(fix=tryfix),
-        lambda: checkVampPlugins(fix=tryfix)
+        lambda: checkCsoundPlugins(fix=fix),
+        lambda: checkVampPlugins(fix=fix)
     ]
     errors = []
     for step in steps:
@@ -301,7 +311,7 @@ def checkDependenciesIfNeeded(daysSinceLastCheck=0) -> bool:
         return True
 
     logger.warning("Maelzel - checking dependencies")
-    errors = checkDependencies(abortIfErrors=False, tryfix=True)
+    errors = checkDependencies(abortIfErrors=False, fix=True)
     if not errors:
         return True
     logger.error(f"Error while checking dependencies: ")

@@ -8,7 +8,7 @@ import glob
 from setuptools import setup
 
 readme = open('README.rst').read()
-version = (0, 10, 5)
+version = (0, 11, 0)
 
 
 def package_files(directory):
@@ -58,9 +58,10 @@ setup(
         "chardet",
         "simple-term-menu",
         "visvalingamwyatt",
+        "distro",
         # "resampy",  # Do not include it by default, since this pulls numba
 
-        "emlib>=1.7.3",
+        "emlib>=1.8.1",
         "ctcsound7>=0.3.0",
         "bpf4>=1.8.4",
         "configdict>=2.6",

@@ -34,6 +34,7 @@ class RenderOptions:
             tied to a previous note
         dynamicsWithinTies: include dynamics even for notes tied to previous notes
         backend: default rendering backend, one of 'lilypond', 'music21'
+        lilypondBinary: if given, the path to the lilypond binary to use
 
     """
     orientation: str = 'portrait'
@@ -88,6 +89,7 @@ class RenderOptions:
     # Options only relevant for lilypond render
     lilypondPngStaffsizeScale: float = 1.4
     lilypondGlissandoMinimumLength: int = 5
+    lilypondBinary: str = ''
 
     def __hash__(self) -> int:
         return hash(str(self))
