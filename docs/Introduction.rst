@@ -78,7 +78,7 @@ Here is a selection of short demonstrations showcasing some of its features:
 
 
     .. grid-item-card:: Soundfile chords
-        :link: demo/clip-chords
+        :link: notebooks/clip-chords
         :link-type: doc
         :class-title: cardtitle
 

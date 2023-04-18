@@ -10,7 +10,6 @@ appdirs
 pillow
 cachetools
 pyyaml
-rtmidi2
 csoundengine>=1.13
 pitchtools>=1.9
 lxml
