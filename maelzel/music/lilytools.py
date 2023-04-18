@@ -81,7 +81,7 @@ def findLilypond(verbose=True) -> Optional[str]:
         return lilypond
 
     logger.debug("findLilypond: Lilypond is not in the path. Searching common paths")
-    platform = os.uname()[0].lower()
+    platform = sys.platform
     if platform == 'linux':
         paths = ("/usr/bin/lilypond", "/usr/local/bin/lilypond",
                  "~/.local/bin/lilypond")
