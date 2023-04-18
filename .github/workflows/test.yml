@@ -1,6 +1,43 @@
 on: [push]
 
 jobs:
+  testwin:
+    name: Test maelzel on windows
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10"]
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: windows - install csound
+        run: |
+          curl -L -o csound-binaries.zip https://github.com/csound/csound/releases/download/6.18.1/Csound-6.18.1-windows-x64-binaries.zip
+          Expand-Archive csound-binaries.zip -DestinationPath "C:\Program Files\csound-binaries"
+          ls -r "C:\Program Files\csound-binaries"
+
+          [Environment]::SetEnvironmentVariable("PATH", $Env:PATH + ";C:\Program Files\csound-binaries\build\Release", [EnvironmentVariableTarget]::Machine)
+          $Env:Path = $Env:Path + ";C:\Program Files\csound-binaries\build\Release"
+          Write-Output $Env:PATH
+          csound.exe --version
+
+      - name: windows - test install from repo
+        run: |
+          $Env:Path = $Env:Path + ";C:\Program Files\csound-binaries\build\Release"
+          pip install .
+          # mkdir -p artifacts
+
+          cd test
+          python test-rec.py -o test-rec--windowsgit.wav
+          python test-dependencies.py
+          python test-notation.py -o 'test-notation-windows-${{ matrix.python-version }}.pdf'
+
+
+
   testlinux:
     name: Test maelzel in linux
     runs-on: ubuntu-latest
