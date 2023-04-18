@@ -23,9 +23,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .synthevent import SynthEvent
 
-import watchdog.events
-from watchdog.observers import Observer as _WatchdogObserver
-
 
 __all__ = (
     'presetManager',
@@ -36,18 +33,6 @@ __all__ = (
     'getPreset'
 )
 
-
-
-
-class _WatchdogPresetsHandler(watchdog.events.FileSystemEventHandler):
-    def __init__(self, manager: PresetManager):
-        self.manager = manager
-
-    def on_modified(self, event):
-        self.manager.loadPresets()
-
-    def on_created(self, event):
-        self.manager.loadPresets()
 
 
 
@@ -84,16 +69,11 @@ class PresetManager:
     is scheduled with the given Preset. As such, it acts as a library of Presets
     and any number of such Presets can be created.
 
-    Args:
-        watchPresets: if True, any saved preset which has been loaded into
-            a session will be re-loaded if the saved file is modified. Even if
-            this is False, it is possible to manually load presets by calling
-            :meth:`PresetManager.loadPresets`
     """
     _numinstances = 0
     csoundPrelude = _csoundPrelude
 
-    def __init__(self, watchPresets=False):
+    def __init__(self):
         if self._numinstances > 0:
             raise RuntimeError("Only one PresetManager should be active")
         self._numinstances = 1
@@ -102,11 +82,6 @@ class PresetManager:
         self._prepareEnvironment()
         self._makeBuiltinPresets()
         self.loadPresets()
-        self._watchdog = self._startWatchdog() if watchPresets else None
-
-    def __del__(self):
-        if self._watchdog:
-            self._watchdog.join()
 
     def loadPresets(self) -> None:
         """

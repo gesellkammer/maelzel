@@ -195,6 +195,7 @@ def checkDataFiles() -> bool:
             return False
     return True
 
+
 def installVampPlugins() -> None:
     """
     Install needed vamp plugins in the user folder
