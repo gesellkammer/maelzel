@@ -57,7 +57,7 @@ class PlayArgs:
     * priority: the priority of this synth. Priorities start with 1, low priorities are evaluated
         first. An instr with a higher priority is used to receive audio from an instr with
         a lower priority
-    * position: the horizontal placement in place. 0=left, 1=right. For multichannel (> 2)
+    * position: the horizontal placement inplace. 0=left, 1=right. For multichannel (> 2)
         presets this value is interpreted freely by the instrument, which does its own spatialization
     * sustain: if positive the last breakpoint is extended by this totalDuration. This is used mainly for
         sample based instruments (soundfont) to extend the playback. It can be used to implement
@@ -110,7 +110,7 @@ class PlayArgs:
 
     def get(self, key: str, default=None):
         """Like dict.get()"""
-        if not key in self.playkeys:
+        if key not in self.playkeys:
             raise KeyError(f"Unknown key {key}. Possible keys are: {self.playkeys}")
         return self.db.get(key, default)
 
@@ -240,7 +240,7 @@ class PlayArgs:
 
     def fillDefaults(self, cfg: CoreConfig) -> None:
         """
-        Fill this PlayArgs with defaults (in place)
+        Fill this PlayArgs with defaults **inplace**
 
         Only unset keys are set.
 
@@ -312,7 +312,7 @@ class SynthEvent:
                  gain: float = 1.0,
                  pitchinterpol: str = 'linear',
                  fadeshape: str = 'cos',
-                 args: dict[str, float|str] = None,
+                 args: dict[str, float | str] = None,
                  priority: int = 1,
                  position: float = -1,
                  numchans: int = 2,
@@ -320,7 +320,7 @@ class SynthEvent:
                  whenfinished: Callable = None,
                  properties: dict[str, Any] | None = None,
                  sustain: float = 0.,
-                 initfunc: Callable[[SynthEvent, renderer.Renderer], None]=None,
+                 initfunc: Callable[[SynthEvent, renderer.Renderer], None] = None,
                  **kws):
         """
         bps (breakpoints): a seq of (delay, midi, amp, ...) of len >= 1.
@@ -395,7 +395,7 @@ class SynthEvent:
         self.position = position
         """Panning position (between 0-1)"""
 
-        self.args: dict[str, float|str] = args
+        self.args: dict[str, float | str] = args
         """Any parameters passed to the instrument"""
 
         self.linkednext = linkednext
@@ -464,7 +464,6 @@ class SynthEvent:
             return 0.
         else:
             return 0.5
-
 
     def clone(self, **kws) -> SynthEvent:
         out = self.copy()
@@ -574,7 +573,7 @@ class SynthEvent:
         return len(self.bps[0])
 
     def _repr_html_(self) -> str:
-        rows = [[f"{bp[0] + self.delay:.3f}", f"{bp[0]:.3f}"] + ["%.6g"%x for x in bp[1:]] for bp in self.bps]
+        rows = [[f"{bp[0] + self.delay:.3f}", f"{bp[0]:.3f}"] + ["%.6g" % x for x in bp[1:]] for bp in self.bps]
         headers = ["Abs time", "0. Rel. time", "1. Pitch", "2. Amp"]
         l = len(self.bps[0])
         if l > 3:
@@ -599,7 +598,7 @@ class SynthEvent:
         lines = [self._reprHeader()]
 
         def bpline(bp):
-            rest = " ".join(("%.6g"%b).ljust(8) if isinstance(b, float) else str(b) for b in bp[1:])
+            rest = " ".join(("%.6g" % b).ljust(8) if isinstance(b, float) else str(b) for b in bp[1:])
             return f"{float(bp[0]):.3f}s: {rest}"
 
         for i, bp in enumerate(self.bps):
@@ -616,7 +615,7 @@ class SynthEvent:
 
     def resolvePfields(self: SynthEvent,
                        instr: csoundengine.instr.Instr
-                       ) -> list[float|str]:
+                       ) -> list[float | str]:
         """
         Returns pfields, **beginning with p2**.
 

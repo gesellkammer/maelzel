@@ -14,8 +14,8 @@ from typing import NamedTuple, Union
 
 if sys.version_info.minor >= 10:
     from typing import TypeAlias
-    time_t: TypeAlias = float | int | F
-    pitch_t: TypeAlias = int | float | str
+    time_t: TypeAlias = Union[float, int, F]
+    pitch_t: TypeAlias = Union[int, float, str]
     timesig_t: TypeAlias = tuple[int, int]
     division_t: TypeAlias = tuple[Union[int, 'division_t'], ...]
     timerange_t: TypeAlias = tuple[F, F]

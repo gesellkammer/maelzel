@@ -1368,7 +1368,7 @@ def scoreSetMetadata(score: m21.stream.Score, title="", composer="") -> None:
     to pdf and rendered as text
 
     Args:
-        score: the score to modify in place
+        score: the score to modify inplace
         title: a title for this score
         composer: composer text is added at the right corner
 
@@ -1429,7 +1429,7 @@ def iterPart(part: m21.stream.Part, cls=m21.note.GeneralNote
 
 def fixNachschlag(n: m21.note.Note, durtype:str=None, priority=0) -> None:
     """
-    Fix a grace note in place, so that it is displayed correctly in the case
+    Fix a grace note inplace, so that it is displayed correctly in the case
     it is a Nachschlag (a grace note after another note)
 
     Args:
@@ -1447,7 +1447,7 @@ def fixNachschlag(n: m21.note.Note, durtype:str=None, priority=0) -> None:
 
 def _fixNachschlaege(part: m21.stream.Part) -> None:
     """
-    Fix Nachschläge within a part, in place
+    Fix Nachschläge within a part, inplace
 
     A Nachschlag is a grace note placed after the main note.
     In musicxml, for a nachschlag to be rendered properly it must be
@@ -1462,7 +1462,7 @@ def _fixNachschlaege(part: m21.stream.Part) -> None:
 
 def fixNachschlaege(part: m21.stream.Part, convertToRealNote=False, duration=1/8) -> None:
     """
-    Fix Nachschläge within a part, in place
+    Fix Nachschläge within a part, inplace
 
     A Nachschlag is a grace note placed after the main note.
     In musicxml, for a nachschlag to be rendered properly it must be

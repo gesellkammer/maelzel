@@ -18,7 +18,6 @@ class RenderOptions:
         showCents: should each note/chord have a text label attached indicating
         the cents deviation from the nearest semitone?
         centsPlacement: where to put the cents annotation
-        centsFontSizeFactor: the factor used for the font size used in cents annotation
         measureAnnotationFontSize: font size for measure annotations
         glissAllowNonContiguous: if True, allow glissandi between notes which have rests
             between them
@@ -30,9 +29,6 @@ class RenderOptions:
         composer: the composer of the score
         opaque: if True, rendered images will be opaque (no transparent
             background)
-        articulationsWithinTies: if True, include any articulation even if the note if
-            tied to a previous note
-        dynamicsWithinTies: include dynamics even for notes tied to previous notes
         backend: default rendering backend, one of 'lilypond', 'music21'
         lilypondBinary: if given, the path to the lilypond binary to use
 

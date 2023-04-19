@@ -154,7 +154,7 @@ __all__ = (
 class _UNKNOWN: pass
 
 
-def _syncCsoundengineTheme(theme:str):
+def _syncCsoundengineTheme(theme: str):
     import csoundengine
     csoundengine.config['html_theme'] = theme
 
@@ -218,13 +218,13 @@ class CoreConfig(ConfigDict):
 
     """
     root: CoreConfig = None
-    _keyToType: dict[str, type|tuple[type, ...]] = {}
+    _keyToType: dict[str, type | tuple[type, ...]] = {}
 
     # A config callback has the form (config: CoreConfig, key: str, val: Any) -> None
     # It is called with the config being modified, the key being modified and the new value
     _builtinCallbacks = {
         'htmlTheme': lambda config, key, val: _syncCsoundengineTheme(val),
-        "(show|quant)\..+": lambda config, key, val: _resetImageCacheCallback(config, force=True),
+        r"(show|quant)\..+": lambda config, key, val: _resetImageCacheCallback(config, force=True),
         "A4": lambda config, key, val: _propagateA4(config, val),
         "reprShowFractionsAsFloat": lambda config, key, val: _fractionsAsFloat(val)
     }
@@ -274,7 +274,7 @@ class CoreConfig(ConfigDict):
     def _ipython_key_completions_(self):
         return self.keys()
 
-    def save(self, path: str = None, header:str='') -> None:
+    def save(self, path: str = None, header: str = '') -> None:
         """
         Save this config. The saved settings are loaded as default in the next session
 

@@ -113,7 +113,7 @@ def _openInEditor(soundfile: str, wait=False, app=None) -> None:
     
     Args:
         soundfile: the file to open
-        wait: if wait, wait until editing is finished
+        wait: if True, wait until editing is finished
         app: the app to use. If None is given, a default app is used
 
     """
@@ -126,9 +126,9 @@ def readSoundfile(sndfile: str, start: float = 0., end: float = 0.) -> tuple[np.
     Read a soundfile, returns a tuple ``(samples:np.ndarray, sr:int)``
 
     Args:
-        sndfile (str): The path of the soundfile
-        start (float): The time to start reading. A negative value will seek from the end
-        end (float): The time to stop reading (0=end of file). A negative value will
+        sndfile: The path of the soundfile
+        start: The time to start reading. A negative value will seek from the end.
+        end: The time to stop reading (0=end of file). A negative value will
             seek from the end
 
     Returns:
@@ -594,7 +594,7 @@ class Sample:
             winlength: the window length in samples. If None, fftsize is used. If given,
                 winlength <= fftsize
             nmels: number of mel bins
-            axes: if given, plot on this Axes
+            axes: if given, plot on these Axes
             axislabels: if True, include labels on the axes
             cmap: a color map byname
 
@@ -614,7 +614,7 @@ class Sample:
         The original is not changed.
 
         Args:
-            wait: if wait, the editor is opened in blocking mode,
+            wait: if True, the editor is opened in blocking mode,
                 the results of the edit are returned as a new Sample
             app: if given, this application is used to open the sample.
                 Otherwise, the application configured via the key 'editor'
@@ -622,7 +622,7 @@ class Sample:
             fmt: the format to write the samples to
 
         Returns:
-            if wait, it returns the sample after closing editor
+            if wait is True, returns the sample after closing editor
         """
         assert fmt in {'wav', 'aiff', 'aif', 'flac', 'mp3', 'ogg'}
         sndfile = tempfile.mktemp(suffix="." + fmt)
@@ -832,7 +832,7 @@ class Sample:
     def fade(self, fadetime: float | tuple[float, float], shape: str = 'linear'
              ) -> Sample:
         """
-        Fade this Sample **in place**, returns self.
+        Fade this Sample **inplace**, returns self.
 
         If only value is given as fadetime a fade-in and fade-out is performed with
         this fadetime. A tuple can be used to apply a different fadetime for in and out.
@@ -874,7 +874,6 @@ class Sample:
         self._changed()
         return self
 
-
     def prependSilence(self, dur: float) -> Sample:
         """
         Return a new Sample with silence of given dur at the beginning
@@ -899,7 +898,6 @@ class Sample:
         samples = np.concatenate([self.samples, silence])
         return Sample(samples, sr=self.sr)
 
-
     def append(self, *other: Sample) -> Sample:
         """
         Join (concatenate) this Sample with other(s)
@@ -922,7 +920,7 @@ class Sample:
                                " be writable) and operate on that copy")
 
     def normalize(self, headroom=0.) -> Sample:
-        """Normalize in place, returns self
+        """Normalize inplace, returns self
 
         Args:
             headroom: maximum peak in dB
@@ -1238,6 +1236,7 @@ class Sample:
             dur: the totalDuration of the estimation period. The returned frequency will be the
                 average frequency over this period of time.
             fftsize: the fftsize used
+            fallbackfreq: frequency to use when no fundamental frequency was detected
             overlap: amount of overlaps per fftsize, determines the hop time
 
         Returns:
@@ -1324,7 +1323,7 @@ class Sample:
             steptime = stepsize/self.sr
             samples = self.getChannel(0).samples
             f0curve, probcurve = freqestimate.f0curve(samples, sr=self.sr,
-                                                      steptime=steptime, method='fft')
+                                                      overlap=4, method='fft')
             return f0curve
         else:
             raise ValueError(f"method should be one of 'pyin', 'pyin-annotator', "
@@ -1382,14 +1381,15 @@ class Sample:
             selfreqs = freqs[mask]
             seltimes = times[mask]
             idx = min(len(selfreqs), 3)
-            return  seltimes[idx] + idx / self.sr, selfreqs[idx]
+            return seltimes[idx] + idx / self.sr, selfreqs[idx]
         return 0, 0
 
     def firstSound(self, threshold=-120.0, period=0.04, overlap=2, start=0.,
-                   pitched=False
                    ) -> float | None:
         """
         Find the time of the first sound within this sample
+
+        This does not make any difference between background noise or pitched/voiced sound
 
         Args:
             threshold: the sound threshold in dB.
@@ -1399,6 +1399,8 @@ class Sample:
 
         Returns:
             the time of the first sound, or None if no sound found
+
+        .. seealso:: :meth:`Sample.firstPitch`
 
         """
         idx = _npsnd.firstSound(self.samples,
@@ -1493,7 +1495,7 @@ class Sample:
         all samples are upsampled to the highest sr
 
         Args:
-            sampleseq: a seq. of Samples
+            samples: a seq. of Samples
 
         Returns:
             the concatenated samples as one Sample
@@ -1659,7 +1661,7 @@ def spectrumAt(samples: np.ndarray,
                windowsize: float = -1,
                mindb=-90,
                minfreq: int | None = None,
-               maxfreq  = 12000,
+               maxfreq=12000,
                maxcount=0
                ) -> list[tuple[float, float]]:
     """

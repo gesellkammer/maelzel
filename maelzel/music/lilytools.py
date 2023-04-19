@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import *
+    from typing import Union, Optional, Iterator
     pitch_t = Union[int, float, str]
 
 
@@ -38,11 +38,11 @@ def _addLineNumbers(s: str, start=1) -> Iterator[str]:
     lines = s.splitlines()
     numZeros = len(str(len(lines)))
     fmt = f"%0{numZeros}d %s"
-    for i, l in enumerate(lines, start=start):
-        yield fmt % (i, l)
+    for i, line in enumerate(lines, start=start):
+        yield fmt % (i, line)
 
 
-def callWithCapturedOutput(args: Union[str, List[str]], shell=False) -> _CallResult:
+def callWithCapturedOutput(args: Union[str, list[str]], shell=False) -> _CallResult:
     """
     Call a subprocess with params
 
@@ -57,7 +57,7 @@ def callWithCapturedOutput(args: Union[str, List[str]], shell=False) -> _CallRes
                        proc.stderr.read().decode('utf-8'))
 
 
-def _checkOutput(args: List[str], encoding="utf-8") -> Optional[str]:
+def _checkOutput(args: list[str], encoding="utf-8") -> Optional[str]:
     """
     Like subprocess.check_output, but returns None if failed instead
     of throwing an exeception
@@ -125,15 +125,16 @@ def musicxml2ly(xmlfile: str, outfile: str = None) -> str:
     return outfile
 
 
-def saveScore(score:str, outfile:str, book=False, microtonal=False) -> None:
+def saveScore(score: str, outfile: str, book=False, microtonal=False) -> None:
     if book or microtonal:
         score = postProcessLilyScore(score, book=book, microtonal=microtonal)
     open(outfile, "w").write(score)
 
 
-def renderScore(score:str, outfile:str=None,
+def renderScore(score: str, outfile: str = None,
                 book=False, microtonal=False,
-                openWhenFinished=False) -> str:
+                openWhenFinished=False
+                ) -> str:
     lilyfile = tempfile.mktemp(suffix=".ly")
     saveScore(score, lilyfile, book=book, microtonal=microtonal)
     if outfile is None:
@@ -416,8 +417,11 @@ arrowGlyphs = #`(
 """
 
 
-def postProcessLilyScore(score:str, removeHeader=False, book=False,
-                         microtonal=False) -> str:
+def postProcessLilyScore(score: str,
+                         removeHeader=False,
+                         book=False,
+                         microtonal=False
+                         ) -> str:
     """
     Apply some post-processing options to a lilypond score
 
@@ -483,17 +487,17 @@ _octaveMapping = {
 }
 
 _centsToSuffix = {
-    0  : '',
-    25 : 'iq',
-    50 : 'ih',
-    75 : 'iseq',
+    0: '',
+    25: 'iq',
+    50: 'ih',
+    75: 'iseq',
     100: 'is',
     125: 'isiq',
     150: 'isih',
 
-    -25 : 'eq',
-    -50 : 'eh',
-    -75 : 'esiq',
+    -25: 'eq',
+    -50: 'eh',
+    -75: 'esiq',
     -100: 'es',
     -125: 'eseq',
     -150: 'eseh'
@@ -570,26 +574,26 @@ _durationToLily = {
     0.046875: '128.',
     0.0625:  '64',
     0.09375: '64.',
-    0.109375:'64..',
-    0.125:  '32',
+    0.109375: '64..',
+    0.125: '32',
     0.1875: '32.',
-    0.21875:'32..',
-    0.25:  '16',
+    0.21875: '32..',
+    0.25: '16',
     0.375: '16.',
-    0.4375:'16..',
-    0.5:  '8',
+    0.4375: '16..',
+    0.5: '8',
     0.75: '8.',
-    0.875:'8..',
-    1:   '4',
+    0.875: '8..',
+    1: '4',
     1.5: '4.',
-    1.75:'4..',
-    2:'2',
-    3:'2.',
-    3.5:'2..',
-    3.75:'2...',
-    4:'1',
-    6:'1.',
-    7:'1..'
+    1.75: '4..',
+    2: '2',
+    3: '2.',
+    3.5: '2..',
+    3.75: '2...',
+    4: '1',
+    6: '1.',
+    7: '1..'
 }
 
 
@@ -650,6 +654,7 @@ noteheadStyles = {
     'slash',
 }
 
+
 def customNotehead(notehead: str = 'default', parenthesis: bool = False, color: str = None,
                    sizeFactor: float = None
                    ) -> str:
@@ -659,7 +664,7 @@ def customNotehead(notehead: str = 'default', parenthesis: bool = False, color: 
         notehead: one of 'cross', 'harmonic', 'triangleup', 'xcircle', 'triangle',
             'rhombus', 'square', 'rectangle'
         parenthesis: if True, enclose the notehead in a parenthesis
-        color: the color of the notehead. Must be a css color color or #RRGGBB
+        color: the color of the notehead. Must be a css color or #RRGGBB
             (see https://lilypond.org/doc/v2.23/Documentation/notation/inside-the-staff#coloring-objects)
         sizeFactor: a size factor applied to the notehead (1.0 indicates the default size)
 
@@ -709,7 +714,7 @@ def fontSizeFactorToRelativeSize(factor: float) -> int:
 
 
 def makePitch(pitch: pitch_t,
-              divsPerSemitone:int=4,
+              divsPerSemitone: int = 4,
               parenthesizeAccidental=False,
               forceAccidental=False,
               ) -> str:
@@ -782,7 +787,7 @@ def keySignature(fifths: int, mode='major') -> str:
     """
     # \key f \major
     keys = {
-        ('sharp', 'major'): ('c', 'g', 'd', 'a',  'e',  'b',  'fis', 'cis', 'gis', 'dis'),
+        ('sharp', 'major'): ('c', 'g', 'd', 'a', 'e', 'b', 'fis', 'cis', 'gis', 'dis'),
         ('sharp', 'minor'): ('a', 'e', 'b', 'fis', 'cis', 'gis', 'dis', 'ais'),
         ('flat', 'major'): ('c', 'f', 'bes', 'ees', 'aes', 'des', 'ges'),
         ('flat', 'minor'): ('a', 'd', 'g', 'c', 'f', 'bes', 'ees')
@@ -821,13 +826,19 @@ def makeClef(clef: str) -> str:
 def colorFlag(color: str) -> str:
     return rf'\override Flag.color = "{color}"'
 
+
 def colorStem(color: str) -> str:
     return rf'\override Stem.color = "{color}"'
 
 
-def makeNote(pitch: pitch_t, duration: Union[float, str], dots=0, tied=False,
-             divsPerSemitone=4, noteheadcolor: str = None,
-             notehead: str = None, parenthesis=False,
+def makeNote(pitch: pitch_t,
+             duration: Union[float, str],
+             dots=0,
+             tied=False,
+             divsPerSemitone=4,
+             noteheadcolor: str = None,
+             notehead: str = None,
+             parenthesis=False,
              cautionary=False) -> str:
     """
     Returns the lilypond representation of the given note
@@ -840,19 +851,20 @@ def makeNote(pitch: pitch_t, duration: Union[float, str], dots=0, tied=False,
         dots: number of dots
         tied: is this note tied?
         divsPerSemitone: pitch resolution
-        stemcolor: the color of the stem (as css color)
         noteheadcolor: color of the notehead (as css color)
         parenthesis: should the notehead be within parenthesis?
-        cautiniory: if True, put the accidental within parenthesis
+        cautionary: if True, put the accidental within parenthesis
 
     Returns:
         The lilypond text
     """
     parts = []
     if notehead or parenthesis or noteheadcolor:
-        parts.append(customNotehead(notehead=notehead, color=noteheadcolor, parenthesis=parenthesis))
+        parts.append(customNotehead(notehead=notehead, color=noteheadcolor,
+                                    parenthesis=parenthesis))
         parts.append(' ')
-    parts.append(makePitch(pitch, divsPerSemitone=divsPerSemitone, parenthesizeAccidental=cautionary))
+    parts.append(makePitch(pitch, divsPerSemitone=divsPerSemitone,
+                           parenthesizeAccidental=cautionary))
     parts.append(makeDuration(duration, dots=dots))
     if tied:
         parts.append("~")
@@ -878,21 +890,21 @@ def getLilypondVersion() -> Optional[str]:
     return match[0][13:]
 
 
-def millimetersToPoints(mm:float) -> float:
+def millimetersToPoints(mm: float) -> float:
     return mm * 2.87
 
 
-def pointsToMillimeters(points:float) -> float:
+def pointsToMillimeters(points: float) -> float:
     return points / 2.87
 
 
-def paperBlock(paperWidth:float=None,
-               margin:float=None,
-               leftMargin:float=None,
-               rightMargin:float=None,
-               lineWidth:float=None,
-               topMargin:float=None,
-               bottomMargin:float=None,
+def paperBlock(paperWidth: float = None,
+               margin: float = None,
+               leftMargin: float = None,
+               rightMargin: float = None,
+               lineWidth: float = None,
+               topMargin: float = None,
+               bottomMargin: float = None,
                indent=2,
                unit="mm"
                ) -> str:
@@ -918,7 +930,9 @@ def paperBlock(paperWidth:float=None,
     return "\n".join(lines)
 
 
-def makeTextMark(text: str, fontsize:int=None, fontrelative=True,
+def makeTextMark(text: str,
+                 fontsize: int = None,
+                 fontrelative=True,
                  box='', italic=False, bold=False
                  ) -> str:
     """
@@ -966,7 +980,7 @@ _boxMarkup = {
 }
 
 
-def makeText(text: str, fontsize:int=None, fontrelative=False,
+def makeText(text: str, fontsize: int = None, fontrelative=False,
              placement='above', italic=False, bold=False,
              box='') -> str:
     """

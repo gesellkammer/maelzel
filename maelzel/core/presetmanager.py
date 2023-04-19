@@ -11,7 +11,7 @@ import emlib.misc
 import fnmatch
 import glob
 import csoundengine.csoundlib
-from .presetdef import *
+from .presetdef import PresetDef
 from .workspace import Workspace
 from . import presetutils
 from . import builtinpresets
@@ -32,8 +32,6 @@ __all__ = (
     'PresetManager',
     'getPreset'
 )
-
-
 
 
 _csoundPrelude = r"""
@@ -64,7 +62,7 @@ class PresetManager:
     """
     Singleton object, manages all instrument Presets
 
-    Any maelzel.core object can be played with an instrument preset defined
+    Any `maelzel.core` object can be played with an instrument preset defined
     here. A PresetManager is attached to a running Session as soon as an object
     is scheduled with the given Preset. As such, it acts as a library of Presets
     and any number of such Presets can be created.
@@ -91,12 +89,6 @@ class PresetManager:
         for presetdef in presetdefs:
             self.registerPreset(presetdef)
 
-    def _startWatchdog(self):
-        observer = _WatchdogObserver()
-        observer.schedule(_WatchdogPresetsHandler(self), self.presetsPath)
-        observer.start()
-        return observer
-
     def _prepareEnvironment(self) -> None:
         if not os.path.exists(self.presetsPath):
             os.makedirs(self.presetsPath)
@@ -118,8 +110,8 @@ class PresetManager:
             if sf2 and sf2 != "?":
                 presetname = 'gm-' + instr
                 descr = f'General MIDI {instr}'
-                self.defPresetSoundfont(presetname, sf2path=sf2, preset=preset, _builtin=True,
-                                        description=descr)
+                self.defPresetSoundfont(presetname, sf2path=sf2, preset=preset,
+                                        _builtin=True, description=descr)
 
         for name, (path, preset, descr) in builtinpresets.builtinSoundfonts().items():
             self.defPresetSoundfont(name, sf2path=path, preset=preset, _builtin=True,
@@ -172,7 +164,7 @@ class PresetManager:
                 play arguments. If False, the user is responsible for applying any fadein/fadeout (csound variables:
                 ``ifadein``, ``ifadeout``
             output: if True, generate output routing (panning and output) for this
-                preset. Otherwise the user is responsible for applying panning (``iposition``)
+                preset. Otherwise, the user is responsible for applying panning (``iposition``)
                 and routing the generated audio to any output channels (``ichan``), buses, etc.
 
 
@@ -228,14 +220,6 @@ class PresetManager:
             - :meth:`maelzel.core.MObj.play`
 
         """
-        #audiogen = emlib.textlib.stripLines(audiogen)
-        #firstLine = audiogen.split('\n', maxsplit=1)[0].strip()
-        #if firstLine[0] == '|' and firstLine[-1] == '|':
-        #    inlineargs = csoundengine.instr.parseInlineArgs(audiogen)
-        #    if args:
-        #        args.update(inlineargs.args)
-        #    else:
-        #        args = inlineargs.args
         presetdef = PresetDef(name=name,
                               audiogen=audiogen,
                               init=init,
@@ -294,13 +278,13 @@ class PresetManager:
 
         Args:
             name: the name of the preset. If not given, the name of the preset
-                is used
-            sf2path: the path to the soundfont; Use "?" open a dialog to select a .sf2 file
+                is used.
+            sf2path: the path to the soundfont. Use "?" open a dialog to select a .sf2 file
                 or None to use the default soundfont
             preset: the preset to use. Either a tuple (bank: int, presetnum: int) or the
                 name of the preset as string. **Use "?" to select from all available presets
                 in the soundfont**.
-            init: global code needed by postproc
+            init: global code needed by postproc.
             postproc: code to modify the generated audio before it is sent to the
                 outputs. **NB**: the audio is placed in *aout1*, *aout2*, etc. depending
                 on the number of channels (normally 2)
@@ -309,7 +293,7 @@ class PresetManager:
             mono: if True, only the left channel of the soundfont is read
             ampDivisor: most soundfonts are PCM 16bit files and need to be scaled down
                 to use them in the range of -1:1. This value is used to scale amp down.
-                The default is 16384 but it can be changed in the config
+                The default is 16384, but it can be changed in the config
                 (:ref:`key 'play.soundfontAmpDiv' <config_play_soundfontampdiv>`)
             interpolation: one of 'linear', 'cubic'. Refers to the interpolation used
                 when reading the sample waveform. If None, use the default defined
@@ -405,7 +389,6 @@ class PresetManager:
         """
         self.presetdefs[presetdef.name] = presetdef
 
-
     def getPreset(self, name: str) -> PresetDef:
         """Get a preset by name
 
@@ -414,6 +397,9 @@ class PresetManager:
         Args:
             name: the name of the preset to get (use "?" to select from a list
                 of defined presets)
+
+        Returns:
+            the PresetDef corresponding to the given name
         """
         if name is None:
             name = Workspace.active.config['play.instr']
@@ -462,7 +448,7 @@ class PresetManager:
         Show the selected presets
 
         The output is printed to stdout if inside a terminal or shown as
-        html inside of jupyter
+        html inside jupyter
 
         Args:
             pattern: a glob pattern to select which presets are shown
@@ -491,7 +477,7 @@ class PresetManager:
         Args:
             pattern: a glob pattern to select which presets are shown
             showGeneratedCode: if True, all actual code of an instrument
-                is show. Otherwise only the audiogen is shown
+                is show. Otherwise, only the audiogen is shown
 
         """
         matchingPresets = [p for name, p in self.presetdefs.items()
@@ -575,7 +561,7 @@ class PresetManager:
 
     def savePreset(self, preset: str | PresetDef) -> str:
         """
-        Saves the preset in the presets folder, returns the path to the saved file
+        Saves the preset in the presets' folder, returns the path to the saved file
 
         Args:
             preset: the name of the preset

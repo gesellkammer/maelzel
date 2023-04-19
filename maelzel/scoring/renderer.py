@@ -23,7 +23,7 @@ class Renderer:
     This is an abstract base class for different backend renderers (lilypond, musicxml, etc)
     """
 
-    def __init__(self, score: quant.QuantizedScore, options:RenderOptions):
+    def __init__(self, score: quant.QuantizedScore, options: RenderOptions):
         assert score
         assert score[0].struct is not None
         self.quantizedScore: quant.QuantizedScore = score
@@ -61,7 +61,7 @@ class Renderer:
         """
         raise NotImplementedError("Please Implement this method")
 
-    def write(self, outfile:str) -> None:
+    def write(self, outfile: str) -> None:
         """Write the rendered score to a file"""
         raise NotImplementedError("Please Implement this method")
 

@@ -195,7 +195,7 @@ def loadPresets(skipErrors=True) -> List[presetdef.PresetDef]:
     """
     loads all presets from the presets path
 
-    To get the current presets path: ``getWorkspace().presetsPath()``
+    To get the current presets' path: ``getWorkspace().presetsPath()``
     """
     basepath = getWorkspace().presetsPath()
     presetdefs = []

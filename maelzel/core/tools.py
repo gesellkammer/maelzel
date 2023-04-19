@@ -66,7 +66,7 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
         fade: a fadetime for the clicks
 
     Returns:
-        a maelzel.core Score
+        a :class:`~maelzel.core.score.Score`
 
     Example
     ~~~~~~~
@@ -164,5 +164,4 @@ def packInVoices(objs: list[core.MEvent | core.Chain]) -> list[core.Voice]:
             items.append(item)
     tracks = packing.packInTracks(items)
     return [core.Voice(track.unwrap()) for track in tracks]
-
 

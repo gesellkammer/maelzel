@@ -99,12 +99,12 @@ class Part(list):
 
     def stack(self) -> None:
         """
-        Stack the notations of this part **in place**.
+        Stack the notations of this part **inplace**.
 
         Stacking means filling in any unresolved offset/totalDuration of the notations
         in this part. After this operation, all Notations in this Part have an
         explicit totalDuration and start. See :meth:`stacked` for a version which
-        returns a new Part instead of operating in place
+        returns a new Part instead of operating inplace
         """
         stackNotationsInPlace(self)
 
@@ -126,7 +126,7 @@ class Part(list):
 
     def fillGaps(self, mingap=1/64) -> None:
         """
-        Fill gaps between notations in this Part, in place
+        Fill gaps between notations in this Part, inplace
         """
         if not self.hasGaps():
             return
@@ -145,7 +145,7 @@ class Part(list):
         Stack the Notations to make them adjacent if they have unset offset/totalDuration
 
         Similar to :meth:`stack`, **this method returns a new Part** instead of
-        operating in place.
+        operating inplace.
         """
         notations = stackNotations(self)
         return Part(events=notations, name=self.name, groupid=self.groupid,
@@ -186,7 +186,7 @@ class Arrangement(list):
 
 def _repairGracenoteAsTargetGliss(notations: list[Notation]) -> None:
     """
-    Removes superfluous end glissandi notes **in place**
+    Removes superfluous end glissandi notes **inplace**
 
     To be called after notations are "stacked". Removes superfluous
     end glissandi notes when the endgliss is the same as the next note
@@ -210,7 +210,7 @@ def _repairGracenoteAsTargetGliss(notations: list[Notation]) -> None:
 def stackNotationsInPlace(events: list[Notation], start=F(0), overrideOffset=False
                           ) -> None:
     """
-    Stacks notations to the left, in place
+    Stacks notations to the left, inplace
 
     Stacks events together by placing an event at the end of the
     previous event whenever an event does not define its own offset
@@ -263,7 +263,7 @@ def stackNotations(events: list[Notation], start=F(0), overrideOffset=False
 
 def removeOverlap(notations: list[Notation], maxgap=F(1, 10000)) -> None:
     """
-    Fix overlap between notations, in place.
+    Fix overlap between notations, inplace.
 
     If two notations overlap, the first notation is cut, preserving the
     offset of the second notation. If there is a gap smaller than a given
@@ -498,7 +498,7 @@ def removeRedundantDynamics(notations: list[Notation],
                             resetAfterRest=True,
                             minRestDuration: time_t = F(1, 16)) -> None:
     """
-    Removes redundant dynamics, in place
+    Removes redundant dynamics, inplace
 
     A dynamic is redundant if it is the same as the last dynamic and
     it is a dynamic level (ff, mf, ppp, but not sf, sfz, etc). It is

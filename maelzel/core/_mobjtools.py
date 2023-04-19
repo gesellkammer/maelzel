@@ -63,7 +63,7 @@ def fillTempDynamics(items: list[MEvent], initialDynamic='mf',
                      resetMinGap=1
                      ) -> None:
     """
-    Fill notes/chords with context dynamic as temporary (in place)
+    Fill notes/chords with context dynamic as temporary (inplace)
 
     To mark that the dynamic is temporary the property '.tempdynamic' is set to
     True. This routine is used for playback when config['play.useDynamics'] is True,
@@ -110,7 +110,7 @@ def addDurationToGracenotes(chain: list[MEvent], dur: F) -> None:
     note or silence.
 
     Args:
-        chain: the sequence of notes to modify (in place)
+        chain: the sequence of notes to modify (inplace)
         dur: the totalDuration of a single gracenote
 
     """

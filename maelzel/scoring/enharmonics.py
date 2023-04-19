@@ -117,6 +117,7 @@ class EnharmonicOptions:
     verticalWeight: float = 0.05
     "The weight of how a variant affects chords (vertically)"
 
+
 _defaultEnharmonicOptions = EnharmonicOptions()
 
 
@@ -132,7 +133,7 @@ def isEnharmonicVariantValid(notes: list[str]) -> bool:
 
     A valid variant needs to follow these rules:
     * if one pitch is lower than the next its vertical position should
-      never be higher (never allow a sequence like 4Eb-, 4D+75
+      never be higher (never allow a sequence like 4Eb-, 4D+75)
     * the same should be valid in the opposite direction. This makes a
       sequence like 4D+75, 4Eb- invalid, since the first pitch is higher
       than the second but its vertical position is lower
@@ -171,9 +172,6 @@ def groupPenalty(notes: list[str], options: EnharmonicOptions = None) -> tuple[f
     notated: list[pt.NotatedPitch] = [pt.notated_pitch(n) for n in notes]
     alterations = [n.alteration_direction() for n in notated
                    if n.is_black_key]
-    numDirections = len(set(alterations))
-    #if numDirections > 1:
-    #    total += options.mispelledInterval * 0.1
 
     # Penalize crammed unisons
     accidentalsPerPos = defaultdict(set)
@@ -281,7 +279,7 @@ def intervalPenalty(n0: str, n1: str, chord=False, options: EnharmonicOptions = 
             return 0, ""
         return MAXPENALTY, "Respelled pitch"
 
-    if (dpos > 0 and dpitch < 0) or (dpos < 0 and dpitch > 0):
+    if (dpos > 0 and dpitch < 0) or (dpos < 0 < dpitch):
         # ex: 4C# 4Db- or 4E+ 4Fb
         return MAXPENALTY, "Inverse pitch"
 
@@ -510,7 +508,9 @@ class SpellingHistory:
         return currentSpelling == 0 or currentSpelling == n.alteration_direction()
 
     def dump(self) -> None:
-        idx2name = lambda idx: pt.m2n(60+idx/2)[1:]
+        def idx2name(idx):
+            return pt.m2n(60 + idx / 2)[1:]
+
         fixed = {f"{idx}:{idx2name(idx)}": val for idx, val in self.slots.items()
                  if val != 0}
         print(fixed)
@@ -550,7 +550,7 @@ def _makeFixedSlots(fixedNotes: list[str], semitoneDivs=2) -> dict[int, int]:
     return slots
 
 
-def bestChordSpelling(notes: list[str] | tuple[str], options: EnharmonicOptions=None
+def bestChordSpelling(notes: list[str] | tuple[str], options: EnharmonicOptions = None
                       ) -> tuple[str]:
     if isinstance(notes, list):
         notes = tuple(notes)
@@ -558,8 +558,8 @@ def bestChordSpelling(notes: list[str] | tuple[str], options: EnharmonicOptions=
 
 
 @functools.cache
-def _bestChordSpelling(notes: tuple[str], options: EnharmonicOptions=None
-                      ) -> tuple[str, ...]:
+def _bestChordSpelling(notes: tuple[str], options: EnharmonicOptions = None
+                       ) -> tuple[str, ...]:
     if options is None:
         options = _defaultEnharmonicOptions
     fixedNotes = []
@@ -589,7 +589,7 @@ def pitchSpellings(n: Notation) -> tuple[str]:
 
     """
     if len(n) == 1:
-        return (n.notename(0),)
+        return n.notename(0),
     notenames = [n.notename(idx, addExplicitMark=True) for idx in range(len(n))]
     return bestChordSpelling(notenames)
 
@@ -793,4 +793,5 @@ def _verifyVariants(variants: list[tuple[str, ...]], slots):
             idx = notated.microtone_index(2)
             assert not slots.get(idx, 0) or slots[idx] == notated.alteration_direction(), \
                 f"{variant=}, {idx=}, {notated.fullname=}, {slots=}"
+
 

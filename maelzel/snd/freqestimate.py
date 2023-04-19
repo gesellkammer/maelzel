@@ -158,7 +158,7 @@ def f0HPS(sig: np.ndarray, sr: int, maxharms=5) -> tuple[float, float]:
     windowed = sig * scipy.signal.windows.blackmanharris(len(sig))
     c = abs(np.fft.rfft(windowed))
     freq = 0
-    for x in range(2,maxharms):
+    for x in range(2, maxharms):
         a = c[::x]  # Should average or maximum instead of decimating
         # a = max(c[::x],c[1::x],c[2::x])
         c = c[:len(a)]
@@ -198,9 +198,7 @@ def f0curvePyin(sig: np.ndarray, sr: int, minfreq=50, maxfreq=5000,
 
     totaldur = len(sig) / sr
 
-    #import librosa
     from maelzel.snd import rosita
-    # f0, voiced_flag, voiced_probs = librosa.pyin(sig, sr=sr,
     f0, voiceg_flag, voiced_probs = rosita.pyin(sig, sr=sr,
                                                 fmin=minfreq, fmax=maxfreq,
                                                 frame_length=framelength,
@@ -425,7 +423,7 @@ def detectMinFrequency(samples: np.ndarray, sr: int, freqThreshold=30, overlap=4
                                       lowAmpSuppression=lowAmpSuppression,
                                       outputUnvoiced='nan')
     freqs = f0data[:,1]
-    mask  = freqs > freqThreshold
+    mask = freqs > freqThreshold
     selected = freqs[mask]
     if len(selected) == 0:
         return 0., 0.

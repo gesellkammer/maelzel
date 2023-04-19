@@ -36,7 +36,7 @@ def _stackEvents(events: list[MEvent | Chain],
                  explicitOffsets=True,
                  ) -> F:
     """
-    Stack events to the left **in place**, making any unset offset explicit
+    Stack events to the left **inplace**, making any unset offset explicit
 
     Args:
         events: the events to modify
@@ -200,25 +200,21 @@ class Chain(MObj, MContainer):
     def copy(self) -> Chain:
         return self.__deepcopy__()
 
-    def stack(self, explicitOffsets=True) -> F:
+    def stack(self) -> F:
         """
-        Stack events to the left **INPLACE**, optionally making offsets explicit
-
-        Args:
-            explicitOffsets: make all offset explicit (sets the .offset attribute of
-                all items in this chain, recursively)
+        Stack events to the left **INPLACE**, making offsets explicit
 
         Returns:
             the total totalDuration of self
         """
-        dur = _stackEvents(self.items, explicitOffsets=explicitOffsets)
+        dur = _stackEvents(self.items, explicitOffsets=True)
         self._dur = dur
         self._modified = False
         return dur
 
     def fillGaps(self, recurse=True) -> None:
         """
-        Fill any gaps with rests, in place
+        Fill any gaps with rests, inplace
 
         A gap is produced when an event within a chain has an explicit offset
         later than the offset calculated by stacking the previous objects in terms
@@ -252,7 +248,7 @@ class Chain(MObj, MContainer):
 
         Returns:
             the item following *item* or None if the given item is not
-            in this container or it has no item after it
+            in this container, or it has no item after it
 
         Example
         ~~~~~~~
@@ -373,7 +369,7 @@ class Chain(MObj, MContainer):
         if self.isResolved() and not forcecopy:
             return self
         out = self.copy()
-        out.stack(explicitOffsets=True)
+        out.stack()
         return out
 
     def isResolved(self) -> bool:
@@ -483,7 +479,7 @@ class Chain(MObj, MContainer):
 
     def mergeTiedEvents(self) -> None:
         """
-        Merge tied events in place
+        Merge tied events **inplace**
 
         Two events can be merged if they are tied and the second
         event does not provide any extra information (does not have
@@ -839,8 +835,6 @@ class Chain(MObj, MContainer):
             notations.append(scoring.makeRest(duration=chain[0].resolveOffset()))
         for item in chain.items:
             notations.extend(item.scoringEvents(groupid=groupid, config=config, parentOffset=offset))
-        #if self.label:
-        #y    notations[0].addText(self._scoringAnnotation(text=self.label))
         scoring.stackNotationsInPlace(notations)
 
         for n0, n1 in iterlib.pairwise(notations):
@@ -906,7 +900,7 @@ class Chain(MObj, MContainer):
         """
         Returns the offset (relative to the start of this chain) of the first event in this chain
         """
-        event  = self.firstEvent()
+        event = self.firstEvent()
         return None if not event else event.absoluteOffset() - self.absoluteOffset()
 
     def pitchTransform(self, pitchmap: Callable[[float], float]) -> Chain:
@@ -1227,7 +1221,7 @@ class Voice(Chain):
         if not configkeys:
             pattern = r'(quant|show)\..+'
             corekeys = CoreConfig.root.keys()
-            configkeys= set(k for k in corekeys if re.match(pattern, k))
+            configkeys = set(k for k in corekeys if re.match(pattern, k))
             Voice._configKeys = configkeys
         if key not in configkeys:
             raise KeyError(f"Key {key} not known. Possible keys: {configkeys}")
@@ -1268,13 +1262,13 @@ class Voice(Chain):
             self.setConfig('quant.breakSyncopationsLevel', breakSyncopationsLevel)
 
     def clone(self, **kws) -> Voice:
-        if not 'items' in kws:
+        if 'items' not in kws:
             kws['items'] = self.items.copy()
-        if not 'shortname' in kws:
+        if 'shortname' not in kws:
             kws['shortname'] = self.shortname
-        if not 'name' in kws:
+        if 'name' not in kws:
             kws['name'] = self.name
-        if not 'clef' in kws:
+        if 'clef' not in kws:
             kws['clef'] = self.clef
         out = Voice(**kws)
         if self.label:

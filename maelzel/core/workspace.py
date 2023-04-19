@@ -42,12 +42,11 @@ class Workspace:
         config: the active config for this workspace. If None, a copy of the root config
             is used
         updates: if given, these are applied to the config
-        renderer: will be set to the active offline renderer while rendering offline
         dynamicCurve: a DynamicCurve used to map amplitude to dynamic expressions
         active: if True, make this Workpsace active
 
     A Workspace can also be used as a context manager, in which case it will be
-    activated when entering the context and  and deactivated at exit
+    activated when entering the context and deactivated at exit
 
     .. code::
 
@@ -73,7 +72,6 @@ class Workspace:
     """The currently active workspace. """
 
     _initdone: bool = False
-
 
     def __init__(self,
                  config: CoreConfig = None,
@@ -121,7 +119,6 @@ class Workspace:
         self._config = config
         if self.isActive():
             self._activateConfig()
-
 
     def _activateConfig(self) -> None:
         config = self._config

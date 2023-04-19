@@ -1,13 +1,10 @@
 from __future__ import annotations
 from configdict import ConfigDict
-import emlib.misc
-import sys
 import os
 import appdirs
-from . import workspace
 
 
-__all__ = ('appstate')
+__all__ = ('appstate', )
 
 
 _home = os.path.expanduser("~")
@@ -26,4 +23,3 @@ appstate = ConfigDict(
         'soundfontLastDir': _home
     }
 )
-

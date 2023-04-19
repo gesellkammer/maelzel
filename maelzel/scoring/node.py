@@ -3,7 +3,7 @@ from emlib import iterlib
 import sys
 
 from .core import Notation
-from .common import *
+from .common import F, logger
 from numbers import Rational
 import textwrap
 from typing import TYPE_CHECKING
@@ -46,7 +46,7 @@ class Node:
     Attributes:
         durRatio: a tuple (num, den) indication the ratio by which to multiply the duration
             of the items to obtain the notated items: the items inside this tree
-            For example, an quarternote triplet would have a durRatio (3, 2) and the items
+            For example, a quarternote triplet would have a durRatio (3, 2) and the items
             inside it would have a duration of 1/3. When multiplied by the durRatio each
             item would have a duration of 1/2
         items: the items in this tree
@@ -65,7 +65,7 @@ class Node:
                  parent: Node | None = None):
         assert isinstance(items, list), f"Expected a list of Notation|Node, got {items}"
         self.durRatio: tuple[int, int] = ratio if isinstance(ratio, tuple) else _unpackRational(ratio)
-        self.items: list[Notation | 'Node'] = items
+        self.items: list[Notation | Node] = items
         self.properties = properties
         self.parent: weakref.ReferenceType[Node] | None = weakref.ref(parent) if parent else None
 
@@ -145,8 +145,8 @@ class Node:
             if isinstance(item, Notation):
                 itemlines = textwrap.wrap(repr(item), width=MAXWIDTH)
                 print(IND, itemlines[0], file=stream, sep='')
-                for l in itemlines[1:]:
-                    print(IND, '  ', l, file=stream, sep='')
+                for line in itemlines[1:]:
+                    print(IND, '  ', line, file=stream, sep='')
             else:
                 item.dump(numindents=numindents + 1, stream=stream)
 
@@ -186,7 +186,6 @@ class Node:
                     properties=_mergeProperties(self.properties, other.properties))
         node = node.mergedNotations()
         return node
-
 
     def mergedNotations(self, flatten=True) -> Node:
         """
@@ -272,13 +271,13 @@ class Node:
         items = self.items if not reverse else reversed(self.items)
         for item in items:
             if isinstance(item, Notation):
-                yield (item, self)
+                yield item, self
             else:
                 yield from item.recurseWithNode(reverse=reverse)
 
     def repairLinks(self) -> int:
         """
-        Repair ties and glissandi in place
+        Repair ties and glissandi inplace
 
         Returns:
             the number of modifications
@@ -312,7 +311,7 @@ class Node:
                     n1.tiedPrev = True
                     n0.gliss = False
                     if n0.tiedPrev:
-                        tie  = findTie(n0, ties)
+                        tie = findTie(n0, ties)
                         if tie:
                             for tie0, tie1 in iterlib.pairwise(tie):
                                 tie0.tiedNext = True
@@ -421,7 +420,7 @@ class Node:
                        prevTree: Node = None
                        ) -> None:
         """
-        Find the best enharmonic spelling for the notations within this tree, in place
+        Find the best enharmonic spelling for the notations within this tree, inplace
 
         Args:
             options: the enharmonic options used
@@ -443,14 +442,13 @@ class Node:
 
     def splitAtBeatBoundary(self, offset: F, key=None) -> None:
         """
-        Split any notation which crosses the given offset, in place
+        Split any notation which crosses the given offset, inplace
 
         A notation will be split if it crosses the given offset
-        and its duration is less than *maxdur*
 
         Args:
             offset: the offset of the desired split. It should be a beat boundary
-            maxdur: the max. duration of the notation
+            key: if given, a function which returns True if the note should be split
 
         """
         if not self.offset < offset < self.end:

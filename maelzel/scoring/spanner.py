@@ -1,7 +1,6 @@
 from __future__ import annotations
 from . import util
 from . import definitions
-import weakref
 import copy
 from .common import logger
 

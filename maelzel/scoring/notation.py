@@ -8,7 +8,6 @@ import uuid
 from .common import *
 from .util import *
 from .attachment import *
-from emlib.iterlib import first
 from emlib import mathlib
 from . import definitions
 from . import spanner as _spanner
@@ -48,7 +47,7 @@ class Notation:
             totalDuration is interpreted as lasting to the next notation.
             0 indicates a grace note
         pitches: if given, a list of pitches as midinote or notename. If a notename
-            is given, the spelling is fixed. Otherwise a suitable spelling is calculated
+            is given, the spelling is fixed. Otherwise, a suitable spelling is calculated
             based on the context of this notation.
         offset: the offset of this Notation, in quarter-notes.
         isRest: is this a rest?
@@ -209,7 +208,7 @@ class Notation:
         Returns:
             the quantized pitches as midinotes
         """
-        return [round(p*4)/4 for p in self.pitches]
+        return [round(p*divs)/divs for p in self.pitches]
 
     def getAttachments(self,
                        cls: str | type = '',
@@ -440,7 +439,7 @@ class Notation:
             raise ValueError(f"spanner {spanner} not found in notation {self}")
         try:
             self.spanners.remove(spanner)
-        except ValueError as e:
+        except ValueError:
             raise ValueError(f"Cannot remove {spanner} from {self}: spanner not found. Spanners: {self.spanners}")
 
     def removeSpanners(self) -> None:
@@ -448,7 +447,6 @@ class Notation:
         if self.spanners:
             for spanner in self.spanners:
                 self.removeSpanner(spanner)
-
 
     @classmethod
     def makeArtificialHarmonic(cls,
@@ -467,7 +465,7 @@ class Notation:
 
     def fixNotename(self, notename: str, idx: int | None = None, fail=True) -> None:
         """
-        Fix the spelling for the pitch at index **in place**
+        Fix the spelling for the pitch at index **inplace**
 
         Args:
             notename: if given, it will be fixed to the given notename.
@@ -571,7 +569,7 @@ class Notation:
     def _setPitches(self, pitches: list[pitch_t], resetFixedNotenames=True) -> None:
         if len(pitches) != self.pitches:
             if self.noteheads:
-                logger.info("Notation: setting new pitches in place. Noteheads will be reset")
+                logger.info("Notation: setting new pitches inplace. Noteheads will be reset")
                 self.noteheads = {}
         self.pitches = [asmidi(p) for p in pitches] if pitches else []
         if resetFixedNotenames:
@@ -896,7 +894,7 @@ class Notation:
 
             This is mostly used internally and is an experimental feature.
             It is conceived for the case where two notations
-            are bound by a glissando and they should be placed together,
+            are bound by a glissando, and they should be placed together,
             even if the pitch of some of them might indicate otherwise
 
         Args:
@@ -1044,7 +1042,7 @@ class Notation:
             index: index of the pitch within this Notation
             minAlteration: threshold (with minAlteration 0.5
                 C+ gets a direction of +1, whereas C+25 still gets a direction
-                of 0
+                of 0)
 
         Returns:
             one of -1, 0 or +1, corresponding to the direction of the alteration
@@ -1291,7 +1289,7 @@ def makeRest(duration: time_t,
 def notationsToCoreEvents(notations: list[Notation]
                           ) -> list[maelzel.core.Note | maelzel.core.Chord]:
     """
-    Convert notations to their corresponding maelzel.core Note or Chord
+    Convert notations to their corresponding `maelzel.core` Note or Chord
 
     Args:
         notations: a list of Notations to convert
@@ -1369,7 +1367,7 @@ def durationsCanMerge(n0: Notation, n1: Notation) -> bool:
 
 def notationsCanMerge(n0: Notation, n1: Notation) -> bool:
     """
-    Returns True if n0 and n1 can me merged
+    Returns True if n0 and n1 can be merged
 
     Two Notations can merge if the resulting totalDuration is regular. A regular
     totalDuration is one which can be represented via **one** notation (a quarter,
@@ -1468,7 +1466,7 @@ def transferAttributesWithinTies(notations: list[Notation]) -> None:
 
 
 def tieNotationParts(parts: list[Notation]) -> None:
-    """ Tie these notations in place """
+    """ Tie these notations inplace """
 
     for part in parts[:-1]:
         part.tiedNext = True
@@ -1480,7 +1478,6 @@ def tieNotationParts(parts: list[Notation]) -> None:
         part.removeAttachments(lambda a: isinstance(a, (Text, Articulation)))
         if hasGliss:
             part.gliss = True
-
 
 
 @dataclass
