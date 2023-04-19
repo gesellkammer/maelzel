@@ -1320,7 +1320,7 @@ class Sample:
 
         elif method == 'fft':
             from maelzel.snd import freqestimate
-            steptime = stepsize/self.sr
+            stepsize/self.sr
             samples = self.getChannel(0).samples
             f0curve, probcurve = freqestimate.f0curve(samples, sr=self.sr,
                                                       overlap=4, method='fft')
@@ -1696,6 +1696,7 @@ def spectrumAt(samples: np.ndarray,
     endsample = int(endtime * sr)
     samples = samples[startsample:endsample]
     samples = np.ascontiguousarray(samples)
+    
     try:
         import loristrck
     except ImportError:
