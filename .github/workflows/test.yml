@@ -104,6 +104,7 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.9", "3.10"]
+        arch: ["x86_64", "arm64"]
     steps:
       - uses: actions/checkout@v3
 
@@ -131,9 +132,9 @@ jobs:
           mkdir -p artifacts
 
           cd test
-          python test-rec.py
+          python test-rec.py -o "test-rec-${{ matrix.python-version }}-${{ matrix.arch }}.wav"
           python test-dependencies.py
-          python test-notation.py -o 'test-notation-macos-${{ matrix.python-version }}.pdf'
+          python test-notation.py -o 'test-notation-macos-${{ matrix.python-version }}-${{ matrix.arch }}.pdf'
           cp *.wav ../artifacts
           cp *.pdf ../artifacts
 
