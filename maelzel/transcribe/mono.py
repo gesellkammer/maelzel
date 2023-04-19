@@ -388,7 +388,7 @@ class FundamentalAnalysisMono:
 
 
     def simplify(self, algorithm='visvalingam', threshold=0.05) -> None:
-        """Simplify the breakpoints inside each tree, in place
+        """Simplify the breakpoints inside each tree, inplace
 
         Groups themselves are never simplified
 

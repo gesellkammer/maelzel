@@ -184,7 +184,7 @@ class Harmonic(Attachment):
     exclusive = True
     priority = 10
 
-    def __init__(self, interval: int=0):
+    def __init__(self, interval: int = 0):
         super().__init__()
         self.interval = interval
 
@@ -249,7 +249,4 @@ class Clef(Attachment):
 
     def __hash__(self):
         return hash(('Clef', self.kind))
-
-
-
 

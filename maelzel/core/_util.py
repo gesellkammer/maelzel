@@ -3,7 +3,6 @@ Internal utilities
 """
 from __future__ import annotations
 
-import logging
 from maelzel.scoring import definitions
 from typing import TYPE_CHECKING
 from functools import cache
@@ -17,7 +16,6 @@ from maelzel.colortheory import safeColors
 from . import environment
 
 if TYPE_CHECKING:
-    from typing import Union, Optional
     from ._typedefs import *
 
 
@@ -54,10 +52,10 @@ def pngShow(pngpath: str, forceExternal=False, app: str = '') -> None:
     Args:
         pngpath: the path to a png file
         forceExternal: if True, it will show in an external app even
-            inside jupyter. Otherwise it will show inside an external
+            inside jupyter. Otherwise, it will show inside an external
             app if running a normal session and show an embedded
             image if running inside a notebook
-        app: used if a specific external app is needed. Otherwise the os
+        app: used if a specific external app is needed. Otherwise, the os
             defined app is used
     """
     if environment.insideJupyter and not forceExternal:
@@ -315,7 +313,6 @@ class NoteProperties:
         return props, symbols
 
 
-
 _dotRatios = [1, F(3, 2), F(7, 4), F(15, 8), F(31, 16)]
 
 
@@ -499,6 +496,7 @@ def showF(f: F, maxdenom=1000) -> str:
 
     Args:
         f: the fraction to show
+        maxdenom: the max. denominator to show
 
     Returns:
         a readable string representation
@@ -517,4 +515,3 @@ def showT(f: F | float | None) -> str:
     if not isinstance(f, float):
         f = float(f)
     return f"{f:.3f}".rstrip('0').rstrip('.')
-

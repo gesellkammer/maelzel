@@ -103,7 +103,7 @@ def playTicks(times: list[float] | np.ndarray,
     locked = False
     if isinstance(engine, str):
         name = engine
-        engine = csoundengine.getEngine(name) #
+        engine = csoundengine.getEngine(name)
         if engine is None:
             engine = csoundengine.Engine(name)
             locked = True

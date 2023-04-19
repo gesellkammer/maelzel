@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from maelzel.common import F
+from maelzel.common import F, F0
 from .mobj import MObj, MContainer
 from .event import MEvent
 from .config import CoreConfig
@@ -58,7 +58,7 @@ class Score(MObj, MContainer):
         self.voices: list[Voice] = asvoices
         """the voices of this score"""
 
-        super().__init__(label=title, offset=F(0))
+        super().__init__(label=title, offset=F0)
 
         self._scorestruct = scorestruct
         self._modified = True
@@ -87,7 +87,7 @@ class Score(MObj, MContainer):
         """
         Set the ScoreStruct for this Score
 
-        Scores are the only objects in maelzel.core which can have a
+        Scores are the only objects in `maelzel.core` which can have a
         ScoreStruct attached to them. This ScoreStruct will be
         used for any object embedded downstream
 
@@ -97,7 +97,6 @@ class Score(MObj, MContainer):
         """
         self._scorestruct = scorestruct
         self._changed()
-
 
     def __hash__(self):
         items = [type(self).__name__, self.label, self.offset, len(self.voices)]
@@ -123,7 +122,7 @@ class Score(MObj, MContainer):
     def _update(self):
         if not self._modified:
             return
-        self._dur = max(v.dur for v in self.voices) if self.voices else F(0)
+        self._dur = max(v.dur for v in self.voices) if self.voices else F0
         self._modified = False
 
     def append(self, voice: Voice | Chain) -> None:
@@ -136,7 +135,7 @@ class Score(MObj, MContainer):
 
     @property
     def dur(self) -> F:
-        "The duration of this object"
+        """The duration of this object"""
         if self._modified:
             self._update()
         assert self._dur is not None
@@ -169,7 +168,7 @@ class Score(MObj, MContainer):
                      ) -> list[SynthEvent]:
         if self.playargs:
             playargs = playargs.overwrittenWith(self.playargs)
-        parentOffset = self.parent.absoluteOffset() if self.parent else F(0)
+        parentOffset = self.parent.absoluteOffset() if self.parent else F0
         out = []
         for voice in self.voices:
             events = voice._synthEvents(playargs=playargs, workspace=workspace,
@@ -199,10 +198,10 @@ class Score(MObj, MContainer):
 
     def childOffset(self, child: MObj) -> F:
         offset = child._detachedOffset()
-        return offset if offset is not None else F(0)
+        return offset if offset is not None else F0
 
     def absoluteOffset(self) -> F:
-        return F(0)
+        return F0
 
     def pitchTransform(self, pitchmap: Callable[[float], float]) -> Score:
         voices = [voice.pitchTransform(pitchmap) for voice in self.voices]

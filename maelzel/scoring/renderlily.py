@@ -223,10 +223,6 @@ def lyNotehead(notehead: definitions.Notehead, insideChord=False) -> str:
         if not lilynotehead:
             raise ValueError(f'Unknown notehead shape: {notehead.shape}, '
                              f'possible noteheads: {_noteheadToLily.keys()}')
-        #if insideChord:
-        #    parts.append(fr"\tweak NoteHead.style #'{lilynotehead}")
-        #else:
-        #    parts.append(fr"\once \override NoteHead.style = #'{lilynotehead}")
         parts.append(fr"\tweak NoteHead.style #'{lilynotehead}")
 
     if notehead.parenthesis:
@@ -300,13 +296,6 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
           fr'\once \override Flag.color = "{n.color}" ' 
           fr'\once \override NoteHead.color = "{n.color}"')
 
-    #if n.properties:
-    #    if color := n.properties.get('noteheadColor'):
-    #        _(fr'\once \override NoteHead.color = "{color}"')
-    #    if sizeFactor := n.properties.get('noteheadSizeFactor'):
-    #        relsize = lilytools.fontSizeFactorToRelativeSize(sizeFactor)
-    #        _(fr'\once \override NoteHead.font-size =#{relsize}')
-
     if n.sizeFactor is not None and n.sizeFactor != 1:
         _(rf"\once \magnifyMusic {n.sizeFactor}")
 
@@ -354,14 +343,13 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
             else:
                 _(r'\beamBreak')
         elif isinstance(attach, attachment.Property) and attach.key == 'hidden':
-            _("\single \hideNotes")
-
+            _(r"\single \hideNotes")
 
     if len(n.pitches) == 1:
         # ***************************
         # ********** Note ***********
         # ***************************
-        if n.noteheads and (notehead:=n.noteheads.get(0)) is not None:
+        if n.noteheads and (notehead := n.noteheads.get(0)) is not None:
             _(lyNotehead(notehead))
         elif n.tiedPrev and n.gliss and state.glissando and options.glissHideTiedNotes:
             _(lyNotehead(definitions.Notehead(hidden=True)))
@@ -415,7 +403,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
                 forceAccidental = accidentalTraits.force
 
             if accidentalTraits.hidden:
-                _("\once\omit Accidental")
+                _(r"\once\omit Accidental")
             if accidentalTraits.color:
                 _(fr'\tweak Accidental.color "{accidentalTraits.color}"')
 
@@ -454,7 +442,6 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
             interval = ('+' if attach.interval > 0 else '')+str(round(attach.interval, 1))
             _(fr'\bendAfter #{interval}')
 
-
     if options.showCents:
         # TODO: cents annotation should follow options (below/above, fontsize)
         centsText = util.centsAnnotation(n.pitches, divsPerSemitone=options.divsPerSemitone)
@@ -462,13 +449,6 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
             fontrelsize = options.centsFontSize - options.staffSize
             _(lilytools.makeText(centsText, fontsize=fontrelsize,
                                  fontrelative=True, placement='below'))
-
-    #if n.isGracenote:
-    #    if state.insideGraceGroup and n.getProperty('graceGroup') == 'stop':
-    #        _("}")
-    #        state.insideGraceGroup = False
-    #else:
-    #    state.insideGraceGroup = False
 
     return " ".join(parts)
 
@@ -668,9 +648,6 @@ def renderNode(node: Node,
                     item.dynamic = ''
                 state.dynamic = dynamic
 
-            #if item.offset in beatOffsets[1:-1]:
-            #    _(r'\beamBreak ')
-
             # Slur modifiers (line type, etc.) need to go before the start of
             # the first note of the spanner :-(
             # Some spanners have customizations which need to be declared
@@ -690,7 +667,6 @@ def renderNode(node: Node,
                     state.insideGraceGroup = False
             else:
                 state.insideGraceGroup = False
-
 
             # * If the item has a glissando, add \glissando
             #   * If it is tied, add glissandoSkipOn IF not already on
@@ -718,10 +694,7 @@ def renderNode(node: Node,
                     if lilytext := _handleSpannerPost(spanner, state=state):
                         _(lilytext)
 
-
             _(" ")
-
-
 
     _("\n")
     if tupletStarted:

@@ -1,6 +1,6 @@
 """
 Implements a general routine for packing a seq. of
-items (notes, partials, etc) into a series of non-simultaneous containers (tracks)
+items (notes, partials, etc.) into a series of non-simultaneous containers (tracks)
 
 A Track is a seq. of non-overlapping items
 

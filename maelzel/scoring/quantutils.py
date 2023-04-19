@@ -3,7 +3,8 @@ import math
 from typing import Sequence
 import itertools
 
-from .common import division_t, F, asF
+from maelzel.common import F, F0
+from .common import division_t
 from functools import cache
 from emlib import iterlib
 from .notation import Notation
@@ -30,7 +31,8 @@ def subdivisions(numdivs: int,
         if numdivs == 1:
             out.append((i,))
         else:
-            for subdiv in subdivisions(numdivs - 1, possiblevals=possiblevals, maxval=i, maxdensity=maxdensity):
+            subdivs = subdivisions(numdivs - 1, possiblevals=possiblevals, maxval=i, maxdensity=maxdensity)
+            for subdiv in subdivs:
                 out.append((i,) + subdiv)
     return out
 
@@ -110,6 +112,7 @@ def simplifyDivision(division: division_t, assignedSlots: list[int], reduce=True
     Args:
         division: the division to simplify
         assignedSlots: assigned slots for this division
+        reduce: if True, try to reduce a division like (1, 2, 1) to (6,)
 
     Returns:
         the simplified version or the original division if no simplification is possible
@@ -118,7 +121,7 @@ def simplifyDivision(division: division_t, assignedSlots: list[int], reduce=True
     # assert isinstance(division, tuple)
 
     if len(assignedSlots) == 1 and assignedSlots[0] == 0:
-        return (1,)
+        return 1,
     elif len(division) == 1 and division[0] in (3, 5, 7, 11, 13):
         return division
 
@@ -139,7 +142,7 @@ def simplifyDivision(division: division_t, assignedSlots: list[int], reduce=True
             reduced.append(2)
         elif subdiv == 9 and {cs+1, cs+2, cs+4, cs+5, cs+7, cs+8}.isdisjoint(assigned):
             reduced.append(3)
-        elif subdiv %2 == 1:
+        elif subdiv % 2 == 1:
             reduced.append(subdiv)
         elif makeset(cs+1, cs+subdiv, (cs+subdiv//2,)).isdisjoint(assigned):
             reduced.append(2)
@@ -152,7 +155,7 @@ def simplifyDivision(division: division_t, assignedSlots: list[int], reduce=True
     newdiv = tuple(reduced)
     assert len(newdiv) == len(division), f'{division=}, {newdiv=}'
 
-    if all(subdiv==1 for subdiv in newdiv):
+    if all(subdiv == 1 for subdiv in newdiv):
         newdiv = (len(newdiv),)
 
     # last check: unnest and check
@@ -219,15 +222,9 @@ def gridDurationsFlat(beatDuration: F, division: division_t
 @cache
 def divisionGrid0(division: division_t, beatDuration: F = F(1)) -> list[F]:
     durations = gridDurationsFlat(beatDuration, division)
-    grid = [F(0)]
+    grid = [F0]
     grid.extend(iterlib.partialsum(durations))
     return grid
-
-
-#def divMinSlotDuration(div: division_t, beatDuration: F) -> F:
-#    grid = divisionGrid0(div, beatDuration)
-#    mindur = min(slot1 - slot0 for slot0, slot1 in iterlib.pairwise(grid))
-#    return mindur
 
 
 @cache

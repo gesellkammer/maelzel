@@ -29,13 +29,13 @@ from emlib import mathlib
 
 import pitchtools as pt
 
-from maelzel.common import *
+from maelzel.common import F, asF, F0
 from maelzel import scoring
 from maelzel.scoring import enharmonics
 from maelzel.music.dynamics import DynamicCurve
 
 from ._common import UNSET, MAXDUR, logger
-from .mobj import *
+from .mobj import MObj
 from .workspace import getConfig, Workspace
 from .synthevent import PlayArgs, SynthEvent
 
@@ -138,6 +138,7 @@ class MEvent(MObj):
         Args:
             offsets: absolute offsets
             tie: if True, tie the parts
+            absolute: if True, the offsets are interpreted as absolute offsets
 
         Returns:
             the parts. The total duration of the parts should sum up to the
@@ -148,8 +149,9 @@ class MEvent(MObj):
         intervals = mathlib.split_interval_at_values(offset, offset + dur, offsets)
         events = [self.clone(offset=intervalstart, dur=intervalend-intervalstart)
                   for intervalstart, intervalend in intervals]
-        for event in events[:-1]:
-            event.tied = True
+        if tie:
+            for event in events[:-1]:
+                event.tied = True
         return events
 
     def addSpanner(self: MEventT,
@@ -278,13 +280,6 @@ class Note(MEvent):
         _init: if True, fast initialization is performed, skipping any checks. This is
                used internally for fast copying/cloning of objects.
 
-    Attributes:
-        amp: the amplitude (0-1), or None
-        pitch: the sounding pitch, as midinote
-        gliss: the end pitch (as midinote), or None
-        tied: True if this Note is tied to another
-        dynamic: the dynamic of this note, or None. See :ref:`config_play_usedynamics`
-        pitchSpelling: the notated pitch, can differ from the pitch attribute
     """
 
     __slots__ = ('pitch', 'amp', '_gliss', 'tied', 'dynamic', 'pitchSpelling')
@@ -297,7 +292,7 @@ class Note(MEvent):
                  gliss: pitch_t | bool = False,
                  label: str = '',
                  dynamic: str = '',
-                 tied = False,
+                 tied=False,
                  properties: dict[str, Any] | None = None,
                  symbols: list[_symbols.Symbol] | None = None,
                  fixed=False,
@@ -457,8 +452,7 @@ class Note(MEvent):
                 self.isRest() or
                 self.pitch != other.pitch or
                 self.amp != other.amp or
-                self.dynamic != other.dynamic
-        ):
+                self.dynamic != other.dynamic):
             return None
 
         return self.clone(dur=self.dur + other.dur, tied=other.tied)
@@ -506,7 +500,7 @@ class Note(MEvent):
     @gliss.setter
     def gliss(self, gliss: pitch_t | bool):
         """
-        Set the gliss attribute of this Note, in place
+        Set the gliss attribute of this Note, inplace
         """
         self._gliss = gliss if isinstance(gliss, bool) else _util.asmidi(gliss)
 
@@ -591,9 +585,9 @@ class Note(MEvent):
         self.pitchSpelling = ''
 
     def pitchRange(self) -> tuple[float, float] | None:
-        return (self.pitch, self.pitch)
+        return self.pitch, self.pitch
 
-    def freqShift(self, freq:float) -> Note:
+    def freqShift(self, freq: float) -> Note:
         """
         Return a copy of self, shifted in freq.
 
@@ -645,7 +639,7 @@ class Note(MEvent):
         return pt.m2f(self.pitch)
 
     @freq.setter
-    def freq(self, value:float) -> None:
+    def freq(self, value: float) -> None:
         self.pitch = pt.f2m(value)
 
     @property
@@ -665,7 +659,6 @@ class Note(MEvent):
         """The pitch-class of this Note (an int between 0-11)"""
         return round(self.pitch) % 12
 
-
     @property
     def cents(self) -> int:
         """The fractional part of this pitch, rounded to the cent"""
@@ -676,7 +669,7 @@ class Note(MEvent):
         """A string representing the .cents of this Note"""
         return _util.centsshown(self.cents, divsPerSemitone=4)
 
-    def overtone(self, n:float) -> Note:
+    def overtone(self, n: float) -> Note:
         """
         Return a new Note representing the `nth` overtone of this Note
 
@@ -819,7 +812,7 @@ class Note(MEvent):
         Returns a new Note, rounded to step.
 
         If step is 0, the default quantization value is used (this can be
-        configured via ``getConfig()['semitoneDivisions']``
+        configured via ``getConfig()['semitoneDivisions']``)
 
         .. note::
             - If this note has a pitch gliss, the target pitch is also quantized
@@ -857,7 +850,7 @@ class Note(MEvent):
         offset = self._detachedOffset(F0) + parentOffset
         dur = self.dur
         starttime = float(scorestruct.beatToTime(offset))
-        endtime   = float(scorestruct.beatToTime(offset + dur))
+        endtime = float(scorestruct.beatToTime(offset + dur))
         transp = playargs.get('transpose', 0)
         if starttime >= endtime:
             raise ValueError(f"Trying to play an event with 0 or negative duration: {endtime-starttime}. "
@@ -886,7 +879,7 @@ class Note(MEvent):
         elif self.properties and (target := self.properties.get('.glisstarget')) is not None:
             return target
         elif not self.parent:
-            # .gliss is a bool so we need to know the next event, but we are parentless
+            # .gliss is a bool, so we need to know the next event, but we are parentless
             return self.pitch
 
         nextev = self.parent.eventAfter(self)
@@ -904,7 +897,8 @@ class Note(MEvent):
             return self.pitch
 
     def resolveDynamic(self, conf: CoreConfig = None) -> str:
-        if conf is None: conf = getConfig()
+        if conf is None:
+            conf = getConfig()
         # Should we query the parent to see the currently active dynamic?
         return self.dynamic or conf['play.defaultDynamic']
 
@@ -912,7 +906,7 @@ class Note(MEvent):
         """
         Get the amplitude of this object, or a default amplitude
 
-        Returns a default amplitude if no amplitude was define (self.amp is None).
+        Returns a default amplitude if no amplitude was defined (self.amp is None).
         The default amplitude can be customized via
         ``getConfig()['play.defaultAmplitude']``
 
@@ -1000,7 +994,7 @@ class Chord(MEvent):
     Attributes:
         amp: the amplitude of the chord itself (each note can have an individual amp)
         notes: the notes which build this chord
-        gliss: if True, this Chord makes a gliss to another chord. Also a list
+        gliss: if True, this Chord makes a gliss to another chord. Also, a list
             of pitches can be given as gliss, these indicate the end pitch of the gliss
             as midinote
         tied: is this Chord tied to another Chord?
@@ -1009,13 +1003,13 @@ class Chord(MEvent):
     __slots__ = ('amp', 'gliss', 'notes', 'tied', 'dynamic', '_notatedPitches')
 
     def __init__(self,
-                 notes: str | list[Note|int|float|str],
+                 notes: str | list[Note | int | float | str],
                  dur: time_t = None,
                  amp: float = None,
                  offset: time_t = None,
-                 gliss: str|bool|Sequence[pitch_t] = False,
+                 gliss: str | bool | Sequence[pitch_t] = False,
                  label: str = '',
-                 tied = False,
+                 tied=False,
                  dynamic: str = '',
                  properties: dict[str, Any] = None,
                  fixed=False,
@@ -1134,8 +1128,6 @@ class Chord(MEvent):
         for notename, n in zip(notenames, self.notes):
             if notename:
                 n.pitchSpelling = notename
-                # n.setNotatedPitch(notename)
-
 
     def canBeLinkedTo(self, other: MObj) -> bool:
         if self.gliss is True:
@@ -1152,7 +1144,7 @@ class Chord(MEvent):
         if not isinstance(other, Chord):
             return None
 
-        if (not self.tied or other.gliss or self.pitches != other.pitches):
+        if not self.tied or other.gliss or self.pitches != other.pitches:
             return None
 
         if any(n1 != n2 for n1, n2 in zip(self.notes, other.notes)):
@@ -1184,7 +1176,7 @@ class Chord(MEvent):
             return target
 
         if not self.parent:
-            # .gliss is a bool so we need to know the next event, but we are parentless
+            # .gliss is a bool, so we need to know the next event, but we are parentless
             return self.pitches
 
         nextev = self.parent.eventAfter(self)
@@ -1274,7 +1266,7 @@ class Chord(MEvent):
                 *(hash(n) for n in self.notes))
         return hash(data)
 
-    def append(self, note: float|str|Note) -> None:
+    def append(self, note: float | str | Note) -> None:
         """ append a note to this Chord """
         note = note if isinstance(note, Note) else Note(note)
         if note.freq < 17:
@@ -1305,7 +1297,7 @@ class Chord(MEvent):
         """
         return self._withNewNotes([n for n in self if predicate(n)])
 
-    def transposeTo(self, fundamental:pitch_t) -> Chord:
+    def transposeTo(self, fundamental: pitch_t) -> Chord:
         """
         Return a copy of self, transposed to the new fundamental
 
@@ -1321,7 +1313,7 @@ class Chord(MEvent):
         step = _util.asmidi(fundamental) - self[0].pitch
         return self.transpose(step)
 
-    def freqShift(self, freq:float) -> Chord:
+    def freqShift(self, freq: float) -> Chord:
         """
         Return a copy of this chord shifted in frequency
         """
@@ -1353,7 +1345,7 @@ class Chord(MEvent):
         self.notes.__setitem__(i, note if isinstance(note, Note) else Note(note))
         self._changed()
 
-    def __add__(self, other:pitch_t) -> Chord:
+    def __add__(self, other: pitch_t) -> Chord:
         if isinstance(other, Note):
             # append the note
             s = self.copy()
@@ -1368,7 +1360,7 @@ class Chord(MEvent):
             return Chord(self.notes + _asChord(other).notes)
         raise TypeError(f"Can't add a Chord to a {other.__class__.__name__}")
 
-    def loudest(self, n:int) -> Chord:
+    def loudest(self, n: int) -> Chord:
         """
         Return a new Chord with the loudest `n` notes from this chord
         """
@@ -1389,14 +1381,9 @@ class Chord(MEvent):
         if key == 'pitch':
             self.notes.sort(key=lambda n: n.pitch, reverse=reverse)
         elif key == 'amp':
-            self.notes.sort(key=lambda n:n.amp, reverse=reverse)
+            self.notes.sort(key=lambda n: n.amp, reverse=reverse)
         else:
             raise KeyError(f"Unknown sort key {key}. Options: 'pitch', 'amp'")
-
-    #def _resolvePlayargs(self, playargs: PlayArgs, config: dict | None = None) -> PlayArgs:
-    #    playargs = playargs.filledWith(self.playargs)
-    #    playargs.fillDefaults(config or getConfig())
-    #    return playargs
 
     @property
     def pitches(self) -> list[float]:
@@ -1435,7 +1422,6 @@ class Chord(MEvent):
         playargs0 = playargs
         if self.playargs:
             playargs = playargs.overwrittenWith(self.playargs)
-
 
         if conf['chordAdjustGain']:
             gain = playargs.get('gain', 1.0)
@@ -1555,7 +1541,7 @@ class Chord(MEvent):
 
     def setAmplitudes(self, amp: float) -> None:
         """
-        Set the amplitudes of the notes in this chord to `amp` (in place)
+        Set the amplitudes of the notes in this chord to `amp` (inplace)
 
         This modifies the Note objects within this chord, without modifying
         the amplitude of the chord itself
@@ -1597,7 +1583,7 @@ class Chord(MEvent):
 
     def scaleAmplitudes(self, factor: float, offset=0.0) -> None:
         """
-        Scale the amplitudes of the notes within this chord **in place**
+        Scale the amplitudes of the notes within this chord **inplace**
 
         .. note::
 
@@ -1613,9 +1599,9 @@ class Chord(MEvent):
             amp = n.amp if n.amp is not None else self.amp if self.amp is not None else 1.0
             n.amp = amp * factor + offset
 
-    def equalize(self, curve:Callable[[float], float]) -> None:
+    def equalize(self, curve: Callable[[float], float]) -> None:
         """
-        Scale the amplitude of the notes according to their frequency, **in place**
+        Scale the amplitude of the notes according to their frequency, **inplace**
 
         Args:
             curve: a func mapping freq to gain
@@ -1681,6 +1667,7 @@ def Gracenote(pitch: pitch_t | list[pitch_t],
     Args:
         pitch: a single pitch (as midinote, notename, etc), a list of pitches or string
             representing one or more pitches
+        offset: the offset of this gracenote. Normally a gracenote should not have an explicit offset
         slash: if True, the gracenote will be marked as slashed
 
     Returns:

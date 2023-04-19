@@ -275,11 +275,16 @@ class MObj:
             >>> n.setProperty('foo', 'bar')
             4C:1♩
             >>> # To query a property do:
+            >>> n.getProperty('foo')
+            bar
+            >>> # Second Method: query the properties attribute directly.
+            >>> # WARNING: if no properties were set, this attribute would be None
             >>> if n.properties:
             ...     foo = n.properties.get('foo')
             ...     print(foo)
             bar
 
+        .. seealso:: :meth:`~MObj.getProperty`, :attr:`~MObj.properties`
         """
         if self.properties is None:
             self.properties = {key: value}
@@ -288,7 +293,8 @@ class MObj:
         return self
 
     def getProperty(self, key: str, default=None):
-        """Get a property of this objects
+        """
+        Get a property of this objects
 
         Any MObj can have multiple properties. A property is a key:value pair,
         where the key is a string and the value can be anything. Properties can
@@ -296,7 +302,17 @@ class MObj:
 
         Properties are set via :meth:`MObj.setProperty`. The :attr:`MObj.properties`
         attribute can be queries directly, but bear in mind that **if no properties have
-        been set, this attribute is ``None`` by default**."""
+        been set, this attribute is ``None`` by default**.
+
+        Args:
+            key: the property to query
+            default: returned value if the property has not been set
+
+        Returns:
+            the value of the property, or the default value
+
+        .. seealso:: :meth:`~MObj.setProperty`, :attr:`~MObj.properties`
+        """
         if not self.properties:
             return default
         return self.properties.get(key, default)
@@ -847,13 +863,26 @@ class MObj:
 
     def scoringArrangement(self, title: str = None) -> scoring.Arrangement:
         """
-        Create a notation Score from this object
+        Create a maelzel.scoring.Arrangement from this object
 
         Args:
             title: the title of the resulting score (if given)
 
         Returns:
-            the Score representation of this object
+            the Arrangement representation of this object
+
+        An :class:`~maelzel.scoring.Arrangement` is a list of
+        :class:`~maelzel.scoring.Part`, which is itself a list of
+        :class:`~maelzel.scoring.Notation`. An :class:`Arrangement` represents
+        an **unquantized** score, meaning that the Notations within each part are
+        not split into measures, nor organized in beats. To generate a quantized score
+        see :meth:`~MObj.quantizedScore`
+
+        This method is mostly used internally when an object is asked to be represented
+        as a score. In this case, an Arrangement is created first, which is then quantized,
+        generating a :class:`~maelzel.scoring.quant.QuantizedScore`
+
+        .. seealso:: :meth:`~MObj.quantizedScore`, :class:`~maelzel.scoring.quant.QuantizedScore`
 
         """
         parts = self.scoringParts()
@@ -1570,7 +1599,7 @@ class MObj:
 
         Args:
             timemap: a function mapping old time to new time
-            inplace: if True changes are applied in place
+            inplace: if True changes are applied inplace
 
         Returns:
             the resulting object (self if inplace)
@@ -1585,7 +1614,7 @@ class MObj:
 
     def timeShiftInPlace(self, timeoffset: time_t) -> None:
         """
-        Shift the time of this by the given offset (in place)
+        Shift the time of this by the given offset (inplace)
 
         Args:
             timeoffset: the time delta (in quarterNotes)

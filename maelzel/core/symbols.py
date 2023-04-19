@@ -5,7 +5,7 @@ Most symbols do not have any other meaning than to hint the backend used for
 notation to display the object in a certain way. For example a Notehead symbol
 can be attached to a note to modify the notehead shape used.
 
-Dynamics are included as Symbols but they are deprecated, since dynamics
+Dynamics are included as Symbols, but they are deprecated, since dynamics
 can be used for playback (see :ref:`config_play_usedynamics`)
 
 """
@@ -54,7 +54,7 @@ class Symbol:
         return self.__class__.__name__.lower()
 
     def applyTo(self, n: scoring.Notation) -> None:
-        """Apply this symbol to the given notation, in place"""
+        """Apply this symbol to the given notation, **inplace**"""
         raise NotImplementedError
 
     def applyToTiedGroup(self, notations: Sequence[scoring.Notation]) -> None:
@@ -185,7 +185,7 @@ class Spanner(Symbol):
         start and end spanner share the same uuid and have a weakref to
         each other, allowing each of the spanners to access their
         twin. As each spanner also holds a weak ref to their anchor,
-        the anchored events can be made aware of the each other.
+        the anchored events can be made aware of each other.
 
         Args:
             anchor: the event to which the end spanner is anchored to.
@@ -424,7 +424,6 @@ def makeSpanner(descr: str, kind='start') -> Spanner:
     return spanner
 
 # --------------------------------
-
 
 
 class SizeFactor(Property):
@@ -725,8 +724,8 @@ class Notehead(PitchAttachedSymbol):
             self.hidden = True
         if shape:
             shape2 = scoring.definitions.normalizeNoteheadShape(shape)
-            assert shape2, f"Notehead '{shape}' unknown. Possible noteheads: " \
-                          f"{scoring.definitions.noteheadShapes}"
+            assert shape2, (f"Notehead '{shape}' unknown. Possible noteheads: "
+                            f"{scoring.definitions.noteheadShapes}")
             shape = shape2
         self.shape = shape
         self.color = color
@@ -761,7 +760,6 @@ class Notehead(PitchAttachedSymbol):
         # if idx is None, apply to all noteheads
         scoringNotehead = self.asScoringNotehead()
         n.setNotehead(scoringNotehead, idx=idx, merge=True)
-
 
 
 class Articulation(NoteAttachedSymbol):
@@ -1000,5 +998,4 @@ def makeSymbol(clsname: str, *args, **kws) -> Symbol:
 def applyGroup(symbols: list[NoteAttachedSymbol], notation: scoring.Notation) -> None:
     cls = next(type(s) for s in symbols if s is not None)
     assert all(isinstance(s, cls) or s is None for s in symbols)
-
 

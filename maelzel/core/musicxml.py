@@ -24,7 +24,8 @@ __all__ = (
 )
 
 
-class MusicxmlParseError(Exception): pass
+class MusicxmlParseError(Exception):
+    pass
 
 
 _unitToFactor = {
@@ -77,7 +78,7 @@ def _parseMetronome(metronome: ET.Element) -> float:
     Returns:
         the tempo of a quarter note
     """
-    unit = _.text if (_:=metronome.find('beat-unit')) is not None else 'quarter'
+    unit = _.text if (_ := metronome.find('beat-unit')) is not None else 'quarter'
     dotted = bool(metronome.find('beat-unit-dot') is not None)
     bpm = metronome.find('per-minute').text
     factor = _unitToFactor[unit]
@@ -205,8 +206,8 @@ def _parseNotations(root: ET.Element) -> list[Notation]:
                     n1.value == 'wavy-line'):
                 n1.properties['startmark'] = 'trill'
             elif (n0.kind == 'ornament' and n1.kind == 'ornament' and
-                n0.value == 'wavy-line' and n1.value == 'wavy-line' and
-                n0.properties['type'] == 'start' and n1.properties['type'] == 'stop'):
+                  n0.value == 'wavy-line' and n1.value == 'wavy-line' and
+                  n0.properties['type'] == 'start' and n1.properties['type'] == 'stop'):
                 n1.value = 'inverted-mordent'
             else:
                 out.append(n0)
@@ -268,6 +269,8 @@ def _parseNote(root: ET.Element, context: ParseContext) -> Note:
     tied = False
     properties = {}
     notations = []
+    poct = 4
+    palter = 0
     for node in root:
         if node.tag == 'rest':
             noteType = 'rest'
@@ -304,14 +307,13 @@ def _parseNote(root: ET.Element, context: ParseContext) -> Note:
         elif node.tag == 'notations':
             notations.extend(_parseNotations(node))
         elif node.tag == 'lyric':
-            if (textnode:=node.find('text')) is not None:
+            if (textnode := node.find('text')) is not None:
                 text = textnode.text
                 if text:
                     notesymbols.append(symbols.Text(text, placement='below'))
             else:
                 ET.dump(node)
                 logger.error("Could not find lyrincs text")
-
 
     if noteType == 'rest':
         rest = Rest(dur)
@@ -326,7 +328,6 @@ def _parseNote(root: ET.Element, context: ParseContext) -> Note:
         ET.dump(root)
         raise MusicxmlParseError("Did not find pitch-step for note")
 
-    # notename = _notename(step=pstep, octave=poct + context.octaveshift, alter=palter)
     notename = _notename(step=pstep, octave=poct, alter=palter)
     if context.transposition != 0:
         notename = pt.transpose(notename, context.transposition)
@@ -424,7 +425,7 @@ def _parseNote(root: ET.Element, context: ParseContext) -> Note:
     return note
 
 
-def _joinChords(notes: list[Note]) -> list[Note|Chord]:
+def _joinChords(notes: list[Note]) -> list[Note | Chord]:
     """
     Join notes belonging to a chord
 
@@ -436,7 +437,7 @@ def _joinChords(notes: list[Note]) -> list[Note|Chord]:
     first note and no subsequent note can be longer
     (but they might be shorted).
 
-    Since at the time in maelzel.core all notes within
+    Since at the time in `maelzel.core` all notes within
     a chord share the same totalDuration we discard
     all durations but the first one.
 
@@ -504,7 +505,7 @@ def _parsePosition(x: ET.Element) -> str:
     return '' if pos == 0 else 'above' if pos > 0 else 'below'
 
 
-def _parseAttribs(attrib: dict, convertfuncs: dict[str, Callable]=None) -> dict:
+def _parseAttribs(attrib: dict, convertfuncs: dict[str, Callable] = None) -> dict:
     out = {}
     for k, v in attrib.items():
         convertfunc = None if not convertfuncs else convertfuncs.get(k)
@@ -624,7 +625,7 @@ def _parseDirection(item: ET.Element, context: ParseContext) -> Direction | None
         spannertype = inner.attrib['type']
         assert spannertype in {'start', 'stop'}
         return Direction('dashes', value=spannertype, placement=placement,
-                         properties={k:v for k, v in inner.attrib.items()})
+                         properties={k: v for k, v in inner.attrib.items()})
 
 
 def _handleDirection(note: Note, direction: Direction, context: ParseContext):
@@ -760,8 +761,7 @@ def _parsePart(part: ET.Element, context: ParseContext
             tag = item.tag
             if tag == 'attributes':
                 _parseAttributes(item, context)
-                #if (divisionsTag := item.find('divisions')) is not None:
-                #    context.divisions = int(divisionsTag.text)
+
             elif tag == 'direction':
                 if (direction := _parseDirection(item, context=context)) is not None:
                     directions.append(direction)
@@ -849,6 +849,7 @@ def _parsePart(part: ET.Element, context: ParseContext
                         anchor.gliss = True
 
     return sco, activeVoices
+
 
 def _escapeString(s: str) -> str:
     return s.replace('"', r'\"')
