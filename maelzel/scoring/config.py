@@ -2,7 +2,7 @@ import configdict
 
 config = configdict.CheckedDict()
 config.addKey('pageSize', 'a4', type=str, choices=('a3', 'a4'))
-config.addKey('renderBackend', 'lilypond', choices=('music21', 'lilypond'))
+config.addKey('renderBackend', 'lilypond', choices=('musicxml', 'lilypond'))
 config.addKey('staffSize', 12.0, type=float, range=(4, 36))
 config.addKey('pageOrientation', 'portrait', choices=('portrait', 'landscape'))
 config.addKey('divisionsPerSemitone', 4, choices=(1, 2, 4))

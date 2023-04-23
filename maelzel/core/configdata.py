@@ -109,7 +109,7 @@ validator = {
     'play.backend::choices': {'default', 'jack', 'pulse', 'alsa', 'pa_cb',
                               'auhal', 'portaudio'},
     'semitoneDivisions::choices': {1, 2, 4},
-    'show.backend::choices': {'music21', 'lilypond'},
+    'show.backend::choices': {'musicxml', 'lilypond'},
     'show.format::choices': {'png', 'pdf', 'repr'},
     'show.staffSize::type': float,
     'show.pngResolution::choices': {100, 200, 300, 600, 1200},

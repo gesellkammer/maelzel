@@ -5,11 +5,9 @@ from .workspace import getConfig
 import tempfile
 import os
 from . import environment
-from typing import TYPE_CHECKING
 
 if environment.insideJupyter:
-    from IPython.core.display import (display as jupyterDisplay, HTML as JupyterHTML,
-                                      Image as JupyterImage)
+    from IPython.core.display import (display as jupyterDisplay, Image as JupyterImage)
 
 
 def setJupyterHookForClass(cls, func, fmt='image/png') -> None:
@@ -97,10 +95,16 @@ def m21JupyterHook(enable=True) -> None:
     if not environment.insideJupyter:
         logger.debug("m21JupyterHook: not inside ipython/jupyter, skipping")
         return
+
+    try:
+        import music21 as m21
+    except ImportError:
+        raise ImportError("Cannot set the jupyter hook for music21 since it is not installed. "
+                          "Install it via 'pip install music21'")
+    
     from IPython.core.getipython import get_ipython
     from IPython.core import display
     from IPython.display import Image, display
-    import music21 as m21
     import maelzel.scoring
     ip = get_ipython()
     formatter = ip.display_formatter.formatters['image/png']

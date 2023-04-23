@@ -29,7 +29,7 @@ class RenderOptions:
         composer: the composer of the score
         opaque: if True, rendered images will be opaque (no transparent
             background)
-        backend: default rendering backend, one of 'lilypond', 'music21'
+        backend: default rendering backend, one of 'lilypond', 'musicxml'
         lilypondBinary: if given, the path to the lilypond binary to use
 
     """

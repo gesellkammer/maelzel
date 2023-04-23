@@ -1050,12 +1050,6 @@ class LilypondRenderer(Renderer):
             for f in tempfiles:
                 os.remove(f)
 
-    def asMusic21(self) -> None:
-        """
-        This renderer does not implement conversion to music21
-        """
-        return None
-
     def nativeScore(self) -> str:
         """
         Returns the lilypond score (as text)

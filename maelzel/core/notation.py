@@ -1,9 +1,9 @@
 """
-Functionality to interface with maelzel.scoring
+Functionality to interface with `maelzel.scoring`
 
 """
 from __future__ import annotations
-from ._common import *
+# from ._common import *
 from .config import CoreConfig
 from .workspace import getConfig, getWorkspace
 from dataclasses import dataclass
@@ -12,7 +12,6 @@ from maelzel.scorestruct import ScoreStruct
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    import music21 as m21
     import scoring.enharmonics
 
 
@@ -58,14 +57,14 @@ def _parseAnnotationStyle(style: str, fontsize=12.) -> AnnotationStyle:
 def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
                                 ) -> scoring.render.RenderOptions:
     """
-    Generate RenderOptions needed for scoring.render based on the config
+    Generate RenderOptions needed for `scoring.render` based on the config
 
     Args:
         the config to use. If None, the current config is used
 
     Returns:
         a scoring.render.RenderOptions used to render parts
-        via scoring.render module
+        via `scoring.render` module
     """
     if cfg is None:
         cfg = getConfig()
@@ -78,8 +77,8 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
         showCents=cfg['show.centsDeviationAsTextAnnotation'],
         centsFontSize=cfg['show.centsAnnotationFontSize'],
         noteAnnotationsFontSize=cfg['show.labelFontSize'],
-        pageSize = cfg['show.pageSize'],
-        orientation= cfg['show.pageOrientation'],
+        pageSize=cfg['show.pageSize'],
+        orientation=cfg['show.pageOrientation'],
         pageMarginMillimeters=cfg['show.pageMarginMillimeters'],
         measureAnnotationFontSize=measureAnnotationStyle.fontsize,
         measureAnnotationBox=measureAnnotationStyle.box,
@@ -118,14 +117,13 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig = None
     profile.debug = cfg['quant.debug']
     profile.debugMaxDivisions = cfg['quant.debugShowNumRows']
 
-
-    if (gridWeight:=cfg['quant.gridErrorWeight']) is not None:
+    if (gridWeight := cfg['quant.gridErrorWeight']) is not None:
         profile.gridErrorWeight = gridWeight
-    if (divisionWeight:=cfg['quant.divisionErrorWeight']) is not None:
+    if (divisionWeight := cfg['quant.divisionErrorWeight']) is not None:
         profile.divisionErrorWeight = divisionWeight
-    if (rhythmWeight:=cfg['quant.rhythmComplexityWeight']) is not None:
+    if (rhythmWeight := cfg['quant.rhythmComplexityWeight']) is not None:
         profile.rhythmComplexityWeight = rhythmWeight
-    if (gridErrorExp:=cfg['quant.gridErrorExp']) is not None:
+    if (gridErrorExp := cfg['quant.gridErrorExp']) is not None:
         profile.gridErrorExp = gridErrorExp
 
     profile.minBeatFractionAcrossBeats = cfg['quant.minBeatFractionAcrossBeats']
@@ -149,6 +147,9 @@ def renderWithActiveWorkspace(parts: list[scoring.Part],
         parts: the parts to render
         backend: the backend used (see currentConfig/'show.backend')
         renderoptions: if given, will override any option set in the currentConfig
+        scorestruct: if given, override the active ScoreStruct
+        config: if given, override the ative config
+        quantizationProfile: if given, use this for quantization
 
     Returns:
         the rendered Renderer

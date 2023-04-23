@@ -50,7 +50,7 @@ if TYPE_CHECKING:
     from typing import TypeVar, Callable, Any, Sequence, Iterator
     from ._typedefs import *
     MEventT = TypeVar("MEventT", bound="MEvent")
-    import music21 as m21
+
 
 __all__ = (
     'MEvent',
@@ -1238,19 +1238,6 @@ class Chord(MEvent):
                     endEvent.stem = 'hidden'
                 notations.append(endEvent)
         return notations
-
-    def asmusic21(self, **kws) -> m21.stream.Stream:
-        cfg = getConfig()
-        arpeggio = _normalizeChordArpeggio(kws.get('arpeggio', None), self, cfg)
-        if arpeggio:
-            from . import chain
-            dur = cfg['show.arpeggioDuration']
-            notes = [n.clone(dur=dur) for n in self.notes]
-            return chain.Chain(notes).asmusic21()
-        events = self.scoringEvents()
-        scoring.stackNotationsInPlace(events, start=self.offset)
-        parts = scoring.distributeNotationsByClef(events)
-        return notation.renderWithActiveWorkspace(parts, backend='music21').asMusic21()
 
     def __hash__(self):
         if isinstance(self.gliss, bool):

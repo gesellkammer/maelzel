@@ -10,10 +10,7 @@ from maelzel.scoring import quant
 
 import emlib.img
 import emlib.misc
-
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    import music21
+import emlib.envir
 
 
 class Renderer:
@@ -72,19 +69,10 @@ class Renderer:
         Returns:
             either the musicxml as str, or None if not supported by
             this renderer
-        """
-        m21stream = self.asMusic21()
-        if m21stream is None:
-            return None
-        from maelzel.music import m21tools
-        return m21tools.getXml(m21stream)
 
-    def asMusic21(self) -> music21.stream.Stream | None:
+        ### TODO
         """
-        If the renderer can return a music21 stream version of the render,
-        return it here, otherwise return None
-        """
-        return None
+        raise NotImplementedError("This is not implemented yet...")
 
     def nativeScore(self) -> str:
         """
@@ -112,7 +100,7 @@ class Renderer:
         """
         if fmt == 'pdf':
             external = True
-        if fmt == 'png' and emlib.misc.inside_jupyter() and not external:
+        if fmt == 'png' and emlib.envir.inside_jupyter() and not external:
             from IPython.display import display_png
             png = tempfile.mktemp(suffix='.png')
             self.write(png)

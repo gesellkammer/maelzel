@@ -2882,7 +2882,7 @@ def quantize(parts: list[core.Part],
             The quantization preset determines how events are quantized,
             which divisions of the beat are possible, how the best division
             is weighted and selected, etc. Not all options in a preset
-            are supported by all backends (for example, music21 backend
+            are supported by all backends (for example, the musicxml backend
             does not support nested tuplets).
             See quant.presetQuantizationProfiles, which is a dict with
             some predefined profiles

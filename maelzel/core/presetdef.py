@@ -3,14 +3,16 @@ import dataclasses
 import math
 import re
 import textwrap as _textwrap
+from functools import cache
 
-import emlib.misc
 import emlib.textlib as _textlib
+import csoundengine
+
 from . import presetutils
+from . import environment
 from ._common import logger
 from . import _util
-import csoundengine
-from functools import cache
+
 from maelzel.core.workspace import Workspace
 
 from typing import TYPE_CHECKING
@@ -368,7 +370,7 @@ class PresetDef:
         audiogen = _textwrap.indent(self.audiogen, _INSTR_INDENT)
         lines.append(audiogen)
         if self.epilogue:
-            lines.append(f"  epilogue:")
+            lines.append("  epilogue:")
             lines.append(_textwrap.indent(self.epilogue, "    "))
         return "\n".join(lines)
 
@@ -382,7 +384,7 @@ class PresetDef:
         return re.search(r"\bsfplay(3m|m|3)?\b", self.body) is not None
 
     def dump(self):
-        if emlib.misc.inside_jupyter():
+        if environment.insideJupyter:
             from IPython import display
             display.display(display.HTML(self._repr_html_(showGeneratedCode=True)))
 
