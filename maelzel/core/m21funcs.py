@@ -4,7 +4,11 @@ utility functions to work with music21 which are specific to maelzel.core
 to maelzel.music.m21tools
 """
 from __future__ import annotations
-import music21 as m21
+try:
+    import music21 as m21
+except ImportError:
+    raise ImportError("This module needs music21, but it is not installed. Install it via 'pip install music21'")
+
 from maelzel.music import m21tools
 from emlib import iterlib
 from typing import TYPE_CHECKING
@@ -15,7 +19,7 @@ from . import tools
 from .workspace import getConfig
 
 
-def m21Note(pitch: Union[str, float], showcents:bool=None, divsPerSemitone:int=None,
+def m21Note(pitch: Union[str, float], showcents: bool = None, divsPerSemitone: int = None,
             config=None, **options) -> m21.note.Note:
     """
     Create a m21.note.Note, taking semitoneDivisions into account

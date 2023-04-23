@@ -10,7 +10,6 @@ import emlib.img
 import emlib.misc
 from emlib import iterlib
 import emlib.textlib
-import music21 as m21
 from numbers import Rational
 from maelzel.common import F, asF, F0
 import functools
@@ -1732,49 +1731,6 @@ class ScoreStruct:
             renderoptions.backend = backend
         return scoring.render.renderQuantizedScore(qscore, options=renderoptions)
 
-    def asMusic21(self, fillMeasures=False) -> m21.stream.Score:
-        """
-        Return the score structure as a music21 Score
-
-        Args:
-            fillMeasures: if True, measures are filled with a note. This can be useful
-                if you need to export the musicxml as midi
-
-        Returns:
-            a music21 Score representing this score structure
-
-        .. image:: ../assets/scorestruct-asmusic21.png
-
-        TODO: render barlines according to measureDef
-        """
-        from maelzel.music import m21tools
-        s = m21.stream.Part()
-        lasttempo = self.measuredefs[0].quarterTempo or F(60)
-        lastTimesig = self.measuredefs[0].timesig or (4, 4)
-        s.append(m21tools.makeMetronomeMark(number=float(lasttempo)))
-
-        for measuredef in self.measuredefs:
-            tempo = measuredef.quarterTempo or lasttempo
-            if tempo != lasttempo:
-                lasttempo = tempo
-                s.append(m21tools.makeMetronomeMark(number=tempo))
-            timesig = measuredef.timesig or lastTimesig
-            lastTimesig = timesig
-            num, den = timesig
-            s.append(m21.meter.TimeSignature(f"{num}/{den}"))
-            if measuredef.annotation:
-                textExpression = m21tools.makeTextExpression(measuredef.annotation)
-                s.append(textExpression)
-            if fillMeasures:
-                s.append(m21.note.Note(pitch=60, duration=m21.duration.Duration(float(measuredef.durationBeats))))
-            else:
-                s.append(m21.note.Rest(duration=m21.duration.Duration(float(measuredef.durationBeats))))
-        score = m21.stream.Score()
-        score.insert(0, s)
-
-        m21tools.scoreSetMetadata(score, title=self.title)
-        return score
-
     def setTempo(self, tempo: float, reference=1, measureIndex: int = 0) -> None:
         """
         Set the tempo of the given measure, until the next tempo change
@@ -1878,14 +1834,13 @@ class ScoreStruct:
         Args:
             path: the path of the written file
             backend: for pdf or png only - the backend to use for rendering, one
-                of 'lilypond' or 'music21'
+                of 'lilypond' or 'musicxml'
             renderoptions: if given, they will be used to customize the rendering
                 process.
         """
         path = Path(path)
         if path.suffix == ".xml":
-            m21score = self.asMusic21(fillMeasures=False)
-            m21score.write("xml", path)
+            raise ValueError("musicxml output is not supported yet")
         elif path.suffix in (".pdf", '.png', '.ly'):
             r = self._render(backend=backend, renderoptions=renderoptions)
             r.write(str(path))
@@ -1922,8 +1877,10 @@ class ScoreStruct:
         """
         from maelzel.core import tools
         click = tools.makeClickTrack(self)
-        m21click = click.asmusic21()
-        m21click.write('midi', midifile)
+        ext = Path(midifile).suffix.lower()
+        if ext != '.mid' and ext != '.midi':
+            raise ValueError(f"Expected a .mid or .midi extension, got {ext} ({midifile})")
+        click.write(midifile)
 
     def setBarline(self, measureIndex: int, linetype: str) -> None:
         """

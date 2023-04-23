@@ -1,8 +1,6 @@
 """
-Functionality to deal with the environment in which maelzel.core is running
+Functionality to deal with the environment in which `maelzel.core` is running
 
-By environment we understand the platform, os and external applications
-needed to perform certain tasks
 """
 
 # *******************************************************************************
@@ -15,13 +13,14 @@ import sys
 import os
 import shutil
 from typing import Optional as Opt
+import emlib.envir
 import emlib.misc
 import logging
 from functools import cache
 from typing import Optional
 
 
-insideJupyter = emlib.misc.inside_jupyter()
+insideJupyter = emlib.envir.inside_jupyter()
 logger = logging.getLogger("maelzel")
 
 
@@ -31,7 +30,7 @@ _linuxImageViewers = [
 ]
 
 
-def hasBinary(binary:str) -> bool:
+def hasBinary(binary: str) -> bool:
     if shutil.which(binary):
         return True
     return False
@@ -56,7 +55,7 @@ def preferredImageViewer() -> Opt[str]:
     return None
 
 
-def openPngWithExternalApplication(path:str, wait=False, app:str= '') -> None:
+def openPngWithExternalApplication(path: str, wait=False, app: str = '') -> None:
     """
     Open the given png file
     """
@@ -98,19 +97,10 @@ def findMusescore() -> Optional[str]:
         else:
             logger.warning(f"musescorepath set to {musescorepath} in the active config, but the path does"
                            f"not exist")
-    try:
-        import music21 as m21
-        us = m21.environment.UserSettings()
-        musescorepath = us['musescoreDirectPNGPath']
-        if os.path.exists(musescorepath):
-            logger.info("Using musescore path as set in music21")
-            return str(musescorepath)    
-    except ImportError:
-        pass
 
-    if (path:=shutil.which('musescore')) is not None:
+    if (path := shutil.which('musescore')) is not None:
         return path
-    if (path:=shutil.which('MuseScore')) is not None:
+    if (path := shutil.which('MuseScore')) is not None:
         return path
         
     logger.warning("MuseScore not found. Tried to find 'musescore' or 'MuseScore' in the path, "

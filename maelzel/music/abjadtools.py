@@ -9,13 +9,14 @@ try:
 except ImportError:
     raise ImportError("Abjad was not found. Install it in order to use this module")
 
+
 from maelzel.common import F
-import copy
 import enum
 from maelzel.music import lilytools
 from emlib import iterlib
 import textwrap
-import music21 as m21
+
+from typing import Optional
 
 
 def voiceMeanPitch(voice: abj.Voice) -> float:
@@ -106,7 +107,7 @@ def isAttack(note:abj.Note) -> bool:
     return tiehead
 
 
-def getAttacks(voice:abj.Voice) -> t.List[abj.Note]:
+def getAttacks(voice:abj.Voice) -> list[abj.Note]:
     """
     Returns a list of notes or gracenotes which represent an attack
     (they are not tied to a previous note)
@@ -188,10 +189,10 @@ def savePdf(score: abj.Score, outfile: str,
     import tempfile
     lilyfile = tempfile.mktemp(suffix=".ly")
     saveLily(score, lilyfile, pageSize=pageSize, orientation=orientation, staffSize=staffSize)
-    lilytools.lily2pdf(lilyfile, outfile)
+    lilytools.renderLily(lilyfile=lilyfile, outfile=outfile)
 
 
-def voicesToScore(voices: t.List[abj.Voice]) -> abj.Score:
+def voicesToScore(voices: list[abj.Voice]) -> abj.Score:
     """
     voices: a list of voices as returned by [makevoice(notes) for notes in ...]
 
@@ -207,7 +208,7 @@ def voicesToScore(voices: t.List[abj.Voice]) -> abj.Score:
     return score
 
 
-def lilyfileFindBlock(lilyfile: abj.LilyPondFile, blockname:str) -> t.Opt[int]:
+def lilyfileFindBlock(lilyfile: abj.LilyPondFile, blockname:str) -> Optional[int]:
     """
     Find the index of a Block. This is used to find an insertion
     point to put macro definitions
@@ -251,7 +252,7 @@ def lilyfileAddHeader(lilyfile: abj.LilyPondFile, enablePointAndClick=False) -> 
     lilyfile.items.insert(idx, blocktext)
 
 
-def voiceAddAnnotation(voice: abj.Voice, annotations: t.List[t.Opt[str]], 
+def voiceAddAnnotation(voice: abj.Voice, annotations: list[Optional[str]],
                        fontSize:int=10, attacks=None) -> None:
     """
     Add the annotations to each note in this voice
@@ -292,7 +293,7 @@ def voiceAddAnnotation(voice: abj.Voice, annotations: t.List[t.Opt[str]],
             # abjAddLiteral(attack, literal, "after")
 
 
-def voiceAddGliss(voice: abj.Voice, glisses: t.List[bool], 
+def voiceAddGliss(voice: abj.Voice, glisses: list[bool],
                   usemacros=True, skipsame=True, attacks=None) -> None:
     """
     Add glissando to the notes in the given voice
@@ -378,7 +379,7 @@ def _abjTupleGetDurationType(tup: abj.core.Tuplet) -> str:
     return durtype
 
 
-def _abjDurClassify(num, den) -> t.Tup[str, int]:
+def _abjDurClassify(num, den) -> tuple[str, int]:
     durname = {
         1: 'whole',
         2: 'half',
@@ -396,33 +397,6 @@ def _abjDurClassify(num, den) -> t.Tup[str, int]:
     return durname, dots
 
 
-def noteGetMusic21Duration(abjnote: abj.Leaf, tuplet: abj.Tuplet=None
-                          ) -> m21.duration.Duration:
-    dur = abjnote.written_duration * 4
-    dur = F(dur.numerator, dur.denominator)
-    dur = m21.duration.Duration(dur)
-    if tuplet:
-        dur.appendTuplet(tuplet)
-    return dur
-
-
-def noteToMusic21(abjnote: abj.Note, tuplet: abj.Tuplet=None) -> m21.note.Note:
-    """
-    Convert an abjad to a music21 note
-
-    Args:
-        abjnote: the abjad note to convert to
-        tuplet: a lilipond subdivision, if applies
-    
-    Returns:
-        the m21 note
-    """
-    dur = noteGetMusic21Duration(abjnote, tuplet)
-    pitch = noteGetMidinote(abjnote)
-    m21note = m21.note.Note(pitch, duration=dur)
-    return m21note
-
-
 def extractMatching(abjobj, matchfunc):
     if not hasattr(abjobj, '__iter__'):
         if matchfunc(abjobj):
@@ -432,125 +406,4 @@ def extractMatching(abjobj, matchfunc):
             yield from extractMatching(elem, matchfunc)
 
 
-def _abjtom21(abjobj, m21stream, level=0, durfactor=4, 
-              tup=None, state=None) -> m21.stream.Stream:
-    """
-    Convert an abjadobject to a m21 stream
-    
-    Args:
-        abjobj: the abjad object to convert
-        m21stream: the stream being converted to
-        level: the level of recursion
-        durfactor: current totalDuration factor
-        tup: current m21 subdivision
-        state: a dictionary used to pass global state
 
-    Returns: 
-        the music21 stream
-    """
-    indent = "\t"*level
-    if state is None:
-        state = {}
-    debug = state.get('debug', False)
-
-    def append(stream, obj, msg=""):
-        assert stream is not obj
-        if debug:
-            print(indent, f"{stream}  <- {obj}    {msg}")
-        stream.append(obj)
-
-    if hasattr(abjobj, '__iter__'):
-        if debug:
-            print(indent, "iter", type(abjobj), abjobj)
-        if isinstance(abjobj, abj.core.Voice):       # Voice
-            # voice = m21.stream.Voice()
-            m21voice = m21.stream.Part()
-            for meas in abjobj:
-                _abjtom21(meas, m21voice, level+1, durfactor, tup, state=state)
-            append(m21stream, m21voice, "stream append voice")
-        elif isinstance(abjobj, abj.core.Staff):
-            abjstaff = abjobj
-            m21staff = m21.stream.Part()
-            leaves = abj.select(abjstaff).leaves()
-            measures = leaves.group_by_measure()
-            # TODO: deal with timesignatures
-            for meas in measures:
-                m21meas = m21.stream.Measure()
-                for elem in meas:
-                    _abjtom21(elem, m21meas, level+1, durfactor, tup, state=state)
-                append(m21staff, m21meas, "staff append meas")
-            append(m21stream, m21staff, "stream append staff")
-        elif isinstance(abjobj, abj.core.Tuplet):      # Tuplet
-            mult = abjobj.multiplier
-            newtup = m21.duration.Tuplet(mult.denominator, mult.numerator, bracket=True)
-            m21durtype = _abjTupleGetDurationType(abjobj)
-            newtup.setDurationType(m21durtype)
-            if debug:
-                print(indent, "Tuple!", mult, mult.numerator, mult.denominator, newtup)
-            for elem in abjobj:
-                _abjtom21(elem, m21stream, level+1, durfactor*abjobj.multiplier, tup=newtup, state=state)
-            if debug:
-                print(indent, "closing tuple")
-        elif isinstance(abjobj, abj.core.Container):
-            # a measure in a Voice
-            # TODO: time signature
-            meas = m21.stream.Measure()
-            for elem in abjobj:
-                _abjtom21(elem, meas, level+1, durfactor, tup, state=state)
-            append(m21stream, meas, "container: stream append meas")
-        else:
-            if debug:
-                print("????", type(abjobj), abjobj)
-    else:
-        if debug:
-            print("\t"*level, "tup: ", tup, "no iter", type(abjobj), abjobj)
-        if isinstance(abjobj, (abj.core.Rest, abj.core.Note)):
-            # check if it has gracenotes
-            graces = abj.inspect(abjobj).before_grace_container()
-            # graces = abj.inspect(abjobj).grace_container()
-            if graces:
-                for grace in graces:
-                    if isinstance(grace, abj.Note):
-                        # add grace note to m21 stream
-                        m21grace = noteToMusic21(grace).getGrace()
-                        append(m21stream, m21grace)
-            # abjdur = abjobj.written_duration
-            # durtype, dots = _abjDurClassify(abjdur.numerator, abjdur.denominator)
-            # dur = m21.totalDuration.Duration(durtype, dots=dots)
-
-            abjdur = abjobj.written_duration*4
-            dur = m21.duration.Duration(F(abjdur.numerator, abjdur.denominator))
-            if tup:
-                dur.appendTuplet(tup)
-            if isinstance(abjobj, abj.core.Rest):
-                append(m21stream, m21.note.Rest(duration=dur))
-            else:
-                note = abjobj
-                pitch = noteGetMidinote(note)
-                m21note = m21.note.Note(pitch, duration=copy.deepcopy(dur))
-                tie = noteTied(note)
-                if debug:
-                    print("\t"*level, "tie: ", tie)
-                if tie == TieTypes.TIEDFORWARD or tie == TieTypes.TIEDBOTH:
-                    m21note.tie = m21.tie.Tie()
-                append(m21stream, m21note)
-        else:
-            if debug:
-                print("\t"*level, "**** ???", type(abjobj), abjobj)
-    return m21stream
-
-
-def abjadToMusic21(abjadStream, debug=False) -> m21.stream.Stream:
-    """
-    Convert an abjad stream to a music21 stream
-
-    Args:
-        abjadStream: an abjad stream
-        debug: If True, print debugging information
-
-    Returns: 
-        the corresponding music21 stream
-    """
-    m21stream = m21.stream.Stream()
-    out = _abjtom21(abjadStream, m21stream, state={'debug': debug})
-    return out

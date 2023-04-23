@@ -1,16 +1,17 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from emlib.containers import RecordList
+from math import sqrt, ceil
 from pitchtools import n2m, f2n, n2f, m2n, f2m, m2f, interval2ratio
+from emlib.containers import RecordList
 from emlib import misc
 from emlib.mathlib import frange
+import emlib.envir
 import emlib.iterlib
 from itertools import combinations
 import maelzel.core as mc
-from math import sqrt, ceil
 
 from maelzel.common import asmidi
-from typing import Callable, Sequence
+from typing import Sequence, Union
 
 
 # ------------------------------------------------------------
@@ -18,7 +19,7 @@ from typing import Callable, Sequence
 # ------------------------------------------------------------
 
 
-pitch_t = int | float | str
+pitch_t = Union[int, float, str]
 
 
 def _asnote(n) -> mc.Note:
@@ -54,7 +55,7 @@ def ringmodWithAmps(pitches: Sequence[pitch_t], amps: Sequence[float], unique=Fa
     Ringmodulation between pitches with amps
 
     Args:
-        pitchs: a midinote or notename
+        pitches: a midinote or notename
         amps: the amps corresponding to each pitch
 
     Returns:
@@ -155,7 +156,7 @@ class Difftone:
     def transpose(self, interval:float) -> Difftone:
         note0 = self.note0 + interval
         note1 = self.note1 + interval 
-        return Difftone(note0, note1)
+        return Difftone(note0.name, note1.name)
 
     def asChord(self, diff=True) -> mc.Chord:
         """
@@ -168,9 +169,9 @@ class Difftone:
             the resulting mc.Chord
         """
         if diff:
-            ch = mc.Chord(self.note0, self.note1, self.diff)
+            ch = mc.Chord([self.note0, self.note1, self.diff])
         else:
-            ch = mc.Chord(self.note0, self.note1)
+            ch = mc.Chord([self.note0, self.note1])
         return ch
 
     def show(self) -> None:
@@ -267,7 +268,7 @@ def difftoneSource(difftone: pitch_t, interval: float, resolution=0.0
 
 
 def _difftone_find_source(pitch, maxdeviation=0.5, intervals=None,
-                          minnote: pitch_t= 'A0', maxnote: pitch_t= 'C8', resolution=1.
+                          minnote: pitch_t = 'A0', maxnote: pitch_t = 'C8', resolution=1.
                           ) -> list[tuple[float, float]]:
     """
 
@@ -310,7 +311,7 @@ def _difftone_find_source(pitch, maxdeviation=0.5, intervals=None,
 
 def _sumtone_find_source(pitch, 
                          maxdist=0.5, 
-                         intervals: list[int | float] | None = None,
+                         intervals: Sequence[int | float] | None = None,
                          minnote: pitch_t = 'A0', 
                          maxnote: pitch_t = 'C8', 
                          difftonegap=0.
@@ -433,13 +434,13 @@ def difftoneSources(result: pitch_t,
     pairs = _difftone_find_source(result, maxdist, minnote=minnote,
                                   maxnote=maxnote, intervals=intervals,
                                   resolution=resolution)
-    difftones = [Difftone(note0=mc.Note(midi0), note1=mc.Note(midi1), desired=mc.Note(midiresult))
+    difftones = [Difftone(note0=midi0, note1=midi1, desired=midiresult)
                  for midi0, midi1 in pairs]
     reclist = RecordList(difftones, fields=Difftone._fields)
     if display:
-        chordseq = mc.Chain([mc.Chord(diff.note0, diff.note1, diff.diff) for diff in difftones])
+        chordseq = mc.Chain([mc.Chord([diff.note0, diff.note1, diff.diff]) for diff in difftones])
         chordseq.show()
-        if misc.inside_jupyter():
+        if emlib.envir.inside_jupyter():
             from IPython.display import display
             display(reclist)
         else:
@@ -495,7 +496,8 @@ def ringmodSource(sidebands: pitch_t,
 
     Args:
         sidebands: a seq. of sidebands, as notenames or frequencies
-        minnote, maxnote: limit the possible range of the sourcefreqs
+        minnote: min. note of the source
+        maxnote: max. note of the source
         matchall: if True, all sidebands should be matched
         constraints: if given, a seq. of functions. Each of these constraints is of
                      the form (midisources, sidebands) -> bool
@@ -531,7 +533,7 @@ def ringmodSource(sidebands: pitch_t,
     bestmatch = []
     sourcefreqs = None
     for m0, m1, m2 in combinations(range(int(midi0), int(ceil(midi1))), 3):
-        newmidis = ringmod(m0, m1, m2)
+        newmidis = ringmod([m0, m1, m2])
         matching = _matchone(sidemidis, newmidis, maxdiff)
         if not matching:
             continue
@@ -563,7 +565,7 @@ class SumTone:
 def sumtoneSources(result,
                    maxdist=0.5,
                    maxnote="C8",
-                   intervals: Sequence[int|float] = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
+                   intervals: Sequence[int | float] = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
                    show=False, minnote="A0", difftonegap=0):
     """
     find two notes which produce a sumation tone near the given note
@@ -608,7 +610,7 @@ def sumtoneSources(result,
             notes = []
             notes.extend(pair.notes)
             notes.append(pair.sumnote)
-            chord = scoring.Notation(pitches=notes)
+            chord = scoring.Notation(pitches=notes, duration=1)
             chord.addArticulation('sum: %.2f' % pair.sumfreq)
             events.append(chord)
         r = scoring.render.render(events)
@@ -658,7 +660,7 @@ class DifftoneBeating:
     note2: mc.Note
     "second note of the pair producing a difference tone"
 
-    relativeAmplitude: float
+    relativeAmplitude: float = 1
 
 
 def difftoneBeatings(pitch1: pitch_t, pitch2: pitch_t, maxbeatings=20, minbeatings=0.3,

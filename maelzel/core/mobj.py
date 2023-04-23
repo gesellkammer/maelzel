@@ -44,8 +44,6 @@ import tempfile as _tempfile
 import html as _html
 from dataclasses import dataclass
 
-import music21 as m21
-
 from emlib.misc import firstval
 import emlib.misc
 import emlib.img
@@ -66,7 +64,6 @@ from . import symbols as _symbols
 from . import notation
 from . import _util
 from . import _dialogs
-import maelzel.music.m21tools as m21tools
 from maelzel import scoring
 
 from .synthevent import PlayArgs, SynthEvent, cropEvents
@@ -600,7 +597,7 @@ class MObj:
                 display the image inline if inside a notebook environment.
                 To change the default, modify :ref:`config['openImagesInExternalApp'] <config_openImagesInExternalApp>`
             backend: backend used when rendering to png/pdf.
-                One of 'lilypond', 'music21'. None to use default
+                One of 'lilypond', 'musicxml'. None to use default
                 (see :ref:`config['show.backend'] <config_show_backend>`)
             fmt: one of 'png', 'pdf', 'ly'. None to use default.
             scorestruct: if given overrides the current/default score structure
@@ -707,7 +704,7 @@ class MObj:
         to generate a document (pdf, png, ...)
 
         Args:
-            backend: the backend to use, one of 'lilypond', 'music21'. If not given,
+            backend: the backend to use, one of 'lilypond', 'musicxml'. If not given,
                 defaults to the :ref:`config key 'show.backend' <config_show_backend>`
             renderoptions: the render options to use. If not given, these are generated from
                 the active config
@@ -767,7 +764,7 @@ class MObj:
         Creates an image representation, returns the path to the image
 
         Args:
-            backend: the rendering backend. One of 'music21', 'lilypond'
+            backend: the rendering backend. One of 'musicxml', 'lilypond'
                 None uses the default method
                 (see :ref:`getConfig()['show.backend'] <config_show_backend>`)
             outfile: the path of the generated file. Use None to generate
@@ -898,40 +895,11 @@ class MObj:
             text = self.label
         return scoring.attachment.Text(text, fontsize=config['show.labelFontSize'])
 
-    def asmusic21(self, **kws) -> m21.stream.Stream:
-        """
-        Convert this object to its music21 representation
-
-        Args:
-
-            **kws: not used here, but classes inheriting from
-                this may want to add customization
-
-        Returns:
-            a music21 stream which best represent this object as
-            notation.
-
-        .. note::
-
-            The music21 representation is final, not thought to be embedded into
-            another stream. For embedding we use an abstract representation of scoring
-            objects which can be queried via .scoringEvents
-        """
-        parts = self.scoringParts()
-        renderer = notation.renderWithActiveWorkspace(parts,
-                                                      backend='music21',
-                                                      scorestruct=self.scorestruct())
-        stream = renderer.asMusic21()
-        if Workspace.active.config['m21.fixStream']:
-            m21tools.fixStream(stream, inPlace=True)
-        return stream
-
     def musicxml(self) -> str:
         """
         Return the music representation of this object as musicxml.
         """
-        stream = self.asmusic21()
-        return m21tools.getXml(stream)
+        raise NotImplementedError
 
     def scorestruct(self) -> ScoreStruct | None:
         """
@@ -972,7 +940,7 @@ class MObj:
             backend: the backend used when writing as pdf or png. If not given,
                 the default defined in the active config is used
                 (:ref:`key: 'show.backend' <config_show_backend>`).
-                Possible backends: ``lilypond``; ``music21`` (uses MuseScore to render musicxml as
+                Possible backends: ``lilypond``; ``musicxml`` (uses MuseScore to render musicxml as
                 image so MuseScore needs to be installed)
             resolution: image DPI (only valid if rendering to an image) - overrides
                 the :ref:`config key 'show.pngResolution' <config_show_pngresolution>`
@@ -989,7 +957,7 @@ class MObj:
         if ext == '.ly' or ext == '.mid' or ext == '.midi':
             backend = 'lilypond'
         elif ext == '.xml' or ext == '.musicxml':
-            backend = 'music21'
+            backend = 'musicxml'
         elif ext == '.csd':
             renderer = self.makeRenderer()
             renderer.writeCsd(outfile)
@@ -1290,7 +1258,7 @@ class MObj:
         else:
             rtrenderer = playback.RealtimeRenderer()
             out = rtrenderer.schedEvents(events, whenfinished=whenfinished)
-            if forcedisplay and emlib.misc.inside_jupyter():
+            if forcedisplay and environment.insideJupyter:
                 from IPython.display import display
                 display(out)
             return out

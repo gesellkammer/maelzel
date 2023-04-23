@@ -2,8 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import os
-import sys
-import glob
 
 from setuptools import setup
 
@@ -45,7 +43,6 @@ setup(
         "numpy",
         "scipy",
         "matplotlib",
-        "music21",
         "appdirs",
         "tabulate",
         "cachetools",
@@ -61,13 +58,13 @@ setup(
         # "resampy",  # Do not include it by default, since this pulls numba
         "python-constraint",
 
-        "emlib>=1.8.1",
+        "emlib>=1.9.0",
         "ctcsound7>=0.3.0",
         "bpf4>=1.8.4",
         "configdict>=2.6",
         "sndfileio>=1.8.1",
         "numpyx>=1.3.1",
-        "csoundengine>=1.20.0",
+        "csoundengine>=1.21.0",
         "pitchtools>=1.9.2",
         "risset>=2.4.1",
         "loristrck>=1.5.2",

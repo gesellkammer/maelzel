@@ -16,6 +16,7 @@ from math import ceil
 from ._common import logger, prettylog
 from . import _util
 from . import _dialogs
+from . import environment
 from .presetdef import PresetDef
 from .presetmanager import presetManager
 from .errors import CancelledError
@@ -395,7 +396,7 @@ class OfflineRenderer(Renderer):
         If inside jupyter, force a display of this OfflineRenderer
 
         """
-        if emlib.misc.inside_jupyter():
+        if environment.insideJupyter:
             from IPython.display import display
             display(self)
 

@@ -39,15 +39,19 @@ def renderQuantizedScore(score: quant.QuantizedScore,
     if options.removeSuperfluousDynamics:
         for part in score:
             part.removeUnnecessaryDynamics(tree=True)
-    #for part in score:
-    #    part.removeUnnecessaryGracenotes()
+
     if backend == 'music21':
+        import importlib.util
+        if importlib.util.find_spec("music21") is None:
+            raise ImportError("The backend music21 is not available. Install music21 via 'pip install music21'")
         from . import renderm21
         return renderm21.Music21Renderer(score, options=options)
     elif backend == 'lilypond':
         return renderlily.LilypondRenderer(score, options=options)
+    elif backend == 'musicxml':
+        raise NotImplementedError("The backend 'musicxml' is not implemented yet")
     else:
-        raise ValueError(f"Supported backends: 'music21', 'lilypond'. Got {backend}")
+        raise ValueError(f"Supported backends: 'music21', 'lilypond' or 'musicxml'. Got {backend}")
 
 
 def _groupNotationsByMeasure(part: core.Part,
@@ -84,7 +88,7 @@ def quantizeAndRender(parts: list[core.Part],
         parts: the parts to render
         struct: the ScoreStruct used
         options: RenderOptions
-        backend: the backend to use ('lilypond', 'music21')
+        backend: the backend to use ('lilypond', 'musicxml')
 
     Returns:
         the Renderer object
@@ -134,12 +138,12 @@ def render(obj: core.Part | core.Notation | list[core.Part] | list[core.Notation
             RenderOptions object to specify things like page size, title,
             pitch resolution, etc.
         backend: The backend used for rendering. Supported backends at the
-            moment: 'lilypond', 'music21'
+            moment: 'lilypond', 'musicxml'
         quantizationProfile:
             The quantization preset determines how events are quantized,
             which divisions of the beat are possible, how a best division
             is weighted and selected, etc. Not all options in a preset
-            are supported by all backends (for example, music21 backend
+            are supported by all backends (for example, the musicxml backend
             does not support nested tuples).
             See quant.presetQuantizationProfiles, which is a dict with
             some predefined profiles

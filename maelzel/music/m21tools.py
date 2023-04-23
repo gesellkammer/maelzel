@@ -2,11 +2,14 @@
 Tools to work with music21
 """
 from __future__ import annotations
+try:
+    import music21 as m21
+except ImportError:
+    raise ImportError("Cannot import this module since music21 is not installed")
 
 import copy
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union, Optional, Sequence, Iterable
 if TYPE_CHECKING:
-    from typing import *
     number_t = Union[int, float]
     pitch_t = Union[int, float, str]
 
@@ -15,7 +18,6 @@ import tempfile
 import warnings
 from maelzel.common import F
 from dataclasses import dataclass
-import music21 as m21
 from music21.common.numberTools import opFrac
 
 
@@ -31,7 +33,7 @@ logger = logging.getLogger(__file__)
 def _splitchord(chord: m21.chord.Chord, 
                 partabove: m21.stream.Part, 
                 partbelow: m21.stream.Part, 
-                split=60) -> Tuple[List[m21.note.Note], List[m21.note.Note]]:
+                split=60) -> tuple[list[m21.note.Note], list[m21.note.Note]]:
     above, below = [], []
     for i in range(len(chord)):
         note = chord[i]
@@ -68,7 +70,7 @@ def _asmidi(x) -> float:
     raise TypeError(f"Expected a midinote as number of notename, but got {x} ({type(x)})")
 
 
-def logicalTies(stream:m21.stream.Stream) -> List[List[m21.note.NotRest]]:
+def logicalTies(stream:m21.stream.Stream) -> list[list[m21.note.NotRest]]:
     out = []
     current = []
     events = list(stream.getElementsByClass(m21.note.NotRest))
@@ -89,7 +91,7 @@ def logicalTies(stream:m21.stream.Stream) -> List[List[m21.note.NotRest]]:
 
 
 def noteLogicalTie(note: m21.note.Note, stream: m21.stream.Stream
-                   ) -> List[m21.note.Note]:
+                   ) -> list[m21.note.Note]:
     """
     Return the tree of notes tied to `note`
 
@@ -156,7 +158,7 @@ def isTiedToPrevious(note:m21.note.Note) -> bool:
     return tie is not None and tie.type in ('start', 'continued')
 
 
-def getAttacks(stream: m21.stream.Stream) -> List[m21.note.NotRest]:
+def getAttacks(stream: m21.stream.Stream) -> list[m21.note.NotRest]:
     return [tie[0] for tie in logicalTies(stream) if tie]
 
 
@@ -164,7 +166,7 @@ def endTime(obj: m21.note.GeneralNote) -> F:
     return obj.offset + obj.quarterLength
 
 
-def attackPairs(stream: m21.stream.Stream) -> Iterable[Tuple[m21.note.NotRest, m21.note.NotRest]]:
+def attackPairs(stream: m21.stream.Stream) -> Iterable[tuple[m21.note.NotRest, m21.note.NotRest]]:
     for g0, g1 in iterlib.pairwise(logicalTies(stream)):
         if g0 is None or g1 is None:
             continue
@@ -318,7 +320,7 @@ def durationTypeFromQuarterDur(dur: number_t) -> str:
     return _durationTypeFromFraction[asF(dur)]
 
 
-def makeDuration(durType: Union[str, number_t], dots=0, durRatios: List[F]=None,
+def makeDuration(durType: Union[str, number_t], dots=0, durRatios: list[F]=None,
                  tupleType:str='') -> m21.duration.Duration:
     if isinstance(durType, str):
         assert durType in {'half', 'quarter', 'eighth', '16th', '32nd', '64th'}
@@ -340,7 +342,7 @@ def makeDuration(durType: Union[str, number_t], dots=0, durRatios: List[F]=None,
             dur.appendTuplet(tup)
     return dur
 
-def _makeDuration(durType: Union[str, number_t], dots=0, durRatios: List[F]=None,
+def _makeDuration(durType: Union[str, number_t], dots=0, durRatios: list[F]=None,
                  ) -> m21.duration.Duration:
     """
     Args:
@@ -492,7 +494,7 @@ def measureFixAccidentals(s: m21.stream.Measure) -> None:
 
 
 def makePitch(pitch: Union[str, float], divsPerSemitone=4, hideAccidental=False
-              ) -> Tuple[m21.pitch.Pitch, int]:
+              ) -> tuple[m21.pitch.Pitch, int]:
     """
     This is used to make a Pitch for a m21.Note (see makeNote)
     
@@ -630,7 +632,7 @@ def makeNotation(pitch: Union[pitch_t, Sequence[pitch_t]], divsPerSemitone=4, ce
 def _makeNote(pitch: Union[str, float], divsPerSemitone=4, centsAsLyrics=False,
              notehead: str=None, noteheadFill=None, hideAccidental=False,
              **options
-             ) -> Tuple[m21.note.Note, int]:
+             ) -> tuple[m21.note.Note, int]:
     """
     Given a pitch as a (fractional) midinote or a notename, create a
     m21 Note with a max. 1/8 tone resolution.
@@ -668,7 +670,7 @@ def makeNote(pitch: Union[str, float], divsPerSemitone=4,
              notehead: str=None, noteheadFill:bool=None, hideAccidental=False,
              tiedToPrevious=False,
              **options
-             ) -> Tuple[m21.note.Note, int]:
+             ) -> tuple[m21.note.Note, int]:
     """
     Create a music21 Note
 
@@ -701,7 +703,7 @@ def makeChord(pitches: Sequence[float], divsPerSemitone:int=4, centsAsLyric=Fals
               notehead: Optional[str] = None, noteheadFill=None, hideAccidental=False,
               tiedToPrevious=False,
               **options
-              ) -> Tuple[m21.chord.Chord, List[int]]:
+              ) -> tuple[m21.chord.Chord, list[int]]:
     """
     Create a m21 Chord with the given pitches, adjusting the accidentals to divsPerSemitone
     (up to 1/8 tone). If showcents is True, the cents deviations to the written pitch
@@ -789,7 +791,7 @@ def addGraceNote(pitch:Union[float, str, Sequence[float]], anchorNote:m21.note.G
 
 
 def findNextAttack(obj:Union[m21.note.NotRest, m21.chord.Chord]
-                   ) -> Tuple[Optional[m21.note.NotRest], bool]:
+                   ) -> tuple[Optional[m21.note.NotRest], bool]:
     n = obj
     originalPitches = obj.pitches
     isContiguous = True
@@ -945,7 +947,7 @@ def addTextExpression(note:m21.note.GeneralNote, text:str, placement="above",
 
 
 def makePart(clef:str=None, partName=None, abbreviatedName=None,
-             timesig:Tuple[int, int]=None) -> m21.stream.Part:
+             timesig:tuple[int, int]=None) -> m21.stream.Part:
     """
     Returns an empty Part with the attributes given
 
@@ -1100,7 +1102,7 @@ barlineTypes = {
 }
 
 
-def makeMeasure(timesig: Tuple[int, int],
+def makeMeasure(timesig: tuple[int, int],
                 timesigIsNew = True,
                 barline: str = '',
                 metronome: int = None,
@@ -1402,7 +1404,7 @@ def addBestClefs(part: m21.stream.Stream, threshold=4) -> None:
 
 
 def iterPart(part: m21.stream.Part, cls=m21.note.GeneralNote
-            ) -> Iterable[Tuple[m21.stream.Measure, m21.note.GeneralNote]]:
+            ) -> Iterable[tuple[m21.stream.Measure, m21.note.GeneralNote]]:
     """
     Iterates over all items in a Part matching a specific class. For each
     item a tuple (measure, item) is yielded
@@ -1500,8 +1502,8 @@ def makeTupletBrackets(s: m21.stream.Stream, inPlace=False) -> m21.stream.Stream
         elif len(tupletList) > 1:
             logger.warning('got multi-subdivision totalDuration; cannot yet handle this. %s' % repr(tupletList))
         elif len(tupletList) == 1:
-            tupletMap.append([tupletList[0], dur])
-            if tupletList[0] != dur.tuplets[0]:
+            tupletMap.append([tupletlist[0], dur])
+            if tupletlist[0] != dur.tuplets[0]:
                 raise Exception('cannot access Tuplets object from within DurationTuple.')
         else:
             raise Exception('cannot handle these tuplets: %s'%tupletList)
@@ -1541,7 +1543,7 @@ def makeTupletBrackets(s: m21.stream.Stream, inPlace=False) -> m21.stream.Stream
 
 def makeBeams(s: m21.stream.Stream, *, inPlace=False) -> m21.stream.Stream:
     returnObj = s if inPlace else copy.deepcopy(s)
-    mColl: List[m21.stream.Measure]
+    mColl: list[m21.stream.Measure]
     if 'Measure' in s.classes:
         mColl = [returnObj]  # store a list of measures for processing
     else:
