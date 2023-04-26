@@ -5,12 +5,14 @@
 
 -----------------
 
-|sh-pypi| |sh-license| |sh-docs|
+|sh-pypi| |sh-license| |sh-docs| |sh-month|
 
 .. |sh-pypi| image:: https://img.shields.io/pypi/v/maelzel?color=green
 .. |sh-license| image:: https://img.shields.io/badge/license-lgpl__2__1-blue
 .. |sh-docs| image:: https://readthedocs.org/projects/maelzel/badge/?version=latest
     :target: http://maelzel.readthedocs.io/?badge=latest
+
+.. |sh-month| image:: https://static.pepy.tech/badge/maelzel/month
 
 maelzel
 =======

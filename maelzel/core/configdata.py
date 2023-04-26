@@ -1,5 +1,6 @@
 import os
 import math
+from maelzel.music import dynamics
 
 
 defaultdict = {
@@ -20,7 +21,7 @@ defaultdict = {
     'enharmonic.threeQuarterMicrotonePenalty': 20,
 
     'show.arpeggiateChord': 'auto',
-    'show.lastBreakpointDur':1/8,
+    'show.lastBreakpointDur': 1/8,
     'show.centsDeviationAsTextAnnotation': True,
     'show.centsAnnotationFontSize': 8,
     'show.centSep': ',',
@@ -98,8 +99,6 @@ defaultdict = {
     'dynamicCurveMaxdb': 0,
     'dynamicCurveDynamics': 'ppp pp p mp mf f ff fff',
 }
-from maelzel.music import dynamics
-
 
 
 validator = {
@@ -148,7 +147,7 @@ validator = {
     'dynamicCurveMindb::range': (-160, 0),
     'dynamicCurveMaxdb::range': (-160, 0),
     'dynamicCurveDynamics': lambda cfg, key, val: all(d in dynamics.dynamicSteps
-                                                       for d in val.split()),
+                                                      for d in val.split()),
     'quant.divisionErrorWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,
     'quant.gridErrorWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,
     'quant.rhythmComplexityWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,
