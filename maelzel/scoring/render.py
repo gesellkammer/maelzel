@@ -79,7 +79,7 @@ def _groupNotationsByMeasure(part: core.Part,
 def quantizeAndRender(parts: list[core.Part],
                       struct: ScoreStruct,
                       options: RenderOptions,
-                      quantizationProfile:quant.QuantizationProfile=None,
+                      quantizationProfile: quant.QuantizationProfile = None,
                       ) -> Renderer:
     """
     Quantize and render unquantized events organized into parts
@@ -88,7 +88,9 @@ def quantizeAndRender(parts: list[core.Part],
         parts: the parts to render
         struct: the ScoreStruct used
         options: RenderOptions
-        backend: the backend to use ('lilypond', 'musicxml')
+        quantizationProfile: the profile to use for quantization, passed
+            to maelzel.scoring.quant.quantize. If not given a default profile
+            is used
 
     Returns:
         the Renderer object
@@ -141,7 +143,7 @@ def render(obj: core.Part | core.Notation | list[core.Part] | list[core.Notation
             moment: 'lilypond', 'musicxml'
         quantizationProfile:
             The quantization preset determines how events are quantized,
-            which divisions of the beat are possible, how a best division
+            which divisions of the beat are possible, how the best division
             is weighted and selected, etc. Not all options in a preset
             are supported by all backends (for example, the musicxml backend
             does not support nested tuples).
@@ -157,8 +159,8 @@ def render(obj: core.Part | core.Notation | list[core.Part] | list[core.Notation
         struct = ScoreStruct(timesig=(4, 4), tempo=60)
     if options is None:
         options = RenderOptions()
-    if not backend:
-        backend = options.backend
+    if backend and options.backend != backend:
+        options = options.clone(backend=backend)
     return quantizeAndRender(parts, struct=struct, options=options,
                              quantizationProfile=quantizationProfile)
 
@@ -253,4 +255,3 @@ def _musescoreRenderMusicxmlToPng(xmlfile: str, outfile: str, musescorepath: str
             os.rename(generatedFile, outfile)
             return
     raise RuntimeError(f"Page not found, generated files: {generatedFiles}")
-

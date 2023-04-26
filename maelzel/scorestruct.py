@@ -577,7 +577,7 @@ class BeatStructure:
 
 
 def measureBeatStructure(timesig: timesig_t,
-                         quarterTempo: F|int,
+                         quarterTempo: Union[F, int],
                          subdivisionStructure: list[int] = None
                          ) -> list[BeatStructure]:
     """
@@ -1855,17 +1855,6 @@ class ScoreStruct:
             raise ValueError(f"Extension {path.suffix} not supported, "
                              f"should be one of .xml, .pdf, .png or .ly")
 
-    def _exportMidi(self, midifile: str) -> None:
-        """
-        Export this ScoreStruct as MIDI
-
-        Args:
-            midifile: the path of the MIDI file to generate
-
-        """
-        m21score = self.asMusic21(fillMeasures=False)
-        m21score.write("midi", midifile)
-
     def exportMidiClickTrack(self, midifile: str) -> None:
         """
         Generate a MIDI click track from this ScoreStruct
@@ -1986,7 +1975,7 @@ def _filledScoreFromStruct(struct: ScoreStruct, pitch='4C') -> maelzel.core.Scor
         num, den = m.timesig
         dur = 4/den * num
         if i == len(struct.measuredefs) - 1:
-            events.append(Note(midinote if i%2==0 else midinote+2, offset=now, dur=dur))
+            events.append(Note(midinote if i % 2 == 0 else midinote+2, offset=now, dur=dur))
         now += dur
     voice = Voice(events)
     return Score([voice], scorestruct=struct)

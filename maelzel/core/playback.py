@@ -736,7 +736,7 @@ class OfflineRenderer(Renderer):
                                                 "was not found."
         emlib.misc.open_with_app(lastoutfile)
 
-    def lastOutfile(self) -> str|None:
+    def lastOutfile(self) -> Optional[str]:
         """
         Last rendered outfile, None if no soundfiles were rendered
 
@@ -751,7 +751,7 @@ class OfflineRenderer(Renderer):
         """
         return self.renderedSoundfiles[-1] if self.renderedSoundfiles else None
 
-    def lastRenderProc(self) -> subprocess.Popen|None:
+    def lastRenderProc(self) -> Optional[subprocess.Popen]:
         """
         Last process (subprocess.Popen) used for rendering
 
@@ -913,12 +913,14 @@ def render(outfile: str = None,
             as a context manager (see example)
         sr: sample rate of the soundfile (:ref:`config 'rec.sr' <config_rec_sr>`)
         ksmps: number of samples per cycle (:ref:`config 'rec.ksmps' <config_rec_ksmps>`)
+        nchnls: number of channels of the rendered soundfile
         wait: if True, wait until recording is finished. If None,
             use the :ref:`config 'rec.blocking' <config_rec_blocking>`
         quiet: if True, supress debug information when calling
             the csound subprocess
         extratime: extra time added at the end of the render to allow
         render: if True, perform the render itself
+        workspace: if given, this workspace overrides the active workspace
 
     Returns:
         the :class:`OfflineRenderer` used to render the events. If the outfile
@@ -1645,5 +1647,4 @@ class Synched:
                                                   kws=kws)
         self.sessionEvents.append(event)
         return event
-
 

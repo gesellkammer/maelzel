@@ -549,7 +549,7 @@ def snapEventsToGrid(notations: list[Notation], grid: list[F],
     return assignedSlots, snappedEvents
 
 
-def isBeatFilled(events: list[Notation], beatDuration:F, beatOffset: F = F0) -> bool:
+def isBeatFilled(events: list[Notation], beatDuration: F, beatOffset: F = F0) -> bool:
     """
     Check if notations fill the beat exactly
 
@@ -1199,7 +1199,6 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
     assert beatDuration > 0
     beatDuration = asF(beatDuration)
     # assert sum(event.duration for event in eventsInBeat) == beatDuration
-
 
     assert beatDuration in {F(1, 1), F(1, 2), F(1, 4), F(2, 1)}, f"{beatDuration=}"
     if len(eventsInBeat) > 2:
