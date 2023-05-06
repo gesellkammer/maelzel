@@ -37,7 +37,8 @@ setup(
         'maelzel.music',
         'maelzel.scoring',
         'maelzel.musicxml',
-        'maelzel.transcribe'
+        'maelzel.transcribe',
+        'maelzel.partialtracking'
     ],
     install_requires=[
         "numpy",
