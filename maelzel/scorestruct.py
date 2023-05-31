@@ -740,13 +740,15 @@ class ScoreStruct:
         .      # last measure (inclusive, the score will have 33 measures)
 
     """
+
     def __init__(self,
                  score: str = None,
                  timesig: timesig_t | str = None,
                  tempo: int = None,
                  endless: bool = True,
                  title='',
-                 composer=''):
+                 composer='',
+                 readonly=False):
 
         # holds the time offset (in seconds) of each measure
         self._timeOffsets: list[F] = []
@@ -760,6 +762,15 @@ class ScoreStruct:
         self._prevScoreStruct: ScoreStruct | None = None
 
         self._lastIndex = 0
+
+        self.readonly = False
+        """Is this ScoreStruct read-only?"""
+
+        self.title = title
+        """Title metadata"""
+
+        self.composer = composer
+        """The composer metadata"""
 
         if score:
             if timesig or tempo:
@@ -778,8 +789,7 @@ class ScoreStruct:
                     tempo = 60
                 self.addMeasure(timesig, quarterTempo=tempo)
 
-        self.title = title
-        self.composer = composer
+        self.readonly = readonly
 
     def __hash__(self) -> int:
         hashes = [hash(x) for x in (self.title, self.endless)]
@@ -1015,6 +1025,9 @@ class ScoreStruct:
             >>> s = ScoreStruct()
             >>> s.addMeasure((4, 4), 52, numMeasures=32)
         """
+        if self.readonly:
+            raise RuntimeError("This ScoreStruct is read-only")
+
         if timesig is None:
             timesigInherited = True
             timesig = self.measuredefs[-1].timesig if self.measuredefs else (4, 4)
@@ -1062,6 +1075,9 @@ class ScoreStruct:
             mark: the rehearsal mark, as text or as a RehearsalMark
             box: one of 'square', 'circle' or '' to avoid drawing a box around the rehearsal mark
         """
+        if self.readonly:
+            raise RuntimeError("This ScoreStruct is read-only")
+
         if idx >= len(self.measuredefs) and not self.endless:
             raise IndexError(f"Measure index {idx} out of range. "
                              f"This score has {len(self.measuredefs)} measures")
@@ -1741,6 +1757,9 @@ class ScoreStruct:
             measureIndex: the first measure to modify
 
         """
+        if self.readonly:
+            raise RuntimeError("This ScoreStruct is read-only")
+
         if measureIndex > len(self) and not self.endless:
             raise IndexError(f"Index {measureIndex} out of rage; this ScoreStruct has only "
                              f"{len(self)} measures defined")
@@ -1755,6 +1774,9 @@ class ScoreStruct:
                 break
 
     def setTimeSignature(self, measureIndex, timesig: timesig_t | str) -> None:
+        if self.readonly:
+            raise RuntimeError("This ScoreStruct is read-only")
+
         if measureIndex > len(self) and not self.endless:
             raise IndexError(f"Index {measureIndex} out of rage; this ScoreStruct has only "
                              f"{len(self)} measures defined")
@@ -1880,6 +1902,9 @@ class ScoreStruct:
             linetype: one of 'single', 'double', 'final'
 
         """
+        if self.readonly:
+            raise RuntimeError("This ScoreStruct is read-only")
+
         assert linetype in {'single', 'double', 'final'}
         self.getMeasureDef(measureIndex, extend=True).barline = linetype
 

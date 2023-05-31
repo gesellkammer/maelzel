@@ -75,13 +75,14 @@ __all__ = (
 
 logger = logging.getLogger("maelzel.snd")
 
+
 _config = {
     'reprhtml_include_audiotag': True,
     'reprhtml_audiotag_maxduration_minutes': 10,
     'reprhtml_audiotag_width': '100%',
     'reprhtml_audiotag_maxwidth': '1200px',
     'reprhtml_audio_format': 'wav',
-    'csoundengine': 'maelzel.snd',
+    'csoundengine': 'maelzel',
 }
 
 
@@ -170,9 +171,11 @@ class Sample:
             either sample data or a path to a soundfile
         sr: only needed if passed an array
         start: the start time (only valid when reading from a soundfile). Can be
-            negative, in which case the frame is sought from the end
+            negative, in which case the frame is sought from the end.
         end: the end time (only valid when reading from a soundfile). Can be
             negative, in which case the frame is sought from the end
+        readonly: is this Sample readonly?
+        engine: the sound engine (`csoundengine.Engine`) used for playback
 
     """
 
@@ -184,7 +187,7 @@ class Sample:
                  start=0.,
                  end=0.,
                  readonly=False,
-                 engine: str | csoundengine.Engine | None = None):
+                 engine: csoundengine.Engine | None = None):
         self._csoundTable: tuple[str, int] | None = None
         """Keeps track of any table created in csound for playback"""
 
@@ -216,17 +219,11 @@ class Sample:
         self.sr: int = sr
         """The sr"""
 
-        self.numchannels = _npsnd.numChannels(self.samples)
+        self.numchannels = 1 if len(self.samples.shape) == 1 else self.samples.shape[1]
         """The number of channels of each frame"""
 
-        if not engine:
-            engine = None
-
-        if engine and isinstance(engine, str):
-            engine = csoundengine.getEngine(engine)
-            assert engine is not None
-
         self.engine: csoundengine.Engine | None = engine
+        """The sound engine used for playback"""
 
     def __del__(self):
         if not self._csoundTable:

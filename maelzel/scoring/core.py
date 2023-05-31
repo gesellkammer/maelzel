@@ -457,7 +457,7 @@ def packInParts(notations: list[Notation], maxrange=36,
     to the same tree are kept in the same track.
 
     Args:
-        notations: the Notations to pack
+        notations: the Notations to _packold
         maxrange: the max. distance between the highest and lowest Notation
         keepGroupsTogether: if True, items belonging to a same tree are
             kept in a same track
@@ -490,7 +490,7 @@ def packInParts(notations: list[Notation], maxrange=36,
                                           step=n.meanPitch())
                              for n in group)
 
-    packedTracks = packing.packInTracks(items, maxAmbitus=maxrange)
+    packedTracks = packing.packInTracks(items, maxrange=maxrange)
     return [Part(track.unwrap()) for track in packedTracks]
 
 

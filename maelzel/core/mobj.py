@@ -314,6 +314,19 @@ class MObj:
             return default
         return self.properties.get(key, default)
 
+    def meanPitch(self) -> float | None:
+        """
+        The mean pitch of this object
+
+        Returns:
+            The mean pitch of this object
+        """
+        pitchrange = self.pitchRange()
+        if pitchrange is None:
+            return None
+        minpitch, maxpitch = pitchrange
+        return (maxpitch + minpitch) / 2.
+
     def pitchRange(self) -> tuple[float, float] | None:
         """
         The pitch range of this object, if applicable

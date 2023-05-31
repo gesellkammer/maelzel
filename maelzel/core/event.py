@@ -587,6 +587,9 @@ class Note(MEvent):
     def pitchRange(self) -> tuple[float, float] | None:
         return self.pitch, self.pitch
 
+    def meanPitch(self) -> float | None:
+        return self.pitch
+
     def freqShift(self, freq: float) -> Note:
         """
         Return a copy of self, shifted in freq.
@@ -1154,6 +1157,9 @@ class Chord(MEvent):
 
     def pitchRange(self) -> tuple[float, float] | None:
         return min(n.pitch for n in self.notes), max(n.pitch for n in self.notes)
+
+    def meanPitch(self) -> float | None:
+        return sum(n.pitch for n in self.notes) / len(self.notes)
 
     def resolveGliss(self) -> list[float]:
         """

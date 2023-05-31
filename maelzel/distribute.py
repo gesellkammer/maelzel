@@ -832,14 +832,14 @@ def plotFrames(xs, ids: list = None, top=1., bottom=0., durs: list[float] = None
     return ax
 
 
-def dohndt(numseats: int, votesPerParty: list[int]) -> list[int]:
+def dohndt(numseats: int, votesPerParty: list[int | float]) -> list[int]:
     """
     Perform a D'Ohndt distribution
 
     Args:
         numseats: the number of seats to distribute across the parties
         votesPerParty: the votes (can be interpreted as the weight of each party)
-            of each party
+            of each party.
 
     Returns:
         the list of assigned seats per party

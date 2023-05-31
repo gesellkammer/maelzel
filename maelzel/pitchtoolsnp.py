@@ -1,17 +1,18 @@
 """
 Similar to pitchtools, but on numpy arrays
 """
-
+from __future__ import annotations
 import numpy as np
-from pitchtools import n2m, get_reference_freq
+import pitchtools as pt
+
 
 import sys
 _EPS = sys.float_info.epsilon
 
 
-def f2m_np(freqs: np.ndarray, out:np.ndarray=None, a4:float=None) -> np.ndarray:
+def f2m(freqs: np.ndarray, out: np.ndarray = None, a4: float = None) -> np.ndarray:
     """
-    vectorized version of f2m
+    Vectorized version of pitchtools.f2m
 
     Args:
         freqs: an array of frequencies
@@ -31,7 +32,7 @@ def f2m_np(freqs: np.ndarray, out:np.ndarray=None, a4:float=None) -> np.ndarray:
 
     """
     freqs = np.asarray(freqs, dtype=float)
-    a4 = a4 or get_reference_freq()
+    a4 = a4 or pt.get_reference_freq()
     if out is None:
         return 12.0 * np.log2(freqs/a4) + 69.0
     x = freqs/a4
@@ -41,9 +42,9 @@ def f2m_np(freqs: np.ndarray, out:np.ndarray=None, a4:float=None) -> np.ndarray:
     return x
 
 
-def m2f_np(midinotes: np.ndarray, out:np.ndarray=None, a4:float=None) -> np.ndarray:
+def m2f(midinotes: np.ndarray, out: np.ndarray | None = None, a4: float = None) -> np.ndarray:
     """
-    Vectorized version of m2f
+    Vectorized version of pitchtools.m2f
 
     Args:
         midinotes: an array of midinotes
@@ -54,7 +55,7 @@ def m2f_np(midinotes: np.ndarray, out:np.ndarray=None, a4:float=None) -> np.ndar
     Returns:
         the frequencies as a numpy array
     """
-    a4 = a4 or get_reference_freq()
+    a4 = a4 or pt.get_reference_freq()
     midinotes = np.asarray(midinotes, dtype=float)
     out = np.subtract(midinotes, 69, out=out)
     out /= 12.
@@ -63,9 +64,9 @@ def m2f_np(midinotes: np.ndarray, out:np.ndarray=None, a4:float=None) -> np.ndar
     return out
 
 
-def db2amp_np(db:np.ndarray, out:np.ndarray=None) -> np.ndarray:
+def db2amp(db: np.ndarray, out: np.ndarray | None = None) -> np.ndarray:
     """
-    Vectorized version of db2amp
+    Vectorized version of pitchtools.db2amp
 
     Args:
         db: a np array of db values
@@ -80,9 +81,9 @@ def db2amp_np(db:np.ndarray, out:np.ndarray=None) -> np.ndarray:
     return out
 
 
-def amp2db_np(amp:np.ndarray, out:np.ndarray=None) -> np.ndarray:
+def amp2db(amp: np.ndarray, out: np.ndarray = None) -> np.ndarray:
     """
-    Vectorized version of amp2db
+    Vectorized version of pitchtools.amp2db
 
     Args:
         amp: a np array of db values
@@ -119,30 +120,30 @@ def logfreqs(notemin=0.0, notemax=139.0, notedelta=1.0) -> np.ndarray:
         # generate a list of frequencies of instrumental 1/4 tones
         >>> logfreqs(n2m("A0"), n2m("C8"), 0.5)
     """
-    return m2f_np(np.arange(notemin, notemax+notedelta, notedelta))
+    return m2f(np.arange(notemin, notemax + notedelta, notedelta))
 
 
 def pianofreqs(start='A0', stop='C8') -> np.ndarray:
     """
     Generate an array of the frequencies representing all the piano keys
     """
-    n0 = int(n2m(start))
-    n1 = int(n2m(stop)) + 1
-    return m2f_np(np.arange(n0, n1, 1))
+    n0 = int(pt.n2m(start))
+    n1 = int(pt.n2m(stop)) + 1
+    return m2f(np.arange(n0, n1, 1))
 
 
-def ratio2interval_np(ratios: np.ndarray) -> np.ndarray:
+def ratio2interval(ratios: np.ndarray) -> np.ndarray:
     """
-    Vectorized version of r2i
+    Vectorized version of pitchtools.r2i
     """
     out = np.log(ratios, 2)
     np.multiply(12, out, out=out)
     return out
 
 
-def interval2ratio_np(intervals: np.ndarray) -> np.ndarray:
+def interval2ratio(intervals: np.ndarray) -> np.ndarray:
     """
-    Vectorized version of i2r
+    Vectorized version of pitchtools.i2r
     """
     out = intervals / 12.
     np.float_power(2, out, out=out)
