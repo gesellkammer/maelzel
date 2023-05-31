@@ -4,7 +4,6 @@ Monophonic fundamental analyisis and transcription
 from __future__ import annotations
 import numpy as np
 from dataclasses import astuple as _astuple
-import bpf4
 
 from maelzel.snd import features
 from maelzel.snd import freqestimate
@@ -12,9 +11,11 @@ from maelzel.snd.numpysnd import rmsbpf
 from pitchtools import amp2db, PitchConverter, db2amp
 from math import isnan
 from emlib import iterlib
-import visvalingamwyatt
-from maelzel.transcribe.core import Breakpoint
+
 from maelzel.scorestruct import ScoreStruct
+from maelzel import histogram
+
+from .core import Breakpoint, simplifyBreakpoints, TranscribeOptions, simplifyBreakpointsByDensity
 
 
 import logging
@@ -46,28 +47,6 @@ def _fixNanFreqs(breakpoints: list[tuple[float, float, float]], fallbackFreq: fl
         out.append(bp)
     return out
 
-
-def _simplifyBreakpointGroup(breakpoints: list[Breakpoint], method: str, param: float,
-                             pitchconv: PitchConverter
-                             ) -> list[Breakpoint]:
-    # TODO: instead of simplifying only based on pitch construct a vector using
-    #       both pitch and amplitude (or other extra features) and simplify on that
-    #       It must be reduced to one dimension
-    #       example: feature = sqrt(b.pitch**2 + b.amp**2)
-    points = [(b.time, pitchconv.f2m(b.freq)) for b in breakpoints]
-    if method == 'visvalingam':
-        simplifier = visvalingamwyatt.Simplifier(points)
-        simplified = simplifier.simplify(threshold=param)
-    else:
-        raise ValueError(f"Method {method} not supported")
-
-    def matchBreakpoint(t: float, breakpoints: list[Breakpoint], eps=1e-10) -> Breakpoint:
-        bp = next((bp for bp in breakpoints if abs(bp.time - t) < eps), None)
-        if bp is None:
-            raise ValueError(f"Breakpoint not found for t = {t}")
-        return bp
-
-    return [matchBreakpoint(t, breakpoints) for t, p in simplified]
 
 
 def _quantizeFreq(pitchconv: PitchConverter, freq: float, divs: int) -> float:
@@ -129,12 +108,9 @@ class FundamentalAnalysisMono:
             min. frequency as unvoiced. Under certain circumstances the f0 tracking algorithm
             might predict frequencies lower than the given min. frequency. An alternative
             way to mitigate such false predictions is to increase the overlap
-        unvoicedMinamplitudePercentile: any tree consisting of unvoiced breakpoints
-            will be removed if all its breakpoints have an amplitude percentile below this
-            value. This helps remove spurious groups detected within background noise regions
 
     Attributes:
-        groups: each tree is a list of Breakpoints representing a note
+        groups: each group is a list of Breakpoints representing a note
         breakpoints: all breakpoints within the .groups attribute, flattened
         rms: the RMS curve of the sound. A mpf mapping to to rms
         dbToPercentile: maps db to percentile
@@ -184,12 +160,12 @@ class FundamentalAnalysisMono:
 
 
         onsetsFftSize = min(2048 if sr <= 48000 else 4098, fftSize)
-        onsets, strengthbpf = features.onsets(samples=samples,
-                                              sr=sr,
-                                              winsize=onsetsFftSize,
-                                              hopsize=onsetsFftSize // onsetOverlap,
-                                              threshold=onsetThreshold,
-                                              backtrack=onsetBacktrack)
+        onsets, onsetStrengthBpf = features.onsets(samples=samples,
+                                                   sr=sr,
+                                                   winsize=onsetsFftSize,
+                                                   hopsize=onsetsFftSize // onsetOverlap,
+                                                   threshold=onsetThreshold,
+                                                   backtrack=onsetBacktrack)
         hopsize = fftSize // overlap
         hoptime = hopsize / sr
         numHistogramBins = 20
@@ -204,16 +180,9 @@ class FundamentalAnalysisMono:
 
         pitchconv = PitchConverter(a4=referenceFrequency)
         dbs = rmscurve.amp2db().map(200)
-        _, dbhist = np.histogram(dbs, bins=numHistogramBins)
-        # We use db because it is more linear
-        percentiles = np.linspace(0, 1, len(dbhist))
-        dbToPercentile: bpf4.BpfInterface = bpf4.core.Linear(dbhist, percentiles)
-        percentileToDb = bpf4.core.Linear(percentiles, dbhist)
-
-        _, strengthhist = np.histogram(strengthbpf.points()[1], bins=numHistogramBins)
-        strengthPercentileCurve = bpf4.core.Linear(strengthhist, np.linspace(0, 1, len(strengthhist)))
-        percentileToStrength = bpf4.core.Linear(np.linspace(0, 1, len(strengthhist)), strengthhist)
-        accentStrength = percentileToStrength(accentPercentile)
+        dbHistogram = histogram.Histogram(dbs, numbins=numHistogramBins)
+        onsetStrengthHistogram = histogram.Histogram(onsetStrengthBpf.points()[1], numbins=numHistogramBins)
+        accentStrength = onsetStrengthHistogram.percentileToValue(accentPercentile)
 
         onsetsMask = features.filterOnsets(onsets, samples=samples, sr=sr, rmscurve=rmscurve,
                                            minampdb=onsetMinDb, rmsperiod=rmsPeriod)
@@ -235,16 +204,14 @@ class FundamentalAnalysisMono:
 
         def makeBreakpoint(t: float, freq: float, amp: float, linked: bool, kind=''
                            ) -> Breakpoint:
-            strength = strengthbpf(t + timeCorrection)
+            strength = onsetStrengthBpf(t + timeCorrection)
             fpos = abs(freq) if not isnan(freq) else 0
             assert fpos == 0 or fpos > 20, f"{freq=}"
             return Breakpoint(t, fpos, amp,
                               voiced=bool(freq>0),
                               linked=linked,
-                              strength=strength,
+                              onsetStrength=strength,
                               kind=kind,
-                              ampPercentile=dbToPercentile(amp2db(amp)),
-                              strengthPercentile=strengthPercentileCurve(strength),
                               freqConfidence=voicedcurve(t))
 
         # Algorithm:
@@ -252,9 +219,9 @@ class FundamentalAnalysisMono:
         # * if there is an offset, sample f0 between onset and offset and simplify. Both onset and
         #   offset should be included in the simplification
         # * if there is no offset, sample f0 between onset and next onset and simplify.
-        #   The next onset should NOT be part of the tree
+        #   The next onset should NOT be part of the group
         # * In both cases, do not simplify if the totalDuration between onset-offset (or onset and next
-        #   onset) is less than minDuration. In this case make a tree with just the onset breakpoint
+        #   onset) is less than minDuration. In this case make a group with just the onset breakpoint
 
         def makeGroup(onset: float, offset: float) -> list[Breakpoint]:
             if offset - onset < minDuration:
@@ -273,12 +240,12 @@ class FundamentalAnalysisMono:
                      for t, f, a in breakpoints0]
             first = group[0]
             first.kind = 'onset'
-            first.isaccent = bool(first.strength > accentStrength)
+            first.isaccent = bool(first.onsetStrength > accentStrength)
             if simplify:
-                group = _simplifyBreakpointGroup(group,
-                                                 method=simplificationMethod,
-                                                 param=simplify,
-                                                 pitchconv=pitchconv)
+                group = simplifyBreakpoints(group,
+                                            method=simplificationMethod,
+                                            param=simplify,
+                                            pitchconv=pitchconv)
             group[-1].linked = False
             return group
 
@@ -304,26 +271,22 @@ class FundamentalAnalysisMono:
                     if bp.freq < minFrequency:
                         bp.voiced = False
 
-            if unvoicedMinAmplitudePercentile > 0 and all(not bp.voiced for bp in group):
-                if all(bp.ampPercentile < unvoicedMinAmplitudePercentile
+            if unvoicedMinAmplitudePercentile > 0 and all(not bp.voiced for bp in group) and group[0].getProperty('ampPercentile') is not None:
+                if all(bp.getProperty('ampPercentile', 1.) < unvoicedMinAmplitudePercentile
                        for bp in group):
                     continue
 
             groups.append(group)
 
-        # TODO: minSilence - remove short silences between breakpoints within a tree
+        # TODO: minSilence - remove short silences between breakpoints within a group
 
         self.groups: list[list[Breakpoint]] = groups
-        """Each tree is a list of Breakpoints representing a note"""
+        """Each group is a list of Breakpoints representing a note"""
 
         self.rms = rmscurve
         """The RMS curve of the sound. A bpf mapping time to rms"""
 
-        self.dbToPercentile = dbToPercentile
-        """Maps amplitude in dB to percentile 0-1 """
-
-        self.percentileToDb = percentileToDb
-        """Maps a percentile 0-1 to its corresponding dB"""
+        self.dbHistogram = dbHistogram
 
         self.f0 = f0
         """The f0 curve, mapping time to frequency. Parts with low confidence are marked as negative values"""
@@ -331,10 +294,10 @@ class FundamentalAnalysisMono:
         self.voicedness = voicedcurve
         """A curve mapping time to voicedness of the sound"""
 
-        self.onsetStrength = strengthbpf
+        self.onsetStrength = onsetStrengthBpf
         """A curve mapping time to onset strength"""
 
-        self.onsetStrengthHistogram = strengthhist
+        self.onsetStrengthHistogram = onsetStrengthHistogram
         """The onset strength histogram"""
 
         self.centroid = centroidcurve
@@ -385,10 +348,8 @@ class FundamentalAnalysisMono:
             else:
                 axes.axvline(t0, color='red')
 
-
-
     def simplify(self, algorithm='visvalingam', threshold=0.05) -> None:
-        """Simplify the breakpoints inside each tree, inplace
+        """Simplify the breakpoints inside each group, inplace
 
         Groups themselves are never simplified
 
@@ -398,103 +359,137 @@ class FundamentalAnalysisMono:
                 this is the surface of the triangle being evaluated.
 
         """
-        groups = [_simplifyBreakpointGroup(group, method=algorithm, param=threshold,
-                                           pitchconv=self._pitchconv)
+        groups = [simplifyBreakpoints(group, method=algorithm, param=threshold,
+                                      pitchconv=self._pitchconv)
                   for group in self.groups]
         self.groups = groups
 
     def transcribe(self,
                    scorestruct: ScoreStruct = None,
-                   addGliss=True,
-                   addAccents=True,
-                   addSlurs=True,
-                   unvoicedNotehead='x',
-                   unvoicedPitch="5C",
-                   unvoicedMinAmpDb=-80,
+                   options: TranscribeOptions | None = None
                    ) -> Voice:
         """
         Convert the analyized data to a maelzel.core.Voice
 
         Args:
-            scorestruct: the score structure to use for conversion
-            addGliss: if True, add a gliss. symbol between parts of a same note tree
-            addAccents: if True, add an accent symbol to breakpoints with a detected accent
-            addSlurs: if True, add a slur encompasing notes within a tree
-            unvoicedNotehead: notehead to use for unvoiced (unpitched) notes. An empty string
-                will leave such notes unmodified
-            unvoicedPitch: the pitch to use for note groups where no pitch was detected. For
-                unpitched breakpoints within a tree where other pitched breakpoints were
-                found the next pitched found will be used.
-            unvoicedMinAmpDb: any breakpoint belonging to an unvoiced tree whose amplitude
-                falls beneath this value will not be transcribed.
+            scorestruct: the score structure to use for conversion. If not given a default
+                scorestruct is used
+            options: transcription options (see :class:`maelzel.transcribe.core.TranscribeOptions`)
 
         Returns:
-            the  resulting maelzel.core Voice
+            the resulting :class:`maelzel.core.Voice`
 
         """
-        from maelzel.core import Note, Voice, getScoreStruct
+        if options is None:
+            options = TranscribeOptions()
+
+        options.unvoicedMinAmpDb = min(self.dbHistogram.percentileToValue(0.05),
+                                       options.unvoicedMinAmpDb)
+
+        voice = transcribeVoice(groups=self.groups,
+                                scorestruct=scorestruct,
+                                options=options)
         if scorestruct is None:
-            scorestruct = getScoreStruct()
+            scorestruct = ScoreStruct()
 
-        notes = []
-        lastgroupidx = len(self.groups) - 1
-        pitchconv = self._pitchconv
-        for groupidx, group in enumerate(self.groups):
-            fragment = []
-            assert group
-            if len(group) == 1:
-                bp = group[0]
-                assert not bp.voiced
-                notes.append(Note(unvoicedPitch, amp=bp.amp,
-                                  offset=scorestruct.timeToBeat(bp.time), dur=bp.duration))
-                continue
+        if self.centroid:
+            for note in voice:
+                if not note.isRest():
+                    centroidfreq = self.centroid(scorestruct.time(note.offset))
+                    note.setProperty('centroid', int(centroidfreq))
 
-            for bp1, bp2 in iterlib.pairwise(group):
-                pitch = pitchconv.f2m(bp1.freq) or unvoicedPitch
-                offset = scorestruct.timeToBeat(bp1.time)
-                end = scorestruct.timeToBeat(bp2.time)
-                note = Note(pitch, amp=bp1.amp, offset=offset, dur=end - offset, gliss=addGliss)
-                note.setProperty('voiced', bp1.voiced)
-                if not bp1.voiced and unvoicedNotehead:
-                    note.addSymbol('notehead', unvoicedNotehead)
-                if addAccents and bp1.isaccent:
-                    note.addSymbol('articulation', 'accent')
-                if pitch == unvoicedPitch:
-                    note.setProperty('unvoicedGroup', True)
-                    note.gliss = False
-                else:
-                    note.setPlay(linkednext=True)
-                fragment.append(note)
+        return voice
 
-            last = group[-1]
-            # TODO
-            nextgroup = self.groups[groupidx + 1] if groupidx < lastgroupidx else None
 
-            if last.kind == 'offset' and last.freq:
-                fragment.append(Note(pitchconv.f2m(last.freq) or unvoicedPitch, dur=0, amp=last.amp))
+def transcribeVoice(groups: list[list[Breakpoint]],
+                    scorestruct: ScoreStruct = None,
+                    options: TranscribeOptions | None = None,
+                    ) -> Voice:
+    """
+    Convert a list of breakpoint groups to a maelzel.core.Voice
+
+    Args:
+        groups: a list of groups, where each group is a list of breakpoints
+            representing a note
+        scorestruct: the score structure to use for conversion
+        options: the transcription options (see :class:`maelzel.transcribe.core.TranscribeOptions`)
+
+    Returns:
+        the  resulting maelzel.core Voice
+
+    """
+    from maelzel.core import Note, Voice, getScoreStruct
+    if scorestruct is None:
+        scorestruct = getScoreStruct()
+
+    if options is None:
+        options = TranscribeOptions()
+
+    notes = []
+    lastgroupidx = len(groups) - 1
+    pitchconv = PitchConverter(a4=options.a4)
+    unvoicedPitch = options.unvoicedPitch
+
+    if options.simplify > 0:
+        groups = [simplifyBreakpoints(group, param=options.simplify, pitchconv=pitchconv)
+                  for group in groups]
+
+    if options.maxDensity > 0:
+        groups = [simplifyBreakpointsByDensity(group, maxdensity=options.maxDensity, pitchconv=pitchconv)
+                  for group in groups]
+
+    for groupidx, group in enumerate(groups):
+        fragment = []
+        assert group
+        if len(group) == 1:
+            bp = group[0]
+            assert not bp.voiced
+            notes.append(Note(unvoicedPitch, amp=bp.amp,
+                              offset=scorestruct.timeToBeat(bp.time), dur=bp.duration))
+            continue
+
+        for bp1, bp2 in iterlib.pairwise(group):
+            pitch = pitchconv.f2m(bp1.freq) or unvoicedPitch
+            offset = scorestruct.timeToBeat(bp1.time)
+            end = scorestruct.timeToBeat(bp2.time)
+            note = Note(pitch, amp=bp1.amp, offset=offset, dur=end - offset, gliss=options.addGliss)
+            note.setProperty('voiced', bp1.voiced)
+            if not bp1.voiced and options.unvoicedNotehead:
+                note.addSymbol('notehead', options.unvoicedNotehead)
+            if options.addAccents and bp1.isaccent:
+                note.addSymbol('articulation', 'accent')
+            if pitch == unvoicedPitch:
+                note.setProperty('unvoicedGroup', True)
+                note.gliss = False
             else:
-                fragment[-1].gliss = False
+                note.setPlay(linkednext=True)
+            fragment.append(note)
 
-            if addSlurs and len(fragment) > 1:
-                fragment[0].addSpanner('slur', fragment[-1])
+        last = group[-1]
+        # TODO
+        nextgroup = groups[groupidx + 1] if groupidx < lastgroupidx else None
 
-            notes.extend(fragment)
+        if last.kind == 'offset' and last.freq:
+            fragment.append(Note(pitchconv.f2m(last.freq) or unvoicedPitch, dur=0, amp=last.amp))
+        else:
+            fragment[-1].gliss = False
 
-        for n1, n2 in iterlib.pairwise(notes):
-            if n2.properties and n2.properties.get('unvoicedGroup'):
-                n1.gliss = False
-                n2.gliss = False
+        if options.addSlurs and len(fragment) > 1:
+            fragment[0].addSpanner('slur', fragment[-1])
 
-        # Filter unvoiced groups which are too faint
-        unvoicedMinAmp = db2amp(min(self.percentileToDb(0.05), unvoicedMinAmpDb))
-        notes = [n for n in notes
-                 if not n.getProperty('unvoicedGroup') or n.amp > unvoicedMinAmp]
+        notes.extend(fragment)
 
-        for n in notes:
-            centroid = self.centroid(n.timeRangeSecs()[0])
-            n.setProperty('centroid', int(centroid))
+    for n1, n2 in iterlib.pairwise(notes):
+        if n2.properties and n2.properties.get('unvoicedGroup'):
+            n1.gliss = False
+            n2.gliss = False
 
-        return Voice(notes)
+    # Filter unvoiced groups which are too faint
+    unvoicedMinAmp = db2amp(options.unvoicedMinAmpDb)
+    notes = [n for n in notes
+             if not n.getProperty('unvoicedGroup') or n.amp > unvoicedMinAmp]
+
+    return Voice(notes)
 
 
 # ------------------------------

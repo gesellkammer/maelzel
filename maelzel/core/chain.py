@@ -327,6 +327,13 @@ class Chain(MObj, MContainer):
         pitchRanges = [item.pitchRange() for item in self.items]
         return min(p[0] for p in pitchRanges), max(p[1] for p in pitchRanges)
 
+    def meanPitch(self):
+        items = [item for item in self.items if not item.isRest()]
+        gracenoteDur = F(1, 16)
+        pitches = [item.meanPitch() for item in items]
+        durs = [max(item.dur, gracenoteDur) for item in items]
+        return float(sum(pitch * dur for pitch, dur in zip(pitches, durs)) / sum(durs))
+
     def withExplicitTimes(self, forcecopy=False) -> Chain:
         """
         Copy of self with explicit times
