@@ -145,12 +145,12 @@ def renderScore(score: str, outfile: str = None,
 
 
 def renderLily(lilyfile: str,
-               outfile: str = None,
-               removeHeader: bool = None,
-               book: bool = None,
+               outfile='',
+               removeHeader=False,
+               book=False,
                imageResolution: int = None,
                openWhenFinished=False,
-               lilypondBinary: str = ''
+               lilypondBinary=''
                ) -> Optional[str]:
     """
     Call lilypond to render the given file
@@ -169,14 +169,12 @@ def renderLily(lilyfile: str,
     """
     assert os.path.exists(lilyfile)
     assert imageResolution is None or imageResolution in {150, 200, 300, 600, 1200}
-    if outfile is None:
+    if not outfile:
         outfile = filetools.withExtension(lilyfile, 'pdf')
     fmt = os.path.splitext(outfile)[1][1:]
     assert fmt in ('pdf', 'png', 'ps')
 
-    if fmt == "png" and removeHeader is None and book is None:
-        removeHeader = True
-        book = True
+    logger.debug(f"Rendering lilypond '{lilyfile}' to '{outfile}'")
 
     if removeHeader or book:
         tmply = tempfile.mktemp(suffix=".ly")
@@ -195,10 +193,10 @@ def renderLily(lilyfile: str,
     args.append(lilyfile)
     if shell:
         cmd = " ".join(args)
-        logger.debug("Calling liliypond with shell:", cmd)
+        logger.debug(f"Calling lilypond with shell: {cmd}")
         result = callWithCapturedOutput(cmd, shell)
     else:
-        logger.debug("Calling liliypond subprocess:", args)
+        logger.debug(f"Calling lilypond subprocess: {args}")
         result = callWithCapturedOutput(args, shell)
 
     txt = open(lilyfile).read()

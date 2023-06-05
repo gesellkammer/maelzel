@@ -5,9 +5,21 @@ from functools import cache
 # divisionsByTempo and divisionPenaltyMap
 
 defaultDivisionPenaltyMap = {
-    1:0.0,  2:0.0,  3:0.0,  4:0.02, 5:0.02,
-    6:0.02, 7:0.02, 8:0.02, 9:0.02, 10:0.04,
-    11:0.1, 12:0.1, 13:0.2, 14:0.1, 15:0.1,
+    1:0.0,
+    2:0.0,
+    3:0.0,
+    4:0.02,
+    5:0.02,
+    6:0.02,
+    7:0.02,
+    8:0.02,
+    9:0.04,
+    10:0.04,
+    11:0.1,
+    12:0.1,
+    13:0.2,
+    14:0.1,
+    15:0.1,
     16:0.4,
 }
 
@@ -67,7 +79,7 @@ presets = {
         },
         'divisionPenaltyMap': defaultDivisionPenaltyMap,
         'nestedTuplets': True,
-        'numNestedTupletsPenalty': [0., 0., 0.05, 0.4, 0.5, 0.8],
+        'numNestedTupletsPenalty': [0., 0., 0.03, 0.4, 0.5, 0.8],
         'gridErrorWeight': 1.0,
         'divisionErrorWeight': 0.01,
         'rhythmComplexityWeight': 0.001,

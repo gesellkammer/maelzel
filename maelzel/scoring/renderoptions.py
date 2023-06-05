@@ -62,6 +62,7 @@ class RenderOptions:
     renderFormat: str = ''
 
     cropToContent: bool = False
+    preview: bool = False
     opaque: bool = True
 
     articulationInsideTie: bool = True
@@ -95,6 +96,15 @@ class RenderOptions:
 
     def __post_init__(self):
         self.check()
+
+    def copy(self) -> RenderOptions:
+        """
+        Copy this object
+
+        Returns:
+            a copy of this RenderOptions
+        """
+        return _dataclassreplace(self)
 
     def clone(self, **changes) -> RenderOptions:
         """

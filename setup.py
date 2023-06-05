@@ -62,7 +62,7 @@ setup(
         "emlib>=1.10.2",
         "ctcsound7>=0.3.0",
         "bpf4>=1.8.4",
-        "configdict>=2.6",
+        "configdict>=2.6.2",
         "sndfileio>=1.9.1",
         "numpyx>=1.3.1",
         "csoundengine>=1.21.3",

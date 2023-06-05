@@ -7,7 +7,7 @@ import enum
 import logging
 import numbers as _numbers
 import pitchtools as pt
-from maelzel.common import F, asF
+from maelzel.common import F, asF, F0, F1
 import sys
 
 from typing import NamedTuple, Union
@@ -96,6 +96,18 @@ class TimeSpan(NamedTuple):
         return self.end - self.start
 
 
+
+_durationNames = {
+    1: 'whole',
+    2: 'half',
+    4: 'quarter',
+    8: 'eighth',
+    16: '16th',
+    32: '32nd',
+    64: '64th'
+}
+
+
 @dataclass
 class NotatedDuration:
     """
@@ -111,6 +123,18 @@ class NotatedDuration:
     base: int
     dots: int = 0
     tuplets: list[tuple[int, int]] | None = None
+
+    def timeModification(self) -> F | None:
+        if not self.tuplets:
+            return None
+        timemodif = F(1)
+        for num, den in self.tuplets:
+            timemodif *= F(num, den)
+        return timemodif
+
+    def baseName(self) -> str:
+        return _durationNames[self.base]
+
 
 
 class GLISS(enum.Enum):
