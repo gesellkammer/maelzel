@@ -160,8 +160,28 @@ arrowedPitchNames =  #`(
 pitchnames = \arrowedPitchNames
 #(ly:parser-set-note-names pitchnames)
 
-% The symbols for each alteration
-arrowGlyphs = #`(
+% The glyph-list needs to be loaded into each object that
+%  draws accidentals.
+\layout {
+  \context {
+    \Score
+    % overrides to allow glissandi across systembreaks
+    \override Glissando.breakable = ##t
+    \override Glissando.after-line-breaking = ##t
+
+    % TODO: This could be configurable...
+    \override TextSpanner.dash-period = #1.5
+    \override TextSpanner.dash-fraction = #0.4
+
+    % <score-overrides>
+
+  }
+  \context {
+    \Staff
+    
+    % The glyph-list needs to be loaded into each object that
+    %  draws accidentals.
+    alterationGlyphs = #`(
         ( 1                     . "accidentals.doublesharp")
         (,SEVEN-E-SHARP         . "accidentals.sharp.slashslashslash.stemstem")
         ( 3/4                   . "accidentals.sharp.slashslash.stemstemstem")
@@ -178,33 +198,8 @@ arrowGlyphs = #`(
         (,FLAT-LOWER            . "accidentals.flat.arrowdown")
         (-3/4                   . "accidentals.mirroredflat.flat")
         (,SEVEN-E-FLAT          . "accidentals.flatflat.slash")
-        (-1                     . "accidentals.flatflat")
-)
-
-% The glyph-list needs to be loaded into each object that
-%  draws accidentals.
-\layout {
-  \context {
-    \Score
-    \override KeySignature.glyph-name-alist = \arrowGlyphs
-    \override Accidental.glyph-name-alist = \arrowGlyphs
-    \override AccidentalCautionary.glyph-name-alist = \arrowGlyphs
-    \override TrillPitchAccidental.glyph-name-alist = \arrowGlyphs
-    \override AmbitusAccidental.glyph-name-alist = \arrowGlyphs
-
-    % overrides to allow glissandi across systembreaks
-    \override Glissando.breakable = ##t
-    \override Glissando.after-line-breaking = ##t
-
-    % TODO: This could be configurable...
-    \override TextSpanner.dash-period = #1.5
-    \override TextSpanner.dash-fraction = #0.4
-
-    % <score-overrides>
-
-  }
-  \context {
-    \Staff
+        (-1                     . "accidentals.flatflat"))
+        
     extraNatural = ##f % this is a workaround for bug #1701
   }
 

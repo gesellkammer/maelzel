@@ -26,24 +26,17 @@ class Renderer:
         self.quantizedScore: quant.QuantizedScore = score
         self.struct: ScoreStruct = score[0].struct
         self.options = options
-        self._rendered = False
-
-    def reset(self) -> None:
-        """
-        Resets the current renderer so that a new render is possible
-
-        A Renderer caches its internal representation and last rendered
-        score. This method resets the Renderer to its state after
-        construction
-        """
-        self._rendered = False
+        self._lastrender: str = ''
 
     def __hash__(self) -> int:
         return hash((hash(self.quantizedScore), hash(self.struct), hash(self.options)))
 
-    def render(self) -> None:
+    def render(self, options: RenderOptions = None) -> str:
         """
         Render the quantized score
+
+        Args:
+            options: if given, these options override the own options
 
         .. note::
 
@@ -73,20 +66,6 @@ class Renderer:
         ### TODO
         """
         raise NotImplementedError("This is not implemented yet...")
-
-    def nativeScore(self) -> str:
-        """
-        Returns the string representation of the rendered score
-
-        This will be backend dependent. For a lilypond renderer this would be
-        the actual lilypond score; for a musicxml renderer this would be the
-        xml text, etc.
-
-        Returns:
-            the actual rendered score, as text (in lilypond format, xml format,
-            etc., depending on the backend)
-        """
-        raise NotImplementedError("Please Implement this method")
 
     def show(self, fmt='png', external=None) -> None:
         """

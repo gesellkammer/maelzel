@@ -212,8 +212,8 @@ class Node:
                 # n+G, G+n or G+G
                 out.append(i1 if isinstance(i1, Notation) else i1.mergedNotations(flatten=False))
         if len(out) == 1 and isinstance(out[0], Notation):
-            n = out[0]
-            if n.durRatios and n.durRatios[-1] != F(1):
+            n = out[0].copy()
+            if n.durRatios and n.durRatios[-1] != 1:
                 n.durRatios.pop()
             return Node(ratio=(1, 1), items=[n])
         return Node(ratio=self.durRatio, items=out)

@@ -11,6 +11,7 @@ import textwrap
 import shutil
 from dataclasses import dataclass, field
 import pitchtools as pt
+from functools import cache
 
 import emlib.textlib
 import emlib.filetools
@@ -912,10 +913,12 @@ def makeScore(score: quant.QuantizedScore,
 
     _(f'#(set-global-staff-size {staffSizePoints})')
 
-    if options.cropToContent:
-        _(r'\include "lilypond-book-preamble.ly"')
-        # TODO: add configuration for this
+    if options.preview or options.cropToContent:
         _(lilytools.paperBlock(margin=20, unit="mm"))
+        if options.preview:
+            _(r"#(ly:set-option 'preview #t)")
+        else:
+            _(r"#(ly:set-option 'crop #t)")
     else:
         # We only set the paper size if rendering to pdf
         _(f"#(set-default-paper-size \"{options.pageSize}\" '{options.orientation})")
@@ -928,8 +931,8 @@ def makeScore(score: quant.QuantizedScore,
         \layout {
           \context { 
             \Voice
-            \override Glissando #'thickness = #%d
-            \override Glissando #'gap = #0.05
+            \override Glissando.thickness = #%d
+            \override Glissando.gap = #0.05
           }
         }
         """ % options.glissLineThickness, dedent=True)
@@ -948,8 +951,6 @@ def makeScore(score: quant.QuantizedScore,
     groups = score.groupParts()
     partindex = 0
     for group in groups:
-        if isinstance(group, quant.QuantizedPart):
-            group = [group]
         if len(group) > 1:
             _(r"\new StaffGroup <<", indent=1)
             indents += 1
@@ -979,83 +980,84 @@ class LilypondRenderer(Renderer):
                  score: quant.QuantizedScore,
                  options: RenderOptions):
         super().__init__(score, options=options)
-        self._lilyscore = ''
         self._withMidi = False
+        self._lastrender: str = ''
 
-    def render(self) -> None:
-        if self._rendered:
-            return
-        self._lilyscore = makeScore(self.quantizedScore, options=self.options, midi=self._withMidi)
-        self._rendered = True
+    def render(self, options: RenderOptions = None) -> str:
+        self._lastrender = self._render(options=options if options is not None else self.options)
+        return self._lastrender
+
+    @cache
+    def _render(self, options: RenderOptions) -> str:
+        assert isinstance(options, RenderOptions)
+        return makeScore(self.quantizedScore, options=options, midi=self._withMidi)
 
     def writeFormats(self) -> list[str]:
         return ['pdf', 'ly', 'png']
 
     def write(self, outfile: str, fmt: str = None, removeTemporaryFiles=False) -> None:
         outfile = emlib.filetools.normalizePath(outfile)
-        base, ext = os.path.splitext(outfile)
+        tempbase, ext = os.path.splitext(outfile)
+        options = self.options.copy()
         if fmt is None:
             fmt = ext[1:]
+
+        if not fmt in ('png', 'pdf', 'ly', 'mid'):
+            raise ValueError(f"Format {fmt} unknown. Possible formats: png, pdf, mid, ly")
+
+        # Modify render options according to format, if needed
         if fmt == 'png':
-            if self.options.renderFormat != 'png':
-                self.reset()
-            self.options.cropToContent = True
-            self.options.renderFormat = 'png'
+            options.cropToContent = True
+            options.renderFormat = 'png'
         elif fmt == 'pdf':
-            if self.options.renderFormat != 'pdf':
-                self.reset()
-            self.options.cropToContent = False
-            self.options.renderFormat = 'pdf'
+            options.renderFormat = 'pdf'
         elif fmt == 'mid':
             if not self._withMidi:
-                self._rendered = False
                 self._withMidi = True
-        elif fmt == 'ly':
-            pass
-        else:
-            raise ValueError(f"Format {fmt} unknown. Possible formats: png, pdf, mid, ly")
-        self.render()
-        lilytxt = self._lilyscore
+
+        lilytxt = self.render(options=options)
         tempfiles = []
         lilypondBinary = self.options.lilypondBinary
-        if fmt == 'png' or fmt == 'pdf':
+
+        if fmt == 'ly':
+            open(outfile, "w").write(lilytxt)
+
+        elif fmt == 'png' or fmt == 'pdf':
             lilyfile = tempfile.mktemp(suffix=".ly")
+            tempbase = os.path.splitext(lilyfile)[0]
+            tempout = f"{tempbase}.{fmt}"
             open(lilyfile, "w").write(lilytxt)
-            if fmt != ext[1:]:
-                outfile2 = f"{outfile}.{fmt}"
-                lilytools.renderLily(lilyfile=lilyfile,
-                                     outfile=outfile2,
-                                     imageResolution=self.options.pngResolution,
-                                     lilypondBinary=lilypondBinary)
-                shutil.move(outfile2, outfile)
-            else:
-                lilytools.renderLily(lilyfile=lilyfile,
-                                     outfile=outfile,
-                                     imageResolution=self.options.pngResolution,
-                                     lilypondBinary=lilypondBinary)
+            logger.debug(f"Rendering lilypond '{lilyfile}' to '{tempout}'")
+            lilytools.renderLily(lilyfile=lilyfile,
+                                 outfile=tempout,
+                                 imageResolution=options.pngResolution,
+                                 lilypondBinary=lilypondBinary)
+            if options.preview:
+                previewfile = f"{tempbase}.preview.{fmt}"
+                if os.path.exists(previewfile):
+                    logger.debug(f"Found preview file {previewfile}, using that as output")
+                    tempout = previewfile
+            elif options.cropToContent:
+                cropfile = f"{tempbase}.cropped.{fmt}"
+                if os.path.exists(cropfile):
+                    logger.debug(f"Found crop file {cropfile}, using that as output")
+                    tempout = cropfile
+                else:
+                    logger.debug(f"Asked to generate a crop file, but the file {cropfile} was not found")
+            shutil.move(tempout, outfile)
             tempfiles.append(lilyfile)
+            # Cascade: if preview: base.preview.fmt, if crop: base.crop.fmt else base.fmt
+
         elif fmt == 'mid' or fmt == 'midi':
             lilyfile = tempfile.mktemp(suffix='.ly')
             open(lilyfile, "w").write(lilytxt)
             lilytools.renderLily(lilyfile=lilyfile, lilypondBinary=lilypondBinary)
             midifile = emlib.filetools.withExtension(lilyfile, "midi")
-            assert os.path.exists(midifile), f"Failed to generate MIDI file. Expected path: {midifile}"
-            tempfiles.append(lilyfile)
+            if not os.path.exists(midifile):
+                raise RuntimeError(f"Failed to generate MIDI file. Expected path: {midifile}")
             shutil.move(midifile, outfile)
-        elif fmt == 'ly':
-            open(outfile, "w").write(lilytxt)
-        else:
-            raise ValueError(f"Format should be pdf, png or ly, got {fmt}")
+            tempfiles.append(lilyfile)
+
         if removeTemporaryFiles:
             for f in tempfiles:
                 os.remove(f)
-
-    def nativeScore(self) -> str:
-        """
-        Returns the lilypond score (as text)
-
-        Returns:
-            the string representing the rendered lilypond score
-        """
-        self.render()
-        return self._lilyscore

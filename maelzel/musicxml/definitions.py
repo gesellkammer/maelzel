@@ -1,5 +1,5 @@
 from __future__ import absolute_import
-from typing import List, NamedTuple
+from dataclasses import dataclass
 
 
 STR2CLASS = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 8, 'B': 10}
@@ -190,12 +190,13 @@ MUSICXML_ACCIDENTALS = {
 }
 
 
-class XmlNotehead(NamedTuple):
+@dataclass
+class XmlNotehead:
     shape: str
     filled: bool
 
 
-MUSICXML_NOTEHEADS: List[XmlNotehead] = [
+MUSICXML_NOTEHEADS: list[XmlNotehead] = [
     XmlNotehead("normal", filled=False),
     XmlNotehead("square", filled=False),
     XmlNotehead("diamond", filled=False),
@@ -234,11 +235,6 @@ OCTAVE_TO_LILYPOND_OCTAVE = {
     8:"'''''"
 
 }
-
-
-class Region(NamedTuple):
-    start: float
-    end: float
 
 
 ARTICULATIONS = {

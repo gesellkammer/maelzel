@@ -274,17 +274,15 @@ class CoreConfig(ConfigDict):
     def _ipython_key_completions_(self):
         return self.keys()
 
-    def save(self, path: str = None, header: str = '') -> None:
+    def save(self) -> None:
         """
         Save this config. The saved settings are loaded as default in the next session
 
-        Args:
-            path: dummy arg, only here to conform to the signature of the parent class
-            header: dummy arg, only here to conform to the signature of the parent class
         """
         super().save()
 
     def copy(self) -> CoreConfig:
+        """Create a copy of this config"""
         return CoreConfig(source=self)
 
     def clone(self, updates: dict = None, **kws) -> CoreConfig:
@@ -324,6 +322,16 @@ class CoreConfig(ConfigDict):
         return notation.makeQuantizationProfileFromConfig(self)
 
     def makeEnharmonicOptions(self) -> scoring.enharmonics.EnharmonicOptions:
+        """
+        Create EnharmonicOptions from this config
+
+        The returned object is used within maelzel.scoring.enharmonics to
+        determine the best
+        to
+
+        Returns:
+            a :class:`maelzel.scoring.enharmonics.EnharmonicOptions`
+        """
         from maelzel.core import notation
         return notation.makeEnharmonicOptionsFromConfig(self)
 
@@ -349,6 +357,12 @@ class CoreConfig(ConfigDict):
         workspace.Workspace.active.config = self
 
     def reset(self, save=False) -> None:
+        """
+        Reset this config to its defaults
+
+        Args:
+            save: if true, save the config after resetting
+        """
         super().reset(save=save)
         from maelzel.core.presetmanager import presetManager
         if '_piano' in presetManager.presetdefs:

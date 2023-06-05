@@ -629,13 +629,13 @@ class MObj:
         if fmt is None:
             fmt = 'png' if not external and environment.insideJupyter else cfg['show.format']
         if fmt == 'ly':
-            r = self.render(backend='lilypond', scorestruct=scorestruct)
+            renderer = self.render(backend='lilypond', scorestruct=scorestruct)
             if external:
                 lyfile = _tempfile.mktemp(suffix=".ly")
-                r.write(lyfile)
+                renderer.write(lyfile)
                 emlib.misc.open_with_app(lyfile)
             else:
-                _util.showLilypondScore(r.nativeScore())
+                _util.showLilypondScore(renderer.render())
         else:
             img = self._renderImage(backend=backend, fmt=fmt, scorestruct=scorestruct,
                                     config=cfg)
