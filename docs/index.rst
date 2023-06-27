@@ -23,7 +23,6 @@ Quick Start
 There are **external dependencies** which need to be installed manually:
 
 * **csound** >= 6.18. (https://csound.com/download.html).
-* **lilypond** (https://lilypond.org/download.html)
 
 For more information see :doc:`Installation`
 

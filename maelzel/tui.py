@@ -5,16 +5,24 @@ This package provides utilities for generating simple output / user interfaces f
 for the terminal
 """
 from __future__ import annotations
+
+import textwrap
+
 import rich.panel
 import rich.console
 
 
-def panel(text: str, title: str = None, width:int = None, padding=(0, 1),
-          bordercolor: str = None, margin=(0, 0)) -> None:
+def panel(text: str, title: str = None, subtitle: str = None,
+          width: int = None, padding=(0, 1), titlealign='center',
+          bordercolor: str = None, margin=(0, 0), dedent=True
+    ) -> None:
     console = rich.console.Console()
     style = bordercolor or "none"
+    if dedent:
+        text = textwrap.dedent(text)
     p = rich.panel.Panel.fit(text, title=title, width=width, border_style=style,
-                             padding=padding)
+                             padding=padding, subtitle=subtitle,
+                             title_align=titlealign)
     margintop = 0
     marginbottom = 0
     if margin:

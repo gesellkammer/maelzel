@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Callable
     import maelzel.core
+    import maelzel.core.symbols
 
 __all__ = (
     'Notation',
@@ -35,6 +36,7 @@ __all__ = (
 
 
 _UNSET = object()
+_EMPTYLIST = []
 
 
 class Notation:
@@ -194,7 +196,8 @@ class Notation:
             assert self.duration > 0
             assert not self.pitches or (len(self.pitches) == 1 and self.pitches[0] == 0)
         else:
-            assert self.pitches and all(p > 0 for p in self.pitches)
+            if not self.pitches or any(p <= 0 for p in self.pitches):
+                raise ValueError(f"Invalid pitches: {self.pitches}")
             for i, n in enumerate(pitches):
                 if isinstance(n, str):
                     self.fixNotename(n, i)
@@ -243,7 +246,7 @@ class Notation:
             attachments = [a for a in attachments if predicate(a)]
 
         if anchor is not _UNSET:
-            attachments = [a for a in attachments if a.anchor == anchor]
+            attachments = [a for a in attachments if a.anchor == anchor or a.anchor is None]
 
         return attachments
 
@@ -280,7 +283,7 @@ class Notation:
 
         .. note::
             Some kinds of attachments are **exclusive**. Adding an exclusive
-            attachment (like a fermata) will remove any previous such attachment.
+            attachment (like a certain text) will remove any previous such attachment.
 
         Args:
             attachment: an instance of scoring.attachment.Attachment
@@ -292,11 +295,19 @@ class Notation:
         assert self.attachments is not None
         # if self.attachments is None:
         #     self.attachments = []
-        if False and attachment.exclusive:
+        if attachment.exclusive:
+            # An exclusive attachment is exclusive at the class level (like a Harmonic or an ornament)
             cls = type(attachment)
             if any(isinstance(a, cls) for a in self.attachments):
+                logger.debug(f"An attachment of class {cls} already present in this notation, "
+                             f"replacing the old one by the new one ({attachment})")
                 self.attachments = [a for a in self.attachments
                                     if not isinstance(a, cls)]
+        else:
+            if attachment in self.attachments:
+                logger.warning(f"Attachment {attachment} already present in this notation ({self})")
+                return self
+
         if attachment.anchor is not None:
             assert 0 <= attachment.anchor < len(self.pitches)
         self.attachments.append(attachment)
@@ -341,7 +352,22 @@ class Notation:
             else:
                 self.noteheads[i] = notehead.copy()
 
-    def addArticulation(self, articulation: str | Articulation) -> Notation:
+    def getNotehead(self, index=0) -> definitions.Notehead | None:
+        """
+        Get a Notehead by index
+
+        Args:
+            index: the notehead index. This corresponds to the pitch index in self.pitches
+
+        Returns:
+            the Notehead or None if not defined
+
+        """
+        if not self.noteheads:
+            return None
+        return self.noteheads.get(index)
+
+    def addArticulation(self, articulation: str | Articulation, color='', placement='') -> Notation:
         """
         Add an articulation to this Notation.
 
@@ -361,7 +387,14 @@ class Notation:
             if not articulation:
                 raise ValueError(f"Articulation {articulation} unknown. "
                                  f"Possible values: {definitions.articulations}")
-            articulation = Articulation(articulation)
+            articulation = Articulation(articulation, color=color, placement=placement)
+        else:
+            if color or placement:
+                articulation = articulation.copy()
+                if color:
+                    articulation.color = color
+                if placement:
+                    articulation.placement = placement
         assert isinstance(articulation, Articulation)
         return self.addAttachment(articulation)
 
@@ -415,9 +448,38 @@ class Notation:
         self.spanners.append(spanner)
         # self.spanners.sort(key=lambda spanner: spanner.priority())
         if end:
-            end.addSpanner(spanner.endSpanner())
+            end.addSpanner(spanner.makeEndSpanner())
         self.spanners.sort(key=lambda spanner: spanner.priority())
         return self
+
+    def resolveHarmonic(self, removeAttachment=False) -> Notation:
+        """
+        Realize an artificial harmonic as a chord with the corresponding noteheads
+
+        Returns:
+            the modified Notation. This returned Notation will be a chord
+        """
+        harmonic = next((a for a in self.attachments if isinstance(a, Harmonic)), None)
+        if not harmonic:
+            return self
+        if harmonic.interval == 0:
+            n = self.copy()
+            n.setNotehead('harmonic')
+            n.attachments.remove(harmonic)
+        elif len(self.pitches) > 1:
+            logger.error(f"Cannot set a chord as artificial harmonic for notation {self}")
+            return self
+        else:
+            fund = self.notename(0)
+            touched = pt.transpose(fund, harmonic.interval)
+            n = self.clone(pitches=(fund, touched))
+            n.fixNotename(touched, idx=1)
+            n.setNotehead('harmonic', idx=1)
+
+        if removeAttachment:
+            n.attachments = [a for a in n.attachments if not isinstance(a, Harmonic)]
+        return n
+
 
     def transferSpanner(self, spanner: _spanner.Spanner, other: Notation):
         """Move the given spanner to another Notation
@@ -440,7 +502,10 @@ class Notation:
         """
         if not self.spanners:
             raise ValueError(f"spanner {spanner} not found in notation {self}")
+        if spanner.parent and spanner.parent is not self:
+            logger.error(f"This spanner {spanner} has a different parent! parent={spanner.parent}, self={self}")
         try:
+            spanner.parent = None
             self.spanners.remove(spanner)
         except ValueError:
             raise ValueError(f"Cannot remove {spanner} from {self}: spanner not found. Spanners: {self.spanners}")
@@ -612,6 +677,42 @@ class Notation:
         """
         return self.__copy__()
 
+    def cloneAsPart(self,
+                    duration: F = None,
+                    tiedPrev=False,
+                    tiedNext=False,
+                    gliss: bool = None,
+                    offset: F | None = None,
+                    ) -> Notation:
+        """
+        Clone self so that the cloned Notation can be used as a part of self
+
+        This is used when a notation is split across a measure or a beam
+        or within a tuplet
+
+        Returns:
+            The cloned Notation
+        """
+        if self.isRest:
+            return Notation(isRest=True,
+                            pitches=None,
+                            offset=offset if offset is not None else self.offset,
+                            duration=duration if duration is not None else self.duration)
+
+        out = Notation(pitches=self.pitches,
+                       offset=offset if offset is not None else self.offset,
+                       duration=duration if duration is not None else self.duration,
+                       tiedPrev=tiedPrev,
+                       tiedNext=tiedNext,
+                       dynamic='',
+                       gliss=gliss,
+                       color=self.color,
+                       stem=self.stem)
+        for attach in self.attachments:
+            if attach.copyToSplitNotation:
+                out.addAttachment(attach)
+        return out
+
     def __deepcopy__(self, memo=None):
         return self.__copy__()
 
@@ -678,14 +779,15 @@ class Notation:
         # Remove superfluous dynamic/articulation
         for part in parts[1:]:
             part.dynamic = ''
-            # part.removeAttachments(lambda item: isinstance(item, (attachment.Articulation, attachment.Text)))
             if part.spanners:
                 part.spanners.clear()
+            if part.attachments:
+                part.attachments.clear()
 
-        if not self.isRest:
-            tieNotationParts(parts)
-            parts[0].tiedPrev = self.tiedPrev
-            parts[-1].tiedNext = self.tiedNext
+        # if not self.isRest:
+        tieNotationParts(parts)
+        parts[0].tiedPrev = self.tiedPrev
+        parts[-1].tiedNext = self.tiedNext
 
         assert sum(part.duration for part in parts) == self.duration
         assert parts[0].offset == self.offset
@@ -763,6 +865,9 @@ class Notation:
         Returns:
             the notenames of each pitch in this Notation
         """
+        if self.isRest:
+            return _EMPTYLIST
+
         out = []
         for i, p in enumerate(self.pitches):
             notename = self.getFixedNotename(i)
@@ -807,9 +912,12 @@ class Notation:
                 text: str | Text,
                 placement='above',
                 fontsize: int | float = None,
-                fontstyle: str = None,
+                italic=False,
+                weight='normal',
+                fontfamily='',
                 box: str | bool = False,
-                exclusive=False
+                exclusive=False,
+                role=''
                 ) -> None:
         """
         Add a text annotation to this Notation.
@@ -832,8 +940,14 @@ class Notation:
             annotation = text
         else:
             assert not text.isspace()
-            annotation = Text(text=text, placement=placement, fontsize=fontsize,
-                              fontstyle=fontstyle, box=box)
+            annotation = Text(text=text,
+                              placement=placement,
+                              fontsize=fontsize,
+                              fontfamily=fontfamily,
+                              italic=italic,
+                              weight=weight,
+                              box=box,
+                              role=role)
         if exclusive and self.attachments:
             for attach in self.attachments:
                 if attach == annotation:
@@ -879,14 +993,27 @@ class Notation:
                 assert key in self._privateKeys, f"Key {key} unknown. Possible private keys: {self._privateKeys}"
             self.properties[key] = value
 
-    def getProperty(self, key: str, default=None) -> Any:
+    def getProperty(self, key: str, default=None, setdefault=None) -> Any:
         """
-        Get the value of a property. If the key is not found, return ``default``
+        Get the value of a property.
+
+        Args:
+            key: the key to query
+            setdefault: if given, sets properties[key] = value if not already set
+            default: like setdefault but never modifies the actual properties
+
+        Returns:
+            the value of the given property, or a fallback value
         """
         if not self.properties:
+            if setdefault is not None:
+                self.setProperty(key, setdefault)
+                return setdefault
             return default
         if key.startswith('.'):
             assert key in self._privateKeys, f"Key {key} unknown. Possible private keys: {self._privateKeys}"
+        if setdefault:
+            return self.properties.setdefault(key, setdefault)
         return self.properties.get(key, default)
 
     def setClefHint(self, clef: str, idx: int = None) -> None:
@@ -1306,33 +1433,60 @@ def notationsToCoreEvents(notations: list[Notation]
     for n in notations:
         assert isinstance(n, Notation), f"Expected a Notation, got {n}\n{notations=}"
         if n.isRest:
-            out.append(Rest(n.duration, offset=n.offset))
-        elif len(n.pitches) == 1:
-            # note
-            pitch = n.getFixedNotename(0) or n.pitches[0]
-            note = Note(pitch=pitch,
-                        dur=n.duration,
-                        offset=n.offset,
-                        dynamic=n.dynamic,
-                        tied=n.tiedNext,
-                        fixed=isinstance(pitch, str),
-                        gliss=n.gliss,
-                        properties=n.properties)
-            # TODO: add attachments, etc.
-            out.append(note)
+            out.append(Rest(n.duration))
         else:
-            # chord
-            notenames = [n.getFixedNotename(i) or n.pitches[i]
-                         for i in range(len(n))]
-            chord = Chord(notes=notenames,
-                          dur=n.duration,
-                          offset=n.offset,
-                          dynamic=n.dynamic,
-                          tied=n.tiedNext,
-                          gliss=n.gliss,
-                          properties=n.properties)
-            out.append(chord)
+            if len(n.pitches) == 1:
+                # note
+                pitch = n.getFixedNotename(0) or n.pitches[0]
+                event = Note(pitch=pitch,
+                             dur=n.duration,
+                             dynamic=n.dynamic,
+                             tied=n.tiedNext,
+                             fixed=isinstance(pitch, str),
+                             gliss=n.gliss,
+                             properties=n.properties,
+                             )
+                # TODO: add attachments, etc.
+            else:
+                # chord
+                notenames = [n.getFixedNotename(i) or n.pitches[i]
+                             for i in range(len(n))]
+                event = Chord(notes=notenames,
+                              dur=n.duration,
+                              # offset=n.offset,
+                              dynamic=n.dynamic,
+                              tied=n.tiedNext,
+                              gliss=n.gliss,
+                              properties=n.properties)
+            _transferAttachments(n, event)
+            out.append(event)
     return out
+
+
+def _transferAttachments(n: Notation, event: maelzel.core.MEvent) -> None:
+    from maelzel.core import symbols
+    for attach in n.attachments:
+        if isinstance(attach, Articulation):
+            symbol = symbols.Articulation(attach.kind, placement=attach.placement,
+                                          color=attach.color)
+            event.addSymbol(symbol)
+        elif isinstance(attach, Fermata):
+            event.addSymbol(symbols.Fermata(kind=attach.kind))
+        elif isinstance(attach, Harmonic):
+            event.addSymbol(symbols.Harmonic(kind=attach.kind, interval=attach.interval))
+        else:
+            print(f"TODO: implemenet transfer for {attach}")
+
+    if n.spanners:
+        for spanner in n.spanners:
+            logger.debug(f"Processing spanner {spanner}")
+            if isinstance(spanner, _spanner.Slur):
+                event.addSpanner(symbols.Slur(kind=spanner.kind, uuid=spanner.uuid))
+            elif isinstance(spanner, _spanner.Hairpin):
+                event.addSpanner(symbols.Hairpin(direction=spanner.direction, uuid=spanner.uuid,
+                                                 kind=spanner.kind))
+            else:
+                print(f"TODO: implement transfer for {spanner}")
 
 
 def durationsCanMerge(n0: Notation, n1: Notation) -> bool:

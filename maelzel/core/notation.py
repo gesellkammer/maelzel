@@ -4,6 +4,7 @@ Functionality to interface with `maelzel.scoring`
 """
 from __future__ import annotations
 # from ._common import *
+from maelzel import textstyle
 from .config import CoreConfig
 from .workspace import getConfig, getWorkspace
 from dataclasses import dataclass
@@ -32,28 +33,6 @@ def makeEnharmonicOptionsFromConfig(cfg: CoreConfig) -> scoring.enharmonics.Enha
     return renderoptions.makeEnharmonicOptions()
 
 
-@dataclass
-class AnnotationStyle:
-    fontsize: float | None = None
-    box: str = ''
-
-    def __post_init__(self):
-        if self.box:
-            assert self.box in ('square',)
-
-
-def _parseAnnotationStyle(style: str, fontsize=12.) -> AnnotationStyle:
-    parts = style.split(';')
-    box = ''
-    for part in parts:
-        key, value = part.split('=')
-        if key == 'box':
-            box = value.strip()
-        elif key == 'fontsize':
-            fontsize = float(value)
-    return AnnotationStyle(box=box, fontsize=fontsize)
-
-
 def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
                                 ) -> scoring.render.RenderOptions:
     """
@@ -69,32 +48,36 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
     if cfg is None:
         cfg = getConfig()
 
-    measureAnnotationStyle = _parseAnnotationStyle(cfg['show.measureAnnotationStyle'])
+    centsAnnotationStyle = textstyle.parseTextStyle(cfg['show.centsAnnotationStyle'])
 
     renderOptions = scoring.render.RenderOptions(
-        staffSize=cfg['show.staffSize'],
+        centsAnnotationFontsize=centsAnnotationStyle.fontsize or 8,
+        centsAnnotationPlacement=centsAnnotationStyle.placement or 'above',
         divsPerSemitone=cfg['semitoneDivisions'],
-        showCents=cfg['show.centsDeviationAsTextAnnotation'],
-        centsFontSize=cfg['show.centsAnnotationFontSize'],
-        noteAnnotationsFontSize=cfg['show.labelFontSize'],
-        pageSize=cfg['show.pageSize'],
-        orientation=cfg['show.pageOrientation'],
-        pageMarginMillimeters=cfg['show.pageMarginMillimeters'],
-        measureAnnotationFontSize=measureAnnotationStyle.fontsize,
-        measureAnnotationBox=measureAnnotationStyle.box,
-        respellPitches=cfg['show.respellPitches'],
-        glissLineThickness=cfg['show.glissLineThickness'],
-        lilypondPngStaffsizeScale=cfg['show.lilypondPngStaffsizeScale'],
-        lilypondGlissandoMinimumLength=cfg['show.lilypondGlissandoMinimumLength'],
-        glissHideTiedNotes=cfg['show.glissHideTiedNotes'],
-        renderFormat=cfg['show.format'],
-        pngResolution=cfg['show.pngResolution'],
-        horizontalSpacing=cfg['show.horizontalSpacing'],
         enharmonicDebug=cfg['enharmonic.debug'],
         enharmonicHorizontalWeight=cfg['enharmonic.horizontalWeight'],
-        enharmonicVerticalWeight=cfg['enharmonic.verticalWeight'],
         enharmonicThreeQuarterMicrotonePenalty=cfg['enharmonic.threeQuarterMicrotonePenalty'],
-        lilypondBinary=cfg['lilypondpath']
+        enharmonicVerticalWeight=cfg['enharmonic.verticalWeight'],
+        glissLineThickness=cfg['show.glissLineThickness'],
+        glissHideTiedNotes=cfg['show.glissHideTiedNotes'],
+        glissLineType=cfg['show.glissLineType'],
+        horizontalSpacing=cfg['show.horizontalSpacing'],
+        lilypondBinary=cfg['lilypondpath'],
+        lilypondGlissandoMinimumLength=cfg['show.lilypondGlissandoMinimumLength'],
+        lilypondPngStaffsizeScale=cfg['show.lilypondPngStaffsizeScale'],
+        measureAnnotationStyle=cfg['show.measureAnnotationStyle'],
+        musescoreBinary=cfg['musescorepath'],
+        noteLabelStyle=cfg['show.labelStyle'],
+        orientation=cfg['show.pageOrientation'],
+        pageMarginMillimeters=cfg['show.pageMarginMillimeters'],
+        pageSize=cfg['show.pageSize'],
+        pngResolution=cfg['show.pngResolution'],
+        rehearsalMarkStyle=cfg['show.rehearsalMarkStyle'],
+        renderFormat=cfg['show.format'],
+        respellPitches=cfg['show.respellPitches'],
+        showCents=cfg['show.centsDeviationAsTextAnnotation'],
+        staffSize=cfg['show.staffSize'],
+        referenceStaffsize=cfg['show.referenceStaffsize']
     )
     return renderOptions
 
@@ -112,8 +95,16 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig = None
     """
     if cfg is None:
         cfg = getConfig()
+
+    nestedTuplets = cfg['quant.nestedTuplets']
+    if nestedTuplets is None:
+        if cfg['show.backend'] == 'musicxml':
+            nestedTuplets = cfg['quant.nestedTupletsInMusicxml']
+        else:
+            nestedTuplets = True
+
     profile = scoring.quant.QuantizationProfile.fromPreset(complexity=cfg['quant.complexity'],
-                                                           nestedTuplets=cfg['quant.nestedTuplets'])
+                                                           nestedTuplets=nestedTuplets)
     profile.debug = cfg['quant.debug']
     profile.debugMaxDivisions = cfg['quant.debugShowNumRows']
 
@@ -157,6 +148,8 @@ def renderWithActiveWorkspace(parts: list[scoring.Part],
     workspace = getWorkspace()
     if not config:
         config = workspace.config
+    if backend != config['show.backend']:
+        config = config.clone({'show.backend': backend})
     if not renderoptions:
         renderoptions = config.makeRenderOptions()
     if not quantizationProfile:

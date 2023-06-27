@@ -13,7 +13,7 @@ the same::
 There are some **external dependencies** which need to be installed manually:
 
 * **csound** >= 6.17. (https://csound.com/download.html).
-* **lilypond** (https://lilypond.org/download.html)
+* **lilypond** (https://lilypond.org/download.html).
 
 ----------------
 
@@ -31,6 +31,7 @@ MacOS
     At the moment the recommended method to install *lilypond* is via *homebrew*:
     ``brew install lilypond``. This will install the last version for your platform
     (both intel and arm64 architectures are supported) and add it to your ``PATH``.
+    See also: https://formulae.brew.sh/formula/lilypond
 
     For more information visit http://lilypond.org
 
@@ -44,6 +45,8 @@ Windows
     of setting up the ``PATH`` and setup csound so that it can be found by *maelzel*
 
 **Install lilypond**
+    **This is currently not needed**. Lilyond is installed automatically. These instructions are here only for reference
+
     1. Download https://gitlab.com/lilypond/lilypond/-/releases/v2.24.1/downloads/lilypond-2.24.1-mingw-x86_64.zip.
     2. Unzip it and place the folder ``lilypond-2.X.Y`` in ``C:\Program Files``.
     3. Add the path ``C:\Program Files\lilypond-2.X.Y\bin`` to your ``PATH`` environmental
@@ -80,6 +83,7 @@ However it is highly recommended to install csound from sources (see also the
     cmake --build . --parallel
     sudo cmake --install .
     sudo ldconfig
+
 
 **lilypond**: install from official repositories::
 

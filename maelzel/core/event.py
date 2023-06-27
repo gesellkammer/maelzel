@@ -69,6 +69,25 @@ class MEvent(MObj):
     """
     _acceptsNoteAttachedSymbols = True
 
+    __slots__ = ('tied', 'amp')
+
+    def __init__(self,
+                 dur: F,
+                 offset: F = None,
+                 amp: float | None = None,
+                 parent: MObj = None,
+                 properties: dict[str, Any] = None,
+                 symbols: list[_symbols.Symbol] = None,
+                 label='',
+                 tied=False):
+        super().__init__(dur=dur, offset=offset, label=label, parent=parent,
+                         properties=properties, symbols=symbols)
+        self.tied = tied
+        """Is this event tied?"""
+
+        self.amp = amp
+        "The playback amplitude 0-1 of this note"
+
     @property
     def gliss(self):
         """The end target of this event, if any"""
@@ -144,6 +163,9 @@ class MEvent(MObj):
             the parts. The total duration of the parts should sum up to the
             duration of self
         """
+        if not offsets:
+            raise ValueError("No offsets given")
+
         offset = self.absoluteOffset() if absolute else self.resolveOffset()
         dur = self.dur
         intervals = mathlib.split_interval_at_values(offset, offset + dur, offsets)
@@ -282,7 +304,7 @@ class Note(MEvent):
 
     """
 
-    __slots__ = ('pitch', 'amp', '_gliss', 'tied', 'dynamic', 'pitchSpelling')
+    __slots__ = ('pitch', '_gliss', 'dynamic', 'pitchSpelling')
 
     def __init__(self,
                  pitch: pitch_t,
@@ -330,7 +352,11 @@ class Note(MEvent):
                 if pitch == 'rest' or pitch == 'r':
                     pitch, amp = 0, 0
                 else:
-                    pitch, tied, fixed = _util.parsePitch(pitch)
+                    pitch, _tied, _fixed = _util.parsePitch(pitch)
+                    if _tied:
+                        tied = _tied
+                    if _fixed:
+                        fixed = _fixed
                     if pitch.endswith('hz'):
                         pitchSpelling = ''
                     else:
@@ -363,12 +389,7 @@ class Note(MEvent):
         self.pitch: float = pitch
         "The pitch of this note"
 
-        self.amp: float | None = amp
-        "The playback amplitude 0-1 of this note"
-
         self._gliss: float | bool = gliss
-        self.tied = tied
-        "Is this note tied?"
 
         self.dynamic: str | None = dynamic
         "A dynamic. If given and no amp was set, its value will inform the playback"
@@ -377,11 +398,11 @@ class Note(MEvent):
         "The pitch representation of this Note. Can be different from the sounding pitch"
 
         super().__init__(dur=dur, offset=offset, label=label, properties=properties,
-                         symbols=symbols)
+                         symbols=symbols, tied=tied, amp=amp)
         assert self.dur is None or self.dur >= 0
 
     @staticmethod
-    def makeRest(dur: time_t, offset: time_t = None, label: str = '', dynamic='') -> Note:
+    def makeRest(dur: time_t | str, offset: time_t = None, label: str = '', dynamic='') -> Note:
         """
         Static method to create a Rest
 
@@ -397,10 +418,11 @@ class Note(MEvent):
             the Note object representing the rest
 
         """
+        dur = asF(dur)
         assert dur and dur > 0
         if offset:
             offset = asF(offset)
-        return Note(pitch=0, dur=asF(dur), offset=offset, amp=0, label=label,
+        return Note(pitch=0, dur=dur, offset=offset, amp=0, label=label,
                     dynamic=dynamic, _init=False)
 
     def transpose(self, interval: float, inplace=False) -> Note:
@@ -493,8 +515,8 @@ class Note(MEvent):
         return not self.isRest() and self.dur == 0
 
     @property
-    def gliss(self) -> float | None:
-        """the end pitch (as midinote), or None"""
+    def gliss(self) -> float | bool | None:
+        """the end pitch (as midinote), True if the gliss extends to the next note, or None"""
         return self._gliss
 
     @gliss.setter
@@ -504,14 +526,10 @@ class Note(MEvent):
         """
         self._gliss = gliss if isinstance(gliss, bool) else _util.asmidi(gliss)
 
-    def __eq__(self, other) -> bool:
-        if isinstance(other, Note):
-            return hash(self) == hash(other)
-            # return self.pitch == other.pitch
-        elif isinstance(other, str):
-            return self.pitch == pt.str2midi(other)
-        else:
-            return self.pitch == other
+    def __eq__(self, other: Note) -> bool:
+        if not isinstance(other, Note):
+            raise TypeError("A Note can only be compared to another note")
+        return hash(self) == hash(other)
 
     def copy(self) -> Note:
         out = Note(self.pitch, dur=self.dur, amp=self.amp, gliss=self._gliss, tied=self.tied,
@@ -696,7 +714,7 @@ class Note(MEvent):
         if self.isRest():
             rest = scoring.makeRest(dur, offset=offset, dynamic=self.dynamic)
             if self.label:
-                rest.addText(self._scoringAnnotation(config=config))
+                rest.addText(self.label, role='label')
             if self.symbols:
                 for symbol in self.symbols:
                     if symbol.appliesToRests:
@@ -715,7 +733,7 @@ class Note(MEvent):
 
         if self.tied:
             notation.tiedNext = True
-            assert not self.gliss
+            # assert not self.gliss
 
         notes = [notation]
         if self.gliss and not isinstance(self.gliss, bool):
@@ -876,9 +894,9 @@ class Note(MEvent):
         """
         if not self.gliss:
             raise ValueError("This Note does not have a glissando")
-        elif not isinstance(self.gliss, bool):
+        elif not isinstance(self._gliss, bool):
             # .gliss is already a pitch, return that
-            return self.gliss
+            return self._gliss
         elif self.properties and (target := self.properties.get('.glisstarget')) is not None:
             return target
         elif not self.parent:
@@ -937,7 +955,7 @@ class Note(MEvent):
         return out
 
 
-def Rest(dur: time_t, offset: time_t = None, label='', dynamic: str = None) -> Note:
+def Rest(dur: time_t | str, offset: time_t = None, label='', dynamic: str = None) -> Note:
     """
     Creates a Rest.
 
@@ -1003,7 +1021,7 @@ class Chord(MEvent):
         tied: is this Chord tied to another Chord?
     """
 
-    __slots__ = ('amp', 'gliss', 'notes', 'tied', 'dynamic', '_notatedPitches')
+    __slots__ = ('gliss', 'notes', 'dynamic', '_notatedPitches')
 
     def __init__(self,
                  notes: str | list[Note | int | float | str],
@@ -1049,10 +1067,7 @@ class Chord(MEvent):
             super().__init__(dur=dur, offset=None, label=label)
             return
 
-        super().__init__(dur=dur, offset=offset, label=label, properties=properties)
 
-        if dur == 0:
-            self._markAsGracenote()
 
         # notes might be: Chord([n1, n2, ...]) or Chord("4c 4e 4g", ...)
         if isinstance(notes, str):
@@ -1083,9 +1098,13 @@ class Chord(MEvent):
                 assert len(gliss) == len(notes), (f"The destination chord of the gliss should have "
                                                   f"the same length as the chord itself, "
                                                   f"{notes=}, {gliss=}")
+
+        super().__init__(dur=dur, offset=offset, label=label, properties=properties,
+                         tied=tied, amp=amp)
+        if dur == 0:
+            self._markAsGracenote()
         self.notes: list[Note] = notes
         self.gliss: bool | list[float] = gliss
-        self.tied: bool = tied
         self.dynamic: str = dynamic
 
     def copy(self):

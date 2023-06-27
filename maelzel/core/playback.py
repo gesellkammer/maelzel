@@ -82,25 +82,40 @@ class RealtimeRenderer(Renderer):
     def releaseBus(self, busnum: int):
         self.engine.releaseBus(busnum)
 
-    def registerPreset(self, presetdef: PresetDef) -> None:
+    def registerPreset(self, presetdef: PresetDef) -> bool:
         instr = presetdef.getInstr()
         # The Session itself caches instrs and checks definitions
         isnew = self.session.registerInstr(instr)
         if isnew:
-            logger.debug("*********** Session registered new instr: ", instr.name)
+            logger.debug(f"*********** Session registered new instr: '{instr.name}'")
         self.registeredPresets[presetdef.name] = presetdef
+        return isnew
 
     def getInstr(self, instrname: str) -> csoundengine.instr.Instr | None:
         return self.session.getInstr(instrname)
 
-    def prepareInstr(self, instr: csoundengine.instr.Instr, priority: int):
-        instrname = instr.name
-        # TODO
-        self.session.prepareSched(instrname, priority=priority)
+    def prepareInstr(self, instr: str | csoundengine.instr.Instr, priority: int
+                     ) -> bool:
+        """
+        Prepare the given Instr for scheduling at the given priority
 
-    def prepareSessionEvent(self, sessionevent: csoundengine.session.SessionEvent):
-        self.session.prepareSched(instrname=sessionevent.instrname,
-                                  priority=sessionevent.priority)
+        Args:
+            instr: the Instr or the instr name
+            priority: the priority to schedule the instr at
+
+        Returns:
+            True if the audio engine needs sync
+
+        """
+        reifiedinstr, needssync = self.session.prepareSched(instr.name, priority=priority)
+        return needssync
+
+    def prepareSessionEvent(self, sessionevent: csoundengine.session.SessionEvent
+                            ) -> bool:
+
+        _, needssync = self.session.prepareSched(instrname=sessionevent.instrname,
+                                                 priority=sessionevent.priority)
+        return needssync
 
     def schedSessionEvent(self, event: csoundengine.session.SessionEvent
                           ) -> csoundengine.synth.Synth:
@@ -112,6 +127,7 @@ class RealtimeRenderer(Renderer):
                                   priority=event.priority,
                                   args=event.args,
                                   tabargs=event.tabargs,
+                                  syncifneeded=True,
                                   **kws)
 
     def schedEvent(self, event: SynthEvent) -> csoundengine.synth.Synth:
@@ -153,12 +169,15 @@ class RealtimeRenderer(Renderer):
                                   priority=priority,
                                   whenfinished=whenfinished)
 
+    def sync(self):
+        self.engine.sync()
+
     def pushLock(self):
         """Lock the sound engine's clock, to schedule a number of synths in sync.
 
         This is mostly used internally
         """
-        self.engine.sync()
+        # self.engine.sync()
         self.engine.pushLock()
 
     def popLock(self):
@@ -1334,15 +1353,7 @@ def _schedFlatEvents(renderer: Renderer,
                      whenfinished: Callable = None,
                      ) -> list[csoundengine.synth.Synth]:
 
-    for coreevent in coreevents:
-        renderer.prepareEvent(coreevent)
-
-    if sessionevents:
-        for sessionevent in sessionevents:
-            instr = renderer.getInstr(sessionevent.instrname)
-            if instr is None:
-                raise ValueError(f"Instrument {sessionevent.instrname} is not defined")
-            renderer.prepareInstr(instr, priority=sessionevent.priority)
+    needssync = renderer.prepareEvents(events=coreevents, sessionevents=sessionevents)
 
     synths = []
 
@@ -1356,7 +1367,11 @@ def _schedFlatEvents(renderer: Renderer,
     # We take a reference time before starting scheduling,
     # so we can guarantee that events which are supposed to be
     # in sync, are in fact in sync.
+    if needssync:
+        renderer.sync()
+
     renderer.pushLock()
+
     for coreevent, args in zip(coreevents, resolvedArgs):
         instr = presetManager.presetnameToInstr(coreevent.instr)
         synth = renderer.sched(instr.name,

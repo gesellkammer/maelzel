@@ -7,6 +7,7 @@ import tempfile
 from maelzel.scorestruct import ScoreStruct
 from maelzel.scoring.renderoptions import RenderOptions
 from maelzel.scoring import quant
+from maelzel.scoring.config import config
 
 import emlib.img
 import emlib.misc
@@ -51,8 +52,18 @@ class Renderer:
         """
         raise NotImplementedError("Please Implement this method")
 
-    def write(self, outfile: str) -> None:
-        """Write the rendered score to a file"""
+    def write(self, outfile: str, fmt: str = None, removeTemporaryFiles=False) -> None:
+        """
+        Write the rendered score to a file
+
+        Args:
+            outfile: the path to the written file
+            fmt: if given, this will be used as format for the output, independent
+                of the extension used in outfile. The possible values depend on the
+                formats supported by this Renderer (see :meth:`Renderer.writeFormats`)
+            removeTemporaryFiles: if True, removes any temporary files generated during
+                the rendering/writing process
+        """
         raise NotImplementedError("Please Implement this method")
 
     def musicxml(self) -> str | None:
@@ -65,7 +76,7 @@ class Renderer:
 
         ### TODO
         """
-        raise NotImplementedError("This is not implemented yet...")
+        return None
 
     def show(self, fmt='png', external=None) -> None:
         """
@@ -90,9 +101,11 @@ class Renderer:
             emlib.misc.open_with_app(outfile)
 
     def _repr_html_(self) -> str:
+        scale = config['pngScale']
         pngfile = tempfile.mktemp(suffix=".png", prefix="render-")
         self.write(pngfile)
-        img = emlib.img.htmlImgBase64(pngfile, removeAlpha=True)
+        w, h = emlib.img.imgSize(pngfile)
+        img = emlib.img.htmlImgBase64(pngfile, removeAlpha=True, width=f'{int(w*scale)}px')
         parts = "1 part" if len(self.quantizedScore) == 1 else f"{len(self.quantizedScore)} parts"
         html = f'<b>{type(self).__name__}</b> ({parts})<br>'+img
         return html

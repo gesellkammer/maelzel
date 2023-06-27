@@ -69,6 +69,9 @@ class Node:
         self.properties = properties
         self.parent: weakref.ReferenceType[Node] | None = weakref.ref(parent) if parent else None
 
+    def __len__(self):
+        return len(self.items)
+
     def setParent(self, parent: Node, recurse=True):
         """Set the parent of this None"""
         self.parent = weakref.ref(parent)
@@ -180,6 +183,8 @@ class Node:
     def mergeWith(self, other: Node) -> Node:
         """
         Merge this tree with other
+
+        It is assumed that these Nodes can merge
         """
         # we don't check here, just merge
         node = Node(ratio=self.durRatio, items=self.items + other.items,

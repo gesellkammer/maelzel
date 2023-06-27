@@ -3,7 +3,7 @@ import os
 from ._appstate import appstate as _appstate
 from ._common import logger
 from maelzel.core import _util
-from emlib import misc
+from emlib import envir
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -27,7 +27,7 @@ def selectFromList(options: list[str], title="", default=None, gui: bool = None)
         the option selected, or *default* if not selection was done
     """
     if gui is None:
-        if misc.running_inside_terminal() and misc.is_interactive_session:
+        if envir.running_inside_terminal() and envir.is_interactive_session():
             gui = False
         else:
             gui = True

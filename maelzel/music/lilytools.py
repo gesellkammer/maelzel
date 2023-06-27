@@ -931,7 +931,9 @@ def paperBlock(paperWidth: float = None,
 def makeTextMark(text: str,
                  fontsize: int = None,
                  fontrelative=True,
-                 box='', italic=False, bold=False
+                 box='',
+                 italic=False,
+                 bold=False
                  ) -> str:
     """
     Creates a system text mark - a text above all measures
@@ -940,7 +942,7 @@ def makeTextMark(text: str,
         text: the text
         fontsize: the size of the text.
         fontrelative: font size is relative or absolute?
-        box: one of 'square', 'circle', 'rounded' or '' for no box
+        box: one of 'square', 'circle', 'rounded' or ('' or 'none') for no box
         italic: italic?
         bold: bold?
 
@@ -954,7 +956,7 @@ def makeTextMark(text: str,
             markups.append(fr"\fontsize #{int(fontsize)}")
         else:
             markups.append(fr"\abs-fontsize #{int(fontsize)}")
-    if box:
+    if box and box != 'none':
         if (markup := _boxMarkup.get(box)) is None:
             raise KeyError(f"Box shape {box} not supported, possible shapes are {_boxMarkup.keys()}")
         markups.append(markup)
@@ -972,6 +974,7 @@ def makeTextMark(text: str,
 _boxMarkup = {
     'square': r'\box',
     'box': r'\box',
+    'rectangle': r'\box',
     'circle': r'\circle',
     'rounded': r'\rounded-box',
     'rounded-box': r'\rounded-box'
@@ -993,7 +996,7 @@ def makeText(text: str, fontsize: int = None, fontrelative=False,
         placement: 'above' or 'below'
         italic: if True, the text should be italic
         bold: if True, the text should be bold
-        box: one of 'square', 'circle', 'rounded' or '' for no box
+        box: one of 'square', 'circle', 'rectangle', 'rounded' or '' for no box
 
     Returns:
         the lilypond markup to generate the given annotation

@@ -1,6 +1,8 @@
 import configdict
 
 config = configdict.CheckedDict()
+config.addKey('pngScale', 0.8,
+              doc='Scale factor applied to png images when shown within a notebook')
 config.addKey('pageSize', 'a4', type=str, choices=('a3', 'a4'))
 config.addKey('renderBackend', 'lilypond', choices=('musicxml', 'lilypond'))
 config.addKey('staffSize', 12.0, type=float, range=(4, 36))

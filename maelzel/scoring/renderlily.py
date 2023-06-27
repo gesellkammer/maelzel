@@ -18,9 +18,9 @@ import emlib.filetools
 from emlib import iterlib
 
 from maelzel.music import lilytools
+from maelzel import textstyle
 from .common import *
 from . import attachment
-# from .attachment import *
 from . import definitions
 from .core import Notation
 from .render import Renderer, RenderOptions
@@ -180,7 +180,12 @@ def markConsecutiveGracenotes(root: Node) -> None:
 
 def lyArticulation(articulation: attachment.Articulation) -> str:
     # TODO: render articulation color if present
-    return _articulationToLily[articulation.kind]
+    name = _articulationToLily[articulation.kind]
+    parts = []
+    if articulation.color:
+        parts.append(rf'\tweak color "{articulation.color}"')
+    parts.append(name)
+    return " ".join(parts)
 
 
 def lyNotehead(notehead: definitions.Notehead, insideChord=False) -> str:
@@ -242,6 +247,29 @@ class RenderState:
     openSpanners: dict[str, _spanner.Spanner] = field(default_factory=dict)
 
 
+def _renderTextAttachment(attach: attachment.Text, options: RenderOptions
+                          ) -> str:
+    if not attach.role:
+        return lilytools.makeText(text=attach.text,
+                                  fontrelative=True,
+                                  fontsize=attach.fontsize,
+                                  placement=attach.placement or 'above',
+                                  italic=attach.italic,
+                                  bold=attach.weight=='bold',
+                                  box=attach.box)
+    elif attach.role == 'label':
+        style = textstyle.parseTextStyle(options.noteLabelStyle)
+        return lilytools.makeText(text=attach.text,
+                                  fontrelative=True,
+                                  fontsize=attach.fontsize or style.fontsize or 10,
+                                  placement=attach.placement or style.placement or 'above',
+                                  italic=attach.italic or style.italic,
+                                  bold=attach.weight=='bold' or style.bold,
+                                  box=attach.box or style.box)
+    else:
+        logger.debug(f"Text role {attach.role} not implemented")
+
+
 def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> str:
     """
     Converts a Notation to its lilypond representation
@@ -276,10 +304,11 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
             _(fr"\{dyn}")
         for attach in n.attachments:
             if isinstance(attach, attachment.Text):
-                _(lilytools.makeText(attach.text, placement=attach.placement,
-                                     fontsize=attach.fontsize,
-                                     italic=attach.isItalic(), bold=attach.isBold(),
-                                     box=attach.box))
+                _(_renderTextAttachment(attach, options=options))
+                #_(lilytools.makeText(attach.text, placement=attach.placement,
+                #                     fontsize=attach.fontsize,
+                #                     italic=attach.italic, bold=attach.isBold(),
+                #                     box=attach.box))
             elif isinstance(attach, attachment.Fermata):
                 _(_fermataToLily.get(attach.kind, r'\fermata'))
             elif isinstance(attach, attachment.Clef):
@@ -322,17 +351,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
     for attach in n.attachments:
 
         if isinstance(attach, attachment.Harmonic):
-            if attach.interval == 0:
-                n = n.copy()
-                n.setNotehead('harmonic')
-            elif len(n.pitches) > 1:
-                logger.error("Cannot set a chord as artificial harmonic yet")
-            else:
-                fund = n.notename(0)
-                touched = pt.transpose(fund, attach.interval)
-                n = n.clone(pitches=(fund, touched))
-                n.fixNotename(touched, idx=1)
-                n.setNotehead('harmonic', idx=1)
+            n = n.resolveHarmonic()
         elif isinstance(attach, attachment.Clef):
             _(lilytools.makeClef(attach.kind))
         elif isinstance(attach, attachment.Breath):
@@ -350,7 +369,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         # ***************************
         # ********** Note ***********
         # ***************************
-        if n.noteheads and (notehead := n.noteheads.get(0)) is not None:
+        if notehead := n.getNotehead(0):
             _(lyNotehead(notehead))
         elif n.tiedPrev and n.gliss and state.glissando and options.glissHideTiedNotes:
             _(lyNotehead(definitions.Notehead(hidden=True)))
@@ -363,7 +382,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
             accidentalTraits = attachment.AccidentalTraits.default()
 
         if accidentalTraits.color:
-            _(fr'\once \override Accidental.color "{accidentalTraits.color}"')
+            _(fr'\once \override Accidental.color = "{accidentalTraits.color}"')
 
         _(lyNote(n.notename(),
                  baseduration=base,
@@ -415,7 +434,17 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
 
     if trem := next((a for a in n.attachments if isinstance(a, attachment.Tremolo)), None):
         if trem.tremtype == 'single':
-            _(f":{trem.singleDuration()}")
+            if trem.relative:
+                _(f":{trem.singleDuration()}")
+            else:
+                nummarksbase = {
+                    8: 1,
+                    16: 2,
+                    32: 3,
+                    64: 4
+                }.get(base, 0)
+                tremdur = 2 ** (2 + nummarksbase + trem.nummarks)
+                _(f":{tremdur}")
         else:
             # TODO: render this correctly as two note tremolo
             _(f":{trem.singleDuration()}")
@@ -430,7 +459,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         if isinstance(attach, attachment.Text):
             _(lilytools.makeText(attach.text, placement=attach.placement,
                                  fontsize=attach.fontsize,
-                                 italic=attach.isItalic(), bold=attach.isBold(),
+                                 italic=attach.italic, bold=attach.weight=='bold',
                                  box=attach.box))
         elif isinstance(attach, attachment.Articulation):
             if not n.tiedPrev or options.articulationInsideTie:
@@ -443,13 +472,14 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
             interval = ('+' if attach.interval > 0 else '')+str(round(attach.interval, 1))
             _(fr'\bendAfter #{interval}')
 
-    if options.showCents:
+    if options.showCents and not n.tiedPrev:
         # TODO: cents annotation should follow options (below/above, fontsize)
-        centsText = util.centsAnnotation(n.pitches, divsPerSemitone=options.divsPerSemitone)
-        if centsText:
-            fontrelsize = options.centsFontSize - options.staffSize
-            _(lilytools.makeText(centsText, fontsize=fontrelsize,
-                                 fontrelative=True, placement='below'))
+        if text := util.centsAnnotation(n.pitches, divsPerSemitone=options.divsPerSemitone):
+            fontrelsize = options.centsAnnotationFontsize - options.staffSize
+            _(lilytools.makeText(text,
+                                 fontsize=fontrelsize,
+                                 fontrelative=True,
+                                 placement=options.centsAnnotationPlacement))
 
     return " ".join(parts)
 
@@ -472,7 +502,10 @@ def _handleSpannerPre(spanner: _spanner.Spanner, state: RenderState) -> str | No
     _ = out.append
     if isinstance(spanner, _spanner.Slur):
         if spanner.kind == 'start':
-            _(fr' \slur{spanner.linetype.capitalize()} ')
+            if spanner.nestingLevel == 1:
+                _(fr' \slur{spanner.linetype.capitalize()} ')
+            elif spanner.nestingLevel == 2:
+                _(fr' \phrasingSlur{spanner.linetype.capitalize()} ')
 
     elif isinstance(spanner, _spanner.OctaveShift):
         if spanner.kind == 'start':
@@ -533,7 +566,12 @@ def _handleSpannerPost(spanner: _spanner.Spanner, state: RenderState) -> str | N
         _(_placementToLily.get(spanner.placement))
 
     if isinstance(spanner, _spanner.Slur):
-        _("(" if spanner.kind == 'start' else ")")
+        if spanner.nestingLevel == 1:
+            _("(" if spanner.kind == 'start' else ")")
+        elif spanner.nestingLevel == 2:
+            _(r"\(" if spanner.kind == 'start' else r"\)")
+        else:
+            logger.error(f"Two many nested slurs: {spanner}, skipping")
 
     elif isinstance(spanner, _spanner.Beam):
         _("[" if spanner.kind == 'start' else "]")
@@ -808,13 +846,16 @@ def quantizedPartToLily(part: quant.QuantizedPart,
 
         if addMeasureMarks:
             if measureDef.annotation:
-                relfontsize = options.measureAnnotationFontSize - options.staffSize
+                style = options.parsedMeasureAnnotationStyle
+                relfontsize = style.fontsize - options.staffSize if style.fontsize else 0
                 _(lilytools.makeTextMark(measureDef.annotation,
-                                         fontsize=relfontsize, fontrelative=True,
-                                         box=options.measureAnnotationBox))
+                                         fontsize=relfontsize,
+                                         fontrelative=True,
+                                         box=style.box))
             if measureDef.rehearsalMark:
-                relfontsize = options.rehearsalMarkFontSize - options.staffSize
-                box = measureDef.rehearsalMark.box if options.rehearsalMarkBoxed else ''
+                style = options.parsedRehearsalMarkStyle
+                relfontsize = style.fontsize - options.staffSize if style.fontsize else 0
+                box = measureDef.rehearsalMark.box or style.box
                 _(lilytools.makeTextMark(measureDef.rehearsalMark.text,
                                          fontsize=relfontsize, fontrelative=True,
                                          box=box))
@@ -1002,14 +1043,17 @@ class LilypondRenderer(Renderer):
         if fmt is None:
             fmt = ext[1:]
 
-        if not fmt in ('png', 'pdf', 'ly', 'mid'):
+        if fmt not in ('png', 'pdf', 'ly', 'mid'):
             raise ValueError(f"Format {fmt} unknown. Possible formats: png, pdf, mid, ly")
 
         # Modify render options according to format, if needed
         if fmt == 'png':
-            options.cropToContent = True
+            if options.cropToContent is None:
+                options.cropToContent = True
             options.renderFormat = 'png'
         elif fmt == 'pdf':
+            if options.cropToContent is None:
+                options.cropToContetn = False
             options.renderFormat = 'pdf'
         elif fmt == 'mid':
             if not self._withMidi:
@@ -1061,3 +1105,7 @@ class LilypondRenderer(Renderer):
         if removeTemporaryFiles:
             for f in tempfiles:
                 os.remove(f)
+
+
+def _preprocessSpanners(part: quant.QuantizedPart) -> None:
+    pass

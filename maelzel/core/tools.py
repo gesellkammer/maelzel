@@ -95,9 +95,9 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
     """
     now = 0
     events = []
-    if minMeasures and minMeasures > struct.numDefinedMeasures():
+    if minMeasures and minMeasures > struct.numMeasures():
         struct = struct.copy()
-        struct.addMeasure(numMeasures=minMeasures - struct.numDefinedMeasures())
+        struct.addMeasure(numMeasures=minMeasures - struct.numMeasures())
 
     for m in struct.measuredefs:
         num, den = m.timesig
@@ -115,10 +115,10 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
                 now += 0.5
         elif den == 16:
             if m.quarterTempo > 80:
-                dur = clickdur or m.durationBeats
+                dur = clickdur or m.durationQuarters
                 ev = core.Note(strongBeatPitch, dur=dur, offset=now)
                 events.append(ev)
-                now += m.durationBeats
+                now += m.durationQuarters
             else:
                 beats = m.subdivisions()
                 for i, beat in enumerate(beats):

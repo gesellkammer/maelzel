@@ -8,7 +8,7 @@ import functools
 from dataclasses import dataclass
 from collections import deque
 from math import sqrt
-import logging
+from .common import logger
 
 from emlib import iterlib
 import pitchtools as pt
@@ -16,9 +16,6 @@ import pitchtools as pt
 from .notation import Notation
 
 from typing import Sequence
-
-
-logger = logging.getLogger('maelzel.scoring')
 
 MAXPENALTY = 999999
 

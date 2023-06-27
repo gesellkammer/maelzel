@@ -53,6 +53,7 @@ import pitchtools as pt
 import csoundengine
 
 from maelzel.common import asmidi, F, asF, F0, F1
+import maelzel.textstyle as _textstyle
 from ._common import *
 from ._typedefs import *
 
@@ -175,9 +176,13 @@ class MObj:
     _excludedPlayKeys: tuple[str] = ()
 
     __slots__ = ('_parent', '_dur', 'offset', 'label', 'playargs', 'symbols',
-                 '_scorestruct', 'properties', '_resolvedOffset')
+                 '_scorestruct', 'properties', '_resolvedOffset',
+                 '__weakref__')
 
-    def __init__(self, dur: time_t = None, offset: time_t = None, label: str = '',
+    def __init__(self,
+                 dur: time_t = None,
+                 offset: time_t = None,
+                 label: str = '',
                  parent: MObj = None,
                  properties: dict[str, Any] = None,
                  symbols: list[_symbols.Symbol] | None = None):
@@ -640,7 +645,10 @@ class MObj:
             img = self._renderImage(backend=backend, fmt=fmt, scorestruct=scorestruct,
                                     config=cfg)
             if fmt == 'png':
-                _util.pngShow(img, forceExternal=external)
+                scalefactor = cfg['show.scaleFactor']
+                if backend == 'musicxml':
+                    scalefactor *= cfg['show.scaleFactorMusicxml']
+                _util.pngShow(img, forceExternal=external, scalefactor=scalefactor)
             else:
                 emlib.misc.open_with_app(img)
 
@@ -658,7 +666,8 @@ class MObj:
                        scorestruct: ScoreStruct = None,
                        config: CoreConfig = None,
                        quantizationProfile: str | scoring.quant.QuantizationProfile = None,
-                       enharmonicOptions: scoring.enharmonics.EnharmonicOptions = None
+                       enharmonicOptions: scoring.enharmonics.EnharmonicOptions = None,
+                       nestedTuplets: bool | None = None
                        ) -> scoring.quant.QuantizedScore:
         """
         Returns a QuantizedScore representing this object
@@ -673,6 +682,10 @@ class MObj:
             enharmonicOptions: if given it is used to customize enharmonic respelling.
                 Otherwise, the enharmonic options used for respelling are constructed based
                 on the config
+            nestedTuplets: if given, overloads the config value 'quant.nestedTuplets'. This is used
+                to disallow nested tuplets, mainly for rendering musicxml since there are some music
+                editors (MuseScore, for example) which fail to import nested tuplets. This can be set
+                at the config level as ``getConfig()['quant.nestedTuplets'] = False``
 
         Returns:
             a quantized score. To render such a quantized score as notation call
@@ -685,6 +698,7 @@ class MObj:
         w = Workspace.active
         if config is None:
             config = w.config
+
         if not scorestruct:
             scorestruct = self.scorestruct() or w.scorestruct
         if quantizationProfile is None:
@@ -693,6 +707,10 @@ class MObj:
             quantizationProfile = scoring.quant.QuantizationProfile.fromPreset(quantizationProfile)
         else:
             assert isinstance(quantizationProfile, scoring.quant.QuantizationProfile)
+
+        if nestedTuplets is not None:
+            quantizationProfile.nestedTuplets = nestedTuplets
+
         parts = self.scoringParts()
         if config['show.respellPitches'] and enharmonicOptions is None:
             enharmonicOptions = config.makeEnharmonicOptions()
@@ -801,8 +819,9 @@ class MObj:
             backend = 'lilypond'
         if scorestruct is None:
             scorestruct = self.scorestruct() or w.scorestruct
+
         path = _renderImage(self, outfile, fmt=fmt, backend=backend, scorestruct=scorestruct,
-                            config=config or Workspace.active.config)
+                            config=config)
         if not os.path.exists(path):
             # cached image does not exist?
             logger.debug(f"_renderImage did not return an existing path for object {self}, "
@@ -811,7 +830,7 @@ class MObj:
             resetImageCache()
             # Try again, uncached
             path = _renderImage(self, outfile, fmt=fmt, backend=backend, scorestruct=scorestruct,
-                                config=config or Workspace.active.config)
+                                config=config)
             if not os.path.exists(path):
                 raise FileNotFoundError(f"Could not generate image, returned image file '{path}' "
                                         f"does not exist")
@@ -906,7 +925,12 @@ class MObj:
         if text is None:
             assert self.label
             text = self.label
-        return scoring.attachment.Text(text, fontsize=config['show.labelFontSize'])
+        labelstyle = _textstyle.parseTextStyle(config['show.labelStyle'])
+        return scoring.attachment.Text(text,
+                                       fontsize=labelstyle.fontsize,
+                                       italic=labelstyle.italic,
+                                       weight='bold' if labelstyle.bold else '',
+                                       color=labelstyle.color)
 
     def musicxml(self) -> str:
         """
@@ -1001,7 +1025,6 @@ class MObj:
     def _repr_html_(self) -> str:
         img = self._htmlImage()
         txt = self._repr_html_header()
-        # return rf'<code style="font-size:0.9em">{txt}</code><br>' + img
         return rf'<code style="white-space: pre-line; font-size:0.9em;">{txt}</code><br>' + img
 
 
@@ -1368,78 +1391,84 @@ class MObj:
         """
         return False
 
-    def addSymbol(self: MObjT, symbol: str | _symbols.Symbol, *args, **kws) -> MObjT:
+    def addSymbol(self: MObjT, *args, **kws) -> MObjT:
         """
         Add a notation symbol to this object
 
-        Notation symbols are any attributes which are for
-        notation purposes only. Such attributes include dynamics,
-        articulations, etc.
+        Notation symbols are any attributes which are attached to **one event**
+        and are intended for **notation only**. Such attributes include articulations,
+        ornaments, fermatas but also properties, like color, size, etc.
+        Also customizations like notehead shape, bend signs, all are
+        considered symbols. Notation symbols spanning across multiple events
+        (like slurs, crescendo hairpins, lines, etc.) are considered *spanners* and
+        are added via :meth:`~MObj.addSpanner`
 
         Some symbols are exclusive, meaning that adding a symbol of this kind will
         replace a previously set symbol. Exclusive symbols include any properties
-        (color, size, etc) and other customizations like notehead shape,
+        (color, size, etc) and other customizations like notehead shape
 
         .. note::
 
-            Dynamics are not treated as symbols.
+            Dynamics are not treated as symbols since they can also be used for playback
 
         Example
         -------
 
             >>> from maelzel.core import *
             >>> n = Note(60)
-            >>> n.addSymbol('articulation', 'accent')
+            >>> n.addSymbol(articulation='accent')
             # This is the same as:
             >>> n.addSymbol(symbols.Articulation('accent'))
-            >>> n = Note(60).setPlay(instr='piano').addSymbol('text', 'dolce')
-            >>> from maelzel.core import symbols
-            >>> n2 = Note("4G").addSymbol(symbols.Harmonic(interval=5))
+            # Symbols can also be added as keywords, and multiple symbols can be added at once:
+            >>> n = Note(60).addSymbol(text='dolce', articulation='tenuto')
+            >>> n2 = Note("4G").addSymbol(symbols.Harmonic(interval=5), symbols.Ornament('mordent'))
 
-
-        Args:
-            symbol: the name of a symbol. See :meth:`MObj.supportedSymbols` for symbols
-                accepted by this object.
-            args, keys: passed directly to the class constructor
 
         Returns:
             self (similar to setPlay, allows to chain calls)
 
         ============  ==========================================================
-        Symbol        Arguments
+        Symbol        Possible Values
         ============  ==========================================================
-        expression    | text: ``str``
-                      | placement: ``str`` {above, below}
-        notehead      | kind: ``str`` {cross, harmonic, triangleup, xcircle, triangle, rhombus, square, rectangle}
-                      | color: ``str`` (a css color)
-                      | parenthesis: ``bool``
-        articulation  kind: ``str`` {accent, staccato, tenuto, marcato, staccatissimo}
-        size          value: ``int`` (0=default, 1, 2, …=bigger, -1, -2, … = smaller)
-        color         value: ``str`` (a css color)
-        accidental    | hidden: ``bool``
-                      | parenthesis: ``bool``
-                      | color:  ``str`` (a css color)
+        text          any text
+        notehead      cross, harmonic, triangleup, xcircle, triangle, rhombus,
+                      square, rectangle
+        articulation  accent, staccato, tenuto, marcato, staccatissimo, etc.
+        size          A relative size (0=default, 1, 2, …=bigger, -1, -2, … = smaller)
+        color         a css color
         ============  ==========================================================
 
         """
-        if isinstance(symbol, _symbols.Symbol):
-            symboldef = symbol
+        if len(args) == 2 and all(isinstance(arg, str) for arg in args) and not kws:
+            symbolclass, kind = args
+            symboldefs = [_symbols.makeSymbol(symbolclass, kind)]
+        elif len(args) == 1 and isinstance(args[0], str):
+            symboldef = _symbols.makeKnownSymbol(args[0])
+            if not symboldef:
+                raise ValueError(f"{args[0]} is not a known symbol")
+            symboldefs = [symboldef]
+        elif not kws and all(isinstance(arg, _symbols.Symbol) for arg in args):
+            symboldefs = args
+        elif kws:
+            symboldefs = [_symbols.makeSymbol(key, value) for key, value in kws.items()]
         else:
-            symboldef = _symbols.makeSymbol(symbol, *args, **kws)
+            raise ValueError(f"Could not add a symbol with {args=}, {kws=}")
 
-        if isinstance(symbol, _symbols.NoteAttachedSymbol) \
-                and not self._acceptsNoteAttachedSymbols:
-            raise ValueError(f"A {type(self)} does not accept note attached symbols")
-        if self.symbols is None:
-            self.symbols = [symboldef]
-        else:
-            if symboldef.exclusive:
-                cls = type(symboldef)
-                if any(isinstance(s, cls) for s in self.symbols):
-                    self.symbols = [s for s in self.symbols if not isinstance(s, cls)]
-            self.symbols.append(symboldef)
-        if isinstance(symboldef, _symbols.Spanner):
-            symboldef.setAnchor(self)
+        for symboldef in symboldefs:
+            if isinstance(symboldef, _symbols.NoteAttachedSymbol) \
+                    and not self._acceptsNoteAttachedSymbols:
+                raise ValueError(f"A {type(self)} does not accept note attached symbols")
+
+            if self.symbols is None:
+                self.symbols = [symboldef]
+            else:
+                if symboldef.exclusive:
+                    cls = type(symboldef)
+                    if any(isinstance(s, cls) for s in self.symbols):
+                        self.symbols = [s for s in self.symbols if not isinstance(s, cls)]
+                self.symbols.append(symboldef)
+            if isinstance(symboldef, _symbols.Spanner):
+                symboldef.setAnchor(self)
         return self
 
     def _removeSymbolsOfClass(self, cls: str | type):
@@ -1483,9 +1512,11 @@ class MObj:
     def addText(self: MObjT,
                 text: str,
                 placement='above',
+                italic=False,
+                weight='normal',
                 fontsize: int = None,
-                fontstyle: str = None,
-                box: str = ''
+                fontfamily='',
+                box=''
                 ) -> MObjT:
         """
         Add a text annotation to this object
@@ -1506,72 +1537,8 @@ class MObj:
 
         """
         self.addSymbol(_symbols.Text(text, placement=placement, fontsize=fontsize,
-                                     fontstyle=fontstyle, box=box))
-        return self
-
-    def _addSpanner(self: MObjT,
-                   spanner: str | _symbols.Spanner,
-                   endobj: MObj = None
-                   ) -> MObjT:
-        """
-        Adds a spanner symbol to this object
-
-        A spanner is a slur, line or any other symbol attached to two or more
-        objects. A spanner always has a start and an end.
-
-        Args:
-            spanner: a Spanner object or a spanner description (one of 'slur', '<', '>',
-                'trill', 'bracket', etc. - see :func:`maelzel.core.symbols.makeSpanner`
-                When passing a string description, prepend it with '~' to create an end spanner
-            endobj: the object where this spanner ends, if known
-
-        Returns:
-            self (allows to chain calls)
-
-        Example
-        ~~~~~~~
-
-            >>> from maelzel.core import *
-            >>> a = Note("4C")
-            >>> b = Note("4E")
-            >>> c = Note("4G")
-            >>> a.addSpanner('slur', c)
-            >>> chain = Chain([a, b, c])
-
-        .. seealso:: :meth:`Spanner.bind() <maelzel.core.symbols.Spanner.bind>`
-
-        In some cases the end target can inferred:
-
-            >>> chain = Chain([
-            ... Note("4C", 1, dynamic='p').addSpanner("<"),
-            ... Note("4D", 0.5),
-            ... Note("4E", dynamic='f')   # This ends the hairpin spanner
-            ... ])
-
-        Or it can be set later
-
-            >>> chain = Chain([
-            ... Note("4C", 1).addSpanner("slur"),
-            ... Note("4D", 0.5),
-            ... Note("4E").addSpanner("~slur")   # This ends the last slur spanner
-            ... ])
-
-        """
-        if isinstance(spanner, str):
-            if spanner.startswith('~'):
-                spanner = spanner[1:].lower()
-                kind = 'end'
-            else:
-                kind = 'start'
-            spanner = _symbols.makeSpanner(spanner.lower(), kind=kind)
-        assert isinstance(spanner, _symbols.Spanner)
-
-        if endobj is not None:
-            assert spanner.kind == 'start'
-            spanner.bind(self, endobj)
-        else:
-            self.addSymbol(spanner)
-            spanner.setAnchor(self)
+                                     italic=italic, weight=weight, fontfamily=fontfamily,
+                                     box=box))
         return self
 
     def timeTransform(self: MObjT, timemap: Callable[[F], F], inplace=False) -> MObjT:

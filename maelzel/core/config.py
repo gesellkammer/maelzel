@@ -134,9 +134,10 @@ will be active only within its context:
 """
 from __future__ import annotations
 
-from maelzel.core import configdata
+import os
 from configdict import ConfigDict
 from maelzel.common import F
+from maelzel.core import configdata
 
 import typing
 if typing.TYPE_CHECKING:
@@ -356,15 +357,23 @@ class CoreConfig(ConfigDict):
         from . import workspace
         workspace.Workspace.active.config = self
 
-    def reset(self, save=False) -> None:
+    def reset(self, removesaved=False) -> None:
         """
         Reset this config to its defaults
 
         Args:
-            save: if true, save the config after resetting
+            removesaved: if True, remove any saved config
+
         """
-        super().reset(save=save)
+        super().reset()
         from maelzel.core.presetmanager import presetManager
         if '_piano' in presetManager.presetdefs:
             self['play.instr'] = '_piano'
+
+        if removesaved:
+            path = self.getPath()
+            if os.path.exists(path):
+                os.remove(path)
+
+
 

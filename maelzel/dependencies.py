@@ -6,7 +6,7 @@ import sys
 import logging
 from datetime import datetime
 from maelzel import _state
-from functools import cache
+
 
 logger = logging.getLogger('maelzel')
 
@@ -21,7 +21,7 @@ def csoundLibVersion() -> int | None:
     try:
         import ctcsound7
     except Exception as e:
-        logger.error("Could not import ctcsound7: {e}")
+        logger.error(f"Could not import ctcsound7: {e}")
         return None
     return ctcsound7.VERSION
 
@@ -273,6 +273,7 @@ def checkDependencies(abortIfErrors=False, fix=True) -> list[str]:
         lambda: checkCsoundPlugins(fix=fix),
         lambda: checkVampPlugins(fix=fix)
     ]
+    logger.info("Maelzel - checking dependencies")
     errors = []
     for step in steps:
         err = step()
@@ -299,11 +300,14 @@ def checkDependenciesIfNeeded(daysSinceLastCheck=0) -> bool:
 
     A check is needed at the first run and after a given interval
 
+    Args:
+        daysSinceLastCheck: only check after so many days since last check
+
     Returns:
         True if dependencies are installed
     """
-    if daysSinceLastCheck == 0 and not _state.state['first_run']:
-        logger.debug('Skipping dependency check - not first run')
+    if daysSinceLastCheck == 0 and not _state.isFirstSession():
+        logger.info('Skipping dependency check - not first run')
         return True
 
     lastcheck = datetime.fromisoformat(_state.state['last_dependency_check'])
@@ -311,7 +315,6 @@ def checkDependenciesIfNeeded(daysSinceLastCheck=0) -> bool:
         logger.debug("Dependency check not needed")
         return True
 
-    logger.warning("Maelzel - checking dependencies")
     errors = checkDependencies(abortIfErrors=False, fix=True)
     if not errors:
         return True

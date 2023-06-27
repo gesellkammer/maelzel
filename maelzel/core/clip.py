@@ -53,8 +53,26 @@ class Clip(event.MEvent):
     """
     _excludedPlayKeys: tuple[str] = ('instr', 'args')
 
-    __slots__ = ('selectionStartSecs', 'selectionEndSecs', '_speed', 'source', 'soundfile', 'numChannels',
-                 'sr', 'amp', 'dynamic', 'pitch', 'sourceDurSecs')
+    __slots__ = ('amp',
+                 'selectionStartSecs',
+                 'selectionEndSecs',
+                 'source',
+                 'soundfile',
+                 'numChannels',
+                 'channel',
+                 'dynamic',
+                 'pitch',
+                 'sourceDurSecs',
+                 'loop',
+                 'noteheadShape',
+                 '_sr',
+                 '_speed',
+                 '_playbackMethod',
+                 '_engine',
+                 '_csoundTable',
+                 '_sample',
+                 '_durContext'
+                 )
 
     def __init__(self,
                  source: str | audiosample.Sample | tuple[np.ndarray, int],
@@ -83,7 +101,7 @@ class Clip(event.MEvent):
         self.numChannels = 0
         """The number of channels of this Clip"""
 
-        self.sr = 0
+        self._sr = 0
         """The samplerate of this Clip"""
 
         self.sourceDurSecs: F = F0
@@ -120,13 +138,13 @@ class Clip(event.MEvent):
                 raise FileNotFoundError(f"Soundfile not found: '{source}'")
             self.soundfile = source
             info = sndfileio.sndinfo(source)
-            self.sr = info.samplerate
+            self._sr = info.samplerate
             self.sourceDurSecs = info.duration
             self.numChannels = info.channels if self.channel is None else 1
             self._playbackMethod = 'diskin'
 
         elif isinstance(source, audiosample.Sample):
-            self.sr = source.sr
+            self._sr = source.sr
             self.sourceDurSecs = source.duration
             self.numChannels = source.numchannels
             self._playbackMethod = 'table'
@@ -174,6 +192,10 @@ class Clip(event.MEvent):
             offset = asF(offset)
 
         super().__init__(offset=offset, dur=None, label=label, parent=parent)
+
+    @property
+    def sr(self) -> float:
+        return self._sr
 
     @property
     def speed(self) -> F:

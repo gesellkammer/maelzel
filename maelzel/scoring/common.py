@@ -4,10 +4,10 @@ Common type definitions and routines
 from __future__ import annotations
 from dataclasses import dataclass
 import enum
-import logging
+
 import numbers as _numbers
 import pitchtools as pt
-from maelzel.common import F, asF, F0, F1
+from maelzel.common import F, asF, getLogger
 import sys
 
 from typing import NamedTuple, Union
@@ -27,7 +27,7 @@ else:
     timerange_t = tuple[F, F]
 
 
-logger = logging.getLogger("maelzel.scoring")
+logger = getLogger("maelzel.scoring")
 
 # This module can't import ANYTHING from .
 
