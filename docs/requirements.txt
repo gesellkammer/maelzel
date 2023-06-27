@@ -17,6 +17,7 @@ quicktions
 rich
 visvalingamwyatt
 vamphost
+distro
 
 sphinx-autodoc-typehints
 sphinx-automodapi
