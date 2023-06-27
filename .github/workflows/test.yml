@@ -38,8 +38,8 @@ jobs:
 
 
 
-  testlinux:
-    name: Test maelzel in linux
+  testlinuxgit:
+    name: Test maelzel in linux (git)
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -75,6 +75,33 @@ jobs:
           cd ..
           pip uninstall -y maelzel
 
+      - uses: actions/upload-artifact@v3
+        with:
+          path: artifacts
+
+  testlinuxpypi:
+    name: Test maelzel in linux (pypi)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10"]
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: linux - setup
+        run: |
+          set -x
+          sudo apt update
+          sudo apt install lilypond
+          sudo apt install csound libcsnd-dev
+          csound --version
+          lilypond --version
+
+
       - name: linux - test install from pypi
         run: |
           set -x
@@ -92,14 +119,15 @@ jobs:
           cd ..
           deactivate
 
-
-
       - uses: actions/upload-artifact@v3
         with:
           path: artifacts
 
-  testmac:
-    name: Test maelzel in mac
+
+
+
+  testmacgit:
+    name: Test maelzel in mac (git)
     runs-on: macos-latest
     strategy:
       matrix:
@@ -140,6 +168,38 @@ jobs:
 
           cd ..
           pip uninstall -y maelzel
+
+      - uses: actions/upload-artifact@v3
+        with:
+          path: artifacts
+
+
+  testmacpypi:
+    name: Test maelzel in mac (pypi)
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10"]
+        arch: ["x86_64", "arm64"]
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: macos - setup
+        run: |
+          set -x
+          curl -L -o csound6.18.dmg https://github.com/csound/csound/releases/download/6.18.1/Csound-MacOS-universal-6.18.1.dmg
+          brew install p7zip
+          7z x csound6.18.dmg
+          cd Csound-universal-6.18.1
+          sudo installer -pkg csound-MacOS-universal-6.18.1.pkg -target /
+          csound --version
+          cd ..
+          brew install lilypond
+          lilypond --version
 
 
       - name: macos - test install from pypi
