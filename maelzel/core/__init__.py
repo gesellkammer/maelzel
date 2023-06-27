@@ -17,6 +17,11 @@ from . import synthevent
 
 
 def _onFirstRun():
+    import sys
+    if "sphinx" in sys.modules:
+        print("Building documentation...")
+        return
+
     print("*** maelzel.core: first run")
     from maelzel.core.presetmanager import presetManager
     if '.piano' in presetManager.presetdefs:
