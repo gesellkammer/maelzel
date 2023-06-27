@@ -1,7 +1,9 @@
 from maelzel import _state
+import sys
 
 # Only check dependencies on first run
-if _state.isFirstSession():
+if _state.isFirstSession() and not "sphinx" in sys.modules:
+    
     import logging
     logging.basicConfig(level=logging.WARNING,
                         format='[%(name)s:%(filename)s:%(lineno)s - %(funcName)s] %(message)s')
