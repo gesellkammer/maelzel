@@ -70,7 +70,7 @@ setup(
         "risset>=2.4.1",
         "loristrck>=1.5.6",
         "vamphost>=1.2.1",
-        "lilyponddist>=0.3.0"
+        "lilyponddist>=0.4.1"
     ],
     license="LGPLv2",
     zip_safe=False,
