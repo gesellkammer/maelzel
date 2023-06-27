@@ -19,6 +19,7 @@ visvalingamwyatt
 vamphost
 distro
 
+
 sphinx-autodoc-typehints
 sphinx-automodapi
 sphinx_rtd_theme
