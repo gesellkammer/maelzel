@@ -18,6 +18,7 @@ rich
 visvalingamwyatt
 vamphost
 distro
+python-constraint
 
 
 sphinx-autodoc-typehints
