@@ -304,7 +304,8 @@ class OfflineRenderer(Renderer):
                 renderer.strSet(s, idx)
         return renderer
 
-    def prepareInstr(self, instr: csoundengine.instr.Instr, priority: int) -> int:
+    def prepareInstr(self, instr: csoundengine.instr.Instr, priority: int
+                     ) -> bool:
         """
         Reify an instance of *instr* at the given priority
 
@@ -317,11 +318,13 @@ class OfflineRenderer(Renderer):
                 start with 1
 
         Returns:
+            False
 
         """
         instrname = instr.name
         assert self.csoundRenderer.isInstrDefined(instrname)
-        return self.csoundRenderer.commitInstrument(instrname, priority)
+        self.csoundRenderer.commitInstrument(instrname, priority)
+        return False
 
     def getInstr(self, instrname: str) -> csoundengine.instr.Instr | None:
         """
@@ -419,7 +422,7 @@ class OfflineRenderer(Renderer):
             from IPython.display import display
             display(self)
 
-    def registerPreset(self, presetdef: PresetDef) -> None:
+    def registerPreset(self, presetdef: PresetDef) -> bool:
         """
         Register the given PresetDef with this renderer
 
@@ -427,9 +430,13 @@ class OfflineRenderer(Renderer):
             presetdef: the preset to register. Any global/init code declared by
                 the preset will be made available to this renderer
 
+        Returns:
+            to adjust to the Renderer parent class we always return
+            False since offline rendering does not need to sync
+
         """
         if presetdef.name in self.registeredPresets:
-            return
+            return False
         instr = presetdef.getInstr()
         self.registerInstr(instr.name, instr)
         if presetdef.includes:
@@ -438,6 +445,8 @@ class OfflineRenderer(Renderer):
         if presetdef.init:
             self.csoundRenderer.addGlobalCode(presetdef.init)
         self.registeredPresets[presetdef.name] = presetdef
+        return False
+
 
     def registerInstr(self, name: str, instrdef: csoundengine.Instr) -> None:
         """

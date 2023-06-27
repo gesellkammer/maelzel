@@ -157,7 +157,7 @@ class Renderer:
         """Get the Instr corresponding to the instr name"""
         raise NotImplementedError
 
-    def registerPreset(self, presetdef: presetdef.PresetDef) -> None:
+    def registerPreset(self, presetdef: presetdef.PresetDef) -> bool:
         """Register a Preset at this renderer"""
         raise NotImplementedError
 
