@@ -36,6 +36,12 @@ musescorepath:
     | Default: **''**  -- ``str``
     | *The command to use when calling MuseScore. For macOS users: it must be an absolute path pointing to the actual binary inside the .app bundle*
 
+.. _config_lilypondpath:
+
+lilypondpath:
+    | Default: **''**  -- ``str``
+    | *The path to the lilypond binary. It must be an absolute, existing path*
+
 .. _config_reprshowfractionsasfloat:
 
 reprShowFractionsAsFloat:
@@ -97,17 +103,17 @@ show.lastBreakpointDur:
     | Between 0.015625 - 1
     | *Dur of a note representing the end of a line/gliss, which has no totalDuration per se*
 
+.. _config_show_centsannotationstyle:
+
+show.centsAnnotationStyle:
+    | Default: **fontsize=8**  -- ``str``
+    | *Style used for cents annotations. The format is a list of <key>=<value> pairs, separated by semicolons. Possible keys are: fontsize, box (choices: rectangle, square, circle), placement (choices: above, below), italic (flag), bold (flag). Flag keys do not need any values. Example: "fontsize=12; italic; box=rectangle"*
+
 .. _config_show_centsdeviationastextannotation:
 
 show.centsDeviationAsTextAnnotation:
     | Default: **True**  -- ``bool``
     | *show cents deviation as text when rendering notation*
-
-.. _config_show_centsannotationfontsize:
-
-show.centsAnnotationFontSize:
-    | Default: **8**  -- ``int``
-    | *Font size used for cents annotations*
 
 .. _config_show_centsep:
 
@@ -118,20 +124,26 @@ show.centSep:
 .. _config_show_scalefactor:
 
 show.scaleFactor:
-    | Default: **1.0**  -- ``float``
+    | Default: **0.75**  -- ``float``
     | *Affects the size of the generated image when using png format*
+
+.. _config_show_scalefactormusicxml:
+
+show.scaleFactorMusicxml:
+    | Default: **0.8**  -- ``float``
+    | *Apply a scaling factor to images rendered via musicxml*
 
 .. _config_show_staffsize:
 
 show.staffSize:
-    | Default: **12.0**  -- ``float``
+    | Default: **10.0**  -- ``float``
     | *The size of a staff, in points*
 
 .. _config_show_backend:
 
 show.backend:
     | Default: **lilypond**  -- ``str``
-    | Choices: ``lilypond, music21``
+    | Choices: ``lilypond, musicxml``
     | *method/backend used when rendering notation*
 
 .. _config_show_format:
@@ -153,11 +165,11 @@ show.arpeggioDuration:
     | Default: **0.5**  -- ``float``
     | *Duration used for individual notes when rendering a chord as arpeggio*
 
-.. _config_show_labelfontsize:
+.. _config_show_labelstyle:
 
-show.labelFontSize:
-    | Default: **10.0**  -- ``float``
-    | *Font size to use for labels*
+show.labelStyle:
+    | Default: **fontsize=9**  -- ``str``
+    | *Text size used for labelsThe format is a list of <key>=<value> pairs, separated by semicolons. Possible keys are: fontsize, box (choices: rectangle, square, circle), placement (choices: above, below), italic (flag), bold (flag). Flag keys do not need any values. Example: "fontsize=12; italic; box=rectangle"*
 
 .. _config_show_pageorientation:
 
@@ -199,6 +211,13 @@ show.glissLineThickness:
     | Choices: ``1, 2, 3, 4``
     | *Line thikness when rendering glissandi. The value is abstract and it isup to the renderer to interpret it*
 
+.. _config_show_glisslinetype:
+
+show.glissLineType:
+    | Default: **solid**  -- ``str``
+    | Choices: ``solid, wavy``
+    | *Default line type for glissandi*
+
 .. _config_show_lilypondpngstaffsizescale:
 
 show.lilypondPngStaffsizeScale:
@@ -221,7 +240,14 @@ show.pngResolution:
 .. _config_show_measureannotationstyle:
 
 show.measureAnnotationStyle:
-    | Default: **box=square; fontsize=12**  -- ``str``
+    | Default: **box=rectangle; fontsize=12**  -- ``str``
+    | *Style for measure annotations. The format is a list of <key>=<value> pairs, separated by semicolons. Possible keys are: fontsize, box (choices: rectangle, square, circle), placement (choices: above, below), italic (flag), bold (flag). Flag keys do not need any values. Example: "fontsize=12; italic; box=rectangle"*
+
+.. _config_show_rehearsalmarkstyle:
+
+show.rehearsalMarkStyle:
+    | Default: **box=rectangle; fontsize=13; bold**  -- ``str``
+    | *Style for rehearsal marks. The format is a list of <key>=<value> pairs, separated by semicolons. Possible keys are: fontsize, box (choices: rectangle, square, circle), placement (choices: above, below), italic (flag), bold (flag). Flag keys do not need any values. Example: "fontsize=12; italic; box=rectangle"*
 
 .. _config_show_respellpitches:
 
@@ -273,6 +299,12 @@ show.clipNoteheadShape:
     | Default: **square**  -- ``str``
     | Choices: ``, cluster, cross, diamond, harmonic, normal, rectangle, rhombus, slash, square, triangle, xcircle``
     | *Notehead shape to use for clips*
+
+.. _config_show_referencestaffsize:
+
+show.referenceStaffsize:
+    | Default: **12.0**  -- ``float``
+    | *Staff size used as a reference to convert between staff size and scaling factor. This allows to use staff size as a general way to indicate the scale of a score, independent of the backend*
 
 .. _config_play_gain:
 
@@ -441,6 +473,12 @@ rec.compressionBitrate:
     | Default: **224**  -- ``int``
     | *default bitrate to use when encoding to ogg or mp3*
 
+.. _config_rec_extratime:
+
+rec.extratime:
+    | Default: **0.0**  -- ``float``
+    | Between 0.0 - inf
+
 .. _config_htmltheme:
 
 htmlTheme:
@@ -460,6 +498,12 @@ quant.nestedTuplets:
     | Default: **None**  -- ``(NoneType, bool)``
     | Choices: ``False, None, True``
     | *Are nested tuples allowed when quantizing? Not all display backends support nested tuples (musescore, used to render musicxml has no support for nested tuples). If None, this flag is determined based on the complexity preset (quant.complexity)*
+
+.. _config_quant_nestedtupletsinmusicxml:
+
+quant.nestedTupletsInMusicxml:
+    | Default: **False**  -- ``bool``
+    | *If False, nested tuplets default to False when rendering to musicxml. This is because some musicxml renderers (MuseScore, for example) do not render nested tuplets properly. Nested tuplets will still be enabled if the config options "quant.nestedTuplets" is explicitely set to True.*
 
 .. _config_quant_breaksyncopationslevel:
 
