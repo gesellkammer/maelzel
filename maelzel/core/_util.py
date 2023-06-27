@@ -45,7 +45,7 @@ def checkBuildingDocumentation(logger=None) -> bool:
     return building
 
 
-def pngShow(pngpath: str, forceExternal=False, app: str = '') -> None:
+def pngShow(pngpath: str, forceExternal=False, app: str = '', scalefactor=1.0) -> None:
     """
     Show a png either with an external app or inside jupyter
 
@@ -60,7 +60,7 @@ def pngShow(pngpath: str, forceExternal=False, app: str = '') -> None:
     """
     if environment.insideJupyter and not forceExternal:
         from . import jupytertools
-        jupytertools.showPng(pngpath)
+        jupytertools.showPng(pngpath, scalefactor=scalefactor)
     else:
         environment.openPngWithExternalApplication(pngpath, app=app)
 

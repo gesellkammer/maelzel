@@ -17,6 +17,7 @@ import weakref
 from maelzel import scoring
 from ._common import logger
 import pitchtools as pt
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -38,8 +39,9 @@ class Symbol:
     appliesToRests = True
     modifiesScoringContext = False
 
-    def __init__(self):
+    def __init__(self, color=''):
         self.properties: dict[str, Any] | None = None
+        self.color = color
 
     def getProperty(self, key):
         return None if not self.properties else self.properties.get(key)
@@ -198,12 +200,27 @@ class Spanner(Symbol):
         if anchor and self.anchor is anchor:
             raise ValueError("Start anchor and end anchor cannot be the same object")
         endSpanner = copy.copy(self)
-        endSpanner.kind = 'end'
-        endSpanner.partnerSpanner = weakref.ref(self)
-        self.partnerSpanner = weakref.ref(endSpanner)
+        self.setPartnerSpanner(endSpanner)
         if anchor:
             anchor.addSymbol(endSpanner)
         return endSpanner
+
+    def setPartnerSpanner(self, other: Spanner) -> None:
+        """
+        Set the given spanner as the partner spanner of self (and self as partner of other)
+
+        Args:
+            other: the partner spanner
+
+        """
+        other.partnerSpanner = weakref.ref(self)
+        self.partnerSpanner = weakref.ref(other)
+        if self.kind == 'start':
+            other.kind = 'end'
+            other.uuid = self.uuid
+        else:
+            other.kind = 'start'
+            self.uuid = other.uuid
 
 
 class TrillLine(Spanner):
@@ -462,6 +479,11 @@ class Hidden(Property):
 class NoteAttachedSymbol(Symbol):
     """Base-class for all note attached symbols"""
 
+    def __init__(self, color='', placement=''):
+        super().__init__(color=color)
+        assert not placement or placement in ('above', 'below')
+        self.placement = placement
+
     @classmethod
     def possibleValues(cls, key: str = None) -> Set[str] | None:
         return None
@@ -483,6 +505,9 @@ class Ornament(NoteAttachedSymbol):
 
     def __init__(self, kind: str):
         super().__init__()
+        if not kind in scoring.definitions.availableOrnaments:
+            raise ValueError(f"Ornament {kind} unknown. "
+                             f"Possible values: {scoring.definitions.availableOrnaments}")
         self.kind = kind
 
     @classmethod
@@ -494,26 +519,33 @@ class Ornament(NoteAttachedSymbol):
         n.addAttachment(scoring.attachment.Ornament(self.kind))
 
 
-class Tremolo(Ornament):
+class Tremolo(NoteAttachedSymbol):
     exclusive = True
     appliesToRests = False
 
-    def __init__(self, tremtype='single', nummarks: int = 2):
+    def __init__(self, tremtype='single', nummarks: int = 2, relative=False):
         """
         Args:
             tremtype: the type of tremolo. 'single' indicates a repeated note/chord,
                 'start' indicates the first of two alternating notes/chords,
                 'end' indicates the second of two alternating notes/chords
             nummarks: how many tremolo marks (2=16th tremolo, 3=32nd tremolo, ...)
+            relative: if True, the number of marks depends on the rhythmic figure
+                to which the tremolo is attached. For example, if relative is True,
+                a tremolo with nummarks 2 attached to an 8th note would result
+                in a single-beam tremolo. If relative is False, nummarks will
+                always determine the number of beams
         """
-        super().__init__(kind='tremolo')
+        super().__init__()
         assert tremtype in {'single', 'start', 'end'}, f'Unknown tremolo type: {tremtype}'
         self.tremtype = tremtype
         self.nummarks = nummarks
+        self.relative = relative
 
     def applyTo(self, n: scoring.Notation) -> None:
         n.addAttachment(scoring.attachment.Tremolo(tremtype=self.tremtype,
-                                                   nummarks=self.nummarks))
+                                                   nummarks=self.nummarks,
+                                                   relative=self.relative))
 
 
 class Fermata(NoteAttachedSymbol):
@@ -572,22 +604,25 @@ class Text(NoteAttachedSymbol):
         placement: 'above', 'below' or None to leave it undetermined
         fontsize: the size of the text. The actual resulting size will depend
             on the backend used
-        fontstyle: None or one of 'italic', 'bold' or a comma separated string such
-            as 'italic,bold'
-
+        weight: one of 'normal', 'bold'
+        italic: should this text be italic?
+        color: a valid css color
+        box: one of 'square', 'rectangle', 'circle' or '' to disable
     """
     exclusive = False
     appliesToRests = True
 
     def __init__(self, text: str, placement='above', fontsize: float = None,
-                 fontstyle: str = None, box: str | bool = False):
+                 italic=False, weight='normal', box='',
+                 color='', fontfamily=''):
         assert fontsize is None or isinstance(fontsize, (int, float)), \
             f"Invalid fontsize: {fontsize}, type: {type(fontsize)}"
-        super().__init__()
+        super().__init__(color=color, placement=placement)
         self.text = text
-        self.placement = placement
         self.fontsize = fontsize
-        self.fontstyle = fontstyle
+        self.italic = italic
+        self.weight = weight
+        self.fontfamily = fontfamily
         self.box = box
 
     def __repr__(self):
@@ -597,10 +632,12 @@ class Text(NoteAttachedSymbol):
         if not n.tiedPrev:
             # TODO: add fontsize
             n.addText(self.text, placement=self.placement, fontsize=self.fontsize,
-                      fontstyle=self.fontstyle, box=self.box)
+                      italic=self.italic, weight=self.weight, box=self.box,
+                      fontfamily=self.fontfamily)
 
     def __hash__(self):
-        return hash((type(self).__name__, self.text, self.placement, self.fontsize, self.fontstyle))
+        return hash((type(self).__name__, self.text, self.placement, self.fontsize, self.italic,
+                     self.weight, self.fontfamily))
 
 
 class NotatedPitch(NoteAttachedSymbol):
@@ -638,6 +675,20 @@ class NotatedPitch(NoteAttachedSymbol):
                 if abs(pitch - self.realpitch) < pitchthreshold:
                     n.fixNotename(self.notename, i)
 
+_intervalToSemitones = {
+    '6M': 9,
+    '5th': 7,
+    '5': 7,
+    '4th': 5,
+    '4': 5,
+    '3rd': 4,
+    '3M': 4,
+    '3m': 3,
+    '3': 3,
+    '2nd': 2,
+    '2': 2
+}
+
 
 class Harmonic(NoteAttachedSymbol):
     """
@@ -658,16 +709,38 @@ class Harmonic(NoteAttachedSymbol):
 
     Args:
         kind: one of natural, artificial or sounding. A sounding harmonic
-            (flageolet) will be notated with a small 'o'.
+            (flageolet) will be notated with a small 'o'. *kind* can also
+            be the interval itself or the string representation ('4th' is a
+            perfect fourth, '3M' is a major third
         interval: the interval between the node touched and the pitch
-            depressed, only needed for artificial harmonics
+            depressed, only needed for artificial harmonics. Can be given as the
+            number of semitones (5==perfect fourth) or as a string ('4th')
+
+
+    =============  ========== =========
+    Interval        semitones  String
+    =============  ========== =========
+    Perfect fifth   7           5th
+    Perfect fourth  5           4th
+    Major third     4           3M
+    Minor third     3           3m
+    Major second    2           2 or 2M
+    =============  ========== =========
     """
     applyToRests = False
 
-    def __init__(self, kind='natural', interval=0):
+    def __init__(self, kind: str | int ='natural', interval: int | str = 0):
         super().__init__()
-        if interval > 0:
+
+        if isinstance(kind, int):
+            interval = kind
             kind = 'artificial'
+        elif interval != 0:
+            kind = 'artificial'
+            if isinstance(interval, str):
+                interval = _intervalToSemitones[interval]
+        elif interval == 0 and (semitones := _intervalToSemitones.get(kind)) is not None:
+            kind, interval = 'artificial', semitones
 
         assert kind in {'natural', 'artificial', 'sounding'}
         if kind == 'artificial':
@@ -762,6 +835,26 @@ class Notehead(PitchAttachedSymbol):
         n.setNotehead(scoringNotehead, idx=idx, merge=True)
 
 
+def makeKnownSymbol(name: str) -> Symbol | None:
+    name = name.lower()
+    if name in scoring.definitions.allArticulations():
+        return Articulation(name)
+
+    if name in scoring.definitions.availableOrnaments:
+        return Ornament(name)
+
+    if name in ('comma', 'caesura'):
+        return Breath(name)
+
+    if re.match(r"^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$", name):
+        return Color(name)
+
+    if name == 'fermata':
+        return Fermata()
+
+    return None
+
+
 class Articulation(NoteAttachedSymbol):
     """
     Represents a note attached articulation
@@ -769,8 +862,8 @@ class Articulation(NoteAttachedSymbol):
     exclusive = False
     appliesToRests = False
 
-    def __init__(self, kind: str):
-        super().__init__()
+    def __init__(self, kind: str, color='', placement=''):
+        super().__init__(color=color, placement=placement)
 
         normalized = scoring.definitions.normalizeArticulation(kind)
         assert normalized, f"Articulation {kind} unknown. Possible values: " \
@@ -790,7 +883,8 @@ class Articulation(NoteAttachedSymbol):
 
     def applyTo(self, n: scoring.Notation) -> None:
         if not n.tiedPrev and not n.isRest:
-            n.addArticulation(self.kind)
+            n.addArticulation(scoring.attachment.Articulation(kind=self.kind, color=self.color, placement=self.placement))
+            # n.addArticulation(self.kind, color=self.color, placement=self.placement)
 
 
 class Fingering(NoteAttachedSymbol):
@@ -844,6 +938,18 @@ class Stem(NoteAttachedSymbol):
     def applyTo(self, n: scoring.Notation) -> None:
         if self.hidden:
             n.stem = 'hidden'
+
+
+class GlissandoProperties(NoteAttachedSymbol):
+    def __init__(self, linetype='solid', color=''):
+        super().__init__()
+        self.linetype = linetype
+        self.color = color
+
+    def applyTo(self, n: scoring.Notation) -> None:
+        if not n.gliss:
+            logger.warning("Applying GlissandoProperties to a Notation without glissando,"
+                           f"(destination: {n}")
 
 
 class Accidental(PitchAttachedSymbol):
@@ -910,7 +1016,7 @@ class Accidental(PitchAttachedSymbol):
 
 # -------------------------------------------------------------------
 
-_symbols = (
+_symbolClasses = (
     Notehead,
     Articulation,
     Text,
@@ -933,7 +1039,7 @@ _symbols = (
 )
 
 
-_symbolNameToClass = {cls.__name__.lower(): cls for cls in _symbols}
+_symbolNameToClass = {cls.__name__.lower(): cls for cls in _symbolClasses}
 
 
 def symbolnameToClass(name: str) -> type:

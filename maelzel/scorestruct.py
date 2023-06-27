@@ -185,7 +185,7 @@ class _ScoreLine:
 @dataclass
 class RehearsalMark:
     text: str
-    box: str = 'square'
+    box: str = ''
 
 
 class KeySignature:
@@ -197,6 +197,16 @@ class KeySignature:
 def _parseScoreStructLine(line: str) -> _ScoreLine:
     """
     parse a line of a ScoreStruct definition
+
+    The line has the format ``[measureIndex, ] timesig [, tempo] [keywords]
+
+    Where timesig has the format ``num/den`` and keywords have the format
+    ``keyword=value``, where keyword can be one of ``rehearsalmark``, ``label``
+    and ``barline``. *rehearsalmark* will add a rehearsal mark to the measure,
+    *label* will add a text label to the measure and *barline* will customize
+    the right barline. Possible values for *barline* are single, double, solid,
+    dotted or dashed
+
 
     Args:
         line: a line of the format [measureIndex, ] timesig [, tempo]
@@ -262,6 +272,7 @@ def _parseScoreStructLine(line: str) -> _ScoreLine:
         if k == 'label':
             label = v
         elif k == 'barline':
+            assert v in _barstyles, f"Expected a barline style ({_barstyles}), got {v}"
             barline = v
         elif k == 'rehearsalmark':
             rehearsalmark = v
@@ -293,7 +304,8 @@ class MeasureDef:
                  keySignature: KeySignature = None,
                  properties: dict = None,
                  maxEighthTempo=F(48),
-                 parent: ScoreStruct = None
+                 parent: ScoreStruct = None,
+                 readonly=False
                  ):
         assert not barline or barline in _barstyles, \
             f"Unknown barline style: '{barline}', possible values: {_barstyles}"
@@ -312,7 +324,7 @@ class MeasureDef:
         self.tempoInherited = tempoInherited
         """Is the tempo of this measure inherited?"""
 
-        self.barline = barline
+        self._barline = barline
         """The barline style, or '' to use default"""
 
         self.subdivisionStructure = subdivisionStructure
@@ -330,17 +342,24 @@ class MeasureDef:
         """User defined properties can be placed here. None by default"""
 
         self.maxEighthTempo = asF(maxEighthTempo)
-        """XXX"""
+        """The max. tempo at which an eighth note can be a beat of its own"""
 
         self.parent = parent
         """The parent ScoreStruct of this measure, if any"""
 
-        n, d = self._timesig
-        self.durationBeats = F(4*n, d)
-        """The totalDuration of this measure in quarter-notes"""
+        self.readonly = readonly
 
-        self.durationSecs = self.durationBeats * (F(60) / self._quarterTempo)
+
+    @property
+    def durationQuarters(self) -> F:
+        """The totalDuration of this measure in quarter-notes"""
+        n, d = self._timesig
+        return F(4*n,d)
+
+    @property
+    def durationSecs(self) -> F:
         """The totalDuration of this measure in seconds"""
+        return self.durationQuarters * (F(60) / self._quarterTempo)
 
     @property
     def timesig(self) -> timesig_t:
@@ -349,10 +368,12 @@ class MeasureDef:
 
     @timesig.setter
     def timesig(self, timesig: timesig_t):
+        if self.readonly:
+            raise ValueError("This MeasureDef is readonly")
         self._timesig = timesig
         self.timesigInherited = False
         if self.parent:
-            self.parent.modified()
+            self.parent.modified(timing=True, attributes=True)
 
     @property
     def quarterTempo(self) -> F:
@@ -361,10 +382,25 @@ class MeasureDef:
 
     @quarterTempo.setter
     def quarterTempo(self, tempo: F | int):
+        if self.readonly:
+            raise ValueError("This MeasureDef is readonly")
         self._quarterTempo = asF(tempo)
         self.tempoInherited = False
         if self.parent:
-            self.parent.modified()
+            self.parent.modified(timing=True, attributes=True)
+
+    @property
+    def barline(self) -> str:
+        """The barline style, or '' to use default"""
+        return self._barline
+
+    @barline.setter
+    def barline(self, linestyle: str):
+        if self.readonly:
+            raise ValueError("This MeasureDef is readonly")
+        if linestyle not in _barstyles:
+            raise ValueError(f'Unknown barstyle: {linestyle}, possible values: {_barstyles}')
+        self._barline = linestyle
 
     def beatStructure(self) -> list[BeatStructure]:
         """
@@ -393,7 +429,6 @@ class MeasureDef:
                           annotation=self.annotation,
                           timesigInherited=self.timesigInherited,
                           tempoInherited=self.tempoInherited,
-                          parent=self.parent,
                           keySignature=self.keySignature,
                           rehearsalMark=self.rehearsalMark,
                           barline=self.barline)
@@ -460,18 +495,6 @@ class MeasureDef:
             # 3+3+2/8
             return f'{num}/{den} ({"+".join(str(sub) for sub in self.subdivisionStructure)})'
         return f'{num}/{den}'
-
-    def setBarline(self, barstyle: str) -> None:
-        """
-        The style of the right barline for this measure
-
-        Args:
-            barstyle: a valid linestyle for the barline. One of single, double, solid,
-                dotted or dashed.
-
-        """
-        assert barstyle in _barstyles, f'Unknown barstyle: {barstyle}, possible values: {_barstyles}'
-        self.barline = barstyle
 
 
 def inferSubdivisions(num: int, den: int, quarterTempo
@@ -758,7 +781,8 @@ class ScoreStruct:
         # the quarternote totalDuration of each measure
         self._quarternoteDurations: list[F] = []
 
-        self._modified = True
+        self._attributesModified = True
+        self._timingModified = True
         self._prevScoreStruct: ScoreStruct | None = None
 
         self._lastIndex = 0
@@ -901,19 +925,39 @@ class ScoreStruct:
         s.measuredefs = copy.deepcopy(self.measuredefs)
         return s
 
-    def numDefinedMeasures(self) -> int:
+    def numMeasures(self) -> int:
         """
-        Returns the number of defined measures
+        Returns the number of measures in this score structure
 
-        (independently of this ScoreStruct being endless or not)
+        If self is endless, it returns the number of defined measures
+
+        Example
+        ~~~~~~~
+
+        We create an endless structure (which is the default) where the last
+        defined measure is at index 9. The number of measures is 10
+
+            >>> from maelzel.scorestruct import *
+            >>> struct = ScoreStruct(r'''
+            ... 4/4
+            ... .
+            ... 3/4
+            ... 6, 4/4
+            ... 9, 3/4
+            ''')
+            >>> struct.numMeasures()
+            10
+
         """
         return len(self.measuredefs)
 
     def __len__(self):
         """
         Returns the number of defined measures (even if the score is defined as endless)
+
+        This is the same as :meth:`ScoreStruct.numMeasures`
         """
-        return len(self.measuredefs)
+        return self.numMeasures()
 
     def getMeasureDef(self, idx: int, extend=False) -> MeasureDef:
         """
@@ -962,7 +1006,6 @@ class ScoreStruct:
             # Make the parent None so that it does not get notified if tempo or timesig
             # change
             out = self.measuredefs[-1].copy()
-            out.parent = None
 
         for n in range(len(self.measuredefs)-1, idx):
             self.addMeasure()
@@ -1055,15 +1098,17 @@ class ScoreStruct:
                                 properties=kws,
                                 keySignature=keySignature,
                                 barline=barline,
-                                parent=self)
+                                parent=self,
+                                readonly=self.readonly)
 
         self.measuredefs.append(measuredef)
         if numMeasures > 1:
             self.addMeasure(numMeasures=numMeasures-1)
 
-        self._modified = True
+        self._timingModified = True
 
-    def addRehearsalMark(self, idx: int, mark: RehearsalMark | str, box: str = 'square') -> None:
+    def addRehearsalMark(self, idx: int, mark: RehearsalMark | str, box: str = 'square'
+                         ) -> None:
         """
         Add a rehearsal mark to this scorestruct
 
@@ -1096,7 +1141,7 @@ class ScoreStruct:
         Args:
             numMeasures: the minimum number of measures this score should have
         """
-        measureDiff = numMeasures - self.numDefinedMeasures()
+        measureDiff = numMeasures - self.numMeasures()
         if measureDiff > 0:
             self.addMeasure(numMeasures=measureDiff)
 
@@ -1118,15 +1163,15 @@ class ScoreStruct:
             raise ValueError(f"totalDuration {duration} outside score")
         self.ensureDurationInMeasures(mindex + 1)
 
-    def totalDurationBeats(self) -> F:
+    def totalDurationQuarters(self) -> F:
         """
-        The totalDuration of this score, in beats (quarters)
+        The totalDuration of this score, in quarters
 
         Raises ValueError if this score is endless
         """
         if self.endless:
             raise ValueError("An endless score does not have a totalDuration in beats")
-        return sum(m.durationBeats for m in self.measuredefs)
+        return sum(m.durationQuarters for m in self.measuredefs)
 
     def totalDuratioSecs(self) -> F:
         """
@@ -1139,23 +1184,32 @@ class ScoreStruct:
         return sum(m.durationSecs for m in self.measuredefs)
 
     def _update(self) -> None:
-        accumTime = F(0)
-        accumBeats = F(0)
-        starts = []
-        quarterDurs = []
-        beatOffsets = []
+        if not self._attributesModified and not self._timingModified:
+            return
 
-        for mdef in self.measuredefs:
-            starts.append(accumTime)
-            beatOffsets.append(accumBeats)
-            durBeats = mdef.durationBeats
-            quarterDurs.append(durBeats)
-            accumTime += F(60) / mdef.quarterTempo * durBeats
-            accumBeats += durBeats
-        self._modified = False
-        self._timeOffsets = starts
-        self._beatOffsets = beatOffsets
-        self._quarternoteDurations = quarterDurs
+        if self._attributesModified:
+            self._fixInheritedAttributes()
+            self._attributesModified = False
+
+        if self._timingModified:
+            accumTime = F(0)
+            accumBeats = F(0)
+            starts = []
+            quarterDurs = []
+            beatOffsets = []
+
+            for mdef in self.measuredefs:
+                starts.append(accumTime)
+                beatOffsets.append(accumBeats)
+                durBeats = mdef.durationQuarters
+                quarterDurs.append(durBeats)
+                accumTime += F(60) / mdef.quarterTempo * durBeats
+                accumBeats += durBeats
+
+            self._timeOffsets = starts
+            self._beatOffsets = beatOffsets
+            self._quarternoteDurations = quarterDurs
+            self._timingModified = False
 
     def locationToTime(self, measure: int, beat: number_t = F(0)) -> F:
         """
@@ -1168,8 +1222,7 @@ class ScoreStruct:
         Returns:
             a time in seconds (as a Fraction to avoid rounding problems)
         """
-        if self._modified:
-            self._update()
+        self._update()
 
         numdefs = len(self.measuredefs)
         if measure > numdefs - 1:
@@ -1225,8 +1278,8 @@ class ScoreStruct:
         if not self.measuredefs:
             raise IndexError("This ScoreStruct is empty")
 
-        if self._modified:
-            self._update()
+        self._update()
+
         time = asF(time)
         idx = bisect(self._timeOffsets, time)
         if idx < len(self.measuredefs):
@@ -1248,7 +1301,7 @@ class ScoreStruct:
         lastMeas = self.measuredefs[-1]
         measDur = lastMeas.durationSecs
         numMeasures = dt / measDur
-        beat = (numMeasures - int(numMeasures)) * lastMeas.durationBeats
+        beat = (numMeasures - int(numMeasures)) * lastMeas.durationQuarters
         return len(self.measuredefs)-1 + int(numMeasures), beat
 
     def beatToLocation(self, beat: number_t) -> tuple[int | None, F]:
@@ -1287,8 +1340,8 @@ class ScoreStruct:
         """
         numdefs = len(self.measuredefs)
         assert numdefs >= 1, "This scorestruct is empty"
-        if self._modified:
-            self._update()
+
+        self._update()
 
         if not isinstance(beat, F):
             beat = asF(beat)
@@ -1298,7 +1351,7 @@ class ScoreStruct:
             rest = beat - self._beatOffsets[-1]
             if not self.endless:
                 return (None, 0) if rest > 0 else (numdefs, F(0))
-            beatsPerMeasure = self.measuredefs[-1].durationBeats
+            beatsPerMeasure = self.measuredefs[-1].durationQuarters
             idx = numdefs - 1
             idx += int(rest / beatsPerMeasure)
             restBeats = rest % beatsPerMeasure
@@ -1490,10 +1543,9 @@ class ScoreStruct:
         1.75
 
         """
-        if self._modified:
-            self._update()
+        self._update()
         beat = asF(beat)
-        if measure < self.numDefinedMeasures():
+        if measure < self.numMeasures():
             # Use the index
             measureOffset = self._beatOffsets[measure]
             quartersInMeasure = self._quarternoteDurations[measure]
@@ -1502,7 +1554,7 @@ class ScoreStruct:
                                  f"offset {beat} is too large")
             return measureOffset + beat
         elif not self.endless:
-            raise ValueError(f"This scorestruct has {self.numDefinedMeasures()} and is not"
+            raise ValueError(f"This scorestruct has {self.numMeasures()} and is not"
                              f"marked as endless. Measure {measure} is out of scope")
         # It is endless and out of the defined measures
         # TODO
@@ -1510,9 +1562,9 @@ class ScoreStruct:
         accum = F(0)
         for i, mdef in enumerate(self.iterMeasureDefs()):
             if i < measure:
-                accum += mdef.durationBeats
+                accum += mdef.durationQuarters
             else:
-                if beat > mdef.durationBeats:
+                if beat > mdef.durationQuarters:
                     raise ValueError(f"beat {beat} outside measure {i}: {mdef}")
                 accum += asF(beat)
                 break
@@ -1530,6 +1582,8 @@ class ScoreStruct:
             a list of time offsets (start times), one for each measure in the
             interval selected
         """
+        if not stopindex:
+            stopindex = self.numMeasures()
         return [self.locationToBeat(idx) for idx in range(startindex, stopindex)]
 
     def timeDelta(self,
@@ -1790,9 +1844,15 @@ class ScoreStruct:
             else:
                 break
 
-    def modified(self) -> None:
+    def modified(self, attributes=False, timing=False) -> None:
         """
         Notify this ScoreStruct that some of its measure definitions have been modified
+
+        Args:
+            attributes: if True, some attributes of some measuredefs have been
+                modified (barline style, subdivision, etc)
+            timing: if True, any aspect modifying timing has been altered (tempo, time
+                signature, new measures, etc). This forces the update of the internal index
 
         Example
         ~~~~~~~
@@ -1810,8 +1870,8 @@ class ScoreStruct:
             >>> measure.timesig = 6/8
             >>> s.modified()
         """
-        self._fixInheritedAttributes()
-        self._update()
+        self._attributesModified = attributes
+        self._timingModified = timing
 
     def _fixInheritedAttributes(self):
         m0 = self.measuredefs[0]
@@ -1821,11 +1881,11 @@ class ScoreStruct:
             if m.tempoInherited:
                 m._quarterTempo = tempo
             else:
-                tempo = m.quarterTempo
+                tempo = m._quarterTempo
             if m.timesigInherited:
                 m._timesig = timesig
             else:
-                timesig = m.timesig
+                timesig = m._timesig
 
     def hasUniqueTimesig(self) -> bool:
         """
@@ -1860,6 +1920,7 @@ class ScoreStruct:
             renderoptions: if given, they will be used to customize the rendering
                 process.
         """
+        self._update()
         path = Path(path)
         if path.suffix == ".xml":
             raise ValueError("musicxml output is not supported yet")
@@ -1893,19 +1954,42 @@ class ScoreStruct:
             raise ValueError(f"Expected a .mid or .midi extension, got {ext} ({midifile})")
         click.write(midifile)
 
+    def setEnd(self, numMeasures: int) -> None:
+        """
+        Set an end measure to this ScoreStruct
+
+        If the scorestruct has less defined measures as requested, then it is extended
+        by duplicating the last defined measure as needed. Otherwise, the scorestruct is
+        cropped. The scorestruct ceases to be endless if that was the case previously
+
+        Args:
+            numMeasures: the requested number of measures after the operation
+
+        """
+        self.endless = False
+        if numMeasures < len(self.measuredefs):
+            self.measuredefs = self.measuredefs[:numMeasures]
+            self._timingModified = True
+        else:
+            last = self.measuredefs[-1]
+            self.addMeasure(timesig=last.timesig,
+                            quarterTempo=last.quarterTempo,
+                            subdivisions=last.subdivisionStructure,
+                            keySignature=last.keySignature,
+                            numMeasures = numMeasures - len(self.measuredefs))
+
     def setBarline(self, measureIndex: int, linetype: str) -> None:
         """
-        Set the barline type
+        Set the right barline type
 
         Args:
             measureIndex: the measure index to modify
-            linetype: one of 'single', 'double', 'final'
+            linetype: one of 'single', 'double', 'final', 'solid', 'dashed'
 
         """
         if self.readonly:
             raise RuntimeError("This ScoreStruct is read-only")
 
-        assert linetype in {'single', 'double', 'final'}
         self.getMeasureDef(measureIndex, extend=True).barline = linetype
 
     def asText(self) -> str:
@@ -1967,7 +2051,7 @@ class ScoreStruct:
         .. image:: ../assets/clicktrack2.png
         """
         from maelzel.core import tools
-        if minMeasures < self.numDefinedMeasures():
+        if minMeasures < self.numMeasures():
             struct = self
         else:
             struct = self.copy()

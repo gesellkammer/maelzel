@@ -851,6 +851,7 @@ class QuantizedMeasure:
         self.quantprofile = quantprofile
         "The quantization profile used to generate this measure"
 
+
         self.parent = parent
         "The parent of this measure (a QuantizedPart)"
 
@@ -867,17 +868,28 @@ class QuantizedMeasure:
         return f"QuantizedMeasure({', '.join(parts)})"
 
     def __hash__(self):
-        return hash((self.timesig, self.quarterTempo) + tuple(hash(b) for b in self.beats))
+        if not self.beats:
+            return hash((self.timesig, self.quarterTempo, self.getMeasureIndex()))
+        else:
+            return hash((self.timesig, self.quarterTempo) + tuple(hash(b) for b in self.beats))
 
     def resetTree(self):
         """Remove any cached tree representation of this measure"""
         self._root = None
 
     def getMeasureIndex(self) -> int | None:
-        """Return the measure index of this measure within the QUantizedPart"""
+        """Return the measure index of this measure within the QuantizedPart"""
         if not self.parent:
             return None
         return self.parent.measures.index(self)
+
+    def measureDef(self) -> st.MeasureDef | None:
+        if not self.parent or not self.parent.struct:
+            return None
+        measureindex = self.getMeasureIndex()
+        if measureindex is None:
+            return None
+        return self.parent.struct.getMeasureDef(measureindex)
 
     def getPreviousMeasure(self) -> QuantizedMeasure | None:
         """Returns the previous measure in the part"""
@@ -901,12 +913,18 @@ class QuantizedMeasure:
         return sum(self.beatDurations())
 
     def beatBoundaries(self) -> list[F]:
-        """The beat offsets, including the end of the measure"""
-        boundaries = [F0]
-        now = F0
-        for dur in self.beatDurations():
-            boundaries.append(now)
-            now += dur
+        """
+        The beat offsets, including the end of the measure
+
+        This method will return the boundaries even if the measure itself
+        is empty. In that case these boundaries are the boundaries of
+        the beat structure, as defined in the score structure
+
+        Returns:
+            the boundaries of the beats, which is the offsets plus the end of the measure
+        """
+        boundaries = self.beatOffsets().copy()
+        boundaries.append(boundaries[0] + self.duration())
         return boundaries
 
     def beatOffsets(self) -> list[F]:
@@ -916,8 +934,17 @@ class QuantizedMeasure:
         Returns:
             the offset of each beat
         """
-        if self._offsets is None:
+        if self.isEmpty():
+            measuredef = self.measureDef()
+            if measuredef is None:
+                return []
+            beatStructure = measuredef.beatStructure()
+            beatOffsets = [beat.offset for beat in beatStructure]
+            # beatOffsets.append(beatStructure[-1].end)
+            self._offsets = beatOffsets
+        elif self._offsets is None:
             self._offsets = [beat.beatOffset for beat in self.beats]
+
         return self._offsets
 
     def fixEnharmonics(self, options: enharmonics.EnharmonicOptions) -> None:
@@ -977,6 +1004,9 @@ class QuantizedMeasure:
         Args:
             tree: if True, use the tree representation of the measure. Otherwise,
                 the beat representation is used
+
+        Returns:
+            a list of Notations in this measure
         """
         if self.isEmpty():
             return []
@@ -1978,7 +2008,7 @@ def splitNotationByMeasure(n: Notation, struct: st.ScoreStruct
     if beat1 == 0 and n.duration > 0:
         # Note ends at the barline
         measureindex1 -= 1
-        beat1 = struct.getMeasureDef(measureindex1).durationBeats
+        beat1 = struct.getMeasureDef(measureindex1).durationQuarters
 
     numMeasures = measureindex1 - measureindex0 + 1
 
@@ -1988,7 +2018,8 @@ def splitNotationByMeasure(n: Notation, struct: st.ScoreStruct
         return [(measureindex0, event)]
 
     measuredef = struct.getMeasureDef(measureindex0)
-    dur = measuredef.durationBeats - beat0
+    dur = measuredef.durationQuarters - beat0
+    # notation = n.cloneAsPart(offset=beat0, duration=dur, tiedNext=True)
     notation = n.clone(offset=beat0, duration=dur, tiedNext=True)
     pairs = [(measureindex0, notation)]
 
@@ -1996,16 +2027,21 @@ def splitNotationByMeasure(n: Notation, struct: st.ScoreStruct
     if numMeasures > 2:
         for m in range(measureindex0 + 1, measureindex1):
             measuredef = struct.getMeasureDef(m)
-            notation = n.clone(offset=F0,
-                               duration=measuredef.durationBeats,
-                               tiedPrev=True, tiedNext=True, dynamic='')
-            notation.removeAttachmentsByClass('articulation')
+            notation = n.cloneAsPart(duration=measuredef.durationQuarters,
+                                     tiedPrev=True,
+                                     tiedNext=True,
+                                     offset=F0)
+            #notation = n.clone(offset=F0,
+            #                   duration=measuredef.durationQuarters,
+            #                   tiedPrev=True, tiedNext=True, dynamic='')
+            #notation.removeAttachmentsByClass('articulation')
             pairs.append((m, notation))
 
     # add last notation
     if beat1 > 0:
-        notation = n.clone(offset=F0, duration=beat1, tiedPrev=True,
-                           dynamic='')
+        notation = n.cloneAsPart(offset=F0, duration=beat1, tiedPrev=True, tiedNext=n.tiedNext)
+        #notation = n.clone(offset=F0, duration=beat1, tiedPrev=True,
+        #                   dynamic='')
         notation.removeAttachments(lambda a: isinstance(a, attachment.Articulation))
         pairs.append((measureindex1, notation))
 
@@ -2017,7 +2053,8 @@ def splitNotationByMeasure(n: Notation, struct: st.ScoreStruct
     return pairs
 
 
-def _mergeNodes(node1: Node, node2: Node,
+def _mergeNodes(node1: Node,
+                node2: Node,
                 profile: QuantizationProfile,
                 beatOffsets: list[F]
                 ) -> Node:
@@ -2027,19 +2064,43 @@ def _mergeNodes(node1: Node, node2: Node,
     return _mergeSiblings(node, profile=profile, beatOffsets=beatOffsets)
 
 
-def _nodesCanMerge(g1: Node, g2: Node, profile: QuantizationProfile,
+def _nodesCanMerge(g1: Node,
+                   g2: Node,
+                   profile: QuantizationProfile,
                    beatOffsets: list[F]
                    ) -> Result:
+    """
+    Returns Result(True) if the given nodes can merge, Result(False, errormsg) otherwise
+
+    Args:
+        g1: first node
+        g2: second node
+        profile: the quantization profile
+        beatOffsets: the offsets of the beat subdivisions. Any Node is always
+            circumscribed to one measure but can excede a beat
+
+    Returns:
+        a Result
+
+    """
     assert len(g1.items) > 0 and len(g2.items) > 0
     assert g1.offset < g1.end <= g2.offset
     assert g1.end == g2.offset
     # acrossBeat = next((offset for offset in beatOffsets if g1.end == offset), None)
     acrossBeat = any(g1.end == offset
                      for offset in beatOffsets)
-    syncopated = g1.lastNotation().tiedNext
+    g1last = g1.lastNotation()
+    g2first = g2.firstNotation()
 
     if g1.durRatio != g2.durRatio:
         return Result(False, "not same durRatio")
+    if g1.durRatio == (1, 1) and len(g1) == len(g2) == 1:
+        if g1last.gliss and g1last.tiedPrev and g1.symbolicDuration() + g2.symbolicDuration() > 1:
+            return Result(False, 'A glissando over a beat needs to be broken at the beat')
+        # Special case: always merge binary nodes with single items since there is always
+        # a way to notate those
+        return Result(True)
+
     if g1.durRatio != (1, 1):
         if acrossBeat and g1.durRatio[0] not in profile.allowedTupletsAcrossBeat:
             return Result(False, "tuplet not allowed to merge across beat")
@@ -2049,7 +2110,7 @@ def _nodesCanMerge(g1: Node, g2: Node, profile: QuantizationProfile,
             return Result(False, "Nodes of different totalDuration cannot merge")
 
     item1, item2 = g1.items[-1], g2.items[0]
-    print(g1, g2, f"{acrossBeat=}, {syncopated=}")
+    syncopated = g1last.tiedNext or (g1last.isRest and g2first.isRest and g1last.durRatios == g2first.durRatios)
 
     if acrossBeat and not syncopated:
         return Result(False, 'no need to extend node over beat')
@@ -2068,9 +2129,12 @@ def _nodesCanMerge(g1: Node, g2: Node, profile: QuantizationProfile,
     else:
         assert isinstance(item1, Notation) and isinstance(item2, Notation)
         if not acrossBeat:
-            return Result(True, '')
+            return Result(True)
 
-        symdur = item1.symbolicDuration() + item2.symbolicDuration()
+        symdur: F = item1.symbolicDuration() + item2.symbolicDuration()
+
+        if syncopated and symdur.numerator not in (1, 2, 4, 8):
+            return Result(False, 'Cannot merge notations resulting in irregular durations')
 
         if item1.gliss and item1.tiedNext and item2.gliss:
             if symdur >= 2 and item1.tiedPrev:
@@ -2089,6 +2153,9 @@ def _nodesCanMerge(g1: Node, g2: Node, profile: QuantizationProfile,
 
         if symdur < profile.minSymbolicDurationAcrossBeat:
             return Result(False, 'Symbolic duration of merged notations across beat too short')
+
+        if g1.durRatio == (3, 2) and item1.symbolicDuration() == item2.symbolicDuration() == 1 and item1.tiedNext:
+            return Result(False, 'Not needed')
 
         return Result(True, '')
 
@@ -2207,7 +2274,7 @@ class QuantizedPart:
             measure.quantprofile = self.quantprofile
         self._repairGracenotes()
         self._repairLinks()
-        self.removeUnnecessarySpanners(tree=False)
+        self.repairSpanners(tree=False)
 
     def __iter__(self) -> Iterator[QuantizedMeasure]:
         return iter(self.measures)
@@ -2449,14 +2516,22 @@ class QuantizedPart:
             logger.warning(f"Reached max. number of iterations ({maxiter}) while "
                            "attempting to remove superfluous gracenotes")
 
-    def removeUnnecessarySpanners(self, tree: bool) -> None:
+    def repairSpanners(self, tree: bool, removeUnnecessary=True) -> None:
         """
-        Remove unmatched spanners in this part
+        Match orfan spanners, optionally removing unmatched spanners (in place)
 
         Args:
             tree: if True, use the tree representation for each measure
+            removeUnnecessary: if True, remove any spanner with no matching
+                start/end spanner
         """
-        _spanner.removeUnmatchedSpanners(self.flatNotations(tree=tree))
+        # _spanner.removeUnmatchedSpanners(self.flatNotations(tree=tree))
+        notations = list(self.flatNotations(tree=tree))
+        _spanner.solveHairpins(notations)
+        _spanner.matchOrfanSpanners(notations=notations,
+                                    removeUnmatched=removeUnnecessary)
+        _spanner.markNestingLevels(notations)
+        _spanner.moveEndSpannersToEndOfLogicalTie(notations)
         if not tree:
             self.resetTrees()
 
@@ -2645,7 +2720,7 @@ def quantizePart(part: core.Part,
     if fillStructure:
         if struct.endless:
             raise ValueError("Cannot fill an endless ScoreStructure")
-        for i in range(maxMeasure+1, struct.numDefinedMeasures()):
+        for i in range(maxMeasure+1, struct.numMeasures()):
             measureDef = struct.getMeasureDef(i)
             qmeasure = QuantizedMeasure(timesig=measureDef.timesig,
                                         quarterTempo=measureDef.quarterTempo,
@@ -2729,7 +2804,7 @@ class QuantizedScore:
 
     def __hash__(self):
         partHashes = [hash(p) for p in self.parts]
-        return hash((self.title, self.composer) + tuple(partHashes))
+        return hash((self.scorestruct, self.title, self.composer) + tuple(partHashes))
 
     def __getitem__(self, item: int) -> QuantizedPart:
         return self.parts[item]
@@ -2825,20 +2900,29 @@ class QuantizedScore:
 
     def write(self,
               outfile: str,
-              options: renderer.RenderOptions | None = None
+              options: renderer.RenderOptions | None = None,
+              backend=''
               ) -> renderer.Renderer:
         """
         Export this score as pdf, png, lilypond, MIDI or musicxml
+
+        When rendering to pdf or png both the lilypond or the
+        musicxml backend can be used.
+
         Args:
-            outfile:
-            options:
+            outfile: the path of the written file
+            options: render options used to generate the output
 
         Returns:
-
+            the Renderer used
         """
-        ext = os.path.splitext(outfile)[1]
+        ext = os.path.splitext(outfile)[1].lower()
         if ext == '.ly':
             r = self.render(options=options, backend='lilypond')
+            r.write(outfile)
+            return r
+        elif ext == '.xml' or ext == '.musicxml':
+            r = self.render(options=options, backend='musicxml')
             r.write(outfile)
             return r
         elif ext == '.pdf' or ext == '.png':
@@ -2875,30 +2959,22 @@ class QuantizedScore:
             options = options.clone(backend=backend)
         return render.renderQuantizedScore(self, options=options)
 
-    def toCoreScore(self, mergeTies=True) -> maelzel.core.Score:
+    def toCoreScore(self) -> maelzel.core.Score:
         """
-        Convert this to a maelzel.core.Score
-
-        Args:
-            mergeTies: if True, notes/chords which can be merged into longer events
-                are merged
+        Convert this QuantizedScore to a maelzel.core.Score
 
         Returns:
-            a maelzel.core.Score representing this QuantizedScore
-
+            the corresponding maelzel.core.Score
         """
         from .notation import notationsToCoreEvents
         import maelzel.core
         voices = []
         for part in self.parts:
-            if mergeTies:
-                notations = part.mergedTies()
-            else:
-                ties = part.logicalTies()
-                notations = []
-                for tie in ties:
-                    notations.extend(tie)
-            events = notationsToCoreEvents(notations)
+            events = []
+            for measure in part:
+                tree = measure.tree()
+                notations = list(tree.recurse())
+                events.extend(notationsToCoreEvents(notations))
             voice = maelzel.core.Voice(events)
             voices.append(voice)
         return maelzel.core.Score(voices=voices, scorestruct=self.scorestruct, title=self.title)

@@ -1,6 +1,10 @@
 from __future__ import annotations
 from emlib.misc import ReprMixin
 from . import definitions
+from typing import TypeVar
+import copy
+
+_AttachmentT = TypeVar('_AttachmentT', bound='Attachment')
 
 
 class Attachment(ReprMixin):
@@ -18,6 +22,7 @@ class Attachment(ReprMixin):
     """
     exclusive = False
     priority = 100
+    copyToSplitNotation = False
 
     def __init__(self, color='', instancePriority=0, anchor: int = None):
         self.color: str = color
@@ -34,6 +39,9 @@ class Attachment(ReprMixin):
     def getPriority(self) -> int:
         return self.priority + self.instancePriority
 
+    def copy(self: _AttachmentT) -> _AttachmentT:
+        return copy.deepcopy(self)
+
 
 class Property(Attachment):
 
@@ -41,6 +49,18 @@ class Property(Attachment):
         super().__init__(anchor=anchor)
         self.key = key
         self.value = value
+
+
+class GlissandoProperties(Attachment):
+    copyToSplitNotation = True
+
+    def __init__(self, linetype='solid', color=''):
+        super().__init__(color=color)
+        if not linetype in ('solid', 'wavy', 'dotted', 'dashed'):
+            raise ValueError(f"linetype should be one of 'solid', 'wavy', 'dotted', 'dashed', "
+                             f"got {linetype}")
+        self.linetype = linetype
+        """The line type, one of 'solid', 'wavy', 'dotted', 'dashed'"""
 
 
 class AccidentalTraits(Attachment):
@@ -86,7 +106,6 @@ class Ornament(Attachment):
 
 
 class Fingering(Attachment):
-    exclusive = True
     priority = 30
 
     def __init__(self, fingering: str):
@@ -103,10 +122,12 @@ class Articulation(Attachment):
         'flageolet': -1
     }
 
-    def __init__(self, kind: str, color: str = '', **kws):
+    def __init__(self, kind: str, color: str = '', placement: str = '', **kws):
         assert kind in definitions.articulations
+        assert not placement or placement in ('above', 'below')
         super().__init__(color=color)
         self.kind = kind
+        self.placement = placement
         self.properties: dict = kws
 
     def __hash__(self):
@@ -118,18 +139,21 @@ class Articulation(Attachment):
 
 
 class Tremolo(Attachment):
-    def __init__(self, tremtype='single', nummarks=2, **kws):
+    copyToSplitNotation = True
+
+    def __init__(self, tremtype='single', nummarks=2, relative=True, **kws):
         assert tremtype in {'single', 'start', 'end'}
         super().__init__(**kws)
         self.tremtype = tremtype
         self.nummarks = nummarks
+        self.relative = relative
 
     def singleDuration(self) -> int:
         # 1:8, 2:16, 3:32,...
         return 2**(2+self.nummarks)
 
     def __hash__(self):
-        return hash(('Tremolo', self.tremtype, self.nummarks))
+        return hash(('Tremolo', self.tremtype, self.nummarks, self.relative))
 
 
 class Fermata(Attachment):
@@ -158,18 +182,22 @@ class Bend(Attachment):
 class Breath(Attachment):
     exclusive = True
 
-    def __init__(self, kind='', visible=True):
+    def __init__(self, kind='', visible=True, placement='above'):
         super().__init__()
         if kind:
             assert kind in definitions.breathMarks, f'Kind unknown, supported values are {definitions.breathMarks}'
         self.kind = kind
         self.visible = visible
+        self.placement = placement
 
     def __hash__(self):
         return hash(('Breath', self.kind, self.visible))
 
 
 class Harmonic(Attachment):
+
+    copyToSplitNotation = True
+
     """
     A natural or artificial harmonic
 
@@ -187,43 +215,66 @@ class Harmonic(Attachment):
     def __init__(self, interval: int = 0):
         super().__init__()
         self.interval = interval
+        self.kind = 'artificial' if interval > 0 else 'natural'
 
     def __hash__(self):
         return hash(('Harmonic', self.interval))
 
 
+
 class Text(Attachment):
     """
     A text annotation which can be added to a Notation
+
+    Args:
+        text: the text
+        placement: if given, one of 'above', 'below'
+        fontsize: the absolute font size
+        italic: if True, use italic style
+        weight: one of 'normal', 'bold'
+        fontfamily: a font family or a comma separated list thereof
+        box: one of '' (no enclosure), 'square', 'rectangle', 'circle'
+        role: the role of the text. This is a hint as to what the text is
+            intended for. At the moment possible values are '' (no role),
+            'measure' (text attached to the measure itself)
     """
     priority = 100
 
-    __slots__ = ('text', 'placement', 'fontsize', 'fontstyles', 'box')
+    __slots__ = ('text', 'placement', 'fontsize', 'italic', 'weight', 'fontfamily', 'box')
 
-    def __init__(self, text: str, placement='above', fontsize: float = None, fontstyle='',
-                 box: str | bool = False, color=''):
+    def __init__(self,
+                 text: str,
+                 placement='',
+                 fontsize: float = None,
+                 italic=False,
+                 weight='',
+                 fontfamily: str = '',
+                 box='',
+                 color='',
+                 role=''):
         super().__init__(color=color)
         assert not text.isspace()
         if fontsize is not None:
             assert isinstance(fontsize, (int, float))
+        assert weight in ('', 'normal', 'bold')
+        assert box in ('', 'square', 'rectangle', 'circle')
         self.text = text
         self.placement = placement
         self.fontsize = fontsize
-        self.box: str = box if isinstance(box, str) else 'square' if box else ''
-        if not fontstyle:
-            self.fontstyles = None
-        else:
-            styles = fontstyle.split(',')
-            for style in styles:
-                assert style in {'italic', 'bold'}, f'Style {style} not supported'
-            self.fontstyles = styles
+        self.box = box
+        self.italic = italic
+        self.weight = weight
+        self.fontfamily = fontfamily
+        self.role = role
 
     def __repr__(self):
         elements = [f'text={self.text}', f'placement={self.placement}']
         if self.fontsize:
             elements.append(f'fontsize={self.fontsize}')
-        if self.fontstyles:
-            elements.append(f'fontstyles={self.fontstyles}')
+        if self.italic:
+            elements.append(f'italic=True')
+        if self.weight and self.weight != 'normal':
+            elements.append(f'weight={self.weight}')
         if self.box:
             elements.append(f'box={self.box}')
         return f'{type(self).__name__}({", ".join(elements)})'
@@ -234,11 +285,8 @@ class Text(Attachment):
     def __eq__(self, other: 'Text') -> bool:
         return hash(self) == hash(other)
 
-    def isItalic(self):
-        return self.fontstyles and 'italic' in self.fontstyles
-
     def isBold(self):
-        return self.fontstyles and 'bold' in self.fontstyles
+        return self.weight == 'bold'
 
 
 class Clef(Attachment):

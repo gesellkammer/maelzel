@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
-from maelzel.common import F, asF
+
+from maelzel.scorestruct import ScoreStruct
+from maelzel.common import F, asF, F0
 from maelzel.core.config import CoreConfig
 from .mobj import MObj, MContainer
 from .event import MEvent, asEvent, Note, Chord
@@ -11,7 +13,7 @@ from . import symbols
 from . import environment
 from . import _mobjtools
 from . import _util
-from ._common import UNSET
+from ._common import UNSET, logger
 
 from maelzel import scoring
 from maelzel.colortheory import safeColors
@@ -46,40 +48,28 @@ def _stackEvents(events: list[MEvent | Chain],
         the accumulated totalDuration of all events
 
     """
-    if not events:
-        return F(0)
-
     # All offset times given in the events are relative to the start of the chain
     now = F(0)
-    for i, ev in enumerate(events):
+    for ev in events:
         if ev.offset is not None:
-            if ev.offset < now:
-                if now - ev.offset < 1e-10:
-                    ev.offset = now
-                else:
-                    raise ValueError(f'{ev} (#{i}) has an explicit offset={ev.offset}, but it overlaps with '
-                                     f'the calculated offset by {now - ev.offset})')
-            else:
-                now = ev.offset
+            now = ev.offset
         elif explicitOffsets:
             ev.offset = now
 
         ev._resolvedOffset = now
         if isinstance(ev, MEvent):
             now += ev.dur
-        elif isinstance(ev, Chain):
+        else: # A Chain
             stackeddur = _stackEvents(ev.items, explicitOffsets=explicitOffsets)
             ev._dur = stackeddur
             now = ev._resolvedOffset + stackeddur
-        else:
-            raise TypeError(f"Expected an MEvent (Note, Chord, ...) or a Chain, got {ev}")
     return now
 
 
 def _removeRedundantOffsets(items: list[MEvent | Chain],
                             fillGaps=False,
                             frame=F(0)
-                            ) -> F:
+                            ) -> tuple[F, bool]:
     """
     Remove over-secified start times in this Chain
 
@@ -90,12 +80,13 @@ def _removeRedundantOffsets(items: list[MEvent | Chain],
             becomes redundant)
 
     Returns:
-        the total totalDuration of *items*
+        a tuple (total totalDuration of *items*, True if items was modified)
 
     """
     # This is the relative position (independent of the chain's start)
     now = frame
     out = []
+    modified = False
     for i, item in enumerate(items):
         itemoffset = item._detachedOffset()
         absoffset = itemoffset + frame if itemoffset is not None else None
@@ -108,19 +99,21 @@ def _removeRedundantOffsets(items: list[MEvent | Chain],
             else:
                 if fillGaps:
                     out.append(Note.makeRest(absoffset - now))
+                    modified = True
                 now = absoffset
 
         if isinstance(item, MEvent):
             now += item.dur
         elif isinstance(item, Chain):  # a Chain
-            dur = _removeRedundantOffsets(item.items, fillGaps=fillGaps, frame=now)
-            item._modified = True
+            dur, submodified = _removeRedundantOffsets(item.items, fillGaps=fillGaps, frame=now)
+            if submodified:
+                item._changed()
             now += dur
         else:
             raise TypeError(f"Expected a Note, Chord or Chain, got {item}")
         out.append(item)
     items[:] = out
-    return now - frame
+    return now - frame, modified
 
 
 class Chain(MObj, MContainer):
@@ -137,7 +130,7 @@ class Chain(MObj, MContainer):
     """
     _acceptsNoteAttachedSymbols = False
 
-    __slots__ = ('items', '_modified')
+    __slots__ = ('items', '_modified', '_cachedEventsWithOffset')
 
     def __init__(self,
                  items: list[MEvent | Chain | str] | str | None = None,
@@ -168,6 +161,8 @@ class Chain(MObj, MContainer):
         """The items in this chain, a list of events of other chains"""
 
         self._modified = items is not None
+        self._cachedEventsWithOffset: list[tuple[MEvent, F]] | None = None
+
 
     def __hash__(self):
         items = [type(self).__name__, self.label, self.offset, len(self.items)]
@@ -226,18 +221,21 @@ class Chain(MObj, MContainer):
         self._update()
         now = F(0)
         items = []
+        changed = False
         for item in self.items:
             if item.offset is not None and item.offset > now:
                 gapdur = item.offset - now
                 r = Note.makeRest(gapdur)
                 items.append(r)
                 now += gapdur
+                changed = True
             items.append(item)
             if isinstance(item, Chain) and recurse:
                 item.fillGaps(recurse=True)
             now += item.dur
         self.items = items
-        self._changed()
+        if changed:
+            self._changed()
 
     def itemAfter(self, item: MEvent | Chain) -> MEvent | Chain | None:
         """
@@ -281,8 +279,8 @@ class Chain(MObj, MContainer):
         idx = self.items.index(event)
         if idx >= len(self.items) - 1:
             return None
-        item = self.items[idx]
-        return item if isinstance(item, MEvent) else next(item.recurse())
+        nextitem = self.items[idx+1]
+        return nextitem if isinstance(nextitem, MEvent) else nextitem.firstEvent()
 
     def isFlat(self) -> bool:
         """Is self flat?
@@ -299,8 +297,12 @@ class Chain(MObj, MContainer):
         this Chain and any sub-chains to a flat chain of notes/chords.
 
         If this Chain is already flat (it does not contain any
-        Chains), self is returned unmodified. **NB**: all items in the returned
-        Chain have an explicit ``.offset``
+        Chains), self is returned unmodified.
+
+        .. note::
+
+            All items in the returned Chain have an explicit ``.offset`` attribute.
+            To remove any redundant .offset call :meth:`Chain.removeRedundantOffsets`
 
         Args:
             forcecopy: if True the returned Chain is completely independent
@@ -314,14 +316,10 @@ class Chain(MObj, MContainer):
         if all(isinstance(item, MEvent) for item in self.items) and not forcecopy and self.isResolved():
             return self
 
-        items = []
-        for event, offset in self.recurseWithOffset():
-            if forcecopy or event.offset != offset:
-                event = event.copy()
-            event.offset = offset
-            items.append(event)
-        assert all(item.offset is not None for item in items)
-        return self.clone(items=items)
+        flatevents = self.eventsWithOffset()
+        events = [ev if not forcecopy or ev.offset == offset else ev.clone(offset=offset)
+                  for ev, offset in flatevents]
+        return self.clone(items=events)
 
     def pitchRange(self) -> tuple[float, float] | None:
         pitchRanges = [item.pitchRange() for item in self.items]
@@ -425,6 +423,7 @@ class Chain(MObj, MContainer):
                      parentOffset: F,
                      workspace: Workspace
                      ) -> list[SynthEvent]:
+        # TODO: add playback for crescendi (hairpins)
         conf = workspace.config
         if self.playargs:
             playargs = playargs.overwrittenWith(self.playargs)
@@ -491,10 +490,14 @@ class Chain(MObj, MContainer):
         Two events can be merged if they are tied and the second
         event does not provide any extra information (does not have
         an individual amplitude, dynamic, does not start a gliss, etc.)
+
+        Returns:
+            True if self was modified
         """
         out = []
         last = None
         lastidx = len(self.items) - 1
+        modified = False
         for i, item in enumerate(self.items):
             if isinstance(item, Chain):
                 item.mergeTiedEvents()
@@ -511,6 +514,7 @@ class Chain(MObj, MContainer):
                         last = merged
                     else:
                         out.append(merged)
+                    modified = True
 
             else:
                 if last is not None:
@@ -519,7 +523,9 @@ class Chain(MObj, MContainer):
                 if i == lastidx:
                     out.append(item)
         self.items = out
-        self._changed()
+        if modified:
+            self._changed()
+
 
     def childOffset(self, child: MObj) -> F:
         """
@@ -592,18 +598,19 @@ class Chain(MObj, MContainer):
             return
         self._dur = _stackEvents(self.items, explicitOffsets=False)
         self._modified = False
-        for item in self.items:
-            if item.properties and '.glisstarget' in item.properties:
-                del item.properties['.glisstarget']
+        self._cachedEventsWithOffset = None
 
     def _changed(self) -> None:
+        if self._modified:
+            return
         self._modified = True
         self._dur = None
         if self.parent:
             self.parent.childChanged(self)
 
     def childChanged(self, child: MObj) -> None:
-        self._changed()
+        if not self._modified:
+            self._changed()
 
     def __len__(self) -> int:
         return len(self.items)
@@ -633,6 +640,7 @@ class Chain(MObj, MContainer):
                     default=10)
 
         widths = {
+            'location': 10,
             'beat': 7,
             'offset': 12,
             'dur': 12,
@@ -642,6 +650,8 @@ class Chain(MObj, MContainer):
             'playargs': 20,
             'info': 20
         }
+
+        struct = self.scorestruct() or Workspace.active.scorestruct
 
         if environment.insideJupyter and not forcetext:
             _ = _util.htmlSpan
@@ -681,8 +691,11 @@ class Chain(MObj, MContainer):
                         durstr = _util.showT(item.dur).ljust(widths['dur'])
                     else:
                         durstr = f'({itemdur})'.ljust(widths['dur'])
+                    measureidx, measurebeat = struct.beatToLocation(now + itemoffset)
+                    locationstr = f'{measureidx}:{_util.showT(measurebeat)}'.ljust(widths['location'])
                     playargs = 'None' if not item.playargs else ', '.join(f'{k}={v}' for k, v in item.playargs.db.items())
                     rowparts = [IND*(indents+1),
+                                locationstr,
                                 _util.showT(now + itemoffset).ljust(widths['beat']),
                                 offsetstr,
                                 durstr,
@@ -787,8 +800,10 @@ class Chain(MObj, MContainer):
         """
         # This is the relative position (independent of the chain's start)
         self._update()
-        _removeRedundantOffsets(self.items, fillGaps=fillGaps, frame=F(0))
-        self._modified = True
+        _, modified = _removeRedundantOffsets(self.items, fillGaps=fillGaps, frame=F(0))
+        if modified:
+            self._changed()
+
 
     def asVoice(self) -> Voice:
         """
@@ -853,35 +868,30 @@ class Chain(MObj, MContainer):
                 for n in notations:
                     s.applyTo(n)
 
-        openSpanners: list[scoring.spanner.Spanner] = []
-        lastHairpin: scoring.spanner.Hairpin | None = None
-        for n in notations:
-            if n.spanners:
-                for spanner in n.spanners:
-                    if spanner.kind == 'start':
-                        if isinstance(spanner, symbols.Hairpin):
-                            lastHairpin = spanner
-                        else:
-                            openSpanners.append(spanner)
-                    else:
-                        if isinstance(spanner, symbols.Hairpin):
-                            lastHairpin = None
-                        else:
-                            misc.remove_last_matching(openSpanners, lambda s: type(s) == type(spanner))
-            if n.dynamic and lastHairpin is not None:
-                n.addSpanner(lastHairpin.endSpanner())
-
-        if openSpanners:
-            for spanner in openSpanners:
-                notations[-1].addSpanner(spanner.endSpanner())
-
         return notations
+
+    def _solveOrfanHairpins(self, currentDynamic='mf'):
+        lastHairpin: symbols.Hairpin | None = None
+        for n in self.recurse():
+            if not isinstance(n, (Chord, Note)):
+                continue
+            if n.dynamic and n.dynamic != currentDynamic:
+                if lastHairpin:
+                    n.addSpanner(lastHairpin.makeEndSpanner())
+                    lastHairpin = None
+                currentDynamic = n.dynamic
+
+            if n.symbols:
+                for s in n.symbols:
+                    if isinstance(s, symbols.Hairpin) and s.kind == 'start' and not s.partnerSpanner:
+                        lastHairpin = s
 
     def scoringParts(self,
                      config: CoreConfig = None
                      ) -> list[scoring.Part]:
         if config is None:
             config = Workspace.active.config
+        self._update()
         notations = self.scoringEvents(config=config)
         if not notations:
             return []
@@ -946,6 +956,50 @@ class Chain(MObj, MContainer):
                 else:
                     yield from item.recurse(reverse=True)
 
+    def eventsWithOffset(self) -> list[tuple[MEvent, F]]:
+        """
+        Recurse the events in self and resolves each event's offset
+
+        Returns:
+            a list of pairs, where each pair has the form (event, offset), the offset being
+             the **absolute** offset of the event. Event themselves are not modified
+
+        Example
+        ~~~~~~~
+
+            >>> from maelzel.core import *
+            >>> chain = Chain([
+            ... "4C:0.5",
+            ... "4D",
+            ... Chain(["4E:0.5"], offset=2)
+            ... ], offset=1)
+
+        """
+        self._update()
+        if self._cachedEventsWithOffset:
+            return self._cachedEventsWithOffset
+        eventpairs, totaldur = self._eventsWithOffset(frame=self.absoluteOffset())
+        self._dur = totaldur
+        self._cachedEventsWithOffset = eventpairs
+        return eventpairs
+
+    def _eventsWithOffset(self,
+                          frame: F
+                          ) -> tuple[list[tuple[MEvent, F]], F]:
+        events = []
+        now = frame
+        for item in self.items:
+            if item.offset:
+                now = frame + item.offset
+            if isinstance(item, MEvent):
+                events.append((item, now))
+                now += item.dur
+            else:
+                subitems, subdur = item._eventsWithOffset(frame=now)
+                events.extend(subitems)
+                now += subdur
+        return events, now - frame
+
     def _iterateWithTimes(self,
                           recurse: bool,
                           frame: F,
@@ -997,7 +1051,7 @@ class Chain(MObj, MContainer):
                 now += subdur
         return out, now - frame
 
-    def recurseWithOffset(self, absolute=False) -> Iterator[tuple[MEvent, F]]:
+    def ___recurseWithOffset(self, absolute=False) -> Iterator[tuple[MEvent, F]]:
         """
         Recurse the events in self, yields a tuple (event, offset) for each event
 
@@ -1022,6 +1076,7 @@ class Chain(MObj, MContainer):
         """
         frame = self.absoluteOffset() if absolute else F(0)
         itemtuples, totaldur = self._iterateWithTimes(frame=frame, recurse=True)
+
         for itemtuple in itemtuples:
             item = itemtuple[0]
             if isinstance(item, MEvent):
@@ -1086,8 +1141,8 @@ class Chain(MObj, MContainer):
             >>> chain[0].addSpanner('slur', chain[-1])
 
         """
-        first = next(self.recurse())
-        last = next(self.recurse(reverse=True))
+        first = self.firstEvent()
+        last = self.lastEvent()
         if isinstance(spanner, str):
             spanner = symbols.makeSpanner(spanner)
         assert isinstance(first, (Note, Chord)) and isinstance(last, (Note, Chord))
@@ -1101,7 +1156,10 @@ class Chain(MObj, MContainer):
         """The last event in this chain, recursively"""
         return next(self.recurse(reverse=True))
 
-    def eventsBetween(self, startbeat: time_t, endbeat: time_t, absolute=False
+    def eventsBetween(self,
+                      startbeat: time_t | tuple[int, time_t],
+                      endbeat: time_t | tuple[int, time_t],
+                      absolute=True
                       ) -> list[MEvent]:
         """
         Returns the events which are **included** by the given times in quarternotes
@@ -1111,25 +1169,72 @@ class Chain(MObj, MContainer):
         Chains are treated as one item. To access sub-chains, first flatten self.
 
         Args:
-            startbeat: the start time, relative to the start of self
-            endbeat: end time, relative to the start of self
-            absolute: if True, interpret startbeat and endbeat as absolute
+            startbeat: the start time; can also be a score location (measureindex, measurebeat)
+            endbeat: end time; can also be a location (measureindex, measurebeat)
+            absolute: if True, interpret startbeat and endbeat as absolute, otherwise interpret
+                beats as relative to the beginning of this chain. In the case of using score
+                locations, using absolute=False will raise a ValueError exception
 
         Returns:
             a list of events located between the given time-interval
 
         """
-        startbeat = asF(startbeat)
-        endbeat = asF(endbeat)
+        if isinstance(startbeat, tuple) or isinstance(endbeat, tuple):
+            if not absolute:
+                raise ValueError("absolute must be false when giving beats as a score location")
+            scorestruct = self.scorestruct() or Workspace.active.scorestruct
+            startbeat = scorestruct.locationToBeat(*startbeat)
+            endbeat = scorestruct.locationToBeat(*endbeat)
+        else:
+            startbeat = asF(startbeat)
+            endbeat = asF(endbeat)
+            if not absolute:
+                ownoffset = self.absoluteOffset()
+                startbeat += ownoffset
+                endbeat += endbeat
         items = []
-        for item, itemoffset, itemdur in self.iterateWithTimes(absolute=absolute):
-            if startbeat <= itemoffset and itemoffset+itemdur <= endbeat:
+        for item, itemoffset in self.eventsWithOffset():
+            itemend = itemoffset + item.dur
+            if itemoffset > endbeat:
+                break
+            if itemend > startbeat and ((item.dur > 0 and itemoffset < endbeat) or
+                                        (item.dur == 0 and itemoffset <= endbeat)):
                 items.append(item)
         return items
 
+    def splitEventsAtMeasures(self, scorestruct: ScoreStruct = None, startindex=0, stopindex=0
+                              ) -> None:
+        """
+        Splits items in self at measure offsets, **inplace** (recursively)
+
+        After this method is called, no event extends for longer than a measure, as defined
+        in the given scorestruct or this object's scorestruct.
+
+        .. note::
+
+            To avoid modifying self, create a copy first:
+            ``newchain = self.copy().splitEventsAtMeasure(...)``
+
+        Args:
+            scorestruct: if given, overrides any active scorestruct for this object
+            startindex: the first measure index to use
+            stopindex: the last measure index to use. 0=len(measures). The stopindex is not
+                included (similar to how python's builtin `range` behaves`
+        """
+        if scorestruct is None:
+            scorestruct = self.scorestruct() or Workspace.active.scorestruct
+        else:
+            if (ownstruct := self.scorestruct()) and ownstruct != scorestruct:
+                clsname = type(self).__name__
+                logger.warning(f"This {clsname} has already an active ScoreStruct via its parent. "
+                               f"Passing an ad-hoc scorestruct might cause problems...")
+        offsets = scorestruct.measureOffsets(startindex=startindex, stopindex=stopindex)
+        self.splitEventsAtOffsets(offsets, tie=True)
+
+
     def splitEventsAtOffsets(self, offsets: list[F], tie=True) -> None:
         """
-        Splits items in self at the given offsets, **inplace**
+        Splits items in self at the given offsets, **inplace** (recursively)
 
         The offsets are absolute. Split items are by default tied together
 
@@ -1137,6 +1242,8 @@ class Chain(MObj, MContainer):
             offsets: the offsets to split items at.
             tie: if True, parts of an item are tied together
         """
+        if not offsets:
+            raise ValueError("No offsets given")
         items = []
         for item, itemoffset, itemdur in self.iterateWithTimes(absolute=True):
             if isinstance(item, Chain):
@@ -1146,11 +1253,77 @@ class Chain(MObj, MContainer):
                 parts = item.splitAtOffsets(offsets, tie=tie)
                 items.extend(parts)
         self.items = items
+        self._changed()
+
+    def cycle(self: ChainT, totaldur: F, crop=False) -> ChainT:
+        filled = self.copy()
+        filled.removeRedundantOffsets(fillGaps=True)
+        flatitems = list(filled.recurse())
+        items: list[MEvent] = []
+        accum = F(0)
+        for item in iterlib.cycle(flatitems):
+            items.append(item.copy())
+            accum += item.dur
+            if accum >= totaldur:
+                break
+        if crop and accum > totaldur:
+            diff = accum - totaldur
+            lastitem = items[-1]
+            assert diff < lastitem.dur
+            lastitem = lastitem.clone(dur=lastitem.dur - diff)
+            items[-1] = lastitem
+        return self.clone(items=items)
+
+    def matchOrfanSpanners(self, removeUnmatched=False) -> None:
+        """
+        Match unmatched spanners
+
+        When adding spanners to objects, it is possible to create a spanner
+        without a partner spanner. As long as there are as many start spanners
+        as end spanners for a specific spanner class, these "orfan" spanners
+        are matched, the end result being the same as if they had been created
+        with a partner spanner
+
+        Args:
+            removeUnmatched: if True, any spanners which cannot be matched will
+                be removed
+        """
+        unmatched: list[symbols.Spanner] = []
+        for event in self.recurse():
+            if event.symbols:
+                for symbol in event.symbols:
+                    if isinstance(symbol, symbols.Spanner) and symbol.partnerSpanner is None:
+                        unmatched.append(symbol)
+        if not unmatched:
+            return
+        # sort by class
+        byclass: dict[type, list[symbols.Spanner]] = {}
+        for spanner in unmatched:
+            byclass.setdefault(type(spanner), []).append(spanner)
+        for cls, spanners in byclass.items():
+            stack = []
+            for spanner in spanners:
+                if spanner.kind == 'start':
+                    stack.append(spanner)
+                else:
+                    assert spanner.kind == 'end'
+                    if stack:
+                        startspanner = stack.pop()
+                        startspanner.setPartnerSpanner(spanner)
+                    elif removeUnmatched:
+                        assert spanner.anchor is not None
+                        obj = spanner.anchor()
+                        if obj is None or obj.symbols is None:
+                            logger.error(f"The spanner's anchor seems invalid. {spanner=}, anchor={obj}")
+                        else:
+                            logger.debug(f"Removing spanner {spanner} from {obj}")
+                            obj.symbols.remove(spanner)
+                            spanner.anchor = None
 
 
 class Voice(Chain):
     """
-    A Voice is a sequence of non-overlapping objects
+    A Voice is a sequence of non-overlapping objects.
 
     It is **very** similar to a Chain, the only difference being that its offset
     is always 0.
@@ -1165,6 +1338,8 @@ class Voice(Chain):
 
     _acceptsNoteAttachedSymbols = False
     _configKeys: set[str] | None = None
+
+    __slots__ = ('name', 'shortname', 'clef', '_config')
 
     def __init__(self,
                  items: list[MEvent | str] | Chain = None,
@@ -1284,7 +1459,11 @@ class Voice(Chain):
 
     def scoringParts(self, config: CoreConfig = None
                      ) -> list[scoring.Part]:
-        config = self.getConfig(config)
+        if not self.name and self.label:
+            logger.debug("This Voice has a set label ({self.label}) but no name. If you "
+                         "need to set the staff name/shortname, set those attributes "
+                         "(.name, .shortname)")
+        config = self.getConfig(prototype=config)
         parts = super().scoringParts(config=config)
         if len(parts) == 1:
             part = parts[0]

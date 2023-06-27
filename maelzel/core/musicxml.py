@@ -815,7 +815,7 @@ def _parsePart(part: ET.Element, context: ParseContext
         # end measure
         if measure.attrib.get('implicit') == 'yes':
             # A 'pickup' measure. Must not necessarilly be the first measure
-            measureDur = sco.measuredefs[0].durationBeats()
+            measureDur = sco.measuredefs[0].durationQuarters()
             for voicenum, voice in voices.items():
                 filledDur = cursor - measureCursor
                 unfilledDur = measureDur - filledDur

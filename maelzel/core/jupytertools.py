@@ -23,7 +23,7 @@ def setJupyterHookForClass(cls, func, fmt='image/png') -> None:
     return formatter.for_type(cls, func)
 
 
-def jupyterMakeImage(path: str, scalefactor:float = None) -> JupyterImage:
+def jupyterMakeImage(path: str, scalefactor=1.0) -> JupyterImage:
     """
     Makes a jupyter Image, which can be displayed inline inside a notebook
 
@@ -45,7 +45,7 @@ def jupyterMakeImage(path: str, scalefactor:float = None) -> JupyterImage:
     return JupyterImage(filename=path, embed=True, width=width)
 
 
-def jupyterShowImage(path: str, scalefactor:float = None, maxwidth: int = None):
+def jupyterShowImage(path: str, scalefactor=1.0, maxwidth: int = None):
     """
     Show an image inside (inline) of a jupyter notebook
 
@@ -64,7 +64,7 @@ def jupyterShowImage(path: str, scalefactor:float = None, maxwidth: int = None):
     return jupyterDisplay(img)
 
 
-def showPng(pngpath:str, forceExternal=False, app:str= '', scalefactor: float = None) -> None:
+def showPng(pngpath:str, forceExternal=False, app:str= '', scalefactor=1.0) -> None:
     """
     Show a png either inside jupyter or with an external app
 

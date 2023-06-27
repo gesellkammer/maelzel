@@ -1,5 +1,4 @@
 from __future__ import annotations
-import logging
 import os
 import subprocess
 import glob
@@ -10,13 +9,11 @@ from . import quant
 from .renderer import Renderer
 from .renderoptions import RenderOptions
 from . import renderlily
+from .common import logger
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Union
-
-
-logger = logging.getLogger("maelzel.scoring")
 
 
 def renderQuantizedScore(score: quant.QuantizedScore,
@@ -40,18 +37,13 @@ def renderQuantizedScore(score: quant.QuantizedScore,
         for part in score:
             part.removeUnnecessaryDynamics(tree=True)
 
-    if backend == 'music21':
-        import importlib.util
-        if importlib.util.find_spec("music21") is None:
-            raise ImportError("The backend music21 is not available. Install music21 via 'pip install music21'")
-        from . import renderm21
-        return renderm21.Music21Renderer(score, options=options)
+    if backend == 'musicxml':
+        from . import rendermusicxml
+        return rendermusicxml.MusicxmlRenderer(score=score, options=options)
     elif backend == 'lilypond':
         return renderlily.LilypondRenderer(score, options=options)
-    elif backend == 'musicxml':
-        raise NotImplementedError("The backend 'musicxml' is not implemented yet")
     else:
-        raise ValueError(f"Supported backends: 'music21', 'lilypond' or 'musicxml'. Got {backend}")
+        raise ValueError(f"Supported backends: 'lilypond', 'musicxml'. Got {backend}")
 
 
 def _groupNotationsByMeasure(part: core.Part,
@@ -64,9 +56,9 @@ def _groupNotationsByMeasure(part: core.Part,
         loc = struct.beatToLocation(n.offset)
         if loc is None:
             logger.error(f"Offset {n.offset} outside of scorestruct, for {n}")
-            logger.error(f"Scorestruct: duration = {struct.totalDurationBeats()} quarters\n{struct.dump()}")
+            logger.error(f"Scorestruct: duration = {struct.totalDurationQuarters()} quarters\n{struct.dump()}")
             raise ValueError(f"Offset {float(n.offset):.3f} outside of score structure "
-                             f"(max. offset: {float(struct.totalDurationBeats()):.3f})")
+                             f"(max. offset: {float(struct.totalDurationQuarters()):.3f})")
         elif loc[0] == currMeasure:
             groups[-1].append(n)
         else:

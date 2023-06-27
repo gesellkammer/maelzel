@@ -1,21 +1,16 @@
 from __future__ import annotations
 import itertools
-import logging
-
 from emlib import iterlib
 
 from .common import *
 from .notation import *
 from . import definitions
 from . import util
-from maelzel import scorestruct
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Union, Iterator
     from maelzel.scoring import quant
-
-logger = logging.getLogger("maelzel.scoring")
 
 
 __all__ = (
@@ -151,26 +146,6 @@ class Part(list):
         return Part(events=notations, name=self.name, groupid=self.groupid,
                     shortname=self.shortname, firstclef=self.firstclef)
 
-    # def groupNotationsByMeasure(self, struct: scorestruct.ScoreStruct
-    #                             ) -> list[list[Notation]]:
-    #     currMeasure = -1
-    #     groups = []
-    #     for n in self:
-    #         assert n.offset is not None and n.duration is not None
-    #         loc = struct.beatToLocation(n.offset)
-    #         if loc is None:
-    #             logger.error(f"Offset {n.offset} outside of scorestruct, for {n}")
-    #             logger.error(f"Scorestruct: totalDuration = {struct.totalDurationBeats()} quarters\n{struct.dump()}")
-    #             raise ValueError(f"Offset {float(n.offset):.3f} outside of score structure "
-    #                              f"(max. offset: {float(struct.totalDurationBeats()):.3f})")
-    #         elif loc[0] == currMeasure:
-    #             groups[-1].append(n)
-    #         else:
-    #             # new measure
-    #             currMeasure = loc[0]
-    #             groups.append([n])
-    #     return groups
-    #
 
 class Arrangement(list):
     """

@@ -14,7 +14,7 @@ articulations = {
     'staccato',  # .
     'tenuto',  # -
     'marcato',  # ^
-    'staccatissimo',  # ' wedge
+    'staccatissimo',  # ' spiccato wedge
     'espressivo',  # <>
     'portato',  # - + .
     'arpeggio',
@@ -60,6 +60,7 @@ articulationMappings = {
     '^': 'marcato',
     "'": 'staccatissimo',
     '<>': 'espressivo',
+    'harmonic': 'flageolet',
 
     'strong-accent': 'marcato',
     'soft-accent': 'espressivo',
@@ -198,7 +199,7 @@ def normalizeDynamic(dynamic: str, default='') -> str:
     return default
 
 
-availableOrnaments = {'trill', 'mordent', 'prall', 'turn', 'tremolo'}
+availableOrnaments = {'trill', 'mordent', 'prall', 'turn'}
 
 
 ornamentMappings = {

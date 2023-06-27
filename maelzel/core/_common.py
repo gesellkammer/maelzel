@@ -10,6 +10,8 @@ Here we define:
 """
 import logging as _logging
 import textwrap as _textwrap
+from maelzel.common import getLogger as _getLogger
+import appdirs
 import os
 
 
@@ -34,11 +36,6 @@ class _UNSET:
         return False
 
 
-UNSET = _UNSET()
-
-logger = _logging.getLogger(f"maelzel.core")
-
-
 def isNumber(x) -> bool:
     """ is x builtin number? (int, float or Fraction) """
     return isinstance(x, (int, float, F))
@@ -53,6 +50,7 @@ def getPath(s: str) -> str:
 
 
 def prettylog(level: str, msg: str, width=80, indent=4) -> None:
+    logger = _logging.getLogger('maelzel.core')
     levelint = _logging.getLevelName(level)
     lines = _textwrap.wrap(msg, width=width,
                            initial_indent='\n' + ' '*(indent-1),
@@ -61,3 +59,15 @@ def prettylog(level: str, msg: str, width=80, indent=4) -> None:
 
     msg = '\n'.join(lines)
     logger.log(level=levelint, msg=msg)
+
+
+_logdir = appdirs.user_log_dir('maelzel-core')
+os.makedirs(_logdir, exist_ok=True)
+filelog = os.path.join(_logdir, 'maelzel-core.log')
+
+UNSET = _UNSET()
+# logger = _getLogger("maelzel.core", filelog=filelog)
+
+logger = _getLogger("maelzel.core")
+#import logging
+#logger = logging.getLogger('maelzel.core')

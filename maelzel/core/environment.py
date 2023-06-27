@@ -3,9 +3,9 @@ Functionality to deal with the environment in which `maelzel.core` is running
 
 """
 
-# *******************************************************************************
-# **** NB: This module should not import anything from the maelzel namespace ****
-# *******************************************************************************
+# ************************************************************************************
+# **** NB: This module should not import anything from the maelzel.core namespace ****
+# ************************************************************************************
 
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ from typing import Optional
 
 
 insideJupyter = emlib.envir.inside_jupyter()
-logger = logging.getLogger("maelzel")
-
+# logger = logging.getLogger("maelzel")
+_logger = logging.getLogger()
 
 _linuxImageViewers = [
     ('feh', 'feh --image-bg white'),
@@ -95,19 +95,19 @@ def findMusescore() -> Optional[str]:
         if os.path.exists(musescorepath):
             return musescorepath
         else:
-            logger.warning(f"musescorepath set to {musescorepath} in the active config, but the path does"
-                           f"not exist")
+            _logger.warning(f"musescorepath set to {musescorepath} in the active config, but the path does"
+                            f"not exist")
 
     if (path := shutil.which('musescore')) is not None:
         return path
     if (path := shutil.which('MuseScore')) is not None:
         return path
         
-    logger.warning("MuseScore not found. Tried to find 'musescore' or 'MuseScore' in the path, "
-                   "without success. To fix this issue, make sure MuseScore is installed. "
-                   "Then set the path via: \n"
-                   ">>> from maelzel.core import *\n"
-                   ">>> conf = getConfig()\n"
-                   ">>> conf['musescorepath'] = '/path/to/musescore'\n"
-                   ">>> conf.save()  # Save the config for future sessions")
+    _logger.warning("MuseScore not found. Tried to find 'musescore' or 'MuseScore' in the path, "
+                    "without success. To fix this issue, make sure MuseScore is installed. "
+                    "Then set the path via: \n"
+                    ">>> from maelzel.core import *\n"
+                    ">>> conf = getConfig()\n"
+                    ">>> conf['musescorepath'] = '/path/to/musescore'\n"
+                    ">>> conf.save()  # Save the config for future sessions")
     return None
