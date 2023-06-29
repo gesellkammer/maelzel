@@ -864,35 +864,35 @@ class MObj:
 
     def scoringParts(self,
                      config: CoreConfig = None
-                     ) -> list[scoring.Part]:
+                     ) -> list[scoring.UnquantizedPart]:
         """
-        Returns this object as a list of scoring Parts.
+        Returns this object as a list of scoring UnquantizedParts.
 
         Args:
             config: if given, this config instead of the active config will
                 be used
 
         Returns:
-            a list of scoring.Part
+            a list of unquantized parts
 
         This method is used internally to generate the parts which
         constitute a given MObj prior to rendering,
         but might be of use itself so it is exposed here.
 
-        A :class:`maelzel.scoring.Part` is an intermediate format used by the scoring
-        package to represent notated events. A :class:`maelzel.scoring.Part`
-        is unquantized and independent of any score structure
+        An :class:`maelzel.scoring.UnquantizedPart` is an intermediate format used by the scoring
+        package to represent notated events. It represents a list of non-simultaneous Notations,
+        unquantized and independent of any score structure
         """
         notations = self.scoringEvents(config=config or Workspace.active.config)
         if not notations:
             return []
-        scoring.stackNotationsInPlace(notations)
+        scoring.resolveOffsetsInPlace(notations)
         parts = scoring.distributeNotationsByClef(notations)
         return parts
 
-    def scoringArrangement(self, title: str = None) -> scoring.Arrangement:
+    def unquantizedScore(self, title: str = None) -> scoring.UnquantizedScore:
         """
-        Create a maelzel.scoring.Arrangement from this object
+        Create a maelzel.scoring.UnquantizedScore from this object
 
         Args:
             title: the title of the resulting score (if given)
@@ -900,8 +900,8 @@ class MObj:
         Returns:
             the Arrangement representation of this object
 
-        An :class:`~maelzel.scoring.Arrangement` is a list of
-        :class:`~maelzel.scoring.Part`, which is itself a list of
+        An :class:`~maelzel.scoring.UnquantizedScore` is a list of
+        :class:`~maelzel.scoring.UnquantizedPart`, which is itself a list of
         :class:`~maelzel.scoring.Notation`. An :class:`Arrangement` represents
         an **unquantized** score, meaning that the Notations within each part are
         not split into measures, nor organized in beats. To generate a quantized score
@@ -915,7 +915,7 @@ class MObj:
 
         """
         parts = self.scoringParts()
-        return scoring.Arrangement(parts, title=title)
+        return scoring.UnquantizedScore(parts, title=title)
 
     def _scoringAnnotation(self, text: str = None, config: CoreConfig = None
                            ) -> scoring.attachment.Text:
@@ -931,12 +931,6 @@ class MObj:
                                        italic=labelstyle.italic,
                                        weight='bold' if labelstyle.bold else '',
                                        color=labelstyle.color)
-
-    def musicxml(self) -> str:
-        """
-        Return the music representation of this object as musicxml.
-        """
-        raise NotImplementedError
 
     def scorestruct(self) -> ScoreStruct | None:
         """

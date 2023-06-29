@@ -1,6 +1,8 @@
-===================
-Quantization Engine
-===================
+
+
+===================================
+maelzel.scoring.quant: Quantization
+===================================
 
 .. automodapi:: maelzel.scoring.quant
     :no-inheritance-diagram:
@@ -13,9 +15,7 @@ Other Classes
 
 
 :class:`~maelzel.scoring.node.Node`
------------------------------------
-
-A Node is a container, grouping Notation and other Nodes under one time modifier
+    A Node is a container, grouping Notation and other Nodes under one time modifier
 
 
 .. toctree::

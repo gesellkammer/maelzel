@@ -76,8 +76,11 @@ class Score(MObj, MContainer):
         Returns:
             a Score
         """
-        from maelzel.core import musicxml as mxml
+        from maelzel.core import musicxmlparser as mxml
         return mxml.parseMusicxml(musicxml, enforceParsedSpelling=enforceParsedSpelling)
+
+    def __getitem__(self, item):
+        return self.voices.__getitem__(item)
 
     def scorestruct(self) -> ScoreStruct | None:
         """The attached ScoreStruct, if present"""
@@ -142,7 +145,7 @@ class Score(MObj, MContainer):
         return self._dur
 
     def scoringParts(self, config: CoreConfig | None = None
-                     ) -> list[scoring.Part]:
+                     ) -> list[scoring.UnquantizedPart]:
         parts = []
         for voice in self.voices:
             voiceparts = voice.scoringParts(config or getConfig())

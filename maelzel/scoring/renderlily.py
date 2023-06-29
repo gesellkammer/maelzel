@@ -1022,11 +1022,9 @@ class LilypondRenderer(Renderer):
                  options: RenderOptions):
         super().__init__(score, options=options)
         self._withMidi = False
-        self._lastrender: str = ''
 
     def render(self, options: RenderOptions = None) -> str:
-        self._lastrender = self._render(options=options if options is not None else self.options)
-        return self._lastrender
+        return self._render(options=options if options is not None else self.options)
 
     @cache
     def _render(self, options: RenderOptions) -> str:

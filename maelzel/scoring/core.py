@@ -15,10 +15,10 @@ if TYPE_CHECKING:
 
 __all__ = (
     'Notation',
-    'Part',
-    'Arrangement',
-    'stackNotations',
-    'stackNotationsInPlace',
+    'UnquantizedPart',
+    'UnquantizedScore',
+    'resolveOffsets',
+    'resolveOffsetsInPlace',
     'fillSilences',
     'distributeNotationsByClef',
     'packInParts',
@@ -29,12 +29,12 @@ __all__ = (
 )
 
 
-class Part(list):
+class UnquantizedPart(list):
     """
-    A Part is a list of unquantized non-simultaneous :class:`Notation`
+    An UnquantizedPart is a list of unquantized non-simultaneous :class:`Notation`
 
     Args:
-        events: the events (notes, chords) in this track
+        notations: the events (notes, chords) in this part
         name: a label to identify this track in particular (a name)
         groupid: an identification (given by makeGroupId), used to identify
             tracks which belong to a same tree
@@ -43,25 +43,35 @@ class Part(list):
     .. seealso:: :class:`~maelzel.scoring.quant.QuantizedPart`,
     """
     def __init__(self,
-                 events: list[Notation] = None,
+                 notations: list[Notation] = None,
                  name='',
                  groupid: str = '',
                  shortname='',
                  firstclef: str = '',
                  quantProfile: quant.QuantizationProfile | None = None):
 
-        if events:
-            super().__init__(events)
+        if notations:
+            super().__init__(notations)
         else:
             super().__init__()
-        self.groupid: str = groupid
-        self.name: str = name
-        self.shortname: str = shortname
-        self.firstclef = firstclef
-        self.quantProfile = quantProfile
 
-        if events:
-            assert all(isinstance(n, Notation) for n in events)
+        self.groupid: str = groupid
+        """A UUID identifying this Part (can be left unset)"""
+
+        self.name: str = name
+        """The name of the part"""
+
+        self.shortname: str = shortname
+        """A shortname to use as abbreviation"""
+
+        self.firstclef = firstclef
+        """The start clef of this part"""
+
+        self.quantProfile = quantProfile
+        """A quantization profile can be attached to an UnquantizedPart for later quantization"""
+
+        if notations:
+            assert all(isinstance(n, Notation) for n in notations)
             _repairGracenoteAsTargetGliss(self)
 
     def __getitem__(self, item) -> Notation:
@@ -72,14 +82,14 @@ class Part(list):
 
     def __repr__(self) -> str:
         s0 = super().__repr__()
-        return "Part"+s0
+        return "UnquantizedPart"+s0
 
     def dump(self) -> None:
-        """Dump this Part to stdout"""
+        """Dump this to stdout"""
         for n in self:
             print(n)
 
-    def distributeByClef(self) -> list[Part]:
+    def distributeByClef(self) -> list[UnquantizedPart]:
         """
         Distribute the notations in this Part into multiple parts, based on pitch
         """
@@ -96,12 +106,11 @@ class Part(list):
         """
         Stack the notations of this part **inplace**.
 
-        Stacking means filling in any unresolved offset/totalDuration of the notations
-        in this part. After this operation, all Notations in this Part have an
-        explicit totalDuration and start. See :meth:`stacked` for a version which
-        returns a new Part instead of operating inplace
+        Stacking means filling in any unresolved offset in this part.
+        After this operation, all Notations in this UnquantizedPart have an
+        explicit offset.
         """
-        stackNotationsInPlace(self)
+        resolveOffsetsInPlace(self)
 
     def meanPitch(self) -> float:
         """
@@ -135,23 +144,12 @@ class Part(list):
         assert all(n.offset is not None and n.duration is not None for n in self)
         return any(n0.end < n1.offset for n0, n1 in iterlib.pairwise(self))
 
-    def stacked(self) -> Part:
-        """
-        Stack the Notations to make them adjacent if they have unset offset/totalDuration
 
-        Similar to :meth:`stack`, **this method returns a new Part** instead of
-        operating inplace.
-        """
-        notations = stackNotations(self)
-        return Part(events=notations, name=self.name, groupid=self.groupid,
-                    shortname=self.shortname, firstclef=self.firstclef)
-
-
-class Arrangement(list):
+class UnquantizedScore(list):
     """
-    An Arrangement is a list of Parts
+    An UnquantizedScore is a list of UnquantizedParts
     """
-    def __init__(self, parts: list[Part] = None, title: str = ''):
+    def __init__(self, parts: list[UnquantizedPart] = None, title: str = ''):
         if parts:
             super().__init__(parts)
         else:
@@ -179,61 +177,59 @@ def _repairGracenoteAsTargetGliss(notations: list[Notation]) -> None:
                 skip = True
     for item in toBeRemoved:
         notations.remove(item)
-    stackNotationsInPlace(notations)
+    resolveOffsetsInPlace(notations)
 
 
-def stackNotationsInPlace(events: list[Notation], start=F(0), overrideOffset=False
+def resolveOffsetsInPlace(notations: list[Notation], start=F(0), overrideOffset=False
                           ) -> None:
     """
-    Stacks notations to the left, inplace
+    Fills all offsets, in place
 
-    Stacks events together by placing an event at the end of the
-    previous event whenever an event does not define its own offset
+    Notations with an unset offset are stacked to the end of the previous notation
 
     Args:
-        events: a list of Notations (or a Part)
+        notations: a list of Notations (or a Part)
         start: the start time, will override the offset of the first event
         overrideOffset: if True, offsets are overriden even if they are defined
     """
     if all(ev.offset is not None and ev.duration is not None
-           for ev in events):
+           for ev in notations):
         return
-    now = _ if (_:=events[0].offset) is not None else start if start is not None else F(0)
+    now = _ if (_:=notations[0].offset) is not None else start if start is not None else F(0)
     assert now is not None and now >= 0
-    lasti = len(events)-1
-    for i, ev in enumerate(events):
-        if ev.offset is None or overrideOffset:
-            assert ev.duration is not None
-            ev.offset = now
-        elif ev.duration is None:
-            if i == lasti:
-                raise ValueError("The last event should have a totalDuration")
-            ev.duration = events[i+1].offset - ev.offset
-        now += ev.duration
-    assert all(ev1.offset <= ev2.offset for ev1, ev2 in iterlib.pairwise(events))
-    removeOverlap(events)
+    for i, n in enumerate(notations):
+        assert n.duration is not None
+        if n.offset is None or overrideOffset:
+            assert n.duration is not None
+            n.offset = now
+        now += n.duration
+    for n1, n2 in iterlib.pairwise(notations):
+        if n1.end > n2.offset:
+            raise ValueError(f"Notations are not sorted: {n1}, {n2}")
+    removeOverlap(notations)
 
 
-def stackNotations(events: list[Notation], start=F(0), overrideOffset=False
+def resolveOffsets(notations: list[Notation], start=F(0), overrideOffset=False
                    ) -> list[Notation]:
     """
-    Stacks Notations to the left, returns the new notations
+    Returns a copy of the notations with all offsets resolved
 
-    This function stacks events together by placing an event at the end of the
-    previous event whenever an event does not define its own offset, or sets
-    the totalDuration of an event if events are specified via offset alone
+    Notations without offset are stacked to the left, starting at the end
+    of the previous notation
+
+    .. seealso:: :func:`resolveOffsetsInPlace`
 
     Args:
-        events: a list of notations
+        notations: a list of notations
         start: the start time, will override the offset of the first event
         overrideOffset: if True, offsets are overriden even if they are defined
 
     Returns:
         a list of stacked events
     """
-    events = [ev.copy() for ev in events]
-    stackNotationsInPlace(events, start=start, overrideOffset=overrideOffset)
-    return events
+    notations = [n.copy() for n in notations]
+    resolveOffsetsInPlace(notations, start=start, overrideOffset=overrideOffset)
+    return notations
 
 
 def removeOverlap(notations: list[Notation], maxgap=F(1, 10000)) -> None:
@@ -365,7 +361,7 @@ def _pitchToClef(pitch: float, splitPoint=60) -> str:
 def distributeNotationsByClef(notations: list[Notation],
                               filterRests=False,
                               groupid: str = ''
-                              ) -> list[Part]:
+                              ) -> list[UnquantizedPart]:
     """
     Split the notations into parts
 
@@ -416,7 +412,7 @@ def distributeNotationsByClef(notations: list[Notation],
                     partialChord = notation.extractPartialNotation(indexes)
                     parts[clef].append(partialChord)
 
-    parts = [Part(part) for part in parts.values() if part]
+    parts = [UnquantizedPart(part) for part in parts.values() if part]
     if groupid:
         for p in parts:
             p.groupid = groupid
@@ -424,7 +420,7 @@ def distributeNotationsByClef(notations: list[Notation],
 
 
 def packInParts(notations: list[Notation], maxrange=36,
-                keepGroupsTogether=True) -> list[Part]:
+                keepGroupsTogether=True) -> list[UnquantizedPart]:
     """
     Pack a list of possibly simultaneous notations into tracks
 
@@ -466,7 +462,7 @@ def packInParts(notations: list[Notation], maxrange=36,
                              for n in group)
 
     packedTracks = packing.packInTracks(items, maxrange=maxrange)
-    return [Part(track.unwrap()) for track in packedTracks]
+    return [UnquantizedPart(track.unwrap()) for track in packedTracks]
 
 
 def removeRedundantDynamics(notations: list[Notation],

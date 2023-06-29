@@ -2,7 +2,6 @@ emlib>=1.7.0
 numpy
 scipy
 matplotlib
-music21
 bpf4
 configdict>=2.5
 appdirs

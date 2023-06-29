@@ -31,7 +31,7 @@ __all__ = (
     'notationsCanMerge',
     'durationsCanMerge',
     'mergeNotationsIfPossible',
-    'tieNotationParts'
+    'tieNotations'
 )
 
 
@@ -144,37 +144,37 @@ class Notation:
         self.offset: F | None = offset
         "The start time in quarternotes"
 
-        self.isRest = isRest
+        self.isRest: bool = isRest
         "Is this a Rest?"
 
-        self.tiedNext = tiedNext
+        self.tiedNext: bool = tiedNext
         "Is this Notation tied to the next one?"
 
-        self.tiedPrev = tiedPrev
+        self.tiedPrev: bool = tiedPrev
         "Is this Notation tied to the previous one?"
 
-        self.dynamic = dynamic
+        self.dynamic: str = dynamic
         "A dynamic mark"
 
-        self.durRatios = durRatios
+        self.durRatios: list[tuple[int, int]] = durRatios
         """A set of ratios to apply to .duration to convert it to its notated duration
         
         see :meth:`Notation.notatedDuration`
         """
 
-        self.groupid = group
+        self.groupid: str = group
         "The group id this Notation belongs to, if applicable"
 
-        self.gliss = gliss
+        self.gliss: bool = gliss
         "Is this Notation part of a glissando?"
 
         self.noteheads: dict[int, definitions.Notehead] | None = None
         "A dict mapping pitch index to notehead definition"
 
-        self.color = color
+        self.color: str = color
         "The color of this entire Notation"
 
-        self.stem = stem
+        self.stem: str = stem
         "A stem modifier (one of 'normal', 'hidden'"
 
         self.sizeFactor: int = sizeFactor
@@ -677,15 +677,15 @@ class Notation:
         """
         return self.__copy__()
 
-    def cloneAsPart(self,
-                    duration: F = None,
-                    tiedPrev=False,
-                    tiedNext=False,
-                    gliss: bool = None,
-                    offset: F | None = None,
-                    ) -> Notation:
+    def cloneAsTie(self,
+                   duration: F,
+                   offset: F | None,
+                   tiedPrev=True,
+                   tiedNext: bool | None = None,
+                   gliss: bool = None,
+                   ) -> Notation:
         """
-        Clone self so that the cloned Notation can be used as a part of self
+        Clone self so that the cloned Notation can be used within a logical tie
 
         This is used when a notation is split across a measure or a beam
         or within a tuplet
@@ -695,22 +695,31 @@ class Notation:
         """
         if self.isRest:
             return Notation(isRest=True,
+                            duration=duration,
+                            offset=offset,
                             pitches=None,
-                            offset=offset if offset is not None else self.offset,
-                            duration=duration if duration is not None else self.duration)
+                            )
 
-        out = Notation(pitches=self.pitches,
-                       offset=offset if offset is not None else self.offset,
-                       duration=duration if duration is not None else self.duration,
+        out = Notation(duration=duration,
+                       offset=offset,
+                       pitches=self.pitches,
                        tiedPrev=tiedPrev,
-                       tiedNext=tiedNext,
+                       tiedNext=tiedNext if tiedNext is not None else self.tiedNext,
                        dynamic='',
-                       gliss=gliss,
+                       gliss=gliss if gliss is not None else self.gliss,
                        color=self.color,
                        stem=self.stem)
+
         for attach in self.attachments:
             if attach.copyToSplitNotation:
                 out.addAttachment(attach)
+
+        if self.noteheads is not None:
+            out.noteheads = self.noteheads.copy()
+
+        if self.fixedNotenames is not None:
+            out.fixedNotenames  = self.fixedNotenames
+
         return out
 
     def __deepcopy__(self, memo=None):
@@ -743,8 +752,8 @@ class Notation:
             out.spanners = self.spanners.copy()
         return out
 
-    def splitNotationAtOffsets(self: Notation, offsets: Sequence[F]
-                               ) -> list[Notation]:
+    def splitAtOffsets(self: Notation, offsets: Sequence[F]
+                       ) -> list[Notation]:
         """
         Splits a Notation at the given offsets
 
@@ -757,7 +766,7 @@ class Notation:
 
         Example::
 
-            >>> splitNotationAtOffsets(Notation(F(0.5), totalDuration=F(1)))
+            >>> splitAtOffsets(Notation(F(0.5), totalDuration=F(1)))
             [Notation(0.5, totalDuration=0.5), Notation(1, totalDuration=0.5)]
 
         """
@@ -773,19 +782,21 @@ class Notation:
         if len(intervals) == 1:
             return [self]
 
-        parts: list[Notation] = [self.clone(offset=start, duration=end - start)
+        #parts: list[Notation] = [self.clone(offset=start, duration=end - start)
+        #                         for start, end in intervals]
+
+        parts: list[Notation] = [self.cloneAsTie(offset=start, duration=end - start)
                                  for start, end in intervals]
 
         # Remove superfluous dynamic/articulation
-        for part in parts[1:]:
-            part.dynamic = ''
-            if part.spanners:
-                part.spanners.clear()
-            if part.attachments:
-                part.attachments.clear()
+        #for part in parts[1:]:
+        #    part.dynamic = ''
+        #    if part.spanners:
+        #        part.spanners.clear()
+        #    if part.attachments:
+        #        part.attachments.clear()
 
-        # if not self.isRest:
-        tieNotationParts(parts)
+        tieNotations(parts)
         parts[0].tiedPrev = self.tiedPrev
         parts[-1].tiedNext = self.tiedNext
 
@@ -1622,19 +1633,19 @@ def transferAttributesWithinTies(notations: list[Notation]) -> None:
             n.gliss = True
 
 
-def tieNotationParts(parts: list[Notation]) -> None:
+def tieNotations(notations: list[Notation]) -> None:
     """ Tie these notations inplace """
 
-    for part in parts[:-1]:
-        part.tiedNext = True
+    for n in notations[:-1]:
+        n.tiedNext = True
 
-    hasGliss = parts[0].gliss
-    for part in parts[1:]:
-        part.tiedPrev = True
-        part.dynamic = ''
-        part.removeAttachments(lambda a: isinstance(a, (Text, Articulation)))
+    hasGliss = notations[0].gliss
+    for n in notations[1:]:
+        n.tiedPrev = True
+        n.dynamic = ''
+        n.removeAttachments(lambda a: isinstance(a, (Text, Articulation)))
         if hasGliss:
-            part.gliss = True
+            n.gliss = True
 
 
 @dataclass

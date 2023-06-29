@@ -26,81 +26,74 @@ if TYPE_CHECKING:
 logger = logging.getLogger('maelzel.snd')
 
 
+__all__ = (
+    'plotMelSpectrogram',
+    'plotPowerSpectrum',
+    'plotSpectrogram',
+    'plotWaveform'
+)
+
+
 # the result of matplotlib.pyplot.colormaps()
 _matplotlib_cmaps = [
- 'Accent',
- 'Accent_r',
- 'cividis',
- 'cividis_r',
- 'cool',
- 'cool_r',
- 'coolwarm',
- 'coolwarm_r',
- 'copper',
- 'copper_r',
- 'cubehelix',
- 'cubehelix_r',
- 'gnuplot',
- 'gnuplot2',
- 'gnuplot2_r',
- 'gnuplot_r',
- 'gray',
- 'gray_r',
- 'hot',
- 'hot_r',
- 'hsv',
- 'hsv_r',
- 'inferno',
- 'inferno_r',
- 'jet',
- 'jet_r',
- 'magma',
- 'magma_r',
- 'nipy_spectral',
- 'nipy_spectral_r',
- 'ocean',
- 'ocean_r',
- 'pink',
- 'pink_r',
- 'plasma',
- 'plasma_r',
- 'prism',
- 'prism_r',
- 'rainbow',
- 'rainbow_r',
- 'seismic',
- 'seismic_r',
- 'spring',
- 'spring_r',
- 'summer',
- 'summer_r',
- 'terrain',
- 'terrain_r',
- 'turbo',
- 'turbo_r',
- 'twilight',
- 'twilight_r',
- 'twilight_shifted',
- 'twilight_shifted_r',
- 'viridis',
- 'viridis_r',
- 'winter',
- 'winter_r']
-
-
-config = ConfigDict("maelzel.snd.plotting")
-with config as _:
-    _('backend', 'matplotlib', choices={'matplotlib'},
-      doc="Default backend to use for plotting")
-    _('matplotlib.spectrogram.colormap', 'inferno', choices=_matplotlib_cmaps,
-      doc="Colormap used when plotting a spectrogram using matplotlib")
-    _('matplotlib.samplesplot.figsize', [24, 4],
-      doc="Figure size used when plotting audio samples")
-    _('matplotlib.spectrogram.figsize', [24, 8],
-      doc="Figure size used when plotting a spectrogram using matplotlib")
-    _('spectrogram.maxfreq', 12000,
-      doc="Highest frequency in a spectrogram")
-    _('spectrogram.window', 'hamming', choices={'hamming', 'hanning'})
+    'Accent',
+    'Accent_r',
+    'cividis',
+    'cividis_r',
+    'cool',
+    'cool_r',
+    'coolwarm',
+    'coolwarm_r',
+    'copper',
+    'copper_r',
+    'cubehelix',
+    'cubehelix_r',
+    'gnuplot',
+    'gnuplot2',
+    'gnuplot2_r',
+    'gnuplot_r',
+    'gray',
+    'gray_r',
+    'hot',
+    'hot_r',
+    'hsv',
+    'hsv_r',
+    'inferno',
+    'inferno_r',
+    'jet',
+    'jet_r',
+    'magma',
+    'magma_r',
+    'nipy_spectral',
+    'nipy_spectral_r',
+    'ocean',
+    'ocean_r',
+    'pink',
+    'pink_r',
+    'plasma',
+    'plasma_r',
+    'prism',
+    'prism_r',
+    'rainbow',
+    'rainbow_r',
+    'seismic',
+    'seismic_r',
+    'spring',
+    'spring_r',
+    'summer',
+    'summer_r',
+    'terrain',
+    'terrain_r',
+    'turbo',
+    'turbo_r',
+    'twilight',
+    'twilight_r',
+    'twilight_shifted',
+    'twilight_shifted_r',
+    'viridis',
+    'viridis_r',
+    'winter',
+    'winter_r']
 
 
 def plotPowerSpectrum(samples: np.ndarray,
@@ -141,10 +134,10 @@ def _frames_to_samples(frames, hop_length=512, n_fft=None):
     return (np.asanyarray(frames) * hop_length + offset).astype(int)
 
 
-def _plot_matplotlib(samples:np.ndarray, samplerate:int, timelabels:bool) -> plt.Figure:
+def _plot_matplotlib(samples: np.ndarray, samplerate: int, timelabels: bool, figsize=(24, 4)
+                     ) -> plt.Figure:
     numch = numChannels(samples)
     numsamples = samples.shape[0]
-    figsize = config['matplotlib.samplesplot.figsize']
     f = plt.figure(figsize=figsize)
     ax1 = None
     if timelabels:
@@ -153,7 +146,7 @@ def _plot_matplotlib(samples:np.ndarray, samplerate:int, timelabels:bool) -> plt
     else:
         formatter = matplotlib.ticker.FuncFormatter(
             lambda idx, x:f"{idx/samplerate:.3g}")
-    locator = TimeLocator(samplerate)
+    locator = _TimeLocator(samplerate)
     for i in range(numch):
         if i == 0:
             axes = ax1 = f.add_subplot(numch, 1, i + 1)
@@ -195,7 +188,7 @@ _diff_to_step = bpf4.nointerpol(
 )
 
 
-class TimeLocator(matplotlib.ticker.LinearLocator):
+class _TimeLocator(matplotlib.ticker.LinearLocator):
     """
     A locator for time plotting
 
@@ -237,16 +230,21 @@ class TimeLocator(matplotlib.ticker.LinearLocator):
         return [int(tick*self.sr) for tick in ticks]
 
 
-def plotWaveform(samples, samplerate, profile:str = None, saveas:str=None,
-                 timelabels=True) -> list[plt.Axes]:
+def plotWaveform(samples,
+                 samplerate: int,
+                 profile='',
+                 saveas='',
+                 timelabels=True,
+                 figsize=(24, 4)
+                 ) -> list[plt.Axes]:
     """
     Plot the waveform of a sound using pyplot
 
     Args:
         samples: a mono or multichannel audio array
         samplerate: the sr
-        profile: one of 'low', 'medium', 'high', 'highest'. If None or 'auto' is
-            passe, a preset is chosen based on the totalDuration and other parameters given
+        profile: one of 'low', 'medium', 'high', 'highest'. If not given a preset is chosen
+            based on the duration and other parameters given
         saveas: if given, the plot is saved and not displayed
         timelabels: if True, the x axes' labels are shown as MM:SS if needed
 
@@ -295,8 +293,8 @@ def plotWaveform(samples, samplerate, profile:str = None, saveas:str=None,
     """
     dur = len(samples) / samplerate
 
-    if profile == 'auto' or profile is None:
-        if saveas is not None:
+    if profile == 'auto' or not profile:
+        if saveas:
             profile = 'highest'
         elif dur > 60*8:
             profile = 'low'
@@ -330,7 +328,6 @@ def plotWaveform(samples, samplerate, profile:str = None, saveas:str=None,
     if maxpoints < numsamples:
         targetsr = min(maxsr, (samplerate * numsamples) // maxpoints)
     hop_length = samplerate // targetsr
-    figsize = config['matplotlib.samplesplot.figsize']
     f = plt.figure(figsize=figsize)
     ax1 = None
     timeFormatter = matplotlib.ticker.FuncFormatter(
@@ -361,10 +358,19 @@ def plotWaveform(samples, samplerate, profile:str = None, saveas:str=None,
     return f.axes
 
 
-def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:str=None,
-                    overlap:int=None, axes:plt.Axes=None, cmap=None, interpolation='bilinear',
-                    minfreq=40, maxfreq=None,
-                    mindb=-90, setlabel=False
+def plotSpectrogram(samples: np.ndarray,
+                    samplerate: int,
+                    fftsize=2048,
+                    window: str = 'hamming',
+                    overlap: int = None,
+                    axes: plt.Axes = None,
+                    cmap='inferno',
+                    interpolation='bilinear',
+                    minfreq=40,
+                    maxfreq=16000,
+                    mindb=-90,
+                    setlabel=False,
+                    figsize=(24, 8)
                     ) -> plt.Axes:
     """
     Plot the spectrogram of a sound
@@ -378,12 +384,13 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:s
             in a hoplength of 512 samples. Use None to use a sensible value for the
             number of samples.
         axes: the axes to plot on. If None, new axes will be created
-        cmap: colormap, see pyplot.colormaps() (see config['spectrogram.cmap'])
-        minfreq: initial min.frequency
+        cmap: colormap (see pyplot.colormaps())
+        minfreq: initial min. frequency
         maxfreq: initial max. frequency. If None, a configurable default will be used
-            (see config['spectrogram.maxfreq')
         interpolation: one of 'bilinear'
         mindb: the amplitude threshold
+        figsize: if axes is not given, use this size to determine the figure size.
+            The value should be a tuplet (width, height)
 
     Returns:
         the matplotlib axes object
@@ -395,7 +402,7 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:s
     from scipy import signal
 
     if axes is None:
-        f: plt.Figure = plt.figure(figsize=config['matplotlib.spectrogram.figsize'])
+        f: plt.Figure = plt.figure(figsize=figsize)
         axes:plt.Axes = f.add_subplot(1, 1, 1)
     if overlap is None:
         dur = len(samples) / samplerate
@@ -407,10 +414,7 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:s
             overlap = 1
     hopsize = int(fftsize / overlap)
     noverlap = fftsize - hopsize
-    if window is None:
-        window = config['spectrogram.window']
     win = signal.get_window(window, fftsize)
-    cmap = cmap if cmap is not None else config['matplotlib.spectrogram.colormap']
     axes.specgram(samples,
                   NFFT=fftsize,
                   Fs=samplerate,
@@ -419,8 +423,6 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:s
                   cmap=cmap,
                   interpolation=interpolation,
                   vmin=mindb)
-    if maxfreq is None:
-        maxfreq = config['spectrogram.maxfreq']
     axes.set_ylim(minfreq, maxfreq)
     if setlabel:
         axes.xaxis.set_label_text('Time')
@@ -428,10 +430,36 @@ def plotSpectrogram(samples: np.ndarray, samplerate: int, fftsize=2048, window:s
     return axes
 
 
-def plotMelSpectrogram(samples: np.ndarray, sr: int, fftsize=2048, overlap=4,
-                       winlength: int = None, axes=None, setlabel=False,
-                       nmels=128, cmap='magma'
+def plotMelSpectrogram(samples: np.ndarray,
+                       sr: int,
+                       fftsize=2048,
+                       overlap=4,
+                       winlength: int = None,
+                       axes=None,
+                       setlabel=False,
+                       nmels=128,
+                       cmap='magma',
+                       figsize=(24, 8)
                        ) -> plt.Axes:
+    """
+    Plot a mel spectrogram
+
+    Args:
+        samples: the samples
+        sr: the samplerate
+        fftsize: fft size
+        overlap: number of overlaps per window
+        winlength: window length in samples (defaults to fftsize)
+        axes: if given, use this axdes to plot into
+        setlabel: a label to pass to specshow
+        nmels: number of mel bands
+        cmap: the color map used
+        figsize: the figure size as a tuplet (width, height). Only used if axes is None
+
+    Returns:
+        the axes used
+
+    """
     if len(samples.shape) > 1:
         samples = samples[:, 0]
     if winlength is None:
@@ -439,7 +467,7 @@ def plotMelSpectrogram(samples: np.ndarray, sr: int, fftsize=2048, overlap=4,
     from maelzel.snd import rosita
     hoplength = winlength // overlap
     if axes is None:
-        fig: plt.Figure = plt.figure(figsize=config['matplotlib.spectrogram.figsize'])
+        fig: plt.Figure = plt.figure(figsize=figsize)
         axes: plt.Axes = fig.add_subplot(1, 1, 1)
 
     melspec = rosita.melspectrogram(y=samples, sr=sr, n_fft=fftsize,
