@@ -123,8 +123,8 @@ class RenderOptions:
     """Png staffsize scaling when rendering to lilypond"""
 
     lilypondGlissandoMinimumLength: int = 5
-    """Min. length of the glissando line when rendering with lilypond. This is to avoid
-    too short glissandi actually not showing at all"""
+    """Mininum length of the glissando line when rendering with lilypond. 
+    This is to avoid too short glissandi actually not showing at all"""
 
     lilypondBinary: str = ''
     """The lilypond binary used"""
@@ -152,6 +152,7 @@ class RenderOptions:
         return isinstance(other, RenderOptions) and hash(self) == hash(other)
 
     def __post_init__(self):
+        self.pageSize = self.pageSize.lower()
         self.check()
 
     def musicxmlScaling(self) -> tuple[float, int]:
@@ -198,17 +199,32 @@ class RenderOptions:
         return out
 
     def check(self) -> None:
-        assert self.orientation in ('portrait', 'landscape')
-        assert isinstance(self.staffSize, (int, float)) and 2 < self.staffSize < 40, \
-            f"Invalid staffSize: {self.staffSize}"
-        assert self.pageSize.lower() in ('a1', 'a2', 'a3', 'a4', 'a5'), \
-            f"Invalid page size, it must be one of a1, a2, ..., a5"
+        """
+        Check that the options are valid
+
+        raises ValueError if an error is found
+        """
+        def checkChoice(key, choices):
+            value = getattr(self, key)
+            if value not in choices:
+                if isinstance(value, str):
+                    value = f"'{value}'"
+                raise ValueError(f'Invalid {key}, it should be one of {choices}, got {value}')
+
+        checkChoice('orientation', ('portrait', 'landscape'))
+        checkChoice('pageSize', ('a1', 'a2', 'a3', 'a4', 'a5'))
+        checkChoice('divsPerSemitone', (1, 2, 4))
+        checkChoice('centsAnnotationPlacement', ('above', 'below'))
+        checkChoice('horizontalSpacing', ('small', 'medium', 'large', 'xlarge', 'default'))
+        checkChoice('backend', ('lilypond', 'musicxml'))
+
+        if not (isinstance(self.staffSize, (int, float)) and 2 < self.staffSize < 40):
+            raise ValueError(f"Invalid staffSize: {self.staffSize}")
+
         heightmm, widthmm = emlib.misc.page_dinsize_to_mm(self.pageSize, self.orientation)
-        assert isinstance(self.pageMarginMillimeters, int) and 0 <= self.pageMarginMillimeters <= widthmm
-        assert self.divsPerSemitone in (1, 2, 4)
-        assert self.centsAnnotationPlacement in ('above', 'below')
-        assert self.horizontalSpacing in ('small', 'medium', 'large', 'xlarge', 'default')
-        assert self.backend in ('lilypond', 'musicxml')
+        if not (isinstance(self.pageMarginMillimeters, int) and 0 <= self.pageMarginMillimeters <= widthmm):
+            raise ValueError(f"Invalid value for pageMarginMillimeters, it should be an int between 0 and {widthmm}, "
+                             f"got {self.pageMarginMillimeters}")
 
     def pageSizeMillimeters(self) -> tuple[float, float]:
         """
@@ -222,6 +238,15 @@ class RenderOptions:
 
     @staticmethod
     def parseTextStyle(style: str) -> textstyle.TextStyle:
+        """
+        Parses a textstyle (measureAnnotatioNStyle, rehearsalMarkStyle, ...)
+
+        Args:
+            style: the style to parse
+
+        Returns:
+            a TextStyle
+        """
         return textstyle.parseTextStyle(style)
 
     @property
@@ -235,6 +260,12 @@ class RenderOptions:
 
     @property
     def parsedMeasureAnnotationStyle(self) -> textstyle.TextStyle:
+        """
+        Parses the measure annotation style
+
+        Returns:
+            a TextStyle
+        """
         return textstyle.parseTextStyle(self.measureAnnotationStyle)
 
 

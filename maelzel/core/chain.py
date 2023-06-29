@@ -317,7 +317,7 @@ class Chain(MObj, MContainer):
             return self
 
         flatevents = self.eventsWithOffset()
-        events = [ev if not forcecopy or ev.offset == offset else ev.clone(offset=offset)
+        events = [ev.clone(offset=offset) if forcecopy or ev.offset != offset else ev
                   for ev, offset in flatevents]
         return self.clone(items=events)
 
@@ -848,7 +848,7 @@ class Chain(MObj, MContainer):
             config = Workspace.active.config
 
         if parentOffset is None:
-            parentOffset = self.parent.absoluteOffset() if self.parent else F(0)
+            parentOffset = self.parent.absoluteOffset() if self.parent else F0
 
         offset = parentOffset + self.resolveOffset()
         chain = self.flat()
@@ -857,7 +857,7 @@ class Chain(MObj, MContainer):
             notations.append(scoring.makeRest(duration=chain[0].resolveOffset()))
         for item in chain.items:
             notations.extend(item.scoringEvents(groupid=groupid, config=config, parentOffset=offset))
-        scoring.stackNotationsInPlace(notations)
+        scoring.resolveOffsetsInPlace(notations)
 
         for n0, n1 in iterlib.pairwise(notations):
             if n0.tiedNext and not n1.isRest:
@@ -888,16 +888,16 @@ class Chain(MObj, MContainer):
 
     def scoringParts(self,
                      config: CoreConfig = None
-                     ) -> list[scoring.Part]:
+                     ) -> list[scoring.UnquantizedPart]:
         if config is None:
             config = Workspace.active.config
         self._update()
         notations = self.scoringEvents(config=config)
         if not notations:
             return []
-        scoring.stackNotationsInPlace(notations)
+        scoring.resolveOffsetsInPlace(notations)
         if config['show.voiceMaxStaves'] == 1:
-            parts = [scoring.Part(notations, name=self.label)]
+            parts = [scoring.UnquantizedPart(notations, name=self.label)]
         else:
             groupid = scoring.makeGroupId()
             parts = scoring.distributeNotationsByClef(notations, groupid=groupid)
@@ -1458,7 +1458,7 @@ class Voice(Chain):
         return out
 
     def scoringParts(self, config: CoreConfig = None
-                     ) -> list[scoring.Part]:
+                     ) -> list[scoring.UnquantizedPart]:
         if not self.name and self.label:
             logger.debug("This Voice has a set label ({self.label}) but no name. If you "
                          "need to set the staff name/shortname, set those attributes "

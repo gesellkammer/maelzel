@@ -111,7 +111,7 @@ _durationNames = {
 @dataclass
 class NotatedDuration:
     """
-    Class representing the totalDuration of a note
+    Class representing the notated duration of a note
 
     To convert base to quarterDuration: base/4
 
@@ -121,18 +121,30 @@ class NotatedDuration:
         tuplets: a list of (num, den). Example: [(3, 2)] for a normal triplet
     """
     base: int
-    dots: int = 0
-    tuplets: list[tuple[int, int]] | None = None
+    """The base duration, 4=quarter, 8=8th, etc"""
 
-    def timeModification(self) -> F | None:
-        if not self.tuplets:
-            return None
+    dots: int = 0
+    """Number of dots"""
+
+    tuplets: list[tuple[int, int]] | None = None
+    """A list of (num, den) tuplets. A normal triplet would be [(3, 2)]"""
+
+    def timeModification(self) -> F:
+        """
+        Returns the time modification determined by the tuplets in self
+
+        Returns:
+            a Fraction indicating the general time modification of the tuplets in this duration
+
+        """
         timemodif = F(1)
         for num, den in self.tuplets:
             timemodif *= F(num, den)
         return timemodif
 
     def baseName(self) -> str:
+        """The name of the base notation (one of 'quarter', 'eighth', '16th', etc.)
+        """
         return _durationNames[self.base]
 
 

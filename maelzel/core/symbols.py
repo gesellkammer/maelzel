@@ -383,7 +383,9 @@ _spannerNameToConstructor: dict[str] = {
     'tr': TrillLine,
     'bracket': Bracket,
     '<': lambda **kws: Hairpin(direction='<', **kws),
+    'cresc': lambda **kws: Hairpin(direction='<', **kws),
     '>': lambda **kws: Hairpin(direction='>', **kws),
+    'decresc': lambda **kws: Hairpin(direction='>', **kws),
     'hairpin': Hairpin,
     'beam': Beam
 }
@@ -422,7 +424,7 @@ def makeSpanner(descr: str, kind='start') -> Spanner:
     name = name.lower()
     cls = _spannerNameToConstructor.get(name)
     if cls is None:
-        raise ValueError(f"Spanner class {cls} not understood. "
+        raise ValueError(f"Spanner class {name} not understood. "
                          f"Possible spanners are {_spannerNameToConstructor.keys()}")
     kws = {}
     for part in rest:

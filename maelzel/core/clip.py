@@ -38,17 +38,28 @@ class Clip(event.MEvent):
 
     Args:
         source: the source of the clip (a filename, audiosample, samples as numpy array)
+        dur: the duration of the clip, in quarternotes. If not given, the duration will
+            be the duration of the source. If loop==True, then the duration **needs** to
+            be given
         pitch: the pitch representation of this clip. It has no influence in the playback
             itself, it is only for notation purposes
+        amp: the playback gain
         offset: the time offset of this clip. Like in a Note, if not given,
             the start time depends on the context (previous events) where this
             clip is evaluated
-        label: a label str to identify this clip
-        dynamic: allows to attach a dynamic expression to this Clip. This is
-            only for notation purposes, it does not modify playback
         startsecs: selection start time (in seconds)
         endsecs: selection end time (in seconds). If 0., play until the end of the source
+        loop: if True, playback of this Clip should be looped
+        label: a label str to identify this clip
         speed: playback speed of the clip
+        dynamic: allows to attach a dynamic expression to this Clip. This is
+            only for notation purposes, it does not modify playback
+        tied: this clip should be tied to the next one. This is only valid if the clips
+            share the same source (same soundfile or samples) and allows to automate
+            parameters such as playback speed or amplitude.
+        noteheadShape: the notehead shape to use for notation, one of 'normal', 'cross',
+            'harmonic', 'triangle', 'xcircle', 'rhombus', 'square', 'rectangle', 'slash', 'cluster'.
+            (see :ref:`config['show.clipNoteheadShape'] <config_show_clipnoteheadshape>`)
 
     """
     _excludedPlayKeys: tuple[str] = ('instr', 'args')
@@ -71,22 +82,23 @@ class Clip(event.MEvent):
                  '_engine',
                  '_csoundTable',
                  '_sample',
-                 '_durContext'
+                 '_durContext',
+                 '_explicitDur'
                  )
 
     def __init__(self,
                  source: str | audiosample.Sample | tuple[np.ndarray, int],
+                 dur: time_t = None,
                  pitch: pitch_t = None,
                  amp: float = 1.,
                  offset: time_t = None,
-                 label: str = '',
-                 dynamic: str = '',
                  startsecs: float | F = 0.,
                  endsecs: float | F = 0.,
                  channel: int = None,
-                 speed: F | float = F1,
-                 parent: MContainer | None = None,
                  loop=False,
+                 speed: F | float = F1,
+                 label: str = '',
+                 dynamic: str = '',
                  tied=False,
                  noteheadShape: str = None
                  ):
@@ -94,6 +106,9 @@ class Clip(event.MEvent):
             source = _dialogs.selectSndfileForOpen()
             if not source:
                 raise ValueError("No source selected")
+
+        if loop and dur is None:
+            raise ValueError(f"The duration of a looping Clip needs to be given (source: {source})")
 
         self.soundfile = ''
         """The soundfile holding the audio data (if any)"""
@@ -127,6 +142,8 @@ class Clip(event.MEvent):
 
         self.noteheadShape = noteheadShape
         """The shape to use as notehead"""
+
+        self._explicitDur: F | None = dur
 
         if isinstance(source, tuple) and len(source) == 2 and isinstance(source[0], np.ndarray):
             data, sr = source
@@ -191,7 +208,8 @@ class Clip(event.MEvent):
         if offset is not None:
             offset = asF(offset)
 
-        super().__init__(offset=offset, dur=None, label=label, parent=parent)
+        super().__init__(offset=offset, dur=dur, label=label)
+
 
     @property
     def sr(self) -> float:
@@ -249,7 +267,7 @@ class Clip(event.MEvent):
         Return a :class:`maelzel.snd.audiosample.Sample` with the audio data of this Clip
 
         Returns:
-            a Sample with the audio data of this Clip. The returned Sample is read-only
+            a Sample with the audio data of this Clip. The returned Sample is read-only.
 
         Example
         ~~~~~~~
@@ -258,10 +276,16 @@ class Clip(event.MEvent):
         """
         if self._sample is not None:
             return self._sample
+
         if isinstance(self.source, audiosample.Sample):
             return self.source
         else:
-            sample = audiosample.Sample(self.source, readonly=True, engine=self._engine)
+            assert isinstance(self.source, str)
+            sample = audiosample.Sample(self.source,
+                                        readonly=True,
+                                        engine=self._engine,
+                                        start=float(self.selectionStartSecs),
+                                        end=float(self.selectionEndSecs))
             self._sample = sample
             return sample
 
@@ -269,27 +293,44 @@ class Clip(event.MEvent):
         return False
 
     def durSecs(self) -> F:
-        assert isinstance(self.selectionEndSecs, F)
-        assert isinstance(self.selectionStartSecs, F)
-        assert isinstance(self.speed, F)
         return (self.selectionEndSecs - self.selectionStartSecs) / self.speed
 
     def pitchRange(self) -> tuple[float, float]:
         return (self.pitch, self.pitch)
 
+    def _durationInBeats(self,
+                         absoffset: F | None = None,
+                         scorestruct: ScoreStruct = None) -> F:
+        """
+        Calculate the duration in beats without considering looping or explicit duration
+
+        Args:
+            scorestruct: the score structure
+
+        Returns:
+            the duration in quarternotes
+        """
+        absoffset = absoffset if absoffset is not None else self.absoluteOffset()
+        struct = scorestruct or self.scorestruct() or Workspace.active.scorestruct
+        starttime = struct.beatToTime(absoffset)
+        endbeat = struct.timeToBeat(starttime + self.durSecs())
+        return endbeat - absoffset
+
     @property
     def dur(self) -> F:
         "The duration of this Clip, in quarter notes"
+        if self._explicitDur:
+            return self._explicitDur
+
         absoffset = self.absoluteOffset()
         struct = self.scorestruct() or Workspace.active.scorestruct
+
         if self._dur is not None and self._durContext is not None:
             cachedstruct, cachedbeat = self._durContext
             if struct is cachedstruct and cachedbeat == absoffset:
                 return self._dur
-        starttime = struct.beatToTime(absoffset)
-        dursecs = self.durSecs()
-        endbeat = struct.timeToBeat(starttime + dursecs)
-        dur = endbeat - absoffset
+
+        dur = self._durationInBeats(absoffset=absoffset, scorestruct=struct)
         self._dur = dur
         self._durContext = (struct, absoffset)
         return dur
@@ -308,7 +349,7 @@ class Clip(event.MEvent):
         reloffset = self.resolveOffset()
         offset = reloffset + parentOffset
         starttime = float(scorestruct.beatToTime(offset))
-        endtime = float(starttime + self.durSecs())
+        endtime = float(scorestruct.beatToTime(offset + self.dur))
         amp = firstval(self.amp, 1.0)
         bps = [[starttime, self.pitch, amp],
                [endtime, self.pitch, amp]]
@@ -320,7 +361,8 @@ class Clip(event.MEvent):
             args = {'ipath': self.soundfile,
                     'isndfilechan': -1 if self.channel is None else self.channel,
                     'kspeed': self.speed,
-                    'iskip': skip}
+                    'iskip': skip,
+                    'iwrap': 1 if self.loop else 0}
             playargs = playargs.clone(instr='_clip_diskin', args=args)
 
         elif self._playbackMethod == 'table':

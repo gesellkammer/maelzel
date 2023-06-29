@@ -891,10 +891,6 @@ class Spectrum:
                                       noisebw=noisebw)
 
 
-    #def score(self, maxparts=12) -> scoring.Arrangement:
-    #    from maelzel import packing
-    #    tracks = packing.packInTracks(items)
-
 
 
 analyze = Spectrum.analyze

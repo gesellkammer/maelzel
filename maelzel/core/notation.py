@@ -124,7 +124,7 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig = None
     return profile
 
 
-def renderWithActiveWorkspace(parts: list[scoring.Part],
+def renderWithActiveWorkspace(parts: list[scoring.UnquantizedPart],
                               backend: str = None,
                               renderoptions: scoring.render.RenderOptions = None,
                               scorestruct: ScoreStruct = None,
@@ -132,7 +132,7 @@ def renderWithActiveWorkspace(parts: list[scoring.Part],
                               quantizationProfile: scoring.quant.QuantizationProfile = None
                               ) -> scoring.render.Renderer:
     """
-    Render the given scoring.Parts with the current configuration
+    Render the given scoring.UnquantizedParts with the current configuration
 
     Args:
         parts: the parts to render

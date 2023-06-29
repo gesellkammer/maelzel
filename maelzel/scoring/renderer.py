@@ -22,12 +22,20 @@ class Renderer:
     """
 
     def __init__(self, score: quant.QuantizedScore, options: RenderOptions):
-        assert score
-        assert score[0].struct is not None
+        if not score:
+            raise ValueError("The quantized score is empty")
+
+        if score[0].struct is None:
+            raise ValueError("The score has no associated ScoreStruct, cannot render")
+
         self.quantizedScore: quant.QuantizedScore = score
+        """The quantized score used for rendering"""
+
         self.struct: ScoreStruct = score[0].struct
-        self.options = options
-        self._lastrender: str = ''
+        """The ScoreStruct used for rendering"""
+
+        self.options: RenderOptions = options
+        """The render options used"""
 
     def __hash__(self) -> int:
         return hash((hash(self.quantizedScore), hash(self.struct), hash(self.options)))
@@ -36,19 +44,28 @@ class Renderer:
         """
         Render the quantized score
 
+        .. note::
+
+            The result is internally cached so calling this method multiple times
+            only performs the rendering once as long as the options used do not
+            change
+
         Args:
             options: if given, these options override the own options
 
-        .. note::
-
-            The result is internally cached to calling this method multiple times
-            only performs the rendering once.
+        Returns:
+            the rendered score, as text. This will be lilypond text if the
+            renderer is a LilypondRenderer, or musicxml text in the case
+            of a MusicxmlRenderer
         """
         raise NotImplementedError("Please Implement this method")
 
     def writeFormats(self) -> list[str]:
         """
-        Returns: a list of possible write formats (pdf, xml, musicxml, etc)
+        List of formats supported by this Renderer
+
+        Returns:
+            a list of possible write formats (pdf, xml, musicxml, etc)
         """
         raise NotImplementedError("Please Implement this method")
 
@@ -74,7 +91,6 @@ class Renderer:
             either the musicxml as str, or None if not supported by
             this renderer
 
-        ### TODO
         """
         return None
 

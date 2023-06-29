@@ -29,18 +29,16 @@ Key Concepts
 
 MObj
     All classes defined in **maelzel.core** inherit from :class:`~maelzel.core.mobj.MObj` (*Maelzel Object*, or
-    *Music Object*). A :class:`~maelzel.core.mobj.MObj` **exists in time** (it has a time offset and
-    duration attributes), it **can be displayed as notation** (:meth:`~maelzel.core.mobj.MObj.show`)
+    *Music Object*). A :class:`~maelzel.core.mobj.MObj` **exists in time** (it has a duration and a
+    time offset), it **can be displayed as notation** (:meth:`~maelzel.core.mobj.MObj.show`)
     and **played as audio** (:meth:`~maelzel.core.mobj.MObj.play`)
 
 
 Explicit / Implicit Time
-    A :class:`~maelzel.core.mobj.MObj` has always an *offset* and *dur* attributes.
-    These can be unset (``None``), meaning that they are **not explicitely determined** and depend
-    on the context. For example, a :class:`~maelzel.core.event.Note` might have no offset or
-    duration set. When adding such a note to a sequence of notes (a :class:`~maelzel.core.chain.Chain`)
-    its start time will be set to the end of the previous note/chord in the chain, or 0 if this is
-    the first note. Its duration will be determined to last until the next event in the sequence.
+    A :class:`~maelzel.core.mobj.MObj` always has an explicit duration (the *dur* attribute). The
+    *offset* can be undetermined (``None``), meaning that it is **not explicitely set** and depends
+    on the context. A :class:`~maelzel.core.event.Note` without an explicit offset
+    will be stacked left to the previous event.
 
 Absolute Time / Relative Time
     The time attributes (*offset*, *dur*, *end*) of a :class:`~maelzel.core.mobj.MObj` refer to a
@@ -134,7 +132,7 @@ Table of Contents
     Containers: Chain, Voice <chain>
     Score Structure: interfacing symbolic and real time <scorestruct>
     Score <api/maelzel.core.score.Score>
-    Clip <api/maelzel.core.clip.Clip>
+    Clip <clip>
     coreplayintro
     config
     workspace

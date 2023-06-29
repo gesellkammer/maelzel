@@ -31,6 +31,7 @@ multiple backends (*lilypond*, *musescore*)
 
     scoringcore
     scoringquant
+    scoringrender
 
 --------------------
 

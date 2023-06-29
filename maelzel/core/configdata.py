@@ -90,7 +90,7 @@ defaultdict = {
     'quant.minBeatFractionAcrossBeats': 0.5,
     'quant.nestedTuplets': None,
     'quant.nestedTupletsInMusicxml': False,
-    'quant.breakSyncopationsLevel': 'weak',
+    'quant.breakSyncopationsLevel': 'none',
     'quant.complexity': 'high',
     'quant.divisionErrorWeight': None,
     'quant.gridErrorWeight': None,

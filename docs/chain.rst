@@ -23,7 +23,7 @@ the following differences:
 
 * A :class:`Voice` can contain a Chain, but **a Voice cannot contain another Voice**
 * A :class:`Voice` does not have a time offset, **its offset is always 0**
-* A :class:`Voice` is used to represent a *Part* or *Instrument* within a score.
+* A :class:`Voice` is used to represent a *UnquantizedPart* or *Instrument* within a score.
   It includes multiple attributes and methods to customize its representation and playback.
 
 .. automodapi:: maelzel.core.chain

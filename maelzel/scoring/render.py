@@ -16,6 +16,17 @@ if TYPE_CHECKING:
     from typing import Union
 
 
+__all__ = (
+    'renderQuantizedScore',
+    'quantizeAndRender',
+    'render',
+    'renderMusicxml',
+    'Renderer',
+    'RenderOptions'
+
+)
+
+
 def renderQuantizedScore(score: quant.QuantizedScore,
                          options: RenderOptions
                          ) -> Renderer:
@@ -46,7 +57,7 @@ def renderQuantizedScore(score: quant.QuantizedScore,
         raise ValueError(f"Supported backends: 'lilypond', 'musicxml'. Got {backend}")
 
 
-def _groupNotationsByMeasure(part: core.Part,
+def _groupNotationsByMeasure(part: core.UnquantizedPart,
                              struct: ScoreStruct
                              ) -> list[list[core.Notation]]:
     currMeasure = -1
@@ -68,7 +79,7 @@ def _groupNotationsByMeasure(part: core.Part,
     return groups
 
 
-def quantizeAndRender(parts: list[core.Part],
+def quantizeAndRender(parts: list[core.UnquantizedPart],
                       struct: ScoreStruct,
                       options: RenderOptions,
                       quantizationProfile: quant.QuantizationProfile = None,
@@ -95,25 +106,25 @@ def quantizeAndRender(parts: list[core.Part],
     return renderQuantizedScore(score=qscore, options=options)
 
 
-def _asParts(obj: Union[core.Part, core.Notation, list[core.Part], list[core.Notation]]
-             ) -> list[core.Part]:
-    if isinstance(obj, core.Part):
+def _asParts(obj: Union[core.UnquantizedPart, core.Notation, list[core.UnquantizedPart], list[core.Notation]]
+             ) -> list[core.UnquantizedPart]:
+    if isinstance(obj, core.UnquantizedPart):
         parts = [obj]
     elif isinstance(obj, list):
-        if all(isinstance(item, core.Part) for item in obj):
+        if all(isinstance(item, core.UnquantizedPart) for item in obj):
             parts = obj
         elif all(isinstance(item, core.Notation) for item in obj):
-            parts = [core.Part(obj)]
+            parts = [core.UnquantizedPart(obj)]
         else:
             raise TypeError(f"Can't show {obj}")
     elif isinstance(obj, core.Notation):
-        parts = [core.Part([obj])]
+        parts = [core.UnquantizedPart([obj])]
     else:
         raise TypeError(f"Can't convert {obj} to a list of Parts")
     return parts
 
 
-def render(obj: core.Part | core.Notation | list[core.Part] | list[core.Notation],
+def render(obj: core.UnquantizedPart | core.Notation | list[core.UnquantizedPart] | list[core.Notation],
            struct: ScoreStruct = None,
            options: RenderOptions = None,
            backend='',

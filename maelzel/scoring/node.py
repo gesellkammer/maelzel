@@ -30,26 +30,32 @@ def _mergeProperties(a: dict | None, b: dict | None) -> dict | None:
 
 class Node:
     """
-    A Node is a container, grouping Notation and other Nodes under one time modifier
+    A Node is a recursive container, grouping Notations and other Nodes under one time modifier
+
+    **Notations within a Node are quantized**. When a measure is quantized, its
+    contents are grouped in a tree structure made out of Nodes
+    (see :meth:`QuantizedMeasure.tree <maelzel.scoring.quant.QuantizedMeasure.tree>`)
 
     A Node consists of a sequence of Notations or Nodes, allowing to
     define nested tuplets or beats. The notations inside a Node already hold the
     real beat-duration. The durRatio is a ratio by which to multiply a given duration to
     obtain the notated duration.
 
-    A Node is used to represent the result of quantization. Quantization happens first
+    A Node is used to represent the result of quantization.
+
+    Quantization happens first
     at the beat level and after that all quantized beats within a measure are merged
     together to create a tree structure spanning along the entire measure
 
     .. seealso:: :meth:`QuantizedMeasure.tree <maelzel.scoring.quant.QuantizedMeasure.tree>`
 
     Attributes:
-        durRatio: a tuple (num, den) indication the ratio by which to multiply the duration
+        durRatio: a tuple ``(num, den)` indication the ratio by which to multiply the duration
             of the items to obtain the notated items: the items inside this tree
             For example, a quarternote triplet would have a durRatio (3, 2) and the items
             inside it would have a duration of 1/3. When multiplied by the durRatio each
             item would have a duration of 1/2
-        items: the items in this tree
+        items: the items in this tree (an item can be a Notation or a Node)
 
     In the case of a simple triplet, the items would hold something like::
 
@@ -456,25 +462,25 @@ class Node:
             key: if given, a function which returns True if the note should be split
 
         """
-        if not self.offset < offset < self.end:
-            logger.debug(f"This Node (offset: {self.offset}, end: {self.end}) does not contain offset {offset}")
+        if not (self.offset < offset < self.end):
             return
 
         for i, item in enumerate(self.items):
             if item.offset < offset < item.end:
-                if isinstance(item, Notation):
+                if isinstance(item, Node):
+                    logger.debug(f"Splitting node (offset={item.offset}, end={item.end} at {offset=}")
+                    item.splitAtBeatBoundary(offset=offset, key=key)
+                else:
                     symdur = item.symbolicDuration()
                     assert symdur.denominator in (1, 2, 4, 8, 16)
                     assert symdur.numerator in (1, 2, 3, 4, 7), f"Symbolic duration for {item}: {symdur}"
                     if key and not key(item):
                         break
-                    parts = item.splitNotationAtOffsets([offset])
+                    parts = item.splitAtOffsets([offset])
                     assert len(parts) == 2
                     newitems = self.items[:i] + parts + self.items[i+1:]
                     self.items = newitems
                     return
-                else:
-                    item.splitAtBeatBoundary(offset=offset, key=key)
 
 
 def asTree(nodes: list[Node]
