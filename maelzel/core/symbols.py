@@ -13,17 +13,19 @@ from __future__ import annotations
 import random
 import copy
 import weakref
-# from emlib.misc import ReprMixin
+from maelzel._util import reprObj
 from maelzel import scoring
+
 from ._common import logger
 import pitchtools as pt
 import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import Set, Sequence, Any, TypeVar
+    from typing import Set, Sequence, Any, TypeVar, Callable
     TSpanner = TypeVar('TSpanner', bound='Spanner')
     from maelzel.core import event
+    from maelzel.core import mobj
 
 _uuid_alphabet = '0123456789abcdefghijklmnopqrstuvwxyz'
 
@@ -42,6 +44,23 @@ class Symbol:
     def __init__(self, color=''):
         self.properties: dict[str, Any] | None = None
         self.color = color
+
+    def evalAnchor(self, obj: mobj.MObj) -> str | None:
+        """
+        Evaluate if this Symbol can be attached to obj
+
+        Args:
+            obj: the object this symbol would be attached to
+
+        Returns:
+            None or an empty string if it can be attached to obj,
+            an error message otherwise
+
+        """
+        return None
+
+    def __repr__(self) -> str:
+        return reprObj(self, hideFalsy=True)
 
     def getProperty(self, key):
         return None if not self.properties else self.properties.get(key)
@@ -85,8 +104,7 @@ class Property(Symbol):
         return hash((type(self).__name__, self.value))
 
     def __repr__(self):
-        cls = type(self).__name__
-        return f'{cls}(value={self.value})'
+        return reprObj(self, priorityargs=('value',), hideFalsy=True)
 
 
 class Spanner(Symbol):
@@ -135,11 +153,6 @@ class Spanner(Symbol):
         keys = ('kind', 'uuid', 'linetype', 'placement', 'color')
         return {k: v for k in keys
                 if (v := getattr(self, k))}
-
-    def __repr__(self) -> str:
-        cls = type(self).__qualname__
-        attrstr = ', '.join(f'{k}={v}' for k, v in self._attrs().items())
-        return f'{cls}({attrstr})'
 
     def setAnchor(self, obj: event.MEvent) -> None:
         """
@@ -391,7 +404,8 @@ _spannerNameToConstructor: dict[str] = {
 }
 
 
-def makeSpanner(descr: str, kind='start') -> Spanner:
+def makeSpanner(descr: str, kind='start', linetype='solid', placement='', color=''
+                ) -> Spanner:
     """
     Create a spanner from a descriptor
 
@@ -422,6 +436,9 @@ def makeSpanner(descr: str, kind='start') -> Spanner:
     """
     name, *rest = descr.split(":")
     name = name.lower()
+    if name.startswith("~"):
+        name = name[1:]
+        kind = 'end'
     cls = _spannerNameToConstructor.get(name)
     if cls is None:
         raise ValueError(f"Spanner class {name} not understood. "
@@ -439,6 +456,12 @@ def makeSpanner(descr: str, kind='start') -> Spanner:
             kws[k] = v
         else:
             raise ValueError(f"Spanner descriptor not understood: {part} ({descr})")
+    if placement:
+        kws['placement'] = placement
+    if color:
+        kws['color'] = color
+    if linetype:
+        kws['linetype'] = linetype
     spanner = cls(kind=kind, **kws)
     return spanner
 
@@ -499,6 +522,24 @@ class PitchAttachedSymbol(NoteAttachedSymbol):
 
     def applyTo(self, n: scoring.Notation) -> None:
         self.applyToPitch(n, idx=None)
+
+
+class Clef(NoteAttachedSymbol):
+    exclusive = True
+    appliesToRests = True
+
+    def __init__(self, kind: str):
+        super().__init__()
+        clef = scoring.definitions.clefs.get(kind)
+        if clef is None:
+            raise ValueError(f"Clef {kind} unknown. Possible values: {scoring.definitions.clefs}")
+        self.kind = clef
+
+    def applyTo(self, n: scoring.Notation) -> None:
+        n.addAttachment(scoring.attachment.Clef(self.kind))
+
+    def __repr__(self):
+        return reprObj(self, priorityargs=('kind',), hideFalsy=True)
 
 
 class Ornament(NoteAttachedSymbol):
@@ -628,11 +669,12 @@ class Text(NoteAttachedSymbol):
         self.box = box
 
     def __repr__(self):
-        return f"Text('{self.text}', placement={self.placement})"
+        return reprObj(self, priorityargs=('text',),
+                       filter={'italic': lambda val: val,
+                               'weight': lambda val: val != 'normal'})
 
     def applyTo(self, n: scoring.Notation) -> None:
         if not n.tiedPrev:
-            # TODO: add fontsize
             n.addText(self.text, placement=self.placement, fontsize=self.fontsize,
                       italic=self.italic, weight=self.weight, box=self.box,
                       fontfamily=self.fontfamily)
@@ -657,7 +699,7 @@ class NotatedPitch(NoteAttachedSymbol):
         self.realpitch = realpitch
 
     def __repr__(self):
-        return f'NotatedPitch(notename={self.notename}, realpitch={self.realpitch})'
+        return reprObj(self, priorityargs=('notename', 'realpitch'))
 
     def applyTo(self, n: scoring.Notation) -> None:
         if len(n.pitches) == 1:
@@ -752,9 +794,6 @@ class Harmonic(NoteAttachedSymbol):
         self.kind = kind
         self.interval = interval
 
-    def __repr__(self):
-        return f'Harmonic(kind={self.kind}, interval={self.interval})'
-
     def applyTo(self, n: scoring.Notation) -> None:
         if self.kind == 'sounding':
             if not n.tiedPrev:
@@ -777,7 +816,9 @@ class Notehead(PitchAttachedSymbol):
 
     Args:
         shape: one of 'cross', 'harmonic', 'triangleup', 'xcircle',
-              'triangle', 'rhombus', 'square', 'rectangle'
+              'triangle', 'rhombus', 'square', 'rectangle'. You can also add parenthesis
+              to the shape, as  '(x)' or even '()' to indicate a normal, parenthesized
+              notehead
         color: a css color (str)
         parenthesis: if True, parenthesize the notehead
         size: a size factor (1.0 means the size corresponding to the staff size, 2. indicates
@@ -793,7 +834,12 @@ class Notehead(PitchAttachedSymbol):
         self.hidden = hidden
         if shape and shape.endswith('?'):
             parenthesis = True
-            shape = shape[:-1]
+            shape = shape[:-1] if len(shape) > 1 else 'normal'
+        elif shape and shape[0] == '(' and shape[-1] == ')':
+            shape = shape[1:-1]
+            if not shape:
+                shape = 'normal'
+            parenthesis = True
         elif shape == 'hidden':
             shape = ''
             self.hidden = True
@@ -816,16 +862,7 @@ class Notehead(PitchAttachedSymbol):
             return scoring.definitions.noteheadShapes
 
     def __repr__(self):
-        parts = []
-        if self.shape:
-            parts.append(self.shape)
-        if self.color:
-            parts.append(f'color={self.color}')
-        if self.parenthesis:
-            parts.append(f'parenthesis=True')
-        if self.size is not None and self.size != 1.0:
-            parts.append(f'size={self.size:.6g}')
-        return f"Notehead({', '.join(parts)})"
+        return reprObj(self, priorityargs=('shape,'), hideFalsy=True)
 
     def asScoringNotehead(self) -> scoring.definitions.Notehead:
         return scoring.definitions.Notehead(shape=self.shape, color=self.color, size=self.size,
@@ -876,7 +913,7 @@ class Articulation(NoteAttachedSymbol):
         return hash((type(self).__name__, self.kind))
 
     def __repr__(self):
-        return f"Articulation(kind={self.kind})"
+        return reprObj(self, priorityargs=('kind',), hideFalsy=True)
 
     @classmethod
     def possibleValues(cls, key: str = None) -> Set[str] | None:
@@ -943,15 +980,35 @@ class Stem(NoteAttachedSymbol):
 
 
 class GlissandoProperties(NoteAttachedSymbol):
+    """
+    Customizes properties of a glissando
+
+    It can only be attached to an event which starts a glissando
+
+    """
+    exclusive = True
+    appliesToRests = False
+
+
     def __init__(self, linetype='solid', color=''):
         super().__init__()
+        if not linetype in scoring.attachment.GlissandoProperties.linetypes:
+            raise ValueError(f"Invalid linetype {linetype}, should be one of {scoring.attachment.GlissandoProperties.linetypes}")
         self.linetype = linetype
         self.color = color
 
+    def evalAnchor(self, obj: mobj.MObj) -> str | None:
+        from maelzel.core.event import MEvent
+        if not isinstance(obj, MEvent):
+            return f'{self} can only be attached to an event (Note, Chord), got {obj}'
+        elif isinstance(obj, MEvent) and not obj.gliss:
+            return f'{self} can only be attached to an event with glissando, got {obj}'
+
     def applyTo(self, n: scoring.Notation) -> None:
-        if not n.gliss:
+        if not n.gliss and not (n.tiedPrev and n.tiedNext):
             logger.warning("Applying GlissandoProperties to a Notation without glissando,"
                            f"(destination: {n}")
+        n.addAttachment(scoring.attachment.GlissandoProperties(linetype=self.linetype, color=self.color))
 
 
 class Accidental(PitchAttachedSymbol):
@@ -981,25 +1038,14 @@ class Accidental(PitchAttachedSymbol):
                  size: float = None):
         super().__init__()
 
-        self.hidden = hidden
-        self.parenthesis = parenthesis
-        self.color = color
-        self.force = force
-        self.size = size
+        self.hidden: bool = hidden
+        self.parenthesis: bool = parenthesis
+        self.color: str = color
+        self.force: bool = force
+        self.size: float = size
 
     def __repr__(self):
-        parts = []
-        if self.hidden:
-            parts.append('hidden=True')
-        if self.parenthesis:
-            parts.append('parenthesis=True')
-        if self.color:
-            parts.append(f'color={self.color}')
-        if self.size is not None:
-            parts.append(f'size={self.size}')
-        if self.force:
-            parts.append('force=True')
-        return f'Accidental({", ".join(parts)})'
+        return reprObj(self, hideFalse=True, hideEmptyStr=True)
 
     def __hash__(self):
         return hash((type(self).__name__, self.hidden, self.parenthesis, self.color, self.force))
@@ -1037,7 +1083,8 @@ _symbolClasses = (
     Fingering,
     Harmonic,
     Breath,
-    BeamBreak
+    BeamBreak,
+    Stem
 )
 
 

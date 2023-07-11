@@ -1,6 +1,7 @@
 from __future__ import annotations
 import itertools
 from emlib import iterlib
+from maelzel._util import reprObj
 
 from .common import *
 from .notation import *
@@ -17,19 +18,23 @@ __all__ = (
     'Notation',
     'UnquantizedPart',
     'UnquantizedScore',
-    'resolveOffsets',
-    'resolveOffsetsInPlace',
-    'fillSilences',
-    'distributeNotationsByClef',
-    'packInParts',
-    'mergeNotationsIfPossible',
-    'notationsCanMerge',
-    'removeOverlap',
     'NotatedDuration',
+    'fillSilences',
+    'resolveOffsets',
+    'packInParts',
+    'notationsCanMerge',
+    'mergeNotationsIfPossible',
+    'removeSmallOverlaps',
+    'distributeNotationsByClef',
 )
 
 
-class UnquantizedPart(list):
+def _parseGroupname(name: str, separator="::") -> tuple[str, str]:
+    parts = name.split(separator, maxsplit=1)
+    return (parts[0], '') if len(parts) == 1 else (parts[0], parts[1])
+
+
+class UnquantizedPart:
     """
     An UnquantizedPart is a list of unquantized non-simultaneous :class:`Notation`
 
@@ -45,18 +50,21 @@ class UnquantizedPart(list):
     def __init__(self,
                  notations: list[Notation] = None,
                  name='',
-                 groupid: str = '',
                  shortname='',
-                 firstclef: str = '',
-                 quantProfile: quant.QuantizationProfile | None = None):
+                 groupid: str = '',
+                 groupname='',
+                 showName=True,
+                 quantProfile: quant.QuantizationProfile | None = None,
+                 ):
 
-        if notations:
-            super().__init__(notations)
-        else:
-            super().__init__()
+        self.notations: list[Notation] = notations
 
         self.groupid: str = groupid
         """A UUID identifying this Part (can be left unset)"""
+
+        self.groupname: tuple[str, str] | None = _parseGroupname(groupname) if groupname else None
+        """Used as staff group name for parts grouped together. It can include a shortname as
+        <name>::<shortname>"""
 
         self.name: str = name
         """The name of the part"""
@@ -64,36 +72,49 @@ class UnquantizedPart(list):
         self.shortname: str = shortname
         """A shortname to use as abbreviation"""
 
-        self.firstclef = firstclef
-        """The start clef of this part"""
-
         self.quantProfile = quantProfile
         """A quantization profile can be attached to an UnquantizedPart for later quantization"""
 
+        self.showName = showName
+        """If True, show the part name when rendered"""
+
         if notations:
             assert all(isinstance(n, Notation) for n in notations)
-            _repairGracenoteAsTargetGliss(self)
+            _repairGracenoteAsTargetGliss(self.notations)
+
+    def setGroup(self, groupid: str, name='', shortname='', showPartName=False):
+        self.groupid = groupid
+        self.groupname = (name, shortname)
+        self.showName = showPartName
 
     def __getitem__(self, item) -> Notation:
-        return super().__getitem__(item)
+        return self.notations.__getitem__(item)
 
     def __iter__(self) -> Iterator[Notation]:
-        return super().__iter__()
+        return iter(self.notations)
 
     def __repr__(self) -> str:
-        s0 = super().__repr__()
-        return "UnquantizedPart"+s0
+        return reprObj(self, priorityargs=('notations',))
 
     def dump(self) -> None:
         """Dump this to stdout"""
-        for n in self:
+        for n in self.notations:
             print(n)
+
+    @staticmethod
+    def groupParts(parts: list[UnquantizedPart], name='', shortname='', groupid='', showPartNames=False
+                   ) -> str:
+        if not groupid:
+            groupid = makeGroupId()
+        for part in parts:
+            part.setGroup(groupid=groupid, name=name, shortname=shortname, showPartName=showPartNames)
+        return groupid
 
     def distributeByClef(self) -> list[UnquantizedPart]:
         """
         Distribute the notations in this Part into multiple parts, based on pitch
         """
-        return distributeNotationsByClef(self, groupid=self.groupid)
+        return distributeNotationsByClef(self.notations, groupid=self.groupid)
 
     def needsMultipleClefs(self) -> bool:
         """
@@ -110,11 +131,11 @@ class UnquantizedPart(list):
         After this operation, all Notations in this UnquantizedPart have an
         explicit offset.
         """
-        resolveOffsetsInPlace(self)
+        resolveOffsets(self.notations)
 
     def meanPitch(self) -> float:
         """
-        The mean pitch of this part, weighted by the totalDuration of each pitch
+        The mean pitch of this part, weighted by the duration of each pitch
 
         Returns:
             a float representing the mean pitch as midinote
@@ -134,27 +155,34 @@ class UnquantizedPart(list):
         """
         if not self.hasGaps():
             return
-        newevents = fillSilences(self, mingap=mingap, offset=0)
-        self.clear()
-        self.extend(newevents)
+        self.notations = fillSilences(self.notations, mingap=mingap, offset=0)
         assert not self.hasGaps()
 
     def hasGaps(self) -> bool:
         """Does this Part have gaps?"""
-        assert all(n.offset is not None and n.duration is not None for n in self)
-        return any(n0.end < n1.offset for n0, n1 in iterlib.pairwise(self))
+        assert all(n.offset is not None and n.duration is not None for n in self.notations)
+        return any(n0.end < n1.offset for n0, n1 in iterlib.pairwise(self.notations))
 
 
-class UnquantizedScore(list):
+class UnquantizedScore:
     """
     An UnquantizedScore is a list of UnquantizedParts
     """
     def __init__(self, parts: list[UnquantizedPart] = None, title: str = ''):
-        if parts:
-            super().__init__(parts)
-        else:
-            super().__init__()
+        self.parts = parts
         self.title = title
+
+    def __len__(self):
+        return len(self.parts)
+
+    def __getitem__(self, item) -> UnquantizedPart:
+        return self.parts.__getitem__(item)
+
+    def __iter__(self) -> Iterator[UnquantizedPart]:
+        return iter(self.parts)
+
+    def append(self, part: UnquantizedPart):
+        self.parts.append(part)
 
 
 def _repairGracenoteAsTargetGliss(notations: list[Notation]) -> None:
@@ -177,11 +205,11 @@ def _repairGracenoteAsTargetGliss(notations: list[Notation]) -> None:
                 skip = True
     for item in toBeRemoved:
         notations.remove(item)
-    resolveOffsetsInPlace(notations)
+    resolveOffsets(notations)
 
 
-def resolveOffsetsInPlace(notations: list[Notation], start=F(0), overrideOffset=False
-                          ) -> None:
+def resolveOffsets(notations: list[Notation], start=F(0), overrideOffset=False
+                   ) -> None:
     """
     Fills all offsets, in place
 
@@ -195,7 +223,7 @@ def resolveOffsetsInPlace(notations: list[Notation], start=F(0), overrideOffset=
     if all(ev.offset is not None and ev.duration is not None
            for ev in notations):
         return
-    now = _ if (_:=notations[0].offset) is not None else start if start is not None else F(0)
+    now = _ if (_ := notations[0].offset) is not None else start if start is not None else F(0)
     assert now is not None and now >= 0
     for i, n in enumerate(notations):
         assert n.duration is not None
@@ -206,81 +234,31 @@ def resolveOffsetsInPlace(notations: list[Notation], start=F(0), overrideOffset=
     for n1, n2 in iterlib.pairwise(notations):
         if n1.end > n2.offset:
             raise ValueError(f"Notations are not sorted: {n1}, {n2}")
-    removeOverlap(notations)
+    removeSmallOverlaps(notations)
 
 
-def resolveOffsets(notations: list[Notation], start=F(0), overrideOffset=False
-                   ) -> list[Notation]:
-    """
-    Returns a copy of the notations with all offsets resolved
-
-    Notations without offset are stacked to the left, starting at the end
-    of the previous notation
-
-    .. seealso:: :func:`resolveOffsetsInPlace`
-
-    Args:
-        notations: a list of notations
-        start: the start time, will override the offset of the first event
-        overrideOffset: if True, offsets are overriden even if they are defined
-
-    Returns:
-        a list of stacked events
-    """
-    notations = [n.copy() for n in notations]
-    resolveOffsetsInPlace(notations, start=start, overrideOffset=overrideOffset)
-    return notations
-
-
-def removeOverlap(notations: list[Notation], maxgap=F(1, 10000)) -> None:
-    """
-    Fix overlap between notations, inplace.
-
-    If two notations overlap, the first notation is cut, preserving the
-    offset of the second notation. If there is a gap smaller than a given
-    threshold the end of the note left of the gap is extended to match
-    the offset of the note right of the gap
-
-    Args:
-        notations: the notations to fix
-        maxgap: max. gap to allow between notations. Any gap smaller than
-            this will be removed, growing the previous notation to fill
-            the gap (the start times are left unmodified)
-
-    Returns:
-        the fixed notations
-    """
-    if len(notations) < 2:
-        return
-    for n0, n1 in iterlib.pairwise(notations):
-        assert n0.duration is not None and n0.offset is not None
-        assert n1.offset is not None
-        assert n0.offset <= n1.offset, "Notes are not sorted!"
-        if n0.end > n1.offset or n1.offset - n0.end < maxgap:
-            n0.duration = n1.offset - n0.offset
-            assert n0.end == n1.offset
-
-
-def removeOverlapInplace(notations: list[Notation], threshold=F(1,1000)) -> None:
+def removeSmallOverlaps(notations: list[Notation], threshold=F(1, 1000)) -> None:
     """
     Remove overlap between notations.
 
     This should be only used to remove small overlaps product of rounding errors.
     """
-    removed = []
+    if len(notations) < 2:
+        return
+    mindur = threshold * 4
     for n0, n1 in iterlib.pairwise(notations):
-        assert n0.offset <= n1.offset, "Notes are not sorted!"
         diff = n0.end - n1.offset
-        if diff > 0:
+        if diff < 0:
+            if abs(diff) > threshold or n0.duration < mindur:
+                raise ValueError(f"Notes overlap by too much: {n0=}, {n1=}")
+            n0.duration = abs(diff)
+        elif diff > 0:
             if diff > threshold:
-                raise ValueError(f"Notes overlap by too much: {diff}, {n0}, {n1}")
+                raise ValueError(f"Notes overlap by too much: {diff=}, {n0=}, {n1=}")
             duration = n1.offset - n0.offset
-            if duration <= 0:
-                removed.append(n0)
-            else:
-                n0.duration = duration
-    for n in removed:
-        notations.remove(n)
+            if duration < 0:
+                raise ValueError(f"Note with negative duration: {n0=}, {n1=}")
+            n0.duration = duration
 
 
 def fillSilences(notations: list[Notation], mingap=1/64, offset: time_t = None
@@ -358,9 +336,43 @@ def _pitchToClef(pitch: float, splitPoint=60) -> str:
         return 'f'
 
 
+def _findMostSuitableClefs(notations: list[Notation], maxstaves: int) -> list[str]:
+    clefs2 = [('g', 'f'), ('g8', 'f'), ('g15', 'f'), ('g15', 'g'), ('g', 'f8')]
+    pass
+
+
 def distributeNotationsByClef(notations: list[Notation],
+                              maxstaves=3,
+                              groupid: str = '',
+                              name='',
+                              shortname='',
+                              ) -> list[UnquantizedPart]:
+    from . import clefutils
+    partpairs = clefutils.explodeNotations(notations, maxstaves=maxstaves)
+    parts = [UnquantizedPart(notations) for clef, notations in partpairs]
+
+    if groupid:
+        for p in parts:
+            p.groupid = groupid
+
+    if name:
+        if len(parts) == 1:
+            parts[0].name = name
+            parts[0].shortname = shortname
+        else:
+            for i, part in enumerate(parts):
+                part.name = f'{name}-{i + 1}'
+                if shortname:
+                    part.shortname = f'{shortname}{i + 1}'
+
+    return parts
+
+def _distributeNotationsByClef(notations: list[Notation],
+                              maxstaves=3,
                               filterRests=False,
-                              groupid: str = ''
+                              groupid: str = '',
+                              name='',
+                              shortname='',
                               ) -> list[UnquantizedPart]:
     """
     Split the notations into parts
@@ -380,8 +392,18 @@ def distributeNotationsByClef(notations: list[Notation],
     Returns:
          list of Parts (between 1 and 3, one for each clef)
     """
+    if maxstaves == 1:
+        raise ValueError("maxstaves should be between 2 and 3")
+
+    if maxstaves == 2:
+        clefs = _findMostSuitableClefs(notations, maxstaves)
+    elif maxstaves == 3:
+        clefs = ('15a', 'g', 'f')
+    else:
+        raise ValueError("maxstaves should be between 2 and 3")
+
     # The order is important
-    parts = {'15a': [], 'g': [], 'f': []}
+    parts = {clef: [] for clef in clefs}
     pitchedNotations = (n for n in notations if not n.isRest)
     lowPitch = sum(60 - p for n in pitchedNotations for p in n.pitches if p <= 60)
     splitPoint = 60 if lowPitch > 8 else 56
@@ -412,15 +434,27 @@ def distributeNotationsByClef(notations: list[Notation],
                     partialChord = notation.extractPartialNotation(indexes)
                     parts[clef].append(partialChord)
 
+
     parts = [UnquantizedPart(part) for part in parts.values() if part]
     if groupid:
         for p in parts:
             p.groupid = groupid
+    if name:
+        if len(parts) == 1:
+            parts[0].name = name
+            parts[0].shortname = shortname
+        else:
+            for i, part in enumerate(parts):
+                part.name = f'{name}-{i+1}'
+                if shortname:
+                    part.shortname = f'{shortname}{i+1}'
     return parts
 
 
-def packInParts(notations: list[Notation], maxrange=36,
-                keepGroupsTogether=True) -> list[UnquantizedPart]:
+def packInParts(notations: list[Notation],
+                maxrange=36,
+                keepGroupsTogether=True
+                ) -> list[UnquantizedPart]:
     """
     Pack a list of possibly simultaneous notations into tracks
 
@@ -480,7 +514,7 @@ def removeRedundantDynamics(notations: list[Notation],
         notations: the notations to remove redundant dynamics from
         resetAfterRest: if True, any dynamic after a rest is not considered
             redundant
-        minRestDuration: the min. totalDuration of a rest to reset dynamic, in quarternotes
+        minRestDuration: the min. duration of a rest to reset dynamic, in quarternotes
     """
     lastDynamic = ''
     for n in notations:

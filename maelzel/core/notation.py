@@ -3,11 +3,9 @@ Functionality to interface with `maelzel.scoring`
 
 """
 from __future__ import annotations
-# from ._common import *
 from maelzel import textstyle
 from .config import CoreConfig
 from .workspace import getConfig, getWorkspace
-from dataclasses import dataclass
 from maelzel import scoring
 from maelzel.scorestruct import ScoreStruct
 
@@ -53,10 +51,11 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
     renderOptions = scoring.render.RenderOptions(
         centsAnnotationFontsize=centsAnnotationStyle.fontsize or 8,
         centsAnnotationPlacement=centsAnnotationStyle.placement or 'above',
+        centsAnnotationPlusSign=cfg['.show.centsAnnotationPlusSign'],
         divsPerSemitone=cfg['semitoneDivisions'],
-        enharmonicDebug=cfg['enharmonic.debug'],
+        enharmonicDebug=cfg['.enharmonic.debug'],
         enharmonicHorizontalWeight=cfg['enharmonic.horizontalWeight'],
-        enharmonicThreeQuarterMicrotonePenalty=cfg['enharmonic.threeQuarterMicrotonePenalty'],
+        enharmonicThreeQuarterMicrotonePenalty=cfg['.enharmonic.threeQuarterMicrotonePenalty'],
         enharmonicVerticalWeight=cfg['enharmonic.verticalWeight'],
         glissLineThickness=cfg['show.glissLineThickness'],
         glissHideTiedNotes=cfg['show.glissHideTiedNotes'],
@@ -77,7 +76,10 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
         respellPitches=cfg['show.respellPitches'],
         showCents=cfg['show.centsDeviationAsTextAnnotation'],
         staffSize=cfg['show.staffSize'],
-        referenceStaffsize=cfg['show.referenceStaffsize']
+        referenceStaffsize=cfg['show.referenceStaffsize'],
+        autoClefChanges=cfg['show.autoClefChanges'],
+        keepClefBiasFactor=cfg['.show.keepClefBiasFactor'],
+        autoClefChangesWindow=cfg['.show.autoClefChangesWindow']
     )
     return renderOptions
 
@@ -105,16 +107,16 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig = None
 
     profile = scoring.quant.QuantizationProfile.fromPreset(complexity=cfg['quant.complexity'],
                                                            nestedTuplets=nestedTuplets)
-    profile.debug = cfg['quant.debug']
-    profile.debugMaxDivisions = cfg['quant.debugShowNumRows']
+    profile.debug = cfg['.quant.debug']
+    profile.debugMaxDivisions = cfg['.quant.debugShowNumRows']
 
-    if (gridWeight := cfg['quant.gridErrorWeight']) is not None:
+    if (gridWeight := cfg['.quant.gridErrorWeight']) is not None:
         profile.gridErrorWeight = gridWeight
-    if (divisionWeight := cfg['quant.divisionErrorWeight']) is not None:
+    if (divisionWeight := cfg['.quant.divisionErrorWeight']) is not None:
         profile.divisionErrorWeight = divisionWeight
-    if (rhythmWeight := cfg['quant.rhythmComplexityWeight']) is not None:
+    if (rhythmWeight := cfg['.quant.rhythmComplexityWeight']) is not None:
         profile.rhythmComplexityWeight = rhythmWeight
-    if (gridErrorExp := cfg['quant.gridErrorExp']) is not None:
+    if (gridErrorExp := cfg['.quant.gridErrorExp']) is not None:
         profile.gridErrorExp = gridErrorExp
 
     profile.minBeatFractionAcrossBeats = cfg['quant.minBeatFractionAcrossBeats']

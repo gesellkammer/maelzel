@@ -5,10 +5,11 @@ import sndfileio
 import numpy as np
 import os
 
+import csoundengine
+
 from maelzel.scorestruct import ScoreStruct
 from maelzel.common import F, asF, F0, F1, asmidi
 from maelzel.core.config import CoreConfig
-from maelzel.core.mobj import MContainer
 from maelzel.core import event
 from maelzel.core._typedefs import *
 from maelzel.core import _dialogs
@@ -17,12 +18,9 @@ from maelzel.core.workspace import Workspace
 from maelzel.core import playback
 from maelzel.snd import audiosample
 from maelzel.core import _util
-
 from maelzel import scoring
-from emlib.misc import firstval
-from pitchtools import f2m
 
-import csoundengine
+
 
 
 __all__ = (
@@ -120,7 +118,7 @@ class Clip(event.MEvent):
         """The samplerate of this Clip"""
 
         self.sourceDurSecs: F = F0
-        """The totalDuration in seconds of the source of this Clip"""
+        """The duration in seconds of the source of this Clip"""
 
         self.tied = tied
         """Is this clip tied to the next?"""
@@ -310,7 +308,7 @@ class Clip(event.MEvent):
         Returns:
             the duration in quarternotes
         """
-        absoffset = absoffset if absoffset is not None else self.absoluteOffset()
+        absoffset = absoffset if absoffset is not None else self.absOffset()
         struct = scorestruct or self.scorestruct() or Workspace.active.scorestruct
         starttime = struct.beatToTime(absoffset)
         endbeat = struct.timeToBeat(starttime + self.durSecs())
@@ -322,7 +320,7 @@ class Clip(event.MEvent):
         if self._explicitDur:
             return self._explicitDur
 
-        absoffset = self.absoluteOffset()
+        absoffset = self.absOffset()
         struct = self.scorestruct() or Workspace.active.scorestruct
 
         if self._dur is not None and self._durContext is not None:
@@ -346,11 +344,11 @@ class Clip(event.MEvent):
                      ) -> list[SynthEvent]:
         skip = self.selectionStartSecs / self.speed
         scorestruct = workspace.scorestruct
-        reloffset = self.resolveOffset()
+        reloffset = self.relOffset()
         offset = reloffset + parentOffset
         starttime = float(scorestruct.beatToTime(offset))
         endtime = float(scorestruct.beatToTime(offset + self.dur))
-        amp = firstval(self.amp, 1.0)
+        amp = self.amp if self.amp is not None else 1.0
         bps = [[starttime, self.pitch, amp],
                [endtime, self.pitch, amp]]
 
@@ -381,7 +379,7 @@ class Clip(event.MEvent):
     def _initEvent(self, event: SynthEvent, renderer: playback.Renderer):
         if self._playbackMethod == 'table':
             if not self._csoundTable:
-                self._csoundTable = renderer.makeTable(self.source.samples, sr=self.sr)
+                self._csoundTable = renderer.makeTable(self.source.samples, sr=int(self.sr))
             event.args['isndtab'] = self._csoundTable
 
     def chordAt(self,
@@ -427,7 +425,7 @@ class Clip(event.MEvent):
                                   minfreq=minfreq)
         if not pairs:
             return None
-        components = [event.Note(f2m(freq), amp=amp * ampfactor)
+        components = [event.Note(pt.f2m(freq), amp=amp * ampfactor)
                       for freq, amp in pairs]
         return event.Chord(components, dur=dur)
 
@@ -438,7 +436,7 @@ class Clip(event.MEvent):
                       ) -> list[scoring.Notation]:
         if not config:
             config = Workspace.active.config
-        offset = self.absoluteOffset()
+        offset = self.absOffset()
         dur = self.dur
         notation = scoring.makeNote(pitch=self.pitch,
                                     duration=dur,

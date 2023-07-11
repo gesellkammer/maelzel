@@ -81,8 +81,8 @@ def playTicks(times: list[float] | np.ndarray,
         chan: which channel to play the ticks to
         midinote: the pitch of the ticks or a list of pitches, one for each tick
         amp: the amplitude of the ticks
-        attack: attack totalDuration
-        decay: decay totalDuration
+        attack: attack duration
+        decay: decay duration
         sustain: sustain amplitude
         release: release dur.
 

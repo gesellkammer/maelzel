@@ -24,7 +24,7 @@ def makeTupletBrackets(s: m21.stream.Stream, inPlace=False) -> m21.stream.Stream
         if tupletList in [(), None]:  # no tuplets, length is zero
             tupletMap.append([None, dur])
         elif len(tupletList) > 1:
-            logger.warning('got multi-subdivision totalDuration; cannot yet handle this. %s' % repr(tupletList))
+            logger.warning('got multi-subdivision duration; cannot yet handle this. %s' % repr(tupletList))
         elif len(tupletList) == 1:
             tupletMap.append([tupletList[0], dur])
             if tupletList[0] != dur.tuplets[0]:

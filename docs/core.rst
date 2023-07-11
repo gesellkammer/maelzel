@@ -138,4 +138,5 @@ Table of Contents
     workspace
     coretools
     symbols
+    coreio
 

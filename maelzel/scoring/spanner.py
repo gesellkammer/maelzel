@@ -3,6 +3,7 @@ from . import util
 from . import definitions
 import copy
 from .common import logger
+from maelzel._util import reprObj
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -44,17 +45,7 @@ class Spanner:
         return type(self).__name__
 
     def __repr__(self) -> str:
-        cls = type(self).__name__
-        parts = [f'kind={self.kind}, uuid={self.uuid}']
-        if self.linetype:
-            parts.append(f'linetype={self.linetype}')
-        if self.color:
-            parts.append(f'color={self.color}')
-        if self.placement:
-            parts.append(f'placement={self.placement}')
-        if self.nestingLevel > 1:
-            parts.append(f'nestingLevel={self.nestingLevel}')
-        return f'{cls}({", ".join(parts)})'
+        return reprObj(self, hideFalsy=True)
 
     def priority(self) -> int:
         if self.kind == 'end':
@@ -267,10 +258,6 @@ class Hairpin(Spanner):
         super().__init__(kind=kind, uuid=uuid, placement=placement)
         self.direction = direction
         self.niente = niente
-
-    def __repr__(self) -> str:
-        cls = type(self).__name__
-        return f'{cls}(direction={self.direction}, kind={self.kind}, uuid={self.uuid})'
 
 
 class LineSpan(Spanner):

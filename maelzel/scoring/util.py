@@ -51,13 +51,13 @@ def roundMidinote(a: float, divsPerSemitone=4) -> float:
 
 def measureQuarterDuration(timesig: timesig_t) -> F:
     """
-    The totalDuration in quarter notes of a measure according to its time signature
+    The duration in quarter notes of a measure according to its time signature
 
     Args:
         timesig: a tuple (num, den)
 
     Returns:
-        the totalDuration in quarter notes
+        the duration in quarter notes
 
     Examples::
 
@@ -77,14 +77,14 @@ def measureQuarterDuration(timesig: timesig_t) -> F:
 
 def measureTimeDuration(timesig: timesig_t, quarterTempo: F) -> F:
     """
-    The totalDuration of a measure in seconds
+    The duration of a measure in seconds
 
     Args:
         timesig: the time signature, a tuple (num, den)
         quarterTempo: the tempo of the quarter note
 
     Returns:
-        The totalDuration **in seconds**
+        The duration **in seconds**
 
     """
     misc.assert_type(timesig, (int, int))
@@ -195,7 +195,7 @@ def midinotesNeedMultipleClefs(midinotes: List[float], threshold=1) -> bool:
     return False
 
 
-def centsShown(centsdev: int, divsPerSemitone=4, snap=2) -> str:
+def centsShown(centsdev: int, divsPerSemitone=4, snap=2, addplus=False) -> str:
     """
 
     Given a cents deviation from a chromatic pitch, return
@@ -208,6 +208,7 @@ def centsShown(centsdev: int, divsPerSemitone=4, snap=2) -> str:
         snap: if the difference to the microtone is within this error,
             we "snap" the pitch to the microtone and do not
             show any annotation
+        addplus: if True, adds a plus sign for any possitive deviation
 
     Returns:
         the string to be shown alongside the notated pitch
@@ -229,7 +230,7 @@ def centsShown(centsdev: int, divsPerSemitone=4, snap=2) -> str:
         # with a syllable separator during rendering (this is currently the case
         # in musescore
         return f"–{-centsdev}"
-    return str(int(centsdev))
+    return f'+{centsdev:d}' if addplus else str(int(centsdev))
 
 
 def nextInGrid(x: Union[float, F], ticks: List[F]) -> F:
@@ -267,15 +268,15 @@ def snapTime(start: F,
 
     Args:
         start: the start of the event
-        duration: the totalDuration of the event
+        duration: the duration of the event
         divisors: a list of divisions of the pulse
-        mindur: the min. totalDuration of the note
+        mindur: the min. duration of the note
         durdivisors: if left unspecified, then the same list of divisors
             is used for start and end of the note. Otherwise, it is possible
             to define a specific grid for the end also
 
     Returns:
-        a tuple (start, totalDuration) quantized to the given grids
+        a tuple (start, duration) quantized to the given grids
     """
     if durdivisors is None:
         durdivisors = divisors
@@ -316,51 +317,16 @@ def showB(b:bool) -> str:
     return "MObjT" if b else "F"
 
 
-def parseNotehead(s: str) -> Tuple[str, Optional[bool]]:
-    """
-    Parse notehead description
-
-    Args:
-        s: the notehead description (a str)
-
-    Returns:
-        a tuple (notehead:str, filled: bool)
-
-
-    **Format**:
-
-    - "diamond"
-    - "diamond.unfilled"
-    - "harmonic.filled"
-
-    """
-    defaultFilled = {
-        'harmonic': False,
-    }
-
-    parts = s.split(".")
-    l = len(parts)
-    if l == 1:
-        shape = parts[0]
-        filled = defaultFilled.get(shape)
-        return (parts[0], filled)
-    if l == 2:
-        notehead = parts[0]
-        filled = parts[1] == "filled"
-        return (notehead, filled)
-    raise ValueError("Notehead format not understood")
-
-
 def quarterDurationToBaseDuration(d: F) -> int:
     """
-    Convert totalDuration in quarters to its base totalDuration
+    Convert duration in quarters to its base duration
 
 
     Args:
-        d: the totalDuration
+        d: the duration
 
     Returns:
-        the base totalDuration
+        the base duration
 
 
     ================  ===============
@@ -395,10 +361,10 @@ _baseDurationToName = {
 
 def baseDurationToName(baseDur: int) -> str:
     """
-    Convert base totalDuration to its name
+    Convert base duration to its name
 
     Args:
-        baseDur: the base totalDuration (1, 2, 4, 8, …)
+        baseDur: the base duration (1, 2, 4, 8, …)
 
     Returns:
         the corresponding name
@@ -419,7 +385,7 @@ def baseDurationToName(baseDur: int) -> str:
 
 
 def baseDurationToQuarterDuration(b: int) -> F:
-    """Convert base totalDuration to quarter totalDuration
+    """Convert base duration to quarter duration
 
     Example
     ~~~~~~~
@@ -534,8 +500,11 @@ def fixedPitchCentsAnnotation(note: str) -> str:
 
     """
 
-def centsAnnotation(pitch: Union[float, List[float]], divsPerSemitone=4,
-                    order='ascending') -> str:
+def centsAnnotation(pitch: Union[float, List[float]],
+                    divsPerSemitone=4,
+                    order='ascending',
+                    addplus=False,
+                    separator=',') -> str:
     """
     Generates the string used to annotate a note/chord when showCents is true
     
@@ -543,6 +512,7 @@ def centsAnnotation(pitch: Union[float, List[float]], divsPerSemitone=4,
         pitch: midinote/s as float
         divsPerSemitone: subdivisions of the semitone
         order: 'ascending' or 'descending'
+        addplus: if True, add a plus sign for possitive deviations
 
     Returns:
         a string which can be attached to a note/chord to show
@@ -559,8 +529,8 @@ def centsAnnotation(pitch: Union[float, List[float]], divsPerSemitone=4,
         pitches = sorted(pitch, reverse=True)
 
     centsdevs = [centsDeviation(p, divsPerSemitone) for p in pitches]
-    annotations = [str(centsShown(centsdev)) for centsdev in centsdevs]
-    return ",".join(annotations) if any(annotations) else ""
+    annotations = [centsShown(centsdev, addplus=addplus) for centsdev in centsdevs]
+    return separator.join(annotations) if any(annotations) else ""
 
 
 def notatedDuration(duration: F, durRatios: Optional[List[F]]
@@ -593,7 +563,7 @@ def notatedDuration(duration: F, durRatios: Optional[List[F]]
     elif den == 1 and num in {2, 4}:
         return NotatedDuration(base=4//num, dots=0, tuplets=tuplets)
     else:
-        raise ValueError(f"Invalid totalDuration: {dur}")
+        raise ValueError(f"Invalid duration: {dur}")
 
 
 _uuid_alphabet = '0123456789abcdefghijklmnopqrstuvwxyz'

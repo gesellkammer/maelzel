@@ -19,7 +19,6 @@ from maelzel import scoring
 from maelzel.colortheory import safeColors
 
 from emlib import iterlib
-from emlib import misc
 
 from typing import TYPE_CHECKING, overload
 if TYPE_CHECKING:
@@ -45,7 +44,7 @@ def _stackEvents(events: list[MEvent | Chain],
         explicitOffsets: if True, all offsets are made explicit, recursively
 
     Returns:
-        the accumulated totalDuration of all events
+        the accumulated duration of all events
 
     """
     # All offset times given in the events are relative to the start of the chain
@@ -67,7 +66,6 @@ def _stackEvents(events: list[MEvent | Chain],
 
 
 def _removeRedundantOffsets(items: list[MEvent | Chain],
-                            fillGaps=False,
                             frame=F(0)
                             ) -> tuple[F, bool]:
     """
@@ -80,39 +78,36 @@ def _removeRedundantOffsets(items: list[MEvent | Chain],
             becomes redundant)
 
     Returns:
-        a tuple (total totalDuration of *items*, True if items was modified)
+        a tuple (total duration of *items*, True if items was modified)
 
     """
     # This is the relative position (independent of the chain's start)
     now = frame
-    out = []
     modified = False
     for i, item in enumerate(items):
-        itemoffset = item._detachedOffset()
-        absoffset = itemoffset + frame if itemoffset is not None else None
-        if itemoffset is not None:
+        if (itemoffset := item._detachedOffset()) is not None:
+            absoffset = itemoffset + frame
             if absoffset == now and (i == 0 or items[i-1].dur is not None):
-                item.offset = None
+                if item.offset is not None:
+                    modified = True
+                    item.offset = None
             elif absoffset < now:
                 raise ValueError(f"Items overlap: {item} (offset={_util.showT(absoffset)}) "
                                  f"starts before current time ({_util.showT(now)})")
             else:
-                if fillGaps:
-                    out.append(Note.makeRest(absoffset - now))
-                    modified = True
                 now = absoffset
 
         if isinstance(item, MEvent):
             now += item.dur
-        elif isinstance(item, Chain):  # a Chain
-            dur, submodified = _removeRedundantOffsets(item.items, fillGaps=fillGaps, frame=now)
+        elif isinstance(item, Chain):
+            dur, submodified = _removeRedundantOffsets(item.items, frame=now)
             if submodified:
                 item._changed()
+                modified = True
             now += dur
         else:
             raise TypeError(f"Expected a Note, Chord or Chain, got {item}")
-        out.append(item)
-    items[:] = out
+
     return now - frame, modified
 
 
@@ -142,9 +137,7 @@ class Chain(MObj, MContainer):
         if _init:
             if offset is not None:
                 offset = asF(offset)
-            if isinstance(items, str):
-                items = _parseMultiLineChain(items)
-            elif items is not None:
+            if items is not None:
                 items = [item if isinstance(item, (MEvent, Chain)) else asEvent(item)
                          for item in items]
 
@@ -200,7 +193,7 @@ class Chain(MObj, MContainer):
         Stack events to the left **INPLACE**, making offsets explicit
 
         Returns:
-            the total totalDuration of self
+            the total duration of self
         """
         dur = _stackEvents(self.items, explicitOffsets=True)
         self._dur = dur
@@ -213,7 +206,7 @@ class Chain(MObj, MContainer):
 
         A gap is produced when an event within a chain has an explicit offset
         later than the offset calculated by stacking the previous objects in terms
-        of their totalDuration
+        of their duration
 
         Args:
             recurse: if True, fill gaps within subchains
@@ -301,7 +294,7 @@ class Chain(MObj, MContainer):
 
         .. note::
 
-            All items in the returned Chain have an explicit ``.offset`` attribute.
+            All items in the returned Chain will have an explicit ``.offset`` attribute.
             To remove any redundant .offset call :meth:`Chain.removeRedundantOffsets`
 
         Args:
@@ -351,7 +344,7 @@ class Chain(MObj, MContainer):
         ~~~~~~~
 
         The offset and dur shown as the first two columns are the resolved
-        times. When an event has an explicit offset or totalDuration these are
+        times. When an event has an explicit offset or duration these are
         shown as part of the event repr. See for example the second note, 4C,
         which in the first version does not have any explicit times and is shown
         as "4C" and in the second version it appears as "4C:2.5♩:offset=0.5"
@@ -450,7 +443,7 @@ class Chain(MObj, MContainer):
             _mobjtools.fillTempDynamics(chain.items, initialDynamic=conf['play.defaultDynamic'])
 
         synthevents = []
-        offset = parentOffset + self.resolveOffset()
+        offset = parentOffset + self.relOffset()
         groups = _mobjtools.groupLinkedEvents(chain.items)
         for group in groups:
             if isinstance(group, MEvent):
@@ -658,7 +651,7 @@ class Chain(MObj, MContainer):
             r = type(self).__name__
 
             header = (f'<code><span style="font-size: {fontsize}">{IND*indents}<b>{r}</b> - '
-                      f'beat: {self.absoluteOffset()}, offset: {selfstart}, dur: {_util.showT(self.dur)}'
+                      f'beat: {self.absOffset()}, offset: {selfstart}, dur: {_util.showT(self.dur)}'
                       )
             if self.label:
                 header += f', label: {self.label}'
@@ -715,7 +708,7 @@ class Chain(MObj, MContainer):
                     rows.extend(item._dumpRows(indents=indents+1, now=now+itemoffset, forcetext=forcetext))
             return rows
         else:
-            rows = [f"{IND * indents}Chain -- beat: {self.absoluteOffset()}, offset: {selfstart}, dur: {self.dur}",
+            rows = [f"{IND * indents}Chain -- beat: {self.absOffset()}, offset: {selfstart}, dur: {self.dur}",
                     f'{IND * (indents + 1)}beat   offset  dur    item']
             items, itemsdur = self._iterateWithTimes(recurse=False, frame=F(0))
             for item, itemoffset, itemdur in items:
@@ -784,7 +777,7 @@ class Chain(MObj, MContainer):
         info = ', ' + ', '.join(namedargs)
         return f'{cls}([{itemstr}]{info})'
 
-    def removeRedundantOffsets(self, fillGaps=False) -> None:
+    def removeRedundantOffsets(self) -> None:
         """
         Remove over-specified start times in this Chain
 
@@ -800,7 +793,7 @@ class Chain(MObj, MContainer):
         """
         # This is the relative position (independent of the chain's start)
         self._update()
-        _, modified = _removeRedundantOffsets(self.items, fillGaps=fillGaps, frame=F(0))
+        _, modified = _removeRedundantOffsets(self.items, frame=F(0))
         if modified:
             self._changed()
 
@@ -848,16 +841,16 @@ class Chain(MObj, MContainer):
             config = Workspace.active.config
 
         if parentOffset is None:
-            parentOffset = self.parent.absoluteOffset() if self.parent else F0
+            parentOffset = self.parent.absOffset() if self.parent else F0
 
-        offset = parentOffset + self.resolveOffset()
+        offset = parentOffset + self.relOffset()
         chain = self.flat()
         notations: list[scoring.Notation] = []
-        if self.label and chain and chain[0].resolveOffset() > 0:
-            notations.append(scoring.makeRest(duration=chain[0].resolveOffset()))
+        if self.label and chain and chain[0].relOffset() > 0:
+            notations.append(scoring.makeRest(duration=chain[0].relOffset()))
         for item in chain.items:
             notations.extend(item.scoringEvents(groupid=groupid, config=config, parentOffset=offset))
-        scoring.resolveOffsetsInPlace(notations)
+        scoring.resolveOffsets(notations)
 
         for n0, n1 in iterlib.pairwise(notations):
             if n0.tiedNext and not n1.isRest:
@@ -886,22 +879,38 @@ class Chain(MObj, MContainer):
                     if isinstance(s, symbols.Hairpin) and s.kind == 'start' and not s.partnerSpanner:
                         lastHairpin = s
 
-    def scoringParts(self,
-                     config: CoreConfig = None
-                     ) -> list[scoring.UnquantizedPart]:
-        if config is None:
-            config = Workspace.active.config
+    def _scoringParts(self,
+                      config: CoreConfig,
+                      maxstaves: int = None,
+                      name='',
+                      shortname='',
+                      groupParts=False,
+                      addQuantizationProfile=False):
         self._update()
         notations = self.scoringEvents(config=config)
         if not notations:
             return []
-        scoring.resolveOffsetsInPlace(notations)
-        if config['show.voiceMaxStaves'] == 1:
-            parts = [scoring.UnquantizedPart(notations, name=self.label)]
+        scoring.resolveOffsets(notations)
+        maxstaves = maxstaves or config['show.voiceMaxStaves']
+
+        if maxstaves == 1:
+            parts = [scoring.UnquantizedPart(notations, name=name, shortname=shortname)]
         else:
-            groupid = scoring.makeGroupId()
-            parts = scoring.distributeNotationsByClef(notations, groupid=groupid)
+            parts = scoring.distributeNotationsByClef(notations, name=name, shortname=shortname,
+                                                      maxstaves=maxstaves)
+            if len(parts) > 1 and groupParts:
+                scoring.UnquantizedPart.groupParts(parts, name=name, shortname=shortname)
+
+        if addQuantizationProfile:
+            quantProfile = config.makeQuantizationProfile()
+            for part in parts:
+                part.quantProfile = quantProfile
         return parts
+
+    def scoringParts(self,
+                     config: CoreConfig = None
+                     ) -> list[scoring.UnquantizedPart]:
+        return self._scoringParts(config or Workspace.active.config, name=self.label)
 
     def quantizePitch(self, step=0.25):
         if step <= 0:
@@ -918,7 +927,7 @@ class Chain(MObj, MContainer):
         Returns the offset (relative to the start of this chain) of the first event in this chain
         """
         event = self.firstEvent()
-        return None if not event else event.absoluteOffset() - self.absoluteOffset()
+        return None if not event else event.absOffset() - self.absOffset()
 
     def pitchTransform(self, pitchmap: Callable[[float], float]) -> Chain:
         newitems = [item.pitchTransform(pitchmap) for item in self.items]
@@ -978,7 +987,7 @@ class Chain(MObj, MContainer):
         self._update()
         if self._cachedEventsWithOffset:
             return self._cachedEventsWithOffset
-        eventpairs, totaldur = self._eventsWithOffset(frame=self.absoluteOffset())
+        eventpairs, totaldur = self._eventsWithOffset(frame=self.absOffset())
         self._dur = totaldur
         self._cachedEventsWithOffset = eventpairs
         return eventpairs
@@ -1015,13 +1024,13 @@ class Chain(MObj, MContainer):
             frame: the frame of reference
 
         Returns:
-            a tuple (eventtuples, totalDuration) where eventtuples is a list of
+            a tuple (eventtuples, duration) where eventtuples is a list of
             tuples (event, offset, dur). If recurse is True,
             any subchain is returned as a list of eventtuples. Otherwise,
             a flat list is returned. In each eventtuple, the offset is relative
             to the first frame passed, so if the first offset was 0
             the offsets will hold the absolute offset of each event. Duration
-            is the total totalDuration of the items in
+            is the total duration of the items in
             the chain (not including its own offset)
 
         """
@@ -1074,7 +1083,7 @@ class Chain(MObj, MContainer):
             ... ], offset=1)
 
         """
-        frame = self.absoluteOffset() if absolute else F(0)
+        frame = self.absOffset() if absolute else F(0)
         itemtuples, totaldur = self._iterateWithTimes(frame=frame, recurse=True)
 
         for itemtuple in itemtuples:
@@ -1093,8 +1102,8 @@ class Chain(MObj, MContainer):
 
         The explicit times (offset, duration) of the events are not modified. For each event
         it returns a tuple (event, offset, duration), where the event is unmodified, the
-        offset is the withExplicitTimes offset relative to its parent and the totalDuration is the withExplicitTimes
-        totalDuration. Nested subchains result in nested lists. All times are in beats
+        offset is the start offset relative to its parent and the duration is total duration
+        Nested subchains result in nested lists. All times are in beats
 
         Args:
             absolute: if True, offsets are returned as absolute offsets
@@ -1105,7 +1114,7 @@ class Chain(MObj, MContainer):
             explicit times in the events themselves are never modified. *offset* will
             be the offset to self if ``absolute=False`` or the absolute offset otherwise
         """
-        offset = self.absoluteOffset() if absolute else F(0)
+        offset = self.absOffset() if absolute else F(0)
         items, itemsdur = self._iterateWithTimes(frame=offset, recurse=True)
         self._dur = itemsdur
         return items
@@ -1156,6 +1165,14 @@ class Chain(MObj, MContainer):
         """The last event in this chain, recursively"""
         return next(self.recurse(reverse=True))
 
+    def eventAt(self, location: time_t | tuple[int, time_t], margin=F(1, 8)
+                ) -> MEvent | None:
+        struct = self.scorestruct() or Workspace.active.scorestruct
+        start = struct.locationToBeat(*location) if isinstance(location, tuple) else location
+        end = start + margin
+        events = self.eventsBetween(start, end)
+        return events[0] if events else None
+
     def eventsBetween(self,
                       startbeat: time_t | tuple[int, time_t],
                       endbeat: time_t | tuple[int, time_t],
@@ -1189,7 +1206,7 @@ class Chain(MObj, MContainer):
             startbeat = asF(startbeat)
             endbeat = asF(endbeat)
             if not absolute:
-                ownoffset = self.absoluteOffset()
+                ownoffset = self.absOffset()
                 startbeat += ownoffset
                 endbeat += endbeat
         items = []
@@ -1321,6 +1338,24 @@ class Chain(MObj, MContainer):
                             spanner.anchor = None
 
 
+
+class PartGroup:
+    def __init__(self, parts: list[Voice], name='', shortname='', showPartNames=False):
+        for part in parts:
+            part._group = self
+
+        self.parts = parts
+        self.name = name
+        self.shortname = shortname
+        self.groupid = scoring.makeGroupId()
+        self.showPartNames = showPartNames
+
+    def append(self, part: Voice):
+        if part not in self.parts:
+            self.parts.append(part)
+
+
+
 class Voice(Chain):
     """
     A Voice is a sequence of non-overlapping objects.
@@ -1334,21 +1369,28 @@ class Voice(Chain):
 
     * A Voice can contain a Chain, but not vice versa.
     * A Voice does not have a time offset, its offset is always 0.
+
+    Args:
+        items: the items in this voice. Items can also be added later via .append
+        name: the name of this voice. This will be interpreted as the staff name
+            when shown as notation
+        shortname: optionally a shortname can be given, it will be used for subsequent
+            systems when shown as notation
+        maxstaves: if given, a max. number of staves to explode this voice when shown
+            as notation. If not given the config key 'show.voiceMaxStaves' is used
     """
 
     _acceptsNoteAttachedSymbols = False
     _configKeys: set[str] | None = None
 
-    __slots__ = ('name', 'shortname', 'clef', '_config')
-
     def __init__(self,
                  items: list[MEvent | str] | Chain = None,
                  name='',
                  shortname='',
-                 maxstaves: int = None,
-                 clef: str = ''):
+                 maxstaves: int = None):
         if isinstance(items, Chain):
             items = items.items
+
         super().__init__(items=items, offset=F(0))
         self.name = name
         """The name of this voice/staff"""
@@ -1359,12 +1401,21 @@ class Voice(Chain):
         self.maxstaves = maxstaves if maxstaves is not None else Workspace.active.config['show.voiceMaxStaves']
         """The max. number of staves this voice can be expanded to"""
 
-        self.clef = clef
-        """If given, force this voice to use this clef for the case of a single staff"""
-
         self._config: dict[str, Any] = {}
         """Any key set here will override keys from the coreconfig for rendering
         Any key in CoreConfig is supported"""
+
+        self._group: PartGroup | None = None
+        """A part group is created via Score.makeGroup"""
+
+    def __hash__(self):
+        superhash = super().__hash__()
+        return hash((superhash, self.name, self.shortname, self.maxstaves, id(self._group)))
+
+
+    @property
+    def group(self) -> PartGroup | None:
+        return self._group
 
     def setConfig(self, key: str, value) -> Voice:
         """
@@ -1450,8 +1501,6 @@ class Voice(Chain):
             kws['shortname'] = self.shortname
         if 'name' not in kws:
             kws['name'] = self.name
-        if 'clef' not in kws:
-            kws['clef'] = self.clef
         out = Voice(**kws)
         if self.label:
             out.label = self.label
@@ -1459,25 +1508,19 @@ class Voice(Chain):
 
     def scoringParts(self, config: CoreConfig = None
                      ) -> list[scoring.UnquantizedPart]:
-        if not self.name and self.label:
-            logger.debug("This Voice has a set label ({self.label}) but no name. If you "
-                         "need to set the staff name/shortname, set those attributes "
-                         "(.name, .shortname)")
-        config = self.getConfig(prototype=config)
-        parts = super().scoringParts(config=config)
-        if len(parts) == 1:
-            part = parts[0]
-            part.name = self.name
-            part.shortname = self.shortname
-            part.firstclef = self.clef
-        else:
-            for i, part in enumerate(parts):
-                part.name = f'{self.name}-{i+1}'
-                part.shortname = f'{self.shortname}{i+1}'
-        if config:
-            quantProfile = config.makeQuantizationProfile()
-            for part in parts:
-                part.quantProfile = quantProfile
+        ownconfig = self.getConfig(prototype=config)
+        parts = self._scoringParts(config=ownconfig or Workspace.active.config,
+                                   maxstaves=self.maxstaves,
+                                   name=self.name or self.label,
+                                   shortname=self.shortname,
+                                   groupParts=self._group is None,
+                                   addQuantizationProfile=ownconfig is not None)
+        if self._group:
+            scoring.UnquantizedPart.groupParts(parts,
+                                               groupid=self._group.groupid,
+                                               name=self._group.name,
+                                               shortname=self._group.shortname,
+                                               showPartNames=self._group.showPartNames)
         return parts
 
 

@@ -9,7 +9,6 @@ import emlib.misc
 import emlib.mathlib
 from emlib import numpytools
 import numpy as np
-from configdict import ConfigDict
 import bpf4
 import matplotlib.ticker
 import matplotlib.pyplot as plt

@@ -1,13 +1,26 @@
+"""
+Utilities used during quantization
+"""
 from __future__ import division, annotations
 import math
-from typing import Sequence
+from functools import cache
 import itertools
+from emlib import iterlib
+from emlib import mathlib
 
 from maelzel.common import F, F0
-from .common import division_t
-from functools import cache
-from emlib import iterlib
+from .common import logger, division_t
 from .notation import Notation
+
+from typing import Sequence
+
+
+@cache
+def isNestedTupletDivision(div: division_t) -> bool:
+    if isinstance(div, int):
+        # A shortcut division, like 3 or 5
+        return False
+    return not mathlib.ispowerof2(len(div)) and any(not mathlib.ispowerof2(subdiv) for subdiv in div)
 
 
 def divisionDensity(division: division_t) -> int:
@@ -262,3 +275,5 @@ def transferAttributesWithinTies(notations: list[Notation]) -> None:
             insideGliss = False
         elif n.tiedPrev and insideGliss and not n.gliss:
             n.gliss = True
+
+

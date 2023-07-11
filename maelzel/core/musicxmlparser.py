@@ -40,7 +40,7 @@ _unitToFactor = {
 }
 
 
-class ParseContext:
+class _ParseContext:
     """
     A musicxml parsing context
 
@@ -65,7 +65,9 @@ class ParseContext:
         self.transposition: int = 0
         "Transposition context"
 
-    def copy(self) -> ParseContext:
+        self.fontsizeReference: float = 12.
+
+    def copy(self) -> _ParseContext:
         out = copy.copy(self)
         assert out.divisions > 0
         return out
@@ -91,9 +93,9 @@ def _parseMetronome(metronome: ET.Element) -> float:
     return quarterTempo
 
 
-def _parseRest(root: ET.Element, context: ParseContext) -> Note:
+def _parseRest(root: ET.Element, context: _ParseContext) -> Note:
     measureRest = root.find('rest').attrib.get('measure', False) == 'yes'
-    xmldur = int(root.find('totalDuration').text)
+    xmldur = int(root.find('duration').text)
     divisions = context.divisions
     rest = Rest(dur=F(xmldur, divisions))
     if measureRest:
@@ -264,7 +266,7 @@ def _parseTechnicalNotation(root: ET.Element) -> Notation | None:
         return Notation('bend', properties={'alter': bendalter})
 
 
-def _parseNote(root: ET.Element, context: ParseContext) -> Note:
+def _parseNote(root: ET.Element, context: _ParseContext) -> Note:
     notesymbols = []
     pstep = ''
     dur = 0
@@ -294,7 +296,7 @@ def _parseNote(root: ET.Element, context: ParseContext) -> Note:
             noteType = 'grace'
         elif node.tag == 'pitch':
             pstep, poct, palter = _parsePitch(node)
-        elif node.tag == 'totalDuration':
+        elif node.tag == 'duration':
             dur = F(int(node.text), context.divisions)
         elif node.tag == 'accidental':
             accidental = node.text
@@ -305,8 +307,12 @@ def _parseNote(root: ET.Element, context: ParseContext) -> Note:
             properties['mxml/durationtype'] = node.text
         elif node.tag == 'voice':
             properties['voice'] = int(node.text)
-        elif node.tag == 'tie' and node.attrib.get('type', 'start') == 'start':
-            tied = True
+        elif node.tag == 'tie':
+            if node.attrib.get('type', 'start') == 'start':
+                tied = True
+                properties['tiednext'] = True
+            else:
+                properties['tiedprev'] = True
         elif node.tag == 'notations':
             notations.extend(_parseNotations(node))
         elif node.tag == 'lyric':
@@ -316,7 +322,7 @@ def _parseNote(root: ET.Element, context: ParseContext) -> Note:
                     notesymbols.append(symbols.Text(text, placement='below'))
             else:
                 ET.dump(node)
-                logger.error("Could not find lyrincs text")
+                logger.error("Could not find lyrics text")
 
     if noteType == 'rest':
         rest = Rest(dur)
@@ -391,7 +397,10 @@ def _parseNote(root: ET.Element, context: ParseContext) -> Note:
                 if dynamic2 := scoring.definitions.normalizeDynamic(dynamic):
                     note.dynamic = dynamic2
                 else:
-                    note.addText(dynamic, placement='below', fontstyle='italic,bold')
+                    note.addText(dynamic,
+                                 placement='below',
+                                 italic=True,
+                                 weight='bold')
             elif notation.kind == 'fingering':
                 note.addSymbol(symbols.Fingering(notation.value))
             elif notation.kind == 'notehead':
@@ -399,7 +408,8 @@ def _parseNote(root: ET.Element, context: ParseContext) -> Note:
             elif notation.kind == 'text':
                 note.addSymbol(symbols.Text(notation.value,
                                             placement=notation.properties.get('placement', 'above'),
-                                            fontstyle=notation.properties.get('fontstyle')))
+                                            italic=notation.properties.get('font-style', 'normal')=='italic',
+                                            weight=notation.properties.get('font-weight', 'normal')))
             elif notation.kind == 'spanner':
                 spannertype = notation.properties['type']
                 key = _makeSpannerId(notation.value, notation.properties)
@@ -436,12 +446,12 @@ def _joinChords(notes: list[Note]) -> list[Note | Chord]:
     the first note of a chord is just a regular note
     followed by other notes which contain the <chord/>
     tag. Those notes should be merged to the previous
-    note into a chord. The totalDuration is given by the
+    note into a chord. The duration is given by the
     first note and no subsequent note can be longer
     (but they might be shorted).
 
     Since at the time in `maelzel.core` all notes within
-    a chord share the same totalDuration we discard
+    a chord share the same duration we discard
     all durations but the first one.
 
     Args:
@@ -531,7 +541,7 @@ def _applyDynamic(event: Note | Chord, dynamic: str) -> None:
     if dynamic2 := scoring.definitions.normalizeDynamic(dynamic):
         event.dynamic = dynamic2
     else:
-        event.addText(dynamic, placement='below', fontstyle='italic')
+        event.addText(dynamic, placement='below', italic=True)
 
 
 def _parseTimesig(root: ET.Element) -> TimeSignature:
@@ -567,7 +577,7 @@ def _parseTimesig(root: ET.Element) -> TimeSignature:
     return TimeSignature(*parts)
 
 
-def _parseDirection(item: ET.Element, context: ParseContext) -> Direction | None:
+def _parseDirection(item: ET.Element, context: _ParseContext) -> Direction | None:
     placement = item.attrib.get('placement')
     inner = item.find('direction-type')[0]
     tag = inner.tag
@@ -578,7 +588,7 @@ def _parseDirection(item: ET.Element, context: ParseContext) -> Direction | None
             return Direction('dynamic', dynamic2)
         else:
             return Direction('words', dynamic, placement='below',
-                             properties={'font-style': 'italic'})
+                             properties={'italic': True})
     elif tag == 'words':
         # TODO: parse style / font / etc.
         if placement is None:
@@ -631,14 +641,14 @@ def _parseDirection(item: ET.Element, context: ParseContext) -> Direction | None
                          properties={k: v for k, v in inner.attrib.items()})
 
 
-def _handleDirection(note: Note, direction: Direction, context: ParseContext):
+def _handleDirection(note: Note, direction: Direction, context: _ParseContext):
     if direction.kind == 'dynamic':
         note.dynamic = direction.value
     elif direction.kind == 'words':
         note.addText(direction.value,
                      placement=direction.placement,
                      fontsize=direction.getProperty('font-size'),
-                     fontstyle=direction.getProperty('font-style'))
+                     italic=direction.getProperty('font-style') == 'italic')
 
     elif direction.kind == 'hairpin':
         if direction.value == 'crescendo':
@@ -702,7 +712,7 @@ def _handleDirection(note: Note, direction: Direction, context: ParseContext):
         logger.warning(f"Direction not supported: {direction}")
 
 
-def _parseAttributes(node: ET.Element, context: ParseContext):
+def _parseAttributes(node: ET.Element, context: _ParseContext):
     for item in node:
         if item.tag == 'divisions':
             context.divisions = int(item.text)
@@ -710,7 +720,7 @@ def _parseAttributes(node: ET.Element, context: ParseContext):
             context.transposition = int(item.find('chromatic').text)
 
 
-def _parsePart(part: ET.Element, context: ParseContext
+def _parsePart(part: ET.Element, context: _ParseContext
                ) -> tuple[ScoreStruct, dict[int, Voice]]:
     """
     Parse a part
@@ -754,7 +764,8 @@ def _parsePart(part: ET.Element, context: ParseContext
 
         if (keynode := measure.find('./attributes/key')) is not None:
             fifths = int(keynode.find('fifths').text)
-            mode = keynode.find('mode').text
+            mode = keynode.find('mode')
+            modetext = mode.text if mode else ''
             measureProperties['keySignature'] = (fifths, mode)
 
         sco.addMeasure(timesig=(beats, beattype), quarterTempo=quarterTempo,
@@ -770,11 +781,11 @@ def _parsePart(part: ET.Element, context: ParseContext
                     directions.append(direction)
 
             elif tag == 'backup':
-                dur = F(int(item.find('totalDuration').text), context.divisions)
+                dur = F(int(item.find('duration').text), context.divisions)
                 cursor -= dur
 
             elif tag == 'forward':
-                dur = F(int(item.find('totalDuration').text), context.divisions)
+                dur = F(int(item.find('duration').text), context.divisions)
                 cursor += dur
 
             elif tag == 'note':
@@ -793,7 +804,7 @@ def _parsePart(part: ET.Element, context: ParseContext
                             # can be added as a text annotation
                             note.addText(direction.value,
                                          placement='above',
-                                         fontstyle='bold',
+                                         weight='bold',
                                          box=box)
                     else:
                         _handleDirection(note, direction, context=context)
@@ -813,12 +824,12 @@ def _parsePart(part: ET.Element, context: ParseContext
                         barstyle2 = 'single'
                     if location == 'right':
                         mdef = sco.getMeasureDef(measureidx)
-                        mdef.setBarline(barstyle2)
+                        mdef.barline = barstyle2
 
         # end measure
         if measure.attrib.get('implicit') == 'yes':
             # A 'pickup' measure. Must not necessarilly be the first measure
-            measureDur = sco.measuredefs[0].durationQuarters()
+            measureDur = sco.measuredefs[0].durationQuarters
             for voicenum, voice in voices.items():
                 filledDur = cursor - measureCursor
                 unfilledDur = measureDur - filledDur
@@ -959,8 +970,8 @@ def parseMusicxml(xml: str, enforceParsedSpelling=False) -> Score:
     else:
         divisions = int(divisionsNode.text)
 
-    rootcontext = ParseContext(divisions=divisions,
-                               enforceParsedSpelling=enforceParsedSpelling)
+    rootcontext = _ParseContext(divisions=divisions,
+                                enforceParsedSpelling=enforceParsedSpelling)
 
     scorestructs: list[ScoreStruct] = []
     allvoices: list[Voice] = []

@@ -196,7 +196,7 @@ class FundamentalAnalysisMono:
                                                        unvoicedFreqs='nan',
                                                        lowAmpSuppression=lowAmpSuppression)
         groupSamplingPeriod = hoptime * 0.68
-        # The min. totalDuration of a note. Groups with a shorter totalDuration will not be
+        # The min. duration of a note. Groups with a shorter duration will not be
         # split into breakpoints
         minDuration = max(groupSamplingPeriod, minSilence)
 
@@ -220,7 +220,7 @@ class FundamentalAnalysisMono:
         #   offset should be included in the simplification
         # * if there is no offset, sample f0 between onset and next onset and simplify.
         #   The next onset should NOT be part of the group
-        # * In both cases, do not simplify if the totalDuration between onset-offset (or onset and next
+        # * In both cases, do not simplify if the duration between onset-offset (or onset and next
         #   onset) is less than minDuration. In this case make a group with just the onset breakpoint
 
         def makeGroup(onset: float, offset: float) -> list[Breakpoint]:

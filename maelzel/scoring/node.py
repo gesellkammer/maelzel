@@ -70,7 +70,7 @@ class Node:
                  properties: dict | None = None,
                  parent: Node | None = None):
         assert isinstance(items, list), f"Expected a list of Notation|Node, got {items}"
-        self.durRatio: tuple[int, int] = ratio if isinstance(ratio, tuple) else _unpackRational(ratio)
+        self.durRatio: tuple[int, int] = ratio if isinstance(ratio, tuple) else (ratio.numerator, ratio.denominator)
         self.items: list[Notation | Node] = items
         self.properties = properties
         self.parent: weakref.ReferenceType[Node] | None = weakref.ref(parent) if parent else None
@@ -191,6 +191,12 @@ class Node:
         Merge this tree with other
 
         It is assumed that these Nodes can merge
+
+        Args:
+            other: the other node
+
+        Returns:
+            the merged node / tree
         """
         # we don't check here, just merge
         node = Node(ratio=self.durRatio, items=self.items + other.items,
@@ -296,7 +302,7 @@ class Node:
         count = 0
         n0: Notation
         n1: Notation
-        ties = list[self.logicalTies()]
+        ties = list(self.logicalTies())
 
         def findTie(n: Notation, ties):
             return next((tie for tie in ties if n in tie), None)

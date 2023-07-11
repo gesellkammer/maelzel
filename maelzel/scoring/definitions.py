@@ -83,6 +83,7 @@ def allArticulations() -> set[str]:
     return articulations | articulationMappings.keys()
 
 
+
 def normalizeArticulation(articulation: str, default='') -> str:
     if articulation in articulations:
         return articulation
@@ -91,6 +92,32 @@ def normalizeArticulation(articulation: str, default='') -> str:
     else:
         return default
 
+
+clefs = {
+    'treble15': 'treble15',
+    'treble15a': 'treble15',
+    'treble8': 'treble8',
+    'treble8a': 'treble8',
+    'treble': 'treble',
+    'violin': 'treble',
+    'g': 'treble',
+    'f': 'bass',
+    'bass': 'bass',
+    'alto': 'alto',
+    'viola': 'alto',
+    'bass8': 'bass8',
+    'bass8b': 'bass8',
+    'bass15': 'bass15',
+}
+
+clefSortOrder = {
+    'treble15': 0,
+    'treble8': 1,
+    'treble': 2,
+    'bass': 3,
+    'bass8': 4,
+    'bass15': 5
+}
 
 noteheadShapes = {
     'normal',
@@ -115,7 +142,6 @@ noteheadShapes = {
     'cluster'
 }
 
-
 _noteheadShapesMapping = {
     'x': 'cross',
     'circle-x': 'xcircle',
@@ -127,12 +153,15 @@ _noteheadShapesMapping = {
 }
 
 
+@cache
+def allNoteheadShapes() -> set[str]:
+    return noteheadShapes | _noteheadShapesMapping.keys()
+
+
 def normalizeNoteheadShape(shape: str, default='') -> str:
     if shape in noteheadShapes:
         return shape
-    if _ := _noteheadShapesMapping.get(shape):
-        return _
-    return default
+    return _noteheadShapesMapping.get(shape, default)
 
 
 # These dynamics are supported in both lilypond and musicxml

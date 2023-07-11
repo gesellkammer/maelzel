@@ -114,7 +114,7 @@ class MContainer:
         """The offset of child relative to this parent"""
         raise NotImplementedError
 
-    def absoluteOffset(self) -> F:
+    def absOffset(self) -> F:
         """The absolute offset of this container"""
         raise NotImplementedError
 
@@ -153,9 +153,9 @@ class MObj:
     can be left as ``None``, indicating that it is not explicitely set, in which case it
     will be calculated from the context. In the case of events or chains, which can be
     contained within other objects, the offset depends on the previous objects. The
-    resolved (implicit) offset can be queried via :meth:`MObj.resolveOffset`. This offset
+    resolved (implicit) offset can be queried via :meth:`MObj.relOffset`. This offset
     is relative to the parent, or an absolute offset if the object has no parent. The absolute
-    offset can be queried via :meth:`MObj.absoluteOffset`.
+    offset can be queried via :meth:`MObj.absOffset`.
 
     A :class:`MObj` can customize its playback via :meth:`setPlay`. The playback attributes can
     be accessed through the `playargs` attribute
@@ -346,7 +346,7 @@ class MObj:
 
     def _detachedOffset(self, default=None) -> F | None:
         """
-        The explicit or implicit offset (if it has been resolved), or None otherwise
+        The explicit or implicit offset (if it has been resolved), or default otherwise
 
         This method does not call the parent
 
@@ -368,9 +368,9 @@ class MObj:
         Returns:
             the resolved end of this object, relative to its parent
         """
-        return self.resolveOffset() + self.dur
+        return self.relOffset() + self.dur
 
-    def resolveOffset(self) -> F:
+    def relOffset(self) -> F:
         """
         Resolve the offset of this object, relative to its parent
 
@@ -384,7 +384,7 @@ class MObj:
             the offset, in quarter notes. If no explicit or implicit
             offset and the object has no parent it returns 0.
 
-        .. seealso:: :meth:`MObj.absoluteOffset`
+        .. seealso:: :meth:`MObj.absOffset`
         """
         if (offset := self.offset) is not None:
             return offset
@@ -395,6 +395,22 @@ class MObj:
             return offset
         else:
             return F0
+
+    def absOffset(self) -> F:
+        """
+        Returns the absolute offset of this object in quarternotes
+
+        If this object is embedded (has a parent) in a container,
+        its absolute offset depends on the offset of its parent,
+        recursively. If the object has no parent then the absolute offset
+        is just the resolved offset
+
+        Returns:
+            the absolute start position of this object
+
+        """
+        offset = self.relOffset()
+        return offset + self.parent.absOffset() if self.parent else offset
 
     def withExplicitTimes(self, forcecopy=False):
         """
@@ -429,23 +445,7 @@ class MObj:
         """
         if self.offset is not None and not forcecopy:
             return self
-        return self.clone(offset=self.resolveOffset())
-
-    def absoluteOffset(self) -> F:
-        """
-        Returns the absolute offset of this object in quarternotes
-
-        If this object is embedded (has a parent) in a container,
-        its absolute offset depends on the offset of its parent,
-        recursively. If the object has no parent then the absolute offset
-        is just the resolved offset
-
-        Returns:
-            the absolute start position of this object
-
-        """
-        offset = self.resolveOffset()
-        return offset + self.parent.absoluteOffset() if self.parent else offset
+        return self.clone(offset=self.relOffset())
 
     def setPlay(self: MObjT, /, **kws) -> MObjT:
         """
@@ -886,7 +886,7 @@ class MObj:
         notations = self.scoringEvents(config=config or Workspace.active.config)
         if not notations:
             return []
-        scoring.resolveOffsetsInPlace(notations)
+        scoring.resolveOffsets(notations)
         parts = scoring.distributeNotationsByClef(notations)
         return parts
 
@@ -1155,7 +1155,7 @@ class MObj:
         playargs = PlayArgs.makeDefault(workspace.config)
         playargs.update(d)
 
-        parentOffset = self.parent.absoluteOffset() if self.parent else F(0)
+        parentOffset = self.parent.absOffset() if self.parent else F(0)
 
         events = self._synthEvents(playargs=playargs, parentOffset=parentOffset,
                                    workspace=workspace)
@@ -1437,7 +1437,10 @@ class MObj:
             symbolclass, kind = args
             symboldefs = [_symbols.makeSymbol(symbolclass, kind)]
         elif len(args) == 1 and isinstance(args[0], str):
-            symboldef = _symbols.makeKnownSymbol(args[0])
+            if not kws:
+                symboldef = _symbols.makeKnownSymbol(args[0])
+            else:
+                symboldef = _symbols.makeSymbol(args[0], **kws)
             if not symboldef:
                 raise ValueError(f"{args[0]} is not a known symbol")
             symboldefs = [symboldef]
@@ -1452,6 +1455,9 @@ class MObj:
             if isinstance(symboldef, _symbols.NoteAttachedSymbol) \
                     and not self._acceptsNoteAttachedSymbols:
                 raise ValueError(f"A {type(self)} does not accept note attached symbols")
+
+            if error := symboldef.evalAnchor(self):
+                raise ValueError(f"The symbol cannot be attached to {self}: {error}")
 
             if self.symbols is None:
                 self.symbols = [symboldef]
@@ -1574,11 +1580,17 @@ class MObj:
         """
         The absolute time range, in seconds
 
+        Args:
+            parentOffset: if given, use this offset as parent offset. This is useful
+                if the parent's offset has already been calculated
+            scorestruct: use this scorestruct to calculate absolute time. This is
+                useful if the scorestruct is already known.
+
         Returns:
             a tuple (absolute start time in seconds, absolute end time in seconds)
         """
         if parentOffset is None:
-            absoffset = self.absoluteOffset()
+            absoffset = self.absOffset()
         else:
             absoffset = self._detachedOffset(F0) + parentOffset
         if scorestruct is None:

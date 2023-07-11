@@ -1,3 +1,4 @@
+from __future__ import annotations
 from . import quantutils
 from functools import cache
 
@@ -193,7 +194,7 @@ presets = {
 }
 
 
-# how to divide an irregular totalDuration into regular parts
+# how to divide an irregular duration into regular parts
 # Regular durations are those which can be expressed via
 # a quarter, eighth, 1/16 note, or any dotted or double
 # dotted variation thereof
@@ -223,8 +224,8 @@ def splitIrregularSlots(numslots: int, slotindex: int) -> tuple[int, ...]:
     return slotDivisions
 
 
-# these are ratios to convert a totalDuration back to its representation
-# if a notation has an effective totalDuration of 1/5 (one 16th of a 5-subdivision),
+# these are ratios to convert a duration back to its representation
+# if a notation has an effective duration of 1/5 (one 16th of a 5-subdivision),
 # applying the ratio 5/4 will convert it to 1/4, i.e, a 16th note
 # the ratio can then be used to generate the needed subdivision by the notation
 # backend

@@ -4,7 +4,7 @@ from maelzel.common import F, F0
 from .mobj import MObj, MContainer
 from .event import MEvent
 from .config import CoreConfig
-from .chain import Voice, Chain
+from .chain import Voice, Chain, PartGroup
 from .workspace import getConfig
 from .synthevent import PlayArgs, SynthEvent
 from .workspace import Workspace
@@ -63,6 +63,51 @@ class Score(MObj, MContainer):
         self._scorestruct = scorestruct
         self._modified = True
 
+    def dump(self, indents=0, forcetext=False) -> None:
+        for i, part in enumerate(self.voices):
+            print("  "*indents + f"Voice #{i}, name='{part.name}'")
+            part.dump(indents=indents+1, forcetext=forcetext)
+
+    @staticmethod
+    def read(path: str) -> Score:
+        """
+        Read a Score from musicxml, MIDI, ...
+
+        Args:
+            path: the path to the file
+
+        Returns:
+            a Score
+
+        .. seealso:: :meth:`Score.fromMusicxml`, :meth:`Score.fromMIDI`, :meth:`Score.write`
+
+        """
+        import os
+        ext = os.path.splitext(path)[1].lower()
+        if ext == '.xml' or ext == '.musicxml':
+            xmltext = open(path).read()
+            return Score.fromMusicxml(xmltext)
+        elif ext == '.mid' or ext == '.midi':
+            return Score.fromMIDI(path)
+        else:
+            raise ValueError(f"Format '{ext}' is not supported. At the moment only"
+                             f" musicxml and MIDI are supported ")
+
+    @staticmethod
+    def fromMIDI(midifile: str) -> Score:
+        """
+        Parse a MIDI file, returns a :class:`Score`
+
+        Args:
+            midifile: the midi file to parse
+
+        Returns:
+            the correponding Score.
+
+        .. seealso:: :meth:`Score.fromMusicxml`, :meth:`Score.read`, :meth:`Score.write`
+        """
+        return Score()
+
     @staticmethod
     def fromMusicxml(musicxml: str, enforceParsedSpelling=True) -> Score:
         """
@@ -75,6 +120,8 @@ class Score(MObj, MContainer):
 
         Returns:
             a Score
+
+        .. seealso:: :meth:`Score.fromMIDI`, :meth:`Score.read`, :meth:`Score.write`
         """
         from maelzel.core import musicxmlparser as mxml
         return mxml.parseMusicxml(musicxml, enforceParsedSpelling=enforceParsedSpelling)
@@ -100,6 +147,21 @@ class Score(MObj, MContainer):
         """
         self._scorestruct = scorestruct
         self._changed()
+
+    def makeGroup(self,
+                  parts: list[Voice],
+                  name: str = '',
+                  shortname: str = '',
+                  showPartNames=False):
+        for part in parts:
+            if part.parent and part.parent is not self:
+                raise RuntimeError(f"Cannot make a group with a part which belongs to another"
+                                   f" score (part={part}, parent={part.parent})")
+        PartGroup(parts=parts, name=name, shortname=shortname, showPartNames=showPartNames)
+        for part in parts:
+            if not any(v is part for v in self.voices):
+                raise RuntimeError(f"Parts can only be bundled into a group if they are already "
+                                   f"part of this Score, but {part} is not")
 
     def __hash__(self):
         items = [type(self).__name__, self.label, self.offset, len(self.voices)]
@@ -171,7 +233,7 @@ class Score(MObj, MContainer):
                      ) -> list[SynthEvent]:
         if self.playargs:
             playargs = playargs.overwrittenWith(self.playargs)
-        parentOffset = self.parent.absoluteOffset() if self.parent else F0
+        parentOffset = self.parent.absOffset() if self.parent else F0
         out = []
         for voice in self.voices:
             events = voice._synthEvents(playargs=playargs, workspace=workspace,
@@ -203,7 +265,7 @@ class Score(MObj, MContainer):
         offset = child._detachedOffset()
         return offset if offset is not None else F0
 
-    def absoluteOffset(self) -> F:
+    def absOffset(self) -> F:
         return F0
 
     def pitchTransform(self, pitchmap: Callable[[float], float]) -> Score:

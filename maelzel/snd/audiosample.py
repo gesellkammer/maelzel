@@ -239,7 +239,7 @@ class Sample:
 
     @property
     def duration(self) -> float:
-        """The totalDuration in seconds"""
+        """The duration in seconds"""
         return len(self.samples)/self.sr
 
     def __repr__(self):
@@ -315,7 +315,7 @@ class Sample:
         Generate a silent Sample with the given characteristics
 
         Args:
-            dur: the totalDuration of the new Sample
+            dur: the duration of the new Sample
             channels: the number of channels
             sr: the sample rate
 
@@ -373,7 +373,7 @@ class Sample:
             speed: the playback speed. A variation in speed will change
                 the pitch accordingly.
             skip: start playback at a given point in time
-            dur: totalDuration of playback. 0 indicates to play until the end of the sample
+            dur: duration of playback. 0 indicates to play until the end of the sample
             engine: the name of a csoundengine.Engine, or the Engine instance
                 itself. If given, playback will be performed using this engine,
                 otherwise a default Engine will be used.
@@ -414,6 +414,8 @@ class Sample:
     def asbpf(self) -> bpf4.BpfInterface:
         """
         Convert this sample to a bpf4.core.Sampled bpf
+
+        .. seealso:: `bpf <https://bpf4.readthedocs.io>`_
         """
         if self._asbpf not in (None, False):
             return self._asbpf
@@ -485,7 +487,7 @@ class Sample:
         else:
             durstr = f"{self.duration:.3g}"
         if withHeader:
-            s = (f"<b>Sample</b>(totalDuration=<code>{durstr}</code>, "
+            s = (f"<b>Sample</b>(duration=<code>{durstr}</code>, "
                  f"sr=<code>{self.sr}</code>, "
                  f"numchannels=<code>{self.numchannels}</code>)<br>")
         else:
@@ -835,7 +837,7 @@ class Sample:
         this fadetime. A tuple can be used to apply a different fadetime for in and out.
 
         Args:
-            fadetime: the totalDuration of the fade.
+            fadetime: the duration of the fade.
             shape: the shape of the fade. One of 'linear', 'expon(x)', 'halfcos'
 
         Returns:
@@ -883,7 +885,7 @@ class Sample:
         Return a new Sample with added silence at the end
 
         Args:
-            dur: the totalDuration of the added silence
+            dur: the duration of the added silence
 
         Returns:
             a new Sample
@@ -941,7 +943,7 @@ class Sample:
         Create a bpf representing the peaks envelope of the source
 
         Args:
-            framedur: the totalDuration of an analysis frame (in seconds)
+            framedur: the duration of an analysis frame (in seconds)
             overlap: determines the hop time between analysis frames.
                 ``hoptime = framedur / overlap``
 
@@ -969,6 +971,8 @@ class Sample:
     def rmsbpf(self, dt=0.01, overlap=1) -> bpf4.core.Sampled:
         """
         Return a bpf representing the rms of this sample over time
+
+        .. seealso:: https://bpf4.readthedocs.io/en/latest/
         """
         return _npsnd.rmsbpf(self.samples, self.sr, dt=dt, overlap=overlap)
 
@@ -1007,7 +1011,7 @@ class Sample:
             threshold: dynamic of silence, in dB
             margin: leave at list this amount of time between the first sample
                     and the beginning of silence
-            window: the totalDuration of the analysis window, in seconds
+            window: the duration of the analysis window, in seconds
 
         Returns:
             a new Sample with silence removed
@@ -1027,7 +1031,7 @@ class Sample:
             threshold: dynamic of silence, in dB
             margin: leave at list this amount of time between the first/last sample
                     and the beginning of silence or
-            window: the totalDuration of the analysis window, in seconds
+            window: the duration of the analysis window, in seconds
 
         Returns:
             a new Sample with silence removed
@@ -1047,7 +1051,7 @@ class Sample:
             threshold: dynamic of silence, in dB
             margin: leave at list this amount of time between the first/last sample
                     and the beginning of silence or
-            window: the totalDuration of the analysis window, in seconds
+            window: the duration of the analysis window, in seconds
 
         Returns:
             a new Sample with silence at the sides removed
@@ -1071,14 +1075,15 @@ class Sample:
         Scrub the samples with the given curve
 
         Args:
-            bpf: a bpf mapping time -> time
+            bpf: a bpf mapping time -> time (see `bpf <https://bpf4.readthedocs.io>`)
+
 
         Example::
 
             Read sample at half speed
             >>> import bpf4
             >>> sample = Sample("path.wav")
-            >>> dur = sample.totalDuration
+            >>> dur = sample.duration
             >>> sample2 = sample.scrub(bpf4.linear([(0, 0), (dur*2, dur)]))
 
         """
@@ -1224,13 +1229,13 @@ class Sample:
         """
         Calculate the fundamental freq. at a given time
 
-        The returned frequency is averaged over the given totalDuration period
+        The returned frequency is averaged over the given duration period
         At the moment the smooth pyin method is used
 
         Args:
             time: the time to start sampling the fundamental frequency. If None is given,
                 the first actual sound within this Sample is used
-            dur: the totalDuration of the estimation period. The returned frequency will be the
+            dur: the duration of the estimation period. The returned frequency will be the
                 average frequency over this period of time.
             fftsize: the fftsize used
             fallbackfreq: frequency to use when no fundamental frequency was detected
@@ -1288,8 +1293,7 @@ class Sample:
                 Use None to autodetect a method based on the installed software
 
         Returns:
-            a bpf representing the fundamental freq. of this sample
-
+            a `bpf <https://bpf4.readthedocs.io>`_ representing the fundamental freq. of this sample
         """
         stepsize = int(fftsize//overlap)
         if method is None:
@@ -1445,7 +1449,7 @@ class Sample:
 
         Returns:
             a new Sample with the added channels. The returned Sample
-            will have the same totalDuration as self
+            will have the same duration as self
 
         """
         if isinstance(channels, int):
@@ -1478,7 +1482,7 @@ class Sample:
             >>> a = Sample("stereo-2seconds.wav")
             >>> b = Sample("stereo-3seconds.wav")
             >>> m = Sample.mix([a, b], offsets=[2, 0])
-            >>> m.totalDuration
+            >>> m.duration
             4.0
         """
         return mixsamples(samples, offsets=offsets, gains=gains)
@@ -1575,6 +1579,7 @@ def _mapn_between(func, n: int, t0: float, t1: float) -> np.ndarray:
 
     Args:
         func: a callable of the form func(float) -> float, can be a bpf
+            (see https://bpf4.readthedocs.io)
     """
     if hasattr(func, 'mapn_between'):
         ys = func.mapn_between(n, t0, t1)  # is it a Bpf?
@@ -1625,7 +1630,7 @@ def mixsamples(samples: list[Sample], offsets: list[float] = None, gains: list[f
         >>> a = Sample("stereo-2seconds.wav")
         >>> b = Sample("stereo-3seconds.wav")
         >>> m = Sample.mix([a, b], offsets=[2, 0])
-        >>> m.totalDuration
+        >>> m.duration
         4.0
     """
     nchannels = samples[0].numchannels

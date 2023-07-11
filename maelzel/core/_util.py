@@ -2,19 +2,22 @@
 Internal utilities
 """
 from __future__ import annotations
-
-from maelzel.scoring import definitions
-from typing import TYPE_CHECKING
-from functools import cache
+import re
 import sys
 import os
+from functools import cache
+from dataclasses import dataclass
 import bpf4 as bpf
 import pitchtools as pt
-from dataclasses import dataclass
+from emlib import misc
+
+from maelzel.scoring import definitions
 from maelzel.common import F
 from maelzel.colortheory import safeColors
-from . import environment
+from maelzel.core import environment
+from maelzel.core import symbols as _symbols
 
+from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from ._typedefs import *
 
@@ -288,29 +291,14 @@ class NoteProperties:
     """A pitch or a list of pitches"""
 
     dur: F | None
-    """An optional totalDuration"""
+    """An optional duration"""
 
     keywords: dict[str, str] | None = None
     """Any other properties (gliss, tied, ...)"""
 
-    def classifyKeywords(self) -> tuple[dict, list[tuple[str, str]]]:
-        """
-        Splits keywords into properties and symbols
+    symbols: list[_symbols.Symbol] | None = None
 
-        Properties are any keyword passed to the constructor (gliss, tied, offset, dynamic, etc)
-        Symbols are articulations, notehead shapes, etc.
-
-        Returns:
-            a tuple (properties, symbols)
-        """
-        props = {}
-        symbols = []
-        for k, v in self.keywords.items():
-            if k in _knownSymbols:
-                symbols.append((k, v))
-            else:
-                props[k] = v
-        return props, symbols
+    spanners: list[_symbols.Spanner] | None = None
 
 
 _dotRatios = [1, F(3, 2), F(7, 4), F(15, 8), F(31, 16)]
@@ -327,16 +315,16 @@ def _parseSymbolicDuration(s: str) -> F:
 
 def parseDuration(s: str) -> F:
     """
-    Parse a totalDuration given a str
+    Parse a duration given a str
 
     Possible expressions include '3/4', '1+3/4', '4+1/3+2/5'
     Raises ValueError if the expression cannot be parsed
 
     Args:
-        s: the totalDuration as string
+        s: the duration as string
 
     Returns:
-        the parsed totalDuration as fraction
+        the parsed duration as fraction
     """
     terms = s.split('+')
     fterms = [F(term) for term in terms]
@@ -365,9 +353,25 @@ def parsePitch(s: str) -> tuple[str, bool, bool]:
     return s, tied, fixed
 
 
+def _evalArgs(args: list[str]) -> dict[str, Any]:
+    def evalArg(arg: str) -> tuple[str, Any]:
+        if "=" in arg:
+            k, v = [_.strip() for _ in arg.split("=")]
+            if (n := misc.asnumber(v)) is not None:
+                return (k, n)
+            elif v in ("True", "False", "None"):
+                return (k, eval(v))
+            else:
+                return k, v
+        else:
+            # a flag
+            return (arg, True)
+    return dict(evalArg(arg) for arg in args)
+
+
 def parseNote(s: str) -> NoteProperties:
     """
-    Parse a note definition string with optional totalDuration and other properties
+    Parse a note definition string with optional duration and other properties
 
     Pitch specific modifiers, like ! or ~ are not parsed
 
@@ -395,6 +399,8 @@ def parseNote(s: str) -> NoteProperties:
     4C#~
     """
     dur, properties = None, {}
+    symbols: list[_symbols.Symbol] = []
+    spanners: list[_symbols.Spanner] = []
 
     if ":" not in s:
         note = s
@@ -407,38 +413,67 @@ def parseNote(s: str) -> NoteProperties:
         except ValueError:
             pass
         for part in parts:
-            if part in _knownDynamics:
-                properties['dynamic'] = part
-            elif part in _knownArticulations:
-                properties['articulation'] = part
-            elif part == 'gliss':
-                properties['gliss'] = True
-            elif part == 'tied':
-                properties['tied'] = True
-            elif "=" in part:
+            if match := re.match(r"(\w+)\((\w.+)\)", part):
+                # example: stem(hidden=True)
+                clsname = match.group(1)
+                argstr = match.group(2)
+                args = [_.strip() for _ in argstr.split(",")]
+                kws = _evalArgs(args)
+                if clsname in _knownSymbols:
+                    symbols.append(_symbols.makeSymbol(clsname, **kws))
+                else:
+                    raise ValueError(f"Unknown class {clsname}, possible symbols: {_knownSymbols}")
+
+            elif '=' in part:
                 key, value = part.split("=", maxsplit=1)
                 if key == 'offset':
-                    value = F(value)
+                    properties['offset'] = F(value)
                 elif key == 'gliss':
                     if "," in value:
                         value = [pt.str2midi(pitch) for pitch in value.split(",")]
                     else:
                         value = pt.str2midi(value)
-                properties[key] = value
+                    properties['gliss'] = value
+                elif key in _knownSymbols:
+                    symbols.append(_symbols.makeSymbol(key, value))
+                else:
+                    properties[key] = value
+            elif part in _knownDynamics:
+                properties['dynamic'] = part
+            elif part in _knownArticulations:
+                # properties['articulation'] = part
+                symbols.append(_symbols.Articulation(part))
+            elif part in ('gliss', 'tied'):
+                properties[part] = True
+            elif part == 'stemless':
+                # properties['stem'] = {'hidden': True}
+                symbols.append(_symbols.Stem(hidden=True))
+            elif part == '()':
+                symbols.append(_symbols.Notehead(parenthesis=True))
+            elif part in definitions.allNoteheadShapes():
+                symbols.append(_symbols.Notehead(part))
+            elif part in _knownSpanners or (part[0] == "~" and part[1:] in _knownSpanners):
+                spanners.append(_symbols.makeSpanner(part))
+            else:
+                raise ValueError(f"Property '{part}' not understood when trying to parse {s}")
 
     if "/" in note:
         note, symbolicdur = note.split("/")
         dur = _parseSymbolicDuration(symbolicdur)
     notename = [p.strip() for p in note.split(",")] if "," in note else note
-    return NoteProperties(notename=notename, dur=dur, keywords=properties)
+    return NoteProperties(notename=notename, dur=dur, keywords=properties,
+                          symbols=symbols, spanners=spanners)
+
+
+def _makeSymbol(clsname: str, v: str|dict) -> _symbols.Symbol:
+    if isinstance(v, str):
+        return _symbols.makeSymbol(clsname, v)
+    else:
+        return _symbols.makeSymbol(clsname, **v)
 
 
 _knownDynamics = {
     'pppp', 'ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'ffff', 'n'
-}
-
-_knownArticulations_ = {
-    '-', '.', '^', 'accent', 'tenuto', 'staccato'
 }
 
 
@@ -446,7 +481,19 @@ _knownArticulations = definitions.allArticulations()
 
 
 _knownSymbols = {
-    'articulation', 'notehead', 'size', 'color'
+    'notehead',
+    'articulation',
+    'text',
+    'color',
+    'accidental',
+    'ornament',
+    'fermata',
+    'stem'
+}
+
+
+_knownSpanners = {
+    'slur'
 }
 
 

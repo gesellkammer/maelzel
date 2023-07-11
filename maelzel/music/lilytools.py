@@ -597,7 +597,7 @@ _durationToLily = {
 
 def isValidLilypondDuration(s: str) -> bool:
     """
-    is this a valid lilypond totalDuration
+    is this a valid lilypond duration
     """
     if "." in s:
         basedur, extradots = s.split(".", maxsplit=1)
@@ -612,12 +612,12 @@ def isValidLilypondDuration(s: str) -> bool:
 def makeDuration(quarterLength: Union[int, float, str], dots=0) -> str:
     """
     Args:
-        quarterLength: the totalDuration as a fraction of a quarter-note. Possible string
+        quarterLength: the duration as a fraction of a quarter-note. Possible string
             values: 'quarter', 'eighth', '16th', etc
         dots: the number of dots
     """
     if isinstance(quarterLength, str):
-        # is it a lilypond totalDuration already?
+        # is it a lilypond duration already?
         if isValidLilypondDuration(quarterLength):
             return quarterLength
         lilydur = _durationToLily[quarterLength]
@@ -630,7 +630,7 @@ def makeDuration(quarterLength: Union[int, float, str], dots=0) -> str:
         else:
             lilydur = _durationToLily[quarterLength]
             if dots > 0:
-                raise ValueError("Dots can't be used when giving a totalDuration as a float")
+                raise ValueError("Dots can't be used when giving a duration as a float")
     else:
         raise TypeError(f"Expected a str, int or float, got {quarterLength} ({type(quarterLength)})")
     return lilydur + "." * dots
@@ -726,7 +726,7 @@ def makePitch(pitch: pitch_t,
         forceAccidental: if True, force the given accidental
 
     Returns:
-        the lilypond text to render the given pitch (needs a totalDuration suffix)
+        the lilypond text to render the given pitch (needs a duration suffix)
 
     """
     if isinstance(pitch, (int, float)):
@@ -845,7 +845,7 @@ def makeNote(pitch: pitch_t,
 
     Args:
         pitch: pitch as midinote or notename
-        duration: totalDuration as quarter length
+        duration: duration as quarter length
         dots: number of dots
         tied: is this note tied?
         divsPerSemitone: pitch resolution

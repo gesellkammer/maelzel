@@ -1,5 +1,6 @@
 from __future__ import annotations
-from emlib.misc import ReprMixin
+# from emlib.misc import ReprMixin
+from maelzel._util import reprObj
 from . import definitions
 from typing import TypeVar
 import copy
@@ -7,7 +8,7 @@ import copy
 _AttachmentT = TypeVar('_AttachmentT', bound='Attachment')
 
 
-class Attachment(ReprMixin):
+class Attachment:
     """
     An Attachment is any kind of symbol added to a Notation or a pitch thereof
 
@@ -42,6 +43,9 @@ class Attachment(ReprMixin):
     def copy(self: _AttachmentT) -> _AttachmentT:
         return copy.deepcopy(self)
 
+    def __repr__(self):
+        return reprObj(self, hideFalsy=True)
+
 
 class Property(Attachment):
 
@@ -53,11 +57,12 @@ class Property(Attachment):
 
 class GlissandoProperties(Attachment):
     copyToSplitNotation = True
+    linetypes = ('solid', 'wavy', 'dotted', 'dashed')
 
     def __init__(self, linetype='solid', color=''):
         super().__init__(color=color)
-        if not linetype in ('solid', 'wavy', 'dotted', 'dashed'):
-            raise ValueError(f"linetype should be one of 'solid', 'wavy', 'dotted', 'dashed', "
+        if not linetype in GlissandoProperties.linetypes:
+            raise ValueError(f"linetype should be one of {GlissandoProperties.linetypes}, "
                              f"got {linetype}")
         self.linetype = linetype
         """The line type, one of 'solid', 'wavy', 'dotted', 'dashed'"""
@@ -263,21 +268,12 @@ class Text(Attachment):
         self.fontsize = fontsize
         self.box = box
         self.italic = italic
-        self.weight = weight
+        self.weight = weight if weight != 'normal' else ''
         self.fontfamily = fontfamily
         self.role = role
 
     def __repr__(self):
-        elements = [f'text={self.text}', f'placement={self.placement}']
-        if self.fontsize:
-            elements.append(f'fontsize={self.fontsize}')
-        if self.italic:
-            elements.append(f'italic=True')
-        if self.weight and self.weight != 'normal':
-            elements.append(f'weight={self.weight}')
-        if self.box:
-            elements.append(f'box={self.box}')
-        return f'{type(self).__name__}({", ".join(elements)})'
+        return reprObj(self, hideFalsy=True, priorityargs=('text',))
 
     def __hash__(self) -> int:
         return hash(('Text', self.text, self.placement, self.fontsize, self.box))
@@ -293,6 +289,8 @@ class Clef(Attachment):
 
     def __init__(self, kind: str, color=''):
         super().__init__(color=color)
+        if kind not in definitions.clefs:
+            raise ValueError(f"Clef '{kind}' unknown. Possible clefs: {definitions.clefs}")
         self.kind = kind
 
     def __hash__(self):

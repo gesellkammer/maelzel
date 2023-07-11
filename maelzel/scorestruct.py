@@ -191,7 +191,7 @@ class RehearsalMark:
 class KeySignature:
     def __init__(self, fifths: int, mode='major'):
         self.fifths = fifths
-        self.mode = mode
+        self.mode = mode if mode else 'major'
 
 
 def _parseScoreStructLine(line: str) -> _ScoreLine:
@@ -352,13 +352,13 @@ class MeasureDef:
 
     @property
     def durationQuarters(self) -> F:
-        """The totalDuration of this measure in quarter-notes"""
+        """The duration of this measure in quarter-notes"""
         n, d = self._timesig
         return F(4*n,d)
 
     @property
     def durationSecs(self) -> F:
-        """The totalDuration of this measure in seconds"""
+        """The duration of this measure in seconds"""
         return self.durationQuarters * (F(60) / self._quarterTempo)
 
     @property
@@ -459,10 +459,10 @@ class MeasureDef:
         """
         Returns a list of the subdivisions of this measure.
 
-        A subdivision is a totalDuration, in quarters.
+        A subdivision is a duration, in quarters.
 
         Returns:
-            a list of durations which sum up to the totalDuration of this measure
+            a list of durations which sum up to the duration of this measure
 
         Example
         -------
@@ -512,13 +512,13 @@ def inferSubdivisions(num: int, den: int, quarterTempo
 
 def measureQuarterDuration(timesig: timesig_t) -> F:
     """
-    The totalDuration in quarter notes of a measure according to its time signature
+    The duration in quarter notes of a measure according to its time signature
 
     Args:
         timesig: a tuple (num, den)
 
     Returns:
-        the totalDuration in quarter notes
+        the duration in quarter notes
 
     Examples::
 
@@ -778,7 +778,7 @@ class ScoreStruct:
 
         self._beatOffsets: list[F] = []
 
-        # the quarternote totalDuration of each measure
+        # the quarternote duration of each measure
         self._quarternoteDurations: list[F] = []
 
         self._attributesModified = True
@@ -1056,7 +1056,7 @@ class ScoreStruct:
                 specify how a 7/8 measure is divided by passing (3, 2, 2) (instead of,
                 for example, ``2+2+3``)
             keySignature: either a KeySignature object or a tuple (fifths, mode); for example
-                for A-Major, ``(3, 'major')``
+                for A-Major, ``(3, 'major')``. Mode can also be left as an ampty string
             barline: if needed, the right barline of the measure can be set to one of
                 'single', 'final', 'double', 'solid', 'dotted', 'dashed', 'tick', 'short',
                 'double-thin' or 'none'
@@ -1155,32 +1155,32 @@ class ScoreStruct:
         * When exporting a scorestruct to midi
 
         Args:
-            duration: the totalDuration in seconds to ensure
+            duration: the duration in seconds to ensure
 
         """
         mindex, mbeat = self.timeToLocation(duration)
         if mindex is None:
-            raise ValueError(f"totalDuration {duration} outside score")
+            raise ValueError(f"duration {duration} outside score")
         self.ensureDurationInMeasures(mindex + 1)
 
-    def totalDurationQuarters(self) -> F:
+    def durationQuarters(self) -> F:
         """
-        The totalDuration of this score, in quarters
+        The duration of this score, in quarters
 
         Raises ValueError if this score is endless
         """
         if self.endless:
-            raise ValueError("An endless score does not have a totalDuration in beats")
+            raise ValueError("An endless score does not have a duration in beats")
         return sum(m.durationQuarters for m in self.measuredefs)
 
-    def totalDuratioSecs(self) -> F:
+    def durationSecs(self) -> F:
         """
-        The totalDuration of this score, in seconds
+        The duration of this score, in seconds
 
         Raises ValueError if this score is endless
         """
         if self.endless:
-            raise ValueError("An endless score does not have a totalDuration in seconds")
+            raise ValueError("An endless score does not have a duration in seconds")
         return sum(m.durationSecs for m in self.measuredefs)
 
     def _update(self) -> None:
@@ -2025,11 +2025,11 @@ class ScoreStruct:
 
         .. note::
 
-            The totalDuration of the playback can be set individually from the totalDuration
+            The duration of the playback can be set individually from the duration
             of the displayed pitch
 
         Args:
-            clickdur: the length of each tick. Use None to use the totalDuration of the beat.
+            clickdur: the length of each tick. Use None to use the duration of the beat.
             strongBeatPitch: the pitch used as a strong beat (at the beginning of each
                 measure)
             weakBeatPitch: the pitch used as a weak beat

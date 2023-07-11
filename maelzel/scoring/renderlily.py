@@ -247,11 +247,11 @@ class RenderState:
     openSpanners: dict[str, _spanner.Spanner] = field(default_factory=dict)
 
 
-def _renderTextAttachment(attach: attachment.Text, options: RenderOptions
+def _renderTextAttachment(attach: attachment.Text, options: RenderOptions, relativeSize=False
                           ) -> str:
     if not attach.role:
         return lilytools.makeText(text=attach.text,
-                                  fontrelative=True,
+                                  fontrelative=relativeSize,
                                   fontsize=attach.fontsize,
                                   placement=attach.placement or 'above',
                                   italic=attach.italic,
@@ -260,7 +260,7 @@ def _renderTextAttachment(attach: attachment.Text, options: RenderOptions
     elif attach.role == 'label':
         style = textstyle.parseTextStyle(options.noteLabelStyle)
         return lilytools.makeText(text=attach.text,
-                                  fontrelative=True,
+                                  fontrelative=relativeSize,
                                   fontsize=attach.fontsize or style.fontsize or 10,
                                   placement=attach.placement or style.placement or 'above',
                                   italic=attach.italic or style.italic,
@@ -297,6 +297,9 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
     _ = parts.append
 
     if n.isRest or (len(n.pitches) == 1 and n.pitches[0] == 0):
+        # ******************************
+        # **          Rest            **
+        # ******************************
         _("r" + str(base) + "."*dots)
         # A rest can have: dynamics, fermatas, ..
         if (not n.tiedPrev or options.articulationInsideTie) and n.dynamic:
@@ -305,10 +308,6 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         for attach in n.attachments:
             if isinstance(attach, attachment.Text):
                 _(_renderTextAttachment(attach, options=options))
-                #_(lilytools.makeText(attach.text, placement=attach.placement,
-                #                     fontsize=attach.fontsize,
-                #                     italic=attach.italic, bold=attach.isBold(),
-                #                     box=attach.box))
             elif isinstance(attach, attachment.Fermata):
                 _(_fermataToLily.get(attach.kind, r'\fermata'))
             elif isinstance(attach, attachment.Clef):
@@ -367,7 +366,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
 
     if len(n.pitches) == 1:
         # ***************************
-        # ********** Note ***********
+        # **         Note          **
         # ***************************
         if notehead := n.getNotehead(0):
             _(lyNotehead(notehead))
@@ -392,7 +391,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
                  fingering=fingering.fingering if fingering else ''))
     else:
         # ***************************
-        # ********** Chord **********
+        # **         Chord         **
         # ***************************
         if n.tiedPrev and n.gliss and state.glissando and options.glissHideTiedNotes:
             _(lyNotehead(definitions.Notehead(hidden=True)))
@@ -457,10 +456,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         n.attachments.sort(key=lambda a: a.getPriority())
     for attach in n.attachments:
         if isinstance(attach, attachment.Text):
-            _(lilytools.makeText(attach.text, placement=attach.placement,
-                                 fontsize=attach.fontsize,
-                                 italic=attach.italic, bold=attach.weight=='bold',
-                                 box=attach.box))
+            _(_renderTextAttachment(attach, options=options))
         elif isinstance(attach, attachment.Articulation):
             if not n.tiedPrev or options.articulationInsideTie:
                 _(lyArticulation(attach))
@@ -474,7 +470,10 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
 
     if options.showCents and not n.tiedPrev:
         # TODO: cents annotation should follow options (below/above, fontsize)
-        if text := util.centsAnnotation(n.pitches, divsPerSemitone=options.divsPerSemitone):
+        if text := util.centsAnnotation(n.pitches,
+                                        divsPerSemitone=options.divsPerSemitone,
+                                        addplus=options.centsAnnotationPlusSign,
+                                        separator=options.centsAnnotationSeparator):
             fontrelsize = options.centsAnnotationFontsize - options.staffSize
             _(lilytools.makeText(text,
                                  fontsize=fontrelsize,
@@ -714,6 +713,13 @@ def renderNode(node: Node,
 
             if item.gliss:
                 if not state.glissando:
+                    if props := item.findAttachment(attachment.GlissandoProperties):
+                        assert isinstance(props, attachment.GlissandoProperties)
+                        if props.linetype != 'solid':
+                            _(rf"\tweak Glissando.style #'{_linetypeToLily[props.linetype]} ")
+                        if props.color:
+                            _(rf'\tweak Glissando.color "{props.color}" ')
+
                     _(r"\glissando ")
                 if item.tiedNext:
                     if not state.glissando:
@@ -789,7 +795,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
     def line(t: str, indents: int = 0):
         _(t, indents, preln=True, postln=True)
 
-    if part.name:
+    if part.name and part.showName:
         line(r"\new Staff \with {", indents)
         line(f'    instrumentName = #"{part.name}"', indents)
         if part.shortname:
@@ -993,7 +999,11 @@ def makeScore(score: quant.QuantizedScore,
     partindex = 0
     for group in groups:
         if len(group) > 1:
-            _(r"\new StaffGroup <<", indent=1)
+            if group[0].groupname is not None:
+                name, shortname = group[0].groupname
+            else:
+                name, shortname  = '', ''
+            _(fr'\new StaffGroup \with {{ instrumentName = "{name}" shortInstrumentName = "{shortname}" }} <<', indent=1)
             indents += 1
         for part in group:
             partstr = quantizedPartToLily(part,

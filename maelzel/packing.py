@@ -5,7 +5,7 @@ items (notes, partials, etc.) into a series of non-simultaneous containers (trac
 A Track is a seq. of non-overlapping items
 
 In order to be attached to a Track, each object (note, partial, etc.)
-must be wrapped inside an Item, defining an offset, totalDuration and step
+must be wrapped inside an Item, defining an offset, duration and step
 
 
 """
@@ -34,7 +34,7 @@ class Item:
     Attributes:
         obj: the object itself
         offset: the offset of the item (a time or x coordinate)
-        dur: the "totalDuration" or "width" of the object
+        dur: the "duration" or "width" of the object
         step: an arbitrary y-value for this object. This is used to tree
             together items which are similar, or to discard adding an item to
             a certain track if this step does not fit the track
@@ -53,7 +53,7 @@ class Item:
         Args:
             obj (Any): the object to _packold
             offset (F): the start time of the object
-            dur (F): the totalDuration of the object
+            dur (F): the duration of the object
             step (float): the pitch step. This is used to distribute
                 the item into a track
             weight: an item can be assigned a weight and this weight can be
@@ -192,7 +192,7 @@ class Track:
         In order to implement generic packing the strategy is to:
 
         1. _packold each object as an Item, explicitely copying into the Item
-            the relvant information from the packed object: offset, totalDuration, step
+            the relvant information from the packed object: offset, duration, step
         2. call packInTracks. Items are distributed into a list of Tracks
         3. call unwrap for each Track to retrieve the packed objects
         """

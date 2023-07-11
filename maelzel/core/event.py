@@ -12,8 +12,8 @@ Absolute / Relative Offset
 The :attr:`~maelzel.core.event.MEvent.offset` attribute of any event determines the
 start of the event **relative** to the parent container (if the event has not parent
 the relative and the absolute offset are the same). The resolved offset can be queried
-via :meth:`~maelzel.core.mobj.MObj.resolveOffset`, the absolute offset via
-:meth:`~maelzel.core.mobj.MObj.absoluteOffset`
+via :meth:`~maelzel.core.mobj.MObj.relOffset`, the absolute offset via
+:meth:`~maelzel.core.mobj.MObj.absOffset`
 
 """
 
@@ -29,13 +29,13 @@ from emlib import mathlib
 
 import pitchtools as pt
 
+from maelzel.core import MObj
 from maelzel.common import F, asF, F0
 from maelzel import scoring
 from maelzel.scoring import enharmonics
 from maelzel.music.dynamics import DynamicCurve
 
 from ._common import UNSET, MAXDUR, logger
-from .mobj import MObj
 from .workspace import getConfig, Workspace
 from .synthevent import PlayArgs, SynthEvent
 
@@ -166,7 +166,7 @@ class MEvent(MObj):
         if not offsets:
             raise ValueError("No offsets given")
 
-        offset = self.absoluteOffset() if absolute else self.resolveOffset()
+        offset = self.absOffset() if absolute else self.relOffset()
         dur = self.dur
         intervals = mathlib.split_interval_at_values(offset, offset + dur, offsets)
         events = [self.clone(offset=intervalstart, dur=intervalend-intervalstart)
@@ -242,7 +242,7 @@ class MEvent(MObj):
         return self
 
     def timeTransform(self: MEventT, timemap: Callable[[F], F], inplace=False) -> MEventT:
-        offset = self.resolveOffset()
+        offset = self.relOffset()
         dur = self.dur
         offset2 = timemap(offset)
         dur2 = timemap(offset + dur) - offset2
@@ -298,7 +298,11 @@ class Note(MEvent):
                  is only for notation purposes, it does not modify playback
         tied: is this Note tied to the next?
         fixed: if True, fix the spelling of the note to the notename given (this is
-               only taken into account if the pitch was given as a notename)
+               only taken into account if the pitch was given as a notename). See also
+               the configuration key `fixStringNotenames <config_fixstringnotenames>`.
+               **NB**: as a shortcut, it is possible to suffix the notename with a !
+               mark in order to lock its spelling, independently of the configuration
+               settings
         _init: if True, fast initialization is performed, skipping any checks. This is
                used internally for fast copying/cloning of objects.
 
@@ -337,11 +341,14 @@ class Note(MEvent):
                         fixed = p.pop('fixPitch', False) or fixed
                         label = label or p.pop('label', '')
                         properties = p if not properties else misc.dictmerge(p, properties)
-                        articulation = p.pop('articulation', None)
-                        if articulation:
-                            if symbols is None:
-                                symbols = []
-                            symbols.append(_symbols.Articulation(articulation))
+                    if props.symbols:
+                        if symbols is None:
+                            symbols = props.symbols
+                        else:
+                            symbols.extend(props.symbols)
+                    if props.spanners:
+                        for spanner in props.spanners:
+                            self.addSpanner(spanner)
 
                 elif "/" in pitch:
                     parsednote = _util.parseNote(pitch)
@@ -399,6 +406,7 @@ class Note(MEvent):
 
         super().__init__(dur=dur, offset=offset, label=label, properties=properties,
                          symbols=symbols, tied=tied, amp=amp)
+
         assert self.dur is None or self.dur >= 0
 
     @staticmethod
@@ -582,8 +590,16 @@ class Note(MEvent):
         if gliss and isinstance(self.gliss, (int, float)):
             gliss = [gliss]
         properties = self.properties.copy() if self.properties else None
-        chord = Chord([self], amp=self.amp, dur=self.dur, offset=self.offset,
-                      gliss=gliss, label=self.label, properties=properties, _init=False)
+        chord = Chord(notes=[self],
+                      dur=self.dur,
+                      amp=self.amp,
+                      offset=self.offset,
+                      gliss=gliss,
+                      label=self.label,
+                      tied=self.tied,
+                      dynamic=self.dynamic,
+                      properties=properties,
+                      _init=False)
 
         if self.symbols:
             for s in self.symbols:
@@ -709,7 +725,7 @@ class Note(MEvent):
                       ) -> list[scoring.Notation]:
         if not config:
             config = getConfig()
-        offset = self.absoluteOffset() if parentOffset is None else self.resolveOffset() + parentOffset
+        offset = self.absOffset() if parentOffset is None else self.relOffset() + parentOffset
         dur = self.dur
         if self.isRest():
             rest = scoring.makeRest(dur, offset=offset, dynamic=self.dynamic)
@@ -986,7 +1002,9 @@ class Chord(MEvent):
 
         Chord(note1, note2, ...)
         Chord([note1, note2, ...])
+        Chord("C4,E4,G4", ...)
         Chord("C4 E4 G4", ...)
+
 
     Where each note is either a Note, a notename ("C4", "E4+", etc) or a midinote
 
@@ -1006,9 +1024,12 @@ class Chord(MEvent):
         tied: if True, this chord should be tied to a following chord, if possible
         dynamic: a dynamic for this chord ('pp', 'mf', 'ff', etc). Dynamics range from
             'pppp' to 'ffff'
-        fixed: if True, any note in this chord which was given as a notename (str)
-            will be fixed in the given spelling (**NB**: the spelling can also
-            be fixed by suffixing any notename with a '!' sign)
+        fixed: if True, fix the spelling of the note to the notename given (this is
+            only taken into account if the pitch was given as a notename). See also
+            the configuration key `fixStringNotenames <config_fixstringnotenames>`.
+            **NB**: it is possible to suffix the notename with a '!'
+            mark in order to lock its spelling, independently of the configuration
+            settings
         properties: properties are a space given to the user to attach any information to
             this object
 
@@ -1066,8 +1087,6 @@ class Chord(MEvent):
         if not notes:
             super().__init__(dur=dur, offset=None, label=label)
             return
-
-
 
         # notes might be: Chord([n1, n2, ...]) or Chord("4c 4e 4g", ...)
         if isinstance(notes, str):
@@ -1225,9 +1244,13 @@ class Chord(MEvent):
         notenames = [note.name for note in self.notes]
         annot = None if not self.label else self._scoringAnnotation(config=config)
         dur = self.dur
-        offset = self.absoluteOffset() if parentOffset is None else self.resolveOffset() + parentOffset
-        notation = scoring.makeChord(pitches=notenames, duration=dur, offset=offset,
-                                     annotation=annot, group=groupid, dynamic=self.dynamic,
+        offset = self.absOffset() if parentOffset is None else self.relOffset() + parentOffset
+        notation = scoring.makeChord(pitches=notenames,
+                                     duration=dur,
+                                     offset=offset,
+                                     annotation=annot,
+                                     group=groupid,
+                                     dynamic=self.dynamic,
                                      tiedNext=self.tied)
         if chainlabel := self.getProperty('.chainlabel'):
             notation.addText(self._scoringAnnotation(chainlabel, config=config))
@@ -1236,6 +1259,19 @@ class Chord(MEvent):
         for i, note in enumerate(self.notes):
             if note.pitchSpelling:
                 notation.fixNotename(note.pitchSpelling, i)
+
+        # Add gliss.
+        notations = [notation]
+        if self.gliss:
+            notation.gliss = True
+            if not isinstance(self.gliss, bool):
+                groupid = scoring.makeGroupId(groupid)
+                notation.groupid = groupid
+                endEvent = scoring.makeChord(pitches=self.gliss, duration=0,
+                                             offset=self.end, group=groupid)
+                if config['show.glissEndStemless']:
+                    endEvent.stem = 'hidden'
+                notations.append(endEvent)
 
         if self.symbols:
             for s in self.symbols:
@@ -1250,18 +1286,6 @@ class Chord(MEvent):
                     else:
                         logger.debug(f"Cannot apply symbol {symbol} to a pitch inside chord {self}")
 
-        # Add gliss.
-        notations = [notation]
-        if self.gliss:
-            notation.gliss = True
-            if not isinstance(self.gliss, bool):
-                groupid = scoring.makeGroupId(groupid)
-                notation.groupid = groupid
-                endEvent = scoring.makeChord(pitches=self.gliss, duration=0,
-                                             offset=self.end, group=groupid)
-                if config['show.glissEndStemless']:
-                    endEvent.stem = 'hidden'
-                notations.append(endEvent)
         return notations
 
     def __hash__(self):
@@ -1663,6 +1687,7 @@ def _asChord(obj, amp: float = None, dur: float = None) -> Chord:
 
 def Gracenote(pitch: pitch_t | list[pitch_t],
               slash=True,
+              stemless=False,
               offset: time_t | None = None,
               **kws
               ) -> Note | Chord:
@@ -1681,6 +1706,7 @@ def Gracenote(pitch: pitch_t | list[pitch_t],
             representing one or more pitches
         offset: the offset of this gracenote. Normally a gracenote should not have an explicit offset
         slash: if True, the gracenote will be marked as slashed
+        stemless: if True, hide the stem of this gracenote
 
     Returns:
         the Note/Chord representing the gracenote. A gracenote is basically a
@@ -1700,6 +1726,8 @@ def Gracenote(pitch: pitch_t | list[pitch_t],
 
     """
     out = asEvent(pitch, dur=0, offset=offset, **kws)
+    if stemless:
+        out.addSymbol(_symbols.Stem(hidden=True))
     assert isinstance(out, (Note, Chord))
     out._markAsGracenote(slash=slash)
     return out
@@ -1740,7 +1768,7 @@ def asEvent(obj, **kws) -> MEvent:
         ‹4C 4E 0.5♩ mf›
 
     """
-    symbols: None | list[tuple[str, str]] = None
+    symbols, spanners = None, None
     if isinstance(obj, MEvent):
         return obj
     elif isinstance(obj, str):
@@ -1749,9 +1777,9 @@ def asEvent(obj, **kws) -> MEvent:
         elif ":" or "," in obj:
             notedef = _util.parseNote(obj)
             dur = kws.pop('dur', None) or notedef.dur
+            symbols = notedef.symbols
             if notedef.keywords:
-                props, symbols = notedef.classifyKeywords()
-                kws = misc.dictmerge(props, kws)
+                kws = misc.dictmerge(notedef.keywords, kws)
             if isinstance(notedef.notename, list) and len(notedef.notename) > 1:
                 out = Chord(notedef.notename, dur=dur, **kws)
             else:
@@ -1767,8 +1795,12 @@ def asEvent(obj, **kws) -> MEvent:
     else:
         raise TypeError(f"Cannot convert {obj} to a Note or Chord")
     if symbols:
-        for name, value in symbols:
-            out.addSymbol(name, value)
+        for symbol in symbols:
+            out.addSymbol(symbol)
+    if spanners:
+        for spanner in spanners:
+            out.addSpanner(spanner)
+
     return out
 
 

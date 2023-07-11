@@ -12,19 +12,19 @@ defaultdict = {
     'semitoneDivisions': 4,
     'musescorepath': '',
     'lilypondpath': '',
-    'reprShowFractionsAsFloat': True,
+    '.reprShowFractionsAsFloat': True,
     'jupyterHtmlRepr': True,
     'fixStringNotenames': False,
     'openImagesInExternalApp': False,
     'enharmonic.horizontalWeight': 1,
     'enharmonic.verticalWeight': 0.01,
-    'enharmonic.debug': False,
-    'enharmonic.threeQuarterMicrotonePenalty': 20,
+    '.enharmonic.debug': False,
+    '.enharmonic.threeQuarterMicrotonePenalty': 20,
 
     'show.arpeggiateChord': 'auto',
-    'show.lastBreakpointDur': 1/8,
-    'show.centsAnnotationStyle': 'fontsize=8',
+    'show.centsAnnotationStyle': 'fontsize=6; placement=below',
     'show.centsDeviationAsTextAnnotation': True,
+    '.show.centsAnnotationPlusSign': True,
     'show.centSep': ',',
     'show.scaleFactor': 0.75,
     'show.scaleFactorMusicxml': 0.8,
@@ -33,7 +33,7 @@ defaultdict = {
     'show.format': 'png',
     'show.cacheImages': True,
     'show.arpeggioDuration': 0.5,
-    'show.labelStyle': 'fontsize=9',
+    'show.labelStyle': 'fontsize=9; placement=above',
     'show.pageOrientation': 'portrait',
     'show.pageSize': 'a4',
     'show.pageMarginMillimeters': 4,
@@ -55,6 +55,9 @@ defaultdict = {
     'show.voiceMaxStaves': 1,
     'show.clipNoteheadShape': 'square',
     'show.referenceStaffsize': 12.0,
+    'show.autoClefChanges': True,
+    '.show.autoClefChangesWindow': 1,
+    '.show.keepClefBiasFactor': 2.0,
 
     'play.gain': 1.0,
     'play.engineName': 'maelzel.core',
@@ -81,8 +84,8 @@ defaultdict = {
     'rec.ksmps': 64,
     'rec.numChannels': 2,
     'rec.path': '',
-    'rec.quiet': True,
-    'rec.compressionBitrate': 224,
+    'rec.verbose': False,
+    '.rec.compressionBitrate': 224,
     'rec.extratime': 0.,
 
     'htmlTheme': 'light',
@@ -92,12 +95,12 @@ defaultdict = {
     'quant.nestedTupletsInMusicxml': False,
     'quant.breakSyncopationsLevel': 'none',
     'quant.complexity': 'high',
-    'quant.divisionErrorWeight': None,
-    'quant.gridErrorWeight': None,
-    'quant.rhythmComplexityWeight': None,
-    'quant.gridErrorExp': None,
-    'quant.debug': False,
-    'quant.debugShowNumRows': 50,
+    '.quant.divisionErrorWeight': None,
+    '.quant.gridErrorWeight': None,
+    '.quant.rhythmComplexityWeight': None,
+    '.quant.gridErrorExp': None,
+    '.quant.debug': False,
+    '.quant.debugShowNumRows': 50,
 
     'dynamicCurveShape': 'expon(0.3)',
     'dynamicCurveMindb': -60,
@@ -126,7 +129,7 @@ validator = {
     'rec.numChannels::range': (1, 128),
     'play.soundfontInterpolation::choices': {'linear', 'cubic'},
     'rec.sr::choices': {44100, 88200, 176400, 352800, 48000, 96000, 144000, 192000, 384000},
-    'rec.compressionBitrate::coices': {64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 500},
+    '.rec.compressionBitrate::coices': {64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 500},
     'rec.ksmps::choices': {1, 16, 32, 64, 128, 256},
     'rec.extratime::range': (0., math.inf),
     'play.defaultAmplitude::range': (0, 1),
@@ -135,7 +138,6 @@ validator = {
     'play.defaultDynamic::choices': {'pppp', 'ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'ffff'},
     'play.gracenoteDuration::type': (int, float, str),
     'htmlTheme::choices': {'light', 'dark'},
-    'show.lastBreakpointDur::range': (1/64., 1),
     'quant.complexity::choices': {'lowest', 'low', 'medium', 'high', 'highest'},
     'quant.nestedTuplets::choices': {True, False, None},
     'show.pageOrientation::choices': {'portrait', 'landscape'},
@@ -157,9 +159,9 @@ validator = {
     'dynamicCurveMaxdb::range': (-160, 0),
     'dynamicCurveDynamics': lambda cfg, key, val: all(d in dynamics.dynamicSteps
                                                       for d in val.split()),
-    'quant.divisionErrorWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,
-    'quant.gridErrorWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,
-    'quant.rhythmComplexityWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,
+    '.quant.divisionErrorWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,
+    '.quant.gridErrorWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,
+    '.quant.rhythmComplexityWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,
     'quant.breakSyncopationsLevel::choices': ('none', 'all', 'weak', 'strong')
 
 }
@@ -174,7 +176,7 @@ docs = {
         "creation. Otherwise pitches might be respelled to match their context for better "
         "readability. Pitches given as midi notes or frequencies are always respelled",
 
-    'reprShowFractionsAsFloat':
+    '.reprShowFractionsAsFloat':
         "All time offsets and durations are kept as rational numbers to avoid rounding errors. "
         "If this option is True, these fractions are printed as floats in order to make them "
         "more readable. ",
@@ -216,10 +218,6 @@ docs = {
     'chordAdjustGain':
         "Adjust the gain of a chord according to the number of notes, to prevent "
         "clipping",
-
-    'show.lastBreakpointDur':
-        "Dur of a note representing the end of a line/gliss, which has "
-        "no totalDuration per se",
 
     'show.scaleFactor':
         "Affects the size of the generated image when using png format",
@@ -329,7 +327,7 @@ docs = {
         "This allows to use staff size as a general way to indicate the scale of a score, "
         "independent of the backend",
 
-    'enharmonic.debug':
+    '.enharmonic.debug':
         "If True, print debug information while calculating automatic enharmonic spelling",
 
     'enharmonic.horizontalWeight':
@@ -347,22 +345,19 @@ docs = {
     'play.schedLatency':
         'Added latency when scheduling events to ensure time precission',
 
-    'rec.quiet':
-        'Supress debug output when calling csound as a subprocess',
-
-    'play.dur':
-        'Default totalDuration of any play action if the object has no given totalDuration',
+    'rec.verbose':
+        'Show debug output when calling csound as a subprocess',
 
     'rec.ksmps':
         'Samples per cycle when rendering offline (passed as ksmps to csound)',
 
-    'rec.compressionBitrate':
+    '.rec.compressionBitrate':
         'default bitrate to use when encoding to ogg or mp3',
 
     'rec.numChannels':
         'The default number of channels when rendering to disk',
 
-    'rec.extreatime':
+    'rec.extratime':
         'Default extratime added when recording',
 
     'play.fade':
@@ -382,6 +377,9 @@ docs = {
 
     'show.centsDeviationAsTextAnnotation':
         'show cents deviation as text when rendering notation',
+
+    '.show.centsAnnotationPlusSign':
+        'Show a plus sign for possitive cents deviations',
 
     'show.pageOrientation':
         'Page orientation when rendering to pdf',
@@ -482,26 +480,26 @@ docs = {
         '"weak (break only syncopations over secondary beats)", "strong" (break '
         'syncopations at strong beats) or "none" (do not break any syncopations)',
 
-    'quant.divisionErrorWeight':
+    '.quant.divisionErrorWeight':
         'A weight (between 0 and 1) applied to the penalty of complex quantization of '
         'the beat. The higher this value is, the simpler the subdivision chosen. '
         'If set to None, this value is derived from the complexity preset '
         '(quant.complexity)',
 
-    'quant.gridErrorWeight':
+    '.quant.gridErrorWeight':
         'A weight (between 0 and 1) applied to the deviation of a quantization to the '
         'actual attack times and durations during quantization. The higher this value, '
         'the more accurate the quantization (possibly resulting in more complex '
         'subdivisions of the beat). If None, the value is derived from the complexity '
         'preset (quant.complexity)',
 
-    'quant.rhythmComplexityWeight':
+    '.quant.rhythmComplexityWeight':
         'A weight (between 0 and 1) applied to the penalty calculated from the '
         'complexity of the rhythm during quantization. A higher value results in '
         'more complex rhythms being considered for quantization. If None, the value '
         'is derived from the complexity (quant.complexity)',
 
-    'quant.gridErrorExp':
+    '.quant.gridErrorExp':
         'An exponent applied to the grid error. The grid error is a value between 0-1 '
         'which indicates how accurate the grid representation is for a given quantization '
         '(a value of 0 indicates perfect timing). An exponent betwenn 0 < exp <= 1 will '
@@ -509,18 +507,18 @@ docs = {
         'solution. If None, the value is derived from the complexity setting (quant.complexity)',
 
     'quant.minBeatFractionAcrossBeats':
-        'when merging durations across beats, a merged totalDuration cannot be smaller than this '
-        'totalDuration. This is to prevent joining durations across beats which might result in '
+        'when merging durations across beats, a merged duration cannot be smaller than this '
+        'duration. This is to prevent joining durations across beats which might result in '
         'high rhythmic complexity',
 
-    'quant.debug':
+    '.quant.debug':
         'Turns on debugging for the quantization process. This will show how different '
         'divisions of the beat are being evaluated by the quantizer in terms of what '
         'is contributing more to the ranking. With this information it is possible '
-        'to adjust the weights (quant.rhythmCompleityWeight, quant.divisionErrorWeight, '
+        'to adjust the weights (quant.rhythmCompleityWeight, .quant.divisionErrorWeight, '
         'etc)',
 
-    'quant.debugShowNumRows':
+    '.quant.debugShowNumRows':
         'When quantization debugging is turned on this setting limits the number '
         'of different quantization possibilities shown',
 
@@ -529,5 +527,19 @@ docs = {
         'absolute path pointing to the actual binary inside the .app bundle',
 
     'lilypondpath':
-        'The path to the lilypond binary. It must be an absolute, existing path'
+        'The path to the lilypond binary. It must be an absolute, existing path',
+
+    'show.autoClefChanges':
+        'If True, add clef changes to a quantized part if needed. Otherwise, one clef '
+        'is determined for each part and is not changed along the part.',
+
+    '.show.keepClefBiasFactor':
+        'The higher this value, the more priority is  given to keeping the previous '
+        'clef during automatic clef changes',
+
+    '.show.autoClefChangesWindow':
+        'When adding automatic clef changes, use this window size (number of elements '
+        'per evaluation)'
+
+
 }

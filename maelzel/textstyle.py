@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from functools import cache
+from emlib.misc import Result
 
 
 @dataclass
@@ -33,7 +34,7 @@ class TextStyle:
             assert self.placement in ('above', 'below')
 
 
-def validateStyle(style: str) -> bool:
+def validateStyle(style: str) -> bool | str:
     """
     Check that the style is ok
 
@@ -41,13 +42,13 @@ def validateStyle(style: str) -> bool:
         style: the style to check
 
     Returns:
-        True if the style is defined properly
+        An error message as string, or an empty string True if the style is defined properly
     """
     try:
         _ = parseTextStyle(style)
         return True
-    except ValueError:
-        return False
+    except ValueError as e:
+        return f"Could not validate style: '{style}', error: '{e}'"
 
 
 @cache
@@ -69,14 +70,13 @@ def parseTextStyle(style: str, separator=';') -> TextStyle:
         a TextStyle
 
     """
+    validkeys = ('fontsize', 'bold', 'italic', 'box', 'color', 'placement')
+
     convertions = {
         'fontsize': float,
         'bold': lambda value: value.lower() == 'true',
         'italic': lambda value: value.lower() == 'true',
-        'box': None,
-        'color': None,
     }
-    validkeys = convertions.keys()
 
     parts = style.split(separator)
     attrs = {}
@@ -90,6 +90,6 @@ def parseTextStyle(style: str, separator=';') -> TextStyle:
         else:
             key, value = part.strip(), True
         if not key in validkeys:
-            raise ValueError(f"Invalid key '{key}' in style '{style}'")
+            raise ValueError(f"Invalid key '{key}' in style '{style}'. Valid keys are {'validkeys'}")
         attrs[key] = value
     return TextStyle(**attrs)

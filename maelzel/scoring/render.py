@@ -48,6 +48,15 @@ def renderQuantizedScore(score: quant.QuantizedScore,
         for part in score:
             part.removeUnnecessaryDynamics(tree=True)
 
+    for part in score:
+        if part.autoClefChanges or (options.autoClefChanges and part.autoClefChanges is None):
+            # Do not add if there are manual clefs
+            if any(n.findAttachment('Clef') for n in part.flatNotations(tree=True)):
+                logger.debug("Part {part} already has manual clefs set, skipping automatic clefs")
+            else:
+                part.findClefChanges(addClefs=True, biasFactor=options.keepClefBiasFactor,
+                                     window=options.autoClefChangesWindow)
+
     if backend == 'musicxml':
         from . import rendermusicxml
         return rendermusicxml.MusicxmlRenderer(score=score, options=options)
@@ -67,9 +76,9 @@ def _groupNotationsByMeasure(part: core.UnquantizedPart,
         loc = struct.beatToLocation(n.offset)
         if loc is None:
             logger.error(f"Offset {n.offset} outside of scorestruct, for {n}")
-            logger.error(f"Scorestruct: duration = {struct.totalDurationQuarters()} quarters\n{struct.dump()}")
+            logger.error(f"Scorestruct: duration = {struct.durationQuarters()} quarters\n{struct.dump()}")
             raise ValueError(f"Offset {float(n.offset):.3f} outside of score structure "
-                             f"(max. offset: {float(struct.totalDurationQuarters()):.3f})")
+                             f"(max. offset: {float(struct.durationQuarters()):.3f})")
         elif loc[0] == currMeasure:
             groups[-1].append(n)
         else:
@@ -168,7 +177,7 @@ def render(obj: core.UnquantizedPart | core.Notation | list[core.UnquantizedPart
                              quantizationProfile=quantizationProfile)
 
 
-def renderMusicxml(xmlfile: str, outfile: str, method='', crop: bool = None, pngpage=1
+def renderMusicxml(xmlfile: str, outfile: str, method='musescore', crop: bool = None, pngpage=1
                    ) -> None:
     """
     Convert a saved musicxml file to pdf or png
@@ -198,7 +207,6 @@ def renderMusicxml(xmlfile: str, outfile: str, method='', crop: bool = None, png
     musescore = environment.findMusescore()
     fmt = os.path.splitext(outfile)[1]
     if fmt == ".pdf":
-        method = method or 'musescore'
         if method == 'musescore':
             if musescore is None:
                 raise RuntimeError("MuseScore not found")

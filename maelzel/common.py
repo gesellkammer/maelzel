@@ -2,29 +2,29 @@
 from pitchtools import n2m
 import numbers as _numbers
 import logging as _logging
+import typing as t
+
+# from maelzel.rational import Rat as F
+from quicktions import Fraction as F
+from numbers import Rational
 
 
 __all__ = (
+    'getLogger',
     'F',
-    'asF',
-    'asmidi',
     'F0',
     'F1',
+    'asF',
+    'asmidi',
     'pitch_t',
     'timesig_t',
     'number_t',
-    'getLogger'
 )
 
-import typing as t
+
 pitch_t = t.Union[int, float, str]
 timesig_t = t.Tuple[int, int]
-number_t = t.Union[float, _numbers.Rational]
-
-# Rat is like Fraction with the only difference that its __repr__ is float like
-# If quicktions are present it will use that as a base
-# from maelzel.rational import Rat as F
-from quicktions import Fraction as F
+number_t = t.Union[int, float, Rational, F]
 
 
 F0 = F(0)
@@ -64,6 +64,17 @@ def asmidi(x: pitch_t) -> float:
 def getLogger(name: str, fmt='[%(name)s:%(filename)s:%(lineno)s - %(funcName)s] %(message)s',
               filelog: str = ''
                ) -> _logging.Logger:
+    """
+    Construct a logger
+
+    Args:
+        name: the name of the logger
+        fmt: the format used
+        filelog: if given, logging info is **also** output to this file
+
+    Returns:
+        the logger
+    """
     logger = _logging.getLogger(name)
     if logger.hasHandlers():
         logger.handlers.clear()

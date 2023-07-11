@@ -143,7 +143,7 @@ import typing
 if typing.TYPE_CHECKING:
     from typing import Any
     from maelzel.scoring.render import RenderOptions
-    from maelzel.scoring.quant import QuantizationProfile
+    from maelzel.scoring.quantprofile import QuantizationProfile
     import scoring.enharmonics
 
 
@@ -227,7 +227,7 @@ class CoreConfig(ConfigDict):
         'htmlTheme': lambda config, key, val: _syncCsoundengineTheme(val),
         r"(show|quant)\..+": lambda config, key, val: _resetImageCacheCallback(config, force=True),
         "A4": lambda config, key, val: _propagateA4(config, val),
-        "reprShowFractionsAsFloat": lambda config, key, val: _fractionsAsFloat(val)
+        ".reprShowFractionsAsFloat": lambda config, key, val: _fractionsAsFloat(val)
     }
 
     def __init__(self,

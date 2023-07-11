@@ -55,8 +55,8 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
         struct: the ScoreStruct
         minMeasures: if given, the minimum number of measures. This might be needed
             in the case of an endless scorestruct
-        clickdur: the length of each tick. Use None to use the totalDuration of the beat.
-            **NB**: the totalDuration of the playback can be set individually from the totalDuration
+        clickdur: the length of each tick. Use None to use the duration of the beat.
+            **NB**: the duration of the playback can be set individually from the duration
             of the displayed pitch
         strongBeatPitch: the pitch to use as a strong tick
         weakBeatPitch: the pitch to use as a weak tick

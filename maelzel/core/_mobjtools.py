@@ -103,15 +103,15 @@ def fillTempDynamics(items: list[MEvent], initialDynamic='mf',
 
 def addDurationToGracenotes(chain: list[MEvent], dur: F) -> None:
     """
-    Adds real totalDuration to gracenotes within chain
+    Adds real duration to gracenotes within chain
 
-    Previous to playback, gracenotes have a totalDuration of 0. Before playing
-    they are assigned a totalDuration, which is substracted from the previous "real"
+    Previous to playback, gracenotes have a duration of 0. Before playing
+    they are assigned a duration, which is substracted from the previous "real"
     note or silence.
 
     Args:
         chain: the sequence of notes to modify (inplace)
-        dur: the totalDuration of a single gracenote
+        dur: the duration of a single gracenote
 
     """
     lastRealNote = None

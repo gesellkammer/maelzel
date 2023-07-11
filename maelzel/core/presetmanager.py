@@ -471,7 +471,7 @@ class PresetManager:
                 turnoffWhenSilent aout1
 
         At init time the samples are loaded. The event turns itself off when the sample
-        is silent, so it is possible to use an infinite totalDuration to produce a one-shot
+        is silent, so it is possible to use an infinite duration to produce a one-shot
         playback.
 
         Args:

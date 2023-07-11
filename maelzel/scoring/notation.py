@@ -103,7 +103,7 @@ class Notation:
                  tiedPrev=False,
                  tiedNext=False,
                  dynamic: str = '',
-                 durRatios: list[F] = None,
+                 durRatios: list[F] | None = None,
                  group='',
                  gliss: bool = None,
                  color='',
@@ -132,6 +132,7 @@ class Notation:
                 f"Stem types: {definitions.stemTypes}"
 
         if durRatios:
+            assert isinstance(durRatios, list) and all(isinstance(r, F) for r in durRatios)
             assert F(1) not in durRatios
             # durRatios = [r for r in durRatios if r != 1]
 
@@ -156,7 +157,7 @@ class Notation:
         self.dynamic: str = dynamic
         "A dynamic mark"
 
-        self.durRatios: list[tuple[int, int]] = durRatios
+        self.durRatios: list[F] = durRatios
         """A set of ratios to apply to .duration to convert it to its notated duration
         
         see :meth:`Notation.notatedDuration`
@@ -204,6 +205,32 @@ class Notation:
 
     def __hash__(self):
         return id(self)
+
+    @staticmethod
+    def makeRest(duration: time_t,
+                 offset: time_t = None,
+                 dynamic: str = '',
+                 annotation: str = ''
+                 ) -> Notation:
+        """
+        Shortcut function to create a rest notation.
+
+        A rest is only needed when stacking notations within a container like
+        Chain or Track, to signal a spacing between notations.
+        Just explicitely setting the offset of a notation has the
+        same effect
+
+        Args:
+            duration: the duration of the rest
+            offset: the start time of the rest. Normally a rest's offset
+                is left unspecified (None)
+            dynamic: if given, attach this dynamic to the rest
+            annotation: if given, attach this text annotation to the rest
+
+        Returns:
+            the created rest (a Notation)
+        """
+        return makeRest(duration=duration, offset=offset, dynamic=dynamic, annotation=annotation)
 
     def quantizedPitches(self, divs=4) -> list[float]:
         """Quantize the pitches of this Notation
@@ -677,6 +704,12 @@ class Notation:
         """
         return self.__copy__()
 
+    def asRest(self):
+        return Notation(isRest=True,
+                        duration=self.duration,
+                        offset=self.offset,
+                        dynamic=self.dynamic)
+
     def cloneAsTie(self,
                    duration: F,
                    offset: F | None,
@@ -766,8 +799,8 @@ class Notation:
 
         Example::
 
-            >>> splitAtOffsets(Notation(F(0.5), totalDuration=F(1)))
-            [Notation(0.5, totalDuration=0.5), Notation(1, totalDuration=0.5)]
+            >>> splitAtOffsets(Notation(F(0.5), duration=F(1)))
+            [Notation(0.5, duration=0.5), Notation(1, duration=0.5)]
 
         """
         if not offsets:
@@ -785,8 +818,10 @@ class Notation:
         #parts: list[Notation] = [self.clone(offset=start, duration=end - start)
         #                         for start, end in intervals]
 
-        parts: list[Notation] = [self.cloneAsTie(offset=start, duration=end - start)
-                                 for start, end in intervals]
+        start0, end0 = intervals[0]
+        parts: list[Notation] = [self.clone(offset=start0, duration=end0-start0)]
+        parts.extend(self.cloneAsTie(offset=start, duration=end - start)
+                     for start, end in intervals[1:])
 
         # Remove superfluous dynamic/articulation
         #for part in parts[1:]:
@@ -810,7 +845,7 @@ class Notation:
 
     def symbolicDuration(self) -> F:
         """
-        The symbolic totalDuration of this Notation.
+        The symbolic duration of this Notation.
 
         This represents the notated figure (1=quarter, 1/2=eighth note,
         1/4=16th note, etc)
@@ -1039,16 +1074,19 @@ class Notation:
             even if the pitch of some of them might indicate otherwise
 
         Args:
-            clef: the clef to set, one of 'g', 'f' or '15a'
+            clef: the clef to set, one of 'treble', 'bass' or 'treble8', 'treble15' or 'bass8'
             idx: the index of the pitch within a chord, or None to apply to
                 the whole notation
 
         """
+        normalizedclef = definitions.clefs.get(clef)
+        if normalizedclef is None:
+            raise ValueError(f"Clef {clef} not known. Possible clefs: {definitions.clefs.keys()}")
         if idx is None:
-            self.setProperty('.clefHint', clef)
+            self.setProperty('.clefHint', normalizedclef)
         else:
             hint = self.getProperty('.clefHint', {})
-            hint[idx] = clef
+            hint[idx] = normalizedclef
             self.setProperty('.clefHint', hint)
 
     def clearClefHints(self) -> None:
@@ -1131,7 +1169,7 @@ class Notation:
         """
         assert dest is not self
 
-        exclude = {'totalDuration', 'pitches', 'offset', 'durRatios', 'tree',
+        exclude = {'duration', 'pitches', 'offset', 'durRatios', 'tree',
                    'properties', 'attachments', 'spanners', '__weakref__'}
 
         for attr in self.__slots__:

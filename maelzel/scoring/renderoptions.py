@@ -1,5 +1,5 @@
 from __future__ import annotations
-from dataclasses import dataclass, replace as _dataclassreplace
+from dataclasses import dataclass, replace as _dataclassreplace, fields as _dataclassfields
 from maelzel.scoring import enharmonics
 from maelzel import textstyle
 import emlib.misc
@@ -34,6 +34,12 @@ class RenderOptions:
 
     centsAnnotationFontsize: int | float = 10
     """Fontsize of the cents text annotation"""
+
+    centsAnnotationSeparator: str = ','
+    """Separator for cents annotations to be used in chords"""
+
+    centsAnnotationPlusSign: bool = False
+    """Show a plus sign for possitive cents annotations"""
 
     noteLabelStyle: str = 'fontsize=10'
     """Style applied to labels"""
@@ -144,6 +150,22 @@ class RenderOptions:
 
     musicxmlTenths: int = 40
     """Tenths used when rendering to musicxml. This is a reference value"""
+
+    autoClefChanges: bool = False
+    """If True, add clef changes if necessary along a part during the rendering process"""
+
+    autoClefChangesWindow: int = 1
+    """When adding automatic clef changes, use this window size (number of elements 
+    per evaluation)"""
+
+    keepClefBiasFactor: float = 2.0
+    """The higher this value, the more priority is given to keeping the previous clef"""
+
+
+    @classmethod
+    def keys(cls) -> set[str]:
+        return {f.name for f in _dataclassfields(cls)}
+
 
     def __hash__(self) -> int:
         return hash(str(self))
