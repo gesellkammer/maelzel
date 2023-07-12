@@ -59,7 +59,7 @@ setup(
         # "resampy",  # Do not include it by default, since this pulls numba
         "python-constraint",
 
-        "emlib>=1.11.2",
+        "emlib>=1.12.0",
         "ctcsound7>=0.3.0",
         "bpf4>=1.8.4",
         "configdict>=2.7.0",

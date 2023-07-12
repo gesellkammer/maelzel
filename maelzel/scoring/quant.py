@@ -7,8 +7,7 @@ a :class:`QuantizedScore`
 """
 from __future__ import annotations
 
-import copy
-from dataclasses import dataclass, field as _field
+from dataclasses import dataclass
 import sys
 import os
 
@@ -33,7 +32,7 @@ from maelzel import scorestruct as st
 
 from emlib import iterlib
 from emlib import misc
-from emlib.misc import Result
+from emlib.result import Result
 from emlib import mathlib
 
 from typing import TYPE_CHECKING
@@ -702,15 +701,6 @@ def _breakBeamsAtOffsets(root: Node, offsets: list[F]) -> None:
             item.setProperty('.breakBeam', True)
         else:
             _breakBeamsAtOffsets(item, offsets)
-
-
-def _removeUnnecessaryDurationRatios(n: Notation) -> None:
-    if not n.durRatios:
-        return
-    for r in reversed(n.durRatios.copy()):
-        if r != F(1):
-            break
-        n.durRatios.pop()
 
 
 def _crossesSubdivisions(slotStart: int, slotEnd: int, slotsAtSubdivs: list[int]) -> bool:
