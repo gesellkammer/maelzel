@@ -112,7 +112,7 @@ def resnap(assignedSlots: list[int], oldgrid: list[F], newgrid: list[F]) -> list
     if not len(reassigned) == len(assignedSlots):
         oldoffsets = [oldgrid[i] for i in assignedSlots]
         newoffsets = [newgrid[i] for i in reassigned]
-        print(f'{oldoffsets=}, {newoffsets=}, {assignedSlots=}, {reassigned=}, {oldgrid=}, {newgrid=}')
+        logger.error(f'{oldoffsets=}, {newoffsets=}, {assignedSlots=}, {reassigned=}, {oldgrid=}, {newgrid=}')
         raise RuntimeError("resnap error")
     return reassigned
 
@@ -242,6 +242,7 @@ def divisionGrid0(division: division_t, beatDuration: F = F(1)) -> list[F]:
 
 @cache
 def primeFactors(d: int, excludeBinary=False) -> set:
+    """calculate the prime factors of d"""
     assert isinstance(d, int), f"expected int, got {d}"
     factors = set()
     for p in (3, 5, 7, 11, 13, 17, 19):

@@ -1,7 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from functools import cache
-from emlib.misc import Result
 
 
 @dataclass

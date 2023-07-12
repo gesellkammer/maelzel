@@ -61,7 +61,7 @@ def asmidi(x: pitch_t) -> float:
         raise TypeError(f"could not convert {x} to a midi note")
 
 
-def getLogger(name: str, fmt='[%(name)s:%(filename)s:%(lineno)s - %(funcName)s] %(message)s',
+def getLogger(name: str, fmt='[%(name)s:%(filename)s:%(lineno)s:%(funcName)s:%(levelname)s] %(message)s',
               filelog: str = ''
                ) -> _logging.Logger:
     """

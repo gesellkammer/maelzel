@@ -712,12 +712,55 @@ def _handleDirection(note: Note, direction: Direction, context: _ParseContext):
         logger.warning(f"Direction not supported: {direction}")
 
 
-def _parseAttributes(node: ET.Element, context: _ParseContext):
+def _parseAttributes(node: ET.Element, context: _ParseContext) -> list:
+    actions = []
     for item in node:
         if item.tag == 'divisions':
             context.divisions = int(item.text)
         elif item.tag == 'transpose':
             context.transposition = int(item.find('chromatic').text)
+        #elif item.tag == 'clef':
+        #    clef = _parseClef(item)
+        #    if clef:
+        #        actions.append(lambda note: note.addSymbol(symbols.Clef(clef)))
+    return actions
+
+
+
+def _matchClef(sign: str, line=0, octave=0) -> str:
+    sign = sign.lower()
+    clefkind = ''
+    if sign == 'g':
+        if line != 2 and line != 0:
+            logger.error(f"The only support treble clef at the second line, got {line=}")
+        clefkind = 'treble'
+        if octave == 1:
+            clefkind += '8'
+        elif octave == 2:
+            clefkind += '15'
+        elif octave < 0:
+            logger.error(f"Negative octaves are not supported for treble clefs")
+    elif sign == 'f':
+        clefkind = 'bass'
+        if octave == -1:
+            clefkind += '8'
+        elif octave == -2:
+            clefkind += '15'
+    elif sign == 'c':
+        if line == 3 or line == 0:
+            clefkind = 'alto'
+        else:
+            logger.error("Only C clef in 3rd line supported")
+    return clefkind
+
+
+def _parseClef(clefnode: ET.Element) -> str:
+    clefsign = clefnode.find('sign').text
+    clefline = clefnode.find('line')
+    clefoctave = clefnode.find('clef-octave-change')
+    return _matchClef(clefsign,
+                     line=int(clefline.text) if clefline else 0,
+                     octave=int(clefoctave.text) if clefoctave else 0)
 
 
 def _parsePart(part: ET.Element, context: _ParseContext
@@ -739,6 +782,7 @@ def _parsePart(part: ET.Element, context: _ParseContext
     voices: dict[int, list[Note]] = {}
     measureCursor = F(0)
     directions: list[Direction] = []
+    actions: list[Callable[[Note], None]] = []
 
     for measureidx, measure in enumerate(part.findall('measure')):
         cursor = measureCursor
@@ -766,7 +810,7 @@ def _parsePart(part: ET.Element, context: _ParseContext
             fifths = int(keynode.find('fifths').text)
             mode = keynode.find('mode')
             modetext = mode.text if mode else ''
-            measureProperties['keySignature'] = (fifths, mode)
+            measureProperties['keySignature'] = (fifths, modetext)
 
         sco.addMeasure(timesig=(beats, beattype), quarterTempo=quarterTempo,
                        subdivisions=subdivisions, **measureProperties)
@@ -774,7 +818,7 @@ def _parsePart(part: ET.Element, context: _ParseContext
         for item in measure:
             tag = item.tag
             if tag == 'attributes':
-                _parseAttributes(item, context)
+                actions.extend(_parseAttributes(item, context))
 
             elif tag == 'direction':
                 if (direction := _parseDirection(item, context=context)) is not None:
@@ -813,6 +857,9 @@ def _parsePart(part: ET.Element, context: _ParseContext
                 cursor += note.dur
                 # each note consumes all directions until now
                 directions.clear()
+                for action in actions:
+                    action(note)
+                actions.clear()
 
             elif tag == 'barline':
                 location = item.attrib.get('location', 'right')

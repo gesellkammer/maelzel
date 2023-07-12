@@ -1517,7 +1517,7 @@ def _nodesCanMerge(g1: Node,
                    beatOffsets: list[F]
                    ) -> Result:
     """
-    Returns Result(True) if the given nodes can merge, Result(False, errormsg) otherwise
+    Returns Result.Ok() if the given nodes can merge, Result.Fail(errormsg) otherwise
 
     Args:
         g1: first node
@@ -1540,75 +1540,75 @@ def _nodesCanMerge(g1: Node,
     g2first = g2.firstNotation()
 
     if g1.durRatio != g2.durRatio:
-        return Result(False, "not same durRatio")
+        return Result.Fail("not same durRatio")
     if g1.durRatio == (1, 1) and len(g1) == len(g2) == 1:
         if g1last.gliss and g1last.tiedPrev and g1.symbolicDuration() + g2.symbolicDuration() > 1:
-            return Result(False, 'A glissando over a beat needs to be broken at the beat')
+            return Result.Fail('A glissando over a beat needs to be broken at the beat')
         # Special case: always merge binary nodes with single items since there is always
         # a way to notate those
-        return Result(True)
+        return Result.Ok()
 
     if g1.durRatio != (1, 1):
         if acrossBeat and g1.durRatio[0] not in profile.allowedTupletsAcrossBeat:
-            return Result(False, "tuplet not allowed to merge across beat")
+            return Result.Fail("tuplet not allowed to merge across beat")
         elif g1.totalDuration() + g2.totalDuration() > profile.mergedTupletsMaxDuration:
-            return Result(False, "incompatible duration")
+            return Result.Fail("incompatible duration")
         elif not profile.mergeTupletsOfDifferentDuration and acrossBeat and g1.totalDuration() != g2.totalDuration():
-            return Result(False, "Nodes of different duration cannot merge")
+            return Result.Fail("Nodes of different duration cannot merge")
 
     item1, item2 = g1.items[-1], g2.items[0]
     syncopated = g1last.tiedNext or (g1last.isRest and g2first.isRest and g1last.durRatios == g2first.durRatios)
 
     if acrossBeat and not syncopated:
-        return Result(False, 'no need to extend node over beat')
+        return Result.Fail('no need to extend node over beat')
 
     if isinstance(item1, Node) and isinstance(item2, Node):
         if not (r := _nodesCanMerge(item1, item2, profile=profile, beatOffsets=beatOffsets)):
-            return Result(False, f'nested tuplets cannot merge: {r.info}')
+            return Result.Fail(f'nested tuplets cannot merge: {r.info}')
         else:
             nestedtup = (g1.durRatio[0], item1.durRatio[0])
             if acrossBeat and item1.durRatio != (1, 1) and g1.durRatio != (1, 1) and nestedtup not in profile.allowedNestedTupletsAcrossBeat:
-                return Result(False, f'complex nested tuplets cannot merge: {nestedtup}')
-            return Result(True, '')
+                return Result.Fail(f'complex nested tuplets cannot merge: {nestedtup}')
+            return Result.Ok()
     elif isinstance(item1, Node) or isinstance(item2, Node):
-        return Result(False, 'A Node cannot merge with a single item')
+        return Result.Fail('A Node cannot merge with a single item')
     else:
         assert isinstance(item1, Notation) and isinstance(item2, Notation)
         if not acrossBeat:
-            return Result(True)
+            return Result.Ok()
 
         symdur: F = item1.symbolicDuration() + item2.symbolicDuration()
 
         if syncopated and symdur.denominator not in (1, 2, 4, 8):
-            return Result(False, f'Cannot merge notations resulting in irregular durations. Resulting symbolic duration: {symdur}')
+            return Result.Fail(f'Cannot merge notations resulting in irregular durations. Resulting symbolic duration: {symdur}')
 
         if item1.gliss and item1.tiedNext and item2.gliss:
             if symdur >= 2 and item1.tiedPrev:
-                return Result(False, "Cannot merge glissandi resulting in long (>= halfnote) notes")
+                return Result.Fail("Cannot merge glissandi resulting in long (>= halfnote) notes")
 
         if not profile.mergeNestedTupletsAcrossBeats:
             g1nested = any(isinstance(item, Node) and item.durRatio != g1.durRatio
                            for item in g1.items)
             if g1nested:
-                return Result(False, "Cannot merge nested tuples 1")
+                return Result.Fail("Cannot merge nested tuples 1")
 
             g2nested = any(isinstance(item, Node) and
                            item.durRatio != (1, 1) and
                            item.durRatio != g2.durRatio != (1, 1)
                            for item in g2.items)
             if g2nested:
-                return Result(False, "Cannot merge nested tuples 2")
+                return Result.Fail("Cannot merge nested tuples 2")
 
         if item1.duration + item2.duration < profile.minBeatFractionAcrossBeats:
-            return Result(False, 'Absolute duration of merged Notations across beat too short')
+            return Result.Fail('Absolute duration of merged Notations across beat too short')
 
         if symdur < profile.minSymbolicDurationAcrossBeat:
-            return Result(False, 'Symbolic duration of merged notations across beat too short')
+            return Result.Fail('Symbolic duration of merged notations across beat too short')
 
         if g1.durRatio == (3, 2) and item1.symbolicDuration() == item2.symbolicDuration() == 1 and item1.tiedNext:
-            return Result(False, 'Not needed')
+            return Result.Fail('Not needed')
 
-        return Result(True, '')
+        return Result.Ok()
 
 
 def _mergeSiblings(root: Node,
@@ -1927,7 +1927,7 @@ class QuantizedPart:
                 n.removeAttachments(lambda attach: isinstance(attach, attachment.Clef))
         clefutils.findBestClefs(notations, addclefs=addClefs, winsize=window,
                                 threshold=threshold, biasfactor=biasFactor,
-                                property=property)
+                                key=property)
 
     def removeUnnecessaryDynamics(self, tree: bool, resetAfterEmptyMeasure=True) -> None:
         """

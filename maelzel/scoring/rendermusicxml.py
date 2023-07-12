@@ -167,8 +167,10 @@ def _mxmlClef(clef: str) -> tuple[str, int, int]:
     return {
         'treble': ('G', 2, 0),
         'treble8': ('G', 2, 1),
+        'treble15': ('G', 2, 2),
         'bass': ('F', 4, 0),
         'bass8': ('F', 4, -1),
+        'bass15': ('F', 4, -2),
         'alto': ('C', 3, 0)
     }[clef]
 
@@ -234,6 +236,7 @@ class _RenderState:
     glissando: bool = False
     tupletStack: list[tuple[int, int]] = field(default_factory=list)
     dynamic: str = ''
+    clef: str = ''
     insideGraceGroup: bool = False
     openSpanners: dict[str, _spanner.Spanner] = field(default_factory=dict)
 
@@ -519,10 +522,22 @@ def _renderNotation(n: Notation,
                     ) -> None:
 
     ornaments_: md.Element | None = None
+    attributes_: md.Element | None = None
     # Preprocess
     for attach in n.attachments:
         if isinstance(attach, _attachment.Harmonic):
             n = n.resolveHarmonic()
+        elif isinstance(attach, _attachment.Clef) and attach.kind != state.clef:
+            if attributes_ is None:
+                attributes_ = _elem(doc, parent, 'attributes')
+            clef_ = _elem(doc, attributes_, 'clef')
+
+            sign, line, octave = _mxmlClef(attach.kind)
+            _elemText(doc, clef_, 'sign', sign)
+            _elemText(doc, clef_, 'line', line)
+            if octave != 0:
+                _elemText(doc,clef_, 'clef-octave-change', octave)
+            state.clef = attach.kind
 
     notatedDur = n.notatedDuration()
 
@@ -539,7 +554,6 @@ def _renderNotation(n: Notation,
     notenames = n.resolveNotenames()
 
     _renderPitch(doc, parent=note0_, notation=n, idx=0, state=state)
-    #_elemText(doc, note0_, 'voice', 1)
 
     # The rest pitches if a chord
     if not n.isRest and len(n.pitches) > 1:
@@ -643,6 +657,7 @@ def _renderNotation(n: Notation,
                     ornaments_ = _elem(doc, notations(0), 'ornaments')
                 tremtype = 'stop' if attach.tremtype == 'end' else  attach.tremtype
                 _elemText(doc, ornaments_, "tremolo", attach.nummarks, type=tremtype)
+
             elif isinstance(attach, _attachment.Breath) and attach.visible:
                 # TODO: breath marks
                 if articulations_ is None:
@@ -874,7 +889,7 @@ def _renderPart(part: quant.QuantizedPart,
 
     # TODO: key signature
 
-    state = _RenderState()
+    state = _RenderState(clef=firstclef)
 
     _prepareRender(part)
 

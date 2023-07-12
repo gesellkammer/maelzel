@@ -34,4 +34,6 @@ A :class:`~maelzel.core.score.Score` can be written as a MIDI file:
 
 TODO: example with screenshot
 
-MIDI input is also
+Direct MIDI input is not supported at the moment but you can convert any MIDI
+file to musicxml via a wide number of applications (MuseScore, for example)
+and use that as an input.

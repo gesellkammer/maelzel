@@ -61,7 +61,7 @@ def bestclef(notations: Sequence[Notation], biasclef='', biasfactor=1.5) -> str:
 
 
 def findBestClefs(notations: list[Notation], firstclef='', winsize=1, threshold=0.,
-                  biasfactor=1.5, addclefs=False, property='clef'
+                  biasfactor=1.5, addclefs=False, key='clef'
                   ) -> list[tuple[int, str]]:
     """
     Given a list of notations, find the clef changes
@@ -79,7 +79,7 @@ def findBestClefs(notations: list[Notation], firstclef='', winsize=1, threshold=
             more minor jumps
         addclefs: if True, add a Clef change (an attachment.Clef) to the
             notation where a clef change should happen.
-        property: the property key to add to the notation to mark
+        key: the property key to add to the notation to mark
              a clef change. Setting this property alone will not
              result in a clef change in the notation (see `addclefs`)
 
@@ -113,7 +113,7 @@ def findBestClefs(notations: list[Notation], firstclef='', winsize=1, threshold=
     clefs = [(idx, clefbyindex[clefindex]) for idx, clefindex in out]
     for idx, clef in clefs:
         n = notations[idx]
-        n.setProperty(property, clef)
+        n.setProperty(key, clef)
         if addclefs:
             n.addAttachment(attachment.Clef(clef))
     return clefs
@@ -123,6 +123,21 @@ def bestClefForPitch(pitch: float,
                      clefs: Sequence[str],
                      evaluators: dict[str, bpf4.BpfInterface] = None
                      ) -> tuple[str, float]:
+    """
+    Determines the most appropriate clef for the given pitch
+
+    Args:
+        pitch: the pitch
+        clefs: the clefs to considere
+        evaluators: the evaluators as returned via :func:`clefEvaluators`
+
+    Returns:
+        a tuple (clef: str, fitness: float), where clef is the name of the
+        clef ('treble', 'bass', 'treble8', etc) and fitness indicates how good
+        this clef is for representing this pitch (the higher, the more adequate
+        the clef is)
+
+    """
     if evaluators is None:
         evaluators = clefEvaluators()
     data = [(evaluators[clef](pitch), clef) for clef in clefs]
