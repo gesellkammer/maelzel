@@ -472,10 +472,12 @@ def _dynamicDirection(doc: md.Document,
 def _renderPitch(doc: md.Document,
                  parent: md.Element,
                  notation: Notation,
+                 notename: str,
                  idx: int,
-                 state: _RenderState) -> None:
+                 state: _RenderState,
+                 ) -> None:
     accidentalTraits = notation.findAttachment(cls=_attachment.AccidentalTraits, anchor=idx)
-    pitch = None if notation.isRest else pt.notated_pitch(notation.notename(idx))
+    pitch = None if notation.isRest else pt.notated_pitch(notename)
     durationDivisions: F = notation.duration * state.divisions
     # #_elemText(doc, note0_, 'type', )
     notatedDur = notation.notatedDuration()
@@ -547,26 +549,36 @@ def _renderNotation(n: Notation,
     if n.dynamic:
         _dynamicDirection(doc, parent, n.dynamic)
 
-    numnotes = len(n.pitches) if not n.isRest else 1
-    notes_ = [_elem(doc, parent, 'note') for i in range(numnotes)]
+    numpitches = len(n.pitches) if not n.isRest else 1
+    notes_ = [_elem(doc, parent, 'note') for i in range(numpitches)]
     note0_ = notes_[0]
 
     notenames = n.resolveNotenames()
+    qnotenames = [pt.quantize_notename(notename, divisions_per_semitone=options.divsPerSemitone)
+                  for notename in notenames]
 
-    _renderPitch(doc, parent=note0_, notation=n, idx=0, state=state)
+    _renderPitch(doc, parent=note0_, notation=n,
+                 notename=qnotenames[0] if qnotenames else '',
+                 idx=0, state=state)
 
-    # The rest pitches if a chord
-    if not n.isRest and len(n.pitches) > 1:
-        for i, notename in enumerate(notenames[1:], 1):
-            parent = notes_[i]
-            _renderPitch(doc, parent, n, i, state=state)
+    if not n.isRest:
+        if numpitches > 1:
+            # The rest pitches if a chord
+            for i, notename in enumerate(qnotenames[1:], 1):
+                parent = notes_[i]
+                _renderPitch(doc, parent,
+                             notation=n,
+                             idx=i,
+                             notename=notename,
+                             state=state)
 
     # Noteheads
-    if not n.isRest:
-        for i in range(len(n.pitches)):
+        for i in range(numpitches):
             notehead = n.getNotehead(i)
             if notehead:
                 _renderNotehead(doc, notes_[i], notehead)
+
+    # TODO: add cents deviation annotation
 
     if notatedDur.tuplets:
         _timeModification(notatedDur, doc, note0_)
@@ -589,13 +601,11 @@ def _renderNotation(n: Notation,
             # <notations><tuplet number="2" type="stop"/></notations>
             _elem(doc, notations(0), 'tuplet', number=tupindex+1, type='stop')
 
-    # TODO: Add attachments
-
     spannerkind = 'slide' if options.musicxmlSolidSlideGliss and options.glissLineType == 'solid' else 'glissando'
     linetype = options.glissLineType
 
     if state.glissando and (not n.tiedPrev or not n.gliss):
-        for i in range(numnotes):
+        for i in range(numpitches):
             _notationsSpanner(doc, notations(i), spannerkind, number=i+1, type='stop')
 
     # continue gliss: n.tiedPrev and n.gliss and state.glissando
@@ -607,7 +617,7 @@ def _renderNotation(n: Notation,
 
     # start gliss: n.gliss and (not state.glissando or not n.tiedPrev)
     if n.gliss and (not state.glissando or not n.tiedPrev):
-        for i in range(numnotes):
+        for i in range(numpitches):
             _notationsSpanner(doc, notations(i), spannerkind, number=i+1,
                               type='start', linetype=linetype)
 

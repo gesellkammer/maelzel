@@ -1058,7 +1058,7 @@ class Notation:
             return default
         if key.startswith('.'):
             assert key in self._privateKeys, f"Key {key} unknown. Possible private keys: {self._privateKeys}"
-        if setdefault:
+        if setdefault is not None:
             return self.properties.setdefault(key, setdefault)
         return self.properties.get(key, default)
 
@@ -1344,12 +1344,11 @@ def makeGroupId(parent: str = '') -> str:
 
 
 def makeNote(pitch: pitch_t,
-             duration: time_t = None,
+             duration: time_t,
              offset: time_t = None,
              annotation: str = None,
              gliss=False,
              withId=False,
-             gracenote=False,
              enharmonicSpelling: str = None,
              dynamic: str = '',
              **kws
@@ -1360,8 +1359,7 @@ def makeNote(pitch: pitch_t,
     Args:
         pitch: the pitch as midinote or notename. If given a pitch as str,
             the note in question is fixed at the given enharmonic representation.
-        duration: the duration of this Notation. Use None to leave this unset,
-            0 creates a grace note
+        duration: the duration of this Notation. Use 0 tp create a grace note
         offset: the offset of this Notation (None to leave unset)
         annotation: an optional text annotation for this note
         gliss: does this Notation start a glissando?
@@ -1375,10 +1373,7 @@ def makeNote(pitch: pitch_t,
     Returns:
         the created Notation
     """
-    if gracenote:
-        duration = 0
-    else:
-        duration = asF(duration) if duration is not None else None
+    duration = asF(duration)
     offset = asF(offset) if offset is not None else None
     out = Notation(pitches=[pitch], duration=duration, offset=offset, gliss=gliss,
                    dynamic=dynamic, **kws)
@@ -1392,7 +1387,7 @@ def makeNote(pitch: pitch_t,
 
 
 def makeChord(pitches: list[pitch_t],
-              duration: time_t = None,
+              duration: time_t,
               offset: time_t = None,
               annotation: str = None,
               dynamic='',
@@ -1405,8 +1400,7 @@ def makeChord(pitches: list[pitch_t],
     Args:
         pitches: the pitches as midinotes or notenames. If given a note as str,
             the note in question is fixed at the given enharmonic representation.
-        duration: the duration of this Notation. Use None to leave this unset,
-            use 0 to create a grace note
+        duration: the duration of this Notation. Use 0 to create a chord grace note
         offset: the offset of this Notation (None to leave unset)
         annotation: a text annotation
         dynamic: a dynamic for this chord

@@ -742,8 +742,7 @@ class Note(MEvent):
                                     offset=offset,
                                     gliss=bool(self.gliss),
                                     dynamic=self.dynamic,
-                                    group=groupid,
-                                    gracenote=self.isGracenote())
+                                    group=groupid)
         if self.pitchSpelling:
             notation.fixNotename(self.pitchSpelling, idx=0)
 
@@ -936,7 +935,7 @@ class Note(MEvent):
     def resolveDynamic(self, conf: CoreConfig = None) -> str:
         if conf is None:
             conf = getConfig()
-        # Should we query the parent to see the currently active dynamic?
+        # TODO: query the parent to see the currently active dynamic
         return self.dynamic or conf['play.defaultDynamic']
 
     def resolveAmp(self, workspace: Workspace = None) -> float:
@@ -1213,8 +1212,6 @@ class Chord(MEvent):
         if not isinstance(self.gliss, bool):
             assert all(isinstance(_, (int, float)) for _ in self.gliss)
             return self.gliss
-
-        # self.gliss is True
 
         if self.properties and (target := self.properties.get('.glisstarget')) is not None:
             return target
@@ -1797,22 +1794,9 @@ def asEvent(obj, **kws) -> MEvent:
     if symbols:
         for symbol in symbols:
             out.addSymbol(symbol)
-    if spanners:
+    if spanners is not None:
         for spanner in spanners:
             out.addSpanner(spanner)
 
     return out
 
-
-def _normalizeChordArpeggio(arpeggio: str | bool | None, chord: Chord, config: CoreConfig
-                            ) -> bool:
-    if arpeggio is None:
-        arpeggioconfig = config['show.arpeggiateChord']
-        assert isinstance(arpeggioconfig, (str, bool))
-
-    if isinstance(arpeggio, bool):
-        return arpeggio
-    elif arpeggio == 'auto':
-        return chord._isTooCrowded()
-    else:
-        raise ValueError(f"arpeggio should be True, False, 'auto' (got {arpeggio})")

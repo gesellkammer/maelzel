@@ -745,7 +745,7 @@ def _evalRhythmComplexity(profile: QuantizationProfile,
         (numTies/len(snappedEvents), profile.rhythmComplexityIrregularDurationsWeight)
     ])
     if profile.debug:
-        debugstr = f'numNotesAcrossSubdics={numNotesAcrossSubdivisions}, {numTies=}'
+        debugstr = f'numNotesAcrossSubdivs={numNotesAcrossSubdivisions}, {numTies=}'
     else:
         debugstr = ''
     return penalty, debugstr
@@ -1394,8 +1394,8 @@ def quantizeMeasure(events: list[Notation],
     quantizedBeats: list[QuantizedBeat] = []
 
     if not _isMeasureFilled(events, timesig):
-        logger.warning(f"Measure {timesig} is not filled ({events=}). "
-                       f"Filling gaps with silences")
+        logger.debug(f"Measure {timesig} is not filled ({events=}). "
+                     f"Filling gaps with silences")
         events = _fillMeasure(events, timesig)
 
     beatStructure = st.measureBeatStructure(timesig=timesig,

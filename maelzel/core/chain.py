@@ -234,6 +234,8 @@ class Chain(MObj, MContainer):
         """
         Returns the next item after *item*
 
+        An item can be an event (note, chord) or another chain
+
         Args:
             item: the item to find its next item
 

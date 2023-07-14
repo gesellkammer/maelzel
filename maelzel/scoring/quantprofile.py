@@ -84,13 +84,13 @@ class QuantizationProfile:
     rhythmComplexityWeight: float = 0.001
     """Weight of the actual quantized rhythm. This includes evaluating synchopes, ties, etc."""
 
-    rhythmComplexityNotesAcrossSubdivisionWeight = 0.1
+    rhythmComplexityNotesAcrossSubdivisionWeight = 0.2
     """
     When calculating rhythm complexity this weight is applied to the penalty of notes extending
     over subdivisions of the beat (inner-beat syncopes)
     """
 
-    rhythmComplexityIrregularDurationsWeight = 0.9
+    rhythmComplexityIrregularDurationsWeight = 0.8
     """
     When calculating rhythm complexity this weight is applied to the penalty of notes whose
     duration is irregular (durations of 5 or 9 units, which need ties to be represented)

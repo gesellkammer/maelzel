@@ -4,18 +4,30 @@ Input / Output
 
 .. toctree::
     :maxdepth: 1
-    :hidden:
 
     musicxmlio <notebooks/musicxmlio>
+
 
 Musicxml
 ========
 
-
 **maelzel.core** can input and output musicxml
 
-.. figure:: assets/notebook-musicxmlio.png
-    :height: 300px
+.. grid:: 1 1 2 2
+
+    .. grid-item-card:: MusicXML Input / Output
+        :link: notebooks/musicxmlio
+        :link-type: doc
+        :class-title: cardtitle
+
+        .. figure:: assets/notebook-musicxmlio.png
+            :height: 300px
+
+        Introduction to notes, chords, voices, etc. Notation and playback
+
+#.. figure:: assets/notebook-musicxmlio.png
+#    :height: 300px
+#    :target: notebooks/musicxmlio
 
 
 Lilypond

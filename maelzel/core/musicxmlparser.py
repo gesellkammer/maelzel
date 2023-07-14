@@ -719,6 +719,7 @@ def _parseAttributes(node: ET.Element, context: _ParseContext) -> list:
             context.divisions = int(item.text)
         elif item.tag == 'transpose':
             context.transposition = int(item.find('chromatic').text)
+        # Dont do this until multistaff parts are supported
         #elif item.tag == 'clef':
         #    clef = _parseClef(item)
         #    if clef:

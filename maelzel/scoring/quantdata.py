@@ -29,12 +29,16 @@ presets = {
     'highest': {
         'possibleDivisionsByTempo': {
             10: [],
-            400: quantutils.allSubdivisions(maxsubdivs=5,
-                                            possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
-                                            maxdensity=30),
+            60: quantutils.allSubdivisions(maxsubdivs=5,
+                                           possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 15),
+                                           maxdensity=30),
+
+            300: quantutils.allSubdivisions(maxsubdivs=5,
+                                            possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 15),
+                                            maxdensity=29),
             800: quantutils.allSubdivisions(maxsubdivs=3,
                                             possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
-                                            maxdensity=30),
+                                            maxdensity=28),
         },
         'divisionPenaltyMap': {
             1:0.0,  2:0.0,  3:0.0,  4:0.02, 5:0.02,
