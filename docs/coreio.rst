@@ -4,6 +4,7 @@ Input / Output
 
 .. toctree::
     :maxdepth: 1
+    :hidden:
 
     musicxmlio <notebooks/musicxmlio>
 
@@ -24,10 +25,6 @@ Musicxml
             :height: 300px
 
         Introduction to notes, chords, voices, etc. Notation and playback
-
-#.. figure:: assets/notebook-musicxmlio.png
-#    :height: 300px
-#    :target: notebooks/musicxmlio
 
 
 Lilypond

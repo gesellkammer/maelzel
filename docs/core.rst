@@ -136,7 +136,7 @@ Table of Contents
     coreplayintro
     config
     workspace
-    coretools
-    symbols
-    coreio
+    Input / Output (import/export to musicxml, lilypond, MiDI, ...) <coreio>
+    Pure Notation <symbols>
+    Miscellaneous Tools <coretools>
 

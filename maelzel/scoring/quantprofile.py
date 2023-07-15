@@ -1,4 +1,5 @@
 from __future__ import annotations
+from math import sqrt
 from functools import cache
 from dataclasses import dataclass, field as _field, fields as _fields
 from maelzel.scoring.common import F, division_t, number_t, logger
@@ -122,7 +123,7 @@ class QuantizationProfile:
     numNestedTupletsPenalty: list[float] = _factory([0., 0.1, 0.4, 0.5, 0.8, 0.8])
     """Penalty applied to nested levels by level"""
 
-    complexNestedTupletsFactor: float = 1.5
+    complexNestedTupletsFactor: float = 1.8
     """For certain combinations of nested tuplets an extra complexity factor can be applied.
     If this factor is 1.0, then no extra penalty is calculated. Any number above 1 will
     penalize complex nested tuplets (prefer (5, 5, 5) over (3, 3, 3, 3, 3)).
@@ -414,12 +415,14 @@ def _divisionPenalty(division: division_t,
         numSubdivsPenalty = profile.numSubdivsPenaltyMap[1]
         cardinality = 1
     else:
-        internalPenalty = sum(_divisionPenalty(subdiv, profile, nestingLevel+1, maxPenalty=maxPenalty)[0]
-                              for subdiv in division)
+        internalPenalty = sqrt(sum(_divisionPenalty(subdiv, profile, nestingLevel+1, maxPenalty=maxPenalty)[0]**2
+                                   for subdiv in division))
         divPenalty = internalPenalty + profile.divisionPenaltyMap.get(len(division), maxPenalty)
         numSubdivsPenalty = profile.numSubdivsPenaltyMap.get(len(division), maxPenalty)
         cardinality = max(1, _divisionCardinality(division, excludeBinary=True))
+
     cardinalityPenalty = profile.divisionCardinalityPenaltyMap.get(cardinality, maxPenalty)
+
     # We only calculate level penalty on the outmost level
     levelPenalty = profile.numNestedTupletsPenalty[_divisionDepth(division)] if nestingLevel == 0 else 0
 

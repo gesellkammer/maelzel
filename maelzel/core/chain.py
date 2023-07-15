@@ -134,12 +134,19 @@ class Chain(MObj, MContainer):
                  properties: dict[str, Any] = None,
                  parent: MObj = None,
                  _init=True):
+        if isinstance(items,  str):
+            _init = True
+
         if _init:
             if offset is not None:
                 offset = asF(offset)
             if items is not None:
-                items = [item if isinstance(item, (MEvent, Chain)) else asEvent(item)
-                         for item in items]
+                if isinstance(items, str):
+                    items = [line.strip() for line in items.splitlines()]
+                    items = [asEvent(item) for item in items if item]
+                else:
+                    items = [item if isinstance(item, (MEvent, Chain)) else asEvent(item)
+                             for item in items]
 
         if items is not None:
             for item in items:

@@ -30,8 +30,17 @@ from previous sessions (see :meth:`CoreConfig.save() <maelzel.core.config.CoreCo
 
 .. admonition:: See Also
 
-    - :func:`~maelzel.core.workspace.makeConfig`
     - :ref:`config`
+
+Example Notebooks
+~~~~~~~~~~~~~~~~~
+
+.. toctree::
+    :maxdepth: 1
+
+    The active Workspace <notebooks/getWorkspace>
+    setTempo: modify the tempo of the active ScoreStruct <notebooks/setTempo>
+
 
 Example
 ~~~~~~~
@@ -91,14 +100,6 @@ active config are used:
 .. image:: assets/workspace-temporaryworkspace.png
 
 
-Example Notebooks
------------------
-
-.. toctree::
-    :maxdepth: 1
-
-    The active Workspace <getWorkspace>
-    setTempo: modify the tempo of the active ScoreStruct <setTempo>
 
 
 
@@ -107,5 +108,5 @@ Example Notebooks
 .. automodapi:: maelzel.core.workspace
     :allowed-package-names: maelzel.core.workspace,maelzel.core.config,maelzel.music.dynamics
     :no-inheritance-diagram:
-    :headings: =-
+    :no-heading:
 
