@@ -28,3 +28,4 @@ Untitled*.ipynb
 *.tex
 *.texi
 notebooks/test
+.virtual_documents
