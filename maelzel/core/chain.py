@@ -123,7 +123,6 @@ class Chain(MObj, MContainer):
         properties: any properties for this chain. Properties can be anything,
             they are a way for the user to attach data to an object
     """
-    _acceptsNoteAttachedSymbols = False
 
     __slots__ = ('items', '_modified', '_cachedEventsWithOffset')
 
@@ -142,7 +141,7 @@ class Chain(MObj, MContainer):
                 offset = asF(offset)
             if items is not None:
                 if isinstance(items, str):
-                    items = [line.strip() for line in items.splitlines()]
+                    items = [_util.stripNoteComments(line) for line in items.splitlines()]
                     items = [asEvent(item) for item in items if item]
                 else:
                     items = [item if isinstance(item, (MEvent, Chain)) else asEvent(item)
@@ -528,10 +527,11 @@ class Chain(MObj, MContainer):
         if modified:
             self._changed()
 
-
     def childOffset(self, child: MObj) -> F:
         """
         Returns the offset of child within this chain
+
+        raises ValueError if self is not a parent of child
 
         Args:
             child: the object whose offset is to be determined
@@ -608,9 +608,9 @@ class Chain(MObj, MContainer):
         self._modified = True
         self._dur = None
         if self.parent:
-            self.parent.childChanged(self)
+            self.parent._childChanged(self)
 
-    def childChanged(self, child: MObj) -> None:
+    def _childChanged(self, child: MObj) -> None:
         if not self._modified:
             self._changed()
 
@@ -806,7 +806,6 @@ class Chain(MObj, MContainer):
         if modified:
             self._changed()
 
-
     def asVoice(self) -> Voice:
         """
         Convert this Chain to a Voice
@@ -867,8 +866,9 @@ class Chain(MObj, MContainer):
 
         if self.symbols:
             for s in self.symbols:
-                for n in notations:
-                    s.applyTo(n)
+                if isinstance(s, symbols.NoteSymbol) and not isinstance(s, symbols.PartSymbol):
+                    for n in notations:
+                        s.applyToNotation(n)
 
         return notations
 
@@ -1257,33 +1257,68 @@ class Chain(MObj, MContainer):
         offsets = scorestruct.measureOffsets(startindex=startindex, stopindex=stopindex)
         self.splitEventsAtOffsets(offsets, tie=True)
 
+    def splitAt(self, absoffset: F, beambreak=True, nomerge=True) -> None:
+        """
+        Split any event present at the given absolute offset
 
-    def splitEventsAtOffsets(self, offsets: list[F], tie=True) -> None:
+        Args:
+            absoffset: the offset to split at
+            beambreak: if True, add a BeamBreak symbol to the given event
+                to ensure that the break is not glued together at the
+                quantization/rendering stage
+
+        """
+        self.splitEventsAtOffsets([absoffset])
+        if beambreak:
+            ev = self.eventAt(absoffset)
+            if ev and ev.absOffset() == absoffset:
+                ev.addSymbol(symbols.BeamBreak())
+        elif nomerge:
+            ev = self.eventAt(absoffset)
+            if ev and ev.absOffset() == absoffset:
+                ev.addSymbol(symbols.NoMerge())
+
+
+    def splitEventsAtOffsets(self, absoffsets: list[F], tie=True,
+                             ) -> None:
         """
         Splits items in self at the given offsets, **inplace** (recursively)
 
         The offsets are absolute. Split items are by default tied together
 
         Args:
-            offsets: the offsets to split items at.
+            absoffsets: the offsets to split items at. Offsets are absolute.
             tie: if True, parts of an item are tied together
         """
-        if not offsets:
+        if not absoffsets:
             raise ValueError("No offsets given")
         items = []
         for item, itemoffset, itemdur in self.iterateWithTimes(absolute=True):
             if isinstance(item, Chain):
-                item.splitEventsAtOffsets(offsets, tie=tie)
+                item.splitEventsAtOffsets(absoffsets, tie=tie)
                 items.append(item)
             else:
-                parts = item.splitAtOffsets(offsets, tie=tie)
+                parts = item.splitAtOffsets(absoffsets, tie=tie)
                 items.extend(parts)
         self.items = items
         self._changed()
 
     def cycle(self: ChainT, totaldur: F, crop=False) -> ChainT:
+        """
+        Cycle over the items of self for the given total duration
+
+        Args:
+            totaldur: the total duration of the resulting sequence
+            crop: if True, crop last item if it exceeds the given
+                total duration
+
+        Returns:
+            a copy of self representing cycles of its items
+
+        """
         filled = self.copy()
-        filled.removeRedundantOffsets(fillGaps=True)
+        filled.fillGaps()
+        filled.removeRedundantOffsets()
         flatitems = list(filled.recurse())
         items: list[MEvent] = []
         accum = F(0)
@@ -1364,7 +1399,6 @@ class PartGroup:
             self.parts.append(part)
 
 
-
 class Voice(Chain):
     """
     A Voice is a sequence of non-overlapping objects.
@@ -1389,7 +1423,6 @@ class Voice(Chain):
             as notation. If not given the config key 'show.voiceMaxStaves' is used
     """
 
-    _acceptsNoteAttachedSymbols = False
     _configKeys: set[str] | None = None
 
     def __init__(self,
@@ -1420,7 +1453,6 @@ class Voice(Chain):
     def __hash__(self):
         superhash = super().__hash__()
         return hash((superhash, self.name, self.shortname, self.maxstaves, id(self._group)))
-
 
     @property
     def group(self) -> PartGroup | None:
@@ -1524,6 +1556,15 @@ class Voice(Chain):
                                    shortname=self.shortname,
                                    groupParts=self._group is None,
                                    addQuantizationProfile=ownconfig is not None)
+        if self.symbols:
+            for symbol in self.symbols:
+                if isinstance(symbol, symbols.PartSymbol):
+                    if symbol.applyToAllParts:
+                        for part in parts:
+                            symbol.applyToPart(part)
+                    else:
+                        symbol.applyToPart(parts[0])
+
         if self._group:
             scoring.UnquantizedPart.groupParts(parts,
                                                groupid=self._group.groupid,
@@ -1532,11 +1573,24 @@ class Voice(Chain):
                                                showPartNames=self._group.showPartNames)
         return parts
 
+    def addSymbol(self, *args, **kws) -> Voice:
+        symbol = symbols.parseAddSymbol(args, kws)
+        if not isinstance(symbol, symbols.PartSymbol):
+            raise ValueError(f"Cannot add {symbol} to a {type(self).__name__}")
+        self._addSymbol(symbol)
+        return self
 
-def _parseMultiLineChain(s: str) -> list[MEvent]:
-    s = s.replace(';', '\n')
-    events = [asEvent(line.strip()) for line in s.splitlines() if line]
-    return events
+    def breakBeam(self, location: F | tuple[int, F]) -> None:
+        """
+        Shortcut to ``Voice.addSymbol(symbols.BeamBreak(...))``
+
+        Args:
+            location: the location to break the beam (a beat or a tuple (measureidx, beat))
+
+        Returns:
+
+        """
+        self.addSymbol(symbols.BeamBreak(location=location))
 
 
 def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
@@ -1580,8 +1634,6 @@ def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
 
     def makeLine(nodeindex: int, groupindex: int, availableNodesPerGroup: list[set[int]]
                  ) -> list[SynthEvent]:
-        # tree = groups[groupindex]
-        # event = tree[nodeindex]
         event = groups[groupindex][nodeindex]
         out = [event]
         if not event.linkednext or groupindex == len(groups) - 1:
@@ -1589,8 +1641,6 @@ def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
         availableNodes = availableNodesPerGroup[groupindex + 1]
         if not availableNodes:
             return out
-        # nextGroup = groups[groupindex + 1]
-        # candidates = [nextGroup[index] for index in availableNodes]
         nextEventIndex = matchNext(event, group=groups[groupindex+1], availableNodes=availableNodes)
         if nextEventIndex is None:
             return out
@@ -1621,3 +1671,4 @@ def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
         out.extend(lastGroup[idx] for idx in lastGroupIndexes)
 
     return out
+

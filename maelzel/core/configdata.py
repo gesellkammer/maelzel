@@ -55,6 +55,7 @@ defaultdict = {
     'show.voiceMaxStaves': 1,
     'show.clipNoteheadShape': 'square',
     'show.referenceStaffsize': 12.0,
+    'show.musicxmlFontScaling': 1.0,
     'show.autoClefChanges': True,
     '.show.autoClefChangesWindow': 1,
     '.show.keepClefBiasFactor': 2.0,
@@ -93,7 +94,7 @@ defaultdict = {
     'quant.minBeatFractionAcrossBeats': 0.5,
     'quant.nestedTuplets': None,
     'quant.nestedTupletsInMusicxml': False,
-    'quant.breakSyncopationsLevel': 'none',
+    'quant.breakSyncopationsLevel': 'weak',
     'quant.complexity': 'high',
     '.quant.divisionErrorWeight': None,
     '.quant.gridErrorWeight': None,
@@ -326,6 +327,9 @@ docs = {
         "Staff size used as a reference to convert between staff size and scaling factor. "
         "This allows to use staff size as a general way to indicate the scale of a score, "
         "independent of the backend",
+
+    'show.musicxmlFontScaling':
+        "A scaling factor applied to font sizes when rendering to musicxml",
 
     '.enharmonic.debug':
         "If True, print debug information while calculating automatic enharmonic spelling",

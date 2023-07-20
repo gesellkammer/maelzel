@@ -67,8 +67,6 @@ class MEvent(MObj):
     """
     A discrete event in time (a Note, Chord, etc)
     """
-    _acceptsNoteAttachedSymbols = True
-
     __slots__ = ('tied', 'amp')
 
     def __init__(self,
@@ -115,6 +113,60 @@ class MEvent(MObj):
         """
         self.setProperty('.grace', True)
         self.setProperty('.grace-slash', slash)
+
+    def addSymbol(self: MEventT, *args, **kws) -> MEventT:
+        """
+        Add a notation symbol to this object
+
+        Notation symbols are any attributes which are attached to **one event**
+        and are intended for **notation only**. Such attributes include articulations,
+        ornaments, fermatas but also properties, like color, size, etc.
+        Also customizations like notehead shape, bend signs, all are
+        considered symbols. Notation symbols spanning across multiple events
+        (like slurs, crescendo hairpins, lines, etc.) are considered *spanners* and
+        are added via :meth:`~MObj.addSpanner`
+
+        Some symbols are exclusive, meaning that adding a symbol of this kind will
+        replace a previously set symbol. Exclusive symbols include any properties
+        (color, size, etc) and other customizations like notehead shape
+
+        .. note::
+
+            Dynamics are not treated as symbols since they can also be used for playback
+
+        Example
+        -------
+
+            >>> from maelzel.core import *
+            >>> n = Note(60)
+            >>> n.addSymbol(articulation='accent')
+            # This is the same as:
+            >>> n.addSymbol(symbols.Articulation('accent'))
+            # Symbols can also be added as keywords, and multiple symbols can be added at once:
+            >>> n = Note(60).addSymbol(text='dolce', articulation='tenuto')
+            >>> n2 = Note("4G").addSymbol(symbols.Harmonic(interval=5), symbols.Ornament('mordent'))
+
+
+        Returns:
+            self (similar to setPlay, allows to chain calls)
+
+        ============  ==========================================================
+        Symbol        Possible Values
+        ============  ==========================================================
+        text          any text
+        notehead      cross, harmonic, triangleup, xcircle, triangle, rhombus,
+                      square, rectangle
+        articulation  accent, staccato, tenuto, marcato, staccatissimo, etc.
+        size          A relative size (0=default, 1, 2, …=bigger, -1, -2, … = smaller)
+        color         a css color
+        ============  ==========================================================
+
+        """
+        symbol = _symbols.parseAddSymbol(args, kws)
+        self._addSymbol(symbol)
+        if isinstance(symbol, _symbols.Spanner):
+            symbol.setAnchor(self)
+        return self
 
     def canBeLinkedTo(self, other: MEvent) -> bool:
         """
@@ -734,7 +786,7 @@ class Note(MEvent):
             if self.symbols:
                 for symbol in self.symbols:
                     if symbol.appliesToRests:
-                        symbol.applyTo(rest)
+                        symbol.applyToNotation(rest)
             return [rest]
 
         notation = scoring.makeNote(pitch=self.pitch,
@@ -1272,7 +1324,7 @@ class Chord(MEvent):
 
         if self.symbols:
             for s in self.symbols:
-                s.applyTo(notation)
+                s.applyToNotation(notation)
 
         # Transfer note symbols
         for i, n in enumerate(self.notes):
@@ -1765,7 +1817,6 @@ def asEvent(obj, **kws) -> MEvent:
         ‹4C 4E 0.5♩ mf›
 
     """
-    symbols, spanners = None, None
     if isinstance(obj, MEvent):
         return obj
     elif isinstance(obj, str):
@@ -1774,13 +1825,20 @@ def asEvent(obj, **kws) -> MEvent:
         elif ":" or "," in obj:
             notedef = _util.parseNote(obj)
             dur = kws.pop('dur', None) or notedef.dur
-            symbols = notedef.symbols
+
             if notedef.keywords:
                 kws = misc.dictmerge(notedef.keywords, kws)
             if isinstance(notedef.notename, list) and len(notedef.notename) > 1:
                 out = Chord(notedef.notename, dur=dur, **kws)
             else:
                 out = Note(notedef.notename, dur=dur, **kws)
+            if notedef.symbols:
+                for symbol in notedef.symbols:
+                    out.addSymbol(symbol)
+            if notedef.spanners:
+                for spanner in notedef.spanners:
+                    out.addSpanner(spanner)
+
         elif " " in obj:
             out = Chord(obj.split(), **kws)
         else:
@@ -1791,12 +1849,6 @@ def asEvent(obj, **kws) -> MEvent:
         out = Note(obj, **kws)
     else:
         raise TypeError(f"Cannot convert {obj} to a Note or Chord")
-    if symbols:
-        for symbol in symbols:
-            out.addSymbol(symbol)
-    if spanners is not None:
-        for spanner in spanners:
-            out.addSpanner(spanner)
 
     return out
 

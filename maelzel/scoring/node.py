@@ -2,7 +2,9 @@ from __future__ import annotations
 from emlib import iterlib
 import sys
 
+from maelzel.common import asF, F
 from .core import Notation
+from . import attachment
 from .common import F, logger
 from numbers import Rational
 import textwrap
@@ -16,7 +18,8 @@ if TYPE_CHECKING:
 
 __all__ = (
     'Node',
-    'asTree'
+    'asTree',
+    'SplitError'
 )
 
 
@@ -26,6 +29,10 @@ def _unpackRational(r: Rational) -> tuple[int, int]:
 
 def _mergeProperties(a: dict | None, b: dict | None) -> dict | None:
     return a | b if (a and b) else (a or b)
+
+
+class SplitError(Exception):
+    """Raised when a tree cannot be split at a given offset"""
 
 
 class Node:
@@ -69,9 +76,10 @@ class Node:
                  items: list[Notation | 'Node'] = None,
                  properties: dict | None = None,
                  parent: Node | None = None):
-        assert isinstance(items, list), f"Expected a list of Notation|Node, got {items}"
+        if items:
+            assert isinstance(items, list), f"Expected a list of Notation|Node, got {items}"
         self.durRatio: tuple[int, int] = ratio if isinstance(ratio, tuple) else (ratio.numerator, ratio.denominator)
-        self.items: list[Notation | Node] = items
+        self.items: list[Notation | Node] = items if items is not None else []
         self.properties = properties
         self.parent: weakref.ReferenceType[Node] | None = weakref.ref(parent) if parent else None
 
@@ -130,7 +138,7 @@ class Node:
 
     def totalDuration(self) -> F:
         """
-        The actual duration of the items in this tree
+        The duration of the items in this tree, in quarter notes (recursively)
 
         """
         return sum((item.duration if isinstance(item, Notation) else item.totalDuration()
@@ -233,7 +241,10 @@ class Node:
             if n.durRatios and n.durRatios[-1] != 1:
                 n.durRatios.pop()
             return Node(ratio=(1, 1), items=[n])
-        return Node(ratio=self.durRatio, items=out)
+        return Node(ratio=self.durRatio,
+                    items=out,
+                    parent=self.parent,
+                    properties=self.properties.copy() if self.properties else None)
 
     def lastNotation(self) -> Notation:
         """
@@ -421,16 +432,21 @@ class Node:
         return count
 
     def repair(self):
+        if self.totalDuration() >= 2:
+            self._splitUnnecessaryNodes(2)
+
         modcount = self.repairLinks()
         modcount += self.removeUnnecessaryGracenotes()
 
         if modcount == 0:
             return
+
         for i in range(10):
             if self.repairLinks() == 0:
                 break
             if self.removeUnnecessaryGracenotes() == 0:
                 break
+
 
     def fixEnharmonics(self,
                        options: enharmonics.EnharmonicOptions,
@@ -457,36 +473,186 @@ class Node:
         from . import enharmonics
         enharmonics.fixEnharmonicsInPlace(notations, options=options)
 
-    def splitAtBeatBoundary(self, offset: F, key=None) -> None:
+    def breakBeamsAt(self, offset: F) -> Notation | None:
+        """
+        Breaks beams at the given offset
+
+        This method will not split a notation if the given offset
+        is placed inside a syncopation
+
+        Args:
+            offset: the offset to break beams at
+
+        Returns:
+            the notation at the right of the split, or None if no split
+            was performed
+
+        """
+        for item in self.items:
+            if offset < item.offset:
+                return None
+            if offset < item.end:
+                if isinstance(item, Notation) and item.offset == offset:
+                    item.addAttachment(attachment.Breath(visible=False))
+                    return item
+                else:
+                    item.breakBeamsAt(offset)
+        return None
+
+    def _splitUnnecessaryNodesAt(self, breakOffset: F, minDuration: F | int
+                                 ) -> bool:
+        items = []
+        didsplit = False
+        for item in self.items:
+            if isinstance(item, Notation):
+                items.append(item)
+            else:
+                if item.offset < breakOffset < item.end and item.totalDuration() >= minDuration:
+                    for sub1, sub2 in iterlib.pairwise(item.items):
+                        if sub2.offset == breakOffset and sub1.durRatios == sub2.durRatios:
+                            logger.debug(f"Found unnecessary node at {breakOffset}, splitting")
+                            left, right = item._splitAtBoundary(breakOffset)
+                            items.append(left)
+                            items.append(right)
+                            didsplit = True
+                            break
+                    else:
+                        items.append(item)
+                else:
+                    items.append(item)
+        self.items = items
+        return didsplit
+
+    def _splitUnnecessaryNodes(self, duration: F | int) -> None:
+        """
+        Split any nodes which are unnecessarily joined
+
+        Args:
+            duration: the duration of the node to split
+        """
+        if self.totalDuration() < duration:
+            return
+        items = []
+        for item in self.items:
+            if isinstance(item, Notation):
+                items.append(item)
+            else:
+                if item.totalDuration() == duration:
+                    breakoffset = item.offset + 1
+                    for sub1, sub2 in iterlib.pairwise(item.recurse()):
+                        if sub2.offset == breakoffset and sub1.durRatios  == sub2.durRatios:
+                            left, right = item._splitAtBoundary(breakoffset)
+                            logger.debug(f"Splitting node {self} at {breakoffset}")
+                            items.append(left)
+                            items.append(right)
+                            break
+                    else:
+                        logger.debug(f"Did not split node {self} at {breakoffset}")
+                        items.append(item)
+                else:
+                    items.append(item)
+        self.items = items
+
+    def _splitAtBoundary(self, offset) -> tuple[Node, Node]:
+        assert self.offset < offset < self.end
+        left = Node(ratio=self.durRatio)
+        right = Node(ratio=self.durRatio)
+        for item in self.items:
+            if isinstance(item, Notation):
+                if item.offset < offset:
+                    assert item.end <= offset
+                    left.append(item)
+                else:
+                    assert item.offset >= offset
+                    right.append(item)
+            else:
+                if item.end < offset:
+                    left.append(item)
+                elif item.offset > offset:
+                    right.append(item)
+                else:
+                    leftsub, rightsub = item._splitAtBoundary(offset)
+                    left.append(leftsub)
+                    right.append(rightsub)
+        return left, right
+
+    def splitNotationAtBoundary(self, offset: F, key=None) -> Notation | None:
         """
         Split any notation which crosses the given offset, inplace
 
-        A notation will be split if it crosses the given offset
+        A notation will be split if it crosses the given offset. Raises
+        SplitError if it cannot split at the given offset
 
         Args:
             offset: the offset of the desired split. It should be a beat boundary
             key: if given, a function which returns True if the note should be split
 
+        Returns:
+            the notation next to the split offset, or None if no split operation
+            was performed
         """
-        if not (self.offset < offset < self.end):
-            return
+        offset = asF(offset)
+        n = self._splitNotationAtBoundary(offset=offset, key=key)
+        if n is not None:
+            logger.debug(f"Split notation at boundary {offset}, did that generate unnecessary nodes?")
+            didsplit = self._splitUnnecessaryNodesAt(offset, minDuration=2)
+            logger.debug("--- Yes" if didsplit else "--- No...")
+        return n
+
+    def _remerge(self):
+        """
+        Merge notations recursively **in place**
+        """
+        self.items = self.mergedNotations(flatten=True).items
+
+    def _splitNotationAtBoundary(self, offset: F, key=None) -> Notation | None:
+        """
+        Split any notation which crosses the given offset, inplace
+
+        A notation will be split if it crosses the given offset. Raises
+        SplitError if it cannot split at the given offset
+
+        Args:
+            offset: the offset of the desired split. It should be a beat boundary
+            key: if given, a function which returns True if the note should be split
+
+        Returns:
+            the notation next to the split offset, or None if no notation was broken
+        """
+        if not (self.offset <= offset < self.end):
+            return None
 
         for i, item in enumerate(self.items):
-            if item.offset < offset < item.end:
+            if item.offset >= offset:
+                return None
+            elif offset < item.end:
                 if isinstance(item, Node):
-                    logger.debug(f"Splitting node (offset={item.offset}, end={item.end} at {offset=}")
-                    item.splitAtBeatBoundary(offset=offset, key=key)
-                else:
-                    symdur = item.symbolicDuration()
-                    assert symdur.denominator in (1, 2, 4, 8, 16)
-                    assert symdur.numerator in (1, 2, 3, 4, 7), f"Symbolic duration for {item}: {symdur}"
-                    if key and not key(item):
-                        break
-                    parts = item.splitAtOffsets([offset])
-                    assert len(parts) == 2
-                    newitems = self.items[:i] + parts + self.items[i+1:]
-                    self.items = newitems
-                    return
+                    return item._splitNotationAtBoundary(offset=offset, key=key)
+                symdur = item.symbolicDuration()
+                if symdur.denominator not in (1, 2, 4, 8, 16):
+                    raise SplitError(f"Cannot split {item} at {offset}")
+                if symdur.numerator not in (1, 2, 3, 4, 7):
+                    raise SplitError(f"Cannot split {item} at {offset}, "
+                                     f"Symbolic duration: {symdur}")
+                if key and not key(item):
+                    logger.debug(f"Found a syncopation but the callback was negative, so "
+                                 f"{item} will not be split")
+                    break
+                logger.debug(f"Splitting node (offset={self.offset}, end={self.end} at {offset=}")
+                parts = item.splitAtOffsets([offset])
+                if not len(parts) == 2:
+                    raise SplitError(f"Expected two parts as a result of the split "
+                                     f"operation, got {parts} ({item=})")
+                if any(not part.hasRegularDuration() for part in parts):
+                    raise SplitError(f"Cannot split {item} at {offset} (parts: {parts}, "
+                                     f"symbolic durations: {[p.symbolicDuration() for p in parts]}), "
+                                     f"durRatios: {[p.durRatios for p in parts]}")
+                parts[1].mergeable = False
+                newitems = self.items[:i] + parts + self.items[i+1:]
+                self.items = newitems
+                self._remerge()
+                return parts[1]
+        return None
 
 
 def asTree(nodes: list[Node]

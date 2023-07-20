@@ -454,7 +454,7 @@ class Clip(event.MEvent):
             notation.setNotehead(shape)
         if self.symbols:
             for symbol in self.symbols:
-                symbol.applyTo(notation)
+                symbol.applyToNotation(notation)
         return [notation]
 
 

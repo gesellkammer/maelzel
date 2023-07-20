@@ -1,6 +1,8 @@
 from __future__ import annotations
 from typing import Callable, Sequence
 import emlib.misc
+import warnings
+import sys
 
 
 def reprObj(obj,
@@ -39,11 +41,45 @@ def reprObj(obj,
         value = getattr(obj, attr)
         if value is None or (not value and hideFalsy) or (value == '' and hideEmptyStr) or (value is False and hideFalse):
             continue
-        if (filterfunc := filter.get(attr)) and not filterfunc(value):
+        elif (filterfunc := filter.get(attr)) and not filterfunc(value):
             continue
-        if quoteStrings and isinstance(value, str):
+        #elif isinstance(value, weakref.ref):
+        #    value = f"ref({value()})"
+        elif quoteStrings and isinstance(value, str):
             value = f'"{value}"'
         info.append(f'{attr}={value}')
     infostr = ', '.join(info)
     cls = type(obj).__name__
     return f"{cls}({infostr})"
+
+
+def fuzzymatch(query: str, choices: Sequence[str], limit=5) -> list[tuple[str, int]]:
+    if 'thefuzz.process' not in sys.modules:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            import thefuzz.process
+    return thefuzz.process.extract(query, choices=choices, limit=limit)
+
+
+def checkChoice(name: str, s: str, choices: Sequence[str], threshold=4):
+    if s not in choices:
+        if len(choices) > threshold:
+            matches = fuzzymatch(s, choices, limit=20)
+            raise ValueError(f'Invalid value "{s}" for {name}, maybe you meant "{matches[0][0]}"? '
+                             f'Other possible choices: {[m[0] for m in matches]}')
+        else:
+            raise ValueError(f'Invalid value "{s}" for {name}, it should be one of {choices}')
+
+
+def humanReadableTime(t: float) -> str:
+    if t < 1e-6:
+        return f"{t*1e9:.1f}ns"
+
+    if t < 1e-3:
+        return f"{t*1e6:.1f}µs"
+
+    if t < 1:
+        return f"{t*1e3:.1f}ms"
+
+    return f"{t:.6g}s"
+

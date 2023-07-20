@@ -42,9 +42,9 @@ lilypondpath:
     | Default: **''**  -- ``str``
     | *The path to the lilypond binary. It must be an absolute, existing path*
 
-.. _config_reprshowfractionsasfloat:
+.. _config__reprshowfractionsasfloat:
 
-reprShowFractionsAsFloat:
+.reprShowFractionsAsFloat:
     | Default: **True**  -- ``bool``
     | *All time offsets and durations are kept as rational numbers to avoid rounding errors. If this option is True, these fractions are printed as floats in order to make them more readable. *
 
@@ -78,15 +78,15 @@ enharmonic.verticalWeight:
     | Default: **0.01**  -- ``float``
     | *The weight of the vertical dimension (chords within a voice) when evaluating an enharmonic variant*
 
-.. _config_enharmonic_debug:
+.. _config__enharmonic_debug:
 
-enharmonic.debug:
+.enharmonic.debug:
     | Default: **False**  -- ``bool``
     | *If True, print debug information while calculating automatic enharmonic spelling*
 
-.. _config_enharmonic_threequartermicrotonepenalty:
+.. _config__enharmonic_threequartermicrotonepenalty:
 
-enharmonic.threeQuarterMicrotonePenalty:
+.enharmonic.threeQuarterMicrotonePenalty:
     | Default: **20**  -- ``int``
 
 .. _config_show_arpeggiatechord:
@@ -96,17 +96,10 @@ show.arpeggiateChord:
     | Choices: ``auto, False, True``
     | *Arpeggiate notes of a chord when showing. In auto mode, only arpeggiate when needed*
 
-.. _config_show_lastbreakpointdur:
-
-show.lastBreakpointDur:
-    | Default: **0.125**  -- ``float``
-    | Between 0.015625 - 1
-    | *Dur of a note representing the end of a line/gliss, which has no totalDuration per se*
-
 .. _config_show_centsannotationstyle:
 
 show.centsAnnotationStyle:
-    | Default: **fontsize=8**  -- ``str``
+    | Default: **fontsize=6; placement=below**  -- ``str``
     | *Style used for cents annotations. The format is a list of <key>=<value> pairs, separated by semicolons. Possible keys are: fontsize, box (choices: rectangle, square, circle), placement (choices: above, below), italic (flag), bold (flag). Flag keys do not need any values. Example: "fontsize=12; italic; box=rectangle"*
 
 .. _config_show_centsdeviationastextannotation:
@@ -114,6 +107,12 @@ show.centsAnnotationStyle:
 show.centsDeviationAsTextAnnotation:
     | Default: **True**  -- ``bool``
     | *show cents deviation as text when rendering notation*
+
+.. _config__show_centsannotationplussign:
+
+.show.centsAnnotationPlusSign:
+    | Default: **True**  -- ``bool``
+    | *Show a plus sign for possitive cents deviations*
 
 .. _config_show_centsep:
 
@@ -168,7 +167,7 @@ show.arpeggioDuration:
 .. _config_show_labelstyle:
 
 show.labelStyle:
-    | Default: **fontsize=9**  -- ``str``
+    | Default: **fontsize=9; placement=above**  -- ``str``
     | *Text size used for labelsThe format is a list of <key>=<value> pairs, separated by semicolons. Possible keys are: fontsize, box (choices: rectangle, square, circle), placement (choices: above, below), italic (flag), bold (flag). Flag keys do not need any values. Example: "fontsize=12; italic; box=rectangle"*
 
 .. _config_show_pageorientation:
@@ -305,6 +304,30 @@ show.clipNoteheadShape:
 show.referenceStaffsize:
     | Default: **12.0**  -- ``float``
     | *Staff size used as a reference to convert between staff size and scaling factor. This allows to use staff size as a general way to indicate the scale of a score, independent of the backend*
+
+.. _config_show_musicxmlfontscaling:
+
+show.musicxmlFontScaling:
+    | Default: **1.0**  -- ``float``
+    | *A scaling factor applied to font sizes when rendering to musicxml*
+
+.. _config_show_autoclefchanges:
+
+show.autoClefChanges:
+    | Default: **True**  -- ``bool``
+    | *If True, add clef changes to a quantized part if needed. Otherwise, one clef is determined for each part and is not changed along the part.*
+
+.. _config__show_autoclefchangeswindow:
+
+.show.autoClefChangesWindow:
+    | Default: **1**  -- ``int``
+    | *When adding automatic clef changes, use this window size (number of elements per evaluation)*
+
+.. _config__show_keepclefbiasfactor:
+
+.show.keepClefBiasFactor:
+    | Default: **2.0**  -- ``float``
+    | *The higher this value, the more priority is  given to keeping the previous clef during automatic clef changes*
 
 .. _config_play_gain:
 
@@ -461,15 +484,15 @@ rec.path:
     | Default: **''**  -- ``str``
     | *path used to save output files when rendering offline. If not given the default can be queried via `recordPath`*
 
-.. _config_rec_quiet:
+.. _config_rec_verbose:
 
-rec.quiet:
-    | Default: **True**  -- ``bool``
-    | *Supress debug output when calling csound as a subprocess*
+rec.verbose:
+    | Default: **False**  -- ``bool``
+    | *Show debug output when calling csound as a subprocess*
 
-.. _config_rec_compressionbitrate:
+.. _config__rec_compressionbitrate:
 
-rec.compressionBitrate:
+.rec.compressionBitrate:
     | Default: **224**  -- ``int``
     | *default bitrate to use when encoding to ogg or mp3*
 
@@ -478,6 +501,7 @@ rec.compressionBitrate:
 rec.extratime:
     | Default: **0.0**  -- ``float``
     | Between 0.0 - inf
+    | *Default extratime added when recording*
 
 .. _config_htmltheme:
 
@@ -490,7 +514,7 @@ htmlTheme:
 
 quant.minBeatFractionAcrossBeats:
     | Default: **0.5**  -- ``float``
-    | *when merging durations across beats, a merged totalDuration cannot be smaller than this totalDuration. This is to prevent joining durations across beats which might result in high rhythmic complexity*
+    | *when merging durations across beats, a merged duration cannot be smaller than this duration. This is to prevent joining durations across beats which might result in high rhythmic complexity*
 
 .. _config_quant_nestedtuplets:
 
@@ -519,39 +543,39 @@ quant.complexity:
     | Choices: ``high, highest, low, lowest, medium``
     | *Controls the allowed complexity in the notation. The higher the complexity, the more accurate the quantization, at the cost of a more complex notation. *
 
-.. _config_quant_divisionerrorweight:
+.. _config__quant_divisionerrorweight:
 
-quant.divisionErrorWeight:
+.quant.divisionErrorWeight:
     | Default: **None**  -- ``NoneType``
     | *A weight (between 0 and 1) applied to the penalty of complex quantization of the beat. The higher this value is, the simpler the subdivision chosen. If set to None, this value is derived from the complexity preset (quant.complexity)*
 
-.. _config_quant_griderrorweight:
+.. _config__quant_griderrorweight:
 
-quant.gridErrorWeight:
+.quant.gridErrorWeight:
     | Default: **None**  -- ``NoneType``
     | *A weight (between 0 and 1) applied to the deviation of a quantization to the actual attack times and durations during quantization. The higher this value, the more accurate the quantization (possibly resulting in more complex subdivisions of the beat). If None, the value is derived from the complexity preset (quant.complexity)*
 
-.. _config_quant_rhythmcomplexityweight:
+.. _config__quant_rhythmcomplexityweight:
 
-quant.rhythmComplexityWeight:
+.quant.rhythmComplexityWeight:
     | Default: **None**  -- ``NoneType``
     | *A weight (between 0 and 1) applied to the penalty calculated from the complexity of the rhythm during quantization. A higher value results in more complex rhythms being considered for quantization. If None, the value is derived from the complexity (quant.complexity)*
 
-.. _config_quant_griderrorexp:
+.. _config__quant_griderrorexp:
 
-quant.gridErrorExp:
+.quant.gridErrorExp:
     | Default: **None**  -- ``NoneType``
     | *An exponent applied to the grid error. The grid error is a value between 0-1 which indicates how accurate the grid representation is for a given quantization (a value of 0 indicates perfect timing). An exponent betwenn 0 < exp <= 1 will make grid errors weight more dramatically as they diverge from the most accurate solution. If None, the value is derived from the complexity setting (quant.complexity)*
 
-.. _config_quant_debug:
+.. _config__quant_debug:
 
-quant.debug:
+.quant.debug:
     | Default: **False**  -- ``bool``
-    | *Turns on debugging for the quantization process. This will show how different divisions of the beat are being evaluated by the quantizer in terms of what is contributing more to the ranking. With this information it is possible to adjust the weights (quant.rhythmCompleityWeight, quant.divisionErrorWeight, etc)*
+    | *Turns on debugging for the quantization process. This will show how different divisions of the beat are being evaluated by the quantizer in terms of what is contributing more to the ranking. With this information it is possible to adjust the weights (quant.rhythmCompleityWeight, .quant.divisionErrorWeight, etc)*
 
-.. _config_quant_debugshownumrows:
+.. _config__quant_debugshownumrows:
 
-quant.debugShowNumRows:
+.quant.debugShowNumRows:
     | Default: **50**  -- ``int``
     | *When quantization debugging is turned on this setting limits the number of different quantization possibilities shown*
 

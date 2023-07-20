@@ -1515,6 +1515,31 @@ class ScoreStruct:
         else:
             return self.beatToTime(a)
 
+    def ltob(self, measure: int, beat: number_t) -> F:
+        """
+        A shortcut to locationToBeat
+
+        Args:
+            measure: the measure index (measures start at 0
+            beat:  the beat within the given measure
+
+        Returns:
+            the corresponding beat in quarter notes
+        """
+        return self.locationToBeat(measure, beat)
+
+    def asBeat(self, location: number_t | tuple[int, F]) -> F:
+        """
+        Given a beat or a location (measureidx, relativeoffset), returns an absolute beat
+
+        Args:
+            location: the location
+
+        Returns:
+            the absolute beat in quarter notes
+        """
+        return self.locationToBeat(*location) if isinstance(location, tuple) else location
+
     def locationToBeat(self, measure: int, beat: number_t = F(0)) -> F:
         """
         Returns the number of quarter notes up to the given location

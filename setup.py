@@ -56,6 +56,7 @@ setup(
         "simple-term-menu",
         "visvalingamwyatt",
         "distro",
+        "thefuzz",
         # "resampy",  # Do not include it by default, since this pulls numba
         "python-constraint",
 

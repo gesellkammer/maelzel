@@ -79,7 +79,8 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
         referenceStaffsize=cfg['show.referenceStaffsize'],
         autoClefChanges=cfg['show.autoClefChanges'],
         keepClefBiasFactor=cfg['.show.keepClefBiasFactor'],
-        autoClefChangesWindow=cfg['.show.autoClefChangesWindow']
+        autoClefChangesWindow=cfg['.show.autoClefChangesWindow'],
+        musicxmlFontScaling=cfg['show.musicxmlFontScaling']
     )
     return renderOptions
 

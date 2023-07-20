@@ -1,11 +1,14 @@
 from __future__ import annotations
-# from emlib.misc import ReprMixin
-from maelzel._util import reprObj
-from . import definitions
-from typing import TypeVar
 import copy
 
-_AttachmentT = TypeVar('_AttachmentT', bound='Attachment')
+from maelzel import _util
+from . import definitions
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import Callable, TypeVar
+    import maelzel.scoring.quant as quant
+    AttachmentT = TypeVar('AttachmentT', bound='Attachment')
 
 
 class Attachment:
@@ -40,11 +43,11 @@ class Attachment:
     def getPriority(self) -> int:
         return self.priority + self.instancePriority
 
-    def copy(self: _AttachmentT) -> _AttachmentT:
+    def copy(self: AttachmentT) -> AttachmentT:
         return copy.deepcopy(self)
 
     def __repr__(self):
-        return reprObj(self, hideFalsy=True)
+        return _util.reprObj(self, hideFalsy=True)
 
 
 class Property(Attachment):
@@ -61,9 +64,7 @@ class GlissandoProperties(Attachment):
 
     def __init__(self, linetype='solid', color=''):
         super().__init__(color=color)
-        if not linetype in GlissandoProperties.linetypes:
-            raise ValueError(f"linetype should be one of {GlissandoProperties.linetypes}, "
-                             f"got {linetype}")
+        _util.checkChoice('linetype', linetype, GlissandoProperties.linetypes)
         self.linetype = linetype
         """The line type, one of 'solid', 'wavy', 'dotted', 'dashed'"""
 
@@ -250,7 +251,7 @@ class Text(Attachment):
     def __init__(self,
                  text: str,
                  placement='',
-                 fontsize: float = None,
+                 fontsize: float | None = None,
                  italic=False,
                  weight='',
                  fontfamily: str = '',
@@ -273,7 +274,7 @@ class Text(Attachment):
         self.role = role
 
     def __repr__(self):
-        return reprObj(self, hideFalsy=True, priorityargs=('text',))
+        return _util.reprObj(self, hideFalsy=True, priorityargs=('text',))
 
     def __hash__(self) -> int:
         return hash(('Text', self.text, self.placement, self.fontsize, self.box))
@@ -296,3 +297,35 @@ class Clef(Attachment):
     def __hash__(self):
         return hash(('Clef', self.kind))
 
+
+
+class Hook:
+    """
+    A Hook is a wrapper around a function, triggered at different situations
+    """
+    def __init__(self, func: Callable):
+        self._func = func
+
+    def __call__(self, obj):
+        self._func(obj)
+
+
+class PostPartQuantHook(Hook):
+    """
+    Hook called after part quantization
+
+    The function will be called with a QuantizedPart after it has been
+    quantized. This can be used to apply beam breaking strategies,
+    etc. For an example usage see :class:`maelzel.core.symbols.BeamBreak`
+
+
+    Args:
+        func: a callable of the form ``(part: QuantizedPart) -> None``
+
+
+    """
+
+    def __call__(self, part: quant.QuantizedPart) -> None:
+        from maelzel.scoring.quant import QuantizedPart
+        assert isinstance(part, QuantizedPart)
+        self._func(part)

@@ -266,6 +266,10 @@ class QuantizationProfile:
             a list of possible divisions for the given tempo.
 
         """
+        cached = self._cachedDivisionsByTempo.get((tempo, self.nestedTuplets))
+        if cached:
+            return cached
+
         divsByTempo = self.possibleDivisionsByTempo
         divs = None
         for maxTempo, possibleDivs in divsByTempo.items():

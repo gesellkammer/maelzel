@@ -60,12 +60,12 @@ def _quantizeFreq(pitchconv: PitchConverter, freq: float, divs: int) -> float:
 
 class FundamentalAnalysisMono:
     """
-    Perform monophonic f0 analysis
+    Perform monophonic f0 analysis (one source, one sound at a a time)
 
-    The audio is split in fragments via onset/offset detection. Each of these fragments
-    is split in groups of breakpoints, representing the pitch/amplitude variation
-    of the fundamental within the given time range. Each breakpoint also holds other
-    features of the audio, like its voicedness (a low value is an indication of noisy
+    Algorithm: the audio is split in fragments via onset/offset detection. Each of
+    these fragments is split in groups of breakpoints, representing the pitch/amplitude
+    variation of the fundamental within the given time range. Each breakpoint also holds
+    other features of the audio, like its voicedness (a low value is an indication of noisy
     sound without enough harmonic content to determine the pitch). The analysis includes
     other parameters as global curves (rms, spectral centroid) which can be used for
     transcription

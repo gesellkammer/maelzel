@@ -144,6 +144,9 @@ class RenderOptions:
     musicxmlIndent: str = '  '
     """The indentation used when rendering the xml in musicxml"""
 
+    musicxmlFontScaling: float = 1.0
+    """A scaling factor applied to fontsize when rendering to musicxml"""
+
     referenceStaffsize: float = 12.0
     """The reference staff size. This is used to convert staffsize
     to a scaling factor"""
@@ -177,7 +180,7 @@ class RenderOptions:
         self.pageSize = self.pageSize.lower()
         self.check()
 
-    def musicxmlScaling(self) -> tuple[float, int]:
+    def musicxmlTenthsScaling(self) -> tuple[float, int]:
         """
         Maps mm to tenths when rendering musicxml
 

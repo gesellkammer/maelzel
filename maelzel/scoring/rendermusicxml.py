@@ -23,6 +23,7 @@ from . import spanner as _spanner
 from .core import Notation
 from .node import Node
 from .render import Renderer, RenderOptions
+from . import util
 from maelzel.scoring.tempo import inferMetronomeMark
 
 
@@ -196,7 +197,7 @@ def makeMusicxmlDocument(score: quant.QuantizedScore,
 
     defaults_ = _elem(doc, root, 'defaults')
     scaling_ = _elem(doc, defaults_, 'scaling')
-    mm, tenths = options.musicxmlScaling()
+    mm, tenths = options.musicxmlTenthsScaling()
     _elemText(doc, scaling_, 'millimeters', mm)
     _elemText(doc, scaling_, 'tenths', tenths)
 
@@ -341,6 +342,7 @@ def _notePitch(doc: md.Document, parent: md.Element,
                grace: bool=False,
                accidentalTraits: _attachment.AccidentalTraits | None = None,
                durtype: str = '',
+               stemless=False
                ):
     if pitch is None:
         _elem(doc, parent, 'rest')
@@ -371,7 +373,6 @@ def _notePitch(doc: md.Document, parent: md.Element,
     if numdots:
         for _ in range(numdots):
             _elem(doc, parent, 'dot')
-
     if pitch and (not tiedprev and pitch.cents_deviation != 0) or accidentalTraits:
         attrs = {}
         if accidentalTraits:
@@ -389,6 +390,9 @@ def _notePitch(doc: md.Document, parent: md.Element,
         _elemText(doc, parent, 'accidental',
                   text=_alterToAccidental[pitch.diatonic_alteration],
                   attrs=attrs)
+
+    if stemless:
+        _elemText(doc, parent, 'stem', 'none')
 
 
 
@@ -490,7 +494,8 @@ def _renderPitch(doc: md.Document,
                grace=notation.isGracenote,
                accidentalTraits=accidentalTraits,
                durtype=notatedDur.baseName() if notation.duration > 0 else 'eighth',
-               numdots=notatedDur.dots)
+               numdots=notatedDur.dots,
+               stemless=notation.stem=='hidden')
 
 
 def _renderNotehead(doc: md.Document, parent: md.Element, notehead: definitions.Notehead):
@@ -677,6 +682,8 @@ def _renderNotation(n: Notation,
                       placement=attach.placement, color=attach.color or None)
 
 
+
+
     # Notations spanners
     if n.spanners:
         for spanner in n.spanners:
@@ -788,9 +795,24 @@ def _renderNode(node: Node,
             if item.attachments:
                 for attach in item.attachments:
                     if isinstance(attach, _attachment.Text):
-                        _words(doc, parent, text=attach.text, italic=attach.italic,
-                               enclosure=attach.box, bold=attach.weight=='bold',
+                        fontsize = 0 if attach.fontsize is None else attach.fontsize*options.musicxmlFontScaling
+                        _words(doc, parent,
+                               text=attach.text,
+                               italic=attach.italic,
+                               fontsize=fontsize,
+                               enclosure=attach.box,
+                               bold=attach.weight=='bold',
                                placement=attach.placement)
+
+            if not item.isRest and options.showCents and not item.tiedPrev:
+                if text := util.centsAnnotation(item.pitches,
+                                                divsPerSemitone=options.divsPerSemitone,
+                                                addplus=options.centsAnnotationPlusSign,
+                                                separator=options.centsAnnotationSeparator):
+                    _words(doc, parent=parent,
+                           text=text,
+                           placement=options.centsAnnotationPlacement,
+                           fontsize=options.centsAnnotationFontsize * options.musicxmlFontScaling)
 
             _renderNotation(item, nindex=i, node=node, doc=doc, parent=parent,
                             options=options, state=state)
@@ -948,7 +970,7 @@ def _renderPart(part: quant.QuantizedPart,
                        text=measuredef.annotation,
                        placement='above',
                        enclosure=style.box,
-                       fontsize=style.fontsize,
+                       fontsize=style.fontsize * renderOptions.musicxmlFontScaling,
                        bold=style.bold,
                        italic=style.italic)
 
@@ -957,7 +979,7 @@ def _renderPart(part: quant.QuantizedPart,
                 _words(doc, parent=measure_,
                        text=measuredef.rehearsalMark.text,
                        placement='above',
-                       fontsize=style.fontsize,
+                       fontsize=style.fontsize * renderOptions.musicxmlFontScaling,
                        enclosure=measuredef.rehearsalMark.box or style.box,
                        bold=style.bold,
                        italic=style.italic)

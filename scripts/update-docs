@@ -4,7 +4,7 @@ echo "package root: $root"
 
 
 python "$root/scripts/update-config-docs.py"
-python "$root/docs/convert-notebooks.py" "$root"/docs/*.ipynb
+# python "$root/docs/convert-notebooks.py" "$root"/docs/*.ipynb
 
 cd "$root/docs"
 

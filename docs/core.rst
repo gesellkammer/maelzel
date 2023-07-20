@@ -1,7 +1,7 @@
 .. _core:
 
-Core - Overview
-===============
+Overview
+========
 
 **maelzel.core** provides a set of classes to define notes, chords,
 lines, sequences, voices or entire scores. Any of these objects can
@@ -86,8 +86,8 @@ Playback
 
 ----------------
 
-Class Structure Overview
-------------------------
+Class Structure
+---------------
 
 .. image:: classstruct.svg
 

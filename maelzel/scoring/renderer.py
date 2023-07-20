@@ -94,7 +94,7 @@ class Renderer:
         """
         return None
 
-    def show(self, fmt='png', external=None) -> None:
+    def show(self, fmt='png', external=None, scalefactor=1.0) -> None:
         """
         Display the rendered score
 
@@ -106,11 +106,11 @@ class Renderer:
         """
         if fmt == 'pdf':
             external = True
-        if fmt == 'png' and emlib.envir.inside_jupyter() and not external:
-            from IPython.display import display_png
+        if fmt == 'png':
+            from maelzel.core import _util
             png = tempfile.mktemp(suffix='.png')
             self.write(png)
-            display_png(png)
+            _util.pngShow(png, forceExternal=external, scalefactor=scalefactor)
         else:
             outfile = tempfile.mktemp(suffix=f'.{fmt}')
             self.write(outfile)

@@ -10,7 +10,9 @@ from dataclasses import dataclass
 import bpf4 as bpf
 import pitchtools as pt
 from emlib import misc
+import warnings
 
+from maelzel import _util
 from maelzel.scoring import definitions
 from maelzel.common import F
 from maelzel.colortheory import safeColors
@@ -369,6 +371,26 @@ def _evalArgs(args: list[str]) -> dict[str, Any]:
     return dict(evalArg(arg) for arg in args)
 
 
+def stripNoteComments(s: str) -> str:
+    """
+    Strip comments from notes defined as strings
+
+    Args:
+        s: the note definition
+
+    Returns:
+        the definition without comments
+
+    Example
+    -------
+
+        >>> stripNoteComments("    4F#:3/4:ff:dim    # comment ")
+        4F#:3/4:ff:dim
+
+    """
+    parts = s.split(" #")
+    return parts[0].strip()
+
 def parseNote(s: str) -> NoteProperties:
     """
     Parse a note definition string with optional duration and other properties
@@ -455,7 +477,8 @@ def parseNote(s: str) -> NoteProperties:
             elif part in _knownSpanners or (part[0] == "~" and part[1:] in _knownSpanners):
                 spanners.append(_symbols.makeSpanner(part))
             else:
-                raise ValueError(f"Property '{part}' not understood when trying to parse {s}")
+                allkeys = _allkeys()
+                _util.checkChoice(s, part, allkeys)
 
     if "/" in note:
         note, symbolicdur = note.split("/")
@@ -465,11 +488,15 @@ def parseNote(s: str) -> NoteProperties:
                           symbols=symbols, spanners=spanners)
 
 
-def _makeSymbol(clsname: str, v: str|dict) -> _symbols.Symbol:
-    if isinstance(v, str):
-        return _symbols.makeSymbol(clsname, v)
-    else:
-        return _symbols.makeSymbol(clsname, **v)
+@cache
+def _allkeys():
+    allkeys = []
+    allkeys.extend(_knownSymbols)
+    allkeys.extend(_knownDynamics)
+    allkeys.extend(_knownArticulations)
+    allkeys.extend(_knownSpanners)
+    return allkeys
+
 
 
 _knownDynamics = {
@@ -493,7 +520,15 @@ _knownSymbols = {
 
 
 _knownSpanners = {
-    'slur'
+    'slur',
+    'cresc',
+    'decresc',
+    'line',
+    'trill',
+    'tr',
+    'bracket',
+    'dim',
+    'beam'
 }
 
 

@@ -2,15 +2,16 @@ from __future__ import annotations
 import itertools
 from emlib import iterlib
 from maelzel._util import reprObj
-
 from .common import *
 from .notation import *
 from . import definitions
 from . import util
+from . import attachment
+
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Union, Iterator
+    from typing import Union, Iterator, Callable
     from maelzel.scoring import quant
 
 
@@ -32,6 +33,7 @@ __all__ = (
 def _parseGroupname(name: str, separator="::") -> tuple[str, str]:
     parts = name.split(separator, maxsplit=1)
     return (parts[0], '') if len(parts) == 1 else (parts[0], parts[1])
+
 
 
 class UnquantizedPart:
@@ -77,6 +79,12 @@ class UnquantizedPart:
 
         self.showName = showName
         """If True, show the part name when rendered"""
+
+        self.hooks: list[attachment.Hook] = []
+        """Callbacks to be triggered at different stages"""
+
+        self.attachments: list[attachment.Attachment] = []
+        """A list of Attachments for the part itself"""
 
         if notations:
             assert all(isinstance(n, Notation) for n in notations)

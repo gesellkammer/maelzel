@@ -145,6 +145,7 @@ if typing.TYPE_CHECKING:
     from maelzel.scoring.render import RenderOptions
     from maelzel.scoring.quantprofile import QuantizationProfile
     import scoring.enharmonics
+    from maelzel.core.workspace import Workspace
 
 
 __all__ = (
@@ -255,7 +256,10 @@ class CoreConfig(ConfigDict):
             # Whenever loading, update root
             CoreConfig.root = self
 
-        self._prevConfig: CoreConfig | None = None
+        self._previousState: tuple[Workspace, CoreConfig] | None = None
+
+        self.readonly = False
+        """If True, trying to modify this dict will raise a ReadOnlyException"""
 
         for regex, func in self._builtinCallbacks.items():
             self.registerCallback(func, pattern=regex)
@@ -339,14 +343,16 @@ class CoreConfig(ConfigDict):
     def __enter__(self):
         from . import workspace
         w = workspace.Workspace.active
-        self._prevConfig = w.config
+        self._previousState = (w, w.config)
         w.config = self
+        return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        from . import workspace
-        w = workspace.Workspace.active
-        assert self._prevConfig is not None
-        w.config = self._prevConfig
+        assert self._previousState is not None
+        workspace, previousconfig = self._previousState
+        assert workspace.isActive()
+        assert workspace.config is self
+        workspace.config = previousconfig
 
     def activate(self) -> None:
         """

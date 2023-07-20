@@ -69,8 +69,8 @@ class Notation:
     _privateKeys = {
         '.snappedGracenote',
         '.clefHint',
-        '.breakBeam',
         '.graceGroup',
+        '.mergeable',
         '.forceTupletBracket'
     }
 
@@ -635,6 +635,14 @@ class Notation:
         """A real note is not a rest and not a gracenote"""
         return not self.isRest and self.duration > 0
 
+    @property
+    def mergeable(self) -> bool:
+        return self.getProperty('.mergeable', True)
+
+    @mergeable.setter
+    def mergeable(self, value: bool):
+        self.setProperty('.mergeable', value)
+
     def meanPitch(self) -> float:
         """
         The mean pitch of this note/chord
@@ -698,11 +706,11 @@ class Notation:
                 setattr(out, key, value)
         return out
 
-    def copy(self) -> Notation:
+    def __copy__(self) -> Notation:
         """
         Copy this Notation as is
         """
-        return self.__copy__()
+        return self.copy()
 
     def asRest(self):
         return Notation(isRest=True,
@@ -741,7 +749,8 @@ class Notation:
                        dynamic='',
                        gliss=gliss if gliss is not None else self.gliss,
                        color=self.color,
-                       stem=self.stem)
+                       stem=self.stem,
+                       durRatios=self.durRatios)
 
         for attach in self.attachments:
             if attach.copyToSplitNotation:
@@ -756,10 +765,10 @@ class Notation:
         return out
 
     def __deepcopy__(self, memo=None):
-        return self.__copy__()
+        return self.copy()
 
-    def __copy__(self) -> Notation:
-        # return copy.deepcopy(self)
+    def copy(self) -> Notation:
+        """Copy this Notation"""
         out = Notation(duration=self.duration,
                        pitches=self.pitches.copy() if self.pitches else None,
                        offset=self.offset,
@@ -842,6 +851,10 @@ class Notation:
             assert parts[0].tiedPrev == self.tiedPrev
             assert parts[-1].tiedNext == self.tiedNext, f"{self=}, {parts=}"
         return parts
+
+    def hasRegularDuration(self) -> bool:
+        symdur = self.symbolicDuration()
+        return symdur.denominator in (1, 2, 4, 8, 16) and symdur.numerator in (1, 2, 3, 4, 7)
 
     def symbolicDuration(self) -> F:
         """
@@ -1575,6 +1588,9 @@ def notationsCanMerge(n0: Notation, n1: Notation) -> bool:
     5/8 of a quarter is not)
 
     """
+    if not n1.mergeable:
+        return False
+
     if n0.isRest and n1.isRest:
         return (n0.durRatios == n1.durRatios and
                 durationsCanMerge(n0, n1))

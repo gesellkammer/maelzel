@@ -124,7 +124,7 @@ class MContainer:
         This query will be passed along upstream"""
         raise NotImplementedError
 
-    def childChanged(self, child: MObj) -> None:
+    def _childChanged(self, child: MObj) -> None:
         """
         This should be called by a child when changed
 
@@ -629,12 +629,17 @@ class MObj:
 
         if external is None:
             external = cfg['openImagesInExternalApp']
+
         if backend is None:
             backend = cfg['show.backend']
+
+        #elif backend != cfg['show.backend']:
+        #    cfg = cfg.clone({'show.backend': backend})
+
         if fmt is None:
             fmt = 'png' if not external and environment.insideJupyter else cfg['show.format']
         if fmt == 'ly':
-            renderer = self.render(backend='lilypond', scorestruct=scorestruct)
+            renderer = self.render(backend='lilypond', scorestruct=scorestruct, config=cfg)
             if external:
                 lyfile = _tempfile.mktemp(suffix=".ly")
                 renderer.write(lyfile)
@@ -660,7 +665,7 @@ class MObj:
         This invalidates, among other things, the image cache for this object
         """
         if self.parent:
-            self.parent.childChanged(self)
+            self.parent._childChanged(self)
 
     def quantizedScore(self,
                        scorestruct: ScoreStruct = None,
@@ -1386,90 +1391,17 @@ class MObj:
         return False
 
     def addSymbol(self: MObjT, *args, **kws) -> MObjT:
-        """
-        Add a notation symbol to this object
+        raise NotImplementedError
 
-        Notation symbols are any attributes which are attached to **one event**
-        and are intended for **notation only**. Such attributes include articulations,
-        ornaments, fermatas but also properties, like color, size, etc.
-        Also customizations like notehead shape, bend signs, all are
-        considered symbols. Notation symbols spanning across multiple events
-        (like slurs, crescendo hairpins, lines, etc.) are considered *spanners* and
-        are added via :meth:`~MObj.addSpanner`
+    def _addSymbol(self, symbol: _symbols.Symbol) -> None:
+        if self.symbols is None:
+            self.symbols = []
 
-        Some symbols are exclusive, meaning that adding a symbol of this kind will
-        replace a previously set symbol. Exclusive symbols include any properties
-        (color, size, etc) and other customizations like notehead shape
-
-        .. note::
-
-            Dynamics are not treated as symbols since they can also be used for playback
-
-        Example
-        -------
-
-            >>> from maelzel.core import *
-            >>> n = Note(60)
-            >>> n.addSymbol(articulation='accent')
-            # This is the same as:
-            >>> n.addSymbol(symbols.Articulation('accent'))
-            # Symbols can also be added as keywords, and multiple symbols can be added at once:
-            >>> n = Note(60).addSymbol(text='dolce', articulation='tenuto')
-            >>> n2 = Note("4G").addSymbol(symbols.Harmonic(interval=5), symbols.Ornament('mordent'))
-
-
-        Returns:
-            self (similar to setPlay, allows to chain calls)
-
-        ============  ==========================================================
-        Symbol        Possible Values
-        ============  ==========================================================
-        text          any text
-        notehead      cross, harmonic, triangleup, xcircle, triangle, rhombus,
-                      square, rectangle
-        articulation  accent, staccato, tenuto, marcato, staccatissimo, etc.
-        size          A relative size (0=default, 1, 2, …=bigger, -1, -2, … = smaller)
-        color         a css color
-        ============  ==========================================================
-
-        """
-        if len(args) == 2 and all(isinstance(arg, str) for arg in args) and not kws:
-            symbolclass, kind = args
-            symboldefs = [_symbols.makeSymbol(symbolclass, kind)]
-        elif len(args) == 1 and isinstance(args[0], str):
-            if not kws:
-                symboldef = _symbols.makeKnownSymbol(args[0])
-            else:
-                symboldef = _symbols.makeSymbol(args[0], **kws)
-            if not symboldef:
-                raise ValueError(f"{args[0]} is not a known symbol")
-            symboldefs = [symboldef]
-        elif not kws and all(isinstance(arg, _symbols.Symbol) for arg in args):
-            symboldefs = args
-        elif kws:
-            symboldefs = [_symbols.makeSymbol(key, value) for key, value in kws.items()]
-        else:
-            raise ValueError(f"Could not add a symbol with {args=}, {kws=}")
-
-        for symboldef in symboldefs:
-            if isinstance(symboldef, _symbols.NoteAttachedSymbol) \
-                    and not self._acceptsNoteAttachedSymbols:
-                raise ValueError(f"A {type(self)} does not accept note attached symbols")
-
-            if error := symboldef.evalAnchor(self):
-                raise ValueError(f"The symbol cannot be attached to {self}: {error}")
-
-            if self.symbols is None:
-                self.symbols = [symboldef]
-            else:
-                if symboldef.exclusive:
-                    cls = type(symboldef)
-                    if any(isinstance(s, cls) for s in self.symbols):
-                        self.symbols = [s for s in self.symbols if not isinstance(s, cls)]
-                self.symbols.append(symboldef)
-            if isinstance(symboldef, _symbols.Spanner):
-                symboldef.setAnchor(self)
-        return self
+        if self.symbols and symbol.exclusive:
+            cls = type(symbol)
+            if any(isinstance(s, cls) for s in self.symbols):
+                self.symbols = [s for s in self.symbols if not isinstance(s, cls)]
+        self.symbols.append(symbol)
 
     def _removeSymbolsOfClass(self, cls: str | type):
         if isinstance(cls, str):
