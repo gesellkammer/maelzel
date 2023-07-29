@@ -46,15 +46,15 @@ def renderQuantizedScore(score: quant.QuantizedScore,
 
     if options.removeSuperfluousDynamics:
         for part in score:
-            part.removeUnnecessaryDynamics(tree=True)
+            part.removeUnnecessaryDynamics()
 
-    for part in score:
+    for i, part in enumerate(score.parts):
         if part.autoClefChanges or (options.autoClefChanges and part.autoClefChanges is None):
             # Do not add if there are manual clefs
-            if any(n.findAttachment('Clef') for n in part.flatNotations(tree=True)):
-                logger.debug("Part {part} already has manual clefs set, skipping automatic clefs")
+            if any(n.findAttachment('Clef') for n in part.flatNotations()):
+                logger.debug(f"Part #{i} (name={part.name}) already has manual clefs set, skipping automatic clefs")
             else:
-                part.findClefChanges(addClefs=True, biasFactor=options.keepClefBiasFactor,
+                part.findClefChanges(apply=True, biasFactor=options.keepClefBiasFactor,
                                      window=options.autoClefChangesWindow)
 
     if backend == 'musicxml':

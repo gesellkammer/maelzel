@@ -137,6 +137,12 @@ class MContainer:
         """
         pass
 
+    def _update(self) -> None:
+        raise NotImplementedError
+
+    def _resolveGlissandi(self) -> None:
+        raise NotImplementedError
+
     def itemAfter(self, item: MObj) -> MObj | None:
         """Returns the item after *item*, if any (None otherwise)"""
         pass
@@ -173,7 +179,6 @@ class MObj:
     """
     _acceptsNoteAttachedSymbols = True
     _isDurationRelative = True
-    _excludedPlayKeys: tuple[str] = ()
 
     __slots__ = ('_parent', '_dur', 'offset', 'label', 'playargs', 'symbols',
                  '_scorestruct', 'properties', '_resolvedOffset',
@@ -191,7 +196,7 @@ class MObj:
         "The parent of this object (or None if it has no parent)"
 
         self.label = label
-        "a label can be used to identify an object within a tree of objects"
+        "a label can be used to identify an object within a group of objects"
 
         # A MObj can have a duration. A duration can't be 0
 
@@ -208,6 +213,7 @@ class MObj:
         # attaching playing parameters (like pan position, instrument)
         # to an object
         self.playargs: PlayArgs | None = None
+        # self.playargs = PlayArgs()
         "playargs are set via :meth:`.setPlay` and are used to customize playback (instr, gain, …). None by default"
 
         self.properties: dict[str, Any] | None = properties
@@ -293,6 +299,21 @@ class MObj:
         else:
             self.properties[key] = value
         return self
+
+    def getPlay(self, key: str, default=None):
+        """
+        Get a playback attribute previously set via :meth:`MObj.setPlay`
+
+        Args:
+            key: the key (see  setPlay for possible keys)
+            default: the value to return if the given key has not been set
+
+        Returns:
+            either the value previously set, or default otherwise.
+        """
+        if not self.playargs:
+            return default
+        return self.playargs.get(key, default)
 
     def getProperty(self, key: str, default=None):
         """
@@ -451,15 +472,6 @@ class MObj:
         """
         Set any playback attributes, returns self
 
-        .. note::
-
-            It is possible to access the :attr:`MObj.playargs` attribute directly to set any
-            play parameter, like ``note.playargs['instr'] = 'piano'``
-
-            The advantage of :meth:`MObj.setPlay` is that one can set multiple
-            parameters simultaneously and the method can be chained with
-            the constructor, such as ``note = Note("4C", ...).setPlay(instr=..., gain=...)``
-
         Args:
             **kws: any argument passed to :meth:`~MObj.play` (delay, dur, chan,
                 gain, fade, instr, pitchinterpol, fadeshape, params,
@@ -475,11 +487,24 @@ class MObj:
         delay: ``float``              Delay in seconds, added to the start of the object
         gain: ``float``               A gain factor applied to the amplitude of this object
         chan: ``int``                 The channel to output to, **channels start at 1**
-        pitchinterpol: ``str``        One of 'linear', 'cos', 'freqlinear', 'freqcos'
         fade: ``float``               The fade time; can also be a tuple (fadein, fadeout)
+        fadeshape: ``str``            One of 'linear', 'cos', 'scurve'
+        pitchinterpol: ``str``        One of 'linear', 'cos', 'freqlinear', 'freqcos'
         position: ``float``           Panning position (0=left, 1=right)
-        start: ``float``              Start time of playback; allows to play a fragment of the object
-        end: ``float``                End time of playback; allow to trim playback of the object
+        skip: ``float``               Skip time of playback; allows to play a fragment of the object.
+                                      **NB**: set the delay to the -skip to start playback at the
+                                      original time but from the timepoint specified by the skip param
+        end: ``float``                End time of playback; counterpart of `skip`, allow to
+                                      trim playback of the object
+        sustain: ``float``            An extra sustain time. This is useful for sample based
+                                      instruments
+        transpose: ``float``          Transpose the pitch of this object **only for plaback**
+        glisstime: ``float``          The duration (in beats) of the glissando for events with
+                                      glissando. A short glisstime can be used for legato playback
+                                      in non-percusive instruments
+        priority: ``int``             The order of evaluation. Events scheduled with a higher
+                                      priority are evaluated later in the chain
+        args: ``dict``                Named arguments passed to the playback instrument
         ============================= =====================================================
 
 
@@ -497,11 +522,13 @@ class MObj:
         playargs = self.playargs
         if playargs is None:
             self.playargs = playargs = PlayArgs()
-        for k, v in kws.items():
-            if k is self._excludedPlayKeys:
-                logger.warning(f'Key {k} cannot be set for object {self}')
-            else:
-                playargs[k] = v
+        if glide := kws.pop('glide', None):
+            glisstime = float(glide) if glide is not True else min(0.1, self.dur*F(3, 4))
+            kws['glisstime'] = glisstime
+            if not self.gliss:
+                self.gliss = True
+                self.addSymbol(_symbols.GlissProperties(hidden=True))
+        playargs.update(kws)
         return self
 
     def clone(self: MObjT,
@@ -662,7 +689,6 @@ class MObj:
         This method is called whenever the object changes its representation
 
         This happens when a note changes its pitch inplace, the duration is modified, etc.
-        This invalidates, among other things, the image cache for this object
         """
         if self.parent:
             self.parent._childChanged(self)
@@ -698,7 +724,7 @@ class MObj:
 
         A QuantizedScore contains a list of QuantizedParts, which each consists of
         list of QuantizedMeasures. To access the recursive notation structure of each measure
-        call its :meth:`~maelzel.scoring.QuantizedMeasure.tree` method
+        call its :meth:`~maelzel.scoring.QuantizedMeasure.asTree` method
         """
         w = Workspace.active
         if config is None:
@@ -857,7 +883,7 @@ class MObj:
 
         Args:
             groupid: passed by an object higher in the hierarchy to
-                mark this objects as belonging to a tree
+                mark this objects as belonging to a group
             config: a configuration to customize rendering
             parentOffset: if given this should be the absolute offset of this object's parent
 
@@ -1071,7 +1097,7 @@ class MObj:
                fade: float | tuple[float, float]= None,
                fadeshape: str = None,
                position: float = None,
-               start: float = None,
+               skip: float = None,
                end: float = None,
                sustain: float = None,
                workspace: Workspace = None,
@@ -1087,8 +1113,8 @@ class MObj:
         Args:
             gain: modifies the own amplitude for playback/recording (0-1)
             delay: delay in seconds, added to the start of the object
-                As opposed to the .start attribute of each object, which is defined
-                in symbolic (beat) time, the delay is always in real (seconds) time
+                As opposed to the .offset attribute of each object, which is defined
+                in quarternotes, the delay is always in seconds
             instr: which instrument to use (see defPreset, definedPresets). Use "?" to
                 select from a list of defined presets.
             chan: the channel to output to. **Channels start at 1**
@@ -1097,15 +1123,15 @@ class MObj:
             fadeshape: 'linear' | 'cos'
             args: named arguments passed to the note. A dict ``{paramName: value}``
             position: the panning position (0=left, 1=right)
-            start: start playback at the given offset (in quarternotes). Allows to play
-                a fragment of the object (NB: this trims the playback of the object.
-                Use `delay` to offset the playback in time while keeping the playback time
-                unmodified)
+            skip: start playback at the given offset (in quarternotes), relative
+                to the start of the object. Allows to play a fragment of the object
+                (NB: this trims the playback of the object. Use `delay` to offset
+                the playback in time while keeping the playback time unmodified)
             end: end time of playback, in quarternotes. Allows to play a fragment of the object by trimming the end of the playback
             sustain: a time added to the playback events to facilitate overlapping/legato between
                 notes, or to allow one-shot samples to play completely without being cropped.
             workspace: a Workspace. If given, overrides the current workspace. It's scorestruct
-                is used to to determine the mapping between beat-time and real-time.
+                is used to determine the mapping between beat-time and real-time.
             transpose: an interval to transpose any pitch
 
         Returns:
@@ -1158,17 +1184,23 @@ class MObj:
             workspace = workspace.clone(scorestruct=struct, config=workspace.config)
 
         playargs = PlayArgs.makeDefault(workspace.config)
-        playargs.update(d)
+        if d:
+            playargs.update(d)
 
         parentOffset = self.parent.absOffset() if self.parent else F(0)
 
         events = self._synthEvents(playargs=playargs, parentOffset=parentOffset,
                                    workspace=workspace)
-        if start is not None or end is not None:
+
+        if skip is not None or end is not None:
+            delay = playargs.get('delay')
             struct = workspace.scorestruct
-            starttime = None if start is None else struct.beatToTime(start)
-            endtime = None if end is None else struct.beatToTime(end)
-            events = cropEvents(events, start=starttime, end=endtime, rewind=True)
+            skiptime = 0. if skip is None else struct.beatToTime(skip)
+            endtime = float("inf") if end is None else struct.beatToTime(end)
+            events = cropEvents(events, skip=skiptime+delay, end=endtime+delay)
+
+        if event := next((ev for ev in events if ev.delay < 0), None):
+            raise ValueError(f"Events cannot have negative delay, event={event}")
         return events
 
     def play(self,
@@ -1181,14 +1213,14 @@ class MObj:
              fade: float | tuple[float, float] = None,
              fadeshape: str = None,
              position: float = None,
-             start: float = None,
+             skip: float = None,
              end: float = None,
              whenfinished: Callable = None,
              sustain: float = None,
              workspace: Workspace = None,
              transpose: float = 0,
              config: CoreConfig = None,
-             forcedisplay=False,
+             display=False,
              **kwargs
              ) -> csoundengine.synth.SynthGroup:
         """
@@ -1213,15 +1245,16 @@ class MObj:
             fadeshape: 'linear' | 'cos'
             args: arguments passed to the note. A dict ``{paramName: value}``
             position: the panning position (0=left, 1=right)
-            start: start time of playback. Allows to play a fragment of the object (NB: this trims the playback
-                of the object. Use `delay` to offset the playback in time while keeping the playback time
-                unmodified)
+            skip: amount of time (in quarternotes) to skip. Allows to play a fragment of
+                the object (NB: this trims the playback of the object. Use `delay` to
+                offset the playback in time while keeping the playback time unmodified)
             end: end time of playback. Allows to play a fragment of the object by trimming the end of the playback
             sustain: a time added to the playback events to facilitate overlapping/legato between
                 notes, or to allow one-shot samples to play completely without being cropped.
             workspace: a Workspace. If given, overrides the current workspace. It's scorestruct
                 is used to to determine the mapping between beat-time and real-time. 
-                
+            dur: overrides the playback duration
+
         Returns:
             A :class:`~csoundengine.synth.SynthGroup`
 
@@ -1278,7 +1311,7 @@ class MObj:
                              position=position,
                              sustain=sustain,
                              workspace=workspace,
-                             start=start,
+                             skip=skip,
                              end=end,
                              transpose=transpose,
                              **kwargs)
@@ -1293,7 +1326,7 @@ class MObj:
         else:
             rtrenderer = playback.RealtimeRenderer()
             out = rtrenderer.schedEvents(events, whenfinished=whenfinished)
-            if forcedisplay and environment.insideJupyter:
+            if display and environment.insideJupyter:
                 from IPython.display import display
                 display(out)
             return out

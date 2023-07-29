@@ -20,7 +20,7 @@ def splitNotesOnce(notes: Chord | Sequence[Note], splitpoint: float, deviation=N
         notes: a seq. of Notes
         splitpoint: the pitch to split the notes
         deviation: an acceptable deviation to fit all notes
-            in one tree (config: 'splitAcceptableDeviation')
+            in one part (config: 'splitAcceptableDeviation')
 
     Returns:
         notes above and below
@@ -43,7 +43,7 @@ def splitNotesOnce(notes: Chord | Sequence[Note], splitpoint: float, deviation=N
 def splitNotesIfNecessary(notes: list[Note], splitpoint: float, deviation=None
                           ) -> list[list[Note]]:
     """
-    Like splitNotesOnce, but returns only tree which have notes in them
+    Like splitNotesOnce, but returns only parts which have notes in them
 
     This can be used to split in more than one staves, which should not overlap
 
@@ -173,13 +173,12 @@ def groupLinkedEvents(items: list[MEvent],
     groups = [[lastitem]]
     for item in items[1:]:
         assert item.offset is not None
-        assert lastitem.end is not None
         gap = item.offset - lastitem.end
         if gap < 0:
             raise ValueError(f"Events supperpose: {lastitem=}, {item=}")
         elif gap > mingap:
             groups.append([item])
-        elif not lastitem.canBeLinkedTo(item) or (lastitem.playargs and lastitem.playargs.get('linkednext') is False):
+        elif not lastitem._canBeLinkedTo(item):
             groups.append([item])
         else:
             groups[-1].append(item)
@@ -190,7 +189,7 @@ def groupLinkedEvents(items: list[MEvent],
 def splitLinkedGroupIntoLines(objs: list[MEvent]
                               ) -> list[list[Note]]:
     """
-    Given a tree as a list of Notes/Chords, split it in subgroups matching
+    Given a group as a list of Notes/Chords, split it in subgroups matching
     each note with its continuation.
 
     When one chords is followed by another chord and the first chord
@@ -235,11 +234,11 @@ def splitLinkedGroupIntoLines(objs: list[MEvent]
         usednotes = set()
         assert all(n.offset is not None for n in notes)
         if not started:
-            # No started tree, so all notes here will start tree
+            # No started group, so all notes here will start group
             for note in notes:
                 started.append([note])
         else:
-            # there are started tree, so iterate through started tree and
+            # there are started groups, so iterate through started groups and
             # find if there are matches.
             for groupidx, group in enumerate(started):
                 last = group[-1]
@@ -261,17 +260,17 @@ def splitLinkedGroupIntoLines(objs: list[MEvent]
                         group.append(notes[matchidx])
                         usednotes.add(notes[matchidx])
                 else:
-                    # This tree's last note is not tied and has no gliss: this is the
-                    # end of this tree, so add it to finished
+                    # This group's last note is not tied and has no gliss: this is the
+                    # end of this group, so add it to finished
                     finished.append(group)
                     started.pop(groupidx)
-            # Are there notes left? If yes, this notes did not match any started tree,
-            # so they must start a tree themselves
+            # Are there notes left? If yes, this notes did not match any started group,
+            # so they must start a group themselves
             for note in notes:
                 if note not in usednotes:
                     started.append([note])
 
-    # We finished iterating, are there any started tree? Finish them
+    # We finished iterating, are there any started groups? Finish them
     finished.extend(started)
     return finished
 

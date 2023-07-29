@@ -106,14 +106,6 @@ class MEvent(MObj):
         """
         return not self.isRest() and self.dur == 0
 
-    def _markAsGracenote(self, slash=False) -> None:
-        """
-        Mark this note as gracenote via properties
-
-        """
-        self.setProperty('.grace', True)
-        self.setProperty('.grace-slash', slash)
-
     def addSymbol(self: MEventT, *args, **kws) -> MEventT:
         """
         Add a notation symbol to this object
@@ -166,21 +158,24 @@ class MEvent(MObj):
         self._addSymbol(symbol)
         if isinstance(symbol, _symbols.Spanner):
             symbol.setAnchor(self)
+        elif isinstance(symbol, _symbols.NoteSymbol):
+            if errormsg := symbol.checkAnchor(self):
+                raise ValueError(f"Cannot add this symbol to {self}: {errormsg}")
         return self
 
-    def canBeLinkedTo(self, other: MEvent) -> bool:
+    def _canBeLinkedTo(self, other: MEvent) -> bool:
         """
-        Can self be linked to *other* within a line, assuming other follows self?
+        Can self be linked to *other* within a playback line, assuming other follows self?
 
         A line is a sequence of events (notes, chords) where
-        one is linked to the next by either a tied note or a gliss
-        leading to the next pitch, etc
+        one is linked to the next by either being tied, a gliss
+        leading to the next pitch, or a portamento (an implicit glissano)
 
         This method should not take offset time into account: it should
         simply return if self can be linked to other assuming that
         other follows self
         """
-        return False
+        raise NotImplementedError
 
     def mergeWith(self: MEventT, other: MEventT) -> MEventT | None:
         """
@@ -360,7 +355,7 @@ class Note(MEvent):
 
     """
 
-    __slots__ = ('pitch', '_gliss', 'dynamic', 'pitchSpelling')
+    __slots__ = ('pitch', '_gliss', 'dynamic', 'pitchSpelling', '_glissTarget')
 
     def __init__(self,
                  pitch: pitch_t,
@@ -459,7 +454,9 @@ class Note(MEvent):
         super().__init__(dur=dur, offset=offset, label=label, properties=properties,
                          symbols=symbols, tied=tied, amp=amp)
 
-        assert self.dur is None or self.dur >= 0
+        self._glissTarget: float = 0.
+
+        assert self.dur >= 0
 
     @staticmethod
     def makeRest(dur: time_t | str, offset: time_t = None, label: str = '', dynamic='') -> Note:
@@ -558,10 +555,10 @@ class Note(MEvent):
             self.addSymbol(_symbols.NotatedPitch(notename))
             self.pitchSpelling = notename
 
-    def canBeLinkedTo(self, other: MEvent) -> bool:
-        if self.isRest() and other.isRest():
+    def _canBeLinkedTo(self, other: MEvent) -> bool:
+        if self.isRest() or not isinstance(other, (Note, Chord)) or other.isRest():
             return False
-        if self._gliss is True:
+        if self._gliss is True or (self.playargs and self.playargs.get('glisstime')):
             return True
         if isinstance(other, Note):
             if self.tied and self.pitch == other.pitch:
@@ -588,7 +585,7 @@ class Note(MEvent):
 
     def __eq__(self, other: Note) -> bool:
         if not isinstance(other, Note):
-            raise TypeError("A Note can only be compared to another note")
+            return False
         return hash(self) == hash(other)
 
     def copy(self) -> Note:
@@ -633,7 +630,7 @@ class Note(MEvent):
 
     def __hash__(self) -> int:
         hashsymbols = hash(tuple(self.symbols)) if self.symbols else 0
-        return hash((self.pitch, self.dur, self.offset, self._gliss, self.label,
+        return hash((self.pitch, self._dur, self.offset, self._gliss, self.label,
                      self.dynamic, self.tied, self.pitchSpelling, hashsymbols))
 
     def asChord(self) -> Chord:
@@ -669,6 +666,8 @@ class Note(MEvent):
         self.amp = 0
         self.pitch = 0
         self.pitchSpelling = ''
+        if self.parent:
+            self.parent._childChanged(self)
 
     def pitchRange(self) -> tuple[float, float] | None:
         return self.pitch, self.pitch
@@ -785,7 +784,7 @@ class Note(MEvent):
                 rest.addText(self.label, role='label')
             if self.symbols:
                 for symbol in self.symbols:
-                    if symbol.appliesToRests:
+                    if isinstance(symbol, _symbols.NoteSymbol) and symbol.appliesToRests:
                         symbol.applyToNotation(rest)
             return [rest]
 
@@ -809,7 +808,7 @@ class Note(MEvent):
             notes[0].groupid = groupid
             assert self.gliss >= 12, f"self.gliss = {self.gliss}"
             notes.append(scoring.makeNote(pitch=self.gliss,
-                                          gracenote=True,
+                                          duration=0,
                                           offset=offset,
                                           group=groupid))
             if config['show.glissEndStemless']:
@@ -934,20 +933,32 @@ class Note(MEvent):
                 amp = workspace.dynamicCurve.dyn2amp(dyn)
             else:
                 amp = conf['play.defaultAmplitude']
-        endmidi = self.pitch if not self.gliss else self.resolveGliss()
+
+        glisstime = playargs.get('glisstime')
+        linkednext = self.gliss or glisstime is not None
+        endmidi = self.resolveGliss() if linkednext else self.pitch
         offset = self._detachedOffset(F0) + parentOffset
-        dur = self.dur
+        dur = playargs.get('end', self.dur)
+        offset += playargs.get('skip', 0.)
+
         starttime = float(scorestruct.beatToTime(offset))
         endtime = float(scorestruct.beatToTime(offset + dur))
         transp = playargs.get('transpose', 0)
         if starttime >= endtime:
             raise ValueError(f"Trying to play an event with 0 or negative duration: {endtime-starttime}. "
                              f"Object: {self}")
-        bps = [[starttime, self.pitch+transp, amp],
-               [endtime,   endmidi+transp,    amp]]
+        startpitch = self.pitch + transp
+        if glisstime and glisstime < dur:
+            glissabstime = float(scorestruct.beatToTime(offset + dur - glisstime))
+            bps = [[starttime, startpitch, amp],
+                   [glissabstime, startpitch, amp],
+                   [endtime, endmidi + transp, amp]]
+        else:
+            bps = [[starttime, self.pitch+transp, amp],
+                   [endtime,   endmidi+transp,    amp]]
 
         event = SynthEvent.fromPlayArgs(bps=bps, playargs=playargs)
-        if self.tied or self.gliss is True:
+        if self.tied or linkednext:
             event.linkednext = True
         return [event]
 
@@ -959,30 +970,17 @@ class Note(MEvent):
             the target pitch or this note's own pitch if its target
             pitch cannot be determined
         """
-        if not self.gliss:
-            raise ValueError("This Note does not have a glissando")
-        elif not isinstance(self._gliss, bool):
+        if not isinstance(self._gliss, bool):
             # .gliss is already a pitch, return that
             return self._gliss
-        elif self.properties and (target := self.properties.get('.glisstarget')) is not None:
-            return target
+        elif self._glissTarget:
+            return self._glissTarget
         elif not self.parent:
             # .gliss is a bool, so we need to know the next event, but we are parentless
             return self.pitch
 
-        nextev = self.parent.eventAfter(self)
-        if nextev is None:
-            # No next event, the gliss target cannot be determined
-            return self.pitch
-        elif isinstance(nextev, Note):
-            return nextev.pitch
-        elif isinstance(nextev, Chord):
-            # A gliss to the highest note of the chord. This is an arbitrary decission,
-            # it could be something else, like the nearest pitch of the chord.
-            # But in such a case the user could just set the .gliss attr to a concrete value
-            return max(n.pitch for n in nextev.notes)
-        else:
-            return self.pitch
+        self.parent._resolveGlissandi()
+        return self._glissTarget or self.pitch
 
     def resolveDynamic(self, conf: CoreConfig = None) -> str:
         if conf is None:
@@ -1093,7 +1091,13 @@ class Chord(MEvent):
         tied: is this Chord tied to another Chord?
     """
 
-    __slots__ = ('gliss', 'notes', 'dynamic', '_notatedPitches')
+    __slots__ = (
+         'notes',
+         'dynamic',
+         '_gliss',
+         '_notatedPitches',
+         '_glissTarget'
+    )
 
     def __init__(self,
                  notes: str | list[Note | int | float | str],
@@ -1171,11 +1175,14 @@ class Chord(MEvent):
 
         super().__init__(dur=dur, offset=offset, label=label, properties=properties,
                          tied=tied, amp=amp)
-        if dur == 0:
-            self._markAsGracenote()
         self.notes: list[Note] = notes
-        self.gliss: bool | list[float] = gliss
         self.dynamic: str = dynamic
+        self._gliss: bool | list[float] = gliss
+        self._glissTarget: list[float] | None = None
+
+    @property
+    def gliss(self) -> list[float] | None:
+        return self._gliss
 
     def copy(self):
         notes = [n.copy() for n in self.notes]
@@ -1221,15 +1228,21 @@ class Chord(MEvent):
             if notename:
                 n.pitchSpelling = notename
 
-    def canBeLinkedTo(self, other: MObj) -> bool:
-        if self.gliss is True:
+    def _canBeLinkedTo(self, other: MObj) -> bool:
+        if other.isRest():
+            return False
+        if self._gliss is True:
             return True
         if isinstance(other, Note):
             if self.tied and any(p == other.pitch for p in self.pitches):
                 return True
+            else:
+                logger.debug(f"Chord {self} is tied, but {other} has no pitches in common")
         elif isinstance(other, Chord):
             if self.tied and any(p in other.pitches for p in self.pitches):
                 return True
+            else:
+                logger.debug(f"Chord {self} is tied, but {other} has no pitches in common")
         return False
 
     def mergeWith(self, other: Chord) -> Chord | None:
@@ -1265,23 +1278,28 @@ class Chord(MEvent):
             assert all(isinstance(_, (int, float)) for _ in self.gliss)
             return self.gliss
 
-        if self.properties and (target := self.properties.get('.glisstarget')) is not None:
-            return target
+        if self._glissTarget:
+            return self._glissTarget
 
         if not self.parent:
             # .gliss is a bool, so we need to know the next event, but we are parentless
             return self.pitches
 
-        nextev = self.parent.eventAfter(self)
-        if nextev is None:
-            # No next event, the gliss target is cannot be determined
-            return self.pitches
-        if isinstance(nextev, Note):
-            return [nextev.pitch] * len(self.notes)
-        elif isinstance(nextev, Chord):
-            return nextev.pitches
-        else:
-            return self.pitches
+        self.parent._update()
+        if self._glissTarget is None:
+            self._glissTarget = self.pitches
+        return self._glissTarget
+
+        #nextev = self.parent.eventAfter(self)
+        #if nextev is None:
+        #    # No next event, the gliss target is cannot be determined
+        #    return self.pitches
+        #if isinstance(nextev, Note):
+        #    return [nextev.pitch] * len(self.notes)
+        #elif isinstance(nextev, Chord):
+        #    return nextev.pitches
+        #else:
+        #    return self.pitches
 
     def scoringEvents(self,
                       groupid='',
@@ -1513,14 +1531,26 @@ class Chord(MEvent):
             if playargs is playargs0:
                 playargs = playargs.copy()
             playargs['gain'] = gain / math.sqrt(len(self))
+
+        offset = self._detachedOffset(F0) + parentOffset
+        dur = playargs.get('end', self.dur)
+        offset += playargs.get('skip', 0)
+        startsecs = float(struct.beatToTime(offset))
+        endsecs = float(struct.beatToTime(offset + dur))
         endpitches = self.pitches if not self.gliss else self.resolveGliss()
-        startsecs, endsecs = self.timeRangeSecs(parentOffset=parentOffset, scorestruct=struct)
         amps = self.resolveAmps(config=conf, dyncurve=workspace.dynamicCurve)
         transpose = playargs.get('transpose', 0.)
         synthevents = []
+        glisstime = playargs.get('glisstime', 0)
+        if glisstime > dur:
+            glisstime = 0
         for note, endpitch, amp in zip(self.notes, endpitches, amps):
-            bps = [[float(startsecs), note.pitch+transpose, amp],
-                   [float(endsecs),   endpitch+transpose,   amp]]
+            startpitch = note.pitch + transpose
+            bps = [[float(startsecs), startpitch, amp]]
+            if glisstime:
+                glissabstime = float(struct.beatToTime(offset+dur-glisstime))
+                bps.append([glissabstime, startpitch, amp])
+            bps.append([float(endsecs),   endpitch+transpose,   amp])
             event = SynthEvent.fromPlayArgs(bps=bps, playargs=playargs)
             if playargs.get('linkednext') is not False and (self.gliss or self._isNoteTied(note)):
                 event.linkednext = True
@@ -1531,6 +1561,9 @@ class Chord(MEvent):
         """
         Query if the given note within this chord is tied to the following note/chord
 
+        For a note within a chord to be tied the chord needs to be tied and the
+        next event needs to have a pitch equal to the pitch of that note
+
         Args:
             note: a note within this chord
 
@@ -1538,21 +1571,25 @@ class Chord(MEvent):
             True if this note is tied to the next chord/note
 
         """
-        assert note in self.notes
         if not self.tied:
             return False
-        if self.parent:
-            nextitem = self.parent.itemAfter(self)
-            if not nextitem:
-                return False
-            elif isinstance(nextitem, Chord):
-                return next((candidate.pitch == note.pitch for candidate in nextitem), None) is not None
-            elif isinstance(nextitem, Note):
-                return nextitem.pitch == note.pitch
-            else:
-                return False
-        # no parent
-        return True
+
+        if not self.parent:
+            return True
+
+        nextitem = self.parent.itemAfter(self)
+        if not nextitem:
+            return False
+        elif isinstance(nextitem, Chord):
+            istied = next((candidate.pitch == note.pitch for candidate in nextitem), None) is not None
+        elif isinstance(nextitem, Note):
+            istied = nextitem.pitch == note.pitch
+        else:
+            return False
+        if istied and not self.tied:
+            logger.warning(f"A note ({note}) in this chord is tied, but the chord itself is "
+                           f"not tied (chord={self})")
+        return istied
 
     def _bestSpelling(self) -> tuple[str]:
         notenames = [n.pitchSpelling + '!' if n.pitchSpelling else n.name

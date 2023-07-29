@@ -29,7 +29,7 @@ presets = {
     'highest': {
         'possibleDivisionsByTempo': {
             10: [],
-            60: quantutils.allSubdivisions(maxsubdivs=5,
+            62: quantutils.allSubdivisions(maxsubdivs=6,
                                            possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 15),
                                            maxdensity=30),
 

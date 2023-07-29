@@ -133,7 +133,8 @@ class Workspace:
         Workspace._initdone = True
         if CoreConfig.root is None:
             CoreConfig(source='load')
-        w = Workspace(config=CoreConfig.root, active=True)
+        # The root config itself should never be active since it is read-only
+        w = Workspace(config=CoreConfig.root.copy(), active=True)
         Workspace.root = w
 
     def deactivate(self) -> Workspace:

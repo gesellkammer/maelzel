@@ -148,10 +148,10 @@ def _measureMaxDivisions(measure: quant.QuantizedMeasure
 
     The minimum value is lcm(5, 6, 7, 8)
     """
-    if measure.isEmpty():
+    if measure.empty():
         return 1
     denominators = {n.duration.denominator
-                    for n in measure.tree().recurse()}
+                    for n in measure.tree.recurse()}
     return max(math.lcm(*denominators), 1)
 
 
@@ -894,7 +894,7 @@ def _prepareRender(part: quant.QuantizedPart) -> None:
     #    scoring, the breath mark indicates a breath before the note. So in
     #    order to render correctly we move all such attachments to the previous
     #    notation
-    for n0, n1 in iterlib.pairwise(part.flatNotations(tree=True)):
+    for n0, n1 in iterlib.pairwise(part.flatNotations()):
         if not n1.attachments:
             continue
         breathidx = next((i for i, attach in enumerate(n1.attachments)
@@ -984,14 +984,13 @@ def _renderPart(part: quant.QuantizedPart,
                        bold=style.bold,
                        italic=style.italic)
 
-        if measure.isEmpty():
+        if measure.empty():
             note_ = _elem(doc, measure_, "note")
             _elem(doc, note_, "rest", {'measure': 'yes'})
             _elemText(doc, note_, "duration", int(measure.duration() * divisions))
             _elemText(doc, note_, "voice", 1)
         else:
-            tree = measure.tree()
-            _renderNode(tree, doc=doc, parent=measure_,
+            _renderNode(measure.tree, doc=doc, parent=measure_,
                         durRatios=[], options=renderOptions, state=state)
 
         if measuredef.barline:

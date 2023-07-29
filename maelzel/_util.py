@@ -3,6 +3,7 @@ from typing import Callable, Sequence
 import emlib.misc
 import warnings
 import sys
+import weakref
 
 
 def reprObj(obj,
@@ -11,7 +12,7 @@ def reprObj(obj,
             hideFalse = False,
             hideEmptyStr = False,
             hideFalsy = False,
-            quoteStrings=False
+            quoteStrings=False,
             ) -> str:
     """
     Given an object, generate its repr
@@ -43,8 +44,9 @@ def reprObj(obj,
             continue
         elif (filterfunc := filter.get(attr)) and not filterfunc(value):
             continue
-        #elif isinstance(value, weakref.ref):
-        #    value = f"ref({value()})"
+        elif isinstance(value, weakref.ref):
+            refobj = value()
+            value = f'ref({type(refobj).__name__})'
         elif quoteStrings and isinstance(value, str):
             value = f'"{value}"'
         info.append(f'{attr}={value}')
@@ -61,14 +63,14 @@ def fuzzymatch(query: str, choices: Sequence[str], limit=5) -> list[tuple[str, i
     return thefuzz.process.extract(query, choices=choices, limit=limit)
 
 
-def checkChoice(name: str, s: str, choices: Sequence[str], threshold=4):
+def checkChoice(name: str, s: str, choices: Sequence[str], threshold=8):
     if s not in choices:
         if len(choices) > threshold:
             matches = fuzzymatch(s, choices, limit=20)
             raise ValueError(f'Invalid value "{s}" for {name}, maybe you meant "{matches[0][0]}"? '
                              f'Other possible choices: {[m[0] for m in matches]}')
         else:
-            raise ValueError(f'Invalid value "{s}" for {name}, it should be one of {choices}')
+            raise ValueError(f'Invalid value "{s}" for {name}, it should be one of {list(choices)}')
 
 
 def humanReadableTime(t: float) -> str:

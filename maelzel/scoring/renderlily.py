@@ -713,8 +713,8 @@ def renderNode(node: Node,
 
             if item.gliss:
                 if not state.glissando:
-                    if props := item.findAttachment(attachment.GlissandoProperties):
-                        assert isinstance(props, attachment.GlissandoProperties)
+                    if props := item.findAttachment(attachment.GlissProperties):
+                        assert isinstance(props, attachment.GlissProperties)
                         if props.linetype != 'solid':
                             _(rf"\tweak Glissando.style #'{_linetypeToLily[props.linetype]} ")
                         if props.color:
@@ -866,7 +866,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
                                          fontsize=relfontsize, fontrelative=True,
                                          box=box))
 
-        if measure.isEmpty():
+        if measure.empty():
             num, den = measure.timesig
             measureDur = float(util.measureQuarterDuration(measure.timesig))
             if measureDur in {1., 2., 3., 4., 6., 7., 8.}:
@@ -876,7 +876,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
                 _(f"R1*{num}/{den}")
             state.dynamic = ''
         else:
-            root = measure.tree()
+            root = measure.tree
             _forceBracketsForNestedTuplets(root)
             markConsecutiveGracenotes(root)
             lilytext = renderNode(root, durRatios=[], options=options,
@@ -1002,7 +1002,7 @@ def makeScore(score: quant.QuantizedScore,
             if group[0].groupname is not None:
                 name, shortname = group[0].groupname
             else:
-                name, shortname  = '', ''
+                name, shortname = '', ''
             _(fr'\new StaffGroup \with {{ instrumentName = "{name}" shortInstrumentName = "{shortname}" }} <<', indent=1)
             indents += 1
         for part in group:
@@ -1114,6 +1114,3 @@ class LilypondRenderer(Renderer):
             for f in tempfiles:
                 os.remove(f)
 
-
-def _preprocessSpanners(part: quant.QuantizedPart) -> None:
-    pass

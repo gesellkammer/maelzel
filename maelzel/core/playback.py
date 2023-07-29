@@ -113,7 +113,7 @@ class RealtimeRenderer(Renderer):
     def prepareSessionEvent(self, sessionevent: csoundengine.session.SessionEvent
                             ) -> bool:
 
-        _, needssync = self.session.prepareSched(instrname=sessionevent.instrname,
+        _, needssync = self.session.prepareSched(instr=sessionevent.instrname,
                                                  priority=sessionevent.priority)
         return needssync
 

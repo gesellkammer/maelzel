@@ -1,6 +1,6 @@
 from __future__ import annotations
 from maelzel.core.workspace import Workspace
-from maelzel.core import F
+from maelzel.core import F, Note, asEvent
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -10,7 +10,9 @@ if TYPE_CHECKING:
 __all__ = (
     'b2t',
     'l2b',
-    'b2l'
+    'b2l',
+    'N',
+    'Ev'
 )
 
 
@@ -27,3 +29,7 @@ def l2b(measureindex: int, beat: time_t = 0.) -> F:
 def b2l(beat: time_t) -> tuple[int, F]:
     """Shortcut for beatToLocation"""
     return Workspace.active.scorestruct.beatToLocation(beat)
+
+
+N = Note
+Ev = asEvent

@@ -8,6 +8,7 @@ a :class:`QuantizedScore`
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cache
 import sys
 import os
 import time
@@ -31,8 +32,8 @@ from . import renderoptions
 from . import attachment
 from .quantprofile import QuantizationProfile
 
-from .notation import Notation, makeRest, SnappedNotation, tieNotations
-from .node import Node, asTree, SplitError
+from .notation import Notation, makeRest, SnappedNotation, tieNotations, splitNotationsAtOffsets
+from .node import Node, SplitError, TreeLocation
 from maelzel import scorestruct as st
 
 from emlib import iterlib
@@ -56,8 +57,6 @@ __all__ = (
     'quantizeMeasure',
     'quantizePart',
     'splitNotationAtMeasures',
-    'splitNotationsAtOffsets',
-    'PartLocation',
     'QuantizationProfile'
 )
 
@@ -281,8 +280,8 @@ class QuantizedBeat:
 
     """
 
-    __slots__ = ('divisions', 'assignedSlots', 'notations', 'beatDuration',
-                 'beatOffset', 'quantizationError', 'quantizationInfo',
+    __slots__ = ('divisions', 'assignedSlots', 'notations', 'duration',
+                 'offset', 'quantizationError', 'quantizationInfo',
                  'weight')
 
     def __init__(self,
@@ -304,10 +303,10 @@ class QuantizedBeat:
         self.notations: list[Notation] = notations
         "The notations in this beat. They are cropped to fit"
 
-        self.beatDuration: F = beatDuration
+        self.duration: F = beatDuration
         "The duration of the beat in quarter notes"
 
-        self.beatOffset: F = beatOffset
+        self.offset: F = beatOffset
         "The offset of the beat in relation to the measure"
 
         self.quantizationError: float = quantizationError
@@ -319,12 +318,12 @@ class QuantizedBeat:
         self.weight: int = weight
         "The weight of this beat within the measure. 2=strong, 1=weak, 0=no weight"
 
-        self.applyDurationRatios()
+        self._applyDurationRatios()
 
     def __repr__(self):
         parts = [
             f"divisions: {self.divisions}, assignedSlots={self.assignedSlots}, "
-            f"notations={self.notations}, beatDuration={self.beatDuration}, beatOffset={self.beatOffset}, "
+            f"notations={self.notations}, beatDuration={self.duration}, beatOffset={self.offset}, "
             f"quantizationError={self.quantizationError:.5g}, weight={self.weight}"
         ]
         if self.quantizationInfo:
@@ -332,25 +331,25 @@ class QuantizedBeat:
         return f'QuantizedBeat({", ".join(parts)})'
 
     @property
-    def beatEnd(self) -> F:
+    def end(self) -> F:
         """The end of this beat in quarternotes"""
-        return self.beatOffset + self.beatDuration
+        return self.offset + self.duration
 
     def dump(self, indents=0, indent='  ', stream=None):
         """Dump this beat"""
         stream = stream or sys.stdout
         print(f"{indent*indents}QuantizedBeat(divisions={self.divisions}, assignedSlots={self.assignedSlots}, "
-              f"beatDuration={self.beatDuration}, beatOffset={self.beatOffset}, "
+              f"beatDuration={self.duration}, beatOffset={self.offset}, "
               f"quantizationError={self.quantizationError:.3g})", file=stream)
         ind = indent * (indents + 1)
         for n in self.notations:
             print(f"{ind}{n}", file=stream)
 
-    def applyDurationRatios(self):
+    def _applyDurationRatios(self):
         _applyDurationRatio(self.notations, division=self.divisions,
-                            beatOffset=self.beatOffset, beatDur=self.beatDuration)
+                            beatOffset=self.offset, beatDur=self.duration)
 
-    def tree(self) -> Node:
+    def asTree(self) -> Node:
         """
         Returns the notations in this beat as a tree
 
@@ -359,27 +358,51 @@ class QuantizedBeat:
             this beat (grouped by their duration ratio)
         """
         return _beatToTree(self.notations, division=self.divisions,
-                           beatOffset=self.beatOffset, beatDur=self.beatDuration)
+                           beatOffset=self.offset, beatDur=self.duration)
 
     def __hash__(self):
         notationHashes = [hash(n) for n in self.notations]
-        data = [self.divisions, self.beatDuration, self.beatOffset]
+        data = [self.divisions, self.duration, self.offset]
         data.extend(notationHashes)
         return hash(tuple(data))
 
 
+def _beatNodes(beats: list[QuantizedBeat]) -> list[Node]:
+    """
+    Returns the contents of this measure grouped as a list of Nodes
+    """
+    if not beats:
+        return []
+    nodes = [beat.asTree().mergedNotations() for beat in beats]
+
+    def removeUnnecessaryChildrenInplace(node: Node) -> None:
+        items = []
+        for item in node.items:
+            if isinstance(item, Node) and len(item.items) == 1:
+                item = item.items[0]
+            items.append(item)
+        node.items = items
+
+    for node in nodes:
+        removeUnnecessaryChildrenInplace(node)
+
+    assert sum(node.totalDuration() for node in nodes) == sum(beat.duration for beat in beats)
+    return nodes
+
+
 class QuantizedMeasure:
     """
-    A QuantizedMeasure holds a list of QuantizedBeats
+    A QuantizedMeasure holds a quantized tree
 
-    Those QuantizedBeats are merged together in a recursive structure
-    to generate a tree of Nodes. See :meth:`QuantizedMeasure.tree`
+    If given a list of QuantizedBeats, these are merged together in a recursive
+    structure to generate a tree of Nodes. See :meth:`QuantizedMeasure.asTree`
     """
     def __init__(self,
                  timesig: timesig_t,
                  quarterTempo: F,
                  beats: list[QuantizedBeat] | None = None,
                  quantprofile: QuantizationProfile | None = None,
+                 subdivisionStructure: tuple[int, ...] | None = None,
                  parent: QuantizedPart | None = None):
         self.timesig = timesig
         "The time signature (a tuple num, den)"
@@ -393,54 +416,67 @@ class QuantizedMeasure:
         self.quantprofile = quantprofile
         "The quantization profile used to generate this measure"
 
-
         self.parent = parent
         "The parent of this measure (a QuantizedPart)"
 
+        self.subdivisionStructure = subdivisionStructure
+        """The subdivision structure of this measure"""
+
         self._offsets = None
-        self._root: Node | None = None
+        """Cached offsets"""
+
+        self._tree: Node = self._makeTree()
+        """The root of the tree representation"""
 
         if self.beats:
-            self.check()
+            self._checkBeats()
 
     def __repr__(self):
-        parts = [f"timesig={self.timesig}, quarterTempo={self.quarterTempo}, beats={self.beats}"]
+        parts = [f"timesig={self.timesig}, quarterTempo={self.quarterTempo}, tree={self.tree}"]
         if self.quantprofile:
             parts.append(f"profile={self.quantprofile.name}")
         return f"QuantizedMeasure({', '.join(parts)})"
 
     def __hash__(self):
-        if not self.beats:
-            return hash((self.timesig, self.quarterTempo, self.getMeasureIndex()))
+        if self.empty():
+            return hash((self.measureIndex(), self.timesig, self.quarterTempo))
         else:
-            return hash((self.timesig, self.quarterTempo) + tuple(hash(b) for b in self.beats))
+            return hash((self.measureIndex(), self.timesig, self.quarterTempo, self.tree, self.subdivisionStructure))
+
+    def beatStructure(self) -> list[st.BeatStructure]:
+        return st.measureBeatStructure(self.timesig, quarterTempo=self.quarterTempo,
+                                       subdivisionStructure=self.subdivisionStructure)
 
     def resetTree(self):
         """Remove any cached tree representation of this measure"""
-        self._root = None
+        if not self.beats:
+            raise ValueError("Cannot reset the tree of a QuantizedMeasure without "
+                             "quantized beats")
+        self._tree = self._makeTree()
 
-    def getMeasureIndex(self) -> int | None:
+    def measureIndex(self) -> int | None:
         """Return the measure index of this measure within the QuantizedPart"""
         if not self.parent:
             return None
         return self.parent.measures.index(self)
 
-    def measureDef(self) -> st.MeasureDef | None:
+    def _measureDef(self) -> st.MeasureDef | None:
         if not self.parent or not self.parent.struct:
             return None
-        measureindex = self.getMeasureIndex()
+        measureindex = self.measureIndex()
         if measureindex is None:
             return None
         return self.parent.struct.getMeasureDef(measureindex)
 
-    def getPreviousMeasure(self) -> QuantizedMeasure | None:
+    def previousMeasure(self) -> QuantizedMeasure | None:
         """Returns the previous measure in the part"""
-        idx = self.getMeasureIndex()
+        if self.parent is None:
+            raise ValueError("This QuantizedMeasure has no parent")
+        idx = self.measureIndex()
         if idx is None:
             return None
         if idx == 0:
             return None
-        assert self.parent is not None
         return self.parent.measures[idx - 1]
 
     def duration(self) -> F:
@@ -450,17 +486,11 @@ class QuantizedMeasure:
         Returns:
             the duration of the measure in quarter notes
         """
-        if self.isEmpty():
-            return util.measureQuarterDuration(self.timesig)
-        return sum(self.beatDurations())
+        return util.measureQuarterDuration(self.timesig)
 
     def beatBoundaries(self) -> list[F]:
         """
         The beat offsets, including the end of the measure
-
-        This method will return the boundaries even if the measure itself
-        is empty. In that case these boundaries are the boundaries of
-        the beat structure, as defined in the score structure
 
         Returns:
             the boundaries of the beats, which is the offsets plus the end of the measure
@@ -474,22 +504,16 @@ class QuantizedMeasure:
         Returns a list of the offsets of each beat within this measure
 
         Returns:
-            the offset of each beat
+            the offset of each beat. The first offset is always 0
         """
-        if self.isEmpty():
-            measuredef = self.measureDef()
-            if measuredef is None:
-                return []
-            beatStructure = measuredef.beatStructure()
-            beatOffsets = [beat.offset for beat in beatStructure]
-            # beatOffsets.append(beatStructure[-1].end)
-            self._offsets = beatOffsets
-        elif self._offsets is None:
-            self._offsets = [beat.beatOffset for beat in self.beats]
-
+        if self._offsets is None:
+            self._offsets = [beat.offset for beat in self.beatStructure()]
         return self._offsets
 
-    def fixEnharmonics(self, options: enharmonics.EnharmonicOptions) -> None:
+    def _fixEnharmonics(self,
+                        options: enharmonics.EnharmonicOptions,
+                        prevMeasure: QuantizedMeasure | None = None
+                        ) -> None:
         """
         Pin the enharmonic spellings within this measure (inplace)
 
@@ -497,123 +521,78 @@ class QuantizedMeasure:
             options: the EnharmonicOptions to use
 
         """
-        if self.isEmpty():
+        if self.empty():
             return
-        tree = self.tree()
+        tree = self.tree
         first = tree.firstNotation()
         if not first.isRest and first.tiedPrev:
-            prevMeasure = self.getPreviousMeasure()
             assert prevMeasure is not None
-            if prevMeasure.isEmpty():
+            if prevMeasure.empty():
                 raise ValueError("The first note of this measure is tied to the previous"
                                  " note, but the previous measure is empty")
-            prevTree = prevMeasure.tree()
+            prevTree = prevMeasure.tree
         else:
             prevTree = None
         tree.fixEnharmonics(options=options, prevTree=prevTree)
 
-    def isEmpty(self) -> bool:
+    def empty(self) -> bool:
         """
         Is this measure empty?
 
         Returns:
             True if empty
         """
-        if not self.beats:
-            return True
-        for beat in self.beats:
-            if beat.notations and any(not n.isRest or n.hasAttributes() for n in beat.notations):
-                return False
-        return True
+        return self.tree.empty()
 
-    def dump(self, numindents=0, indent=_INDENT, tree=True, stream=None):
+    def dump(self, numindents=0, indent=_INDENT, tree=True, stream=None) -> None:
         ind = _INDENT * numindents
         stream = stream or sys.stdout
         print(f"{ind}Timesig: {self.timesig[0]}/{self.timesig[1]} "
               f"(quarter={self.quarterTempo})", file=stream)
-        if self.isEmpty():
+        if self.empty():
             print(f"{ind}EMPTY", file=stream)
         elif tree:
-            self.tree().dump(numindents, indent=indent, stream=stream)
-        else:
+            self.tree.dump(numindents, indent=indent, stream=stream)
+        elif self.beats:
             for beat in self.beats:
                 beat.dump(indents=numindents, indent=indent, stream=stream)
 
-    def notations(self, tree: bool) -> list[Notation]:
+    def notations(self) -> list[Notation]:
         """
         Returns a flat list of all notations in this measure
-
-        Args:
-            tree: if True, use the tree representation of the measure. Otherwise,
-                the beat representation is used
 
         Returns:
             a list of Notations in this measure
         """
-        if self.isEmpty():
+        if self.empty():
             return []
-        if tree:
-            root = self.tree()
-            return list(root.recurse())
+
+        return list(self.tree.recurse())
+
+    def _makeTree(self) -> Node:
+        """
+        Returns the root of a tree of Nodes representing the items in this measure
+        """
+        if not self.quantprofile:
+            raise ValueError(f"Cannot create tree without a QuantizationProfile")
 
         if not self.beats:
-            return []
-        notations = []
-        for beat in self.beats:
-            notations.extend(beat.notations)
-        assert len(notations) > 0
-        for n0, n1 in iterlib.pairwise(notations):
-            if n0.end != n1.offset:
-                logger.error(f"Error in durations:\n\t{n0=},\t{n1=}")
-        return notations
+            return Node()
 
-    def nodes(self) -> list[Node]:
-        """
-        Returns the contents of this measure grouped as a list of Nodes
-        """
-        if not self.beats:
-            return []
-        nodes = [beat.tree().mergedNotations() for beat in self.beats]
+        return _makeTree(beats=self.beats, beatOffsets=self.beatOffsets(),
+                         quantprofile=self.quantprofile)
 
-        def removeUnnecessaryChildrenInplace(node: Node) -> None:
-            items = []
-            for item in node.items:
-                if isinstance(item, Node) and len(item.items) == 1:
-                    item = item.items[0]
-                items.append(item)
-            node.items = items
-
-        for node in nodes:
-            removeUnnecessaryChildrenInplace(node)
-
-        dur = sum(node.totalDuration() for node in nodes)
-        assert dur == self.duration()
-        return nodes
-
+    @property
     def tree(self) -> Node:
         """
         Returns the root of a tree of Nodes representing the items in this measure
         """
-        if self._root is not None:
-            return self._root
-        if self.isEmpty():
-            raise ValueError("This measure is empty")
-        if not self.quantprofile:
-            raise ValueError(f"Cannot create tree without a QuantizationProfile")
-        self.check()
-        root = asTree(self.nodes())
-        root = _mergeSiblings(root, profile=self.quantprofile, beatOffsets=self.beatOffsets())
-        root.repair()
-        if root.totalDuration() != self.duration():
-            logger.error(f"Measure index: {self.getMeasureIndex()}")
-            self.dump(tree=False)
-            self.dump(tree=True)
-            raise ValueError(f"Duration mismatch in tree. "
-                             f"Tree duration: {root.totalDuration()}, "
-                             f"measure duration: {self.duration()}")
-        assert root.totalDuration() == self.duration()
-        self._root = root
-        return root
+        if self._tree is None:
+            self._tree = self._makeTree()
+        return self._tree
+
+    def logicalTies(self) -> list[list[TreeLocation]]:
+        return self.tree.logicalTieLocations(measureIndex=self.measureIndex())
 
     def breakSyncopations(self, level='weak') -> None:
         """
@@ -638,45 +617,37 @@ class QuantizedMeasure:
         if minWeight is None:
             raise ValueError(f"Expected one of 'all, 'weak', 'strong', got {level}")
 
-        if self.isEmpty():
+        if self.empty():
             return
+
+        beatstruct = self.beatStructure()
 
         def dosplit(n: Notation) -> bool:
             if n.isRest:
                 return False
             if n.duration < 1:
                 return True
-            for beat in self.beats:
-                if beat.beatOffset <= n.offset < beat.beatEnd:
-                    return n.offset - beat.beatOffset > 0
+            for beat in beatstruct:
+                if beat.offset <= n.offset < beat.end:
+                    return n.offset - beat.offset > 0
             else:
                 raise ValueError(f"Notation {n} is not part of this Measure")
 
-        tree = self.tree()
-        for beat in self.beats:
+        tree = self.tree
+        for beat in beatstruct:
             if beat.weight >= minWeight:
                 try:
-                    tree._splitNotationAtBoundary(beat.beatOffset, key=dosplit)
+                    tree._splitNotationAtBoundary(beat.offset, key=dosplit)
                 except SplitError as e:
-                    logger.error(f"Could not split tree at offset {beat.beatOffset}: {e}")
+                    logger.error(f"Could not split tree at offset {beat.offset}: {e}")
 
     def beatDurations(self) -> list[F]:
         """
         Returns a list with the durations (in quarterNotes) of the beats in this measure
         """
-        if not self.beats:
-            return []
-        return [beat.beatDuration for beat in self.beats]
+        return [beatdef.duration for beatdef in self.beatStructure()]
 
-    def beatDivisions(self) -> list:
-        """
-        Returns the divisions of each beat in this measure
-        """
-        if not self.beats:
-            return []
-        return [beat.divisions for beat in self.beats]
-
-    def check(self):
+    def _checkBeats(self):
         if not self.beats:
             return
         # check that the measure is filled
@@ -688,9 +659,9 @@ class QuantizedMeasure:
                 else:
                     assert n.duration >= 0, n
             durNotations = sum(n.duration for n in beat.notations)
-            if durNotations != beat.beatDuration:
-                measnum = self.getMeasureIndex()
-                logger.error(f"Duration mismatch, loc: ({measnum}, {i}). Beat dur: {beat.beatDuration}, Notations dur: {durNotations}")
+            if durNotations != beat.duration:
+                measnum = self.measureIndex()
+                logger.error(f"Duration mismatch, loc: ({measnum}, {i}). Beat dur: {beat.duration}, Notations dur: {durNotations}")
                 logger.error(beat.notations)
                 self.dump(tree=False)
                 self.dump(tree=True)
@@ -707,6 +678,26 @@ def _crossesSubdivisions(slotStart: int, slotEnd: int, slotsAtSubdivs: list[int]
         if slotStart < prevSlot:
             return True
     return False
+
+
+def _makeTree(beats: list[QuantizedBeat],
+              beatOffsets: list[F],
+              quantprofile: QuantizationProfile
+              ) -> Node:
+    """
+    Returns the root of a tree of Nodes representing the items in this measure
+    """
+    if not beats:
+        return Node()
+
+    root = Node.asTree(_beatNodes(beats))
+    root = _mergeSiblings(root, profile=quantprofile, beatOffsets=beatOffsets)
+    root.repair()
+
+    if root.totalDuration() != sum(beat.duration for beat in beats):
+        raise ValueError(f"Duration mismatch in tree")
+
+    return root
 
 
 def _evalRhythmComplexity(profile: QuantizationProfile,
@@ -992,12 +983,12 @@ def quantizeBeatTernary(eventsInBeat: list[Notation],
         beats = [quantizeBeatBinary(events, quarterTempo=quarterTempo, profile=profile,
                                     beatDuration=span.duration, beatOffset=span.start)
                  for span, events in eventsInSubbeats]
-        totalerror = sum(beat.quantizationError * beat.beatDuration for beat in beats)
+        totalerror = sum(beat.quantizationError * beat.duration for beat in beats)
         results.append((totalerror, beats))
     if profile.debug:
         for result in results:
             error, beats = result
-            durations = [beat.beatDuration for beat in beats]
+            durations = [beat.duration for beat in beats]
             print(f"Error: {error}, division: {durations}")
     beats = min(results, key=lambda result: result[0])[1]
     return beats
@@ -1256,44 +1247,6 @@ def _isMeasureFilled(notations: list[Notation], timesig: timesig_t) -> bool:
     return notationsDuration == measureDuration
 
 
-def splitNotationsAtOffsets(notations: list[Notation],
-                            offsets: Sequence[F]
-                            ) -> list[tuple[TimeSpan, list[Notation]]]:
-    """
-    Split the given notations between the given offsets
-
-    **NB**: Any notations starting after the last offset will not be considered!
-
-    Args:
-        notations: the notations to split
-        offsets: the boundaries.
-
-    Returns:
-        a list of tuples (timespan, notation)
-
-    """
-    timeSpans = [TimeSpan(beat0, beat1) for beat0, beat1 in iterlib.pairwise(offsets)]
-    splittedEvents = []
-    for ev in notations:
-        if ev.duration > 0:
-            splittedEvents.extend(ev.splitAtOffsets(offsets))
-        else:
-            splittedEvents.append(ev)
-
-    eventsPerBeat = []
-    for timeSpan in timeSpans:
-        eventsInBeat = []
-        for ev in splittedEvents:
-            if timeSpan.start <= ev.offset < timeSpan.end:
-                assert ev.end <= timeSpan.end
-                eventsInBeat.append(ev)
-        eventsPerBeat.append(eventsInBeat)
-        assert sum(ev.duration for ev in eventsInBeat) == timeSpan.end - timeSpan.start
-        assert all(timeSpan.start <= ev.offset <= ev.end <= timeSpan.end
-                   for ev in eventsInBeat)
-    return list(zip(timeSpans, eventsPerBeat))
-
-
 def _beatToTree(notations: list[Notation], division: int | division_t,
                 beatOffset: F, beatDur: F
                 ) -> Node:
@@ -1373,7 +1326,7 @@ def quantizeMeasure(events: list[Notation],
                     timesig: timesig_t,
                     quarterTempo: F,
                     profile: QuantizationProfile,
-                    subdivisionStructure: list[int] = None
+                    subdivisionStructure: tuple[int, ...] = None
                     ) -> QuantizedMeasure:
     """
     Quantize notes in a given measure
@@ -1557,7 +1510,7 @@ def _nodesCanMerge(g1: Node,
     if g1.durRatio == (1, 1) and len(g1) == len(g2) == 1:
         if g1last.gliss and g1last.tiedPrev and g1.symbolicDuration() + g2.symbolicDuration() > 1:
             return Result.Fail('A glissando over a beat needs to be broken at the beat')
-        # Special case: always merge binary nodes with single items since there is always
+        # Special case: always merge binary beats with single items since there is always
         # a way to notate those
         return Result.Ok()
 
@@ -1689,26 +1642,6 @@ def _maxTupletLength(timesig: timesig_t, subdivision: int):
         return 1
 
 
-@dataclass
-class PartLocation:
-    """
-    Represents a location (a Notation inside a beat, inside a measure, inside a part)
-    """
-    measureIndex: int
-    """The measure index"""
-
-    beatIndex: int
-    """The beat index"""
-
-    notationIndex: int
-    """The notation index within the beat"""
-
-    beat: QuantizedBeat
-    """A reference to the beat"""
-
-    notation: Notation
-    """The notation at this location"""
-
 
 @dataclass
 class QuantizedPart:
@@ -1757,9 +1690,9 @@ class QuantizedPart:
         self.repair()
 
     def repair(self):
-        self._repairGracenotes()
+        # self._repairGracenotesInBeats()
         self._repairLinks()
-        self.repairSpanners(tree=False)
+        self.repairSpanners()
 
     def render(self, options: renderoptions.RenderOptions = None, backend=''
                ) -> renderer.Renderer:
@@ -1790,10 +1723,10 @@ class QuantizedPart:
         for measure in self.measures:
             measure.resetTree()
 
-    def flatNotations(self, tree: bool) -> Iterator[Notation]:
+    def flatNotations(self) -> Iterator[Notation]:
         """Iterate over all notations in this part"""
         for measure in self.measures:
-            yield from measure.notations(tree=tree)
+            yield from measure.tree.recurse()
 
     def averagePitch(self, maxNotations=0) -> float:
         """
@@ -1804,24 +1737,18 @@ class QuantizedPart:
                 for calculating the average pitch.
 
         Returns:
-            the average pitch of the notations in this part
+            the average pitch of the notations in this part (0 if this part is empty)
         """
-        accum = 0
-        num = 0
-        for m in self.measures:
-            if m.isEmpty():
-                continue
-            for b in m.beats:
-                for n in b.notations:
-                    if n.isRest:
-                        continue
-                    accum += n.meanPitch()
-                    num += 1
-                    if maxNotations and num > maxNotations:
-                        break
+        accum, num = 0., 0
+        for n in self.flatNotations():
+            if not n.isRest:
+                accum += n.meanPitch()
+                num += 1
+                if maxNotations and  num > maxNotations:
+                    break
         return accum/num if num > 0 else 0
 
-    def findLogicalTie(self, n: Notation) -> list[PartLocation] | None:
+    def findLogicalTie(self, n: Notation) -> list[TreeLocation] | None:
         """
         Given a Notation which is part of a logical tie (it is tied or tied to), return the logical tie
 
@@ -1829,7 +1756,7 @@ class QuantizedPart:
             n: a Notation which is part of a logical tie
 
         Returns:
-            a list of PartLocation representing the logical tie the notation *n* belongs to
+            a list of TreeLocation representing the logical tie the notation *n* belongs to
 
         """
         for tie in self.logicalTies():
@@ -1837,63 +1764,27 @@ class QuantizedPart:
                 return tie
         return None
 
-    def logicalTies(self) -> Iterator[list[PartLocation]]:
-        """
-        Returns a list of all logical ties in this part
+    def logicalTies(self) -> list[list[TreeLocation]]:
+        # return _logicalTies(self)
+        ties = []
+        for i, measure in enumerate(self.measures):
+            ties.extend(measure.logicalTies())
 
-        A logical tie is a list of notations which are linked together
+        if not ties:
+            return []
+        elif len(ties) == 1:
+            return ties
 
-        """
-        last: list[PartLocation] = []
-        for loc in self.iterNotations():
-            if loc.notation.tiedPrev:
-                last.append(loc)
+        current = ties[0]
+        mergedties = [current]
+        for tie in ties[1:]:
+            if tie[0].notation.tiedPrev and current[-1].notation.tiedNext:
+                current.extend(tie)
             else:
-                if last:
-                    yield last
-                last = [loc]
-        if last:
-            yield last
-
-    def mergedTies(self) -> list[Notation]:
-        """
-        Returns a list of all merged ties in this part
-        """
-        def mergeTie(notations: list[Notation]) -> Notation:
-            n0 = notations[0].copy()
-            n0.durRatios = None
-            for n in notations[1:]:
-                n0.duration += n.duration
-            return n0
-
-        out: list[Notation] = []
-        for tie in self.logicalTies():
-            if len(tie) > 1:
-                notations = [loc.notation for loc in tie]
-                out.append(mergeTie(notations))
-            else:
-                out.append(tie[0].notation)
-        return out
-
-    def iterNotations(self) -> Iterator[PartLocation]:
-        """
-        Iterates over all notations giving the location of each notation
-
-        For each notation yields a PartLocation with attributes:
-
-            measureNum: int
-            beatNum: int
-            beat: QuantizedBeat
-            notation: Notation
-
-        """
-        for measureidx, m in enumerate(self.measures):
-            if m.isEmpty():
-                continue
-            assert m.beats is not None
-            for beatidx, b in enumerate(m.beats):
-                for notationidx, n in enumerate(b.notations):
-                    yield PartLocation(measureidx, beatIndex=beatidx, beat=b, notation=n, notationIndex=notationidx)
+                mergedties.append(current)
+                current = tie
+        mergedties.append(current)
+        return mergedties
 
     def dump(self, numindents=0, indent=_INDENT, tree=True, stream=None):
         """Dump this part to a stream or stdout"""
@@ -1915,11 +1806,10 @@ class QuantizedPart:
             transposition in the direction of the clef (high for treble,
             low for bass)
         """
-        notations = self.flatNotations(tree=True)
+        notations = self.flatNotations()
         return clefutils.bestclef(list(notations))
 
-
-    def findClefChanges(self, addClefs=False, removeManualClefs=False, window=1,
+    def findClefChanges(self, apply=False, removeManualClefs=False, window=1,
                         threshold=0., biasFactor=1.5, property='clef'
                         ) -> None:
         """
@@ -1930,7 +1820,7 @@ class QuantizedPart:
         these clef changes are materialized as clef attachments
 
         Args:
-            addClefs: if True, clef change directives are actually added to the
+            apply: if True, clef change directives are actually added to the
                 quantized notations. Otherwise, only hints given as properties are added
             removeManualClefs: if True, remove any manual clef
             window: the window size when determining the best clef for a given section
@@ -1939,29 +1829,36 @@ class QuantizedPart:
                 previous clef, thus making it more difficult to change clef
                 for minor jumps
             property: the property key to add to the notation to mark
-             a clef change. Setting this property alone will not
-             result in a clef change in the notation (see `addClefs`)
+                a clef change. Setting this property alone will not
+                result in a clef change in the notation (see `addClefs`)
 
         """
-        notations = list(self.flatNotations(tree=True))
+        notations = list(self.flatNotations())
         if removeManualClefs:
             # from . import attachment
             for n in notations:
-                n.removeAttachments(lambda attach: isinstance(attach, attachment.Clef))
-        clefutils.findBestClefs(notations, addclefs=addClefs, winsize=window,
+                if n.attachments:
+                    n.removeAttachments(lambda attach: isinstance(attach, attachment.Clef))
+        clefutils.findBestClefs(notations, addclefs=apply, winsize=window,
                                 threshold=threshold, biasfactor=biasFactor,
                                 key=property)
 
-    def removeUnnecessaryDynamics(self, tree: bool, resetAfterEmptyMeasure=True) -> None:
+    def fixEnharmonics(self, options: enharmonics.EnharmonicOptions) -> None:
+        prevMeasure = None
+        for measure in self.measures:
+            measure._fixEnharmonics(options=options, prevMeasure=prevMeasure)
+            prevMeasure = measure
+
+    def removeUnnecessaryDynamics(self, resetAfterEmptyMeasure=True) -> None:
         """
         Remove superfluous dynamics in this part, inplace
         """
         dynamic = ''
         for meas in self.measures:
-            if meas.isEmpty() and resetAfterEmptyMeasure:
+            if meas.empty() and resetAfterEmptyMeasure:
                 dynamic = ''
                 continue
-            for n in meas.notations(tree=tree):
+            for n in meas.notations():
                 if n.isRest:
                     continue
                 if not n.tiedPrev and n.dynamic and n.dynamic in definitions.dynamicLevels:
@@ -1972,7 +1869,7 @@ class QuantizedPart:
                     else:
                         dynamic = n.dynamic
 
-    def removeUnnecessaryGracenotes(self, tree: bool) -> None:
+    def removeUnnecessaryGracenotes(self) -> None:
         """
         Removes unnecessary gracenotes, in place
 
@@ -1983,63 +1880,12 @@ class QuantizedPart:
         * has the same pitch as the previous real note and ends a glissando
         * n0/real -- gliss -- n1/grace n2/real and n1.pitches == n2.pitches
 
-        Args:
-            tree: if True, remove unnecessary gracenotes from the tree representation
-                of the measures in this part. Otherwise, modify the quantized beats
         """
-        if tree:
-            for measure in self.measures:
-                root = measure.tree()
-                root.removeUnnecessaryGracenotes()
-            return
+        for measure in self.measures:
+            measure.tree.removeUnnecessaryGracenotes()
+        return
 
-        trash: list[PartLocation] = []
-        maxiter = 10
-        for _ in range(maxiter):
-            skip = False
-            for loc0, loc1 in iterlib.pairwise(self.iterNotations()):
-                if skip:
-                    skip = False
-                    continue
-
-                n0: Notation = loc0.notation
-                n1: Notation = loc1.notation
-                if n0.isGracenote:
-                    if n0.pitches == n1.pitches and (n0.tiedNext or n0.gliss):
-                        n0.copyAttributesTo(n1)
-                        trash.append(loc0)
-                        n0.removeSpanners()
-                elif n1.isGracenote:
-                    if n0.pitches == n1.pitches and (n0.tiedNext or n0.gliss):
-                        n0.gliss = n1.gliss
-                        n0.tiedNext = n1.tiedNext
-                        trash.append(loc1)
-                        skip = True
-                        n1.removeSpanners()
-
-            numRemoved = len(trash)
-            for loc in trash:
-                loc.beat.notations.remove(loc.notation)
-            trash.clear()
-            skip = False
-            for l0, l1, l2 in iterlib.window(self.iterNotations(), 3):
-                if skip:
-                    skip = False
-                    continue
-                n0, n1, n2 = l0.notation, l1.notation, l2.notation
-                if not n0.isGracenote and n1.isGracenote and not n2.isGracenote and n0.gliss and n1.pitches == n2.pitches:
-                    trash.append(l1)
-                    skip = True
-            for loc in trash:
-                loc.beat.notations.remove(loc.notation)
-            numRemoved += len(trash)
-            if numRemoved == 0:
-                break
-        else:
-            logger.warning(f"Reached max. number of iterations ({maxiter}) while "
-                           "attempting to remove superfluous gracenotes")
-
-    def repairSpanners(self, tree: bool, removeUnnecessary=True) -> None:
+    def repairSpanners(self, removeUnnecessary=True) -> None:
         """
         Match orfan spanners, optionally removing unmatched spanners (in place)
 
@@ -2049,16 +1895,14 @@ class QuantizedPart:
                 start/end spanner
         """
         # _spanner.removeUnmatchedSpanners(self.flatNotations(tree=tree))
-        notations = list(self.flatNotations(tree=tree))
+        notations = list(self.flatNotations())
         _spanner.solveHairpins(notations)
         _spanner.matchOrfanSpanners(notations=notations,
                                     removeUnmatched=removeUnnecessary)
         _spanner.markNestingLevels(notations)
         _spanner.moveEndSpannersToEndOfLogicalTie(notations)
-        if not tree:
-            self.resetTrees()
 
-    def _repairGracenotes(self):
+    def _repairGracenotesInBeats(self):
         """
         Repair some corner cases where gracenotes cause rendering problems
 
@@ -2070,10 +1914,10 @@ class QuantizedPart:
                 continue
             for beatidx, beat in enumerate(measure.beats):
                 last = beat.notations[-1]
-                if last.isGracenote and last.offset == beat.beatOffset + beat.beatDuration:
+                if last.isGracenote and last.offset == beat.offset + beat.duration:
                     if beatidx == len(measure.beats) - 1:
                         nextmeasure = self.getMeasure(measureidx + 1)
-                        if nextmeasure.isEmpty():
+                        if nextmeasure.empty():
                             # TODO
                             pass
                         else:
@@ -2086,21 +1930,35 @@ class QuantizedPart:
                         beat.notations.pop()
                         nextbeat.notations.insert(0, last)
 
-    def getMeasure(self, idx: int, extend=True) -> QuantizedMeasure:
+    def _repairGracenotesInTree(self):
+        for measureidx, measure in enumerate(self.measures):
+            if measure.empty():
+                continue
+            lastNotation, lastNode = measure.tree.recurseWithNode(reverse=True)
+            if lastNotation.isGracenote and lastNotation.offset == measure.duration():
+                nextMeasure = self.getMeasure(measureidx+1, extend=False)
+                if nextMeasure and not nextMeasure.empty():
+                    _, nextMeasureFirstNode = next(nextMeasure.tree.recurseWithNode())
+                    nextMeasureFirstNode.items.insert(0, lastNotation)
+                    lastNode.items.pop()
+
+    def getMeasure(self, idx: int, extend=True) -> QuantizedMeasure | None:
         """
         Get a measure within this part
 
         Args:
             idx: the measure index (starts at 0)
             extend: if True and the index is outside the defined measures,
-                a new QuantizedMeasure (empty) will be created and added
+                a new empty QuantizedMeasure will be created and added
                 to this part
 
         Returns:
             The corresponding measure. If outside the defined measures a new
             empty QuantizedMeasure will be created
         """
-        if idx > len(self.measures) - 1 and extend:
+        if idx > len(self.measures) - 1:
+            if not extend:
+                return None
             for i in range(len(self.measures) - 1, idx+1):
                 mdef = self.struct.getMeasureDef(i)
                 qmeasure = QuantizedMeasure(timesig=mdef.timesig,
@@ -2114,7 +1972,12 @@ class QuantizedPart:
         """
         Repairs ties and glissandi (in place)
         """
-        for n0, n1 in iterlib.pairwise(self.flatNotations(tree=False)):
+        ties = self.logicalTies()
+
+        def inTie(n: Notation, tie: list[TreeLocation]) -> bool:
+            return any(part.notation is n for part in tie)
+
+        for n0, n1 in iterlib.pairwise(self.flatNotations()):
             if n0.tiedNext:
                 if n0.isRest or not n0.pitches or n0.pitches != n1.pitches:
                     n0.tiedNext = False
@@ -2128,7 +1991,7 @@ class QuantizedPart:
             elif n0.gliss:
                 if n1.isRest or n0.pitches == n1.pitches:
                     if n0.tiedPrev:
-                        logicalTie = self.findLogicalTie(n0)
+                        logicalTie = next((tie for tie in ties if inTie(n0, tie)), None)
                         if logicalTie:
                             for n in logicalTie:
                                 n.notation.gliss = False
@@ -2149,7 +2012,7 @@ class QuantizedPart:
                                      parent=self)
             self.measures.append(empty)
 
-    def fixChordSpellings(self, tree=True, enharmonicOptions: enharmonics.EnharmonicOptions = None
+    def fixChordSpellings(self, enharmonicOptions: enharmonics.EnharmonicOptions = None
                           ) -> None:
         """
         Finds the best spelling for each chord individually
@@ -2159,7 +2022,7 @@ class QuantizedPart:
 
         """
         for measure in self.measures:
-            for n in measure.notations(tree=tree):
+            for n in measure.notations():
                 if n.isRest or len(n) <= 1:
                     continue
                 notenames = n.resolveNotenames(addFixedAnnotation=True)
@@ -2169,7 +2032,7 @@ class QuantizedPart:
 
     def eventAt(self, beat: F | tuple[int, F]) -> tuple[Notation, QuantizedMeasure]:
         measure, relbeat = self.measureAt(beat)
-        tree = measure.tree()
+        tree = measure.tree
         for n in tree.recurse():
             assert n.offset is not None
             if n.offset <= relbeat <= n.end:
@@ -2211,8 +2074,7 @@ class QuantizedPart:
             or None if no break is possible at the given location
         """
         measure, relbeat = self.measureAt(location)
-        tree = measure.tree()
-        return tree.breakBeamsAt(relbeat)
+        return measure.tree.breakBeamsAt(relbeat)
 
     def breakSyncopations(self, level: str = 'weak') -> None:
         """
@@ -2243,8 +2105,7 @@ class QuantizedPart:
                 tuple (measure index, relative offset)
         """
         measure, relbeat = self.measureAt(location)
-        root = measure.tree()
-        notation = root._splitNotationAtBoundary(relbeat)
+        notation = measure.tree._splitNotationAtBoundary(relbeat)
         if notation:
             notation.mergeable = False
         return notation
@@ -2371,7 +2232,7 @@ class QuantizedScore:
         for pidx, part in enumerate(self.parts):
             for midx, measure in enumerate(part.measures):
                 try:
-                    measure.check()
+                    measure._checkBeats()
                 except ValueError as e:
                     logger.error(f"Check error in part {pidx}, measure {midx}")
                     raise e
@@ -2384,10 +2245,9 @@ class QuantizedScore:
             enharmonicOptions: the enharmonic options to use
         """
         for part in self.parts:
-            for measure in part.measures:
-                measure.fixEnharmonics(enharmonicOptions)
+            part.fixEnharmonics(enharmonicOptions)
 
-    def fixChordSpellings(self, tree=True, enharmonicOptions: enharmonics.EnharmonicOptions = None
+    def fixChordSpellings(self, enharmonicOptions: enharmonics.EnharmonicOptions = None
                           ) -> None:
         """
         Finds the best spelling for each chord individually
@@ -2397,7 +2257,7 @@ class QuantizedScore:
 
         """
         for part in self.parts:
-            part.fixChordSpellings(tree=tree, enharmonicOptions=enharmonicOptions)
+            part.fixChordSpellings(enharmonicOptions=enharmonicOptions)
 
     def __hash__(self):
         partHashes = [hash(p) for p in self.parts]
@@ -2451,16 +2311,14 @@ class QuantizedScore:
         for part in self.parts:
             part.resetTrees()
 
-    def removeUnnecessaryDynamics(self, tree: bool):
+    def removeUnnecessaryDynamics(self):
         """Removes any unnecessary dynamics in this score
 
         Args:
             tree: if True, apply the transformation to the tree representation
         """
         for part in self:
-            part.removeUnnecessaryDynamics(tree=tree)
-        if not tree:
-            self.resetTrees()
+            part.removeUnnecessaryDynamics()
 
     def numMeasures(self) -> int:
         """Returns the number of measures in this score"""
@@ -2580,8 +2438,7 @@ class QuantizedScore:
         for part in self.parts:
             events = []
             for measure in part:
-                tree = measure.tree()
-                notations = list(tree.recurse())
+                notations = list(measure.tree.recurse())
                 events.extend(notationsToCoreEvents(notations))
             voice = maelzel.core.Voice(events)
             voices.append(voice)
@@ -2705,7 +2562,31 @@ def quantize(parts: list[core.UnquantizedPart],
     if enharmonicOptions:
         qscore.fixEnharmonics(enharmonicOptions)
     else:
-        qscore.fixChordSpellings(tree=True, enharmonicOptions=enharmonicOptions)
+        qscore.fixChordSpellings(enharmonicOptions=enharmonicOptions)
 
     qscore.check()
     return qscore
+
+
+# @cache
+def _logicalTies(self: QuantizedPart) -> list[list[TreeLocation]]:
+    # print("Calculating logical ties")
+    ties = []
+    for i, measure in enumerate(self.measures):
+        ties.extend(measure.logicalTies())
+
+    if not ties:
+        return []
+    elif len(ties) == 1:
+        return ties
+
+    current = ties[0]
+    mergedties = [current]
+    for tie in ties[1:]:
+        if tie[0].notation.tiedPrev and current[-1].notation.tiedNext:
+            current.extend(tie)
+        else:
+            mergedties.append(current)
+            current = tie
+    mergedties.append(current)
+    return mergedties

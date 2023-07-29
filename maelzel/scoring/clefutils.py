@@ -52,9 +52,9 @@ def clefEvaluators() -> dict[str, bpf4.BpfInterface]:
 
 
 def bestclef(notations: Sequence[Notation], biasclef='', biasfactor=1.5) -> str:
-    pointsPerClef = {clef: sum(bpf(p) for n in notations if not n.isRest
+    pointsPerClef = {clef: sum(evaluator(p) for n in notations if not n.isRest
                                for p in n.pitches)
-                     for clef, bpf in clefEvaluators().items()}
+                     for clef, evaluator in clefEvaluators().items()}
     if biasclef:
         pointsPerClef[biasclef] *= biasfactor
     return max(pointsPerClef.items(), key=lambda pair: pair[1])[0]

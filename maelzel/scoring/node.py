@@ -1,5 +1,6 @@
 from __future__ import annotations
 from emlib import iterlib
+from dataclasses import dataclass
 import sys
 
 from maelzel.common import asF, F
@@ -18,9 +19,23 @@ if TYPE_CHECKING:
 
 __all__ = (
     'Node',
-    'asTree',
     'SplitError'
 )
+
+
+@dataclass
+class TreeLocation:
+    notation: Notation
+    """The notation"""
+
+    notationIndex: int
+    """Notation index within the measure"""
+
+    parent: Node
+    """The Node parent"""
+
+    measureIndex: int | None = None
+    """The measure index this notation belongs to, if known"""
 
 
 def _unpackRational(r: Rational) -> tuple[int, int]:
@@ -72,7 +87,7 @@ class Node:
         >>> Node(ratio=(3, 2), items=notations)
     """
     def __init__(self,
-                 ratio: tuple[int, int] | Rational,
+                 ratio: tuple[int, int] | Rational = (1, 1),
                  items: list[Notation | 'Node'] = None,
                  properties: dict | None = None,
                  parent: Node | None = None):
@@ -81,18 +96,36 @@ class Node:
         self.durRatio: tuple[int, int] = ratio if isinstance(ratio, tuple) else (ratio.numerator, ratio.denominator)
         self.items: list[Notation | Node] = items if items is not None else []
         self.properties = properties
-        self.parent: weakref.ReferenceType[Node] | None = weakref.ref(parent) if parent else None
+        self._parent : weakref.ReferenceType[Node] | None = weakref.ref(parent) if parent else None
+
+    def __hash__(self):
+        itemshash = hash(tuple(self.items))
+        return hash(("Node", itemshash, self.durRatio, str(self.properties) if self.properties else None))
+
+    @property
+    def parent(self) -> Node | None:
+        return self._parent() if self._parent is not None else None
+
+    def empty(self) -> bool:
+        for item in self.items:
+            if isinstance(item, Node):
+                if not item.empty():
+                    return False
+            elif not item.isRest:
+                return False
+            elif item.hasAttributes():
+                return False
+        return True
 
     def __len__(self):
         return len(self.items)
 
-    def setParent(self, parent: Node, recurse=True):
-        """Set the parent of this None"""
-        self.parent = weakref.ref(parent)
-        if recurse:
-            for item in self.items:
-                if isinstance(item, Node):
-                    item.setParent(self, recurse=True)
+    def _setParentDownstream(self):
+        """Set the parent of each Node downstream"""
+        for item in self.items:
+            if isinstance(item, Node):
+                item._parent = weakref.ref(self)
+                item._setParentDownstream()
 
     def findRoot(self) -> Node:
         """
@@ -101,7 +134,8 @@ class Node:
         Nodes are organized in tree structures. This method will climb the tree structure
         until the root of the tree (the node without a parent) is found
         """
-        return self if not self.parent else self.parent().findRoot()
+        parent = self.parent
+        return self if parent is None else parent.findRoot()
 
     def setProperty(self, key: str, value) -> None:
         """Set a property for this Node"""
@@ -347,24 +381,57 @@ class Node:
                                 tie0.gliss = False
         return count
 
-    def logicalTies(self) -> Iterator[Notation]:
+    def logicalTieLocations(self, measureIndex: int | None = None
+                            ) -> list[list[TreeLocation]]:
+        """
+        Like logicalTies, but for each notation returns a TreeLocation
+
+        Args:
+            measureIndex: if given, it is used to fill the .measureIndex attribute
+                in the returned TreeLocation
+
+        Returns:
+            a list of ties, where each tie is a list of TreeLocations
+
+        """
+        lasttie = []
+        idx = 0
+        ties = []
+        for notation, parent in self.recurseWithNode():
+            item = TreeLocation(notation=notation, notationIndex=idx, parent=parent,
+                                measureIndex=measureIndex)
+            if notation.tiedPrev:
+                lasttie.append(item)
+            else:
+                if lasttie:
+                    ties.append(lasttie)
+                lasttie = [item]
+            idx += 1
+        if lasttie:
+            ties.append(lasttie)
+        return ties
+
+    def logicalTies(self) -> list[list[Notation]]:
         """
         Iterate over all logical ties within self (recursively)
 
         Returns:
-            an iterator over the logical ties within self (recursively)
+            an iterator over the logical ties within self (recursively), where a
+            logical tie is a list of Notations which are tied together
 
         """
-        last = []
-        for n in self.recurse():
-            if n.tiedPrev:
-                last.append(n)
+        ties = []
+        lasttie = []
+        for notation in self.recurse():
+            if notation.tiedPrev:
+                lasttie.append(notation)
             else:
-                if last:
-                    yield last
-                last = [n]
-        if last:
-            yield last
+                if lasttie:
+                    ties.append(lasttie)
+                lasttie = [notation]
+        if lasttie:
+            ties.append(lasttie)
+        return ties
 
     def glissMarkTiedNotesAsHidden(self) -> None:
         """
@@ -389,8 +456,8 @@ class Node:
 
         An unnecessary gracenote are:
 
-        * has the same pitch as the next real note and starts a glissando. Such gracenotes might
-          be created during quantization.
+        * has the same pitch as the next real note and starts a glissando.
+          Such gracenotes might be created during quantization.
         * has the same pitch as the previous real note and ends a glissando
         * n0/real -- gliss -- n1/grace n2/real and n1.pitches == n2.pitches
 
@@ -435,18 +502,8 @@ class Node:
         if self.totalDuration() >= 2:
             self._splitUnnecessaryNodes(2)
 
-        modcount = self.repairLinks()
-        modcount += self.removeUnnecessaryGracenotes()
-
-        if modcount == 0:
-            return
-
-        for i in range(10):
-            if self.repairLinks() == 0:
-                break
-            if self.removeUnnecessaryGracenotes() == 0:
-                break
-
+        self.repairLinks()
+        self.removeUnnecessaryGracenotes()
 
     def fixEnharmonics(self,
                        options: enharmonics.EnharmonicOptions,
@@ -525,7 +582,7 @@ class Node:
 
     def _splitUnnecessaryNodes(self, duration: F | int) -> None:
         """
-        Split any nodes which are unnecessarily joined
+        Split any _beatNodes which are unnecessarily joined
 
         Args:
             duration: the duration of the node to split
@@ -594,7 +651,7 @@ class Node:
         offset = asF(offset)
         n = self._splitNotationAtBoundary(offset=offset, key=key)
         if n is not None:
-            logger.debug(f"Split notation at boundary {offset}, did that generate unnecessary nodes?")
+            logger.debug(f"Split notation at boundary {offset}, did that generate unnecessary _beatNodes?")
             didsplit = self._splitUnnecessaryNodesAt(offset, minDuration=2)
             logger.debug("--- Yes" if didsplit else "--- No...")
         return n
@@ -654,22 +711,21 @@ class Node:
                 return parts[1]
         return None
 
+    @staticmethod
+    def asTree(nodes: list[Node]) -> Node:
+        """
+        Transform a list of Nodes into a tree structure
 
-def asTree(nodes: list[Node]
-           ) -> Node:
-    """
-    Transform a list of Nodes into a tree structure
+        A tree has a root and leaves, where each leave can be the root of a subtree
 
-    A tree has a root and leaves, where each leave can be the root of a subtree
+        Args:
+            nodes: the tree to get/make the root for
 
-    Args:
-        nodes: the tree to get/make the root for
-
-    Returns:
-        the root of a tree structure
-    """
-    if len(nodes) == 1 and nodes[0].durRatio == (1, 1):
-        return nodes[0]
-    root = Node(ratio=(1, 1), items=nodes)
-    assert root.totalDuration() == sum(n.totalDuration() for n in nodes)
-    return root
+        Returns:
+            the root of a tree structure
+        """
+        if len(nodes) == 1 and nodes[0].durRatio == (1, 1):
+            return nodes[0]
+        root = Node(ratio=(1, 1), items=nodes)
+        assert root.totalDuration() == sum(n.totalDuration() for n in nodes)
+        return root

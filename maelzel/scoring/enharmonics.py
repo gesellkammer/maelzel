@@ -77,7 +77,7 @@ class EnharmonicOptions:
     """Display debug information"""
 
     groupSize: int = 5
-    """Max size of a tree to be evaluated for best enharmonic variant"""
+    """Max size of a group to be evaluated for best enharmonic variant"""
 
     groupStep: int = 2
 
@@ -106,7 +106,7 @@ class EnharmonicOptions:
     "The weight of the horizontal intervals, in pairs"
 
     groupPenaltyWeight: float = 2.
-    "The weight of an enharmonic variant as a tree (horizontally)"
+    "The weight of an enharmonic variant as a group (horizontally)"
 
     horizontalWeight: float = 1.
     "Groups both intervalPenaltyWeight and groupPenaltyWeight"
@@ -435,7 +435,7 @@ def enharmonicPenalty(notes: list[str], options: EnharmonicOptions
     Rate how bad this enharmonic variant is
 
     Args:
-        notes: a tree of notenames to evaluate
+        notes: a group of notenames to evaluate
         options: options to configure the evaluation
 
     Returns:
@@ -628,7 +628,7 @@ def fixEnharmonicsInPlace(notations: list[Notation],
     * We assume a chord for each notation
     * For each chord the highest already fixed pitch is picked, or the highest pitch
     * In a sliding window (the window size and hop are set in the options) the best
-      spelling for the tree is found. Fixed note classes are carried as fixed slots
+      spelling for the group is found. Fixed note classes are carried as fixed slots
       within a quarter-tone grid. For each slot in this grid an alteration direction
       is recorded. This determines if any further note in this slot should be spelled
       up (C#) or down (Db).
@@ -676,7 +676,7 @@ def fixEnharmonicsInPlace(notations: list[Notation],
         # Some might be fixed. Only one note per chord
         anchorIndexes = [anchorPitchIndex(n) for n in group]
         notenamesInGroup = [n.notename(idx) for idx, n in zip(anchorIndexes, group)]
-        # notenamesInGroup = [n.notename(anchorPitchIndex(n)) for n in tree]
+        # notenamesInGroup = [n.notename(anchorPitchIndex(n)) for n in group]
 
         # The notes/chords which do not have any fixed notes
         unfixedNotes = [group[i] for i in unfixedNotesIndexes]
@@ -685,8 +685,8 @@ def fixEnharmonicsInPlace(notations: list[Notation],
         # as the reference for horizontal fitting
         unfixedNotenames = [n.notename(len(n.pitches) - 1) for n in unfixedNotes]
 
-        # Variations on those unset notenames. These are then replaced in the original tree
-        # and the whole tree is weighted to find the best fit
+        # Variations on those unset notenames. These are then replaced in the original group
+        # and the whole group is weighted to find the best fit
         partialVariations = pt.enharmonic_variations(unfixedNotenames,
                                                      fixedslots=spellingHistory.slots)
         # If there are no variations (meaning that there are no solutions which respect
@@ -702,7 +702,7 @@ def fixEnharmonicsInPlace(notations: list[Notation],
         # Gather all variations to be analyzed later
         variations = []
         for variation in partialVariations:
-            # We copy the original tree and fill only the unset notes
+            # We copy the original group and fill only the unset notes
             filledVar = notenamesInGroup.copy()
             for index, notename in zip(unfixedNotesIndexes, variation):
                 filledVar[index] = notename

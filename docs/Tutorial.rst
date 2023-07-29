@@ -12,6 +12,7 @@ Tutorial (Jupyter Notebooks)
     Workspace <notebooks/maelzel-core-workspace>
     Score Structure <notebooks/maelzel-core-scorestruct>
     Notation Refinements <notebooks/maelzel-core-symbols>
+    Input / Output <notebooks/musicxmlio>
 
 
 -------------------
@@ -92,4 +93,16 @@ Tutorial (Jupyter Notebooks)
         Most aspects of **maelzel.core**'s notation output can be modified. Not only is it possible to add spanners
         (slurs, brackets, lines), articulations, dynamics and many other symbols to notes and chords. Also color,
         size, text style, etc. can be customized.
+
+.. grid:: 1 1 2 2
+
+    .. grid-item-card:: Input / Output
+        :link: notebooks/musicxmlio
+        :link-type: doc
+        :class-title: cardtitle
+
+        .. figure:: assets/notebook-musicxmlio.png
+            :height: 300px
+
+        Lorem ipsum
 

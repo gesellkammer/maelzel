@@ -31,7 +31,8 @@ __all__ = (
     'notationsCanMerge',
     'durationsCanMerge',
     'mergeNotationsIfPossible',
-    'tieNotations'
+    'tieNotations',
+    'splitNotationsAtOffsets'
 )
 
 
@@ -54,7 +55,7 @@ class Notation:
         tiedPrev: is this Notation tied to the previous one?
         tiedNext: is it tied to the next
         dynamic: the dynamic of this notation, one of "p", "pp", "f", etc.
-        group: a str identification, can be used to tree Notations together
+        group: a str identification, can be used to group Notations together
         durRatios: a list of tuples (x, y) indicating a tuple relationship.
             For example, a Notation used to represent one 8th note in a triplet
             would have the duration 1/3 and durRatios=[(3, 2)]. Multiplying the
@@ -204,7 +205,11 @@ class Notation:
                     self.fixNotename(n, i)
 
     def __hash__(self):
-        return id(self)
+        attachmentshash = hash(tuple(str(a) for a in self.attachments))
+        pitcheshash = tuple(self.pitches) if self.pitches else 0
+        return hash((self.duration, pitcheshash, self.tiedNext, self.tiedPrev,
+                     self.dynamic, self.gliss, attachmentshash))
+        # return id(self)
 
     @staticmethod
     def makeRest(duration: time_t,
@@ -1182,7 +1187,7 @@ class Notation:
         """
         assert dest is not self
 
-        exclude = {'duration', 'pitches', 'offset', 'durRatios', 'tree',
+        exclude = {'duration', 'pitches', 'offset', 'durRatios', 'group',
                    'properties', 'attachments', 'spanners', '__weakref__'}
 
         for attr in self.__slots__:
@@ -1344,13 +1349,13 @@ def mergeSpanners(a: Notation, b: Notation
 
 def makeGroupId(parent: str = '') -> str:
     """
-    Create an id to tree notations together
+    Create an id to group notations together
 
     Args:
         parent: if given it will be prepended as {parent}/{groupid}
 
     Returns:
-        the tree id as string
+        the group id as string
     """
     groupid = str(uuid.uuid1())
     return groupid if parent is None else f'{parent}/{groupid}'
@@ -1376,8 +1381,8 @@ def makeNote(pitch: pitch_t,
         offset: the offset of this Notation (None to leave unset)
         annotation: an optional text annotation for this note
         gliss: does this Notation start a glissando?
-        withId: if True, this Notation has a tree id and this id
-            can be used to mark multiple notes as belonging to a same tree
+        withId: if True, this Notation has a group id and this id
+            can be used to mark multiple notes as belonging to a same group
         gracenote: make this a grace note.
         enharmonicSpelling: if given, this spelling of pitch will be used
         dynamic: a dynamic such as 'p', 'mf', 'ff', etc.
@@ -1509,7 +1514,6 @@ def notationsToCoreEvents(notations: list[Notation]
                              for i in range(len(n))]
                 event = Chord(notes=notenames,
                               dur=n.duration,
-                              # offset=n.offset,
                               dynamic=n.dynamic,
                               tied=n.tiedNext,
                               gliss=n.gliss,
@@ -1694,6 +1698,44 @@ def tieNotations(notations: list[Notation]) -> None:
         n.removeAttachments(lambda a: isinstance(a, (Text, Articulation)))
         if hasGliss:
             n.gliss = True
+
+
+def splitNotationsAtOffsets(notations: list[Notation],
+                            offsets: Sequence[F]
+                            ) -> list[tuple[TimeSpan, list[Notation]]]:
+    """
+    Split the given notations between the given offsets
+
+    **NB**: Any notations starting after the last offset will not be considered!
+
+    Args:
+        notations: the notations to split
+        offsets: the boundaries.
+
+    Returns:
+        a list of tuples (timespan, notation)
+
+    """
+    timeSpans = [TimeSpan(beat0, beat1) for beat0, beat1 in iterlib.pairwise(offsets)]
+    splitEvents = []
+    for ev in notations:
+        if ev.duration > 0:
+            splitEvents.extend(ev.splitAtOffsets(offsets))
+        else:
+            splitEvents.append(ev)
+
+    eventsPerBeat = []
+    for timeSpan in timeSpans:
+        eventsInBeat = []
+        for ev in splitEvents:
+            if timeSpan.start <= ev.offset < timeSpan.end:
+                assert ev.end <= timeSpan.end
+                eventsInBeat.append(ev)
+        eventsPerBeat.append(eventsInBeat)
+        assert sum(ev.duration for ev in eventsInBeat) == timeSpan.end - timeSpan.start
+        assert all(timeSpan.start <= ev.offset <= ev.end <= timeSpan.end
+                   for ev in eventsInBeat)
+    return list(zip(timeSpans, eventsPerBeat))
 
 
 @dataclass

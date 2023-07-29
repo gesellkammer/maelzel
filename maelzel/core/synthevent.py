@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import emlib.mathlib
+import math
+from emlib import mathlib
 import emlib.misc
 import pitchtools as pt
 
@@ -63,13 +64,12 @@ class PlayArgs:
         sample based instruments (soundfont) to extend the playback. It can be used to implement
         one-shot sample playback
     * transpose: add an extra transposition to all breakpoints
-    * linkednext: is this event linked to a next one? This normally depends on the .gliss attribute
-        of a note/chord, but can be used to create a glissando which is only valid for playback
-        and not displayed as notation
+    * glisstime: slide time to next event. This allows to add glissando lines for events
+      even if their gliss attr is not set, or to generate legato lines
     """
     playkeys = {'delay', 'chan', 'gain', 'fade', 'instr', 'pitchinterpol',
                 'fadeshape', 'args', 'priority', 'position', 'sustain', 'transpose',
-                'linkednext'}
+                'glisstime', 'skip', 'end'}
 
     """Available keys for playback customization"""
 
@@ -78,11 +78,13 @@ class PlayArgs:
     def __init__(self, db: dict[str, Any] = None):
         if db is None:
             db = {}
+        else:
+            assert not (db.keys() - self.playkeys), f"diff={db.keys() - self.playkeys}"
+            assert all(v is not None for v in db.values())
+
         self.db: dict[str, Any] = db
         """A dictionary holding the arguments explicitely specified"""
 
-        assert not(db.keys() - self.playkeys)
-        assert all(v is not None for v in db.values())
 
     def __bool__(self):
         return bool(self.db)
@@ -118,36 +120,40 @@ class PlayArgs:
         return self.db[item]
 
     def __setitem__(self, key: str, value) -> None:
-        assert key in self.playkeys, f'PlayArgs: unknown key "{key}", possible keys: {self.playkeys}'
+        if key not in self.playkeys:
+            raise KeyError(f'PlayArgs: unknown key "{key}", possible keys: {self.playkeys}')
         if value is None:
             del self.db[key]
         else:
             self.db[key] = value
 
-    def overwriteWith(self, p: PlayArgs) -> None:
-        """
-        Overwrites this with set values in *p*
+    @staticmethod
+    def _updatedb(db: dict, other: dict) -> None:
+        args = db.get('args')
+        otherargs = other.get('args')
+        db.update(other)
+        if args:
+            db['args'] = args if not otherargs else args | otherargs
+        elif otherargs:
+            db['args'] = otherargs
 
-        This is actually the same as merging self's dict with
-        *p*'s dict as long as *self* or *p* do not have any
-        value set to None
-
-        Args:
-            p: another PlayArgs instance
-
-        """
-        self.db.update(p.db)
-
-    def overwrittenWith(self, p: PlayArgs) -> PlayArgs:
-        out = self.copy()
-        out.db.update(p.db)
-        return out
+    def overwrittenWith(self, other: PlayArgs) -> PlayArgs:
+        if not self.db:
+            return PlayArgs(other.db.copy())
+        db = self.db.copy()
+        PlayArgs._updatedb(db, other.db)
+        return PlayArgs(db)
 
     def copy(self) -> PlayArgs:
         """
         Returns a copy of self
         """
-        return PlayArgs(self.db.copy())
+        if not self.db:
+            return PlayArgs({})
+        db = self.db.copy()
+        if (args := db.get('args')) is not None:
+            db['args'] = args.copy()
+        return PlayArgs(db)
 
     def clone(self, **kws) -> PlayArgs:
         """
@@ -160,24 +166,15 @@ class PlayArgs:
             the cloned PlayArgs
 
         """
-        outargs = self.db.copy()
-        outargs.update(kws)
-        return PlayArgs(outargs)
+        if not self.db:
+            return PlayArgs(kws)
+        db = self.db.copy()
+        PlayArgs._updatedb(db, kws)
+        return PlayArgs(db)
 
     def __repr__(self):
         args = ', '.join(f'{k}={v}' for k, v in self.db.items())
         return f"PlayArgs({args})"
-
-    def asdict(self) -> dict[str, Any]:
-        """
-        This PlayArgs as dict
-
-        Only set key:value pairs are returned
-
-        Returns:
-            the set key:value pairs, as dict
-        """
-        return self.db
 
     @staticmethod
     def makeDefault(conf: CoreConfig) -> PlayArgs:
@@ -204,23 +201,6 @@ class PlayArgs:
                  transpose=0)
         return PlayArgs(d)
 
-    def filledWith(self, other: PlayArgs) -> PlayArgs:
-        """
-        Clone of self with any unset value in self filled with other
-
-        Args:
-            other: another PlayArgs
-
-        Returns:
-            a clone of self with unset values set from *other*
-
-        """
-        db = self.db.copy()
-        for k, v in other.db.items():
-            if v is not None:
-                db[k] = db.get(k, v)
-        return PlayArgs(db)
-
     def fillWith(self, other: PlayArgs) -> None:
         """
         Fill any unset value in self with the value in other **inplace**
@@ -229,37 +209,36 @@ class PlayArgs:
             other: another PlayArgs
 
         """
-        assert isinstance(other, PlayArgs)
-        args = self.db
-        for k, v in other.db.items():
-            if v is not None:
-                args[k] = args.get(k, v)
+        otherdb = other.db
+        db = self.db
+        for k, v in otherdb.items():
+            if v is not None and k != 'args':
+                db[k] = db.get(k, v)
+        otherargs = otherdb.get('args')
+        if otherargs:
+            if args := db.get('args'):
+                args.update(otherargs)
+            else:
+                db['args'] = otherargs.copy()
 
     def update(self, d: dict[str, Any]) -> None:
-        self.db.update(d)
+        PlayArgs._updatedb(self.db, d)
 
-    def fillDefaults(self, cfg: CoreConfig) -> None:
-        """
-        Fill this PlayArgs with defaults **inplace**
 
-        Only unset keys are set.
-
-        Args:
-            cfg: a CoreConfig
-
-        """
-        args = self.db
-        args.setdefault('delay', 0.)
-        args.setdefault('gain', cfg['play.gain'])
-        args.setdefault('instr', cfg['play.instr'])
-        args.setdefault('fade', cfg['play.fade'])
-        args.setdefault('pitchinterpol', cfg['play.pitchInterpolation'])
-        args.setdefault('priority', 1)
-        args.setdefault('position', -1)
-        args.setdefault('sustain', 0)
-        args.setdefault('chan', 1)
-        args.setdefault('fadeshape', cfg['play.fadeShape'])
-        args.setdefault('transpose', 0)
+def _cropBreakpoints(bps: list[list[float]], t: float) -> list[list[float]]:
+    assert bps[0][0] == 0
+    if t == 0 or t > bps[-1][0]:
+        return bps
+    newbps = []
+    for i in range(len(bps)):
+        bp: list[float] = bps[i]
+        if bp[0] <= t:
+            newbps.append(bp)
+        else:
+            bp2 = _interpolateBreakpoints(t, bps[i - 1], bp)
+            newbps.append(bp2)
+            break
+    return newbps
 
 
 def _interpolateBreakpoints(t: float, bp0: list[float], bp1: list[float]
@@ -327,7 +306,7 @@ class SynthEvent:
 
         Args:
             bps: breakpoints, where each breakpoint is a tuple of (timeoffset, midi, amp,
-            [...])
+            [...]).
             delay: time delay. The effective time of bp[n] will be delay + bp[n][0]
             chan: output channel
             fade: fade time (either a single value or a tuple (fadein, fadeout)
@@ -351,6 +330,13 @@ class SynthEvent:
 
         if len(bps[0]) < 3:
             raise ValueError("A breakpoint needs to have at least (time, pitch, amp)")
+
+        if pitchinterpol not in self.pitchinterpolToInt:
+            raise ValueError(f"pitchinterpol should be one of {list(self.pitchinterpolToInt.keys())}, "
+                             f"got {pitchinterpol}")
+
+        if fadeshape not in self.fadeshapeToInt:
+            raise ValueError(f"fadeshape should be one of {list(self.fadeshapeToInt.keys())}")
 
         delay = float(delay)
         # assert isinstance(delay, (int, float)) and delay >= 0, f"Expected int|float >= 0, got {delay} ({type(delay)})"
@@ -431,19 +417,26 @@ class SynthEvent:
 
         self._namedArgsMethod = 'pargs'
         self._consolidateDelay()
-        assert self.dur > 0, f"Duration of a synth event must be possitive: {self}"
-        assert self.bps[0][0] == 0
+
+        if self.dur <= 0:
+            raise ValueError(f"Duration of a synth event must be possitive: {self}")
 
     def initialize(self, renderer):
         if not self._initdone and self.initfunc:
             self.initfunc(self, renderer)
 
     def _applySustain(self) -> None:
-        assert not self.linkednext and self.sustain > 0
-        last = self.bps[-1]
-        bp = last.copy()
-        bp[0] = last[0] + self.sustain
-        self.bps.append(bp)
+        if self.linkednext and self.sustain:
+            logger.warning("A linked event cannot have sustain")
+            return
+        if self.sustain > 0:
+            last = self.bps[-1]
+            bp = last.copy()
+            bp[0] = last[0] + self.sustain
+            self.bps.append(bp)
+        else:
+            # TODO: crop event
+            self.crop(self.dur + self.sustain)
 
     @property
     def end(self) -> float:
@@ -524,16 +517,16 @@ class SynthEvent:
             args.update(kws)
         return SynthEvent(bps=bps,
                           properties=properties,
+                          linkednext=args.get('glisstime') is not None,
                           **args)
 
     def _consolidateDelay(self) -> None:
         delay0 = self.bps[0][0]
-        assert delay0 is not None
-        assert self.delay is not None
         if delay0 > 0:
             self.delay += delay0
             for bp in self.bps:
                 bp[0] -= delay0
+        assert self.bps[0][0] == 0
 
     def _applyTimeFactor(self, timefactor: float) -> None:
         if timefactor == 1:
@@ -546,25 +539,32 @@ class SynthEvent:
         """A clone of this event, shifted in time by the given offset"""
         return self.clone(delay=self.delay+offset)
 
+    def crop(self, dur: float):
+        self.bps = _cropBreakpoints(self.bps, dur)
+
     def cropped(self, start: float, end: float) -> SynthEvent:
         """
         Return a cropped version of this SynthEvent
         """
-        start -= self.delay
+        start = max(start - self.delay, 0)
         end -= self.delay
+        if end - start <= 0:
+            raise ValueError(f"Invalid crop: the end time ({end}) should lie before "
+                             f"the start time ({start})")
         out = []
         for i in range(len(self.bps)):
             bp: list[float] = self.bps[i]
-            if bp[0] < start:
-                if i < len(self.bps)-1 and start < self.bps[i+1][0]:
-                    bp = _interpolateBreakpoints(start, bp, self.bps[i+1])
-                    out.append(bp)
-            elif start <= bp[0] < end:
+            t = bp[0]
+            if t < start:
+                if i < len(self.bps)-1 and start < self.bps[i + 1][0]:
+                    bpi = _interpolateBreakpoints(start, bp, self.bps[i + 1])
+                    out.append(bpi)
+            elif start <= t < end:
                 out.append(bp.copy())
                 if i < len(self.bps) - 1 and end <= self.bps[i+1][0]:
                     bp2 = _interpolateBreakpoints(end, bp, self.bps[i+1])
                     out.append(bp2)
-            elif bp[0] > end:
+            elif t > end:
                 break
         return self.clone(bps=out)
 
@@ -769,8 +769,7 @@ def mergeLinkedEvents(events: Sequence[SynthEvent]) -> SynthEvent:
     return mergedevent
 
 
-def cropEvents(events: list[SynthEvent], start: float = None, end: float = None,
-               rewind=False
+def cropEvents(events: list[SynthEvent], skip=0., end=math.inf
                ) -> list[SynthEvent]:
     """
     Crop the events at the given time slice
@@ -779,32 +778,15 @@ def cropEvents(events: list[SynthEvent], start: float = None, end: float = None,
 
     Args:
         events: the events to crop
-        start: start of the time slice (None will only crop at the end)
+        skip: start of the time slice (None will only crop at the end)
         end: end of the time slice (None will only crop at the beginning)
-        rewind: if True, events are timeshifted to the given start
 
     Returns:
         the cropped events
 
     """
-    assert start is not None or end is not None
-
-    if start is None:
-        start = min(ev.delay for ev in events)
-    else:
-        start = float(start)
-    if end is None:
-        end = max(ev.end for ev in events)
-        assert start < end, f"{start=}, {end=}"
-    else:
-        end = float(end)
-    from emlib.mathlib import intersection
-    events = [event.cropped(start, end) for event in events
-              if intersection(start, end, event.delay, event.end) is not None]
-    if rewind:
-        events = [event.timeShifted(-start)
-                  for event in events]
-    return events
+    return [event.cropped(skip, end) for event in events
+            if mathlib.intersection(skip, end, event.delay, event.end) is not None]
 
 
 def plotEvents(events: list[SynthEvent], axes: plt.Axes = None, notenames=False

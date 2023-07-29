@@ -314,7 +314,7 @@ class Chain(MObj, MContainer):
         """
         self._update()
 
-        if all(isinstance(item, MEvent) for item in self.items) and not forcecopy and self.isResolved():
+        if all(isinstance(item, MEvent) for item in self.items) and not forcecopy and self.hasOffsets():
             return self
 
         flatevents = self.eventsWithOffset()
@@ -372,13 +372,13 @@ class Chain(MObj, MContainer):
 
 
         """
-        if self.isResolved() and not forcecopy:
+        if self.hasOffsets() and not forcecopy:
             return self
         out = self.copy()
         out.stack()
         return out
 
-    def isResolved(self) -> bool:
+    def hasOffsets(self) -> bool:
         """
         True if self has an explicit offset and all items as well (recursively)
 
@@ -388,36 +388,44 @@ class Chain(MObj, MContainer):
         if self.offset is None:
             return False
 
-        return all(item.offset is not None if isinstance(item, MEvent) else item.isResolved()
+        return all(item.offset is not None if isinstance(item, MEvent) else item.hasOffsets()
                    for item in self.items)
 
     def _resolveGlissandi(self, force=False) -> None:
         """
-        Set the .glisstarget property with the pitch of the gliss target
+        Set the _glissTarget attribute with the pitch of the gliss target
         if a note or chord has an unset gliss target
 
         Args:
             force: if True, calculate/update all glissando targets
 
         """
+        ev2 = None
         for ev1, ev2 in iterlib.pairwise(self.recurse()):
-            if not ev1.gliss or not isinstance(ev1.gliss, bool):
-                continue
-            if not force and ev1.properties and ev1.properties.get('.glisstarget'):
-                continue
-            if isinstance(ev1, Note):
-                if isinstance(ev2, Note):
-                    ev1.setProperty('.glisstarget', ev2.pitch)
-                elif isinstance(ev2, Chord):
-                    ev1.setProperty('.glisstarget', max(n.pitch for n in ev2.notes))
-            elif isinstance(ev1, Chord):
-                if isinstance(ev2, Note):
-                    ev1.setProperty('.glisstarget', [ev2.pitch] * len(ev1.notes))
-                elif isinstance(ev2, Chord):
-                    ev2pitches = ev2.pitches
-                    if len(ev2pitches) > len(ev1.notes):
-                        ev2pitches = ev2pitches[-len(ev1.notes):]
-                    ev1.setProperty('.glisstarget', ev2pitches)
+            if not ev2.isRest() and (ev1.gliss or ev1.playargs and ev1.playargs.get('glisstime') is not None):
+                # Only calculate glissTarget if gliss is True
+                if not force and ev1._glissTarget:
+                    continue
+                if isinstance(ev1, Note):
+                    if isinstance(ev2, Note):
+                        ev1._glissTarget = ev2.pitch
+                    elif isinstance(ev2, Chord):
+                        ev1._glissTarget = max(n.pitch for n in ev2.notes)
+                    else:
+                        ev1._glissTarget = ev1.pitch
+                elif isinstance(ev1, Chord):
+                    if isinstance(ev2, Note):
+                        ev1._glissTarget = [ev2.pitch] * len(ev1.notes)
+                    elif isinstance(ev2, Chord):
+                        ev2pitches = ev2.pitches
+                        if len(ev2pitches) > len(ev1.notes):
+                            ev2pitches = ev2pitches[-len(ev1.notes):]
+                        ev1._glissTarget = ev2pitches
+                    else:
+                        ev1._glissTarget = ev1.pitches
+        if ev2 and ev2.gliss:
+            ev2._glissTarget = ev2.pitch if isinstance(ev2, Note) else ev2.pitches
+
 
     def _synthEvents(self,
                      playargs: PlayArgs,
@@ -453,15 +461,15 @@ class Chain(MObj, MContainer):
         synthevents = []
         offset = parentOffset + self.relOffset()
         groups = _mobjtools.groupLinkedEvents(chain.items)
-        for group in groups:
-            if isinstance(group, MEvent):
-                events = group._synthEvents(playargs,   # should we copy playargs??
+        for item in groups:
+            if isinstance(item, MEvent):
+                events = item._synthEvents(playargs,
                                             parentOffset=offset,
                                             workspace=workspace)
                 synthevents.extend(events)
-            elif isinstance(group, list):
+            elif isinstance(item, list):
                 synthgroups = [event._synthEvents(playargs, parentOffset=offset, workspace=workspace)
-                               for event in group]
+                               for event in item]
                 synthlines = _splitSynthGroupsIntoLines(synthgroups)
                 for synthline in synthlines:
                     if isinstance(synthline, SynthEvent):
@@ -479,7 +487,7 @@ class Chain(MObj, MContainer):
                     synthevents.append(synthevent)
                     # TODO: fix / add playargs
             else:
-                raise TypeError(f"Did not expect {group}")
+                raise TypeError(f"Did not expect {item}")
         for event in synthevents:
             event.linkednext = False
         return synthevents
@@ -599,6 +607,7 @@ class Chain(MObj, MContainer):
         if not self._modified and self.dur is not None:
             return
         self._dur = _stackEvents(self.items, explicitOffsets=False)
+        self._resolveGlissandi()
         self._modified = False
         self._cachedEventsWithOffset = None
 
@@ -696,13 +705,14 @@ class Chain(MObj, MContainer):
                     measureidx, measurebeat = struct.beatToLocation(now + itemoffset)
                     locationstr = f'{measureidx}:{_util.showT(measurebeat)}'.ljust(widths['location'])
                     playargs = 'None' if not item.playargs else ', '.join(f'{k}={v}' for k, v in item.playargs.db.items())
+                    glissstr = 'F' if not item.gliss else f'T ({item.resolveGliss()})' if isinstance(item.gliss, bool) else str(item.gliss)
                     rowparts = [IND*(indents+1),
                                 locationstr,
                                 _util.showT(now + itemoffset).ljust(widths['beat']),
                                 offsetstr,
                                 durstr,
                                 name.ljust(widths['name']),
-                                str(item.gliss).ljust(widths['gliss']),
+                                glissstr.ljust(widths['gliss']),
                                 str(item.dynamic).ljust(widths['dyn']),
                                 playargs.ljust(widths['playargs']),
                                 ' '.join(infoparts) if infoparts else '-'
@@ -1183,8 +1193,8 @@ class Chain(MObj, MContainer):
         return events[0] if events else None
 
     def eventsBetween(self,
-                      startbeat: time_t | tuple[int, time_t],
-                      endbeat: time_t | tuple[int, time_t],
+                      start: time_t | tuple[int, time_t],
+                      end: time_t | tuple[int, time_t],
                       absolute=True
                       ) -> list[MEvent]:
         """
@@ -1195,9 +1205,9 @@ class Chain(MObj, MContainer):
         Chains are treated as one item. To access sub-chains, first flatten self.
 
         Args:
-            startbeat: the start time; can also be a score location (measureindex, measurebeat)
-            endbeat: end time; can also be a location (measureindex, measurebeat)
-            absolute: if True, interpret startbeat and endbeat as absolute, otherwise interpret
+            start: the start location (a beat or a score location)
+            end: end location (a beat or score location)
+            absolute: if True, interpret start and end as absolute, otherwise interpret
                 beats as relative to the beginning of this chain. In the case of using score
                 locations, using absolute=False will raise a ValueError exception
 
@@ -1205,26 +1215,26 @@ class Chain(MObj, MContainer):
             a list of events located between the given time-interval
 
         """
-        if isinstance(startbeat, tuple) or isinstance(endbeat, tuple):
+        if isinstance(start, tuple) or isinstance(end, tuple):
             if not absolute:
                 raise ValueError("absolute must be false when giving beats as a score location")
             scorestruct = self.scorestruct() or Workspace.active.scorestruct
-            startbeat = scorestruct.locationToBeat(*startbeat)
-            endbeat = scorestruct.locationToBeat(*endbeat)
+            start = scorestruct.locationToBeat(*start)
+            end = scorestruct.locationToBeat(*end)
         else:
-            startbeat = asF(startbeat)
-            endbeat = asF(endbeat)
+            start = asF(start)
+            end = asF(end)
             if not absolute:
                 ownoffset = self.absOffset()
-                startbeat += ownoffset
-                endbeat += endbeat
+                start += ownoffset
+                end += end
         items = []
         for item, itemoffset in self.eventsWithOffset():
             itemend = itemoffset + item.dur
-            if itemoffset > endbeat:
+            if itemoffset > end:
                 break
-            if itemend > startbeat and ((item.dur > 0 and itemoffset < endbeat) or
-                                        (item.dur == 0 and itemoffset <= endbeat)):
+            if itemend > start and ((item.dur > 0 and itemoffset < end) or
+                                    (item.dur == 0 and itemoffset <= end)):
                 items.append(item)
         return items
 
@@ -1612,7 +1622,7 @@ def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
      This results in the list [[C4, D4, D4], G3]
 
     Args:
-        groups: A list of synthevents. Each synthevent tree corresponds
+        groups: A list of synthevents. Each synthevent group corresponds
             to the synthevents returned by a note/chord
 
     Returns:
@@ -1652,8 +1662,8 @@ def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
 
     out: list[SynthEvent | list[SynthEvent]] = []
     availableNodesPerGroup: list[set[int]] = [set(range(len(group))) for group in groups]
-    # Iterate over each tree. A tree is just the list of events generated by a given chord
-    # Within a tree, iterate over the nodes of each tree
+    # Iterate over each group. A group is just the list of events generated by a given chord
+    # Within a group, iterate over the _beatNodes of each group
     for groupindex in range(len(groups)):
         for nodeindex in availableNodesPerGroup[groupindex]:
             line = makeLine(nodeindex, groupindex=groupindex,
@@ -1665,7 +1675,7 @@ def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
             else:
                 out.append(line)
 
-    # last tree
+    # last group
     if len(groups) > 1 and (lastGroupIndexes := availableNodesPerGroup[-1]):
         lastGroup = groups[-1]
         out.extend(lastGroup[idx] for idx in lastGroupIndexes)

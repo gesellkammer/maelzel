@@ -16,7 +16,7 @@ import functools
 
 from typing import TYPE_CHECKING, overload as _overload
 if TYPE_CHECKING:
-    from typing import Iterator, Sequence, Union
+    from typing import Iterator, Sequence, Union, TypeVar
     timesig_t = tuple[int, int]
     number_t = Union[float, Rational, F]
     import maelzel.core
@@ -27,7 +27,8 @@ if TYPE_CHECKING:
 __all__ = (
     'asF',
     'ScoreStruct',
-    'MeasureDef'
+    'MeasureDef',
+    'measureBeatStructure'
 )
 
 _unicodeFractions = {
@@ -327,7 +328,7 @@ class MeasureDef:
         self._barline = barline
         """The barline style, or '' to use default"""
 
-        self.subdivisionStructure = subdivisionStructure
+        self.subdivisionStructure: tuple[int, ...] | None = tuple(subdivisionStructure) if subdivisionStructure else None
         """The subdivision structure of this measure. 
         This is only relevant for measures with an irregular time-signature,
         like 5/8. In that case the subdivisionStructure might be (3, 2) or (2, 3)"""
@@ -599,9 +600,10 @@ class BeatStructure:
         return self.offset + self.duration
 
 
+@functools.cache
 def measureBeatStructure(timesig: timesig_t,
                          quarterTempo: Union[F, int],
-                         subdivisionStructure: list[int] = None
+                         subdivisionStructure: tuple[int, ...] = None
                          ) -> list[BeatStructure]:
     """
     Returns the beat structure for this measure
@@ -644,10 +646,10 @@ def measureBeatStructure(timesig: timesig_t,
             for offset, duration, weight in zip(beatOffsets, beatDurations, weights)]
 
 
-def _measureBeatOffsets(timesig: timesig_t,
-                        quarterTempo: F | int,
-                        subdivisionStructure: list[int] = None
-                        ) -> list[F]:
+def measureBeatOffsets(timesig: timesig_t,
+                       quarterTempo: F | int,
+                       subdivisionStructure: list[int] = None
+                       ) -> list[F]:
     """
     Returns a list with the offsets of all beats in measure.
 

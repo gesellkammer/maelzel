@@ -35,7 +35,7 @@ class Item:
         obj: the object itself
         offset: the offset of the item (a time or x coordinate)
         dur: the "duration" or "width" of the object
-        step: an arbitrary y-value for this object. This is used to tree
+        step: an arbitrary y-value for this object. This is used to pack
             together items which are similar, or to discard adding an item to
             a certain track if this step does not fit the track
         weight: an arbitrary weight for the object. It might be used to give

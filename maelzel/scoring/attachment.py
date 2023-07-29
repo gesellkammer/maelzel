@@ -58,15 +58,21 @@ class Property(Attachment):
         self.value = value
 
 
-class GlissandoProperties(Attachment):
+class GlissProperties(Attachment):
     copyToSplitNotation = True
     linetypes = ('solid', 'wavy', 'dotted', 'dashed')
 
     def __init__(self, linetype='solid', color=''):
         super().__init__(color=color)
-        _util.checkChoice('linetype', linetype, GlissandoProperties.linetypes)
+        _util.checkChoice('linetype', linetype, GlissProperties.linetypes)
         self.linetype = linetype
         """The line type, one of 'solid', 'wavy', 'dotted', 'dashed'"""
+
+class GracenoteProperties(Attachment):
+
+    def __init__(self, slash: bool):
+        super().__init__()
+        self.slash = slash
 
 
 class AccidentalTraits(Attachment):

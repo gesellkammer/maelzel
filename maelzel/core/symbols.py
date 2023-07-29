@@ -5,10 +5,9 @@ Most symbols do not have any other meaning than to hint the backend used for
 notation to display the object in a certain way. For example a Notehead symbol
 can be attached to a note to modify the notehead shape used.
 
-Dynamics are included as Symbols, but they are deprecated, since dynamics
-can be used for playback (see :ref:`config_play_usedynamics`)
-
 """
+# This module cannot import from maelzel.core
+
 from __future__ import annotations
 import random
 import copy
@@ -488,6 +487,11 @@ class NoteSymbol(Symbol):
         assert not placement or placement in ('above', 'below')
         self.placement = placement
 
+    def checkAnchor(self, anchor: event.MEvent) -> str:
+        """Returns an error message if the event cannot add this symbol"""
+        return ''
+
+
 
 class Clef(NoteSymbol):
     exclusive = True
@@ -956,27 +960,62 @@ class Stem(NoteSymbol):
             n.stem = 'hidden'
 
 
-class GlissandoProperties(NoteSymbol):
+class Gracenote(NoteSymbol):
+    """
+    Customizes properties of a gracenote
+    """
+
+    def __init__(self, slash=False):
+        super().__init__()
+        self.slash = slash
+
+    def applyToNotation(self, n: scoring.Notation) -> None:
+        n.addAttachment(scoring.attachment.GracenoteProperties(slash=self.slash))
+
+    def checkAnchor(self, anchor: event.MEvent) -> str:
+        if anchor.dur != 0:
+            return f'A Gracenote symbol can only be added to a gracenote, got {anchor}'
+        return ''
+
+
+class GlissProperties(NoteSymbol):
     """
     Customizes properties of a glissando
 
     It can only be attached to an event which starts a glissando
 
+    Args:
+        linetype: the linetype to use, one of 'solid', 'dashed', 'dotted'
+        color: the color of the line
+        hidden: if True the glissando is not represented as notation. When
+            applied to a Notation, the .gliss attribute of the Notation is
+            set to false.
+
     """
     exclusive = True
     appliesToRests = False
 
-    def __init__(self, linetype='solid', color=''):
+    def __init__(self, linetype='solid', color='', hidden=False):
         super().__init__()
-        _util.checkChoice('linetype', linetype, scoring.attachment.GlissandoProperties.linetypes)
+        _util.checkChoice('linetype', linetype, scoring.attachment.GlissProperties.linetypes)
         self.linetype = linetype
         self.color = color
+        self.hidden = hidden
 
     def applyToNotation(self, n: scoring.Notation) -> None:
+        if self.hidden:
+            n.gliss = False
+            return
+
         if not n.gliss and not (n.tiedPrev and n.tiedNext):
-            logger.warning("Applying GlissandoProperties to a Notation without glissando,"
+            logger.warning("Applying GlissProperties to a Notation without glissando,"
                            f"(destination: {n}")
-        n.addAttachment(scoring.attachment.GlissandoProperties(linetype=self.linetype, color=self.color))
+        n.addAttachment(scoring.attachment.GlissProperties(linetype=self.linetype, color=self.color))
+
+    def checkAnchor(self, anchor: event.MEvent) -> str:
+        if not anchor.gliss:
+            return f'This event ({self}) has no glissando'
+        return ''
 
 
 class Accidental(PitchAttachedSymbol):
@@ -1132,7 +1171,9 @@ _symbolClasses = (
     Harmonic,
     Breath,
     BeamBreak,
-    Stem
+    Stem,
+    GlissProperties,
+    Gracenote
 )
 
 

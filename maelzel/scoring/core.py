@@ -44,7 +44,7 @@ class UnquantizedPart:
         notations: the events (notes, chords) in this part
         name: a label to identify this track in particular (a name)
         groupid: an identification (given by makeGroupId), used to identify
-            tracks which belong to a same tree
+            tracks which belong to a same group
         shortname: a name abbreviation used as staf name after the first system
 
     .. seealso:: :class:`~maelzel.scoring.quant.QuantizedPart`,
@@ -320,7 +320,7 @@ def fillSilences(notations: list[Notation], mingap=1/64, offset: time_t = None
 def _groupById(notations: list[Notation]) -> list[Union[Notation, list[Notation]]]:
     """
     Given a seq. of events, elements which are grouped together are wrapped
-    in a list, whereas elements which don't belong to any tree are
+    in a list, whereas elements which don't belong to any group are
     appended as is
 
     """
@@ -395,7 +395,7 @@ def _distributeNotationsByClef(notations: list[Notation],
         filterRests: if True, rests are skipped
         groupid: if True, mark the created Parts with the same groupid. When rendering
             it is possible to show parts with the same id as belonging to one staff
-            tree. To create a groupid see
+            group. To create a groupid see
 
     Returns:
          list of Parts (between 1 and 3, one for each clef)
@@ -467,12 +467,12 @@ def packInParts(notations: list[Notation],
     Pack a list of possibly simultaneous notations into tracks
 
     The notations within one track are NOT simulatenous. Notations belonging
-    to the same tree are kept in the same track.
+    to the same group are kept in the same track.
 
     Args:
         notations: the Notations to _packold
         maxrange: the max. distance between the highest and lowest Notation
-        keepGroupsTogether: if True, items belonging to a same tree are
+        keepGroupsTogether: if True, items belonging to a same group are
             kept in a same track
 
     Returns:

@@ -217,18 +217,20 @@ builtinPresets = [
         reshapearray gi__formantBws__, 5, 5
         """,
         audiogen = r"""
-        |kx=0, ky=0, kvibamount=1|
+        |kx=0, ky=0, kvibamount=1, ivibstart=0.5, ivibfreq=4.5, ivibrange=0.25, ipitchlag=0.2|
         ; Simple vowel singing simulation
         ; Args:
         ;   kx: x coordinate, from 0 to 1
         ;   ky: y coordinate, from 0 to 1
         ;   kvibamount: vibrato amount, 0 to 1
         
-        kvibfreq = linseg:k(0, 0.1, 0, 0.5, 4.5) * randomi:k(0.9, 1.1, 2)
-        kvibsemi = linseg:k(0, 0.4, 0, 2.1, 0.25) * randomi:k(0.9, 1.1, 10)
+        knoVib = trighold(changed2(kpitch), ivibstart*0.25)
+        
+        kvibfreq = linseg:k(0, ivibstart*0.25, 0, ivibstart*0.75, ivibfreq) * randomi:k(0.9, 1.1, 2) * (1 - knoVib)
+        kvibsemi = linseg:k(0, ivibstart*0.2, 0, ivibstart*0.8, ivibrange) * randomi:k(0.9, 1.1, 10)
         kvib = oscil:k(kvibsemi/2, kvibfreq) - kvibsemi/2
-        kpitch = lag:k(kpitch, 0.2) + kvib*kvibamount
-        asource = butterlp:a(vco2:a(kamp, mtof(kpitch)), 4000)
+        kpitch2 = lag:k(kpitch, ipitchlag) + kvib*kvibamount
+        asource = butterlp:a(vco2:a(kamp, mtof(kpitch2)), 5000)
         kcoords[] fillarray 0, 0, 1,       \  ; A
                             0.5, 0.5, 0.3, \  ; E
                             1, 0, 1,       \  ; I
@@ -239,8 +241,8 @@ builtinPresets = [
         kformantFreqs[] weightedsum gi__formantFreqs__, kweights
         kformantBws[]   weightedsum gi__formantBws__, kweights
         kformantAmps[]  weightedsum gi__formantAmps__, kweights
-        kformantFreqs poly 5, "lag", kformantFreqs, 0.2
-        kformantAmps  poly 5, "lag", kformantAmps, 0.2
+        kformantFreqs poly 5, "lag", kformantFreqs, ipitchlag
+        kformantAmps  poly 5, "lag", kformantAmps, ipitchlag
         aformants[] poly 5, "resonx", asource, kformantFreqs, kformantBws, 2, 1
         aformants *= kformantAmps
         aout1 = sumarray(aformants) * 0.1
