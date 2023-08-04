@@ -107,7 +107,7 @@ class Renderer:
         if fmt == 'pdf':
             external = True
         if fmt == 'png':
-            from maelzel.core import _util
+            from maelzel.core import _tools
             png = tempfile.mktemp(suffix='.png')
             self.write(png)
             _util.pngShow(png, forceExternal=external, scalefactor=scalefactor)

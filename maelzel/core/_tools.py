@@ -4,13 +4,11 @@ Internal utilities
 from __future__ import annotations
 import re
 import sys
-import os
 from functools import cache
 from dataclasses import dataclass
 import bpf4 as bpf
 import pitchtools as pt
 from emlib import misc
-import warnings
 
 from maelzel import _util
 from maelzel.scoring import definitions
@@ -93,20 +91,6 @@ def carryColumns(rows: list, sentinel=None) -> list:
     return outrows[1:]
 
 
-def as2dlist(rows: list[list | tuple]) -> list[list]:
-    """
-    Ensure that all rows are lists
-
-    Args:
-        rows: a list of sequences
-
-    Returns:
-        a list of lists
-    """
-    return [row if isinstance(row, list) else list(row)
-            for row in rows]
-
-
 def normalizeFade(fade: fade_t,
                   defaultfade: float
                   ) -> tuple[float, float]:
@@ -121,19 +105,6 @@ def normalizeFade(fade: fade_t,
     else:
         raise TypeError(f"fade: expected a fadetime or a tuple of (fadein, fadeout), got {fade}")
     return fadein, fadeout
-
-
-def normalizeFilename(path: str) -> str:
-    return os.path.expanduser(path)
-
-
-def midinotesNeedSplit(midinotes: list[float], splitpoint=60, margin=4
-                       ) -> bool:
-    if len(midinotes) == 0:
-        return False
-    numabove = sum(int(m > splitpoint - margin) for m in midinotes)
-    numbelow = sum(int(m < splitpoint + margin) for m in midinotes)
-    return bool(numabove and numbelow)
 
 
 _enharmonic_sharp_to_flat = {
@@ -205,10 +176,6 @@ def midicents(midinote: float) -> int:
     return int(round((midinote - round(midinote)) * 100))
 
 
-def quantizeMidi(midinote: float, step=1.0) -> float:
-    return round(midinote / step) * step
-
-
 def centsshown(centsdev: int, divsPerSemitone: int) -> str:
     """
     Given a cents deviation from a chromatic pitch, return
@@ -236,48 +203,6 @@ def centsshown(centsdev: int, divsPerSemitone: int) -> str:
         # in musescore
         return f"–{-centsdev}"
     return str(int(centsdev))
-
-
-def asmidi(x) -> float:
-    """
-    Convert x to a midinote
-
-    Args:
-        x: a str ("4D", "1000hz") a number (midinote) or anything
-           with an attribute .midi
-
-    Returns:
-        a midinote
-
-    """
-    if isinstance(x, str):
-        return pt.str2midi(x)
-    elif isinstance(x, (int, float)):
-        assert 0 <= x <= 200, f"Expected a midinote (0-127) but got {x}"
-        return x
-    raise TypeError(f"Expected a str, a Note or a midinote, got {x}")
-
-
-def asfreq(n) -> float:
-    """
-    Convert a midinote, notename of Note to a freq.
-
-    NB: a float value is interpreted as a midinote
-
-    Args:
-        n: a note as midinote, notename or Note
-
-    Returns:
-        the corresponding frequency
-    """
-    if isinstance(n, str):
-        return pt.n2f(n)
-    elif isinstance(n, (int, float)):
-        return pt.m2f(n)
-    elif hasattr(n, "freq"):
-        return n.freq
-    else:
-        raise ValueError(f"cannot convert {n} to a frequency")
 
 
 @dataclass
@@ -328,9 +253,22 @@ def parseDuration(s: str) -> F:
     Returns:
         the parsed duration as fraction
     """
-    terms = s.split('+')
-    fterms = [F(term) for term in terms]
-    return sum(fterms)
+    if "*" not in s or "(" not in s:
+        # simple form
+        terms = s.split('+')
+        fterms = [F(term) for term in terms]
+        return sum(fterms)
+    parts = []
+    cursor = 0
+    for match in re.finditer(r"\d+\/\d+", s):
+        parts.append(s[cursor:match.start()])
+        num, den = match.group().split("/")
+        parts.append(f"F({num}, {den}")
+        cursor = match.end()
+    if cursor < len(s) - 1:
+        parts.append(s[cursor:])
+    s2 = "".join(parts)
+    return eval(s2)
 
 
 def parsePitch(s: str) -> tuple[str, bool, bool]:
@@ -390,6 +328,7 @@ def stripNoteComments(s: str) -> str:
     """
     parts = s.split(" #")
     return parts[0].strip()
+
 
 def parseNote(s: str) -> NoteProperties:
     """
@@ -468,7 +407,6 @@ def parseNote(s: str) -> NoteProperties:
             elif part in ('gliss', 'tied'):
                 properties[part] = True
             elif part == 'stemless':
-                # properties['stem'] = {'hidden': True}
                 symbols.append(_symbols.Stem(hidden=True))
             elif part == '()':
                 symbols.append(_symbols.Notehead(parenthesis=True))
@@ -572,28 +510,3 @@ def htmlSpan(text, color: str = '', fontsize: str = '', italic=False, bold=False
     return f'<span style="{stylestr}">{text}</span>'
 
 
-def showF(f: F, maxdenom=1000) -> str:
-    """
-    Show a fraction, limit den to *maxdenom*
-
-    Args:
-        f: the fraction to show
-        maxdenom: the max. denominator to show
-
-    Returns:
-        a readable string representation
-
-    """
-    if f.denominator > maxdenom:
-        f2 = f.limit_denominator(maxdenom)
-        return "*%d/%d" % (f2.numerator, f2.denominator)
-    return "%d/%d" % (f.numerator, f.denominator)
-
-
-def showT(f: F | float | None) -> str:
-    """Show *f* as time"""
-    if f is None:
-        return "None"
-    if not isinstance(f, float):
-        f = float(f)
-    return f"{f:.3f}".rstrip('0').rstrip('.')

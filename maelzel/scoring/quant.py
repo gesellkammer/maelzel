@@ -15,7 +15,7 @@ import time
 from math import sqrt
 
 from maelzel.common import F, F0
-from maelzel._util import humanReadableTime
+from maelzel._util import humanReadableTime, showF
 
 from .common import *
 
@@ -135,10 +135,10 @@ def _eventsShow(events: list[Notation]) -> str:
         forth = "→" if ev.tiedNext else ""
         tiedStr = f"tied: {back}{forth}"
         if ev.duration is None:
-            lines.append(f"  {util.showF(ev.offset)} – .. {tiedStr}")
+            lines.append(f"  {showF(ev.offset)} – .. {tiedStr}")
         else:
-            lines.append(f"  {util.showF(ev.offset)} – {util.showF(ev.end)} "
-                         f"dur={util.showF(ev.duration)} {tiedStr}")
+            lines.append(f"  {showF(ev.offset)} – {showF(ev.end)} "
+                         f"dur={showF(ev.duration)} {tiedStr}")
     return "\n".join(lines)
 
 

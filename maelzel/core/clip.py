@@ -17,7 +17,7 @@ from maelzel.core.synthevent import SynthEvent, PlayArgs
 from maelzel.core.workspace import Workspace
 from maelzel.core import playback
 from maelzel.snd import audiosample
-from maelzel.core import _util
+from maelzel.core import _tools
 from maelzel import scoring
 
 

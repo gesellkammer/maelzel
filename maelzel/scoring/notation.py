@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import uuid
 
+from maelzel._util import showF, showT
 from .common import *
 from .util import *
 from .attachment import *

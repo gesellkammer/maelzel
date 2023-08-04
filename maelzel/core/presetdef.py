@@ -11,7 +11,7 @@ import csoundengine
 from . import presetutils
 from . import environment
 from ._common import logger
-from . import _util
+from . import _tools
 
 from maelzel.core.workspace import Workspace
 
@@ -134,8 +134,17 @@ def _makePresetBody(audiogen: str,
     """
     # TODO: generate user pargs
     prologue = r'''
-;5        6       7      8      9     0    1       2        3          4        
-idataidx_,inumbps,ibplen,igain,ichan,ipos,ifadein,ifadeout,ipchintrp_,ifadekind passign 5
+idataidx_  = p5
+inumbps    = p6
+ibplen     = p7
+igain      = p8
+ichan      = p9
+kpos       = p10
+ifadein    = p11
+ifadeout   = p12
+ipchintrp_ = p13
+ifadekind  = p14
+   
 idatalen_ = inumbps * ibplen
 iArgs[] passign idataidx_, idataidx_ + idatalen_
 ilastidx = idatalen_ - 1
@@ -193,17 +202,13 @@ ifadeout = max:i(ifadeout, 1/kr)
     if withOutput:
         if numsignals == 1:
             routing = r"""
-            if (ipos <= 0) then
-                outch ichan, aout1
-            else
-                aL_, aR_ pan2 aout1, ipos
-                outch ichan, aL_, ichan+1, aR_
-            endif
+            aL_, aR_ pan2 aout1, kpos
+            outch ichan, aL_, ichan+1, aR_
             """
         elif numsignals == 2:
             routing = r"""
-            ipos = (ipos == -1) ? 0.5 : ipos
-            aL_, aR_ panstereo aout1, aout2, ipos
+            kpos = (kpos == -1) ? 0.5 : kpos
+            aL_, aR_ panstereo aout1, aout2, kpos
             outch ichan, aL_, ichan+1, aR_
             """
         else:
@@ -337,7 +342,7 @@ class PresetDef:
         "Does this PresetDef need routing (panning, output) code to be generated?"
 
         self._consolidatedInit: str = ''
-        self._instr: Optional[csoundengine.instr.Instr] = None
+        self._instr: csoundengine.instr.Instr | None = None
 
         if self.args:
             for arg in self.args.keys():
@@ -396,9 +401,9 @@ class PresetDef:
             return f'<pre style="font-size: 0.9em">{self.__repr__()}</pre>'
 
         if self.description:
-            descr = _util.htmlSpan(self.description, italic=True, color=':grey3')
+            descr = _tools.htmlSpan(self.description, italic=True, color=':grey3')
         elif self.parsedAudiogen.shortdescr:
-            descr = _util.htmlSpan(self.parsedAudiogen.shortdescr, italic=True, color=':grey3')
+            descr = _tools.htmlSpan(self.parsedAudiogen.shortdescr, italic=True, color=':grey3')
         else:
             descr = ''
         header = f"Preset: <b>{self.name}</b>"
@@ -419,7 +424,7 @@ class PresetDef:
 
         if info:
             infostr = "(" + ', '.join(info) + ")\n"
-            ps.append(f"<code>{_INSTR_INDENT}{_util.htmlSpan(infostr, color=':grey1', fontsize=fontsize)}</code>")
+            ps.append(f"<code>{_INSTR_INDENT}{_tools.htmlSpan(infostr, color=':grey1', fontsize=fontsize)}</code>")
 
         if self.parsedAudiogen.argdocs:
             ps.append('<ul>')
@@ -429,24 +434,27 @@ class PresetDef:
 
         if self.init:
             init = _textwrap.indent(self.init, _INSTR_INDENT)
-            inithtml = csoundengine.csoundlib.highlightCsoundOrc(init, theme=theme)
-            ps.append(rf"init: {inithtml}")
+            html = csoundengine.csoundlib.highlightCsoundOrc(init, theme=theme)
+            html = _tools.htmlSpan(html, fontsize=fontsize)
+            ps.append(rf"init: {html}")
             ps.append("audiogen:")
         if self.args:
             argstr = ", ".join(f"{key}={value}" for key, value in self.args.items())
             argstr = f"{_INSTR_INDENT}|{argstr}|"
             arghtml = csoundengine.csoundlib.highlightCsoundOrc(argstr, theme=theme)
-            arghtml = _util.htmlSpan(arghtml, fontsize=fontsize)
+            arghtml = _tools.htmlSpan(arghtml, fontsize=fontsize)
             ps.append(arghtml)
         body = self.audiogen if not showGeneratedCode else self.getInstr().body
         body = _textwrap.indent(body, _INSTR_INDENT)
         bodyhtml = csoundengine.csoundlib.highlightCsoundOrc(body, theme=theme)
-        bodyhtml = _util.htmlSpan(bodyhtml, fontsize=fontsize)
+        bodyhtml = _tools.htmlSpan(bodyhtml, fontsize=fontsize)
         ps.append(bodyhtml)
         if self.epilogue:
             ps.append("epilogue:")
             epilogue = _textwrap.indent(self.epilogue, _INSTR_INDENT)
-            ps.append(csoundengine.csoundlib.highlightCsoundOrc(epilogue, theme=theme))
+            html = csoundengine.csoundlib.highlightCsoundOrc(epilogue, theme=theme)
+            html = _tools.htmlSpan(html, fontsize=fontsize)
+            ps.append(html)
         return "\n".join(ps)
 
     def getInstr(self, namedArgsMethod: str = 'pargs') -> csoundengine.Instr:
@@ -473,8 +481,9 @@ class PresetDef:
                                              includes=self.includes,
                                              args=self.args,
                                              userPargsStart=PresetDef.userPargsStart,
-                                             numchans=self.numouts)
-
+                                             numchans=self.numouts,
+                                             aliases={'position': 'kpos'}
+                                             )
 
         elif namedArgsMethod == 'table':
             self._instr = csoundengine.Instr(name=self.instrname,
@@ -482,7 +491,9 @@ class PresetDef:
                                              init=self.init,
                                              includes=self.includes,
                                              tabargs=self.args,
-                                             numchans=self.numouts)
+                                             aliases={'position': 'kpos'},
+                                             numchans=self.numouts
+                                             )
 
         else:
             raise ValueError(f"namedArgsMethod expected 'table' or 'pargs', "
@@ -501,6 +512,7 @@ class PresetDef:
         from . import presetmanager
         savedpath = presetmanager.presetManager.savePreset(self.name)
         return savedpath
+
 
 def _consolidateInitCode(init: str, includes: list[str]) -> str:
     if includes:

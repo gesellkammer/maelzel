@@ -4,7 +4,10 @@ from emlib import iterlib
 from emlib import misc
 import pitchtools as pt
 from .common import F, asF, NotatedDuration
+from maelzel._util import showF, showT
+
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from typing import *
     from .common import timesig_t
@@ -95,78 +98,6 @@ def measureTimeDuration(timesig: timesig_t, quarterTempo: F) -> F:
     return dur
 
 
-
-
-def _measureOffsets(timesig: timesig_t, quarterTempo: Real) -> List[F]:
-    """
-    Returns a list with the offsets of all beats in measure.
-
-    The last value refers to the offset of the end of the measure
-
-    Args:
-        timesig: the timesignature as a tuple (num, den)
-        quarterTempo: the tempo correponding to a quarter note
-
-    Returns:
-        a list of fractions representing the start time of each beat, plus the
-        end time of the measure (== the start time of the next measure)
-
-    Example::
-        >>> measureOffsets((5, 8), 60)
-        [Fraction(0, 1), Fraction(1, 1), Fraction(2, 1), Fraction(5, 2)]
-        # 0, 1, 2, 2.5
-    """
-    misc.assert_type(timesig, (int, int))
-    quarterTempo = asF(quarterTempo)
-
-    beatDurations = measureBeats(timesig, quarterTempo=quarterTempo)
-    beatOffsets = [F(0)] + list(iterlib.partialsum(beatDurations))
-    return beatOffsets
-
-
-def clefNameFromMidinotes(midis: List[float]) -> str:
-    """
-    Find the best clef to fit these notes
-
-    Args:
-        midis: a list of midinotes
-
-    Returns:
-        a string describing the clef type, one of 'treble', 'bass', 'treble8va', 'bass8vb'
-    """
-    if not midis:
-        return "treble"
-    avg = sum(midis)/len(midis)
-    if avg>80:
-        return "treble8"
-    elif avg>58:
-        return "treble"
-    elif avg>36:
-        return "bass"
-    else:
-        return "bass8"
-
-
-def midinotesNeedSplit(midinotes: List[float], splitpoint=60, margin=4) -> bool:
-    """
-    Do these midinotes need to be split across multiple stafs?
-
-    Args:
-        midinotes: the midnotes to analyze
-        splitpoint: the splitpoint
-        margin: ??
-
-    Returns:
-        True if the midinotes need to be split
-
-    """
-    if len(midinotes) == 0:
-        return False
-    numabove = sum(int(m > splitpoint - margin) for m in midinotes)
-    numbelow = sum(int(m < splitpoint + margin) for m in midinotes)
-    return bool(numabove and numbelow)
-
-
 def midinotesNeedMultipleClefs(midinotes: List[float], threshold=1) -> bool:
     """
     True if multiple clefs are needed to represent these midinotes
@@ -197,7 +128,6 @@ def midinotesNeedMultipleClefs(midinotes: List[float], threshold=1) -> bool:
 
 def centsShown(centsdev: int, divsPerSemitone=4, snap=2, addplus=False) -> str:
     """
-
     Given a cents deviation from a chromatic pitch, return
     a string to be shown along the notation to indicate the
     distance to its corresponding microtone.
@@ -289,32 +219,9 @@ def snapTime(start: F,
     return (start, end-start)
 
 
-def showF(f:F, maxdenom=1000) -> str:
-    """
-    Show a fraction, limit den to *maxdenom*
-
-    Args:
-        f:
-
-    Returns:
-
-    """
-    if f.denominator > maxdenom:
-        f2 = f.limit_denominator(maxdenom)
-        return "*%d/%d" % (f2.numerator, f2.denominator)
-    return "%d/%d" % (f.numerator, f.denominator)
-
-
-def showT(f:Optional[F]) -> str:
-    """Show *f* as time"""
-    if f is None:
-        return "None"
-    return f"{float(f):.3f}"
-
-
-def showB(b:bool) -> str:
+def showB(b: bool) -> str:
     """Show *b* as boolean"""
-    return "MObjT" if b else "F"
+    return "T" if b else "F"
 
 
 def quarterDurationToBaseDuration(d: F) -> int:

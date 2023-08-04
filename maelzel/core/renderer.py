@@ -2,14 +2,16 @@
 Interface for online and offline rendering
 """
 from __future__ import annotations
-from maelzel.core import presetdef
-from maelzel.core import synthevent
+import numpy as np
 import csoundengine
 from csoundengine.session import SessionEvent
-from typing import Callable
-import numpy as np
-from maelzel.core.presetmanager import PresetManager
 
+from maelzel.core import presetdef
+from maelzel.core import synthevent
+from maelzel.core.presetmanager import PresetManager
+from . import environment
+
+from typing import Callable
 
 
 class Renderer:
@@ -17,6 +19,16 @@ class Renderer:
     def __init__(self, presetManager: PresetManager):
         self.registeredPresets: dict[str, presetdef.PresetDef] = {}
         self.presetManager = presetManager
+
+    def show(self) -> None:
+        """
+        If inside jupyter, force a display of this OfflineRenderer
+
+        """
+        if environment.insideJupyter:
+            from IPython.display import display
+            display(self)
+
 
     def isRealtime(self) -> bool:
         """Is this renderer working in real-time?"""

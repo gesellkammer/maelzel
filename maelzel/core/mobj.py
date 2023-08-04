@@ -63,7 +63,7 @@ from . import playback
 from . import environment
 from . import symbols as _symbols
 from . import notation
-from . import _util
+from . import _tools
 from . import _dialogs
 from maelzel import scoring
 
@@ -1295,7 +1295,6 @@ class MObj:
             ...     Chord("4E 4G", 3).play(instr='piano')
         """
         if config is not None:
-            assert workspace is None
             workspace = Workspace.active.clone(config=config)
         elif workspace is None:
             workspace = Workspace.active
@@ -1319,17 +1318,12 @@ class MObj:
         if not events:
             return csoundengine.synth.SynthGroup([playback._dummySynth()])
 
-        if (renderer:=workspace.renderer) is not None:
-            # schedule offline
-            renderer.schedEvents(events)
-
-        else:
-            rtrenderer = playback.RealtimeRenderer()
-            out = rtrenderer.schedEvents(events, whenfinished=whenfinished)
-            if display and environment.insideJupyter:
-                from IPython.display import display
-                display(out)
-            return out
+        renderer = workspace.renderer or playback.RealtimeRenderer()
+        out = renderer.schedEvents(events, whenfinished=whenfinished)
+        if display and environment.insideJupyter:
+            from IPython.display import display
+            display(out)
+        return out
 
     def makeRenderer(self, **kws):
         """

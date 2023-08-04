@@ -45,20 +45,25 @@ def asF(t) -> F:
         raise TypeError(f"Could not convert {t} to a rational")
 
 
-def asmidi(x: pitch_t) -> float:
+def asmidi(x) -> float:
     """
-    Converts a notename to a midinote.
+    Convert x to a midinote
+
+    Args:
+        x: a str ("4D", "1000hz") a number (midinote) or anything
+           with an attribute .midi
+
+    Returns:
+        a midinote
+
     """
-    if isinstance(x, (int, float)):
-        if x > 127:
-            raise ValueError("A midinote expected (< 128), but got a value of {x}!")
+    if isinstance(x, str):
+        return pt.str2midi(x)
+    elif isinstance(x, (int, float)):
+        assert 0 <= x <= 200, f"Expected a midinote (0-127) but got {x}"
         return x
-    elif isinstance(x, str):
-        return n2m(x)
-    try:
-        return float(x)
-    except TypeError:
-        raise TypeError(f"could not convert {x} to a midi note")
+    raise TypeError(f"Expected a str, a Note or a midinote, got {x}")
+
 
 
 def getLogger(name: str, fmt='[%(name)s:%(filename)s:%(lineno)s:%(funcName)s:%(levelname)s] %(message)s',

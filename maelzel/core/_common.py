@@ -10,7 +10,7 @@ Here we define:
 """
 import logging as _logging
 import textwrap as _textwrap
-from maelzel.common import getLogger as _getLogger
+from maelzel.common import getLogger, F
 import appdirs
 import os
 
@@ -61,13 +61,12 @@ def prettylog(level: str, msg: str, width=80, indent=4) -> None:
     logger.log(level=levelint, msg=msg)
 
 
-_logdir = appdirs.user_log_dir('maelzel-core')
-os.makedirs(_logdir, exist_ok=True)
-filelog = os.path.join(_logdir, 'maelzel-core.log')
+# _logdir = appdirs.user_log_dir('maelzel-core')
+#os.makedirs(_logdir, exist_ok=True)
+#filelog = os.path.join(_logdir, 'maelzel-core.log')
 
+logger = getLogger("maelzel.core")
 UNSET = _UNSET()
-# logger = _getLogger("maelzel.core", filelog=filelog)
 
-logger = _getLogger("maelzel.core")
-#import logging
-#logger = logging.getLogger('maelzel.core')
+
+

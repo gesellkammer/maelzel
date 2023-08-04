@@ -115,17 +115,17 @@ builtinPresets = [
         asig[] diskin2 Spath, kspeed, iskip, iwrap, iformat, iwinsize, ibufsize
         if isndfilechan >= 0 then
             a1 = asig[isndfilechan]
-            ipos = ipos == -1 ? 0 : ipos
+            kpos = kpos == -1 ? 0 : kpos
             a1 *= aenv
-            aout1, aout2 pan2 a1, ipos
+            aout1, aout2 pan2 a1, kpos
         elseif inumchannels == 1 then
             a1 = asig[0]
             a1 *= aenv
-            ipos = ipos == -1 ? 0 : ipos
-            aout1, aout2 pan2 a1, ipos
+            kpos = kpos == -1 ? 0 : kpos
+            aout1, aout2 pan2 a1, kpos
         elseif inumchannels == 2 then
             asig *= aenv
-            aout1, aout2 panstereo asig[0], asig[1], ipos
+            aout1, aout2 panstereo asig[0], asig[1], kpos
         endif
         outch ichan, aout1, ichan+1, aout2
         ''',
@@ -224,7 +224,7 @@ builtinPresets = [
         ;   ky: y coordinate, from 0 to 1
         ;   kvibamount: vibrato amount, 0 to 1
         
-        knoVib = trighold(changed2(kpitch), ivibstart*0.25)
+        knoVib = lag:k(trighold(changed2(kpitch), ivibstart*0.8), ivibstart*0.2)
         
         kvibfreq = linseg:k(0, ivibstart*0.25, 0, ivibstart*0.75, ivibfreq) * randomi:k(0.9, 1.1, 2) * (1 - knoVib)
         kvibsemi = linseg:k(0, ivibstart*0.2, 0, ivibstart*0.8, ivibrange) * randomi:k(0.9, 1.1, 10)

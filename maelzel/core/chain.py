@@ -12,7 +12,7 @@ from .synthevent import PlayArgs, SynthEvent
 from . import symbols
 from . import environment
 from . import _mobjtools
-from . import _util
+from . import _tools
 from ._common import UNSET, logger
 
 from maelzel import scoring
@@ -141,7 +141,7 @@ class Chain(MObj, MContainer):
                 offset = asF(offset)
             if items is not None:
                 if isinstance(items, str):
-                    items = [_util.stripNoteComments(line) for line in items.splitlines()]
+                    items = [_tools.stripNoteComments(line) for line in items.splitlines()]
                     items = [asEvent(item) for item in items if item]
                 else:
                     items = [item if isinstance(item, (MEvent, Chain)) else asEvent(item)
@@ -203,7 +203,7 @@ class Chain(MObj, MContainer):
         """
         dur = _stackEvents(self.items, explicitOffsets=True)
         self._dur = dur
-        self._modified = False
+        self._changed()
         return dur
 
     def fillGaps(self, recurse=True) -> None:
@@ -437,12 +437,9 @@ class Chain(MObj, MContainer):
         if self.playargs:
             playargs = playargs.overwrittenWith(self.playargs)
 
-        if self._modified:
-            self._update()
-        self._resolveGlissandi()
-
         chain = self.flat(forcecopy=True)
         chain.stack()
+        chain._update()
 
         for item in chain.items:
             assert item.dur >= 0, f"{item=}"
@@ -481,15 +478,15 @@ class Chain(MObj, MContainer):
                             for ev1, ev2 in iterlib.pairwise(synthline):
                                 assert abs(ev1.end - ev2.delay) < 1e-6, f"gap={ev1.end - ev1.delay}, {ev1=}, {ev2=}"
 
-                            synthevent = SynthEvent.mergeTiedEvents(synthline)
+                            synthevent = SynthEvent.mergeEvents(synthline)
                     else:
                         raise TypeError(f"Expected a SynthEvent or a list thereof, got {synthline}")
                     synthevents.append(synthevent)
                     # TODO: fix / add playargs
             else:
                 raise TypeError(f"Did not expect {item}")
-        for event in synthevents:
-            event.linkednext = False
+        #for event in synthevents:
+        #    event.linkednext = False
         return synthevents
 
     def mergeTiedEvents(self) -> None:

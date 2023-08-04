@@ -2,7 +2,7 @@ from __future__ import annotations
 import os
 from ._appstate import appstate as _appstate
 from ._common import logger
-from maelzel.core import _util
+from maelzel.core import _tools
 from emlib import envir
 
 from typing import TYPE_CHECKING

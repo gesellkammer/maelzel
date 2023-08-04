@@ -21,7 +21,6 @@ from typing import Optional
 
 
 insideJupyter = emlib.envir.inside_jupyter()
-# logger = logging.getLogger("maelzel")
 _logger = logging.getLogger()
 
 _linuxImageViewers = [

@@ -3,7 +3,9 @@ from typing import Callable, Sequence
 import emlib.misc
 import warnings
 import sys
+import os
 import weakref
+from maelzel.common import F
 
 
 def reprObj(obj,
@@ -85,3 +87,33 @@ def humanReadableTime(t: float) -> str:
 
     return f"{t:.6g}s"
 
+
+def normalizeFilename(path: str) -> str:
+    return os.path.expanduser(path)
+
+
+def showF(f: F, maxdenom=1000) -> str:
+    """
+    Show a fraction, limit den to *maxdenom*
+
+    Args:
+        f: the fraction to show
+        maxdenom: the max. denominator to show
+
+    Returns:
+        a readable string representation
+
+    """
+    if f.denominator > maxdenom:
+        f2 = f.limit_denominator(maxdenom)
+        return "*%d/%d" % (f2.numerator, f2.denominator)
+    return "%d/%d" % (f.numerator, f.denominator)
+
+
+def showT(f: F | float | None) -> str:
+    """Show *f* as time"""
+    if f is None:
+        return "None"
+    if not isinstance(f, float):
+        f = float(f)
+    return f"{f:.3f}".rstrip('0').rstrip('.')

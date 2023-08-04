@@ -1,6 +1,6 @@
 from __future__ import annotations
 from maelzel.core import Note, Chord
-from maelzel.core import _util
+from maelzel.core import _tools
 import pitchtools as pt
 
 

@@ -82,7 +82,6 @@ class Workspace:
 
         assert self._initdone
 
-        self.renderer: playback.OfflineRenderer | None = None
 
         if config is None or isinstance(config, str):
             config = CoreConfig(updates=updates, source=config)
@@ -90,7 +89,6 @@ class Workspace:
             config = config.clone(updates=updates)
         else:
             assert isinstance(config, CoreConfig)
-        self._config: CoreConfig = config
 
         if dynamicCurve is None:
             mindb = config['dynamicCurveMindb']
@@ -100,12 +98,24 @@ class Workspace:
                                                   mindb=mindb, maxdb=maxdb,
                                                   dynamics=dynamics)
 
-        self.dynamicCurve = dynamicCurve
-
         if scorestruct is None:
             scorestruct = ScoreStruct(timesig=(4, 4), tempo=60)
+
+        self._config: CoreConfig = config
+        """The CoreConfig attached to this Workspace"""
+
+        self.renderer: playback.Renderer | None = None
+        """The active renderer, if any"""
+
+        self.dynamicCurve = dynamicCurve
+        """The dynamic curve used to convert dynamics to amplitudes"""
+
         self._scorestruct = scorestruct
+        """The scorestruct attached to this workspace"""
+
         self._previousWorkspace: Workspace | None = Workspace.active
+        """The previous workspace. Will be activated when this one is desactivated"""
+
         if active:
             self.activate()
 
@@ -336,6 +346,9 @@ class Workspace:
     def rootConfig():
         return CoreConfig.root
         # return Workspace.root.config
+
+    def amp2dyn(self, amp: float) -> str:
+        return self.dynamicCurve.amp2dyn(amp)
 
 
 def getWorkspace() -> Workspace:

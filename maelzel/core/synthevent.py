@@ -4,6 +4,7 @@ import math
 from emlib import mathlib
 import emlib.misc
 import pitchtools as pt
+from dataclasses import dataclass
 
 from ._common import logger
 from typing import TYPE_CHECKING
@@ -26,6 +27,14 @@ __all__ = (
 
 
 _MAX_NUM_PFIELDS = 1900
+
+
+@dataclass
+class AutomationEvent:
+    param: str
+    value: float | list[float]
+    delay: float = 0.
+    token: int | None = None
 
 
 class PlayArgs:
@@ -85,6 +94,9 @@ class PlayArgs:
         self.db: dict[str, Any] = db
         """A dictionary holding the arguments explicitely specified"""
 
+    @property
+    def args(self) -> dict | None:
+        return self.db.get('args')
 
     def __bool__(self):
         return bool(self.db)
@@ -102,13 +114,13 @@ class PlayArgs:
 
         This might contain unset values. For only the actually set
          values, use ``playargs.args.values()``"""
-        args = self.db
-        return (args.get(k) for k in self.playkeys)
+        db = self.db
+        return (db.get(k) for k in self.playkeys)
 
     def items(self) -> dict[str, Any]:
         """Like dict.items()"""
-        args = self.db
-        return {k: args.get(k) for k in self.playkeys}
+        db = self.db
+        return {k: db.get(k) for k in self.playkeys}
 
     def get(self, key: str, default=None):
         """Like dict.get()"""
@@ -252,6 +264,28 @@ def _interpolateBreakpoints(t: float, bp0: list[float], bp1: list[float]
     return bp
 
 
+@dataclass
+class _AutomationPoint:
+    param: str
+    """The parameter to automate (either a builtin synth param or an instr param)"""
+
+    time: float
+    """The time (in seconds), relative to the beginning of the event"""
+
+    value: float
+    """The new value of the parameter"""
+
+    pretime: float | None = None
+    """The previous time, relative to the beginning of the event"""
+
+    prevalue: float | None = None
+    """The previous value, None for a """
+
+    kind: str = 'normal'
+    """One of 'normal', 'arg' """
+
+
+
 class SynthEvent:
     """
     Represents a standard event (a line of variable breakpoints)
@@ -262,10 +296,16 @@ class SynthEvent:
 
     """
     __slots__ = ("bps", "delay", "chan", "fadein", "fadeout", "gain",
-                 "instr", "pitchinterpol", "fadeShape", "args",
+                 "instr", "pitchinterpol", "fadeshape", "args",
                  "priority", "position", "_namedArgsMethod", "linkednext",
                  "numchans", "whenfinished", "properties", 'sustain',
+                 'automation',
                  'initfunc', '_initdone')
+
+    dynamicAttributes = (
+        'position',
+    )
+    """Attributes which can change within merged events"""
 
     pitchinterpolToInt = {
         'linear': 0,
@@ -338,6 +378,9 @@ class SynthEvent:
         if fadeshape not in self.fadeshapeToInt:
             raise ValueError(f"fadeshape should be one of {list(self.fadeshapeToInt.keys())}")
 
+        if position < 0:
+            position = 0 if numchans == 1 else 0.5
+
         delay = float(delay)
         # assert isinstance(delay, (int, float)) and delay >= 0, f"Expected int|float >= 0, got {delay} ({type(delay)})"
 
@@ -372,7 +415,7 @@ class SynthEvent:
         self.pitchinterpol = pitchinterpol
         """Pitch interpolation"""
 
-        self.fadeShape = fadeshape
+        self.fadeshape = fadeshape
         """Shape of the fades"""
 
         self.priority = priority
@@ -405,6 +448,9 @@ class SynthEvent:
         self.sustain = sustain
         """Sustain time after the actual duration"""
 
+        self.automation: list[_AutomationPoint] | None = None
+        """List of automation points"""
+
         self.initfunc = initfunc
         """A function called when the event is being scheduled. 
         It has the form (synthevent, renderer) -> None, where synthevent is 
@@ -416,6 +462,7 @@ class SynthEvent:
         self._initdone = False
 
         self._namedArgsMethod = 'pargs'
+
         self._consolidateDelay()
 
         if self.dur <= 0:
@@ -474,7 +521,7 @@ class SynthEvent:
                           gain=self.gain,
                           instr=self.instr,
                           pitchinterpol=self.pitchinterpol,
-                          fadeshape=self.fadeShape,
+                          fadeshape=self.fadeshape,
                           args=self.args,
                           priority=self.priority,
                           position=self.position,
@@ -511,14 +558,14 @@ class SynthEvent:
         Returns:
             a new SynthEvent
         """
-        args = playargs.db
+        db = playargs.db
         if kws:
-            args = args.copy()
-            args.update(kws)
+            db = db.copy()
+            db.update(kws)
         return SynthEvent(bps=bps,
                           properties=properties,
-                          linkednext=args.get('glisstime') is not None,
-                          **args)
+                          linkednext=db.get('glisstime') is not None,
+                          **db)
 
     def _consolidateDelay(self) -> None:
         delay0 = self.bps[0][0]
@@ -583,14 +630,19 @@ class SynthEvent:
 
     def _reprHeader(self) -> str:
         info = [f"delay={float(self.delay):.3g}, dur={self.dur:.3g}, "
+                f"instr={self.instr}, "
                 f"gain={self.gain:.4g}, chan={self.chan}"
-                f", fade=({self.fadein}, {self.fadeout}), instr={self.instr}"]
+                f", fade=({self.fadein}, {self.fadeout})"]
         if self.linkednext:
             info.append('linkednext=True')
         if self.args:
             info.append(f"args={self.args}")
         if self.sustain:
             info.append(f"sustain={self.sustain}")
+        if self.position is not None and self.position >= 0:
+            info.append(f"position={self.position}")
+        if self.automation:
+            info.append(f'automation={self.automation}')
         infostr = ", ".join(info)
         return f"SynthEvent({infostr})"
 
@@ -610,8 +662,18 @@ class SynthEvent:
         return "\n".join(lines)
 
     @staticmethod
-    def mergeTiedEvents(events: Sequence[SynthEvent]) -> SynthEvent:
-        return mergeLinkedEvents(events)
+    def mergeEvents(events: Sequence[SynthEvent]) -> SynthEvent:
+        """
+        Static method to merge events which are linked (tied, gliss)
+
+        Args:
+            events: the events to merge
+
+        Returns:
+            the merged event
+
+        """
+        return mergeEvents(events)
 
     def resolvePfields(self: SynthEvent,
                        instr: csoundengine.instr.Instr
@@ -647,7 +709,7 @@ class SynthEvent:
             self._applySustain()
 
         pitchInterpolMethod = SynthEvent.pitchinterpolToInt[self.pitchinterpol]
-        fadeshape = SynthEvent.fadeshapeToInt[self.fadeShape]
+        fadeshape = SynthEvent.fadeshapeToInt[self.fadeshape]
         # if no userpargs, bpsoffset is 15
         numPargs5 = len(instr.pargsIndexToName)
         bpsrows = len(self.bps)
@@ -716,14 +778,18 @@ class SynthEvent:
         return axes
 
 
-def mergeLinkedEvents(events: Sequence[SynthEvent]) -> SynthEvent:
+def mergeEvents(events: Sequence[SynthEvent]) -> SynthEvent:
     """
     Merge linked events
 
     Two events are linked if the first event has its `.linkednext` attribute set as True
     and the last breakpoint of the first event is equal to the first breakpoint of the
     second. This is used within a Chain or Voice to join the playback events of
-    multiple chords/notes to single synthevents
+    multiple chords/notes to single synthevents.
+
+    Since all breakpoints are merged into one event, any values regarding
+    dynamic parameters (position, instr parameters, …) would be lost. These
+    are kept as automation points.
 
     .. note::
 
@@ -766,7 +832,54 @@ def mergeLinkedEvents(events: Sequence[SynthEvent]) -> SynthEvent:
     bps.append(lastbp)
 
     mergedevent = firstevent.clone(bps=bps, linkednext=events[-1].linkednext)
+    restevents = events[1:]
+    if mergedevent.args is None and any(ev.args for ev in restevents):
+        mergedevent.args = {}
+    argstate = mergedevent.args
+    lastoffset = 0.
+    automationPoints = []
+    state = {attr: getattr(firstevent, attr) for attr in SynthEvent.dynamicAttributes}
+    for event in restevents:
+        offset = event.delay - mergedevent.delay
+        if event.args:
+            diff = _dictdiff(argstate, event.args)
+            for k, v in diff.items():
+                automation = _AutomationPoint(param=k,
+                                              time=offset,
+                                              value=v,
+                                              prevalue=argstate.get(k),
+                                              pretime=lastoffset,
+                                              kind='arg')
+                automationPoints.append(automation)
+            argstate = mergedevent.args | event.args
+        for attr in SynthEvent.dynamicAttributes:
+            value = getattr(event, attr, None)
+            prevalue = state.get(attr)
+            if value is not None and value != prevalue:
+                automation = _AutomationPoint(param=attr,
+                                              time=offset,
+                                              value=value,
+                                              prevalue=prevalue,
+                                              pretime=lastoffset,
+                                              kind='normal')
+                automationPoints.append(automation)
+                state[attr] = value
+
+        lastoffset = offset
+    mergedevent.automation = automationPoints
     return mergedevent
+
+
+def _dictdiff(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
+    """
+    Returns the diff from a to b
+
+    {1: 10, 2:20}  {1:100, 3:30}  -> {1:100, 3:30}
+
+    """
+    c = a | b
+    return {k: v for k, v in c.items() if k in b}
+
 
 
 def cropEvents(events: list[SynthEvent], skip=0., end=math.inf
