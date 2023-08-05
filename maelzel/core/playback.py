@@ -1306,7 +1306,9 @@ def _schedFlatEvents(renderer: RealtimeRenderer,
                 else:
                     if (prevalue := point.prevalue) is None:
                         prevalue = instr.namedParams().get(point.param)
-                        assert prevalue is not None
+                        if prevalue is None:
+                            raise ValueError(f"Default value for {point.param} not known, "
+                                             f"default values: {instr.namedParams()} (instr={instr})")
                     pairs = [0,                          prevalue,
                              point.time - point.pretime, point.value]
                     synth.automate(param=point.param, pairs=pairs, delay=point.pretime)

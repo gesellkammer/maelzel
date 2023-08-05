@@ -138,5 +138,4 @@ Table of Contents
     workspace
     Input / Output (import/export to musicxml, lilypond, MiDI, ...) <coreio>
     Pure Notation <symbols>
-    Miscellaneous Tools <coretools>
-
+    
