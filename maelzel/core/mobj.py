@@ -44,35 +44,32 @@ import tempfile as _tempfile
 import html as _html
 from dataclasses import dataclass
 
-from emlib.misc import firstval
 import emlib.misc
 import emlib.img
-
 import pitchtools as pt
-
 import csoundengine
 
 from maelzel.common import asmidi, F, asF, F0, F1
 import maelzel.textstyle as _textstyle
-from ._common import *
-from ._typedefs import *
 
+from ._common import logger
+from ._typedefs import *
 from .config import CoreConfig
 from .workspace import Workspace
-from . import playback
-from . import environment
-from . import symbols as _symbols
-from . import notation
-from . import _tools
-from . import _dialogs
-from maelzel import scoring
+from .synthevent import PlayArgs, SynthEvent
 
-from .synthevent import PlayArgs, SynthEvent, cropEvents
+from . import playback
+from . import proxysynth
+from . import environment
+from . import notation
+from . import symbols as _symbols
+from . import _dialogs
+from . import _tools
+
+from maelzel import scoring
 from maelzel.scorestruct import ScoreStruct
-from .playback import OfflineRenderer
 
 from typing import TypeVar, Any, Callable
-
 
 MObjT = TypeVar('MObjT', bound='MObj')
 
@@ -198,8 +195,6 @@ class MObj:
         self.label = label
         "a label can be used to identify an object within a group of objects"
 
-        # A MObj can have a duration. A duration can't be 0
-
         self._dur: F | None = dur
         "the duration of this object (can be None, in which case it is unset)"
 
@@ -213,7 +208,6 @@ class MObj:
         # attaching playing parameters (like pan position, instrument)
         # to an object
         self.playargs: PlayArgs | None = None
-        # self.playargs = PlayArgs()
         "playargs are set via :meth:`.setPlay` and are used to customize playback (instr, gain, …). None by default"
 
         self.properties: dict[str, Any] | None = properties
@@ -228,7 +222,7 @@ class MObj:
 
     @property
     def dur(self) -> F:
-        "The duration of this object, in quarternotes"
+        """The duration of this object, in quarternotes"""
         d = self._dur
         return F1 if d is None else d
 
@@ -672,7 +666,7 @@ class MObj:
                 renderer.write(lyfile)
                 emlib.misc.open_with_app(lyfile)
             else:
-                _util.showLilypondScore(renderer.render())
+                _tools.showLilypondScore(renderer.render())
         else:
             img = self._renderImage(backend=backend, fmt=fmt, scorestruct=scorestruct,
                                     config=cfg)
@@ -680,7 +674,7 @@ class MObj:
                 scalefactor = cfg['show.scaleFactor']
                 if backend == 'musicxml':
                     scalefactor *= cfg['show.scaleFactorMusicxml']
-                _util.pngShow(img, forceExternal=external, scalefactor=scalefactor)
+                _tools.pngShow(img, forceExternal=external, scalefactor=scalefactor)
             else:
                 emlib.misc.open_with_app(img)
 
@@ -1197,7 +1191,7 @@ class MObj:
             struct = workspace.scorestruct
             skiptime = 0. if skip is None else struct.beatToTime(skip)
             endtime = float("inf") if end is None else struct.beatToTime(end)
-            events = cropEvents(events, skip=skiptime+delay, end=endtime+delay)
+            events = SynthEvent.cropEvents(events, skip=skiptime+delay, end=endtime+delay)
 
         if event := next((ev for ev in events if ev.delay < 0), None):
             raise ValueError(f"Events cannot have negative delay, event={event}")
@@ -1223,6 +1217,8 @@ class MObj:
              display=False,
              **kwargs
              ) -> csoundengine.synth.SynthGroup:
+             # ) -> proxysynth.ProxySynthGroup:
+
         """
         Plays this object.
 
@@ -1316,14 +1312,15 @@ class MObj:
                              **kwargs)
 
         if not events:
-            return csoundengine.synth.SynthGroup([playback._dummySynth()])
-
-        renderer = workspace.renderer or playback.RealtimeRenderer()
-        out = renderer.schedEvents(events, whenfinished=whenfinished)
-        if display and environment.insideJupyter:
-            from IPython.display import display
-            display(out)
-        return out
+            group = csoundengine.synth.SynthGroup([playback._dummySynth()])
+        else:
+            renderer = workspace.renderer or playback.RealtimeRenderer()
+            group = renderer.schedEvents(events, whenfinished=whenfinished)
+            if display and environment.insideJupyter:
+                from IPython.display import display
+                display(group)
+        return group
+        # return proxysynth.ProxySynthGroup(group=group)
 
     def makeRenderer(self, **kws):
         """
@@ -1359,7 +1356,7 @@ class MObj:
             extratime: float = None,
             workspace: Workspace = None,
             **kws
-            ) -> OfflineRenderer:
+            ) -> playback.OfflineRenderer:
         """
         Record the output of .play as a soundfile
 
@@ -1486,8 +1483,10 @@ class MObj:
         Args:
             text: the text annotation
             placement: where to place the annotation ('above', 'below')
+            italic: if True, use italic as font style
+            weight: 'normal' or 'bold'
             fontsize: the size of the annotation
-            fontstyle: italic, bold or a comma-separated list thereof ('italic,bold')
+            fontfamily: the font family to use. It is probably best to leave this unset
             box: the enclosure shape, or '' for no box around the text. Possible shapes
                 are 'square', 'circle', 'rounded'
 
@@ -1651,7 +1650,7 @@ def _renderImage(obj: MObj,
 
 
 def _renderObject(obj: MObj,
-                  backend:str,
+                  backend: str,
                   renderoptions: scoring.render.RenderOptions,
                   scorestruct: ScoreStruct,
                   config: CoreConfig,

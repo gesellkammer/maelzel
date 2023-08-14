@@ -1,12 +1,15 @@
 from __future__ import annotations
+
 from emlib import mathlib
+from maelzel.common import F
 from maelzel.core.mobj import MObj
 import maelzel.core.symbols as _symbols
-from maelzel.common import F
+from maelzel.core.synthevent import PlayArgs
+
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import TypeVar, Any, Callable
-    from ._typedefs import time_t
+    from ._typedefs import time_t, location_t
     MEventT = TypeVar("MEventT", bound="MEvent")
 
 
@@ -14,7 +17,7 @@ class MEvent(MObj):
     """
     A discrete event in time (a Note, Chord, etc)
     """
-    __slots__ = ('tied', 'amp')
+    __slots__ = ('tied', 'amp', 'dynamic')
 
     def __init__(self,
                  dur: F,
@@ -24,6 +27,7 @@ class MEvent(MObj):
                  properties: dict[str, Any] = None,
                  symbols: list[_symbols.Symbol] = None,
                  label='',
+                 dynamic='',
                  tied=False):
         super().__init__(dur=dur, offset=offset, label=label, parent=parent,
                          properties=properties, symbols=symbols)
@@ -32,6 +36,9 @@ class MEvent(MObj):
 
         self.amp = amp
         "The playback amplitude 0-1 of this note"
+
+        self.dynamic = dynamic
+
 
     @property
     def gliss(self):
@@ -247,4 +254,43 @@ class MEvent(MObj):
             return self
         else:
             return self.clone(offset=offset2, dur=dur2)
+
+    def automate(self,
+                 param: str,
+                 breakpoints: list[tuple[time_t | location_t, float]] | list[tuple[time_t|location_t, float, str]],
+                 interpolation='linear',
+                 relative=True,
+                 ) -> None:
+        """
+        Add an automation action to this event
+
+        Args:
+            param: the playback parameter to modify, either a builtin parameter like
+                position, or an instrument defined parameter (for example, an instrument
+                based on substractive synthesis could define a 'filterattack' parameter,
+                or a vocal synthesis instrument could define a 'vibratoamount' parameter)
+            breakpoints: the data, a list of pairs in the form (time, value),
+                or (time, value, interpolation). time is given in quarternotes or as a
+                location (measure, beatoffset); value is any valid valud for the given
+                parameter; interpolation is one of 'linear', 'cos'
+            interpolation: default interpolation used for breakpoints without interpolation
+            relative: if True, the time positions are relative to the absolute offset
+                of this event. If False, these times are absolute times
+
+        .. code::
+
+            # Automate position starting at beat 5 after this event has started
+            note.automate('position', [(5, 0.), (6, 1.)], relative=True)
+
+            # The same data can be given as a flat list
+            note.automate('position', [5, 0., 6, 1.])
+
+            # Time position can be also given as a tuple (measure num, beat offset),
+            # and the time mode can be set to absolute
+            note.automate('position', [(3, 0), 0., (4, 0), 1.], relative=False)
+        """
+        if self.playargs is None:
+            self.playargs = PlayArgs()
+        self.playargs.addAutomation(param=param, breakpoints=breakpoints,
+                                    interpolation=interpolation, relative=relative)
 

@@ -1,7 +1,7 @@
 import os
 import math
-from maelzel.music import dynamics
 from maelzel import textstyle
+from maelzel import dynamiccurve
 
 
 defaultdict = {
@@ -158,7 +158,7 @@ validator = {
     'dynamicCurveShape': lambda cfg, key, val: val.split("(")[0] in ('linear', 'expon', 'halfcos'),
     'dynamicCurveMindb::range': (-160, 0),
     'dynamicCurveMaxdb::range': (-160, 0),
-    'dynamicCurveDynamics': lambda cfg, key, val: all(d in dynamics.dynamicSteps
+    'dynamicCurveDynamics': lambda cfg, key, val: all(d in dynamiccurve.dynamicSteps
                                                       for d in val.split()),
     '.quant.divisionErrorWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,
     '.quant.gridErrorWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,

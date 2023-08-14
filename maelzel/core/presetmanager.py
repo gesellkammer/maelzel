@@ -18,7 +18,6 @@ from . import builtinpresets
 from ._common import logger
 from . import _dialogs
 from . import environment
-from . import playback
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .synthevent import SynthEvent
@@ -231,14 +230,10 @@ class PresetManager:
                               envelope=envelope,
                               routing=output)
         self.registerPreset(presetdef)
-        # We need to enclose it in a try/except because the playback module
-        # might not be loaded
-        try:
-            if playback.isEngineActive():
-                session = playback.playSession()
-                session.registerInstr(presetdef.getInstr())
-        except AttributeError:
-            pass
+        # NB: before, we would register the preset to the session
+        # via playback.playSession().registerInstr(presetdef.getInstr())
+        # But it is not necessary, since it will be done the first time
+        # the instrument is used
         return presetdef
 
     def defPresetSoundfont(self,

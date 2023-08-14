@@ -38,7 +38,6 @@ def jupyterMakeImage(path: str, scalefactor=1.0) -> JupyterImage:
     if not environment.insideJupyter:
         raise RuntimeError("Not inside a Jupyter session")
 
-    scalefactor = scalefactor if scalefactor is not None else getConfig()['show.scaleFactor']
     width, height = emlib.img.imgSize(path)
     if scalefactor != 1.0:
         width *= scalefactor

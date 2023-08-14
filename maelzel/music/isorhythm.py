@@ -12,13 +12,12 @@ except ImportError:
 
 if TYPE_CHECKING:
     from typing import *
-    from numbers import Rational
     T = TypeVar('T')
-    number_t = Union[float, Rational]
-
+    from maelzel.common import num_t
+    
 
 class Isorhythm:
-    def __init__(self, color: Sequence[T], talea: Sequence[number_t]):
+    def __init__(self, color: Sequence[T], talea: Sequence[num_t]):
         self.color = color
         self.talea = talea
         self.iter = iter(self)
@@ -26,10 +25,10 @@ class Isorhythm:
     def reset(self):
         self.iter = iter(self)
 
-    def __iter__(self) -> Iterable[Tuple[T, number_t]]:
+    def __iter__(self) -> Iterable[tuple[T, num_t]]:
         return zip(iterlib.cycle(self.color), iterlib.cycle(self.talea))
 
-    def generate(self, maxdur: number_t) -> List[Tuple[T, number_t]]:
+    def generate(self, maxdur: num_t) -> list[tuple[T, num_t]]:
         """
         Generate pairs until the given max. duration is reached
 

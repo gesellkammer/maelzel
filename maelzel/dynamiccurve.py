@@ -4,11 +4,13 @@ also makes a representation of the amplitude in terms of musical dynamics
 """
 from __future__ import annotations
 from bisect import bisect as _bisect
-import bpf4
 from dataclasses import dataclass
+
 from pitchtools import db2amp, amp2db
 from emlib import misc
-from typing import TYPE_CHECKING, NamedTuple
+import bpf4
+
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Union, Callable, Sequence
 
@@ -298,7 +300,9 @@ def _makeDynamicsMapping(bpf: bpf4.BpfInterface, dynamics:Sequence[str] = None
     return dynamics_table, dynamics_dict
 
 
-def createShape(shape='expon(3)', mindb:Union[int, float]=-90, maxdb:Union[int, float]=0
+def createShape(shape='expon(3)',
+                mindb: int | float = -90,
+                maxdb: int | float = 0
                 ) -> bpf4.BpfInterface:
     """
     Return a bpf mapping 0-1 to amplitudes, as needed by DynamicCurve
@@ -325,5 +329,4 @@ def createShape(shape='expon(3)', mindb:Union[int, float]=-90, maxdb:Union[int, 
     """
     minamp, maxamp = db2amp(mindb), db2amp(maxdb)
     return bpf4.util.makebpf(shape, [0, 1], [mindb, maxdb]).db2amp()
-    # return bpf4.util.makebpf(shape, [0, 1], [minamp, maxamp])
-    
+

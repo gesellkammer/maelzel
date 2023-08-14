@@ -1,10 +1,8 @@
 
-from pitchtools import n2m
 import numbers as _numbers
 import logging as _logging
 import typing as t
 
-# from maelzel.rational import Rat as F
 from quicktions import Fraction as F
 from numbers import Rational
 
@@ -18,10 +16,12 @@ __all__ = (
     'asmidi',
     'pitch_t',
     'timesig_t',
-    'number_t',
+    'num_t',
 )
 
+T = t.TypeVar('T')
 
+num_t = t.Union[float, Rational, F]
 pitch_t = t.Union[int, float, str]
 timesig_t = t.Tuple[int, int]
 number_t = t.Union[int, float, Rational, F]

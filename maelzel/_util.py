@@ -1,11 +1,13 @@
 from __future__ import annotations
-from typing import Callable, Sequence
 import emlib.misc
 import warnings
 import sys
 import os
 import weakref
 from maelzel.common import F
+
+from typing import Callable, Sequence
+from maelzel.common import T
 
 
 def reprObj(obj,
@@ -117,3 +119,4 @@ def showT(f: F | float | None) -> str:
     if not isinstance(f, float):
         f = float(f)
     return f"{f:.3f}".rstrip('0').rstrip('.')
+

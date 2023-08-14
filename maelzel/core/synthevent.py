@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import copy
 import math
 from emlib import mathlib
 import emlib.misc
 import pitchtools as pt
 from dataclasses import dataclass
+from functools import cache
 
-from ._common import logger
+from ._common import logger, F
 from typing import TYPE_CHECKING
 from maelzel.core import renderer
+from maelzel.core.automation import Automation, SynthAutomation
 
 if TYPE_CHECKING:
     from typing import Any, Callable, Iterable, Sequence
@@ -16,25 +19,22 @@ if TYPE_CHECKING:
     from .config import CoreConfig
     from ._typedefs import *
     import matplotlib.pyplot as plt
+    from maelzel.scorestruct import ScoreStruct
 
 
 __all__ = (
     'PlayArgs',
     'SynthEvent',
-    'cropEvents',
-    'plotEvents'
 )
 
 
 _MAX_NUM_PFIELDS = 1900
 
 
-@dataclass
-class AutomationEvent:
-    param: str
-    value: float | list[float]
-    delay: float = 0.
-    token: int | None = None
+def _unique(d: dict | None, deep: bool) -> dict | None:
+    if d is None:
+        return d
+    return copy.deepcopy(d) if deep else d.copy()
 
 
 class PlayArgs:
@@ -82,9 +82,11 @@ class PlayArgs:
 
     """Available keys for playback customization"""
 
-    __slots__ = ('db',)
+    __slots__ = ('db', 'automations')
 
-    def __init__(self, db: dict[str, Any] = None):
+    def __init__(self,
+                 db: dict[str, Any] = None,
+                 automations: dict[str, Automation] = None):
         if db is None:
             db = {}
         else:
@@ -94,12 +96,19 @@ class PlayArgs:
         self.db: dict[str, Any] = db
         """A dictionary holding the arguments explicitely specified"""
 
+        self.automations: dict[str, Automation] | None = automations
+        """A dict holding Automations
+        
+        There is a maximum of one Automation per parameter. A new Automation
+        for a given parameter will replace the old one
+        """
+
     @property
     def args(self) -> dict | None:
         return self.db.get('args')
 
     def __bool__(self):
-        return bool(self.db)
+        return bool(self.db) or bool(self.automations)
 
     def keys(self) -> set[str]:
         """All possible keys for a PlayArgs instance
@@ -139,6 +148,20 @@ class PlayArgs:
         else:
             self.db[key] = value
 
+    def linkedNext(self) -> bool:
+        return self.db.get('glisstime') is not None
+
+    def addAutomation(self,
+                      param: str,
+                      breakpoints: list[tuple],
+                      interpolation='linear',
+                      relative=True) -> None:
+        breakpoints = Automation.normalizeBreakpoints(breakpoints, interpolation=interpolation)
+        if self.automations is None:
+            self.automations = {}
+        self.automations[param] = Automation(param=param, breakpoints=breakpoints,
+                                             relative=relative)
+
     @staticmethod
     def _updatedb(db: dict, other: dict) -> None:
         args = db.get('args')
@@ -149,23 +172,41 @@ class PlayArgs:
         elif otherargs:
             db['args'] = otherargs
 
-    def overwrittenWith(self, other: PlayArgs) -> PlayArgs:
-        if not self.db:
-            return PlayArgs(other.db.copy())
-        db = self.db.copy()
-        PlayArgs._updatedb(db, other.db)
-        return PlayArgs(db)
+    def _updateAutomations(self, automations: dict[str, Automation]) -> None:
+        ownautomations = self.automations
+        if ownautomations is None:
+            self.automations = automations.copy()
+        else:
+            self.automations |= automations
+
+    def updated(self, other: PlayArgs, automations=True) -> PlayArgs:
+        """
+        A copy of self overwritten by other
+
+        Args:
+            other: the playargs to update self with
+
+        Returns:
+            a copy of self updated by other
+
+        """
+        out = self.copy()
+        PlayArgs._updatedb(out.db, other.db)
+        if automations and other.automations:
+            out._updateAutomations(other.automations)
+        return out
 
     def copy(self) -> PlayArgs:
         """
         Returns a copy of self
         """
-        if not self.db:
+        if not self.db and not self.automations:
             return PlayArgs({})
         db = self.db.copy()
-        if (args := db.get('args')) is not None:
+        if args := self.db.get('args'):
             db['args'] = args.copy()
-        return PlayArgs(db)
+        return PlayArgs(db=db,
+                        automations=_unique(self.automations, deep=False))
 
     def clone(self, **kws) -> PlayArgs:
         """
@@ -178,14 +219,15 @@ class PlayArgs:
             the cloned PlayArgs
 
         """
-        if not self.db:
-            return PlayArgs(kws)
-        db = self.db.copy()
-        PlayArgs._updatedb(db, kws)
-        return PlayArgs(db)
+        out = self.copy()
+        PlayArgs._updatedb(out.db, kws)
+        return out
 
     def __repr__(self):
-        args = ', '.join(f'{k}={v}' for k, v in self.db.items())
+        items = [f'{k}={v}' for k, v in self.db.items()]
+        if self.automations:
+            items.append(f'automations={self.automations}')
+        args = ', '.join(items)
         return f"PlayArgs({args})"
 
     @staticmethod
@@ -236,14 +278,23 @@ class PlayArgs:
     def update(self, d: dict[str, Any]) -> None:
         PlayArgs._updatedb(self.db, d)
 
+    def makeSynthAutomations(self,
+                             scorestruct: ScoreStruct,
+                             parentOffset: F,
+                             ) -> list[SynthAutomation]:
+        if not self.automations:
+            return []
+        return [automation.makeSynthAutomation(scorestruct=scorestruct, parentOffset=parentOffset)
+                for automation in self.automations.values()]
 
-def _cropBreakpoints(bps: list[list[float]], t: float) -> list[list[float]]:
+
+def cropBreakpoints(bps: list[Sequence[num_t]], t: float) -> list[Sequence[num_t]]:
     assert bps[0][0] == 0
     if t == 0 or t > bps[-1][0]:
         return bps
     newbps = []
     for i in range(len(bps)):
-        bp: list[float] = bps[i]
+        bp = bps[i]
         if bp[0] <= t:
             newbps.append(bp)
         else:
@@ -253,7 +304,7 @@ def _cropBreakpoints(bps: list[list[float]], t: float) -> list[list[float]]:
     return newbps
 
 
-def _interpolateBreakpoints(t: float, bp0: list[float], bp1: list[float]
+def _interpolateBreakpoints(t: float, bp0: Sequence[num_t], bp1: Sequence[num_t]
                             ) -> list[float]:
     t0, t1 = bp0[0], bp1[0]
     assert t0 <= t <= t1, f"{t0=}, {t=}, {t1=}"
@@ -265,7 +316,22 @@ def _interpolateBreakpoints(t: float, bp0: list[float], bp1: list[float]
 
 
 @dataclass
-class _AutomationPoint:
+class _AutomationSegment:
+    """
+    Instances of this class are used to gather changes in dynamic parameters
+    when merging multiple SynthEvents. Dynamic parameters are either
+    builtin-in playback arguments, like position, or instrument defined
+    parameters.
+
+    A user never created automation segments: these are created when
+    multiple events are merged within a chain/voice. In this case
+    each event generated synthe events, these are sorted into lines
+    of subsequent synthevents, which are merged into one synthevent.
+    Changes to pitch and amplitude are represented as breakpoints and
+    modulations of any dynamic parameter are collected as automation
+    segments
+    """
+
     param: str
     """The parameter to automate (either a builtin synth param or an instr param)"""
 
@@ -285,7 +351,6 @@ class _AutomationPoint:
     """One of 'normal', 'arg' """
 
 
-
 class SynthEvent:
     """
     Represents a standard event (a line of variable breakpoints)
@@ -299,7 +364,7 @@ class SynthEvent:
                  "instr", "pitchinterpol", "fadeshape", "args",
                  "priority", "position", "_namedArgsMethod", "linkednext",
                  "numchans", "whenfinished", "properties", 'sustain',
-                 'automation',
+                 'automationSegments', 'automations',
                  'initfunc', '_initdone')
 
     dynamicAttributes = (
@@ -448,8 +513,14 @@ class SynthEvent:
         self.sustain = sustain
         """Sustain time after the actual duration"""
 
-        self.automation: list[_AutomationPoint] | None = None
-        """List of automation points"""
+        self.automations: dict[str, SynthAutomation] | None = None
+
+        self.automationSegments: list[_AutomationSegment] | None = None
+        """List of automation points
+        
+        These are created when multiple events are merged into one.
+        The dynamic parameters of the subsequent events are 
+        gathered as automation points."""
 
         self.initfunc = initfunc
         """A function called when the event is being scheduled. 
@@ -484,6 +555,10 @@ class SynthEvent:
         else:
             # TODO: crop event
             self.crop(self.dur + self.sustain)
+
+    @property
+    def start(self) -> float:
+        return self.delay
 
     @property
     def end(self) -> float:
@@ -539,6 +614,18 @@ class SynthEvent:
     def fade(self, value: tuple[float, float]):
         self.fadein, self.fadeout = value
 
+    def addAutomationsFromPlayArgs(self, playargs: PlayArgs, scorestruct: ScoreStruct) -> None:
+        if not playargs.automations:
+            return
+        offset = scorestruct.timeToBeat(self.delay + self.bps[0][0])
+        automations = playargs.makeSynthAutomations(scorestruct=scorestruct, parentOffset=offset)
+        if self.automations is None:
+            self.automations = {automation.param: automation
+                                for automation in automations}
+        else:
+            for automation in automations:
+                self.automations[automation.param] = automation
+
     @classmethod
     def fromPlayArgs(cls,
                      bps: list[breakpoint_t],
@@ -548,6 +635,12 @@ class SynthEvent:
                      ) -> SynthEvent:
         """
         Construct a SynthEvent from breakpoints and playargs
+
+        .. note::
+
+            This method does not transfer any automations from the
+            playargs to the created SynthEvent. Automations can
+            be transferred via :meth:`SynthEvent.addAutomationsFromPlayArgs`
 
         Args:
             bps: the breakpoints
@@ -587,7 +680,7 @@ class SynthEvent:
         return self.clone(delay=self.delay+offset)
 
     def crop(self, dur: float):
-        self.bps = _cropBreakpoints(self.bps, dur)
+        self.bps = cropBreakpoints(self.bps, dur)
 
     def cropped(self, start: float, end: float) -> SynthEvent:
         """
@@ -641,8 +734,10 @@ class SynthEvent:
             info.append(f"sustain={self.sustain}")
         if self.position is not None and self.position >= 0:
             info.append(f"position={self.position}")
-        if self.automation:
-            info.append(f'automation={self.automation}')
+        if self.automationSegments:
+            info.append(f'automationSegments={self.automationSegments}')
+        if self.automations:
+            info.append(f'automations={self.automations}')
         infostr = ", ".join(info)
         return f"SynthEvent({infostr})"
 
@@ -651,7 +746,7 @@ class SynthEvent:
 
         def bpline(bp):
             rest = " ".join(("%.6g" % b).ljust(8) if isinstance(b, float) else str(b) for b in bp[1:])
-            return f"{float(bp[0]):.3f}s: {rest}"
+            return f"{float(bp[0]):7.6g}s: {rest}"
 
         for i, bp in enumerate(self.bps):
             if i == 0:
@@ -660,6 +755,68 @@ class SynthEvent:
                 lines.append(f"    {bpline(bp)}")
         lines.append("")
         return "\n".join(lines)
+
+    @staticmethod
+    def cropEvents(events: list[SynthEvent], skip=0., end=math.inf
+                   ) -> list[SynthEvent]:
+        """
+        Crop the events at the given time slice (staticmethod)
+
+        Removes any event / part of an event outside the time slice start:end
+
+        Args:
+            events: the events to crop
+            skip: start of the time slice (None will only crop at the end)
+            end: end of the time slice (None will only crop at the beginning)
+
+        Returns:
+            the cropped events
+
+        """
+        return [event.cropped(skip, end) for event in events
+                if mathlib.intersection(skip, end, event.delay, event.end) is not None]
+
+    @staticmethod
+    def plotEvents(events: list[SynthEvent], axes: plt.Axes = None, notenames=False
+                   ) -> plt.Axes:
+        """
+        Plot all given events within the same axes (static method)
+
+        Args:
+            events: the events to plot
+            axes: the axes to use, if given
+            notenames: if True, use notenames for the y axes
+
+        Returns:
+            the axes used
+
+        Example
+        ~~~~~~~
+
+            >>> from maelzel.core import *
+            >>> from maelzel.core import synthevent
+            >>> chord = Chord("4E 4G# 4B", 2, gliss="4Eb 4F 4G")
+            >>> synthevent.plotEvents(chord.events(), notenames=True)
+        """
+        import matplotlib.pyplot as plt
+        import matplotlib
+
+        if axes is None:
+            # f: plt.Figure = plt.figure(figsize=figsize)
+            f: plt.Figure = plt.figure()
+            axes: plt.Axes = f.add_subplot(1, 1, 1)
+
+        for event in events:
+            event.plot(axes=axes, notenames=False)
+
+        axes.grid()
+
+        if notenames:
+            noteformatter = matplotlib.ticker.FuncFormatter(lambda s, y: f'{str(s).ljust(3)}: {pt.m2n(s)}')
+            axes.yaxis.set_major_formatter(noteformatter)
+            axes.tick_params(axis='y', labelsize=8)
+
+        return axes
 
     @staticmethod
     def mergeEvents(events: Sequence[SynthEvent]) -> SynthEvent:
@@ -844,29 +1001,29 @@ def mergeEvents(events: Sequence[SynthEvent]) -> SynthEvent:
         if event.args:
             diff = _dictdiff(argstate, event.args)
             for k, v in diff.items():
-                automation = _AutomationPoint(param=k,
-                                              time=offset,
-                                              value=v,
-                                              prevalue=argstate.get(k),
-                                              pretime=lastoffset,
-                                              kind='arg')
+                automation = _AutomationSegment(param=k,
+                                                time=offset,
+                                                value=v,
+                                                prevalue=argstate.get(k),
+                                                pretime=lastoffset,
+                                                kind='arg')
                 automationPoints.append(automation)
             argstate = mergedevent.args | event.args
         for attr in SynthEvent.dynamicAttributes:
             value = getattr(event, attr, None)
             prevalue = state.get(attr)
             if value is not None and value != prevalue:
-                automation = _AutomationPoint(param=attr,
-                                              time=offset,
-                                              value=value,
-                                              prevalue=prevalue,
-                                              pretime=lastoffset,
-                                              kind='normal')
+                automation = _AutomationSegment(param=attr,
+                                                time=offset,
+                                                value=value,
+                                                prevalue=prevalue,
+                                                pretime=lastoffset,
+                                                kind='normal')
                 automationPoints.append(automation)
                 state[attr] = value
 
         lastoffset = offset
-    mergedevent.automation = automationPoints
+    mergedevent.automationSegments = automationPoints
     return mergedevent
 
 
@@ -881,64 +1038,3 @@ def _dictdiff(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in c.items() if k in b}
 
 
-
-def cropEvents(events: list[SynthEvent], skip=0., end=math.inf
-               ) -> list[SynthEvent]:
-    """
-    Crop the events at the given time slice
-
-    Removes any event / part of an event outside the time slice start:end
-
-    Args:
-        events: the events to crop
-        skip: start of the time slice (None will only crop at the end)
-        end: end of the time slice (None will only crop at the beginning)
-
-    Returns:
-        the cropped events
-
-    """
-    return [event.cropped(skip, end) for event in events
-            if mathlib.intersection(skip, end, event.delay, event.end) is not None]
-
-
-def plotEvents(events: list[SynthEvent], axes: plt.Axes = None, notenames=False
-               ) -> plt.Axes:
-    """
-    Plot all given events within the same axes (static method)
-
-    Args:
-        events: the events to plot
-        axes: the axes to use, if given
-        notenames: if True, use notenames for the y axes
-
-    Returns:
-        the axes used
-
-    Example
-    ~~~~~~~
-
-        >>> from maelzel.core import *
-        >>> from maelzel.core import synthevent
-        >>> chord = Chord("4E 4G# 4B", 2, gliss="4Eb 4F 4G")
-        >>> synthevent.plotEvents(chord.events(), notenames=True)
-    """
-    import matplotlib.pyplot as plt
-    import matplotlib
-
-    if axes is None:
-        # f: plt.Figure = plt.figure(figsize=figsize)
-        f: plt.Figure = plt.figure()
-        axes: plt.Axes = f.add_subplot(1, 1, 1)
-
-    for event in events:
-        event.plot(axes=axes, notenames=False)
-
-    axes.grid()
-
-    if notenames:
-        noteformatter = matplotlib.ticker.FuncFormatter(lambda s, y: f'{str(s).ljust(3)}: {pt.m2n(s)}')
-        axes.yaxis.set_major_formatter(noteformatter)
-        axes.tick_params(axis='y', labelsize=8)
-
-    return axes

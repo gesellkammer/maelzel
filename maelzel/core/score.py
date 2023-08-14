@@ -232,7 +232,7 @@ class Score(MObj, MContainer):
                      workspace: Workspace
                      ) -> list[SynthEvent]:
         if self.playargs:
-            playargs = playargs.overwrittenWith(self.playargs)
+            playargs = playargs.updated(self.playargs)
         parentOffset = self.parent.absOffset() if self.parent else F0
         out = []
         for voice in self.voices:

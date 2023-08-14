@@ -32,7 +32,7 @@ from maelzel.core import MObj
 from maelzel.common import F, asF, F0, asmidi
 from maelzel import scoring
 from maelzel.scoring import enharmonics
-from maelzel.music.dynamics import DynamicCurve
+from maelzel.dynamiccurve import DynamicCurve
 import maelzel._util as _util
 
 from ._common import UNSET, MAXDUR, logger
@@ -115,7 +115,7 @@ class Note(MEvent):
 
     """
 
-    __slots__ = ('pitch', '_gliss', 'dynamic', 'pitchSpelling', '_glissTarget')
+    __slots__ = ('pitch', '_gliss', 'pitchSpelling', '_glissTarget')
 
     def __init__(self,
                  pitch: pitch_t,
@@ -205,14 +205,11 @@ class Note(MEvent):
 
         self._gliss: float | bool = gliss
 
-        self.dynamic: str | None = dynamic
-        "A dynamic. If given and no amp was set, its value will inform the playback"
-
         self.pitchSpelling = '' if not fixed else pitchSpelling
         "The pitch representation of this Note. Can be different from the sounding pitch"
 
         super().__init__(dur=dur, offset=offset, label=label, properties=properties,
-                         symbols=symbols, tied=tied, amp=amp)
+                         symbols=symbols, tied=tied, amp=amp, dynamic=dynamic)
 
         self._glissTarget: float = 0.
 
@@ -694,8 +691,8 @@ class Note(MEvent):
             return []
         conf = workspace.config
         scorestruct = workspace.scorestruct
-        if self.playargs:
-            playargs = playargs.overwrittenWith(self.playargs)
+        if self.playargs is not None:
+            playargs = playargs.updated(self.playargs)
 
         amp = self.resolveAmp(config=conf, dyncurve=workspace.dynamicCurve)
         glisstime = playargs.get('glisstime')
@@ -722,6 +719,9 @@ class Note(MEvent):
                    [endtime,   endmidi+transp,    amp]]
 
         event = SynthEvent.fromPlayArgs(bps=bps, playargs=playargs)
+        if playargs.automations:
+            event.addAutomationsFromPlayArgs(playargs, scorestruct=scorestruct)
+
         if self.tied or linkednext:
             event.linkednext = True
         return [event]
@@ -917,9 +917,8 @@ class Chord(MEvent):
                                                   f"{notes=}, {gliss=}")
 
         super().__init__(dur=dur, offset=offset, label=label, properties=properties,
-                         tied=tied, amp=amp)
+                         tied=tied, amp=amp, dynamic=dynamic)
         self.notes: list[Note] = notes
-        self.dynamic: str = dynamic
         self._gliss: bool | list[float] = gliss
         self._glissTarget: list[float] | None = None
 
@@ -1264,10 +1263,10 @@ class Chord(MEvent):
                      workspace: Workspace
                      ) -> list[SynthEvent]:
         conf = workspace.config
-        struct = workspace.scorestruct
+        scorestruct = workspace.scorestruct
         playargs0 = playargs
         if self.playargs:
-            playargs = playargs.overwrittenWith(self.playargs)
+            playargs = playargs.updated(self.playargs)
 
         if conf['chordAdjustGain']:
             gain = playargs.get('gain', 1.0)
@@ -1278,8 +1277,8 @@ class Chord(MEvent):
         offset = self._detachedOffset(F0) + parentOffset
         dur = playargs.get('end', self.dur)
         offset += playargs.get('skip', 0)
-        startsecs = float(struct.beatToTime(offset))
-        endsecs = float(struct.beatToTime(offset + dur))
+        startsecs = float(scorestruct.beatToTime(offset))
+        endsecs = float(scorestruct.beatToTime(offset + dur))
         endpitches = self.pitches if not self.gliss else self.resolveGliss()
         amps = self.resolveAmps(config=conf, dyncurve=workspace.dynamicCurve)
         transpose = playargs.get('transpose', 0.)
@@ -1293,10 +1292,13 @@ class Chord(MEvent):
             startpitch = note.pitch + transpose
             bps = [[float(startsecs), startpitch, amp]]
             if glisstime:
-                glissabstime = float(struct.beatToTime(offset+dur-glisstime))
+                glissabstime = float(scorestruct.beatToTime(offset+dur-glisstime))
                 bps.append([glissabstime, startpitch, amp])
             bps.append([float(endsecs),   endpitch+transpose,   amp])
             event = SynthEvent.fromPlayArgs(bps=bps, playargs=playargs)
+            if playargs.automations:
+                # assert abs(scorestruct.beatToTime(offset) - event.delay) < 1e-12
+                event.addAutomationsFromPlayArgs(playargs, scorestruct=scorestruct)
             if linkednext or self._isNoteTied(note):
                 event.linkednext = True
             synthevents.append(event)

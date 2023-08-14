@@ -1,0 +1,5 @@
+Chain automation:
+
+Cuando se aplica una automation a un chain, el chain genera synthevents (posiblemente mergeados). Iterar por
+los synthevents y aplicar la automation si el parametro es relevante y el automation y el evento tienen 
+tiempo en comun. En todo caso, cropear el automation a los limites del synthevent

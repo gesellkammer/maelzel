@@ -2,6 +2,8 @@
 Internal utilities
 """
 from __future__ import annotations
+
+import bisect
 import re
 import sys
 from functools import cache
@@ -17,7 +19,7 @@ from maelzel.colortheory import safeColors
 from maelzel.core import environment
 from maelzel.core import symbols as _symbols
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Sequence
 if TYPE_CHECKING:
     from ._typedefs import *
 
@@ -508,5 +510,63 @@ def htmlSpan(text, color: str = '', fontsize: str = '', italic=False, bold=False
     if bold:
         text = f'<strong>{text}</strong>'
     return f'<span style="{stylestr}">{text}</span>'
+
+
+def cropBreakpoints(bps: list[Sequence[num_t]], t0: float, t1: float
+                    ) -> list[Sequence[num_t]]:
+    """
+    Crop a sequence of breakpoints
+
+    A breakpoint is a list or tuple of the form (time, value1, ...). The values
+    following time can be anything, the first value must be the time
+
+    Args:
+        bps: the breakpoints to crop
+        t: the time to crop at
+
+    Returns:
+        the new breakpoints. Breakpoints between the cropping edges will be
+        shared between the old and new breakpoints so if they are mutable, any
+        modification will be visible
+    """
+    def interpolate(t, times, bps):
+        idx = bisect.bisect(times, t)
+        assert 0 < idx < len(times), f"{t=}, out of range, {times=}"
+        if times[idx - 1] < t:
+            return _interpolateBreakpoints(t, bps[idx - 1], bps[idx]), idx
+        else:
+            return bps[idx-1], idx
+
+    if t0 <= bps[0][0] and t1 >= bps[-1][0]:
+        return bps
+    times = [bp[0] for bp in bps]
+    out = []
+    if t0 <= times[0]:
+        chunkstart = 0
+    else:
+        firstbreakpoint, chunkstart = interpolate(t0, times, bps)
+        out.append(firstbreakpoint)
+
+    if t1 >= times[-1]:
+        chunkend = len(bps)
+        lastbreakpoint = None
+    else:
+        lastbreakpoint, chunkend = interpolate(t1, times, bps)
+
+    out.extend(bps[chunkstart:chunkend])
+    if lastbreakpoint is not None:
+        out.append(lastbreakpoint)
+    return out
+
+
+def _interpolateBreakpoints(t: float, bp0: Sequence[num_t], bp1: Sequence[num_t]
+                            ) -> list[num_t]:
+    t0, t1 = bp0[0], bp1[0]
+    assert t0 <= t <= t1, f"{t0=}, {t=}, {t1=}"
+    delta = (t - t0) / (t1 - t0)
+    bp = [t]
+    for v0, v1 in zip(bp0[1:], bp1[1:]):
+        bp.append(v0 + (v1-v0)*delta)
+    return bp
 
 

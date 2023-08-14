@@ -99,7 +99,7 @@ class MObjList(MObj):
                      workspace: Workspace
                      ) -> list[SynthEvent]:
         if self.playargs:
-            playargs = playargs.overwrittenWith(self.playargs)
+            playargs = playargs.updated(self.playargs)
         out = []
         parentOffset = self.parent.absOffset() if self.parent else F(0)
         for item in self.getItems():

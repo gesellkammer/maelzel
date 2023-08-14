@@ -1,6 +1,6 @@
 from numbers import Rational
 from typing import Union
-from maelzel.common import F
+from maelzel.common import F, pitch_t, num_t
 
 
 __all__ = (
@@ -8,13 +8,13 @@ __all__ = (
     'time_t',
     'pitch_t',
     'fade_t',
-    'breakpoint_t'
+    'breakpoint_t',
+    'location_t'
 )
 
 
-num_t = Union[float, Rational, F]
 time_t = Union[float, Rational, F]
-pitch_t = Union[int, float, str]
 fade_t = Union[float, tuple[float, float]]
 breakpoint_t = list[num_t]
+location_t = tuple[int, time_t]
 

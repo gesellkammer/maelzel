@@ -19,7 +19,7 @@ class RingmodChord(Chord):
                      ) -> list[SynthEvent]:
         conf = workspace.config
         if self.playargs:
-            playargs = playargs.overwrittenWith(self.playargs)
+            playargs = playargs.updated(self.playargs)
         startsecs, endsecs = self.timeRangeSecs(parentOffset=parentOffset, scorestruct=workspace.scorestruct)
         amps = self.resolveAmps(config=conf, dyncurve=workspace.dynamicCurve)
         endpitches = self.pitches if not self.gliss else self.resolveGliss()

@@ -4,8 +4,8 @@ This module handles playing of events
 """
 from __future__ import annotations
 import os
-
-from datetime import datetime
+from math import ceil
+from functools import cache
 
 import emlib.misc
 import emlib.iterlib
@@ -14,14 +14,15 @@ import csoundengine
 
 from maelzel.core._common import logger, prettylog
 from maelzel.core.presetdef import PresetDef
-from maelzel.core.presetmanager import presetManager
+from maelzel.core import presetmanager
 from maelzel.core.errors import CancelledError
 from maelzel.core.workspace import getConfig, getWorkspace, Workspace
 from maelzel.core import environment
 from maelzel.core import _dialogs
 from maelzel.core import _playbacktools
-from maelzel.core.synthevent import SynthEvent, AutomationEvent
+from maelzel.core.synthevent import SynthEvent
 from maelzel.core.renderer import Renderer
+from maelzel.core.automation import SynthAutomation
 from maelzel import _util
 
 from typing import TYPE_CHECKING, Optional
@@ -66,7 +67,7 @@ class RealtimeRenderer(Renderer):
     """
 
     def __init__(self, engine: csoundengine.Engine = None):
-        super().__init__(presetManager=presetManager)
+        super().__init__(presetManager=presetmanager.presetManager)
         if engine is None:
             engine = playEngine()
         self.engine: csoundengine.Engine = engine
@@ -129,6 +130,18 @@ class RealtimeRenderer(Renderer):
                                   syncifneeded=True,
                                   **kws)
 
+    def dummy(self, dur=0.001) -> csoundengine.synth.Synth:
+        """
+        Schedule a dummy synth
+
+        Args:
+            dur: the duration of the synth
+
+        Returns:
+            a Synth
+        """
+        return _dummySynth(dur=dur, engine=self.engine)
+
     def schedEvent(self, event: SynthEvent) -> csoundengine.synth.Synth:
         group = self.schedEvents([event])
         return group[0]
@@ -139,6 +152,7 @@ class RealtimeRenderer(Renderer):
                     whenfinished: Callable = None
                     ) -> csoundengine.synth.SynthGroup:
         synths = _schedFlatEvents(self,
+                                  presetManager=self.presetManager,
                                   coreevents=coreevents,
                                   sessionevents=sessionevents,
                                   whenfinished=whenfinished)
@@ -253,7 +267,7 @@ class OfflineRenderer(Renderer):
                  numchannels=2,
                  verbose: bool = None):
 
-        super().__init__(presetManager=presetManager)
+        super().__init__(presetManager=presetmanager.presetManager)
         w = getWorkspace()
         cfg = w.config
 
@@ -305,8 +319,8 @@ class OfflineRenderer(Renderer):
         Returns:
             the corresponding :class:`csoundengine.Renderer`
         """
-        renderer = presetManager.makeRenderer(self.sr, ksmps=self.ksmps,
-                                              numChannels=self.numChannels)
+        renderer = self.presetManager.makeRenderer(self.sr, ksmps=self.ksmps,
+                                                   numChannels=self.numChannels)
         if isEngineActive():
             engine = playEngine()
             for s, idx in engine.definedStrings().items():
@@ -530,7 +544,7 @@ class OfflineRenderer(Renderer):
         presetname = event.instr
         instrdef = self.instrDefs.get(presetname)
         if instrdef is None:
-            preset = presetManager.getPreset(presetname)
+            preset = self.presetManager.getPreset(presetname)
             if not preset:
                 raise ValueError(f"Unknown preset instr: {presetname}")
             self.preparePreset(preset, event.priority)
@@ -1128,7 +1142,7 @@ def playEngine(numchannels: int = None,
                                  nchnls=numchannels,
                                  backend=backend,
                                  outdev=outdev,
-                                 globalcode=presetManager.csoundPrelude,
+                                 globalcode=presetmanager.presetManager.csoundPrelude,
                                  quiet=not verbose,
                                  latency=latency,
                                  buffersize=buffersize,
@@ -1172,8 +1186,9 @@ def isEngineActive() -> bool:
     return csoundengine.getEngine(name) is not None
 
 
-def _dummySynth(dur=0.001) -> csoundengine.synth.Synth:
-    engine = playEngine()
+def _dummySynth(dur=0.001, engine: csoundengine.Engine = None) -> csoundengine.synth.Synth:
+    if not engine:
+        engine = playEngine()
     session = engine.session()
     return session.sched('.dummy', 0, dur)
 
@@ -1271,11 +1286,11 @@ def play(*sources: MObj | Sequence[SynthEvent] | csoundengine.session.SessionEve
 
 def _schedFlatEvents(renderer: RealtimeRenderer,
                      coreevents: list[SynthEvent],
+                     presetManager: presetmanager.PresetManager,
                      sessionevents: list[csoundengine.session.SessionEvent] = None,
                      posthook: Callable[[list[csoundengine.synth.Synth]], None] | None = None,
                      whenfinished: Callable = None,
                      ) -> list[csoundengine.synth.Synth]:
-
     needssync = renderer.prepareEvents(events=coreevents, sessionevents=sessionevents)
     resolvedArgs = [ev.resolvePfields(presetManager.presetnameToInstr(ev.instr))
                     for ev in coreevents]
@@ -1291,6 +1306,10 @@ def _schedFlatEvents(renderer: RealtimeRenderer,
 
     synths: list[csoundengine.synth.Synth]  = []
     for coreevent, args in zip(coreevents, resolvedArgs):
+        if coreevent.gain == 0:
+            synths.append(renderer.dummy())
+            continue
+
         instr = presetManager.presetnameToInstr(coreevent.instr)
         synth = renderer.sched(instr.name,
                                delay=args[0],
@@ -1299,19 +1318,24 @@ def _schedFlatEvents(renderer: RealtimeRenderer,
                                priority=coreevent.priority,
                                whenfinished=coreevent.whenfinished)
         synths.append(synth)
-        if coreevent.automation:
-            for point in coreevent.automation:
-                if point.pretime is None:
-                    synth.set(point.param, point.value, delay=point.time)
+        if coreevent.automationSegments:
+            for segment in coreevent.automationSegments:
+                if segment.pretime is None:
+                    # a point
+                    synth.set(segment.param, segment.value, delay=segment.time)
                 else:
-                    if (prevalue := point.prevalue) is None:
-                        prevalue = instr.namedParams().get(point.param)
+                    # a segment
+                    if (prevalue := segment.prevalue) is None:
+                        prevalue = instr.namedParams().get(segment.param)
                         if prevalue is None:
-                            raise ValueError(f"Default value for {point.param} not known, "
+                            raise ValueError(f"Default value for {segment.param} not known, "
                                              f"default values: {instr.namedParams()} (instr={instr})")
                     pairs = [0,                          prevalue,
-                             point.time - point.pretime, point.value]
-                    synth.automate(param=point.param, pairs=pairs, delay=point.pretime)
+                             segment.time - segment.pretime, segment.value]
+                    synth.automate(param=segment.param, pairs=pairs, delay=segment.pretime)
+        if coreevent.automations:
+            for automation in coreevent.automations.values():
+                synth.automate(param=automation.param, pairs=automation.data, delay=automation.delay)
 
     if posthook:
         posthook(synths)
@@ -1382,7 +1406,7 @@ class SynchronizedContext(Renderer):
     """
     def __init__(self, whenfinished: Callable = None, display=False):
 
-        super().__init__(presetManager=presetManager)
+        super().__init__(presetManager=presetmanager.presetManager)
 
         self.synthgroup: csoundengine.synth.SynthGroup | None = None
         """A SynthGroup holding all scheduled synths during the context"""
@@ -1405,7 +1429,7 @@ class SynchronizedContext(Renderer):
         self._sessionEvents: list[csoundengine.session.SessionEvent] = []
         """A list of all the session events scheduled"""
 
-        self._automationEvents: list[AutomationEvent] = []
+        self._automationEvents: list[SynthAutomation] = []
         """A list of all the automation events scheduled"""
 
         self._prevRenderer = None
@@ -1426,6 +1450,15 @@ class SynchronizedContext(Renderer):
             display(self)
         else:
             print(repr(self))
+
+    def unsched(self, token: int) -> None:
+        # TODO: implement delay
+        if self.synthgroup:
+            synth = self.getSynth(token)
+            synth.stop()
+        else:
+            event = self._events[token]
+            event.gain = 0
 
     def schedEvent(self, event: SynthEvent) -> FutureSynth:
         """
@@ -1474,12 +1507,21 @@ class SynchronizedContext(Renderer):
         return FutureSynthGroup(synths)
 
     def _automate(self, token: int, param: str, pairs: list[float], delay=0.):
-        event = AutomationEvent(token=token, param=param, value=pairs, delay=delay)
+        event = SynthAutomation(token=token, param=param, data=pairs, delay=delay)
         self._automationEvents.append(event)
 
     def _set(self, token: int, param: str, value: float, delay: float):
-        event = AutomationEvent(token=token, param=param, value=value, delay=delay)
+        event = SynthAutomation(token=token, param=param, data=[0, value], delay=delay)
         self._automationEvents.append(event)
+
+    def getSynth(self, token: int) -> csoundengine.synth.Synth | None:
+        if self.synthgroup is None:
+            return None
+        n = len(self.synthgroup.synths)
+        if token >  n - 1:
+            raise IndexError(f"Token {token} out of range: only {n} synths were scheduled"
+                             f" in this context")
+        return self.synthgroup.synths[token]
 
     def _scheduleAutomations(self, synths: list[csoundengine.synth.Synth]
                              ) -> None:
@@ -1499,14 +1541,14 @@ class SynchronizedContext(Renderer):
                              f"token={event.token}, number of synths: {len(synths)}")
                 continue
             synth = synths[event.token]
-            if isinstance(event.value, float):
-                synth.set(event.param, event.value, delay=event.delay)
-            elif len(event.value) == 2:
-                t, v = event.value
+            if isinstance(event.data, float):
+                synth.set(event.param, event.data, delay=event.delay)
+            elif len(event.data) == 2:
+                t, v = event.data
                 delay = event.delay + t
                 synth.set(event.param, v, delay=delay)
             else:
-                synth.automate(param=event.param, pairs=event.value, delay=event.delay)
+                synth.automate(param=event.param, pairs=event.data, delay=event.delay)
 
     def __enter__(self):
         """
@@ -1547,6 +1589,7 @@ class SynchronizedContext(Renderer):
 
         renderer = RealtimeRenderer()
         synths = _schedFlatEvents(renderer,
+                                  presetManager=self.presetManager,
                                   coreevents=self._events,
                                   sessionevents=self._sessionEvents,
                                   posthook=self._scheduleAutomations,
@@ -1637,6 +1680,29 @@ class FutureSynth:
         self.event: SynthEvent = event
         self.token: int = token
 
+    def synth(self) -> csoundengine.synth.Synth:
+        synth = self.parent.getSynth(self.token)
+        if synth is None:
+            raise RuntimeError(f"Synth for this FutureSynth ({self}) has not been scheduled")
+        return synth
+
+    def scheduled(self) -> bool:
+        return self.parent.synthgroup is not None
+
+    def __repr__(self):
+        scheduled = self.scheduled()
+        if not scheduled:
+            return f"FutureSynth(scheduled=False, event={self.event}, token={self.token})"
+        else:
+            return f"FutureSynth(scheduled=True, event={self.event}, synth={self.synth()})"
+
+    def _repr_html_(self):
+        if self.scheduled():
+            synth = self.synth()
+            return synth._repr_html_()
+        else:
+            return repr(self)
+
     def getPreset(self) -> PresetDef:
         """Get the preset definition for the instr used in this event"""
         return self.parent.presetManager.getPreset(self.event.instr)
@@ -1645,9 +1711,10 @@ class FutureSynth:
         """Get the Instr associated with the event's preset"""
         return self.getPreset().getInstr()
 
-    def instrNamedArgs(self) -> KeysView[str]:
+    @cache
+    def namedParams(self) -> set[str]:
         """The named args used in this event's preset"""
-        return self.getPreset().args.keys()
+        return set(self.getPreset().args.keys())
 
     def set(self, *args, delay=0., **kws) -> None:
         """
@@ -1688,18 +1755,63 @@ class FutureSynth:
                  delay=0.,
                  mode="linear",
                  ) -> None:
-        # TODO: add overtake and mode
-        if param not in self.instrNamedArgs():
+        # TODO: implement overtake and mode
+        if param not in self.namedParams():
             raise ValueError(f"Parameter {param} unknown for instrument {self.event.instr}. "
-                             f"Possible parameters: {list(self.instrNamedArgs())}")
+                             f"Possible parameters: {list(self.namedParams())}")
         self.parent._automate(token=self.token, param=param, pairs=pairs, delay=delay)
+
+    def stop(self, delay=0.) -> None:
+        """ Stop this synth """
+        if not self.scheduled():
+            self.parent.unsched(self.token)
+        else:
+            self.synth().stop(delay=delay, stopParent=False)
+
+    def playing(self) -> bool:
+        """ Is this synth playing? """
+        return self.scheduled() and self.synth().playing()
+
+    def finished(self) -> bool:
+        """ Has this synth ceased to play? """
+        return self.scheduled() and self.synth().finished()
 
 
 class FutureSynthGroup:
     def __init__(self, synths: list[FutureSynth]):
-        self.synths = synths
+        self.synths: list[FutureSynth] = synths
+        self.parent: SynchronizedContext = synths[0].parent
 
     def automate(self, param: int|str,  pairs: list[float], delay=0):
+        for futuresynth in self.synths:
+            if param in futuresynth.namedParams():
+                futuresynth.automate(param=param, pairs=pairs, delay=delay)
+
+    def synthgroup(self) -> csoundengine.synth.SynthGroup:
+        if self.parent.synthgroup is None:
+            raise RuntimeError("The synths in this group have not been scheduled yet")
+        synths = [futuresynth.synth() for futuresynth in self.synths]
+        assert all(synth is not None for synth in synths)
+        return csoundengine.synth.SynthGroup(synths)
+
+    def __getitem__(self, idx: int):
+        return self.synths[idx]
+
+    def scheduled(self) -> bool:
+        return all(synth.scheduled() for synth in self.synths)
+
+    def stop(self, delay=0.) -> None:
+        """ Stop this synthgroup """
         for synth in self.synths:
-            if param in synth.instrNamedArgs():
-                synth.automate(param=param, pairs=pairs, delay=delay)
+            synth.stop(delay=delay)
+
+    def __repr__(self):
+        scheduled = self.scheduled()
+        return f"FutureSynthGroup(scheduled={scheduled}, synths={self.synths})"
+
+    def _repr_html_(self):
+        if self.scheduled():
+            synthgroup = self.synthgroup()
+            return synthgroup._repr_html_()
+        else:
+            return repr(self)

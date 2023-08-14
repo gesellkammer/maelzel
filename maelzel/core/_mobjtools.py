@@ -40,8 +40,9 @@ def splitNotesOnce(notes: Chord | Sequence[Note], splitpoint: float, deviation=N
     return above, below
 
 
-def splitNotesIfNecessary(notes: list[Note], splitpoint: float, deviation=None
-                          ) -> list[list[Note]]:
+# old
+def ___splitNotesIfNecessary(notes: list[Note], splitpoint: float, deviation=None
+                             ) -> list[list[Note]]:
     """
     Like splitNotesOnce, but returns only parts which have notes in them
 
@@ -275,11 +276,12 @@ def splitLinkedGroupIntoLines(objs: list[MEvent]
     return finished
 
 
-def chainSynthEvents(objs: list[MEvent],
-                     playargs: PlayArgs,
-                     parentOffset: F,
-                     workspace: Workspace
-                     ) -> list[SynthEvent]:
+# old
+def ___chainSynthEvents(objs: list[MEvent],
+                        playargs: PlayArgs,
+                        parentOffset: F,
+                        workspace: Workspace
+                        ) -> list[SynthEvent]:
     """
     Calculate synthevents for a chain of events
 
@@ -313,7 +315,7 @@ def chainSynthEvents(objs: list[MEvent],
                 for bp in bps:
                     assert all(isinstance(x, (int, float)) for x in bp), f"bp: {bp}\n{bps=}"
                 first = line[0]
-                evplayargs = playargs if not first.playargs else playargs.overwrittenWith(first.playargs)
+                evplayargs = playargs if not first.playargs else playargs.updated(first.playargs)
                 synthevents.append(SynthEvent.fromPlayArgs(bps=bps, playargs=evplayargs))
         else:
             raise TypeError(f"Did not expect {group}")

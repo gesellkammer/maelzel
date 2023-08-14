@@ -177,6 +177,9 @@ class Renderer:
         """Schedule a session event"""
         raise NotImplementedError
 
+    def getSynth(self, token: int) -> csoundengine.synth.Synth | None:
+        raise NotImplementedError
+
     def schedEvent(self, event: synthevent.SynthEvent):
         """Schedule a synthevent"""
         raise NotImplementedError
@@ -219,6 +222,12 @@ class Renderer:
              priority: int,
              whenfinished: Callable = None):
         """Schedule an event"""
+        raise NotImplementedError
+
+    def dummy(self, dur=0.001):
+        """
+        Schedule a dummy synth
+        """
         raise NotImplementedError
 
     def pushLock(self):

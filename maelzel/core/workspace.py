@@ -1,13 +1,15 @@
 from __future__ import annotations
 import os
-import pitchtools
 import appdirs as _appdirs
+from functools import cache
+import pitchtools
 
 from ._common import logger, UNSET
 from .config import CoreConfig
-from maelzel.music.dynamics import DynamicCurve
+
+from maelzel.dynamiccurve import DynamicCurve
 from maelzel.scorestruct import ScoreStruct
-from functools import cache
+
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from . import playback

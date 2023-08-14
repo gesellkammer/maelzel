@@ -350,6 +350,22 @@ class PresetDef:
                     raise ValueError(f"Cannot use builtin variables as arguments "
                                      f"({arg} is a builtin variable)")
 
+    def dynamicParams(self, includeRealNames=False) -> dict[str, float|str]:
+        """
+        All dynamic params of this preset
+
+        This includes the dynamic arguments of the preset plus the builtin
+        arguments common to all presets (position, ...)
+
+        Args:
+            includeRealNames: if True, include the real names of any aliased arg. Such
+                arguments will be preset twice
+
+        Returns:
+            a dict of all dynamic params of this preset and their default values
+        """
+        return self.getInstr().dynamicParams(includeRealNames=includeRealNames)
+
     @staticmethod
     @cache
     def presetNameToInstrName(presetname: str) -> str:
@@ -457,7 +473,7 @@ class PresetDef:
             ps.append(html)
         return "\n".join(ps)
 
-    def getInstr(self, namedArgsMethod: str = 'pargs') -> csoundengine.Instr:
+    def getInstr(self, namedArgsMethod: str = 'pargs') -> csoundengine.instr.Instr:
         """
         Returns the csoundengine's Instr corresponding to this PresetDef
 

@@ -4,6 +4,7 @@ import re
 
 from maelzel.scorestruct import ScoreStruct
 from maelzel.common import F, asF, F0
+from maelzel import _util
 from maelzel.core.config import CoreConfig
 from .mobj import MObj, MContainer
 from .event import MEvent, asEvent, Note, Chord
@@ -11,6 +12,7 @@ from .workspace import Workspace
 from .synthevent import PlayArgs, SynthEvent
 from . import symbols
 from . import environment
+from . import presetmanager
 from . import _mobjtools
 from . import _tools
 from ._common import UNSET, logger
@@ -19,11 +21,12 @@ from maelzel import scoring
 from maelzel.colortheory import safeColors
 
 from emlib import iterlib
+from emlib import mathlib
 
 from typing import TYPE_CHECKING, overload
 if TYPE_CHECKING:
     from typing import Any, Iterator, overload, TypeVar, Callable
-    from ._typedefs import time_t
+    from ._typedefs import time_t, location_t
     ChainT = TypeVar("ChainT", bound="Chain")
 
 
@@ -435,7 +438,9 @@ class Chain(MObj, MContainer):
         # TODO: add playback for crescendi (hairpins)
         conf = workspace.config
         if self.playargs:
-            playargs = playargs.overwrittenWith(self.playargs)
+            # We don't include the chain's automations since these are added
+            # later, after events have been merged.
+            playargs = playargs.updated(self.playargs, automations=False)
 
         chain = self.flat(forcecopy=True)
         chain.stack()
@@ -475,9 +480,6 @@ class Chain(MObj, MContainer):
                         if len(synthline) == 1:
                             synthevent = synthline[0]
                         else:
-                            for ev1, ev2 in iterlib.pairwise(synthline):
-                                assert abs(ev1.end - ev2.delay) < 1e-6, f"gap={ev1.end - ev1.delay}, {ev1=}, {ev2=}"
-
                             synthevent = SynthEvent.mergeEvents(synthline)
                     else:
                         raise TypeError(f"Expected a SynthEvent or a list thereof, got {synthline}")
@@ -485,8 +487,21 @@ class Chain(MObj, MContainer):
                     # TODO: fix / add playargs
             else:
                 raise TypeError(f"Did not expect {item}")
-        #for event in synthevents:
-        #    event.linkednext = False
+
+        if self.playargs and self.playargs.automations:
+            scorestruct = self.scorestruct() or workspace.scorestruct
+            for automation in self.playargs.automations.values():
+                startsecs, endsecs = automation.absTimeRange(parentOffset=offset, scorestruct=scorestruct)
+                for ev in synthevents:
+                    if (intersect := mathlib.intersection(float(startsecs), float(endsecs), ev.delay, ev.end)) is not None:
+                        # print(f"{startsecs=}, {endsecs=}, {ev.delay=}, {ev.end=}, {intersect=}")
+                        preset = presetmanager.presetManager.getPreset(ev.instr)
+                        if automation.param in preset.dynamicParams(includeRealNames=True):
+                            if ev.automations is None:
+                                ev.automations = {}
+                            synthautom = automation.makeSynthAutomation(scorestruct=scorestruct, parentOffset=offset)
+                            ev.automations[synthautom.param] = synthautom.cropped(intersect[0], intersect[1])
+
         return synthevents
 
     def mergeTiedEvents(self) -> None:
@@ -662,7 +677,6 @@ class Chain(MObj, MContainer):
         struct = self.scorestruct() or Workspace.active.scorestruct
 
         if environment.insideJupyter and not forcetext:
-            _ = _util.htmlSpan
             r = type(self).__name__
 
             header = (f'<code><span style="font-size: {fontsize}">{IND*indents}<b>{r}</b> - '
@@ -676,7 +690,7 @@ class Chain(MObj, MContainer):
             for k, width in widths.items():
                 columnparts.append(k.ljust(width))
             columnnames = ''.join(columnparts)
-            row = f"<code>{_util.htmlSpan(columnnames, ':grey1', fontsize=fontsize)}</code>"
+            row = f"<code>{_tools.htmlSpan(columnnames, ':grey1', fontsize=fontsize)}</code>"
             rows.append(row)
 
             items, itemsdur = self._iterateWithTimes(recurse=False, frame=F(0))
@@ -714,10 +728,10 @@ class Chain(MObj, MContainer):
                                 playargs.ljust(widths['playargs']),
                                 ' '.join(infoparts) if infoparts else '-'
                                 ]
-                    row = f"<code>{_util.htmlSpan(''.join(rowparts), ':blue1', fontsize=fontsize)}</code>"
+                    row = f"<code>{_tools.htmlSpan(''.join(rowparts), ':blue1', fontsize=fontsize)}</code>"
                     rows.append(row)
                     if item.symbols:
-                        row = f"<code>      {_util.htmlSpan(str(item.symbols), ':green2', fontsize=fontsize)}</code>"
+                        row = f"<code>      {_tools.htmlSpan(str(item.symbols), ':green2', fontsize=fontsize)}</code>"
                         rows.append(row)
 
                 elif isinstance(item, Chain):
@@ -803,9 +817,6 @@ class Chain(MObj, MContainer):
                 a Rest (and the event's offset will be removed since it
                 becomes redundant)
 
-        Returns:
-            self if inplace=True, else the modified copy
-
         """
         # This is the relative position (independent of the chain's start)
         self._update()
@@ -816,6 +827,8 @@ class Chain(MObj, MContainer):
     def asVoice(self) -> Voice:
         """
         Convert this Chain to a Voice
+
+        The returned voice will have any redundant offsets removed
         """
         items = self.copy().items
         _ = _stackEvents(items, explicitOffsets=True)
@@ -1076,41 +1089,6 @@ class Chain(MObj, MContainer):
                 now += subdur
         return out, now - frame
 
-    def ___recurseWithOffset(self, absolute=False) -> Iterator[tuple[MEvent, F]]:
-        """
-        Recurse the events in self, yields a tuple (event, offset) for each event
-
-        Args:
-            absolute: if True, the offset returned for each item will be its
-                absolute offset; otherwise the offsets are relative to the start of self
-
-        Returns:
-            a generator of tuples (event, offset), where offset is either the
-            offset relative to the start of self, or absolute if absolute is True
-
-        Example
-        ~~~~~~~
-
-            >>> from maelzel.core import *
-            >>> chain = Chain([
-            ... "4C:0.5",
-            ... "4D",
-            ... Chain(["4E:0.5"], offset=2)
-            ... ], offset=1)
-
-        """
-        frame = self.absOffset() if absolute else F(0)
-        itemtuples, totaldur = self._iterateWithTimes(frame=frame, recurse=True)
-
-        for itemtuple in itemtuples:
-            item = itemtuple[0]
-            if isinstance(item, MEvent):
-                item, offset, dur = itemtuple
-                yield item, offset
-            else:
-                for subitem, offset, dur in item:
-                    yield item, offset
-
     def iterateWithTimes(self, absolute=False
                          ) -> list[tuple[MEvent, F, F] | list]:
         """
@@ -1285,7 +1263,6 @@ class Chain(MObj, MContainer):
             if ev and ev.absOffset() == absoffset:
                 ev.addSymbol(symbols.NoMerge())
 
-
     def splitEventsAtOffsets(self, absoffsets: list[F], tie=True,
                              ) -> None:
         """
@@ -1388,20 +1365,53 @@ class Chain(MObj, MContainer):
                             obj.symbols.remove(spanner)
                             spanner.anchor = None
 
-
+    def automate(self,
+                 param: str,
+                 breakpoints: list[tuple[time_t|location_t, float]],
+                 relative=True,
+                 interpolation='linear'
+                 ) -> None:
+        if self.playargs is None:
+            self.playargs = PlayArgs()
+        self.playargs.addAutomation(param=param, breakpoints=breakpoints,
+                                    interpolation=interpolation, relative=relative)
 
 class PartGroup:
+    """
+    This class represents a group of parts
+
+    It is used to indicate that a group of parts are to be notated
+    within a staff group, sharing a name/shortname if given. This is
+    usefull for things like piano scores, for example
+
+    Args:
+        parts: the parts inside this group
+        name: the name of the group
+        shortname: a shortname to use in systems other than the first
+        showPartNames: if True, the name of each part will still be shown in notation.
+            Otherwise, it is hidden and only the group name appears
+    """
     def __init__(self, parts: list[Voice], name='', shortname='', showPartNames=False):
         for part in parts:
             part._group = self
 
         self.parts = parts
-        self.name = name
-        self.shortname = shortname
-        self.groupid = scoring.makeGroupId()
-        self.showPartNames = showPartNames
+        """The parts in this group"""
 
-    def append(self, part: Voice):
+        self.name = name
+        """The name of the group"""
+
+        self.shortname = shortname
+        """A short name for the group"""
+
+        self.groupid = scoring.makeGroupId()
+        """A group ID"""
+
+        self.showPartNames = showPartNames
+        """Show the names of the individual parts?"""
+
+    def append(self, part: Voice) -> None:
+        """Append a part to this group"""
         if part not in self.parts:
             self.parts.append(part)
 

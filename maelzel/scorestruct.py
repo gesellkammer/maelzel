@@ -5,20 +5,15 @@ from pathlib import Path
 from dataclasses import dataclass
 from bisect import bisect
 import sys
-
-import emlib.img
-import emlib.misc
-from emlib import iterlib
-import emlib.textlib
-from numbers import Rational
-from maelzel.common import F, asF, F0
 import functools
+
+import emlib.textlib
+from emlib import iterlib
+from maelzel.common import F, asF, F0, num_t, timesig_t
 
 from typing import TYPE_CHECKING, overload as _overload
 if TYPE_CHECKING:
-    from typing import Iterator, Sequence, Union, TypeVar
-    timesig_t = tuple[int, int]
-    number_t = Union[float, Rational, F]
+    from typing import Iterator, Sequence, Union
     import maelzel.core
     from maelzel.scoring.renderoptions import RenderOptions
     from maelzel.scoring.renderer import Renderer
@@ -30,22 +25,6 @@ __all__ = (
     'MeasureDef',
     'measureBeatStructure'
 )
-
-_unicodeFractions = {
-    (3, 16): '³⁄₁₆',
-    (5, 16): '⁵⁄₁₆',
-    (2, 8): '²⁄₈',
-    (3, 8): '⅜',
-    (4, 8): '⁴⁄₈',
-    (5, 8): '⅝',
-    (6, 8): '⁶⁄₈',
-    (7, 8): '⅞',
-    (2, 4): '²⁄₄',
-    (3, 4): '¾',
-    (4, 4): '⁴⁄₄',
-    (5, 4): '⁵⁄₄',
-    (6, 4): '⁶⁄₄'
-}
 
 
 @functools.cache
@@ -537,7 +516,7 @@ def measureQuarterDuration(timesig: timesig_t) -> F:
 
 def measureBeatDurations(timesig: timesig_t,
                          quarterTempo: F,
-                         maxEighthTempo: number_t = 48,
+                         maxEighthTempo: num_t = 48,
                          subdivisionStructure: list[int] = None
                          ) -> list[F]:
     """
@@ -816,11 +795,14 @@ class ScoreStruct:
                 self.addMeasure(timesig, quarterTempo=tempo)
 
         self.readonly = readonly
+        self._hash: int | None = None
 
     def __hash__(self) -> int:
-        hashes = [hash(x) for x in (self.title, self.endless)]
-        hashes.extend(hash(mdef) for mdef in self.measuredefs)
-        return hash(tuple(hashes))
+        if self._hash is None:
+            hashes = [hash(x) for x in (self.title, self.endless)]
+            hashes.extend(hash(mdef) for mdef in self.measuredefs)
+            self._hash = hash(tuple(hashes))
+        return self._hash
 
     def __eq__(self, other: ScoreStruct) -> int:
         return hash(self) == hash(other)
@@ -1028,7 +1010,7 @@ class ScoreStruct:
 
     def addMeasure(self,
                    timesig: timesig_t | str = None,
-                   quarterTempo: number_t = None,
+                   quarterTempo: num_t = None,
                    annotation: str = None,
                    numMeasures=1,
                    rehearsalMark: str | RehearsalMark = None,
@@ -1213,7 +1195,7 @@ class ScoreStruct:
             self._quarternoteDurations = quarterDurs
             self._timingModified = False
 
-    def locationToTime(self, measure: int, beat: number_t = F(0)) -> F:
+    def locationToTime(self, measure: int, beat: num_t = F(0)) -> F:
         """
         Return the elapsed time at the given score location
 
@@ -1249,7 +1231,7 @@ class ScoreStruct:
             qtempo = mdef.quarterTempo
             return now + F(60 * qtempo.denominator, qtempo.numerator) * beat
 
-    def tempoAtTime(self, time: number_t) -> F:
+    def tempoAtTime(self, time: num_t) -> F:
         """
         Returns the tempo active at the given time (in seconds)
 
@@ -1264,7 +1246,7 @@ class ScoreStruct:
         measuredef = self.getMeasureDef(measureindex)
         return measuredef.quarterTempo
 
-    def timeToLocation(self, time: number_t) -> tuple[int | None, F]:
+    def timeToLocation(self, time: num_t) -> tuple[int | None, F]:
         """
         Find the location in score corresponding to the given time in seconds
 
@@ -1306,7 +1288,7 @@ class ScoreStruct:
         beat = (numMeasures - int(numMeasures)) * lastMeas.durationQuarters
         return len(self.measuredefs)-1 + int(numMeasures), beat
 
-    def beatToLocation(self, beat: number_t) -> tuple[int | None, F]:
+    def beatToLocation(self, beat: num_t) -> tuple[int | None, F]:
         """
         Return the location in score corresponding to the given beat
 
@@ -1370,7 +1352,7 @@ class ScoreStruct:
             rest = beat - self._beatOffsets[idx]
             return idx, rest
 
-    def beatToTime(self, beat: number_t) -> F:
+    def beatToTime(self, beat: num_t) -> F:
         """
         Convert beat-time to real-time
 
@@ -1394,7 +1376,7 @@ class ScoreStruct:
         """
         return self.locationToTime(*self.beatToLocation(beat))
 
-    def timeToBeat(self, t: number_t) -> F:
+    def timeToBeat(self, t: num_t) -> F:
         """
         Convert a time to a quarternote offset according to this ScoreStruct
 
@@ -1442,7 +1424,7 @@ class ScoreStruct:
     def __iter__(self) -> Iterator[MeasureDef]:
         return self.iterMeasureDefs()
 
-    def beat(self, a: number_t | tuple[int, number_t], b: number_t | None = None
+    def beat(self, a: num_t | tuple[int, num_t], b: num_t | None = None
              ) -> F:
 
         """
@@ -1481,7 +1463,7 @@ class ScoreStruct:
         else:
             return self.timeToBeat(a)
 
-    def time(self, a: number_t | tuple[int, number_t], b: number_t | None = None
+    def time(self, a: num_t | tuple[int, num_t], b: num_t | None = None
              ) -> F:
         """
         Convert a quarter-note beat or a location (measure, beat) to an absolute time in secs
@@ -1517,7 +1499,7 @@ class ScoreStruct:
         else:
             return self.beatToTime(a)
 
-    def ltob(self, measure: int, beat: number_t) -> F:
+    def ltob(self, measure: int, beat: num_t) -> F:
         """
         A shortcut to locationToBeat
 
@@ -1530,7 +1512,7 @@ class ScoreStruct:
         """
         return self.locationToBeat(measure, beat)
 
-    def asBeat(self, location: number_t | tuple[int, F]) -> F:
+    def asBeat(self, location: num_t | tuple[int, F]) -> F:
         """
         Given a beat or a location (measureidx, relativeoffset), returns an absolute beat
 
@@ -1542,7 +1524,7 @@ class ScoreStruct:
         """
         return self.locationToBeat(*location) if isinstance(location, tuple) else location
 
-    def locationToBeat(self, measure: int, beat: number_t = F(0)) -> F:
+    def locationToBeat(self, measure: int, beat: num_t = F(0)) -> F:
         """
         Returns the number of quarter notes up to the given location
 
@@ -1614,8 +1596,8 @@ class ScoreStruct:
         return [self.locationToBeat(idx) for idx in range(startindex, stopindex)]
 
     def timeDelta(self,
-                  start: number_t | tuple[int, number_t],
-                  end: number_t | tuple[int, number_t]
+                  start: num_t | tuple[int, num_t],
+                  end: num_t | tuple[int, num_t]
                   ) -> F:
         """
         Returns the elapsed time between two beats or score locations.
@@ -1645,8 +1627,8 @@ class ScoreStruct:
         return endTime - startTime
 
     def beatDelta(self, 
-                  start: number_t | tuple[int, number_t],
-                  end: number_t | tuple[int, number_t]) -> F:
+                  start: num_t | tuple[int, num_t],
+                  end: num_t | tuple[int, num_t]) -> F:
         """
         Difference in beats between the two score locations or two times
 
@@ -1704,8 +1686,11 @@ class ScoreStruct:
         """
         import tempfile
         from maelzel.core import environment
+        import emlib.misc
+
         outfile = tempfile.mktemp(suffix='.' + fmt)
         self.write(outfile, backend=backend, renderoptions=renderoptions)
+
         if fmt == 'png':
             from maelzel.core import jupytertools
             if environment.insideJupyter and not app:
@@ -1781,6 +1766,7 @@ class ScoreStruct:
         workspace.getWorkspace().scorestruct = self._prevScoreStruct
 
     def _repr_html_(self) -> str:
+        import emlib.misc
         colnames = ['Meas. Index', 'Timesig', 'Tempo (quarter note)', 'Label', 'Rehearsal', 'Barline']
 
         if any(m.keySignature is not None for m in self.measuredefs):
@@ -1899,6 +1885,7 @@ class ScoreStruct:
         """
         self._attributesModified = attributes
         self._timingModified = timing
+        self._hash = None
 
     def _fixInheritedAttributes(self):
         m0 = self.measuredefs[0]
@@ -1972,10 +1959,10 @@ class ScoreStruct:
         Args:
             midifile: the path of the MIDI file to generate
 
-        .. seealso:: :func:`maelzel.core.tools.makeClickTrack`
+        .. seealso:: :func:`maelzel.core.clicktrack.makeClickTrack`
         """
-        from maelzel.core import tools
-        click = tools.makeClickTrack(self)
+        from maelzel.core import clicktrack
+        click = clicktrack.makeClickTrack(self)
         ext = Path(midifile).suffix.lower()
         if ext != '.mid' and ext != '.midi':
             raise ValueError(f"Expected a .mid or .midi extension, got {ext} ({midifile})")
