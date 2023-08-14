@@ -6,7 +6,7 @@ import os
 from setuptools import setup
 
 readme = open('README.rst').read()
-version = (0, 15, 1)
+version = (0, 15, 2)
 
 def package_files(directory):
     paths = []
