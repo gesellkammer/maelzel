@@ -29,7 +29,7 @@ def csoundLibVersion() -> int | None:
     return ctcsound7.VERSION
 
 
-def checkCsound(minversion="6.18", checkBinaryInPath=True) -> str:
+def checkCsound(minversion="6.17", checkBinaryInPath=True) -> str:
     """
     Returns an empty string if csound is installed, otherwise an error message
 
