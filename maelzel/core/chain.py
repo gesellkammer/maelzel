@@ -26,7 +26,7 @@ from emlib import mathlib
 from typing import TYPE_CHECKING, overload
 if TYPE_CHECKING:
     from typing import Any, Iterator, overload, TypeVar, Callable
-    from ._typedefs import time_t, location_t
+    from ._typedefs import time_t, location_t, num_t
     ChainT = TypeVar("ChainT", bound="Chain")
 
 
@@ -1367,7 +1367,7 @@ class Chain(MObj, MContainer):
 
     def automate(self,
                  param: str,
-                 breakpoints: list[tuple[time_t|location_t, float]],
+                 breakpoints: list[tuple[time_t|location_t, float]] | list[num_t],
                  relative=True,
                  interpolation='linear'
                  ) -> None:

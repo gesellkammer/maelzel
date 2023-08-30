@@ -9,7 +9,7 @@ from maelzel.core.synthevent import PlayArgs
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import TypeVar, Any, Callable
-    from ._typedefs import time_t, location_t
+    from ._typedefs import time_t, location_t, num_t
     MEventT = TypeVar("MEventT", bound="MEvent")
 
 
@@ -242,7 +242,18 @@ class MEvent(MObj):
             spanner.setAnchor(self)
         return self
 
-    def timeTransform(self: MEventT, timemap: Callable[[F], F], inplace=False) -> MEventT:
+    def timeTransform(self: MEventT, timemap: Callable[[F], F], inplace=False
+                      ) -> MEventT:
+        """
+        Apply a transformation to the time axes of this
+
+        Args:
+            timemap: a callable mapping time (in quarterbeats) to time (in quarterbeats)
+            inplace:
+
+        Returns:
+
+        """
         offset = self.relOffset()
         dur = self.dur
         offset2 = timemap(offset)
@@ -257,7 +268,7 @@ class MEvent(MObj):
 
     def automate(self,
                  param: str,
-                 breakpoints: list[tuple[time_t | location_t, float]] | list[tuple[time_t|location_t, float, str]],
+                 breakpoints: list[tuple[time_t | location_t, float]] | list[tuple[time_t|location_t, float, str]] | list[num_t],
                  interpolation='linear',
                  relative=True,
                  ) -> None:
@@ -272,12 +283,19 @@ class MEvent(MObj):
             breakpoints: the data, a list of pairs in the form (time, value),
                 or (time, value, interpolation). time is given in quarternotes or as a
                 location (measure, beatoffset); value is any valid valud for the given
-                parameter; interpolation is one of 'linear', 'cos'
+                parameter; interpolation is one of 'linear', 'cos'. As a shortcut
+                it is possible to also pass a flat list of the form
+                [time0, value0, time1, value1, ...]
             interpolation: default interpolation used for breakpoints without interpolation
             relative: if True, the time positions are relative to the absolute offset
                 of this event. If False, these times are absolute times
 
+        Example
+        ~~~~~~~
+
         .. code::
+
+            note = Note("4c", 10)
 
             # Automate position starting at beat 5 after this event has started
             note.automate('position', [(5, 0.), (6, 1.)], relative=True)
@@ -287,7 +305,38 @@ class MEvent(MObj):
 
             # Time position can be also given as a tuple (measure num, beat offset),
             # and the time mode can be set to absolute
+            # In this case, this automation indicates a modification of the
+            # pan position, from 0 to 1 starting at the 4th measure (index 3) and
+            # ending at the 5th measure (index 4)
             note.automate('position', [(3, 0), 0., (4, 0), 1.], relative=False)
+
+        Any dynamic parameter can be automated:
+
+        .. code::
+
+            # Define a preset with some dynamic parameter
+
+            defPreset('detuned', '''
+            |kdetune=2|
+                aout1 = oscili:a(kamp, kfreq) + oscili:a(kamp, kfreq+kdetune)
+            ''')
+
+            # Automate the kdetune param. When automating a Note/Chord, the times
+            # are given in quarterbeats, which means that the real time in seconds
+            # depend on the tempo structure. In this case the kdetune param will
+            # be shifted from 0 to 20 starting at the moment the note is played
+            # and ending 4 **quarterbeats** after.
+            note.automate('kdetune', (0, 0, 4, 20))
+
+            # When the note is actually played the automation takes effect
+            synth = note.play(instr='detuned')
+
+            # The synth itself can be automated. In this case, we are already
+            # in the real-time realm and any times are given in seconds. If
+            # needed the active scorestruct can be used to convert between
+            # quarterbeats and seconds
+            synth.automate('position', (2, 0.5, 4, 1))
+
         """
         if self.playargs is None:
             self.playargs = PlayArgs()

@@ -50,7 +50,7 @@ import pitchtools as pt
 import csoundengine
 
 from maelzel.common import asmidi, F, asF, F0, F1
-import maelzel.textstyle as _textstyle
+from maelzel.textstyle import TextStyle
 
 from ._common import logger
 from ._typedefs import *
@@ -950,7 +950,7 @@ class MObj:
         if text is None:
             assert self.label
             text = self.label
-        labelstyle = _textstyle.parseTextStyle(config['show.labelStyle'])
+        labelstyle = TextStyle.parse(config['show.labelStyle'])
         return scoring.attachment.Text(text,
                                        fontsize=labelstyle.fontsize,
                                        italic=labelstyle.italic,

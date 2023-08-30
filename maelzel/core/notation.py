@@ -3,7 +3,7 @@ Functionality to interface with `maelzel.scoring`
 
 """
 from __future__ import annotations
-from maelzel import textstyle
+from maelzel.textstyle import TextStyle
 from .config import CoreConfig
 from .workspace import getConfig, getWorkspace
 from maelzel import scoring
@@ -46,7 +46,7 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
     if cfg is None:
         cfg = getConfig()
 
-    centsAnnotationStyle = textstyle.parseTextStyle(cfg['show.centsAnnotationStyle'])
+    centsAnnotationStyle = TextStyle.parse(cfg['show.centsAnnotationStyle'])
 
     renderOptions = scoring.render.RenderOptions(
         centsAnnotationFontsize=centsAnnotationStyle.fontsize or 8,

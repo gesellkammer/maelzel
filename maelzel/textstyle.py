@@ -32,6 +32,14 @@ class TextStyle:
         if self.placement:
             assert self.placement in ('above', 'below')
 
+    @staticmethod
+    def validate(style: str) -> bool | str:
+        return validateStyle(style)
+
+    @staticmethod
+    def parse(style: str, separator=';') -> TextStyle:
+        return parseStyle(style, separator=separator)
+
 
 def validateStyle(style: str) -> bool | str:
     """
@@ -44,25 +52,38 @@ def validateStyle(style: str) -> bool | str:
         An error message as string, or an empty string True if the style is defined properly
     """
     try:
-        _ = parseTextStyle(style)
+        _ = parseStyle(style)
         return True
     except ValueError as e:
         return f"Could not validate style: '{style}', error: '{e}'"
 
 
 @cache
-def parseTextStyle(style: str, separator=';') -> TextStyle:
+def parseStyle(style: str, separator=';') -> TextStyle:
     """
     Parse an ad-hoc format to create a TextStyle
 
-    Possible formats::
+    =========  ==========================  ====================
+    Key        Possible Values             Example
+    =========  ==========================  ====================
+    fontsize   The size in some unit       fontsize=8; italic
+    bold       **flag**                    bold; color=#ff0000
+    italic     **flag**                    bold; italic
+    box        rectangle, circle, square   bold; box=square
+    color      A CSS color                 italic;color=blue
+    placement  above, below                bold; placement=above
+    =========  ==========================  ====================
+
+
+    More examples::
 
         'box=square; bold; italic'
         'bold=true; italic=true'
 
 
     Args:
-        style: the style to parse
+        style: the style to parse; a set of key-value pairs or flags, separated
+            by *separator`. Spaces are stripped
         separator: the separator used
 
     Returns:

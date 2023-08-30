@@ -1,3 +1,6 @@
+"""
+Module to check dependencies of maelzel
+"""
 from __future__ import annotations
 import shutil
 from pathlib import Path
@@ -28,10 +31,14 @@ def csoundLibVersion() -> int | None:
 
 def checkCsound(minversion="6.18", checkBinaryInPath=True) -> str:
     """
-    Returns True if csound is installed
+    Returns an empty string if csound is installed, otherwise an error message
 
     Args:
         minversion: min. csound version, as "{major}.{minor}"
+
+    Returns:
+        an error message, or an empty str if csound is installed and the version
+        is >= than the version given
     """
     logger.debug("Checking the csound installation")
     if not isinstance(minversion, str) or minversion.count('.') != 1:

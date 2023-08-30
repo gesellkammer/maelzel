@@ -130,14 +130,18 @@ class Automation:
         return SynthAutomation(param=self.param, delay=float(delay), data=data)
 
     @staticmethod
-    def normalizeBreakpoints(breakpoints: list[tuple], interpolation='linear'):
+    def normalizeBreakpoints(breakpoints: list[tuple] | list[num_t],
+                             interpolation='linear'
+                             ) -> list[tuple[F | location_t, num_t, str]]:
         """
         Normalize breakpoints, ensuring that all have the form (time, value, interpolation)
 
         Args:
             breakpoints: a list of tuples of the form (time, value) or
-                (time, value, interpolation)
-            interpolation: the default interpolation
+                (time, value, interpolation) or a flat list of the form
+                [time0, value0, time1, value1, ...]. In this case all breakpoints
+                use the interpolation given as fallback
+            interpolation: the default/fallback interpolation
 
         Returns:
             a list of tuples of the form (time, value, interpolation). The interpolation
@@ -147,6 +151,13 @@ class Automation:
         """
         if not interpolation:
             interpolation = 'linear'
+
+        if not isinstance(breakpoints[0], tuple):
+            # a flat list
+            assert len(breakpoints) % 2 == 0, "A flat list of breakpoints needs to be even"
+            assert all(isinstance(x, (int, float, F)) for x in breakpoints)
+            breakpoints = list(iterlib.window(breakpoints, 2, 2))
+
         normalized = []
         for bp in breakpoints:
             l = len(bp)

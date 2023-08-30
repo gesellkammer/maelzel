@@ -14,22 +14,18 @@ bpf4_, which allows to define and compute break-point-functions
 from __future__ import annotations
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Optional, TypeVar, List, Sequence
+    from typing import TypeVar, Callable, Sequence
     import matplotlib.pyplot
     T = TypeVar('T')
     
 from dataclasses import dataclass
-from functools import partial
 import numpy as np
-from scipy.optimize.zeros import brentq as _brentq
-from scipy.optimize import fsolve as _fsolve
 
 import bpf4
 
 from emlib import mathlib, combinatorics, iterlib
 
 import warnings
-import constraint
 import logging
 
 
@@ -46,7 +42,7 @@ logger = logging.getLogger(__file__)
 
 def roundSeqPreservingSum(seq: list[float], maxdelta=1, maxsolutions=1,
                           ensureDirection=True
-                          ) -> Optional[list[int]]:
+                          ) -> list[int]:
     """
     Round sequence preserving its integer sum
 
@@ -70,7 +66,8 @@ def roundSeqPreservingSum(seq: list[float], maxdelta=1, maxsolutions=1,
             a < b then a_rounded <= b_rounded (and similarly if a > b)
 
     Returns:
-        a list of integers representing the original seq.
+        a list of integers representing the original seq. If there are no
+        solutions an empty list is returned
 
     Example
     ~~~~~~~
@@ -84,13 +81,12 @@ def roundSeqPreservingSum(seq: list[float], maxdelta=1, maxsolutions=1,
         >>> round(sum(parts))
         40
         >>> intparts = distribute.roundSeqPreservingSum(parts, maxsolutions=10)
-        >>> print(f'{intparts})
-        >>> print(f'Sum: {sum(intparts)}')
-        [6, 6, 7, 8, 13]
-        Sum: 40
-
+        >>> intparts, sum(intparts)
+        [6, 6, 7, 8, 13], 40
     """
     from math import ceil, floor
+    import constraint
+
     p = constraint.Problem()
     numvars = len(seq)
     seqsum = round(sum(seq))
@@ -114,7 +110,7 @@ def roundSeqPreservingSum(seq: list[float], maxdelta=1, maxsolutions=1,
     else:
         solutions = p.getSolutions()
     if not solutions:
-        return None
+        return []
     solutions.sort(key=lambda sol: sum(abs(v - x) for v, x in zip(list(sol.values()), seq)))
     solution = list(solutions[0].items())
     solution.sort()
@@ -160,6 +156,11 @@ def partitionFib(n: int, numpart: int) -> list[float]:
         p1 = 4	p2 = 7		p2/p1 = 1.750
         p1 = 7	p2 = 10		p2/p1 = 1.429
         p1 = 10	p2 = 16		p2/p1 = 1.600
+
+    .. note::
+
+        In order to partition into integer values, use :func:`roundSeqPreservingSum`
+
     """
     platonic = [mathlib.fib(i) for i in range(50, 50+numpart)]
     ratio = n / float(sum(platonic))
@@ -191,10 +192,10 @@ def partitionExpon(n: float, numpart: int, exp=2.0) -> list[float]:
 
 def chooseBestDistribution(values: Sequence[T], possibleValues: Sequence[T]) -> list[T]:
     """
-    Reconstruct the sequence *values* with items from *possiblevals*
+    Reconstruct the given sequence with items from *possibleValues*
 
     Try to follow the distribution of values as close as possible
-    by drawing elements from *possiblevals*, so that
+    by drawing elements from *possibleValues*, so that
     ``sum(chosen)`` is as close as possible to ``sum(values)` at any
     moment of the operation.
 
@@ -204,25 +205,30 @@ def chooseBestDistribution(values: Sequence[T], possibleValues: Sequence[T]) -> 
 
     Returns:
         a "reconstruction" of the sequenve *values* with items drawn from
-        *possiblevals*
+        *possibleValues*
     """
     values = sorted(values)
     possibleValues = sorted(possibleValues)
     out = []
     status = 0
 
-    def distance(a, b):
+    def dist(a, b):
         return abs(a - b)
 
     for value in values:
-        best_fit = sorted((distance(elem, value + status), elem) for elem in possibleValues)[0][1]
-        dif = value - best_fit
+        bestfit = sorted((dist(elem, value + status), elem) for elem in possibleValues)[0][1]
+        dif = value - bestfit
         status += dif
-        out.append(best_fit)
+        out.append(bestfit)
     return out
 
 
-def partitionCurvedSpace(x, numpart, curve, minval=1, maxdev=1, accuracy=1):
+def partitionCurvedSpace(x: float,
+                         numpart: int,
+                         curve: bpf4.BpfInterface,
+                         minval=1,
+                         maxdev=1,
+                         accuracy=1):
     """
     Partition a number *x* into *numpart* partitions following a curve
 
@@ -292,6 +298,9 @@ def partitionCurvedSpace(x, numpart, curve, minval=1, maxdev=1, accuracy=1):
         return [roundgrid(part/fscale, accuracy) for part in parts]
 
     else:  # accuracy == 0
+        from functools import partial
+        import constraint
+
         normcurve = curve.fit_between(0, 1)
         normcurve = (normcurve / normcurve(1)) * x
         optimal_results = np.diff(normcurve.map(numpart+1))
@@ -325,8 +334,10 @@ def _solution_getvalues(solution):
     return [val for name, val in sorted(solution.items())]
 
 
-def partitionWithCurve(x: float, numpart: int, curve: bpf4.BpfInterface,
-                       method='brentq', excluded=None
+def partitionWithCurve(x: float,
+                       numpart: int,
+                       curve: bpf4.BpfInterface,
+                       method='brentq',
                        ) -> list[float]:
     """
     Partition *x* in *numparts* parts following *curve*
@@ -336,6 +347,7 @@ def partitionWithCurve(x: float, numpart: int, curve: bpf4.BpfInterface,
         numpart: the number of partitions
         curve: the curve to follow. It is not important over which interval x
             it is defined. The y coord defines the width of the partition (see example)
+        excluded: any value
 
     Returns:
         the list of the partitions
@@ -359,15 +371,18 @@ def partitionWithCurve(x: float, numpart: int, curve: bpf4.BpfInterface,
 
     def func(r):
         return sum((bpf4.expon(x0, x0, x1, x1, exp=r)|curve).map(numpart)) - n
+
     try:
         if method == 'brentq':
-            r = _brentq(func, x0, x1)
+            from scipy.optimize.zeros import brentq
+            r = brentq(func, x0, x1)
             curve = bpf4.expon(x0, x0, x1, x1, exp=r)|curve
             parts = curve.map(numpart)
         elif method == 'fsolve':
+            from scipy.optimize import fsolve
             xs = np.linspace(x0, x1, 100)
-            rs = [round(float(_fsolve(func, x)), 10) for x in xs]
-            rs = set(r for r in rs if x0 <= r <= x1 and r not in excluded)
+            rs = [round(float(fsolve(func, x)), 10) for x in xs]
+            rs = set(r for r in rs if x0 <= r <= x1)
             parts = []
             for r in rs:
                 curve = bpf4.expon(x0, x0, x1, x1, exp=r)|curve
@@ -441,7 +456,7 @@ def onepulse(x: float, resolution: int, entropy=0.) -> list[int]:
     """
     Represents *x* as a seq. of 0 and 1
 
-    Args:4
+    Args:
         x: a float number between 0 and 1
         resolution: int. The number of pulses. NB: these are not binary bits,
             all bits have the same significance
@@ -552,14 +567,8 @@ def pulseCurve(curve: bpf4.BpfInterface, n: int, resolution=5, entropy=0.,
             x1 = curve.x1
         except AttributeError:
             x1 = 1
-    # dx = (x1-x0)/n
-    #nums = int(n / resolution + 0.5)
-    #intvalue = int(n / nums)
-    #rest = n - (intvalue * nums)
-    #resolutions = [intvalue + int(index < rest) for index in range(nums)]
     resolutions = _dither_resolutions(n, resolution)
     nums = len(resolutions)
-    print(resolutions)
     xs = np.linspace(x0, x1, nums)
     ys = [curve(x) for x in xs]
     out = []
@@ -635,76 +644,8 @@ def interleave(A: list[T], B: list[T], weight=0.5) -> list[T]:
 # ------------------------------------------------------------
 
 
-@dataclass
-class _FillMatch:
-    size: int
-    containerIdx: int
-    streamIdx: int
-
-
-@dataclass
-class _FillResult:
-    matches: list[_FillMatch]
-    unfilledContainers: list
-    unusedStreams: list
-
-
-def fillWithOnePart(containerSizes: list[float], streamSizes: list[float]) -> _FillResult:
-    """
-    Partition the streams to fill the containers as much as possible
-
-    **Each container can have only one part**
-
-    Args:
-        containerSizes: a list with the sizes of each container
-        streams: a list with the size of each stream
-
-    Example
-    =======
-
-    Partition 3 and 4 into three values which fill containers of size
-    1, 2, 5 minimizing the amount of unused space in the containers.
-
-        >>> out = fillWithOnePart([1, 2, 5], [3, 4])
-        >>> out
-        _FillResult(matches=[_FillMatch(size=4, containerIdx=2, streamIdx=1),
-                             _FillMatch(size=2, containerIdx=1, streamIdx=0),
-                             _FillMatch(size=1, containerIdx=0, streamIdx=0)],
-                    unfilledContainers=[0, 0, 1],
-                    unusedStreams=[0, 0])
-
-    This fills container 2 (size 5) with 4 of 4, container 1 (size 2) with 2 of 3
-    and container 0 (size 1) with 1 of 3. Streams are used in their entirety and
-    only container 2 is partially filled
-    """
-    unfilledContainers = containerSizes[:]
-    unusedStreams = streamSizes[:]
-    streamSizes = [(stream, idx) for idx, stream in enumerate(streamSizes)]
-    containers = [(container, idx) for idx, container in enumerate(containerSizes)]
-    containers = sorted(containers, reverse=True)  # sort the containers from big to small
-    streamSizes = sorted(streamSizes, reverse=True)        # also sort them from big to small
-    outstreams: list[list[float]] = [[] for _ in range(len(streamSizes))]
-    out: list[_FillMatch] = []
-    for containerSize, containerId in containers:
-        if any(stream[0] >= containerSize for stream in streamSizes):
-            bestFitDiff, stream, idx = sorted((stream[0] - containerSize, stream, i)
-                                                            for i, stream in enumerate(streamSizes)
-                                                            if stream[0] >= containerSize)[0]
-        else:
-            bestFitDiff, stream, idx = sorted((abs(stream[0] - containerSize), stream, i)
-                                                    for i, stream in enumerate(streamSizes))[0]
-        size = int(min(containerSize, stream[0]))
-        outstreams[stream[1]].append(size)
-        out.append(_FillMatch(size, containerId, stream[1]))
-        unfilledContainers[containerId] -= size
-        unusedStreams[stream[1]] -= size
-        streamSizes[idx] = (stream[0] - size, stream[1])
-        streamSizes = sorted(streamSizes, reverse=True)
-    out.sort(key=lambda match: match.containerIdx)
-    return _FillResult(out, unfilledContainers, unusedStreams)
-
-
-def interleaveWithDynamicWeights(streamSizes, weightBpfs
+def interleaveWithDynamicWeights(streamSizes: list[int],
+                                 weightBpfs: list[Callable[[float], float]]
                                  ) -> list[tuple[int, int]]:
     """
     Interleave items of multiple streams based on dynamic weights

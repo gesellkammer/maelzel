@@ -1,6 +1,6 @@
 import os
 import math
-from maelzel import textstyle
+from maelzel.textstyle import TextStyle
 from maelzel import dynamiccurve
 
 
@@ -149,9 +149,9 @@ validator = {
     'show.jupyterMaxImageWidth::type': int,
     'show.voiceMaxStaves::type': int,
     'show.voiceMaxStaves::range': (1, 4),
-    'show.measureAnnotationStyle': lambda cfg, key, val: textstyle.validateStyle(val),
-    'show.centsAnnotationStyle': lambda cfg, key, val: textstyle.validateStyle(val),
-    'show.rehearsalMarkStyle': lambda cfg, key, val: textstyle.validateStyle(val),
+    'show.measureAnnotationStyle': lambda cfg, key, val: TextStyle.validate(val),
+    'show.centsAnnotationStyle': lambda cfg, key, val: TextStyle.validate(val),
+    'show.rehearsalMarkStyle': lambda cfg, key, val: TextStyle.validate(val),
     'show.clipNoteheadShape::choices': ('', 'square', 'normal', 'cross', 'harmonic', 'triangle',
                                         'xcircle', 'rhombus', 'rectangle', 'slash', 'diamond',
                                         'cluster'),

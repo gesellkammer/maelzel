@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, replace as _dataclassreplace, fields as _dataclassfields
 from maelzel.scoring import enharmonics
-from maelzel import textstyle
+from maelzel.textstyle import TextStyle
 import emlib.misc
 
 
@@ -164,7 +164,6 @@ class RenderOptions:
     keepClefBiasFactor: float = 2.0
     """The higher this value, the more priority is given to keeping the previous clef"""
 
-
     @classmethod
     def keys(cls) -> set[str]:
         return {f.name for f in _dataclassfields(cls)}
@@ -191,7 +190,6 @@ class RenderOptions:
         scaling = self.staffSize / 12.
         mm = 6.35 * scaling
         return (mm, self.musicxmlTenths)
-
 
     def copy(self) -> RenderOptions:
         """
@@ -262,7 +260,7 @@ class RenderOptions:
         return emlib.misc.page_dinsize_to_mm(self.pageSize, self.orientation)
 
     @staticmethod
-    def parseTextStyle(style: str) -> textstyle.TextStyle:
+    def parseTextStyle(style: str) -> TextStyle:
         """
         Parses a textstyle (measureAnnotatioNStyle, rehearsalMarkStyle, ...)
 
@@ -272,29 +270,34 @@ class RenderOptions:
         Returns:
             a TextStyle
         """
-        return textstyle.parseTextStyle(style)
+        return TextStyle.parse(style)
 
     @property
-    def parsedRehearsalMarkStyle(self) -> textstyle.TextStyle:
+    def parsedRehearsalMarkStyle(self) -> TextStyle:
         """The style for rehearsal marks, parsed
 
         Returns:
             a :class:`maelzel.scoring.textstyle.TextStyle`
         """
-        return textstyle.parseTextStyle(self.rehearsalMarkStyle)
+        return TextStyle.parse(self.rehearsalMarkStyle)
 
     @property
-    def parsedMeasureAnnotationStyle(self) -> textstyle.TextStyle:
+    def parsedMeasureAnnotationStyle(self) -> TextStyle:
         """
         Parses the measure annotation style
 
         Returns:
             a TextStyle
         """
-        return textstyle.parseTextStyle(self.measureAnnotationStyle)
-
+        return TextStyle.parse(self.measureAnnotationStyle)
 
     def makeEnharmonicOptions(self) -> enharmonics.EnharmonicOptions:
+        """
+        Create enharmonic options from this RenderOptions
+
+        Returns:
+            an EnharmonicOptions object derived from this RenderOptions
+        """
         return enharmonics.EnharmonicOptions(groupSize=self.enharmonicGroupSize,
                                              groupStep=self.enharmonicStep,
                                              debug=self.enharmonicDebug,

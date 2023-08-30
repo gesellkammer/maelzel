@@ -18,7 +18,7 @@ import emlib.filetools
 from emlib import iterlib
 
 from maelzel.music import lilytools
-from maelzel import textstyle
+from maelzel.textstyle import TextStyle
 from .common import *
 from . import attachment
 from . import definitions
@@ -258,7 +258,7 @@ def _renderTextAttachment(attach: attachment.Text, options: RenderOptions, relat
                                   bold=attach.weight=='bold',
                                   box=attach.box)
     elif attach.role == 'label':
-        style = textstyle.parseTextStyle(options.noteLabelStyle)
+        style = TextStyle.parse(options.noteLabelStyle)
         return lilytools.makeText(text=attach.text,
                                   fontrelative=relativeSize,
                                   fontsize=attach.fontsize or style.fontsize or 10,
