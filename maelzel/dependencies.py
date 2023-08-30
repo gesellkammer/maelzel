@@ -218,6 +218,7 @@ def installVampPlugins() -> None:
     subfolder = {
         'darwin': 'macos',
         'windows': 'windows',
+        'win32': 'windows',
         'linux': 'linux'
     }.get(sys.platform, None)
     if subfolder is None:
