@@ -101,16 +101,16 @@ class PresetManager:
 
         sf2 = presetutils.resolveSoundfontPath(path=sf2path)
         if not sf2:
-            logger.info("No soundfont defined, builtin instruments using soundfonts will"
-                        "not be available. Set config['play.generalMidiSoundfont'] to"
+            logger.info("No soundfont defined, builtin instruments using soundfonts will "
+                        "not be available. Set config['play.generalMidiSoundfont'] to "
                         "the path of an existing soundfont")
-
-        for instr, preset in builtinpresets.soundfontGeneralMidiPresets.items():
-            if sf2 and sf2 != "?":
-                presetname = 'gm-' + instr
-                descr = f'General MIDI {instr}'
-                self.defPresetSoundfont(presetname, sf2path=sf2, preset=preset,
-                                        _builtin=True, description=descr)
+        else:
+            for instr, preset in builtinpresets.soundfontGeneralMidiPresets.items():
+                if sf2 and sf2 != "?":
+                    presetname = 'gm-' + instr
+                    descr = f'General MIDI {instr}'
+                    self.defPresetSoundfont(presetname, sf2path=sf2, preset=preset,
+                                            _builtin=True, description=descr)
 
         for name, (path, preset, descr) in builtinpresets.builtinSoundfonts().items():
             self.defPresetSoundfont(name, sf2path=path, preset=preset, _builtin=True,
@@ -210,7 +210,7 @@ class PresetManager:
 
         **NB**: Parameters can be modified while the synth is running :
 
-            >>> synth.setp(kcutoff=2000)
+            >>> synth.set(kcutoff=2000)
 
         .. seealso::
 
