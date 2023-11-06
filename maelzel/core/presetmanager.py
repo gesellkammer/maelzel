@@ -28,7 +28,7 @@ __all__ = (
     'showPresets',
     'defPreset',
     'defPresetSoundfont',
-    'PresetManager',
+    # 'PresetManager',
     'getPreset'
 )
 
@@ -42,15 +42,32 @@ opcode turnoffWhenSilent, 0, a
     endif    
 endop
 
-opcode makePresetEnvelope, a, iiii
-    ifadein, ifadeout, ifadekind, igain xin
-    if (ifadekind == 0) then
-        aenv linsegr 0, ifadein, igain, ifadeout, 0
-    elseif (ifadekind == 1) then
-        aenv cossegr 0, ifadein, igain, ifadeout, 0
-    elseif (ifadekind == 2) then
-        aenv transegr 0, ifadein*.5, 2, igain*0.5, ifadein*.5, -2, igain, p3-ifadein-ifadeout, igain, 1, ifadeout*.5, 2, igain*0.5, ifadeout*.5, -2, 0 	
-        aenv *= linenr:a(1, 0, ifadeout, 0.01)
+opcode makePresetEnvelope, a, iii
+    ifadein, ifadeout, ifadekind xin
+    igain = 1.0
+    ifinite = p3 > 0 ? 1 : 0
+    if ifinite == 1 then
+        if (ifadekind == 0) then
+            aenv linseg 0, ifadein, igain, p3-ifadein-ifadeout, igain, ifadeout, 0
+        elseif (ifadekind == 1) then
+            aenv cosseg 0, ifadein, igain, p3-ifadein-ifadeout, igain, ifadeout, 0
+        elseif (ifadekind == 2) then
+            aenv transeg 0, ifadein*.5, 2, igain*0.5, ifadein*.5, -2, igain, p3-ifadein-ifadeout, igain, 1, ifadeout*.5, 2, igain*0.5, ifadeout*.5, -2, 0 	
+            ; aenv *= linenr:a(1, 0, ifadeout, 0.01)
+        endif
+        if ifadeout > 0 then
+            aenv *= cossegr:a(1, ifadein, 1, ifadeout, 0)
+            ; aenv *= transegr:a(1, ifadein, 1, 1, ifadeout, -2, 0)
+        endif
+    else
+        if (ifadekind == 0) then
+            aenv linsegr 0, ifadein, igain, ifadeout, 0
+        elseif (ifadekind == 1) then
+            aenv cossegr 0, ifadein, igain, ifadeout, 0
+        elseif (ifadekind == 2) then
+            aenv transegr 0, ifadein*.5, 2, igain*0.5, ifadein*.5, -2, igain, ifadeout, -2, 0 	
+            aenv *= linenr:a(1, 0, ifadeout, 0.01)
+        endif
     endif
     xout aenv
 endop
@@ -125,7 +142,8 @@ class PresetManager:
                   args: dict[str, float] = None,
                   description: str = None,
                   envelope=True,
-                  output=True
+                  output=True,
+                  aliases: dict[str, str] | None = None
                   ) -> PresetDef:
         """
         Define a new instrument preset.
@@ -163,9 +181,10 @@ class PresetManager:
                 play arguments. If False, the user is responsible for applying any fadein/fadeout (csound variables:
                 ``ifadein``, ``ifadeout``
             output: if True, generate output routing (panning and output) for this
-                preset. Otherwise, the user is responsible for applying panning (``iposition``)
+                preset. Otherwise, the user is responsible for applying panning (``kpos``)
                 and routing the generated audio to any output channels (``ichan``), buses, etc.
-
+            aliases: if given, a dict mapping alias to real parameter name. This allow to
+                use any name for a parameter, instead of a csound variable
 
         Returns:
             a PresetDef
@@ -199,7 +218,7 @@ class PresetManager:
             ... ;   kq: filter resonance
             ... aout1 vco2 kamp, kfreq, 10
             ... aout1 moogladder aout1, lag:k(kcutoff, 0.1), kq
-            ... ''')
+            ... ''', aliases={'cutoff': 'kcutoff')
 
         Then, to use the Preset:
 
@@ -228,7 +247,8 @@ class PresetManager:
                               description=description,
                               builtin=False,
                               envelope=envelope,
-                              routing=output)
+                              routing=output,
+                              aliases=aliases)
         self.registerPreset(presetdef)
         # NB: before, we would register the preset to the session
         # via playback.playSession().registerInstr(presetdef.getInstr())
@@ -243,7 +263,7 @@ class PresetManager:
                            init: str = None,
                            postproc: str = None,
                            includes: list[str] = None,
-                           args: list[float] | dict[str, float] | None = None,
+                           args: dict[str, float] | None = None,
                            interpolation: str = None,
                            mono=False,
                            ampDivisor: int = None,
@@ -363,13 +383,19 @@ class PresetManager:
         if postproc:
             audiogen = emlib.textlib.joinPreservingIndentation((audiogen, '\n;; postproc\n', postproc))
         epilogue = "turnoffWhenSilent aout1" if turnoffWhenSilent else ''
+        if args:
+            args['ipitchlag'] = 0.1
+            args['ktransp'] = 0.
+        else:
+            args = {'ktransp': 0., 'ipitchlag': 0.1}
         presetdef = self.defPreset(name=name,
                                    audiogen=audiogen,
                                    init=init,
                                    epilogue=epilogue,
                                    includes=includes,
                                    args=args,
-                                   description=description)
+                                   description=description,
+                                   aliases={'transpose': 'ktransp'})
         presetdef.userDefined = not _builtin
         presetdef.properties = {'sfpath': sf2path}
         return presetdef
@@ -385,7 +411,8 @@ class PresetManager:
         self.presetdefs[presetdef.name] = presetdef
 
     def getPreset(self, name: str) -> PresetDef:
-        """Get a preset by name
+        """
+        Get a preset by name
 
         Raises KeyError if no preset with such name is defined
 
@@ -404,10 +431,20 @@ class PresetManager:
                                            default=Workspace.active.config['play.instr'])
         preset = self.presetdefs.get(name)
         if not preset:
-            raise KeyError(f"Preset {name} not known. Available presets: {self.definedPresets()}")
+            raise KeyError(f"Preset '{name}' not known. Available presets: {self.definedPresets()}")
         return preset
 
-    def presetnameToInstr(self, presetname: str) -> csoundengine.Instr:
+    def getInstr(self, presetname: str) -> csoundengine.Instr:
+        """
+        Get the Instr corresponding to the given presetname
+
+        Args:
+            presetname: the name of the preset
+
+        Returns:
+            the actual :class:`csoundengine.Instr`
+
+        """
         return self.presetdefs[presetname].getInstr()
 
     def definedPresets(self) -> list[str]:

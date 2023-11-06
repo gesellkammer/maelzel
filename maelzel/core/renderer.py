@@ -1,5 +1,5 @@
 """
-Interface for online and offline rendering
+Interface for audio rendering (base class for realtime and offline)
 """
 from __future__ import annotations
 import numpy as np
@@ -11,7 +11,7 @@ from maelzel.core import synthevent
 from maelzel.core.presetmanager import PresetManager
 from . import environment
 
-from typing import Callable
+from typing import Callable, Sequence
 
 
 class Renderer:
@@ -29,17 +29,20 @@ class Renderer:
             from IPython.display import display
             display(self)
 
-
     def isRealtime(self) -> bool:
         """Is this renderer working in real-time?"""
         raise NotImplementedError
 
-    def assignBus(self, kind='audio') -> int:
+    def assignBus(self, kind='', value: float | None = None, persist=False) -> int:
         """Assign a bus"""
         raise NotImplementedError
 
-    def releaseBus(self, busnum: int):
-        """Release a previously assigned bus"""
+    def releaseBus(self, busnum: int) -> None:
+        """
+        Release a previously assigned bus
+
+        The bus must have been created with ``persist=True``
+        """
         raise NotImplementedError
 
     def prepareEvents(self,
@@ -65,7 +68,7 @@ class Renderer:
         presetManager = self.presetManager
         for event in events:
             presetname = event.instr
-            if not presetname in self.registeredPresets:
+            if presetname not in self.registeredPresets:
                 presetdef = presetManager.getPreset(presetname)
                 if presetdef is None:
                     raise ValueError(f"Preset {presetname} does not exist (event={event})")
@@ -99,7 +102,7 @@ class Renderer:
         """
         presetname = event.instr
         needssync = False
-        if not presetname in self.registeredPresets:
+        if presetname not in self.registeredPresets:
             presetdef = self.presetManager.getPreset(presetname)
             if presetdef is None:
                 raise ValueError(f"Preset {presetname} does not exist (event={event})")
@@ -136,7 +139,7 @@ class Renderer:
         """
         presetname = presetdef.name
         needssync = False
-        if not presetname in self.registeredPresets:
+        if presetname not in self.registeredPresets:
             presetdef = self.presetManager.getPreset(presetname)
             assert presetdef is not None, f"Preset {presetname} does not exist"
             needssync |= self.registerPreset(presetdef)
@@ -215,13 +218,31 @@ class Renderer:
         raise NotImplementedError
 
     def sched(self,
-             instrname: str,
-             delay: float,
-             dur: float,
-             args: list[float|str],
-             priority: int,
-             whenfinished: Callable = None):
-        """Schedule an event"""
+              instrname: str,
+              delay: float,
+              dur: float,
+              priority: int,
+              args: dict[str, float] | list[float|str] = None,
+              whenfinished: Callable = None,
+              **kws: dict[str, float],
+              ):
+        """
+        Schedule an instrument
+
+        Args:
+            instrname: the name of the preset
+            delay: start time
+            dur: duration of the event. -1 to not set a duration
+            args: a list of positional arguments, or a dict of named arguments
+            priority: the priority of this event
+            whenfinished: a callback to be fired when the event finishes (only
+                valid for online rendering)
+            kws: when args is passed as a list of positional arguments, any
+                named argument can be given here
+
+        Returns:
+
+        """
         raise NotImplementedError
 
     def dummy(self, dur=0.001):

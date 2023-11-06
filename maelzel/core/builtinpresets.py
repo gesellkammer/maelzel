@@ -17,8 +17,7 @@ builtinPresets = [
     ),
 
     PresetDef(
-        'tri',
-        r'''
+        'tri', r'''
         |ktransp=0, klag=0.1, kcutoffratio=0, kfilterq=3|
         ; transposable triangle wave with optional lowpass-filter
         ; Args:
@@ -36,7 +35,8 @@ builtinPresets = [
         builtin=True
     ),
 
-    PresetDef('saw', r'''
+    PresetDef(
+        'saw', r'''
         |ktransp=0, klag=0.1, kcutoffratio=0, kfilterq=3|
         ; Transposable saw with optional low-pass filtering
         ;  Args:
@@ -52,7 +52,8 @@ builtinPresets = [
         builtin=True
     ),
 
-    PresetDef('sqr', r'''
+    PresetDef(
+        'sqr', r'''
         |ktransp=0, klag=0.1, kcutoff=0, kresonance=0.2|
         ; square wave with optional filtering
         ; Args:
@@ -65,7 +66,8 @@ builtinPresets = [
         builtin=True
     ),
 
-    PresetDef('pulse', r"""
+    PresetDef(
+        'pulse', r"""
         |ktransp=0, klag=0.1, kpwm=0.5|
         ; transposable pulse with pwm
         ; Args:
@@ -77,7 +79,8 @@ builtinPresets = [
         builtin=True
     ),
 
-    PresetDef('_click', r"""
+    PresetDef(
+        '_click', r"""
         |ktransp=24|
         ; Default preset used when rendering a click-track
         ; Args:
@@ -89,7 +92,8 @@ builtinPresets = [
         builtin=True
     ),
 
-    PresetDef('_clip_diskin', audiogen=r'''
+    PresetDef(
+        '_clip_diskin', audiogen=r'''
         |ipath, isndfilechan=-1, kspeed=1, iskip=0, iwrap=0, iwinsize=4|
         ; Builtin-in preset to play a clip using diskin
         ; Args:
@@ -111,7 +115,8 @@ builtinPresets = [
             initerror sprintf("Multichannel samples (> 2, got %d) not supported yet", inumchannels)
         endif
         
-        aenv = makePresetEnvelope(ifadein, ifadeout, ifadekind, igain)
+        aenv = makePresetEnvelope(ifadein, ifadeout, ifadekind)
+        aenv *= kgain
         asig[] diskin2 Spath, kspeed, iskip, iwrap, iformat, iwinsize, ibufsize
         if isndfilechan >= 0 then
             a1 = asig[isndfilechan]
@@ -130,10 +135,12 @@ builtinPresets = [
         outch ichan, aout1, ichan+1, aout2
         ''',
         routing=False,
-        envelope=False
+        envelope=False,
+        aliases={'speed': 'kspeed'}
     ),
 
-    PresetDef('_playtable', audiogen=r"""
+    PresetDef(
+        '_playtable', audiogen=r"""
         |isndtab=0, istart=0, kspeed=1, ixfade=-1|
         ; Built-in presetdef to playback a table
         ; Args:
@@ -159,7 +166,8 @@ builtinPresets = [
         endif
 
         kidx init 0
-        aenv = makePresetEnvelope(ifadein, ifadeout, ifadekind, igain)
+        aenv = makePresetEnvelope(ifadein, ifadeout, ifadekind)
+        aenv *= kgain
 
         if inumouts == 1 then
             a1 flooper2 1, kspeed, istart, idur, ixfade, isndtab, istart
@@ -188,8 +196,9 @@ builtinPresets = [
         builtin=True
     ),
 
-    PresetDef('.sing', description="Simple vowel singing simulation",
-        init = r"""
+    PresetDef(
+        '.sing', description="Simple vowel singing simulation",
+        init=r"""
         gi__formantFreqs__[] fillarray \
             668, 1191, 2428, 3321, 4600, \  ; A
             327, 2157, 2754, 3630, 4600, \  ; E 
@@ -216,13 +225,17 @@ builtinPresets = [
         reshapearray gi__formantAmps__, 5, 5
         reshapearray gi__formantBws__, 5, 5
         """,
-        audiogen = r"""
+        audiogen=r"""
         |kx=0, ky=0, kvibamount=1, ivibstart=0.5, ivibfreq=4.5, ivibrange=0.25, ipitchlag=0.2|
         ; Simple vowel singing simulation
         ; Args:
-        ;   kx: x coordinate, from 0 to 1
-        ;   ky: y coordinate, from 0 to 1
+        ;   kx: x coordinate, from 0 to 1, A=(0;0), E=(0.5;0.5), I=(1;0), O=(0;1), U=(1;1)
+        ;   ky: y coordinate, from 0 to 1, A=(0;0), E=(0.5;0.5), I=(1;0), O=(0;1), U=(1;1)
         ;   kvibamount: vibrato amount, 0 to 1
+        ;   ivibstart: start time of vibrato
+        ;   ivibfreq: vibrato frequency
+        ;   ivibrange: vibrato range in semitones
+        ;   ipitchlag: time lag for pitch modifications
         
         knoVib = lag:k(trighold(changed2(kpitch), ivibstart*0.8), ivibstart*0.2)
         
@@ -236,7 +249,7 @@ builtinPresets = [
                             1, 0, 1,       \  ; I
                             0, 1, 1,       \  ; O
                             1, 1, 1           ; U
-        	
+
         kweights[] presetinterp kx, ky, kcoords, 0.2
         kformantFreqs[] weightedsum gi__formantFreqs__, kweights
         kformantBws[]   weightedsum gi__formantBws__, kweights
@@ -283,5 +296,5 @@ def builtinSoundfonts() -> dict:
     for presetname, (relpath, preset, description) in _builtinSoundfonts.items():
         path = datadir / relpath
         if path.exists():
-           out[presetname] = (path, preset, description)
+            out[presetname] = (path, preset, description)
     return out

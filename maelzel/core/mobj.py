@@ -11,33 +11,32 @@ these times are interpreted/converted to beats and score locations based on
 a score structure.
 
 """
-from __future__ import annotations
 
-"""
-Internal notes
-
+#
+# Internal notes
+#
 # offset
-
-Each object has an offset. This offset can be None if not explicitely set
-by the object itself. A cached object, ._resolvedOffset, can be set by 
-either the object itself or by the parent
-
+#
+# Each object has an offset. This offset can be None if not explicitly set
+# by the object itself. A cached object, ._resolvedOffset, can be set by
+# either the object itself or by the parent
+#
 # dur
+#
+# Each object has a duration (.dur). The duration is always explicit. It is implemented
+# as a property since it might be calculated.
+#
+# TODO: revise this docs
+#
+# * _calculateDuration: this method should return the duration in beats or None if the
+#   object itself cannot determine its own duration
+# * the parent should always be able to determine the duration of a child. If the object
+#   has no implicit duration, _calculateDuration is called and if this returns None,
+#   a default duration is set.
+#
 
-Each object has a duration (.dur). The duration is always explicit. It is implemented
-as a property since it might be calculated. 
 
-TODO: revise this docs
-
-* _calculateDuration: this method should return the duration in beats or None if the
-  object itself cannot determine its own duration
-* the parent should be always able to determine the duration of a child. If the object
-  has no implicit duration, _calculateDuration is called and if this returns None,
-  a default duration is set. 
-
-"""
-
-
+from __future__ import annotations
 import functools
 import os
 import tempfile as _tempfile
@@ -59,6 +58,7 @@ from .workspace import Workspace
 from .synthevent import PlayArgs, SynthEvent
 
 from . import playback
+from . import offline
 from . import proxysynth
 from . import environment
 from . import notation
@@ -479,12 +479,14 @@ class MObj:
         ============================= =====================================================
         instr: ``str``                The instrument preset to use
         delay: ``float``              Delay in seconds, added to the start of the object
-        gain: ``float``               A gain factor applied to the amplitude of this object
         chan: ``int``                 The channel to output to, **channels start at 1**
         fade: ``float``               The fade time; can also be a tuple (fadein, fadeout)
         fadeshape: ``str``            One of 'linear', 'cos', 'scurve'
         pitchinterpol: ``str``        One of 'linear', 'cos', 'freqlinear', 'freqcos'
-        position: ``float``           Panning position (0=left, 1=right)
+        gain: ``float``               A gain factor applied to the amplitud of this object.
+                                      **Dynamic argument** (*kgain*)
+        position: ``float``           Dynamic argument. Panning position (0=left, 1=right).
+                                      **Dynamic argument** (*kpos*)
         skip: ``float``               Skip time of playback; allows to play a fragment of the object.
                                       **NB**: set the delay to the -skip to start playback at the
                                       original time but from the timepoint specified by the skip param
@@ -492,7 +494,7 @@ class MObj:
                                       trim playback of the object
         sustain: ``float``            An extra sustain time. This is useful for sample based
                                       instruments
-        transpose: ``float``          Transpose the pitch of this object **only for plaback**
+        transpose: ``float``          Transpose the pitch of this object **only for playback**
         glisstime: ``float``          The duration (in beats) of the glissando for events with
                                       glissando. A short glisstime can be used for legato playback
                                       in non-percusive instruments
@@ -516,7 +518,7 @@ class MObj:
         playargs = self.playargs
         if playargs is None:
             self.playargs = playargs = PlayArgs()
-        if glide := kws.pop('glide', None):
+        if glide := kws.pop('gliss', None):
             glisstime = float(glide) if glide is not True else min(0.1, self.dur*F(3, 4))
             kws['glisstime'] = glisstime
             if not self.gliss:
@@ -1015,7 +1017,7 @@ class MObj:
         elif ext == '.xml' or ext == '.musicxml':
             backend = 'musicxml'
         elif ext == '.csd':
-            renderer = self.makeRenderer()
+            renderer = self._makeOfflineRenderer()
             renderer.writeCsd(outfile)
             return
         elif backend is None:
@@ -1046,6 +1048,15 @@ class MObj:
         txt = self._repr_html_header()
         return rf'<code style="white-space: pre-line; font-size:0.9em;">{txt}</code><br>' + img
 
+    def _makeOfflineRenderer(self,
+                             sr: int | None = None,
+                             numchannels=2,
+                             eventoptions={}
+                             ) -> offline.OfflineRenderer:
+        r = offline.OfflineRenderer(sr=sr, numchannels=numchannels)
+        events = self.events(**eventoptions)
+        r.schedEvents(coreevents=events)
+        return r
 
     def dump(self, indents=0, forcetext=False):
         """
@@ -1088,14 +1099,14 @@ class MObj:
                gain: float = None,
                chan: int = None,
                pitchinterpol: str = None,
-               fade: float | tuple[float, float]= None,
+               fade: float | tuple[float, float] = None,
                fadeshape: str = None,
                position: float = None,
                skip: float = None,
                end: float = None,
                sustain: float = None,
                workspace: Workspace = None,
-               transpose: float=0,
+               transpose: float = 0.,
                **kwargs
                ) -> list[SynthEvent]:
         """
@@ -1160,7 +1171,7 @@ class MObj:
             ('fadeshape', fadeshape),
             ('position', position),
             ('sustain', sustain),
-            ('transpose', transpose)
+            ('transpose', transpose),
         )
 
         d = {k: v for k, v in pairs if v is not None}
@@ -1195,6 +1206,7 @@ class MObj:
 
         if event := next((ev for ev in events if ev.delay < 0), None):
             raise ValueError(f"Events cannot have negative delay, event={event}")
+
         return events
 
     def play(self,
@@ -1217,7 +1229,6 @@ class MObj:
              display=False,
              **kwargs
              ) -> csoundengine.synth.SynthGroup:
-             # ) -> proxysynth.ProxySynthGroup:
 
         """
         Plays this object.
@@ -1249,7 +1260,11 @@ class MObj:
                 notes, or to allow one-shot samples to play completely without being cropped.
             workspace: a Workspace. If given, overrides the current workspace. It's scorestruct
                 is used to to determine the mapping between beat-time and real-time. 
-            dur: overrides the playback duration
+            transpose: add a transposition interval to the pitch of this object
+            config: if given, overrides the current config
+            whenfinished: function to be called when the playback is finished. Only applies to
+                realtime rendering
+            display: if True and running inside Jupyter, display the resulting synth's html
 
         Returns:
             A :class:`~csoundengine.synth.SynthGroup`
@@ -1322,26 +1337,6 @@ class MObj:
         return group
         # return proxysynth.ProxySynthGroup(group=group)
 
-    def makeRenderer(self, **kws):
-        """
-        Create an OfflineRenderer able to render this object
-
-        .. note::
-
-            This is equivalent to calling :func:`~maelzel.core.playback.render` with
-            ``render=False``
-
-        Args:
-            **kws: any argument passed to :meth:`~MObj.rec` can also be passed here
-
-        Returns:
-            an :class:`OfflineRenderer`. To render to a soundfile call its
-            :meth:`OfflineRenderer.render` method, or you can generate the
-            rendering script by calling :meth:`OfflineRenderer.writeCsd`
-
-        """
-        return playback.render(events=[self], render=False, **kws)
-
     def rec(self,
             outfile: str = None,
             sr: int = None,
@@ -1356,7 +1351,7 @@ class MObj:
             extratime: float = None,
             workspace: Workspace = None,
             **kws
-            ) -> playback.OfflineRenderer:
+            ) -> offline.OfflineRenderer:
         """
         Record the output of .play as a soundfile
 
@@ -1379,6 +1374,7 @@ class MObj:
             position: the panning position (0=left, 1=right)
             workspace: if given it overrides the active workspace
             extratime: extratime added to the recording (:ref:`config key: 'rec.extratime' <config_rec_extratime>`)
+            quiet: if True, do not display any synthesis output
 
             **kws: any keyword passed to .play
 
@@ -1403,8 +1399,8 @@ class MObj:
                              delay=delay, args=args, gain=gain,
                              workspace=workspace,
                              **kws)
-        return playback.render(outfile=outfile, events=events, sr=sr, wait=wait,
-                               quiet=quiet, nchnls=nchnls, extratime=extratime)
+        return offline.render(outfile=outfile, events=events, sr=sr, wait=wait,
+                              quiet=quiet, nchnls=nchnls, extratime=extratime)
 
     def isRest(self) -> bool:
         """

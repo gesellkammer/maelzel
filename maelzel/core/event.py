@@ -556,7 +556,6 @@ class Note(MEvent):
 
         if self.tied:
             notation.tiedNext = True
-            # assert not self.gliss
 
         notes = [notation]
         if self.gliss and not isinstance(self.gliss, bool):
@@ -1031,17 +1030,6 @@ class Chord(MEvent):
         if self._glissTarget is None:
             self._glissTarget = self.pitches
         return self._glissTarget
-
-        #nextev = self.parent.eventAfter(self)
-        #if nextev is None:
-        #    # No next event, the gliss target is cannot be determined
-        #    return self.pitches
-        #if isinstance(nextev, Note):
-        #    return [nextev.pitch] * len(self.notes)
-        #elif isinstance(nextev, Chord):
-        #    return nextev.pitches
-        #else:
-        #    return self.pitches
 
     def scoringEvents(self,
                       groupid='',
@@ -1636,4 +1624,5 @@ def asEvent(obj, **kws) -> MEvent:
         raise TypeError(f"Cannot convert {obj} to a Note or Chord")
 
     return out
+
 

@@ -61,7 +61,8 @@ def _stackEvents(events: list[MEvent | Chain],
         ev._resolvedOffset = now
         if isinstance(ev, MEvent):
             now += ev.dur
-        else: # A Chain
+        else:
+            # A Chain
             stackeddur = _stackEvents(ev.items, explicitOffsets=explicitOffsets)
             ev._dur = stackeddur
             now = ev._resolvedOffset + stackeddur
@@ -75,10 +76,8 @@ def _removeRedundantOffsets(items: list[MEvent | Chain],
     Remove over-secified start times in this Chain
 
     Args:
-        fillGaps: if True, any gap resulting of an event's starting
-            after the end  of the previous event will be filled with
-            a Rest (and the event's offset will be removed since it
-            becomes redundant)
+        items: the items to process
+        frame: the frame of reference
 
     Returns:
         a tuple (total duration of *items*, True if items was modified)
@@ -164,7 +163,6 @@ class Chain(MObj, MContainer):
 
         self._modified = items is not None
         self._cachedEventsWithOffset: list[tuple[MEvent, F]] | None = None
-
 
     def __hash__(self):
         items = [type(self).__name__, self.label, self.offset, len(self.items)]
@@ -429,7 +427,6 @@ class Chain(MObj, MContainer):
         if ev2 and ev2.gliss:
             ev2._glissTarget = ev2.pitch if isinstance(ev2, Note) else ev2.pitches
 
-
     def _synthEvents(self,
                      playargs: PlayArgs,
                      parentOffset: F,
@@ -466,8 +463,8 @@ class Chain(MObj, MContainer):
         for item in groups:
             if isinstance(item, MEvent):
                 events = item._synthEvents(playargs,
-                                            parentOffset=offset,
-                                            workspace=workspace)
+                                           parentOffset=offset,
+                                           workspace=workspace)
                 synthevents.extend(events)
             elif isinstance(item, list):
                 synthgroups = [event._synthEvents(playargs, parentOffset=offset, workspace=workspace)
@@ -493,10 +490,10 @@ class Chain(MObj, MContainer):
             for automation in self.playargs.automations.values():
                 startsecs, endsecs = automation.absTimeRange(parentOffset=offset, scorestruct=scorestruct)
                 for ev in synthevents:
-                    if (intersect := mathlib.intersection(float(startsecs), float(endsecs), ev.delay, ev.end)) is not None:
-                        # print(f"{startsecs=}, {endsecs=}, {ev.delay=}, {ev.end=}, {intersect=}")
+                    if (intersect := mathlib.intersection(float(startsecs), float(endsecs),
+                                                          ev.delay, ev.end)) is not None:
                         preset = presetmanager.presetManager.getPreset(ev.instr)
-                        if automation.param in preset.dynamicParams(includeRealNames=True):
+                        if automation.param in preset.dynamicParams(aliases=True, aliased=True):
                             if ev.automations is None:
                                 ev.automations = {}
                             synthautom = automation.makeSynthAutomation(scorestruct=scorestruct, parentOffset=offset)
@@ -809,14 +806,7 @@ class Chain(MObj, MContainer):
 
     def removeRedundantOffsets(self) -> None:
         """
-        Remove over-specified start times in this Chain
-
-        Args:
-            fillGaps: if True, any gap resulting of an event's starting
-                after the end  of the previous event will be filled with
-                a Rest (and the event's offset will be removed since it
-                becomes redundant)
-
+        Remove over-specified start times in this Chain (in place)
         """
         # This is the relative position (independent of the chain's start)
         self._update()
@@ -1244,13 +1234,16 @@ class Chain(MObj, MContainer):
 
     def splitAt(self, absoffset: F, beambreak=True, nomerge=True) -> None:
         """
-        Split any event present at the given absolute offset
+        Split any event present at the given absolute offset (in place)
 
         Args:
             absoffset: the offset to split at
             beambreak: if True, add a BeamBreak symbol to the given event
                 to ensure that the break is not glued together at the
                 quantization/rendering stage
+            nomerge: if True, enforce that the items splitted cannot be
+                merged at a later stage (they are marked with a NoMerge symbol)
+
 
         """
         self.splitEventsAtOffsets([absoffset])
@@ -1375,6 +1368,7 @@ class Chain(MObj, MContainer):
             self.playargs = PlayArgs()
         self.playargs.addAutomation(param=param, breakpoints=breakpoints,
                                     interpolation=interpolation, relative=relative)
+
 
 class PartGroup:
     """

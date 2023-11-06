@@ -6,16 +6,15 @@ from emlib import mathlib
 import emlib.misc
 import pitchtools as pt
 from dataclasses import dataclass
-from functools import cache
 
 from ._common import logger, F
 from typing import TYPE_CHECKING
 from maelzel.core import renderer
 from maelzel.core.automation import Automation, SynthAutomation
+import csoundengine
 
 if TYPE_CHECKING:
     from typing import Any, Callable, Iterable, Sequence
-    import csoundengine.instr
     from .config import CoreConfig
     from ._typedefs import *
     import matplotlib.pyplot as plt
@@ -185,6 +184,7 @@ class PlayArgs:
 
         Args:
             other: the playargs to update self with
+            automations: if True, include automations in the update
 
         Returns:
             a copy of self updated by other
@@ -361,8 +361,8 @@ class SynthEvent:
 
     """
     __slots__ = ("bps", "delay", "chan", "fadein", "fadeout", "gain",
-                 "instr", "pitchinterpol", "fadeshape", "args",
-                 "priority", "position", "_namedArgsMethod", "linkednext",
+                 "instr", "pitchinterpol", "fadeshape", "args", "kws",
+                 "priority", "position", "linkednext",
                  "numchans", "whenfinished", "properties", 'sustain',
                  'automationSegments', 'automations',
                  'initfunc', '_initdone')
@@ -492,6 +492,8 @@ class SynthEvent:
         self.args: dict[str, float | str] = args
         """Any parameters passed to the instrument"""
 
+        self.kws: dict[str, float | str] | None = kws
+
         self.linkednext = linkednext
         """Is this event linked to the next? 
         A linked synthevent is a tied note or a note with a glissando followed by 
@@ -531,8 +533,6 @@ class SynthEvent:
         resources needed by the event (load/make tables, add includes, global code, etc)"""
 
         self._initdone = False
-
-        self._namedArgsMethod = 'pargs'
 
         self._consolidateDelay()
 
@@ -832,6 +832,103 @@ class SynthEvent:
         """
         return mergeEvents(events)
 
+    def _flatBreakpoints(self) -> list[float]:
+        out = []
+        for bp in self.bps:
+            out.extend(bp)
+        return out
+
+    def _resolveParams(self: SynthEvent,
+                       instr: csoundengine.instr.Instr):
+        """
+        Resolves the values for pfields and dynamic params
+
+        Does the same as _resolveParamsGeneric, but ~8 times faster, at
+        the cost of having the arguments hard-coded
+
+        Args:
+            instr: the actual Instr, corresponding to the name in self.instr
+
+        Returns:
+            a tuple (pfields5, dynargs), where pfields5 are the pfields starting
+            at p5 (a list of float|str) and dynargs is a dict of dynamic parameters
+        """
+        numNamedPfields = instr.numPfields()
+
+        if not self.linkednext and self.sustain > 0:
+            self._applySustain()
+
+        # |kpos, kgain, idataidx_, inumbps, ibplen, ichan, ifadein, ifadeout, ipchintrp_, ifadekind|
+        if csoundengine.config['dynamic_pfields']:
+            # pfields are also used for dynamic (k) arguments
+            pfields5 = [
+                self.position,          # kpos
+                self.gain,              # kgain
+                numNamedPfields + 5,    # idataidx_
+                len(self.bps),          # inumbps
+                self.breakpointSize(),  # ibplen
+                self.chan,              # ichan
+                self.fadein,            # ifadein
+                self.fadeout,           # ifadeout
+                SynthEvent.pitchinterpolToInt[self.pitchinterpol],  # ipchintrp_
+                SynthEvent.fadeshapeToInt[self.fadeshape]  # ifadekind
+            ]
+            dynargs = self.args if self.args is not None else {}
+        else:
+            pfields5 = [
+                numNamedPfields + 5,    # idataidx_
+                len(self.bps),          # inumbps
+                self.breakpointSize(),  # ibplen
+                self.chan,              # ichan
+                self.fadein,            # ifadein
+                self.fadeout,           # ifadeout
+                SynthEvent.pitchinterpolToInt[self.pitchinterpol],  # ipchintrp_
+                SynthEvent.fadeshapeToInt[self.fadeshape]           # ifadekind
+            ]
+            dynargs = {'kpos': self.position, 'kgain': self.gain}
+            if self.args:
+                dynargs |= self.args
+        instrdefaults = instr.defaultPfieldValues()
+        pfields5.extend(instrdefaults[len(pfields5):])
+        pfields5.extend(self._flatBreakpoints())
+        return pfields5, dynargs
+
+    def _resolveParamsGeneric(self: SynthEvent,
+                              instr: csoundengine.instr.Instr):
+        """
+        Resolves the values for pfields and dynamic params
+
+        Args:
+            instr: the actual Instr, corresponding to the name in self.instr
+
+        Returns:
+            a tuple (pfields5, dynargs), where pfields5 are the pfields starting
+            at p5 (a list of float|str) and dynargs is a dict of dynamic parameters
+        """
+        numNamedPfields = instr.numPfields()
+
+        if not self.linkednext and self.sustain > 0:
+            self._applySustain()
+
+        #     |kpos, idataidx_, inumbps, ibplen, igain, ichan, ifadein, ifadeout, ipchintrp_, ifadekind|
+        pfields = {
+            'idataidx_': numNamedPfields + 5,
+            'inumbps': len(self.bps),
+            'ibplen': self.breakpointSize(),
+            'igain': self.gain,
+            'ichan': self.chan,
+            'ifadein': self.fadein,
+            'ifadeout': self.fadeout,
+            'ipchintrp_': SynthEvent.pitchinterpolToInt[self.pitchinterpol],
+            'ifadekind': SynthEvent.fadeshapeToInt[self.fadeshape]
+        }
+        dynargs = {'kpos': self.position, 'kgain': self.gain}
+        if self.args:
+            dynargs |= self.args
+        pfields5, dynargs = instr.parseSchedArgs(args=pfields, kws=dynargs)
+        pfields5.extend(self._flatBreakpoints())
+        return pfields5, dynargs
+
     def resolvePfields(self: SynthEvent,
                        instr: csoundengine.instr.Instr
                        ) -> list[float | str]:
@@ -868,7 +965,7 @@ class SynthEvent:
         pitchInterpolMethod = SynthEvent.pitchinterpolToInt[self.pitchinterpol]
         fadeshape = SynthEvent.fadeshapeToInt[self.fadeshape]
         # if no userpargs, bpsoffset is 15
-        numPargs5 = len(instr.pargsIndexToName)
+        numPargs5 = len(instr.pfieldIndexToName)
         bpsrows = len(self.bps)
         bpscols = self.breakpointSize()
         pfields = [
@@ -894,8 +991,8 @@ class SynthEvent:
         bpsoffset = 15 + numUserArgs
         pfields5[0] = bpsoffset
 
-        if self._namedArgsMethod == 'pargs' and numUserArgs > 0:
-            pfields5 = instr.pargsTranslate(args=pfields5, kws=self.args)
+        # if self._namedArgsMethod == 'pargs' and numUserArgs > 0:
+        #     pfields5 = instr.pfieldsTranslate(args=pfields5, kws=self.args)
         pfields.extend(pfields5)
         for bp in self.bps:
             pfields.extend(bp)
@@ -988,7 +1085,9 @@ def mergeEvents(events: Sequence[SynthEvent]) -> SynthEvent:
     lastbp[0] += lastevent.delay - firstdelay
     bps.append(lastbp)
 
-    mergedevent = firstevent.clone(bps=bps, linkednext=events[-1].linkednext)
+    mergedevent = firstevent.clone(bps=bps,
+                                   linkednext=lastevent.linkednext,
+                                   sustain=lastevent.sustain)
     restevents = events[1:]
     if mergedevent.args is None and any(ev.args for ev in restevents):
         mergedevent.args = {}

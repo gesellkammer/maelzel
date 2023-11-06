@@ -19,8 +19,7 @@ from maelzel.core import playback
 from maelzel.snd import audiosample
 from maelzel.core import _tools
 from maelzel import scoring
-
-
+from maelzel import _util
 
 
 __all__ = (
@@ -342,7 +341,7 @@ class Clip(event.MEvent):
                      parentOffset: F,
                      workspace: Workspace,
                      ) -> list[SynthEvent]:
-        skip = self.selectionStartSecs / self.speed
+        skip = float(self.selectionStartSecs / self.speed)
         scorestruct = workspace.scorestruct
         reloffset = self.relOffset()
         offset = reloffset + parentOffset
@@ -352,20 +351,23 @@ class Clip(event.MEvent):
         bps = [[starttime, self.pitch, amp],
                [endtime, self.pitch, amp]]
 
+        if self.playargs:
+            playargs = playargs.updated(self.playargs)
+
         if self._playbackMethod == 'diskin':
             assert isinstance(self.source, str), f"The diskin playback method needs a path " \
                                                  f"as source, got {self.source}"
             assert os.path.exists(self.soundfile)
             args = {'ipath': self.soundfile,
                     'isndfilechan': -1 if self.channel is None else self.channel,
-                    'kspeed': self.speed,
+                    'kspeed': float(self.speed),
                     'iskip': skip,
                     'iwrap': 1 if self.loop else 0}
             playargs = playargs.clone(instr='_clip_diskin', args=args)
 
         elif self._playbackMethod == 'table':
             args = {'isndtab': 0,  # The table number will be filled later
-                    'kspeed': self.speed,
+                    'kspeed': float(self.speed),
                     'istart': skip,
                     'ixfade': -1 if not self.loop else 0.1}
             playargs = playargs.clone(instr='_playtable', args=args)
@@ -374,6 +376,8 @@ class Clip(event.MEvent):
         event = SynthEvent(bps=bps, linkednext=self.tied, numchans=self.numChannels,
                            initfunc=self._initEvent,
                            **playargs.db)
+        if playargs.automations:
+            event.addAutomationsFromPlayArgs(playargs, scorestruct=scorestruct)
         return [event]
 
     def _initEvent(self, event: SynthEvent, renderer: playback.Renderer):

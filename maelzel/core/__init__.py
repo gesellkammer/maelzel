@@ -6,7 +6,8 @@ from .event import *
 from .clip import *
 from .chain import *
 from .score import *
-from .playback import *
+from .playback import play, playSession
+from .offline import render
 from .presetmanager import *
 from . import _appstate
 

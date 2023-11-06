@@ -140,7 +140,8 @@ def makeSoundfontAudiogen(sf2path: str = None,
             iSfTable sfloadonce "{sf2path}"
             inote0_ = round(p(idataidx_ + 1))
             ivel_ = p(idataidx_ + 2) * 127
-            aout1, aout2  {opcode} ivel_, inote0_, kamp/{ampdiv}, mtof:k(kpitch), {instrnum}, iSfTable, 1
+            kpitch2 = lag:k(kpitch+ktransp, ipitchlag)
+            aout1, aout2  {opcode} ivel_, inote0_, kamp/{ampdiv}, mtof:k(kpitch2), {instrnum}, iSfTable, 1
             '''
         else:
             opcode = 'sfinstrm' if interpolation == 'linear' else 'sfinstr3m'
@@ -148,7 +149,8 @@ def makeSoundfontAudiogen(sf2path: str = None,
             iSfTable sfloadonce "{sf2path}"
             inote0_ = round(p(idataidx_ + 1))
             ivel_ = p(idataidx_ + 2) * 127
-            aout1 {opcode} ivel_, inote0_, kamp/{ampdiv}, mtof:k(kpitch), {instrnum}, iSfTable, 1
+            kpitch2 = lag:k(kpitch+ktransp, ipitchlag)
+            aout1 {opcode} ivel_, inote0_, kamp/{ampdiv}, mtof:k(kpitch2), {instrnum}, iSfTable, 1
             '''
 
     else:
@@ -159,7 +161,8 @@ def makeSoundfontAudiogen(sf2path: str = None,
             ipresetidx sfPresetIndex "{sf2path}", {bank}, {presetnum}
             inote0_ = round(p(idataidx_ + 1))
             ivel_ = p(idataidx_ + 2) * 127
-            aout1, aout2 {opcode} ivel_, inote0_, kamp/{ampdiv}, mtof:k(kpitch), ipresetidx, 1
+            kpitch2 = lag:k(kpitch+ktransp, ipitchlag)
+            aout1, aout2 {opcode} ivel_, inote0_, kamp/{ampdiv}, mtof:k(kpitch2), ipresetidx, 1
             '''
         else:
             opcode = 'sfplaym' if interpolation == 'linear' else 'sfplay3m'
@@ -167,7 +170,8 @@ def makeSoundfontAudiogen(sf2path: str = None,
             ipresetidx sfPresetIndex "{sf2path}", {bank}, {presetnum}
             inote0_ = round(p(idataidx_ + 1))
             ivel_ = p(idataidx_ + 2) * 127
-            aout1 {opcode} ivel_, inote0_, kamp/{ampdiv}, mtof:k(kpitch), ipresetidx, 1
+            kpitch2 = lag:k(kpitch+ktransp, ipitchlag)
+            aout1 {opcode} ivel_, inote0_, kamp/{ampdiv}, mtof:k(kpitch2), ipresetidx, 1
             '''
     return textwrap.dedent(audiogen)
 

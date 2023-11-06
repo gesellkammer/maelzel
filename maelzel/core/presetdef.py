@@ -91,9 +91,9 @@ def parseAudiogen(audiogen: str, check=False) -> ParsedAudiogen:
     else:
         numOuts = numOutchs
 
-    inlineargs = csoundengine.instr.parseInlineArgs(audiogenlines)
+    inlineargs = csoundengine.instr.instrtools.parseInlineArgs(audiogenlines)
     if inlineargs:
-        docstring = csoundengine.instr.parseDocstring(audiogenlines[inlineargs.linenum+1:])
+        docstring = csoundengine.instr.instrtools.parseDocstring(audiogenlines[inlineargs.linenum+1:])
     else:
         docstring = None
 
@@ -134,23 +134,27 @@ def _makePresetBody(audiogen: str,
     """
     # TODO: generate user pargs
     prologue = r'''
-idataidx_  = p5
-inumbps    = p6
-ibplen     = p7
-igain      = p8
-ichan      = p9
-kpos       = p10
-ifadein    = p11
-ifadeout   = p12
-ipchintrp_ = p13
-ifadekind  = p14
-   
+|kpos, kgain, idataidx_, inumbps, ibplen, ichan, ifadein, ifadeout, ipchintrp_, ifadekind| 
+
+; common case (2 breakpoints is the minimum for a simple note)
+if inumbps == 2 && ipchintrp_ == 0 then
+    i__t = p(idataidx_ + ibplen)
+    i__pitch0 = p(idataidx_ + 1)
+    i__pitch1 = p(idataidx_ + 1 + ibplen)
+    i__amp0 = p(idataidx_ + 2)
+    i__amp1 = p(idataidx_ + 2 + ibplen)
+    kamp = linseg:k(i__amp0, i__t, i__amp1)
+    kpitch = linseg:k(i__pitch0, i__t, i__pitch1)
+    kfreq mtof kpitch
+    goto skip_breakpoints
+endif
+
 idatalen_ = inumbps * ibplen
 iArgs[] passign idataidx_, idataidx_ + idatalen_
-ilastidx = idatalen_ - 1
-iTimes[]     slicearray iArgs, 0, ilastidx, ibplen
-iPitches[]   slicearray iArgs, 1, ilastidx, ibplen
-iAmps[]      slicearray iArgs, 2, ilastidx, ibplen
+ilastidx_ = idatalen_ - 1
+iTimes[]     slicearray iArgs, 0, ilastidx_, ibplen
+iPitches[]   slicearray iArgs, 1, ilastidx_, ibplen
+iAmps[]      slicearray iArgs, 2, ilastidx_, ibplen
 
 k_time = (timeinstk() - 1) * ksmps/sr  ; use eventtime (csound 6.18)
 
@@ -174,12 +178,16 @@ elseif (ipchintrp_ == 3) then  ; cos freq interpolation
     kpitch ftom kfreq
 endif
 
+skip_breakpoints:
+
 ifadein = max:i(ifadein, 1/kr)
 ifadeout = max:i(ifadeout, 1/kr)
 
     '''
+    # makePresetEnvelope is defined in the preset system's prelude (presetmanager.py)
     envelope1 = r"""
-    aenv_ = makePresetEnvelope(ifadein, ifadeout, ifadekind, igain)
+    aenv_ = makePresetEnvelope(ifadein, ifadeout, ifadekind)
+    aenv_ *= kgain
     """
     parts = [prologue]
     if numsignals == 0:
@@ -227,8 +235,6 @@ ifadeout = max:i(ifadeout, 1/kr)
 
 class PresetDef:
 
-    userPargsStart = 15
-
     """
     An instrument preset definition
     
@@ -259,6 +265,10 @@ class PresetDef:
             to its corresponding channel. If False the audiogen code should
             be responsible for applying panning and sending the audio to 
             an output channel, bus, etc.
+        aliases: an optional dict mapping alias parameters to their real name as
+            csound variables. This is used, for example, in a Clip to provide coherence
+            between names of python parameters ('speed') and their controls
+            within the generated synth ('kspeed').
             
     """
     _builtinVariables = ('kfreq', 'kamp', 'kpitch')
@@ -276,7 +286,8 @@ class PresetDef:
                  builtin=False,
                  properties: dict[str, Any] = None,
                  envelope=True,
-                 routing=True
+                 routing=True,
+                 aliases: dict[str, str] = None
                  ):
         assert isinstance(audiogen, str)
 
@@ -341,6 +352,9 @@ class PresetDef:
         self.routing = routing
         "Does this PresetDef need routing (panning, output) code to be generated?"
 
+        self.aliases = aliases
+        """Dict mapping aliases to real csound parameters"""
+
         self._consolidatedInit: str = ''
         self._instr: csoundengine.instr.Instr | None = None
 
@@ -350,7 +364,7 @@ class PresetDef:
                     raise ValueError(f"Cannot use builtin variables as arguments "
                                      f"({arg} is a builtin variable)")
 
-    def dynamicParams(self, includeRealNames=False) -> dict[str, float|str]:
+    def dynamicParams(self, aliases=True, aliased=False) -> dict[str, float|str]:
         """
         All dynamic params of this preset
 
@@ -364,7 +378,7 @@ class PresetDef:
         Returns:
             a dict of all dynamic params of this preset and their default values
         """
-        return self.getInstr().dynamicParams(includeRealNames=includeRealNames)
+        return self.getInstr().dynamicParams(aliases=aliases, aliased=aliased)
 
     @staticmethod
     @cache
@@ -460,7 +474,9 @@ class PresetDef:
             arghtml = csoundengine.csoundlib.highlightCsoundOrc(argstr, theme=theme)
             arghtml = _tools.htmlSpan(arghtml, fontsize=fontsize)
             ps.append(arghtml)
-        body = self.audiogen if not showGeneratedCode else self.getInstr().body
+        # TODO: solve how to generate body at this stage
+        instr = self.getInstr()
+        body = self.audiogen if not showGeneratedCode else csoundengine.session.Session.defaultInstrBody(instr)
         body = _textwrap.indent(body, _INSTR_INDENT)
         bodyhtml = csoundengine.csoundlib.highlightCsoundOrc(body, theme=theme)
         bodyhtml = _tools.htmlSpan(bodyhtml, fontsize=fontsize)
@@ -473,15 +489,11 @@ class PresetDef:
             ps.append(html)
         return "\n".join(ps)
 
-    def getInstr(self, namedArgsMethod: str = 'pargs') -> csoundengine.instr.Instr:
+    def getInstr(self) -> csoundengine.Instr:
         """
         Returns the csoundengine's Instr corresponding to this PresetDef
 
         This method is cached, the Instr is constructed only the first time
-
-        Args:
-            namedArgsMethod: one of 'table' or 'pargs'. None will fallback
-                to the config (key: 'play.namedArgsMethod')
 
         Returns:
             the csoundengine.Instr corresponding to this PresetDef
@@ -490,31 +502,20 @@ class PresetDef:
         if self._instr:
             return self._instr
 
-        if namedArgsMethod == 'pargs':
-            self._instr = csoundengine.Instr(name=self.instrname,
-                                             body=self.body,
-                                             init=self.init,
-                                             includes=self.includes,
-                                             args=self.args,
-                                             userPargsStart=PresetDef.userPargsStart,
-                                             numchans=self.numouts,
-                                             aliases={'position': 'kpos'}
-                                             )
+        aliases = {'position': 'kpos', 'gain': 'kgain'}
+        if self.aliases:
+            aliases |= self.aliases
+        instr = csoundengine.Instr(name=self.instrname,
+                                   body=self.body,
+                                   init=self.init,
+                                   includes=self.includes,
+                                   args=self.args,
+                                   numchans=self.numouts,
+                                   aliases=aliases
+                                   )
 
-        elif namedArgsMethod == 'table':
-            self._instr = csoundengine.Instr(name=self.instrname,
-                                             body=self.body,
-                                             init=self.init,
-                                             includes=self.includes,
-                                             tabargs=self.args,
-                                             aliases={'position': 'kpos'},
-                                             numchans=self.numouts
-                                             )
-
-        else:
-            raise ValueError(f"namedArgsMethod expected 'table' or 'pargs', "
-                             f"got {namedArgsMethod}")
-        return self._instr
+        self._instr = instr
+        return instr
 
     def save(self) -> str:
         """

@@ -285,7 +285,8 @@ class MEvent(MObj):
                 location (measure, beatoffset); value is any valid valud for the given
                 parameter; interpolation is one of 'linear', 'cos'. As a shortcut
                 it is possible to also pass a flat list of the form
-                [time0, value0, time1, value1, ...]
+                [time0, value0, time1, value1, ...]. A single point is also possible. This
+                sets the value for the given param at the specified time
             interpolation: default interpolation used for breakpoints without interpolation
             relative: if True, the time positions are relative to the absolute offset
                 of this event. If False, these times are absolute times

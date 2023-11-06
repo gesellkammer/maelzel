@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+import numpy as np
 from functools import cache
 from emlib import iterlib
 from maelzel.common import F
@@ -160,10 +161,10 @@ class Automation:
 
         normalized = []
         for bp in breakpoints:
-            l = len(bp)
-            if l == 3:
+            bplen = len(bp)
+            if bplen == 3:
                 normalized.append(bp)
-            elif l == 2:
+            elif bplen == 2:
                 normalized.append(bp + (interpolation,))
             else:
                 raise ValueError(f"A breakpoint can have 2 or 3 items, got {bp}")
@@ -184,7 +185,7 @@ class SynthAutomation:
     param: str
     """The parameter to automate"""
 
-    data: list[float]
+    data: list[float] | np.ndarray
     """The automation data
     
     A flat list of (time, value) pairs. For a single event, the data should be [0, value]"""
@@ -193,18 +194,21 @@ class SynthAutomation:
     """An additional delay to all time values"""
 
     interpolation: str = 'linear'
+    """One of linear, cos, expon(XX), ... (see opcode interp1d)"""
+
+    overtake: bool = False
+    """Overtake current value"""
 
     token: int | None = None
-    """
-    Corresponding synth token for future synths
-    """
+    """Corresponding synth token for future synths"""
 
     def copy(self) -> SynthAutomation:
         return SynthAutomation(param=self.param,
                                data=self.data.copy(),
                                delay=self.delay,
                                interpolation=self.interpolation,
-                               token=self.token)
+                               token=self.token,
+                               overtake=overtake)
 
     @property
     def start(self) -> float:
@@ -214,7 +218,8 @@ class SynthAutomation:
     def end(self) -> float:
         return self.delay + self.data[-2]
 
-    def cropped(self, start: float, end: float) -> SynthAutomation | None:
+    def cropped(self, start: float, end: float, overtake: bool = None
+                ) -> SynthAutomation | None:
         """
         Copy of this synth automation cropped between (start, end)
 
@@ -228,10 +233,13 @@ class SynthAutomation:
         bps = list(iterlib.window(self.data, 2, 2))
         bps = _tools.cropBreakpoints(bps, start - self.delay, end - self.delay)
         # delay = max(0., self.delay - start)
-        delay = start
         data = _flattenBreakpoints(bps)
-        return SynthAutomation(param=self.param, data=data, delay=delay, interpolation=self.interpolation,
-                               token=self.token)
+        return SynthAutomation(param=self.param,
+                               data=data,
+                               delay=start,
+                               interpolation=self.interpolation,
+                               token=self.token,
+                               overtake=overtake if overtake is not None else self.overtake)
 
 
 def _flattenBreakpoints(bps: list[Sequence[num_t]]) -> list[num_t]:
