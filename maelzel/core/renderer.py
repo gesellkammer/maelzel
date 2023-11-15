@@ -2,9 +2,12 @@
 Interface for audio rendering (base class for realtime and offline)
 """
 from __future__ import annotations
+from abc import abstractmethod, ABC
+
 import numpy as np
 import csoundengine
-from csoundengine.session import SessionEvent
+
+import csoundengine.event
 
 from maelzel.core import presetdef
 from maelzel.core import synthevent
@@ -14,7 +17,7 @@ from . import environment
 from typing import Callable, Sequence
 
 
-class Renderer:
+class Renderer(ABC):
 
     def __init__(self, presetManager: PresetManager):
         self.registeredPresets: dict[str, presetdef.PresetDef] = {}
@@ -29,15 +32,19 @@ class Renderer:
             from IPython.display import display
             display(self)
 
+    @abstractmethod
     def isRealtime(self) -> bool:
         """Is this renderer working in real-time?"""
         raise NotImplementedError
 
-    def assignBus(self, kind='', value: float | None = None, persist=False) -> int:
+    @abstractmethod
+    def assignBus(self, kind='', value: float | None = None, persist=False
+                  ) -> csoundengine.busproxy.Bus:
         """Assign a bus"""
         raise NotImplementedError
 
-    def releaseBus(self, busnum: int) -> None:
+    @abstractmethod
+    def releaseBus(self, bus: int | csoundengine.busproxy.Bus) -> None:
         """
         Release a previously assigned bus
 
@@ -47,7 +54,7 @@ class Renderer:
 
     def prepareEvents(self,
                       events: list[synthevent.SynthEvent],
-                      sessionevents: list[csoundengine.session.SessionEvent] = None
+                      sessionevents: list[csoundengine.event.Event] = None
                       ) -> bool:
         """
         Prepare a series of events for scheduling
@@ -111,12 +118,13 @@ class Renderer:
             event.initialize(self)
         return needssync
 
-    def prepareSessionEvent(self, sessionevent: SessionEvent) -> bool:
+    @abstractmethod
+    def prepareSessionEvent(self, event: csoundengine.event.Event) -> bool:
         """
-        Prepare a SessionEvent for scheduling
+        Prepare a csound event for scheduling
 
         Args:
-            sessionevent: the event to preare
+            event: the event to preare
 
         Returns:
             True if the backend needs sync
@@ -147,6 +155,7 @@ class Renderer:
         needssync |= self.prepareInstr(instr, priority)
         return needssync
 
+    @abstractmethod
     def prepareInstr(self, instr: csoundengine.instr.Instr, priority: int
                      ) -> bool:
         """
@@ -160,7 +169,7 @@ class Renderer:
             True if the audio engine performaed an action, False if the instrument
             was already prepared at the given priority
         """
-        pass
+        raise NotImplementedError
 
     def sync(self) -> None:
         """
@@ -168,35 +177,41 @@ class Renderer:
         """
         return
 
-    def getInstr(self, instrname: str):
+    @abstractmethod
+    def getInstr(self, instrname: str) -> csoundengine.instr.Instr:
         """Get the Instr corresponding to the instr name"""
         raise NotImplementedError
 
+    @abstractmethod
     def registerPreset(self, presetdef: presetdef.PresetDef) -> bool:
         """Register a Preset at this renderer"""
         raise NotImplementedError
 
-    def schedSessionEvent(self, event: SessionEvent):
+    @abstractmethod
+    def _schedSessionEvent(self, event: csoundengine.event.Event):
         """Schedule a session event"""
         raise NotImplementedError
 
+    @abstractmethod
     def getSynth(self, token: int) -> csoundengine.synth.Synth | None:
         raise NotImplementedError
 
-    def schedEvent(self, event: synthevent.SynthEvent):
+    @abstractmethod
+    def schedEvent(self, event: synthevent.SynthEvent | csoundengine.event.Event):
         """Schedule a synthevent"""
         raise NotImplementedError
 
+    @abstractmethod
     def schedEvents(self,
                     coreevents: list[synthevent.SynthEvent],
-                    sessionevents: list[SessionEvent] = None,
+                    sessionevents: list[csoundengine.event.Event] = None,
                     whenfinished: Callable = None):
         """
         Schedule multiple events simultanously
 
         Args:
             coreevents: the synth events to schedule
-            sessionevents: the session events to schedule
+            sessionevents: the csound events to schedule
             whenfinished: a function to call when scheduling is finished
 
         Returns:
@@ -204,10 +219,12 @@ class Renderer:
         """
         raise NotImplementedError
 
+    @abstractmethod
     def includeFile(self, path: str) -> None:
         """Add an #include clause to this renderer"""
         raise NotImplementedError
 
+    @abstractmethod
     def makeTable(self,
                   data: np.ndarray | list[float] | None = None,
                   size: int = 0,
@@ -217,6 +234,7 @@ class Renderer:
         """Create a Table to be used within this renderer"""
         raise NotImplementedError
 
+    @abstractmethod
     def sched(self,
               instrname: str,
               delay: float,
@@ -229,8 +247,10 @@ class Renderer:
         """
         Schedule an instrument
 
+        This method schedules a csound event
+
         Args:
-            instrname: the name of the preset
+            instrname: the name of the instrument
             delay: start time
             dur: duration of the event. -1 to not set a duration
             args: a list of positional arguments, or a dict of named arguments
@@ -245,11 +265,11 @@ class Renderer:
         """
         raise NotImplementedError
 
-    def dummy(self, dur=0.001):
+    def schedDummyEvent(self, dur=0.001):
         """
         Schedule a dummy synth
         """
-        raise NotImplementedError
+        pass
 
     def pushLock(self):
         """Lock the audio engine"""

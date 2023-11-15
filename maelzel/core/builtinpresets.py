@@ -226,23 +226,22 @@ builtinPresets = [
         reshapearray gi__formantBws__, 5, 5
         """,
         audiogen=r"""
-        |kx=0, ky=0, kvibamount=1, ivibstart=0.5, ivibfreq=4.5, ivibrange=0.25, ipitchlag=0.2|
+        |kx=0, ky=0, kvibrange=0.25, kvibfreq=4.5, ivibstart=0.5, ipitchlag=0.2|
         ; Simple vowel singing simulation
         ; Args:
         ;   kx: x coordinate, from 0 to 1, A=(0;0), E=(0.5;0.5), I=(1;0), O=(0;1), U=(1;1)
         ;   ky: y coordinate, from 0 to 1, A=(0;0), E=(0.5;0.5), I=(1;0), O=(0;1), U=(1;1)
-        ;   kvibamount: vibrato amount, 0 to 1
+        ;   kvibrange: vibrato range in semitones
         ;   ivibstart: start time of vibrato
         ;   ivibfreq: vibrato frequency
-        ;   ivibrange: vibrato range in semitones
         ;   ipitchlag: time lag for pitch modifications
         
         knoVib = lag:k(trighold(changed2(kpitch), ivibstart*0.8), ivibstart*0.2)
-        
-        kvibfreq = linseg:k(0, ivibstart*0.25, 0, ivibstart*0.75, ivibfreq) * randomi:k(0.9, 1.1, 2) * (1 - knoVib)
-        kvibsemi = linseg:k(0, ivibstart*0.2, 0, ivibstart*0.8, ivibrange) * randomi:k(0.9, 1.1, 10)
-        kvib = oscil:k(kvibsemi/2, kvibfreq) - kvibsemi/2
-        kpitch2 = lag:k(kpitch, ipitchlag) + kvib*kvibamount
+        kvibfreq2 = linseg:k(0, ivibstart*0.25, 0, ivibstart*0.75, 1) * randomi:k(0.9, 1.1, 2) * (1 - knoVib) * kvibfreq 
+        kvibamount = linseg:k(0, ivibstart*0.2, 0, ivibstart*0.8, 1) * randomi:k(0.9, 1.1, 10)
+        kvibsemi = kvibamount * kvibrange
+        kvib = oscil:k(kvibsemi/2, kvibfreq2) - kvibsemi/2
+        kpitch2 = lag:k(kpitch, ipitchlag) + kvib
         asource = butterlp:a(vco2:a(kamp, mtof(kpitch2)), 5000)
         kcoords[] fillarray 0, 0, 1,       \  ; A
                             0.5, 0.5, 0.3, \  ; E

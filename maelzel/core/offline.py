@@ -334,8 +334,8 @@ class OfflineRenderer(renderer.Renderer):
         """
         pass
 
-    def schedSessionEvent(self, event: csoundengine.session.SessionEvent
-                          ) -> csoundengine.offline.SchedEvent:
+    def _schedSessionEvent(self, event: csoundengine.event.Event
+                           ) -> csoundengine.offline.SchedEvent:
         """
         Schedule a Session event at this renderer
 
@@ -356,7 +356,7 @@ class OfflineRenderer(renderer.Renderer):
                           args=event.args,
                           **kws)
 
-    def schedEvent(self, event: SynthEvent
+    def schedEvent(self, event: SynthEvent | csoundengine.event.Event
                    ) -> csoundengine.offline.SchedEvent:
         """
         Schedule a SynthEvent or a SessionEvent
@@ -368,23 +368,28 @@ class OfflineRenderer(renderer.Renderer):
             a ScoreEvent
 
         """
-        if event.initfunc:
-            event.initfunc(event, self)
-        presetname = event.instr
-        instr = self.instrs.get(presetname)
-        if instr is None:
-            preset = self.presetManager.getPreset(presetname)
-            if not preset:
-                raise ValueError(f"Unknown preset instr: {presetname}")
-            self.preparePreset(preset, event.priority)
-            instr = preset.getInstr()
-        pfields5, dynargs = event._resolveParams(instr)
-        return self.csoundRenderer.sched(instrname=instr.name,
-                                         delay=event.delay,
-                                         dur=event.dur,
-                                         args=pfields5,
-                                         priority=event.priority,
-                                         **dynargs)
+        if isinstance(event, csoundengine.event.Event):
+            return self._schedSessionEvent(event)
+        elif isinstance(event, SynthEvent):
+            if event.initfunc:
+                event.initfunc(event, self)
+            presetname = event.instr
+            instr = self.instrs.get(presetname)
+            if instr is None:
+                preset = self.presetManager.getPreset(presetname)
+                if not preset:
+                    raise ValueError(f"Unknown preset instr: {presetname}")
+                self.preparePreset(preset, event.priority)
+                instr = preset.getInstr()
+            pfields5, dynargs = event._resolveParams(instr)
+            return self.csoundRenderer.sched(instrname=instr.name,
+                                             delay=event.delay,
+                                             dur=event.dur,
+                                             args=pfields5,
+                                             priority=event.priority,
+                                             **dynargs)
+        else:
+            raise TypeError(f"Expected a SynthEvent or a csound event, got {event}")
 
     def schedEvents(self,
                     coreevents: list[SynthEvent],
@@ -415,7 +420,7 @@ class OfflineRenderer(renderer.Renderer):
         """
         scoreEvents = [self.schedEvent(ev) for ev in coreevents]
         if sessionevents:
-            scoreEvents.extend(self.schedSessionEvent(ev) for ev in sessionevents)
+            scoreEvents.extend(self._schedSessionEvent(ev) for ev in sessionevents)
         return csoundengine.offline.EventGroup(scoreEvents)
 
     def definedInstrs(self) -> dict[str, csoundengine.Instr]:
@@ -672,7 +677,7 @@ class OfflineRenderer(renderer.Renderer):
         self._workspace.renderer = self
 
         self._session = session = playback.playSession()
-        self._oldSessionSchedCallback = session.setSchedCallback(self.sched)
+        self._oldSessionSchedCallback = session.setSchedCallback(self.schedEvent)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -759,9 +764,8 @@ def render(outfile: str = None,
            quiet: bool = None,
            nchnls: int = None,
            workspace: Workspace = None,
-           extratime: float = None,
+           tail: float = None,
            run=True,
-           tail=0.,
            **kws
            ) -> OfflineRenderer:
     """
@@ -782,7 +786,7 @@ def render(outfile: str = None,
         outfile: the generated file. If None, a file inside the recording
             path is created (see `recordPath`). Use "?" to save via a GUI dialog or
         events: the events/objects to play. This can only be left unset if using ``render``
-            as a context manager (see example)
+            as a context manager (see example).
         sr: sample rate of the soundfile (:ref:`config 'rec.sr' <config_rec_sr>`)
         ksmps: number of samples per cycle (:ref:`config 'rec.ksmps' <config_rec_ksmps>`)
         nchnls: number of channels of the rendered soundfile
@@ -790,7 +794,8 @@ def render(outfile: str = None,
             use the :ref:`config 'rec.blocking' <config_rec_blocking>`
         quiet: if True, supress debug information when calling
             the csound subprocess
-        extratime: extra time added at the end of the render to allow
+        tail: extra time added at the end of the render, usefull when rendering reverbs or
+            long decaying sound. If None, uses use :ref:`config 'rec.extratime' <config_rec_extratime>`
         run: if True, perform the render itself
         tail: extra time at the end, usefull when rendering reverbs or long deaying sounds
         workspace: if given, this workspace overrides the active workspace
@@ -805,33 +810,33 @@ def render(outfile: str = None,
 
         >>> a = Chord("A4 C5", start=1, dur=2)
         >>> b = Note("G#4", dur=4)
-        >>> events = sum([
-        ...     a.events(chan=1),
+        >>> render("out.wav", events=[
+        ...     a.events(chain=1),
         ...     b.events(chan=2, gain=0.2)
-        ... ], [])
-        >>> render("out.wav", events)
+        ... ])
 
-    This can be used also as a context manager (in this case events must be None):
+    This function can be also used as a context manager, similar to
+    :func:`maelzel.playback.play`. In that case `events` must be ``None``:
 
         >>> from maelzel.core import *
         >>> scale = Chain([Note(n) for n in "4C 4D 4E 4F 4G".split()])
-        >>> playback.playSession().defInstr('reverb', r'''
+        >>> playSession().defInstr('reverb', r'''
         ... |kfeedback=0.6|
         ... amon1, amon2 monitor
         ... a1, a2 reverbsc amon1, amon2, kfeedback, 12000, sr, 0.6
         ... outch 1, a1-amon1, 2, a2-amon2
         ... ''')
-        >>> presetManager.defPresetSoundfont('piano', '/path/to/piano.sf2')
         >>> with render() as r:
-        ...     scale.play('piano')
-        ...     r._sched('reverb', priority=2)
+        ...     scale.play('.piano')   # .play here is redirected to the offline renderer
+        ...     r.sched('reverb', priority=2)
 
 
-    See Also
-    ~~~~~~~~
-
-    :class:`OfflineRenderer`
+    .. seealso:: :class:`OfflineRenderer`, :func:`maelzel.playback.play`
     """
+    if tail is None:
+        cfg = Workspace.active.config
+        tail = cfg['rec.extratime']
+
     if not events:
         # called as a context manager
         return OfflineRenderer(outfile=outfile, sr=sr, numchannels=nchnls, verbose=quiet,
@@ -840,23 +845,14 @@ def render(outfile: str = None,
     coreEvents, sessionEvents = _playbacktools.collectEvents(events, eventparams=kws, workspace=workspace)
     if not nchnls:
         nchnls = max(int(ceil(ev.resolvedPosition() + ev.chan)) for ev in coreEvents)
-    renderer = OfflineRenderer(sr=sr, ksmps=ksmps, numchannels=nchnls)
+    renderer = OfflineRenderer(sr=sr, ksmps=ksmps, numchannels=nchnls, tail=tail)
     if coreEvents:
         renderer.schedEvents(coreEvents)
 
     if sessionEvents:
         for sessionevent in sessionEvents:
-            renderer.schedSessionEvent(sessionevent)
+            renderer._schedSessionEvent(sessionevent)
 
-    if extratime is None:
-        cfg = Workspace.active.config
-        extratime = cfg['rec.extratime']
-
-    if extratime:
-        _, endtime = renderer.timeRange()
-        endtime += extratime
-    else:
-        endtime = 0.
     if run:
-        renderer.render(outfile=outfile, wait=wait, verbose=quiet, endtime=endtime)
+        renderer.render(outfile=outfile, wait=wait, verbose=quiet)
     return renderer

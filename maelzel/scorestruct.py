@@ -1352,6 +1352,18 @@ class ScoreStruct:
             rest = beat - self._beatOffsets[idx]
             return idx, rest
 
+    def b2t(self, beat: num_t) -> F:
+        """Beat to time"""
+        meas, beat = self.beatToLocation(beat)
+        return self.locationToTime(meas, beat)
+
+    def t2b(self, t: num_t) -> F:
+        """Time to beat"""
+        meas, beat = self.timeToLocation(t)
+        if meas is None:
+            raise ValueError(f"time {t} outside score")
+        return self.locationToBeat(meas, beat)
+
     def beatToTime(self, beat: num_t) -> F:
         """
         Convert beat-time to real-time

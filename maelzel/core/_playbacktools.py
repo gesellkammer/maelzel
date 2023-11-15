@@ -8,10 +8,10 @@ import os
 import math
 
 
-def collectEvents(events: Sequence[mc.MObj | list[SynthEvent]],
-                   eventparams: dict,
-                   workspace: mc.workspace.Workspace
-                   ) -> tuple[list[SynthEvent], list[csoundengine.session.SessionEvent]]:
+def collectEvents(events: Sequence[mc.MObj | Sequence[SynthEvent] | csoundengine.event.Event],
+                  eventparams: dict,
+                  workspace: mc.workspace.Workspace
+                  ) -> tuple[list[SynthEvent], list[csoundengine.event.Event]]:
     synthevents = []
     sessionevents = []
     for ev in events:
@@ -24,7 +24,7 @@ def collectEvents(events: Sequence[mc.MObj | list[SynthEvent]],
                 sessionevents.extend(sessionevs)
         elif isinstance(ev, SynthEvent):
             synthevents.append(ev)
-        elif isinstance(ev, csoundengine.session.SessionEvent):
+        elif isinstance(ev, csoundengine.event.Event):
             sessionevents.append(ev)
         else:
             synthevents.extend(ev.events(workspace=workspace, **eventparams))

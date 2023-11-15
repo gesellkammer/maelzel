@@ -18,6 +18,7 @@ from maelzel.common import F, F0
 from maelzel._util import humanReadableTime, showF
 
 from .common import *
+from maelzel.common import hasoverlap
 
 from . import core
 from . import definitions
@@ -1223,7 +1224,7 @@ def breakIrregularDuration(n: Notation,
     for subn in subns:
         # find the subdivision
         for timespan, numslots in subdivisions:
-            if mathlib.intersection(timespan[0], timespan[1], subn.offset, subn.end) is not None:
+            if hasoverlap(timespan[0], timespan[1], subn.offset, subn.end):
                 parts = breakIrregularDuration(n=subn, beatDur=divDuration, beatDivision=numslots,
                                                beatOffset=timespan[0])
                 if parts is None:

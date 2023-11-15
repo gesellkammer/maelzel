@@ -430,10 +430,13 @@ class PresetDef:
         if not Workspace.active.config['jupyterHtmlRepr']:
             return f'<pre style="font-size: 0.9em">{self.__repr__()}</pre>'
 
+        span = _tools.htmlSpan
+        faintcolor = ':grey2'
+
         if self.description:
-            descr = _tools.htmlSpan(self.description, italic=True, color=':grey3')
+            descr = span(self.description, italic=True, color=faintcolor)
         elif self.parsedAudiogen.shortdescr:
-            descr = _tools.htmlSpan(self.parsedAudiogen.shortdescr, italic=True, color=':grey3')
+            descr = span(self.parsedAudiogen.shortdescr, italic=True, color=faintcolor)
         else:
             descr = ''
         header = f"Preset: <b>{self.name}</b>"
@@ -441,6 +444,7 @@ class PresetDef:
             header += f' - {descr}'
         ps = [header, '<br>']
         info = []
+
         if self.routing:
             info.append(f"routing={self.routing}")
 
@@ -450,46 +454,54 @@ class PresetDef:
             info.append(f"includes={self.includes}")
         info.append(f"numouts={self.numouts}, numsignals={self.numsignals}")
 
-        fontsize = "92%"
+        normalfont = '96%'
+        smallfont = '90%'
+        headerfont = normalfont
+        codefont =  smallfont
+        argsfont = smallfont
+        fontsize = normalfont
+
+        def header(text):
+            return span(text, fontsize=headerfont, bold=True)
 
         if info:
             infostr = "(" + ', '.join(info) + ")\n"
-            ps.append(f"<code>{_INSTR_INDENT}{_tools.htmlSpan(infostr, color=':grey1', fontsize=fontsize)}</code>")
+            ps.append(f'<code style="font-size: {smallfont}">{_INSTR_INDENT}{span(infostr, color=faintcolor, fontsize=fontsize)}</code>')
 
         if self.parsedAudiogen.argdocs:
-            ps.append('<ul>')
+            ps.append('<ul style="line-height: 120%">')
             for argname, argdoc in self.parsedAudiogen.argdocs.items():
-                ps.append(f'<li>{argname}: {argdoc}</li>')
+                ps.append(f'<li>{span(argname, fontsize=argsfont, bold=True)}: {span(argdoc, fontsize=argsfont, italic=True)}</li>')
             ps.append('</ul>')
 
         if self.init:
-            init = _textwrap.indent(self.init, _INSTR_INDENT)
-            html = csoundengine.csoundlib.highlightCsoundOrc(init, theme=theme)
-            html = _tools.htmlSpan(html, fontsize=fontsize)
-            ps.append(rf"init: {html}")
-            ps.append("audiogen:")
+            init = _textlib.reindent(self.init, _INSTR_INDENT)
+            inithtml = csoundengine.csoundlib.highlightCsoundOrc(init, theme=theme)
+            ps.append(header('init'))
+            ps.append(span(inithtml, fontsize=codefont))
+
+        ps.append(header("audiogen"))
         if self.args:
             argstr = ", ".join(f"{key}={value}" for key, value in self.args.items())
             argstr = f"{_INSTR_INDENT}|{argstr}|"
             arghtml = csoundengine.csoundlib.highlightCsoundOrc(argstr, theme=theme)
-            arghtml = _tools.htmlSpan(arghtml, fontsize=fontsize)
-            ps.append(arghtml)
+            ps.append(span(arghtml, fontsize=codefont))
         # TODO: solve how to generate body at this stage
         instr = self.getInstr()
         body = self.audiogen if not showGeneratedCode else csoundengine.session.Session.defaultInstrBody(instr)
         body = _textwrap.indent(body, _INSTR_INDENT)
         bodyhtml = csoundengine.csoundlib.highlightCsoundOrc(body, theme=theme)
-        bodyhtml = _tools.htmlSpan(bodyhtml, fontsize=fontsize)
-        ps.append(bodyhtml)
+        ps.append(span(bodyhtml, fontsize=codefont))
+
         if self.epilogue:
-            ps.append("epilogue:")
+            ps.append(header("epilogue"))
             epilogue = _textwrap.indent(self.epilogue, _INSTR_INDENT)
             html = csoundengine.csoundlib.highlightCsoundOrc(epilogue, theme=theme)
-            html = _tools.htmlSpan(html, fontsize=fontsize)
+            html = span(html, fontsize=codefont)
             ps.append(html)
         return "\n".join(ps)
 
-    def getInstr(self) -> csoundengine.Instr:
+    def getInstr(self) -> csoundengine.instr.Instr:
         """
         Returns the csoundengine's Instr corresponding to this PresetDef
 

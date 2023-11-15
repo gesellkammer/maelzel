@@ -1,6 +1,6 @@
 from __future__ import annotations
 from .partial import Partial
-from emlib.mathlib import intersection
+from maelzel._util import hasoverlap
 from emlib import iterlib
 import pitchtools as pt
 import bisect
@@ -9,11 +9,6 @@ import bisect
 __all__ = (
     'Track'
 )
-
-
-def _overlap(x0: float, x1: float, y0: float, y1: float) -> bool:
-    """ do (x0, x1) and (y0, y1) overlap? """
-    return x1 > y0 if x0 < y0 else y1 > x0
 
 
 class Track:
@@ -82,7 +77,7 @@ class Track:
 
         p0index = bisect.bisect_left(self._starts, end) - 1
         p0 = self.partials[p0index]
-        return not _overlap(p0.start, p0.end, start, end)
+        return not hasoverlap(p0.start, p0.end, start, end)
 
     def partialBefore(self, t: float) -> int | None:
         """
@@ -100,11 +95,6 @@ class Track:
         assert idx >= 0
         assert self.partials[idx].start <= t, f"{t=:.4f}, {idx=}, partial={self.partials[idx]}, partials={self.partials}"
         return idx
-
-        #for idx, p in iterlib.reversed_enumerate(self.partials):
-        #    if p.end < t:
-        #        return idx
-        #return None
 
     def dump(self):
         from emlib import misc

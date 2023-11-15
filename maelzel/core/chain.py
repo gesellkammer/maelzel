@@ -21,7 +21,6 @@ from maelzel import scoring
 from maelzel.colortheory import safeColors
 
 from emlib import iterlib
-from emlib import mathlib
 
 from typing import TYPE_CHECKING, overload
 if TYPE_CHECKING:
@@ -490,14 +489,15 @@ class Chain(MObj, MContainer):
             for automation in self.playargs.automations.values():
                 startsecs, endsecs = automation.absTimeRange(parentOffset=offset, scorestruct=scorestruct)
                 for ev in synthevents:
-                    if (intersect := mathlib.intersection(float(startsecs), float(endsecs),
-                                                          ev.delay, ev.end)) is not None:
-                        preset = presetmanager.presetManager.getPreset(ev.instr)
-                        if automation.param in preset.dynamicParams(aliases=True, aliased=True):
-                            if ev.automations is None:
-                                ev.automations = {}
-                            synthautom = automation.makeSynthAutomation(scorestruct=scorestruct, parentOffset=offset)
-                            ev.automations[synthautom.param] = synthautom.cropped(intersect[0], intersect[1])
+                    overlap0, overlap1 = _util.overlap(float(startsecs), float(endsecs), ev.delay, ev.end)
+                    if overlap0 > overlap1:
+                        continue
+                    preset = presetmanager.presetManager.getPreset(ev.instr)
+                    if automation.param in preset.dynamicParams(aliases=True, aliased=True):
+                        if ev.automations is None:
+                            ev.automations = {}
+                        synthautom = automation.makeSynthAutomation(scorestruct=scorestruct, parentOffset=offset)
+                        ev.automations[synthautom.param] = synthautom.cropped(overlapß, overlap1)
 
         return synthevents
 

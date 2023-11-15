@@ -11,6 +11,8 @@ from ._common import logger, F
 from typing import TYPE_CHECKING
 from maelzel.core import renderer
 from maelzel.core.automation import Automation, SynthAutomation
+from maelzel.core import presetmanager
+from maelzel.core import presetdef
 import csoundengine
 
 if TYPE_CHECKING:
@@ -323,9 +325,9 @@ class _AutomationSegment:
     builtin-in playback arguments, like position, or instrument defined
     parameters.
 
-    A user never created automation segments: these are created when
-    multiple events are merged within a chain/voice. In this case
-    each event generated synthe events, these are sorted into lines
+    A user never creates automation segments: these are created when
+    multiple events are merged within a chain/voice. Each event within
+    a chain/voice generates synth events; these are sorted into lines
     of subsequent synthevents, which are merged into one synthevent.
     Changes to pitch and amplitude are represented as breakpoints and
     modulations of any dynamic parameter are collected as automation
@@ -539,7 +541,25 @@ class SynthEvent:
         if self.dur <= 0:
             raise ValueError(f"Duration of a synth event must be possitive: {self}")
 
-    def initialize(self, renderer):
+    def getPreset(self) -> presetdef.PresetDef:
+        return presetmanager.presetManager.getPreset(self.instr)
+
+    def paramValue(self, param: str):
+        instr = self.getInstr()
+        param2 = instr.unaliasParam(param, param)
+        if param2 in self.args:
+            return self.args[param2]
+        defaults = instr.paramDefaultValues()
+        value = defaults.get(param)
+        if value is None:
+            raise KeyError(f"Unknown parameter '{param}', "
+                           f"possible parameters: {defualts.keys()}")
+        return value
+
+    def getInstr(self) -> csoundengine.instr.Instr:
+        return self.getPreset().getInstr()
+
+    def initialize(self, renderer) -> None:
         if not self._initdone and self.initfunc:
             self.initfunc(self, renderer)
 
@@ -774,7 +794,7 @@ class SynthEvent:
 
         """
         return [event.cropped(skip, end) for event in events
-                if mathlib.intersection(skip, end, event.delay, event.end) is not None]
+                if mathlib.hasintersect(skip, end, event.delay, event.end)]
 
     @staticmethod
     def plotEvents(events: list[SynthEvent], axes: plt.Axes = None, notenames=False
@@ -839,7 +859,8 @@ class SynthEvent:
         return out
 
     def _resolveParams(self: SynthEvent,
-                       instr: csoundengine.instr.Instr):
+                       instr: csoundengine.instr.Instr
+                       ) -> tuple[list[float | str], dict[str, float]]:
         """
         Resolves the values for pfields and dynamic params
 
@@ -1098,15 +1119,18 @@ def mergeEvents(events: Sequence[SynthEvent]) -> SynthEvent:
     for event in restevents:
         offset = event.delay - mergedevent.delay
         if event.args:
-            diff = _dictdiff(argstate, event.args)
-            for k, v in diff.items():
-                automation = _AutomationSegment(param=k,
-                                                time=offset,
-                                                value=v,
-                                                prevalue=argstate.get(k),
-                                                pretime=lastoffset,
-                                                kind='arg')
-                automationPoints.append(automation)
+            assert event.instr
+            instr = presetmanager.presetManager.getInstr(event.instr)
+            dynparams = instr.dynamicParams()
+            for k, v in event.args.items():
+                if k in dynparams:
+                    automation = _AutomationSegment(param=k,
+                                                    time=offset,
+                                                    value=v,
+                                                    prevalue=argstate.get(k, dynparams[k]),
+                                                    pretime=lastoffset,
+                                                    kind='arg')
+                    automationPoints.append(automation)
             argstate = mergedevent.args | event.args
         for attr in SynthEvent.dynamicAttributes:
             value = getattr(event, attr, None)
@@ -1124,16 +1148,4 @@ def mergeEvents(events: Sequence[SynthEvent]) -> SynthEvent:
         lastoffset = offset
     mergedevent.automationSegments = automationPoints
     return mergedevent
-
-
-def _dictdiff(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
-    """
-    Returns the diff from a to b
-
-    {1: 10, 2:20}  {1:100, 3:30}  -> {1:100, 3:30}
-
-    """
-    c = a | b
-    return {k: v for k, v in c.items() if k in b}
-
 

@@ -59,13 +59,13 @@ setup(
         # "resampy",  # Do not include it by default, since this pulls numba
         "python-constraint",
 
-        "emlib>=1.13.1",
+        "emlib>=1.14.0",
         "ctcsound7>=0.4.6",
         "bpf4>=1.8.4",
         "configdict>=2.7.0",
         "sndfileio>=1.9.1",
         "numpyx>=1.3.1",
-        "csoundengine>=2.3.0",
+        "csoundengine>=2.4.1",
         "pitchtools>=1.11.0",
         "risset>=2.4.1",
         "loristrck>=1.5.6",

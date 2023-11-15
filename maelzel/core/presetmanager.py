@@ -11,6 +11,8 @@ import emlib.misc
 import fnmatch
 import glob
 import csoundengine.csoundlib
+import csoundengine
+
 from .presetdef import PresetDef
 from .workspace import Workspace
 from . import presetutils
@@ -84,18 +86,24 @@ class PresetManager:
     and any number of such Presets can be created.
 
     """
-    _numinstances = 0
+    _instance: PresetManager | None = None
     csoundPrelude = _csoundPrelude
 
     def __init__(self):
-        if self._numinstances > 0:
+        if self._instance is not None:
             raise RuntimeError("Only one PresetManager should be active")
-        self._numinstances = 1
         self.presetdefs: dict[str, PresetDef] = {}
         self.presetsPath = Workspace.presetsPath()
         self._prepareEnvironment()
         self._makeBuiltinPresets()
         self.loadPresets()
+        self._instance = self
+
+    @staticmethod
+    def instance():
+        if PresetManager._instance is not None:
+            return PresetManager._instance
+        return PresetManager()
 
     def loadPresets(self) -> None:
         """
@@ -708,7 +716,7 @@ class PresetManager:
         return _dialogs.selectFromList(self.definedPresets(), title="Select Preset")
 
 
-presetManager = PresetManager()
+presetManager = PresetManager.instance()
 
 defPreset = presetManager.defPreset
 defPresetSoundfont = presetManager.defPresetSoundfont

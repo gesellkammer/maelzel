@@ -65,6 +65,7 @@ from . import notation
 from . import symbols as _symbols
 from . import _dialogs
 from . import _tools
+from . import presetmanager
 
 from maelzel import scoring
 from maelzel.scorestruct import ScoreStruct
@@ -294,20 +295,23 @@ class MObj:
             self.properties[key] = value
         return self
 
-    def getPlay(self, key: str, default=None):
+    def getPlay(self, key: str, default=None, recursive=True):
         """
         Get a playback attribute previously set via :meth:`MObj.setPlay`
 
         Args:
             key: the key (see  setPlay for possible keys)
             default: the value to return if the given key has not been set
-
+            recursive: if True, search the given attribute up the parent chain
         Returns:
             either the value previously set, or default otherwise.
         """
-        if not self.playargs:
+        value = self.playargs.get(key) if self.playargs else None
+        if value is not None:
+            return value
+        if not recursive or not self.parent:
             return default
-        return self.playargs.get(key, default)
+        return self.parent.getPlay(key, default=default, recursive=True)
 
     def getProperty(self, key: str, default=None):
         """
@@ -524,6 +528,38 @@ class MObj:
             if not self.gliss:
                 self.gliss = True
                 self.addSymbol(_symbols.GlissProperties(hidden=True))
+        extrakeys = set(kws.keys()).difference(PlayArgs.playkeys)
+        # set extrakeys as args, without checking the instrument
+        if extrakeys:
+            args = kws.get('args')
+            if args:
+                for k in extrakeys:
+                    args[k] = kws[k]
+            else:
+                kws['args'] = {k: kws[k] for k in extrakeys}
+            for k in extrakeys:
+                kws.pop(k)
+
+        # if extrakeys:
+        #     presetname = self.getPlay('instr', recursive=True)
+        #     if not presetname:
+        #         raise ValueError(f"Unknown keys: {extrakeys}. Possible keys: {PlayArgs.playkeys}")
+        #     preset = presetmanager.presetManager.getPreset(presetname)
+        #     if not preset:
+        #         raise ValueError(f"Preset '{presetname}' not defined. "
+        #                          f"Available presets: {presetmanager.presetManager.definedPresets()}")
+        #     kwargs = {}
+        #     params = preset.getInstr().paramNames(aliases=True, aliased=True)
+        #     for badkey in extrakeys:
+        #         if badkey in params:
+        #             kwargs[badkey] = kws[badkey]
+        #         else:
+        #             raise KeyError(f"Unknown key '{badkey}'. Possible keys: {PlayArgs.playkeys} or {params}")
+        #     args = kws.get('args')
+        #     if args:
+        #         args.update(kwargs)
+        #     else:
+        #         kws['args'] = kwargs
         playargs.update(kws)
         return self
 
@@ -1160,27 +1196,11 @@ class MObj:
             if not instr:
                 raise ValueError("No preset selected")
 
-        pairs = (
-            ('instr', instr),
-            ('delay', delay),
-            ('args', args),
-            ('gain', gain),
-            ('chan', chan),
-            ('pitchinterpol', pitchinterpol),
-            ('fade', fade),
-            ('fadeshape', fadeshape),
-            ('position', position),
-            ('sustain', sustain),
-            ('transpose', transpose),
-        )
-
-        d = {k: v for k, v in pairs if v is not None}
-
         if kwargs:
             if args:
                 args.update(kwargs)
             else:
-                d['args'] = kwargs
+                args = kwargs
 
         if workspace is None:
             workspace = Workspace.active
@@ -1189,23 +1209,42 @@ class MObj:
             workspace = workspace.clone(scorestruct=struct, config=workspace.config)
 
         playargs = PlayArgs.makeDefault(workspace.config)
-        if d:
-            playargs.update(d)
+        db = playargs.db
 
-        parentOffset = self.parent.absOffset() if self.parent else F(0)
+        if instr:
+            db['instr'] = instr
+        if delay is not None:
+            db['delay'] = delay
+        if args is not None:
+            db['args'] = args
+        if gain is not None:
+            db['gain'] = gain
+        if chan is not None:
+            db['chan'] = chan
+        if pitchinterpol is not None:
+            db['pitchinterpol'] = pitchinterpol
+        if fadeshape is not None:
+            db['fadeshape'] = fadeshape
+        if position is not None:
+            db['position'] = position
+        if sustain is not None:
+            db['sustain'] = sustain
+        if transpose is not None:
+            db['transpose'] = transpose
 
-        events = self._synthEvents(playargs=playargs, parentOffset=parentOffset,
+        events = self._synthEvents(playargs=playargs,
+                                   parentOffset=self.parent.absOffset() if self.parent else F(0),
                                    workspace=workspace)
 
         if skip is not None or end is not None:
-            delay = playargs.get('delay')
+            delay = playargs['delay']
             struct = workspace.scorestruct
             skiptime = 0. if skip is None else struct.beatToTime(skip)
             endtime = float("inf") if end is None else struct.beatToTime(end)
             events = SynthEvent.cropEvents(events, skip=skiptime+delay, end=endtime+delay)
 
-        if event := next((ev for ev in events if ev.delay < 0), None):
-            raise ValueError(f"Events cannot have negative delay, event={event}")
+        if any(ev.delay < 0 for ev in events):
+            raise ValueError(f"Events cannot have negative delay, events={events}")
 
         return events
 
@@ -1400,7 +1439,7 @@ class MObj:
                              workspace=workspace,
                              **kws)
         return offline.render(outfile=outfile, events=events, sr=sr, wait=wait,
-                              quiet=quiet, nchnls=nchnls, extratime=extratime)
+                              quiet=quiet, nchnls=nchnls, tail=extratime)
 
     def isRest(self) -> bool:
         """

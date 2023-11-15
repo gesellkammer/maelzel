@@ -18,11 +18,6 @@ import bisect
 from math import sqrt
 
 
-def _overlap(x0: F | float, x1: F | float, y0: F | float, y1: F | float) -> bool:
-    """ do (x0, x1) and (y0, y1) overlap? """
-    return x1 > y0 if x0 < y0 else y1 > x0
-
-
 def asF(x) -> F:
     return x if isinstance(x, F) else F(x)
 

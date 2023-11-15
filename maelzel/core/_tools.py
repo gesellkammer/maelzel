@@ -495,7 +495,7 @@ def dictRemoveNoneKeys(d: dict):
         del d[k]
 
 
-def htmlSpan(text, color: str = '', fontsize: str = '', italic=False, bold=False) -> str:
+def htmlSpan(text, color='', fontsize='', italic=False, bold=False) -> str:
     if color.startswith(':'):
         color = safeColors[color[1:]]
     styleitems = {}

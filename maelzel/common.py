@@ -66,10 +66,9 @@ def asmidi(x) -> float:
     raise TypeError(f"Expected a str, a Note or a midinote, got {x}")
 
 
-
 def getLogger(name: str, fmt='[%(name)s:%(filename)s:%(lineno)s:%(funcName)s:%(levelname)s] %(message)s',
               filelog: str = ''
-               ) -> _logging.Logger:
+              ) -> _logging.Logger:
     """
     Construct a logger
 
@@ -95,3 +94,5 @@ def getLogger(name: str, fmt='[%(name)s:%(filename)s:%(lineno)s:%(funcName)s:%(l
         filehandler.setFormatter(formatter)
         logger.addHandler(filehandler)
     return logger
+
+

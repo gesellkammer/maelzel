@@ -120,3 +120,28 @@ def showT(f: F | float | None) -> str:
         f = float(f)
     return f"{f:.3f}".rstrip('0').rstrip('.')
 
+
+def hasoverlap(x0: number_t, x1: number_t, y0: number_t, y1: number_t) -> bool:
+    """ do (x0, x1) and (y0, y1) overlap? """
+    return x1 > y0 if x0 < y0 else y1 > x0
+
+
+def overlap(u1: number_t, u2: number_t, v1: number_t, v2: number_t) -> tuple[number_t, number_t]:
+    """
+    The overlap betwen (u1, u2) and (v1, v2)
+
+    If there is no overlap, start > end
+
+    Args:
+        u1: start of first interval
+        u2: end of first interval
+        v1: start of second interval
+        v2: end of second interval
+
+    Returns:
+        a tuple (overlapstart, overlapend). If no overlap, overlapstart > overlapend
+
+    """
+    x1 = u1 if u1 > v1 else v1
+    x2 = u2 if u2 < v2 else v2
+    return x1, x2
