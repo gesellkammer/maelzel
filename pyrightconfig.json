@@ -1,0 +1,13 @@
+{
+  "ignore": ["**/node_modules", "**/__pycache__"],
+  "include": ["csoundengine"],
+  "pythonPlatform": "Linux",
+  "pythonVersion": "3.10",
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false,
+  "stubPath": "typings",
+  "typeCheckingMode": "basic",
+  "venvPath": "/home/em/.virtualenvs",
+  "venv": "maelzel",
+  "strictParameterNoneValue": false
+}
