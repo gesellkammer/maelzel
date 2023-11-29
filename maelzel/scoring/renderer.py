@@ -3,18 +3,20 @@ This module declares the basic classes for all renderers.
 """
 
 from __future__ import annotations
+from abc import ABC, abstractmethod
 import tempfile
 from maelzel.scorestruct import ScoreStruct
 from maelzel.scoring.renderoptions import RenderOptions
 from maelzel.scoring import quant
 from maelzel.scoring.config import config
+from maelzel import _util
 
 import emlib.img
 import emlib.misc
 import emlib.envir
 
 
-class Renderer:
+class Renderer(ABC):
     """
     Renders a quantizedscore to a given format
 
@@ -40,6 +42,7 @@ class Renderer:
     def __hash__(self) -> int:
         return hash((hash(self.quantizedScore), hash(self.struct), hash(self.options)))
 
+    @abstractmethod
     def render(self, options: RenderOptions = None) -> str:
         """
         Render the quantized score
@@ -60,6 +63,7 @@ class Renderer:
         """
         raise NotImplementedError("Please Implement this method")
 
+    @abstractmethod
     def writeFormats(self) -> list[str]:
         """
         List of formats supported by this Renderer
@@ -69,6 +73,7 @@ class Renderer:
         """
         raise NotImplementedError("Please Implement this method")
 
+    @abstractmethod
     def write(self, outfile: str, fmt: str = None, removeTemporaryFiles=False) -> None:
         """
         Write the rendered score to a file
@@ -94,7 +99,7 @@ class Renderer:
         """
         return None
 
-    def show(self, fmt='png', external=None, scalefactor=1.0) -> None:
+    def show(self, fmt='png', external=False, scalefactor=1.0) -> None:
         """
         Display the rendered score
 
@@ -103,18 +108,22 @@ class Renderer:
             external: if True, for the use of an external app to open the rendered result.
                 Otherwise, if running inside jupyter this command will try to display
                 the result inline
+            scalefactor: a factor to scale the generated image when shown inline
         """
         if fmt == 'pdf':
             external = True
+
         if fmt == 'png':
             from maelzel.core import _tools
             png = tempfile.mktemp(suffix='.png')
             self.write(png)
-            _util.pngShow(png, forceExternal=external, scalefactor=scalefactor)
-        else:
+            _util.pngShow(png, forceExternal=external, inlineScale=scalefactor)
+        elif fmt == 'pdf':
             outfile = tempfile.mktemp(suffix=f'.{fmt}')
             self.write(outfile)
             emlib.misc.open_with_app(outfile)
+        else:
+            raise ValueError(f"fmt should be 'png' or 'pdf', got '{fmt}'")
 
     def _repr_html_(self) -> str:
         scale = config['pngScale']

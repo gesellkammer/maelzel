@@ -13,14 +13,14 @@ import sys
 import os
 import shutil
 from typing import Optional as Opt
-import emlib.envir
 import emlib.misc
 import logging
 from functools import cache
 from typing import Optional
+from maelzel._util import pythonSessionType
 
 
-insideJupyter = emlib.envir.inside_jupyter()
+insideJupyter = pythonSessionType() == 'jupyter'
 _logger = logging.getLogger()
 
 _linuxImageViewers = [

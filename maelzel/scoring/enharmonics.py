@@ -523,7 +523,7 @@ class SpellingHistory:
         self.add(notenames)
 
 
-def _rateChordSpelling(notes: list[str], options: EnharmonicOptions) -> tuple[float, str]:
+def _rateChordSpelling(notes: Sequence[str], options: EnharmonicOptions) -> tuple[float, str]:
     totalpenalty = 0.
     sources = []
     for a, b in iterlib.combinations(notes, 2):
@@ -547,15 +547,14 @@ def _makeFixedSlots(fixedNotes: list[str], semitoneDivs=2) -> dict[int, int]:
     return slots
 
 
-def bestChordSpelling(notes: list[str] | tuple[str], options: EnharmonicOptions = None
-                      ) -> tuple[str]:
-    if isinstance(notes, list):
-        notes = tuple(notes)
-    return _bestChordSpelling(notes, options=options)
+def bestChordSpelling(notes: Sequence[str], options: EnharmonicOptions = None
+                      ) -> tuple[str, ...]:
+    notes2 = notes if isinstance(notes, tuple) else tuple(notes)
+    return _bestChordSpelling(notes2, options=options)
 
 
 @functools.cache
-def _bestChordSpelling(notes: tuple[str], options: EnharmonicOptions = None
+def _bestChordSpelling(notes: tuple[str, ...], options: EnharmonicOptions = None
                        ) -> tuple[str, ...]:
     if options is None:
         options = _defaultEnharmonicOptions
@@ -573,7 +572,7 @@ def _bestChordSpelling(notes: tuple[str], options: EnharmonicOptions = None
     return variants[0]
 
 
-def pitchSpellings(n: Notation) -> tuple[str]:
+def pitchSpellings(n: Notation) -> tuple[str, ...]:
     """
     Returns the explict spelling or the most appropriate spelling for the given Notation
 

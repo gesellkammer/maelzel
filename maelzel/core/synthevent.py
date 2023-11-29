@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import copy
 import math
+from functools import cache
 from emlib import mathlib
 import emlib.misc
 import pitchtools as pt
 from dataclasses import dataclass
 
 from ._common import logger, F
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast as _cast
 from maelzel.core import renderer
 from maelzel.core.automation import Automation, SynthAutomation
 from maelzel.core import presetmanager
@@ -19,7 +20,8 @@ if TYPE_CHECKING:
     from typing import Any, Callable, Iterable, Sequence
     from .config import CoreConfig
     from ._typedefs import *
-    import matplotlib.pyplot as plt
+    from matplotlib.axes import Axes
+    # import matplotlib.pyplot as plt
     from maelzel.scorestruct import ScoreStruct
 
 
@@ -154,7 +156,7 @@ class PlayArgs:
 
     def addAutomation(self,
                       param: str,
-                      breakpoints: list[tuple],
+                      breakpoints: list[tuple[time_t | location_t, float]] | list[tuple[time_t|location_t, float, str]] | list[num_t],
                       interpolation='linear',
                       relative=True) -> None:
         breakpoints = Automation.normalizeBreakpoints(breakpoints, interpolation=interpolation)
@@ -174,8 +176,7 @@ class PlayArgs:
             db['args'] = otherargs
 
     def _updateAutomations(self, automations: dict[str, Automation]) -> None:
-        ownautomations = self.automations
-        if ownautomations is None:
+        if self.automations is None:
             self.automations = automations.copy()
         else:
             self.automations |= automations
@@ -233,29 +234,33 @@ class PlayArgs:
         return f"PlayArgs({args})"
 
     @staticmethod
-    def makeDefault(conf: CoreConfig) -> PlayArgs:
+    def makeDefault(conf: CoreConfig, copy=True) -> PlayArgs:
         """
         Create a PlayArgs with defaults from a CoreConfig
 
         Args:
             conf: a CoreConfig
+            copy: if T
 
         Returns:
             the created PlayArgs
 
         """
-        d = dict(delay=0,
-                 chan=1,
-                 gain=conf['play.gain'],
-                 fade=conf['play.fade'],
-                 instr=conf['play.instr'],
-                 pitchinterpol=conf['play.pitchInterpolation'],
-                 fadeshape=conf['play.fadeShape'],
-                 priority=1,
-                 position=-1,
-                 sustain=0,
-                 transpose=0)
+        d = conf._makeDefaultPlayArgsDict(copy=copy)
         return PlayArgs(d)
+
+        # d = dict(delay=0,
+        #          chan=1,
+        #          gain=conf['play.gain'],
+        #          fade=conf['play.fade'],
+        #          instr=conf['play.instr'],
+        #          pitchinterpol=conf['play.pitchInterpolation'],
+        #          fadeshape=conf['play.fadeShape'],
+        #          priority=1,
+        #          position=-1,
+        #          sustain=0,
+        #          transpose=0)
+        # return PlayArgs(d)
 
     def fillWith(self, other: PlayArgs) -> None:
         """
@@ -290,30 +295,50 @@ class PlayArgs:
                 for automation in self.automations.values()]
 
 
-def cropBreakpoints(bps: list[Sequence[num_t]], t: float) -> list[Sequence[num_t]]:
+def cropBreakpoints(bps: list[breakpoint_t], start: float, end: float
+                    ) -> list[breakpoint_t]:
+    """
+    Crop the breakpoints at time t
+
+    Args:
+        bps: the breakpoints
+        start: the time to start cropping
+        end: the time to end cropping
+
+    Returns:
+        the cropped breakpoints
+    """
     assert bps[0][0] == 0
-    if t == 0 or t > bps[-1][0]:
+    if start <= bps[0][0] and (end == 0 or end > bps[-1][0]):
         return bps
     newbps = []
     for i in range(len(bps)):
         bp = bps[i]
-        if bp[0] <= t:
+        bptime = bp[0]
+        if bptime < start:
+            continue
+        elif bptime > start and i > 0:
+            # there is part of a breakpoint before, need to interpolate
+            bp2 = _interpolateBreakpoints(start, bps[i-1], bp)
+            newbps.append(bp2)
+
+        if bptime <= end:
             newbps.append(bp)
         else:
-            bp2 = _interpolateBreakpoints(t, bps[i - 1], bp)
+            bp2 = _interpolateBreakpoints(end, bps[i - 1], bp)
             newbps.append(bp2)
             break
     return newbps
 
 
-def _interpolateBreakpoints(t: float, bp0: Sequence[num_t], bp1: Sequence[num_t]
+def _interpolateBreakpoints(t: num_t, bp0: Sequence[num_t], bp1: Sequence[num_t]
                             ) -> list[float]:
     t0, t1 = bp0[0], bp1[0]
     assert t0 <= t <= t1, f"{t0=}, {t=}, {t1=}"
     delta = (t - t0) / (t1 - t0)
-    bp = [t]
+    bp = [float(t)]
     for v0, v1 in zip(bp0[1:], bp1[1:]):
-        bp.append(v0 + (v1-v0)*delta)
+        bp.append(float(v0 + (v1-v0)*delta))
     return bp
 
 
@@ -390,7 +415,7 @@ class SynthEvent:
     """Map a fadeshape to an identifier used inside csound"""
 
     def __init__(self,
-                 bps: list[list[float, ...]],
+                 bps: list[breakpoint_t],
                  instr: str,
                  delay: float = 0.0,
                  chan: int = 1,
@@ -402,7 +427,7 @@ class SynthEvent:
                  priority: int = 1,
                  position: float = -1,
                  numchans: int = 2,
-                 linkednext=None,
+                 linkednext=False,
                  whenfinished: Callable = None,
                  properties: dict[str, Any] | None = None,
                  sustain: float = 0.,
@@ -456,47 +481,48 @@ class SynthEvent:
         else:
             fadein = fadeout = fade
 
-        self.bps = bps
-        """breakpoints, where each breakpoint is a tuple of (timeoffset, midi, amp, [...])"""
+        self.bps: list[breakpoint_t] = bps
+        """breakpoints, where each breakpoint is a list of [timeoffset, midi, amp, [...]]"""
 
         dur = self.bps[-1][0] - self.bps[0][0]
 
-        self.delay = delay
+        self.delay: float = delay
         """time delay - The effective time of bp[n] will be delay + bp[n][0]"""
 
-        self.chan = chan
+        self.chan: int = chan
         """output channel"""
 
-        self.gain = gain
+        self.gain: float = gain
         """a gain to be applied to this event"""
 
-        self.fadein = fadein
+        self.fadein: float = fadein
         """fade in time"""
 
-        self.fadeout = fadeout if dur < 0 else min(fadeout, dur)
+        self.fadeout: float = fadeout if dur < 0 else min(fadeout, dur)
         """fade out time"""
 
-        self.instr = instr
+        self.instr: str = instr
         """Instrument preset used"""
 
-        self.pitchinterpol = pitchinterpol
+        self.pitchinterpol: str = pitchinterpol
         """Pitch interpolation"""
 
-        self.fadeshape = fadeshape
+        self.fadeshape: str = fadeshape
         """Shape of the fades"""
 
-        self.priority = priority
+        self.priority: int = priority
         """Schedule priority (priorities start with 1)"""
 
-        self.position = position
+        self.position: float = position
         """Panning position (between 0-1)"""
 
-        self.args: dict[str, float | str] = args
-        """Any parameters passed to the instrument"""
+        self.args: dict[str, float | str] | None = args
+        """Any parameters passed to the instrument. Can be None"""
 
         self.kws: dict[str, float | str] | None = kws
+        """Ignored at the moment"""
 
-        self.linkednext = linkednext
+        self.linkednext: bool = linkednext
         """Is this event linked to the next? 
         A linked synthevent is a tied note or a note with a glissando followed by 
         some continuation. In any case, the last breakpoint of this synthevent and the 
@@ -505,16 +531,16 @@ class SynthEvent:
         the numbers are near instead of using ==
         """
 
-        self.numchans = numchans
+        self.numchans: int = numchans
         """The number of signals produced by the event"""
 
-        self.whenfinished = whenfinished
+        self.whenfinished: Callable | None = whenfinished
         """A function to call when this event has finished"""
 
-        self.properties = properties
+        self.properties: dict[str, Any] | None = properties
         """User defined properties for an event"""
 
-        self.sustain = sustain
+        self.sustain: float = sustain
         """Sustain time after the actual duration"""
 
         self.automations: dict[str, SynthAutomation] | None = None
@@ -544,16 +570,21 @@ class SynthEvent:
     def getPreset(self) -> presetdef.PresetDef:
         return presetmanager.presetManager.getPreset(self.instr)
 
+    def _ensureArgs(self) -> dict[str, float | str]:
+        if self.args is None:
+            self.args = {}
+        return self.args
+
     def paramValue(self, param: str):
         instr = self.getInstr()
         param2 = instr.unaliasParam(param, param)
-        if param2 in self.args:
+        if self.args and param2 in self.args:
             return self.args[param2]
         defaults = instr.paramDefaultValues()
         value = defaults.get(param)
         if value is None:
             raise KeyError(f"Unknown parameter '{param}', "
-                           f"possible parameters: {defualts.keys()}")
+                           f"possible parameters: {defaults.keys()}")
         return value
 
     def getInstr(self) -> csoundengine.instr.Instr:
@@ -569,11 +600,11 @@ class SynthEvent:
             return
         if self.sustain > 0:
             last = self.bps[-1]
+            assert isinstance(last, list)
             bp = last.copy()
             bp[0] = last[0] + self.sustain
             self.bps.append(bp)
-        else:
-            # TODO: crop event
+        elif self.sustain < 0:
             self.crop(self.dur + self.sustain)
 
     @property
@@ -699,8 +730,8 @@ class SynthEvent:
         """A clone of this event, shifted in time by the given offset"""
         return self.clone(delay=self.delay+offset)
 
-    def crop(self, dur: float):
-        self.bps = cropBreakpoints(self.bps, dur)
+    def crop(self, dur: float) -> None:
+        self.bps = cropBreakpoints(self.bps, 0, dur)
 
     def cropped(self, start: float, end: float) -> SynthEvent:
         """
@@ -750,6 +781,8 @@ class SynthEvent:
             info.append('linkednext=True')
         if self.args:
             info.append(f"args={self.args}")
+        if self.kws:
+            info.append(f"kws={self.kws}")
         if self.sustain:
             info.append(f"sustain={self.sustain}")
         if self.position is not None and self.position >= 0:
@@ -797,14 +830,14 @@ class SynthEvent:
                 if mathlib.hasintersect(skip, end, event.delay, event.end)]
 
     @staticmethod
-    def plotEvents(events: list[SynthEvent], axes: plt.Axes = None, notenames=False
-                   ) -> plt.Axes:
+    def plotEvents(events: list[SynthEvent], axes: Axes = None, notenames=False
+                   ) -> Axes:
         """
         Plot all given events within the same axes (static method)
 
         Args:
             events: the events to plot
-            axes: the axes to use, if given
+            axes: the matplotlib Axes to use, if given
             notenames: if True, use notenames for the y axes
 
         Returns:
@@ -819,12 +852,12 @@ class SynthEvent:
             >>> synthevent.plotEvents(chord.events(), notenames=True)
         """
         import matplotlib.pyplot as plt
-        import matplotlib
+        import matplotlib.ticker
 
         if axes is None:
             # f: plt.Figure = plt.figure(figsize=figsize)
-            f: plt.Figure = plt.figure()
-            axes: plt.Axes = f.add_subplot(1, 1, 1)
+            f = plt.figure()
+            axes: Axes = f.add_subplot(1, 1, 1)
 
         for event in events:
             event.plot(axes=axes, notenames=False)
@@ -876,13 +909,14 @@ class SynthEvent:
         """
         numNamedPfields = instr.numPfields()
 
-        if not self.linkednext and self.sustain > 0:
+        # if not self.linkednext and self.sustain > 0:
+        if self.sustain > 0:
             self._applySustain()
 
         # |kpos, kgain, idataidx_, inumbps, ibplen, ichan, ifadein, ifadeout, ipchintrp_, ifadekind|
         if csoundengine.config['dynamic_pfields']:
             # pfields are also used for dynamic (k) arguments
-            pfields5 = [
+            pfields5: list[float | str] = [
                 self.position,          # kpos
                 self.gain,              # kgain
                 numNamedPfields + 5,    # idataidx_
@@ -894,9 +928,14 @@ class SynthEvent:
                 SynthEvent.pitchinterpolToInt[self.pitchinterpol],  # ipchintrp_
                 SynthEvent.fadeshapeToInt[self.fadeshape]  # ifadekind
             ]
-            dynargs = self.args if self.args is not None else {}
+            if self.args:
+                if any(not isinstance(value, (int, float, str)) for value in self.args.values()):
+                    raise TypeError(f"Invalid args: {self.args.values()}")
+                dynargs = _cast(dict[str, float], self.args)
+            else:
+                dynargs = {}
         else:
-            pfields5 = [
+            pfields5: list[float | str] = [
                 numNamedPfields + 5,    # idataidx_
                 len(self.bps),          # inumbps
                 self.breakpointSize(),  # ibplen
@@ -906,8 +945,9 @@ class SynthEvent:
                 SynthEvent.pitchinterpolToInt[self.pitchinterpol],  # ipchintrp_
                 SynthEvent.fadeshapeToInt[self.fadeshape]           # ifadekind
             ]
-            dynargs = {'kpos': self.position, 'kgain': self.gain}
+            dynargs: dict[str, float] = {'kpos': self.position, 'kgain': self.gain}
             if self.args:
+                assert all(isinstance(value, float) for value in self.args.values())
                 dynargs |= self.args
         instrdefaults = instr.defaultPfieldValues()
         pfields5.extend(instrdefaults[len(pfields5):])
@@ -918,6 +958,9 @@ class SynthEvent:
                               instr: csoundengine.instr.Instr):
         """
         Resolves the values for pfields and dynamic params
+
+        This is not used. It is here as a reference, since _resolveParams is used
+        instead, which is faster.
 
         Args:
             instr: the actual Instr, corresponding to the name in self.instr
@@ -950,79 +993,79 @@ class SynthEvent:
         pfields5.extend(self._flatBreakpoints())
         return pfields5, dynargs
 
-    def resolvePfields(self: SynthEvent,
-                       instr: csoundengine.instr.Instr
-                       ) -> list[float | str]:
-        """
-        Returns pfields, **beginning with p2**.
+    # def resolvePfields(self: SynthEvent,
+    #                    instr: csoundengine.instr.Instr
+    #                    ) -> list[float | str]:
+    #     """
+    #     Returns pfields, **beginning with p2**.
+    #
+    #     ==== =====  ============================================
+    #     idx  parg    desc
+    #     ==== =====  ============================================
+    #     0    2       delay
+    #     1    3       duration
+    #     2    4       tabnum
+    #     3    5       bpsoffset (pfield index, starting with 1)
+    #     4    6       bpsrows
+    #     5    7       bpscols
+    #     6    8       gain
+    #     7    9       chan
+    #     8    0       position
+    #     9    1       fade0
+    #     0    2       fade1
+    #     1    3       pitchinterpol
+    #     2    4       fadeshape
+    #     .
+    #     .            reserved space for user pargs
+    #     .
+    #     ==== =====  ============================================
+    #
+    #     breakpoint data is appended
+    #
+    #     """
+    #     if not self.linkednext and self.sustain > 0:
+    #         self._applySustain()
+    #
+    #     pitchInterpolMethod = SynthEvent.pitchinterpolToInt[self.pitchinterpol]
+    #     fadeshape = SynthEvent.fadeshapeToInt[self.fadeshape]
+    #     # if no userpargs, bpsoffset is 15
+    #     numPargs5 = len(instr.pfieldIndexToName)
+    #     bpsrows = len(self.bps)
+    #     bpscols = self.breakpointSize()
+    #     pfields = [
+    #         float(self.delay),
+    #         float(self.dur),
+    #         0,  # table index, to be filled later
+    #     ]
+    #
+    #     pfields5 = [
+    #         0,            # p5, idx: 4 (bpsoffset)
+    #         bpsrows,
+    #         bpscols,
+    #         self.gain,
+    #         self.chan,
+    #         self.position,
+    #         self.fadein,
+    #         self.fadeout,
+    #         pitchInterpolMethod,
+    #         fadeshape
+    #     ]
+    #     numBuiltinPargs = len(pfields5)  # 10
+    #     numUserArgs = numPargs5 - numBuiltinPargs
+    #     bpsoffset = 15 + numUserArgs
+    #     pfields5[0] = bpsoffset
+    #
+    #     # if self._namedArgsMethod == 'pargs' and numUserArgs > 0:
+    #     #     pfields5 = instr.pfieldsTranslate(args=pfields5, kws=self.args)
+    #     pfields.extend(pfields5)
+    #     for bp in self.bps:
+    #         pfields.extend(bp)
+    #     pfields = [x if isinstance(x, str) else float(x) for x in pfields]
+    #     if len(pfields) > _MAX_NUM_PFIELDS:
+    #         logger.error(f"This SynthEvent has too many pfields: {len(pfields)}")
+    #     return pfields
 
-        ==== =====  ============================================
-        idx  parg    desc
-        ==== =====  ============================================
-        0    2       delay
-        1    3       duration
-        2    4       tabnum
-        3    5       bpsoffset (pfield index, starting with 1)
-        4    6       bpsrows
-        5    7       bpscols
-        6    8       gain
-        7    9       chan
-        8    0       position
-        9    1       fade0
-        0    2       fade1
-        1    3       pitchinterpol
-        2    4       fadeshape
-        .
-        .            reserved space for user pargs
-        .
-        ==== =====  ============================================
-
-        breakpoint data is appended
-
-        """
-        if not self.linkednext and self.sustain > 0:
-            self._applySustain()
-
-        pitchInterpolMethod = SynthEvent.pitchinterpolToInt[self.pitchinterpol]
-        fadeshape = SynthEvent.fadeshapeToInt[self.fadeshape]
-        # if no userpargs, bpsoffset is 15
-        numPargs5 = len(instr.pfieldIndexToName)
-        bpsrows = len(self.bps)
-        bpscols = self.breakpointSize()
-        pfields = [
-            float(self.delay),
-            float(self.dur),
-            0,  # table index, to be filled later
-        ]
-
-        pfields5 = [
-            0,            # p5, idx: 4 (bpsoffset)
-            bpsrows,
-            bpscols,
-            self.gain,
-            self.chan,
-            self.position,
-            self.fadein,
-            self.fadeout,
-            pitchInterpolMethod,
-            fadeshape
-        ]
-        numBuiltinPargs = len(pfields5)  # 10
-        numUserArgs = numPargs5 - numBuiltinPargs
-        bpsoffset = 15 + numUserArgs
-        pfields5[0] = bpsoffset
-
-        # if self._namedArgsMethod == 'pargs' and numUserArgs > 0:
-        #     pfields5 = instr.pfieldsTranslate(args=pfields5, kws=self.args)
-        pfields.extend(pfields5)
-        for bp in self.bps:
-            pfields.extend(bp)
-        pfields = [x if isinstance(x, str) else float(x) for x in pfields]
-        if len(pfields) > _MAX_NUM_PFIELDS:
-            logger.error(f"This SynthEvent has too many pfields: {len(pfields)}")
-        return pfields
-
-    def plot(self, axes: plt.Axes = None, notenames=False) -> plt.Axes:
+    def plot(self, axes: Axes = None, notenames=False) -> Axes:
         """
         Plot the trajectory of this synthevent
 
@@ -1034,12 +1077,12 @@ class SynthEvent:
             the axes used
         """
         import matplotlib.pyplot as plt
-        import matplotlib
+        import matplotlib.ticker
         ownaxes = axes is None
         if axes is None:
             # f: plt.Figure = plt.figure(figsize=figsize)
-            f: plt.Figure = plt.figure()
-            axes: plt.Axes = f.add_subplot(1, 1, 1)
+            f = plt.figure()
+            axes: Axes = f.add_subplot(1, 1, 1)
         times = [bp[0] for bp in self.bps]
         midis = [bp[1] for bp in self.bps]
         if notenames:
@@ -1112,26 +1155,27 @@ def mergeEvents(events: Sequence[SynthEvent]) -> SynthEvent:
     restevents = events[1:]
     if mergedevent.args is None and any(ev.args for ev in restevents):
         mergedevent.args = {}
-    argstate = mergedevent.args
+    argstate = mergedevent.args if mergedevent.args is not None else {}
     lastoffset = 0.
     automationPoints = []
     state = {attr: getattr(firstevent, attr) for attr in SynthEvent.dynamicAttributes}
     for event in restevents:
         offset = event.delay - mergedevent.delay
-        if event.args:
+        if event.args is not None and event.args:
             assert event.instr
             instr = presetmanager.presetManager.getInstr(event.instr)
             dynparams = instr.dynamicParams()
             for k, v in event.args.items():
                 if k in dynparams:
+                    assert isinstance(v, float)
                     automation = _AutomationSegment(param=k,
                                                     time=offset,
                                                     value=v,
-                                                    prevalue=argstate.get(k, dynparams[k]),
+                                                    prevalue=_cast(float, argstate.get(k, dynparams[k])),
                                                     pretime=lastoffset,
                                                     kind='arg')
                     automationPoints.append(automation)
-            argstate = mergedevent.args | event.args
+            argstate = _mergeOptionalDicts(mergedevent.args, event.args)
         for attr in SynthEvent.dynamicAttributes:
             value = getattr(event, attr, None)
             prevalue = state.get(attr)
@@ -1148,4 +1192,15 @@ def mergeEvents(events: Sequence[SynthEvent]) -> SynthEvent:
         lastoffset = offset
     mergedevent.automationSegments = automationPoints
     return mergedevent
+
+
+def _mergeOptionalDicts(a: dict[str, Any] | None, b: dict[str, Any] | None) -> dict:
+    if a and b:
+        return a | b
+    elif a:
+        return a
+    elif b:
+        return b
+    return {}
+
 

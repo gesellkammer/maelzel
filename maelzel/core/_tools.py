@@ -217,12 +217,12 @@ class NoteProperties:
     .. seealso:: :func:`parseNote`
     """
     notename: str | list[str]
-    """A pitch or a list of pitches"""
+    """A pitch or a list of pitches. The string 'Rest' indicates a rest"""
 
     dur: F | None
     """An optional duration"""
 
-    keywords: dict[str, str] | None = None
+    keywords: dict[str, Any] | None = None
     """Any other properties (gliss, tied, ...)"""
 
     symbols: list[_symbols.Symbol] | None = None
@@ -255,6 +255,11 @@ def parseDuration(s: str) -> F:
     Returns:
         the parsed duration as fraction
     """
+    try:
+        return F(s)
+    except ValueError:
+        pass
+
     if "*" not in s or "(" not in s:
         # simple form
         terms = s.split('+')
@@ -348,8 +353,9 @@ def parseNote(s: str) -> NoteProperties:
     4G-:0.4:ff:articulation=accent     4G-           0.4   {'dynamic':'ff', 'articulation':'accent'}
     4F#,4A                             [4F#, 4A]     None  None
     4G:^                               4G            None  {'articulation': 'accent'}
-    4A/8                               4A            0.5
-    4Gb/4.:pp                          4Gb           1.5   {dynamic: 'pp'}
+    4A/4                               4A            0.5
+    4Gb/8.:pp                          4Gb           3/4   {dynamic: 'pp'}
+    r:.5                               rest          0.5
     ================================== ============= ====  ===========
 
 
@@ -361,7 +367,8 @@ def parseNote(s: str) -> NoteProperties:
 
     4C#~
     """
-    dur, properties = None, {}
+    dur = None
+    properties: dict[str, str | float | bool | F] = {}
     symbols: list[_symbols.Symbol] = []
     spanners: list[_symbols.Spanner] = []
 
@@ -423,7 +430,12 @@ def parseNote(s: str) -> NoteProperties:
     if "/" in note:
         note, symbolicdur = note.split("/")
         dur = _parseSymbolicDuration(symbolicdur)
-    notename = [p.strip() for p in note.split(",")] if "," in note else note
+    if "," in note:
+        notename = [p.strip() for p in note.split(",")]
+    elif note.lower() in ('r', 'rest'):
+        notename = 'rest'
+    else:
+        notename = note
     return NoteProperties(notename=notename, dur=dur, keywords=properties,
                           symbols=symbols, spanners=spanners)
 

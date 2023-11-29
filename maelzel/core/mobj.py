@@ -38,6 +38,7 @@ a score structure.
 
 from __future__ import annotations
 import functools
+from abc import ABC, abstractmethod
 import os
 import tempfile as _tempfile
 import html as _html
@@ -72,13 +73,14 @@ from maelzel.scorestruct import ScoreStruct
 
 from typing import TypeVar, Any, Callable
 
-MObjT = TypeVar('MObjT', bound='MObj')
+_MObjT = TypeVar('_MObjT', bound='MObj')
 
 
 __all__ = (
     'MObj',
     'MContainer',
     'resetImageCache',
+    '_MObjT'
 )
 
 
@@ -90,61 +92,6 @@ class _TimeScale:
     def __call__(self, t: num_t):
         r = asF(t)
         return r*self.factor + self.offset
-
-
-class MContainer:
-    """
-    An interface for any class which can be a parent
-
-    Implemented downstream by classes like Chain or Score.
-    """
-    def eventAfter(self, event: MObj) -> MObj | None:
-        """
-        Returns the next event after *event*
-
-        This method only makes sense when the container is an horizontal
-        container (Chain, Voice). *event* and the returned event are
-        always some MEvent (see maelzel.core.event)
-        """
-        raise NotImplementedError
-
-    def childOffset(self, child: MObj) -> F:
-        """The offset of child relative to this parent"""
-        raise NotImplementedError
-
-    def absOffset(self) -> F:
-        """The absolute offset of this container"""
-        raise NotImplementedError
-
-    def scorestruct(self) -> ScoreStruct | None:
-        """The scorestructure attached to this container (if any)
-
-        This query will be passed along upstream"""
-        raise NotImplementedError
-
-    def _childChanged(self, child: MObj) -> None:
-        """
-        This should be called by a child when changed
-
-        Not all changes are relevant to a parent. In particular only
-        changes regarding offset or duration should be signaled
-
-        Args:
-            child: the modified child
-
-        """
-        pass
-
-    def _update(self) -> None:
-        raise NotImplementedError
-
-    def _resolveGlissandi(self) -> None:
-        raise NotImplementedError
-
-    def itemAfter(self, item: MObj) -> MObj | None:
-        """Returns the item after *item*, if any (None otherwise)"""
-        pass
-
 
 
 class MObj:
@@ -183,17 +130,19 @@ class MObj:
                  '__weakref__')
 
     def __init__(self,
-                 dur: time_t = None,
-                 offset: time_t = None,
+                 dur: F = None,
+                 offset: F = None,
                  label: str = '',
-                 parent: MObj = None,
+                 parent: MContainer | None = None,
                  properties: dict[str, Any] = None,
                  symbols: list[_symbols.Symbol] | None = None):
+
+        assert dur is None or dur >= 0, f"A Duration cannot be negative: {self}"
 
         self._parent: MContainer | None = parent
         "The parent of this object (or None if it has no parent)"
 
-        self.label = label
+        self.label: str = label
         "a label can be used to identify an object within a group of objects"
 
         self._dur: F | None = dur
@@ -218,8 +167,6 @@ class MObj:
 
         self._scorestruct: ScoreStruct | None = None
         self._resolvedOffset: F | None = None
-        
-        assert dur is None or dur >= 0, f"A Duration cannot be negative: {self}"
 
     @property
     def dur(self) -> F:
@@ -254,7 +201,7 @@ class MObj:
         if self.properties:
             other.properties = self.properties.copy()
 
-    def setProperty(self: MObjT, key: str, value) -> MObjT:
+    def setProperty(self: _MObjT, key: str, value) -> _MObjT:
         """
         Set a property, returns self
 
@@ -466,7 +413,7 @@ class MObj:
             return self
         return self.clone(offset=self.relOffset())
 
-    def setPlay(self: MObjT, /, **kws) -> MObjT:
+    def setPlay(self: _MObjT, /, **kws) -> _MObjT:
         """
         Set any playback attributes, returns self
 
@@ -478,35 +425,37 @@ class MObj:
         Returns:
             self. This allows to chain this to any constructor (see example)
 
-        ============================= =====================================================
-        Playback Attribute            Descr
-        ============================= =====================================================
-        instr: ``str``                The instrument preset to use
-        delay: ``float``              Delay in seconds, added to the start of the object
-        chan: ``int``                 The channel to output to, **channels start at 1**
-        fade: ``float``               The fade time; can also be a tuple (fadein, fadeout)
-        fadeshape: ``str``            One of 'linear', 'cos', 'scurve'
-        pitchinterpol: ``str``        One of 'linear', 'cos', 'freqlinear', 'freqcos'
-        gain: ``float``               A gain factor applied to the amplitud of this object.
-                                      **Dynamic argument** (*kgain*)
-        position: ``float``           Dynamic argument. Panning position (0=left, 1=right).
-                                      **Dynamic argument** (*kpos*)
-        skip: ``float``               Skip time of playback; allows to play a fragment of the object.
-                                      **NB**: set the delay to the -skip to start playback at the
-                                      original time but from the timepoint specified by the skip param
-        end: ``float``                End time of playback; counterpart of `skip`, allow to
-                                      trim playback of the object
-        sustain: ``float``            An extra sustain time. This is useful for sample based
-                                      instruments
-        transpose: ``float``          Transpose the pitch of this object **only for playback**
-        glisstime: ``float``          The duration (in beats) of the glissando for events with
-                                      glissando. A short glisstime can be used for legato playback
-                                      in non-percusive instruments
-        priority: ``int``             The order of evaluation. Events scheduled with a higher
-                                      priority are evaluated later in the chain
-        args: ``dict``                Named arguments passed to the playback instrument
-        ============================= =====================================================
-
+        ============== ====== =====================================================
+        Attribute      Type   Descr
+        ============== ====== =====================================================
+        instr          str    The instrument preset to use
+        delay          float  Delay in seconds, added to the start of the object
+        chan           int    The channel to output to, **channels start at 1**
+        fade           float  The fade time; can also be a tuple (fadein, fadeout)
+        fadeshape      str    One of 'linear', 'cos', 'scurve'
+        pitchinterpol  str    One of 'linear', 'cos', 'freqlinear', 'freqcos'
+        gain           float  A gain factor applied to the amplitud of this object.
+                              **Dynamic argument** (*kgain*)
+        position       float  Dynamic argument. Panning position (0=left, 1=right).
+                              **Dynamic argument** (*kpos*)
+        skip           float  Skip time of playback; allows to play a fragment of the object.
+                              **NB**: set the delay to the -skip to start playback at the
+                              original time but from the timepoint specified by the skip param
+        end            float  End time of playback; counterpart of `skip`, allow to
+                              trim playback of the object
+        sustain        float  An extra sustain time. This is useful for sample based
+                              instruments
+        transpose      float  Transpose the pitch of this object **only for playback**
+        glisstime      float  The duration (in beats) of the glissando for events with
+                              glissando. A short glisstime can be used for legato playback
+                              in non-percusive instruments
+        priority       int    The order of evaluation. Events scheduled with a higher
+                              priority are evaluated later in the chain
+        args           dict   Named arguments passed to the playback instrument
+        gliss          float/ An object can be set to have a playback only gliss. It
+                       bool   is equivalent to having a gliss., but the gliss is not
+                              displayed as notation.
+        ============== ====== =====================================================
 
         **Example**::
 
@@ -522,12 +471,6 @@ class MObj:
         playargs = self.playargs
         if playargs is None:
             self.playargs = playargs = PlayArgs()
-        if glide := kws.pop('gliss', None):
-            glisstime = float(glide) if glide is not True else min(0.1, self.dur*F(3, 4))
-            kws['glisstime'] = glisstime
-            if not self.gliss:
-                self.gliss = True
-                self.addSymbol(_symbols.GlissProperties(hidden=True))
         extrakeys = set(kws.keys()).difference(PlayArgs.playkeys)
         # set extrakeys as args, without checking the instrument
         if extrakeys:
@@ -540,31 +483,11 @@ class MObj:
             for k in extrakeys:
                 kws.pop(k)
 
-        # if extrakeys:
-        #     presetname = self.getPlay('instr', recursive=True)
-        #     if not presetname:
-        #         raise ValueError(f"Unknown keys: {extrakeys}. Possible keys: {PlayArgs.playkeys}")
-        #     preset = presetmanager.presetManager.getPreset(presetname)
-        #     if not preset:
-        #         raise ValueError(f"Preset '{presetname}' not defined. "
-        #                          f"Available presets: {presetmanager.presetManager.definedPresets()}")
-        #     kwargs = {}
-        #     params = preset.getInstr().paramNames(aliases=True, aliased=True)
-        #     for badkey in extrakeys:
-        #         if badkey in params:
-        #             kwargs[badkey] = kws[badkey]
-        #         else:
-        #             raise KeyError(f"Unknown key '{badkey}'. Possible keys: {PlayArgs.playkeys} or {params}")
-        #     args = kws.get('args')
-        #     if args:
-        #         args.update(kwargs)
-        #     else:
-        #         kws['args'] = kwargs
         playargs.update(kws)
         return self
 
-    def clone(self: MObjT,
-              **kws) -> MObjT:
+    def clone(self: _MObjT,
+              **kws) -> _MObjT:
         """
         Clone this object, changing parameters if needed
 
@@ -589,11 +512,11 @@ class MObj:
         self._copyAttributesTo(out)
         return out
 
-    def copy(self: MObjT) -> MObjT:
+    def copy(self: _MObjT) -> _MObjT:
         """Returns a copy of this object"""
         raise NotImplementedError
 
-    def timeShift(self: MObjT, timeoffset: time_t) -> MObjT:
+    def timeShift(self: _MObjT, timeoffset: time_t) -> _MObjT:
         """
         Return a copy of this object with an added offset
 
@@ -630,11 +553,11 @@ class MObj:
         """
         return None if self.offset is None else self.offset + self.dur
 
-    def quantizePitch(self: MObjT, step=0.) -> MObjT:
+    def quantizePitch(self: _MObjT, step=0.) -> _MObjT:
         """ Returns a new object, with pitch rounded to step """
         raise NotImplementedError()
 
-    def transposeByRatio(self: MObjT, ratio: float) -> MObjT:
+    def transposeByRatio(self: _MObjT, ratio: float) -> _MObjT:
         """
         Transpose this by a given frequency ratio, if applicable
 
@@ -660,7 +583,7 @@ class MObj:
     def show(self,
              fmt: str = None,
              external: bool = None,
-             backend: str = None,
+             backend='',
              scorestruct: ScoreStruct = None,
              config: CoreConfig = None,
              resolution: int = None
@@ -674,7 +597,7 @@ class MObj:
                 display the image inline if inside a notebook environment.
                 To change the default, modify :ref:`config['openImagesInExternalApp'] <config_openImagesInExternalApp>`
             backend: backend used when rendering to png/pdf.
-                One of 'lilypond', 'musicxml'. None to use default
+                One of 'lilypond', 'musicxml'. If not given, use default
                 (see :ref:`config['show.backend'] <config_show_backend>`)
             fmt: one of 'png', 'pdf', 'ly'. None to use default.
             scorestruct: if given overrides the current/default score structure
@@ -689,11 +612,8 @@ class MObj:
         if external is None:
             external = cfg['openImagesInExternalApp']
 
-        if backend is None:
+        if not backend:
             backend = cfg['show.backend']
-
-        #elif backend != cfg['show.backend']:
-        #    cfg = cfg.clone({'show.backend': backend})
 
         if fmt is None:
             fmt = 'png' if not external and environment.insideJupyter else cfg['show.format']
@@ -712,6 +632,7 @@ class MObj:
                 scalefactor = cfg['show.scaleFactor']
                 if backend == 'musicxml':
                     scalefactor *= cfg['show.scaleFactorMusicxml']
+                assert isinstance(external, bool)
                 _tools.pngShow(img, forceExternal=external, scalefactor=scalefactor)
             else:
                 emlib.misc.open_with_app(img)
@@ -843,13 +764,14 @@ class MObj:
             else:
                 assert isinstance(quantizationProfile, scoring.quant.QuantizationProfile)
 
+        assert isinstance(backend, str) and backend in ('musicxml', 'lilypond')
         return _renderObject(self, backend=backend, renderoptions=renderoptions,
                              scorestruct=scorestruct, config=config,
                              quantizationProfile=quantizationProfile)
 
     def _renderImage(self,
-                     backend: str = None,
-                     outfile: str = None,
+                     backend='',
+                     outfile='',
                      fmt="png",
                      scorestruct: ScoreStruct = None,
                      config: CoreConfig = None
@@ -876,31 +798,35 @@ class MObj:
         w = Workspace.active
         if not config:
             config = w.config
-        if backend is None:
+        if not backend:
             backend = config['show.backend']
         if fmt == 'ly':
             backend = 'lilypond'
+        if not outfile:
+            assert fmt in ('png', 'pdf')
+            outfile = _tempfile.mktemp(suffix='.' + fmt)
         if scorestruct is None:
             scorestruct = self.scorestruct() or w.scorestruct
 
-        path = _renderImage(self, outfile, fmt=fmt, backend=backend, scorestruct=scorestruct,
-                            config=config)
-        if not os.path.exists(path):
+        _renderImage(obj=self, outfile=outfile, backend=backend,
+                     scorestruct=scorestruct, config=config)
+        if not os.path.exists(outfile):
             # cached image does not exist?
-            logger.debug(f"_renderImage did not return an existing path for object {self}, "
-                         f"returned path: {path}. This might be a cached path and the cache "
-                         f"might be invalid. Resetting the cache and trying again...")
+            logger.debug(f"Error rendering {self}, the rendering process did not generate "
+                         f"the expected output file '{outfile}'. This might be a cached "
+                         f"path and the cache might be invalid. Resetting the cache and "
+                         f"trying again...")
             resetImageCache()
             # Try again, uncached
-            path = _renderImage(self, outfile, fmt=fmt, backend=backend, scorestruct=scorestruct,
-                                config=config)
-            if not os.path.exists(path):
-                raise FileNotFoundError(f"Could not generate image, returned image file '{path}' "
+            _renderImage(self, outfile, backend=backend, scorestruct=scorestruct,
+                         config=config)
+            if not os.path.exists(outfile):
+                raise FileNotFoundError(f"Could not generate image, returned image file '{outfile}' "
                                         f"does not exist")
             else:
-                logger.debug(f"... resetting the cache worked, an image file '{path}' "
+                logger.debug(f"... resetting the cache worked, an image file '{outfile}' "
                              f"was generated")
-        return path
+        return outfile
 
     def scoringEvents(self,
                       groupid='',
@@ -953,7 +879,7 @@ class MObj:
         parts = scoring.distributeNotationsByClef(notations)
         return parts
 
-    def unquantizedScore(self, title: str = None) -> scoring.UnquantizedScore:
+    def unquantizedScore(self, title='') -> scoring.UnquantizedScore:
         """
         Create a maelzel.scoring.UnquantizedScore from this object
 
@@ -1018,7 +944,7 @@ class MObj:
 
     def write(self,
               outfile: str,
-              backend: str = None,
+              backend='',
               resolution: int = None
               ) -> None:
         """
@@ -1040,12 +966,13 @@ class MObj:
                 the :ref:`config key 'show.pngResolution' <config_show_pngresolution>`
         """
         if outfile == '?':
-            outfile = _dialogs.selectFileForSave(key="writeLastDir",
-                                                 filter="All formats (*.pdf, *.png, "
-                                                        "*.ly, *.xml, *.mid)")
-            if not outfile:
+            selected = _dialogs.selectFileForSave(key="writeLastDir",
+                                                  filter="All formats (*.pdf, *.png, "
+                                                         "*.ly, *.xml, *.mid)")
+            if not selected:
                 logger.info("File selection cancelled")
                 return
+            outfile = selected
         ext = os.path.splitext(outfile)[1]
         cfg = Workspace.active.config
         if ext == '.ly' or ext == '.mid' or ext == '.midi':
@@ -1056,7 +983,7 @@ class MObj:
             renderer = self._makeOfflineRenderer()
             renderer.writeCsd(outfile)
             return
-        elif backend is None:
+        elif not backend:
             backend = cfg['show.backend']
         if resolution is not None:
             cfg = cfg.clone(updates={'show.pngResolution': resolution})
@@ -1223,13 +1150,15 @@ class MObj:
             db['chan'] = chan
         if pitchinterpol is not None:
             db['pitchinterpol'] = pitchinterpol
+        if fade is not None:
+            db['fade'] = fade
         if fadeshape is not None:
             db['fadeshape'] = fadeshape
         if position is not None:
             db['position'] = position
         if sustain is not None:
             db['sustain'] = sustain
-        if transpose is not None:
+        if transpose:
             db['transpose'] = transpose
 
         events = self._synthEvents(playargs=playargs,
@@ -1237,11 +1166,11 @@ class MObj:
                                    workspace=workspace)
 
         if skip is not None or end is not None:
-            delay = playargs['delay']
+            playdelay: float = playargs['delay']
             struct = workspace.scorestruct
-            skiptime = 0. if skip is None else struct.beatToTime(skip)
-            endtime = float("inf") if end is None else struct.beatToTime(end)
-            events = SynthEvent.cropEvents(events, skip=skiptime+delay, end=endtime+delay)
+            skiptime = 0. if skip is None else float(struct.beatToTime(skip))
+            endtime = float("inf") if end is None else float(struct.beatToTime(end))
+            events = SynthEvent.cropEvents(events, skip=skiptime+playdelay, end=endtime+playdelay)
 
         if any(ev.delay < 0 for ev in events):
             raise ValueError(f"Events cannot have negative delay, events={events}")
@@ -1369,7 +1298,7 @@ class MObj:
             group = csoundengine.synth.SynthGroup([playback._dummySynth()])
         else:
             renderer = workspace.renderer or playback.RealtimeRenderer()
-            group = renderer.schedEvents(events, whenfinished=whenfinished)
+            group = renderer.schedEvents(coreevents=events, whenfinished=whenfinished)
             if display and environment.insideJupyter:
                 from IPython.display import display
                 display(group)
@@ -1377,7 +1306,7 @@ class MObj:
         # return proxysynth.ProxySynthGroup(group=group)
 
     def rec(self,
-            outfile: str = None,
+            outfile='',
             sr: int = None,
             quiet: bool = None,
             wait: bool = None,
@@ -1449,7 +1378,7 @@ class MObj:
         """
         return False
 
-    def addSymbol(self: MObjT, *args, **kws) -> MObjT:
+    def addSymbol(self: _MObjT, *args, **kws) -> _MObjT:
         raise NotImplementedError
 
     def _addSymbol(self, symbol: _symbols.Symbol) -> None:
@@ -1463,6 +1392,8 @@ class MObj:
         self.symbols.append(symbol)
 
     def _removeSymbolsOfClass(self, cls: str | type):
+        if self.symbols is None:
+            return
         if isinstance(cls, str):
             cls = cls.lower()
             symbols = [s for s in self.symbols if s.name == cls]
@@ -1500,7 +1431,7 @@ class MObj:
         classname = classname.lower()
         return next((s for s in self.symbols if s.name==classname), None)
 
-    def addText(self: MObjT,
+    def addText(self: _MObjT,
                 text: str,
                 placement='above',
                 italic=False,
@@ -1508,7 +1439,7 @@ class MObj:
                 fontsize: int = None,
                 fontfamily='',
                 box=''
-                ) -> MObjT:
+                ) -> _MObjT:
         """
         Add a text annotation to this object
 
@@ -1534,7 +1465,7 @@ class MObj:
                                      box=box))
         return self
 
-    def timeTransform(self: MObjT, timemap: Callable[[F], F], inplace=False) -> MObjT:
+    def timeTransform(self: _MObjT, timemap: Callable[[F], F], inplace=False) -> _MObjT:
         """
         Apply a time-transform to this object
 
@@ -1600,7 +1531,7 @@ class MObj:
         _, dursecs = self.timeRangeSecs()
         return dursecs
 
-    def pitchTransform(self: MObjT, pitchmap: Callable[[float], float]) -> MObjT:
+    def pitchTransform(self: _MObjT, pitchmap: Callable[[float], float]) -> _MObjT:
         """
         Apply a pitch-transform to this object, returns a copy
 
@@ -1612,7 +1543,7 @@ class MObj:
         """
         raise NotImplementedError("Subclass should implement this")
 
-    def timeScale(self: MObjT, factor: num_t, offset: num_t = 0) -> MObjT:
+    def timeScale(self: _MObjT, factor: num_t, offset: num_t = 0) -> _MObjT:
         """
         Create a copy with modified timing by applying a linear transformation
 
@@ -1626,7 +1557,7 @@ class MObj:
         transform = _TimeScale(asF(factor), offset=asF(offset))
         return self.timeTransform(transform)
 
-    def invertPitch(self: MObjT, pivot: pitch_t) -> MObjT:
+    def invertPitch(self: _MObjT, pivot: pitch_t) -> _MObjT:
         """
         Invert the pitch of this object
 
@@ -1653,7 +1584,7 @@ class MObj:
         func = lambda pitch: pivotm*2 - pitch
         return self.pitchTransform(func)
 
-    def transpose(self: MObjT, interval: int | float) -> MObjT:
+    def transpose(self: _MObjT, interval: int | float) -> _MObjT:
         """
         Transpose this object by the given interval
 
@@ -1665,23 +1596,72 @@ class MObj:
         """
         return self.pitchTransform(lambda pitch: pitch+interval)
 
+# --------------------------------------------------------------------
 
-@functools.lru_cache(maxsize=1000)
+
+class MContainer(ABC, MObj):
+    """
+    An interface for any class which can be a parent
+
+    Implemented downstream by classes like Chain or Score.
+    """
+
+    def eventAfter(self, event: MObj) -> MObj | None:
+        """
+        Returns the next event after *event*
+
+        This method only makes sense when the container is an horizontal
+        container (Chain, Voice). *event* and the returned event are
+        always some MEvent (see maelzel.core.event)
+        """
+        return None
+
+    @abstractmethod
+    def childOffset(self, child: MObj) -> F:
+        """The offset of child relative to this parent"""
+        raise NotImplementedError
+
+    def _childChanged(self, child: MObj) -> None:
+        """
+        This should be called by a child when changed
+
+        Not all changes are relevant to a parent. In particular only
+        changes regarding offset or duration should be signaled
+
+        Args:
+            child: the modified child
+
+        """
+        pass
+
+    @abstractmethod
+    def _update(self) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def _resolveGlissandi(self, force=False) -> None:
+        raise NotImplementedError
+
+    def itemAfter(self, item: MObj) -> MObj | None:
+        """Returns the item after *item*, if any (None otherwise)"""
+        return None
+
+# --------------------------------------------------------------------
+
+
+@functools.cache
 def _renderImage(obj: MObj,
                  outfile: str,
-                 fmt: str,
                  backend: str,
                  scorestruct: ScoreStruct,
-                 config: CoreConfig):
+                 config: CoreConfig) -> scoring.render.Renderer:
     renderoptions = notation.makeRenderOptionsFromConfig(config)
     if scorestruct is None:
         scorestruct = Workspace.active.scorestruct
     r = obj.render(backend=backend, renderoptions=renderoptions, scorestruct=scorestruct,
                    config=config)
-    if not outfile:
-        outfile = _tempfile.mktemp(suffix='.' + fmt)
     r.write(outfile)
-    return outfile
+    return r
 
 
 def _renderObject(obj: MObj,
@@ -1724,6 +1704,8 @@ def _renderObject(obj: MObj,
     assert backend and renderoptions and scorestruct and config
     logger.debug(f"rendering parts with backend: {backend}")
     parts = obj.scoringParts()
+    for part in parts:
+        part.check()
     renderer = notation.renderWithActiveWorkspace(parts,
                                                   backend=backend,
                                                   renderoptions=renderoptions,

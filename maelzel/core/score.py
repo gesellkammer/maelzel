@@ -31,7 +31,7 @@ def _asvoice(o: MObj):
         raise TypeError(f"Cannot create a Voice from {o} (type: {type(o)})")
 
 
-class Score(MObj, MContainer):
+class Score(MContainer):
     """
     A Score is a list of Voices
 
@@ -67,6 +67,10 @@ class Score(MObj, MContainer):
         for i, part in enumerate(self.voices):
             print("  "*indents + f"Voice #{i}, name='{part.name}'")
             part.dump(indents=indents+1, forcetext=forcetext)
+
+    def _resolveGlissandi(self, force=False) -> None:
+        for voice in self.voices:
+            voice._resolveGlissandi(force=force)
 
     @staticmethod
     def read(path: str) -> Score:
@@ -253,13 +257,13 @@ class Score(MObj, MContainer):
         return Score(voices=voices.copy(), scorestruct=self._scorestruct, title=self.label)
 
     def clone(self,
-              voices: list[Voice] = UNSET,
-              scorestruct: ScoreStruct = UNSET,
-              label: str = UNSET,
+              voices: list[Voice] = None,
+              scorestruct: ScoreStruct = None,
+              label: str = None,
               ):
-        return Score(voices=self.voices.copy() if voices is UNSET else voices,
-                     scorestruct=self.scorestruct() if scorestruct is UNSET else scorestruct,
-                     title=self.label if label is UNSET else label)
+        return Score(voices=self.voices.copy() if voices is None else voices,
+                     scorestruct=self.scorestruct() if scorestruct is None else scorestruct,
+                     title=self.label if label is None else label)
 
     def childOffset(self, child: MObj) -> F:
         offset = child._detachedOffset()

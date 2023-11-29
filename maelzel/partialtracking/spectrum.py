@@ -33,7 +33,6 @@ def _csoundEngine(name='maelzel') -> csoundengine.Engine:
     return ce.getEngine(name) or ce.Engine(name=name)
 
 
-
 def _firstPartialAfter(partials: list[Partial], t0: float) -> int:
     for i, p in enumerate(partials):
         if p.end > t0:
@@ -251,7 +250,10 @@ class Spectrum:
 
         if not crop:
             return selected
-        return [p.crop(start, end) for p in selected]
+
+        cropped = [p2 for p in selected
+                   if (p2 := p.crop(start, end)) is not None]
+        return cropped
 
     def write(self, outfile: str, rbep=True) -> None:
         """
@@ -270,7 +272,7 @@ class Spectrum:
         arrays = [p.data for p in self.partials]
         labels = [p.label for p in self.partials]
         outfile = normalizePath(outfile)
-        lt.write_sdif(arrays, outfile=outfile, fmt='RBEP' if rbep else '1TRC', labels=labels)
+        lt.util.write_sdif(arrays, outfile=outfile, fmt='RBEP' if rbep else '1TRC', labels=labels)
 
     def crop(self, start: float, end: float) -> Spectrum:
         """
@@ -600,14 +602,22 @@ class Spectrum:
             else:
                 data = [p.energy() for p in self.partials]
         elif metric == 'bandwidth':
-            data= [p.meanbw() for p in self.partials]
+            data = [p.meanbw() for p in self.partials]
         else:
             raise ValueError(f"Expected one of 'energy', 'bandwidth', got {metric}")
         return histogram.Histogram(data)
 
-    def filter(self, mindb=-120, maxfreq=24000, minfreq=0, mindur=0, minbreakpoints=2,
-               minpercentile=0., loudnessCompensation=True, numbands=5,
-               maxbandwidth=1., minbandwidth=0.,
+    def filter(self,
+               mindb: int | float = -120,
+               maxfreq: int | float = 24000,
+               minfreq: int | float = 0,
+               mindur=0.,
+               minbreakpoints=2,
+               minpercentile=0.,
+               loudnessCompensation=True,
+               numbands=5,
+               maxbandwidth=1.,
+               minbandwidth=0.,
                banddistribution=0.7
                ) -> tuple[Spectrum, Spectrum]:
         """
@@ -647,7 +657,7 @@ class Spectrum:
         """
         if numbands > 1 and minpercentile > 0:
             bands = self.splitInBands(numbands=numbands, distribution=banddistribution)
-            spectralbands = [Spectrum(band.partials) for band in bands]
+            spectralbands: list[Spectrum] = [Spectrum(band.partials) for band in bands]
             allselected, allresidual = [], []
             for i, band in enumerate(spectralbands):
                 bandminfreq = bands[i].minfreq
@@ -688,7 +698,6 @@ class Spectrum:
             else:
                 residue.append(partial)
 
-
         return Spectrum(selected), Spectrum(residue)
 
     @classmethod
@@ -699,7 +708,8 @@ class Spectrum:
                 windowsize: float = None,
                 hoptime: float = None,
                 freqdrift: float = None,
-                minbreakpoints=1
+                minbreakpoints=1,
+                mindb=-90,
                 ) -> Spectrum:
         """
         Analyze audiosamples to generate a Spectrum via partial tracking
@@ -720,6 +730,8 @@ class Spectrum:
             freqdrift: the max. variation in frequency between two breakpoints (by default, 1/2 resolution)
             minbreakpoints: the min. number of breakpoints a partial can have. If set to > 1, any unmatched breakpoint
                 will be removed)
+            mindb: the amplitude floor, in dB. Breakpoints below this amplitude will
+                not be considered.
 
         Returns:
             the resulting Spectrum
@@ -743,6 +755,7 @@ class Spectrum:
                                    resolution=resolution,
                                    windowsize=windowsize or -1,
                                    hoptime=hoptime or -1,
+                                   ampfloor=mindb,
                                    freqdrift=freqdrift or -1)
         if minbreakpoints > 1:
             partialarrays = [p for p in partialarrays if len(p) >= minbreakpoints]
@@ -768,7 +781,7 @@ class Spectrum:
         f0curve, voicedness = freqestimate.f0curve(sample.samples, sr=sample.sr)
         return f0curve, voicedness
 
-    def splitInBands(self, numbands: int, distribution: float | bpf4.BpfInterface = 1.0
+    def splitInBands(self, numbands: int, distribution: float | bpf4.core.BpfInterface = 1.0
                      ) -> list[pack.SpectralBand]:
         """
         Split this spectrum into bands
@@ -816,6 +829,7 @@ class Spectrum:
 
         Args:
             maxtracks: the max. number of regular tracks
+            noisetracks: number of tracks used for noise
             maxrange: the max. range for regular tracks
             relerror: the relative error when splitting in tracks. A larger value will result in a number of
                 tracks which might be higher than the actual maxtracks value
@@ -830,6 +844,7 @@ class Spectrum:
                 distribution is 1, all bands will have the same energy. The splitting frequencies of the bands depend on
                 the actual energy distribution within the spectrum
             mingap: the min. silence between two partials within a track
+            noisebw:
             audibilityCurveWeight: the weight of the frequency dependent amplitude curve when determining the importance
                 of a partial. A value of 1 will give full weight to this curve, a value of 0 will only use the amplitude
                 and duration of the partial to calculate its energy. Values in between are possible.
@@ -889,8 +904,6 @@ class Spectrum:
                                       noisetracks=noisetracks,
                                       noisefreq=noisefreq,
                                       noisebw=noisebw)
-
-
 
 
 analyze = Spectrum.analyze

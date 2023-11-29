@@ -246,11 +246,6 @@ def _musescoreRenderMusicxmlToPng(xmlfile: str, outfile: str, musescorepath: str
 
     Raises RuntimeError if the musicxml file could not be rendered
     """
-    if not musescorepath:
-        from maelzel.core import environment
-        musescorepath = environment.findMusescore()
-        if not musescorepath:
-            raise RuntimeError("MuseScore not found, cannot render musicxml to png")
     assert os.path.exists(xmlfile), f"Musicxml file {xmlfile} not found"
     args = [musescorepath, '--no-webview']
     if crop:

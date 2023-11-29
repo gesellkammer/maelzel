@@ -4,7 +4,7 @@ import appdirs as _appdirs
 from functools import cache
 import pitchtools
 
-from ._common import logger, UNSET
+from ._common import logger, UNSET, _Unset
 from .config import CoreConfig
 
 from maelzel.dynamiccurve import DynamicCurve
@@ -66,12 +66,13 @@ class Workspace:
             notes.show()
 
     """
-    root: Workspace = None
+    root: Workspace | None = None
     """The root workspace. This is the workspace active at the start of a session
-    and is always kept alive since it holds a reference to the root config"""
+    and is always kept alive since it holds a reference to the root config. It should
+    actually never be None"""
 
-    active: Workspace = None
-    """The currently active workspace. """
+    active: Workspace | None = None
+    """The currently active workspace. Never None after the class has been initialized"""
 
     _initdone: bool = False
 
@@ -83,7 +84,6 @@ class Workspace:
                  active=False):
 
         assert self._initdone
-
 
         if config is None or isinstance(config, str):
             config = CoreConfig(updates=updates, source=config)
@@ -138,40 +138,48 @@ class Workspace:
         _resetCache()
 
     @staticmethod
+    def getActive() -> Workspace:
+        active = Workspace.active
+        assert active is not None
+        return active
+
+    @staticmethod
     def _initclass() -> None:
         if Workspace._initdone:
             logger.debug("init was already done")
             return
         Workspace._initdone = True
         if CoreConfig.root is None:
-            CoreConfig(source='load')
+            CoreConfig.root = root = CoreConfig(source='load')
+        else:
+            root = CoreConfig.root
         # The root config itself should never be active since it is read-only
-        w = Workspace(config=CoreConfig.root.copy(), active=True)
+        w = Workspace(config=root.copy(), active=True)
         Workspace.root = w
 
-    def deactivate(self) -> Workspace:
+    def deactivate(self) -> None:
         """
         Deactivates this Workspace and sets the previous Workspace as active
 
         .. note::
 
-            There should always be an active Workspace
+            There is always an active Workspace. An attempt to deactivate the
+            root Workspace will be ignored
 
         Returns:
             the now active workspace
         """
-        if not getWorkspace() is self:
+        if Workspace.active is not self:
             logger.warning("Cannot deactivate this Workspace since it is not active")
         elif self is Workspace.root:
             logger.warning("Cannot deactivate the root Workspace")
         elif self._previousWorkspace is None:
             logger.warning("This Workspace has not previous workspace, activating the root"
                            " Workspace instead")
+            assert Workspace.root is not None
             Workspace.root.activate()
-            return Workspace.root
         else:
             self._previousWorkspace.activate()
-            return self._previousWorkspace
 
     def __del__(self):
         if self.isActive() and self is not Workspace.root:
@@ -246,8 +254,8 @@ class Workspace:
         return Workspace.active is self
     
     def clone(self,
-              config: CoreConfig = UNSET,
-              scorestruct: ScoreStruct = UNSET,
+              config: CoreConfig = None,
+              scorestruct: ScoreStruct = None,
               active=False
               ) -> Workspace:
         """
@@ -272,10 +280,10 @@ class Workspace:
             ...     # This will activate the workspace and deactivate it at exit
             ...     # Now do something baroque
         """
-        if config is UNSET:
+        if config is None:
             assert isinstance(self.config, CoreConfig)
             config = self.config.copy()
-        if scorestruct is UNSET:
+        if scorestruct is None:
             scorestruct = self.scorestruct.copy()
         return Workspace(config=config,
                          scorestruct=scorestruct or self.scorestruct,
@@ -375,6 +383,7 @@ def getWorkspace() -> Workspace:
         True
 
     """
+    assert Workspace.active is not None
     return Workspace.active
 
 
@@ -430,14 +439,18 @@ def setTempo(tempo: float, reference=1, measureIndex=0) -> None:
         2, 5/8, 132
 
     """
-    Workspace.active.scorestruct.setTempo(tempo, reference=reference, measureIndex=measureIndex)
+    active = Workspace.active
+    assert active is not None
+    active.scorestruct.setTempo(tempo, reference=reference, measureIndex=measureIndex)
 
 
 def getConfig() -> CoreConfig:
     """
     Return the active config.
     """
-    return Workspace.active.config
+    active = Workspace.active
+    assert active is not None
+    return active.config
 
 
 def setConfig(config: CoreConfig) -> None:
@@ -449,7 +462,9 @@ def setConfig(config: CoreConfig) -> None:
     Args:
         config: the new config
     """
-    Workspace.active.config = config
+    active = Workspace.active
+    assert active is not None
+    active.config = config
 
 
 def getScoreStruct() -> ScoreStruct:
@@ -470,7 +485,9 @@ def getScoreStruct() -> ScoreStruct:
         * :func:`~maelzel.core.workpsace.setTempo`
         * :class:`~maelzel.scorestruct.ScoreStruct`
     """
-    return Workspace.active.scorestruct
+    active = Workspace.active
+    assert active is not None
+    return active.scorestruct
 
 
 def setScoreStruct(score: str | ScoreStruct | None = None,
@@ -523,6 +540,7 @@ def setScoreStruct(score: str | ScoreStruct | None = None,
         else:
             s = ScoreStruct(timesig=(4, 4), tempo=60)
     w = Workspace.active
+    assert w is not None
     w.scorestruct = s
 
 

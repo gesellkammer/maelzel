@@ -28,14 +28,14 @@ from emlib import iterlib
 
 import pitchtools as pt
 
-from maelzel.core import MObj
+from maelzel.core import MObj, _MObjT
 from maelzel.common import F, asF, F0, asmidi
 from maelzel import scoring
 from maelzel.scoring import enharmonics
 from maelzel.dynamiccurve import DynamicCurve
 import maelzel._util as _util
 
-from ._common import UNSET, MAXDUR, logger
+from ._common import UNSET, MAXDUR, logger, _Unset
 from .workspace import getConfig, Workspace
 from .synthevent import PlayArgs, SynthEvent
 from .eventbase import MEvent
@@ -43,7 +43,7 @@ from maelzel.core import _tools
 
 from . import symbols as _symbols
 
-from typing import TYPE_CHECKING, overload as _overload
+from typing import TYPE_CHECKING, overload as _overload, cast as _cast
 
 if TYPE_CHECKING:
     from .config import CoreConfig
@@ -115,7 +115,9 @@ class Note(MEvent):
 
     """
 
-    __slots__ = ('pitch', '_gliss', 'pitchSpelling', '_glissTarget')
+    __slots__ = ('pitch',
+                 'pitchSpelling',
+                 '_gliss')
 
     def __init__(self,
                  pitch: pitch_t,
@@ -132,8 +134,13 @@ class Note(MEvent):
                  _init=True
                  ):
         pitchSpelling = ''
-        if _init:
-            if isinstance(pitch, str):
+        if not _init:
+            midinote = _cast(float, pitch)
+        else:
+            if not isinstance(pitch, str):
+                assert 0 <= pitch <= 200, f"Expected a midinote (0-127) but got {pitch}"
+                midinote = pitch
+            else:
                 if ":" in pitch:
                     props = _tools.parseNote(pitch)
                     dur = dur if dur is not None else props.dur
@@ -142,7 +149,7 @@ class Note(MEvent):
                     pitch = props.notename
                     if p := props.keywords:
                         offset = offset or p.pop('offset', None)
-                        dynamic = dynamic or p.pop('dynamic', None)
+                        dynamic = dynamic or p.pop('dynamic', '')
                         tied = tied or p.pop('tied', False)
                         gliss = gliss or p.pop('gliss', False)
                         fixed = p.pop('fixPitch', False) or fixed
@@ -162,9 +169,11 @@ class Note(MEvent):
                     assert isinstance(parsednote.notename, str), f"Expected a notename, got {parsednote.notename}"
                     pitch = parsednote.notename
                     dur = parsednote.dur
+
                 pitch = pitch.lower()
+
                 if pitch == 'rest' or pitch == 'r':
-                    pitch, amp = 0, 0
+                    midinote, amp = 0, 0
                 else:
                     pitch, _tied, _fixed = _tools.parsePitch(pitch)
                     if _tied:
@@ -175,13 +184,10 @@ class Note(MEvent):
                         pitchSpelling = ''
                     else:
                         pitchSpelling = pt.notename_upper(pitch)
-                    pitch = pt.str2midi(pitch)
+                    midinote = pt.str2midi(pitch)
 
                 if not fixed and Workspace.active.config['fixStringNotenames']:
                     fixed = True
-
-            else:
-                assert 0 <= pitch <= 200, f"Expected a midinote (0-127) but got {pitch}"
 
             if dur is not None:
                 dur = asF(dur)
@@ -193,17 +199,15 @@ class Note(MEvent):
                 gliss = asmidi(gliss)
 
             if amp and amp > 0:
-                assert pitch > 0
+                assert midinote > 0
 
             if dynamic:
                 assert dynamic in scoring.definitions.dynamicLevels
 
             assert properties is None or isinstance(properties, dict)
 
-        self.pitch: float = pitch
+        self.pitch: float = midinote
         "The pitch of this note"
-
-        self._gliss: float | bool = gliss
 
         self.pitchSpelling = '' if not fixed else pitchSpelling
         "The pitch representation of this Note. Can be different from the sounding pitch"
@@ -211,9 +215,7 @@ class Note(MEvent):
         super().__init__(dur=dur, offset=offset, label=label, properties=properties,
                          symbols=symbols, tied=tied, amp=amp, dynamic=dynamic)
 
-        self._glissTarget: float = 0.
-
-        assert self.dur >= 0
+        self._gliss: float | bool = gliss
 
     @staticmethod
     def makeRest(dur: time_t | str, offset: time_t = None, label: str = '', dynamic='') -> Note:
@@ -232,12 +234,23 @@ class Note(MEvent):
             the Note object representing the rest
 
         """
-        dur = asF(dur)
-        assert dur and dur > 0
-        if offset:
-            offset = asF(offset)
-        return Note(pitch=0, dur=dur, offset=offset, amp=0, label=label,
+        fdur = _tools.parseDuration(dur) if isinstance(dur, str) else asF(dur)
+        assert fdur > 0, "A rest must have a duration"
+        return Note(pitch=0,
+                    dur=fdur,
+                    offset=None if offset is None else asF(offset),
+                    amp=0, label=label,
                     dynamic=dynamic, _init=False)
+
+    def setPlay(self, /, **kws) -> Note:
+        if glide := kws.pop('gliss', None):
+            glisstime = float(glide) if glide is not True else min(0.1, self.dur * F(3, 4))
+            kws['glisstime'] = glisstime
+            if not self._gliss:
+                self._gliss = True
+                self.addSymbol(_symbols.GlissProperties(hidden=True))
+        super().setPlay(**kws)
+        return self
 
     def transpose(self, interval: float, inplace=False) -> Note:
         """
@@ -329,8 +342,8 @@ class Note(MEvent):
         return not self.isRest() and self.dur == 0
 
     @property
-    def gliss(self) -> float | bool | None:
-        """the end pitch (as midinote), True if the gliss extends to the next note, or None"""
+    def gliss(self) -> float | bool:
+        """the end pitch (as midinote), True if the gliss extends to the next note, or False"""
         return self._gliss
 
     @gliss.setter
@@ -355,31 +368,31 @@ class Note(MEvent):
         return out
 
     def clone(self,
-              pitch: pitch_t = UNSET,
-              dur: time_t | None = UNSET,
-              amp: time_t | None = UNSET,
-              offset: time_t | None = UNSET,
-              gliss: pitch_t | bool = UNSET,
-              label: str = UNSET,
-              tied: bool = UNSET,
-              dynamic: str = UNSET) -> Note:
+              pitch: pitch_t = None,
+              dur: time_t = None,
+              amp: float = None,
+              offset: time_t | None | _Unset = UNSET,
+              gliss: pitch_t | bool | None = None,
+              label: str = None,
+              tied: bool = None,
+              dynamic: str = None) -> Note:
         """
         Clone this note with overridden attributes
 
         Returns a new note
         """
-        out = Note(pitch=pitch if pitch is not UNSET else self.pitch,
-                   dur=asF(dur) if dur is not UNSET else self.dur,
-                   amp=amp if amp is not UNSET else self.amp,
+        out = Note(pitch=pitch if pitch is not None else self.pitch,
+                   dur=asF(dur) if dur is not None else self.dur,
+                   amp=amp if amp is not None else self.amp,
                    offset=asF(offset) if offset is not UNSET else self.offset,
-                   gliss=gliss if gliss is not UNSET else self.gliss,
-                   label=label if label is not UNSET else self.label,
-                   tied=tied if tied is not UNSET else self.tied,
-                   dynamic=dynamic if dynamic is not UNSET else self.dynamic,
+                   gliss=gliss if gliss is not None else self.gliss,
+                   label=label if label is not None else self.label,
+                   tied=tied if tied is not None else self.tied,
+                   dynamic=dynamic if dynamic is not None else self.dynamic,
                    _init=False)
-        if pitch is not UNSET:
+        if pitch is not None:
             if self.pitchSpelling:
-                out.pitchSpelling = pt.transpose(self.pitchSpelling, pitch - self.pitch)
+                out.pitchSpelling = pt.transpose(self.pitchSpelling, out.pitch - self.pitch)
         else:
             out.pitchSpelling = self.pitchSpelling
         self._copyAttributesTo(out)
@@ -392,9 +405,7 @@ class Note(MEvent):
 
     def asChord(self) -> Chord:
         """ Convert this Note to a Chord of one note """
-        gliss = self.gliss
-        if gliss and isinstance(self.gliss, (int, float)):
-            gliss = [gliss]
+        gliss: bool | list[float] = self.gliss if isinstance(self.gliss, bool) else [self.gliss]
         properties = self.properties.copy() if self.properties else None
         chord = Chord(notes=[self],
                       dur=self.dur,
@@ -420,8 +431,8 @@ class Note(MEvent):
 
     def convertToRest(self) -> None:
         """Convert this Note to a rest, inplace"""
-        self.amp = 0
-        self.pitch = 0
+        self.amp = 0.
+        self.pitch = 0.
         self.pitchSpelling = ''
         if self.parent:
             self.parent._childChanged(self)
@@ -568,7 +579,8 @@ class Note(MEvent):
                                           offset=offset,
                                           group=groupid))
             if config['show.glissEndStemless']:
-                notes[-1].stem = 'hidden'
+                notes[-1].addAttachment(scoring.attachment.StemTraits(hidden=True))
+                # notes[-1].stem = 'hidden'
 
         if self.label:
             notes[0].addText(self._scoringAnnotation(config=config))
@@ -703,7 +715,7 @@ class Note(MEvent):
 
         starttime = float(scorestruct.beatToTime(offset))
         endtime = float(scorestruct.beatToTime(offset + dur))
-        transp = playargs.get('transpose', 0)
+        transp = playargs.get('transpose', 0.)
         if starttime >= endtime:
             raise ValueError(f"Trying to play an event with 0 or negative duration: {endtime-starttime}. "
                              f"Object: {self}")
@@ -762,7 +774,7 @@ class Note(MEvent):
         return out
 
 
-def Rest(dur: time_t | str, offset: time_t = None, label='', dynamic: str = None) -> Note:
+def Rest(dur: time_t | str, offset: time_t = None, label='', dynamic='') -> Note:
     """
     Creates a Rest.
 
@@ -842,7 +854,7 @@ class Chord(MEvent):
     )
 
     def __init__(self,
-                 notes: str | list[Note | int | float | str],
+                 notes: str | Sequence[Note | int | float | str],
                  dur: time_t = None,
                  amp: float = None,
                  offset: time_t = None,
@@ -876,7 +888,7 @@ class Chord(MEvent):
                 be fixed by suffixing any notename with a '!' sign)
 
         """
-        self.amp = amp
+        self.amp: float | None = amp
 
         if dur is not None:
             dur = asF(dur)
@@ -892,8 +904,10 @@ class Chord(MEvent):
             else:
                 notes = [Note(n.strip(), amp=amp, fixed=fixed) for n in notes.split()]
 
-        if _init:
-            notes2 = []
+        if not _init:
+            notes2 = _cast(list[Note], notes)
+        else:
+            notes2: list[Note] = []
             for n in notes:
                 if isinstance(n, Note):
                     if n.offset is None:
@@ -905,24 +919,23 @@ class Chord(MEvent):
                 else:
                     raise TypeError(f"Expected a Note or a pitch, got {n}")
             notes2.sort(key=lambda n: n.pitch)
-            notes = notes2
-            if any(n.tied for n in notes):
+            if any(n.tied for n in notes2):
                 tied = True
 
             if not isinstance(gliss, bool):
                 gliss = pt.as_midinotes(gliss)
-                assert len(gliss) == len(notes), (f"The destination chord of the gliss should have "
-                                                  f"the same length as the chord itself, "
-                                                  f"{notes=}, {gliss=}")
+                if not len(gliss) == len(notes):
+                    raise ValueError(f"The destination chord of the gliss should have "
+                                     f"the same length as the chord itself, {notes=}, {gliss=}")
 
         super().__init__(dur=dur, offset=offset, label=label, properties=properties,
                          tied=tied, amp=amp, dynamic=dynamic)
-        self.notes: list[Note] = notes
+        self.notes: list[Note] = notes2
         self._gliss: bool | list[float] = gliss
         self._glissTarget: list[float] | None = None
 
     @property
-    def gliss(self) -> list[float] | bool | None:
+    def gliss(self) -> list[float] | bool:
         return self._gliss
 
     def copy(self):
@@ -956,7 +969,7 @@ class Chord(MEvent):
     def name(self) -> str:
         return ",".join(self._bestSpelling())
 
-    def asGracenote(self, slash=True) -> Note:
+    def asGracenote(self, slash=True) -> Chord:
         return Gracenote(self.pitches, slash=slash)
 
     def setNotatedPitch(self, notenames: str | list[str]) -> None:
@@ -1067,7 +1080,8 @@ class Chord(MEvent):
                 endEvent = scoring.makeChord(pitches=self.gliss, duration=0,
                                              offset=self.end, group=groupid)
                 if config['show.glissEndStemless']:
-                    endEvent.stem = 'hidden'
+                    endEvent.addAttachment(scoring.attachment.StemTraits(hidden=True))
+                    # endEvent.stem = 'hidden'
                 notations.append(endEvent)
 
         if self.symbols:
@@ -1214,7 +1228,7 @@ class Chord(MEvent):
         if key == 'pitch':
             self.notes.sort(key=lambda n: n.pitch, reverse=reverse)
         elif key == 'amp':
-            self.notes.sort(key=lambda n: n.amp, reverse=reverse)
+            self.notes.sort(key=lambda n: n.amp if n.amp is not None else 1.0, reverse=reverse)
         else:
             raise KeyError(f"Unknown sort key {key}. Options: 'pitch', 'amp'")
 
@@ -1272,7 +1286,7 @@ class Chord(MEvent):
         transpose = playargs.get('transpose', 0.)
         synthevents = []
         glisstime = playargs.get('glisstime', 0)
-        linkednext = self.gliss or glisstime is not None
+        linkednext = self.gliss or glisstime > 0
         if glisstime > dur:
             glisstime = 0
 
@@ -1326,7 +1340,7 @@ class Chord(MEvent):
                            f"not tied (chord={self})")
         return istied
 
-    def _bestSpelling(self) -> tuple[str]:
+    def _bestSpelling(self) -> tuple[str, ...]:
         notenames = [n.pitchSpelling + '!' if n.pitchSpelling else n.name
                      for n in self.notes]
         return enharmonics.bestChordSpelling(notenames)
@@ -1388,11 +1402,11 @@ class Chord(MEvent):
         notes = []
         if db:
             for note in self:
-                db = curve(pt.amp2db(note.amp))
+                db = curve(pt.amp2db(note.amp if note.amp is not None else 1.0))
                 notes.append(note.clone(amp=pt.db2amp(db)))
         else:
             for note in self:
-                amp2 = curve(note.amp)
+                amp2 = curve(note.amp if note.amp is not None else 1.0)
                 notes.append(note.clone(amp=amp2))
         return Chord(notes)
 
@@ -1465,7 +1479,10 @@ class Chord(MEvent):
         """
         for note in self:
             gain = curve(note.freq)
-            note.amp *= gain
+            if note.amp is None:
+                note.amp = gain
+            else:
+                note.amp *= gain
 
     def _isTooCrowded(self) -> bool:
         """
@@ -1506,7 +1523,19 @@ def _asChord(obj, amp: float = None, dur: float = None) -> Chord:
     return out if amp is None and dur is None else out.clone(amp=amp, dur=dur)
 
 
-def Gracenote(pitch: pitch_t | list[pitch_t],
+@_overload
+def Gracenote(pitch: pitch_t, slash=True, stemless=False, offset: time_t | None = None, **kws
+              ) -> Note:
+    ...
+
+
+@_overload
+def Gracenote(pitch: Sequence[pitch_t], slash=True, stemless=False, offset: time_t | None = None, **kws
+              ) -> Chord:
+    ...
+
+
+def Gracenote(pitch: pitch_t | Sequence[pitch_t],
               slash=True,
               stemless=False,
               offset: time_t | None = None,
@@ -1530,8 +1559,8 @@ def Gracenote(pitch: pitch_t | list[pitch_t],
         stemless: if True, hide the stem of this gracenote
 
     Returns:
-        the Note/Chord representing the gracenote. A gracenote is basically a
-        note/chord with 0 duration
+        a Note if one pitch is given, a Chord if a list of pitches are passed instead.
+        A gracenote is basically a note/chord with 0 duration
 
     Example
     ~~~~~~~
@@ -1601,8 +1630,13 @@ def asEvent(obj, **kws) -> MEvent:
 
             if notedef.keywords:
                 kws = misc.dictmerge(notedef.keywords, kws)
-            if isinstance(notedef.notename, list) and len(notedef.notename) > 1:
-                out = Chord(notedef.notename, dur=dur, **kws)
+            if isinstance(notedef.notename, list):
+                if len(notedef.notename) > 1:
+                    out = Chord(notedef.notename, dur=dur, **kws)
+                else:
+                    out = Note(notedef.notename[0], dur=dur, **kws)
+            elif notedef.notename == 'rest':
+                out = Rest(dur=dur, **kws)
             else:
                 out = Note(notedef.notename, dur=dur, **kws)
             if notedef.symbols:

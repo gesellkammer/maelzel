@@ -188,6 +188,7 @@ def makeMusicxmlDocument(score: quant.QuantizedScore,
                          options: RenderOptions
                          ) -> md.Document:
     impl = md.getDOMImplementation('')
+    assert impl is not None
     dt = impl.createDocumentType('score-partwise',
                                  "-//Recordare//DTD MusicXML 4.0 Partwise//EN",
                                  "http://www.musicxml.org/dtds/partwise.dtd")
@@ -281,6 +282,7 @@ _filledShapes: dict[str, str] = {
     'cluster': 'cluster'
 }
 
+
 @dataclass
 class XmlNotehead:
     shape: str
@@ -316,30 +318,35 @@ def scoringNoteheadToMusicxml(notehead: definitions.Notehead) -> XmlNotehead:
     else:
         raise ValueError(f"Notehead shape '{notehead.shape}' not supported")
     color = _asXmlColor(notehead.color) if notehead.color else ''
+    size = int(notehead.size) if notehead.size is not None else 0
     return XmlNotehead(shape=shape, hidden=hidden, filled=filled, color=color,
-                       parentheses=notehead.parenthesis, size=notehead.size)
+                       parentheses=notehead.parenthesis, size=size)
 
 
 def _xmlAccidentalSize(relativesize: int | float) -> str:
     intsize = int(round(relativesize))
-    if relativesize == 0:
+    if intsize == 0:
         return ''
-    elif relativesize == 1:
+    elif intsize == 1:
         return 'full'
-    elif relativesize >= 2:
+    elif intsize >= 2:
         return 'large'
-    elif relativesize <= -1:
+    elif intsize <= -1:
         return 'cue'
+    else:
+        logger.warning(f"Size {intsize} not supported")
+        return ''
 
 
-def _notePitch(doc: md.Document, parent: md.Element,
+def _notePitch(doc: md.Document,
+               parent: md.Element,
                pitch: pt.NotatedPitch | None,
                durationDivisions: int,
                numdots: int = 0,
-               chord: bool=False,
-               tiedprev: bool=False,
-               tiednext: bool=False,
-               grace: bool=False,
+               chord=False,
+               tiedprev=False,
+               tiednext=False,
+               grace=False,
                accidentalTraits: _attachment.AccidentalTraits | None = None,
                durtype: str = '',
                stemless=False
@@ -373,7 +380,8 @@ def _notePitch(doc: md.Document, parent: md.Element,
     if numdots:
         for _ in range(numdots):
             _elem(doc, parent, 'dot')
-    if pitch and (not tiedprev and pitch.cents_deviation != 0) or accidentalTraits:
+
+    if pitch and ((not tiedprev and pitch.cents_deviation != 0) or accidentalTraits):
         attrs = {}
         if accidentalTraits:
             if accidentalTraits.parenthesis:
@@ -481,10 +489,13 @@ def _renderPitch(doc: md.Document,
                  state: _RenderState,
                  ) -> None:
     accidentalTraits = notation.findAttachment(cls=_attachment.AccidentalTraits, anchor=idx)
+    if accidentalTraits:
+        assert isinstance(accidentalTraits, _attachment.AccidentalTraits)
     pitch = None if notation.isRest else pt.notated_pitch(notename)
     durationDivisions: F = notation.duration * state.divisions
     # #_elemText(doc, note0_, 'type', )
     notatedDur = notation.notatedDuration()
+
     _notePitch(doc, parent=parent,
                pitch=pitch,
                durationDivisions=int(durationDivisions),
@@ -495,7 +506,7 @@ def _renderPitch(doc: md.Document,
                accidentalTraits=accidentalTraits,
                durtype=notatedDur.baseName() if notation.duration > 0 else 'eighth',
                numdots=notatedDur.dots,
-               stemless=notation.stem=='hidden')
+               stemless=notation.isStemless)
 
 
 def _renderNotehead(doc: md.Document, parent: md.Element, notehead: definitions.Notehead):
@@ -531,20 +542,21 @@ def _renderNotation(n: Notation,
     ornaments_: md.Element | None = None
     attributes_: md.Element | None = None
     # Preprocess
-    for attach in n.attachments:
-        if isinstance(attach, _attachment.Harmonic):
-            n = n.resolveHarmonic()
-        elif isinstance(attach, _attachment.Clef) and attach.kind != state.clef:
-            if attributes_ is None:
-                attributes_ = _elem(doc, parent, 'attributes')
-            clef_ = _elem(doc, attributes_, 'clef')
+    if n.attachments:
+        for attach in n.attachments:
+            if isinstance(attach, _attachment.Harmonic):
+                n = n.resolveHarmonic()
+            elif isinstance(attach, _attachment.Clef) and attach.kind != state.clef:
+                if attributes_ is None:
+                    attributes_ = _elem(doc, parent, 'attributes')
+                clef_ = _elem(doc, attributes_, 'clef')
 
-            sign, line, octave = _mxmlClef(attach.kind)
-            _elemText(doc, clef_, 'sign', sign)
-            _elemText(doc, clef_, 'line', line)
-            if octave != 0:
-                _elemText(doc,clef_, 'clef-octave-change', octave)
-            state.clef = attach.kind
+                sign, line, octave = _mxmlClef(attach.kind)
+                _elemText(doc, clef_, 'sign', sign)
+                _elemText(doc, clef_, 'line', line)
+                if octave != 0:
+                    _elemText(doc,clef_, 'clef-octave-change', octave)
+                state.clef = attach.kind
 
     notatedDur = n.notatedDuration()
 
@@ -663,10 +675,11 @@ def _renderNotation(n: Notation,
                 if ornaments_ is None:
                     ornaments_ = _elem(doc, notations(0), 'ornaments')
                 xmlornament = _xmlOrnaments.get(attach.kind)
-                if not xmlornament:
+                if xmlornament:
+                    _elem(doc, ornaments_, xmlornament)
+                else:
                     logger.error(f"Ornament {attach.kind} cannot be converted to musicxml. "
                                  f"Possible musicxml ornaments: {_xmlOrnaments.keys()}")
-                _elem(doc, ornaments_, xmlornament)
             elif isinstance(attach, _attachment.Tremolo):
                 if ornaments_ is None:
                     ornaments_ = _elem(doc, notations(0), 'ornaments')
@@ -849,7 +862,7 @@ def _isXmlColor(color: str) -> bool:
     return re.match(r"^#(?:[0-9A-F]{3}){1,2}$", color) is not None
 
 
-def _asXmlColor(color: str) -> str | None:
+def _asXmlColor(color: str, default='') -> str:
     """
     Within the xml standard, a color needs to adjust to '#[\dA-F]{6}([\dA-F][\dA-F])?'
 
@@ -861,7 +874,7 @@ def _asXmlColor(color: str) -> str | None:
         return color.upper()
     if hexcolor := emlib.colordata.CSS4_COLORS.get(color):
         return hexcolor
-    return None
+    return default
 
 
 
@@ -895,13 +908,13 @@ def _prepareRender(part: quant.QuantizedPart) -> None:
     #    order to render correctly we move all such attachments to the previous
     #    notation
     for n0, n1 in iterlib.pairwise(part.flatNotations()):
+        assert isinstance(n0, Notation) and isinstance(n1, Notation)
         if not n1.attachments:
             continue
-        breathidx = next((i for i, attach in enumerate(n1.attachments)
-                           if isinstance(attach, _attachment.Breath)), None)
-        if breathidx is not None:
-            n0.attachments.append(n1.attachments[breathidx])
-            n1.attachments.pop(breathidx)
+        breath = n1.findAttachment(_attachment.Breath)
+        if breath:
+            n0.addAttachment(breath)
+            n1.removeAttachmentsByClass(_attachment.Breath)
 
 
 def _renderPart(part: quant.QuantizedPart,
@@ -970,7 +983,7 @@ def _renderPart(part: quant.QuantizedPart,
                        text=measuredef.annotation,
                        placement='above',
                        enclosure=style.box,
-                       fontsize=style.fontsize * renderOptions.musicxmlFontScaling,
+                       fontsize=style.fontsize * renderOptions.musicxmlFontScaling if style.fontsize else 0.,
                        bold=style.bold,
                        italic=style.italic)
 
@@ -979,7 +992,7 @@ def _renderPart(part: quant.QuantizedPart,
                 _words(doc, parent=measure_,
                        text=measuredef.rehearsalMark.text,
                        placement='above',
-                       fontsize=style.fontsize * renderOptions.musicxmlFontScaling,
+                       fontsize=style.fontsize * renderOptions.musicxmlFontScaling if style.fontsize else 0.,
                        enclosure=measuredef.rehearsalMark.box or style.box,
                        bold=style.bold,
                        italic=style.italic)

@@ -10,7 +10,11 @@ if TYPE_CHECKING:
     from typing import Sequence, Optional
 
 
-def selectFromList(options: list[str], title="", default=None, gui: bool = None) -> str | None:
+def selectFromList(options: list[str],
+                   title="",
+                   default=None,
+                   gui: bool = None,
+                   ) -> str | None:
     """
     Select an option from a list of options
 
@@ -22,6 +26,7 @@ def selectFromList(options: list[str], title="", default=None, gui: bool = None)
         default: the value returned if no selection was made
         gui: if None, detect the environment. Otherwise, if True a gui dialog is forced
             and if False a terminal dialog is forced
+        ensure: if True, an exception is raised if the selection is cancelled
 
     Returns:
         the option selected, or *default* if not selection was done

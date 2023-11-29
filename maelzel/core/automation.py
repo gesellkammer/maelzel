@@ -133,7 +133,7 @@ class Automation:
     @staticmethod
     def normalizeBreakpoints(breakpoints: list[tuple] | list[num_t],
                              interpolation='linear'
-                             ) -> list[tuple[F | location_t, num_t, str]]:
+                             ) -> list[tuple[F | location_t, float, str]]:
         """
         Normalize breakpoints, ensuring that all have the form (time, value, interpolation)
 
@@ -159,7 +159,7 @@ class Automation:
             assert all(isinstance(x, (int, float, F)) for x in breakpoints)
             breakpoints = list(iterlib.window(breakpoints, 2, 2))
 
-        normalized = []
+        normalized: list[tuple[F | location_t, float, str]] = []
         for bp in breakpoints:
             bplen = len(bp)
             if bplen == 3:
@@ -208,7 +208,7 @@ class SynthAutomation:
                                delay=self.delay,
                                interpolation=self.interpolation,
                                token=self.token,
-                               overtake=overtake)
+                               overtake=self.overtake)
 
     @property
     def start(self) -> float:
@@ -226,6 +226,8 @@ class SynthAutomation:
         Args:
             start: absolute time to start cropping
             end: absolute time to end cropping
+            overtake: if True, the cropped automation should overtake
+                from the running value
 
         Returns:
             a copy of self cropped between start and end
@@ -233,7 +235,7 @@ class SynthAutomation:
         bps = list(iterlib.window(self.data, 2, 2))
         bps = _tools.cropBreakpoints(bps, start - self.delay, end - self.delay)
         # delay = max(0., self.delay - start)
-        data = _flattenBreakpoints(bps)
+        data = [float(bp) for bp in _flattenBreakpoints(bps)]
         return SynthAutomation(param=self.param,
                                data=data,
                                delay=start,

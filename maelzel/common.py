@@ -38,10 +38,10 @@ def asF(t) -> F:
     """
     if isinstance(t, F):
         return t
-    elif isinstance(t, _numbers.Rational):
-        return F(t.numerator, t.denominator)
     elif isinstance(t, (int, float, str)):
         return F(t)
+    elif isinstance(t, _numbers.Rational):
+        return F(t.numerator, t.denominator)
     else:
         raise TypeError(f"Could not convert {t} to a rational")
 
@@ -96,3 +96,12 @@ def getLogger(name: str, fmt='[%(name)s:%(filename)s:%(lineno)s:%(funcName)s:%(l
     return logger
 
 
+class Unset:
+    def __repr__(self):
+        return 'UNSET'
+
+    def __bool__(self):
+        return False
+
+
+UNSET = Unset()

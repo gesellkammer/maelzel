@@ -929,7 +929,7 @@ def paperBlock(paperWidth: float = None,
 
 
 def makeTextMark(text: str,
-                 fontsize: int = None,
+                 fontsize: int | float = None,
                  fontrelative=True,
                  box='',
                  italic=False,
@@ -981,9 +981,13 @@ _boxMarkup = {
 }
 
 
-def makeText(text: str, fontsize: int = None, fontrelative=False,
-             placement='above', italic=False, bold=False,
-             box='') -> str:
+def makeText(text: str,
+             fontsize: int | float = None,
+             fontrelative=False,
+             placement='above',
+             italic=False, bold=False,
+             box=''
+             ) -> str:
     """
     Creates a lilypond text annotation to be attached to a note/rest
 

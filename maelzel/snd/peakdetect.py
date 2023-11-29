@@ -1,7 +1,11 @@
+from typing import Tuple, List
+
 import numpy as np
 
 
-def peakdetect(y_axis, x_axis=None, lookahead=500, delta = 0):
+def peakDetect(y_axis: np.ndarray, x_axis: list[float] | np.ndarray | None = None,
+               lookahead=500, delta=0
+               ) -> tuple[list[tuple[float, float]], list[tuple[float, float]]]:
     """
     Converted from/based on a MATLAB script at http://billauer.co.il/peakdet.html
 
@@ -35,8 +39,8 @@ def peakdetect(y_axis, x_axis=None, lookahead=500, delta = 0):
         >>> average_peak = np.mean(maxima, 0)[1]
 
     """
-    maxtab = []
-    mintab = []
+    maxtab: list[tuple[float, float]] = []
+    mintab: list[tuple[float, float]] = []
     dump = []  # Used to pop the first hit which always is false
 
     length = len(y_axis)
@@ -58,6 +62,8 @@ def peakdetect(y_axis, x_axis=None, lookahead=500, delta = 0):
     mn, mx = np.Inf, -np.Inf
 
     # Only detect peak if there is 'lookahead' amount of points after it
+    mxpos = 0.
+    mnpos = 0.
     for index, (x, y) in enumerate(zip(x_axis[:-lookahead], y_axis[:-lookahead])):
         if y > mx:
             mx = y
@@ -102,7 +108,8 @@ def peakdetect(y_axis, x_axis=None, lookahead=500, delta = 0):
     return maxtab, mintab
 
 
-def peakdetect_zerocrossing(y_axis, x_axis=None, window=49):
+def peakDetectUsingZeroCrossing(y_axis: np.ndarray, window=49
+                                ) -> tuple[list[tuple[int, float]], list[tuple[int, float]]]:
     """
     Algorithm for detecting local maximas and minimas in a signal.
 
@@ -119,9 +126,6 @@ def peakdetect_zerocrossing(y_axis, x_axis=None, window=49):
 
     Args:
         y_axis: A list containg the signal over which to find peaks
-        x_axis: A x-axis whose values correspond to the 'y_axis' list and is used
-            in the return to specify the postion of the peaks. If omitted the index
-            of the y_axis is used. (default: None)
         window: the dimension of the smoothing window; should be an odd integer
 
     Returns:
@@ -133,17 +137,11 @@ def peakdetect_zerocrossing(y_axis, x_axis=None, window=49):
         >>> maxima, minima = peakdetect_zerocrossings(y_axis)
         >>> average_peak = np.mean(maxima, 0)[1]
     """
-    if x_axis is None:
-        x_axis = list(range(len(y_axis)))
-
-    length = len(y_axis)
-    if length != len(x_axis):
-        raise ValueError('Input vectors y_axis and x_axis must have same length')
-
     # needs to be a numpy array
     y_axis = np.asarray(y_axis)
+    x_axis = np.arange(len(y_axis), dtype=int)
 
-    zero_indices = zero_crossings(y_axis, window = window)
+    zero_indices = zeroCrossings(y_axis, window = window)
     period_lengths = np.diff(zero_indices)
 
     bins = [y_axis[indice:indice + diff] for indice, diff in 
@@ -159,16 +157,16 @@ def peakdetect_zerocrossing(y_axis, x_axis=None, window=49):
         hi_peaks = [bin.max() for bin in odd_bins]
         lo_peaks = [bin.min() for bin in even_bins]
 
-    hi_peaks_x = [x_axis[np.where(y_axis == peak)[0]] for peak in hi_peaks]
-    lo_peaks_x = [x_axis[np.where(y_axis == peak)[0]] for peak in lo_peaks]
+    hi_peaks_x = [int(x_axis[np.where(y_axis == peak)[0]]) for peak in hi_peaks]
+    lo_peaks_x = [int(x_axis[np.where(y_axis == peak)[0]]) for peak in lo_peaks]
 
-    maxtab = [(x,y) for x,y in zip(hi_peaks, hi_peaks_x)]
-    mintab = [(x,y) for x,y in zip(lo_peaks, lo_peaks_x)]
+    maxtab = [(x, y) for x, y in zip(hi_peaks, hi_peaks_x)]
+    mintab = [(x, y) for x, y in zip(lo_peaks, lo_peaks_x)]
 
     return maxtab, mintab
 
 
-def smooth(x, window_len=11, window='hanning'):
+def smooth(x: np.ndarray, window_len=11, window='hanning') -> np.ndarray:
     """
     smooth the data using a window with requested size.
 
@@ -223,7 +221,8 @@ def smooth(x, window_len=11, window='hanning'):
     return y
 
 
-def zero_crossings(y_axis, x_axis = None, window = 49):
+def zeroCrossings(y_axis: np.ndarray, x_axis: np.ndarray = None, window=49
+                  ) -> list[float]:
     """
     Algorithm to find zero crossings.
 
@@ -248,7 +247,7 @@ def zero_crossings(y_axis, x_axis = None, window = 49):
 
     y_axis = smooth(y_axis, window)[:length]
     zs = np.where(np.diff(np.sign(y_axis)))[0]
-    times = [x_axis[indice] for indice in zs]
+    times = [float(x_axis[indice]) for indice in zs]
 
     # check if zero-crossings are valid
     diff = np.diff(times)

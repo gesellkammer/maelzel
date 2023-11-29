@@ -6,6 +6,7 @@ import tempfile
 import os
 from . import environment
 
+
 if environment.insideJupyter:
     from IPython.core.display import (display as jupyterDisplay, Image as JupyterImage)
 
@@ -63,7 +64,7 @@ def jupyterShowImage(path: str, scalefactor=1.0, maxwidth: int = None):
     return jupyterDisplay(img)
 
 
-def showPng(pngpath:str, forceExternal=False, app:str= '', scalefactor=1.0) -> None:
+def showPng(pngpath: str, forceExternal=False, app='', scalefactor=1.0) -> None:
     """
     Show a png either inside jupyter or with an external app
 
@@ -73,6 +74,7 @@ def showPng(pngpath:str, forceExternal=False, app:str= '', scalefactor=1.0) -> N
             inside jupyter. Otherwise it will show inside an external
             app if running a normal session and show an embedded
             image if running inside a notebook
+        scalefactor: a factor to apply when showing a png inline
         app: used if a specific external app is needed. Otherwise the os
             defined app is used
     """
@@ -126,7 +128,6 @@ def m21JupyterHook(enable=True) -> None:
             if os.path.exists(outfile):
                 os.remove(outfile)
             display(img)
-
 
         dpi = formatter.for_type(m21.Music21Object, showm21)
         return dpi

@@ -153,7 +153,8 @@ __all__ = (
 )
 
 
-class _UNKNOWN: pass
+class _UNKNOWN:
+    pass
 
 
 def _syncCsoundengineTheme(theme: str):
@@ -163,7 +164,7 @@ def _syncCsoundengineTheme(theme: str):
 
 def _resetImageCacheCallback(config: CoreConfig, force=False):
     from . import workspace
-    if force or config is workspace.Workspace.active.config:
+    if force or config is workspace.getConfig():
         from . import mobj
         mobj.resetImageCache()
 
@@ -171,6 +172,7 @@ def _resetImageCacheCallback(config: CoreConfig, force=False):
 def _propagateA4(config: CoreConfig, a4: float) -> None:
     from . import workspace
     w = workspace.Workspace.active
+    assert w is not None
     # Is it the active config?
     if config is w.config:
         w.a4 = a4
@@ -219,7 +221,7 @@ class CoreConfig(ConfigDict):
     .. seealso:: :func:`maelzel.core.workspace.makeConfig`
 
     """
-    root: CoreConfig = None
+    root: CoreConfig | None = None
     _keyToType: dict[str, type | tuple[type, ...]] = {}
 
     # A config callback has the form (config: CoreConfig, key: str, val: Any) -> None
@@ -236,7 +238,11 @@ class CoreConfig(ConfigDict):
                  source: str | ConfigDict | None = 'root',
                  active=False,
                  **kws):
+        self._hash: int = 0
+        self._defaultPlayArgsDict: dict | None = None
+
         load = source == 'load' or (source == 'root' and self.root is None)
+
         super().__init__('maelzel.core',
                          default=configdata.defaultdict,
                          persistent=False,
@@ -264,6 +270,8 @@ class CoreConfig(ConfigDict):
         for regex, func in self._builtinCallbacks.items():
             self.registerCallback(func, pattern=regex)
 
+        self.registerCallback(self._changedCallback)
+
         if updates:
             self.update(updates)
 
@@ -275,6 +283,10 @@ class CoreConfig(ConfigDict):
 
         if active:
             self.activate()
+
+    def _changedCallback(self, cfg: ConfigDict, key: str, val):
+        self._hash = 0
+        self._defaultPlayArgsDict = None
 
     def _ipython_key_completions_(self):
         return self.keys()
@@ -293,9 +305,8 @@ class CoreConfig(ConfigDict):
     def clone(self, updates: dict = None, **kws) -> CoreConfig:
         if kws:
             kws = self._normalizeDict(kws)
-            updates = updates | kws
 
-        return CoreConfig(updates=updates, source=self)
+        return CoreConfig(updates=updates, source=self, **kws)
 
     def getType(self, key: str) -> type | tuple[type, ...]:
         if (t := self._keyToType.get(key, _UNKNOWN)) is not _UNKNOWN:
@@ -303,6 +314,12 @@ class CoreConfig(ConfigDict):
         t = super().getType(key)
         self._keyToType[key] = t
         return t
+
+    def __hash__(self):
+        if self._hash:
+            return self._hash
+        self._hash = super().__hash__()
+        return self._hash
 
     def makeRenderOptions(self) -> RenderOptions:
         """
@@ -343,6 +360,7 @@ class CoreConfig(ConfigDict):
     def __enter__(self):
         from . import workspace
         w = workspace.Workspace.active
+        assert w is not None
         self._previousState = (w, w.config)
         w.config = self
         return self
@@ -361,7 +379,9 @@ class CoreConfig(ConfigDict):
         This is just a shortcut for ``setConfig(self)``
         """
         from . import workspace
-        workspace.Workspace.active.config = self
+        active = workspace.Workspace.active
+        assert active is not None
+        active.config = self
 
     def reset(self, removesaved=False) -> None:
         """
@@ -381,5 +401,34 @@ class CoreConfig(ConfigDict):
             if os.path.exists(path):
                 os.remove(path)
 
+    def _makeDefaultPlayArgsDict(self, copy=True) -> dict:
+        """
+        Creates the dict for a default PlayArgs
 
+        This is used as the base for each event created
+
+        Args:
+            copy: if True, the returned dict is a copy and can be modified
+
+        Returns:
+            a dict to be passed to PlayArgs
+
+
+        """
+        if self._defaultPlayArgsDict is not None:
+            d = self._defaultPlayArgsDict
+        else:
+            d = dict(delay=0,
+                     chan=1,
+                     gain=self['play.gain'],
+                     fade=self['play.fade'],
+                     instr=self['play.instr'],
+                     pitchinterpol=self['play.pitchInterpolation'],
+                     fadeshape=self['play.fadeShape'],
+                     priority=1,
+                     position=-1,
+                     sustain=0,
+                     transpose=0)
+            self._defaultPlayArgsDict = d
+        return d.copy() if copy else d
 

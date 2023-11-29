@@ -15,7 +15,7 @@ from emlib.iterlib import pairwise
 import emlib.mathlib
 from dataclasses import dataclass
 from maelzel import scoring
-from typing import Callable
+from typing import Callable, Any
 
 import xml.etree.ElementTree as ET
 
@@ -73,6 +73,31 @@ class _ParseContext:
         return out
 
 
+def _find(node: ET.Element, name: str) -> ET.Element:
+    child = node.find(name)
+    if child is None:
+        raise MusicxmlParseError(f"Could not find child '{name}' in {node}")
+    return child
+
+
+def _text(node: ET.Element) -> str:
+    if node.text is None:
+        raise MusicxmlParseError(f"Expected inner text in node {node}, found nothing")
+    return node.text
+
+
+def _int(node: ET.Element) -> int:
+    text = _text(node)
+    try:
+        return int(text)
+    except ValueError:
+        raise MusicxmlParseError(f"Could not convert text from node {node} to int")
+
+
+def _findtext(node: ET.Element, child: str) -> str:
+    return _text(_find(node, child))
+
+
 def _parseMetronome(metronome: ET.Element) -> float:
     """
     Parse <metronome> tag, return the quarter-note tempo
@@ -83,9 +108,12 @@ def _parseMetronome(metronome: ET.Element) -> float:
     Returns:
         the tempo of a quarter note
     """
-    unit = _.text if (_ := metronome.find('beat-unit')) is not None else 'quarter'
+    if (beatunit := metronome.find('beat-unit')) is not None:
+        unit = _text(beatunit)
+    else:
+        unit = 'quarter'
     dotted = bool(metronome.find('beat-unit-dot') is not None)
-    bpm = metronome.find('per-minute').text
+    bpm = _findtext(metronome, 'per-minute')
     factor = _unitToFactor[unit]
     if dotted:
         factor *= 1.5
@@ -94,12 +122,13 @@ def _parseMetronome(metronome: ET.Element) -> float:
 
 
 def _parseRest(root: ET.Element, context: _ParseContext) -> Note:
-    measureRest = root.find('rest').attrib.get('measure', False) == 'yes'
-    xmldur = int(root.find('duration').text)
+    rest = _find(root, 'rest')
+    measureRest = rest.attrib.get('measure', False) == 'yes'
+    xmldur = int(_findtext(root, 'duration'))
     divisions = context.divisions
     rest = Rest(dur=F(xmldur, divisions))
     if measureRest:
-        rest.properties['measureRest'] = True
+        rest.setProperty('measureRest', True)
     return rest
 
 
@@ -126,34 +155,45 @@ def _notename(step: str, octave: int, alter: float, accidental: str = '') -> str
     return notename
 
 
-def _parsePitch(node, prefix='') -> tuple[int, int, float]:
-    step = node.find(f'{prefix}step').text
-    oct = int(node.find(f'{prefix}octave').text)
-    alter = float(_.text) if (_ := node.find('alter')) is not None else 0
-    return step, oct, alter
+def _parsePitch(node, prefix='') -> tuple[str, int, float]:
+    step = _findtext(node, f'{prefix}step')
+    octstr = _findtext(node, f'{prefix}octave')
+    octave = int(octstr)
+    alter = float(_text(_)) if (_ := node.find('alter')) is not None else 0.
+    return step, octave, alter
 
 
-def _makeSpannerId(prefix: str, d: dict, key='number'):
-    spannerid = d.get(key)
+def _makeSpannerId(prefix: str, d: dict | None, key='number', defaultid='1'):
+    if d:
+        spannerid = d.get(key)
+        assert spannerid is not None
+    else:
+        spannerid = defaultid
     return prefix if not spannerid else f"{prefix}-{spannerid}"
 
 
 @dataclass
-class Notation:
+class XmlNotation:
     kind: str
     value: str = ''
     properties: dict | None = None
     skip: bool = False
 
+    def setProperty(self, key: str, value):
+        if self.properties is None:
+            self.properties = {key: value}
+        else:
+            self.properties[key] = value
+
 
 def _makeSpannerNotation(kind: str, class_: type, node: ET.Element):
-    properties = {k: v for k, v in node.attrib.items()}
+    properties: dict[str, Any] = {k: v for k, v in node.attrib.items()}
     properties['class'] = class_
     properties['mxml/tag'] = f'notation/{node.tag}'
-    return Notation('spanner', kind, properties=properties)
+    return XmlNotation('spanner', kind, properties=properties)
 
 
-def _parseOrnament(node: ET.Element) -> Notation:
+def _parseOrnament(node: ET.Element) -> XmlNotation:
     tag = node.tag
     if tag == 'tremolo':
         # <tremolo type="start">2</tremolo>
@@ -161,21 +201,21 @@ def _parseOrnament(node: ET.Element) -> Notation:
         tremtype = node.attrib.get('type')
         if tremtype == 'stop':
             tremtype = 'end'
-        return Notation('ornament', 'tremolo',
-                        properties={'tremtype': tremtype,
-                                    'nummarks': int(node.text)})
+        return XmlNotation('ornament', 'tremolo',
+                           properties={'tremtype': tremtype,
+                                       'nummarks': _int(node)})
     else:
-        return Notation('ornament', tag, properties=dict(node.attrib))
+        return XmlNotation('ornament', tag, properties=dict(node.attrib))
 
 
-def _parseNotations(root: ET.Element) -> list[Notation]:
-    notations = []
+def _parseNotations(root: ET.Element) -> list[XmlNotation]:
+    notations: list[XmlNotation] = []
     node: ET.Element
     for node in root:
         tag = node.tag
         assert isinstance(node.attrib, dict)
         if tag == 'articulations':
-            notations.extend([Notation('articulation', subnode.tag, properties=dict(subnode.attrib)) for subnode in node])
+            notations.extend([XmlNotation('articulation', subnode.tag, properties=dict(subnode.attrib)) for subnode in node])
         elif tag == 'ornaments':
             notations.extend([_parseOrnament(subnode) for subnode in node])
         elif tag == 'glissando':
@@ -185,14 +225,14 @@ def _parseNotations(root: ET.Element) -> list[Notation]:
             notation = _makeSpannerNotation('glissando', symbols.NoteheadLine, node)
             notations.append(notation)
         elif tag == 'fermata':
-            notations.append(Notation('fermata', node.text, properties=dict(node.attrib)))
+            notations.append(XmlNotation('fermata', _text(node), properties=dict(node.attrib)))
         elif tag == 'dynamics':
             dyn = node[0].tag
             if dyn == 'other-dynamics':
-                dyn = node[0].text
-            notations.append(Notation('dynamic', dyn))
+                dyn = _text(node[0])
+            notations.append(XmlNotation('dynamic', dyn))
         elif tag == 'arpeggiate':
-            notations.append(Notation('articulation', 'arpeggio'))
+            notations.append(XmlNotation('articulation', 'arpeggio'))
         elif tag == 'technical':
             notation = _parseTechnicalNotation(node)
             if notation is not None:
@@ -209,10 +249,11 @@ def _parseNotations(root: ET.Element) -> list[Notation]:
                     n1.kind == 'ornament' and
                     n0.value == 'trill-mark' and
                     n1.value == 'wavy-line'):
-                n1.properties['startmark'] = 'trill'
+                n1.setProperty('startmark', 'trill')
             elif (n0.kind == 'ornament' and n1.kind == 'ornament' and
                   n0.value == 'wavy-line' and n1.value == 'wavy-line' and
-                  n0.properties['type'] == 'start' and n1.properties['type'] == 'stop'):
+                  n0.properties and n0.properties['type'] == 'start' and
+                  n1.properties and n1.properties['type'] == 'stop'):
                 n1.value = 'inverted-mordent'
             else:
                 out.append(n0)
@@ -227,43 +268,43 @@ _technicalNotationToArticulation = {
 }
 
 
-def _parseTechnicalNotation(root: ET.Element) -> Notation | None:
+def _parseTechnicalNotation(root: ET.Element) -> XmlNotation | None:
     inner = root[0]
     tag = inner.tag
     if tag == 'stopped':
-        return Notation('articulation', 'closed')
+        return XmlNotation('articulation', 'closed')
     elif tag == 'snap-pizzicato':
-        return Notation('articulation', 'snappizz')
+        return XmlNotation('articulation', 'snappizz')
     elif tag == 'string':
         whichstr = inner.text
         if whichstr:
             romannum = emlib.mathlib.roman(int(whichstr))
-            return Notation('text', romannum, properties={'placement': 'above'})
+            return XmlNotation('text', romannum, properties={'placement': 'above'})
     elif tag == 'harmonic':
         # possibilities:
         # harmonic
         # harmonic/natural
         # harmonic/artificial
         if len(inner) == 0:
-            return Notation('articulation', 'flageolet')
+            return XmlNotation('articulation', 'flageolet')
         elif inner[0].tag == 'artificial':
-            return Notation('notehead', 'harmonic')
+            return XmlNotation('notehead', 'harmonic')
         elif inner[0].tag == 'natural':
             if inner.find('touching-pitch') is not None:
                 # This should be solved via a notehead change so leave this out
-                return Notation('notehead', 'harmonic')
+                return XmlNotation('notehead', 'harmonic')
             elif inner.find('base-pitch') is not None:
                 # Do nothing here
                 pass
             else:
-                return Notation('articulation', 'flageolet')
+                return XmlNotation('articulation', 'flageolet')
     elif (articulation := _technicalNotationToArticulation.get(tag)) is not None:
-        return Notation('articulation', value=articulation)
+        return XmlNotation('articulation', value=articulation)
     elif tag == 'fingering':
-        return Notation('fingering', value=inner.text)
+        return XmlNotation('fingering', value=_text(inner))
     elif tag == 'bend':
-        bendalter = float(inner.find('bend-alter').text)
-        return Notation('bend', properties={'alter': bendalter})
+        bendalter = float(_findtext(inner, 'bend-alter'))
+        return XmlNotation('bend', properties={'alter': bendalter})
 
 
 def _parseNote(root: ET.Element, context: _ParseContext) -> Note:
@@ -285,7 +326,7 @@ def _parseNote(root: ET.Element, context: _ParseContext) -> Note:
             noteType = 'unpitched'
             pstep, poct, palter = _parsePitch(node, prefix='display-')
         elif node.tag == 'notehead':
-            shape = scoring.definitions.normalizeNoteheadShape(node.text)
+            shape = scoring.definitions.normalizeNoteheadShape(_text(node))
             parens = node.attrib.get('parentheses') == 'yes'
             if not shape:
                 logger.warning(f'Notehead shape not supported: "{node.text}"')
@@ -297,7 +338,7 @@ def _parseNote(root: ET.Element, context: _ParseContext) -> Note:
         elif node.tag == 'pitch':
             pstep, poct, palter = _parsePitch(node)
         elif node.tag == 'duration':
-            dur = F(int(node.text), context.divisions)
+            dur = F(_int(node), context.divisions)
         elif node.tag == 'accidental':
             accidental = node.text
             properties['mxml/accidental'] = accidental
@@ -306,7 +347,7 @@ def _parseNote(root: ET.Element, context: _ParseContext) -> Note:
         elif node.tag == 'type':
             properties['mxml/durationtype'] = node.text
         elif node.tag == 'voice':
-            properties['voice'] = int(node.text)
+            properties['voice'] = _int(node)
         elif node.tag == 'tie':
             if node.attrib.get('type', 'start') == 'start':
                 tied = True
@@ -366,9 +407,10 @@ def _parseNote(root: ET.Element, context: _ParseContext) -> Note:
                 else:
                     # If this is an unsupported articulation, at least save it as a property
                     logger.warning(f"Articulation not supported: {notation.value}")
-                    note.properties['mxml/articulation'] = notation.value
+                    note.setProperty('mxml/articulation', notation.value)
             elif notation.kind == 'ornament':
                 if notation.value == 'wavy-line':
+                    assert notation.properties
                     kind = notation.properties['type']
                     key = _makeSpannerId('trilline', notation.properties, 'number')
                     if kind == 'start':
@@ -389,7 +431,7 @@ def _parseNote(root: ET.Element, context: _ParseContext) -> Note:
                     if ornament := scoring.definitions.normalizeOrnament(notation.value):
                         note.addSymbol('ornament', ornament)
                     else:
-                        note.properties['mxml/ornament'] = notation.value
+                        note.setProperty('mxml/ornament', notation.value)
             elif notation.kind == 'fermata':
                 note.addSymbol('fermata', scoring.definitions.normalizeFermata(notation.value))
             elif notation.kind == 'dynamic':
@@ -466,7 +508,7 @@ def _joinChords(notes: list[Note]) -> list[Note | Chord]:
 
     groups = []
     for note in notes:
-        if note.properties.get('_chordCont'):
+        if note.properties and note.properties.get('_chordCont'):
             groups[-1].append(note)
         else:
             groups.append([note])
@@ -481,7 +523,7 @@ def _joinChords(notes: list[Note]) -> list[Note | Chord]:
             for note in group[1:]:
                 chord.append(note)
             chord.sort()
-            chord.properties['voice'] = first.properties.get('voice', 1)
+            chord.setProperty('voice', first.getProperty('voice', 1))
             groups[i] = chord
     return groups
 
@@ -512,8 +554,8 @@ def _attr(attrib: dict, key: str, default, convert=None):
 
 def _parsePosition(x: ET.Element) -> str:
     attrib = x.attrib
-    defaulty = _attr(attrib, 'default-y', 0., float)
-    relativey = _attr(attrib, 'relative-y', 0., float)
+    defaulty: float = _attr(attrib, 'default-y', 0., float)
+    relativey: float = _attr(attrib, 'relative-y', 0., float)
     pos = defaulty + relativey
     return '' if pos == 0 else 'above' if pos > 0 else 'below'
 
@@ -557,7 +599,7 @@ def _parseTimesig(root: ET.Element) -> TimeSignature:
     parts = []
     for item in root:
         if item.tag == 'beats':
-            beats = item.text
+            beats = _text(item)
             if '+' in beats:
                 beatparts = tuple(int(p) for p in beats.split('+'))
                 parts.append([beatparts, 4])
@@ -565,7 +607,7 @@ def _parseTimesig(root: ET.Element) -> TimeSignature:
                 parts.append([int(beats), 4])
         elif item.tag == 'beat-type':
             last = parts[-1]
-            den = int(item.text)
+            den = _int(item)
             if isinstance(last[0], int):
                 last[1] = den
             else:
@@ -578,8 +620,8 @@ def _parseTimesig(root: ET.Element) -> TimeSignature:
 
 
 def _parseDirection(item: ET.Element, context: _ParseContext) -> Direction | None:
-    placement = item.attrib.get('placement')
-    inner = item.find('direction-type')[0]
+    placement = item.attrib.get('placement', '')
+    inner = _find(item, 'direction-type')[0]
     tag = inner.tag
     if tag == 'dynamics':
         dynamic = inner[0].tag
@@ -594,7 +636,7 @@ def _parseDirection(item: ET.Element, context: _ParseContext) -> Direction | Non
         if placement is None:
             placement = _parsePosition(inner)
         properties = _parseAttribs(inner.attrib, {'font-size': float})
-        return Direction('words', inner.text, placement=placement,
+        return Direction('words', _text(inner), placement=placement,
                          properties=properties)
     elif tag == 'rehearsal':
         enclosure = inner.attrib.get('enclosure')
@@ -666,6 +708,7 @@ def _handleDirection(note: Note, direction: Direction, context: _ParseContext):
         note.addSymbol(spanner)
 
     elif direction.kind == 'bracket':
+        assert direction.properties is not None
         key = _makeSpannerId('bracket', direction.properties)
         if direction.value == 'start':
             spanner = symbols.Bracket(kind='start',
@@ -679,9 +722,13 @@ def _handleDirection(note: Note, direction: Direction, context: _ParseContext):
             spanner.makeEndSpanner(note)
 
     elif direction.kind == 'octaveshift':
+        assert direction.properties is not None
         key = _makeSpannerId('octaveshift', direction.properties)
         if direction.value == 'up' or direction.value == 'down':
-            octaves = direction.properties['octaves']
+            if direction.properties:
+                octaves = direction.properties['octaves']
+            else:
+                octaves = 1
             spanner = symbols.OctaveShift(kind='start', octaves=octaves)
             context.spanners[key] = spanner
             note.addSymbol(spanner)
@@ -716,9 +763,9 @@ def _parseAttributes(node: ET.Element, context: _ParseContext) -> list:
     actions = []
     for item in node:
         if item.tag == 'divisions':
-            context.divisions = int(item.text)
+            context.divisions = _int(item)
         elif item.tag == 'transpose':
-            context.transposition = int(item.find('chromatic').text)
+            context.transposition = int(_findtext(item, 'chromatic'))
         # Dont do this until multistaff parts are supported
         #elif item.tag == 'clef':
         #    clef = _parseClef(item)
@@ -756,12 +803,12 @@ def _matchClef(sign: str, line=0, octave=0) -> str:
 
 
 def _parseClef(clefnode: ET.Element) -> str:
-    clefsign = clefnode.find('sign').text
+    clefsign = _findtext(clefnode, 'sign')
     clefline = clefnode.find('line')
     clefoctave = clefnode.find('clef-octave-change')
     return _matchClef(clefsign,
-                     line=int(clefline.text) if clefline else 0,
-                     octave=int(clefoctave.text) if clefoctave else 0)
+                      line=_int(clefline) if clefline else 0,
+                      octave=_int(clefoctave) if clefoctave else 0)
 
 
 def _parsePart(part: ET.Element, context: _ParseContext
@@ -808,9 +855,9 @@ def _parsePart(part: ET.Element, context: _ParseContext
                 measureProperties['symbol'] = symbol
 
         if (keynode := measure.find('./attributes/key')) is not None:
-            fifths = int(keynode.find('fifths').text)
+            fifths = int(_findtext(keynode, 'fifths'))
             mode = keynode.find('mode')
-            modetext = mode.text if mode else ''
+            modetext = _text(mode) if mode else ''
             measureProperties['keySignature'] = (fifths, modetext)
 
         sco.addMeasure(timesig=(beats, beattype), quarterTempo=quarterTempo,
@@ -826,21 +873,21 @@ def _parsePart(part: ET.Element, context: _ParseContext
                     directions.append(direction)
 
             elif tag == 'backup':
-                dur = F(int(item.find('duration').text), context.divisions)
+                dur = F(int(_findtext(item, 'duration')), context.divisions)
                 cursor -= dur
 
             elif tag == 'forward':
-                dur = F(int(item.find('duration').text), context.divisions)
+                dur = F(int(_findtext(item, 'duration')), context.divisions)
                 cursor += dur
 
             elif tag == 'note':
                 note = _parseNote(item, context)
-                voicenum = int(note.properties.get('voice', 1))
+                voicenum = note.getProperty('voice', 1)
                 cursorWithinMeasure = cursor - measureCursor
                 note.offset = cursor
                 for direction in directions:
                     if direction.kind == 'rehearsal':
-                        box = direction.properties.get('enclosure')  # or 'square'
+                        box = direction.getProperty('enclosure', '')  # or 'square'
                         box = scoring.definitions.normalizeEnclosure(box)
                         if cursorWithinMeasure == 0:
                             sco.addRehearsalMark(measureidx, direction.value, box=box)
@@ -866,7 +913,7 @@ def _parsePart(part: ET.Element, context: _ParseContext
                 location = item.attrib.get('location', 'right')
                 # We do not support repeats
                 if (barstylenode := item.find('bar-style')) is not None:
-                    barstyle2 = scoring.definitions.normalizeBarstyle(barstylenode.text)
+                    barstyle2 = scoring.definitions.normalizeBarstyle(_text(barstylenode))
                     if not barstyle2:
                         logger.warning(f"Bartyle {barstylenode.text} unknown")
                         barstyle2 = 'single'
@@ -905,10 +952,22 @@ def _parsePart(part: ET.Element, context: _ParseContext
                 continue
             for s in event.symbols:
                 if isinstance(s, symbols.NoteheadLine) and s.kind == 'start':
+                    assert s.anchor is not None
                     anchor = s.anchor()
-                    endanchor = s.partnerSpanner().anchor()
+                    assert anchor is not None
+                    assert s.partnerSpanner
+                    partnerSpanner = s.partnerSpanner()
+                    assert partnerSpanner is not None
+                    assert partnerSpanner.anchor is not None
+                    endanchor = partnerSpanner.anchor()
+                    assert endanchor is not None
                     if voice.itemAfter(anchor) == endanchor:
-                        anchor.gliss = True
+                        try:
+                            anchor.gliss = True
+                        except AttributeError:
+                            logger.error(f"{anchor} has no glissando attribute, skipping {s}")
+                    else:
+                        logger.warning(f"No anchor set for symbol {s} in event {event}")
 
     return sco, activeVoices
 
@@ -926,7 +985,7 @@ def _guessEncoding(path: str, length=1024) -> str:
 
 @dataclass
 class PartDef:
-    node: ET.Element = None
+    node: ET.Element | None = None
     partid: str = ''
     name: str = ''
     shortname: str = ''
@@ -936,16 +995,19 @@ class PartDef:
     def __post_init__(self):
         if self.node is None:
             return
-        self.partid = self.node.get('id')
+        nodeid = self.node.get('id')
+        if nodeid is None:
+            raise MusicxmlParseError(f"No part id found for {self.node}")
+        self.partid = nodeid
         if not self.name and (name := self.node.find('part-name')) is not None:
             # Remove extraneous characters
-            self.name = _escapeString(name.text)
+            self.name = _escapeString(_text(name))
         if not self.shortname and (shortname := self.node.find('part-abbreviation')) is not None:
-            self.shortname = _escapeString(shortname.text)
+            self.shortname = _escapeString(_text(shortname))
         if not self.nameDisplay and (nameDisp := self.node.find('part-name-display')) is not None:
-            self.nameDisplay = _escapeString(nameDisp.find('display-text').text)
+            self.nameDisplay = _escapeString(_findtext(nameDisp, 'display-text'))
         if not self.shortnameDisplay and (shortnameDisp := self.node.find('part-abbreviation-display')) is not None:
-            self.shortnameDisplay = _escapeString(shortnameDisp.find('display-text').text)
+            self.shortnameDisplay = _escapeString(_findtext(shortnameDisp, 'display-text'))
 
 
 def parseMusicxmlFile(path: str, enforceParsedSpelling=False) -> Score:
@@ -1016,7 +1078,7 @@ def parseMusicxml(xml: str, enforceParsedSpelling=False) -> Score:
         logger.warning("This score does not define divisions. Using a default of 1")
         divisions = 1
     else:
-        divisions = int(divisionsNode.text)
+        divisions = _int(divisionsNode)
 
     rootcontext = _ParseContext(divisions=divisions,
                                 enforceParsedSpelling=enforceParsedSpelling)

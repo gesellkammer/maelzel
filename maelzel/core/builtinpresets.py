@@ -93,7 +93,7 @@ builtinPresets = [
     ),
 
     PresetDef(
-        '_clip_diskin', audiogen=r'''
+        '_clip_diskin', code=r'''
         |ipath, isndfilechan=-1, kspeed=1, iskip=0, iwrap=0, iwinsize=4|
         ; Builtin-in preset to play a clip using diskin
         ; Args:
@@ -140,7 +140,7 @@ builtinPresets = [
     ),
 
     PresetDef(
-        '_playtable', audiogen=r"""
+        '_playtable', code=r"""
         |isndtab=0, istart=0, kspeed=1, ixfade=-1|
         ; Built-in presetdef to playback a table
         ; Args:
@@ -225,7 +225,7 @@ builtinPresets = [
         reshapearray gi__formantAmps__, 5, 5
         reshapearray gi__formantBws__, 5, 5
         """,
-        audiogen=r"""
+        code=r"""
         |kx=0, ky=0, kvibrange=0.25, kvibfreq=4.5, ivibstart=0.5, ipitchlag=0.2|
         ; Simple vowel singing simulation
         ; Args:

@@ -175,7 +175,6 @@ def _packold(spectrum: sp.Spectrum,
     return tracks, rejected
 
 
-
 @dataclass
 class SplitResult:
     tracks: list[Track]
@@ -187,7 +186,7 @@ class SplitResult:
     residual: list[Partial]
     """Partials not fitted within tracks and noisetracks"""
 
-    distribution: float
+    distribution: float | bpf4.core.BpfInterface
     """The frequency distribution used to split the spectrum into bands"""
 
     def voicedPartials(self) -> list[Partial]:
@@ -289,6 +288,26 @@ def splitInTracks(partials: list[Partial],
                   noisebw=0.05,
                   debug=False
                   ) -> tuple[list[Track], list[Track], list[Partial]]:
+    """
+    Split the partials into tracks
+
+    Args:
+        partials: the partials
+        maxtracks: max. number of tracks
+        maxrange: max. range pro track
+        relerror: ??
+        distribution: frequency distribution. A callable mapping
+        numbands:
+        mingap:
+        audibilityCurveWeight:
+        maxnoisetracks:
+        noisefreq:
+        noisebw:
+        debug:
+
+    Returns:
+
+    """
     from maelzel import packing
     from scipy import optimize
 
@@ -434,22 +453,39 @@ def splitInTracks(partials: list[Partial],
 
 @dataclass
 class SpectralBand:
+    """
+    Represents partials within a spectral range
+    """
     minfreq: float
     maxfreq: float
     partials: list[Partial]
 
     def audibility(self):
+        """How audible are the partials in the band"""
         return sum(p.audibility() for p in self.partials)
 
     def energy(self):
+        """The total energy of the partials within this band"""
         return sum(p.energy() for p in self.partials)
-
 
 
 def splitInBands(partials: list[Partial],
                  numbands: int,
-                 distribution: float | bpf4.BpfInterface = 1.0
+                 distribution: float | Callable[[float], float] = 1.0
                  ) -> list[SpectralBand]:
+    """
+
+    Args:
+        partials: the partials to split
+        numbands: number of bands
+        distribution: either an exponent or a bpf between (0, 0) and (1, 1). When an exponent is given,
+            a value of 1.0 will result in a linear distribution (all bins contain the same total weight),
+            a value [0, 1) will result in the lower bins containing more weight than the higher bins,
+            and a value higher than 1 will distribute more weight to the higher bins
+
+    Returns:
+        a list of SpectralBands
+    """
     if numbands <= 1:
         return [SpectralBand(minfreq=0, maxfreq=24000, partials=partials)]
 
@@ -460,8 +496,6 @@ def splitInBands(partials: list[Partial],
     freqedges = histogram.weightedHistogram(freqs, energies, numbins=numbands, distribution=distribution)
     bands = [SpectralBand(minfreq=minfreq, maxfreq=maxfreq, partials=[])
              for minfreq, maxfreq in iterlib.pairwise(freqedges)]
-    if len(bands) == 0:
-        histogram.weightedHistogram()
     assert len(bands) > 0, f"#freqs: {len(freqs)}, #energies: {energies}, numbads: {numbands}, distribution: {distribution}"
 
     bandindexes = np.searchsorted(freqedges, freqs) - 1
@@ -473,7 +507,22 @@ def splitInBands(partials: list[Partial],
     return bands
 
 
-def fitPartialsInTracks(tracks: list[Track], partials: list[Partial], mingap=0.1, debug=False) -> list[Partial]:
+def fitPartialsInTracks(tracks: list[Track], partials: list[Partial], mingap=0.1, debug=False
+                        ) -> list[Partial]:
+    """
+    Fit the given partials within the given tracks
+
+    A track is a list of partials with non-simultaneous partials
+
+    Args:
+        tracks: a list of tracks. They will be modified in place
+        partials: a list of partials
+        mingap: a min. gap between partials within a track
+        debug: if True print debugging information
+
+    Returns:
+        a list of residual partials. The tracks given are modified in place
+    """
     residual2 = []
     partials.sort(key=lambda p: p.audibility(), reverse=True)
     for partial in partials:

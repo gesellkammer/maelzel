@@ -7,7 +7,7 @@ import enum
 
 import numbers as _numbers
 import pitchtools as pt
-from maelzel.common import F, asF, getLogger
+from maelzel.common import F, F1, asF, getLogger
 import sys
 
 from typing import NamedTuple, Union
@@ -17,7 +17,8 @@ if sys.version_info.minor >= 10:
     time_t: TypeAlias = Union[float, int, F]
     pitch_t: TypeAlias = Union[int, float, str]
     timesig_t: TypeAlias = tuple[int, int]
-    division_t: TypeAlias = tuple[Union[int, 'division_t'], ...]
+    # division_t: TypeAlias = tuple[Union[int, 'division_t'], ...]
+    division_t: TypeAlias = tuple[int, ...]
     timerange_t: TypeAlias = tuple[F, F]
     number_t: TypeAlias = Union[int, float, _numbers.Rational, F]
 
@@ -25,7 +26,8 @@ else:
     time_t = Union[float, int, F]
     pitch_t = Union[int, float, str]
     timesig_t = tuple[int, int]
-    division_t = tuple[Union[int, 'division_t'], ...]
+    # division_t = tuple[Union[int, 'division_t'], ...]
+    division_t = tuple[int, ...]
     timerange_t = tuple[F, F]
     number_t = Union[int, float, _numbers.Rational, F]
 
@@ -99,7 +101,6 @@ class TimeSpan(NamedTuple):
         return self.end - self.start
 
 
-
 _durationNames = {
     1: 'whole',
     2: 'half',
@@ -140,7 +141,10 @@ class NotatedDuration:
             a Fraction indicating the general time modification of the tuplets in this duration
 
         """
-        timemodif = F(1)
+        if not self.tuplets:
+            return F1
+
+        timemodif = F1
         for num, den in self.tuplets:
             timemodif *= F(num, den)
         return timemodif
@@ -149,7 +153,6 @@ class NotatedDuration:
         """The name of the base notation (one of 'quarter', 'eighth', '16th', etc.)
         """
         return _durationNames[self.base]
-
 
 
 class GLISS(enum.Enum):

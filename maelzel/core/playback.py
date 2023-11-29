@@ -82,6 +82,9 @@ class RealtimeRenderer(Renderer):
         self.registeredPresets[presetdef.name] = presetdef
         return isnew
 
+    def isInstrDefined(self, instrname: str) -> bool:
+        return self.session.getInstr(instrname) is not None
+
     def getInstr(self, instrname: str) -> csoundengine.instr.Instr:
         instr = self.session.getInstr(instrname)
         if instr is None:
@@ -190,6 +193,14 @@ class RealtimeRenderer(Renderer):
                   tabnum: int = 0
                   ) -> int:
         table = self.session.makeTable(data=data, size=size, sr=sr, tabnum=tabnum)
+        return table.tabnum
+
+    def readSoundfile(self,
+                      soundfile: str,
+                      chan=0,
+                      skiptime=0.
+                      ) -> int:
+        table = self.session.readSoundfile(path=path, chan=chan, skiptime=skiptime)
         return table.tabnum
 
     def sched(self,
@@ -396,14 +407,14 @@ def playSession(numchannels: int = None,
 
     .. seealso:: :class:`csoundengine.Session <https://csoundengine.readthedocs.io/en/latest/api/csoundengine.session.Session.html>`
     """
-    if isEngineActive():
+    if isSessionActive():
         return _playEngine().session()
     engine = _playEngine(numchannels=numchannels, backend=backend, outdev=outdev,
                          verbose=verbose, buffersize=buffersize, latency=latency)
     return engine.session()
 
 
-def isEngineActive() -> bool:
+def isSessionActive() -> bool:
     """
     Returns True if the sound engine is active
     """
@@ -499,7 +510,7 @@ def play(*sources: MObj | Sequence[SynthEvent] | csoundengine.event.Event,
                                                              eventparams=eventparams,
                                                              workspace=Workspace.active)
     numChannels = _playbacktools.nchnlsForEvents(coreevents)
-    if not isEngineActive():
+    if not isSessionActive():
         _playEngine(numchannels=numChannels)
     else:
         engine = _playEngine()
@@ -685,6 +696,9 @@ class SynchronizedContext(Renderer):
                   tabnum: int = 0
                   ) -> int:
         return self.session.makeTable(data=data, size=size, sr=sr, tabnum=tabnum).tabnum
+
+    def readSoundfile(self, soundfile: str, chan=0, skiptime=0.) -> int:
+        return self.session.readSoundfile(path=soundfile, chan=chan, skiptime=skiptime).tabnum
 
     def includeFile(self, path: str) -> None:
         self.session.includeFile(path)
@@ -883,9 +897,9 @@ class SynchronizedContext(Renderer):
         for action in self._enterActions:
             action(self)
 
-        self._prevRenderer, workspace.renderer = workspace.renderer, self
-        self._prevSessionSchedCallback = self.session.setSchedCallback(self.schedEvent)
-
+        self._prevRenderer = workspace.renderer
+        workspace.renderer = self
+        self._prevSessionSchedCallback = self.session.setSchedCallback(self._schedSessionEvent)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -896,11 +910,10 @@ class SynchronizedContext(Renderer):
         scheduling all events
         """
         # first, restore the state prior to the context
-        prevfunc = self._prevSessionSchedCallback
-        if prevfunc is not None:
-            self.session.setSchedCallback(prevfunc)
+        self.session.setSchedCallback(self._prevSessionSchedCallback)
         self._prevSessionSchedCallback = None
-        self.workspace.renderer, self._prevRenderer = self._prevRenderer, None
+        self.workspace.renderer = self._prevRenderer
+        self._prevRenderer = None
 
         if exc_type is not None:
             # There was an exception since entering
@@ -993,10 +1006,10 @@ class SynchronizedContext(Renderer):
 
 class _FutureSynth(csoundengine.synth.BaseSchedEvent):
     """
-    A FutureSynth is a handle to a future synth and corresponds to a SynthEvent
+    A FutureSynth is a handle to a future synth within a SynchronizedContext
 
-    Whenever a synthevent is scheduled, a FutureSynth is created with the same
-    token number. After all synthevents have been gathered, they are
+    Whenever a synthevent is scheduled, a FutureSynth is created with a token
+    mapped to the future event. After all synthevents have been gathered, they are
     initialized and scheduled in one operation, thus making synchronisation
     as tight and efficient as if they had been scheduled within a builtin
     structure like a voice or score.

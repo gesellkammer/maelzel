@@ -98,7 +98,7 @@ def measureTimeDuration(timesig: timesig_t, quarterTempo: F) -> F:
     return dur
 
 
-def midinotesNeedMultipleClefs(midinotes: List[float], threshold=1) -> bool:
+def midinotesNeedMultipleClefs(midinotes: list[float], threshold=1) -> bool:
     """
     True if multiple clefs are needed to represent these midinotes
 
@@ -163,7 +163,7 @@ def centsShown(centsdev: int, divsPerSemitone=4, snap=2, addplus=False) -> str:
     return f'+{centsdev:d}' if addplus else str(int(centsdev))
 
 
-def nextInGrid(x: Union[float, F], ticks: List[F]) -> F:
+def nextInGrid(x: Union[float, F], ticks: list[F]) -> F:
     """
     Snap x to the right within a grid created by the given ticks
 
@@ -190,9 +190,10 @@ def nextInGrid(x: Union[float, F], ticks: List[F]) -> F:
 
 def snapTime(start: F,
              duration: F,
-             divisors: List[int],
+             divisors: list[int],
              mindur=F(1, 16),
-             durdivisors: List[int]=None) -> Tuple[F, F]:
+             durdivisors: list[int] = None
+             ) -> tuple[F, F]:
     """
     Quantize an event to snap to a grid defined by divisors and durdivisors
 
@@ -305,13 +306,13 @@ def baseDurationToQuarterDuration(b: int) -> F:
     return F(1, b)*4
 
 
-def durationRatiosToTuplets(durRatios: List[F]) -> List[Tuple[int, int]]:
+def durationRatiosToTuplets(durRatios: Sequence[F]) -> list[tuple[int, int]]:
     tuplets = [(dr.numerator, dr.denominator) for dr in durRatios if dr != F(1)]
     return tuplets
 
 
 def parseScoreStructLine(line: str
-                         ) -> Tuple[Optional[int], Optional[timesig_t], Optional[float]]:
+                         ) -> tuple[Optional[int], Optional[timesig_t], Optional[float]]:
     """
     Parse a line of a ScoreStructure definition
 
@@ -322,7 +323,7 @@ def parseScoreStructLine(line: str
         a tuple (measureNum, timesig, tempo), where only timesig
         is required
     """
-    def parseTimesig(s: str) -> Tuple[int, int]:
+    def parseTimesig(s: str) -> tuple[int, int]:
         try:
             num, den = s.split("/")
         except ValueError:
@@ -392,22 +393,8 @@ def centsDeviation(pitch: float, divsPerSemitone=4) -> int:
     """
     return pt.pitch_round(pitch, divsPerSemitone)[1]
 
-def fixedPitchCentsAnnotation(note: str) -> str:
-    """
 
-    4C+60    4C+     60
-    4C+      4C+     -
-    4C+30    4C>     30
-    4C+80    4Db-20 -20
-
-    Args:
-        note:
-
-    Returns:
-
-    """
-
-def centsAnnotation(pitch: Union[float, List[float]],
+def centsAnnotation(pitch: Union[float, list[float]],
                     divsPerSemitone=4,
                     order='ascending',
                     addplus=False,
@@ -420,7 +407,8 @@ def centsAnnotation(pitch: Union[float, List[float]],
         divsPerSemitone: subdivisions of the semitone
         order: 'ascending' or 'descending'
         addplus: if True, add a plus sign for possitive deviations
-
+        separator: separator used for chords
+        
     Returns:
         a string which can be attached to a note/chord to show
         the cents deviation from the notaten pitches
@@ -440,10 +428,11 @@ def centsAnnotation(pitch: Union[float, List[float]],
     return separator.join(annotations) if any(annotations) else ""
 
 
-def notatedDuration(duration: F, durRatios: Optional[List[F]]
+def notatedDuration(duration: F, durRatios: Sequence[F] = ()
                     ) -> NotatedDuration:
     assert duration >= 0
-    if duration == 0:  #  a grace note
+    if duration == 0:
+        # a grace note
         return NotatedDuration(0)
 
     dur = duration
@@ -478,3 +467,53 @@ _uuid_alphabet = '0123456789abcdefghijklmnopqrstuvwxyz'
 
 def makeuuid(size=8) -> str:
     return ''.join(random.choices(_uuid_alphabet, k=size))
+
+
+def splitInterval(start: F, end: F, offsets: Sequence[F]
+                  ) -> list[tuple[F, F]]:
+    """
+    Split interval (start, end) at the given offsets
+
+    Args:
+        start: start of the interval
+        end: end of the interval
+        offsets: offsets to split the interval at. Must be sorted
+
+    Returns:
+        a list of (start, end) segments where no segment extends over any
+        of the given offsets
+
+    Example
+    ~~~~~~~
+
+        >>> splitInterval(F(1), F(3), [F(1.5), F(2)])
+        [(F(1), F(1.5)), (F(1.5),  F(2)), (F(2), F(3))]
+
+    """
+    assert end > start
+    assert offsets
+
+    if offsets[0] > end or offsets[-1] < start:
+        # no intersection, return the original time range
+        return [(start, end)]
+
+    out = []
+    for offset in offsets:
+        if offset >= end:
+            break
+        if start < offset:
+            out.append((start, offset))
+            start = offset
+    if start != end:
+        out.append((start, end))
+
+    assert len(out) >= 1
+    return out
+
+
+def fractionRange(start: F, stop: F, step: F = F(1)
+                   ) -> Iterator[F]:
+    """ Like range, but yielding Fractions """
+    while start < stop:
+        yield start
+        start += step

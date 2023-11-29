@@ -55,9 +55,10 @@ import atexit as _atexit
 import configdict
 
 from pitchtools import amp2db
-from emlib import numpytools as _nptools
+import emlib.numpytools as _nptools
 import emlib.misc
 
+from maelzel.snd import _common
 from maelzel.snd import numpysnd as _npsnd
 from maelzel.snd import sndfiletools as _sndfiletools
 
@@ -66,7 +67,7 @@ if TYPE_CHECKING:
     import csoundengine
     from typing import Iterator, Sequence
     import matplotlib.pyplot as plt
-
+    from maelzel.partialtracking import spectrum as _spectrum
 
 __all__ = (
     'Sample',
@@ -82,7 +83,7 @@ _config = {
     'reprhtml_audiotag_width': '100%',
     'reprhtml_audiotag_maxwidth': '1200px',
     'reprhtml_audio_format': 'wav',
-    'csoundengine': 'maelzel',
+    'csoundengine': _common.CSOUNDENGINE,
 }
 
 
@@ -103,7 +104,7 @@ def _cleanup():
                 os.remove(f)
 
 
-def _normalize_path(path: str) -> str:
+def _normalizePath(path: str) -> str:
     path = os.path.expanduser(path)
     return os.path.abspath(path)
 
@@ -118,11 +119,12 @@ def _openInEditor(soundfile: str, wait=False, app=None) -> None:
         app: the app to use. If None is given, a default app is used
 
     """
-    soundfile = _normalize_path(soundfile)
+    soundfile = _normalizePath(soundfile)
     emlib.misc.open_with_app(soundfile, app, wait=wait, min_wait=5)
 
 
-def readSoundfile(sndfile: str, start: float = 0., end: float = 0.) -> tuple[np.ndarray, int]:
+def readSoundfile(sndfile: str | Path, start: float = 0., end: float = 0.
+                  ) -> tuple[np.ndarray, int]:
     """
     Read a soundfile, returns a tuple ``(samples:np.ndarray, sr:int)``
 
@@ -150,8 +152,8 @@ def readSoundfile(sndfile: str, start: float = 0., end: float = 0.) -> tuple[np.
                                            title='Select soundfile')
         if not sndfile:
             raise RuntimeError("No soundfile selected")
-    sndfile = _normalize_path(sndfile)
-    return sndfileio.sndread(sndfile, start=start, end=end)
+    sndfilestr = _normalizePath(str(sndfile))
+    return sndfileio.sndread(sndfilestr, start=start, end=end)
 
 
 def _vampPyinAvailable() -> bool:
@@ -179,7 +181,7 @@ class Sample:
 
     """
 
-    _csoundEngine: csoundengine.Engine = None
+    _csoundEngine: csoundengine.Engine | None = None
 
     def __init__(self,
                  sound: str | Path | np.ndarray,
@@ -501,7 +503,7 @@ class Sample:
             # embed short audiofiles, the longer ones are written to disk and read
             # from there
             if self.duration < 2:
-                audioobj = IPython.display.Audio(self.samples.T, rate=self.sr)
+                audioobj = IPython.display.Audio(self.samples, rate=self.sr)
                 audiotag = audioobj._repr_html_()
             else:
                 os.makedirs('tmp', exist_ok=True)
@@ -632,8 +634,8 @@ class Sample:
             return Sample(sndfile)
         return None
 
-    def write(self, outfile: str, encoding: str = None, overflow='fail',
-              fmt: str = '', bitrate=224, **metadata
+    def write(self, outfile: str, encoding='', overflow='fail',
+              fmt='', bitrate=224, **metadata
               ) -> None:
         """
         Write the samples to outfile
@@ -659,13 +661,15 @@ class Sample:
             if not outfile:
                 logger.warning("No outfile selected, aborting")
                 return
-        outfile = _normalize_path(outfile)
+        outfile = _normalizePath(outfile)
         samples = self.samples
         if not fmt:
             fmt = os.path.splitext(outfile)[1][1:].lower()
             assert fmt in {'wav', 'aif', 'aiff', 'flac', 'mp3', 'ogg'}
         if not encoding:
             encoding = sndfileio.util.default_encoding(fmt)
+            if not encoding:
+                raise ValueError(f"Format {fmt} is not supported")
         if overflow != 'nothing' and encoding.startswith('pcm'):
             import numpyx
             minval, maxval = numpyx.minmax1d(self.getChannel(0).samples)
@@ -897,7 +901,7 @@ class Sample:
         samples = np.concatenate([self.samples, silence])
         return Sample(samples, sr=self.sr)
 
-    def append(self, *other: Sample) -> Sample:
+    def concat(self, *other: Sample) -> Sample:
         """
         Join (concatenate) this Sample with other(s)
 
@@ -909,8 +913,7 @@ class Sample:
 
         .. seealso:: :meth:`Sample.join`
         """
-        samples = [self]
-        samples.extend(other)
+        samples = [self, *other]
         return joinsamples(samples)
 
     def _checkWrite(self) -> None:
@@ -1018,7 +1021,7 @@ class Sample:
         """
         period = int(window*self.sr)
         first_sound_sample = _npsnd.firstSound(self.samples, threshold, period)
-        if first_sound_sample >= 0:
+        if first_sound_sample is not None and first_sound_sample >= 0:
             time = max(first_sound_sample/self.sr-margin, 0)
             return self[time:]
         return self
@@ -1038,7 +1041,7 @@ class Sample:
         """
         period = int(window*self.sr)
         lastsample = _npsnd.lastSound(self.samples, threshold, period)
-        if lastsample >= 0:
+        if lastsample is not None and lastsample >= 0:
             time = min(lastsample/self.sr+margin, self.duration)
             return self[:time]
         return self
@@ -1192,6 +1195,42 @@ class Sample:
         else:
             raise ValueError(f"method {method} not known. Possible methods: 'rosita', 'aubio'")
 
+    def partialTrackingAnalysis(self,
+                                resolution: float = 50.,
+                                channel=0,
+                                windowsize: float | None = None,
+                                freqdrift: float = None,
+                                hoptime: float = None,
+                                mindb=-90) -> _spectrum.Spectrum:
+        """
+        Analyze this audiosample using partial tracking
+
+        Args:
+            resolution: the resolution of the analysis, in Hz
+            channel: which channel to analyze
+            windowsize: The window size in hz. This value needs to be higher than the
+                resolution since the window in samples needs to be smaller than the fft analysis
+            mindb: the amplitude floor.
+            hoptime: the time to move the window after each analysis. For overlap==1, this is 1/windowsize.
+                For overlap==2, 1/(windowsize*2)
+            freqdrift: the max. variation in frequency between two breakpoints (by default, 1/2 resolution)
+
+        Returns:
+            a :class:`maelzel.partialtracking.spectrum.Spectrum`
+
+        .. seealso::
+
+            :meth:`~Sample.spectrumAt`, :meth:`maelzel.partialtracking.spectrum.Spectrum.analyze`
+
+
+        """
+        from maelzel.partialtracking.spectrum import Spectrum
+        samples = self.getChannel(channel).samples
+        return Spectrum.analyze(samples=samples, sr=self.sr,
+                                resolution=resolution, windowsize=windowsize,
+                                hoptime=hoptime, freqdrift=freqdrift,
+                                mindb=mindb)
+
     def spectrumAt(self,
                    time: float,
                    resolution: float = 50.,
@@ -1199,7 +1238,7 @@ class Sample:
                    windowsize: float = -1,
                    mindb=-90,
                    minfreq: int | None = None,
-                   maxfreq = 12000,
+                   maxfreq=12000,
                    maxcount=0
                    ) -> list[tuple[float, float]]:
         """
@@ -1321,10 +1360,9 @@ class Sample:
 
         elif method == 'fft':
             from maelzel.snd import freqestimate
-            stepsize/self.sr
             samples = self.getChannel(0).samples
             f0curve, probcurve = freqestimate.f0curve(samples, sr=self.sr,
-                                                      overlap=4, method='fft')
+                                                      overlap=overlap, method='fft')
             return f0curve
         else:
             raise ValueError(f"method should be one of 'pyin', 'pyin-annotator', "
@@ -1369,6 +1407,9 @@ class Sample:
         samples = self.samples if self.numchannels == 1 else self.samples[:,channel]
         firstidx = _npsnd.firstSound(samples, threshold=threshold)
         lastidx = _npsnd.lastSound(samples, threshold=threshold)
+        if firstidx is None or lastidx is None:
+            return (0, 0)
+
         from maelzel.snd import freqestimate
         chunksize = self.sr // 4
         for idx in range(firstidx, lastidx, chunksize):
@@ -1706,7 +1747,7 @@ def spectrumAt(samples: np.ndarray,
                           "'pip install loristrck'")
     partials = loristrck.analyze(samples, sr=sr, resolution=resolution, windowsize=windowsize)
     if minfreq is None:
-        minfreq = resolution * 1.3
+        minfreq = int(resolution * 1.3)
     validpartials, rest = loristrck.util.select(partials, mindur=margin, minamp=mindb,
                                                 maxfreq=maxfreq, minfreq=minfreq)
     breakpoints = loristrck.util.partials_at(validpartials, t=margin, maxcount=maxcount)

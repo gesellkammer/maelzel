@@ -125,6 +125,7 @@ def simplifyBreakpointsByDensity(breakpoints: list[Breakpoint],
         breakpoints: the breakpoints to simplify
         maxdensity: the breakpoints need to be simplified so that the density
             (the number of breakpoints per second) does not exceed this value
+        pitchconv: a pitch converter. Use None to use default
 
     Returns:
         the simplified breakpoints. Notice that an group with <= 2 breakpoints will
@@ -139,7 +140,7 @@ def simplifyBreakpointsByDensity(breakpoints: list[Breakpoint],
         return breakpoints
 
     if pitchconv is None:
-        pitchconv = pt.PitchConverter.default
+        pitchconv = pt.PitchConverter.default()
 
     import visvalingamwyatt
     from scipy import optimize
@@ -171,7 +172,7 @@ def simplifyBreakpoints(breakpoints: list[Breakpoint],
         return breakpoints
 
     if pitchconv is None:
-        pitchconv = pt.PitchConverter.default
+        pitchconv = pt.PitchConverter.default()
 
     points = [(b.time, pitchconv.f2m(b.freq)) for b in breakpoints]
     if method == 'visvalingam':

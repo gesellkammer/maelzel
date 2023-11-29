@@ -143,12 +143,12 @@ class PresetManager:
 
     def defPreset(self,
                   name: str,
-                  audiogen: str,
+                  code: str,
                   init='',
-                  epilogue='',
+                  post='',
                   includes: list[str] = None,
                   args: dict[str, float] = None,
-                  description: str = None,
+                  description='',
                   envelope=True,
                   output=True,
                   aliases: dict[str, str] | None = None
@@ -156,33 +156,33 @@ class PresetManager:
         """
         Define a new instrument preset.
 
-        The defined preset can be used as note.play(..., instr='name'), where name
+        The defined preset can be used as note.play(instr='name'), where name
         is the name of the preset. A preset is created by defining the audio generating
         part as csound code. Each preset has access to the following variables:
 
-        - **kpitch**: pitch as fractional midi
+        - **kpitch**: pitch of the event, as fractional midi
         - **kamp**: linear amplitude (0-1)
         - **kfreq**: frequency corresponding to kpitch
 
-        Similar to csoundengine's `Instr <https://csoundengine.readthedocs.io/en/latest/instr.html>`_ ,
-        each preset can have an associated ftable, passed as p4. If p4 is 0, then
-        the given preset has no associated ftable
+        `code` should generate an audio output signal named ``aout1`` for channel 1,
+        ``aout2`` for channel 2, etc.::
 
-        audiogen should generate an audio output signal named 'aout1' for channel 1,
-        'aout2' for channel 2, etc.::
-
-            audiogen = 'aout1 oscili a(kamp), kfreq'
+            code = 'aout1 oscili a(kamp), kfreq'
 
         Args:
             name: the name of the preset
-            audiogen: audio generating csound code
-            epilogue: code to include after any other code. Needed when using turnoff,
-                since calling turnoff in the middle of an instrument can cause undefined behaviour.
-            init: global code needed for all instances of this preset (usually a table definition). It will
-                be run only once before any event with this preset is scheduled.
+            code: audio generating csound code
+            post: code to include after any other code. Needed when using turnoff,
+                since calling turnoff in the middle of an instrument can cause undefined
+                behaviour.
+            init: global code needed for all instances of this preset (usually a table
+                definition, loading samples, etc). It will be run only once before any
+                event with this preset is scheduled. Do not confuse this with the init phase
+                of an instrument, which runs for every event.
             includes: files to include
-            args: a dict {parameter_name: value} passed to the instrument. The keys need to match the names
-                of any declared parameter
+            args: a dict ``{parametername: value}`` passed to the instrument. Parameters can
+                also be defined inline using the ``|iarg=<default>, karg=<default>|``
+                notation
             description: an optional description of the preset. The description can include
                 documentation for the parameters (see Example)
             envelope: If True, apply an envelope as determined by the fadein/fadeout
@@ -247,9 +247,9 @@ class PresetManager:
 
         """
         presetdef = PresetDef(name=name,
-                              audiogen=audiogen,
+                              code=code,
                               init=init,
-                              epilogue=epilogue,
+                              epilogue=post,
                               includes=includes,
                               args=args,
                               description=description,
@@ -265,14 +265,14 @@ class PresetManager:
         return presetdef
 
     def defPresetSoundfont(self,
-                           name: str = None,
-                           sf2path: str = None,
+                           name='',
+                           sf2path='',
                            preset: tuple[int, int] | str = (0, 0),
-                           init: str = None,
-                           postproc: str = None,
+                           init='',
+                           postproc='',
                            includes: list[str] = None,
                            args: dict[str, float] | None = None,
-                           interpolation: str = None,
+                           interpolation='',
                            mono=False,
                            ampDivisor: int = None,
                            turnoffWhenSilent=True,
@@ -323,11 +323,6 @@ class PresetManager:
                 in the config (:ref:`key 'play.soundfontInterpolation' <config_play_soundfontinterpolation>`)
             turnoffWhenSilent: if True, turn a note off when the sample stops (by detecting
                 silence for a given amount of time)
-            routing: if True, code is generated to apply panning and
-                send the audio generated to the output. If False audio is placed in the
-                audiogen variables *aout1*, *aout2*, etc., and the user is responsible
-                for sending those signals to some output, to a bus, etc. This code
-                can be included in the *postproc* parameter
             description: a short string describing this preset
             _builtin: if True, marks this preset as built-in
 
@@ -347,7 +342,7 @@ class PresetManager:
         """
         if name in self.presetdefs:
             logger.info(f"PresetDef {name} already exists, overwriting")
-        if sf2path is None:
+        if not sf2path:
             sf2path = presetutils.resolveSoundfontPath()
             if sf2path is None:
                 sf2path = "?"
@@ -355,8 +350,9 @@ class PresetManager:
             sf2path = _dialogs.selectFileForOpen('soundfontLastDirectory',
                                                  filter="*.sf2", prompt="Select Soundfont",
                                                  ifcancel="No soundfont selected, aborting")
-        cfg = Workspace.active.config
-        if interpolation is None:
+            assert sf2path is not None
+        cfg = Workspace.getActive().config
+        if not interpolation:
             interpolation = cfg['play.soundfontInterpolation']
         assert interpolation in ('linear', 'cubic')
 
@@ -371,35 +367,32 @@ class PresetManager:
         else:
             bank, presetnum = preset
         idx = csoundengine.csoundlib.soundfontIndex(sf2path)
-        if name is None:
+        if not name:
             name = idx.presetToName[(bank, presetnum)]
         if (bank, presetnum) not in idx.presetToName:
             raise ValueError(f"Preset ({bank}:{presetnum}) not found. Possible presets: "
                              f"{idx.presetToName.keys()}")
-        audiogen = presetutils.makeSoundfontAudiogen(sf2path=sf2path,
-                                                     preset=(bank, presetnum),
-                                                     interpolation=interpolation,
-                                                     ampDivisor=ampDivisor,
-                                                     mono=mono)
-        # We don't need to use a global variable because sfloadonce
-        # saved the table num into a channel
-        init0 = f'''iSfTable_ sfloadonce "{sf2path}"'''
+        code = presetutils.makeSoundfontAudiogen(sf2path=sf2path,
+                                                 preset=(bank, presetnum),
+                                                 interpolation=interpolation,
+                                                 ampDivisor=ampDivisor,
+                                                 mono=mono)
+        # We don't actually need the global variable because sfloadonce
+        # saves the table number into a channel
+        init0 = f'i__SfTable__ sfloadonce "{sf2path}"'
         if init:
             init = "\n".join((init0, init))
         else:
             init = init0
         if postproc:
-            audiogen = emlib.textlib.joinPreservingIndentation((audiogen, '\n;; postproc\n', postproc))
+            code = emlib.textlib.joinPreservingIndentation((code, '\n;; postproc\n', postproc))
         epilogue = "turnoffWhenSilent aout1" if turnoffWhenSilent else ''
-        if args:
-            args['ipitchlag'] = 0.1
-            args['ktransp'] = 0.
-        else:
-            args = {'ktransp': 0., 'ipitchlag': 0.1}
+        ownargs = {'ktransp': 0., 'ipitchlag': 0.1}
+        args = ownargs if not args else args | ownargs
         presetdef = self.defPreset(name=name,
-                                   audiogen=audiogen,
+                                   code=code,
                                    init=init,
-                                   epilogue=epilogue,
+                                   post=epilogue,
                                    includes=includes,
                                    args=args,
                                    description=description,
@@ -418,7 +411,7 @@ class PresetManager:
         """
         self.presetdefs[presetdef.name] = presetdef
 
-    def getPreset(self, name: str) -> PresetDef:
+    def getPreset(self, name: str = '?') -> PresetDef:
         """
         Get a preset by name
 
@@ -432,11 +425,17 @@ class PresetManager:
             the PresetDef corresponding to the given name
         """
         if name is None:
-            name = Workspace.active.config['play.instr']
+            name = Workspace.getActive().config['play.instr']
         elif name == "?":
-            name = _dialogs.selectFromList(list(self.presetdefs.keys()),
-                                           title="Select Preset",
-                                           default=Workspace.active.config['play.instr'])
+            # Presets starting with _ are private, presets starting with . are builtin
+            presets = [name for name in self.presetdefs.keys()
+                       if not name.startswith('_')]
+            selected = _dialogs.selectFromList(options=presets,
+                                               title="Select Preset",
+                                               default=Workspace.getActive().config['play.instr'])
+            if selected is None:
+                raise ValueError("No preset selected")
+            name = selected
         preset = self.presetdefs.get(name)
         if not preset:
             raise KeyError(f"Preset '{name}' not known. Available presets: {self.definedPresets()}")
@@ -502,7 +501,7 @@ class PresetManager:
             >>> showPresets("piano")
             Preset: piano
               init: iSfTable_ sfloadonce "/home/user/sf2/grand-piano-YDP.sf2"
-              audiogen:
+              code:
                 ipresetidx sfPresetIndex "/home/user/sf2/grand-piano-YDP.sf2", 0, 0
                 inote0_ = round(p(idataidx_ + 1))
                 ivel_ = p(idataidx_ + 2) * 127
@@ -517,7 +516,7 @@ class PresetManager:
         Args:
             pattern: a glob pattern to select which presets are shown
             showGeneratedCode: if True, all actual code of an instrument
-                is show. Otherwise, only the audiogen is shown
+                is show. Otherwise, only the audio code is shown
 
         """
         matchingPresets = [p for name, p in self.presetdefs.items()
@@ -536,9 +535,10 @@ class PresetManager:
                 if not showGeneratedCode:
                     print(preset)
                 else:
-                    print(preset.getInstr().body)
+                    instr = preset.getInstr()
+                    print(csoundengine.session.Session.defaultInstrBody(instr))
         else:
-            theme = Workspace.active.config['htmlTheme']
+            theme = Workspace.getActive().config['htmlTheme']
             htmls = []
             if full:
                 for preset in matchingPresets:
@@ -648,7 +648,7 @@ class PresetManager:
         Returns:
             a csoundengine.Renderer
         """
-        workspace = Workspace.active
+        workspace = Workspace.getActive()
         config = workspace.config
         sr = sr or config['rec.sr']
         ksmps = ksmps or config['rec.ksmps']

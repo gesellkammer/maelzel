@@ -15,7 +15,7 @@ from maelzel.common import F, F0
 from emlib.iterlib import pairwise
 import operator
 import bisect
-from math import sqrt
+from math import sqrt, inf
 
 
 def asF(x) -> F:
@@ -96,8 +96,8 @@ class Track:
         self.items: list[Item] = items if items else []
         self._sortkey = operator.attrgetter('offset')
         self._modified = True
-        self._minstep: float | None = None
-        self._maxstep: float | None = None
+        self._minstep: float = 0.
+        self._maxstep: float = 0.
 
     def _update(self) -> None:
         if not self.items:
@@ -106,16 +106,16 @@ class Track:
         self._maxstep = max(item.step for item in self.items)
         self._modified = False
 
-    def minstep(self) -> float | None:
+    def minstep(self) -> float:
         if not self.items:
-            return None
+            raise ValueError("No items")
         if self._modified:
             self._update()
         return self._minstep
 
-    def maxstep(self) -> float | None:
+    def maxstep(self) -> float:
         if not self.items:
-            return None
+            raise ValueError("No items")
         if self._modified:
             self._update()
         return self._maxstep
@@ -210,11 +210,11 @@ class Track:
 
 
 def packInTracks(items: list[Item],
-                 maxrange: float = float('inf'),
-                 maxjump: int = None,
+                 maxrange: float = inf,
+                 maxjump: float = inf,
                  method='append',
                  maxtracks: int = None,
-                 mingap=0.1,
+                 mingap=0.,
                  ) -> list[Track] | None:
     """
     Pack the items into tracks, minimizing the amount of tracks needed
@@ -237,6 +237,7 @@ def packInTracks(items: list[Item],
         method: one of 'append' or 'insert'. When 'append' is selected, a new
             Item will always be appended at the end of a Track. With 'insert'
             an Item can be inserted between two Items within a Track.
+        mingap: a min. gap between packed items.
         maxtracks: if given, packing will fail early if the number of tracks is exceeded, returning None
 
     Returns:
@@ -249,7 +250,8 @@ def packInTracks(items: list[Item],
         if method == 'insert':
             track = _bestTrackInsert(tracks, item, maxrange=maxrange, maxjump=maxjump)
         elif method == 'append':
-            track = _bestTrackAppend(tracks, item, maxrange=maxrange, maxjump=maxjump, mingap=mingap)
+            track = _bestTrackAppend(tracks, item, maxrange=maxrange, maxjump=maxjump,
+                                     mingap=mingap)
         else:
             raise ValueError(f"Expected 'insert' or 'append', got {method=}")
         if track is None:
@@ -270,14 +272,14 @@ def dumpTracks(tracks: list[Track]) -> None:
 
 # ------------------------------------------------------------------------
 
-def _fits(track: Track, itemoffset: F, maxjump: int, step: float, maxrange: float) -> bool:
+def _fits(track: Track, itemoffset: F, maxjump: float, step: float, maxrange: float) -> bool:
     assert track.items
     lastitem = track.items[-1]
     if lastitem.end > itemoffset:
         return False
     minstep = min(track.minstep(), step)
     maxstep = max(track.maxstep(), step)
-    if maxstep - minstep > maxrange or (maxjump is not None and abs(lastitem.step - step) > maxjump):
+    if maxstep - minstep > maxrange or abs(lastitem.step - step) > maxjump:
         return False
     return True
 
@@ -295,8 +297,8 @@ def _rateFitAppend(track: Track, item: Item) -> float:
     return float(penalty)
 
 
-def _bestTrackAppend(tracks: list[Track], item: Item, maxrange: float,
-                     maxjump: int = None, mingap=0.1
+def _bestTrackAppend(tracks: list[Track], item: Item, maxrange=inf,
+                     maxjump=inf, mingap=0.
                      ) -> Track | None:
     """
     Returns the best track in tracks to append the item to
@@ -305,7 +307,9 @@ def _bestTrackAppend(tracks: list[Track], item: Item, maxrange: float,
         tracks: list of existing tracks
         item: the item to append
         maxrange: the max. ambitus of the track
-        maxjump: the max. jump between the previous item and this item
+        maxjump: the max. jump between the previous item and this item. 0 allows any jump
+        mingap: a min. gap between the end of the last event and the start of
+            the next event
 
     Returns:
         the best track, or None if the item cannot be appended
@@ -335,7 +339,7 @@ def _bestTrackAppend(tracks: list[Track], item: Item, maxrange: float,
 
 
 def _bestTrackInsert(tracks: list[Track], item: Item, maxrange: float,
-                     maxjump: int = None, mingap=0.1
+                     maxjump=inf, mingap=0
                      ) -> Track | None:
     """
     Returns the best track in tracks to _packold item into
@@ -344,14 +348,14 @@ def _bestTrackInsert(tracks: list[Track], item: Item, maxrange: float,
         tracks: list of tracks
         item: node to fit
         maxrange: the maximum range a track can have
-        maxjump: if given, sets a maximum step difference
-            between two adjacent items in a track
+        maxjump: maximum step difference between two adjacent items in a track
+        mingap: min. time gap between two items
 
     Returns:
         the best trackto place item, or None if item does not fit
     """
     possibletracks = [track for track in tracks
-                      if _fitsInTrack(track, item, maxrange=maxrange, maxjump=maxjump)]
+                      if _fitsInTrack(track, item, maxrange=maxrange, maxjump=maxjump, mingap=mingap)]
     if not possibletracks:
         return None
     results = [(_rateFit(track, item), track) for track in possibletracks]
@@ -363,7 +367,7 @@ def _bestTrackInsert(tracks: list[Track], item: Item, maxrange: float,
 def _fitsInTrack(track: Track,
                  item: Item,
                  maxrange: float,
-                 maxjump: float = None,
+                 maxjump: float = 0.,
                  mingap=0.
                  ) -> bool:
     """
@@ -426,8 +430,6 @@ def _rateFit(track: Track, item: Item) -> float:
     Returns:
         a penalte. The lower the penalty, the better the fit
     """
-    assert isinstance(track, list)
-    assert isinstance(item, Item)
     if not track:
         time1 = 0
     else:
@@ -440,7 +442,7 @@ def _rateFit(track: Track, item: Item) -> float:
 def _checkTrack(track: Track) -> bool:
     if not track:
         return True
-    for item0, item1 in pairwise(track):
+    for item0, item1 in pairwise(track.items):
         if item0.end > item1.offset:
             return False
     return True

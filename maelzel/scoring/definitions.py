@@ -274,10 +274,10 @@ boxMappings = {
 }
 
 
-def normalizeEnclosure(enclosure: str|bool, default='') -> str:
+def normalizeEnclosure(enclosure: str | bool, default='') -> str:
     if enclosure in enclosureBoxes:
         return enclosure
-    if (_:=boxMappings.get(enclosure)) is not None:
+    if (_ := boxMappings.get(enclosure)) is not None:
         return _
     return default
 

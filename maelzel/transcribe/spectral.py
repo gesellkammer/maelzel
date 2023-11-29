@@ -64,23 +64,23 @@ def transcribeTracks(tracks: list[Track],
                      ) -> mc.Score:
     import maelzel.core
 
-    pitchedVoices = [trackToVoice(track.partials, scorestruct=scorestruct, options=options)
-                     for track in tracks]
+    voices = [trackToVoice(track.partials, scorestruct=scorestruct, options=options)
+              for track in tracks]
 
-    noiseVoices = [trackToVoice(track.partials, scorestruct=scorestruct, options=options)
-                   for track in noisetracks]
-
-    for i, voice in enumerate(pitchedVoices):
+    for i, voice in enumerate(voices):
         voice.name = f'V{i}'
 
-    for i, voice in enumerate(noiseVoices):
-        voice.name = f'N{i}'
+    voices.sort(key=lambda voice: voice.meanPitch(), reverse=True)
 
-    noiseVoices.sort(key=lambda voice: voice.meanPitch(), reverse=True)
-    pitchedVoices.sort(key=lambda voice: voice.meanPitch(), reverse=True)
+    if noisetracks is not None:
+        noiseVoices = [trackToVoice(track.partials, scorestruct=scorestruct, options=options)
+                       for track in noisetracks]
+        for i, voice in enumerate(noiseVoices):
+            voice.name = f'N{i}'
+        noiseVoices.sort(key=lambda voice: voice.meanPitch(), reverse=True)
+        voices.extend(noiseVoices)
 
-    allvoices = noiseVoices + pitchedVoices
-    score = maelzel.core.Score(voices=allvoices)
+    score = maelzel.core.Score(voices=voices)
     return score
 
 
@@ -94,6 +94,24 @@ def transcribe(spectrum: sp.Spectrum,
                scorestruct: ScoreStruct | None = None,
                options: TranscribeOptions | None = None
                ) -> tuple[mc.Score, list[Partial]]:
+    """
+    Transcribe the spectrum as a Score
+
+    Args:
+        spectrum: the Spectrum to transcribe
+        maxtracks: the max. number of tracks
+        noisetracks: number of tracks used to pack noisy partials / residual
+        maxrange: the max. range of a track, in semitones
+        mingap: the min. gap between partials within a track
+        noisebw: the bandwidth of a partial to be considered noise
+        noisefreq: partials above this frequency can be qualified as noise
+        scorestruct: a ScoreStruct used for transcription
+        options: the TranscribeOptions used, or None to use default options
+
+    Returns:
+        a tuple (score, residualpartials)
+
+    """
 
     result = spectrum.splitInTracks(maxtracks=maxtracks,
                                     noisetracks=noisetracks,

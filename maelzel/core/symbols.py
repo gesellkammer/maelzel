@@ -353,7 +353,7 @@ class LineSpan(Spanner):
         n.addSpanner(spanner)
 
 
-_spannerNameToConstructor: dict[str] = {
+_spannerNameToConstructor: dict[str, Any] = {
     'slur': Slur,
     'line': LineSpan,
     'linespan': LineSpan,
@@ -452,7 +452,7 @@ class SizeFactor(Property):
         self.size = size
 
     def applyToNotation(self, n: scoring.Notation) -> None:
-        n.sizeFactor = self.size
+        n.sizeFactor = int(self.size)
 
 
 class Color(Property):
@@ -705,13 +705,12 @@ class Harmonic(NoteSymbol):
     If the interval is given then an artificial harmonic is assumed.
 
     Args:
-        kind: one of natural, artificial or sounding. A sounding harmonic
-            (flageolet) will be notated with a small 'o'. *kind* can also
-            be the interval itself or the string representation ('4th' is a
-            perfect fourth, '3M' is a major third
-        interval: the interval between the node touched and the pitch
-            depressed, only needed for artificial harmonics. Can be given as the
-            number of semitones (5==perfect fourth) or as a string ('4th')
+        kind: either 'natural', 'artificial' or an interval as string
+            ('4th' is a perfect fourth, '3M' is a major third). In this last
+            case the kind is set to artificial and the interval is set
+            to this value
+        interval: the interval for artificial harmonics. If set, the
+            kind is set to 'artificial'
 
 
     =============  ========== =========
@@ -723,40 +722,51 @@ class Harmonic(NoteSymbol):
     Minor third     3           3m
     Major second    2           2 or 2M
     =============  ========== =========
+
+    Example
+    ~~~~~~~
+
+        # A string 4th (2 octave higher) harmonic
+        >>> symbols.Harmonic('4th')
+        # A flageolet, where the written note indicates the sounding pitch
+        >>> symbols.Harmonic('natural')
+        # A touch harmonic, where the written note indicates where to slightly
+        # touch the string. The interval is left as 0
+        >>> symbols.Harmonic('artificial')
     """
     applyToRests = False
 
-    def __init__(self, kind: str | int ='natural', interval: int | str = 0):
+    def __init__(self, kind='natural', interval: int | str = 0):
         super().__init__()
 
-        if isinstance(kind, int):
-            interval = kind
+        if kind in _intervalToSemitones:
+            assert interval == 0
+            semitone = _intervalToSemitones[kind]
             kind = 'artificial'
-        elif interval != 0:
+        elif interval == 0:
+            semitone = 0
+        else:
             kind = 'artificial'
             if isinstance(interval, str):
-                interval = _intervalToSemitones[interval]
-        elif interval == 0 and (semitones := _intervalToSemitones.get(kind)) is not None:
-            kind, interval = 'artificial', semitones
+                semitone = _intervalToSemitones.get(kind)
+                if semitone is None:
+                    raise ValueError(f"Invalid interval, expected one of {_intervalToSemitones.keys()}")
+            else:
+                semitone = interval
 
-        assert kind in {'natural', 'artificial', 'sounding'}
-        if kind == 'artificial':
-            assert interval >= 1
-        else:
-            interval = 0
-        self.kind = kind
-        self.interval = interval
+        assert kind in ('natural', 'artificial')
+        self.kind: str = kind
+        self.interval: int = semitone
 
     def applyToNotation(self, n: scoring.Notation) -> None:
-        if self.kind == 'sounding':
+        if self.kind == 'natural':
             if not n.tiedPrev:
                 n.addArticulation('flageolet')
         else:
             n.addAttachment(scoring.attachment.Harmonic(self.interval))
-            # notation.addHarmonic(self.kind, interval=self.interval)
 
     def applyToTiedGroup(self, notations: Sequence[scoring.Notation]) -> None:
-        if self.kind == 'sounding':
+        if self.kind == 'natural':
             self.applyToNotation(notations[0])
         else:
             for n in notations:
@@ -957,7 +967,8 @@ class Stem(NoteSymbol):
 
     def applyToNotation(self, n: scoring.Notation) -> None:
         if self.hidden:
-            n.stem = 'hidden'
+            n.addAttachment(scoring.attachment.StemTraits(hidden=True))
+            # n.stem = 'hidden'
 
 
 class Gracenote(NoteSymbol):
@@ -1049,7 +1060,7 @@ class Accidental(PitchAttachedSymbol):
         self.parenthesis: bool = parenthesis
         self.color: str = color
         self.force: bool = force
-        self.size: float = size
+        self.size: float | None = size
 
     def __repr__(self):
         return _util.reprObj(self, hideFalse=True, hideEmptyStr=True)

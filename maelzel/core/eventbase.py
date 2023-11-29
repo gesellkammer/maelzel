@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from emlib import mathlib
 from maelzel.common import F
-from maelzel.core.mobj import MObj
+from maelzel.core.mobj import MObj, MContainer
 import maelzel.core.symbols as _symbols
 from maelzel.core.synthevent import PlayArgs
 
@@ -17,13 +17,13 @@ class MEvent(MObj):
     """
     A discrete event in time (a Note, Chord, etc)
     """
-    __slots__ = ('tied', 'amp', 'dynamic')
+    __slots__ = ('tied', 'amp', 'dynamic', '_glissTarget')
 
     def __init__(self,
                  dur: F,
                  offset: F = None,
                  amp: float | None = None,
-                 parent: MObj = None,
+                 parent: MContainer = None,
                  properties: dict[str, Any] = None,
                  symbols: list[_symbols.Symbol] = None,
                  label='',
@@ -31,19 +31,20 @@ class MEvent(MObj):
                  tied=False):
         super().__init__(dur=dur, offset=offset, label=label, parent=parent,
                          properties=properties, symbols=symbols)
-        self.tied = tied
+        self.tied: bool = tied
         """Is this event tied?"""
 
-        self.amp = amp
+        self.amp: float | None = amp
         "The playback amplitude 0-1 of this note"
 
-        self.dynamic = dynamic
+        self.dynamic: str = dynamic
 
+        self._glissTarget: float = 0.
 
     @property
     def gliss(self):
         """The end target of this event, if any"""
-        return None
+        return False
 
     def isRest(self) -> bool:
         """Is this a rest?"""
@@ -85,12 +86,16 @@ class MEvent(MObj):
 
             >>> from maelzel.core import *
             >>> n = Note(60)
-            >>> n.addSymbol(articulation='accent')
-            # This is the same as:
             >>> n.addSymbol(symbols.Articulation('accent'))
-            # Symbols can also be added as keywords, and multiple symbols can be added at once:
+            # The same can be achieved via keyword arguments:
+            >>> n.addSymbol(articulation='accent')
+            # Multiple symbols can be added at once:
             >>> n = Note(60).addSymbol(text='dolce', articulation='tenuto')
-            >>> n2 = Note("4G").addSymbol(symbols.Harmonic(interval=5), symbols.Ornament('mordent'))
+            >>> n2 = Note("4G").addSymbol(symbols.Articulation('accent'), symbols.Ornament('mordent'))
+            # Known symbols - most common symbols don't actually need keyword arguments:
+            >>> n = Note("4Db").addSymbol('accent').addSymbol('fermata')
+            # Some symbols can take customizations:
+            >>> n3 = Note("4C+:1/3").addSymbol(symbols.Harmonic(interval='4th'))
 
 
         Returns:

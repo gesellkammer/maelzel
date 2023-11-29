@@ -174,8 +174,9 @@ def markConsecutiveGracenotes(root: Node) -> None:
                 graceGroupOpen = False
     if graceGroupOpen:
         lastn = iterlib.first(root.recurse(reverse=True))
-        assert lastn.isGracenote
-        lastn.setProperty('.graceGroup', 'stop')
+        if lastn is not None:
+            assert lastn.isGracenote
+            lastn.setProperty('.graceGroup', 'stop')
 
 
 def lyArticulation(articulation: attachment.Articulation) -> str:
@@ -267,7 +268,7 @@ def _renderTextAttachment(attach: attachment.Text, options: RenderOptions, relat
                                   bold=attach.weight=='bold' or style.bold,
                                   box=attach.box or style.box)
     else:
-        logger.debug(f"Text role {attach.role} not implemented")
+        raise ValueError(f"Text role {attach.role} not implemented")
 
 
 def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> str:
@@ -305,15 +306,16 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         if (not n.tiedPrev or options.articulationInsideTie) and n.dynamic:
             dyn = n.dynamic if not n.dynamic.endswith('!') else n.dynamic[:-1]
             _(fr"\{dyn}")
-        for attach in n.attachments:
-            if isinstance(attach, attachment.Text):
-                _(_renderTextAttachment(attach, options=options))
-            elif isinstance(attach, attachment.Fermata):
-                _(_fermataToLily.get(attach.kind, r'\fermata'))
-            elif isinstance(attach, attachment.Clef):
-                _(lilytools.makeClef(attach.kind))
-            else:
-                logger.warning(f"Attachment {attach} not supported for rests")
+        if n.attachments:
+            for attach in n.attachments:
+                if isinstance(attach, attachment.Text):
+                    _(_renderTextAttachment(attach, options=options))
+                elif isinstance(attach, attachment.Fermata):
+                    _(_fermataToLily.get(attach.kind, r'\fermata'))
+                elif isinstance(attach, attachment.Clef):
+                    _(lilytools.makeClef(attach.kind))
+                else:
+                    logger.warning(f"Attachment {attach} not supported for rests")
 
         return ' '.join(parts)
 
@@ -328,8 +330,10 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
     if n.sizeFactor is not None and n.sizeFactor != 1:
         _(rf"\once \magnifyMusic {n.sizeFactor}")
 
-    if n.stem == 'hidden':
-        _(r"\once \override Stem.transparent = ##t")
+    # if n.stem == 'hidden':
+    if attach := n.findAttachment(cls=attachment.StemTraits):
+        if attach.hidden:
+            _(r"\once \override Stem.transparent = ##t")
 
     if n.isGracenote:
         base, dots = 8, 0
@@ -347,22 +351,22 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
             _(r"\grace")
 
     # Attachments PRE pitch
-    for attach in n.attachments:
-
-        if isinstance(attach, attachment.Harmonic):
-            n = n.resolveHarmonic()
-        elif isinstance(attach, attachment.Clef):
-            _(lilytools.makeClef(attach.kind))
-        elif isinstance(attach, attachment.Breath):
-            if attach.visible:
-                if attach.kind:
-                    logger.info("Setting breath type is not supported yet")
-                    # _(fr"\once \set breathMarkType = #'{attach.kind}")
-                _(r"\breathe")
-            else:
-                _(r'\beamBreak')
-        elif isinstance(attach, attachment.Property) and attach.key == 'hidden':
-            _(r"\single \hideNotes")
+    if n.attachments:
+        for attach in n.attachments:
+            if isinstance(attach, attachment.Harmonic):
+                n = n.resolveHarmonic()
+            elif isinstance(attach, attachment.Clef):
+                _(lilytools.makeClef(attach.kind))
+            elif isinstance(attach, attachment.Breath):
+                if attach.visible:
+                    if attach.kind:
+                        logger.info("Setting breath type is not supported yet")
+                        # _(fr"\once \set breathMarkType = #'{attach.kind}")
+                    _(r"\breathe")
+                else:
+                    _(r'\beamBreak')
+            elif isinstance(attach, attachment.Property) and attach.key == 'hidden':
+                _(r"\single \hideNotes")
 
     if len(n.pitches) == 1:
         # ***************************
@@ -373,7 +377,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         elif n.tiedPrev and n.gliss and state.glissando and options.glissHideTiedNotes:
             _(lyNotehead(definitions.Notehead(hidden=True)))
 
-        fingering = next((a for a in n.attachments if isinstance(a, attachment.Fingering)), None)
+        fingering = n.findAttachment(attachment.Fingering)
         accidentalTraits = n.findAttachment(attachment.AccidentalTraits)
         if accidentalTraits:
             assert isinstance(accidentalTraits, attachment.AccidentalTraits)
@@ -406,6 +410,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
             noteheads = n.noteheads
         _("<")
         notenames = n.resolveNotenames()
+        notenames = [n if n[-1] != '!' else n[:-1] for n in notenames]
         notatedpitches = [pt.notated_pitch(notename) for notename in notenames]
         chordAccidentalTraits = n.findAttachment(cls=attachment.AccidentalTraits, anchor=None) or attachment.AccidentalTraits.default()
         for i, pitch in enumerate(n.pitches):
@@ -414,7 +419,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
             notename = notenames[i]
             notatedpitch = notatedpitches[i]
             accidentalTraits = n.findAttachment(cls=attachment.AccidentalTraits, anchor=i) or chordAccidentalTraits
-
+            assert isinstance(accidentalTraits, attachment.AccidentalTraits)
             if any(otherpitch.diatonic_index == notatedpitch.diatonic_index for otherpitch in notatedpitches
                    if otherpitch is not notatedpitch):
                 forceAccidental = True
@@ -431,7 +436,8 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
                                   forceAccidental=forceAccidental))
         _(f">{base}{'.'*dots}{'~' if n.tiedNext else ''}")
 
-    if trem := next((a for a in n.attachments if isinstance(a, attachment.Tremolo)), None):
+    if trem := n.findAttachment(attachment.Tremolo):
+        assert isinstance(trem, attachment.Tremolo)
         if trem.tremtype == 'single':
             if trem.relative:
                 _(f":{trem.singleDuration()}")
@@ -454,19 +460,19 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
 
     if n.attachments:
         n.attachments.sort(key=lambda a: a.getPriority())
-    for attach in n.attachments:
-        if isinstance(attach, attachment.Text):
-            _(_renderTextAttachment(attach, options=options))
-        elif isinstance(attach, attachment.Articulation):
-            if not n.tiedPrev or options.articulationInsideTie:
-                _(lyArticulation(attach))
-        elif isinstance(attach, attachment.Fermata):
-            _(_fermataToLily.get(attach.kind, r'\fermata'))
-        elif isinstance(attach, attachment.Ornament):
-            _(fr'\{attach.kind}')
-        elif isinstance(attach, attachment.Bend):
-            interval = ('+' if attach.interval > 0 else '')+str(round(attach.interval, 1))
-            _(fr'\bendAfter #{interval}')
+        for attach in n.attachments:
+            if isinstance(attach, attachment.Text):
+                _(_renderTextAttachment(attach, options=options))
+            elif isinstance(attach, attachment.Articulation):
+                if not n.tiedPrev or options.articulationInsideTie:
+                    _(lyArticulation(attach))
+            elif isinstance(attach, attachment.Fermata):
+                _(_fermataToLily.get(attach.kind, r'\fermata'))
+            elif isinstance(attach, attachment.Ornament):
+                _(fr'\{attach.kind}')
+            elif isinstance(attach, attachment.Bend):
+                interval = ('+' if attach.interval > 0 else '')+str(round(attach.interval, 1))
+                _(fr'\bendAfter #{interval}')
 
     if options.showCents and not n.tiedPrev:
         # TODO: cents annotation should follow options (below/above, fontsize)
@@ -828,7 +834,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
         if addTempoMarks and measureDef.timesig != lastTimesig:
             lastTimesig = measureDef.timesig
             num, den = measureDef.timesig
-            if symbol := measureDef.properties.get('symbol'):
+            if measureDef.properties and (symbol := measureDef.properties.get('symbol')):
                 if symbol == 'single-number':
                     line(r"\once \override Staff.TimeSignature.style = #'single-digit")
             if measureDef.subdivisionStructure:
@@ -1061,7 +1067,7 @@ class LilypondRenderer(Renderer):
             options.renderFormat = 'png'
         elif fmt == 'pdf':
             if options.cropToContent is None:
-                options.cropToContetn = False
+                options.cropToContent = False
             options.renderFormat = 'pdf'
         elif fmt == 'mid':
             if not self._withMidi:

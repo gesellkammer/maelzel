@@ -88,7 +88,7 @@ class Node:
     """
     def __init__(self,
                  ratio: tuple[int, int] | Rational = (1, 1),
-                 items: list[Notation | 'Node'] = None,
+                 items: 'list[Notation | Node]' = None,
                  properties: dict | None = None,
                  parent: Node | None = None):
         if items:
@@ -273,7 +273,7 @@ class Node:
         if len(out) == 1 and isinstance(out[0], Notation):
             n = out[0].copy()
             if n.durRatios and n.durRatios[-1] != 1:
-                n.durRatios.pop()
+                n.durRatios = n.durRatios[:-1]
             return Node(ratio=(1, 1), items=[n])
         return Node(ratio=self.durRatio,
                     items=out,
@@ -549,9 +549,10 @@ class Node:
             if offset < item.offset:
                 return None
             if offset < item.end:
-                if isinstance(item, Notation) and item.offset == offset:
-                    item.addAttachment(attachment.Breath(visible=False))
-                    return item
+                if isinstance(item, Notation):
+                    if item.offset == offset:
+                        item.addAttachment(attachment.Breath(visible=False))
+                        return item
                 else:
                     item.breakBeamsAt(offset)
         return None
@@ -566,13 +567,22 @@ class Node:
             else:
                 if item.offset < breakOffset < item.end and item.totalDuration() >= minDuration:
                     for sub1, sub2 in iterlib.pairwise(item.items):
-                        if sub2.offset == breakOffset and sub1.durRatios == sub2.durRatios:
-                            logger.debug(f"Found unnecessary node at {breakOffset}, splitting")
-                            left, right = item._splitAtBoundary(breakOffset)
-                            items.append(left)
-                            items.append(right)
-                            didsplit = True
-                            break
+                        if sub2.offset == breakOffset:
+                            if (isinstance(sub1, Notation) and isinstance(sub2, Notation) and
+                                    sub1.durRatios == sub2.durRatios):
+                                logger.debug(f"Found unnecessary node at {breakOffset}, splitting")
+                                left, right = item._splitAtBoundary(breakOffset)
+                                items.append(left)
+                                items.append(right)
+                                didsplit = True
+                                break
+                            elif (isinstance(sub1, Node) and isinstance(sub2, Node) and
+                                  sub1.durRatio == sub2.durRatio):
+                                left, right = item._splitAtBoundary(breakOffset)
+                                items.append(left)
+                                items.append(right)
+                                didsplit = True
+                                break
                     else:
                         items.append(item)
                 else:

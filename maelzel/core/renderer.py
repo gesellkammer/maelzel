@@ -177,9 +177,28 @@ class Renderer(ABC):
         """
         return
 
+    def isInstrDefined(self, instrname: str) -> bool:
+        """
+        Is an Instr with the given name defined?
+        """
+        try:
+            instr = self.getInstr(instrname)
+            return instr is not None
+        except KeyError:
+            return False
+
     @abstractmethod
-    def getInstr(self, instrname: str) -> csoundengine.instr.Instr:
-        """Get the Instr corresponding to the instr name"""
+    def getInstr(self, instrname: str) -> csoundengine.instr.Instr | None:
+        """
+        Get the Instr corresponding to the instr name
+
+        Args:
+            instrname: the name of the Instr
+
+        Returns:
+            the :class:`Instr` if defined and registered with this renderer,
+            None otherwise
+        """
         raise NotImplementedError
 
     @abstractmethod
@@ -232,6 +251,17 @@ class Renderer(ABC):
                   tabnum: int = 0
                   ) -> int:
         """Create a Table to be used within this renderer"""
+        raise NotImplementedError
+
+    @abstractmethod
+    def readSoundfile(self, soundfile: str, chan=0, skiptime=0.) -> int:
+        """Read a soundfile into the renderer
+
+        Args:
+            soundfile: the soundfile to read
+            chan: the channel to read, 0 to read all channels
+            skiptime: start reading from this time
+        """
         raise NotImplementedError
 
     @abstractmethod

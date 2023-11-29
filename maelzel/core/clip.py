@@ -59,7 +59,7 @@ class Clip(event.MEvent):
             (see :ref:`config['show.clipNoteheadShape'] <config_show_clipnoteheadshape>`)
 
     """
-    _excludedPlayKeys: tuple[str] = ('instr', 'args')
+    _excludedPlayKeys = ('instr', 'args')
 
     __slots__ = ('amp',
                  'selectionStartSecs',
@@ -166,10 +166,10 @@ class Clip(event.MEvent):
         else:
             raise TypeError(f"Expected a soundfile path, a Sample or a tuple (samples, sr), got {source}")
 
-        self.source: str |  audiosample.Sample = source
+        self.source: str | audiosample.Sample = source
         """The source of this clip"""
 
-        self.amp = amp
+        self.amp: float = amp
         """An amplitude (gain) applied to this clip"""
 
         self.dynamic: str = dynamic
@@ -191,13 +191,13 @@ class Clip(event.MEvent):
             s = self.asSample()
             freq = s.fundamentalFreq()
             if freq:
-                pitch = pt.f2n(freq)
+                pitchrepr = pt.f2m(freq)
             else:
-                pitch = 60
+                pitchrepr = 60.
         else:
-            pitch = asmidi(pitch)
+            pitchrepr = asmidi(pitch)
 
-        self.pitch: float = pitch
+        self.pitch: float = pitchrepr
         """The pitch representation of this clip.
         This is used for notation purposes, it has no influence on the playback
         of this clip"""
@@ -206,7 +206,6 @@ class Clip(event.MEvent):
             offset = asF(offset)
 
         super().__init__(offset=offset, dur=dur, label=label)
-
 
     @property
     def sr(self) -> float:
@@ -308,7 +307,7 @@ class Clip(event.MEvent):
             the duration in quarternotes
         """
         absoffset = absoffset if absoffset is not None else self.absOffset()
-        struct = scorestruct or self.scorestruct() or Workspace.active.scorestruct
+        struct = scorestruct or self.scorestruct() or Workspace.getActive().scorestruct
         starttime = struct.beatToTime(absoffset)
         endbeat = struct.timeToBeat(starttime + self.durSecs())
         return endbeat - absoffset
@@ -320,7 +319,7 @@ class Clip(event.MEvent):
             return self._explicitDur
 
         absoffset = self.absOffset()
-        struct = self.scorestruct() or Workspace.active.scorestruct
+        struct = self.scorestruct() or Workspace.getActive().scorestruct
 
         if self._dur is not None and self._durContext is not None:
             cachedstruct, cachedbeat = self._durContext
@@ -383,15 +382,19 @@ class Clip(event.MEvent):
     def _initEvent(self, event: SynthEvent, renderer: playback.Renderer):
         if self._playbackMethod == 'table':
             if not self._csoundTable:
-                self._csoundTable = renderer.makeTable(self.source.samples, sr=int(self.sr))
-            event.args['isndtab'] = self._csoundTable
+                if isinstance(self.source, audiosample.Sample):
+                    self._csoundTable = renderer.makeTable(self.source.samples, sr=int(self.sr))
+                else:
+                    assert os.path.exists(self.soundfile)
+                    self._csoundTable = renderer.readSoundfile(self.soundfile)
+            event._ensureArgs()['isndtab'] = self._csoundTable
 
     def chordAt(self,
                 time: num_t,
-                resolution: float=50,
+                resolution: float = 50,
                 channel=0,
                 mindb=-90,
-                dur: num_t | None =None,
+                dur: num_t = None,
                 maxcount=0,
                 ampfactor=1.0,
                 maxfreq=20000,
@@ -407,7 +410,7 @@ class Clip(event.MEvent):
         See
 
         Args:
-            time: the time to analyze
+            time: the time to analyze. This is a time within the clip, in seconds
             resolution: the resolution of the analysis, in Hz
             channel: which channel to analyze, for multichannel clips
             mindb: the min. amplitude (in dB) for a component to be included
@@ -424,7 +427,7 @@ class Clip(event.MEvent):
 
         """
         sample = self.asSample()
-        pairs = sample.spectrumAt(time, resolution=resolution, channel=channel,
+        pairs = sample.spectrumAt(float(time), resolution=resolution, channel=channel,
                                   mindb=mindb, maxcount=maxcount, maxfreq=maxfreq,
                                   minfreq=minfreq)
         if not pairs:
@@ -439,7 +442,7 @@ class Clip(event.MEvent):
                       parentOffset: F | None = None
                       ) -> list[scoring.Notation]:
         if not config:
-            config = Workspace.active.config
+            config = Workspace.getActive().config
         offset = self.absOffset()
         dur = self.dur
         notation = scoring.makeNote(pitch=self.pitch,

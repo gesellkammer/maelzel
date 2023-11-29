@@ -10,6 +10,7 @@ import functools
 import emlib.textlib
 from emlib import iterlib
 from maelzel.common import F, asF, F0, num_t, timesig_t
+from maelzel._util import aslist
 
 from typing import TYPE_CHECKING, overload as _overload
 if TYPE_CHECKING:
@@ -28,7 +29,7 @@ __all__ = (
 
 
 @functools.cache
-def beatWeightsByTimeSignature(num: int, den: int) -> tuple[int]:
+def beatWeightsByTimeSignature(num: int, den: int) -> tuple[int, ...]:
     """
     Given a time signature, returns a sequence of beat weights
 
@@ -110,21 +111,19 @@ class TimeSignature:
             else:
                 raise ValueError(f"Cannot parse timesignature: {timesig}")
         elif isinstance(timesig, str):
-            # 3/4, 3+3+2/8 or 3/8+3/8+2/8
-            parts = timesig.count("+") + 1
-            if parts == 1:
+            # 3/4 or 3/8+3/8+2/8
+            numparts = timesig.count("+") + 1
+            if numparts == 1:
                 assert "/" in timesig
                 numstr, denstr = timesig.split("/")
                 return TimeSignature((int(numstr), int(denstr)))
             else:
-                if timesig.count("/") == 1:
-                    numstr, denstr = timesig.split("/")
-                    den = int(denstr)
-                    parts = [(int(num), den) for num in numstr.split("+")]
-                    return TimeSignature(*parts)
-                else:
-                    parts = [tuple(map(int, p.split("/"))) for p in timesig.split("+")]
-                    return TimeSignature(*parts)
+                assert timesig.count("/") == numparts
+                parts = []
+                for p in timesig.split("+"):
+                    numstr, denstr = p.split("/")
+                    parts.append((int(numstr), int(denstr)))
+                return TimeSignature(*parts)
         else:
             raise TypeError(f"Expected a str or a tuple, got {timesig}")
 
@@ -310,7 +309,7 @@ class MeasureDef:
         self.subdivisionStructure: tuple[int, ...] | None = tuple(subdivisionStructure) if subdivisionStructure else None
         """The subdivision structure of this measure. 
         This is only relevant for measures with an irregular time-signature,
-        like 5/8. In that case the subdivisionStructure might be (3, 2) or (2, 3)"""
+        like 5/8. In that case the subdivisionStructure might be [3, 2] or [2, 3]"""
 
         self.rehearsalMark = rehearsalMark
         """If given, a RehearsalMark for this measure"""
@@ -328,7 +327,6 @@ class MeasureDef:
         """The parent ScoreStruct of this measure, if any"""
 
         self.readonly = readonly
-
 
     @property
     def durationQuarters(self) -> F:
@@ -478,16 +476,16 @@ class MeasureDef:
 
 
 def inferSubdivisions(num: int, den: int, quarterTempo
-                      ) -> list[int]:
+                      ) -> tuple[int, ...]:
     if (den == 8 or den == 16) and num % 3 == 0:
-        return [3] * (num // 3)
+        return tuple([3] * (num // 3))
     subdivs = []
     while num > 3:
         subdivs.append(2)
         num -= 2
     if num:
         subdivs.append(num)
-    return subdivs
+    return tuple(subdivs)
 
 
 def measureQuarterDuration(timesig: timesig_t) -> F:
@@ -517,7 +515,7 @@ def measureQuarterDuration(timesig: timesig_t) -> F:
 def measureBeatDurations(timesig: timesig_t,
                          quarterTempo: F,
                          maxEighthTempo: num_t = 48,
-                         subdivisionStructure: list[int] = None
+                         subdivisionStructure: tuple[int, ...] = None
                          ) -> list[F]:
     """
 
@@ -627,7 +625,7 @@ def measureBeatStructure(timesig: timesig_t,
 
 def measureBeatOffsets(timesig: timesig_t,
                        quarterTempo: F | int,
-                       subdivisionStructure: list[int] = None
+                       subdivisionStructure: tuple[int, ...] = None
                        ) -> list[F]:
     """
     Returns a list with the offsets of all beats in measure.
@@ -638,7 +636,7 @@ def measureBeatOffsets(timesig: timesig_t,
         timesig: the timesignature as a tuple (num, den)
         quarterTempo: the tempo correponding to a quarter note
         subdivisionStructure: if given, a list of subdivision lengths. For example,
-            a 5/8 measure could have a subdivision structure of [2, 3] or [3, 2]
+            a 5/8 measure could have a subdivision structure of (2, 3) or (3, 2)
 
     Returns:
         a list of fractions representing the start time of each beat, plus the
@@ -1011,12 +1009,12 @@ class ScoreStruct:
     def addMeasure(self,
                    timesig: timesig_t | str = None,
                    quarterTempo: num_t = None,
-                   annotation: str = None,
+                   annotation='',
                    numMeasures=1,
                    rehearsalMark: str | RehearsalMark = None,
                    subdivisions: Sequence[int] = None,
                    keySignature: tuple[int, str] | KeySignature = None,
-                   barline: str = '',
+                   barline='',
                    **kws
                    ) -> None:
         """
@@ -1075,7 +1073,8 @@ class ScoreStruct:
 
         measuredef = MeasureDef(timesig=_asTimesig(timesig),
                                 quarterTempo=quarterTempo,
-                                annotation=annotation, timesigInherited=timesigInherited,
+                                annotation=annotation,
+                                timesigInherited=timesigInherited,
                                 tempoInherited=tempoInherited,
                                 rehearsalMark=rehearsalMark,
                                 subdivisionStructure=list(subdivisions) if subdivisions else None,
@@ -1155,7 +1154,7 @@ class ScoreStruct:
         """
         if self.endless:
             raise ValueError("An endless score does not have a duration in beats")
-        return sum(m.durationQuarters for m in self.measuredefs)
+        return asF(sum(m.durationQuarters for m in self.measuredefs))
 
     def durationSecs(self) -> F:
         """
@@ -1165,7 +1164,7 @@ class ScoreStruct:
         """
         if self.endless:
             raise ValueError("An endless score does not have a duration in seconds")
-        return sum(m.durationSecs for m in self.measuredefs)
+        return asF(sum(m.durationSecs for m in self.measuredefs))
 
     def _update(self) -> None:
         if not self._attributesModified and not self._timingModified:
@@ -1243,6 +1242,8 @@ class ScoreStruct:
 
         """
         measureindex, measurebeat = self.timeToLocation(time)
+        if measureindex is None:
+            raise ValueError(f"time {time} outside of score")
         measuredef = self.getMeasureDef(measureindex)
         return measuredef.quarterTempo
 
@@ -1288,7 +1289,7 @@ class ScoreStruct:
         beat = (numMeasures - int(numMeasures)) * lastMeas.durationQuarters
         return len(self.measuredefs)-1 + int(numMeasures), beat
 
-    def beatToLocation(self, beat: num_t) -> tuple[int | None, F]:
+    def beatToLocation(self, beat: num_t) -> tuple[int, F]:
         """
         Return the location in score corresponding to the given beat
 
@@ -1298,8 +1299,8 @@ class ScoreStruct:
         play any role within this calculation.
 
         Returns:
-            a tuple (measure index, beat), where measureindex will be
-            None if the beat is outside the score
+            a tuple (measure index, beat). Raises ValueError if beat
+            is not defined within this score
 
         .. note::
 
@@ -1334,7 +1335,9 @@ class ScoreStruct:
             # past the end
             rest = beat - self._beatOffsets[-1]
             if not self.endless:
-                return (None, 0) if rest > 0 else (numdefs, F(0))
+                if rest > 0:
+                    raise ValueError(f"The given beat ({beat}) is outside the score")
+                return (numdefs, F0)
             beatsPerMeasure = self.measuredefs[-1].durationQuarters
             idx = numdefs - 1
             idx += int(rest / beatsPerMeasure)
@@ -1386,7 +1389,8 @@ class ScoreStruct:
 
         .. seealso:: :meth:`~ScoreStruct.timeToBeat`
         """
-        return self.locationToTime(*self.beatToLocation(beat))
+        meas, offset = self.beatToLocation(beat)
+        return self.locationToTime(meas, offset)
 
     def timeToBeat(self, t: num_t) -> F:
         """
@@ -1663,14 +1667,14 @@ class ScoreStruct:
 
         .. seealso:: :meth:`~ScoreStruct.timeDelta`
         """
-        startBeat = self.locationToBeat(*start) if isinstance(start, tuple) else self.timeToBeat(start)
-        endBeat = self.locationToBeat(*end) if isinstance(start, tuple) else self.timeToBeat(end)
+        startBeat = self.beat(start)
+        endBeat = self.beat(end)
         return endBeat - startBeat
 
     def show(self,
              fmt='png',
              app: str = '',
-             scalefactor: float = None,
+             scalefactor: float = 1.0,
              backend: str = None,
              renderoptions: RenderOptions = None
              ) -> None:
@@ -1816,7 +1820,7 @@ class ScoreStruct:
                 ) -> Renderer:
         from maelzel import scoring
         quantprofile = scoring.quant.QuantizationProfile()
-        measures = [scoring.quant.QuantizedMeasure(timesig=m.timesig, quarterTempo=m.quarterTempo)
+        measures = [scoring.quant.QuantizedMeasure(timesig=m.timesig, quarterTempo=m.quarterTempo, beats=[])
                     for m in self.measuredefs]
         part = scoring.quant.QuantizedPart(struct=self, measures=measures, quantprofile=quantprofile)
         qscore = scoring.quant.QuantizedScore([part], title=self.title, composer=self.composer)
@@ -2076,17 +2080,18 @@ class ScoreStruct:
 
         .. image:: ../assets/clicktrack2.png
         """
-        from maelzel.core import tools
+        from maelzel.core.clicktrack import makeClickTrack
         if minMeasures < self.numMeasures():
             struct = self
         else:
             struct = self.copy()
             struct.ensureDurationInMeasures(minMeasures)
-        return tools.makeClickTrack(struct, clickdur=clickdur,
-                                    strongBeatPitch=strongBeatPitch,
-                                    weakBeatPitch=weakBeatPitch,
-                                    playpreset='_click',
-                                    playargs={'ktransp': playTransposition})
+        return makeClickTrack(struct,
+                              clickdur=clickdur,
+                              strongBeatPitch=strongBeatPitch,
+                              weakBeatPitch=weakBeatPitch,
+                              playpreset='_click',
+                              playargs={'ktransp': playTransposition})
 
 
 def _filledScoreFromStruct(struct: ScoreStruct, pitch='4C') -> maelzel.core.Score:
@@ -2105,12 +2110,17 @@ def _filledScoreFromStruct(struct: ScoreStruct, pitch='4C') -> maelzel.core.Scor
     events = []
     from maelzel.core import Note, Voice, Score
     import pitchtools
-    midinote = pitch if isinstance(pitch, (int, float)) else pitchtools.n2m(pitch)
+    if isinstance(pitch, (int, float)):
+        midinote = float(pitch)
+    else:
+        midinote = pitchtools.n2m(pitch)
     for i, m in enumerate(struct.measuredefs):
         num, den = m.timesig
         dur = 4/den * num
         if i == len(struct.measuredefs) - 1:
-            events.append(Note(midinote if i % 2 == 0 else midinote+2, offset=now, dur=dur))
+            events.append(Note(pitch=midinote if (i % 2 == 0) else (midinote+2),
+                               offset=now,
+                               dur=dur))
         now += dur
     voice = Voice(events)
     return Score([voice], scorestruct=struct)

@@ -8,9 +8,6 @@ import emlib.textlib
 from .workspace import getConfig, getWorkspace
 from ._common import logger
 from . import presetdef
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from typing import *
 
 
 _removeExtranousCharacters = emlib.textlib.makeReplacer({"[":"", "]":"", '"':'', "'":"", "{":"", "}":""})
@@ -47,8 +44,8 @@ def saveYamlPreset(p: presetdef.PresetDef, outpath: str) -> None:
         f.write(f"name: {p.name}\n")
         if p.description:
             f.write(f"description: {p.description}\n")
-        f.write(f"audiogen: |\n")
-        audiogen = textwrap.indent(p.audiogen, "    ")
+        f.write(f"code: |\n")
+        audiogen = textwrap.indent(p.code, "    ")
         f.write(audiogen)
         if not audiogen.endswith("\n"):
             f.write("\n")
@@ -81,11 +78,11 @@ def loadYamlPreset(path: str) -> presetdef.PresetDef:
     presetName = d.get('name')
     if not presetName:
         raise ValueError("A preset should have a name")
-    audiogen = d.get('audiogen')
-    if not audiogen:
+    code = d.get('code')
+    if not code:
         raise ValueError("A preset should define an audiogen")
     return presetdef.PresetDef(name=d.get('name'),
-                               audiogen=audiogen,
+                               code=code,
                                includes=d.get('includes'),
                                init=d.get('init'),
                                epilogue=d.get('epilogue'),
@@ -107,11 +104,14 @@ def makeSoundfontAudiogen(sf2path: str = None,
     Args:
         sf2path: path to a sf2 soundfont. If None, the default fluidsynth soundfont
             is used
-        instrnum: as returned via `csoundengine.csoundlib.soundfontGetInstruments`
+        instrnum: as returned via `csoundengine.csoundlib.soundfontInstruments`
         preset: a tuple (bank, presetnumber) as returned via
-            `csoundengine.csoundlib.soundfontGetPresets`
+            `csoundengine.csoundlib.soundfontPresets`
         interpolation: refers to the wave interpolation performed on the sample
             data (options: 'linear' or 'cubic')
+
+    Returns:
+        the audio code for a soundfont preset
 
     .. note::
         Either an instrument number of a preset tuple must be given.
@@ -133,6 +133,8 @@ def makeSoundfontAudiogen(sf2path: str = None,
     assert bool(instrnum) != bool(preset), "Either instrnum or preset should be given"
     if not sf2path:
         raise ValueError("No soundfont was given and no default soundfont found")
+    if not os.path.exists(sf2path):
+        raise OSError(f"Soundfont file not found: '{sf2path}'")
     if instrnum is not None:
         if not mono:
             opcode = 'sfinstr' if interpolation == 'linear' else 'sfinstr3'
@@ -154,7 +156,21 @@ def makeSoundfontAudiogen(sf2path: str = None,
             '''
 
     else:
-        bank, presetnum = preset
+        presets = csoundengine.csoundlib.soundfontPresets(sf2path)
+        if preset is None:
+            if not presets:
+                raise ValueError(f"The given soundfont has not presets")
+            bank, presetnum, presetname = presets[0]
+            logger.debug(f"No preset was given. Using first preset found: '{presetname}', "
+                         f"bank: {bank}, preset number: {presetnum}")
+        else:
+            bank, presetnum = preset
+            for availablepreset in presets:
+                if bank == availablepreset[0] and presetnum == availablepreset[1]:
+                    break
+            else:
+                raise ValueError(f"Preset ({preset}) not found. Available presets: {presets}")
+
         if not mono:
             opcode = 'sfplay' if interpolation == 'linear' else 'sfplay3'
             audiogen = fr'''
@@ -195,7 +211,7 @@ def loadPreset(presetPath: str) -> presetdef.PresetDef:
         raise ValueError("Only .yaml presets are supported")
 
 
-def loadPresets(skipErrors=True) -> List[presetdef.PresetDef]:
+def loadPresets(skipErrors=True) -> list[presetdef.PresetDef]:
     """
     loads all presets from the presets path
 

@@ -21,14 +21,15 @@ __all__ = (
     'isNumber',
     'getPath',
     'logger',
-    'prettylog'
+    'prettylog',
+    '_Unset'
 )
 
 
 MAXDUR = 99999
 
 
-class _UNSET:
+class _Unset:
     def __repr__(self):
         return 'UNSET'
 
@@ -66,7 +67,7 @@ def prettylog(level: str, msg: str, width=80, indent=4) -> None:
 #filelog = os.path.join(_logdir, 'maelzel-core.log')
 
 logger = getLogger("maelzel.core")
-UNSET = _UNSET()
+UNSET = _Unset()
 
 
 

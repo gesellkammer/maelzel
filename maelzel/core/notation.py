@@ -163,7 +163,7 @@ def renderWithActiveWorkspace(parts: list[scoring.UnquantizedPart],
         scorestruct = workspace.scorestruct
     if config['show.hideRedundantDynamics']:
         for part in parts:
-            scoring.core.removeRedundantDynamics(part)
+            scoring.core.removeRedundantDynamics(part.notations)
     return scoring.render.quantizeAndRender(parts,
                                             struct=scorestruct,
                                             options=renderoptions,

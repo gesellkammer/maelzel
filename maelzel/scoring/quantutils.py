@@ -11,6 +11,8 @@ from emlib import mathlib
 from maelzel.common import F, F0
 from .common import logger, division_t
 from .notation import Notation
+from .node import Node
+from . import quantdata
 
 from typing import Sequence
 
@@ -215,7 +217,8 @@ def gridDurations(beatDuration: F, division: division_t) -> list[F]:
     return grid
 
 
-def gridDurationsFlat(beatDuration: F, division: division_t
+@cache
+def gridDurationsFlat(beatDuration: F, division: int | division_t
                       ) -> list[F]:
     if isinstance(division, int):
         dt = beatDuration/division
@@ -278,3 +281,74 @@ def transferAttributesWithinTies(notations: list[Notation]) -> None:
             n.gliss = True
 
 
+def applyDurationRatio(notations: list[Notation],
+                       division: int | division_t,
+                       beatOffset: F,
+                       beatDur: F
+                       ) -> None:
+    """
+    Applies a duration ratio to each notation, recursively.
+
+    A duration ratio converts the actual duration of a notation to its
+    notated value and is used to render these as tuplets later
+
+    Args:
+        notations: the notations inside the period beatOffset:beatOffset+beatDur
+        division: the division of the beat/subbeat. Examples: 4, [3, 4], [2, 2, 3], etc
+        beatOffset: the start of the beat
+        beatDur: the duration of the beat
+
+    """
+    if isinstance(division, int) or len(division) == 1:
+        num: int = division if isinstance(division, int) else division[0]
+        durRatio = F(*quantdata.durationRatios[num])
+        if durRatio != 1:
+            for n in notations:
+                if n.durRatios is None:
+                    n.durRatios = (durRatio,)
+                else:
+                    n.durRatios = n.durRatios + (durRatio,)
+    else:
+        numSubBeats = len(division)
+        now = beatOffset
+        dt = beatDur / numSubBeats
+        durRatio = F(*quantdata.durationRatios[numSubBeats])
+        if durRatio != 1:
+            for n in notations:
+                if n.durRatios is None:
+                    n.durRatios = (durRatio,)
+                else:
+                    n.durRatios += (durRatio,)
+        for subdiv in division:
+            subdivEnd = now + dt
+            subdivNotations = [n for n in notations
+                               if now <= n.offset < subdivEnd and n.end <= subdivEnd]
+            applyDurationRatio(notations=subdivNotations, division=subdiv,
+                               beatOffset=now, beatDur=dt)
+            now += dt
+
+
+def beatToTree(notations: list[Notation], division: int | division_t,
+               beatOffset: F, beatDur: F
+               ) -> Node:
+    if isinstance(division, tuple) and len(division) == 1:
+        division = division[0]
+    if isinstance(division, int):
+        durRatio = quantdata.durationRatios[division]
+        return Node(ratio=durRatio, items=notations)
+
+    # assert isinstance(division, tuple) and len(division) >= 2
+    numSubBeats = len(division)
+    now = beatOffset
+    dt = beatDur/numSubBeats
+    durRatio = quantdata.durationRatios[numSubBeats]
+    items = []
+    for subdiv in division:
+        subdivEnd = now+dt
+        subdivNotations = [n for n in notations if now <= n.offset < subdivEnd and n.end <= subdivEnd]
+        if subdiv == 1:
+            items.extend(subdivNotations)
+        else:
+            items.append(beatToTree(notations=subdivNotations, division=subdiv, beatOffset=now, beatDur=dt))
+        now += dt
+    return Node(durRatio, items)

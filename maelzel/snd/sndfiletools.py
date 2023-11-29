@@ -21,16 +21,15 @@ if TYPE_CHECKING:
 logger = logging.Logger("maelzel.sndfiletools")
 
 if TYPE_CHECKING:
-    from typing import TYPE_CHECKING, Callable, Tuple, Iterator as Iter, Union as U, \
-        List, Optional as Opt
+    from typing import Callable, Iterator
     Func1 = Callable[[float], float]
-    sample_t = Tuple[np.ndarray, int]
+    sample_t = tuple[np.ndarray, int]
     processfunc_t = Callable[[np.ndarray, int, float], np.ndarray]
     _FloatFunc = Callable[[float], float]
 
 
 def _chunks(start: int, stop: int = None, step: int = None
-            ) -> Iter[Tuple[int, int]]:
+            ) -> Iterator[tuple[int, int]]:
     """
     Like xrange, but returns a Tuplet (position, distance form last position)
 
@@ -91,7 +90,7 @@ def copyFragment(path: str, start: float, end: float, outfile: str
 def process(sourcefile: str,
             outfile: str,
             callback: processfunc_t,
-            timerange: Tuple[float, float] = None,
+            timerange: tuple[float, float] = None,
             bufsize=4096) -> None:
     """
     Process samples of sourcefile in fragments and write them to outfile
@@ -164,7 +163,7 @@ def _dynamic_gain(sndfile: str, curve: bpf.BpfInterface, outfile='inplace') -> N
         os.rename(outfile, sndfile)
 
 
-def mixArrays(sources: List[np.ndarray], offsets: List[int] = None) -> np.ndarray:
+def mixArrays(sources: list[np.ndarray], offsets: list[int] = None) -> np.ndarray:
     """
     Mix the sources together.
 
@@ -200,9 +199,9 @@ def mixArrays(sources: List[np.ndarray], offsets: List[int] = None) -> np.ndarra
 
 
 def readChunks(sndfile: str,
-               chunksize: int = None, chunkdur: float = None,
+               chunksize: int,
                start=0.0, end=0.0
-               ) -> Iter[Tuple[np.ndarray, int]]:
+               ) -> Iterator[tuple[np.ndarray, int]]:
     """
     Read chunks of data from source.
 
@@ -224,7 +223,6 @@ def readChunks(sndfile: str,
 
     """
     info = sndfileio.sndinfo(sndfile)
-    chunksize = chunksize if chunksize is not None else int(chunkdur * info.samplerate)
     sampleidx = int(start * info.samplerate)
     for chunk in sndfileio.sndread_chunked(sndfile, chunksize=chunksize,
                                            start=start, stop=end):
@@ -232,7 +230,7 @@ def readChunks(sndfile: str,
         sampleidx += len(chunk)
 
 
-def equalPowerPan(pan: float) -> Tuple[float, float]:
+def equalPowerPan(pan: float) -> tuple[float, float]:
     """
     Calculate the factors to apply an equal-power-pan
 
@@ -260,24 +258,26 @@ def peakbpf(filename: str, resolution=0.01, method='peak', channel: Union[int, s
     Returns:
         a bpf holding the peaks curve
     """
+
     info = sndfileio.sndinfo(filename)
     srate = info.samplerate
-    chunk_step = int(srate * resolution)
-    assert chunk_step > 0
+    chunksize = int(srate * resolution)
+    assert chunksize > 10, f"Resolution is too low: {resolution}"
+
     funcs = {
-        'peak':lambda arr:max(numpyx.minmax1d(arr)),
-        'rms':npsnd.rms,
-        'mean':lambda arr:np.abs(arr).mean()
+        'peak': lambda arr: max(numpyx.minmax1d(arr)),
+        'rms': npsnd.rms,
+        'mean': lambda arr: np.abs(arr).mean()
     }
     func = funcs.get(method)
     if func is None:
         raise ValueError(f"Unknown {method} method")
 
-    times: List[float] = []
-    peaks: List[float] = []
+    times: list[float] = []
+    peaks: list[float] = []
     channum = channel if isinstance(channel, int) else -1
 
-    for chunk, pos in readChunks(filename):
+    for chunk, pos in readChunks(filename, chunksize):
         if info.channels > 1:
             if channum == -1:
                 chunk = npsnd.asmono(chunk)
@@ -294,7 +294,7 @@ def peakbpf(filename: str, resolution=0.01, method='peak', channel: Union[int, s
 
 
 def maxPeak(filename: str, start: float = 0, end: float = 0, resolution=0.01
-            ) -> Tuple[float, float]:
+            ) -> tuple[float, float]:
     """
     Return the time of the max. peak and the value of the max. peak
 
@@ -310,7 +310,7 @@ def maxPeak(filename: str, start: float = 0, end: float = 0, resolution=0.01
     maximum_peak = 0
     max_pos = 0
     info = sndfileio.sndinfo(filename)
-    for data, pos in readChunks(filename, start=start, end=end, chunkdur=resolution):
+    for data, pos in readChunks(filename, start=start, end=end, chunksize=int(info.sr*resolution)):
         np.abs(data, data)
         peak = np.max(data)
         if peak > maximum_peak:
@@ -321,7 +321,7 @@ def maxPeak(filename: str, start: float = 0, end: float = 0, resolution=0.01
 
 def findFirstSound(sndfile: str, threshold=-120,
                    resolution=0.01, start=0.
-                   ) -> Opt[float]:
+                   ) -> float | None:
     """
     Find the time of the first sound in the soundfile
 
@@ -346,7 +346,7 @@ def findFirstSound(sndfile: str, threshold=-120,
     return None
 
 
-def findLastSound(sndfile: str, threshold=-120, resolution=0.01) -> Opt[float]:
+def findLastSound(sndfile: str, threshold=-120, resolution=0.01) -> float | None:
     """
     Find the time when the last sound fades into silence
 
@@ -435,7 +435,7 @@ def normalize(path: str, outfile: str, headroom=0.) -> None:
 def detectRegions(sndfile: str, attackthresh: float, decaythresh: float,
                   mindur=0.020, func='rms', resolution=0.004, mingap: float = 0,
                   normalize=False
-                  ) -> Tuple[List[Tuple[float, float]], bpf.BpfInterface]:
+                  ) -> tuple[list[tuple[float, float]], bpf.BpfInterface]:
     """
     Detect fragments inside a soundfile.
 
@@ -456,7 +456,7 @@ def detectRegions(sndfile: str, attackthresh: float, decaythresh: float,
         each region is a tuple (region start, region end)
     """
     b = peakbpf(sndfile, resolution=resolution, method=func, normalize=normalize)
-    bsmooth = bpf.util.smooth((b + db2amp(-160)).applyTo(amp2db), mindur / 8)
+    bsmooth = bpf.util.smoothen((b + db2amp(-160)).applyTo(amp2db), window=int(mindur/8))
     regions = []
     Y = bsmooth.sample(resolution)
     X = np.linspace(b.x0, b.x1, len(Y))
@@ -494,7 +494,7 @@ def detectRegions(sndfile: str, attackthresh: float, decaythresh: float,
 
 
 def extractRegions(sndfile: str,
-                   times: List[Tuple[float, float]],
+                   times: list[tuple[float, float]],
                    outfile: str,
                    mode='seq',
                    fadetimes=(0.005, 0.1),
@@ -539,8 +539,8 @@ def extractRegions(sndfile: str,
         raise ValueError(f"Expected 'seq', or 'original', got {mode}")
 
 
-def readRegions(sndfile: str, times: List[Tuple[float, float]]
-                ) -> Tuple[List[np.ndarray], int]:
+def readRegions(sndfile: str, times: list[tuple[float, float]]
+                ) -> tuple[list[np.ndarray], int]:
     """
     Extract regions from a soundfile
 
@@ -596,7 +596,7 @@ def _getsamples(source: Union[str, sample_t]) -> sample_t:
     return (samples, sr)
 
 
-def scrub(source: Union[str, Tuple[np.ndarray, int]], curve: bpf.BpfInterface,
+def scrub(source: Union[str, tuple[np.ndarray, int]], curve: bpf.BpfInterface,
           rewind=False, outfile: str = None) -> sample_t:
     """
     Scrub soundfile with curve
@@ -609,10 +609,10 @@ def scrub(source: Union[str, Tuple[np.ndarray, int]], curve: bpf.BpfInterface,
         outfile: if given, samples are written to disk
 
     Returns:
-        a tuple (samples, sr)
+        a tuple (samples: np.ndarray, sr: int)
     """
     samples, sr = _getsamples(source)
-    samplebpf = curve.core.Sampled(samples, 1.0 / sr)
+    samplebpf = bpf.core.Sampled(samples, 1.0 / sr)
     warped = curve | samplebpf
     newsamples = warped[curve.x0:curve.x1:1.0 / sr].ys
     if not rewind and curve.x0 > 0:

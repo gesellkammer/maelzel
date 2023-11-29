@@ -68,6 +68,7 @@ class GlissProperties(Attachment):
         self.linetype = linetype
         """The line type, one of 'solid', 'wavy', 'dotted', 'dashed'"""
 
+
 class GracenoteProperties(Attachment):
 
     def __init__(self, slash: bool):
@@ -75,8 +76,17 @@ class GracenoteProperties(Attachment):
         self.slash = slash
 
 
+class StemTraits(Attachment):
+    exclusive = True
+
+    def __init__(self, color='', hidden=False):
+        super().__init__(color=color)
+        self.hidden = hidden
+        """Hide stem"""
+
+
 class AccidentalTraits(Attachment):
-    _default: AccidentalTraits = None
+    _default: AccidentalTraits | None = None
 
     def __init__(self, color='', hidden=False, parenthesis=False,
                  brackets=False, force=False, size: float = None):
@@ -233,7 +243,6 @@ class Harmonic(Attachment):
         return hash(('Harmonic', self.interval))
 
 
-
 class Text(Attachment):
     """
     A text annotation which can be added to a Notation
@@ -257,11 +266,11 @@ class Text(Attachment):
     def __init__(self,
                  text: str,
                  placement='',
-                 fontsize: float | None = None,
+                 fontsize: int | float | None = None,
                  italic=False,
                  weight='',
-                 fontfamily: str = '',
-                 box='',
+                 fontfamily='',
+                 box: str | bool = '',
                  color='',
                  role=''):
         super().__init__(color=color)
@@ -269,11 +278,15 @@ class Text(Attachment):
         if fontsize is not None:
             assert isinstance(fontsize, (int, float))
         assert weight in ('', 'normal', 'bold')
-        assert box in ('', 'square', 'rectangle', 'circle')
+        assert box in (True, False, '', 'square', 'rectangle', 'circle')
+        if isinstance(box, bool):
+            boxshape = 'rectangle' if box else ''
+        else:
+            boxshape = box
         self.text = text
         self.placement = placement
         self.fontsize = fontsize
-        self.box = box
+        self.box = boxshape
         self.italic = italic
         self.weight = weight if weight != 'normal' else ''
         self.fontfamily = fontfamily

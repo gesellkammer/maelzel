@@ -82,8 +82,8 @@ class Partial:
         """
         if time < self.start or time > self.end:
             raise ValueError(f"This partial is not defined at time {time} (start={self.start}, end={self.end})")
-        breakpoint = numpyx.table_interpol_linear(self.data, np.array([time], dtype=float))
-        return tuple(float(_) for _ in breakpoint[1:])
+        bp = numpyx.table_interpol_linear(self.data, np.array([time], dtype=float))
+        return tuple(float(_) for _ in bp[1:])
 
     @cache
     def freqbpf(self) -> bpf4.core.Linear:

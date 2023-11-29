@@ -5,6 +5,7 @@ import sys
 import os
 import weakref
 from maelzel.common import F
+import emlib.misc
 
 from typing import Callable, Sequence
 from maelzel.common import T
@@ -13,9 +14,9 @@ from maelzel.common import T
 def reprObj(obj,
             filter: dict[str, Callable] = {},
             priorityargs: Sequence[str] = None,
-            hideFalse = False,
-            hideEmptyStr = False,
-            hideFalsy = False,
+            hideFalse=False,
+            hideEmptyStr=False,
+            hideFalsy=False,
             quoteStrings=False,
             ) -> str:
     """
@@ -31,6 +32,7 @@ def reprObj(obj,
         hideFalsy: hide any attr which evaluates to False under bool(obj.attr)
         hideFalse: hide bool attributes which are False.
         hideEmptyStr: hide str attributes which are empty
+        quoteStrings: if True, strings are quoted
 
     Returns:
         a list of strings of the form "{key}={value}" only for those attributes
@@ -77,7 +79,7 @@ def checkChoice(name: str, s: str, choices: Sequence[str], threshold=8):
             raise ValueError(f'Invalid value "{s}" for {name}, it should be one of {list(choices)}')
 
 
-def humanReadableTime(t: float) -> str:
+def readableTime(t: float) -> str:
     if t < 1e-6:
         return f"{t*1e9:.1f}ns"
 
@@ -145,3 +147,66 @@ def overlap(u1: number_t, u2: number_t, v1: number_t, v2: number_t) -> tuple[num
     x1 = u1 if u1 > v1 else v1
     x2 = u2 if u2 < v2 else v2
     return x1, x2
+
+
+def aslist(seq) -> list:
+    if isinstance(seq, list):
+        return seq
+    return list(seq)
+
+
+def pngShow(pngpath: str, forceExternal=False, app: str = '',
+            wait=False, inlineScale=1.0
+            ) -> None:
+    """
+    Show a png either with an external app or inside jupyter
+
+    Args:
+        pngpath: the path to a png file
+        forceExternal: if True, it will show in an external app even
+            inside jupyter. Otherwise, it will show inside an external
+            app if running a normal session and show an embedded
+            image if running inside a notebook
+        wait: if using an external app, wait until the app exits
+        inlineScale: a scale factor to apply when showing inline within a notebook
+        app: used if a specific external app is needed. Otherwise, the os
+            defined app is used
+    """
+    if app:
+        forceExternal = True
+
+    if not forceExternal and pythonSessionType() == 'jupyter':
+        from maelzel.core import jupytertools
+        jupytertools.jupyterShowImage(path=pngpath, scalefactor=inlineScale)
+    else:
+        if app:
+            emlib.misc.open_with_app(path=pngpath, app=app, wait=wait)
+        else:
+            emlib.misc.open_with_app(path=pngpath, wait=wait)
+
+
+@emlib.misc.runonce
+def pythonSessionType() -> str:
+    """
+    Returns the kind of python session
+
+    .. note::
+        See also `is_interactive_session` to check if we are inside a REPL
+
+    Returns:
+        Returns one of "jupyter", "ipython-terminal" (if running ipython
+        in a terminal), "ipython" (if running ipython outside a terminal),
+        "python" if running normal python.
+
+    """
+    try:
+        # get_ipython should be available within an ipython/jupyter session
+        shell = get_ipython().__class__.__name__   # type: ignore
+        if shell == 'ZMQInteractiveShell':
+            return "jupyter"
+        elif shell == 'TerminalInteractiveShell':
+            return "ipython-terminal"
+        else:
+            return "ipython"
+    except NameError:
+        return "python"

@@ -32,30 +32,29 @@ class ParsedAudiogen:
     numOutchs: int
     needsRouting: bool
     numOutputs: int
-    inlineArgs: dict[str, float] | None
     audiogen: str
-    shortdescr: str = '',
-    longdescr: str = '',
+    inlineArgs: dict[str, float] | None = None
+    shortdescr: str = ''
+    longdescr: str = ''
     argdocs: dict[str, str] | None = None
 
 
-def parseAudiogen(audiogen: str, check=False) -> ParsedAudiogen:
+def _parseAudiogen(code: str, check=False) -> ParsedAudiogen:
     """
     Analyzes the audio generating part of an instrument definition
 
     Args:
-        audiogen: as passed to PresetDef
-        check: if True, will check that audiogen is well formed
+        code: as passed to PresetDef
+        check: if True, will check that the code is well formed
 
     Returns:
-        an instance of AudiogenAnalysis (normally
-        minsignal+numsignals = maxsignal)
+        a ParsedAudiogen
     """
     audiovarRx = re.compile(r"\baout[1-9]\b")
     outOpcodeRx = re.compile(r"^.*\b(outch)\b")
     audiovarsList = []
     numOutchs = 0
-    audiogenlines = audiogen.splitlines()
+    audiogenlines = code.splitlines()
     for line in audiogenlines:
         foundAudiovars = audiovarRx.findall(line)
         audiovarsList.extend(foundAudiovars)
@@ -67,7 +66,7 @@ def parseAudiogen(audiogen: str, check=False) -> ParsedAudiogen:
             numOutchs = len(args) // 2
 
     if not audiovarsList:
-        logger.debug(f"Invalid audiogen: no output audio signals (aoutx): {audiogen}")
+        logger.debug(f"Invalid audiogen: no output audio signals (aoutx): {code}")
         needsRouting = False
         audiovars = set()
     else:
@@ -97,7 +96,7 @@ def parseAudiogen(audiogen: str, check=False) -> ParsedAudiogen:
     else:
         docstring = None
 
-    return ParsedAudiogen(originalAudiogen=audiogen,
+    return ParsedAudiogen(originalAudiogen=code,
                           signals=audiovars,
                           numSignals=numSignals,
                           minSignal=min(chans) if chans else 0,
@@ -106,7 +105,7 @@ def parseAudiogen(audiogen: str, check=False) -> ParsedAudiogen:
                           needsRouting=needsRouting,
                           numOutputs=numOuts,
                           inlineArgs=inlineargs.args if inlineargs else None,
-                          audiogen=inlineargs.body if inlineargs else audiogen,
+                          audiogen=inlineargs.body if inlineargs else code,
                           shortdescr=docstring.shortdescr if docstring else '',
                           longdescr=docstring.longdescr if docstring else '',
                           argdocs=docstring.args if docstring else None)
@@ -250,7 +249,7 @@ class PresetDef:
     
     Args:
         name: the name of the preset
-        audiogen: the audio generating code
+        code: the audio generating code
         init: any init code (global code)
         includes: #include files
         epilogue: code to include after any other code. Needed when using turnoff,
@@ -275,24 +274,24 @@ class PresetDef:
 
     def __init__(self,
                  name: str,
-                 audiogen: str = None,
-                 init: str = None,
+                 code: str,
+                 init='',
                  includes: list[str] = None,
                  epilogue: str = '',
                  args: Dict[str, float] = None,
                  numsignals: int = None,
                  numouts: int = None,
-                 description: str = "",
+                 description="",
                  builtin=False,
                  properties: dict[str, Any] = None,
                  envelope=True,
                  routing=True,
                  aliases: dict[str, str] = None
                  ):
-        assert isinstance(audiogen, str)
+        assert isinstance(code, str)
 
-        audiogen = _textwrap.dedent(audiogen)
-        parsedAudiogen = parseAudiogen(audiogen)
+        code = _textwrap.dedent(code)
+        parsedAudiogen = _parseAudiogen(code)
         if parsedAudiogen.numSignals == 0:
             envelope = False
             routing = False
@@ -322,8 +321,8 @@ class PresetDef:
         self.parsedAudiogen: ParsedAudiogen = parsedAudiogen
         "The parsed audiogen (a ParsedAudiogen instance)"
 
-        self.audiogen = parsedAudiogen.audiogen
-        "The audiogen itself"
+        self.code = parsedAudiogen.audiogen
+        "The original audio code itself"
 
         self.epilogue = epilogue
         "Code run after any other code"
@@ -372,8 +371,8 @@ class PresetDef:
         arguments common to all presets (position, ...)
 
         Args:
-            includeRealNames: if True, include the real names of any aliased arg. Such
-                arguments will be preset twice
+            aliases: include aliases
+            aliased: include aliased names
 
         Returns:
             a dict of all dynamic params of this preset and their default values
@@ -402,7 +401,7 @@ class PresetDef:
         if self.args:
             tabstr = ", ".join(f"{key}={value}" for key, value in self.args.items())
             lines.append(f"  |{tabstr}|")
-        audiogen = _textwrap.indent(self.audiogen, _INSTR_INDENT)
+        audiogen = _textwrap.indent(self.code, _INSTR_INDENT)
         lines.append(audiogen)
         if self.epilogue:
             lines.append("  epilogue:")
@@ -426,8 +425,10 @@ class PresetDef:
         else:
             print(self.__repr__())
 
-    def _repr_html_(self, theme=None, showGeneratedCode=False):
-        if not Workspace.active.config['jupyterHtmlRepr']:
+    def _repr_html_(self, theme='', showGeneratedCode=False):
+        workspace = Workspace.active
+        assert workspace is not None
+        if not workspace.config['jupyterHtmlRepr']:
             return f'<pre style="font-size: 0.9em">{self.__repr__()}</pre>'
 
         span = _tools.htmlSpan
@@ -457,11 +458,11 @@ class PresetDef:
         normalfont = '96%'
         smallfont = '90%'
         headerfont = normalfont
-        codefont =  smallfont
+        codefont = smallfont
         argsfont = smallfont
         fontsize = normalfont
 
-        def header(text):
+        def _header(text):
             return span(text, fontsize=headerfont, bold=True)
 
         if info:
@@ -477,10 +478,10 @@ class PresetDef:
         if self.init:
             init = _textlib.reindent(self.init, _INSTR_INDENT)
             inithtml = csoundengine.csoundlib.highlightCsoundOrc(init, theme=theme)
-            ps.append(header('init'))
+            ps.append(_header('init'))
             ps.append(span(inithtml, fontsize=codefont))
 
-        ps.append(header("audiogen"))
+        ps.append(_header("code"))
         if self.args:
             argstr = ", ".join(f"{key}={value}" for key, value in self.args.items())
             argstr = f"{_INSTR_INDENT}|{argstr}|"
@@ -488,13 +489,13 @@ class PresetDef:
             ps.append(span(arghtml, fontsize=codefont))
         # TODO: solve how to generate body at this stage
         instr = self.getInstr()
-        body = self.audiogen if not showGeneratedCode else csoundengine.session.Session.defaultInstrBody(instr)
+        body = self.code if not showGeneratedCode else csoundengine.session.Session.defaultInstrBody(instr)
         body = _textwrap.indent(body, _INSTR_INDENT)
         bodyhtml = csoundengine.csoundlib.highlightCsoundOrc(body, theme=theme)
         ps.append(span(bodyhtml, fontsize=codefont))
 
         if self.epilogue:
-            ps.append(header("epilogue"))
+            ps.append(_header("epilogue"))
             epilogue = _textwrap.indent(self.epilogue, _INSTR_INDENT)
             html = csoundengine.csoundlib.highlightCsoundOrc(epilogue, theme=theme)
             html = span(html, fontsize=codefont)

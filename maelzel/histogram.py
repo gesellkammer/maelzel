@@ -6,6 +6,7 @@ import numpy as np
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import matplotlib.pyplot as plt
+    from typing import Sequence, Callable
 
 
 class Histogram:
@@ -16,7 +17,7 @@ class Histogram:
         values: the values to evaluate
         numbins: the number of bins
     """
-    def __init__(self, values: list[Number] | np.ndarray, numbins: int = 20):
+    def __init__(self, values: Sequence[Number] | np.ndarray, numbins: int = 20):
         counts, edges = np.histogram(values, bins=numbins)
         self.counts = counts
         """How many values lie within each bin"""
@@ -42,7 +43,7 @@ class Histogram:
         Returns:
             the percentile, a number between 0 and 1
         """
-        return np.interp(value, self.edges, self._percentiles)
+        return float(np.interp(value, self.edges, self._percentiles))
 
     def percentileToValue(self, percentile: float) -> float:
         """
@@ -69,10 +70,10 @@ class Histogram:
         return axes
 
 
-def weightedHistogram(values: list[Number],
+def weightedHistogram(values: Sequence[Number],
                       weights: list[Number] | np.ndarray,
                       numbins: int,
-                      distribution: float | bpf4.BpfInterface = 1.0
+                      distribution: float | Callable[[float], float] = 1.0
                       ) -> list[float]:
     """
     Find the bin edges so that the weights in each bin follow the given distribution
@@ -99,6 +100,8 @@ def weightedHistogram(values: list[Number],
         curve = bpf4.expon(0, 0, 1, 1, exp=distribution)
     elif isinstance(distribution, bpf4.BpfInterface):
         curve = distribution
+    elif callable(distribution):
+        curve = bpf4.asbpf(distribution, bounds=(0, 1))
     else:
         raise TypeError(f"Expected a float or a bpf, got {distribution}")
 

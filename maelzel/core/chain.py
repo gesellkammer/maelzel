@@ -15,7 +15,7 @@ from . import environment
 from . import presetmanager
 from . import _mobjtools
 from . import _tools
-from ._common import UNSET, logger
+from ._common import UNSET, _Unset, logger
 
 from maelzel import scoring
 from maelzel.colortheory import safeColors
@@ -24,7 +24,7 @@ from emlib import iterlib
 
 from typing import TYPE_CHECKING, overload
 if TYPE_CHECKING:
-    from typing import Any, Iterator, overload, TypeVar, Callable
+    from typing import Any, Iterator, TypeVar, Callable, Sequence
     from ._typedefs import time_t, location_t, num_t
     ChainT = TypeVar("ChainT", bound="Chain")
 
@@ -112,7 +112,7 @@ def _removeRedundantOffsets(items: list[MEvent | Chain],
     return now - frame, modified
 
 
-class Chain(MObj, MContainer):
+class Chain(MContainer):
     """
     A Chain is a sequence of Notes, Chords or other Chains
 
@@ -128,18 +128,18 @@ class Chain(MObj, MContainer):
     __slots__ = ('items', '_modified', '_cachedEventsWithOffset')
 
     def __init__(self,
-                 items: list[MEvent | Chain | str] | str | None = None,
+                 items: Sequence[MEvent | Chain | str] | str | None = None,
                  offset: time_t = None,
                  label: str = '',
                  properties: dict[str, Any] = None,
-                 parent: MObj = None,
+                 parent: MContainer = None,
                  _init=True):
         if isinstance(items,  str):
             _init = True
 
         if _init:
             if offset is not None:
-                offset = asF(offset)
+                offset = offset if isinstance(offset, F) else asF(offset)
             if items is not None:
                 if isinstance(items, str):
                     items = [_tools.stripNoteComments(line) for line in items.splitlines()]
@@ -149,6 +149,8 @@ class Chain(MObj, MContainer):
                              for item in items]
 
         if items is not None:
+            if not isinstance(items, list):
+                items = list(items)
             for item in items:
                 item.parent = self
         else:
@@ -171,27 +173,32 @@ class Chain(MObj, MContainer):
         out = hash(tuple(items))
         return out
 
-    def clone(self, items=UNSET, offset=UNSET, label=UNSET, properties=UNSET) -> Chain:
+    def clone(self,
+              items: Sequence[MEvent | Chain] | None = None,
+              offset: time_t | None | _Unset = UNSET,
+              label: str | None = None,
+              properties: dict | None = None
+              ) -> Chain:
         # parent is not cloned
-        return Chain(items=self.items.copy() if items is UNSET else items,
+        return Chain(items=self.items.copy() if items is None else items,
                      offset=self.offset if offset is UNSET else asF(offset),
-                     label=self.label if label is UNSET else label,
-                     properties=self.properties if properties is UNSET else properties,
+                     label=self.label if label is None else label,
+                     properties=self.properties if properties is None else properties,
                      _init=False)
 
-    def __copy__(self) -> Chain:
-        return Chain(self.items.copy(), offset=self.offset, label=self.label,
-                     properties=self.properties, _init=False)
-
-    def __deepcopy__(self, memodict={}) -> Chain:
-        items = [item.copy() for item in self.items]
-        properties = None if not self.properties else self.properties.copy()
-        out = Chain(items=items, offset=self.offset, label=self.label,
-                    properties=properties, _init=False)
+    def __copy__(self: Chain) -> Chain:
+        out = Chain(self.items.copy(), offset=self.offset, label=self.label,
+                    properties=self.properties, _init=False)
         self._copyAttributesTo(out)
         return out
 
-    def copy(self) -> Chain:
+    def __deepcopy__(self, memodict={}) -> Chain:
+        items = [item.copy() for item in self.items]
+        out = Chain(items=items, offset=self.offset, label=self.label, _init=False)
+        self._copyAttributesTo(out)
+        return out
+
+    def copy(self: ChainT) -> ChainT:
         return self.__deepcopy__()
 
     def stack(self) -> F:
@@ -290,7 +297,20 @@ class Chain(MObj, MContainer):
         """
         return all(isinstance(item, MEvent) for item in self.items)
 
-    def flat(self, forcecopy=False) -> Chain:
+    def flatItems(self) -> list[MEvent]:
+        """
+        A list of flat events, with explicit absolute offsets set
+
+        """
+        if not self.items:
+            return []
+        self._update()
+        flatitems = [ev.clone(offset=evoffset) if ev.offset != evoffset else ev
+                     for ev, evoffset in self.eventsWithOffset()]
+        _resolveGlissandi(flatitems)
+        return flatitems
+
+    def flat(self: ChainT, forcecopy=False) -> ChainT:
         """
         A flat version of this Chain
 
@@ -318,12 +338,24 @@ class Chain(MObj, MContainer):
             return self
 
         flatevents = self.eventsWithOffset()
-        events = [ev.clone(offset=offset) if forcecopy or ev.offset != offset else ev
-                  for ev, offset in flatevents]
+        ownoffset = self.absOffset()
+        events = []
+        if ownoffset == F0:
+            for ev, offset in flatevents:
+                if ev.offset == offset and not forcecopy:
+                    events.append(ev)
+                else:
+                    events.append(ev.clone(offset=offset))
+        else:
+            for ev, offset in flatevents:
+                events.append(ev.clone(offset=offset - ownoffset))
         return self.clone(items=events)
 
     def pitchRange(self) -> tuple[float, float] | None:
-        pitchRanges = [item.pitchRange() for item in self.items]
+        pitchRanges = [pitchrange for item in self.items
+                       if (pitchrange := item.pitchRange()) is not None]
+        if not pitchRanges:
+            return None
         return min(p[0] for p in pitchRanges), max(p[1] for p in pitchRanges)
 
     def meanPitch(self):
@@ -333,7 +365,7 @@ class Chain(MObj, MContainer):
         durs = [max(item.dur, gracenoteDur) for item in items]
         return float(sum(pitch * dur for pitch, dur in zip(pitches, durs)) / sum(durs))
 
-    def withExplicitTimes(self, forcecopy=False) -> Chain:
+    def withExplicitTimes(self: ChainT, forcecopy=False) -> ChainT:
         """
         Copy of self with explicit times
 
@@ -400,6 +432,9 @@ class Chain(MObj, MContainer):
             force: if True, calculate/update all glissando targets
 
         """
+        _resolveGlissandi(self.recurse(), force=force)
+        return
+
         ev2 = None
         for ev1, ev2 in iterlib.pairwise(self.recurse()):
             if not ev2.isRest() and (ev1.gliss or ev1.playargs and ev1.playargs.get('glisstime') is not None):
@@ -423,8 +458,13 @@ class Chain(MObj, MContainer):
                         ev1._glissTarget = ev2pitches
                     else:
                         ev1._glissTarget = ev1.pitches
+
+        # last event
         if ev2 and ev2.gliss:
-            ev2._glissTarget = ev2.pitch if isinstance(ev2, Note) else ev2.pitches
+            if isinstance(ev2, Chord):
+                ev2._glissTarget = ev2.pitches
+            elif isinstance(ev2, Note):
+                ev2._glissTarget = ev2.pitch
 
     def _synthEvents(self,
                      playargs: PlayArgs,
@@ -438,27 +478,22 @@ class Chain(MObj, MContainer):
             # later, after events have been merged.
             playargs = playargs.updated(self.playargs, automations=False)
 
-        chain = self.flat(forcecopy=True)
-        chain.stack()
-        chain._update()
-
-        for item in chain.items:
-            assert item.dur >= 0, f"{item=}"
-
+        flatitems = self.flatItems()
+        assert all(item.offset is not None and item.dur >= 0 for item in flatitems)
         if self.offset:
-            for item in chain.items:
+            for item in flatitems:
                 item.offset += self.offset
 
-        if any(n.isGracenote() for n in chain.items):
+        if any(n.isGracenote() for n in flatitems):
             gracenoteDur = F(conf['play.gracenoteDuration'])
-            _mobjtools.addDurationToGracenotes(chain.items, gracenoteDur)
+            _mobjtools.addDurationToGracenotes(flatitems, gracenoteDur)
 
         if conf['play.useDynamics']:
-            _mobjtools.fillTempDynamics(chain.items, initialDynamic=conf['play.defaultDynamic'])
+            _mobjtools.fillTempDynamics(flatitems, initialDynamic=conf['play.defaultDynamic'])
 
         synthevents = []
         offset = parentOffset + self.relOffset()
-        groups = _mobjtools.groupLinkedEvents(chain.items)
+        groups = _mobjtools.groupLinkedEvents(flatitems)
         for item in groups:
             if isinstance(item, MEvent):
                 events = item._synthEvents(playargs,
@@ -497,7 +532,7 @@ class Chain(MObj, MContainer):
                         if ev.automations is None:
                             ev.automations = {}
                         synthautom = automation.makeSynthAutomation(scorestruct=scorestruct, parentOffset=offset)
-                        ev.automations[synthautom.param] = synthautom.cropped(overlapß, overlap1)
+                        ev.automations[synthautom.param] = synthautom.cropped(overlap0, overlap1)
 
         return synthevents
 
@@ -521,7 +556,7 @@ class Chain(MObj, MContainer):
                 item.mergeTiedEvents()
                 out.append(item)
                 last = None
-            elif type(last) == type(item):
+            elif last is not None and type(last) == type(item):
                 merged = last.mergeWith(item)
                 if merged is None:
                     if last is not None:
@@ -618,13 +653,13 @@ class Chain(MObj, MContainer):
         self._dur = _stackEvents(self.items, explicitOffsets=False)
         self._resolveGlissandi()
         self._modified = False
-        self._cachedEventsWithOffset = None
 
     def _changed(self) -> None:
         if self._modified:
             return
         self._modified = True
         self._dur = None
+        self._cachedEventsWithOffset = None
         if self.parent:
             self.parent._childChanged(self)
 
@@ -635,14 +670,14 @@ class Chain(MObj, MContainer):
     def __len__(self) -> int:
         return len(self.items)
 
-    def __iter__(self) -> Iterator[MEvent]:
+    def __iter__(self) -> Iterator[MEvent | Chain]:
         return iter(self.items)
 
     @overload
     def __getitem__(self, idx: int) -> MEvent: ...
 
     @overload
-    def __getitem__(self, slice_: slice) -> list[MEvent | Chain]: ...
+    def __getitem__(self, idx: slice) -> list[MEvent | Chain]: ...
 
     def __getitem__(self, idx):
         if isinstance(idx, int):
@@ -693,6 +728,7 @@ class Chain(MObj, MContainer):
             items, itemsdur = self._iterateWithTimes(recurse=False, frame=F(0))
             for item, itemoffset, itemdur in items:
                 infoparts = []
+                assert isinstance(item, (MEvent, Chain))
                 if item.label:
                     infoparts.append(f'label: {item.label}')
                 if item.properties:
@@ -713,7 +749,10 @@ class Chain(MObj, MContainer):
                     measureidx, measurebeat = struct.beatToLocation(now + itemoffset)
                     locationstr = f'{measureidx}:{_util.showT(measurebeat)}'.ljust(widths['location'])
                     playargs = 'None' if not item.playargs else ', '.join(f'{k}={v}' for k, v in item.playargs.db.items())
-                    glissstr = 'F' if not item.gliss else f'T ({item.resolveGliss()})' if isinstance(item.gliss, bool) else str(item.gliss)
+                    if isinstance(item, (Note, Chord)):
+                        glissstr = 'F' if not item.gliss else f'T ({item.resolveGliss()})' if isinstance(item.gliss, bool) else str(item.gliss)
+                    else:
+                        glissstr = '-'
                     rowparts = [IND*(indents+1),
                                 locationstr,
                                 _util.showT(now + itemoffset).ljust(widths['beat']),
@@ -842,7 +881,9 @@ class Chain(MObj, MContainer):
                       parentOffset: F | None = None
                       ) -> list[scoring.Notation]:
         """
-        Returns the scoring events corresponding to this object
+        Returns the scoring events corresponding to this object.
+
+        The scoring events returned always have an absolute offset
 
         Args:
             groupid: if given, all events are given this groupid
@@ -861,13 +902,15 @@ class Chain(MObj, MContainer):
         if parentOffset is None:
             parentOffset = self.parent.absOffset() if self.parent else F0
 
-        offset = parentOffset + self.relOffset()
-        chain = self.flat()
+        # offset = parentOffset + self.relOffset()
+        # chain = self.flat()
+        chainitems = self.flatItems()
         notations: list[scoring.Notation] = []
-        if self.label and chain and chain[0].relOffset() > 0:
-            notations.append(scoring.makeRest(duration=chain[0].relOffset()))
-        for item in chain.items:
-            notations.extend(item.scoringEvents(groupid=groupid, config=config, parentOffset=offset))
+        if self.label and chain and chainitems[0].offset > 0:
+            notations.append(scoring.makeRest(duration=chainitems[0].dur, annotation=self.label))
+        for item in chainitems:
+            notations.extend(item.scoringEvents(groupid=groupid, config=config, parentOffset=parentOffset))
+
         scoring.resolveOffsets(notations)
 
         for n0, n1 in iterlib.pairwise(notations):
@@ -948,7 +991,7 @@ class Chain(MObj, MContainer):
         event = self.firstEvent()
         return None if not event else event.absOffset() - self.absOffset()
 
-    def pitchTransform(self, pitchmap: Callable[[float], float]) -> Chain:
+    def pitchTransform(self: ChainT, pitchmap: Callable[[float], float]) -> ChainT:
         newitems = [item.pitchTransform(pitchmap) for item in self.items]
         return self.clone(items=newitems)
 
@@ -1068,6 +1111,7 @@ class Chain(MObj, MContainer):
                     item.setProperty('.chainlabel', self.label)
                 now += dur
             else:
+                # a Chain
                 if recurse:
                     subitems, subdur = item._iterateWithTimes(frame=now, recurse=True)
                     item._dur = subdur
@@ -1180,26 +1224,27 @@ class Chain(MObj, MContainer):
             a list of events located between the given time-interval
 
         """
+
         if isinstance(start, tuple) or isinstance(end, tuple):
             if not absolute:
                 raise ValueError("absolute must be false when giving beats as a score location")
             scorestruct = self.scorestruct() or Workspace.active.scorestruct
-            start = scorestruct.locationToBeat(*start)
-            end = scorestruct.locationToBeat(*end)
+            startbeat = scorestruct.locationToBeat(*start) if isinstance(start, tuple) else asF(start)
+            endbeat = scorestruct.locationToBeat(*end) if isinstance(end, tuple) else asF(end)
         else:
-            start = asF(start)
-            end = asF(end)
+            startbeat = start if isinstance(start, F) else asF(start)
+            endbeat = end if isinstance(end, F) else asF(end)
             if not absolute:
                 ownoffset = self.absOffset()
-                start += ownoffset
-                end += end
+                startbeat += ownoffset
+                endbeat += end
         items = []
         for item, itemoffset in self.eventsWithOffset():
             itemend = itemoffset + item.dur
-            if itemoffset > end:
+            if itemoffset > endbeat:
                 break
-            if itemend > start and ((item.dur > 0 and itemoffset < end) or
-                                    (item.dur == 0 and itemoffset <= end)):
+            if itemend > startbeat and ((item.dur > 0 and itemoffset < endbeat) or
+                                        (item.dur == 0 and itemoffset <= endbeat)):
                 items.append(item)
         return items
 
@@ -1442,9 +1487,15 @@ class Voice(Chain):
                  shortname='',
                  maxstaves: int = None):
         if isinstance(items, Chain):
-            items = items.items
+            chain = items
+            if chain.offset and chain.offset > 0:
+                events = chain.timeShift(chain.offset).items
+            else:
+                events = chain.items
+        else:
+            events = items
 
-        super().__init__(items=items, offset=F(0))
+        super().__init__(items=events, offset=F(0))
         self.name = name
         """The name of this voice/staff"""
 
@@ -1464,6 +1515,19 @@ class Voice(Chain):
     def __hash__(self):
         superhash = super().__hash__()
         return hash((superhash, self.name, self.shortname, self.maxstaves, id(self._group)))
+
+    def __copy__(self: Voice) -> Voice:
+        voice = Voice(items=self.items.copy(),
+                      name=self.name,
+                      shortname=self.shortname,
+                      maxstaves = self.maxstaves)
+        self._copyAttributesTo(voice)
+        if self._config:
+            voice._config = self._config.copy()
+        return voice
+
+    def __deepcopy__(self, memodict={}) -> Voice:
+        return self.__copy__()
 
     @property
     def group(self) -> PartGroup | None:
@@ -1683,3 +1747,43 @@ def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
 
     return out
 
+
+def _resolveGlissandi(flatevents: Sequence[MEvent], force=False) -> None:
+    """
+    Set the _glissTarget attribute with the pitch of the gliss target
+    if a note or chord has an unset gliss target (in place)
+
+    Args:
+        force: if True, calculate/update all glissando targets
+
+    """
+    ev2 = None
+    for ev1, ev2 in iterlib.pairwise(flatevents):
+        if not ev2.isRest() and (ev1.gliss or ev1.playargs and ev1.playargs.get('glisstime') is not None):
+            # Only calculate glissTarget if gliss is True
+            if not force and ev1._glissTarget:
+                continue
+            if isinstance(ev1, Note):
+                if isinstance(ev2, Note):
+                    ev1._glissTarget = ev2.pitch
+                elif isinstance(ev2, Chord):
+                    ev1._glissTarget = max(n.pitch for n in ev2.notes)
+                else:
+                    ev1._glissTarget = ev1.pitch
+            elif isinstance(ev1, Chord):
+                if isinstance(ev2, Note):
+                    ev1._glissTarget = [ev2.pitch] * len(ev1.notes)
+                elif isinstance(ev2, Chord):
+                    ev2pitches = ev2.pitches
+                    if len(ev2pitches) > len(ev1.notes):
+                        ev2pitches = ev2pitches[-len(ev1.notes):]
+                    ev1._glissTarget = ev2pitches
+                else:
+                    ev1._glissTarget = ev1.pitches
+
+    # last event
+    if ev2 and ev2.gliss:
+        if isinstance(ev2, Chord):
+            ev2._glissTarget = ev2.pitches
+        elif isinstance(ev2, Note):
+            ev2._glissTarget = ev2.pitch

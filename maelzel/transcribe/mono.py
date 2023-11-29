@@ -135,8 +135,8 @@ class FundamentalAnalysisMono:
                  simplify=0.1,
                  semitoneQuantization=0,
                  onsetThreshold=0.07,
-                 onsetOverlap: int | None = None,
-                 onsetBacktrack=8,
+                 onsetOverlap=8,
+                 onsetBacktrack=True,
                  accentPercentile=0.1,
                  simplificationMethod='visvalingam',
                  referenceFrequency=442,
@@ -156,8 +156,7 @@ class FundamentalAnalysisMono:
             if minFrequency == 0:
                 raise ValueError("Could not detect any pitched sound")
         if fftSize is None:
-            fftSize = max(2048, freqestimate.frequencyToWindowSize(minFrequency, sr=sr, powerof2=True))
-
+            fftSize = max(2048, freqestimate.frequencyToWindowSize(int(minFrequency), sr=sr, powerof2=True))
 
         onsetsFftSize = min(2048 if sr <= 48000 else 4098, fftSize)
         onsets, onsetStrengthBpf = features.onsets(samples=samples,

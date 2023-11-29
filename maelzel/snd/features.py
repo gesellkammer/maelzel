@@ -3,8 +3,10 @@ import numpy as np
 import bpf4
 import bpf4.core
 from emlib.numpytools import chunks
-from .numpysnd import numChannels, rmsbpf
 from pitchtools import db2amp, amp2db
+
+from maelzel.snd import _common
+from maelzel.snd.numpysnd import numChannels, rmsbpf
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -63,7 +65,7 @@ def onsetsAubio(samples: np.ndarray,
 
 
 def playTicks(times: list[float] | np.ndarray,
-              engine: csoundengine.Engine | str = 'maelzel.snd',
+              engine: csoundengine.Engine | None = None,
               chan=1,
               midinote: int|float|list[float] = 69,
               amp=0.5,
@@ -100,41 +102,29 @@ def playTicks(times: list[float] | np.ndarray,
         >>> synthgroup.stop()
     """
     import csoundengine
-    locked = False
-    if isinstance(engine, str):
-        name = engine
-        engine = csoundengine.getEngine(name)
-        if engine is None:
-            engine = csoundengine.Engine(name)
-            locked = True
+    if engine is None:
+        engine = _common.getEngine()
 
     session = engine.session()
     instr = session.defInstr("features.tick", body=r"""
-        iPitch, iAmp, iAtt, iDec, iSust, iRel, iChan passign 5
+        |iPitch, iAmp, iAtt, iDec, iSust, iRel, iChan|
         iFreq mtof iPitch
         a0 vco2 iAmp, iFreq, 12  ; triangular shape
         aenv adsr iAtt, iDec, iSust, iRel
         outch iChan, a0*aenv
-        """)
+        """, priority=1)
     dur = attack + decay + release
-    args = [midinote, amp, attack, decay, sustain, release, chan]
     if isinstance(midinote, (int, float)):
         midinotes = [midinote] * len(times)
     else:
         midinotes = midinote
-
-    synths = []
-    if locked:
-        engine.lockClock(True)
-
-    for t, m in zip(times, midinotes):
-        args[0] = m
-        synths.append(session.sched(instr.name, delay=t+extraLatency, dur=dur, args=args))
-
-    if locked:
-        engine.lockClock(False)
-
-    return csoundengine.synth.SynthGroup(synths)
+    with engine.lockedClock():
+        synths = []
+        for time, pitch in zip(times, midinotes):
+            args = dict(iPitch=pitch, iAmp=amp, iAtt=attack, iDec=decay,
+                        iSust=sustain, iRel=release, iChan=chan)
+            synths.append(session.sched(instr.name, delay=time+extraLatency, dur=dur, args=args))
+    return csoundengine.SynthGroup(synths)
 
 
 def onsets(samples: np.ndarray,
@@ -319,11 +309,11 @@ def findOffsets(onsets: list[float] | np.ndarray,
     """
     if rmscurve is None:
         rmscurve = rmsbpf(samples, sr, dt=rmsperiod, overlap=2)
+    assert rmscurve is not None
     end = len(samples) / sr
     offsets = []
     lasti = len(onsets) - 1
     for i, onset in enumerate(onsets):
-
         nextonset = onsets[i + 1] if i < lasti else end
         rmsfragm = rmscurve[onset:nextonset]
         threshdb = max(amp2db(rmscurve(onset)) - relativeThreshold, silenceThreshold)

@@ -8,7 +8,7 @@ import os
 import math
 
 
-def collectEvents(events: Sequence[mc.MObj | Sequence[SynthEvent] | csoundengine.event.Event],
+def collectEvents(events,
                   eventparams: dict,
                   workspace: mc.workspace.Workspace
                   ) -> tuple[list[SynthEvent], list[csoundengine.event.Event]]:
