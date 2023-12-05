@@ -10,22 +10,25 @@ import os
 from pitchtools import f2n, f2m
 from emlib.filetools import fixLineEndings
 import bpf4 as bpf
-from typing import NamedTuple, List
 from math import inf
+from dataclasses import dataclass
 
 
-class Label(NamedTuple):
+@dataclass
+class Label:
     start: float
     end: float
     label: str = ''
 
 
-class Bin(NamedTuple):
+@dataclass
+class Bin:
     freq: float
     level: float
 
 
-class Note(NamedTuple):
+@dataclass
+class Note:
     note: str
     midi: float
     freq: float
@@ -33,12 +36,15 @@ class Note(NamedTuple):
     step: int
 
 
-chord_t = List[Note]
-
-
-def readLabels(filename:str) -> List[Label]:
+def readLabels(filename: str) -> list[Label]:
     """
     import the labels generated in audacity
+
+    Args:
+        filename: the filename to read
+
+    Returns:
+        a list of labels
     """
     assert os.path.exists(filename)
     fixLineEndings(filename)
@@ -57,7 +63,8 @@ def readLabels(filename:str) -> List[Label]:
     return labels
 
 
-def writeLabels(outfile: str, markers: List[tuple]) -> None:
+def writeLabels(outfile: str, markers: list[tuple[float, float] | tuple[float, float, str]]
+                ) -> None:
     """
     Write a labels file which can be imported by audacity.
 
@@ -88,7 +95,7 @@ def writeLabels(outfile: str, markers: List[tuple]) -> None:
                 f.write("\n")
     
 
-def readSpectrum(path:str) -> List[Bin]:
+def readSpectrum(path: str) -> list[Bin]:
     """
     Read a spectrum as saved by audacity
 
@@ -119,14 +126,15 @@ _dbToStepCurve = bpf.expon(
 )
 
 
-def dbToStep(db: float, numsteps:int) -> int:
+def dbToStep(db: float, numsteps: int) -> int:
     """
-    Convert dB value to historgram step
+    Convert dB value to histogram step
     """
     return int(_dbToStepCurve(db) * numsteps)
 
 
-def readSpectrumAsChords(path, numsteps=8, maxNotesPerChord=inf) -> List[chord_t]:
+def readSpectrumAsChords(path: str, numsteps=8, maxNotesPerChord=inf
+                         ) -> list[list[Note]]:
     """
     Reads the spectrum saved in `path` and splits it into at most `numsteps` chords
 
@@ -141,7 +149,6 @@ def readSpectrumAsChords(path, numsteps=8, maxNotesPerChord=inf) -> List[chord_t
 
     Returns:
         a list of chords, where each chord is a list of Note
-        (a Note is a namedtuple)
     """
     data = readSpectrum(path)
     notes = [] 

@@ -13,6 +13,7 @@ from emlib import filetools
 from emlib import misc
 from functools import cache
 from dataclasses import dataclass
+from maelzel.common import F
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -52,15 +53,19 @@ def callWithCapturedOutput(args: Union[str, list[str]], shell=False) -> _CallRes
                             stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE,
                             shell=shell)
-    return _CallResult(proc.wait(),
-                       proc.stdout.read().decode('utf-8'),
-                       proc.stderr.read().decode('utf-8'))
+    assert proc.stdout is not None and proc.stderr is not None
+    stdout = proc.stdout.read().decode('utf-8')
+    stderr = proc.stderr.read().decode('utf-8')
+    return _CallResult(proc.wait(), stdout, stderr)
 
 
 def _checkOutput(args: list[str], encoding="utf-8") -> Optional[str]:
     """
     Like subprocess.check_output, but returns None if failed instead
     of throwing an exeception
+
+    Returns:
+        the output or None if there was an error
     """
     try:
         out = subprocess.check_output(args)
@@ -140,6 +145,9 @@ def renderScore(score: str, outfile: str = None,
     if outfile is None:
         outfile = tempfile.mktemp(suffix=".pdf")
     out = renderLily(lilyfile, outfile, openWhenFinished=openWhenFinished)
+    if out is None:
+        raise RuntimeError(f"Could not render '{lilyfile}', generated "
+                           f"file '{outfile}' not found")
     os.remove(lilyfile)
     return out
 
@@ -151,7 +159,7 @@ def renderLily(lilyfile: str,
                imageResolution: int = None,
                openWhenFinished=False,
                lilypondBinary=''
-               ) -> Optional[str]:
+               ) -> str | None:
     """
     Call lilypond to render the given file
 
@@ -538,6 +546,7 @@ def pitchName(pitchclass: str, cents: int) -> str:
 def notenameToLily(notename: str, divsPerSemitone=4) -> str:
     """
     Convert a notename to its lilypond representation.
+
     A notename is a string as understood by pitchtools.n2m
     (for example "4C#+20", "Db4-25", etc.). It will be quantized
     to the nearest microtone, determined by divsPerSemitone
@@ -550,13 +559,11 @@ def notenameToLily(notename: str, divsPerSemitone=4) -> str:
     Returns:
         the corresponding lilypond representation.
     """
-
     notename = pt.quantize_notename(notename, divisions_per_semitone=divsPerSemitone)
-    octave, letter, alteration, cents = pt.split_notename(notename, default_octave=-2)
-    if alteration:
-        cents += pt.alteration_to_cents(alteration)
+    noteparts = pt.split_notename(notename, default_octave=-2)
+    octave = noteparts.octave
     lilyoctave = lilyOctave(octave) if octave >= -1 else ''
-    pitchname = pitchName(letter, cents)
+    pitchname = pitchName(noteparts.diatonic_name, noteparts.alteration_cents)
     return pitchname + lilyoctave
 
 
@@ -568,6 +575,30 @@ _durationToLily = {
     '16th': '16',
     '32nd': '32',
     '64th': '64',
+
+    F(1, 32): '128',
+    F(3, 64): '128.',
+    F(7, 128): '128..',
+    F(1, 16): '64',
+    F(3, 32): '64.',
+    F(7, 64): '64..',
+    F(1, 8): '32',
+    F(3, 16): '32.',
+    F(7, 32): '32..',
+    F(1, 4): '16',
+    F(3, 8): '16.',
+    F(7, 16): '16..',
+    F(1, 2): '8',
+    F(3, 4): '8.',
+    F(7, 8): '8..',
+    F(1, 1): '4',
+    F(3, 2): '4.',
+    F(7, 4): '4..',
+    F(2, 1): '2',
+    F(3, 1): '2.',
+    F(7, 2): '2..',
+    F(15, 4): '2...',
+
     0.03125: '128',
     0.046875: '128.',
     0.0625:  '64',
@@ -609,12 +640,15 @@ def isValidLilypondDuration(s: str) -> bool:
     return True
 
 
-def makeDuration(quarterLength: Union[int, float, str], dots=0) -> str:
+def makeDuration(quarterLength: Union[int, float, str, F], dots=0) -> str:
     """
     Args:
         quarterLength: the duration as a fraction of a quarter-note. Possible string
             values: 'quarter', 'eighth', '16th', etc
         dots: the number of dots
+
+    Returns:
+        the lilypond text corresponding to the duration
     """
     if isinstance(quarterLength, str):
         # is it a lilypond duration already?
@@ -624,6 +658,13 @@ def makeDuration(quarterLength: Union[int, float, str], dots=0) -> str:
     elif isinstance(quarterLength, int):
         assert quarterLength in {1, 2, 4}, f"quarterLength: {quarterLength}"
         lilydur = _durationToLily[quarterLength]
+    elif isinstance(quarterLength, F):
+        if quarterLength.denominator == 1:
+            lilydur = _durationToLily[quarterLength.denominator]
+        else:
+            lilydur = _durationToLily[quarterLength]
+            if dots > 0:
+                raise ValueError("Dots can't be used when giving a duration as a fraction")
     elif isinstance(quarterLength, float):
         if int(quarterLength) == quarterLength:
             lilydur = _durationToLily[int(quarterLength)]
@@ -830,12 +871,12 @@ def colorStem(color: str) -> str:
 
 
 def makeNote(pitch: pitch_t,
-             duration: Union[float, str],
+             duration: float | str,
              dots=0,
              tied=False,
              divsPerSemitone=4,
-             noteheadcolor: str = None,
-             notehead: str = None,
+             noteheadcolor='',
+             notehead='',
              parenthesis=False,
              cautionary=False) -> str:
     """
@@ -849,6 +890,7 @@ def makeNote(pitch: pitch_t,
         dots: number of dots
         tied: is this note tied?
         divsPerSemitone: pitch resolution
+        notehead: the notehead shape
         noteheadcolor: color of the notehead (as css color)
         parenthesis: should the notehead be within parenthesis?
         cautionary: if True, put the accidental within parenthesis
@@ -881,6 +923,9 @@ def getLilypondVersion() -> Optional[str]:
         logger.error("Could not find lilypond")
         return None
     output = _checkOutput([lilybin, "--version"])
+    if output is None:
+        raise RuntimeError(f"Could not call lilypond to get the version, "
+                           f"lilypond binary: '{lilybin}'")
     match = re.search(r"GNU LilyPond \d+\.\d+\.\d+", output)
     if not match:
         logger.error(f"Could not parse lilypond's output: {output}")

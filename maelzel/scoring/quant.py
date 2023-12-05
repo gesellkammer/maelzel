@@ -34,7 +34,7 @@ from .quantprofile import QuantizationProfile
 
 from .notation import Notation, makeRest, SnappedNotation, tieNotations, splitNotationsAtOffsets
 from .node import Node, SplitError, TreeLocation
-from maelzel import scorestruct as st
+import maelzel.scorestruct as st
 
 from emlib import iterlib
 from emlib import misc
@@ -419,14 +419,14 @@ class QuantizedMeasure:
     structure to generate a tree of Nodes. See :meth:`QuantizedMeasure.asTree`
     """
     def __init__(self,
-                 timesig: timesig_t,
+                 timesig: st.TimeSignature,
                  quarterTempo: F,
                  beats: list[QuantizedBeat],
                  quantprofile: QuantizationProfile | None = None,
                  subdivisionStructure: tuple[int, ...] | None = None,
                  parent: QuantizedPart | None = None):
-        self.timesig = timesig
-        "The time signature (a tuple num, den)"
+        self.timesig: st.TimeSignature = timesig
+        "The time signature"
 
         self.quarterTempo = quarterTempo
         "The tempo for the quarter note"
@@ -1265,19 +1265,20 @@ def breakIrregularDuration(n: Notation,
     return allparts
 
 
-def _isMeasureFilled(notations: list[Notation], timesig: timesig_t) -> bool:
+def _isMeasureFilled(notations: list[Notation], quarterDuration: F) -> bool:
     """Do the notations fill the measure?"""
-    measureDuration = util.measureQuarterDuration(timesig)
+    # measureDuration = util.measureQuarterDuration(timesig)
     notationsDuration = sum(n.duration for n in notations)
-    if notationsDuration > measureDuration:
+    if notationsDuration > quarterDuration:
         logger.error(f"timesig: {timesig}, Notation: {notations}")
         logger.error(f"Sum duration: {notationsDuration}")
         raise ValueError("notations do not fit in measure")
-    return notationsDuration == measureDuration
+    return notationsDuration == quarterDuration
 
 
 def quantizeMeasure(events: list[Notation],
-                    timesig: timesig_t,
+                    # timesig: timesig_t,
+                    timesig: st.TimeSignature,
                     quarterTempo: F,
                     profile: QuantizationProfile,
                     subdivisionStructure: tuple[int, ...] = None
@@ -1301,7 +1302,8 @@ def quantizeMeasure(events: list[Notation],
         a QuantizedMeasure
 
     """
-    measureDur = util.measureQuarterDuration(timesig)
+    measureDur = timesig.quarternotes
+    # measureDur = util.measureQuarterDuration(timesig)
     assert all(ev.offset is not None and 0 <= ev.offset <= ev.end <= measureDur
                for ev in events), f"{events=}, {measureDur=}"
     for ev0, ev1 in iterlib.pairwise(events):
@@ -1311,10 +1313,10 @@ def quantizeMeasure(events: list[Notation],
 
     quantizedBeats: list[QuantizedBeat] = []
 
-    if not _isMeasureFilled(events, timesig):
+    if not _isMeasureFilled(events, measureDur):
         logger.debug(f"Measure {timesig} is not filled ({events=}). "
                      f"Filling gaps with silences")
-        events = _fillMeasure(events, timesig)
+        events = _fillDuration(events, measureDur)
 
     beatStructure = st.measureBeatStructure(timesig=timesig,
                                             quarterTempo=quarterTempo,
@@ -2135,7 +2137,7 @@ def quantizePart(part: core.UnquantizedPart,
                                        timesig=measureDef.timesig,
                                        quarterTempo=measureDef.quarterTempo,
                                        profile=quantprofile,
-                                       subdivisionStructure=measureDef.subdivisionStructure)
+                                       subdivisionStructure=measureDef.timesig.subdivisionStruct)
             qmeasures.append(qmeasure)
     if fillStructure:
         if struct.endless:

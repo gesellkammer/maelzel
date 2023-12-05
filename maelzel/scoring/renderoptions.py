@@ -164,6 +164,15 @@ class RenderOptions:
     keepClefBiasFactor: float = 2.0
     """The higher this value, the more priority is given to keeping the previous clef"""
 
+    compoundMeterSubdivision: str = 'all'
+    """Sets the subdivision policy for compound meters. One of 'all', 'none', 'heterogeneous'
+    
+    * 'all': add subdivisions to all internal subdivisions. 
+    * 'none': do not add any subdivision, let the backend decide
+    * 'heterogeneous': add only subdivisions for compound meters with multiple denominators,
+        like 3/4+3/8  
+    """
+
     @classmethod
     def keys(cls) -> set[str]:
         return {f.name for f in _dataclassfields(cls)}

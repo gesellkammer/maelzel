@@ -755,6 +755,48 @@ def renderNode(node: Node,
     return ''.join(seq)
 
 
+class _IndentedWriter:
+    def __init__(self, indentsize=2, indents=0, maxwidth=92, parent: _IndentedWriter = None):
+        self.indentsize = indentsize
+        self.parts: list[str] = []
+        self.indents = indents
+        self._parent = parent
+        self.maxwidth = maxwidth
+
+    def add(self, text: str, preline=False, postline=False, space=False):
+        if preline and self.parts and self.parts[-1][-1] != "\n":
+            self.parts.append("\n")
+        elif not preline and space and not text[0].isspace():
+            self.parts.append(" ")
+
+        if (preline or postline) and self.indents:
+            text = textwrap.dedent(text)
+            indentstr = _spaces[:self.indents*self.indentsize]
+            lines = textwrap.wrap(text, width=self.maxwidth, initial_indent=indentstr, subsequent_indent=indentstr)
+            text = "\n".join(lines)
+            # text = textwrap.indent(text, prefix=_spaces[:self.indents*self.indentsize])
+        self.parts.append(text)
+        if postline:
+            self.parts.append("\n")
+        elif space and not text[-1].isspace():
+            self.parts.append(" ")
+
+    def line(self, text: str):
+        self.add(text, preline=True, postline=True)
+
+    def join(self) -> str:
+        return "".join(self.parts)
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._parent.parts.extend(self.parts)
+
+    def indented(self) -> _IndentedWriter:
+        return _IndentedWriter(indentsize=self.indentsize, indents=self.indents+1, parent=self)
+
+
 def quantizedPartToLily(part: quant.QuantizedPart,
                         options: RenderOptions,
                         addMeasureMarks=True,
@@ -784,41 +826,26 @@ def quantizedPartToLily(part: quant.QuantizedPart,
     """
     quarterTempo = 0
     scorestruct = part.struct
-
-    seq = []
-
-    def _(t: str, indents: int = 0, preln=False, postln=False):
-        if preln and seq and seq[-1][-1] != "\n":
-            seq.append("\n")
-        if indents:
-            t = textwrap.dedent(t)
-            t = textwrap.indent(t, prefix=_spaces[:indents*indentSize])
-            # seq.append(_spaces[:indents*indentSize])
-        seq.append(t)
-        if postln:
-            seq.append("\n")
-
-    def line(t: str, indents: int = 0):
-        _(t, indents, preln=True, postln=True)
+    w = _IndentedWriter(indentsize=indentSize, indents=indents)
 
     if part.name and part.showName:
-        line(r"\new Staff \with {", indents)
-        line(f'    instrumentName = #"{part.name}"', indents)
+        w.line(r"\new Staff \with {")
+        w.line(f'    instrumentName = #"{part.name}"')
         if part.shortname:
-            line(f'    shortInstrumentName = "{part.shortname}"', indents)
-        line("}", indents)
-        line("{", indents)
+            w.line(f'    shortInstrumentName = "{part.shortname}"')
+        w.line("}")
+        w.line("{")
     else:
-        line(r"\new Staff {", indents)
+        w.line(r"\new Staff {")
 
-    indents += 1
-    line(r"\numericTimeSignature", indents)
+    w.indents += 1
+    w.line(r"\numericTimeSignature")
 
     if not clef:
         clef = part.bestClef()
-    line(lilytools.makeClef(clef), indents)
+    w.line(lilytools.makeClef(clef))
 
-    lastTimesig = None
+    timesig = None
 
     state = RenderState()
 
@@ -827,59 +854,82 @@ def quantizedPartToLily(part: quant.QuantizedPart,
         # Reset state
         state.measure = measure
 
-        line(f"% measure {i+1}", indents)
-        indents += 1
+        w.line(f"% measure {i+1}")
+        w.indents += 1
         measureDef = scorestruct.getMeasureDef(i)
 
-        if addTempoMarks and measureDef.timesig != lastTimesig:
-            lastTimesig = measureDef.timesig
-            num, den = measureDef.timesig
-            if measureDef.properties and (symbol := measureDef.properties.get('symbol')):
-                if symbol == 'single-number':
-                    line(r"\once \override Staff.TimeSignature.style = #'single-digit")
-            if measureDef.subdivisionStructure:
-                # compound meter, like 3+2 / 8
-                # \compoundMeter #'((2 2 2 8))
-                parts = ' '.join(str(part) for part in measureDef.subdivisionStructure)
-                line(fr"\compoundMeter #'(({parts} {den}))")
+        if addTempoMarks and measureDef.timesig != timesig:
+            timesig = measureDef.timesig
+            if len(timesig.parts) == 1:
+                if not timesig.subdivisionStruct:
+                    # common case, simple timesig num/den
+                    w.line(fr"\time {timesig.numerator}/{timesig.denominator}")
+                else:
+                    subdivs = ",".join(map(str, timesig.subdivisionStruct))
+                    # \time 2,2,3 7/8
+                    num, den = timesig.fusedSignature
+                    w.line(fr"\time {subdivs} {num}/{den}")
             else:
-                line(fr"\time {num}/{den}", indents)
+                # 3/8 -> (3 8)
+                pairs = ' '.join(f"({num} {den})" for num, den in timesig.parts)
+                w.line(fr"\compoundMeter #'({pairs})")
+                # Add subdivisions if needed.
+                if (options.compoundMeterSubdivision == 'all' or
+                        (options.compoundMeterSubdivision == 'heterogeneous' and
+                         measureDef.timesig.isHeterogeneous()) or
+                    any(denom == 4 for num, denom in measureDef.timesig.parts)
+                ):
+                    den, multiples = measureDef.subdivisionStructure()
+                    num = measureDef.timesig.fusedSignature[0]
+                    subdivs = ",".join(map(str, multiples))
+                    w.line(fr"\time {subdivs} {num}/{den}")
+
+            # if measureDef.properties and (symbol := measureDef.properties.get('symbol')):
+            #     if symbol == 'single-number':
+            #         line(r"\once \override Staff.TimeSignature.style = #'single-digit")
+            # if measureDef.subdivisionStructure:
+            #     # compound meter, like 3+2 / 8
+            #     # \compoundMeter #'((2 2 2 8))
+            #     parts = ' '.join(str(part) for part in measureDef.subdivisionStructure)
+            #     line(fr"\compoundMeter #'(({parts} {den}))")
+            # else:
+            #     line(fr"\time {num}/{den}", indents)
 
         if addTempoMarks and measure.quarterTempo != quarterTempo:
             quarterTempo = measure.quarterTempo
             # lilypond only support integer tempi
             # TODO: convert to a different base if the tempo is too slow/fast for
             #       the quarter, or convert according to the time signature
-            line(fr"\tempo 4 = {int(quarterTempo)}", indents)
+            w.line(fr"\tempo 4 = {int(quarterTempo)}")
 
         if measureDef.keySignature:
-            line(lilytools.keySignature(fifths=measureDef.keySignature.fifths,
-                                        mode=measureDef.keySignature.mode))
+            w.line(lilytools.keySignature(fifths=measureDef.keySignature.fifths,
+                                          mode=measureDef.keySignature.mode))
 
         if addMeasureMarks:
             if measureDef.annotation:
                 style = options.parsedMeasureAnnotationStyle
                 relfontsize = style.fontsize - options.staffSize if style.fontsize else 0
-                _(lilytools.makeTextMark(measureDef.annotation,
-                                         fontsize=relfontsize,
-                                         fontrelative=True,
-                                         box=style.box))
+                w.line(lilytools.makeTextMark(measureDef.annotation,
+                                              fontsize=relfontsize,
+                                              fontrelative=True,
+                                              box=style.box))
             if measureDef.rehearsalMark:
                 style = options.parsedRehearsalMarkStyle
                 relfontsize = style.fontsize - options.staffSize if style.fontsize else 0
                 box = measureDef.rehearsalMark.box or style.box
-                _(lilytools.makeTextMark(measureDef.rehearsalMark.text,
-                                         fontsize=relfontsize, fontrelative=True,
-                                         box=box))
+                w.line(lilytools.makeTextMark(measureDef.rehearsalMark.text,
+                                              fontsize=relfontsize, fontrelative=True,
+                                              box=box))
 
         if measure.empty():
             num, den = measure.timesig
-            measureDur = float(util.measureQuarterDuration(measure.timesig))
-            if measureDur in {1., 2., 3., 4., 6., 7., 8.}:
+            measureDur = util.measureQuarterDuration(measure.timesig)
+            if measureDur.denominator == 1 and measureDur.numerator in (1, 2, 3, 4, 6, 7, 8):
                 lilydur = lilytools.makeDuration(measureDur)
-                _(f"R{lilydur}")
+                w.line(f"R{lilydur}")
             else:
-                _(f"R1*{num}/{den}")
+                w.line(f"R1*{num}/{den}")
             state.dynamic = ''
         else:
             root = measure.tree
@@ -887,22 +937,22 @@ def quantizedPartToLily(part: quant.QuantizedPart,
             markConsecutiveGracenotes(root)
             lilytext = renderNode(root, durRatios=[], options=options,
                                   numIndents=0, state=state)
-            _(lilytext, indents=indents)
-        indents -= 1
+            w.line(lilytext)
+        w.indents -= 1
 
         if not measureDef.barline or measureDef.barline == 'single':
-            line(f"|   % end measure {i+1}", indents)
+            w.line(f"|   % end measure {i+1}")
         else:
             if (barstyle := _lilyBarlines.get(measureDef.barline)) is None:
                 logger.error(f"Barstile '{measureDef.barline}' unknown. "
                              f"Supported styles: {_lilyBarlines.keys()}")
                 barstyle = '|'
-            line(rf'\bar "{barstyle}"    |  % end measure {i+1}', indents)
+            w.line(rf'\bar "{barstyle}"    |  % end measure {i+1}')
 
-    indents -= 1
+    w.indents -= 1
 
-    line(f"}}   % end staff {part.name}", indents)
-    return "".join(seq)
+    w.line(f"}}   % end staff {part.name}")
+    return w.join()
 
 
 # --------------------------------------------------------------

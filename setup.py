@@ -65,7 +65,7 @@ setup(
         "configdict>=2.10.0",
         "sndfileio>=1.9.1",
         "numpyx>=1.3.1",
-        "csoundengine>=2.5.0",
+        "csoundengine>=2.5.1",
         "pitchtools>=1.12.0",
         "risset>=2.4.1",
         "loristrck>=1.5.6",

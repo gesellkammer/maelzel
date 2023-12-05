@@ -845,7 +845,7 @@ def _parsePart(part: ET.Element, context: _ParseContext
         if (time := measure.find('./attributes/time')) is not None:
             timesig = _parseTimesig(time)
             if len(timesig.parts) == 1:
-                beats, beattype = timesig.raw
+                beats, beattype = timesig.fusedSignature
                 subdivisions = None
             else:
                 subdivisions = [num for num, den in timesig.normalizedParts]

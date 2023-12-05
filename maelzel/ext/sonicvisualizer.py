@@ -3,13 +3,13 @@ Utilities to interact with Sonic Visualizer
 """
 from __future__ import annotations
 import os
-from lxml import etree
 import bpf4 as bpf
 from pitchtools import *
 from emlib.containers import RecordList
 from emlib import csvtools
 
 from typing import Union
+
 
 def readNotes(path: str) -> RecordList:
     """
@@ -44,6 +44,7 @@ def readQtrans(path: str, minpitch=36, octaveDivision=12):
     Returns:
         a QTransf
     """
+    from lxml import etree
     t = etree.parse(path)
     root = t.getroot()
     data = root._find("data")

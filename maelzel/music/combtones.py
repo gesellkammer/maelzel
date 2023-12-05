@@ -49,7 +49,7 @@ def _parsePitches(*pitches) -> list[float]:
     return midis
 
 
-def ringmodWithAmps(pitches: Sequence[pitch_t], amps: Sequence[float], unique=False
+def ringmodWithAmps(pitches: Sequence[pitch_t], amps: Sequence[float], unique=True
                    ) -> list[tuple[float, float]]:
     """
     Ringmodulation between pitches with amps
@@ -57,6 +57,7 @@ def ringmodWithAmps(pitches: Sequence[pitch_t], amps: Sequence[float], unique=Fa
     Args:
         pitches: a midinote or notename
         amps: the amps corresponding to each pitch
+        unique: if True, repeated sidebands are removed
 
     Returns:
         a list of tuples (midinote, amp), where each tuple represents
@@ -74,12 +75,11 @@ def ringmodWithAmps(pitches: Sequence[pitch_t], amps: Sequence[float], unique=Fa
     for amp1, amp2 in combinations(amps, 2):
         amp = amp1 * amp2
         allamps.extend((amp, amp))
-    if unique:
-        pairs = list(set(zip(allbands, allamps)))
-    else:
-        pairs = list(zip(allbands, allamps))
+    sidebands = zip(allbands, allamps)
+    pairs = list(set(sidebands)) if unique else list(sidebands)
     pairs.sort()
     return pairs
+
 
 def ringmod(pitches: Sequence[pitch_t]) -> list[float]:
     """
@@ -262,14 +262,18 @@ def difftoneSource(difftone: pitch_t, interval: float, resolution=0.0
     f1 = f0 * ratio
     midi0, midi1 = f2m(f0), f2m(f1)
     if resolution > 0:
-        midi0 = misc.snap_to_grid(midi0, resolution)
-        midi1 = misc.snap_to_grid(midi1, resolution)
+        midi0 = float(misc.snap_to_grid(midi0, resolution))
+        midi1 = float(misc.snap_to_grid(midi1, resolution))
     return Difftone(midi0, midi1, difftone)
 
 
-def _difftone_find_source(pitch, maxdeviation=0.5, intervals=None,
-                          minnote: pitch_t = 'A0', maxnote: pitch_t = 'C8', resolution=1.
-                          ) -> list[tuple[float, float]]:
+def _difftoneFindSources(pitch,
+                         minmidi: float,
+                         maxmidi: float,
+                         maxdeviation=0.5,
+                         intervals=None,
+                         resolution=1.
+                         ) -> list[tuple[float, float]]:
     """
 
     Args:
@@ -289,8 +293,6 @@ def _difftone_find_source(pitch, maxdeviation=0.5, intervals=None,
     intervals = intervals or list(frange(resolution, 8, resolution))
     f0 = m2f(pitch-maxdeviation)
     f1 = m2f(pitch+maxdeviation)
-    minmidi = asmidi(minnote)
-    maxmidi = asmidi(maxnote)
     out = []
     for interval in intervals:
         for m0 in frange(minmidi, maxmidi+resolution, resolution):
@@ -423,17 +425,17 @@ def difftoneSources(result: pitch_t,
         a list of Difftones
     """
     midiresult = asmidi(result)
-    maxnote = asmidi(maxnote)
-    minnote = minnote or midiresult + gap
-    if minnote is None:
-        minnote = midiresult + gap
-    else:
-        minnote = max(minnote, midiresult+gap)
-    assert maxnote > minnote
+    maxpitch = asmidi(maxnote)
+    minpitch = asmidi(minnote) if minnote is not None else midiresult + gap
+    minpitch = max(minpitch, midiresult + gap)
+    assert maxpitch > minpitch
     intervals = intervals or list(frange(resolution, 7, resolution))
-    pairs = _difftone_find_source(result, maxdist, minnote=minnote,
-                                  maxnote=maxnote, intervals=intervals,
-                                  resolution=resolution)
+    pairs = _difftoneFindSources(pitch=result,
+                                 maxdeviation=maxdist,
+                                 minmidi=minpitch,
+                                 maxmidi=maxpitch,
+                                 intervals=intervals,
+                                 resolution=resolution)
     difftones = [Difftone(note0=midi0, note1=midi1, desired=midiresult)
                  for midi0, midi1 in pairs]
     reclist = RecordList(difftones, fields=Difftone._fields)
@@ -498,11 +500,14 @@ def ringmodSource(sidebands: pitch_t,
         sidebands: a seq. of sidebands, as notenames or frequencies
         minnote: min. note of the source
         maxnote: max. note of the source
+        maxdiff: the max distance between the desired sidebands and the actual sidebands
         matchall: if True, all sidebands should be matched
         constraints: if given, a seq. of functions. Each of these constraints is of
                      the form (midisources, sidebands) -> bool
                      where: midisources: the sources being modulated (as midinotes)
                             sidebands: the sidebands generated (as midinote)
+        numsources: the number of sources can be specified. Otherwise it depends on
+            the number of sidebands given
 
     Returns:
         a list of midinotes which, when ringmodulated, produce the given sidebands
@@ -531,7 +536,7 @@ def ringmodSource(sidebands: pitch_t,
     elif len(sidebands) > 6 or numsources is not None and numsources > 3:
         raise NotImplementedError("too many sidebands...")
     bestmatch = []
-    sourcefreqs = None
+    sourcemidis = []
     for m0, m1, m2 in combinations(range(int(midi0), int(ceil(midi1))), 3):
         newmidis = ringmod([m0, m1, m2])
         matching = _matchone(sidemidis, newmidis, maxdiff)
@@ -544,15 +549,15 @@ def ringmodSource(sidebands: pitch_t,
             continue
         if len(matching) > len(bestmatch):
             bestmatch = matching
-            sourcefreqs = [m2f(m) for m in newmidis]
+            sourcemidis = newmidis
         elif len(matching) == len(bestmatch):
             newdiff = sum(abs(orig-new) for orig, new in matching)
             lastdiff = sum(abs(orig-last) for orig, last in bestmatch)
             if newdiff < lastdiff:
-                sourcefreqs = [m2f(m) for m in newmidis]
+                sourcemidis = newmidis
                 bestmatch = matching
-    return [f2m(freq) for freq in sourcefreqs]
-    
+    return sourcemidis
+
         
 @dataclass
 class SumTone:
@@ -752,7 +757,7 @@ def _checkpitch(p: str | int | float) -> bool:
 
 
 def fmchord(carrierfreq: float, modfreq: float, index: float, minamp=0.01,
-            minpitch=None, maxpitch=None
+            minpitch: pitch_t = "A0", maxpitch: pitch_t = "C8"
             ) -> mc.Chord:
     """
     Similar to fmbands but the result is a maelzel.core.Chord
@@ -765,15 +770,15 @@ def fmchord(carrierfreq: float, modfreq: float, index: float, minamp=0.01,
         modfreq: the modulator frequency
         index: the modulation index
         minamp: the mininum amplitude of a sideband to be included
-        minpitch:
-        maxpitch:
+        minpitch: the min. pitch for any sideband
+        maxpitch: the max. pitch for any sideband
 
     Returns:
         a maelzel.core.Chord with the sidebands and their corresponding amplitude
 
     """
-    maxfreq = 24000 if maxpitch is None else _asnote(maxpitch).freq
-    minfreq = 0 if minpitch is None else _asnote(minpitch).freq
+    maxfreq = 24000 if maxpitch is None else int(_asnote(maxpitch).freq)
+    minfreq = 0 if minpitch is None else int(_asnote(minpitch).freq)
     bands = fmbands(carrierfreq=carrierfreq, modfreq=modfreq, index=index,
                     minamp=minamp, minfreq=minfreq, maxfreq=maxfreq)
     notes = [mc.Note(f2m(freq), amp=amp) for freq, amp in bands]

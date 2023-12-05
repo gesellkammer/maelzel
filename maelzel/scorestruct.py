@@ -24,7 +24,8 @@ __all__ = (
     'asF',
     'ScoreStruct',
     'MeasureDef',
-    'measureBeatStructure'
+    'measureBeatStructure',
+    'TimeSignature'
 )
 
 
@@ -67,24 +68,79 @@ def beatWeightsByTimeSignature(num: int, den: int) -> tuple[int, ...]:
 
 
 class TimeSignature:
-    def __init__(self, *parts: tuple[int, int]):
-        self.parts = parts
+    """
+    A time signature
+
+    In its simplest form a type signature consists of one part, a tuple
+    (numerator, denominator). For example, a 4/4 time signature can be
+    represented as TimeSignature((4, 4))
+
+    Args:
+        parts: the parts of this time signature, a seq. of tuples (numerator, denominator)
+        subdivisionStruct: subdivisions as multiples of the denominator. Only valid for
+            non-compound signatures. It is used to structure subdivisions for a single
+            part. For example, 7/8 subdivided as 2+3+2 can be expressed as
+            TimeSignature((7, 8), subdivisionStruct=(2, 3, 2)).
+    """
+    def __init__(self,
+                 *parts: tuple[int, int],
+                 subdivisionStruct: Sequence[int] = ()):
+        self.parts: tuple[tuple[int, int], ...] = parts
+        """
+        The parts of this timesig, as originally passed at creation
+        """
+
         minden = max(den for num, den in parts)
         numerators = [num * minden // den for num, den in parts]
-        self.raw = (int(sum(numerators)), minden)
-        self.normalizedParts = [(num, minden) for num in numerators]
+
+        self.normalizedParts: tuple[tuple[int, int], ...] = tuple((num, minden) for num in numerators)
+        """
+        The normalized parts with a shared common denominator
+        
+        parts: (3/4 3/8), common den: 8, normalizedParts: (6/8, 3/8), fusedSignature: 9/8
+        """
+        self.fusedSignature: tuple[int, int] = (int(sum(numerators)), minden)
+
+        self.subdivisionStruct: tuple[int, ...] = tuple(subdivisionStruct)
+        """
+        Subdivisions as multiples of the denominator. Only valid for non-compound signatures
+        """
+
+    def copy(self) -> TimeSignature:
+        return TimeSignature(*self.parts, subdivisionStruct=self.subdivisionStruct)
+
+    def __hash__(self) -> int:
+        return hash(self.parts)
+
+    def __eq__(self, other: TimeSignature):
+        return isinstance(other, TimeSignature) and self.parts == other.parts
 
     @property
     def numerator(self) -> int:
-        return self.raw[0]
+        return self.fusedSignature[0]
 
     @property
     def denominator(self) -> int:
-        return self.raw[1]
+        return self.fusedSignature[1]
+
+    @property
+    def quarternotes(self) -> F:
+        return F(self.numerator, self.denominator) * 4
+
+    def durationSeconds(self, tempo: F) -> F:
+        tempo = asF(tempo)
+        return self.quarternotes * 60 / tempo
+
+    def __str__(self):
+        parts = [f"{num}/{den}" for num, den in self.parts]
+        return "+".join(parts)
 
     def __repr__(self):
         if len(self.parts) == 1:
             num, den = self.parts[0]
+            if self.subdivisionStruct:
+                subdiv = '-'.join(map(str, self.subdivisionStruct))
+                return f"TimeSignature({num}/{den}({subdiv}))"
             return f"TimeSignature({num}/{den})"
         elif all(den == self.parts[0][1] for num, den in self.parts):
             nums = "+".join(str(p[0]) for p in self.parts)
@@ -94,7 +150,8 @@ class TimeSignature:
             return f"TimeSignature({parts})"
 
     @classmethod
-    def parse(cls, timesig) -> TimeSignature:
+    def parse(cls, timesig: str | tuple, subdivisionStruct: Sequence[int] = ()
+              ) -> TimeSignature:
         if isinstance(timesig, tuple):
             if all(isinstance(_, tuple) for _ in timesig):
                 # ((3, 8), (3, 8), (2, 8))
@@ -104,28 +161,60 @@ class TimeSignature:
                 if isinstance(num, tuple):
                     # ((3, 3, 2), 8)
                     parts = [(_, den) for _ in num]
-                    return TimeSignature(*parts)
+                    return TimeSignature(*parts, subdivisionStruct=subdivisionStruct)
                 else:
                     assert isinstance(num, int)
-                    return TimeSignature((num, den))
+                    return TimeSignature((num, den), subdivisionStruct=subdivisionStruct)
             else:
                 raise ValueError(f"Cannot parse timesignature: {timesig}")
         elif isinstance(timesig, str):
-            # 3/4 or 3/8+3/8+2/8
-            numparts = timesig.count("+") + 1
-            if numparts == 1:
-                assert "/" in timesig
-                numstr, denstr = timesig.split("/")
-                return TimeSignature((int(numstr), int(denstr)))
-            else:
-                assert timesig.count("/") == numparts
-                parts = []
-                for p in timesig.split("+"):
-                    numstr, denstr = p.split("/")
-                    parts.append((int(numstr), int(denstr)))
-                return TimeSignature(*parts)
+            # Possible signatures: 3/4, 3/8+3/8+2/8, 5/8(3-2), 5/8(3-2)+3/16
+            parts = timesig.split("+")
+            parsedParts = [_parseTimesigPart(part) for part in parts]
+            if len(parsedParts) == 1:
+                signature, subdivs = parsedParts[0]
+                if subdivs and subdivisionStruct:
+                    raise ValueError("Duplicate subdivision structure")
+                return TimeSignature(signature, subdivisionStruct=subdivs or subdivisionStruct)
+            signatures, subdivs = zip(*parsedParts)
+            # We ignore subdivisions for compound signatures
+            return TimeSignature(*signatures, subdivisionStruct=subdivisionStruct)
+
         else:
             raise TypeError(f"Expected a str or a tuple, got {timesig}")
+
+    def isHeterogeneous(self) -> bool:
+        """
+        Is this a compound meter with heterogeneous denominators?
+
+        Heterogeneous meters are 3/4+3/8, 4/4+1/8, 3/8+3/16. Homogeneous meters are
+        3/8+2/8, 3/4+4/4
+
+        Returns:
+            true if this is a compound meter with heterogenous denominators
+        """
+        if len(self.parts) == 1:
+            return False
+        denoms = set(denom for num, denom in self.parts)
+        return len(denoms) >= 2
+
+
+def _parseTimesigPart(s: str) -> tuple[tuple[int, int], tuple[int, ...]]:
+    """
+    Given a string in the form 5/8(3-2), returns ((5, 8), (3, 2))
+
+    For 5/8, returns ((5, 8), ())
+    """
+    if "(" in s:
+        assert s.count("(") == 1 and s[-1] == ")"
+        p1, p2 = s[:-1].split("(")
+        nums, dens = p1.split("/")
+        num, den = int(nums), int(dens)
+        subdivs = tuple(int(subdiv) for subdiv in p2.split("-"))
+        return ((num, den), subdivs)
+    else:
+        nums, dens = s.split("/")
+        return ((int(nums), int(dens)), ())
 
 
 def _parseTimesig(s: str) -> tuple[int, int]:
@@ -141,14 +230,26 @@ def _parseTimesig(s: str) -> tuple[int, int]:
     return int(num), int(den)
 
 
-def _asTimesig(t: str | timesig_t) -> timesig_t:
-    if isinstance(t, tuple):
-        assert len(t) == 2
-        return t
-    elif isinstance(t, str):
-        return _parseTimesig(t)
+def _asTimeSignature(timesig: str | timesig_t | TimeSignature,
+                     subdivisions: tuple[int, ...]) -> TimeSignature:
+    if isinstance(timesig, TimeSignature):
+        return timesig
+    elif isinstance(timesig, str):
+        return TimeSignature.parse(timesig)
+    elif isinstance(timesig, tuple):
+        return TimeSignature(timesig)
     else:
-        raise TypeError(f"Expected a tuple (5, 8) or a string '5/8', got {t}, {type(t)}")
+        raise TypeError(f"Cannot convert {timesig} to a TimeSignature")
+
+
+# def _asTimesig(t: str | timesig_t) -> timesig_t:
+#     if isinstance(t, tuple):
+#         assert len(t) == 2
+#         return t
+#     elif isinstance(t, str):
+#         return _parseTimesig(t)
+#     else:
+#         raise TypeError(f"Expected a tuple (5, 8) or a string '5/8', got {t}, {type(t)}")
 
 
 @dataclass
@@ -244,7 +345,7 @@ def _parseScoreStructLine(line: str) -> _ScoreLine:
         tempo = float(tempoS) if tempoS else None
     else:
         raise ValueError(f"Parsing error at line {line}")
-    timesig = _parseTimesig(timesigS) if timesigS else None
+    timesig = TimeSignature.parse(timesigS) if timesigS else None
 
     for k, v in keywords.items():
         k = k.lower()
@@ -272,27 +373,24 @@ class MeasureDef:
     A MeasureDef defines one Measure within a ScoreStruct (time signature, tempo, etc.)
     """
     def __init__(self,
-                 timesig: timesig_t,
+                 timesig: TimeSignature,
                  quarterTempo: F | int,
                  annotation='',
                  timesigInherited=False,
                  tempoInherited=False,
                  barline='',
-                 subdivisionStructure: Sequence[int] = None,
                  rehearsalMark: RehearsalMark = None,
                  keySignature: KeySignature = None,
                  properties: dict = None,
-                 maxEighthTempo=F(48),
+                 maxEighthTempo=48,
                  parent: ScoreStruct = None,
-                 readonly=False
+                 readonly=True
                  ):
         assert not barline or barline in _barstyles, \
             f"Unknown barline style: '{barline}', possible values: {_barstyles}"
-        if subdivisionStructure:
-            assert isinstance(subdivisionStructure, (tuple, list))
-            assert all(isinstance(part, int) for part in subdivisionStructure)
 
-        self._timesig = _asTimesig(timesig)
+        assert isinstance(timesig, TimeSignature), f"Expected a TimeSignature, got {timesig}"
+        self._timesig: TimeSignature = timesig
         self._quarterTempo = asF(quarterTempo)
         self.annotation = annotation
         """Any text annotation for this measure"""
@@ -306,11 +404,6 @@ class MeasureDef:
         self._barline = barline
         """The barline style, or '' to use default"""
 
-        self.subdivisionStructure: tuple[int, ...] | None = tuple(subdivisionStructure) if subdivisionStructure else None
-        """The subdivision structure of this measure. 
-        This is only relevant for measures with an irregular time-signature,
-        like 5/8. In that case the subdivisionStructure might be [3, 2] or [2, 3]"""
-
         self.rehearsalMark = rehearsalMark
         """If given, a RehearsalMark for this measure"""
 
@@ -320,19 +413,21 @@ class MeasureDef:
         self.properties = properties
         """User defined properties can be placed here. None by default"""
 
-        self.maxEighthTempo = asF(maxEighthTempo)
+        self.maxEighthTempo: int = maxEighthTempo
         """The max. tempo at which an eighth note can be a beat of its own"""
 
         self.parent = parent
         """The parent ScoreStruct of this measure, if any"""
 
         self.readonly = readonly
+        """Is this measure definition read only?"""
 
     @property
     def durationQuarters(self) -> F:
         """The duration of this measure in quarter-notes"""
-        n, d = self._timesig
-        return F(4*n,d)
+        return self.timesig.quarternotes
+        # n, d = self._timesig
+        # return F(4*n, d)
 
     @property
     def durationSecs(self) -> F:
@@ -340,15 +435,15 @@ class MeasureDef:
         return self.durationQuarters * (F(60) / self._quarterTempo)
 
     @property
-    def timesig(self) -> timesig_t:
+    def timesig(self) -> TimeSignature:
         """The time signature of this measure. Can be explicit or inherited"""
         return self._timesig
 
     @timesig.setter
-    def timesig(self, timesig: timesig_t):
+    def timesig(self, timesig):
         if self.readonly:
             raise ValueError("This MeasureDef is readonly")
-        self._timesig = timesig
+        self._timesig = TimeSignature.parse(timesig)
         self.timesigInherited = False
         if self.parent:
             self.parent.modified(timing=True, attributes=True)
@@ -395,7 +490,8 @@ class MeasureDef:
         """
         The representation of this MeasureDef as a score line
         """
-        num, den = self.timesig
+        num = self.timesig.numerator
+        den = self.timesig.denominator
         parts = [f'{num}/{den}, {self.quarterTempo}']
         if self.annotation:
             parts.append(self.annotation)
@@ -433,6 +529,21 @@ class MeasureDef:
     def __hash__(self) -> int:
         return hash((self.timesig, self.quarterTempo, self.annotation))
 
+    def subdivisionStructure(self) -> tuple[int, list[int]]:
+        """
+        Max. common denominator for subdivisions and the subdivisions as multiples of it
+
+        For example, for 3/4+3/8, returns (8, [2, 2, 2, 3])
+
+        Returns:
+            a tuple (max. common denominator, subdivisions as multiples of common denominator)
+
+        """
+        subdivs = self.subdivisions()
+        denom = self.timesig.fusedSignature[1]
+        multiples = [(subdiv * denom // 4) for subdiv in subdivs]
+        return denom, multiples
+
     def subdivisions(self) -> list[F]:
         """
         Returns a list of the subdivisions of this measure.
@@ -456,9 +567,9 @@ class MeasureDef:
             >>> MeasureDef((7, 8), quarterTempo=150, subdivisionStructure=[2, 3, 2]).subdivisions()
             [1, 1.5, 1]
         """
-        return measureBeatDurations(timesig=self.timesig, quarterTempo=self.quarterTempo,
-                                    subdivisionStructure=self.subdivisionStructure,
-                                    maxEighthTempo=self.maxEighthTempo)
+        return measureSubdivisions(timesig=self.timesig, quarterTempo=self.quarterTempo,
+                                   subdivisionStructure=self.timesig.subdivisionStruct,
+                                   maxEighthTempo=self.maxEighthTempo)
 
     def timesigRepr(self) -> str:
         """
@@ -468,11 +579,12 @@ class MeasureDef:
             a string representation of this measure's time-signature
 
         """
-        num, den = self.timesig
-        if self.subdivisionStructure:
-            # 3+3+2/8
-            return f'{num}/{den} ({"+".join(str(sub) for sub in self.subdivisionStructure)})'
-        return f'{num}/{den}'
+        parts = [f"{num}/{den}" for num, den in self.timesig.parts]
+        partstr = "+".join(parts)
+        if self.timesig.subdivisionStruct:
+            subdivs = self.subdivisions()
+            partstr += f"({subdivs})"
+        return partstr
 
 
 def inferSubdivisions(num: int, den: int, quarterTempo
@@ -512,15 +624,32 @@ def measureQuarterDuration(timesig: timesig_t) -> F:
     return quarterDuration
 
 
-def measureBeatDurations(timesig: timesig_t,
-                         quarterTempo: F,
-                         maxEighthTempo: num_t = 48,
-                         subdivisionStructure: tuple[int, ...] = None
-                         ) -> list[F]:
+def measureSubdivisions(timesig: TimeSignature,
+                        quarterTempo: F,
+                        subdivisionStructure: tuple[int, ...] = None,
+                        maxEighthTempo: int = 48):
+    if len(timesig.parts) == 1:
+        return beatDurations(timesig=timesig.parts[0], quarterTempo=quarterTempo,
+                             subdivisionStructure=subdivisionStructure,
+                             maxEighthTempo=maxEighthTempo)
+    subdivs = []
+    for part in timesig.parts:
+        beatdurs = beatDurations(timesig=part, quarterTempo=quarterTempo,
+                                 maxEighthTempo=maxEighthTempo)
+        subdivs.extend(beatdurs)
+    return subdivs
+
+
+def beatDurations(timesig: timesig_t,
+                  quarterTempo: F,
+                  maxEighthTempo: num_t = 48,
+                  subdivisionStructure: tuple[int, ...] = None
+                  ) -> list[F]:
     """
+    Returns the beat durations for the given time signature
 
     Args:
-        timesig: the timesignature of the measure
+        timesig: the timesignature of the measure or of the part of the measure
         quarterTempo: the tempo for a quarter note
         maxEighthTempo: max quarter tempo to divide a measure like 5/8 in all
             eighth notes instead of, for example, 2+2+1
@@ -553,9 +682,13 @@ def measureBeatDurations(timesig: timesig_t,
         subdivstruct = inferSubdivisions(num=num, den=den, quarterTempo=quarterTempo)
         return [F(num, den // 4) for num in subdivstruct]
     elif den == 16:
+        beatdurs = beatDurations((num, 8), quarterTempo=quarterTempo*2)
+        return [dur/2 for dur in beatdurs]
+
+        # -----------
         if num % 2 == 0:
             timesig = (num//2, 8)
-            return measureBeatDurations(timesig, quarterTempo=quarterTempo)
+            return beatDurations(timesig, quarterTempo=quarterTempo)
         beats = [F(1, 2)] * (num//2)
         beats.append(F(1, 4))
         return beats
@@ -578,7 +711,7 @@ class BeatStructure:
 
 
 @functools.cache
-def measureBeatStructure(timesig: timesig_t,
+def measureBeatStructure(timesig: TimeSignature,
                          quarterTempo: Union[F, int],
                          subdivisionStructure: tuple[int, ...] = None
                          ) -> list[BeatStructure]:
@@ -595,9 +728,11 @@ def measureBeatStructure(timesig: timesig_t,
     Returns:
         a list of (beat offset: F, beat duration: F, beat weight: int)
     """
-    beatDurations = measureBeatDurations(timesig, quarterTempo=quarterTempo,
-                                         subdivisionStructure=subdivisionStructure)
-    N = len(beatDurations)
+    durations = measureSubdivisions(timesig=timesig, quarterTempo=quarterTempo,
+                                    subdivisionStructure=subdivisionStructure)
+    #durations = beatDurations(timesig, quarterTempo=quarterTempo,
+    #                          subdivisionStructure=subdivisionStructure)
+    N = len(durations)
     if N == 1:
         weights = [1]
     elif N % 2 == 0:
@@ -612,15 +747,15 @@ def measureBeatStructure(timesig: timesig_t,
 
     now = F(0)
     beatOffsets = []
-    for i, dur in enumerate(beatDurations):
+    for i, dur in enumerate(durations):
         beatOffsets.append(now)
         now += dur
         if dur.numerator == 3:
             weights[i] = 1
 
-    assert len(beatOffsets) == len(beatDurations) == len(weights)
+    assert len(beatOffsets) == len(durations) == len(weights)
     return [BeatStructure(offset, duration, weight)
-            for offset, duration, weight in zip(beatOffsets, beatDurations, weights)]
+            for offset, duration, weight in zip(beatOffsets, durations, weights)]
 
 
 def measureBeatOffsets(timesig: timesig_t,
@@ -648,8 +783,8 @@ def measureBeatOffsets(timesig: timesig_t,
         # 0, 1, 2, 2.5
     """
     quarterTempo = asF(quarterTempo)
-    beatDurations = measureBeatDurations(timesig, quarterTempo=quarterTempo,
-                                         subdivisionStructure=subdivisionStructure)
+    beatDurations = beatDurations(timesig, quarterTempo=quarterTempo,
+                                  subdivisionStructure=subdivisionStructure)
     beatOffsets = [F(0)] + list(iterlib.partialsum(beatDurations))
     return beatOffsets
 
@@ -1007,12 +1142,12 @@ class ScoreStruct:
         return [self.getMeasureDef(idx) for idx in range(item.start, item.stop, item.step)]
 
     def addMeasure(self,
-                   timesig: timesig_t | str = None,
+                   timesig: tuple[int, int] | str | TimeSignature = None,
                    quarterTempo: num_t = None,
                    annotation='',
                    numMeasures=1,
                    rehearsalMark: str | RehearsalMark = None,
-                   subdivisions: Sequence[int] = None,
+                   subdivisions: Sequence[int] = (),
                    keySignature: tuple[int, str] | KeySignature = None,
                    barline='',
                    **kws
@@ -1023,9 +1158,9 @@ class ScoreStruct:
         Args:
             timesig: the time signature of the new measure. If not given, the last
                 time signature will be used. The timesig can be given as str in the
-                form "num/den". For a compound time signature use, for example
-                "(3+2)/8". Compound time signatures of the form "3/4+3/8" are not
-                supported yet.
+                form "num/den". For a compound time signature use "3/8+2/8". To
+                specify the internal subdivision use a TimeSignature object or a
+                string in the form "5/8(3-2)"
             quarterTempo: the tempo of a quarter note. If not given, the last tempo
                 will be used
             annotation: each measure can have a text annotation
@@ -1071,13 +1206,17 @@ class ScoreStruct:
             fifths, mode = keySignature
             keySignature = KeySignature(fifths=fifths, mode=mode)
 
-        measuredef = MeasureDef(timesig=_asTimesig(timesig),
+        if not isinstance(timesig, TimeSignature):
+            timesig = TimeSignature.parse(timesig, subdivisionStruct=subdivisions)
+        elif subdivisions:
+            timesig = TimeSignature(*timesig.parts, subdivisionStruct=subdivisions)
+
+        measuredef = MeasureDef(timesig=timesig,
                                 quarterTempo=quarterTempo,
                                 annotation=annotation,
                                 timesigInherited=timesigInherited,
                                 tempoInherited=tempoInherited,
                                 rehearsalMark=rehearsalMark,
-                                subdivisionStructure=list(subdivisions) if subdivisions else None,
                                 properties=kws,
                                 keySignature=keySignature,
                                 barline=barline,
@@ -1724,8 +1863,8 @@ class ScoreStruct:
         N = len(str(len(self.measuredefs)))
         fmt = "%0" + str(N) + "d" + ", %d/%d"
         for i, m in enumerate(self.measuredefs):
-            num, den = m.timesig
-            parts = [fmt % (i, num, den)]
+            parts = []
+            parts.append(str(m.timesig))
             if m.quarterTempo != tempo:
                 parts.append(f", {m.quarterTempo}")
                 tempo = m.quarterTempo
@@ -1755,12 +1894,11 @@ class ScoreStruct:
             parts = []
             maxdefs = 10
             for m in self.measuredefs[:maxdefs]:
-                num, den = m.timesig
                 if m.quarterTempo != tempo:
                     tempo = m.quarterTempo
-                    parts.append(f"{num}/{den}@{tempo}")
+                    parts.append(f"{m.timesig}@{tempo}")
                 else:
-                    parts.append(f"{num}/{den}")
+                    parts.append(f"{m.timesig}")
             s = ", ".join(parts)
             if len(self.measuredefs) > maxdefs:
                 s += " …"
@@ -1863,7 +2001,7 @@ class ScoreStruct:
         if measureIndex > len(self) and not self.endless:
             raise IndexError(f"Index {measureIndex} out of rage; this ScoreStruct has only "
                              f"{len(self)} measures defined")
-        timesig = _asTimesig(timesig)
+        timesig = _asTimeSignature(timesig)
         mdef = self.getMeasureDef(measureIndex, extend=True)
         mdef.timesig = timesig
         mdef.timesigInherited = False
