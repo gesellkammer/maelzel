@@ -15,10 +15,12 @@ from functools import cache
 
 import emlib.textlib
 import emlib.filetools
-from emlib import iterlib
+from emlib.iterlib import pairwise, first
 
 from maelzel.music import lilytools
 from maelzel.textstyle import TextStyle
+from maelzel._indentedwriter import IndentedWriter
+from maelzel import _util
 from .common import *
 from . import attachment
 from . import definitions
@@ -158,7 +160,7 @@ def markConsecutiveGracenotes(root: Node) -> None:
 
     """
     graceGroupOpen = False
-    for n0, n1 in iterlib.pairwise(root.recurse()):
+    for n0, n1 in pairwise(root.recurse()):
         if n0.isRest or not n0.isGracenote:
             assert not graceGroupOpen
             continue
@@ -173,8 +175,7 @@ def markConsecutiveGracenotes(root: Node) -> None:
                 n0.setProperty(".graceGroup", "stop")
                 graceGroupOpen = False
     if graceGroupOpen:
-        lastn = iterlib.first(root.recurse(reverse=True))
-        if lastn is not None:
+        if lastn := first(root.recurse(reverse=True)):
             assert lastn.isGracenote
             lastn.setProperty('.graceGroup', 'stop')
 
@@ -291,7 +292,6 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
 
     """
     assert n.noteheads is None or isinstance(n.noteheads, dict), f"{n=}"
-
     notatedDur = n.notatedDuration()
     base, dots = notatedDur.base, notatedDur.dots
     parts = []
@@ -316,8 +316,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
                     _(lilytools.makeClef(attach.kind))
                 else:
                     logger.warning(f"Attachment {attach} not supported for rests")
-
-        return ' '.join(parts)
+        return ' '.join(parts).strip()
 
     if n.color:
         # apply color to notehead, stem and ard accidental
@@ -330,8 +329,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
     if n.sizeFactor is not None and n.sizeFactor != 1:
         _(rf"\once \magnifyMusic {n.sizeFactor}")
 
-    # if n.stem == 'hidden':
-    if attach := n.findAttachment(cls=attachment.StemTraits):
+    if n.attachments and (attach := first(a for a in n.attachments if isinstance(a, attachment.StemTraits))):
         if attach.hidden:
             _(r"\once \override Stem.transparent = ##t")
 
@@ -377,7 +375,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         elif n.tiedPrev and n.gliss and state.glissando and options.glissHideTiedNotes:
             _(lyNotehead(definitions.Notehead(hidden=True)))
 
-        fingering = n.findAttachment(attachment.Fingering)
+        fingering = first(a for a in n.attachments if isinstance(a, attachment.Fingering)) if n.attachments else None
         accidentalTraits = n.findAttachment(attachment.AccidentalTraits)
         if accidentalTraits:
             assert isinstance(accidentalTraits, attachment.AccidentalTraits)
@@ -479,14 +477,16 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         if text := util.centsAnnotation(n.pitches,
                                         divsPerSemitone=options.divsPerSemitone,
                                         addplus=options.centsAnnotationPlusSign,
-                                        separator=options.centsAnnotationSeparator):
+                                        separator=options.centsAnnotationSeparator,
+                                        snap=options.centsAnnotationSnap):
             fontrelsize = options.centsAnnotationFontsize - options.staffSize
             _(lilytools.makeText(text,
                                  fontsize=fontrelsize,
                                  fontrelative=True,
                                  placement=options.centsAnnotationPlacement))
 
-    return " ".join(parts)
+    out = " ".join(parts)
+    return out.strip()
 
 
 _spaces = " " * 1000
@@ -637,7 +637,8 @@ def renderNode(node: Node,
                durRatios: list[F],
                options: RenderOptions,
                state: RenderState,
-               numIndents: int = 0,
+               numIndents=0,
+               indentSize=2
                ) -> str:
     """
     A node is a sequence of notes which share (and fill) a time modifier.
@@ -651,33 +652,32 @@ def renderNode(node: Node,
         options: the render options to use
         state: context of the ongoing render
         numIndents: number of indents for the generated code.
+        indentSize: the number of spaces per indent
     """
-    seq = []
-    _ = seq.append
-    indentSize = 2
+    w = IndentedWriter(indentsize=indentSize, indents=numIndents)
 
     if node.durRatio != (1, 1):
         durRatios.append(F(*node.durRatio))
         tupletStarted = True
         num, den = node.durRatio
-        _(_spaces[:numIndents*indentSize])
-        _(f"\\tuplet {num}/{den} {{\n")
-        numIndents += 1
+
+        w.line(f"\\tuplet {num}/{den} {{")
+        w.indents += 1
         if node.getProperty('.forceTupletBracket'):
-            _(_spaces[:numIndents * indentSize])
-            _(r"\once \override TupletBracket.bracket-visibility = ##t")
+            w.line(r"\once \override TupletBracket.bracket-visibility = ##t")
 
     else:
         tupletStarted = False
-    _(_spaces[:numIndents*indentSize])
+    # w.block()
     for i, item in enumerate(node.items):
         if isinstance(item, Node):
-            _(renderNode(item, durRatios, options=options, numIndents=numIndents + 1,
-                         state=state))
+            nodetxt = renderNode(item, durRatios, options=options, numIndents=0,
+                                 state=state, indentSize=w.indentsize)
+            w.line(nodetxt)
         else:
             assert isinstance(item, Notation)
             if not item.gliss and state.glissando:
-                _(r"\glissandoSkipOff ")
+                w.add(r"\glissandoSkipOff ")
                 state.glissando = False
 
             if item.isRest:
@@ -701,13 +701,13 @@ def renderNode(node: Node,
 
                 for spanner in item.spanners:
                     if lilytext := _handleSpannerPre(spanner, state=state):
-                        _(lilytext)
+                        w.add(lilytext)
 
-            _(notationToLily(item, options=options, state=state))
+            w.add(notationToLily(item, options=options, state=state))
 
             if item.isGracenote:
                 if state.insideGraceGroup and item.getProperty('.graceGroup') == 'stop':
-                    _("}")
+                    w.add("}")
                     state.insideGraceGroup = False
             else:
                 state.insideGraceGroup = False
@@ -722,79 +722,44 @@ def renderNode(node: Node,
                     if props := item.findAttachment(attachment.GlissProperties):
                         assert isinstance(props, attachment.GlissProperties)
                         if props.linetype != 'solid':
-                            _(rf"\tweak Glissando.style #'{_linetypeToLily[props.linetype]} ")
+                            w.line(rf"\tweak Glissando.style #'{_linetypeToLily[props.linetype]}")
                         if props.color:
-                            _(rf'\tweak Glissando.color "{props.color}" ')
+                            w.add(rf'\tweak Glissando.color "{props.color}"')
 
-                    _(r"\glissando ")
+                    w.add(r"\glissando ")
                 if item.tiedNext:
                     if not state.glissando:
                         state.glissando = True
-                        _(r"\glissandoSkipOn ")
+                        w.add(r"\glissandoSkipOn")
                 else:
                     if state.glissando:
                         state.glissando = False
-                        _(r"\glissandoSkipOff ")
+                        w.add(r"\glissandoSkipOff")
             else:
                 if state.glissando:
-                    _(r"\glissandoSkipOff ")
+                    w.add(r"\glissandoSkipOff")
                     state.glissando = False
 
             if item.spanners:
                 for spanner in item.spanners:
                     if lilytext := _handleSpannerPost(spanner, state=state):
-                        _(lilytext)
+                        w.add(lilytext)
 
-            _(" ")
+            # w.add(" ")
 
-    _("\n")
+    w.block()
     if tupletStarted:
-        numIndents -= 1
-        _(_spaces[:numIndents*indentSize])
-        _("}\n")
-    return ''.join(seq)
+        w.indents -= 1
+        w.line("}")
+    return w.join()
 
 
-class _IndentedWriter:
-    def __init__(self, indentsize=2, indents=0, maxwidth=92, parent: _IndentedWriter = None):
-        self.indentsize = indentsize
-        self.parts: list[str] = []
-        self.indents = indents
-        self._parent = parent
-        self.maxwidth = maxwidth
-
-    def add(self, text: str, preline=False, postline=False, space=False):
-        if preline and self.parts and self.parts[-1][-1] != "\n":
-            self.parts.append("\n")
-        elif not preline and space and not text[0].isspace():
-            self.parts.append(" ")
-
-        if (preline or postline) and self.indents:
-            text = textwrap.dedent(text)
-            indentstr = _spaces[:self.indents*self.indentsize]
-            lines = textwrap.wrap(text, width=self.maxwidth, initial_indent=indentstr, subsequent_indent=indentstr)
-            text = "\n".join(lines)
-            # text = textwrap.indent(text, prefix=_spaces[:self.indents*self.indentsize])
-        self.parts.append(text)
-        if postline:
-            self.parts.append("\n")
-        elif space and not text[-1].isspace():
-            self.parts.append(" ")
-
-    def line(self, text: str):
-        self.add(text, preline=True, postline=True)
-
-    def join(self) -> str:
-        return "".join(self.parts)
-
-    def __enter__(self):
-        pass
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self._parent.parts.extend(self.parts)
-
-    def indented(self) -> _IndentedWriter:
-        return _IndentedWriter(indentsize=self.indentsize, indents=self.indents+1, parent=self)
+def _isSmallDenominator(den: int, quarterTempo: F, eighthNoteThreshold=50) -> bool:
+    # 7/8 has small denominator at tempo q=50, but not at tempo q=25,
+    if den <= 4:
+        return False
+    mintempo = eighthNoteThreshold * 8 / den
+    return quarterTempo > mintempo
 
 
 def quantizedPartToLily(part: quant.QuantizedPart,
@@ -826,7 +791,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
     """
     quarterTempo = 0
     scorestruct = part.struct
-    w = _IndentedWriter(indentsize=indentSize, indents=indents)
+    w = IndentedWriter(indentsize=indentSize, indents=indents)
 
     if part.name and part.showName:
         w.line(r"\new Staff \with {")
@@ -850,6 +815,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
     state = RenderState()
 
     for i, measure in enumerate(part.measures):
+        assert isinstance(measure, quant.QuantizedMeasure)
         # Start measure
         # Reset state
         state.measure = measure
@@ -861,9 +827,21 @@ def quantizedPartToLily(part: quant.QuantizedPart,
         if addTempoMarks and measureDef.timesig != timesig:
             timesig = measureDef.timesig
             if len(timesig.parts) == 1:
+                # if options.forceSubdivisions(measureDef):
+                #     den, subdivs = measureDef.subdivisionStructure()
+                #     num, den2 = measureDef.timesig.fusedSignature[0]
+                #     assert den == den2
+                #     w.line(fr"\time {subdivs} {num}/{den}")
                 if not timesig.subdivisionStruct:
-                    # common case, simple timesig num/den
-                    w.line(fr"\time {timesig.numerator}/{timesig.denominator}")
+                    num, den = timesig.fusedSignature
+                    if options.addSubdivisionsForSmallDenominators and _isSmallDenominator(den, quarterTempo):
+                        den, subdivs = measureDef.subdivisionStructure()
+                        num, den2 = measureDef.timesig.fusedSignature
+                        assert den == den2
+                        w.line(fr"\time {','.join(map(str, subdivs))} {num}/{den}")
+                    else:
+                        # common case, simple timesig num/den
+                        w.line(fr"\time {timesig.numerator}/{timesig.denominator}")
                 else:
                     subdivs = ",".join(map(str, timesig.subdivisionStruct))
                     # \time 2,2,3 7/8
@@ -877,8 +855,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
                 if (options.compoundMeterSubdivision == 'all' or
                         (options.compoundMeterSubdivision == 'heterogeneous' and
                          measureDef.timesig.isHeterogeneous()) or
-                    any(denom == 4 for num, denom in measureDef.timesig.parts)
-                ):
+                        any(denom == 4 for num, denom in measureDef.timesig.parts)):
                     den, multiples = measureDef.subdivisionStructure()
                     num = measureDef.timesig.fusedSignature[0]
                     subdivs = ",".join(map(str, multiples))
@@ -923,12 +900,12 @@ def quantizedPartToLily(part: quant.QuantizedPart,
                                               box=box))
 
         if measure.empty():
-            num, den = measure.timesig
-            measureDur = util.measureQuarterDuration(measure.timesig)
+            measureDur = measure.duration()
             if measureDur.denominator == 1 and measureDur.numerator in (1, 2, 3, 4, 6, 7, 8):
                 lilydur = lilytools.makeDuration(measureDur)
                 w.line(f"R{lilydur}")
             else:
+                num, den = measure.timesig.fusedSignature
                 w.line(f"R1*{num}/{den}")
             state.dynamic = ''
         else:
@@ -936,7 +913,8 @@ def quantizedPartToLily(part: quant.QuantizedPart,
             _forceBracketsForNestedTuplets(root)
             markConsecutiveGracenotes(root)
             lilytext = renderNode(root, durRatios=[], options=options,
-                                  numIndents=0, state=state)
+                                  numIndents=0, indentSize=w.indentsize,
+                                  state=state)
             w.line(lilytext)
         w.indents -= 1
 
@@ -1151,7 +1129,14 @@ class LilypondRenderer(Renderer):
                     logger.debug(f"Found crop file {cropfile}, using that as output")
                     tempout = cropfile
                 else:
-                    logger.debug(f"Asked to generate a crop file, but the file {cropfile} was not found")
+                    logger.debug(f"Asked to generate a crop file, but the file {cropfile} "
+                                 f"was not found.")
+                    if fmt == 'png':
+                        logger.debug("Trying to generate cropped file via pillow")
+                        _util.imagefileAutocrop(tempout, cropfile, bgcolor="#ffffff")
+                        if not os.path.exists(cropfile):
+                            logger.debug("Faild to generate crop file, aborting")
+
             shutil.move(tempout, outfile)
             tempfiles.append(lilyfile)
             # Cascade: if preview: base.preview.fmt, if crop: base.crop.fmt else base.fmt

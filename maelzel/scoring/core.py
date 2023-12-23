@@ -370,13 +370,14 @@ def removeSmallOverlaps(notations: list[Notation], threshold=F(1, 1000)) -> None
         return
     mindur = threshold * 4
     for n0, n1 in iterlib.pairwise(notations):
-        diff = n0.end - n1.qoffset
-        if diff < 0:
-            if abs(diff) > threshold or n0.duration < mindur:
-                raise ValueError(f"Notes overlap by too much: {n0=}, {n1=}")
-            n0.duration = abs(diff)
-        elif diff > 0:
-            if diff > threshold:
+        diff = n1.offset - n0.end
+        if diff > 0:
+            if diff < threshold:
+                # small gap between notations
+                n0.duration = n1.offset - n0.offset
+        elif diff < 0:
+            # overlap
+            if abs(diff) > threshold:
                 raise ValueError(f"Notes overlap by too much: {diff=}, {n0=}, {n1=}")
             duration = n1.qoffset - n0.qoffset
             if duration < 0:

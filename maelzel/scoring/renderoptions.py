@@ -38,6 +38,10 @@ class RenderOptions:
     centsAnnotationSeparator: str = ','
     """Separator for cents annotations to be used in chords"""
 
+    centsAnnotationSnap: int = 2
+    """No cents annotation is added to a pitch if it is within this number of
+    cents from the nearest microtone accoring to divsPerSemitone"""
+
     centsAnnotationPlusSign: bool = False
     """Show a plus sign for possitive cents annotations"""
 
@@ -173,10 +177,16 @@ class RenderOptions:
         like 3/4+3/8  
     """
 
+    addSubdivisionsForSmallDenominators: bool = True
+    """
+    Add subdivisions for measures with a time signature with a small denominator
+    
+    A small denominator depends on tempo
+    """
+
     @classmethod
     def keys(cls) -> set[str]:
         return {f.name for f in _dataclassfields(cls)}
-
 
     def __hash__(self) -> int:
         return hash(str(self))

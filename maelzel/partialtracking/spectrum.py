@@ -499,6 +499,10 @@ class Spectrum:
             interpfreq: if True, interpolate frequency between cycles
             interposcil: if True, use linear interpolation for the oscillators
             engine: engine used for playback. Use None for default
+            chan: channep and position. An integer value indicates the first channel
+                to use, a fractional value indicates channel and stereo position.
+                Channels start with 1, so 1.5 indicates center position within
+                the channels 1 and 2
 
         Returns:
             a csoundengine.Synth. It can be used to modulate / automate any dynamic parameters, such

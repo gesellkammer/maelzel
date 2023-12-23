@@ -520,11 +520,6 @@ class Note(MEvent):
         """The fractional part of this pitch, rounded to the cent"""
         return _tools.midicents(self.pitch)
 
-    @property
-    def centsrepr(self) -> str:
-        """A string representing the .cents of this Note"""
-        return _tools.centsshown(self.cents, divsPerSemitone=4)
-
     def overtone(self, n: float) -> Note:
         """
         Return a new Note representing the `nth` overtone of this Note
@@ -580,7 +575,6 @@ class Note(MEvent):
                                           group=groupid))
             if config['show.glissEndStemless']:
                 notes[-1].addAttachment(scoring.attachment.StemTraits(hidden=True))
-                # notes[-1].stem = 'hidden'
 
         if self.label:
             notes[0].addText(self._scoringAnnotation(config=config))
@@ -937,6 +931,23 @@ class Chord(MEvent):
     @property
     def gliss(self) -> list[float] | bool:
         return self._gliss
+
+    @gliss.setter
+    def gliss(self, gliss: bool | list[pitch_t]):
+        """
+        Set the gliss attribute of this Note, inplace
+        """
+        if isinstance(gliss, bool):
+            self._gliss = gliss
+            self._glissTarget = None
+        else:
+            if not isinstance(gliss, (list, tuple)):
+                raise TypeError(f"Expected a list/tuple of pitches, got {gliss}")
+            if len(gliss) != len(self.notes):
+                raise ValueError(f"The number of pitches for the target of the glissando "
+                                 f"should match the number of pitches in this chord, "
+                                 f"{gliss=}, {self=}")
+            self._gliss = [asmidi(pitch) for pitch in gliss]
 
     def copy(self):
         notes = [n.copy() for n in self.notes]

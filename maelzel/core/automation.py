@@ -52,7 +52,8 @@ class Automation:
         else:
             return scorestruct.time(t)
 
-    def absTimeRange(self, parentOffset: F, scorestruct: ScoreStruct = None) -> tuple[F, F]:
+    def absTimeRange(self, parentOffset: F, scorestruct: ScoreStruct = None
+                     ) -> tuple[F, F]:
         """
         Returns the absolute start and end of this Automation, in seconds
 
@@ -63,7 +64,8 @@ class Automation:
         Returns:
             a tuple (start, end), both expressed in seconds
         """
-        scorestruct = scorestruct or Workspace.active.scorestruct
+        if scorestruct is None:
+            scorestruct = Workspace.getActive().scorestruct
         start = self._abstime(self.breakpoints[0][0], parentOffset=parentOffset, scorestruct=scorestruct)
         end = self._abstime(self.breakpoints[-1][0], parentOffset=parentOffset, scorestruct=scorestruct)
         return start, end
@@ -81,7 +83,7 @@ class Automation:
             a tuple (times: list[F], delay: F), all expressed in seconds
         """
         if scorestruct is None:
-            scorestruct = Workspace.active.scorestruct
+            scorestruct = Workspace.getActive().scorestruct
 
         times: list[F] = []
         parentAbstime = scorestruct.beatToTime(parentOffset)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from statistics import stdev
 import functools
-from dataclasses import dataclass
+from dataclasses import dataclass, astuple as _astuple
 from collections import deque
 from math import sqrt
 from .common import logger
@@ -70,7 +70,7 @@ def _reprslots(slots: dict[int, int], semitoneDivs=2) -> str:
     return ', '.join(slotnames)
 
 
-@dataclass(unsafe_hash=True)
+@dataclass
 class EnharmonicOptions:
 
     debug: bool = False
@@ -113,6 +113,13 @@ class EnharmonicOptions:
 
     verticalWeight: float = 0.05
     "The weight of how a variant affects chords (vertically)"
+
+    _hash: int = 0
+
+    def __hash__(self):
+        if not self._hash:
+            self._hash = hash(tuple(_astuple(self)))
+        return self._hash
 
 
 _defaultEnharmonicOptions = EnharmonicOptions()
@@ -164,11 +171,12 @@ def groupPenalty(notes: list[str], options: EnharmonicOptions = None) -> tuple[f
     """
     if options is None:
         options = _defaultEnharmonicOptions
+
     total = 0
     penaltysources = []
     notated: list[pt.NotatedPitch] = [pt.notated_pitch(n) for n in notes]
-    alterations = [n.alteration_direction() for n in notated
-                   if n.is_black_key]
+    #alterations = [n.alteration_direction() for n in notated
+    #               if n.is_black_key]
 
     # Penalize crammed unisons
     accidentalsPerPos = defaultdict(set)
@@ -245,7 +253,7 @@ def intervalsPenalty(notes: list[str], chord=False, options: EnharmonicOptions =
 
 
 @functools.cache
-def intervalPenalty(n0: str, n1: str, chord=False, options: EnharmonicOptions = None
+def intervalPenalty(n0: str, n1: str, chord=False, options: EnharmonicOptions = _defaultEnharmonicOptions
                     ) -> tuple[float, str]:
     """
     Rate the penalty of the interval between n0 and n1
@@ -260,8 +268,6 @@ def intervalPenalty(n0: str, n1: str, chord=False, options: EnharmonicOptions = 
     Returns:
         a tuple (penalty, penalty sources)
     """
-    if options is None:
-        options = _defaultEnharmonicOptions
     if pt.n2m(n0) > pt.n2m(n1):
         n0, n1 = n1, n0
     dpos, dpitch = pt.notated_interval(n0, n1)
@@ -550,14 +556,12 @@ def _makeFixedSlots(fixedNotes: list[str], semitoneDivs=2) -> dict[int, int]:
 def bestChordSpelling(notes: Sequence[str], options: EnharmonicOptions = None
                       ) -> tuple[str, ...]:
     notes2 = notes if isinstance(notes, tuple) else tuple(notes)
-    return _bestChordSpelling(notes2, options=options)
+    return _bestChordSpelling(notes2, options=options or _defaultEnharmonicOptions)
 
 
 @functools.cache
-def _bestChordSpelling(notes: tuple[str, ...], options: EnharmonicOptions = None
+def _bestChordSpelling(notes: tuple[str, ...], options: EnharmonicOptions
                        ) -> tuple[str, ...]:
-    if options is None:
-        options = _defaultEnharmonicOptions
     fixedNotes = []
     notelist = list(notes)
     for i, n in enumerate(notes):
@@ -587,7 +591,8 @@ def pitchSpellings(n: Notation) -> tuple[str, ...]:
     if len(n) == 1:
         return n.notename(0),
     notenames = [n.notename(idx, addExplicitMark=True) for idx in range(len(n))]
-    return bestChordSpelling(notenames)
+    spelling = bestChordSpelling(notenames)
+    return spelling
 
 
 def _notationNotename(n: Notation, idx=0) -> str:
@@ -601,7 +606,7 @@ def _notationNotename(n: Notation, idx=0) -> str:
 
 def fixEnharmonicsInPlace(notations: list[Notation],
                           eraseFixedNotes=False,
-                          options: EnharmonicOptions = None,
+                          options: EnharmonicOptions = _defaultEnharmonicOptions,
                           spellingHistory: SpellingHistory | None = None
                           ) -> None:
     """
@@ -637,12 +642,12 @@ def fixEnharmonicsInPlace(notations: list[Notation],
     # First fix single notes and upper note of chords, then fix each chord
     notations = [n for n in notations
                  if not n.isRest and all(p > 10 for p in n.pitches)]
-    if options is None:
-        options = _defaultEnharmonicOptions
 
     if len(notations) == 1:
         n = notations[0]
         spellings = pitchSpellings(n)
+        if options.debug:
+            print(f"Single notation, {n}, fixed to {spellings}")
         for i, spelling in enumerate(spellings):
             n.fixNotename(spelling, i)
         return

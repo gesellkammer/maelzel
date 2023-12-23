@@ -2,20 +2,23 @@ from __future__ import annotations
 from emlib import iterlib
 from dataclasses import dataclass
 import sys
-
-from maelzel.common import asF, F
-from .core import Notation
-from . import attachment
-from .common import F, logger
 from numbers import Rational
 import textwrap
-from typing import TYPE_CHECKING
-
 import weakref
+
+from maelzel.common import asF, F
+from .common import logger
+from .core import Notation
+from . import attachment
+from . import quantdata
+
+
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Iterator
     durratio_t = tuple[int, int]
     from . import enharmonics
+
 
 __all__ = (
     'Node',
@@ -89,14 +92,15 @@ class Node:
     def __init__(self,
                  ratio: tuple[int, int] | Rational = (1, 1),
                  items: 'list[Notation | Node]' = None,
+                 parent: Node | None = None,
                  properties: dict | None = None,
-                 parent: Node | None = None):
+                 ):
         if items:
             assert isinstance(items, list), f"Expected a list of Notation|Node, got {items}"
         self.durRatio: tuple[int, int] = ratio if isinstance(ratio, tuple) else (ratio.numerator, ratio.denominator)
         self.items: list[Notation | Node] = items if items is not None else []
         self.properties = properties
-        self._parent : weakref.ReferenceType[Node] | None = weakref.ref(parent) if parent else None
+        self._parent: weakref.ReferenceType[Node] | None = weakref.ref(parent) if parent else None
 
     def __hash__(self):
         itemshash = hash(tuple(self.items))
@@ -106,7 +110,13 @@ class Node:
     def parent(self) -> Node | None:
         return self._parent() if self._parent is not None else None
 
+    @parent.setter
+    def parent(self, other: Node):
+        """Set the parent of this node"""
+        self._parent = weakref.ref(other)
+
     def empty(self) -> bool:
+        """Is this node empty? """
         for item in self.items:
             if isinstance(item, Node):
                 if not item.empty():
@@ -120,12 +130,21 @@ class Node:
     def __len__(self):
         return len(self.items)
 
-    def _setParentDownstream(self):
+    def copy(self) -> Node:
+        items = []
+        for item in self.items:
+            if isinstance(item, Notation):
+                items.append(item)
+            else:
+                items.append(item.copy())
+        return Node(items=items, ratio=self.durRatio, parent=self.parent, properties=self.properties)
+
+    def setParentRecursively(self):
         """Set the parent of each Node downstream"""
         for item in self.items:
             if isinstance(item, Node):
-                item._parent = weakref.ref(self)
-                item._setParentDownstream()
+                item.parent = self
+                item.setParentRecursively()
 
     def findRoot(self) -> Node:
         """
@@ -183,14 +202,30 @@ class Node:
         The symbolic total duration of this tree.
 
         This represents the notated figure (1=quarter, 1/2=eighth note, 1/4=16th note, etc)
+        at the level of this node.
         """
-        return sum(item.symbolicDuration() for item in self.items)
+        return self.totalDuration() * F(*self.durRatio)
+        # return sum((item.symbolicDuration() for item in self.items), F(0))
+
+    def check(self):
+        for child in self.items:
+            if isinstance(child, Node):
+                if child.parent is not self:
+                    raise ValueError(f"Invalid parent for {child=}. Parent should be {self}, found {child.parent}")
+                assert child.parent is self
+                child.check()
+
+        dur = self.totalDuration()
+        if dur == 0:
+            raise ValueError(f"Node with 0 duration: {self}")
 
     def dump(self, numindents=0, indent='  ', stream=None):
         """Dump this node, recursively"""
         stream = stream or sys.stdout
         MAXWIDTH = 90
-        print(f"{indent * numindents}Node ratio: {self.durRatio[0]}/{self.durRatio[1]}, offset={self.offset}, end={self.end}", file=stream)
+        print(f"{indent * numindents}Node ratio: {self.durRatio[0]}/{self.durRatio[1]}, "
+              f"offset={self.offset}, end={self.end}, dur={self.totalDuration()}, "
+              f"symbolicdur={self.symbolicDuration()}", file=stream)
         IND = indent * (numindents + 1)
         for item in self.items:
             if isinstance(item, Notation):
@@ -275,10 +310,12 @@ class Node:
             if n.durRatios and n.durRatios[-1] != 1:
                 n.durRatios = n.durRatios[:-1]
             return Node(ratio=(1, 1), items=[n])
-        return Node(ratio=self.durRatio,
-                    items=out,
-                    parent=self.parent,
-                    properties=self.properties.copy() if self.properties else None)
+        out = Node(ratio=self.durRatio,
+                   items=out,
+                   parent=self.parent,
+                   properties=self.properties.copy() if self.properties else None)
+        out.setParentRecursively()
+        return out
 
     def lastNotation(self) -> Notation:
         """
@@ -313,6 +350,22 @@ class Node:
                 yield item
             else:
                 yield from item.recurse(reverse=reverse)
+
+    def findNodeForNotation(self, notation: Notation) -> Node:
+        """
+        Find the node of the given notation
+
+        Args:
+            notation: the notation for which to find its node
+
+        Returns:
+            the node parent to the given notation
+
+        """
+        for n, node in self.recurseWithNode():
+            if n is notation:
+                return node
+        raise ValueError(f"Notation {notation} for part of this node tree")
 
     def recurseWithNode(self, reverse=False
                         ) -> Iterator[tuple[Notation, Node]]:
@@ -460,6 +513,7 @@ class Node:
           Such gracenotes might be created during quantization.
         * has the same pitch as the previous real note and ends a glissando
         * n0/real -- gliss -- n1/grace n2/real and n1.pitches == n2.pitches
+        * has the same pitch as the previous real note and has no attribute itself
 
         """
         # TODO: make quantization configurable
@@ -476,9 +530,9 @@ class Node:
 
             if n0.quantizedPitches() == n1.quantizedPitches():
                 if n0.isGracenote and n1.isRealnote:
-                    # n0.copyAttributesTo(n1)
                     n0.copyAttachmentsTo(n1)
                     n0.copyFixedSpellingTo(n1)
+                    logger.debug(f"Removing gracenote {n0} from node {node0}")
                     node0.items.remove(n0)
                     count += 1
                     if n0.spanners:
@@ -490,6 +544,7 @@ class Node:
                     n0.gliss = n1.gliss
                     n0.tiedNext = n1.tiedNext
                     n1.copyAttachmentsTo(n0)
+                    logger.debug(f"Removing gracenote {n1} from node {node1}")
                     node1.items.remove(n1)
                     count += 1
                     skip = True
@@ -504,6 +559,13 @@ class Node:
 
         self.repairLinks()
         self.removeUnnecessaryGracenotes()
+        self.setParentRecursively()
+
+    # def _splitUnnecessarySiblings(self, mindur=F(2)) -> None:
+    #     items = []
+    #     for n0, n1 in iterlib.pairwise(self.items):
+    #         if isinstance(n0, Node) and n0.totalDuration() >= mindur:
+    #             n0._splitUnnecessaryNodes(duration=mindur)
 
     def fixEnharmonics(self,
                        options: enharmonics.EnharmonicOptions,
@@ -588,14 +650,18 @@ class Node:
                 else:
                     items.append(item)
         self.items = items
+        self.setParentRecursively()
         return didsplit
 
     def _splitUnnecessaryNodes(self, duration: F | int) -> None:
         """
-        Split any _beatNodes which are unnecessarily joined
+        Split any nodes which are unnecessarily joined
+
+        For a node to be split it needs to match the given duration
 
         Args:
-            duration: the duration of the node to split
+            duration: the duration of the node to split. Only nodes with this exact
+                duration will be considered for splitting. Nodes are always split in half
         """
         if self.totalDuration() < duration:
             return
@@ -604,46 +670,54 @@ class Node:
             if isinstance(item, Notation):
                 items.append(item)
             else:
+                # a Node
                 if item.totalDuration() == duration:
-                    breakoffset = item.offset + 1
+                    splitoffset = item.offset + duration//2
                     for sub1, sub2 in iterlib.pairwise(item.recurse()):
-                        if sub2.offset == breakoffset and sub1.durRatios  == sub2.durRatios:
-                            left, right = item._splitAtBoundary(breakoffset)
-                            logger.debug(f"Splitting node {self} at {breakoffset}")
+                        if sub2.offset == splitoffset and sub1.durRatios == sub2.durRatios:
+                            assert item.offset < splitoffset < item.end, f"{item=}, {splitoffset=}"
+                            logger.debug(f"Splitting node {self} at {splitoffset}")
+                            left, right = item._splitAtBoundary(splitoffset)
                             items.append(left)
                             items.append(right)
                             break
                     else:
-                        logger.debug(f"Did not split node {self} at {breakoffset}")
+                        logger.debug(f"Did not split node {self} at {splitoffset}")
                         items.append(item)
                 else:
                     items.append(item)
         self.items = items
+        self.setParentRecursively()
 
     def _splitAtBoundary(self, offset) -> tuple[Node, Node]:
-        assert self.offset < offset < self.end
+        if not (self.offset < offset < self.end):
+            raise ValueError(f"Offset {offset} not within this node. "
+                             f"({self.offset=}, {self.end=}), node={self}")
         left = Node(ratio=self.durRatio)
         right = Node(ratio=self.durRatio)
         for item in self.items:
             if isinstance(item, Notation):
-                if item.offset < offset:
-                    assert item.end <= offset
+                if item.end <= offset:
                     left.append(item)
+                elif item.offset >= offset:
+                    right.append(item)
                 else:
-                    assert item.offset >= offset
-                    right.append(item)
+                    raise ValueError(f"Invalid item for node, {item=}, {self=}")
             else:
-                if item.end < offset:
+                if item.end <= offset:
                     left.append(item)
-                elif item.offset > offset:
+                elif item.offset >= offset:
                     right.append(item)
+                elif item.totalDuration() == 0:
+                    # a gracenote exactly at the offset
+                    left.append(item)
                 else:
                     leftsub, rightsub = item._splitAtBoundary(offset)
                     left.append(leftsub)
                     right.append(rightsub)
         return left, right
 
-    def splitNotationAtBoundary(self, offset: F, key=None) -> Notation | None:
+    def splitNotationAtBoundary(self, offset: F, callback=None) -> Notation | None:
         """
         Split any notation which crosses the given offset, inplace
 
@@ -652,14 +726,14 @@ class Node:
 
         Args:
             offset: the offset of the desired split. It should be a beat boundary
-            key: if given, a function which returns True if the note should be split
+            callback: if given, a function which returns True if the note should be split
 
         Returns:
             the notation next to the split offset, or None if no split operation
             was performed
         """
         offset = asF(offset)
-        n = self._splitNotationAtBoundary(offset=offset, key=key)
+        n = self._splitNotationAtBoundary(offset=offset, callback=callback)
         if n is not None:
             logger.debug(f"Split notation at boundary {offset}, did that generate unnecessary _beatNodes?")
             didsplit = self._splitUnnecessaryNodesAt(offset, minDuration=2)
@@ -671,17 +745,21 @@ class Node:
         Merge notations recursively **in place**
         """
         self.items = self.mergedNotations(flatten=True).items
+        self.setParentRecursively()
 
-    def _splitNotationAtBoundary(self, offset: F, key=None) -> Notation | None:
+    def _splitNotationAtBoundary(self, offset: F, callback=None
+                                 ) -> Notation | None:
         """
         Split any notation which crosses the given offset, inplace
 
         A notation will be split if it crosses the given offset. Raises
-        SplitError if it cannot split at the given offset
+        SplitError if it cannot split at the given offset. Here we do not evaluate
+        if the split is necessary, this method just performs the action. It raises
+        SplitError if the split cannot be performed
 
         Args:
             offset: the offset of the desired split. It should be a beat boundary
-            key: if given, a function which returns True if the note should be split
+            callback: if given, a function which returns True if the note should be split
 
         Returns:
             the notation next to the split offset, or None if no notation was broken
@@ -694,18 +772,18 @@ class Node:
                 return None
             elif offset < item.end:
                 if isinstance(item, Node):
-                    return item._splitNotationAtBoundary(offset=offset, key=key)
+                    return item._splitNotationAtBoundary(offset=offset, callback=callback)
                 symdur = item.symbolicDuration()
                 if symdur.denominator not in (1, 2, 4, 8, 16):
                     raise SplitError(f"Cannot split {item} at {offset}")
                 if symdur.numerator not in (1, 2, 3, 4, 7):
                     raise SplitError(f"Cannot split {item} at {offset}, "
                                      f"Symbolic duration: {symdur}")
-                if key and not key(item):
+                if callback and not callback(item):
                     logger.debug(f"Found a syncopation but the callback was negative, so "
                                  f"{item} will not be split")
                     break
-                logger.debug(f"Splitting node (offset={self.offset}, end={self.end} at {offset=}")
+                logger.debug(f"Splitting node (offset={self.offset}, end={self.end}) at {offset=}")
                 parts = item.splitAtOffsets([offset])
                 if not len(parts) == 2:
                     raise SplitError(f"Expected two parts as a result of the split "
@@ -738,4 +816,5 @@ class Node:
             return nodes[0]
         root = Node(ratio=(1, 1), items=nodes)
         assert root.totalDuration() == sum(n.totalDuration() for n in nodes)
+        root.setParentRecursively()
         return root

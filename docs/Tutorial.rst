@@ -13,6 +13,7 @@ Tutorial (Jupyter Notebooks)
     Score Structure <notebooks/maelzel-core-scorestruct>
     Notation Refinements <notebooks/maelzel-core-symbols>
     Input / Output <notebooks/musicxmlio>
+    Clicktrack <notebooks/clicktrack>
 
 
 -------------------
@@ -104,5 +105,16 @@ Tutorial (Jupyter Notebooks)
         .. figure:: assets/notebook-musicxmlio.png
             :height: 300px
 
-        Lorem ipsum
+        Shows the different output (pdf, png, midi, ...) and input formats
+
+    .. grid-item-card:: Clicktrack
+        :link: notebooks/clicktrack
+        :link-type: doc
+        :class-title: cardtitle
+
+        .. figure:: assets/notebook-clicktrack.jpg
+            :height: 300px
+
+        **maelzel** can be used to create click-track and export is as audio and / or
+        MIDI to any DAW to use it for performance
 

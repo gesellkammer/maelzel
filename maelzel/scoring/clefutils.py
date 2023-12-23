@@ -202,6 +202,7 @@ def splitNotationsByClef(notations: list[Notation],
     parts = {clef: [] for clef in clefs}
     lastn = len(notations) - 1
     for nidx, n in enumerate(notations):
+        assert isinstance(n, Notation)
         if n.isRest:
             for part in parts.values():
                 part.append(n.copy())
@@ -215,10 +216,14 @@ def splitNotationsByClef(notations: list[Notation],
                     if otherclef != clef0:
                         parts[otherclef].append(n.asRest())
             else:
+                # A chord, distribute notes within parts
                 for clef in clefs:
                     indexes = [i for i, clef2 in enumerate(pitchindexToClef) if clef == clef2]
                     if not indexes:
-                        parts[clef].append(n.asRest())
+                        if n.duration > 0:
+                            parts[clef].append(n.asRest())
+                        else:
+                            assert n.isGracenote
                     else:
                         parts[clef].append(n.extractPartialNotation(indexes))
                         if n.gliss and nidx < lastn:

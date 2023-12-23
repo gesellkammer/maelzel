@@ -5,17 +5,21 @@ from functools import cache
 # A quantization preset consists of presetname.key, where needed keys are:
 # divisionsByTempo and divisionPenaltyMap
 
+
+regularDurations = {0, 1, 2, 3, 4, 6, 7, 8, 12, 16, 24, 32}
+
+
 defaultDivisionPenaltyMap = {
     1:0.0,
     2:0.0,
     3:0.0,
-    4:0.02,
+    4:0.01,
     5:0.02,
-    6:0.02,
+    6:0.01,
     7:0.02,
-    8:0.02,
-    9:0.04,
-    10:0.04,
+    8:0.01,
+    9:0.05,
+    10:0.06,
     11:0.1,
     12:0.1,
     13:0.2,
@@ -41,29 +45,33 @@ presets = {
                                             maxdensity=28),
         },
         'divisionPenaltyMap': {
-            1:0.0,  2:0.0,  3:0.0,  4:0.02, 5:0.02,
-            6:0.02, 7:0.02, 8:0.02, 9:0.04, 10:0.04,
+            1:0.0,  2:0.0,  3:0.0,  4:0.01, 5:0.02,
+            6:0.02, 7:0.02, 8:0.01, 9:0.04, 10:0.04,
             11:0.1, 12:0.1, 13:0.2, 14:0.1, 15:0.2,
             16:0.4,
        },
         'nestedTuplets': True,
-        'numNestedTupletsPenalty': [0., 0.0, 0.0, 0.1, 0.4, 0.8],
+        'numNestedTupletsPenalty': [0.0, 0.0, 0.0, 0.1, 0.4, 0.8],
         'gridErrorWeight': 1.0,
         'divisionErrorWeight': 0.002,
         'rhythmComplexityWeight': 0.0001,
         'numSubdivisionsPenaltyWeight': 0.,
-        'gridErrorExp': 0.8,
+        'gridErrorExp': 0.7,
         'maxDivPenalty': 0.4,
     },
     'high': {
         'possibleDivisionsByTempo': {
             10: [],
-            60: quantutils.allSubdivisions(maxsubdivs=6,
+            48: quantutils.allSubdivisions(maxsubdivs=6,
                                            possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
-                                           maxdensity=24),
+                                           maxdensity=30),
+            63: quantutils.allSubdivisions(maxsubdivs=6,
+                                           # possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
+                                           possiblevals=(3, 5, 6, 7, 8, 9, 11),
+                                           maxdensity=28),
             80: quantutils.allSubdivisions(maxsubdivs=5,
                                            possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
-                                           maxdensity=21),
+                                           maxdensity=24),
             100: quantutils.allSubdivisions(maxsubdivs=4,
                                             possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9),
                                             maxdensity=16),
@@ -89,7 +97,7 @@ presets = {
         'divisionErrorWeight': 0.01,
         'rhythmComplexityWeight': 0.001,
         'cardinalityPenaltyWeight': 0,
-        'gridErrorExp': 0.85,
+        'gridErrorExp': 0.75,
         'maxDivPenalty': 0.2,
     },
     'medium': {

@@ -12,11 +12,9 @@ from __future__ import annotations
 import sys
 import os
 import shutil
-from typing import Optional as Opt
 import emlib.misc
 import logging
 from functools import cache
-from typing import Optional
 from maelzel._util import pythonSessionType
 
 
@@ -36,7 +34,7 @@ def hasBinary(binary: str) -> bool:
 
 
 @cache
-def preferredImageViewer() -> Opt[str]:
+def preferredImageViewer() -> str | None:
     """
     Returns a command string or None if no default was found.
 
@@ -68,7 +66,7 @@ def openPngWithExternalApplication(path: str, wait=False, app: str = '') -> None
         emlib.misc.open_with_app(path, wait=wait)
 
 
-def findMusescore() -> Optional[str]:
+def findMusescore() -> str | None:
     """
     Tries to find musescore, returns the path to the executable or None
 
@@ -104,7 +102,7 @@ def findMusescore() -> Optional[str]:
         
     _logger.warning("MuseScore not found. Tried to find 'musescore' or 'MuseScore' in the path, "
                     "without success. To fix this issue, make sure MuseScore is installed. "
-                    "Then set the path via: \n"
+                    "Then set the path: \n"
                     ">>> from maelzel.core import *\n"
                     ">>> conf = getConfig()\n"
                     ">>> conf['musescorepath'] = '/path/to/musescore'\n"

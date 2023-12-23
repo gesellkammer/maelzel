@@ -251,7 +251,7 @@ class Sample:
     @staticmethod
     def getEngine(**kws) -> csoundengine.Engine:
         """
-        Returns the csound Engine used for playback
+        Returns the csound Engine used for playback, starts the Engine if needed
 
         If no playback has been performed up to this point, a new Engine
         is created. Keywords are passed directly to :class:`csoundengine.Engine`
@@ -275,7 +275,7 @@ class Sample:
             if (engine := ce.getEngine(name)) is not None:
                 Sample._csoundEngine = engine
             else:
-                Sample._csoundEngine = ce.Engine(name, **kws)
+                Sample._csoundEngine = ce.Engine(name=name, **kws)
             return Sample._csoundEngine
 
     @staticmethod
@@ -332,7 +332,10 @@ class Sample:
             usedengine, table = self._csoundTable
             if usedengine == engine.name:
                 return table
-        tabnum = engine.makeTable(self.samples, sr=self.sr, block=True)
+            else:
+                logger.warning(f"Engine changed, was {usedengine}, now {engine.name}")
+        tabproxy = engine.session().makeTable(self.samples, sr=self.sr, block=True)
+        tabnum = tabproxy.tabnum
         self._csoundTable = (engine.name, tabnum)
         return tabnum
 
@@ -348,11 +351,11 @@ class Sample:
              chan: int = 1,
              gain=1.,
              delay=0.,
-             pan=-1,
+             pan: float = None,
              speed=1.0,
              skip=0.,
              dur=0,
-             engine: str | csoundengine.Engine = '',
+             engine: csoundengine.Engine = None,
              block=False
              ) -> csoundengine.synth.Synth:
         """
@@ -392,16 +395,16 @@ class Sample:
         * :meth:`Sample.setEngine`
 
         """
-        if engine:
-            if isinstance(engine, str):
-                import csoundengine
-                _engine = csoundengine.getEngine(engine)
-                if _engine is None:
-                    raise ValueError(f"Engine {engine} unknown. Known engines: {csoundengine.activeEngines()}")
-                engine = _engine
-        else:
+        if not engine:
             engine = Sample.getEngine()
+
         tabnum = self._makeCsoundTable(engine)
+        if pan is None:
+            if self.numchannels == 1:
+                pan = 0
+            else:
+                pan = 0.5
+
         if dur == 0:
             dur = -1
         synth = engine.session().playSample(tabnum, chan=chan, gain=gain, loop=loop,

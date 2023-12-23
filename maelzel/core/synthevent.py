@@ -94,7 +94,9 @@ class PlayArgs:
             db = {}
         else:
             assert not (db.keys() - self.playkeys), f"diff={db.keys() - self.playkeys}"
-            assert all(v is not None for v in db.values())
+            if any(v is None for v in db.values()):
+                raise ValueError(f"Values passed should not be None: "
+                                 f"{[k for k, v in db.items() if v is None]}")
 
         self.db: dict[str, Any] = db
         """A dictionary holding the arguments explicitely specified"""
@@ -105,6 +107,20 @@ class PlayArgs:
         There is a maximum of one Automation per parameter. A new Automation
         for a given parameter will replace the old one
         """
+
+    def setArgs(self, **kws: float | str) -> None:
+        """
+        Set one or multiple values for the parameters passed to a preset
+
+        Args:
+            **kws: any keyword parameter passed to an instrument preset. They are
+                not checked
+        """
+        args: dict | None = self.db.get('args')
+        if args is None:
+            self.db['args'] = kws
+        else:
+            args.update(kws)
 
     @property
     def args(self) -> dict | None:
@@ -206,7 +222,8 @@ class PlayArgs:
         if not self.db and not self.automations:
             return PlayArgs({})
         db = self.db.copy()
-        if args := self.db.get('args'):
+        if (args := self.db.get('args')) is not None:
+            assert isinstance(args, dict)
             db['args'] = args.copy()
         return PlayArgs(db=db,
                         automations=_unique(self.automations, deep=False))

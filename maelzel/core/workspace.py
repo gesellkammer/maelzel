@@ -208,7 +208,6 @@ class Workspace:
     
     @scorestruct.setter
     def scorestruct(self, s: ScoreStruct):
-        _resetCache()
         self._scorestruct = s
 
     @property

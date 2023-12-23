@@ -64,7 +64,9 @@ def jupyterShowImage(path: str, scalefactor=1.0, maxwidth: int = None):
     return jupyterDisplay(img)
 
 
-def showPng(pngpath: str, forceExternal=False, app='', scalefactor=1.0) -> None:
+def showPng(pngpath: str, forceExternal=False, app='', scalefactor=1.0,
+            maxwidth: int | None = None
+            ) -> None:
     """
     Show a png either inside jupyter or with an external app
 
@@ -79,7 +81,7 @@ def showPng(pngpath: str, forceExternal=False, app='', scalefactor=1.0) -> None:
             defined app is used
     """
     if environment.insideJupyter and not forceExternal:
-        jupyterShowImage(pngpath, scalefactor=scalefactor)
+        jupyterShowImage(pngpath, scalefactor=scalefactor, maxwidth=maxwidth)
     else:
         environment.openPngWithExternalApplication(pngpath, app=app)
 

@@ -135,9 +135,13 @@ will be active only within its context:
 from __future__ import annotations
 
 import os
+
+import configdict
 from configdict import ConfigDict
 from maelzel.common import F
+from maelzel.core._common import logger
 from maelzel.core import configdata
+import logging
 
 import typing
 if typing.TYPE_CHECKING:
@@ -222,6 +226,7 @@ class CoreConfig(ConfigDict):
 
     """
     root: CoreConfig | None = None
+    _defaultName: str = 'maelzel.core'
     _keyToType: dict[str, type | tuple[type, ...]] = {}
 
     # A config callback has the form (config: CoreConfig, key: str, val: Any) -> None
@@ -243,7 +248,7 @@ class CoreConfig(ConfigDict):
 
         load = source == 'load' or (source == 'root' and self.root is None)
 
-        super().__init__('maelzel.core',
+        super().__init__(CoreConfig._defaultName,
                          default=configdata.defaultdict,
                          persistent=False,
                          validator=configdata.validator,
@@ -291,12 +296,36 @@ class CoreConfig(ConfigDict):
     def _ipython_key_completions_(self):
         return self.keys()
 
-    def save(self) -> None:
+    def save(self, path='') -> None:
         """
-        Save this config. The saved settings are loaded as default in the next session
+        Save this config.
+
+        If no path is given, this config is **saved as the default config
+        and loaded in the next session**. If a path is given, the config
+        is saved to the given location and can be recreated via :meth:`CoreConfig.read`
+
+        Args:
+            path: the path where to save this config
 
         """
-        super().save()
+        super().save(path=path)
+
+    @classmethod
+    def read(cls, path: str):
+        """
+        Create a new CoreConfig from the saved config
+
+        The path points to a .yaml config saved via :meth:`CoreConfig.save`
+
+        Args:
+            path: the path to a config
+
+        Returns:
+            the new CoreConfig
+        """
+        out = CoreConfig()
+        out.load(path)
+        return out
 
     def copy(self) -> CoreConfig:
         """Create a copy of this config"""
@@ -400,6 +429,14 @@ class CoreConfig(ConfigDict):
             path = self.getPath()
             if os.path.exists(path):
                 os.remove(path)
+
+    @classmethod
+    def removeSaved(cls):
+        """Remove the saved default config"""
+        path = configdict.configPathFromName(cls._defaultName)
+        if os.path.exists(path):
+            logger.debug(f"Removing default config at '{path}'")
+            os.remove(path)
 
     def _makeDefaultPlayArgsDict(self, copy=True) -> dict:
         """

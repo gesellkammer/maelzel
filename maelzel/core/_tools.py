@@ -178,33 +178,37 @@ def midicents(midinote: float) -> int:
     return int(round((midinote - round(midinote)) * 100))
 
 
-def centsshown(centsdev: int, divsPerSemitone: int) -> str:
-    """
-    Given a cents deviation from a chromatic pitch, return
-    a string to be shown along the notation, to indicate the
-    true tuning of the note. If we are very close to a notated
-    pitch (depending on divsPerSemitone), then we don't show
-    anything. Otherwise, the deviation is always the deviation
-    from the chromatic pitch
-
-    Args:
-        centsdev: the deviation from the chromatic pitch
-        divsPerSemitone: 4 means 1/8 tones
-
-    Returns:
-        the string to be shown alongside the notated pitch
-    """
-    # cents can be also negative (see self.cents)
-    pivot = int(round(100 / divsPerSemitone))
-    dist = min(centsdev % pivot, -centsdev % pivot)
-    if dist <= 2:
-        return ""
-    if centsdev < 0:
-        # NB: this is not a normal - sign! We do this to avoid it being confused
-        # with a syllable separator during rendering (this is currently the case
-        # in musescore
-        return f"–{-centsdev}"
-    return str(int(centsdev))
+# def centsshown(centsdev: int, divsPerSemitone: int, margin=2) -> str:
+#     """
+#     Given a cents deviation from a chromatic pitch, return
+#     a string to be shown along the notation, to indicate the
+#     true tuning of the note. If we are very close to a notated
+#     pitch (depending on divsPerSemitone), then we don't show
+#     anything. Otherwise, the deviation is always the deviation
+#     from the chromatic pitch
+#
+#     Args:
+#         centsdev: the deviation from the chromatic pitch
+#         divsPerSemitone: 4 means 1/8 tones
+#         margin: if the pitch is within this number of semitones from
+#             a semitone fraction, the cents are not shows. For example,
+#             when using divsPerSemitone=4, 4C+23 would show no cents
+#             since it is within 2 cents from 4C+25
+#
+#     Returns:
+#         the string to be shown alongside the notated pitch
+#     """
+#     # cents can be also negative (see self.cents)
+#     pivot = int(round(100 / divsPerSemitone))
+#     dist = min(centsdev % pivot, -centsdev % pivot)
+#     if dist <= margin:
+#         return ""
+#     if centsdev < 0:
+#         # NB: this is not a normal - sign! We do this to avoid it being confused
+#         # with a syllable separator during rendering (this is currently the case
+#         # in musescore
+#         return f"–{-centsdev}"
+#     return str(int(centsdev))
 
 
 @dataclass

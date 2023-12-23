@@ -398,6 +398,7 @@ def centsAnnotation(pitch: Union[float, list[float]],
                     divsPerSemitone=4,
                     order='ascending',
                     addplus=False,
+                    snap=2,
                     separator=',') -> str:
     """
     Generates the string used to annotate a note/chord when showCents is true
@@ -407,6 +408,8 @@ def centsAnnotation(pitch: Union[float, list[float]],
         divsPerSemitone: subdivisions of the semitone
         order: 'ascending' or 'descending'
         addplus: if True, add a plus sign for possitive deviations
+        snap: if the difference to the nearest microtone is within this error,
+            no annotation is shown
         separator: separator used for chords
         
     Returns:
@@ -424,7 +427,8 @@ def centsAnnotation(pitch: Union[float, list[float]],
         pitches = sorted(pitch, reverse=True)
 
     centsdevs = [centsDeviation(p, divsPerSemitone) for p in pitches]
-    annotations = [centsShown(centsdev, addplus=addplus) for centsdev in centsdevs]
+
+    annotations = [centsShown(centsdev, addplus=addplus, snap=snap) for centsdev in centsdevs]
     return separator.join(annotations) if any(annotations) else ""
 
 

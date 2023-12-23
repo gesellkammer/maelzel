@@ -44,7 +44,7 @@ class QuantizationProfile:
       best subdivision
     - graceNoteDuration: if a note is considered a grace note (which have
       no duration per se), should we still account for this duration?
-    - minBeatFractionAcrossBeats: when merging durations across beats, a merged
+    - syncopationMinBeatFraction: when merging durations across beats, a merged
       duration can't be smaller than this duration. This is to prevent joining
       durations across beats which might result in high rhythmic complexity
     - tupletsAllowedAcrossBeats: list of tuplets allowed across a beat
@@ -118,7 +118,8 @@ class QuantizationProfile:
     """A mapping of the penalty of each division"""
 
     divisionCardinalityPenaltyMap: dict[int, float] = _factory({1: 0.0, 2: 0.1, 3: 0.4})
-    """Penalty applied when different divisions are used within a beat (e.g 4 where one 8 is a 3-plet and the other a 5-plet)"""
+    """Penalty applied when different divisions are used within a beat 
+    (e.g 4 where one 8 is a 3-plet and the other a 5-plet)"""
 
     numNestedTupletsPenalty: list[float] = _factory([0., 0.1, 0.4, 0.5, 0.8, 0.8])
     """Penalty applied to nested levels by level"""
@@ -142,11 +143,17 @@ class QuantizationProfile:
     """Weight of sublevel penalty"""
 
     numSubdivisionsPenaltyWeight: float = 0.2
+    """Weight to penalize the number of subdivisions"""
 
-    minBeatFractionAcrossBeats: F = F(1, 8)
+    syncopationMinBeatFraction: F = F(1, 6)
     """How long can a synchopation be, in terms of the length of the beat"""
 
-    minSymbolicDurationAcrossBeat: F = F(1, 3)
+    syncopationMinSymbolicDuration: F = F(1, 3)
+    """Min. symbolic duration of a syncopation"""
+
+    syncopationMaxAsymmetry: float = 2.0
+    """The max. ratio between the longer and the shorter parts to be mergeable
+    as a syncopation"""
 
     mergedTupletsMaxDuration: F = F(2)
     """How long can a tuplet over the beat be"""
@@ -154,7 +161,7 @@ class QuantizationProfile:
     mergeTupletsOfDifferentDuration: bool = False
     """Allow merging tuplets which have different total durations?"""
 
-    mergeNestedTupletsAcrossBeats: bool = False
+    allowNestedTupletsAcrossBeat: bool = False
     """Allow merging nested tuplets across the beat"""
 
     allowedTupletsAcrossBeat: tuple[int, ...] = (1, 2, 3, 4, 5, 8)

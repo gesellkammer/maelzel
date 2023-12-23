@@ -41,6 +41,7 @@ import functools
 from abc import ABC, abstractmethod
 import os
 import tempfile as _tempfile
+import shutil as _shutil
 import html as _html
 from dataclasses import dataclass
 
@@ -705,7 +706,7 @@ class MObj:
         return qscore
 
     def render(self,
-               backend: str = None,
+               backend='',
                renderoptions: scoring.render.RenderOptions = None,
                scorestruct: ScoreStruct = None,
                config: CoreConfig = None,
@@ -750,7 +751,7 @@ class MObj:
             ...     })
         """
         w = Workspace.active
-        if config is None:
+        if not config:
             config = w.config
         if not backend:
             backend = config['show.backend']
@@ -764,7 +765,6 @@ class MObj:
             else:
                 assert isinstance(quantizationProfile, scoring.quant.QuantizationProfile)
 
-        assert isinstance(backend, str) and backend in ('musicxml', 'lilypond')
         return _renderObject(self, backend=backend, renderoptions=renderoptions,
                              scorestruct=scorestruct, config=config,
                              quantizationProfile=quantizationProfile)
@@ -1308,7 +1308,7 @@ class MObj:
     def rec(self,
             outfile='',
             sr: int = None,
-            quiet: bool = None,
+            verbose: bool = None,
             wait: bool = None,
             nchnls: int = None,
             instr: str = None,
@@ -1342,7 +1342,7 @@ class MObj:
             position: the panning position (0=left, 1=right)
             workspace: if given it overrides the active workspace
             extratime: extratime added to the recording (:ref:`config key: 'rec.extratime' <config_rec_extratime>`)
-            quiet: if True, do not display any synthesis output
+            verbose: if True, display synthesis output
 
             **kws: any keyword passed to .play
 
@@ -1368,7 +1368,7 @@ class MObj:
                              workspace=workspace,
                              **kws)
         return offline.render(outfile=outfile, events=events, sr=sr, wait=wait,
-                              quiet=quiet, nchnls=nchnls, tail=extratime)
+                              verbose=verbose, nchnls=nchnls, tail=extratime)
 
     def isRest(self) -> bool:
         """
@@ -1649,27 +1649,58 @@ class MContainer(ABC, MObj):
 # --------------------------------------------------------------------
 
 
-@functools.cache
 def _renderImage(obj: MObj,
                  outfile: str,
+                 config: CoreConfig,
                  backend: str,
                  scorestruct: ScoreStruct,
-                 config: CoreConfig) -> scoring.render.Renderer:
-    renderoptions = notation.makeRenderOptionsFromConfig(config)
-    if scorestruct is None:
-        scorestruct = Workspace.active.scorestruct
-    r = obj.render(backend=backend, renderoptions=renderoptions, scorestruct=scorestruct,
-                   config=config)
-    r.write(outfile)
-    return r
+                 ) -> scoring.render.Renderer:
+    assert outfile and config and backend and scorestruct
+    ext = os.path.splitext(outfile)[1].lower()
+    if ext not in ('.png', '.pdf'):
+        raise ValueError(f"Unknown format '{ext}', possible formats are pdf and png")
+    fmt = ext[1:]
+    renderoptions = config.makeRenderOptions()
+    tmpfile, renderer = _renderImageCached(obj=obj, fmt=fmt, config=config, backend=backend,
+                                           scorestruct=scorestruct, renderoptions=renderoptions)
+    if not os.path.exists(tmpfile):
+        logger.debug(f"Cached file '{tmpfile}' not found, resetting cache")
+        resetImageCache()
+        tmpfile, renderer = _renderImageCached(obj=obj, fmt=fmt, config=config, backend=backend,
+                                               scorestruct=scorestruct, renderoptions=renderoptions)
+        if not os.path.exists(tmpfile):
+            raise RuntimeError(f"Could not render {obj} to file '{tmpfile}'")
+
+    _shutil.copy(tmpfile, outfile)
+    return renderer
 
 
+@functools.cache
+def _renderImageCached(obj: MObj,
+                       fmt: str,
+                       config: CoreConfig,
+                       backend: str,
+                       scorestruct: ScoreStruct,
+                       renderoptions: RenderOptions
+                       ) -> tuple[str, scoring.render.Renderer]:
+    assert fmt in ('pdf', 'png')
+    renderer = obj.render(backend=backend, renderoptions=renderoptions, scorestruct=scorestruct,
+                          config=config)
+    outfile = _tempfile.mktemp(suffix="." + fmt)
+    renderer.write(outfile)
+    if not os.path.exists(outfile):
+        raise RuntimeError(f"Error rendering to file '{outfile}', file does not exist")
+    return (outfile, renderer)
+
+
+@functools.cache
 def _renderObject(obj: MObj,
                   backend: str,
-                  renderoptions: scoring.render.RenderOptions,
                   scorestruct: ScoreStruct,
                   config: CoreConfig,
-                  quantizationProfile: scoring.quant.QuantizationProfile | None = None
+                  renderoptions: scoring.render.RenderOptions = None,
+                  quantizationProfile: scoring.quant.QuantizationProfile | None = None,
+                  check=True
                   ) -> scoring.render.Renderer:
     """
     Render an object
@@ -1685,6 +1716,7 @@ def _renderObject(obj: MObj,
             the scorestruct within the active Workspace is used
         config: if given, this config is used for rendering. Otherwise the config
             within the active Workspace is used
+        check: if True, check that the generated scoring parts are valid
 
     Returns:
         a scoring.Renderer. The returned object can be used to render (via the
@@ -1701,11 +1733,12 @@ def _renderObject(obj: MObj,
             with Workspace(scorestruct=..., config=..., ...) as w:
                 renderObject(myobj, "outfile.pdf")
     """
-    assert backend and renderoptions and scorestruct and config
-    logger.debug(f"rendering parts with backend: {backend}")
+    assert scorestruct and config
+    assert isinstance(backend, str) and backend in ('musicxml', 'lilypond')
     parts = obj.scoringParts()
-    for part in parts:
-        part.check()
+    if check:
+        for part in parts:
+            part.check()
     renderer = notation.renderWithActiveWorkspace(parts,
                                                   backend=backend,
                                                   renderoptions=renderoptions,
@@ -1719,4 +1752,6 @@ def resetImageCache() -> None:
     """
     Reset the image cache. Useful when changing display format
     """
-    _renderImage.cache_clear()
+    logger.info("Resetting image cache")
+    _renderImageCached.cache_clear()
+    _renderObject.cache_clear()

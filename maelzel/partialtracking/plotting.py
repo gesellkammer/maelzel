@@ -18,7 +18,7 @@ def _segmentsZ(data: np.ndarray, downsample=1, avg=True):
     if avg:
         Z = Z[:-1] + Z[1:]
         Z *= 0.5
-    points = np.array([X, Y])._CheckedDictT.reshape(-1, 1, 2)
+    points = np.array([X, Y]).T.reshape(-1, 1, 2)
     segments = np.concatenate([points[:-1], points[1:]], axis=1)
     return segments, Z
 

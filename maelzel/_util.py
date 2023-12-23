@@ -5,10 +5,12 @@ import sys
 import os
 import weakref
 from maelzel.common import F
-import emlib.misc
 
-from typing import Callable, Sequence
+
+from typing import Callable, Sequence, TYPE_CHECKING
 from maelzel.common import T
+if TYPE_CHECKING:
+    import PIL.Image
 
 
 def reprObj(obj,
@@ -210,3 +212,27 @@ def pythonSessionType() -> str:
             return "ipython"
     except NameError:
         return "python"
+
+
+def imageAutocrop(img: PIL.Image.Image | str, bgcolor: str | tuple[int, int, int]
+                  ) -> PIL.Image.Image | None:
+    from PIL import Image, ImageChops
+    imgobj = img if isinstance(img, Image.Image) else Image.open(img)
+
+    if imgobj.mode != "RGB":
+        imgobj = imgobj.convert("RGB")
+    bg = Image.new("RGB", imgobj.size, bgcolor)
+    diff = ImageChops.difference(imgobj, bg)
+    bbox = diff.getbbox()
+    if bbox:
+        return imgobj.crop(bbox)
+    return None
+
+
+def imagefileAutocrop(imgfile: str, outfile: str, bgcolor: str | tuple[int, int, int]) -> bool:
+    imgobj = imageAutocrop(imgfile, bgcolor=bgcolor)
+    if imgobj is None:
+        return False
+    imgobj.save(outfile)
+    return True
+

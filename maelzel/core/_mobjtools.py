@@ -1,6 +1,6 @@
 from __future__ import annotations
 from maelzel.common import F
-from emlib.iterlib import pairwise
+from emlib.iterlib import pairwise, first
 from .event import *
 from .workspace import getConfig, Workspace
 from maelzel.core.synthevent import SynthEvent, PlayArgs
@@ -102,7 +102,7 @@ def fillTempDynamics(items: list[MEvent], initialDynamic='mf',
             lastEnd = item.end
 
 
-def addDurationToGracenotes(chain: list[MEvent], dur: F) -> None:
+def addDurationToGracenotes(events: list[MEvent], dur: F) -> None:
     """
     Adds real duration to gracenotes within chain
 
@@ -111,26 +111,34 @@ def addDurationToGracenotes(chain: list[MEvent], dur: F) -> None:
     note or silence.
 
     Args:
-        chain: the sequence of notes to modify (inplace)
+        events: the sequence of notes to modify (inplace)
         dur: the duration of a single gracenote
 
     """
     lastRealNote = None
     d = {}
     # first we build a registry mapping real notes to their grace notes
-    for i, n in enumerate(chain):
+    now = events[0].offset
+    for i, n in enumerate(events):
         if not n.isGracenote():
             lastRealNote = i
         else:
             if lastRealNote is None:
                 # First in the sequence is a gracenote. Diminish the dur of the next real note,
                 # make the gracenote "on the beat"
-                assert i == 0 and len(chain) > 1 and not chain[1].isGracenote()
-                nextreal = chain[1]
-                assert nextreal.dur > dur
+                nextrealidx = first(j for j, n in enumerate(events[i+1:])
+                                    if not n.isGracenote() and n.dur > 0)
+                if nextrealidx is None:
+                    raise ValueError(f"No real notes in {events=}")
+                nextreal = events[nextrealidx+i+1]
+                dur = min(dur, nextreal.dur / (nextrealidx + 1))
+                assert dur > 0
+                assert nextreal.dur > dur, f"{nextreal=}, {dur=}, {i=}, {nextrealidx=}"
                 nextreal.dur -= dur
                 nextreal.offset += dur
                 n.dur = dur
+                n.offset = now
+                now += dur
             else:
                 gracenotes = d.get(lastRealNote)
                 if gracenotes:
@@ -139,14 +147,14 @@ def addDurationToGracenotes(chain: list[MEvent], dur: F) -> None:
                     d[lastRealNote] = [i]
 
     for realnoteIndex, gracenotesIndexes in d.items():
-        realnote = chain[realnoteIndex]
+        realnote = events[realnoteIndex]
         assert realnote.dur is not None and realnote.dur > 0
         maxGracenoteDur = realnote.dur / (len(gracenotesIndexes) + 1)
         gracenoteDur = min(dur, maxGracenoteDur)
         realnote.dur -= gracenoteDur * len(gracenotesIndexes)
         assert realnote.dur > 0, f"{realnote=}"
         for i, gracenoteIndex in enumerate(gracenotesIndexes):
-            gracenote = chain[gracenoteIndex]
+            gracenote = events[gracenoteIndex]
             gracenote.dur = gracenoteDur
             deltapos = (len(gracenotesIndexes) - i) * gracenoteDur
             gracenote.offset -= deltapos

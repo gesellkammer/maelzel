@@ -3,16 +3,18 @@ from __future__ import annotations
 from maelzel import scorestruct
 from maelzel.core._typedefs import time_t
 from maelzel.core import Note, Voice, Score
+from typing import Sequence
 
 
 def makeClickTrack(struct: scorestruct.ScoreStruct,
                    minMeasures: int = 0,
                    clickdur: time_t = None,
                    strongBeatPitch="5C",
+                   middleBeatPitch="5E",
                    weakBeatPitch="5G",
                    playpreset: str = '_click',
-                   playargs: dict[str, float] = None,
-                   fade=0) -> Score:
+                   fade=0
+                   ) -> Score:
     """
     Creates a score representing a clicktrack of the given ScoreStruct
 
@@ -25,9 +27,10 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
             of the displayed pitch
         strongBeatPitch: the pitch to use as a strong tick
         weakBeatPitch: the pitch to use as a weak tick
+        middleBeatPitch: pitch used for beginning of secondary groups for
+            compound time signatures (signatures of the form 4/4+3/8)
         playpreset: the preset instr to use for playback. The default plays the given
             pitches two octaves higher as very short clicks
-        playargs: parameters passed to the play preset, if needed
         fade: a fadetime for the clicks
 
     Returns:
@@ -64,42 +67,61 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
         struct = struct.copy()
         struct.addMeasure(numMeasures=minMeasures - struct.numMeasures())
 
-    for m in struct.measuredefs:
-        num, den = m.timesig
+    def _processPart(num: int,
+                     den: int,
+                     quarterTempo: F,
+                     now: F,
+                     strongPitch: float | str,
+                     weakPitch: float | str,
+                     clickdur: float,
+                     subdivisions: Sequence[F] | None = None
+                     ) -> tuple[list[Note], F]:
+        events = []
         if den == 4:
-            for i, n in enumerate(range(m.timesig[0])):
-                pitch = strongBeatPitch if i == 0 else weakBeatPitch
+            for i, n in enumerate(range(num)):
+                pitch = strongPitch if i == 0 else weakPitch
                 ev = Note(pitch, offset=now, dur=clickdur or 1).setPlay(fade=(0, 0.1))
                 events.append(ev)
                 now += 1
         elif den == 8:
-            for i, n in enumerate(range(m.timesig[0])):
-                pitch = strongBeatPitch if i == 0 else weakBeatPitch
+            for i, n in enumerate(range(num)):
+                pitch = strongPitch if i == 0 else weakPitch
                 ev = Note(pitch, offset=now, dur=clickdur or 0.5).setPlay(fade=(0, 0.1))
                 events.append(ev)
                 now += 0.5
         elif den == 16:
-            if m.quarterTempo > 80:
-                dur = clickdur or m.durationQuarters
-                ev = Note(strongBeatPitch, dur=dur, offset=now)
+            if quarterTempo > 80:
+                durationQuarters = num / 4
+                dur = clickdur or durationQuarters
+                ev = Note(strongPitch, dur=dur, offset=now)
                 events.append(ev)
-                now += m.durationQuarters
+                now += durationQuarters
             else:
-                beats = m.subdivisions()
-                for i, beat in enumerate(beats):
-                    pitch = strongBeatPitch if i == 0 else weakBeatPitch
-                    ev = Note(pitch, dur=clickdur or beat, offset=now)
+                assert subdivisions is not None
+                for i, dur in enumerate(subdivisions):
+                    pitch = strongPitch if i == 0 else weakPitch
+                    ev = Note(pitch, dur=clickdur or dur, offset=now)
                     events.append(ev)
-                    now += beat
+                    now += dur
         else:
-            raise ValueError(f"Timesig {m.timesig} not supported")
+            raise ValueError(f"Timesig {num}/{den} not supported")
+        return events, now
+
+    for m in struct.measuredefs:
+        measureSubdivisions = m.subdivisions()
+        for i, part in enumerate(m.timesig.parts):
+            num, den = part
+            subdivs = None if len(m.timesig.parts) > 1 else measureSubdivisions
+            eventsInPart, now = _processPart(num=num, den=den, now=now,
+                                             quarterTempo=m.quarterTempo,
+                                             strongPitch=strongBeatPitch if i == 0 else middleBeatPitch,
+                                             weakPitch=weakBeatPitch,
+                                             clickdur=clickdur,
+                                             subdivisions=subdivs)
+            events.extend(eventsInPart)
+
     voice = Voice(events)
     voice.setPlay(fade=fade)
     if playpreset:
-        from .presetmanager import presetManager
-        presetdef = presetManager.getPreset(playpreset)
-        if playargs:
-            if arg := next((arg for arg in playargs if arg not in presetdef.args), None):
-                raise KeyError(f"arg {arg} not known for preset {playpreset}. Possible args: {presetdef.db}")
-        voice.setPlay(instr=playpreset, args=playargs)
+        voice.setPlay(instr=playpreset)
     return Score([voice], scorestruct=struct)

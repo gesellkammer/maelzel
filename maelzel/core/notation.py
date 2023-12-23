@@ -8,6 +8,7 @@ from .config import CoreConfig
 from .workspace import getConfig, getWorkspace
 from maelzel import scoring
 from maelzel.scorestruct import ScoreStruct
+from maelzel.common import F, asF
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -80,7 +81,8 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
         autoClefChanges=cfg['show.autoClefChanges'],
         keepClefBiasFactor=cfg['.show.keepClefBiasFactor'],
         autoClefChangesWindow=cfg['.show.autoClefChangesWindow'],
-        musicxmlFontScaling=cfg['show.musicxmlFontScaling']
+        musicxmlFontScaling=cfg['show.musicxmlFontScaling'],
+        centsAnnotationSnap=cfg['show.centsAnnotationSnap']
     )
     return renderOptions
 
@@ -120,7 +122,8 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig = None
     if (gridErrorExp := cfg['.quant.gridErrorExp']) is not None:
         profile.gridErrorExp = gridErrorExp
 
-    profile.minBeatFractionAcrossBeats = cfg['quant.minBeatFractionAcrossBeats']
+    profile.syncopationMinBeatFraction = asF(cfg['quant.syncopationMinBeatFraction'])
+    profile.syncopationMaxAsymmetry = cfg['quant.syncopationMaxAsymmetry']
     profile.breakSyncopationsLevel = cfg['quant.breakSyncopationsLevel']
     profile.breakLongGlissandi = cfg['show.glissHideTiedNotes']
 

@@ -4,19 +4,17 @@ A Notation represents a note/chord/rest
 from __future__ import annotations
 from dataclasses import dataclass
 import uuid
+import copy
+import pitchtools as pt
+from emlib.iterlib import pairwise, first
 
 from maelzel.common import UNSET, Unset, F, F1
-from .common import *
-from . import util
 from maelzel._util import showF, showT
+from .common import *
 from .attachment import *
-from emlib import mathlib
-from emlib import iterlib
+from . import util
 from . import definitions
 from . import spanner as _spanner
-import pitchtools as pt
-import copy
-import maelzel.scoring.util
 
 from typing import TYPE_CHECKING, TypeVar, cast as _cast
 if TYPE_CHECKING:
@@ -51,9 +49,7 @@ class Notation:
     Args:
         duration: the duration of this Notation, in quarter-notes. 0 indicates
             a grace note
-        pitches: if given, a list of pitches as midinote or notename. If a notename
-            is given, the spelling is fixed. Otherwise, a suitable spelling is calculated
-            based on the context of this notation.
+        pitches: if given, a list of pitches as midinote or notename.
         offset: the offset of this Notation, in quarter-notes.
         isRest: is this a rest?
         tiedPrev: is this Notation tied to the previous one?
@@ -69,6 +65,7 @@ class Notation:
         gliss: if True, a glissando will be rendered between this note and the next
         color: the color of this notations
         stem: if given, one of
+        fixNotenames: if True, pitches given as strings are fixed to the given spelling
 
     """
     _privateKeys = {
@@ -114,6 +111,7 @@ class Notation:
                  color='',
                  sizeFactor=1,  # size is relative: 0 is normal, +1 is bigger, -1 is smaller
                  properties: dict[str, Any] = None,
+                 fixNotenames=False,
                  _init=True
                  ):
 
@@ -201,9 +199,10 @@ class Notation:
         else:
             if not pitches or any(p <= 0 for p in self.pitches):
                 raise ValueError(f"Invalid pitches: {self.pitches}")
-            for i, n in enumerate(pitches):
-                if isinstance(n, str):
-                    self.fixNotename(n, i)
+            if fixNotenames:
+                for i, n in enumerate(pitches):
+                    if isinstance(n, str):
+                        self.fixNotename(n, i)
 
     @property
     def quantized(self) -> bool:
@@ -223,6 +222,13 @@ class Notation:
         return hash((self.duration, pitcheshash, self.tiedNext, self.tiedPrev,
                      self.dynamic, self.gliss, attachhash))
         # return id(self)
+
+    def fusedDurRatio(self) -> F:
+        num, den = 1, 1
+        for ratio in self.durRatios:
+            num *= ratio.numerator
+            den *= ratio.denominator
+        return F(num, den)
 
     @staticmethod
     def makeRest(duration: time_t,
@@ -368,7 +374,11 @@ class Notation:
 
         This property can be set by adding a StemTraits attachment
         """
-        return (attach := self.findAttachment(cls=StemTraits)) and attach.hidden
+        if self.attachments:
+            attach = first(a for a in self.attachments if isinstance(a, StemTraits))
+            if attach is not None and attach.hidden:
+                return True
+        return False
 
     def setNotehead(self,
                     notehead: definitions.Notehead | str,
@@ -505,7 +515,7 @@ class Notation:
         if spanner in self.spanners:
             raise ValueError(f"Spanner {spanner} was already added to this Notation ({self})")
         elif any(s.uuid == spanner.uuid for s in self.spanners):
-            raise ValueError(f"A spanner with the uuid {spanner.uuid} is already part of this Notation")
+            logger.error(f"A spanner with the uuid {spanner.uuid} is already part of this Notation")
         self.spanners.append(spanner)
         # self.spanners.sort(key=lambda spanner: spanner.priority())
         if end:
@@ -819,20 +829,20 @@ class Notation:
 
     def copy(self) -> Notation:
         """Copy this Notation"""
-        out = self.__class__(duration=self.duration,
-                             pitches=self.pitches.copy() if self.pitches else None,
-                             offset=self.offset,
-                             isRest=self.isRest,
-                             tiedPrev=self.tiedPrev,
-                             tiedNext=self.tiedNext,
-                             dynamic=self.dynamic,
-                             durRatios=self.durRatios,
-                             group=self.groupid,
-                             gliss=self.gliss,
-                             color=self.color,
-                             sizeFactor=self.sizeFactor,
-                             properties=self.properties.copy() if self.properties else None,
-                             _init=False)
+        out = Notation(duration=self.duration,
+                       pitches=self.pitches.copy() if self.pitches else None,
+                       offset=self.offset,
+                       isRest=self.isRest,
+                       tiedPrev=self.tiedPrev,
+                       tiedNext=self.tiedNext,
+                       dynamic=self.dynamic,
+                       durRatios=self.durRatios,
+                       group=self.groupid,
+                       gliss=self.gliss,
+                       color=self.color,
+                       sizeFactor=self.sizeFactor,
+                       properties=self.properties.copy() if self.properties else None,
+                       _init=False)
         if self.attachments:
             out.attachments = self.attachments.copy()
         if self.fixedNotenames:
@@ -900,11 +910,7 @@ class Notation:
         This represents the notated figure (1=quarter, 1/2=eighth note,
         1/4=16th note, etc)
         """
-        dur = self.duration
-        if self.durRatios:
-            for durRatio in self.durRatios:
-                dur *= durRatio
-        return dur
+        return self.duration * self.fusedDurRatio()
 
     def notename(self, index=0, addExplicitMark=False) -> str:
         """
@@ -1056,11 +1062,11 @@ class Notation:
 
     def notatedDuration(self) -> NotatedDuration:
         """
-        The duration of the notated figure, in quarter-notes, independent of any tuples.
+        The duration of the notated figure as a NotatedDuration
 
         A quarter-note inside a triplet would have a notatedDuration of 1
         """
-        return maelzel.scoring.util.notatedDuration(self.duration, self.durRatios)
+        return util.notatedDuration(self.duration, self.durRatios)
 
     def canMergeWith(self, other: Notation) -> bool:
         """Can this Notation merge with *other*?"""
@@ -1408,11 +1414,11 @@ def makeGroupId(parent: str = '') -> str:
 def makeNote(pitch: pitch_t,
              duration: time_t,
              offset: time_t = None,
-             annotation: str = None,
+             annotation='',
              gliss=False,
              withId=False,
-             enharmonicSpelling: str = None,
-             dynamic: str = '',
+             enharmonicSpelling='',
+             dynamic='',
              **kws
              ) -> Notation:
     """
@@ -1450,7 +1456,7 @@ def makeNote(pitch: pitch_t,
 def makeChord(pitches: Sequence[pitch_t],
               duration: time_t,
               offset: time_t = None,
-              annotation: str | Text = None,
+              annotation: str | Text = '',
               dynamic='',
               fixed=False,
               **kws
@@ -1768,7 +1774,7 @@ def splitNotationsAtOffsets(notations: list[Notation],
         a list of tuples (timespan, notation)
 
     """
-    timeSpans = [TimeSpan(beat0, beat1) for beat0, beat1 in iterlib.pairwise(offsets)]
+    timeSpans = [TimeSpan(beat0, beat1) for beat0, beat1 in pairwise(offsets)]
     splitEvents = []
     for ev in notations:
         if ev.duration > 0:

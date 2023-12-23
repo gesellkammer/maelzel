@@ -13,6 +13,7 @@ from emlib import filetools
 from emlib import misc
 from functools import cache
 from dataclasses import dataclass
+from maelzel import _util
 from maelzel.common import F
 
 from typing import TYPE_CHECKING
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("maelzel")
 
 
-class PlatformNotSupported(Exception):
+class PlatformNotSupportedError(Exception):
     pass
 
 
@@ -74,7 +75,27 @@ def _checkOutput(args: list[str], encoding="utf-8") -> Optional[str]:
         return None
 
 
-def findLilypond(verbose=True) -> Optional[str]:
+def installLilypond() -> str:
+    """
+    Install lilypond, returns the binary
+    """
+    import lilyponddist
+    # Check first to provide a nicer error message
+    platform, arch = lilyponddist._get_platform(normalize=True)
+    if platform == 'darwin' and arch.startswith('arm'):
+        raise PlatformNotSupportedError("There is currently no binary distribution for lilypond "
+                                        "for macos arm64. Install lilypond via homebrew: "
+                                        "'brew install lilypond'. For more information see "
+                                        "https://formulae.brew.sh/formula/lilypond#default")
+
+    exe = lilyponddist.lilypondbin(autoinstall=True)
+    if not exe or not exe.exists():
+        raise RuntimeError(f"Could not install lilypond")
+    return exe.as_posix()
+
+
+@cache
+def findLilypond(install=True) -> Optional[str]:
     """
     Find lilypond binary, or None if not found
     """
@@ -85,76 +106,112 @@ def findLilypond(verbose=True) -> Optional[str]:
         logger.debug(f"... found! lilypond path: {lilypond}")
         return lilypond
 
-    logger.debug("findLilypond: Lilypond is not in the path. Searching common paths")
-    platform = sys.platform
-    if platform == 'linux':
-        paths = ("/usr/bin/lilypond", "/usr/local/bin/lilypond",
-                 "~/.local/bin/lilypond")
-        paths = [os.path.expanduser(p) for p in paths]
-        for path in paths:
-            if os.path.exists(path):
-                return path
-        if verbose:
-            logger.warning("lilypond not found in the path")
-            import distro
-            distroid = distro.id()
-            if distroid == 'ubuntu':
-                logger.warning("Install it via 'sudo apt install lilypond'")
-            elif distroid == 'fedora':
-                logger.warning("Install it via 'sudo dnf install lilypond'")
-            elif distroid == 'arch':
-                logger.warning("Install it via 'pacman -S lilypond'")
-        return None
-    elif platform == 'darwin':
-        if verbose:
-            logger.warning("lilypond not found. Install it via homebrew ('brew install lilypond')")
-        return None
-    elif platform == 'win32':
-        try:
-            import lilyponddist
-        except ImportError:
-            logger.debug("Installing lilyponddist")
-            import pip
-            pip.main(['install', 'lilyponddist'])
-            import lilyponddist
-            logger.debug("lilyponddist installed")
-        return str(lilyponddist.lilypondbin())
+    logger.debug("findLilypond: Lilypond is not in the path, trying lilyponddist")
+    import lilyponddist
+    if lilyponddist.is_lilypond_installed():
+        return lilyponddist.lilypondbin().as_posix()
+    elif install:
+        return installLilypond()
     else:
-        raise RuntimeError(f"Platform {platform} not supported")
+        logger.error("Could not find lilypond and user did not ask to install it")
+        return None
 
 
-def musicxml2ly(xmlfile: str, outfile: str = None) -> str:
-    if outfile is None:
-        outfile = os.path.splitext(xmlfile)[0] + '.ly'
-    subprocess.call(['musicxml2ly', '-o', outfile, xmlfile])
-    return outfile
+def saveScore(score: str, outfile: str, book=False, microtonal=False, cropToContent=False
+              ) -> None:
+    if book or microtonal or cropToContent:
+        score = postProcessLilyScore(score, book=book, microtonal=microtonal,
+                                     cropToContent=cropToContent)
 
-
-def saveScore(score: str, outfile: str, book=False, microtonal=False) -> None:
-    if book or microtonal:
-        score = postProcessLilyScore(score, book=book, microtonal=microtonal)
     open(outfile, "w").write(score)
 
 
-def renderScore(score: str, outfile: str = None,
-                book=False, microtonal=False,
-                openWhenFinished=False
+def renderScore(score: str,
+                outfile='',
+                removeHeader=True,
+                cropToContent=False,
+                book=False,
+                microtonal=False,
+                openWhenFinished=False,
+                removeTempfiles=False
                 ) -> str:
+    """
+    Render a lilypond score
+
+    Args:
+        score: the lilypond text
+        outfile: the outfile (a .png or .pdf file). If not given, the lilypond
+            score is rendered to a temp file
+        removeHeader: remove the default header
+        book: if True, add book preamble to the code
+        microtonal: if True, add microtonal prelude
+        openWhenFinished: if True, open the rendered file when finished
+        cropToContent: crop the generated image to the content
+        removeTempfiles: if True, remove tempfile
+
+    Returns:
+        the path of the image file. If no outfile was given, a pdf file is
+        generated by default
+    """
     lilyfile = tempfile.mktemp(suffix=".ly")
-    saveScore(score, lilyfile, book=book, microtonal=microtonal)
+    if removeHeader:
+        score = postProcessLilyScore(score, removeHeader=True)
+    saveScore(score, lilyfile, book=book, microtonal=microtonal, cropToContent=cropToContent)
     if outfile is None:
         outfile = tempfile.mktemp(suffix=".pdf")
-    out = renderLily(lilyfile, outfile, openWhenFinished=openWhenFinished)
+    out = renderLily(lilyfile, outfile=outfile, openWhenFinished=openWhenFinished)
     if out is None:
         raise RuntimeError(f"Could not render '{lilyfile}', generated "
                            f"file '{outfile}' not found")
-    os.remove(lilyfile)
+    if removeTempfiles:
+        os.remove(lilyfile)
     return out
+
+
+def show(text: str, external=False, maxwidth: int = None, snippet: bool | None = None) -> None:
+    """
+    Render the given lilypond text and show it as an image
+
+    Args:
+        text: the lilypond text to render
+        external: if True, show the image using an external app, even if
+            run within jupyter.
+        maxwidth: a maximum width applied when showing the image
+            embedded within jupyter
+        snippet: if True, the text is just a snippet (what is placed inside a staff)
+            and will be converted to a full score via snippetToScore
+
+    """
+    if snippet:
+        text = snippetToScore(text)
+    elif snippet is None:
+        if "\\score" not in text:
+            text = snippetToScore(text)
+
+    outfile = tempfile.mktemp(suffix='.png')
+    renderScore(text, outfile=outfile)
+    assert os.path.exists(outfile)
+    croppedok = _util.imagefileAutocrop(outfile, outfile, bgcolor="#FFFFFF")
+    assert croppedok
+    from maelzel.core import jupytertools
+    jupytertools.showPng(pngpath=outfile, forceExternal=external, maxwidth=maxwidth)
+
+
+def snippetToScore(snippet: str) -> str:
+    return fr"""
+\score {{
+<<
+  \new Staff {{
+      {snippet}
+  }} 
+>>
+}}
+    """
 
 
 def renderLily(lilyfile: str,
                outfile='',
-               removeHeader=False,
+               removeHeader=True,
                book=False,
                imageResolution: int = None,
                openWhenFinished=False,
@@ -210,9 +267,15 @@ def renderLily(lilyfile: str,
     txt = open(lilyfile).read()
     hasMidiBlock = re.search(r'\\midi\b', txt)
 
+    if "#(ly:set-option 'crop #t)" in txt:
+        # A cropped file should have been generated
+        # TODO: add
+        ...
+
     if (not hasMidiBlock and not os.path.exists(outfile)) or result.returnCode != 0:
         logger.error(f"Error while running lilypond, failed to produce a {fmt} file: {outfile}")
         logger.error(f"Return code: {result.returnCode}")
+        logger.error(f"Outfile: '{outfile}', exists: {os.path.exists(outfile)}")
         logger.error("stdout: \n" + textwrap.indent(result.stdout, "!! "))
         logger.error("stderr: \n" + textwrap.indent(result.stderr, "!! "))
         logger.info("Contents of the lilypond file: ")
@@ -426,35 +489,43 @@ arrowGlyphs = #`(
 def postProcessLilyScore(score: str,
                          removeHeader=False,
                          book=False,
-                         microtonal=False
+                         microtonal=False,
+                         cropToContent=False
                          ) -> str:
     """
     Apply some post-processing options to a lilypond score
 
     Args:
         score: the lilypond score, as string
-        removeHeader: remove the header section
+        removeHeader: remove the header section and add an empty header instead (otherwise
+            the default watermark is rendered)
         book: apply the book-preamble to this score
         microtonal: if True, a microtonal prelude is added which enables
             to use eighth tones via the suffixes -iq and -eq
+        cropToContent: add option to crop image to content. This affects the
+            outfile, so beware
 
     Returns:
         the modified score
     """
 
-    def _remove_header(s):
+    def _removeHeader(s):
         header = re.search(r"\\header\s?\{[^\}]+\}", s)
         if header:
-            s = s[:header.span()[0]]+'\n\\header {}\n'+s[header.span()[1]:]
+            s = s[:header.span()[0]]+'\n\\header { tagline = "" }\n'+s[header.span()[1]:]
+        else:
+            s = '\\header { tagline = "" }\n' + s
         return s
 
-    def _add_preamble(s, book=False, microtonal=False):
+    def _addPreamble(s, book=False, microtonal=False, crop=False):
         version = re.search(r"\\version.+", s)
         preamble = []
         if book:
             preamble.append('\n\\include "lilypond-book-preamble.ly"\n')
         if microtonal:
             preamble.append(_microtonePrelude)
+        if crop:
+            preamble.append(r"#(ly:set-option 'crop #t)")
         preamblestr = "\n".join(preamble)
         if version:
             s = s[:version.span()[1]]+preamblestr+s[version.span()[1]:]
@@ -463,13 +534,14 @@ def postProcessLilyScore(score: str,
         return s
 
     if removeHeader:
-        score = _remove_header(score)
-    if book or microtonal:
-        score = _add_preamble(score, book=book, microtonal=microtonal)
+        score = _removeHeader(score)
+    if book or microtonal or cropToContent:
+        score = _addPreamble(score, book=book, microtonal=microtonal, crop=cropToContent)
+
     return score
 
 
-def postProcessFile(lilyfile: str, outfile: str=None, removeHeader=True,
+def postProcessFile(lilyfile: str, outfile='', removeHeader=True,
                     book=True) -> None:
     s = open(lilyfile).read()
     s = postProcessLilyScore(s, removeHeader=removeHeader, book=book)
@@ -537,10 +609,12 @@ def pitchName(pitchclass: str, cents: int) -> str:
             deviation should be quantized to either 1/4 tones (0, 50, 100, ...)
             or eighth tones (0, 25, 50, 75, ...)
     """
+    pitchclass = pitchclass.lower()
+    assert pitchclass in 'abcdefg'
     suffix = _centsToSuffix.get(cents)
     if suffix is None:
-        raise ValueError(f"Invalid cents value: {cents}, expected one of -150, -125,..., 0, 25, 50,..., 150")
-    return pitchclass.lower() + _centsToSuffix[cents]
+        raise ValueError(f"Invalid cents value: {cents}, valid cents: {_centsToSuffix.keys()}")
+    return pitchclass + suffix
 
 
 def notenameToLily(notename: str, divsPerSemitone=4) -> str:
@@ -563,7 +637,7 @@ def notenameToLily(notename: str, divsPerSemitone=4) -> str:
     noteparts = pt.split_notename(notename, default_octave=-2)
     octave = noteparts.octave
     lilyoctave = lilyOctave(octave) if octave >= -1 else ''
-    pitchname = pitchName(noteparts.diatonic_name, noteparts.alteration_cents)
+    pitchname = pitchName(noteparts.diatonic_name, noteparts.alteration_cents + noteparts.cents_deviation)
     return pitchname + lilyoctave
 
 
@@ -660,7 +734,7 @@ def makeDuration(quarterLength: Union[int, float, str, F], dots=0) -> str:
         lilydur = _durationToLily[quarterLength]
     elif isinstance(quarterLength, F):
         if quarterLength.denominator == 1:
-            lilydur = _durationToLily[quarterLength.denominator]
+            lilydur = _durationToLily[quarterLength.numerator]
         else:
             lilydur = _durationToLily[quarterLength]
             if dots > 0:
@@ -761,10 +835,12 @@ def makePitch(pitch: pitch_t,
     Create the liylpond text to render the given pitch
 
     Args:
-        pitch: a fractional midinote or a notename
+        pitch: a fractional midinote or a notename. If a notename is given, the exact
+            spelling of the note will be used.
         divsPerSemitone: the resolution of the pitch (num. divisions per semitone)
         parenthesizeAccidental: should the accidental, if any, be within parenthesis?
-        forceAccidental: if True, force the given accidental
+        forceAccidental: if True, force the given accidental. This adds a ! sign
+            to the pitch
 
     Returns:
         the lilypond text to render the given pitch (needs a duration suffix)

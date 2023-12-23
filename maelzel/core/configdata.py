@@ -2,6 +2,7 @@ import os
 import math
 from maelzel.textstyle import TextStyle
 from maelzel import dynamiccurve
+from numbers import Rational
 
 
 defaultdict = {
@@ -24,6 +25,7 @@ defaultdict = {
     'show.arpeggiateChord': 'auto',
     'show.centsAnnotationStyle': 'fontsize=6; placement=below',
     'show.centsDeviationAsTextAnnotation': True,
+    'show.centsAnnotationSnap': 2,
     '.show.centsAnnotationPlusSign': True,
     'show.centSep': ',',
     'show.scaleFactor': 0.75,
@@ -91,7 +93,8 @@ defaultdict = {
 
     'htmlTheme': 'light',
 
-    'quant.minBeatFractionAcrossBeats': 0.5,
+    'quant.syncopationMinBeatFraction': 1/3,
+    'quant.syncopationMaxAsymmetry': 2,
     'quant.nestedTuplets': None,
     'quant.nestedTupletsInMusicxml': False,
     'quant.breakSyncopationsLevel': 'weak',
@@ -140,6 +143,8 @@ validator = {
     'play.gracenoteDuration::type': (int, float, str),
     'htmlTheme::choices': {'light', 'dark'},
     'quant.complexity::choices': {'lowest', 'low', 'medium', 'high', 'highest'},
+    'quant.syncopationMinBeatFraction::type': (float, Rational),
+    'quant.syncopationMaxAsymmetry::type': (float, Rational),
     'quant.nestedTuplets::choices': {True, False, None},
     'show.pageOrientation::choices': {'portrait', 'landscape'},
     'show.pageMarginMillimeters::range': (0, 1000),
@@ -151,6 +156,8 @@ validator = {
     'show.voiceMaxStaves::range': (1, 4),
     'show.measureAnnotationStyle': lambda cfg, key, val: TextStyle.validate(val),
     'show.centsAnnotationStyle': lambda cfg, key, val: TextStyle.validate(val),
+    'show.centsAnnotationSnap::range': (0, 50),
+    'show.centsAnnotationSnap::type': int,
     'show.rehearsalMarkStyle': lambda cfg, key, val: TextStyle.validate(val),
     'show.clipNoteheadShape::choices': ('', 'square', 'normal', 'cross', 'harmonic', 'triangle',
                                         'xcircle', 'rhombus', 'rectangle', 'slash', 'diamond',
@@ -365,10 +372,10 @@ docs = {
         'Default extratime added when recording',
 
     'play.fade':
-        'default fade time',
+        'Default fade time',
 
     'play.unschedFadeout':
-        'fade out when stopping a note',
+        'Fade out when stopping a note',
 
     'play.soundfontInterpolation':
         'Interpolation used when reading sample data from a soundfont.',
@@ -377,10 +384,14 @@ docs = {
         'If True, outputs extra debugging information regarding playback',
 
     'show.backend':
-        'method/backend used when rendering notation',
+        'Method used when rendering notation',
 
     'show.centsDeviationAsTextAnnotation':
-        'show cents deviation as text when rendering notation',
+        'Show cents deviation as text when rendering notation',
+
+    'show.centsAnnotationSnap':
+        'Pitches which deviate less than this cents from a quantized pitch'
+        'do not need a text annotation (see `show.centsDeviationAsTextAnnotation`)',
 
     '.show.centsAnnotationPlusSign':
         'Show a plus sign for possitive cents deviations',
@@ -510,10 +521,18 @@ docs = {
         'make grid errors weight more dramatically as they diverge from the most accurate '
         'solution. If None, the value is derived from the complexity setting (quant.complexity)',
 
-    'quant.minBeatFractionAcrossBeats':
+    'quant.syncopationMinBeatFraction':
         'when merging durations across beats, a merged duration cannot be smaller than this '
         'duration. This is to prevent joining durations across beats which might result in '
         'high rhythmic complexity',
+
+    'quant.syncopationMaxAsymmetry':
+        'Max. asymmetry of a syncopation. If a note is placed across a beat, this indicates'
+        ' the max. allowed asymettry of such note in respect to the beat. The asymmetry is '
+        'calculated as the ratio between the longest and the shortest part of a note placed '
+        'across the beat. If the note is placed exactly across the beat, the asymmetrx is 1. '
+        'Together with quant.syncopationMinBeatFraction this can be used to control which '
+        'kind of syncopations are allowed',
 
     '.quant.debug':
         'Turns on debugging for the quantization process. This will show how different '

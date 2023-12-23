@@ -65,12 +65,13 @@ setup(
         "configdict>=2.10.0",
         "sndfileio>=1.9.1",
         "numpyx>=1.3.1",
-        "csoundengine>=2.5.1",
+        "csoundengine>=2.5.2",
         "pitchtools>=1.12.0",
         "risset>=2.4.1",
         "loristrck>=1.5.6",
         "vamphost>=1.2.1",
-        "lilyponddist>=0.4.1"
+        "lilyponddist>=0.6.0",
+        "pillow"
     ],
     license="LGPLv2",
     zip_safe=False,

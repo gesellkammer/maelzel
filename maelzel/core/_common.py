@@ -63,8 +63,8 @@ def prettylog(level: str, msg: str, width=80, indent=4) -> None:
 
 
 # _logdir = appdirs.user_log_dir('maelzel-core')
-#os.makedirs(_logdir, exist_ok=True)
-#filelog = os.path.join(_logdir, 'maelzel-core.log')
+# os.makedirs(_logdir, exist_ok=True)
+# filelog = os.path.join(_logdir, 'maelzel-core.log')
 
 logger = getLogger("maelzel.core")
 UNSET = _Unset()

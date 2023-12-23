@@ -1,5 +1,6 @@
 build/
 dist/
+docs/api
 docs/tmp/
 docs/_build
 *.egg*
@@ -21,6 +22,7 @@ examples/Untitled*
 docs/api
 notebooks/Untitled*.ipynb
 notebooks/tmp
+notebooks/test/tmp
 docs/notebooks/tmp
 Untitled*.ipynb
 *.eps

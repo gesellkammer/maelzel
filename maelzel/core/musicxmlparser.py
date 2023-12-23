@@ -1,5 +1,5 @@
 """
-Implements a musicxml parser
+Implements a musicxml parser to maelzel.core.Score
 """
 from __future__ import annotations
 import copy
@@ -166,7 +166,9 @@ def _parsePitch(node, prefix='') -> tuple[str, int, float]:
 def _makeSpannerId(prefix: str, d: dict | None, key='number', defaultid='1'):
     if d:
         spannerid = d.get(key)
-        assert spannerid is not None
+        if spannerid is None:
+            logger.warning(f"Did not find key '{key}' in {d}")
+            spannerid = defaultid
     else:
         spannerid = defaultid
     return prefix if not spannerid else f"{prefix}-{spannerid}"
@@ -225,7 +227,7 @@ def _parseNotations(root: ET.Element) -> list[XmlNotation]:
             notation = _makeSpannerNotation('glissando', symbols.NoteheadLine, node)
             notations.append(notation)
         elif tag == 'fermata':
-            notations.append(XmlNotation('fermata', _text(node), properties=dict(node.attrib)))
+            notations.append(XmlNotation('fermata', node.text or 'normal', properties=dict(node.attrib)))
         elif tag == 'dynamics':
             dyn = node[0].tag
             if dyn == 'other-dynamics':
@@ -456,7 +458,7 @@ def _parseNote(root: ET.Element, context: _ParseContext) -> Note:
                 spannertype = notation.properties['type']
                 key = _makeSpannerId(notation.value, notation.properties)
                 if spannertype == 'start':
-                    cls = notation.properties.pop('class')
+                    cls = notation.properties.get('class')
                     spanner = cls(kind='start',
                                   linetype=notation.properties.get('line-type', 'solid'),
                                   color=notation.properties.get('color', ''))
@@ -840,6 +842,17 @@ def _parsePart(part: ET.Element, context: _ParseContext
         # NB: we do not parse <sound tempo=".."> tags
         if (metronome := measure.find('./direction/direction-type/metronome')) is not None:
             quarterTempo = _parseMetronome(metronome)
+
+        # Sound
+        if (sound := measure.find('./sound')) is not None:
+            if tempo := sound.attrib.get('tempo', ''):
+                quarterTempo = float(tempo)
+
+        # direction with sound/tempo
+        for soundDirection in measure.findall('./direction/sound'):
+            if tempo := soundDirection.attrib.get('tempo', ''):
+                quarterTempo = float(tempo)
+                break
 
         measureProperties = {}
         if (time := measure.find('./attributes/time')) is not None:

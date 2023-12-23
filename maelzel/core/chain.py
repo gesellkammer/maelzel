@@ -902,12 +902,11 @@ class Chain(MContainer):
         if parentOffset is None:
             parentOffset = self.parent.absOffset() if self.parent else F0
 
-        # offset = parentOffset + self.relOffset()
-        # chain = self.flat()
         chainitems = self.flatItems()
         notations: list[scoring.Notation] = []
-        if self.label and chain and chainitems[0].offset > 0:
+        if self.label and chainitems[0].offset > 0:
             notations.append(scoring.makeRest(duration=chainitems[0].dur, annotation=self.label))
+
         for item in chainitems:
             notations.extend(item.scoringEvents(groupid=groupid, config=config, parentOffset=parentOffset))
 

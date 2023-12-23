@@ -808,7 +808,7 @@ def _renderNode(node: Node,
             if item.attachments:
                 for attach in item.attachments:
                     if isinstance(attach, _attachment.Text):
-                        fontsize = 0 if attach.fontsize is None else attach.fontsize*options.musicxmlFontScaling
+                        fontsize = 0 if attach.fontsize is None else attach.fontsize * options.musicxmlFontScaling
                         _words(doc, parent,
                                text=attach.text,
                                italic=attach.italic,
@@ -953,8 +953,10 @@ def _renderPart(part: quant.QuantizedPart,
         if measure.timesig != lastTimesig:
             lastTimesig = measure.timesig
             time_ = _elem(doc, attributes_, "time")
-            _elemText(doc, time_, "beats", measure.timesig[0])
-            _elemText(doc, time_, "beat-type", measure.timesig[1])
+            for (num, den) in measure.timesig.parts:
+                _elemText(doc, time_, "beats", num)
+                _elemText(doc, time_, "beat-type", den)
+            # TODO: add support for subdivision structure for non-compound time signatures
         if measureidx == 0:
             clef_ = _elem(doc, attributes_, "clef")
             clefsign, clefline, clefoctave = _mxmlClef(firstclef)
@@ -971,7 +973,7 @@ def _renderPart(part: quant.QuantizedPart,
 
         # End <attributes>
         if addTempoMarks and measure.quarterTempo != lastTempo:
-            metro = inferMetronomeMark(measure.quarterTempo, timesig=measure.timesig)
+            metro = inferMetronomeMark(measure.quarterTempo, timesig=measure.timesig.parts[0])
             _addMetronome(doc, measure_, unit=metro.unitstr, bpm=metro.bpm, numdots=metro.dots)
             lastTempo = measure.quarterTempo
 

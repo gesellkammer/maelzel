@@ -262,6 +262,9 @@ class Slur(Spanner):
 
 
 class Beam(Spanner):
+    """
+    Notes within a Beam spanner are beamed together
+    """
     appliesToRests = False
 
     def applyToNotation(self, n: scoring.Notation) -> None:
