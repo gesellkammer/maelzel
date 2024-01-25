@@ -1,0 +1,5 @@
+
+.. automodapi:: maelzel.core.renderer
+
+
+
