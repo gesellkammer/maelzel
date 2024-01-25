@@ -9,3 +9,4 @@ Clip
 .. automodapi:: maelzel.core.clip
     :no-inherited-members:
 
+

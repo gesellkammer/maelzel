@@ -558,9 +558,11 @@ class QuantizedMeasure:
         if not first.isRest and first.tiedPrev:
             assert prevMeasure is not None
             if prevMeasure.empty():
-                raise ValueError("The first note of this measure is tied to the previous"
-                                 " note, but the previous measure is empty")
-            prevTree = prevMeasure.tree
+                logger.info(f"The first note ({first}) of this measure is tied to the "
+                            f"previous note, but the previous measure is empty")
+                prevTree = None
+            else:
+                prevTree = prevMeasure.tree
         else:
             prevTree = None
         tree.fixEnharmonics(options=options, prevTree=prevTree)
@@ -673,6 +675,24 @@ class QuantizedMeasure:
         Returns a list with the durations (in quarterNotes) of the beats in this measure
         """
         return [beatdef.duration for beatdef in self.beatStructure()]
+
+    def removeUnnecessaryGracenotes(self) -> None:
+        self.tree.removeUnnecessaryGracenotes()
+        if self.quantprofile.tiedSnappedGracenoteMinRealDuration > 0:
+            for n, node in self.tree.recurseWithNode():
+                if (n.isGracenote and
+                        n.tiedNext and
+                        not n.tiedPrev and
+                        n.getProperty('.snappedGracenote') and
+                        n.getProperty('.originalDuration', F0) < self.quantprofile.tiedSnappedGracenoteMinRealDuration):
+                    nidx = node.items.index(n)
+                    if len(node.items) > nidx + 1:
+                        nextnote = node.items[nidx + 1]
+                        nextnote.tiedPrev = False
+                        node.items[nidx + 1].tiedPrev = False
+                        if n.hasAttributes():
+                            n.copyAttributesTo(nextnote)
+                    del node.items[nidx]
 
     def check(self):
         self._checkBeats()
@@ -1726,9 +1746,9 @@ class QuantizedPart:
 
     def repair(self):
         # self._repairGracenotesInBeats()
+        self.removeUnnecessaryGracenotes()
         self._repairLinks()
         self.repairSpanners()
-        self.removeUnnecessaryGracenotes()
 
     def check(self):
         for measure in self.measures:
@@ -1930,7 +1950,9 @@ class QuantizedPart:
         """
         measure: QuantizedMeasure
         for i, measure in enumerate(self.measures):
-            measure.tree.removeUnnecessaryGracenotes()
+            if measure.tree.empty():
+                continue
+            measure.removeUnnecessaryGracenotes()
             if i > 0 and (n1 := measure.tree.firstNotation()).isGracenote:
                 n0 = self.measures[i-1].tree.lastNotation()
                 if n0.tiedNext and n0.pitches == n1.pitches and not (n1.attachments):
@@ -1940,6 +1962,14 @@ class QuantizedPart:
                                  f"nothing to it")
                     node = measure.tree.findNodeForNotation(n1)
                     node.items.remove(n1)
+
+            # n0 = measure.tree.lastNotation()
+            # if n0.isGracenote and n0.tiedNext and not n0.tiedPrev and i < len(self.measures) - 1:
+            #     nextmeas = self.measures[i+1]
+            #     n1 = nextmeas.tree.firstNotation()
+            #     if n0.pitches == n1.pitches and not n0.hasAttributes():
+            #         measure.tree.findNodeForNotation(n0).items.remove(n0)
+
         return
 
     def repairSpanners(self, removeUnnecessary=True) -> None:
@@ -1958,34 +1988,34 @@ class QuantizedPart:
         _spanner.markNestingLevels(notations)
         _spanner.moveEndSpannersToEndOfLogicalTie(notations)
 
-    def _repairGracenotesInBeats(self):
-        """
-        Repair some corner cases where gracenotes cause rendering problems
-
-        This should be called before creating node trees in each measure,  since
-        this works at the beat level.
-        """
-        for measureidx, measure in enumerate(self.measures):
-            if not measure.beats:
-                continue
-            for beatidx, beat in enumerate(measure.beats):
-                last = beat.notations[-1]
-                if last.isGracenote and last.offset == beat.offset + beat.duration:
-                    if beatidx == len(measure.beats) - 1:
-                        nextmeasure = self.getMeasure(measureidx + 1)
-                        if nextmeasure is None or nextmeasure.empty():
-                            # TODO
-                            # do not do anything, let the gracenote at the end
-                            pass
-                        else:
-                            # move the gracenote to the next measure
-                            beat.notations.pop()
-                            nextmeasure.beats[0].notations.insert(0, last.clone(offset=F0))
-                    else:
-                        # move gracenote to bext beat
-                        nextbeat = measure.beats[beatidx + 1]
-                        beat.notations.pop()
-                        nextbeat.notations.insert(0, last)
+    # def _repairGracenotesInBeats(self):
+    #     """
+    #     Repair some corner cases where gracenotes cause rendering problems
+    #
+    #     This should be called before creating node trees in each measure,  since
+    #     this works at the beat level.
+    #     """
+    #     for measureidx, measure in enumerate(self.measures):
+    #         if not measure.beats:
+    #             continue
+    #         for beatidx, beat in enumerate(measure.beats):
+    #             last = beat.notations[-1]
+    #             if last.isGracenote and last.offset == beat.offset + beat.duration:
+    #                 if beatidx == len(measure.beats) - 1:
+    #                     nextmeasure = self.getMeasure(measureidx + 1)
+    #                     if nextmeasure is None or nextmeasure.empty():
+    #                         # TODO
+    #                         # do not do anything, let the gracenote at the end
+    #                         pass
+    #                     else:
+    #                         # move the gracenote to the next measure
+    #                         beat.notations.pop()
+    #                         nextmeasure.beats[0].notations.insert(0, last.clone(offset=F0))
+    #                 else:
+    #                     # move gracenote to bext beat
+    #                     nextbeat = measure.beats[beatidx + 1]
+    #                     beat.notations.pop()
+    #                     nextbeat.notations.insert(0, last)
 
     # def _repairGracenotesInTree(self):
     #     for measureidx, measure in enumerate(self.measures):

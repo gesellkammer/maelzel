@@ -1,5 +1,5 @@
 """
-Interface for audio rendering (base class for realtime and offline)
+Interface for audio rendering (abstract class for realtime and offline)
 """
 from __future__ import annotations
 from abc import abstractmethod, ABC
@@ -17,11 +17,25 @@ from . import environment
 from typing import Callable, Sequence
 
 
+__all__ = (
+    'Renderer',
+)
+
+
 class Renderer(ABC):
+    """
+    Abstract class for realtime and offline rendering
+
+    Args:
+        presetManager: a singleton object managing all instrument templates
+    """
 
     def __init__(self, presetManager: PresetManager):
         self.registeredPresets: dict[str, presetdef.PresetDef] = {}
+        """Maps preset name to preset definition"""
+
         self.presetManager = presetManager
+        """Singleton preset manager"""
 
     def show(self) -> None:
         """
@@ -213,6 +227,7 @@ class Renderer(ABC):
 
     @abstractmethod
     def getSynth(self, token: int) -> csoundengine.synth.Synth | None:
+        """Get a synth by token/synthid"""
         raise NotImplementedError
 
     @abstractmethod
@@ -291,6 +306,7 @@ class Renderer(ABC):
                 named argument can be given here
 
         Returns:
+            the returned value depends on the renderer
 
         """
         raise NotImplementedError
@@ -301,10 +317,21 @@ class Renderer(ABC):
         """
         pass
 
-    def pushLock(self):
-        """Lock the audio engine"""
+    def pushLock(self) -> None:
+        """
+        Lock the audio engine
+
+        This only makes sense for realtime rendering and is a no-op when
+        rendering offline
+        """
         pass
 
-    def popLock(self):
-        """Pop the lock of the audio engine (must be preceded by a pushLock)"""
+    def popLock(self) -> None:
+        """
+        Pop the lock of the audio engine (must be preceded by a pushLock)"
+
+        This only makes sense for realtime rendering and is a no-op when
+        rendering offline
+        """
         pass
+

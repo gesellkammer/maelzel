@@ -372,9 +372,16 @@ class Clip(event.MEvent):
             playargs = playargs.clone(instr='_playtable', args=args)
         else:
             raise RuntimeError(f"Playback method {self._playbackMethod} not supported")
-        event = SynthEvent(bps=bps, linkednext=self.tied, numchans=self.numChannels,
-                           initfunc=self._initEvent,
-                           **playargs.db)
+        event = SynthEvent.fromPlayArgs(bps=bps,
+                                        playargs=playargs,
+                                        numchans=self.numChannels,
+                                        initfunc=self._initEvent)
+
+        # event = SynthEvent(bps=bps,
+        #                    linkednext=self.tied,
+        #                    numchans=self.numChannels,
+        #                    initfunc=self._initEvent,
+        #                    **playargs.db)
         if playargs.automations:
             event.addAutomationsFromPlayArgs(playargs, scorestruct=scorestruct)
         return [event]

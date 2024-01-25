@@ -171,6 +171,7 @@ def groupLinkedEvents(items: list[MEvent],
 
     Args:
         items: a list of Note|Chord
+        mingap: the min. gap between events to start a new group
 
     Returns:
         a list where each item is a note, a chord or itself a list of such

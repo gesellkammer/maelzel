@@ -27,11 +27,9 @@ and can output *musicxml*, *lilypond* and *midi* as well as render to *pdf* and 
 multiple backends (*lilypond*, *musescore*) 
 
 .. toctree::
-    :maxdepth: 1
+    :maxdepth: 2
 
-    scoringcore
-    scoringquant
-    scoringrender
+    scoring
 
 --------------------
 

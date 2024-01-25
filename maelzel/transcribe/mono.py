@@ -15,7 +15,7 @@ from emlib import iterlib
 from maelzel.scorestruct import ScoreStruct
 from maelzel import histogram
 
-from .core import Breakpoint, simplifyBreakpoints, TranscribeOptions, simplifyBreakpointsByDensity
+from .core import Breakpoint, simplifyBreakpoints, TranscriptionOptions, simplifyBreakpointsByDensity
 
 
 import logging
@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 __all__ = (
     'FundamentalAnalysisMono',
+    'TranscriptionOptions'
 )
 
 
@@ -46,7 +47,6 @@ def _fixNanFreqs(breakpoints: list[tuple[float, float, float]], fallbackFreq: fl
             freq = bp[1]
         out.append(bp)
     return out
-
 
 
 def _quantizeFreq(pitchconv: PitchConverter, freq: float, divs: int) -> float:
@@ -365,7 +365,7 @@ class FundamentalAnalysisMono:
 
     def transcribe(self,
                    scorestruct: ScoreStruct = None,
-                   options: TranscribeOptions | None = None
+                   options: TranscriptionOptions | None = None
                    ) -> Voice:
         """
         Convert the analyized data to a maelzel.core.Voice
@@ -380,7 +380,7 @@ class FundamentalAnalysisMono:
 
         """
         if options is None:
-            options = TranscribeOptions()
+            options = TranscriptionOptions()
 
         options.unvoicedMinAmpDb = min(self.dbHistogram.percentileToValue(0.05),
                                        options.unvoicedMinAmpDb)
@@ -388,13 +388,15 @@ class FundamentalAnalysisMono:
         voice = transcribeVoice(groups=self.groups,
                                 scorestruct=scorestruct,
                                 options=options)
+        voice.stack()
+
         if scorestruct is None:
-            scorestruct = ScoreStruct()
+            scorestruct = ScoreStruct(tempo=60)
 
         if self.centroid:
             for note in voice:
                 if not note.isRest():
-                    centroidfreq = self.centroid(scorestruct.time(note.offset))
+                    centroidfreq = self.centroid(scorestruct.time(note.absOffset()))
                     note.setProperty('centroid', int(centroidfreq))
 
         return voice
@@ -402,7 +404,7 @@ class FundamentalAnalysisMono:
 
 def transcribeVoice(groups: list[list[Breakpoint]],
                     scorestruct: ScoreStruct = None,
-                    options: TranscribeOptions | None = None,
+                    options: TranscriptionOptions | None = None,
                     ) -> Voice:
     """
     Convert a list of breakpoint groups to a maelzel.core.Voice
@@ -422,7 +424,7 @@ def transcribeVoice(groups: list[list[Breakpoint]],
         scorestruct = getScoreStruct()
 
     if options is None:
-        options = TranscribeOptions()
+        options = TranscriptionOptions()
 
     notes = []
     lastgroupidx = len(groups) - 1

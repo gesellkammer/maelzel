@@ -3,16 +3,33 @@ from dataclasses import dataclass, fields
 import pitchtools as pt
 from typing import Callable
 
+
 __all__ = (
     'Breakpoint',
     'simplifyBreakpoints',
     'simplifyBreakpointsByDensity',
-    'TranscribeOptions'
+    'TranscriptionOptions'
 )
 
 
 @dataclass
-class TranscribeOptions:
+class TranscriptionOptions:
+    """
+    Options used for transcription
+
+    Args:
+        addGliss: add a glissando between parts of a same note group
+        addAccents: add an accent to breakpoints with detected transient
+        addSlurs: add a slur around notes within a group
+        unvoicedNotehead: nothead used for unpitched notes or an empty string to
+            leave such notes unmodified
+        unvoicedPitch: pitch used for note groups where no pitch was detected
+        unvoicedMinAmpDb: min. amp for an unvoiced breakpoint to be transcribed
+        a4: reference frequency
+        simplify: simplify breakpoints, 0 disables simplification
+        maxDensity: max breakpoint density, 0 disables simplification
+
+    """
 
     addGliss: bool = True
     """if True, add a gliss. symbol between parts of a same note group"""
@@ -50,8 +67,6 @@ class TranscribeOptions:
     """
     max. breakpoint density. 0 disables simplification 
     """
-
-
 
     def __post_init__(self):
         assert isinstance(self.addGliss, bool)

@@ -69,11 +69,12 @@ class Notation:
 
     """
     _privateKeys = {
-        '.snappedGracenote',
         '.clefHint',
         '.graceGroup',
         '.mergeable',
-        '.forceTupletBracket'
+        '.forceTupletBracket',
+        '.snappedGracenote',   # Is this a note which has been snapped to 0 duration?
+        '.originalDuration'    # For snapped notes, it is useful to keep track of the original duration
     }
 
     __slots__ = ("duration",
@@ -1087,10 +1088,10 @@ class Notation:
             key: the key to set
             value: the value of the property.
         """
-        if self.properties is None:
-            self.properties = {}
         if key.startswith('.'):
             assert key in self._privateKeys, f"Key {key} unknown. Possible private keys: {self._privateKeys}"
+        if self.properties is None:
+            self.properties = {}
         self.properties[key] = value
 
     def delProperty(self, key: str) -> None:
@@ -1116,13 +1117,13 @@ class Notation:
         Returns:
             the value of the given property, or a fallback value
         """
+        if key.startswith('.'):
+            assert key in self._privateKeys, f"Key {key} unknown. Possible private keys: {self._privateKeys}"
         if not self.properties:
             if setdefault is not None:
                 self.setProperty(key, setdefault)
                 return setdefault
             return default
-        if key.startswith('.'):
-            assert key in self._privateKeys, f"Key {key} unknown. Possible private keys: {self._privateKeys}"
         if setdefault is not None:
             return self.properties.setdefault(key, setdefault)
         return self.properties.get(key, default)
@@ -1817,7 +1818,7 @@ class SnappedNotation:
         notation = self.notation.clone(offset=offset, duration=self.duration)
         if self.duration == 0 and self.notation.duration > 0:
             notation.setProperty('.snappedGracenote', True)
-            notation.setProperty('originalDuration', self.notation.duration)
+            notation.setProperty('.originalDuration', self.notation.duration)
         return notation
 
     def __repr__(self):

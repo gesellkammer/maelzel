@@ -95,7 +95,7 @@ class _TimeScale:
         return r*self.factor + self.offset
 
 
-class MObj:
+class MObj(ABC):
     """
     This is the base class for all core objects.
 
@@ -147,10 +147,14 @@ class MObj:
         "a label can be used to identify an object within a group of objects"
 
         self._dur: F | None = dur
-        "the duration of this object (can be None, in which case it is unset)"
+        "the duration of this object in quarternotes. It cannot be None"
 
         self.offset: F | None = offset
-        "offset specifies a time offset for this object"
+        """Optional offset, in quarternotes. Specifies the start time relative to its parent
+                
+        It can be None, which indicates that within a container this object would
+        start after the previous object. For an object without a parent, the offset
+        is an absolute offset. """
 
         self.symbols: list[_symbols.Symbol] | None = symbols
         "A list of all symbols added via :meth:`addSymbol` (None by default)"
@@ -475,6 +479,7 @@ class MObj:
         extrakeys = set(kws.keys()).difference(PlayArgs.playkeys)
         # set extrakeys as args, without checking the instrument
         if extrakeys:
+            raise ValueError(f"Unknown keys: {extrakeys}, {self=}")
             args = kws.get('args')
             if args:
                 for k in extrakeys:
@@ -512,6 +517,26 @@ class MObj:
 
         self._copyAttributesTo(out)
         return out
+
+    def remap(self: _MObjT, deststruct: ScoreStruct, sourcestruct: ScoreStruct = None
+              ) -> _MObjT:
+        """
+        Remap times (offset, dur) from source scorestruct to destination scorestruct
+
+        The absolute time remains the same
+
+        Args:
+            deststruct: the destination scorestruct
+            sourcestruct: the source scorestructure, or None to use the resolved scoresturct
+
+        Returns:
+            a clone of self remapped to the destination scorestruct
+
+        """
+        if sourcestruct is None:
+            sourcestruct = self.scorestruct(resolve=True)
+        offset, dur = deststruct.remapSpan(sourcestruct, self.absOffset(), self.dur)
+        return self.clone(offset=offset, dur=dur)
 
     def copy(self: _MObjT) -> _MObjT:
         """Returns a copy of this object"""
@@ -921,11 +946,21 @@ class MObj:
                                        weight='bold' if labelstyle.bold else '',
                                        color=labelstyle.color)
 
-    def scorestruct(self) -> ScoreStruct | None:
+    def scorestruct(self, resolve=False) -> ScoreStruct | None:
         """
         Returns the ScoreStruct active for this obj or its parent (recursively)
 
-        If this object has no parent ``None`` is returned
+        If this object has no parent ``None`` is returned. If resolve is True
+        and this object has no associated scorestruct, the active scorestruct
+        is returned
+
+        Args:
+            resolve: if True and this obj (or its parent, recursively) has no associated
+                scorestruct, the active scorestruct is returned
+
+        Returns:
+            the associated scorestruct or the active struct if resolve is True and
+            this object has no associated struct (either directly or through its parent)
 
         Example
         ~~~~~~~
@@ -940,7 +975,8 @@ class MObj:
             >>> n.scorestruct()
             ScoreStruct(timesig=(3, 4), tempo=72)
         """
-        return self._scorestruct or (self.parent.scorestruct() if self.parent else None)
+        struct = self._scorestruct or (self.parent.scorestruct() if self.parent else None)
+        return struct if struct or not resolve else Workspace.active.scorestruct
 
     def write(self,
               outfile: str,
@@ -951,12 +987,12 @@ class MObj:
         Export to multiple formats
 
         Formats supported: pdf, png, musicxml (extension: .xml or .musicxml),
-        lilypond (.ly), midi (.mid or .midi)
+        lilypond (.ly), midi (.mid or .midi) and pickle
 
         Args:
             outfile: the path of the output file. The extension determines
                 the format. Formats available are pdf, png, lilypond, musicxml,
-                midi and csd.
+                midi, csd and pickle.
             backend: the backend used when writing as pdf or png. If not given,
                 the default defined in the active config is used
                 (:ref:`key: 'show.backend' <config_show_backend>`).
@@ -964,6 +1000,18 @@ class MObj:
                 image so MuseScore needs to be installed)
             resolution: image DPI (only valid if rendering to an image) - overrides
                 the :ref:`config key 'show.pngResolution' <config_show_pngresolution>`
+
+        Formats
+        -------
+
+        * pdf, png: will render the object as notation and save that to the given format
+        * lilypond: `.ly` extension. Will render the object as notation and save it as lilypond text
+        * midi: `.mid` or `.midi` extension. At the moment this is done via lilypond, so the midi
+            produced follows the quantization process used for rendering to notation. Notice that
+            midi cannot reproduce many features of a maelzel object, like microtones, and many
+            complex rhythms will not be translated correctly
+        * pickle: the object is serialized using the pickle module. This allows to load it
+            via ``pickle.load``: ``myobj = pickle.load(open('myobj.pickle'))``
         """
         if outfile == '?':
             selected = _dialogs.selectFileForSave(key="writeLastDir",
@@ -982,6 +1030,11 @@ class MObj:
         elif ext == '.csd':
             renderer = self._makeOfflineRenderer()
             renderer.writeCsd(outfile)
+            return
+        elif ext == '.pickle':
+            import pickle
+            with open(outfile, 'wb') as f:
+                pickle.dump(self, f)
             return
         elif not backend:
             backend = cfg['show.backend']
@@ -1599,7 +1652,7 @@ class MObj:
 # --------------------------------------------------------------------
 
 
-class MContainer(ABC, MObj):
+class MContainer(MObj):
     """
     An interface for any class which can be a parent
 

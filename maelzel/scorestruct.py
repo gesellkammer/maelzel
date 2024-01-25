@@ -1674,24 +1674,24 @@ class ScoreStruct:
         meas, offset = self.beatToLocation(beat)
         return self.locationToTime(meas, offset)
 
-    def remapTo(self, deststruct: ScoreStruct, beat: num_t) -> F:
+    def remapTo(self, deststruct: ScoreStruct, location: num_t | tuple[int, num_t]) -> F:
         """
         Remap a beat from this struct to another struct
 
         Args:
-            beat: the beat offset in quarternotes
+            location: the beat offset in quarternotes or a location (measureindex, offset)
             deststruct: the destination scores structure
 
         Returns:
             the beat within deststruct which keeps the same absolute time
         """
-        abstime = self.beatToTime(beat)
+        abstime = self.time(location)
         return deststruct.timeToBeat(abstime)
 
-    def remapDurationFrom(self, sourcestruct: ScoreStruct, offset: num_t, duration: num_t
-                          ) -> TimeInterval:
+    def remapSpan(self, sourcestruct: ScoreStruct, offset: num_t, duration: num_t
+                  ) -> tuple[F, F]:
         """
-        Remap a duration from a source score structure to this score structure
+        Remap a time span from a source score structure to this score structure
 
         Args:
             sourcestruct: the source score strcuture
@@ -1699,29 +1699,29 @@ class ScoreStruct:
             duration: the duration
 
         Returns:
-            a tuple (offset within this struct, duration within this struct), both
-            measured in quarternote beats
+            a tuple(offset, dur) where these represent the start and duration within this
+            scorestruct which coincide in absolute time with the offset and duration given
 
         """
         starttime = sourcestruct.beatToTime(offset)
         endtime = sourcestruct.beatToTime(offset + duration)
         startbeat = self.timeToBeat(starttime)
         endbeat = self.timeToBeat(endtime)
-        return TimeInterval(start=startbeat, end=endbeat)
+        return startbeat, endbeat - startbeat
 
-    def remapFrom(self, sourcestruct: ScoreStruct, beat: num_t) -> F:
+    def remapFrom(self, sourcestruct: ScoreStruct, location: num_t | tuple[int, num_t]) -> F:
         """
         Remap a beat from sourcestruct to this this struct
 
         Args:
-            beat: the beat offset in quarternotes
+            location: the beat offset in quarternotes or a location (measureindex, offset)
             sourcestruct: the source score structure
 
         Returns:
             the beat within this struct which keeps the same absolute time as
             the given beat within sourcestruct
         """
-        abstime = sourcestruct.beatToTime(beat)
+        abstime = sourcestruct.time(location)
         return self.timeToBeat(abstime)
 
     def timeToBeat(self, t: num_t) -> F:

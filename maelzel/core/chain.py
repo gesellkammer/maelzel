@@ -1192,13 +1192,39 @@ class Chain(MContainer):
         """The last event in this chain, recursively"""
         return next(self.recurse(reverse=True))
 
-    def eventAt(self, location: time_t | tuple[int, time_t], margin=F(1, 8)
+    def _asAbsOffset(self, location: time_t | tuple[int, time_t]) -> F:
+        if isinstance(location, tuple):
+            struct = self.scorestruct() or Workspace.active.scorestruct
+            return struct.locationToBeat(*location)
+        else:
+            return asF(location)
+
+    def eventAt(self, location: time_t | tuple[int, time_t], margin=F(1, 8), split=False
                 ) -> MEvent | None:
-        struct = self.scorestruct() or Workspace.active.scorestruct
-        start = struct.locationToBeat(*location) if isinstance(location, tuple) else location
+        """
+        The event present at the given location
+
+        Args:
+            location: the beat or a tuple (measureindex, beatoffset). If a beat is given,
+                it is interpreted as an absoute offset
+            margin: a time margin (in quarternotes) from the given location. This can
+                help in corner cases
+            split: if True split the event at the given offset. This will modify the
+                event itself, which will remain split after this call.
+
+        Returns:
+            the event present at the given location, or None if no event was found. An
+            explicit rest will be returned if found but empty space will return None
+        """
+        start = self._asAbsOffset(location)
         end = start + margin
         events = self.eventsBetween(start, end)
-        return events[0] if events else None
+        if not events:
+            return None
+        event = events[0]
+        if split and event.absOffset() < start:
+            event = self.splitAt(start, beambreak=False, nomerge=False)
+        return event
 
     def eventsBetween(self,
                       start: time_t | tuple[int, time_t],
@@ -1276,31 +1302,43 @@ class Chain(MContainer):
         offsets = scorestruct.measureOffsets(startindex=startindex, stopindex=stopindex)
         self.splitEventsAtOffsets(offsets, tie=True)
 
-    def splitAt(self, absoffset: F, beambreak=True, nomerge=True) -> None:
+    def splitAt(self, location: F | tuple[int, F], beambreak=True, nomerge=True
+                ) -> MEvent | None:
         """
         Split any event present at the given absolute offset (in place)
 
+        If you need to split at a relative offset, just substract the absolute
+        offset of this Chain from the given offset
+
         Args:
-            absoffset: the offset to split at
+            location: the absolute offset to split at, or a score location (measureindex, measureoffset)
             beambreak: if True, add a BeamBreak symbol to the given event
                 to ensure that the break is not glued together at the
                 quantization/rendering stage
             nomerge: if True, enforce that the items splitted cannot be
                 merged at a later stage (they are marked with a NoMerge symbol)
 
-
+        Returns:
+            if an event was split, returns the part of the event starting at
+            the given offset. Otherwise returns None
         """
+        absoffset = self._asAbsOffset(location)
         self.splitEventsAtOffsets([absoffset])
-        if beambreak:
-            ev = self.eventAt(absoffset)
-            if ev and ev.absOffset() == absoffset:
-                ev.addSymbol(symbols.BeamBreak())
-        elif nomerge:
-            ev = self.eventAt(absoffset)
-            if ev and ev.absOffset() == absoffset:
-                ev.addSymbol(symbols.NoMerge())
+        ev = self.eventAt(location)
 
-    def splitEventsAtOffsets(self, absoffsets: list[F], tie=True,
+        if not ev:
+            return None
+
+        assert ev.absOffset() == absoffset
+        if beambreak:
+            ev.addSymbol(symbols.BeamBreak())
+
+        if nomerge:
+            ev.addSymbol(symbols.NoMerge())
+
+        return ev
+
+    def splitEventsAtOffsets(self, locations: list[time_t | tuple[int, time_t]], tie=True,
                              ) -> None:
         """
         Splits items in self at the given offsets, **inplace** (recursively)
@@ -1308,12 +1346,16 @@ class Chain(MContainer):
         The offsets are absolute. Split items are by default tied together
 
         Args:
-            absoffsets: the offsets to split items at. Offsets are absolute.
+            locations: the locations to split items at (either an absolute offset or a
+                score location as tuple (measureindex, measureoffset)
             tie: if True, parts of an item are tied together
         """
-        if not absoffsets:
-            raise ValueError("No offsets given")
+        if not locations:
+            raise ValueError("No locations given")
         items = []
+        struct = self.scorestruct() or Workspace.active.scorestruct
+        absoffsets = [struct.locationToBeat(*loc) if isinstance(loc, tuple) else loc
+                      for loc in locations]
         for item, itemoffset, itemdur in self.iterateWithTimes(absolute=True):
             if isinstance(item, Chain):
                 item.splitEventsAtOffsets(absoffsets, tie=tie)
@@ -1401,6 +1443,12 @@ class Chain(MContainer):
                             logger.debug(f"Removing spanner {spanner} from {obj}")
                             obj.symbols.remove(spanner)
                             spanner.anchor = None
+
+    def remap(self: _MObjT, deststruct: ScoreStruct, sourcestruct: ScoreStruct = None
+              ) -> _MObjT:
+        remappedEvents = [ev.remap(deststruct, sourcestruct=sourcestruct)
+                          for ev in self]
+        return self.clone(items=remappedEvents)
 
     def automate(self,
                  param: str,

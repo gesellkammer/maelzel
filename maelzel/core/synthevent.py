@@ -81,7 +81,7 @@ class PlayArgs:
     """
     playkeys = {'delay', 'chan', 'gain', 'fade', 'instr', 'pitchinterpol',
                 'fadeshape', 'args', 'priority', 'position', 'sustain', 'transpose',
-                'glisstime', 'skip', 'end'}
+                'glisstime', 'skip', 'end', 'linkednext'}
 
     """Available keys for playback customization"""
 
@@ -121,6 +121,11 @@ class PlayArgs:
             self.db['args'] = kws
         else:
             args.update(kws)
+
+    def _checkArgs(self) -> None:
+        args = self.args
+        if args:
+            assert all(arg not in PlayArgs.playkeys for arg in args), f"{self=}"
 
     @property
     def args(self) -> dict | None:
@@ -449,7 +454,8 @@ class SynthEvent:
                  properties: dict[str, Any] | None = None,
                  sustain: float = 0.,
                  initfunc: Callable[[SynthEvent, renderer.Renderer], None] = None,
-                 **kws):
+                 # **kws
+                 ):
         """
         bps (breakpoints): a seq of (delay, midi, amp, ...) of len >= 1.
 
@@ -491,7 +497,6 @@ class SynthEvent:
             position = 0 if numchans == 1 else 0.5
 
         delay = float(delay)
-        # assert isinstance(delay, (int, float)) and delay >= 0, f"Expected int|float >= 0, got {delay} ({type(delay)})"
 
         if isinstance(fade, tuple):
             fadein, fadeout = fade
@@ -536,8 +541,8 @@ class SynthEvent:
         self.args: dict[str, float | str] | None = args
         """Any parameters passed to the instrument. Can be None"""
 
-        self.kws: dict[str, float | str] | None = kws
-        """Ignored at the moment"""
+        # self.kws: dict[str, float | str] | None = kws
+        # """Ignored at the moment"""
 
         self.linkednext: bool = linkednext
         """Is this event linked to the next? 
@@ -613,7 +618,7 @@ class SynthEvent:
 
     def _applySustain(self) -> None:
         if self.linkednext and self.sustain:
-            logger.warning("A linked event cannot have sustain")
+            logger.debug(f"A linked event cannot have sustain ({self=}")
             return
         if self.sustain > 0:
             last = self.bps[-1]
@@ -665,7 +670,7 @@ class SynthEvent:
                           instr=self.instr,
                           pitchinterpol=self.pitchinterpol,
                           fadeshape=self.fadeshape,
-                          args=self.args,
+                          args=None if not self.args else self.args.copy(),
                           priority=self.priority,
                           position=self.position,
                           numchans=self.numchans,
@@ -714,18 +719,22 @@ class SynthEvent:
             bps: the breakpoints
             playargs: playargs
             properties: any properties passed to the constructor
-            kws: any argument passed to SynthEvent's constructor
+            kws: any keyword accepted by SynthEvent
 
         Returns:
             a new SynthEvent
         """
-        db = playargs.db
-        if kws:
-            db = db.copy()
-            db.update(kws)
+        if not playargs.db:
+            db = {}
+        elif kws:
+            db = playargs.db | kws
+        else:
+            db = playargs.db.copy()
+        db.pop('transpose', None)
+        linkednext = db.pop('linkednext', False) or db.get('glisstime') is not None
         return SynthEvent(bps=bps,
                           properties=properties,
-                          linkednext=db.get('glisstime') is not None,
+                          linkednext=linkednext,
                           **db)
 
     def _consolidateDelay(self) -> None:
@@ -798,8 +807,8 @@ class SynthEvent:
             info.append('linkednext=True')
         if self.args:
             info.append(f"args={self.args}")
-        if self.kws:
-            info.append(f"kws={self.kws}")
+        #if self.kws:
+        #    info.append(f"kws={self.kws}")
         if self.sustain:
             info.append(f"sustain={self.sustain}")
         if self.position is not None and self.position >= 0:
@@ -1184,10 +1193,10 @@ def mergeEvents(events: Sequence[SynthEvent]) -> SynthEvent:
             dynparams = instr.dynamicParams()
             for k, v in event.args.items():
                 if k in dynparams:
-                    assert isinstance(v, float)
+                    assert isinstance(v, (float, int)), f"Expected a float/int, got {v}"
                     automation = _AutomationSegment(param=k,
                                                     time=offset,
-                                                    value=v,
+                                                    value=float(v),
                                                     prevalue=_cast(float, argstate.get(k, dynparams[k])),
                                                     pretime=lastoffset,
                                                     kind='arg')

@@ -297,6 +297,12 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
     parts = []
     _ = parts.append
 
+    # Attachments pre everything
+    if n.attachments:
+        for attach in n.attachments:
+            if isinstance(attach, attachment.Clef):
+                _(lilytools.makeClef(attach.kind))
+
     if n.isRest or (len(n.pitches) == 1 and n.pitches[0] == 0):
         # ******************************
         # **          Rest            **
@@ -353,8 +359,6 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         for attach in n.attachments:
             if isinstance(attach, attachment.Harmonic):
                 n = n.resolveHarmonic()
-            elif isinstance(attach, attachment.Clef):
-                _(lilytools.makeClef(attach.kind))
             elif isinstance(attach, attachment.Breath):
                 if attach.visible:
                     if attach.kind:

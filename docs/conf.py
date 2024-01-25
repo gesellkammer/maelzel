@@ -108,4 +108,3 @@ html_css_files = [
 ]
 
 default_role = 'any'
-

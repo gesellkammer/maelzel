@@ -27,6 +27,7 @@ from typing import Callable, Sequence
 
 __all__ = (
     'render',
+    'OfflineRenderer'
 )
 
 # -------------------------------------------------------------
@@ -41,7 +42,7 @@ class OfflineRenderer(renderer.Renderer):
     .. admonition:: OfflineRenderer as context manager
 
         The simplest way to render offline is to use an OfflineRenderer
-        as a context manager (see also :func:`rendering`). Within this
+        as a context manager (see also :func:`render`). Within this
         context any .play call will be collected and everything will be
         rendered when exiting the context
         (:ref:`see example below <offlineRendererExample>`)
@@ -77,11 +78,14 @@ class OfflineRenderer(renderer.Renderer):
         >>> samples, sr = sndfileio.sndread('/path/to/soundfile')
         >>> with render('scale.wav') as r:
         ...     chain.play(instr='piano')
+        ...     # This allows access to the underlying csound renderer
         ...     r.renderer.playSample((samples, sr))
 
     When exiting the context manager the file 'scale.wav' is rendered. During
     the context manager, all calls to .play are intersected and scheduled
-    via the OfflineRenderer
+    via the OfflineRenderer. This makes it easy to switch between realtime
+    and offline rendering by simply changing from :func:`play <maelzel.core.playback.play>`
+    to :func:`render`
     """
     def __init__(self,
                  outfile: str = '',
@@ -109,7 +113,7 @@ class OfflineRenderer(renderer.Renderer):
 
         self.numChannels = numchannels or cfg['rec.numChannels']
 
-        self.instrs: dict[str, csoundengine.Instr] = {}
+        self.instrs: dict[str, csoundengine.instr.Instr] = {}
         """An index of registered Instrs, mapping name to the Instr instance"""
 
         self.renderedSoundfiles: list[str] = []
@@ -119,7 +123,7 @@ class OfflineRenderer(renderer.Renderer):
 
         self._renderProc: subprocess.Popen | None = None
 
-        self.csoundRenderer: csoundengine.Renderer = self.makeRenderer()
+        self.csoundRenderer: csoundengine.offline.Renderer = self.makeRenderer()
         """The actual csoundengine.Renderer"""
 
         self.tail = tail
@@ -140,7 +144,7 @@ class OfflineRenderer(renderer.Renderer):
         """Is this a realtime renderer?"""
         return False
 
-    def makeRenderer(self) -> csoundengine.Renderer:
+    def makeRenderer(self) -> csoundengine.offline.Renderer:
         """
         Construct a :class:`csoundengine.Renderer` from this OfflineRenderer
 
@@ -299,7 +303,8 @@ class OfflineRenderer(renderer.Renderer):
         self.registeredPresets[presetdef.name] = presetdef
         return False
 
-    def registerInstr(self, name: str, instrdef: csoundengine.Instr) -> None:
+    def registerInstr(self, name: str, instrdef: csoundengine.instr.Instr
+                      ) -> None:
         """
         Register a csoundengine.Instr to be used with this OfflineRenderer
 
@@ -430,7 +435,7 @@ class OfflineRenderer(renderer.Renderer):
             scoreEvents.extend(self._schedSessionEvent(ev) for ev in sessionevents)
         return csoundengine.offline.SchedEventGroup(scoreEvents)
 
-    def definedInstrs(self) -> dict[str, csoundengine.Instr]:
+    def definedInstrs(self) -> dict[str, csoundengine.instr.Instr]:
         """
         Get all instruments available within this OfflineRenderer
 

@@ -161,7 +161,8 @@ class MEvent(MObj):
         Split this event at the given offsets
 
         Args:
-            offsets: absolute offsets
+            offsets: absolute offsets. To use score locations, convert those to absolute
+                offsets via :meth:`scorestruct.locationToBeat <maelzel.scorestruct.ScoreStruct.locationToBeat>`
             tie: if True, tie the parts
             absolute: if True, the offsets are interpreted as absolute offsets
 

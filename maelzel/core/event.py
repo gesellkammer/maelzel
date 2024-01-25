@@ -67,11 +67,6 @@ class Note(MEvent):
     """
     A Note represents a one-pitch event
 
-    Internally the pitch of a Note is represented as a fractional
-    midinote: there is no concept of enharmonicity. Notes created
-    as ``Note(61)``, ``Note("4C#")`` or ``Note("4Db")`` will all result
-    in the same Note.
-
     A Note makes a clear division between the value itself and the
     representation as notation or as sound. Playback specific options
     (instrument, pan position, etc) can be set via the
@@ -86,7 +81,8 @@ class Note(MEvent):
     * To set the pitch from a frequency, use `pitchtools.f2m` or use a string as '400hz'.
     * The spelling of the notename can be fixed by suffixing the notename with a '!' sign.
       For example, ``Note('4Db!')`` will fix the spelling of this note to Db
-      instead of C#. This is the same as ``Note('4Db', fixed=True)``
+      instead of C#. This is the same as ``Note('4Db', fixed=True)``. It is also possible
+      to bind all pitches given as notename, see :ref:`fixStringNotenames <config_fixstringnotenames>`
     * The duration can be set as ``Note('4C#:0.5')`` to set a duration of 0.5, or
       also Note('4C#/8') to set a duration of an 8th note
     * Dynamics can also be set: ``Note('4C#:mf')``. Multiple settings can be combined:
@@ -698,6 +694,7 @@ class Note(MEvent):
         scorestruct = workspace.scorestruct
         if self.playargs is not None:
             playargs = playargs.updated(self.playargs)
+            # playargs._checkArgs()
 
         amp = self.resolveAmp(config=conf, dyncurve=workspace.dynamicCurve)
         glisstime = playargs.get('glisstime')

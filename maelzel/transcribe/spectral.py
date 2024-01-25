@@ -6,7 +6,7 @@ from emlib import iterlib
 from maelzel.partialtracking.partial import Partial
 from maelzel.partialtracking import spectrum as sp
 
-from .core import Breakpoint, simplifyBreakpoints, TranscribeOptions
+from .core import Breakpoint, simplifyBreakpoints, TranscriptionOptions
 
 from typing import TYPE_CHECKING, Callable
 
@@ -43,7 +43,7 @@ def partialToBreakpoints(partial: Partial,
 
 def trackToVoice(partials: list[Partial],
                  scorestruct: ScoreStruct | None = None,
-                 options: TranscribeOptions | None = None
+                 options: TranscriptionOptions | None = None
                  ) -> mc.Voice:
 
     from maelzel.transcribe import mono
@@ -60,7 +60,7 @@ def trackToVoice(partials: list[Partial],
 def transcribeTracks(tracks: list[Track],
                      noisetracks: list[Track] | None = None,
                      scorestruct: ScoreStruct | None = None,
-                     options: TranscribeOptions | None = None
+                     options: TranscriptionOptions | None = None
                      ) -> mc.Score:
     import maelzel.core
 
@@ -92,7 +92,7 @@ def transcribe(spectrum: sp.Spectrum,
                noisebw=0.001,
                noisefreq=3500,
                scorestruct: ScoreStruct | None = None,
-               options: TranscribeOptions | None = None
+               options: TranscriptionOptions | None = None
                ) -> tuple[mc.Score, list[Partial]]:
     """
     Transcribe the spectrum as a Score

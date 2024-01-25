@@ -56,6 +56,7 @@ def _parseAudiogen(code: str, check=False) -> ParsedAudiogen:
     numOutchs = 0
     audiogenlines = code.splitlines()
     for line in audiogenlines:
+        # line = _stripComments(line)
         foundAudiovars = audiovarRx.findall(line)
         audiovarsList.extend(foundAudiovars)
         outOpcode = outOpcodeRx.fullmatch(line)

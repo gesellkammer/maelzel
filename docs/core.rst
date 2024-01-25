@@ -1,7 +1,7 @@
 .. _core:
 
-Overview
-========
+Core Overview
+=============
 
 **maelzel.core** provides a set of classes to define notes, chords,
 lines, sequences, voices or entire scores. Any of these objects can
@@ -27,26 +27,26 @@ analyzing or preparing a performance.
 Key Concepts
 ------------
 
-MObj
+**MObj**
     All classes defined in **maelzel.core** inherit from :class:`~maelzel.core.mobj.MObj` (*Maelzel Object*, or
     *Music Object*). A :class:`~maelzel.core.mobj.MObj` **exists in time** (it has a duration and a
     time offset), it **can be displayed as notation** (:meth:`~maelzel.core.mobj.MObj.show`)
     and **played as audio** (:meth:`~maelzel.core.mobj.MObj.play`)
 
 
-Explicit / Implicit Time
+**Explicit / Implicit Time**
     A :class:`~maelzel.core.mobj.MObj` always has an explicit duration (the *dur* attribute). The
     *offset* can be undetermined (``None``), meaning that it is **not explicitely set** and depends
     on the context. A :class:`~maelzel.core.event.Note` without an explicit offset
     will be stacked left to the previous event.
 
-Absolute Time / Relative Time
+**Absolute Time / Relative Time**
     The time attributes (*offset*, *dur*, *end*) of a :class:`~maelzel.core.mobj.MObj` refer to a
     relative time, measured in quarternotes. To map from *relative* time to *absolute* time
     (measured in *seconds*) a score structure (:class:`~maelzel.scorestruct.ScoreStruct`)
     is needed (:ref:`see below<KeyConceptsScoreStructure>`)
 
-Workspace
+**Workspace**
     At any moment there is an active :ref:`Workspace <workspace_mod>` (an
     instance of :class:`~maelzel.core.workspace.Workspace`). It contains the current
     configuration (:attr:`~maelzel.core.workspace.Workspace.config`,
@@ -58,7 +58,7 @@ Workspace
 
 .. _KeyConceptsConfiguration:
 
-Configuration
+**Configuration**
     The active configuration (an instance of :class:`~maelzel.core.config.CoreConfig`,
     see :ref:`config`) controls multiple aspects of **maelzel.core** and enables the user to
     customize the rendering process, quantization, playback, etc. The active config can be
@@ -66,7 +66,7 @@ Configuration
 
 .. _KeyConceptsScoreStructure:
 
-Score Structure
+**Score Structure**
     A Score Structure (:class:`~maelzel.scorestruct.ScoreStruct`) is a timeline built from
     a sequence of measure definitions. Each measure defines a time signature and tempo.
     A ScoreStruct **does not contain any material itself**: it is only
@@ -74,7 +74,7 @@ Score Structure
     (:func:`~maelzel.core.workspace.getScoreStruct`, :func:`~maelzel.core.workspace.setScoreStruct`),
     the default being an endless score with a *4/4* time-signature and a tempo of *60 bpm*.
 
-Playback
+**Playback**
     For playback **maelzel** uses `csound <https://csound.com/>`_ as an audio engine embedded
     in python (see `csoundengine <https://csoundengine.readthedocs.io>`_).
     When the :meth:`~maelzel.core.MObj.play` method is called, a
@@ -118,8 +118,8 @@ In general, there are two kinds of :class:`~maelzel.core.mobj.MObj`: **events**
 
 ----------------
 
-Table of Contents
-=================
+Core: Reference
+===============
 
 
 .. toctree::
@@ -137,5 +137,5 @@ Table of Contents
     config
     workspace
     Input / Output (import/export to musicxml, lilypond, MiDI, ...) <coreio>
-    Pure Notation <symbols>
+    Customizing Notation <symbols>
     

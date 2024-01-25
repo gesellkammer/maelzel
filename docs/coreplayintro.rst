@@ -1,3 +1,5 @@
+.. _coreplayintro:
+
 Playback
 ========
 
@@ -28,32 +30,32 @@ Within the :meth:`~maelzel.core.mobj.MObj.play` method a number of parameters
 regarding playback can be determined. **Such parameters are common to all objects. **The most
 relevant of these playback parameters are:
 
-instr
+**instr**
   which instrument preset (see :class:`~maelzel.core.presetdef.PresetDef` for more
   information) is used for playback. If not given the default preset is used, as determined
   in the configuration (see :ref:`play.instr <config_play_instr>`)
 
-delay
+**delay**
   delay in seconds, added to the start of the object
   As opposed to the :attr:`~maelzel.core.mobj.MObj.offset` attribute of each object,
   which is defined in *quarternote beats*, the delay is always a *time* in seconds
 
-gain
+**gain**
   modifies the own amplitude for playback/recording (0-1)
 
-chan
+**chan**
   the channel to output to. **Channels start at 1**
 
-pitchinterpol
+**pitchinterpol**
   'linear', 'cos', 'freqlinear', 'freqcos'
 
-fade
+**fade**
   fade duration in seconds, can be a tuple (fadein, fadeout)
 
-position
+**position**
   the panning position (0=left, 1=right)
 
-args
+**args**
   a :class:`Preset <maelzel.core.presetdef.PresetDef>` can define custom parameters,
   like a cutoff frequency for a filter or a modulation ratio for FM synthesis, etc.
 
@@ -170,7 +172,7 @@ By replacing a call to :meth:`~maelzel.core.mobj.MObj.play` with a call to
 :class:`~maelzel.core.mobj.MObj` as a soundfile (offline rendering). To
 render multiple objects to the same soundfile you can either group them in a container
 (for example, place multiple notes inside a :class:`~maelzel.core.Chain` and
-render that) or render them via :func:`maelzel.core.playback.render`
+render that) or render them via :func:`render <maelzel.core.offline.render>`
 
 .. code-block:: python
 
@@ -190,7 +192,7 @@ via ``.setPlay``.
 Using ``render`` as context manager
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-A simpler method is to use the :func:`~maelzel.core.playback.render` as context
+A simpler method is to use the :func:`~maelzel.core.offline.render` as context
 manager:
 
 .. code-block:: python
@@ -203,6 +205,7 @@ manager:
     with render('out.wav'):
         voice1.play(instr='saw')
         voice2.play(instr='tri')
+
 
 Within the context manager the same code used for playing in realtime can be used to render offline
 (see also: :class:`~maelzel.core.play.OfflineRenderer`)
@@ -218,5 +221,14 @@ Playback API
     The playback module <coreplay>
     Managing Presets <presetman>
     PresetDef <presetdef>
+    Offline Rendering <offline>
     Synthesis Events <synthevent>
+
+
+.. toctree::
+    :maxdepth: 1
+    :hidden:
+
+    abstractrenderer
+
 

@@ -203,6 +203,12 @@ class QuantizationProfile:
     'strong': only strong beats)
     """
 
+    tiedSnappedGracenoteMinRealDuration: F = F(1, 1000000)
+    """
+    The min. real duration of a tied snapped gracenote in order for it NOT 
+    to be removed
+    """
+
     _cachedDivisionsByTempo: dict[tuple[number_t, bool], list[division_t]] = _field(default_factory=dict)
     _cachedDivisionPenalty: dict[tuple[int, ...], tuple[float, str]] = _field(default_factory=dict)
 

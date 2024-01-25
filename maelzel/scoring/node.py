@@ -351,6 +351,27 @@ class Node:
             else:
                 yield from item.recurse(reverse=reverse)
 
+    def findNextNotation(self, notation: Notation) -> Notation | None:
+        """
+        Find the notation next to the given notation
+
+        Args:
+            notation: the notation to query. The returned notation, if found, will
+                be the notation next to this
+
+        Returns:
+            the notation next to the given notation, or None if no notation found.
+            The returned notation does not need to be on the same node.
+
+        """
+        found = False
+        for n, node in self.recurseWithNode():
+            if found:
+                return n
+            elif n is notation:
+                found = True
+        return None
+
     def findNodeForNotation(self, notation: Notation) -> Node:
         """
         Find the node of the given notation
@@ -507,7 +528,7 @@ class Node:
         Returns:
             the number of modifications
 
-        An unnecessary gracenote are:
+        An unnecessary gracenote:
 
         * has the same pitch as the next real note and starts a glissando.
           Such gracenotes might be created during quantization.
@@ -521,6 +542,7 @@ class Node:
         skip = False
         n0: Notation
         n1: Notation
+
         for (n0, node0), (n1, node1) in iterlib.pairwise(self.recurseWithNode()):
             if skip:
                 skip = False

@@ -81,11 +81,11 @@ builtinPresets = [
 
     PresetDef(
         '_click', r"""
-        |itransp=24|
+        |itransp=24, idecay=0.1|
         ; Default preset used when rendering a click-track
         ; Args:
         ;   itransp: transposition interval
-        aclickenv expseg db(-120), 0.01, 1, 0.1, db(-120)
+        aclickenv expseg db(-120), 0.01, 1, idecay, db(-120)
         aout1 = oscili:a(aclickenv, mtof:k(kpitch+itransp))
         """,
         description="Default preset used when rendering a click-track",

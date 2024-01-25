@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 __all__ = (
     'Score',
+    'show'
 )
 
 
@@ -130,12 +131,53 @@ class Score(MContainer):
         from maelzel.core import musicxmlparser as mxml
         return mxml.parseMusicxml(musicxml, enforceParsedSpelling=enforceParsedSpelling)
 
+    @staticmethod
+    def pack(objects: list[MEvent | Chain | Voice], maxrange=36, mingap=0) -> Score:
+        """
+        Pack the given objects into a Score
+
+        Args:
+            objects: a list of notes, chords, chains, etc. Voices are packed as is and not joined
+                with other voices
+            maxrange: the max. pitch range for a voice
+            mingap: a min. gap between items in a voice
+
+        Returns:
+            the packed Score
+        """
+        from maelzel import packing
+        voices = []
+        items = []
+        for obj in objects:
+            if isinstance(obj, Voice):
+                voices.append(obj)
+            elif isinstance(obj, (MEvent, Chain)):
+                items.append(packing.Item(obj, offset=obj.absOffset(), dur=obj.dur,
+                                          step=obj.meanPitch()))
+            else:
+                raise TypeError(f"Cannot pack {obj}")
+        tracks = packing.packInTracks(items, maxrange=maxrange, mingap=mingap)
+        if not tracks:
+            raise ValueError("Cannot pack the given objects")
+        for track in tracks:
+            voice = Voice(track.unwrap())
+            voices.append(voice)
+        # Sort from high to low
+        voices.sort(key=lambda voice: voice.meanPitch(), reverse=True)
+        sco = Score(voices)
+        return sco
+
     def __getitem__(self, item):
         return self.voices.__getitem__(item)
 
-    def scorestruct(self) -> ScoreStruct | None:
+    def scorestruct(self, resolve=False) -> ScoreStruct | None:
         """The attached ScoreStruct, if present"""
-        return self._scorestruct
+        if self._scorestruct:
+            return self._scorestruct
+        elif resolve:
+            return Workspace.active.scorestruct
+        else:
+            return None
 
     def setScoreStruct(self, scorestruct: ScoreStruct) -> None:
         """
@@ -275,3 +317,17 @@ class Score(MContainer):
     def pitchTransform(self, pitchmap: Callable[[float], float]) -> Score:
         voices = [voice.pitchTransform(pitchmap) for voice in self.voices]
         return self.clone(voices=voices)
+
+
+def show(*objs: MObj | list[MObj], **kws) -> None:
+    flatobjs = []
+    for obj in objs:
+        if isinstance(obj, MObj):
+            flatobjs.append(obj)
+        elif isinstance(obj, (tuple, list)):
+            flatobjs.extend(obj)
+        else:
+            raise TypeError(f"Object of type {type(obj)} not supported ({obj})")
+    from maelzel.core import Score
+    sco = Score.pack(flatobjs)
+    sco.show(**kws)
