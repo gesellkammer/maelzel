@@ -15,8 +15,8 @@ from emlib import iterlib
 from maelzel.scorestruct import ScoreStruct
 from maelzel import histogram
 
-from .core import Breakpoint, simplifyBreakpoints, TranscriptionOptions, simplifyBreakpointsByDensity
-
+from .breakpoint import Breakpoint, simplifyBreakpoints, simplifyBreakpointsByDensity
+from .options import TranscriptionOptions
 
 import logging
 logger = logging.getLogger("maelzel.transcribe")
@@ -28,7 +28,6 @@ if TYPE_CHECKING:
 
 __all__ = (
     'FundamentalAnalysisMono',
-    'TranscriptionOptions'
 )
 
 
@@ -430,6 +429,7 @@ def transcribeVoice(groups: list[list[Breakpoint]],
     lastgroupidx = len(groups) - 1
     pitchconv = PitchConverter(a4=options.a4)
     unvoicedPitch = options.unvoicedPitch
+    numslurs = 0
 
     if options.simplify > 0:
         groups = [simplifyBreakpoints(group, param=options.simplify, pitchconv=pitchconv)
@@ -476,7 +476,13 @@ def transcribeVoice(groups: list[list[Breakpoint]],
             fragment[-1].gliss = False
 
         if options.addSlurs and len(fragment) > 1:
-            fragment[0].addSpanner('slur', fragment[-1])
+            n0, n1 = fragment[0], fragment[-1]
+            if len(fragment) > 2 or not (n0.isGracenote() and n1.isGracenote()):
+                n0.addSpanner('slur', n1)
+                if options.debug:
+                    n0.addText(f'{numslurs}(')
+                    n1.addText(f'){numslurs}')
+                numslurs += 1
 
         notes.extend(fragment)
 

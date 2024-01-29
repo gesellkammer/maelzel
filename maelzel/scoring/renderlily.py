@@ -15,7 +15,7 @@ from functools import cache
 
 import emlib.textlib
 import emlib.filetools
-from emlib.iterlib import pairwise, first
+from emlib.iterlib import pairwise, first, duplicates
 
 from maelzel.music import lilytools
 from maelzel.textstyle import TextStyle
@@ -680,6 +680,8 @@ def renderNode(node: Node,
             w.line(nodetxt)
         else:
             assert isinstance(item, Notation)
+            item.checkIntegrity(fix=True)
+
             if not item.gliss and state.glissando:
                 w.add(r"\glissandoSkipOff ")
                 state.glissando = False
@@ -721,6 +723,11 @@ def renderNode(node: Node,
             #   * If not tied, turn off skip if already on
             # * else (no gliss): turn off skip if on
 
+            if item.spanners:
+                for spanner in item.spanners:
+                    if lilytext := _handleSpannerPost(spanner, state=state):
+                        w.add(lilytext)
+
             if item.gliss:
                 if not state.glissando:
                     if props := item.findAttachment(attachment.GlissProperties):
@@ -743,11 +750,6 @@ def renderNode(node: Node,
                 if state.glissando:
                     w.add(r"\glissandoSkipOff")
                     state.glissando = False
-
-            if item.spanners:
-                for spanner in item.spanners:
-                    if lilytext := _handleSpannerPost(spanner, state=state):
-                        w.add(lilytext)
 
             # w.add(" ")
 

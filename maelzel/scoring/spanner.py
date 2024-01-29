@@ -41,6 +41,9 @@ class Spanner:
 
         assert self.uuid
 
+    def __hash__(self):
+        return hash((self.uuid, self.kind))
+
     def name(self) -> str:
         return type(self).__name__
 
@@ -197,7 +200,6 @@ class Bracket(Spanner):
         super().__init__(kind=kind, uuid=uuid, placement=placement, linetype=linetype)
         self.text = text
         self.lineend = lineend
-
 
 
 class Slide(Spanner):

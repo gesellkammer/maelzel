@@ -26,7 +26,6 @@ from __future__ import annotations
 from abc import abstractmethod, ABC
 import random
 import copy
-import weakref
 
 from maelzel import _util
 from maelzel.common import F
@@ -124,11 +123,17 @@ class Spanner(Symbol):
         self.placement = placement
         self.color = color
 
-        self.anchor: weakref.ReferenceType[event.MEvent] | None = None
+        self.anchor: event.MEvent | None = None
         """The event to which this spanner is anchored to"""
 
-        self.partnerSpanner: weakref.ReferenceType[Spanner] | None = None
+        self.partnerSpanner: Spanner | None = None
         """The partner spanner"""
+
+    def __repr__(self) -> str:
+        def convertRef(val):
+            return f"{type(val).__name__}"
+        return _util.reprObj(self, hideFalsy=True,
+                             convert={'anchor': convertRef, 'partnerSpanner': convertRef})
 
     def _attrs(self) -> dict:
         keys = ('kind', 'uuid', 'linetype', 'placement', 'color')
@@ -145,7 +150,7 @@ class Spanner(Symbol):
         Args:
             obj: the object this spanner is anchored to, either as start or end
         """
-        self.anchor = weakref.ref(obj)
+        self.anchor = obj
 
     def bind(self, startobj: event.MEvent, endobj: event.MEvent) -> None:
         """
@@ -178,9 +183,9 @@ class Spanner(Symbol):
         """
         Creates the end spanner for an already existing start spanner
 
-        start and end spanner share the same uuid and have a weakref to
+        start and end spanner share the same uuid and have a ref to
         each other, allowing each of the spanners to access their
-        twin. As each spanner also holds a weak ref to their anchor,
+        twin. As each spanner also holds a ref to their anchor,
         the anchored events can be made aware of each other.
 
         Args:
@@ -207,8 +212,8 @@ class Spanner(Symbol):
             other: the partner spanner
 
         """
-        other.partnerSpanner = weakref.ref(self)
-        self.partnerSpanner = weakref.ref(other)
+        other.partnerSpanner = self
+        self.partnerSpanner = other
         if self.kind == 'start':
             other.kind = 'end'
             other.uuid = self.uuid

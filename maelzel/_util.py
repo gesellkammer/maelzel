@@ -20,6 +20,7 @@ def reprObj(obj,
             hideEmptyStr=False,
             hideFalsy=False,
             quoteStrings=False,
+            convert: dict[str, Callable[[Any], str]] = None
             ) -> str:
     """
     Given an object, generate its repr
@@ -35,6 +36,8 @@ def reprObj(obj,
         hideFalse: hide bool attributes which are False.
         hideEmptyStr: hide str attributes which are empty
         quoteStrings: if True, strings are quoted
+        convert: if given, a dict mapping attr names to a function of the form (value) -> str,
+            which returns the string representation of the given value
 
     Returns:
         a list of strings of the form "{key}={value}" only for those attributes
@@ -50,6 +53,8 @@ def reprObj(obj,
         value = getattr(obj, attr)
         if value is None or (not value and hideFalsy) or (value == '' and hideEmptyStr) or (value is False and hideFalse):
             continue
+        elif convert and attr in convert:
+            value = convert[attr](obj)
         elif (filterfunc := filter.get(attr)) and not filterfunc(value):
             continue
         elif isinstance(value, weakref.ref):

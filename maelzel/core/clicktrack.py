@@ -12,7 +12,7 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
                    strongBeatPitch="5C",
                    middleBeatPitch="5E",
                    weakBeatPitch="5G",
-                   playpreset: str = '_click',
+                   playpreset: str = '.click',
                    fade=0
                    ) -> Score:
     """

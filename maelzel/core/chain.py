@@ -125,7 +125,7 @@ class Chain(MContainer):
             they are a way for the user to attach data to an object
     """
 
-    __slots__ = ('items', '_modified', '_cachedEventsWithOffset')
+    __slots__ = ('items', '_modified', '_cachedEventsWithOffset', '_postSymbols')
 
     def __init__(self,
                  items: Sequence[MEvent | Chain | str] | str | None = None,
@@ -165,10 +165,15 @@ class Chain(MContainer):
         self._modified = items is not None
         self._cachedEventsWithOffset: list[tuple[MEvent, F]] | None = None
 
+        self._postSymbols: list[tuple[time_t, symbols.Symbol]] = []
+        """Symbols to apply a posteriory. """
+
     def __hash__(self):
         items = [type(self).__name__, self.label, self.offset, len(self.items)]
         if self.symbols:
             items.extend(self.symbols)
+        if self._postSymbols:
+            items.extend(self._postSymbols)
         items.extend(self.items)
         out = hash(tuple(items))
         return out
@@ -902,6 +907,16 @@ class Chain(MContainer):
         if parentOffset is None:
             parentOffset = self.parent.absOffset() if self.parent else F0
 
+        if self._postSymbols:
+            postsymbols = self._postSymbols
+            self = self.copy()
+            for offset, symbol in postsymbols:
+                event = self.splitAt(offset, beambreak=False)
+                if event:
+                    event.addSymbol(symbol)
+                else:
+                    logger.error(f"No event found at {offset} for symbol {symbol}")
+
         chainitems = self.flatItems()
         notations: list[scoring.Notation] = []
         if self.label and chainitems[0].offset > 0:
@@ -1184,6 +1199,68 @@ class Chain(MContainer):
         assert isinstance(first, (Note, Chord)) and isinstance(last, (Note, Chord))
         spanner.bind(first, last)
 
+    def addSymbolAt(self: ChainT, location: time_t | tuple[int, time_t], symbol: symbols.Symbol) -> ChainT:
+        """
+        Adds a symbol at the given location
+
+        If there is no event starting at the given location, the quantized part is split at
+        the location when rendering and the symbol is added to the event. This allows to add
+        'soft' symbols at any location without the need to modify the events themselves.
+        If there actually is an event **starting** at the given offset, the symbol
+        is added to the event directly.
+
+        Args:
+            location: the location to add the symbol at
+            symbol: the symbol to add
+
+        Returns:
+            self
+
+        Example
+        -------
+
+            >>> chain = Chain([
+            ... Note("4C", 2),
+            ... Note("4E", 1)
+            ])
+            >>> chain.addSymbolAt(1, symbols.Fermata())
+
+
+        .. seealso:: :meth:`Chain.beamBreak`
+        """
+        offset = self.scorestruct(resolve=True).asBeat(location)
+        event = self.eventAt(offset)
+        if event and event.absOffset() == offset:
+            event.addSymbol(symbol)
+        else:
+            self._postSymbols.append((offset, symbol))
+        return self
+
+    def beamBreak(self: ChainT, location: time_t | tuple[int, time_t]) -> ChainT:
+        """
+        Add a 'soft' beam break at the given location
+
+        A soft beam break does not modify the actual events in this Chain/Voice. It
+        adds a beam break to the quantized score when rendering. Any syncopation
+        at the given location will be broken for rendering but stays unmodified
+        as an event. This is similar to performing:
+
+            >>> chain.splitAt(location).addSymbol(symbols.BeamBreak())
+
+        But the Chain/Voice itself remains unmodified: the operation is only performed
+        at the quantized score
+
+        Args:
+            location: the location to add a beam break to
+
+        Returns:
+            self
+
+        .. seealso:: :meth:`Chain.addSymbolAt`  
+
+        """
+        return self.addSymbolAt(location=location, symbol=symbols.BeamBreak())
+
     def firstEvent(self) -> MEvent | None:
         """The first event in this chain, recursively"""
         return next(self.recurse(), None)
@@ -1302,7 +1379,7 @@ class Chain(MContainer):
         offsets = scorestruct.measureOffsets(startindex=startindex, stopindex=stopindex)
         self.splitEventsAtOffsets(offsets, tie=True)
 
-    def splitAt(self, location: F | tuple[int, F], beambreak=True, nomerge=True
+    def splitAt(self, location: F | tuple[int, F], beambreak=False, nomerge=True
                 ) -> MEvent | None:
         """
         Split any event present at the given absolute offset (in place)

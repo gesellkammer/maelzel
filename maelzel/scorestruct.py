@@ -2426,8 +2426,7 @@ class ScoreStruct:
         score = makeClickTrack(struct,
                                clickdur=clickdur,
                                strongBeatPitch=strongBeatPitch,
-                               weakBeatPitch=weakBeatPitch,
-                               playpreset='_click')
+                               weakBeatPitch=weakBeatPitch)
         score.setPlay(itransp=playTransposition)
         return score
 

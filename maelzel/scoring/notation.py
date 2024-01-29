@@ -491,11 +491,27 @@ class Notation:
             predicate = lambda a, cls=cls: isinstance(a, cls)
         self.removeAttachments(predicate=predicate)
 
-    def hasSpanner(self, uuid: str) -> bool:
+    def hasSpanner(self, uuid: str, kind='') -> bool:
         """Returns true if a spanner with the given uuid is found"""
-        return any(s.uuid == uuid for s in self.spanners) if self.spanners else False
+        return bool(self.findSpanner(uuid, kind=kind)) if self.spanners else False
 
-    def addSpanner(self, spanner: _spanner.Spanner, end: Notation = None) -> Notation:
+    def findSpanner(self, uuid: str, kind='') -> _spanner.Spanner | None:
+        """
+        Find a spanner with the given attributes
+
+        Args:
+            uuid: the uuid of the spanner
+            kind: the kind of the spanner, one of 'start' / 'end'
+        """
+        if not self.spanners:
+            return None
+        if kind:
+            assert kind == 'start' or kind == 'end'
+            return next((s for s in self.spanners if s.uuid == uuid and s.kind == kind), None)
+        return next((s for s in self.spanners if s.uuid == uuid), None)
+
+    def addSpanner(self, spanner: _spanner.Spanner, end: Notation = None
+                   ) -> Notation:
         """
         Add a Spanner to this Notation
 
@@ -513,15 +529,19 @@ class Notation:
         """
         if self.spanners is None:
             self.spanners = []
-        if spanner in self.spanners:
+
+        if self.findSpanner(uuid=spanner.uuid, kind=spanner.kind):
             raise ValueError(f"Spanner {spanner} was already added to this Notation ({self})")
-        elif any(s.uuid == spanner.uuid for s in self.spanners):
-            logger.error(f"A spanner with the uuid {spanner.uuid} is already part of this Notation")
-        self.spanners.append(spanner)
-        # self.spanners.sort(key=lambda spanner: spanner.priority())
-        if end:
-            end.addSpanner(spanner.makeEndSpanner())
-        self.spanners.sort(key=lambda spanner: spanner.priority())
+        elif partner := self.findSpanner(uuid=spanner.uuid, kind='start' if spanner.kind == 'end' else 'end'):
+            logger.warning(f"A Notation cannot be assigned both start and end of a spanner. Removing "
+                           f"the partner spanner"
+                           f"{self=}, {spanner=}, {partner=}, {end=}")
+            self.removeSpanner(partner)
+        else:
+            self.spanners.append(spanner)
+            if end:
+                end.addSpanner(spanner.makeEndSpanner())
+            self.spanners.sort(key=lambda spanner: spanner.priority())
         return self
 
     def resolveHarmonic(self, removeAttachment=False) -> Notation:
@@ -559,41 +579,79 @@ class Notation:
             n.attachments = [a for a in n.attachments if not isinstance(a, Harmonic)]
         return n
 
-    def transferSpanner(self, spanner: _spanner.Spanner, other: Notation):
+    def transferSpanner(self, spanner: _spanner.Spanner, other: Notation) -> bool:
         """Move the given spanner to another Notation
+
+        Args:
+            spanner: the spanner to transfer
+            other: the destination notation
+
+        Returns:
+            True if the spanner was actually transferred
 
         This is done when replacing a Notation within a Node but there is a need
         to keep the spanner
         """
-        if self.spanners:
-            self.spanners.remove(spanner)
-        if not other.spanners or spanner not in other.spanners:
-            if not other.hasSpanner(spanner.uuid):
-                other.addSpanner(spanner)
+        assert self.spanners and spanner in self.spanners
 
-    def removeSpanner(self, spanner: _spanner.Spanner) -> None:
+        if other is self:
+            raise ValueError(f"Cannot transfer a spanner to self ({self=}, {spanner=}")
+
+        else:
+            if other.addSpanner(spanner):
+                self.spanners.remove(spanner)
+            return True
+
+    def removeSpanner(self, spanner: _spanner.Spanner | str) -> None:
         """
-        Removes the given spanner from this Notation and from its partner
+        Removes the given spanner from this Notation
 
         Args:
-            spanner: the spanner to remove
+            spanner: the spanner to remove or the uuid of the spanner to remove
 
         """
         if not self.spanners:
             raise ValueError(f"spanner {spanner} not found in notation {self}")
         if spanner.parent and spanner.parent is not self:
             logger.error(f"This spanner {spanner} has a different parent! parent={spanner.parent}, self={self}")
-        try:
+
+        if isinstance(spanner, _spanner.Spanner):
             spanner.parent = None
             self.spanners.remove(spanner)
-        except ValueError:
-            raise ValueError(f"Cannot remove {spanner} from {self}: spanner not found. Spanners: {self.spanners}")
+        else:
+            for spannerobj in (s for s in self.spanners if s.uuid == spanner):
+                self.removeSpanner(spannerobj)
 
     def removeSpanners(self) -> None:
         """Remove all spanners from this Notation"""
         if self.spanners:
             for spanner in self.spanners:
                 self.removeSpanner(spanner)
+
+    def checkIntegrity(self, fix=False) -> list[str]:
+        """
+        Checks the integrity of self
+
+        Args:
+            fix: if True, attempts to fix the probelms found, if possible
+
+        Returns:
+            a list of error messages
+
+        """
+        out = []
+        if self.spanners:
+            for spanner in self.spanners.copy():
+                if partner := self.findSpanner(uuid=spanner.uuid, kind='start' if spanner.kind == 'end' else 'end'):
+                    msg = (f"Found notation with both start and end spanner of same uuid, "
+                           f"{spanner=}, {partner=}")
+                    logger.warning(msg)
+                    out.append(msg)
+                    if fix:
+                        out.append(f"Removed spanner pair ({spanner}, {partner}) from {self}")
+                        self.removeSpanner(spanner)
+                        self.removeSpanner(partner)
+        return out
 
     @classmethod
     def makeArtificialHarmonic(cls,
@@ -1823,5 +1881,6 @@ class SnappedNotation:
 
     def __repr__(self):
         return repr(self.makeSnappedNotation())
+
 
 

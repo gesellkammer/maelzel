@@ -14,6 +14,8 @@ import os
 import time
 from math import sqrt
 
+import emlib.misc
+
 from maelzel.common import F, F0
 from maelzel._result import Result
 from maelzel._util import readableTime, showF, hasoverlap
@@ -683,6 +685,7 @@ class QuantizedMeasure:
                 if (n.isGracenote and
                         n.tiedNext and
                         not n.tiedPrev and
+                        not n.hasAttributes() and
                         n.getProperty('.snappedGracenote') and
                         n.getProperty('.originalDuration', F0) < self.quantprofile.tiedSnappedGracenoteMinRealDuration):
                     nidx = node.items.index(n)
@@ -1983,10 +1986,28 @@ class QuantizedPart:
         # _spanner.removeUnmatchedSpanners(self.flatNotations(tree=tree))
         notations = list(self.flatNotations())
         _spanner.solveHairpins(notations)
-        _spanner.matchOrfanSpanners(notations=notations,
-                                    removeUnmatched=removeUnnecessary)
         _spanner.markNestingLevels(notations)
         _spanner.moveEndSpannersToEndOfLogicalTie(notations)
+        for n in notations:
+            if n.spanners:
+                uuids = [spanner.uuid for spanner in n.spanners]
+                for duplicateuuid in emlib.misc.duplicates(uuids):
+                    spanners = [spanner for spanner in n.spanners if spanner.uuid == duplicateuuid]
+                    start = iterlib.first(spanner for spanner in spanners
+                                          if spanner.kind == 'start')
+                    end = iterlib.first(spanner for spanner in spanners
+                                        if spanner.kind == 'end')
+                    logger.warning(f"Duplicate spanners found: {spanners}, {self=}")
+                    if start and end:
+                        logger.warning(f"Start/end spanner at the same notation, removing spanner {start}/{end}, {self=}")
+                        n.removeSpanner(duplicateuuid)
+                    else:
+                        # Only start / end spanner, keep only one
+                        logger.warning(f"Duplicate spanners with uuid {duplicateuuid}, removing ({self=})")
+                        n.removeSpanner(duplicateuuid)
+                        n.addSpanner(spanners[0])
+        _spanner.matchOrfanSpanners(notations=notations,
+                                    removeUnmatched=removeUnnecessary)
 
     # def _repairGracenotesInBeats(self):
     #     """

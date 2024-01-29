@@ -58,8 +58,10 @@ setup(
         "thefuzz",
         # "resampy",  # Do not include it by default, since this pulls numba
         "python-constraint",
-
-        "emlib>=1.14.0",
+        "pillow",
+    
+        # Own libraries
+        "emlib>=1.14.1",
         "ctcsound7>=0.4.6",
         "bpf4>=1.8.4",
         "configdict>=2.10.0",
@@ -71,7 +73,6 @@ setup(
         "loristrck>=1.5.6",
         "vamphost>=1.2.1",
         "lilyponddist>=0.6.0",
-        "pillow"
     ],
     license="LGPLv2",
     zip_safe=False,

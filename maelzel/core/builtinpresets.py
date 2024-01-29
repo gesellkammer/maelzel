@@ -80,7 +80,7 @@ builtinPresets = [
     ),
 
     PresetDef(
-        '_click', r"""
+        '.click', r"""
         |itransp=24, idecay=0.1|
         ; Default preset used when rendering a click-track
         ; Args:

@@ -6,10 +6,10 @@ from emlib import iterlib
 from maelzel.partialtracking.partial import Partial
 from maelzel.partialtracking import spectrum as sp
 
-from .core import Breakpoint, simplifyBreakpoints, TranscriptionOptions
+from .breakpoint import Breakpoint, simplifyBreakpoints
+from .options import TranscriptionOptions
 
 from typing import TYPE_CHECKING, Callable
-
 if TYPE_CHECKING:
     from maelzel.partialtracking.track import Track
     import maelzel.core as mc
@@ -24,10 +24,10 @@ def partialToBreakpoints(partial: Partial,
     data = partial.data
     lasti = partial.numbreakpoints - 1
     for i in range(partial.numbreakpoints):
-        bw = data[i, 4]
-        bp = Breakpoint(time=data[i, 0],
-                        freq=data[i, 1],
-                        amp=data[i, 2],
+        bw = float(data[i, 4])
+        bp = Breakpoint(time=float(data[i, 0]),
+                        freq=float(data[i, 1]),
+                        amp=float(data[i, 2]),
                         voiced=bw < bandwidthThreshold,
                         linked=i < lasti,
                         )
