@@ -248,7 +248,7 @@ class Chain(MContainer):
         if changed:
             self._changed()
 
-    def itemAfter(self, item: MEvent | Chain) -> MEvent | Chain | None:
+    def nextItem(self, item: MEvent | Chain) -> MEvent | Chain | None:
         """
         Returns the next item after *item*
 
@@ -275,7 +275,7 @@ class Chain(MContainer):
         idx = self.items.index(item)
         return self.items[idx + 1] if idx < len(self.items) - 2 else None
 
-    def eventAfter(self, event: MEvent) -> MEvent | None:
+    def nextEvent(self, event: MEvent) -> MEvent | None:
         """
         Returns the next event after *event*
 
@@ -294,6 +294,27 @@ class Chain(MContainer):
             return None
         nextitem = self.items[idx+1]
         return nextitem if isinstance(nextitem, MEvent) else nextitem.firstEvent()
+
+    def previousEvent(self, event: MEvent) -> MEvent | None:
+        """
+        Returns the event before the given event
+
+        Args:
+            event: the event to query
+
+        Returns:
+            the event before the given event, or None if no event is found. Raises
+            ValueError if event is not part of this container
+
+        """
+        try:
+            idx = self.items.index(event)
+            if idx == 0:
+                return None
+        except ValueError as e:
+            raise ValueError(f"event {event} not part of {self}")
+        prev = self.items[idx - 1]
+        return prev if isinstance(prev, MEvent) else prev.lastEvent()
 
     def isFlat(self) -> bool:
         """Is self flat?
@@ -1256,7 +1277,7 @@ class Chain(MContainer):
         Returns:
             self
 
-        .. seealso:: :meth:`Chain.addSymbolAt`  
+        .. seealso:: :meth:`Chain.addSymbolAt`
 
         """
         return self.addSymbolAt(location=location, symbol=symbols.BeamBreak())
@@ -1376,7 +1397,7 @@ class Chain(MContainer):
                 clsname = type(self).__name__
                 logger.warning(f"This {clsname} has already an active ScoreStruct via its parent. "
                                f"Passing an ad-hoc scorestruct might cause problems...")
-        offsets = scorestruct.measureOffsets(startindex=startindex, stopindex=stopindex)
+        offsets = scorestruct.measureOffsets(startIndex=startindex, stopIndex=stopindex)
         self.splitEventsAtOffsets(offsets, tie=True)
 
     def splitAt(self, location: F | tuple[int, F], beambreak=False, nomerge=True

@@ -974,7 +974,7 @@ def _parsePart(part: ET.Element, context: _ParseContext
                     assert partnerSpanner.anchor is not None
                     endanchor = partnerSpanner.anchor()
                     assert endanchor is not None
-                    if voice.itemAfter(anchor) == endanchor:
+                    if voice.nextItem(anchor) == endanchor:
                         try:
                             anchor.gliss = True
                         except AttributeError:

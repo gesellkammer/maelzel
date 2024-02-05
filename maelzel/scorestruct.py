@@ -1927,21 +1927,38 @@ class ScoreStruct:
                 break
         return accum
 
-    def measureOffsets(self, startindex=0, stopindex=0) -> list[F]:
+    def measureOffsets(self, startIndex=0, stopIndex=0) -> list[F]:
         """
         Returns a list with the time offsets of each measure
 
         Args:
-            startindex: the measure index to start with. 0=last measure definition
-            stopindex: the measure index to end with (not included)
+            startIndex: the measure index to start with. 0=last measure definition
+            stopIndex: the measure index to end with (not included)
 
         Returns:
             a list of time offsets (start times), one for each measure in the
             interval selected
         """
-        if not stopindex:
-            stopindex = self.numMeasures()
-        return [self.locationToBeat(idx) for idx in range(startindex, stopindex)]
+        if not stopIndex:
+            stopIndex = self.numMeasures()
+        return [self.locationToBeat(idx) for idx in range(startIndex, stopIndex)]
+
+    def measuresBetween(self, start: F, end: F) -> list[MeasureDef]:
+        """
+        List of measures defined between the given times as beats
+
+        Args:
+            start: start beat in quarter-tones
+            end: end beat in quarter-tones
+
+        Returns:
+
+        """
+        startloc = self.beatToLocation(start)
+        idx0 = startloc[0]
+        endloc = self.beatToLocation(end)
+        idx1 = endloc[0] + 1
+        return [self.getMeasureDef(idx=i) for i in range(idx0, idx1)]
 
     def timeDelta(self,
                   start: num_t | tuple[int, num_t],

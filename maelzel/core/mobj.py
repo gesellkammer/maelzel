@@ -331,13 +331,24 @@ class MObj(ABC):
 
     def resolveEnd(self) -> F:
         """
-        Returns the resolved end of this object
+        Returns the resolved end of this object, relative to its parent
 
-        An object's offset and duration can be explicit (set in their corresponding
-        ``.offset`` or ``.dur`` attributes) or implicit, as calculated from the context
+        An object's offset can be explicit (set in the ``.offset`` attributes)
+        or implicit, as calculated from the context of the parent. For example,
+        inside a Chain, the offset of an event depends on the offsets and
+        durations of the objects preceding it.
+
+        .. note::
+
+            To calculate the absolute end of an object, use
+            ``obj.absOffset() + obj.resolveEnd``
 
         Returns:
-            the resolved end of this object, relative to its parent
+            the resolved end of this object, relative to its parent. If this
+            object has no parent, the relative end and the absolute end are
+            the same
+
+        .. seealso:: :meth:`MObj.relOffset`, :meth:`MObj.absOffset`
         """
         return self.relOffset() + self.dur
 
@@ -357,10 +368,10 @@ class MObj(ABC):
 
         .. seealso:: :meth:`MObj.absOffset`
         """
-        if (offset := self.offset) is not None:
-            return offset
-        elif (offset := self._resolvedOffset) is not None:
-            return offset
+        if self.offset is not None:
+            return self.offset
+        elif self._resolvedOffset is not None:
+            return self._resolvedOffset
         elif self.parent:
             self._resolvedOffset = offset = self.parent.childOffset(self)
             return offset
@@ -575,7 +586,7 @@ class MObj(ABC):
         """
         The end time of this object.
 
-        Will be None if this object has no explicit offset
+        Will be None if this object has no explicit offset. Use :meth:`
         """
         return None if self.offset is None else self.offset + self.dur
 
@@ -1659,7 +1670,7 @@ class MContainer(MObj):
     Implemented downstream by classes like Chain or Score.
     """
 
-    def eventAfter(self, event: MObj) -> MObj | None:
+    def nextEvent(self, event: MObj) -> MObj | None:
         """
         Returns the next event after *event*
 
@@ -1695,8 +1706,11 @@ class MContainer(MObj):
     def _resolveGlissandi(self, force=False) -> None:
         raise NotImplementedError
 
-    def itemAfter(self, item: MObj) -> MObj | None:
+    def nextItem(self, item: MObj) -> MObj | None:
         """Returns the item after *item*, if any (None otherwise)"""
+        return None
+
+    def previousEvent(self, event: MObj) -> MObj | None:
         return None
 
 # --------------------------------------------------------------------

@@ -41,6 +41,25 @@ class MEvent(MObj):
 
         self._glissTarget: float = 0.
 
+    def linkedNext(self) -> bool:
+        """
+        Is this event linked to the next?
+
+        An event is linked to a next event if it is tied or has
+        glissando set to True where this applies. This is not the
+        case if the event has a gliss value set to other than True
+        """
+        return self.tied or (self.gliss is True)
+
+    def linkedPrev(self) -> bool:
+        """
+        Is this event linked to the previous?
+        """
+        if not self.parent:
+            return False
+        prev = self.parent.previousEvent(self)
+        return prev.linkedNext() if prev else False
+
     @property
     def gliss(self):
         """The end target of this event, if any"""

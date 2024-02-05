@@ -7,7 +7,22 @@ if TYPE_CHECKING:
     import matplotlib.pyplot as plt
 
 
-def _segmentsZ(data: np.ndarray, downsample=1, avg=True):
+def _segmentsZ(data: np.ndarray, downsample=1, avg=True
+               ) -> tuple[np.ndarray, np.ndarray]:
+    """
+
+    Args:
+        data: a 2D matrix with columns X, Y, Z
+        downsample: a downsampling integer factor
+        avg: if True, colour each line with the average of the Z value at the
+            edges
+
+    Returns:
+        a tuple (coordarray, zarray) where coordarray is a 2D array of the points
+        (each row holds two values, x, y for each point; there are as many rows
+        as there are points) and zarray is an array with the values
+
+    """
     X = data[:, 0]
     Y = data[:, 1]
     Z = data[:, 2].copy()
@@ -43,6 +58,8 @@ def plotmpl(spectrum: sp.Spectrum,
         avg: if True, color a segment as the average between two breakpoints
         cmap: the colormap used
         exp: apply an exponential to the amplitude for better contrast
+        offset: add an offset to all values to make faint sounds visible
+        autolim: auto limit, passed to matplotlib add_collection
         downsample: the amount of downsampling, results in picking one breakpoint every the
             downsample value
 

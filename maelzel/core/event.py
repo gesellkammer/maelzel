@@ -748,6 +748,27 @@ class Note(MEvent):
         self.parent._resolveGlissandi()
         return self._glissTarget or self.pitch
 
+    def glissTarget(self) -> str:
+        """
+        The gliss target as notename
+
+        Raises ValueError if this Note does not have a gliss
+
+        Returns:
+            The gliss target as notename
+        """
+        if not self.gliss:
+            raise ValueError("This note does not have a glissando")
+        elif self._glissTarget:
+            return self._glissTarget if isinstance(self._glissTarget, str) else pt.m2n(self._glissTarget)
+        elif not isinstance(self._gliss, bool):
+            return pt.m2n(self._gliss)
+        elif self.parent:
+            self.parent._resolveGlissandi()
+            return self._glissTarget if isinstance(self._glissTarget, str) else pt.m2n(self._glissTarget)
+        else:
+            return self.name
+
     def resolveDynamic(self, conf: CoreConfig = None) -> str:
         if conf is None:
             conf = getConfig()
@@ -1024,6 +1045,27 @@ class Chord(MEvent):
 
     def meanPitch(self) -> float | None:
         return sum(n.pitch for n in self.notes) / len(self.notes)
+
+    def glissTarget(self) -> list[str]:
+        """
+        The gliss targets as a list of notenames
+
+        Raised ValueError if this chord does not have a gliss
+
+        Returns:
+            The gliss target as notename
+        """
+        if not self.gliss:
+            raise ValueError("This Chord does not have a glissando")
+        elif self._glissTarget:
+            return self._glissTarget if isinstance(self._glissTarget, str) else pt.m2n(self._glissTarget)
+        elif not isinstance(self._gliss, bool):
+            return pt.m2n(self._gliss)
+        elif self.parent:
+            self.parent._resolveGlissandi()
+            return self._glissTarget if isinstance(self._glissTarget, str) else pt.m2n(self._glissTarget)
+        else:
+            return [note.name for note in self.notes]
 
     def resolveGliss(self) -> list[float]:
         """
@@ -1334,7 +1376,7 @@ class Chord(MEvent):
         if not self.parent:
             return True
 
-        nextitem = self.parent.itemAfter(self)
+        nextitem = self.parent.nextItem(self)
         if not nextitem:
             return False
         elif isinstance(nextitem, Chord):
