@@ -23,7 +23,7 @@ _logger = logging.getLogger()
 
 _linuxImageViewers = [
     ('feh', 'feh --image-bg white'),
-    ('imv', 'imv -b "#ffffff"')
+    ('imv', 'imv')
 ]
 
 
@@ -58,12 +58,7 @@ def openPngWithExternalApplication(path: str, wait=False, app: str = '') -> None
     """
     if app:
         return emlib.misc.open_with_app(path, app, wait=wait)
-
-    cmd = preferredImageViewer()
-    if cmd:
-        emlib.misc.open_with_app(path, cmd, wait=wait)
-    else:
-        emlib.misc.open_with_app(path, wait=wait)
+    emlib.misc.open_with_app(path, wait=wait)
 
 
 def findMusescore() -> str | None:
