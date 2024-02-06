@@ -21,35 +21,11 @@ from maelzel._util import pythonSessionType
 insideJupyter = pythonSessionType() == 'jupyter'
 _logger = logging.getLogger()
 
-_linuxImageViewers = [
-    ('feh', 'feh --image-bg white'),
-    ('imv', 'imv')
-]
-
 
 def hasBinary(binary: str) -> bool:
     if shutil.which(binary):
         return True
     return False
-
-
-@cache
-def preferredImageViewer() -> str | None:
-    """
-    Returns a command string or None if no default was found.
-
-    For that case, use emlib.misc.open_with_standard_app
-
-    We try to find installed viewers which might work best for displaying
-    a single image, possibly as fast as possible and without any added
-    functionallity. If no such app is found, we return None and let the
-    os decide which app to use.
-    """
-    if sys.platform == 'linux':
-        for binary, cmd in _linuxImageViewers:
-            if hasBinary(binary):
-                return cmd
-    return None
 
 
 def openPngWithExternalApplication(path: str, wait=False, app: str = '') -> None:

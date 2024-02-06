@@ -39,6 +39,14 @@ def _verticalPosToCleffPos(pos: int) -> int:
     return pos - 28
 
 
+def _bravuraPath() -> Path:
+    from maelzel import dependencies
+    path = dependencies.dataPath() / 'Bravura.otf'
+    if not path.exists():
+        raise OSError(f"Did not find bravura font, searched path: {path}")
+    return path
+
+
 _BRAVURA_ACCIDENTALS = {
     'natural': '\uE261',
     'natural-up': '\uE272',
@@ -170,8 +178,7 @@ def plotVoices(voices: list[Voice],
         colors = _voiceColors
     voiceColors = itertools.islice(itertools.cycle(colors), len(voices))
 
-    accidentalFontProperties = FontProperties(fname='/home/em/Downloads/Bravura.otf',
-                                              size=accidentalSize)
+    accidentalFontProperties = FontProperties(fname=_bravuraPath().as_posix(), size=accidentalSize)
 
     if not scorestruct:
         scorestruct = voices[0].scorestruct(resolve=True)
