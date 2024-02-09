@@ -241,12 +241,12 @@ class PresetDef:
     Normally a user does not create a PresetDef directly. A PresetDef is created
     when calling :func:`~maelzel.core.presetmanager.defPreset` .
     
-    A Preset is aware the pitch and amplitude of a SynthEvent and generates all the
+    A Preset is aware of the pitch and amplitude of a SynthEvent and generates all the
     interface code regarding play parameters like panning position, fadetime, 
     fade shape, gain, etc. The user only needs to define the audio generating code and
     any init code needed (global code needed by the instrument, like soundfiles which 
     need to be loaded, buffers which need to be allocated, etc). A Preset can define
-    any number of extra parameters (transposition, filter cutoff frequency, etc.). 
+    any number of extra parameters (transposition, filter cutoff frequency, etc.).
     
     Args:
         name: the name of the preset
@@ -269,6 +269,19 @@ class PresetDef:
             csound variables. This is used, for example, in a Clip to provide coherence
             between names of python parameters ('speed') and their controls
             within the generated synth ('kspeed').
+
+    Example
+    ~~~~~~~
+
+        >>> from maelzel.core import *
+        # defPreset returns a PresetDef and makes the preset available for synthesis
+        >>> defPreset('moogsaw', r'''
+        ... |kcutoff=3000, kresonance=0.9|
+        ... asig = vco2(kamp, kfreq)   ; kamp and kfreq are always available within a preset
+        ... aout1 = moogladder2:a(asig, kcutoff, kresonance)
+        ... ''')
+        >>> synthgroup = Chord(["4C", "4E", "4G"], 8).play(instr='moogsaw')
+        >>> synthgroup.automate('kcutoff', (0, 500, synthgroup.dur, 4000))
             
     """
     _builtinVariables = ('kfreq', 'kamp', 'kpitch')
