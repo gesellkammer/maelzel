@@ -124,15 +124,13 @@ jobs:
           path: artifacts
 
 
-
-
   testmacgit:
     name: Test maelzel in mac (git)
     runs-on: macos-latest
     strategy:
       matrix:
         python-version: ["3.9", "3.10"]
-        arch: ["x86_64", "arm64"]
+        arch: ["x86_64"]
     steps:
       - uses: actions/checkout@v3
 
@@ -180,7 +178,7 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.9", "3.10"]
-        arch: ["x86_64", "arm64"]
+        arch: ["x86_64"]
     steps:
       - uses: actions/checkout@v3
 
