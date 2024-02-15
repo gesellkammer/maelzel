@@ -234,7 +234,7 @@ def installVampPlugins() -> None:
     pluginsDest = vamptools.vampFolder()
     os.makedirs(pluginsDest, exist_ok=True)
     print(f"Installing vamp plugins from {pluginspath} to {pluginsDest}")
-    logger.info(f"Plugins found: {pluginspath.glob('*.n3')}")
+    logger.info(f"Plugins found: {list(pluginspath.glob('*.n3'))}")
     _copyFiles([component.as_posix() for component in components], pluginsDest, verbose=True)
     # This step will fail since vampyhost cached the pluginloader. We need
     # to reload the module, which we cannot do here

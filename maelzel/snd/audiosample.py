@@ -506,7 +506,13 @@ class Sample:
             # embed short audiofiles, the longer ones are written to disk and read
             # from there
             if self.duration < 2:
-                audioobj = IPython.display.Audio(self.samples, rate=self.sr)
+                samples = self.samples
+                if self.numchannels == 1:
+                    samples = self.samples
+                else:
+                    # ipython needs the samples in the shape (numchannels, samples)
+                    samples = self.samples.T
+                audioobj = IPython.display.Audio(samples, rate=self.sr)
                 audiotag = audioobj._repr_html_()
             else:
                 os.makedirs('tmp', exist_ok=True)
