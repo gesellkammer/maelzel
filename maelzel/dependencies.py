@@ -220,7 +220,10 @@ def installVampPlugins() -> None:
     print("Installing vamp plugins")
     from maelzel.snd import vamptools
     osname, arch = getPlatform()
-    subfolder = f'{osname}-{arch}'
+    if osname == 'darwin':
+        subfolder = f'macos-{arch}'
+    else:
+        subfolder = f'{osname}-{arch}'
     pluginspath = dataPath() / 'vamp' / subfolder
     if not pluginspath.exists():
         raise RuntimeError(f"Could not find vamp plugins for {subfolder}. Folder not found: {pluginspath}")
@@ -346,17 +349,20 @@ def getPlatform(normalize=True) -> tuple[str, str]:
     properly). The reported machine architectures follow platform-specific
     naming conventions (e.g. "x86_64" on Linux, but "x64" on Windows).
     Use normalize=True to reduce those labels (returns one of 'x86_64', 'arm64', 'x86')
-    Example output strings for common platforms:
+    Example output for common platforms (normalized):
 
-        darwin_(ppc|ppc64|i368|x86_64|arm64)
-        linux_(i686|x86_64|armv7l|aarch64)
-        windows_(x86|x64|arm32|arm64)
+        ('darwin', 'arm64')
+        ('darwin', 'x86_64')
+        ('linux', 'x86_64')
+        ('windows', 'x86_64')
+        ...
 
     Normalizations:
 
     * aarch64 -> arm64
     * x64 -> x86_64
     * amd64 -> x86_64
+
 
     """
     import platform
