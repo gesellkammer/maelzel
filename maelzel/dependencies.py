@@ -9,6 +9,7 @@ import sys
 import logging
 from datetime import datetime
 from maelzel import _state
+import functools
 
 
 logger = logging.getLogger('maelzel')
@@ -35,6 +36,7 @@ def checkCsound(minversion="6.17", checkBinaryInPath=True) -> str:
 
     Args:
         minversion: min. csound version, as "{major}.{minor}"
+        checkBinaryInPath: if True, check that the binary 'csound' is in the path
 
     Returns:
         an error message, or an empty str if csound is installed and the version
@@ -212,40 +214,39 @@ def installVampPlugins() -> None:
     To ease the installation maelzel is actually shipped with the needed
     plugins at the moment. Installation is thus reduced to copying the
     plugins to the correct folder for the platform
+
+    Raises RuntimeError if there is an installation problem
     """
-    logger.debug("Installing vamp plugins")
+    print("Installing vamp plugins")
     from maelzel.snd import vamptools
-    subfolder = {
-        'darwin': 'macos',
-        'windows': 'windows',
-        'win32': 'windows',
-        'linux': 'linux'
-    }.get(sys.platform, None)
-    if subfolder is None:
-        raise RuntimeError(f"Platform {sys.platform} not supported")
+    osname, arch = getPlatform()
+    subfolder = f'{osname}-{arch}'
     pluginspath = dataPath() / 'vamp' / subfolder
     if not pluginspath.exists():
-        raise RuntimeError(f"Could not find own vamp plugins. Folder: {pluginspath}")
+        raise RuntimeError(f"Could not find vamp plugins for {subfolder}. Folder not found: {pluginspath}")
     components = list(pluginspath.glob("*"))
     if not components:
         raise RuntimeError(f"Plugins not found in our distribution. "
                            f"Plugins folder: {pluginspath}")
     pluginsDest = vamptools.vampFolder()
     os.makedirs(pluginsDest, exist_ok=True)
-    logger.debug(f"Installing vamp plugins from {pluginspath} to {pluginsDest}")
-    logger.debug(f"Plugins found: {pluginspath.glob('*.n3')}")
+    print(f"Installing vamp plugins from {pluginspath} to {pluginsDest}")
+    logger.info(f"Plugins found: {pluginspath.glob('*.n3')}")
     _copyFiles([component.as_posix() for component in components], pluginsDest, verbose=True)
-    # This step will always fail since vampyhost cached the pluginloader. We need
+    # This step will fail since vampyhost cached the pluginloader. We need
     # to reload the module, which we cannot do here
     vampplugins = vamptools.listPlugins(cached=False)
-    if 'pyin:pyin' not in vampplugins:
-        print(f"VAMP plugins were installed to the user folder: {pluginsDest}")
+    if 'pyin:pyin' in vampplugins:
+        print(f"VAMP plugins installed OK. Detected plugins: {vampplugins}")
+    else:
+        print(f"VAMP plugins were installed to the user folder: {pluginsDest}, "
+              f"but they are not being detected by the built-in vamp host. "
+              f"Plugins detected: {vampplugins}")
         print("Components installed: ")
         for comp in components:
             print(f"    {comp.name}")
-        msg = ("You need to restart the python session in order for the installed "
-               "plugins to be available to maelzel. These plugins provide "
-               "feature extraction functions, like pyin pitch tracking")
+        msg = ("You might need to restart the python session in order for the installed "
+               "plugins to be available to maelzel")
         from maelzel import tui
         tui.panel(msg, margin=(1, 1), padding=(1, 2), bordercolor='red', title="VAMP plugins",
                   width=80)
@@ -330,3 +331,72 @@ def checkDependenciesIfNeeded(daysSinceLastCheck=0) -> bool:
     for err in errors:
         logger.error(f"    {err}")
     return False
+
+
+@functools.cache
+def getPlatform(normalize=True) -> tuple[str, str]:
+    """
+    Return a string with current platform (system and machine architecture).
+
+    This attempts to improve upon `sysconfig.get_platform` by fixing some
+    issues when running a Python interpreter with a different architecture than
+    that of the system (e.g. 32bit on 64bit system, or a multiarch build),
+    which should return the machine architecture of the currently running
+    interpreter rather than that of the system (which didn't seem to work
+    properly). The reported machine architectures follow platform-specific
+    naming conventions (e.g. "x86_64" on Linux, but "x64" on Windows).
+    Use normalize=True to reduce those labels (returns one of 'x86_64', 'arm64', 'x86')
+    Example output strings for common platforms:
+
+        darwin_(ppc|ppc64|i368|x86_64|arm64)
+        linux_(i686|x86_64|armv7l|aarch64)
+        windows_(x86|x64|arm32|arm64)
+
+    Normalizations:
+
+    * aarch64 -> arm64
+    * x64 -> x86_64
+    * amd64 -> x86_64
+
+    """
+    import platform
+    import sysconfig
+
+    system = platform.system().lower()
+    machine = sysconfig.get_platform().split("-")[-1].lower()
+    is_64bit = sys.maxsize > 2 ** 32
+
+    if system == "darwin":
+        # get machine architecture of multiarch binaries
+        if any([x in machine for x in ("fat", "intel", "universal")]):
+            machine = platform.machine().lower()
+
+    elif system == "linux":  # fix running 32bit interpreter on 64bit system
+        if not is_64bit and machine == "x86_64":
+            machine = "i686"
+        elif not is_64bit and machine == "aarch64":
+            machine = "armv7l"
+
+    elif system == "windows": # return more precise machine architecture names
+        if machine == "amd64":
+            machine = "x64"
+        elif machine == "win32":
+            if is_64bit:
+                machine = platform.machine().lower()
+            else:
+                machine = "x86"
+
+    # some more fixes based on examples in https://en.wikipedia.org/wiki/Uname
+    if not is_64bit and machine in ("x86_64", "amd64"):
+        if any([x in system for x in ("cygwin", "mingw", "msys")]):
+            machine = "i686"
+        else:
+            machine = "i386"
+
+    if normalize:
+        machine = {
+            'x64': 'x86_64',
+            'aarch64': 'arm64',
+            'amd64': 'x86_64'
+        }.get(machine, machine)
+    return system, machine

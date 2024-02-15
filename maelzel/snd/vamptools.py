@@ -79,6 +79,10 @@ def listPlugins(cached=True) -> Set[str]:
         plugins = _cache.get('plugins')
         if plugins is not None:
             return plugins
+    else:
+        import importlib
+        importlib.reload(vamp.vampyhost)
+
     _cache['plugins'] = plugins = set(vamp.list_plugins())
     return plugins
 
