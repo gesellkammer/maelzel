@@ -186,7 +186,7 @@ def findLilypond(install=True) -> str | None:
         else:
             logger.warning(f"lilypond path was cached but it has become invalid. "
                            f"Previously cached path: {lilypath}")
-            
+
     # try which
     logger.debug("findLilypond: searching via shutil.which")
     lilypond = shutil.which('lilypond')

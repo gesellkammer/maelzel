@@ -319,6 +319,7 @@ def checkDependencies(abortIfErrors=False, fix=True, verbose=False) -> list[str]
 def printReport(echo=print, updaterisset=False):
     import risset
     import vamp
+    from maelzel.music import lilytools
     csoundbin = csoundengine.csoundlib.findCsound()
 
     echo("Dependencies report")
