@@ -148,8 +148,8 @@ jobs:
           sudo installer -pkg csound-MacOS-universal-6.18.1.pkg -target /
           csound --version
           cd ..
-          brew install lilypond
-          lilypond --version
+          # brew install lilypond
+          # lilypond --version
 
       - name: macos - test install from git
         run: |

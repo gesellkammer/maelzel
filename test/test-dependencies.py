@@ -2,8 +2,9 @@ from maelzel import dependencies
 from maelzel.music import lilytools
 import sys
 
+
 exiterr = 0
-errors = dependencies.checkDependencies()
+errors = dependencies.checkDependencies(fix=True)
 if errors:
     for err in errors:
         print(f"*** ERROR *** : {err}")
@@ -16,5 +17,7 @@ if lily is None:
 else:
     print(f"lilypond binary: {lily}")
     print(f"lilypond version: {lilytools.getLilypondVersion()}")
+
+dependencies.printReport()
 
 sys.exit(exiterr)

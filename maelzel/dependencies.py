@@ -8,6 +8,9 @@ import os
 import sys
 import logging
 from datetime import datetime
+
+import csoundengine
+
 from maelzel import _state
 import functools
 
@@ -263,7 +266,7 @@ def installAssets():
     checkVampPlugins(fix=True)
 
 
-def checkDependencies(abortIfErrors=False, fix=True) -> list[str]:
+def checkDependencies(abortIfErrors=False, fix=True, verbose=False) -> list[str]:
     """
     Checks the dependencies of all maelzel subpackages
 
@@ -280,19 +283,26 @@ def checkDependencies(abortIfErrors=False, fix=True) -> list[str]:
         a list of errors (or an empty list if no errors where found)
     """
     steps = [
-        checkCsound,
-        checkLilypond,
-        lambda: checkCsoundPlugins(fix=fix),
-        lambda: checkVampPlugins(fix=fix)
+        ('Checking csound', checkCsound),
+        ('Checking lilypond', checkLilypond),
+        ('Checking external csound plugins', lambda: checkCsoundPlugins(fix=fix)),
+        ('Checking vamp plugins', lambda: checkVampPlugins(fix=fix)),
+        ('Checking csoundengine dependencies', lambda: csoundengine.checkDependencies(fix=fix))
     ]
+
     logger.info("Maelzel - checking dependencies")
     errors = []
-    for step in steps:
+    echo = print if verbose else logger.debug
+    for msg, step in steps:
+        echo(msg)
         err = step()
         if err:
             errors.append(err)
+            logger.error(f"  ERROR: {err}")
             if abortIfErrors:
                 return errors
+        else:
+            echo("  -- ok")
     if not errors:
         logger.info("Check Dependencies: everything OK!")
     else:
@@ -304,6 +314,27 @@ def checkDependencies(abortIfErrors=False, fix=True) -> list[str]:
         _state.state['last_dependency_check'] = datetime.now().isoformat()
 
     return errors
+
+
+def printReport(echo=print, updaterisset=False):
+    import risset
+    import vamp
+    csoundbin = csoundengine.csoundlib.findCsound()
+
+    echo("Dependencies report")
+    echo("-------------------")
+    echo(f"Python version: {sys.version}")
+    echo(f"Csound library version: {csoundLibVersion()}")
+    if csoundbin:
+        echo(f"Csound binary: {csoundbin}")
+        echo(f"Csound binary version: {csoundengine.csoundlib.getVersion(useApi=False)}")
+    else:
+        echo("WARNING: csound binary not found")
+    echo(f"Lilypond binary: {lilytools.findLilypond()}")
+    echo(f"Risset version: {risset.__version__}")
+    rissetidx = risset.MainIndex(update=updaterisset)
+    rissetidx.list_plugins(installed=True)
+    echo(f"Vamp plugins: {vamp.list_plugins()}")
 
 
 def checkDependenciesIfNeeded(daysSinceLastCheck=0) -> bool:

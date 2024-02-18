@@ -18,11 +18,14 @@ from maelzel.common import F
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Union, Optional, Iterator
+    from typing import Union, Iterator
     pitch_t = Union[int, float, str]
 
 
 logger = logging.getLogger("maelzel")
+
+
+_cache = {'lilypath': ''}
 
 
 class PlatformNotSupportedError(Exception):
@@ -44,7 +47,7 @@ def _addLineNumbers(s: str, start=1) -> Iterator[str]:
         yield fmt % (i, line)
 
 
-def callWithCapturedOutput(args: Union[str, list[str]], shell=False) -> _CallResult:
+def callWithCapturedOutput(args: str | list[str], shell=False) -> _CallResult:
     """
     Call a subprocess with params
 
@@ -60,7 +63,7 @@ def callWithCapturedOutput(args: Union[str, list[str]], shell=False) -> _CallRes
     return _CallResult(proc.wait(), stdout, stderr)
 
 
-def _checkOutput(args: list[str], encoding="utf-8") -> Optional[str]:
+def _checkOutput(args: list[str], encoding="utf-8") -> str | None:
     """
     Like subprocess.check_output, but returns None if failed instead
     of throwing an exeception
@@ -75,30 +78,112 @@ def _checkOutput(args: list[str], encoding="utf-8") -> Optional[str]:
         return None
 
 
-def installLilypond() -> str:
+def _testLilypond(lilybin: str, fmt='.pdf') -> bool:
+    lilytxt = r'''
+\version "2.20.0"
+{
+    <c' d'' b''>8. ~ <c' d'' b''>8
+}
+    '''
+    assert fmt in ('.pdf', '.png')
+    lyfile = tempfile.mktemp(suffix='.ly')
+    open(lyfile, 'w').write(lilytxt)
+    assert os.path.exists(lyfile)
+    outfile = os.path.splitext(lyfile)[0] + fmt
+    try:
+        outfile2 = renderLily(lyfile, outfile=outfile, removeHeader=False, lilypondBinary=lilybin)
+        return outfile2 is not None and os.path.exists(outfile2)
+    except Exception as e:
+        logger.error(f"Test lilypond raised an error: {e}")
+        return False
+
+
+def _installLilypondMacosHomebrew(checkbrew=True) -> str | None:
+    """
+    install lilypond via homebrew in macos
+
+    Assumes that homebrew is installed
+
+    Returns:
+        the path to lilypond, or None if failed
+    """
+    logger.info("Installing lilypond via homebrew: `brew install lilypond`")
+    retcode = subprocess.call('brew install lilypond', shell=True)
+    if retcode != 0:
+        # did we fail?
+        lilybin = shutil.which('lilypond')
+        if lilybin and _testLilypond(lilybin):
+            logger.warning(f"brew install lilypond returned code {retcode}, but "
+                           f"lilypond seems installed")
+            return lilybin
+        logger.error(f"Lilypond could not be installed, return code {retcode}")
+        return None
+    if lilybin := shutil.which('lilypond'):
+        logger.info("lilypond installed ok")
+        return lilybin
+    logger.error("brew install lilypond returned successfully but lilypond is "
+                 "not in the path")
+    return None
+
+
+def installLilypond(usehomebrew=True) -> str:
     """
     Install lilypond, returns the binary
+
+    Args:
+        usehomebrew: valid for macos only, use homebrew to try to install
+            lilypond, if present.
+
+    .. note::
+
+        The installed lilypond will only be available for usage within python
+        see pypi/lilyponddist
     """
     import lilyponddist
     # Check first to provide a nicer error message
-    platform, arch = lilyponddist._get_platform(normalize=True)
+    platform, arch = lilyponddist.get_platform(normalize=True)
     if platform == 'darwin' and arch.startswith('arm'):
-        raise PlatformNotSupportedError("There is currently no binary distribution for lilypond "
-                                        "for macos arm64. Install lilypond via homebrew: "
-                                        "'brew install lilypond'. For more information see "
-                                        "https://formulae.brew.sh/formula/lilypond#default")
+        if usehomebrew:
+            if not shutil.which('brew'):
+                logger.error("Trying to install lilypond for macos/arm64. "
+                             "Homebrew was not found. Try installing homebrew "
+                             "first, then install lilypond via `brew install lilypond`")
+                raise RuntimeError("homebrew not found")
+            print("Will try to use homebrew to install lilypond")
+            lilypath = _installLilypondMacosHomebrew()
+            if not lilypath:
+                raise RuntimeError("Could not install lilypond")
+            _cache['lilypath'] = lilypath
+            return lilypath
+        else:
+            raise PlatformNotSupportedError("There is currently no binary distribution for lilypond "
+                                            "for macos arm64. Install lilypond via homebrew: "
+                                            "'brew install lilypond'. For more information see "
+                                            "https://formulae.brew.sh/formula/lilypond#default")
 
-    exe = lilyponddist.lilypondbin(autoinstall=True)
-    if not exe or not exe.exists():
+    lilybin = lilyponddist.lilypondbin(autoinstall=True)
+    if not lilybin or not lilybin.exists():
         raise RuntimeError(f"Could not install lilypond")
-    return exe.as_posix()
+    lilypath = lilybin.as_posix()
+    _cache['lilypath'] = lilypath
+    return lilypath
 
 
-@cache
-def findLilypond(install=True) -> Optional[str]:
+def findLilypond(install=True) -> str | None:
     """
     Find lilypond binary, or None if not found
+
+    Args:
+        install: if True and lilypond is not installed yet, install it
+
+    Returns:
+        the path to a working lilypond binary, or None if
+        the path was not found
     """
+    if cached and (lilypath := _cache.get('lilypath', '')):
+        if os.path.exists(lilypath):
+            return lilypath
+
     # try which
     logger.debug("findLilypond: searching via shutil.which")
     lilypond = shutil.which('lilypond')
@@ -109,7 +194,9 @@ def findLilypond(install=True) -> Optional[str]:
     logger.debug("findLilypond: Lilypond is not in the path, trying lilyponddist")
     import lilyponddist
     if lilyponddist.is_lilypond_installed():
-        return lilyponddist.lilypondbin().as_posix()
+        lilypath = lilyponddist.lilypondbin().as_posix()
+        _cache['lilypath'] = lilypath
+        return lilypath
     elif install:
         return installLilypond()
     else:
@@ -987,12 +1074,11 @@ def makeNote(pitch: pitch_t,
     return "".join(parts)
 
 
-@cache
-def getLilypondVersion() -> Optional[str]:
+def getLilypondVersion() -> str | None:
     """
     Return the lilypond version as string
 
-    **NB**: The result is cached
+    **NB**: The result is not cached
     """
     lilybin = findLilypond()
     if not lilybin:

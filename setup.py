@@ -8,6 +8,7 @@ from setuptools import setup
 readme = open('README.rst').read()
 version = (1, 1, 7)
 
+
 def package_files(directory):
     paths = []
     for (path, directories, filenames) in os.walk(directory):
@@ -72,7 +73,7 @@ setup(
         "risset>=2.8.0",
         "loristrck>=1.6.1",
         "vamphost>=1.3.0",
-        "lilyponddist>=0.6.0",
+        "lilyponddist>=0.7.0",
     ],
     license="LGPLv2",
     zip_safe=False,
