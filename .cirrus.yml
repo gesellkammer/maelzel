@@ -1,0 +1,37 @@
+perform_tests: &PERFORM_TESTS
+  test_script:
+    cd test
+    ./py test-rec.py -o "test-rec-${{ matrix.python-version }}-${{ matrix.arch }}.wav"
+    ./py test-dependencies.py
+    ./py test-notation.py -o 'test-notation-macos-${{ matrix.python-version }}-${{ matrix.arch }}.pdf'
+    cp *.wav ../artifacts
+    cp *.pdf ../artifacts
+    rm py
+
+test_task:
+  macos_instance:
+    image: ghcr.io/cirruslabs/macos-ventura-xcode:latest
+
+  setup_macos_script: |
+    set -x
+    curl -L -o csound6.18.dmg https://github.com/csound/csound/releases/download/6.18.1/Csound-MacOS-universal-6.18.1.dmg
+    brew install p7zip
+    7z x csound6.18.dmg
+    cd Csound-universal-6.18.1
+    sudo installer -pkg csound-MacOS-universal-6.18.1.pkg -target /
+    csound --version
+
+    set -x
+    mkdir -p artifacts
+
+  test_macos_arm64_python310_script: |
+    brew install python@3.10
+    ln -s $(which python3.10) py
+    ./py -m pip install .
+  <<: *PERFORM_TESTS
+
+  test_macos_arm64_python311_script: |
+    brew install python@3.11
+    ln -s $(which python3.11) py
+    ./py -m pip install .
+  <<: *PERFORM_TESTS
