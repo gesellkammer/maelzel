@@ -180,10 +180,13 @@ def findLilypond(install=True) -> str | None:
         the path to a working lilypond binary, or None if
         the path was not found
     """
-    if cached and (lilypath := _cache.get('lilypath', '')):
+    if (lilypath := _cache.get('lilypath', '')):
         if os.path.exists(lilypath):
             return lilypath
-
+        else:
+            logger.warning(f"lilypond path was cached but it has become invalid. "
+                           f"Previously cached path: {lilypath}")
+            
     # try which
     logger.debug("findLilypond: searching via shutil.which")
     lilypond = shutil.which('lilypond')
