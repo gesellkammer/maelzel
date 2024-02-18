@@ -52,7 +52,7 @@ class Note:
         """The duration of the event"""
 
 
-def vampFolder(pluginbits: int | None = None) -> str:
+def vampFolder(pluginbits=64) -> str:
     """
     Returns the vamp plugins folder
 
@@ -60,7 +60,7 @@ def vampFolder(pluginbits: int | None = None) -> str:
 
     Args:
         pluginbits: the architecture of the plugin, if known. One of
-            32 or 64, as int, or None if either not known or not relevant
+            32 or 64, as int. This is only relevant for windows
 
     Returns:
         the installation folder where the vamp plugin should be placed
