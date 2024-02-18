@@ -430,4 +430,4 @@ def pyinSmoothPitch(samples: np.ndarray,
                            step_size=stepSize, parameters=params)
     dt, freqs = result1['vector']
     freqsarray = np.array(freqs, dtype=float)
-    return (dt, freqsarray)
+    return (float(dt), freqsarray)

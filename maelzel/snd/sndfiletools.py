@@ -310,7 +310,8 @@ def maxPeak(filename: str, start: float = 0, end: float = 0, resolution=0.01
     maximum_peak = 0
     max_pos = 0
     info = sndfileio.sndinfo(filename)
-    for data, pos in readChunks(filename, start=start, end=end, chunksize=int(info.sr*resolution)):
+    chunksize = int(info.samplerate * resolution)
+    for data, pos in readChunks(filename, start=start, end=end, chunksize=chunksize):
         np.abs(data, data)
         peak = np.max(data)
         if peak > maximum_peak:
