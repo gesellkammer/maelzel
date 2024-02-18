@@ -266,7 +266,8 @@ def installAssets():
     checkVampPlugins(fix=True)
 
 
-def checkDependencies(abortIfErrors=False, fix=True, verbose=False) -> list[str]:
+def checkDependencies(abortIfErrors=False, fix=True, verbose=False
+                      ) -> list[str]:
     """
     Checks the dependencies of all maelzel subpackages
 
@@ -278,16 +279,21 @@ def checkDependencies(abortIfErrors=False, fix=True, verbose=False) -> list[str]
             errors
         fix: if True, try to fix errors along the way, if possible. Some
             fixes might require to restart the current python session
+        verbose: if True, display information during the checking process
 
     Returns:
         a list of errors (or an empty list if no errors where found)
     """
+    def _csoundengineDependencies(fix=True):
+        ok = csoundengine.checkDependencies(fix=fix)
+        return '' if ok else 'csoundengine: dependencies not fullfilled or error during check'
+
     steps = [
         ('Checking csound', checkCsound),
         ('Checking lilypond', checkLilypond),
         ('Checking external csound plugins', lambda: checkCsoundPlugins(fix=fix)),
         ('Checking vamp plugins', lambda: checkVampPlugins(fix=fix)),
-        ('Checking csoundengine dependencies', lambda: csoundengine.checkDependencies(fix=fix))
+        ('Checking csoundengine dependencies', lambda: _csoundengineDependencies(fix=fix))
     ]
 
     logger.info("Maelzel - checking dependencies")
