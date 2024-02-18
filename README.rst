@@ -18,9 +18,9 @@ maelzel
 =======
 
 **maelzel** is a framework for computer music in python. It provides
-datatypes to define notes, chords, sequences, lines, voices, scores, etc.
+datatypes to define notes, chords, sequences, lines, voices and entire scores.
 These objects can be combined with soundfiles and samples, rendered as notation
-and synthesized in realtime.
+and recorded or synthesized in realtime.
 
 It provides functionality for composition, music notation, sound analysis
 and synthesis, feature extraction, transcription and machine learning
@@ -48,7 +48,9 @@ Dependencies
 
 - python >= 3.9
 - csound (>= 6.18)
-- lilypond
+
+In macos/arm64 lilypond needs to be installed. The recommended way is to first install ``homebrew``, then install
+lilypond via ``brew install lilypond``
 
 
 -------------
