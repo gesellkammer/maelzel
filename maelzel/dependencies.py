@@ -410,25 +410,37 @@ def getPlatform(normalize=True) -> tuple[str, str]:
     machine = sysconfig.get_platform().split("-")[-1].lower()
     is_64bit = sys.maxsize > 2 ** 32
 
+    # Normalize system name
+    if system == 'win32':
+        system = 'windows'
+
     if system == "darwin":
         # get machine architecture of multiarch binaries
         if any([x in machine for x in ("fat", "intel", "universal")]):
             machine = platform.machine().lower()
+        if machine not in ('x86_64', 'arm64'):
+            raise RuntimeError(f"Unknown macos architecture '{machine}'")
 
     elif system == "linux":  # fix running 32bit interpreter on 64bit system
         if not is_64bit and machine == "x86_64":
             machine = "i686"
         elif not is_64bit and machine == "aarch64":
             machine = "armv7l"
-
-    elif system == "windows": # return more precise machine architecture names
+        if machine not in ('x86', 'x86_64', 'arm64', 'armv7l', 'i686', 'i386'):
+            raise RuntimeError(f"Unknown linux arch '{machine}'")
+    elif system == "windows":
+        # return more precise machine architecture names
         if machine == "amd64":
-            machine = "x64"
+            machine = "x86_64"
         elif machine == "win32":
             if is_64bit:
                 machine = platform.machine().lower()
             else:
                 machine = "x86"
+        if machine not in ('x86', 'x86_64', 'arm64', 'i386'):
+            raise RuntimeError(f"Unknown windows architecture '{machine}'")
+    else:
+        raise RuntimeError(f"System '{system}' unknown")
 
     # some more fixes based on examples in https://en.wikipedia.org/wiki/Uname
     if not is_64bit and machine in ("x86_64", "amd64"):
@@ -443,4 +455,5 @@ def getPlatform(normalize=True) -> tuple[str, str]:
             'aarch64': 'arm64',
             'amd64': 'x86_64'
         }.get(machine, machine)
+
     return system, machine
