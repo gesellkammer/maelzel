@@ -1,4 +1,7 @@
-
+"""
+NB: this module cannot import anything from maelzel itself
+"""
+from __future__ import annotations
 import numbers as _numbers
 import logging as _logging
 import pitchtools as pt

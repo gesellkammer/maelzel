@@ -15,6 +15,7 @@ import numpyx
 import sys
 import os
 from typing import TYPE_CHECKING
+from maelzel._util import getPlatform
 import vamp
 import vamp.frames
 
@@ -51,18 +52,49 @@ class Note:
         """The duration of the event"""
 
 
-def vampFolder() -> str:
+def vampFolder(pluginbits: int | None = None) -> str:
     """
     Returns the vamp plugins folder
+
+    It does not ensure its existence
+
+    Args:
+        pluginbits: the architecture of the plugin, if known. One of
+            32 or 64, as int, or None if either not known or not relevant
+
+    Returns:
+        the installation folder where the vamp plugin should be placed
+
+
+    https://www.vamp-plugins.org/download.html?platform=linux64&search=key&go=Go
+
+
+    ================   =========================================================
+    Operating System   Plugin folder
+    ================   =========================================================
+    macos              ``$HOME/Library/Audio/Plug-Ins/Vamp``
+    windows 64bits     64-bit plugins in ``C:\Program Files\Vamp Plugins``
+                       32-bit plugins in ``C:\Program Files (x86)\Vamp Plugins``
+                       Both 32- and 64-bit plugins can be used, as long as they
+                       are placed in the correct folder.
+    windows 32bits     ``C:\Program Files\Vamp Plugins``
+                       64 bit plugins cannot be used
+    linux              ~/vamp
+                       Only plugins with the correct architecture can be used
+    ================   =========================================================
     """
-    folder = {
-        'linux': '~/vamp',
-        'windows': 'C:\Program Files\Vamp Plugins',  # win 64
-        'darwin': '~/Library/Audio/Plug-Ins/Vamp'
-    }.get(sys.platform, None)
-    if folder is None:
-        raise RuntimeError(f"Platform {sys.platform} not supported")
-    return os.path.expanduser(folder)
+    osname, arch = getPlatform()
+    if osname == 'linux':
+        return os.path.expanduser('~/vamp')
+    elif osname == 'darwin':
+        return os.path.expanduser('~/Library/Audio/Plug-Ins/Vamp')
+    elif osname == 'windows':
+        if pluginbits == 32 or not pluginbits:
+            return r'C:\Program Files (x86)\Vamp Plugins'
+        else:
+            return r'C:\Program Files\Vamp Plugins'
+    else:
+        raise RuntimeError(f"Platform {osname}:{arch} not supported")
 
 
 def listPlugins(cached=True) -> Set[str]:

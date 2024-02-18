@@ -8,14 +8,15 @@ import os
 import sys
 import logging
 from datetime import datetime
-
-import csoundengine
-
-from maelzel import _state
 import functools
 
+import csoundengine
+from maelzel import _state
+from maelzel._util import getPlatform
+from maelzel.common import getLogger
 
-logger = logging.getLogger('maelzel')
+
+logger = getLogger('maelzel')
 
 
 def csoundLibVersion() -> int | None:
@@ -375,86 +376,4 @@ def checkDependenciesIfNeeded(daysSinceLastCheck=0) -> bool:
     return False
 
 
-@functools.cache
-def getPlatform(normalize=True) -> tuple[str, str]:
-    """
-    Return a string with current platform (system and machine architecture).
 
-    This attempts to improve upon `sysconfig.get_platform` by fixing some
-    issues when running a Python interpreter with a different architecture than
-    that of the system (e.g. 32bit on 64bit system, or a multiarch build),
-    which should return the machine architecture of the currently running
-    interpreter rather than that of the system (which didn't seem to work
-    properly). The reported machine architectures follow platform-specific
-    naming conventions (e.g. "x86_64" on Linux, but "x64" on Windows).
-    Use normalize=True to reduce those labels (returns one of 'x86_64', 'arm64', 'x86')
-    Example output for common platforms (normalized):
-
-        ('darwin', 'arm64')
-        ('darwin', 'x86_64')
-        ('linux', 'x86_64')
-        ('windows', 'x86_64')
-        ...
-
-    Normalizations:
-
-    * aarch64 -> arm64
-    * x64 -> x86_64
-    * amd64 -> x86_64
-
-
-    """
-    import platform
-    import sysconfig
-
-    system = platform.system().lower()
-    machine = sysconfig.get_platform().split("-")[-1].lower()
-    is_64bit = sys.maxsize > 2 ** 32
-
-    # Normalize system name
-    if system == 'win32':
-        system = 'windows'
-
-    if system == "darwin":
-        # get machine architecture of multiarch binaries
-        if any([x in machine for x in ("fat", "intel", "universal")]):
-            machine = platform.machine().lower()
-        if machine not in ('x86_64', 'arm64'):
-            raise RuntimeError(f"Unknown macos architecture '{machine}'")
-
-    elif system == "linux":  # fix running 32bit interpreter on 64bit system
-        if not is_64bit and machine == "x86_64":
-            machine = "i686"
-        elif not is_64bit and machine == "aarch64":
-            machine = "armv7l"
-        if machine not in ('x86', 'x86_64', 'arm64', 'armv7l', 'i686', 'i386'):
-            raise RuntimeError(f"Unknown linux arch '{machine}'")
-    elif system == "windows":
-        # return more precise machine architecture names
-        if machine == "amd64":
-            machine = "x86_64"
-        elif machine == "win32":
-            if is_64bit:
-                machine = platform.machine().lower()
-            else:
-                machine = "x86"
-        if machine not in ('x86', 'x86_64', 'arm64', 'i386'):
-            raise RuntimeError(f"Unknown windows architecture '{machine}'")
-    else:
-        raise RuntimeError(f"System '{system}' unknown")
-
-    # some more fixes based on examples in https://en.wikipedia.org/wiki/Uname
-    if not is_64bit and machine in ("x86_64", "amd64"):
-        if any([x in system for x in ("cygwin", "mingw", "msys")]):
-            machine = "i686"
-        else:
-            machine = "i386"
-
-    if normalize:
-        machine = {
-            'x64': 'x86_64',
-            'aarch64': 'arm64',
-            'amd64': 'x86_64'
-        }.get(machine, machine)
-
-    return system, machine

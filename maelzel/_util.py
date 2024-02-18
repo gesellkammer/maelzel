@@ -1,10 +1,11 @@
 from __future__ import annotations
-import emlib.misc
 import warnings
+import weakref
 import sys
 import os
-import weakref
+import emlib.misc
 from maelzel.common import F
+import functools
 
 
 from typing import Callable, Sequence, TYPE_CHECKING
@@ -68,7 +69,18 @@ def reprObj(obj,
     return f"{cls}({infostr})"
 
 
-def fuzzymatch(query: str, choices: Sequence[str], limit=5) -> list[tuple[str, int]]:
+def fuzzymatch(query: str, choices: Sequence[str], limit=5
+               ) -> list[tuple[str, int]]:
+    """
+
+    Args:
+        query: query to match
+        choices: list of strings
+        limit: max. number of matches
+
+    Returns:
+        list of tuples (matchingchoice: str, score: int)
+    """
     if 'thefuzz.process' not in sys.modules:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -87,16 +99,23 @@ def checkChoice(name: str, s: str, choices: Sequence[str], threshold=8):
 
 
 def readableTime(t: float) -> str:
+    """
+    Return t as readable time
+
+    Args:
+        t: the time in seconds
+
+    Returns:
+        a string representation of t with an appropriate unit
+    """
     if t < 1e-6:
         return f"{t*1e9:.1f}ns"
-
-    if t < 1e-3:
+    elif t < 1e-3:
         return f"{t*1e6:.1f}µs"
-
-    if t < 1:
+    elif t < 1:
         return f"{t*1e3:.1f}ms"
-
-    return f"{t:.6g}s"
+    else:
+        return f"{t:.6g}s"
 
 
 def normalizeFilename(path: str) -> str:
@@ -219,25 +238,91 @@ def pythonSessionType() -> str:
         return "python"
 
 
-def imageAutocrop(img: PIL.Image.Image | str, bgcolor: str | tuple[int, int, int]
-                  ) -> PIL.Image.Image | None:
-    from PIL import Image, ImageChops
-    imgobj = img if isinstance(img, Image.Image) else Image.open(img)
+@functools.cache
+def getPlatform(normalize=True) -> tuple[str, str]:
+    """
+    Return a string with current platform (system and machine architecture).
 
-    if imgobj.mode != "RGB":
-        imgobj = imgobj.convert("RGB")
-    bg = Image.new("RGB", imgobj.size, bgcolor)
-    diff = ImageChops.difference(imgobj, bg)
-    bbox = diff.getbbox()
-    if bbox:
-        return imgobj.crop(bbox)
-    return None
+    Args:
+        normalize: if True, architectures are normalized (see below)
+    Returns:
+        a tuple (osname: str, architecture: str)
+
+    This attempts to improve upon `sysconfig.get_platform` by fixing some
+    issues when running a Python interpreter with a different architecture than
+    that of the system (e.g. 32bit on 64bit system, or a multiarch build),
+    which should return the machine architecture of the currently running
+    interpreter rather than that of the system (which didn't seem to work
+    properly). The reported machine architectures follow platform-specific
+    naming conventions (e.g. "x86_64" on Linux, but "x64" on Windows).
+    Use normalize=True to reduce those labels (returns one of 'x86_64', 'arm64', 'x86')
+    Example output for common platforms (normalized):
+
+        ('darwin', 'arm64')
+        ('darwin', 'x86_64')
+        ('linux', 'x86_64')
+        ('windows', 'x86_64')
+        ...
+
+    Normalizations:
+
+    * aarch64 -> arm64
+    * x64 -> x86_64
+    * amd64 -> x86_64
 
 
-def imagefileAutocrop(imgfile: str, outfile: str, bgcolor: str | tuple[int, int, int]) -> bool:
-    imgobj = imageAutocrop(imgfile, bgcolor=bgcolor)
-    if imgobj is None:
-        return False
-    imgobj.save(outfile)
-    return True
+    """
+    import platform
+    import sysconfig
 
+    system = platform.system().lower()
+    machine = sysconfig.get_platform().split("-")[-1].lower()
+    is_64bit = sys.maxsize > 2 ** 32
+
+    # Normalize system name
+    if system == 'win32':
+        system = 'windows'
+
+    if system == "darwin":
+        # get machine architecture of multiarch binaries
+        if any([x in machine for x in ("fat", "intel", "universal")]):
+            machine = platform.machine().lower()
+        if machine not in ('x86_64', 'arm64'):
+            raise RuntimeError(f"Unknown macos architecture '{machine}'")
+
+    elif system == "linux":  # fix running 32bit interpreter on 64bit system
+        if not is_64bit and machine == "x86_64":
+            machine = "i686"
+        elif not is_64bit and machine == "aarch64":
+            machine = "armv7l"
+        if machine not in ('x86', 'x86_64', 'arm64', 'armv7l', 'i686', 'i386'):
+            raise RuntimeError(f"Unknown linux arch '{machine}'")
+    elif system == "windows":
+        # return more precise machine architecture names
+        if machine == "amd64":
+            machine = "x86_64"
+        elif machine == "win32":
+            if is_64bit:
+                machine = platform.machine().lower()
+            else:
+                machine = "x86"
+        if machine not in ('x86', 'x86_64', 'arm64', 'i386'):
+            raise RuntimeError(f"Unknown windows architecture '{machine}'")
+    else:
+        raise RuntimeError(f"System '{system}' unknown")
+
+    # some more fixes based on examples in https://en.wikipedia.org/wiki/Uname
+    if not is_64bit and machine in ("x86_64", "amd64"):
+        if any([x in system for x in ("cygwin", "mingw", "msys")]):
+            machine = "i686"
+        else:
+            machine = "i386"
+
+    if normalize:
+        machine = {
+            'x64': 'x86_64',
+            'aarch64': 'arm64',
+            'amd64': 'x86_64'
+        }.get(machine, machine)
+
+    return system, machine
