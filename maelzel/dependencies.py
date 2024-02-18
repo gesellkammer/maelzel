@@ -223,6 +223,7 @@ def installVampPlugins() -> None:
     print("Installing vamp plugins")
     from maelzel.snd import vamptools
     osname, arch = getPlatform()
+    assert osname in ('windows', 'darwin', 'linux')
     if osname == 'darwin':
         subfolder = f'macos-{arch}'
     else:
