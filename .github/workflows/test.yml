@@ -2,7 +2,7 @@ on: [push]
 
 jobs:
   testwin:
-    name: test windows python ${{ matrix.python-version }} via ${{ matrix.install-method }}
+    name: Test windows (${{ matrix.python-version }}) (${{ matrix.install-method }})
     runs-on: windows-latest
     strategy:
       matrix:
