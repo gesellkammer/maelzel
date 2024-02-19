@@ -2,11 +2,12 @@ on: [push]
 
 jobs:
   testwin:
-    name: Test maelzel on windows git
+    name: Test maelzel on windows ${{ matrix.install-method }}
     runs-on: windows-latest
     strategy:
       matrix:
         python-version: ["3.9", "3.10", "3.11"]
+        install-method: ["git", "pip"]
     steps:
       - uses: actions/checkout@v3
 
@@ -14,7 +15,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: windows - install csound
+      - name: windows setup
         run: |
           curl -L -o csound-binaries.zip https://github.com/csound/csound/releases/download/6.18.1/Csound-6.18.1-windows-x64-binaries.zip
           Expand-Archive csound-binaries.zip -DestinationPath "C:\Program Files\csound-binaries"
@@ -24,54 +25,25 @@ jobs:
           $Env:Path = $Env:Path + ";C:\Program Files\csound-binaries\build\Release"
           Write-Output $Env:PATH
           csound.exe --version
+          mkdir artifacts
 
-      - name: windows - test install from repo
+      - name: install from repo
+        if: ${{ matrix.install-method }} == 'git'
         run: |
-          $Env:Path = $Env:Path + ";C:\Program Files\csound-binaries\build\Release"
           pip install .
-          mkdir artifacts
-          
-          cd test
-          python test-rec.py -o test-rec--windows-git.wav
-          python test-dependencies.py
-          python test-notation.py -o 'test-notation-windows-pip-${{ matrix.python-version }}.pdf'
-          cp *.wav ../artifacts
-          cp *.pdf ../artifacts
 
-  testwinpip:
-    name: Test maelzel on windows pit
-    runs-on: windows-latest
-    strategy:
-      matrix:
-        python-version: ["3.9", "3.10"]
-    steps:
-      - uses: actions/checkout@v3
-
-      - uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: windows - install csound
+      - name: install from pip
+        if: ${{ matrix.install-method }} == 'pip'
         run: |
-          curl -L -o csound-binaries.zip https://github.com/csound/csound/releases/download/6.18.1/Csound-6.18.1-windows-x64-binaries.zip
-          Expand-Archive csound-binaries.zip -DestinationPath "C:\Program Files\csound-binaries"
-          ls -r "C:\Program Files\csound-binaries"
-
-          [Environment]::SetEnvironmentVariable("PATH", $Env:PATH + ";C:\Program Files\csound-binaries\build\Release", [EnvironmentVariableTarget]::Machine)
-          $Env:Path = $Env:Path + ";C:\Program Files\csound-binaries\build\Release"
-          Write-Output $Env:PATH
-          csound.exe --version
-
-      - name: windows - test install from repo
-        run: |
-          $Env:Path = $Env:Path + ";C:\Program Files\csound-binaries\build\Release"
           pip install maelzel
-          mkdir artifacts
-          
+
+      - name: test
+        run: |
+          $Env:Path = $Env:Path + ";C:\Program Files\csound-binaries\build\Release"
           cd test
-          python test-rec.py -o test-rec--windows-pip.wav
+          python test-rec.py -o test-rec--windows-${{ matrix.install-method }}.wav
           python test-dependencies.py
-          python test-notation.py -o 'test-notation-windows-pip-${{ matrix.python-version }}.pdf'
+          python test-notation.py -o 'test-notation-windows-${{ matrix.install-method }}-${{ matrix.python-version }}.pdf'
           cp *.wav ../artifacts
           cp *.pdf ../artifacts
 
