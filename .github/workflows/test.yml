@@ -2,7 +2,7 @@ on: [push]
 
 jobs:
   testwin:
-    name: Test maelzel on windows ${{ matrix.install-method }}
+    name: test windows python ${{ matrix.python-version }} via ${{ matrix.install-method }}
     runs-on: windows-latest
     strategy:
       matrix:
@@ -28,12 +28,12 @@ jobs:
           mkdir artifacts
 
       - name: install from repo
-        if: ${{ matrix.install-method }} == 'git'
+        if: ${{ matrix.install-method == 'git' }}
         run: |
           pip install .
 
       - name: install from pip
-        if: ${{ matrix.install-method }} == 'pip'
+        if: ${{ matrix.install-method == 'pip' }}
         run: |
           pip install maelzel
 
