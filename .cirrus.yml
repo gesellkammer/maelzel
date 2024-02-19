@@ -1,5 +1,5 @@
 perform_tests: &PERFORM_TESTS
-  test_script:
+  test_script: |
     set -x
     cd test
     PYVERSION=$(./py --version)
