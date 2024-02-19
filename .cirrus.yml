@@ -1,10 +1,11 @@
 perform_tests: &PERFORM_TESTS
   test_script: |
     set -x
-    cd test
     ./py --version
     PYVERSION=$(./py --version)
     echo $PYVERSION
+    
+    cd test
     ../py test-rec.py -o "test-rec-macos-$PYVERSION.wav"
     ../py test-dependencies.py
     ../py test-notation.py -o "test-notation-macos-$PYVERSION.pdf"
@@ -28,7 +29,7 @@ test_git_310_task:
 
   <<: *SETUP_MACOS
 
-  test_macos_arm64_python310_git_script: |
+  install_macos_arm64_python310_git_script: |
     brew install python@3.10
     ln -s $(which python3.10) py
     ./py -m pip install .
@@ -40,7 +41,7 @@ test_git_311_task:
 
   <<: *SETUP_MACOS
 
-  test_macos_arm64_python310_git_script: |
+  install_macos_arm64_python310_git_script: |
     brew install python@3.11
     ln -s $(which python3.11) py
     ./py -m pip install .
@@ -52,7 +53,7 @@ test_pip_310_task:
 
   <<: *SETUP_MACOS
 
-  test_macos_arm64_python310_git_script: |
+  install_macos_arm64_python310_git_script: |
     brew install python@3.10
     ln -s $(which python3.10) py
     ./py -m pip install maelzel
@@ -64,7 +65,7 @@ test_pip_311_task:
 
   <<: *SETUP_MACOS
 
-  test_macos_arm64_python310_git_script: |
+  install_macos_arm64_python310_git_script: |
     brew install python@3.11
     ln -s $(which python3.11) py
     ./py -m pip install maelzel
