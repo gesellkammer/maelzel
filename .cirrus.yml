@@ -13,7 +13,9 @@ perform_tests: &PERFORM_TESTS
     ls -l 
     cp *.wav ../artifacts
     cp *.pdf ../artifacts
-    ls -l ../artifacts
+    cd ..
+    
+    ls -l artifacts/*
 
   test_artifacts:
     path: artifacts/*
