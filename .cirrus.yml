@@ -2,7 +2,7 @@ perform_tests: &PERFORM_TESTS
   macos_instance:
     image: ghcr.io/cirruslabs/macos-ventura-xcode:latest
 
-  test_script: |
+  main_test_script: |
     set -x
     ./py --version
     echo "ID: '$ID'"
