@@ -2,13 +2,14 @@ perform_tests: &PERFORM_TESTS
   test_script: |
     set -x
     cd test
+    ./py --version
     PYVERSION=$(./py --version)
-    ./py test-rec.py -o "test-rec-macos-$PYVERSION.wav"
-    ./py test-dependencies.py
-    ./py test-notation.py -o "test-notation-macos-$PYVERSION.pdf"
+    echo $PYVERSION
+    ../py test-rec.py -o "test-rec-macos-$PYVERSION.wav"
+    ../py test-dependencies.py
+    ../py test-notation.py -o "test-notation-macos-$PYVERSION.pdf"
     cp *.wav ../artifacts
     cp *.pdf ../artifacts
-    rm py
 
 setup_macos: &SETUP_MACOS
   setup_macos_script: |
