@@ -1,20 +1,24 @@
 perform_tests: &PERFORM_TESTS
+  macos_instance:
+    image: ghcr.io/cirruslabs/macos-ventura-xcode:latest
+
   test_script: |
     set -x
     ./py --version
-    PYVERSION=$(./py --version)
-    echo $PYVERSION
-    
+    echo "ID: '$ID'"
     cd test
-    ../py test-rec.py -o "test-rec-macos-$PYVERSION.wav"
+    ../py test-rec.py -o "test-rec-macos-$ID.wav"
     ../py test-dependencies.py
-    ../py test-notation.py -o "test-notation-macos-$PYVERSION.pdf"
+    ../py test-notation.py -o "test-notation-macos-$ID.pdf"
     cp *.wav ../artifacts
     cp *.pdf ../artifacts
 
+  test_artifacts:
+    path: artifacts/*
+
+
 setup_macos: &SETUP_MACOS
-  setup_macos_script: |
-    set -x
+  setup_script: |
     curl -L -o csound6.18.dmg https://github.com/csound/csound/releases/download/6.18.1/Csound-MacOS-universal-6.18.1.dmg
     brew install p7zip
     7z x csound6.18.dmg
@@ -24,51 +28,42 @@ setup_macos: &SETUP_MACOS
     mkdir -p artifacts
 
 test_git_310_task:
-  macos_instance:
-    image: ghcr.io/cirruslabs/macos-ventura-xcode:latest
-
+  environment:
+    ID: git-310
   <<: *SETUP_MACOS
-
-  install_macos_arm64_python310_git_script: |
+  install_script: |
     brew install python@3.10
     ln -s $(which python3.10) py
     ./py -m pip install .
   <<: *PERFORM_TESTS
 
 test_git_311_task:
-  macos_instance:
-    image: ghcr.io/cirruslabs/macos-ventura-xcode:latest
-
+  environment:
+    ID: git-311
   <<: *SETUP_MACOS
-
-  install_macos_arm64_python310_git_script: |
+  install_script: |
     brew install python@3.11
     ln -s $(which python3.11) py
     ./py -m pip install .
   <<: *PERFORM_TESTS
 
 test_pip_310_task:
-  macos_instance:
-    image: ghcr.io/cirruslabs/macos-ventura-xcode:latest
-
+  environment:
+    ID: pip-310
   <<: *SETUP_MACOS
-
-  install_macos_arm64_python310_git_script: |
+  install_script: |
     brew install python@3.10
     ln -s $(which python3.10) py
     ./py -m pip install maelzel
   <<: *PERFORM_TESTS
 
 test_pip_311_task:
-  macos_instance:
-    image: ghcr.io/cirruslabs/macos-ventura-xcode:latest
-
+  environment:
+    ID: pip-311
   <<: *SETUP_MACOS
-
-  install_macos_arm64_python310_git_script: |
+  install_script: |
     brew install python@3.11
     ln -s $(which python3.11) py
     ./py -m pip install maelzel
-
   <<: *PERFORM_TESTS
 
