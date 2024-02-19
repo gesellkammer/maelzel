@@ -29,7 +29,7 @@ test_git_310_task:
 
   test_macos_arm64_python310_git_script: |
     brew install python@3.10
-    ln -s (which python3.10) py
+    ln -s $(which python3.10) py
     ./py -m pip install .
   <<: *PERFORM_TESTS
 
@@ -41,7 +41,7 @@ test_git_311_task:
 
   test_macos_arm64_python310_git_script: |
     brew install python@3.11
-    ln -s (which python3.11) py
+    ln -s $(which python3.11) py
     ./py -m pip install .
   <<: *PERFORM_TESTS
 
@@ -53,7 +53,7 @@ test_pip_310_task:
 
   test_macos_arm64_python310_git_script: |
     brew install python@3.10
-    ln -s (which python3.10) py
+    ln -s $(which python3.10) py
     ./py -m pip install maelzel
   <<: *PERFORM_TESTS
 
@@ -65,7 +65,7 @@ test_pip_311_task:
 
   test_macos_arm64_python310_git_script: |
     brew install python@3.11
-    ln -s (which python3.11) py
+    ln -s $(which python3.11) py
     ./py -m pip install maelzel
 
   <<: *PERFORM_TESTS
