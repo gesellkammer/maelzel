@@ -10,8 +10,10 @@ perform_tests: &PERFORM_TESTS
     ../py test-rec.py -o "test-rec-macos-$ID.wav"
     ../py test-dependencies.py
     ../py test-notation.py -o "test-notation-macos-$ID.pdf"
+    ls -l 
     cp *.wav ../artifacts
     cp *.pdf ../artifacts
+    ls -l ../artifacts
 
   test_artifacts:
     path: artifacts/*
@@ -21,6 +23,7 @@ setup_macos: &SETUP_MACOS
   setup_script: |
     curl -L -o csound6.18.dmg https://github.com/csound/csound/releases/download/6.18.1/Csound-MacOS-universal-6.18.1.dmg
     brew install p7zip
+    brew install lilypond
     7z x csound6.18.dmg
     cd Csound-universal-6.18.1
     sudo installer -pkg csound-MacOS-universal-6.18.1.pkg -target /
