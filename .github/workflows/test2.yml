@@ -9,6 +9,7 @@ jobs:
         os: ["windows-latest", "macos-latest", "ubuntu-latest"]
         python-version: ["3.9", "3.10", "3.11"]
         install-method: ["git", "pip"]
+      fail-fast: false
     steps:
       - uses: actions/checkout@v3
 
@@ -23,9 +24,13 @@ jobs:
           Expand-Archive csound-binaries.zip -DestinationPath "C:\Program Files\csound-binaries"
           ls -r "C:\Program Files\csound-binaries"
 
-          [Environment]::SetEnvironmentVariable("PATH", $Env:PATH + ";C:\Program Files\csound-binaries\build\Release", [EnvironmentVariableTarget]::Machine)
-          $Env:Path = $Env:Path + ";C:\Program Files\csound-binaries\build\Release"
-          Write-Output $Env:PATH
+          "C:\Program Files\csound-binaries\build\Release" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+          # [Environment]::SetEnvironmentVariable("PATH", $Env:PATH + ";C:\Program Files\csound-binaries\build\Release", [EnvironmentVariableTarget]::Machine)
+          # $Env:Path = $Env:Path + ";C:\Program Files\csound-binaries\build\Release"
+          echo "$PATH"
+
+          # Write-Output $Env:PATH
           csound.exe --version
           mkdir artifacts
 
@@ -69,6 +74,8 @@ jobs:
 
       - name: test
         run: |
+          echo "$PATH"
+
           cd test
 
           python test-rec.py -o test-rec--windows-${{ matrix.install-method }}.wav
