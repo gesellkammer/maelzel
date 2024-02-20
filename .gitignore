@@ -30,3 +30,4 @@ Untitled*.ipynb
 *.tex
 *.texi
 .virtual_documents
+test/output
