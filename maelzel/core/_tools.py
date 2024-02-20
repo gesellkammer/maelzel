@@ -555,4 +555,3 @@ def _interpolateBreakpoints(t: float, bp0: Sequence[num_t], bp1: Sequence[num_t]
         bp.append(v0 + (v1-v0)*delta)
     return bp
 
-

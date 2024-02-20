@@ -184,6 +184,14 @@ class RenderOptions:
     A small denominator depends on tempo
     """
 
+    proportionalSpacing: bool = False
+    """Use proportional spacing"""
+
+    proportionalNotationDuration: str = '1/20'
+    """A lower value results in a note taking more horizontal space"""
+
+    proportionalSpacingKind: str = 'strict'
+
     @classmethod
     def keys(cls) -> set[str]:
         return {f.name for f in _dataclassfields(cls)}

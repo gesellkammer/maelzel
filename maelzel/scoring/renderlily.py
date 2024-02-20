@@ -1060,6 +1060,17 @@ def makeScore(score: quant.QuantizedScore,
             indents -= 1
 
     _(r">>")
+    if options.proportionalSpacing:
+        dur = asF(options.proportionalNotationDuration)
+        if options.proportionalSpacingKind == 'strict':
+            strict, uniform = True, True
+        elif options.proportionalSpacingKind == 'uniform':
+            strict, uniform = False, True
+        else:
+            strict, uniform = False, False
+        _(lilypondsnippets.proportionalSpacing(num=dur.numerator, den=dur.denominator,
+                                               strict=strict, uniform=uniform))
+
     if midi:
         _(" "*indentSize + r"\midi { }")
     _(r"}   % end score")  # end \score

@@ -3,6 +3,7 @@ import math
 from maelzel.textstyle import TextStyle
 from maelzel import dynamiccurve
 from numbers import Rational
+from ._configtools import isValidFraction
 
 
 defaultdict = {
@@ -59,6 +60,9 @@ defaultdict = {
     'show.referenceStaffsize': 12.0,
     'show.musicxmlFontScaling': 1.0,
     'show.autoClefChanges': True,
+    'show.proportionalSpacing': False,
+    'show.proportionalSpacingKind': 'strict',
+    'show.proportionalNotationDuration': '1/24',
     '.show.autoClefChangesWindow': 1,
     '.show.keepClefBiasFactor': 2.0,
 
@@ -162,6 +166,8 @@ validator = {
     'show.clipNoteheadShape::choices': ('', 'square', 'normal', 'cross', 'harmonic', 'triangle',
                                         'xcircle', 'rhombus', 'rectangle', 'slash', 'diamond',
                                         'cluster'),
+    'show.proportionalNotationDuration': lambda cfg, key, val: isValidFraction(val),
+    'show.proportionalSpacingKind::choices': ('strict', 'uniform', ''),
     'dynamicCurveShape': lambda cfg, key, val: val.split("(")[0] in ('linear', 'expon', 'halfcos'),
     'dynamicCurveMindb::range': (-160, 0),
     'dynamicCurveMaxdb::range': (-160, 0),
@@ -555,6 +561,27 @@ docs = {
     'show.autoClefChanges':
         'If True, add clef changes to a quantized part if needed. Otherwise, one clef '
         'is determined for each part and is not changed along the part.',
+
+    'show.proportionalSpacing':
+        'Output notation using proportional spacing, a type of horizontal spacing '
+        'in which each note consumes an amount of horizontal space exactly equivalent '
+        'to its rhythmic duration. At the moment this is only supported by the lilypond '
+        'backend. See ``show.proportionalNotationDuration`` to customize the actual '
+        'horizontal spacing',
+
+    'show.proportionalSpacingKind':
+        'The spacing used for proportional spacing. This is only valid for lilypond. '
+        'One of "strict", "uniform" or "". Strict spacing places notes horizontally '
+        'only taking the duration into account; any clef changes or other symbols '
+        'are not used for horizontal spacing. This is needed if alignment with '
+        'a fixed timeline (like some kind of plot) is needed. Uniform spacing assigns '
+        'some horizontal space to clefs and time signatures, offsetting the music to '
+        'the right by some amount. ',
+
+    'show.proportionalNotationDuration':
+        'The lower this value, the longer the space taken by each note. At the moment, '
+        'this corresponds 1:1 to the value as used by lilypond. See also: '
+        'https://lilypond.org/doc/v2.23/Documentation/notation/proportional-notation',
 
     '.show.keepClefBiasFactor':
         'The higher this value, the more priority is  given to keeping the previous '

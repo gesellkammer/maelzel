@@ -82,7 +82,11 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
         keepClefBiasFactor=cfg['.show.keepClefBiasFactor'],
         autoClefChangesWindow=cfg['.show.autoClefChangesWindow'],
         musicxmlFontScaling=cfg['show.musicxmlFontScaling'],
-        centsAnnotationSnap=cfg['show.centsAnnotationSnap']
+        centsAnnotationSnap=cfg['show.centsAnnotationSnap'],
+        proportionalSpacing=cfg['show.proportionalSpacing'],
+        proportionalNotationDuration=cfg['show.proportionalNotationDuration'],
+        proportionalSpacingKind=cfg['show.proportionalSpacingKind']
+
     )
     return renderOptions
 

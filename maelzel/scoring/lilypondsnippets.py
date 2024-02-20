@@ -1,4 +1,5 @@
 from string import Template
+from functools import cache
 
 
 prelude = r"""
@@ -278,3 +279,40 @@ _glissandoMinLengthTemplate = Template(r"""
 
 def glissandoMinimumLength(length: int) -> str:
     return _glissandoMinLengthTemplate.substitute(length=length)
+
+
+def proportionalSpacing(num=1, den=20, strict=True, uniform=True
+                        ) -> str:
+    """
+    Creates the snippet for proportional spacing
+
+    https://lilypond.org/doc/v2.23/Documentation/notation/proportional-notation
+
+    Args:
+        num: numerator for horizontal resolution
+        den: denominator for horizontal resolution
+        strict: use strict spacing
+        uniform: use uniform spacing
+
+    Returns:
+        the lilypond snippet
+    """
+    spacings = []
+    if strict:
+        spacings.append(r"        \override SpacingSpanner.strict-note-spacing = ##t")
+
+    if uniform:
+        spacings.append(r"        \override SpacingSpanner.uniform-stretching = ##t")
+
+    spacing = "\n".join(spacings) if spacings else '        '
+
+    return fr"""
+    \layout {{
+      \context {{
+        \Score
+        proportionalNotationDuration = #(ly:make-moment {num}/{den})
+{spacing}
+      }}
+    }}
+    """
+
