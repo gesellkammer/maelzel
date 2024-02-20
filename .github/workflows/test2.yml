@@ -25,9 +25,8 @@ jobs:
           ls -r "C:\Program Files\csound-binaries"
 
           "C:\Program Files\csound-binaries\build\Release" | Out-File -FilePath $env:GITHUB_PATH -Append
-
-          # [Environment]::SetEnvironmentVariable("PATH", $Env:PATH + ";C:\Program Files\csound-binaries\build\Release", [EnvironmentVariableTarget]::Machine)
-          # $Env:Path = $Env:Path + ";C:\Program Files\csound-binaries\build\Release"
+          [Environment]::SetEnvironmentVariable("PATH", $Env:PATH + ";C:\Program Files\csound-binaries\build\Release", [EnvironmentVariableTarget]::Machine)
+          $Env:Path = $Env:Path + ";C:\Program Files\csound-binaries\build\Release"
           echo "$PATH"
 
           # Write-Output $Env:PATH
