@@ -38,6 +38,8 @@ jobs:
           sudo apt install csound libcsnd-dev
           csound --version
           # lilypond --version
+          mkdir -p artifacts
+
 
       - name: macos setup
         if: runner.os == 'macOs'
@@ -52,6 +54,8 @@ jobs:
           cd ..
           # brew install lilypond
           # lilypond --version
+          mkdir -p artifacts
+
 
       - name: install from repo
         if: ${{ matrix.install-method == 'git' }}
