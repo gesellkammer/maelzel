@@ -565,7 +565,11 @@ class SynthEvent:
         self.sustain: float = sustain
         """Sustain time after the actual duration"""
 
-        self.automations: dict[str, SynthAutomation] | None = None
+        self.automations: list[SynthAutomation] | None = None
+        """A list of SynthAutomation. 
+        
+        This keeps track of any automation for this event, both automation
+        lines and single set events. Add automation via .addAutomation"""
 
         self.automationSegments: list[_AutomationSegment] | None = None
         """List of automation points
@@ -687,17 +691,23 @@ class SynthEvent:
     def fade(self, value: tuple[float, float]):
         self.fadein, self.fadeout = value
 
+    def addAutomation(self, automation: SynthAutomation):
+        assert isinstance(automation, SynthAutomation)
+        if self.automations is None:
+            self.automations = []
+        self.automations.append(automation)
+
+    def set(self, param: str, value: float, delay=0.) -> None:
+        automation = SynthAutomation(param=param, data=[0, value], delay=delay)
+        self.addAutomation(automation)
+
     def addAutomationsFromPlayArgs(self, playargs: PlayArgs, scorestruct: ScoreStruct) -> None:
         if not playargs.automations:
             return
         offset = scorestruct.timeToBeat(self.delay + self.bps[0][0])
         automations = playargs.makeSynthAutomations(scorestruct=scorestruct, parentOffset=offset)
-        if self.automations is None:
-            self.automations = {automation.param: automation
-                                for automation in automations}
-        else:
-            for automation in automations:
-                self.automations[automation.param] = automation
+        for automation in automations:
+            self.addAutomation(automation)
 
     @classmethod
     def fromPlayArgs(cls,

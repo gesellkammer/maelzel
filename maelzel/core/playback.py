@@ -7,6 +7,7 @@ from functools import cache
 
 import numpy as np
 import csoundengine
+from csoundengine.sessionhandler import SessionHandler
 
 from maelzel.core._common import logger, prettylog
 from maelzel.core.presetdef import PresetDef
@@ -19,6 +20,7 @@ from maelzel.core.synthevent import SynthEvent
 from maelzel.core.renderer import Renderer
 from maelzel.core.automation import SynthAutomation
 from maelzel import _util
+from maelzel.snd import audiosample
 
 
 from typing import TYPE_CHECKING
@@ -26,6 +28,7 @@ if TYPE_CHECKING:
     import csoundengine.baseschedevent
     from typing import Sequence, Callable
     from .mobj import MObj
+    from maelzel.snd import audiosample
 
 
 __all__ = (
@@ -242,6 +245,15 @@ class RealtimeRenderer(Renderer):
         This method is mostly used internally
         """
         self.engine.popLock()
+
+
+class _SyncSessionHandler(SessionHandler):
+    def __init__(self, renderer: SynchronizedContext):
+        self.renderer = renderer
+
+    def sched(self, event: csoundengine.event.Event):
+        return self.renderer._schedSessionEvent(event)
+
 
 # <------------------- end RealtimeRenderer
 
@@ -598,17 +610,30 @@ def _schedEvents(renderer: RealtimeRenderer,
                              segment.time - segment.pretime, segment.value]
                     synth.automate(param=segment.param, pairs=pairs, delay=segment.pretime)
         if coreevent.automations:
-            for automation in coreevent.automations.values():
+            for automation in coreevent.automations:
                 synth.automate(param=automation.param, pairs=automation.data, delay=automation.delay)
 
-    if posthook:
-        posthook(synths)
-
     if sessionevents:
-        sessionsynths = [renderer._schedSessionEvent(ev) for ev in sessionevents]
+        sessionsynths = []
+        for ev in sessionevents:
+            synth = renderer._schedSessionEvent(ev)
+            sessionsynths.append(synth)
+            if ev.automations:
+                for automation in ev.automations:
+                    synth.automate(param=automation.param,
+                                   pairs=automation.pairs,
+                                   delay=automation.delay,
+                                   mode=automation.interpolation,
+                                   overtake=automation.overtake)
+
+        # sessionsynths = [renderer._schedSessionEvent(ev) for ev in sessionevents]
+
         # synths.extend(sessionsynths)
     else:
         sessionsynths = []
+
+    if posthook:
+        posthook(synths)
 
     if locked:
         renderer.popLock()  # <----------------- Unlock
@@ -690,8 +715,8 @@ class SynchronizedContext(Renderer):
         self._instrDefs: dict[str, csoundengine.instr.Instr] = {}
         """An index of registered Instrs"""
 
-        self._automationEvents: list[SynthAutomation] = []
-        """A list of all the automation events scheduled"""
+        # self._automationEvents: list[SynthAutomation] = []
+        # """A list of all the automation events scheduled"""
 
         self._futureSynths: list[_FutureSynth] = []
         """A list of all synths scheduled"""
@@ -701,6 +726,8 @@ class SynchronizedContext(Renderer):
 
         self._prevRenderer = None
         """The previous active renderer, if any"""
+
+        self._prevSessionHandler: SessionHandler | None = None
 
         self._tokenToSynth: dict[int, csoundengine.synth.Synth] = {}
         """Maps token to actual Synth"""
@@ -869,6 +896,9 @@ class SynchronizedContext(Renderer):
                   pairs: Sequence[float] | np.ndarray,
                   delay=0.,
                   overtake=False):
+        future = self._tokenToFuture.get(token)
+        if not future:
+            raise ValueError(f"Invalid token {token}. Known tokens: {self._tokenToFuture}")
         event = SynthAutomation(token=token, param=param, data=pairs, delay=delay, overtake=overtake)
         self._automationEvents.append(event)
 
@@ -908,32 +938,33 @@ class SynchronizedContext(Renderer):
             raise RuntimeError("Synths are only accessible after render")
         return self._tokenToSynth.get(token)
 
-    def _scheduleAutomations(self, synths: list[csoundengine.synth.Synth]
-                             ) -> None:
-        """
-        This is called as callback with the synths generated from the future events
-
-        There should be a 1:1 correspondence between the scheduled core events,
-        the tokens and the synths.
-
-        """
-        for event in self._automationEvents:
-            if event.token is None:
-                logger.error(f"Automation event {event} has no valid token (token is None)")
-                continue
-            if event.token < 0 or event.token >= len(synths):
-                logger.error(f"Token out of range in automation event {event}, "
-                             f"token={event.token}, number of synths: {len(synths)}")
-                continue
-            synth = synths[event.token]
-            if isinstance(event.data, float):
-                synth.set(param=event.param, value=event.data, delay=event.delay)
-            elif len(event.data) == 2:
-                t, v = event.data
-                delay = event.delay + t
-                synth.set(param=event.param, value=v, delay=delay)
-            else:
-                synth.automate(param=event.param, pairs=event.data, delay=event.delay)
+    # def _scheduleAutomations(self, synths: list[csoundengine.synth.Synth]
+    #                          ) -> None:
+    #     """
+    #     This is called as callback with the synths generated from the future events
+    #
+    #     There should be a 1:1 correspondence between the scheduled core events,
+    #     the tokens and the synths.
+    #
+    #     """
+    #     for event in self._automationEvents:
+    #         if event.token is None:
+    #             logger.error(f"Automation event {event} has no valid token (token is None)")
+    #             continue
+    #         if event.token < 0 or event.token >= len(synths):
+    #             logger.error(f"Token out of range in automation event {event}, "
+    #                          f"token={event.token}, number of synths: {len(synths)}, "
+    #                          f"synths: {synths}, tokens: {self._tokenToSynth}")
+    #             continue
+    #         synth = synths[event.token]
+    #         if isinstance(event.data, float):
+    #             synth.set(param=event.param, value=event.data, delay=event.delay)
+    #         elif len(event.data) == 2:
+    #             t, v = event.data
+    #             delay = event.delay + t
+    #             synth.set(param=event.param, value=v, delay=delay)
+    #         else:
+    #             synth.automate(param=event.param, pairs=event.data, delay=event.delay)
 
     def __enter__(self):
         """
@@ -949,7 +980,8 @@ class SynchronizedContext(Renderer):
 
         self._prevRenderer = workspace.renderer
         workspace.renderer = self
-        self._prevSessionSchedCallback = self.session.setSchedCallback(self._schedSessionEvent)
+        # self._prevSessionSchedCallback = self.session.setSchedCallback(self._schedSessionEvent)
+        self._prevSessionHandler = self.session.setHandler(_SyncSessionHandler(self))
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -960,8 +992,12 @@ class SynchronizedContext(Renderer):
         scheduling all events
         """
         # first, restore the state prior to the context
-        self.session.setSchedCallback(self._prevSessionSchedCallback)
-        self._prevSessionSchedCallback = None
+        # self.session.setSchedCallback(self._prevSessionSchedCallback)
+        # self._prevSessionSchedCallback = None
+
+        self.session.setHandler(self._prevSessionHandler)
+        self._prevSessionHandler = None
+
         self.workspace.renderer = self._prevRenderer
         self._prevRenderer = None
 
@@ -983,7 +1019,7 @@ class SynchronizedContext(Renderer):
                                              presetManager=self.presetManager,
                                              coreevents=[f.event for f in corefutures],
                                              sessionevents=[f.event for f in sessionfutures],
-                                             posthook=self._scheduleAutomations,
+                                             # posthook=self._scheduleAutomations,
                                              whenfinished=self._finishedCallback)
 
         for idx, synth in enumerate(synths):
@@ -1004,6 +1040,44 @@ class SynchronizedContext(Renderer):
 
         if self._displaySynthAtExit:
             self.show()
+
+    def playSample(self,
+                   source: int | str | TableProxy | tuple[np.ndarray, int] | audiosample.Sample,
+                   delay=0.,
+                   dur=-1,
+                   chan=1,
+                   gain=1.,
+                   speed=1.,
+                   loop=False,
+                   pos=0.5,
+                   skip=0.,
+                   fade: float | tuple[float, float] | None = None,
+                   crossfade=0.02,
+                   ) -> _FutureSynth:
+        """
+        Play a sample through this renderer
+
+        Args:
+            source: a soundfile, a TableProxy, a tuple (samples, sr) or a maelzel.snd.audiosample.Sample
+            delay: when to play
+            dur: the duration. -1 to play until the end (will detect the end of the sample)
+            chan: the channel to output to
+            gain: a gain applied
+            speed: playback speed
+            loop: should the sample be looped?
+            pos: the panning position
+            skip: time to skip from the audio sample
+            fade: a fade applied to the playback
+            crossfade: a crossfade time when looping
+
+        Returns:
+            a FutureSynth
+        """
+        if isinstance(source, audiosample.Sample):
+            source = (source.samples, source.sr)
+        return self.session.playSample(source=source, delay=delay, dur=dur, chan=chan, gain=gain,
+                                       speed=speed, loop=loop, pan=pos, skip=skip, fade=fade,
+                                       crossfade=crossfade)
 
     def sched(self,
               instrname: str,
@@ -1152,9 +1226,9 @@ class _FutureSynth(csoundengine.baseschedevent.BaseSchedEvent, csoundengine.synt
     def __repr__(self):
         scheduled = self.scheduled()
         if not scheduled:
-            return f"FutureSynth(scheduled=False, event={self.event}, token={self.token})"
+            return f"FutureSynth(scheduled=False, token={self.token}, event={self.event})"
         else:
-            return f"FutureSynth(scheduled=True, event={self.event}, synth={self.synth()})"
+            return f"FutureSynth(scheduled=True, token={self.token}, event={self.event}, synth={self.synth()})"
 
     def _repr_html_(self):
         if self.scheduled():
@@ -1171,11 +1245,14 @@ class _FutureSynth(csoundengine.baseschedevent.BaseSchedEvent, csoundengine.synt
             raise ValueError(f"This _FutureSynth wraps a session event and "
                              f"has no preset, event={self.event}")
 
+    def dynamicParamNames(self, aliases=True, aliased=False) -> frozenset[str]:
+        return self.instr.dynamicParamNames(aliases=aliases, aliased=aliased)
+
     @property
     def instr(self) -> csoundengine.instr.Instr:
         """Get the Instr associated with the event's preset"""
         if isinstance(self.event, SynthEvent):
-            return self.getPreset().getInstr()
+            return self.event.getPreset().getInstr()
         else:
             return self.session.getInstr(self.event.instrname)
 
@@ -1188,7 +1265,13 @@ class _FutureSynth(csoundengine.baseschedevent.BaseSchedEvent, csoundengine.synt
                 self.set(param=k, value=v, delay=delay)
 
         if param:
-            self.parent._set(token=self.token, param=param, value=value, delay=delay)
+            dynparams = self.dynamicParamNames(aliased=True)
+            if param not in dynparams:
+                raise KeyError(f"Parameter {param} not known for instr "
+                               f"{self.instr.name}. Possible parameters: {dynparams}")
+            else:
+                self.event.set(param=param, value=value, delay=delay)
+                # self.parent._set(token=self.token, param=param, value=value, delay=delay)
 
     def _setPfield(self, param: str, value: float, delay=0.) -> None:
         self.set(param=param, value=value, delay=delay)
@@ -1208,7 +1291,13 @@ class _FutureSynth(csoundengine.baseschedevent.BaseSchedEvent, csoundengine.synt
         if param not in params:
             raise ValueError(f"Parameter {param} unknown for instr {self.instr}. "
                              f"Possible parameters: {params}")
-        self.parent._automate(token=self.token, param=param, pairs=pairs, delay=delay, overtake=overtake)
+        if isinstance(self.event, SynthEvent):
+            self.event.addAutomation(SynthAutomation(param=param, data=pairs, delay=delay,
+                                                     interpolation=mode, overtake=overtake))
+        else:
+            # A Session event
+            self.event.automate(param=param, pairs=pairs, delay=delay, interpolation=mode, overtake=overtake)
+        # self.parent._automate(token=self.token, param=param, pairs=pairs, delay=delay, overtake=overtake)
 
     def stop(self, delay=0.) -> None:
         """ Stop this synth """
@@ -1253,6 +1342,30 @@ class _FutureSynthGroup(csoundengine.baseschedevent.BaseSchedEvent):
                 return value
         return None
 
+    def dynamicParamNames(self, aliases=True, aliased=False) -> frozenset[str]:
+        params = set()
+        for synth in self.synths:
+            params.update(synth.dynamicParamNames(aliases=aliases, aliased=aliased))
+        return frozenset(params)
+
+    def automate(self,
+                 param: str | int,
+                 pairs: Sequence[float] | np.ndarray,
+                 mode='linear',
+                 delay=0.,
+                 overtake=False,
+                 ) -> float:
+        count = 0
+        for synth in self.synths:
+            if param in synth.dynamicParamNames(aliased=True):
+                synth.automate(param=param, pairs=pairs, mode=mode, delay=delay, overtake=overtake)
+                count += 1
+        if not count:
+            possibleparams = self.dynamicParamNames(aliased=True)
+            raise ValueError(f"Parameter '{param}' not known by any synth in this "
+                             f"group. Possible parameters: {possibleparams}.\n "
+                             f"Synths: {self.synths}")
+
     def _setPfield(self, param: str, value: float, delay=0.) -> None:
         for synth in self.synths:
             if param in synth.pfieldNames(aliased=True):
@@ -1266,30 +1379,32 @@ class _FutureSynthGroup(csoundengine.baseschedevent.BaseSchedEvent):
     def set(self, param='', value: float = 0., delay=0., **kws) -> None:
         count = 0
         for synth in self.synths:
-            if param in synth.getPreset().dynamicParams(aliased=True):
-                synth.set(param=param, value=value, delay=delay)
+            try:
+                synth.set(param=param, value=value, delay=delay, **kws)
                 count += 1
+            except KeyError:
+                pass
         if not count:
             raise KeyError(f"Parameter '{param}' unknown. "
                            f"Possible parameters: {self.dynamicParamNames(aliased=True)}")
 
-    def automate(self,
-                 param: str | int,
-                 pairs: Sequence[float] | np.ndarray,
-                 mode='linear',
-                 delay=0.,
-                 overtake=False,
-                 strict=True
-                 ) -> float:
-        count = 0
-        for futuresynth in self.synths:
-            if param in futuresynth.dynamicParamNames(aliased=True):
-                futuresynth.automate(param=param, pairs=pairs, delay=delay)
-                count += 1
-        if count == 0:
-            raise KeyError(f"Unknown parameter '{param}'. "
-                           f"Possible parameters: {self.dynamicParamNames(aliased=True)}")
-        return 0
+    # def automate(self,
+    #              param: str | int,
+    #              pairs: Sequence[float] | np.ndarray,
+    #              mode='linear',
+    #              delay=0.,
+    #              overtake=False,
+    #              strict=True
+    #              ) -> float:
+    #     count = 0
+    #     for futuresynth in self.synths:
+    #         if param in futuresynth.dynamicParamNames(aliased=True):
+    #             futuresynth.automate(param=param, pairs=pairs, delay=delay)
+    #             count += 1
+    #     if count == 0:
+    #         raise KeyError(f"Unknown parameter '{param}'. "
+    #                        f"Possible parameters: {self.dynamicParamNames(aliased=True)}")
+    #     return 0
 
     def synthgroup(self) -> csoundengine.synth.SynthGroup:
         if self.parent.synthgroup is None:

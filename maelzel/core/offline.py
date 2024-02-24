@@ -4,9 +4,11 @@ import os
 import subprocess
 from math import ceil
 
-import csoundengine
 import emlib.misc
 import numpy as np
+
+import csoundengine
+from csoundengine.sessionhandler import SessionHandler
 
 from maelzel.core import renderer
 from maelzel.core import presetmanager
@@ -35,6 +37,14 @@ __all__ = (
 # -------------------------------------------------------------
 
 
+class _OfflineSessionHandler(SessionHandler):
+    def __init__(self, renderer: OfflineRenderer):
+        self.renderer = renderer
+
+    def sched(self, event: csoundengine.event.Event):
+        return self.renderer._schedSessionEvent(event)
+
+
 class OfflineRenderer(renderer.Renderer):
     """
     An OfflineRenderer is created to render musical objects to a soundfile
@@ -52,8 +62,12 @@ class OfflineRenderer(renderer.Renderer):
             within the record path [1]_ is returned
         sr: the sr of the render (:ref:`config key: 'rec.sr' <config_rec_sr>`)
         ksmps: the ksmps used for the recording
+        numchannels: number of channels of this renderer. If not set, this will
+            depend on the scheduled events and the final call to .render
         verbose: if True, debugging output is show. If None, defaults to
             config (:ref:`key: 'rec.verbose' <config_rec_verbose>`)
+        endtime: used when the OfflineRenderer is called as a context manager
+
 
     If rendering offline in tandem with audio samples and other csoundengine's
     functionality, it is possible to access the underlying csoundengine's Renderer
@@ -93,7 +107,9 @@ class OfflineRenderer(renderer.Renderer):
                  ksmps: int | None = None,
                  numchannels: int | None = None,
                  tail=0.,
-                 verbose: bool = None):
+                 verbose: bool = None,
+                 endtime=0.,
+                 session: csoundengine.session.Session = None):
 
         super().__init__(presetManager=presetmanager.presetManager)
         w = Workspace.getActive()
@@ -121,16 +137,16 @@ class OfflineRenderer(renderer.Renderer):
 
         self._verbose = verbose
 
-        self._renderProc: subprocess.Popen | None = None
+        self._session: csoundengine.session.Session | None = session
+        """A reference to the playback Session"""
 
-        self.csoundRenderer: csoundengine.offline.Renderer = self.makeRenderer()
-        """The actual csoundengine.Renderer"""
+        self.endtime = endtime
+        """Default endtime"""
 
         self.tail = tail
         """Extra time at the end of rendering to make space for reverbs or long-decaying sounds"""
 
-        self._session: csoundengine.session.Session | None = None
-        """A reference to the playback Session"""
+        self._renderProc: subprocess.Popen | None = None
 
         # noinspection PyUnresolvedReferences
         self._oldSessionSchedCallback: Callable | None = None
@@ -140,11 +156,28 @@ class OfflineRenderer(renderer.Renderer):
         """The workspace at the moment of __enter__. Its renderer attr is modified
         and needs to be restored at __exit__"""
 
+        self.showAtExit = False
+        """Display the results at exit if running in jupyter"""
+
+        self.csoundRenderer: csoundengine.offline.Renderer = self._makeCsoundRenderer()
+        """The actual csoundengine.Renderer"""
+
     def isRealtime(self) -> bool:
         """Is this a realtime renderer?"""
         return False
 
-    def makeRenderer(self) -> csoundengine.offline.Renderer:
+    def getSession(self) -> csoundengine.session.Session | None:
+        """
+        Return the Session associated with this OfflineRenderer, if any
+        """
+        if self._session is not None:
+            return self._session
+        elif playback.isSessionActive():
+            self._session = playback.playSession()
+            return self._session
+        return None
+
+    def _makeCsoundRenderer(self) -> csoundengine.offline.Renderer:
         """
         Construct a :class:`csoundengine.Renderer` from this OfflineRenderer
 
@@ -154,8 +187,9 @@ class OfflineRenderer(renderer.Renderer):
         from maelzel.core import playback
         renderer = self.presetManager.makeRenderer(self.sr, ksmps=self.ksmps,
                                                    numChannels=self.numChannels)
-        if playback.isSessionActive():
-            engine = playback._playEngine()
+        session = self.getSession()
+        if session:
+            engine = session.engine
             for s, idx in engine.definedStrings().items():
                 renderer.strSet(s, idx)
         return renderer
@@ -452,6 +486,45 @@ class OfflineRenderer(renderer.Renderer):
         instrs.update(playback.playSession().registeredInstrs())
         return instrs
 
+    def playSample(self,
+                   source: int | str | TableProxy | tuple[np.ndarray, int] | audiosample.Sample,
+                   delay=0.,
+                   dur=0,
+                   chan=1,
+                   gain=1.,
+                   speed=1.,
+                   loop=False,
+                   pos=0.5,
+                   skip=0.,
+                   fade: float | tuple[float, float] | None = None,
+                   crossfade=0.02,
+                   ) -> csoundengine.offline.SchedEvent:
+        """
+        Play a sample through this renderer
+
+        Args:
+            source: a soundfile, a TableProxy, a tuple (samples, sr) or a maelzel.snd.audiosample.Sample
+            delay: when to play
+            dur: the duration. -1 to play until the end (will detect the end of the sample)
+            chan: the channel to output to
+            gain: a gain applied
+            speed: playback speed
+            loop: should the sample be looped?
+            pos: the panning position
+            skip: time to skip from the audio sample
+            fade: a fade applied to the playback
+            crossfade: a crossfade time when looping
+
+        Returns:
+            a csoundengine.offline.SchedEvent
+
+        """
+        if isinstance(source, audiosample.Sample):
+            source = (source.samples, source.sr)
+        return self.csoundRenderer.playSample(source=source, delay=delay, dur=dur, chan=chan,
+                                              gain=gain, speed=speed, loop=loop, pan=pos,
+                                              skip=skip, fade=fade, crossfade=crossfade)
+
     def sched(self,
               instrname: str,
               delay=0.,
@@ -534,7 +607,7 @@ class OfflineRenderer(renderer.Renderer):
                verbose: bool | None = None,
                openWhenDone=False,
                compressionBitrate: int | None = None,
-               endtime=0.,
+               endtime: float | None = None,
                ksmps: int | None = None,
                tail: float = None,
                ) -> str:
@@ -598,7 +671,7 @@ class OfflineRenderer(renderer.Renderer):
                                          verbose=verbose,
                                          openWhenDone=openWhenDone,
                                          compressionBitrate=compressionBitrate or cfg['.rec.compressionBitrate'],
-                                         endtime=endtime,
+                                         endtime=endtime if endtime is not None else self.endtime,
                                          tail=tail if tail is not None else self.tail)
         self.renderedSoundfiles.append(outfile)
         self._renderProc = job.process
@@ -694,9 +767,15 @@ class OfflineRenderer(renderer.Renderer):
         self._oldRenderer = self._workspace.renderer
         self._workspace.renderer = self
 
-        if playback.isSessionActive():
-            self._session = session = playback.playSession()
-            self._oldSessionSchedCallback = session.setSchedCallback(self._schedSessionEvent)
+        session = self.getSession()
+        if session:
+            session.setHandler(_OfflineSessionHandler(self))
+
+        # if playback.isSessionActive():
+        #     session = self.getSession()
+        #     if not session:
+        #         self._session = session = playback.playSession()
+        #     self._oldSessionSchedCallback = session.setSchedCallback(self._schedSessionEvent)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -708,14 +787,18 @@ class OfflineRenderer(renderer.Renderer):
         self._workspace = Workspace.active
         self._oldRenderer = None
 
-        if self._session:
-            self._session.setSchedCallback(self._oldSessionSchedCallback)
-            self._oldSessionSchedCallback = None
-            self._session = None
+        session = self.getSession()
+        if session:
+            session.setHandler(None)
+            # self._session.setSchedCallback(self._oldSessionSchedCallback)
+            # self._oldSessionSchedCallback = None
+            # self._session = None
 
         outfile = self._outfile or _playbacktools.makeRecordingFilename()
         logger.info(f"Rendering to {outfile}")
         self.render(outfile=outfile, wait=True)
+        if self.showAtExit:
+            self.show()
 
     def renderedSample(self) -> audiosample.Sample:
         """
@@ -791,6 +874,8 @@ def render(outfile='',
            workspace: Workspace = None,
            tail: float | None = None,
            run=True,
+           endtime=0.,
+           show=False,
            **kws
            ) -> OfflineRenderer:
     """
@@ -822,6 +907,9 @@ def render(outfile='',
             long decaying sound. If None, uses use :ref:`config 'rec.extratime' <config_rec_extratime>`
         run: if True, perform the render itself
         tail: extra time at the end, usefull when rendering reverbs or long deaying sounds
+        endtime: if given, sets the end time of the rendered segment. A value
+            of 0. indicates to render everything. A value is needed if there
+            are endless events
         workspace: if given, this workspace overrides the active workspace
 
     Returns:
@@ -864,12 +952,16 @@ def render(outfile='',
 
     if not events:
         # called as a context manager
-        return OfflineRenderer(outfile=outfile,
-                               sr=sr,
-                               numchannels=nchnls,
-                               verbose=verbose,
-                               ksmps=ksmps,
-                               tail=tail)
+        offlinerenderer = OfflineRenderer(outfile=outfile,
+                                          sr=sr,
+                                          numchannels=nchnls,
+                                          verbose=verbose,
+                                          ksmps=ksmps,
+                                          tail=tail,
+                                          endtime=endtime)
+        if show:
+            offlinerenderer.showAtExit = True
+        return offlinerenderer
     if workspace is None:
         workspace = Workspace.getActive()
     coreEvents, sessionEvents = _playbacktools.collectEvents(events, eventparams=kws, workspace=workspace)

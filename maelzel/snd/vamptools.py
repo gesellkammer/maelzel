@@ -54,9 +54,14 @@ class Note:
 
 def vampFolder(pluginbits=64) -> str:
     """
-    Returns the vamp plugins folder
+    Returns the user vamp plugins folder
 
-    It does not ensure its existence
+    This is the folder where the user should place vamp plugins. In linux, vamp
+    plugins installed via a package manager (apt-get, for example), place the vamp
+    plugins under ``/usr/...``. This folder is reserved for the system and not returned
+    here.
+
+    This function does not ensure the existence of the returned directory.
 
     Args:
         pluginbits: the architecture of the plugin, if known. One of
@@ -295,7 +300,7 @@ def pyinPitchTrack(samples: np.ndarray,
         False: 0,
         True: 1,
         "negative": 2,
-        "nan": 2
+        "nan": 1
     }.get(outputUnvoiced)
 
     if output_unvoiced_idx is None:
@@ -359,6 +364,7 @@ def pyinSmoothPitch(samples: np.ndarray,
                     lowAmpSuppression=0.1,
                     threshDistr="beta15",
                     onsetSensitivity=0.7,
+                    outputUnvoiced=True,
                     pruneThresh=0.1) -> tuple[float, np.ndarray]:
     """
     Fundamental frequency analysis
@@ -373,12 +379,13 @@ def pyinSmoothPitch(samples: np.ndarray,
         threshDistr (str): yin threshold distribution. See table 1 below
         onsetSensitivity (float): onset sensitivity
         pruneThresh (float): totalDuration pruning threshold
+        outputUnvoiced: method used to output frequencies when the sound is
+            unvoiced (there is no reliable pitch detected). Choices are True (sets
+            the frequency to 'nan' for unvoiced breakpoints), False (the breakpoint
+            is skipped) or 'negative' (outputs the detected frequency as negative)
 
     Returns:
         a tuple (delta time, frequencies: np.ndarray)
-
-        Whenever the analysis determines that the sound is noise (unvoiced) without
-        a clear fundamental, the frequency is given as negative.
 
     Table 1
     ~~~~~~~
@@ -395,8 +402,9 @@ def pyinSmoothPitch(samples: np.ndarray,
     single20       Single value 0.20
     ============   ============
     """
-    assert 'pyin:pyin' in listPlugins(), \
-        "Vamp plugin 'pyin' not found. Install it from https://code.soundsoftware.ac.uk/projects/pyin"
+    if 'pyin:pyin' not in listPlugins():
+        raise RuntimeError(f"Vamp plugin 'pyin' not found. Installed plugins: {listPlugins()}. "
+                           f"Install pyin from https://code.soundsoftware.ac.uk/projects/pyin")
 
     if fftSize < 2048:
         raise ValueError("The pyin vamp plugin does not accept fft size less than 2048")
@@ -408,22 +416,21 @@ def pyinSmoothPitch(samples: np.ndarray,
         raise ValueError(f"Unknown threshold distribution: {threshDistr}. "
                          f"It must be one of {', '.join(_pyinThresholdDistrs.keys())}")
 
-    output_unvoiced = "negative"
-    output_unvoiced_idx = {
+    outputUnvoicedIndex = {
         False: 0,
         True: 1,
         "negative": 2
-    }.get(output_unvoiced)
-    if output_unvoiced_idx is None:
-        raise ValueError(f"Unknown output_unvoiced value {output_unvoiced}. "
-                         f"possible values: {False, True, 'negative'}")
+    }.get(outputUnvoiced)
+
+    if outputUnvoicedIndex is None:
+        raise ValueError(f"outputUnvoiced should be False, True or 'negative', got {outputUnvoiced}")
 
     params = {
         'lowampsuppression': lowAmpSuppression,
         'onsetsensitivity': onsetSensitivity,
         'prunethresh': pruneThresh,
         'threshdistr': threshdistridx,
-        'outputunvoiced': output_unvoiced_idx
+        'outputunvoiced': outputUnvoicedIndex
     }
     result1 = vamp.collect(data=samples, sample_rate=sr, plugin_key="pyin:pyin",
                            output="smoothedpitchtrack", block_size=fftSize,

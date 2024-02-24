@@ -6,7 +6,7 @@ import os
 from setuptools import setup
 
 readme = open('README.rst').read()
-version = (1, 1, 7)
+version = (1, 1, 8)
 
 
 def package_files(directory):
@@ -68,7 +68,7 @@ setup(
         "configdict>=2.10.0",
         "sndfileio>=1.9.1",
         "numpyx>=1.3.1",
-        "csoundengine>=2.6.0",
+        "csoundengine>=2.7.2",
         "pitchtools>=1.12.0",
         "risset>=2.8.0",
         "loristrck>=1.6.1",

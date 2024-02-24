@@ -271,7 +271,7 @@ class Sample:
             return Sample._csoundEngine
         else:
             import csoundengine as ce
-            name = _config['csoundengine']
+            name = config['csoundengine']
             if (engine := ce.getEngine(name)) is not None:
                 Sample._csoundEngine = engine
             else:
@@ -361,10 +361,11 @@ class Sample:
         """
         Play the given sample
 
-        csoundengine is used for playback. If no playback has taken place, a new
-        playback engine is created. To create an Engine with specific characteristics
-        use :meth:`Sample.getEngine`. To use an already existing Engine, see
-        :func:`setPlayEngine` or pass the engine explicitely as an argument
+        **csoundengine** is used for playback. If no playback has taken place,
+        a new playback engine is created. To create an Engine with specific
+        characteristics use :meth:`Sample.getEngine`. To use an already existing
+        Engine, see :func:`setPlayEngine` or pass the engine explicitely as an
+        argument
 
         Args:
             loop: should playback be looped?
@@ -891,7 +892,7 @@ class Sample:
         Return a new Sample with silence of given dur at the beginning
         """
         silence = Sample.createSilent(dur, self.numchannels, self.sr)
-        return joinsamples([silence, self])
+        return concatenate([silence, self])
 
     def appendSilence(self, dur: float) -> Sample:
         """
@@ -923,7 +924,7 @@ class Sample:
         .. seealso:: :meth:`Sample.join`
         """
         samples = [self, *other]
-        return joinsamples(samples)
+        return concatenate(samples)
 
     def _checkWrite(self) -> None:
         if self.readonly:
@@ -1317,7 +1318,7 @@ class Sample:
         assert not math.isnan(avgfreq)
         return avgfreq
 
-    def fundamentalBpf(self, fftsize=2048, overlap=4, method: str = None
+    def fundamentalBpf(self, fftsize=2048, overlap=4, method='pyin'
                        ) -> bpf4.BpfInterface:
         """
         Construct a bpf which follows the fundamental of this sample in time
@@ -1335,36 +1336,32 @@ class Sample:
         Args:
             fftsize: the size of the fft, in samples
             overlap: determines the hop size
-            method: one of 'pyin-native', 'pyin-vamp', 'fft'.
-                To be able to use 'pyin-vamp', the 'vamphost' package and the 'pyin' plugin
-                must be installed. 'pyin-vamp' is the recommended method at the moment
-                Use None to autodetect a method based on the installed software
+            method: one of 'pyin' or 'fft'.
 
         Returns:
             a `bpf <https://bpf4.readthedocs.io>`_ representing the fundamental freq. of this sample
         """
-        stepsize = int(fftsize//overlap)
-        if method is None:
+        if method == 'pyin':
             # auto detect
             if _vampPyinAvailable():
                 method = 'pyin-vamp'
             else:
                 method = 'pyin-native'
 
-        if method == "pyin" or method == "pyin-vamp":
+        if method == "pyin-vamp":
             from maelzel.snd import vamptools
             samples = self.getChannel(0).samples
             dt, freqs = vamptools.pyinSmoothPitch(samples, self.sr,
                                                   fftSize=fftsize,
                                                   stepSize=fftsize // overlap)
             return bpf4.core.Sampled(freqs, dt)
+
         elif method == 'pyin-native':
             from maelzel.snd import freqestimate
             samples = self.getChannel(0).samples
-            hoplength = fftsize // overlap
             f0curve, probcurve = freqestimate.f0curvePyin(samples, sr=self.sr,
                                                           framelength=fftsize,
-                                                          hoplength=hoplength)
+                                                          hoplength=fftsize // overlap)
             return f0curve
 
         elif method == 'fft':
@@ -1374,9 +1371,7 @@ class Sample:
                                                       overlap=overlap, method='fft')
             return f0curve
         else:
-            raise ValueError(f"method should be one of 'pyin', 'pyin-annotator', "
-                             f"'fft'"
-                             f"but got {method}")
+            raise ValueError(f"Expected one of 'pyin', 'fft', got {method}")
 
     def chunks(self, chunksize: int, hop: int = None, pad=False) -> Iterator[np.ndarray]:
         """
@@ -1551,7 +1546,7 @@ class Sample:
         Returns:
             the concatenated samples as one Sample
         """
-        return joinsamples(samples)
+        return concatenate(samples)
 
 
 def broadcastSamplerate(samples: list[Sample]) -> list[Sample]:
@@ -1597,7 +1592,7 @@ def asSample(source: str | Sample | tuple[np.ndarray, int]) -> Sample:
         raise TypeError("can't convert source to Sample")
 
 
-def joinsamples(sampleseq: Sequence[Sample]) -> Sample:
+def concatenate(sampleseq: Sequence[Sample]) -> Sample:
     """
     Concatenate a sequence of Samples
 

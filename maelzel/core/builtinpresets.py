@@ -172,12 +172,12 @@ builtinPresets = [
         if inumouts == 1 then
             a1 flooper2 1, kspeed, istart, idur, ixfade, isndtab, istart
             a1 *= aenv
-            ipos = ipos == -1 ? 0 : ipos
-            aout1, aout2 pan2 a1, ipos
+            kpos = kpos == -1 ? 0 : kpos
+            aout1, aout2 pan2 a1, kpos
         elseif inumouts == 2 then
             a1, a2 flooper2 1, kspeed, istart, idur, ixfade, isndtab, istart
-            ipos = ipos < 0 ? 0.5 : ipos
-            aout1, aout2 panstereo a1, a2, ipos
+            kpos = kpos < 0 ? 0.5 : kpos
+            aout1, aout2 panstereo a1, a2, kpos
             aout1 *= aenv
             aout2 *= aenv
         else

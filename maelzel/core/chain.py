@@ -555,10 +555,8 @@ class Chain(MContainer):
                         continue
                     preset = presetmanager.presetManager.getPreset(ev.instr)
                     if automation.param in preset.dynamicParams(aliases=True, aliased=True):
-                        if ev.automations is None:
-                            ev.automations = {}
                         synthautom = automation.makeSynthAutomation(scorestruct=scorestruct, parentOffset=offset)
-                        ev.automations[synthautom.param] = synthautom.cropped(overlap0, overlap1)
+                        ev.addAutomation(synthautom.cropped(overlap0, overlap1))
 
         return synthevents
 
