@@ -69,11 +69,12 @@ setup(
         "sndfileio>=1.9.1",
         "numpyx>=1.3.1",
         "csoundengine>=2.7.2",
-        "pitchtools>=1.12.0",
+        "pitchtools>=1.13.0",
         "risset>=2.8.0",
         "loristrck>=1.6.1",
         "vamphost>=1.3.0",
         "lilyponddist>=0.7.0",
+        "sounddevice"
     ],
     license="LGPLv2",
     zip_safe=False,

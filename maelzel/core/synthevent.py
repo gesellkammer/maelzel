@@ -89,7 +89,7 @@ class PlayArgs:
 
     def __init__(self,
                  db: dict[str, Any] = None,
-                 automations: dict[str, Automation] = None):
+                 automations: list[Automation] = None):
         if db is None:
             db = {}
         else:
@@ -101,12 +101,8 @@ class PlayArgs:
         self.db: dict[str, Any] = db
         """A dictionary holding the arguments explicitely specified"""
 
-        self.automations: dict[str, Automation] | None = automations
-        """A dict holding Automations
-        
-        There is a maximum of one Automation per parameter. A new Automation
-        for a given parameter will replace the old one
-        """
+        self.automations: list[Automation] | None = automations
+        """A list of Automations"""
 
     def setArgs(self, **kws: float | str) -> None:
         """
@@ -182,9 +178,9 @@ class PlayArgs:
                       relative=True) -> None:
         breakpoints = Automation.normalizeBreakpoints(breakpoints, interpolation=interpolation)
         if self.automations is None:
-            self.automations = {}
-        self.automations[param] = Automation(param=param, breakpoints=breakpoints,
-                                             relative=relative)
+            self.automations = []
+        self.automations.append(Automation(param=param, breakpoints=breakpoints,
+                                           relative=relative))
 
     @staticmethod
     def _updatedb(db: dict, other: dict) -> None:
@@ -314,7 +310,7 @@ class PlayArgs:
         if not self.automations:
             return []
         return [automation.makeSynthAutomation(scorestruct=scorestruct, parentOffset=parentOffset)
-                for automation in self.automations.values()]
+                for automation in self.automations]
 
 
 def cropBreakpoints(bps: list[breakpoint_t], start: float, end: float

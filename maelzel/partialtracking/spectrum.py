@@ -157,7 +157,7 @@ class Spectrum:
 
         self._index: _PartialIndex | None = None
         self._packedMatrix: np.ndarray | None = None
-        self._soundEngine: csoundengine.Engine | None = None
+        self._csoundSession: csoundengine.session.Session | None = None
 
         if self.partials:
             self.partials.sort(key=lambda p: p.start)
@@ -170,6 +170,10 @@ class Spectrum:
         if self._end == 0:
             self._end = max(partial.end for partial in self.partials)
         return self._end
+
+    @property
+    def duration(self) -> float:
+        return self.end - self.start
 
     @classmethod
     def read(cls, path: str) -> Spectrum:
@@ -197,7 +201,8 @@ class Spectrum:
             return Spectrum(out)
 
     def __repr__(self):
-        return f'Spectrum(numpartials={len(self)}, start={self.start:.3f}, end={self.end:.3f})'
+        density = sum(partial.numbreakpoints for partial in self.partials) / self.duration
+        return f'Spectrum(numpartials={len(self)}, start={self.start:.3f}, end={self.end:.3f}, density={density:.1f})'
 
     def __copy__(self):
         return Spectrum(self.partials.copy(), indexTimeResolution=self._indexTimeResolution)
@@ -238,6 +243,8 @@ class Spectrum:
             end: the end time
             crop: if True, partials are cropped to strictly fit between the given
                 time interval
+            minfreq: exclude partials below this freq.
+            maxfreq: exclude partials above this freq.
 
         Returns:
             a list of partials defined between the given time interval
@@ -433,7 +440,7 @@ class Spectrum:
         partials = [p.freqTransform(transform) for p in self]
         return self.clone(partials=partials)
 
-    def synthesize(self, sr=44100, start=0., end=0., fadetime: float | None = None
+    def synthesize(self, sr=44100, start=0., end=0., fadetime: float | None = None,
                    ) -> audiosample.Sample:
         """
         Synthesize the partials as audio samples
@@ -481,7 +488,11 @@ class Spectrum:
              interpfreq=True,
              interposcil=True,
              chan=1.,
-             engine: csoundengine.Engine | str | None = None
+             freqoffset=0.,
+             minbw=0.,
+             maxbw=1.,
+             minamp=0.,
+             session: csoundengine.session.Session | None = None
              ) -> csoundengine.synth.Synth:
         """
         Play this spectrum in realtime
@@ -490,6 +501,10 @@ class Spectrum:
 
         Args:
             speed: the playback speed (does not affect the pitch)
+            freqscale: scaling factor applied to all frequencies. To convert an interval
+                to a frequency ratio see pitchtools.interval2ratio
+            gain: scaling factor applied to all amplitudes
+            bwscale: scaling factor applied to all bandwidths
             loop: should playback be looped?
             start: start time of the played selection
             stop: stop time of the played selection
@@ -498,11 +513,16 @@ class Spectrum:
             gaussian: if True, use gaussian noise for residual resynthesis
             interpfreq: if True, interpolate frequency between cycles
             interposcil: if True, use linear interpolation for the oscillators
-            engine: engine used for playback. Use None for default
+            session: the csoundengine session used for playback. Use None for default
             chan: channep and position. An integer value indicates the first channel
                 to use, a fractional value indicates channel and stereo position.
                 Channels start with 1, so 1.5 indicates center position within
                 the channels 1 and 2
+            minbw: breakpoints with bw less than this value are not played
+            maxbw: breakpoints with bw higher than this value are not played
+            freqoffset: an offset to add to all frequencies, shifting them by a fixed amount. Notice
+                that this will make a harmonic spectrum inharmonic
+            minamp: exclude breanpoints with an amplitude less than this value
 
         Returns:
             a csoundengine.Synth. It can be used to modulate / automate any dynamic parameters, such
@@ -513,13 +533,9 @@ class Spectrum:
         """
         if self._packedMatrix is None:
             self._packedMatrix = self.packMatrix()
-        if engine is not None:
-            if isinstance(engine, str):
-                engine = _csoundEngine(engine)
-        else:
-            engine = self._soundEngine or _csoundEngine()
-        self._soundEngine = engine
-        session = engine.session()
+        if not session:
+            session = _csoundEngine().session()
+        self._csoundSession = session
         position = chan - int(chan)
         return session.playPartials(source=self._packedMatrix,
                                     speed=speed,
@@ -535,7 +551,11 @@ class Spectrum:
                                     chan=int(chan),
                                     gain=gain,
                                     bwscale=bwscale,
-                                    position=position)
+                                    position=position,
+                                    freqoffset=freqoffset,
+                                    minbw=minbw,
+                                    maxbw=maxbw,
+                                    minamp=minamp)
 
     def packMatrix(self, outfile='', maxtracks=0, period: float | None = None) -> np.ndarray:
         """
@@ -766,13 +786,12 @@ class Spectrum:
 
         return Spectrum(partials=[Partial(data) for data in partialarrays])
 
-    def fundamental(self, minfreq=60., method='pyin') -> tuple[bpf4.BpfInterface, bpf4.BpfInterface]:
+    def fundamental(self, minfreq=60.) -> tuple[bpf4.BpfInterface, bpf4.BpfInterface]:
         """
         Extract the fundamental of this spectrum
 
         Args:
             minfreq: the min. frequency of the fundamental.
-            method: the method used. At the moment only 'pyin' is supported.
 
         Returns:
             a tuple (f0curve: BpfInterface, voicedness: BpfInterface), where `f0curve` is a bpf
@@ -782,7 +801,7 @@ class Spectrum:
         sr = 44100
         sample = self.synthesize(sr=sr)
         from maelzel.snd import freqestimate
-        f0curve, voicedness = freqestimate.f0curve(sample.samples, sr=sample.sr)
+        f0curve, voicedness = freqestimate.f0curve(sample.samples, sr=sample.sr, minfreq=minfreq)
         return f0curve, voicedness
 
     def splitInBands(self, numbands: int, distribution: float | bpf4.core.BpfInterface = 1.0

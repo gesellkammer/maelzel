@@ -42,6 +42,7 @@ Examples
 
 """
 from __future__ import annotations
+import abc
 import numpy as np
 import os
 import math
@@ -58,12 +59,14 @@ from pitchtools import amp2db
 import emlib.numpytools as _nptools
 import emlib.misc
 
+from maelzel.common import getLogger
 from maelzel.snd import _common
 from maelzel.snd import numpysnd as _npsnd
 from maelzel.snd import sndfiletools as _sndfiletools
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
+    import sounddevice
     import csoundengine
     from typing import Iterator, Sequence
     import matplotlib.pyplot as plt
@@ -74,7 +77,7 @@ __all__ = (
 )
 
 
-logger = logging.getLogger("maelzel.snd")
+logger = getLogger("maelzel.snd")
 
 
 _config = {
@@ -82,6 +85,7 @@ _config = {
     'reprhtml_audiotag_maxduration_minutes': 10,
     'reprhtml_audiotag_width': '100%',
     'reprhtml_audiotag_maxwidth': '1200px',
+    'reprhtml_audiotag_embed_maxduration_seconds': 20,
     'reprhtml_audio_format': 'wav',
     'csoundengine': _common.CSOUNDENGINE,
 }
@@ -102,6 +106,49 @@ def _cleanup():
                 shutil.rmtree(f)
             else:
                 os.remove(f)
+
+
+class PlaybackStream(abc.ABC):
+
+    @abc.abstractmethod
+    def stop(self) -> None:
+        """
+        Stop this stream
+        """
+        raise NotImplementedError
+
+    def active(self) -> bool:
+        """
+        True if playback is active
+        """
+        raise NotImplementedError
+
+    def _repr_html_(self) -> str:
+        from maelzel.core import jupytertools
+        jupytertools.displayButton("Stop", self.stop)
+        return repr(self)
+
+
+class _PortaudioPlayback(PlaybackStream):
+    def __init__(self, stream: sounddevice.OutputStream):
+        self.stream = stream
+
+    def active(self) -> bool:
+        return self.stream.active
+
+    def stop(self):
+        self.stream.stop()
+
+
+class _CsoundenginePlayback(PlaybackStream):
+    def __init__(self, synth: csoundengine.synth.Synth):
+        self.synth = synth
+
+    def stop(self):
+        self.synth.stop()
+
+    def active(self) -> bool:
+        return self.synth.playStatus() != 'playing'
 
 
 def _normalizePath(path: str) -> str:
@@ -278,39 +325,6 @@ class Sample:
                 Sample._csoundEngine = ce.Engine(name=name, **kws)
             return Sample._csoundEngine
 
-    @staticmethod
-    def setEngine(engine: csoundengine.Engine | str):
-        """
-        Sets an external Engine as the playback engine.
-
-        Normally a csound engine is created ad-hoc to take care
-        of all playback operations. For some niche cases where
-        interaction is needed between playback and other operations
-        performed on an already existing engine, it is possible to
-        set an external engine as the playback engine. This will only
-        affect Sample objects created after the external playback engine has
-        been set.
-
-        Args:
-            engine: the Engine to use for playback
-
-        See Also
-        ~~~~~~~~
-
-        * :meth:`Sample.getEngine`
-
-        """
-        if isinstance(engine, str):
-            import csoundengine as ce
-            engineinstance = ce.getEngine(engine)
-            if engineinstance:
-                Sample._csoundEngine = engineinstance
-            else:
-                active = ce.activeEngines()
-                raise KeyError(f"Engine {engine} does not exist. Active engines: {active}")
-        else:
-            Sample._csoundEngine = engine
-
     @classmethod
     def createSilent(cls, dur: float, channels: int, sr: int) -> Sample:
         """
@@ -346,6 +360,45 @@ class Sample:
         self._makeCsoundTable(engine)
         engine.session().prepareSched('.playSample')
 
+    def _playPortaudio(self,
+                       loop=False,
+                       chan=1,
+                       gain=1.,
+                       speed=1.,
+                       skip=0.,
+                       dur=0.,
+                       block=False):
+        import sounddevice
+        sr = int(self.sr * speed)
+        mapping = list(range(chan, self.numchannels + chan))
+        samples = self.samples
+        if skip:
+            samples = samples[int(self.sr * skip):]
+
+        if dur:
+            samples = samples[:int(self.sr*dur)]
+
+        ctx = sounddevice._CallbackContext(loop=loop)
+        ctx.frames = ctx.check_data(data=samples, mapping=mapping, device=None)
+
+        def callback(outdata, numframes, time, status, gain=gain):
+            assert len(outdata) == numframes
+            ctx.callback_enter(status, outdata)
+            if gain != 1:
+                outdata *= gain
+            ctx.write_outdata(outdata)
+            ctx.callback_exit()
+
+        ctx.start_stream(sounddevice.OutputStream,
+                         samplerate=sr,
+                         channels=ctx.output_channels,
+                         dtype=ctx.output_dtype,
+                         callback=callback,
+                         blocking=block,
+                         prime_output_buffers_using_stream_callback=False)
+
+        return _PortaudioPlayback(stream=ctx.stream)
+
     def play(self,
              loop=False,
              chan: int = 1,
@@ -356,16 +409,21 @@ class Sample:
              skip=0.,
              dur=0,
              engine: csoundengine.Engine = None,
-             block=False
-             ) -> csoundengine.synth.Synth:
+             block=False,
+             backend=''
+             ) -> PlaybackStream:
         """
         Play the given sample
 
-        **csoundengine** is used for playback. If no playback has taken place,
-        a new playback engine is created. To create an Engine with specific
-        characteristics use :meth:`Sample.getEngine`. To use an already existing
-        Engine, see :func:`setPlayEngine` or pass the engine explicitely as an
-        argument
+        At the moment two playback backends are available, portaudio and csound.
+
+        If no engine is given and playback is immediate (no delay), playback is
+        performed directly via portaudio. This has the advantage that no data
+        must be copied to the playback engine (which is the case when using csound)
+
+        If backend is 'csound' or a csoundengine's Engine is passed, csound
+        is used as playback backend. The csound backend is recommended if sync
+        is needed between this playback and other events.
 
         Args:
             loop: should playback be looped?
@@ -380,14 +438,12 @@ class Sample:
                 the pitch accordingly.
             skip: start playback at a given point in time
             dur: duration of playback. 0 indicates to play until the end of the sample
-            engine: the name of a csoundengine.Engine, or the Engine instance
-                itself. If given, playback will be performed using this engine,
-                otherwise a default Engine will be used.
+            engine: the Engine instance to use for playback. If not given, playback
+                is performed via portaudio
             block: if True, block execution until playback is finished
-
+            backend: one of 'portaudio', 'csound'
         Returns:
-            a :class:`csoundengine.synth.Synth`. This synth can be used to
-            control or stop playback.
+            a :class:`PlaybackStream`. This can be used to stop playback
 
         See Also
         ~~~~~~~~
@@ -396,6 +452,19 @@ class Sample:
         * :meth:`Sample.setEngine`
 
         """
+        if not backend:
+            if engine is None and delay == 0 and speed <= 8:
+                backend = 'portaudio'
+            else:
+                backend = 'csound'
+
+        if backend == 'portaudio':
+            logger.debug("Playback using portaudio (sounddevice)")
+            return self._playPortaudio(loop=loop, chan=chan, gain=gain,
+                                       speed=speed, skip=skip, dur=dur, block=block)
+
+        # Use csoundengine
+        logger.debug("Playback using csoundengine")
         if not engine:
             engine = Sample.getEngine()
 
@@ -415,7 +484,7 @@ class Sample:
             import time
             while synth.playing():
                 time.sleep(0.02)
-        return synth
+        return _CsoundenginePlayback(synth=synth)
 
     def asbpf(self) -> bpf4.BpfInterface:
         """
@@ -506,8 +575,8 @@ class Sample:
             maxwidth = config['reprhtml_audiotag_maxwidth']
             # embed short audiofiles, the longer ones are written to disk and read
             # from there
-            if self.duration < 2:
-                samples = self.samples
+            embeddur = config['reprhtml_audiotag_embed_maxduration_seconds']
+            if self.duration < embeddur:
                 if self.numchannels == 1:
                     samples = self.samples
                 else:
@@ -559,10 +628,13 @@ class Sample:
     def plotSpectrogram(self,
                         fftsize=2048,
                         window='hamming',
-                        overlap: int = None,
+                        winsize: int = None,
+                        overlap=4,
                         mindb=-120,
                         minfreq: int = 40,
                         maxfreq: int = 12000,
+                        yaxis='linear',
+                        figsize=(24, 10),
                         axes=None) -> plt.Axes:
         """
         Plot the spectrogram of this sound using matplotlib
@@ -571,12 +643,15 @@ class Sample:
             fftsize: the size of the fft.
             window: window type. One of 'hamming', 'hanning', 'blackman', ...
                     (see scipy.signal.get_window)
+            winsize: window size in samples, defaults to fftsize
             mindb: the min. amplitude to plot
             overlap: determines the hop size (hop size in samples = fftsize/overlap).
                 None to infer a sensible default from the other parameters
             minfreq: the min. freq to plot
             maxfreq: the highes freq. to plot. If None, a default is estimated
                 (check maelzel.snd.plotting.config)
+            yaxis: one of 'linear' or 'log'
+            figsize: the figure size, a tuple (width: int, height: int)
             axes: a matplotlib Axes object. If passed, plotting is done using this
                 Axes; otherwise a new Axes object is created and returned
 
@@ -590,10 +665,17 @@ class Sample:
             samples = self.samples
         return plotting.plotSpectrogram(samples, self.sr, window=window, fftsize=fftsize,
                                         overlap=overlap, mindb=mindb, minfreq=minfreq,
-                                        maxfreq=maxfreq, axes=axes)
+                                        maxfreq=maxfreq, axes=axes, yaxis=yaxis,
+                                        winsize=winsize, figsize=figsize)
 
-    def plotMelSpectrogram(self, fftsize=2048, overlap=4, winlength: int = None,
-                           nmels=128, axes=None, axislabels=False, cmap: str = 'magma'
+    def plotMelSpectrogram(self,
+                           fftsize=2048,
+                           overlap=4,
+                           winsize: int = None,
+                           nmels=128,
+                           axes=None,
+                           axislabels=False,
+                           cmap: str = 'magma'
                            ) -> plt.Axes:
         """
         Plot a mel-scale spectrogram
@@ -602,7 +684,7 @@ class Sample:
             fftsize: the fftsize in samples
             overlap: the amount of overlap. An overlap of 4 will result in a hop-size of
                 winlength samples // overlap
-            winlength: the window length in samples. If None, fftsize is used. If given,
+            winsize: the window size in samples. If None, fftsize is used. If given,
                 winlength <= fftsize
             nmels: number of mel bins
             axes: if given, plot on these Axes
@@ -614,7 +696,7 @@ class Sample:
         """
         from . import plotting
         return plotting.plotMelSpectrogram(self.samples, sr=self.sr, fftsize=fftsize,
-                                           overlap=overlap, winlength=winlength, axes=axes,
+                                           overlap=overlap, winsize=winsize, axes=axes,
                                            setlabel=axislabels, nmels=nmels, cmap=cmap)
 
     def openInEditor(self, wait=True, app=None, fmt='wav'
@@ -1318,7 +1400,34 @@ class Sample:
         assert not math.isnan(avgfreq)
         return avgfreq
 
-    def fundamentalBpf(self, fftsize=2048, overlap=4, method='pyin'
+    def fundamental(self, fftsize=2048, overlap=4
+                    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Track the fundamental frequency of this sample
+
+        Args:
+            fftsize: the fft size to use
+            overlap: number of overlaps
+
+        Returns:
+            a tuple (times, freqs), both numpy arrays. The frequency array will
+            contain a negative frequency whenever the sound is unvoiced (inharmonic,
+            no fundamental can be predicted)
+
+        .. seealso:: :func:`maelzel.snd.vamptools.pyinSmoothPitch`,  :func:`maelzel.snd.freqestimate.f0curvePyinVamp`
+        """
+        from maelzel.snd import vamptools
+        samples = self.getChannel(0).samples
+        dt, freqs = vamptools.pyinSmoothPitch(samples, self.sr,
+                                              fftSize=fftsize,
+                                              stepSize=fftsize // overlap,
+                                              outputUnvoiced='negative',
+                                              )
+        times = np.arange(0, dt * len(freqs) - dt*0.5, dt)
+        assert len(times) == len(freqs), f"{len(times)=}, {len(freqs)=}"
+        return times, freqs
+
+    def fundamentalBpf(self, fftsize=2048, overlap=4, method='pyin', unvoiced='negative'
                        ) -> bpf4.BpfInterface:
         """
         Construct a bpf which follows the fundamental of this sample in time
@@ -1337,6 +1446,7 @@ class Sample:
             fftsize: the size of the fft, in samples
             overlap: determines the hop size
             method: one of 'pyin' or 'fft'.
+            unvoiced: method to handle unvoiced sections. One of 'nan', 'negative', 'keep'
 
         Returns:
             a `bpf <https://bpf4.readthedocs.io>`_ representing the fundamental freq. of this sample
@@ -1353,7 +1463,9 @@ class Sample:
             samples = self.getChannel(0).samples
             dt, freqs = vamptools.pyinSmoothPitch(samples, self.sr,
                                                   fftSize=fftsize,
-                                                  stepSize=fftsize // overlap)
+                                                  stepSize=fftsize // overlap,
+                                                  outputUnvoiced=unvoiced,
+                                                  )
             return bpf4.core.Sampled(freqs, dt)
 
         elif method == 'pyin-native':
@@ -1426,7 +1538,7 @@ class Sample:
                 continue
             selfreqs = freqs[mask]
             seltimes = times[mask]
-            idx = min(len(selfreqs), 3)
+            idx = min(len(selfreqs)-1, 3)
             return seltimes[idx] + idx / self.sr, selfreqs[idx]
         return 0, 0
 
@@ -1508,7 +1620,7 @@ class Sample:
     def mix(samples: list[Sample], offsets: list[float] = None, gains: list[float] = None
             ) -> Sample:
         """
-        Mix the given samples down, optionally with a time offset
+        Static method: mix the given samples down, optionally with a time offset
 
         This is a static method. All samples should share the same
         number of channels and sr

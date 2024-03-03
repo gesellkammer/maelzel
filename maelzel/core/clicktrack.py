@@ -13,6 +13,7 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
                    middleBeatPitch="5E",
                    weakBeatPitch="5G",
                    playpreset: str = '.click',
+                   playbackTransposition=24,
                    fade=0
                    ) -> Score:
     """
@@ -122,6 +123,7 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
 
     voice = Voice(events)
     voice.setPlay(fade=fade)
-    if playpreset:
-        voice.setPlay(instr=playpreset)
+    voice.setPlay(instr=playpreset)
+    if playpreset == '.click':
+        voice.setPlay(itransp=playbackTransposition)
     return Score([voice], scorestruct=struct)

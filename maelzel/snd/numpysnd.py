@@ -171,7 +171,8 @@ def arrayFade(samples: np.ndarray, sr: int, fadetime: float,
             samples[-margin:] = 0
 
 
-def chunks(start:int, stop:int=None, step:int=None) -> Iterable[Tuple[int, int]]:
+def chunks(start:int, stop: int = None, step: int = None
+           ) -> Iterable[Tuple[int, int]]:
     """
     Like xrange, but returns a Tuplet (position, distance form last position)
 

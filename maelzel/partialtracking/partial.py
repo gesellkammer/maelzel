@@ -12,7 +12,6 @@ if TYPE_CHECKING:
     from maelzel import transcribe
 
 
-
 class Partial:
     """
     A Partial represents an overtone within a spectrum
@@ -33,12 +32,13 @@ class Partial:
             raise ValueError(f"Expected a 2D numpy array with at least 3 columns (times, freqs, amps), got {data.shape[1]}")
 
         self.data = data
-        """The breakpoints of this Partial, as a 2D array with columns time, frequency, amplitude, phase and bandwidth"""
+        """The breakpoints of this Partial, as a 2D array with columns time, 
+        frequency, amplitude, phase and bandwidth"""
 
-        self.start = data[0, 0]
+        self.start = float(data[0, 0])
         """Start time of this Partial"""
 
-        self.end = data[-1, 0]
+        self.end = float(data[-1, 0])
         """End time of this partial"""
 
         self.numbreakpoints = len(data)
@@ -47,12 +47,10 @@ class Partial:
         self.label = label
         """A Partial can have an optional integer id called a label"""
 
-
     def __repr__(self):
         ampdb = pt.amp2db(self.meanamp())
         return f"Partial(start={self.start:.4f}, end={self.end:.4f}, numbreakpoints={len(self.data)}, " \
                f"meanfreq={self.meanfreq():.1f}, meanamp={ampdb:.1f}dB"
-
 
     @property
     def duration(self) -> float:
@@ -95,7 +93,6 @@ class Partial:
         """
         return bpf4.core.Linear(self.times, self.freqs)
 
-
     @cache
     def ampbpf(self) -> bpf4.core.Linear:
         """
@@ -118,7 +115,7 @@ class Partial:
             the average frequency of this partial, in Hz
         """
         if self.numbreakpoints == 1:
-            return self.data[0, 1]
+            return float(self.data[0, 1])
 
         if weighted:
             return numpyx.weightedavg(self.freqs, self.times, self.amps)
@@ -140,7 +137,7 @@ class Partial:
             the average amplitude
         """
         if self.numbreakpoints == 1:
-            return self.data[0, 2]
+            return float(self.data[0, 2])
 
         amps = self.amps
         return numpyx.weightedavg(amps, self.times, np.ones_like(amps))
@@ -183,7 +180,7 @@ class Partial:
         .. seealso:: :meth:`Partial.audibility`
         """
         if self.numbreakpoints == 1:
-            return self.data[0, 2] * mindur
+            return float(self.data[0, 2]) * mindur
 
         amps = self.amps
         times = self.times
@@ -274,11 +271,11 @@ class Partial:
 
         Tune to a scale without removing vibrato
 
-            >>>
+        TODO
         """
 
         data = self.data.copy()
-        data[:, 0] = transform(self.freqs)
+        data[:, 1] = transform(self.freqs)
         return self.clone(data=data)
 
     def timeTransform(self, transform: Callable[[np.ndarray], np.ndarray]) -> Partial:
@@ -326,7 +323,8 @@ class Partial:
         if len(self.data) < 2:
             return self
 
-        points = [(t, f) for t, f in self.data[:, 0:2]]
+        # points = [(t, f) for t, f in self.data[:, 0:2]]
+        points = self.data[:, 0:2]
         simplifier = visvalingamwyatt.Simplifier(points)
         if freqthreshold is not None:
             simplifiedpoints = simplifier.simplify(threshold=freqthreshold)

@@ -547,7 +547,7 @@ class Chain(MContainer):
 
         if self.playargs and self.playargs.automations:
             scorestruct = self.scorestruct() or workspace.scorestruct
-            for automation in self.playargs.automations.values():
+            for automation in self.playargs.automations:
                 startsecs, endsecs = automation.absTimeRange(parentOffset=offset, scorestruct=scorestruct)
                 for ev in synthevents:
                     overlap0, overlap1 = _util.overlap(float(startsecs), float(endsecs), ev.delay, ev.end)

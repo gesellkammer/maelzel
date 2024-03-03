@@ -3,9 +3,10 @@ Create and work with musical scales
 
 """
 from __future__ import annotations
-import pitchtools  as pt
+import pitchtools as pt
 from emlib import iterlib
-from typing import Union, Sequence
+from typing import Sequence
+from functools import cache
 
 
 knownscales = {
@@ -21,16 +22,11 @@ def _asmidi(x: Union[str, float]) -> float:
     return pt.n2m(x) if isinstance(x, str) else x
 
 
-def scale(startnote: str,
-          steps: Union[str, Sequence[float]] = 'chromatic',
-          endnote: str = '8C'
-          ) -> list[str]:
-    # TODO: this could be better...
-    if isinstance(steps, str):
-        steps = knownscales.get(steps)
-        if steps is None:
-            raise ValueError(f"steps should be either a sequence of intervals or the name of"
-                             f"a known interval sequence. Known sequences: {knownscales.keys()}")
+@cache
+def _scale(startnote: str,
+           steps: tuple[float, ...],
+           endnote='8C'
+           ) -> list[str]:
     endpitch = pt.n2m(endnote)
     note = startnote
     pitch = pt.n2m(note)
@@ -44,9 +40,38 @@ def scale(startnote: str,
     return notes
 
 
-def pitchscale(startpitch: Union[float, str],
-               steps: Union[str, Sequence[float]] = 'chromatic',
-               endpitch: Union[float, str] = "8C"
+def scale(startnote: str,
+          steps: str | Sequence[float] = 'chromatic',
+          endnote: str = '8C'
+          ) -> list[str]:
+    # TODO: this could be better...
+    if isinstance(steps, str):
+        steps = knownscales.get(steps)
+        if steps is None:
+            raise ValueError(f"steps should be either a sequence of intervals or the name of"
+                             f"a known interval sequence. Known sequences: {knownscales.keys()}")
+    elif not isinstance(steps, tuple):
+        steps = tuple(steps)
+
+    return _cache(startnote=startnote, steps=steps, endnote=endnote)
+
+
+@cache
+def _pitchscale(startpitch: float,
+                steps: tuple[float, ...],
+                endpitch: float
+                ) -> list[float]:
+    midinotes = [startpitch]
+    for step in iterlib.cycle(steps):
+        if (midinote := midinotes[-1] + step) > endpitch:
+            break
+        midinotes.append(midinote)
+    return midinotes
+
+
+def pitchscale(startpitch: float | str,
+               steps: str | Sequence[float] = 'chromatic',
+               endpitch: float | str = "8C"
                ) -> list[float]:
     """
     Create a pitch scale
@@ -79,9 +104,7 @@ def pitchscale(startpitch: Union[float, str],
         if steps is None:
             raise ValueError(f"steps should be either a sequence of intervals or the name of"
                              f"a known interval sequence. Known sequences: {knownscales.keys()}")
-    midinotes = [startpitch]
-    for step in iterlib.cycle(steps):
-        if (midinote := midinotes[-1] + step) > endpitch:
-            break
-        midinotes.append(midinote)
-    return midinotes
+    elif not isinstance(steps, tuple):
+        steps = tuple(steps)
+
+    return _pitchscale(startpitch=startpitch, steps=steps, endpitch=endpitch)

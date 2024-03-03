@@ -16,8 +16,13 @@ import sys
 import os
 from typing import TYPE_CHECKING
 from maelzel._util import getPlatform
+from maelzel.common import getLogger
 import vamp
 import vamp.frames
+
+
+logger = getLogger('maelzel.snd')
+
 
 if TYPE_CHECKING:
     from typing import Set
@@ -296,16 +301,20 @@ def pyinPitchTrack(samples: np.ndarray,
         raise ValueError(f"Unknown threshold distribution: {threshDistr}. "
                          f"It must be one of {', '.join(_pyinThresholdDistrs.keys())}")
 
+    if isinstance(outputUnvoiced, bool):
+        logger.warning("bool values are deprecated. Use 'nan' instead of True and 'skip' instead of False")
+
     output_unvoiced_idx = {
+        'skip': 0,
         False: 0,
+        'nan': 1,
         True: 1,
-        "negative": 2,
-        "nan": 1
+        "negative": 2
     }.get(outputUnvoiced)
 
     if output_unvoiced_idx is None:
-        raise ValueError(f"Unknown output_unvoiced value {outputUnvoiced}. "
-                         f"possible values: {False, True, 'negative'}")
+        raise ValueError(f"outputUnvoiced should be 'nan', 'skip' or 'negative', got {outputUnvoiced}")
+
     step_size = fftSize // overlap
     kwargs = {'step_size': step_size, "block_size": fftSize}
     plugin_key = "pyin:pyin"
@@ -380,8 +389,8 @@ def pyinSmoothPitch(samples: np.ndarray,
         onsetSensitivity (float): onset sensitivity
         pruneThresh (float): totalDuration pruning threshold
         outputUnvoiced: method used to output frequencies when the sound is
-            unvoiced (there is no reliable pitch detected). Choices are True (sets
-            the frequency to 'nan' for unvoiced breakpoints), False (the breakpoint
+            unvoiced (there is no reliable pitch detected). Choices are 'nan', (sets
+            the frequency to 'nan' for unvoiced breakpoints), 'skip' (the breakpoint
             is skipped) or 'negative' (outputs the detected frequency as negative)
 
     Returns:
@@ -416,14 +425,18 @@ def pyinSmoothPitch(samples: np.ndarray,
         raise ValueError(f"Unknown threshold distribution: {threshDistr}. "
                          f"It must be one of {', '.join(_pyinThresholdDistrs.keys())}")
 
+    if isinstance(outputUnvoiced, bool):
+        logger.warning("bool values are deprecated. Use 'nan' instead of True and 'skip' instead of False")
     outputUnvoicedIndex = {
+        'skip': 0,
         False: 0,
+        'nan': 1,
         True: 1,
         "negative": 2
     }.get(outputUnvoiced)
 
     if outputUnvoicedIndex is None:
-        raise ValueError(f"outputUnvoiced should be False, True or 'negative', got {outputUnvoiced}")
+        raise ValueError(f"outputUnvoiced should be 'nan', 'skip' or 'negative', got {outputUnvoiced}")
 
     params = {
         'lowampsuppression': lowAmpSuppression,
@@ -438,3 +451,5 @@ def pyinSmoothPitch(samples: np.ndarray,
     dt, freqs = result1['vector']
     freqsarray = np.array(freqs, dtype=float)
     return (float(dt), freqsarray)
+
+

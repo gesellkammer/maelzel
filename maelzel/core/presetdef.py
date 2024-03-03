@@ -413,8 +413,10 @@ class PresetDef:
         if self.init:
             lines.append(f"  init: {self.init.strip()}")
         if self.args:
-            tabstr = ", ".join(f"{key}={value}" for key, value in self.args.items())
-            lines.append(f"  |{tabstr}|")
+            def _quote(obj):
+                return f'"{obj}"' if isinstance(obj, str) else obj
+            argstr = ", ".join(f"{key}={_quote(value)}" for key, value in self.args.items())
+            lines.append(f"  |{argstr}|")
         audiogen = _textwrap.indent(self.code, _INSTR_INDENT)
         lines.append(audiogen)
         if self.epilogue:
@@ -497,7 +499,9 @@ class PresetDef:
 
         ps.append(_header("code"))
         if self.args:
-            argstr = ", ".join(f"{key}={value}" for key, value in self.args.items())
+            def _quote(obj):
+                return f'"{obj}"' if isinstance(obj, str) else obj
+            argstr = ", ".join(f"{key}={_quote(value)}" for key, value in self.args.items())
             argstr = f"{_INSTR_INDENT}|{argstr}|"
             arghtml = csoundengine.csoundlib.highlightCsoundOrc(argstr, theme=theme)
             ps.append(span(arghtml, fontsize=codefont))

@@ -14,6 +14,7 @@ import matplotlib.ticker
 import matplotlib.pyplot as plt
 from maelzel.snd.numpysnd import numChannels, getChannel
 import logging
+from scipy import signal
 
 from typing import TYPE_CHECKING
 
@@ -358,31 +359,35 @@ def plotWaveform(samples,
 
 
 def plotSpectrogram(samples: np.ndarray,
-                    samplerate: int,
+                    sr: int,
                     fftsize=2048,
                     window: str = 'hamming',
-                    overlap: int = None,
+                    winsize: int = None,
+                    overlap=4,
                     axes: plt.Axes = None,
                     cmap='inferno',
                     interpolation='bilinear',
                     minfreq=40,
                     maxfreq=16000,
                     mindb=-90,
-                    setlabel=False,
-                    figsize=(24, 8)
+                    axeslabels=False,
+                    figsize=(24, 8),
+                    method='specgram',
+                    yaxis='linear'
                     ) -> plt.Axes:
     """
     Plot the spectrogram of a sound
 
     Args:
         samples: a channel of audio data
-        samplerate: the sr of the audio data
-        fftsize: the size of the fft, in samples
-        window: a string passed to scipy.signal.get_window
-        overlap: the number of overlaps. If fftsize=2048, an overlap of 4 will result
+        sr: sr of the audio data
+        fftsize: size of the fft, in samples
+        winsize: size of the window, in samples
+        window: string passed to scipy.signal.get_window
+        overlap: number of overlaps. If fftsize=2048, an overlap of 4 will result
             in a hoplength of 512 samples. Use None to use a sensible value for the
             number of samples.
-        axes: the axes to plot on. If None, new axes will be created
+        axes: axes to plot on. If None, new axes will be created
         cmap: colormap (see pyplot.colormaps())
         minfreq: initial min. frequency
         maxfreq: initial max. frequency. If None, a configurable default will be used
@@ -390,6 +395,9 @@ def plotSpectrogram(samples: np.ndarray,
         mindb: the amplitude threshold
         figsize: if axes is not given, use this size to determine the figure size.
             The value should be a tuplet (width, height)
+        yaxis: one of 'linear', 'log'
+        method: the actual routine to plot the data, one of 'specgram', 'specshow'
+            (based on librosa)
 
     Returns:
         the matplotlib axes object
@@ -398,32 +406,32 @@ def plotSpectrogram(samples: np.ndarray,
         logger.info(f"plotSpectrogram only works on mono samples. Will use channel 0")
         samples = getChannel(samples, 0)
 
-    from scipy import signal
+    if yaxis == 'log' or method == 'specshow':
+        return _plotSpectrogramRosita(samples=samples, sr=sr, fftsize=fftsize,
+                                      window=window, winsize=winsize, overlap=overlap,
+                                      axes=axes, cmap=cmap, figsize=figsize,
+                                      yaxis=yaxis, maxfreq=maxfreq, minfreq=minfreq)
 
     if axes is None:
         f: plt.Figure = plt.figure(figsize=figsize)
         axes:plt.Axes = f.add_subplot(1, 1, 1)
-    if overlap is None:
-        dur = len(samples) / samplerate
-        if dur < 10:
-            overlap = 4
-        elif dur < 60:
-            overlap = 2
-        else:
-            overlap = 1
-    hopsize = int(fftsize / overlap)
+
+    # specgram does not support window sizes different than fftsize
+    winsize = fftsize
+
+    hopsize = int(fftsize // overlap)
     noverlap = fftsize - hopsize
-    win = signal.get_window(window, fftsize)
+    win = signal.get_window(window, winsize)
     axes.specgram(samples,
                   NFFT=fftsize,
-                  Fs=samplerate,
+                  Fs=sr,
                   noverlap=noverlap,
                   window=win,
                   cmap=cmap,
                   interpolation=interpolation,
                   vmin=mindb)
     axes.set_ylim(minfreq, maxfreq)
-    if setlabel:
+    if axeslabels:
         axes.xaxis.set_label_text('Time')
         axes.yaxis.set_label_text('Hz')
     return axes
@@ -433,12 +441,14 @@ def plotMelSpectrogram(samples: np.ndarray,
                        sr: int,
                        fftsize=2048,
                        overlap=4,
-                       winlength: int = None,
+                       winsize: int = None,
                        axes=None,
                        setlabel=False,
                        nmels=128,
                        cmap='magma',
-                       figsize=(24, 8)
+                       figsize=(24, 8),
+                       minfreq=0,
+                       maxfreq=16000
                        ) -> plt.Axes:
     """
     Plot a mel spectrogram
@@ -448,12 +458,14 @@ def plotMelSpectrogram(samples: np.ndarray,
         sr: the samplerate
         fftsize: fft size
         overlap: number of overlaps per window
-        winlength: window length in samples (defaults to fftsize)
+        winsize: window size in samples (defaults to fftsize)
         axes: if given, use this axdes to plot into
         setlabel: a label to pass to specshow
         nmels: number of mel bands
         cmap: the color map used
         figsize: the figure size as a tuplet (width, height). Only used if axes is None
+        minfreq: the min. freq of the mel spectrum
+        maxfreq: the max. freq of the mel spectrum
 
     Returns:
         the axes used
@@ -461,19 +473,65 @@ def plotMelSpectrogram(samples: np.ndarray,
     """
     if len(samples.shape) > 1:
         samples = samples[:, 0]
-    if winlength is None:
-        winlength = fftsize
+    if winsize is None:
+        winsize = fftsize
     from maelzel.snd import rosita
-    hoplength = winlength // overlap
+    hoplength = winsize // overlap
     if axes is None:
         fig: plt.Figure = plt.figure(figsize=figsize)
         axes: plt.Axes = fig.add_subplot(1, 1, 1)
 
     melspec = rosita.melspectrogram(y=samples, sr=sr, n_fft=fftsize,
-                                    hop_length=hoplength, win_length=winlength,
-                                    power=2.0, n_mels=nmels)
+                                    hop_length=hoplength, win_length=winsize,
+                                    power=2.0, n_mels=nmels,
+                                    fmin=minfreq, fmax=maxfreq)
     SdB = rosita.power_to_db(melspec, ref=np.max)
-    img = rosita.specshow(SdB, x_axis='time', y_axis='mel', sr=sr, fmax=8000, axes=axes,
-                          setlabel=setlabel, cmap=cmap, hop_length=hoplength)
+    rosita.specshow(SdB, x_axis='time', y_axis='mel', sr=sr, fmax=8000, axes=axes,
+                    setlabel=setlabel, cmap=cmap, hop_length=hoplength)
     # axes.set(title='Mel-frequency spectrogram')
+    return axes
+
+
+def _plotSpectrogramRosita(samples: np.ndarray,
+                           sr: int,
+                           fftsize=2048,
+                           window='hamming',
+                           winsize: int = None,
+                           overlap=4,
+                           axes: plt.Axes = None,
+                           cmap='inferno',
+                           figsize=(24, 8),
+                           yaxis='log',
+                           dbamps=True,
+                           maxfreq=16000,
+                           minfreq=40
+                           ) -> plt.Axes:
+    from maelzel.snd import rosita
+    if not winsize:
+        winsize = fftsize
+
+    if winsize > fftsize:
+        raise ValueError(f"Window size ({winsize}) should be <= fft size ({fftsize})")
+
+    hoplength = fftsize // overlap
+
+    # compute stft
+    winarray = signal.get_window(window, winsize)
+
+    stft = rosita.stft(samples, n_fft=fftsize, hop_length=hoplength, win_length=winsize,
+                       window=window)
+    # out = 2 * np.abs(stft) / np.sum(winarray)
+    out = np.abs(stft)
+    if dbamps:
+        out = rosita.amplitude_to_db(out, ref=np.max)
+
+    # plot result
+    if axes is None:
+        plt.figure(figsize=figsize)
+        axes = plt.axes()
+
+    # axes.set_axis_off()
+    rosita.specshow(out, ax=axes, n_fft=fftsize, hop_length=hoplength,
+                    cmap=cmap, y_axis=yaxis,
+                    x_axis='time',sr=sr, fmax=maxfreq, fmin=minfreq)
     return axes

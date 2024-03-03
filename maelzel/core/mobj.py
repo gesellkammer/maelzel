@@ -490,7 +490,7 @@ class MObj(ABC):
         extrakeys = set(kws.keys()).difference(PlayArgs.playkeys)
         # set extrakeys as args, without checking the instrument
         if extrakeys:
-            raise ValueError(f"Unknown keys: {extrakeys}, {self=}")
+            # raise ValueError(f"Unknown keys: {extrakeys}, {self=}")
             args = kws.get('args')
             if args:
                 for k in extrakeys:

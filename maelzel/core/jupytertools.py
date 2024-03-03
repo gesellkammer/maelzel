@@ -1,14 +1,21 @@
 from __future__ import annotations
-import emlib.img
-from ._common import logger
-from .workspace import getConfig
-import tempfile
-import os
 from . import environment
 
+if not environment.insideJupyter:
+    raise ImportError("This module is only available inside a jupyter session")
 
-if environment.insideJupyter:
-    from IPython.core.display import (display as jupyterDisplay, Image as JupyterImage)
+import tempfile
+import os
+from ._common import logger
+
+import IPython
+from IPython.core.display import display, Image
+
+import emlib.img
+from .workspace import getConfig
+
+# ipywidgets is a dependency of jupyter so it should be available
+import ipywidgets
 
 
 def setJupyterHookForClass(cls, func, fmt='image/png') -> None:
@@ -18,13 +25,12 @@ def setJupyterHookForClass(cls, func, fmt='image/png') -> None:
     if not environment.insideJupyter:
         logger.debug("_setJupyterHookForClass: not inside IPython/jupyter, skipping")
         return
-    import IPython
     ip = IPython.get_ipython()
     formatter = ip.display_formatter.formatters[fmt]
     return formatter.for_type(cls, func)
 
 
-def jupyterMakeImage(path: str, scalefactor=1.0) -> JupyterImage:
+def jupyterMakeImage(path: str, scalefactor=1.0) -> Image:
     """
     Makes a jupyter Image, which can be displayed inline inside a notebook
 
@@ -42,7 +48,7 @@ def jupyterMakeImage(path: str, scalefactor=1.0) -> JupyterImage:
     width, height = emlib.img.imgSize(path)
     if scalefactor != 1.0:
         width *= scalefactor
-    return JupyterImage(filename=path, embed=True, width=width)
+    return Image(filename=path, embed=True, width=width)
 
 
 def jupyterShowImage(path: str, scalefactor=1.0, maxwidth: int = None):
@@ -52,16 +58,13 @@ def jupyterShowImage(path: str, scalefactor=1.0, maxwidth: int = None):
     Args:
         path: the path to the image file
         scalefactor: a factor to scale the image
+        maxwidth: max. width of the image, in pixels
 
     """
-    if not environment.insideJupyter:
-        logger.error("jupyter is not available")
-        return
-
     img = jupyterMakeImage(path, scalefactor=scalefactor)
     if maxwidth is not None and img.width > maxwidth:
         img.width = maxwidth
-    return jupyterDisplay(img)
+    return display(img)
 
 
 def showPng(pngpath: str, forceExternal=False, app='', scalefactor=1.0,
@@ -86,53 +89,27 @@ def showPng(pngpath: str, forceExternal=False, app='', scalefactor=1.0,
         environment.openPngWithExternalApplication(pngpath, app=app)
 
 
-def m21JupyterHook(enable=True) -> None:
+def displayButton(buttonText: str, callback: Callable[[], None]
+                  ) -> None:
     """
-    Set an ipython-hook to display music21 objects inline on the
-    ipython notebook
+    Create and display an html button inside a jupyter notebook
+
+    If not inside a jupyter notebook this function will raise RuntimeError
 
     Args:
-        enable: if True, the hook will be set up and enabled
-            if False, the hook is removed
+        buttonText: the text of the button
+        callback: the function to call when the button is pressed. This function
+            takes no arguments and should not return anything
     """
     if not environment.insideJupyter:
-        logger.debug("m21JupyterHook: not inside ipython/jupyter, skipping")
-        return
+        raise RuntimeError("This function is only available when running inside a jupyter notebook")
 
-    try:
-        import music21 as m21
-    except ImportError:
-        raise ImportError("Cannot set the jupyter hook for music21 since it is not installed. "
-                          "Install it via 'pip install music21'")
-    
-    from IPython.core.getipython import get_ipython
-    from IPython.core import display
-    from IPython.display import Image, display
-    import maelzel.scoring
-    ip = get_ipython()
-    formatter = ip.display_formatter.formatters['image/png']
-    if enable:
-        def showm21(stream: m21.stream.Stream):
-            cfg = getConfig()
-            xmlfile = tempfile.mktemp(suffix='.musicxml', dir='.')
-            outfile = tempfile.mktemp(suffix='.png', dir='.')
-            stream.write('musicxml', xmlfile)
-            assert os.path.exists(xmlfile), f"Failed to write {xmlfile}!"
-            maelzel.scoring.render.renderMusicxml(xmlfile, outfile=outfile)
-            if cfg['htmlTheme'] == 'dark':
-                emlib.img.pngRemoveTransparency(outfile)
-            imgwidth, imgheight = emlib.img.imgSize(outfile)
-            scaleFactor = cfg['show.scaleFactor']
-            width = min(cfg['show.jupyterMaxImageWidth'], imgwidth*scaleFactor)
-            img = Image(filename=outfile, width=width)
-            if os.path.exists(xmlfile):
-                os.remove(xmlfile)
-            if os.path.exists(outfile):
-                os.remove(outfile)
-            display(img)
+    button = ipywidgets.Button(description=buttonText)
+    output = ipywidgets.Output()
 
-        dpi = formatter.for_type(m21.Music21Object, showm21)
-        return dpi
-    else:
-        logger.debug("disabling display hook")
-        formatter.for_type(m21.Music21Object, None)
+    def clicked(b):
+        with output:
+            callback()
+
+    button.on_click(clicked)
+    display(button, output)
