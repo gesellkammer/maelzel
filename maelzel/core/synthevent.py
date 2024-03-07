@@ -40,6 +40,17 @@ def _unique(d: dict | None, deep: bool) -> dict | None:
     return copy.deepcopy(d) if deep else d.copy()
 
 
+def _normalizeSynthValue(val) -> float | int | str:
+    if isinstance(val, (float, int, str)):
+        return val
+    else:
+        try:
+            return float(val)
+        except ValueError as e:
+            raise ValueError(f"Could not convert {val} to a float to be used as argument"
+                             f" to a synth event")
+
+
 class PlayArgs:
     """
     Playback customizations for an event or a set of events
@@ -961,9 +972,8 @@ class SynthEvent:
                 SynthEvent.fadeshapeToInt[self.fadeshape]  # ifadekind
             ]
             if self.args:
-                if any(not isinstance(value, (int, float, str)) for value in self.args.values()):
-                    raise TypeError(f"Invalid args: {self.args.values()}")
-                dynargs = _cast(dict[str, float], self.args)
+                dynargs = {arg: _normalizeSynthValue(val) for arg, val in self.args.items()}
+
             else:
                 dynargs = {}
         else:

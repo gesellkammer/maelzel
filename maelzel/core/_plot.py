@@ -24,12 +24,13 @@ from matplotlib.text import Text
 from matplotlib import transforms
 from pathlib import Path
 import itertools
+from functools import cache
 
 from maelzel.core import Score, Voice, Note, Chord, MEvent
 from maelzel.scorestruct import ScoreStruct
 
 
-def _verticalPosToCleffPos(pos: int) -> int:
+def _verticalPosToClefPos(pos: int) -> int:
     """
 
     5C    35     7
@@ -39,6 +40,7 @@ def _verticalPosToCleffPos(pos: int) -> int:
     return pos - 28
 
 
+@cache
 def _bravuraPath() -> Path:
     from maelzel import dependencies
     path = dependencies.dataPath() / 'Bravura.otf'
@@ -47,7 +49,7 @@ def _bravuraPath() -> Path:
     return path
 
 
-_BRAVURA_ACCIDENTALS = {
+_SMUFL_ACCIDENTALS = {
     'natural': '\uE261',
     'natural-up': '\uE272',
     'quarter-sharp': '\uE282',
@@ -64,37 +66,125 @@ _BRAVURA_ACCIDENTALS = {
 }
 
 
+_ACCIDENTAL_SHIFT = {
+    'natural': (2, 0),
+    'natural-up': (2, 0),
+    'quarter-sharp': (2, 0),
+    'sharp-down': (2, 0),
+    'sharp': (2, 0),
+    'sharp-up': (2, 0),
+    'three-quarters-sharp': (1, 0),
+    'natural-down': (2, 0),
+    'quarter-flat': (2, -2),
+    'flat-up': (2, -2),
+    'flat': (2, -2),
+    'flat-down': (2, -2),
+    'three-quarters-flat': (1, -2)
+}
+
+_DYNAMIC_SHIFT = {
+    'pppp': -4,
+    'ppp': -4,
+    'pp': -3,
+    'p': -1,
+    'mp': -2,
+    'mf': -2,
+    'f': -1,
+    'ff': -2,
+    'fff': -3,
+    'ffff': -4,
+}
+
+_SMUFL_TIMESIG_DIGITS = {
+    '0': '\uE080',
+    '1': '\uE081',
+    '2': '\uE082',
+    '3': '\uE083',
+    '4': '\uE084',
+    '5': '\uE085',
+    '6': '\uE086',
+    '7': '\uE087',
+    '8': '\uE088',
+    '9': '\uE089',
+    '/': '\uE090'
+}
+
+
+_SMUFL_DYNAMICS = {
+    'pppp': '\uE529',
+    'ppp': '\uE52A',
+    'pp': '\uE52B',
+    'p': '\uE520',
+    'mp': '\uE52C',
+    'mf': '\uE52D',
+    'f': '\uE522',
+    'ff': '\uE52F',
+    'fff': '\uE530',
+    'ffff': '\uE531',
+}
+
+
+@dataclass
+class LineStyle:
+    color: tuple[float, float, float, float] | tuple[float, float, float]
+    width: int = 1
+    style: str = ':'
+
+
 @dataclass
 class ClefDef:
     name: str
+    shortname: str
     pitchrange: tuple[int, int]
     lines: tuple[str, str, str, str, str]
     ledgerlines: list[str]
-    color: tuple[float, float, float]
+    color: tuple[float, float, float] | tuple[float, float, float, float]
+    refline: int
+    linestyle: str = '-'
+    linewidth: int = 2
 
     def verticalRange(self) -> tuple[int, int]:
         return (pt.vertical_position(self.lines[0]), pt.vertical_position(self.lines[-1]))
 
+    def referenceNote(self) -> str:
+        return self.lines[self.refline]
 
 _clefdefs = [
+    ClefDef(name='15a',
+            shortname='G6:',
+            pitchrange=(84, 108),
+            lines=("6E", "6G", "6B", "7D", "7F"),
+            refline=1,
+            ledgerlines=["7A", "7C"],
+            color=(0., 0., 0.4, 0.7),
+            linestyle='--',
+            linewidth=1),
     ClefDef(name='treble',
+            shortname='G:',
             pitchrange=(60, 84),
             lines=("4E", "4G", "4B", "5D", "5F"),
+            refline=1,
             ledgerlines=['4C', '5A', '6C'],
-            color=(0., 0., 0.4)),
+            color=(0., 0., 0.3),
+            linewidth=1),
     ClefDef(name='bass',
+            shortname='F:',
             pitchrange=(36, 60),
             lines=("2G", "2B", "3D", "3F", "3A"),
+            refline=3,
             ledgerlines=['2C', '2E', '4C'],
-            color=(0.4, 0.0, 0.0)),
+            color=(0.3, 0.0, 0.0),
+            linewidth=1),
+    ClefDef(name='15b',
+            shortname='F2:',
+            pitchrange=(12, 36),
+            lines=("0G", "0B", "1D", "1F", "1A"),
+            refline=3,
+            ledgerlines=['0C', '0E', '2C', '2E'],
+            color=(0.4, 0.0, 0.0, 0.7),
+            linestyle='--',
+            linewidth=1),
 
-]
-
-
-_ledgerlines = [
-    ('4C', ('4C',)),
-    ('5A', ('5A', '5B')),
-    ('6C', ('6C', '6D'))
 ]
 
 
@@ -123,8 +213,9 @@ def _measureOffsetsIncluding(scorestruct: ScoreStruct, end: F, realtime: bool) -
     return [float(offset) for offset in offsets]
 
 
-def makeAxes(tightlayout=True, hideyaxis=True) -> tuple[plt.Figure, plt.Axes]:
-    fig, axes = plt.subplots(1, 1)
+def makeAxes(tightlayout=True, hideyaxis=False, figsize: tuple[int, int] = None
+             ) -> tuple[plt.Figure, plt.Axes]:
+    fig, axes = plt.subplots(1, 1, figsize=figsize)
     if hideyaxis:
         axes.get_yaxis().set_visible(False)
     if tightlayout:
@@ -147,7 +238,6 @@ def plotVoices(voices: list[Voice],
                accidentalScale=(0.5, 1),
                linkedEventDesaturation=1.0,
                accidentalSize=22,
-               accidentalShift=2,
                eventStartLineWidth=2,
                accidentalFixedScale=True,
                staffLineWidth=2,
@@ -160,46 +250,77 @@ def plotVoices(voices: list[Voice],
                scorestruct: ScoreStruct = None,
                timeSignatures=True,
                chordLink=False,
-               setLimits=True):
+               setLimits=True,
+               timesigSize=18,
+               dynamicSize=20,
+               dynamicColor=(0.6, 0.6, 0.6),
+               figsize: tuple[int, int] = (15, 5),
+               grid=True):
     if axes is None:
-        fig, axes = makeAxes()
+        fig, axes = makeAxes(figsize=figsize)
     else:
         fig = axes.get_figure()
+
+    z0 = 3
+    smuflpath = _bravuraPath().as_posix()
 
     minpitch, maxpitch = 127, 0
     for voice in voices:
         voicemin, voicemax = voice.pitchRange()
         minpitch = min(minpitch, voicemin)
         maxpitch = max(maxpitch, voicemax)
-    drawnclefs = drawStaffs(axes, int(minpitch), int(maxpitch), linewidth=staffLineWidth,
+    drawnclefs = drawStaffs(axes, minpitch=int(minpitch), maxpitch=int(maxpitch),
                             ledgerLineColor=ledgerLineColor)
+
+    if not scorestruct:
+        scorestruct = voices[0].scorestruct(resolve=True)
+
+    scoreend = max(voice.dur for voice in voices)
+    measureOffsets = _measureOffsetsIncluding(scorestruct, scoreend, realtime=realtime)
+
+    if timeSignatures:
+        timesigFontProperties = FontProperties(fname=smuflpath,
+                                               size=timesigSize)
+
+        highestline = drawnclefs[0].lines[-1]
+        clefpos = _pitchToPosition(highestline) + 0.8
+        timesig = None
+        for i, measureOffset in enumerate(measureOffsets):
+            measuredef = scorestruct.getMeasureDef(i)
+            if measuredef.timesig != timesig:
+                timesig = measuredef.timesig
+                smufltimesig = (f"{_SMUFL_TIMESIG_DIGITS[str(timesig.numerator)]}\n"
+                                f"{_SMUFL_TIMESIG_DIGITS[str(timesig.denominator)]}")
+                trans = axes.transData + transforms.ScaledTranslation(xt=-5/72., yt=0,
+                                                                      scale_trans=fig.dpi_scale_trans)
+                axes.text(measureOffset, clefpos, s=smufltimesig, transform=trans,
+                          fontproperties=timesigFontProperties,
+                          color=(0.3, .3, .3))
 
     if not colors:
         colors = _voiceColors
     voiceColors = itertools.islice(itertools.cycle(colors), len(voices))
 
-    accidentalFontProperties = FontProperties(fname=_bravuraPath().as_posix(), size=accidentalSize)
-
-    if not scorestruct:
-        scorestruct = voices[0].scorestruct(resolve=True)
+    accidentalFontProps = FontProperties(fname=smuflpath, size=accidentalSize)
+    dynamicFontProps = FontProperties(fname=smuflpath, size=dynamicSize)
 
     if barlines:
-        end = max(voice.dur for voice in voices)
-        offsets = _measureOffsetsIncluding(scorestruct, end, realtime=realtime)
 
         if barlineAcrossAllStaffs:
             miny = min(clef.verticalRange()[0] for clef in drawnclefs)
             maxy = max(clef.verticalRange()[1] for clef in drawnclefs)
-            minpos = _verticalPosToCleffPos(miny)
-            maxpos = _verticalPosToCleffPos(maxy)
-            for x in offsets:
-                axes.add_line(Line2D([x, x], [minpos, maxpos], linewidth=barlineWidth, color=barlineColor))
+            minpos = _verticalPosToClefPos(miny)
+            maxpos = _verticalPosToClefPos(maxy)
+            for x in measureOffsets:
+                axes.add_line(Line2D([x, x], [minpos, maxpos], linewidth=barlineWidth,
+                                     color=barlineColor, zorder=z0+5))
         else:
             for clef in drawnclefs:
                 miny, maxy = clef.verticalRange()
-                minpos, maxpos = _verticalPosToCleffPos(miny), _verticalPosToCleffPos(maxy)
-                for x in offsets:
-                    axes.add_line(Line2D([x, x], [minpos, maxpos], linewidth=barlineWidth, color=barlineColor))
+                minpos, maxpos = _verticalPosToClefPos(miny), _verticalPosToClefPos(maxy)
+                for x in measureOffsets:
+                    axes.add_line(Line2D([x, x], [minpos, maxpos], linewidth=barlineWidth,
+                                         color=barlineColor, zorder=z0+5))
 
     for voice, baseColor in zip(voices, voiceColors):
         eventHeadColor = baseColor + (eventHeadAlpha,)
@@ -242,10 +363,12 @@ def plotVoices(voices: list[Voice],
                     # Draw chord link
                     minpitch = min(pitches, key=pt.n2m)
                     maxpitch = max(pitches, key=pt.n2m)
-                    minpos = _verticalPosToCleffPos(pt.vertical_position(minpitch))
-                    maxpos = _verticalPosToCleffPos(pt.vertical_position(maxpitch))
+                    minpos = _pitchToPosition(minpitch)
+                    maxpos = _pitchToPosition(maxpitch)
                     axes.add_line(Line2D([x0, x0], [minpos-eventHeight/2, maxpos+eventHeight/2],
-                                         linewidth=eventStartLineWidth*2, color=_chordLinkColor,
+                                         linewidth=eventStartLineWidth*2,
+                                         color=_chordLinkColor,
+                                         zorder=z0+10
                                          ))
 
                     # chordHead = Rectangle((x0, minpos - eventHeight / 2),
@@ -253,44 +376,58 @@ def plotVoices(voices: list[Voice],
                     #                       height=maxpos - minpos + eventHeight,
                     #                       color=_eventcolor, edgecolor=None, linewidth=0)
                     # axes.add_patch(chordHead)
+            if event.dynamic:
+                dynamicCode = _SMUFL_DYNAMICS.get(event.dynamic, '')
+                if dynamicCode:
+                    clefpos = _pitchToPosition(pitches[0]) - 0.5
+                    xt = _DYNAMIC_SHIFT.get(event.dynamic, 0) / 72.
+                    yt = -12/72.
+                    trans = axes.transData + transforms.ScaledTranslation(xt=xt, yt=yt, scale_trans=fig.dpi_scale_trans)
+                    axes.text(x0, clefpos, s=dynamicCode, fontproperties=dynamicFontProps,
+                              color=dynamicColor, transform=trans, zorder=z0 + 5)
 
             for pitch, target in zip(pitches, targets):
                 npitch = pt.notated_pitch(pitch)
-                cleffpos = _verticalPosToCleffPos(npitch.vertical_position)
+                clefpos = _verticalPosToClefPos(npitch.vertical_position)
 
                 yoffsetFactor = npitch.diatonic_alteration * 0.5
                 if not linked:
-                    axes.add_line(Line2D([x0, x0], [cleffpos-eventHeight/2, cleffpos+eventHeight/2],
-                                         linewidth=eventStartLineWidth, color=eventStartColor))
+                    axes.add_line(Line2D([x0, x0], [clefpos-eventHeight/2, clefpos+eventHeight/2],
+                                         linewidth=eventStartLineWidth,
+                                         color=eventStartColor,
+                                         zorder=z0+10))
                 if not event.gliss:
-                    axes.add_patch(Rectangle((x0, cleffpos+yoffsetFactor-eventLineHeight/2),
+                    axes.add_patch(Rectangle((x0, clefpos+yoffsetFactor-eventLineHeight/2),
                                              width=x1-x0, height=eventLineHeight,
-                                             color=_eventlinecolor, linewidth=0))
+                                             color=_eventlinecolor, linewidth=0, zorder=z0+10))
                 else:
                     assert target
                     targetpitch = pt.notated_pitch(target)
-                    targetpos = _verticalPosToCleffPos(targetpitch.vertical_position)
+                    targetpos = _verticalPosToClefPos(targetpitch.vertical_position)
                     targetoffset = targetpitch.diatonic_alteration * 0.5
-                    y0 = cleffpos + yoffsetFactor - eventLineHeight / 2
+                    y0 = clefpos + yoffsetFactor - eventLineHeight / 2
                     y1 = targetpos + targetoffset - eventLineHeight / 2
                     points = [[x0, y0], [x1, y1], [x1, y1+eventLineHeight], [x0, y0+eventLineHeight]]
-                    axes.add_patch(Polygon(points, closed=True, color=_eventlinecolor))
+                    axes.add_patch(Polygon(points, closed=True, color=_eventlinecolor, zorder=z0+10))
 
                 if not tied or drawHeadForTiedEvents:
-                    eventHead = Rectangle((x0, cleffpos-eventHeight/2),
+                    eventHead = Rectangle((x0, clefpos-eventHeight/2),
                                           width=min(float(event.dur), maxwidth), height=eventHeight,
-                                          color=_eventcolor, edgecolor=None, linewidth=0)
+                                          color=_eventcolor, edgecolor=None, linewidth=0,
+                                          zorder=z0+10)
                     axes.add_patch(eventHead)
-                    accidentalCode = _BRAVURA_ACCIDENTALS[npitch.accidental_name]
+                    accidentalCode = _SMUFL_ACCIDENTALS[npitch.accidental_name]
                     if accidentalFixedScale:
-                        trans = axes.transData + transforms.ScaledTranslation(xt=accidentalShift/72., yt=0,
+                        xshift, yshift = _ACCIDENTAL_SHIFT[npitch.accidental_name]
+                        trans = axes.transData + transforms.ScaledTranslation(xt=xshift/72.,
+                                                                              yt=yshift/72.,
                                                                               scale_trans=fig.dpi_scale_trans)
-                        axes.text(x0, cleffpos, s=accidentalCode, fontproperties=accidentalFontProperties,
-                                  color=accidentalColor, transform=trans)
+                        axes.text(x0, clefpos, s=accidentalCode, fontproperties=accidentalFontProps,
+                                  color=accidentalColor, transform=trans, zorder=z0+10)
                     else:
-                        textpath = TextPath(xy=(0.01, 0), s=accidentalCode, prop=accidentalFontProperties)
+                        textpath = TextPath(xy=(0.01, 0), s=accidentalCode, prop=accidentalFontProps)
                         offset = transforms.Affine2D().scale(*accidentalScale).translate(x0,
-                                                                                         cleffpos) + axes.transData
+                                                                                         clefpos) + axes.transData
                         pathpatch = PathPatch(textpath, color=accidentalColor, transform=offset)
                         axes.add_patch(pathpatch)
 
@@ -302,24 +439,60 @@ def plotVoices(voices: list[Voice],
         else:
             axes.set_xlim(-0.5, max(float(voice.dur) for voice in voices))
 
+    if grid:
+        axes.grid(axis='x', color=(0.95, 0.95, 0.95, 0.3))
+
+
+def _pitchToPosition(pitch: str) -> float:
+    return _verticalPosToClefPos(pt.notated_pitch(pitch).vertical_position)
+
 
 def drawStaffs(axes: plt.Axes, minpitch: int, maxpitch: int,
-               linewidth=2, ledgerLineColor=(0., 0., 0., 0.3)
+               ledgerLineColor=(0., 0., 0., 0.3),
+               linestyles={
+                   '4C': LineStyle(color=(0., 0., 0., 0.6), style=':'),
+               },
+               ledgerLinesLabels=True
                ) -> list[ClefDef]:
+    # '-', '--', '-.', ':', '', (offset, on-off-seq), ...}
+    z0 = 3
     drawn = []
+    drawnlines = set()
+    defaultLedgetLineStyle = LineStyle(color=ledgerLineColor, width=1)
     for clefdef in _clefdefs:
         intersect0, intersect1 = emlib.mathlib.intersection(minpitch, maxpitch, *clefdef.pitchrange)
         if intersect0 is not None:
             for pitch in clefdef.lines:
-                npitch = pt.notated_pitch(pitch)
-                cleffpos = _verticalPosToCleffPos(npitch.vertical_position)
-                axes.axhline(cleffpos, xmin=0, color=clefdef.color, linewidth=linewidth)
+                clefpos = _pitchToPosition(pitch)
+                # npitch = pt.notated_pitch(pitch)
+                # clefpos = _verticalPosToClefPos(npitch.vertical_position)
+                axes.axhline(clefpos, xmin=0, color=clefdef.color,
+                             linewidth=clefdef.linewidth, linestyle=clefdef.linestyle,
+                             zorder=z0)
             drawn.append(clefdef)
 
-        for ledgerline in clefdef.ledgerlines:
-            if minpitch <= pt.n2m(ledgerline) <= maxpitch:
-                npitch = pt.notated_pitch(ledgerline)
-                cleffpos = _verticalPosToCleffPos(npitch.vertical_position)
-                axes.axhline(cleffpos, xmin=0, color=ledgerLineColor, linewidth=1)
+        for ledgerlinePitch in clefdef.ledgerlines:
+            if minpitch <= pt.n2m(ledgerlinePitch) <= maxpitch and ledgerlinePitch not in drawnlines:
+                linestyle = linestyles.get(ledgerlinePitch, defaultLedgetLineStyle)
+                clefpos = _pitchToPosition(ledgerlinePitch)
+                # npitch = pt.notated_pitch(ledgerlinePitch)
+                # clefpos = _verticalPosToClefPos(npitch.vertical_position)
+                axes.axhline(clefpos, xmin=0, color=linestyle.color,
+                             linewidth=linestyle.width, linestyle=linestyle.style,
+                             zorder=z0)
+                drawnlines.add(ledgerlinePitch)
+
+    yticks = [_pitchToPosition(clefdef.lines[clefdef.refline])
+              for clefdef in drawn]
+    ylabels = [clefdef.shortname for clefdef in drawn]
+    # ylabels = [clefdef.referenceNote() for clefdef in drawn]
+    if ledgerLinesLabels:
+        for line in drawnlines:
+            if line.endswith('C'):
+                ylabels.append(line)
+                yticks.append(_pitchToPosition(line))
+    axes.set_yticks(yticks)
+    axes.set_yticklabels(ylabels)
+
     return drawn
 

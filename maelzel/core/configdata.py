@@ -19,7 +19,7 @@ defaultdict = {
     'fixStringNotenames': False,
     'openImagesInExternalApp': False,
     'enharmonic.horizontalWeight': 1,
-    'enharmonic.verticalWeight': 0.01,
+    'enharmonic.verticalWeight': 0.5,
     '.enharmonic.debug': False,
     '.enharmonic.threeQuarterMicrotonePenalty': 20,
 

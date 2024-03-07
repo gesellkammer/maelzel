@@ -99,7 +99,7 @@ class EnharmonicOptions:
     chordUnisonAlterationPenalty: float = 40.
     "penalty for C / C+ within a chord"
 
-    chordMispelledInterval: float = 20.
+    chordMispelledInterval: float = 30.
     "penalty for D - Gb within a chord"
 
     intervalPenaltyWeight: float = 1.
@@ -111,7 +111,7 @@ class EnharmonicOptions:
     horizontalWeight: float = 1.
     "Groups both intervalPenaltyWeight and groupPenaltyWeight"
 
-    verticalWeight: float = 0.05
+    verticalWeight: float = 0.5
     "The weight of how a variant affects chords (vertically)"
 
     _hash: int = 0
@@ -175,15 +175,12 @@ def groupPenalty(notes: list[str], options: EnharmonicOptions = None) -> tuple[f
     total = 0
     penaltysources = []
     notated: list[pt.NotatedPitch] = [pt.notated_pitch(n) for n in notes]
-    #alterations = [n.alteration_direction() for n in notated
-    #               if n.is_black_key]
 
     # Penalize crammed unisons
     accidentalsPerPos = defaultdict(set)
     for n in notated:
         accidentalsPerPos[n.vertical_position].add(n.accidental_name)
     for pos, accidentals in accidentalsPerPos.items():
-        # print(pt.vertical_position_to_note(pos), pos, count)
         count = len(accidentals)
         if count == 3:
             # C# C C+
@@ -378,16 +375,28 @@ def _weight(values, method='stdev'):
         if len(values) < 2:
             return 1
         d = stdev(values)
-        if d == 0:
-            return 0
         return 0 if d == 0 else 1/(d**2)
 
 
-def _rateEnharmonicVariations(group: Sequence[Notation],
-                              spellings: list[list[str]],
-                              anchors: list[int],
-                              options: EnharmonicOptions
-                              ) -> list[str]:
+def _bestEnharmonicVariant(group: Sequence[Notation],
+                           spellings: list[list[str]],
+                           anchors: list[int],
+                           options: EnharmonicOptions
+                           ) -> list[str]:
+    """
+    Finds the best enharmonic variant for this group
+
+    Args:
+        group: the group to rate
+        spellings: a list of spelling variants. Notice that for each notation we considere
+            only one pitch at this stage
+        anchors: ??
+        options: enhamornic options
+
+    Returns:
+        the best spelling
+    """
+    # solution = _rateEnharmonicVariations(group, spellings=validVariations, anchors=anchorIndexes, options=options)
     intervalPenalties = [intervalsPenalty(spelling, options=options)[0]
                          for spelling in spellings]
     groupPenalties = [groupPenalty(spelling, options=options)[0]
@@ -425,6 +434,21 @@ def _chordPenalty(notations: Sequence[Notation],
                   anchors: list[int],
                   options: EnharmonicOptions
                   ) -> float:
+    """
+    Calculate the vertical penalty of the notations
+
+    Each notation can be a chord, the total penalty is just the sum
+    of all the penalties
+
+    Args:
+        notations: the notations to rate
+        spelling: ??
+        anchors: ??
+        options:
+
+    Returns:
+
+    """
     totalChordPenalty = 0
     for i, notation in enumerate(notations):
         notes = notation.resolveNotenames()
@@ -715,7 +739,7 @@ def fixEnharmonicsInPlace(notations: list[Notation],
         if not validVariations:
             validVariations = variations
 
-        solution = _rateEnharmonicVariations(group, spellings=validVariations, anchors=anchorIndexes, options=options)
+        solution = _bestEnharmonicVariant(group, spellings=validVariations, anchors=anchorIndexes, options=options)
 
         if options.debug:
             print(f"DEBUG: Enharmonic spelling - orig. {notenamesInGroup}, "
