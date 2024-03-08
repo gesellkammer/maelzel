@@ -6,9 +6,9 @@ from . import definitions
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Callable, TypeVar
+    from typing import Callable
+    from typing_extensions import Self
     import maelzel.scoring.quant as quant
-    AttachmentT = TypeVar('AttachmentT', bound='Attachment')
 
 
 class Attachment:
@@ -43,7 +43,7 @@ class Attachment:
     def getPriority(self) -> int:
         return self.priority + self.instancePriority
 
-    def copy(self: AttachmentT) -> AttachmentT:
+    def copy(self) -> Self:
         return copy.deepcopy(self)
 
     def __repr__(self):

@@ -74,7 +74,8 @@ setup(
         "loristrck>=1.6.1",
         "vamphost>=1.3.0",
         "lilyponddist>=0.7.0",
-        "sounddevice"
+        "sounddevice",
+        "typing_extensions"
     ],
     license="LGPLv2",
     zip_safe=False,

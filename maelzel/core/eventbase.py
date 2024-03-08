@@ -8,9 +8,9 @@ from maelzel.core.synthevent import PlayArgs
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import TypeVar, Any, Callable
+    from typing_extensions import Self
+    from typing import Any, Callable
     from ._typedefs import time_t, location_t, num_t
-    MEventT = TypeVar("MEventT", bound="MEvent")
 
 
 class MEvent(MObj):
@@ -80,7 +80,11 @@ class MEvent(MObj):
         """
         return not self.isRest() and self.dur == 0
 
-    def addSymbol(self: MEventT, *args, **kws) -> MEventT:
+    def _asVoices(self) -> list[chain.Voice]:
+        from maelzel.core.chain import Voice
+        return [Voice([self])]
+
+    def addSymbol(self, *args, **kws) -> Self:
         """
         Add a notation symbol to this object
 
@@ -155,7 +159,7 @@ class MEvent(MObj):
         """
         raise NotImplementedError
 
-    def mergeWith(self: MEventT, other: MEventT) -> MEventT | None:
+    def mergeWith(self, other: MEvent) -> Self | None:
         """
         Merge this with other, return None if not possible
 
@@ -174,8 +178,8 @@ class MEvent(MObj):
         """A string representing this event"""
         raise NotImplementedError('Subclass should implement this')
 
-    def splitAtOffsets(self: MEventT, offsets: list[time_t], tie=True, absolute=True
-                       ) -> list[MEventT]:
+    def splitAtOffsets(self, offsets: list[time_t], tie=True, absolute=True
+                       ) -> list[Self]:
         """
         Split this event at the given offsets
 
@@ -202,10 +206,10 @@ class MEvent(MObj):
                 event.tied = True
         return events
 
-    def addSpanner(self: MEventT,
+    def addSpanner(self,
                    spanner: str | _symbols.Spanner,
                    endobj: MEvent = None
-                   ) -> MEventT:
+                   ) -> Self:
         """
         Adds a spanner symbol to this object
 
@@ -267,8 +271,8 @@ class MEvent(MObj):
             spanner.setAnchor(self)
         return self
 
-    def timeTransform(self: MEventT, timemap: Callable[[F], F], inplace=False
-                      ) -> MEventT:
+    def timeTransform(self, timemap: Callable[[F], F], inplace=False
+                      ) -> Self:
         """
         Apply a transformation to the time axes of this
 

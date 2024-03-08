@@ -72,16 +72,17 @@ from . import presetmanager
 from maelzel import scoring
 from maelzel.scorestruct import ScoreStruct
 
-from typing import TypeVar, Any, Callable
-
-_MObjT = TypeVar('_MObjT', bound='MObj')
+from typing import TYPE_CHECKING, Any, Callable
+if TYPE_CHECKING:
+    from typing_extensions import Self
+    import matplotlib.pyplot as plt
+    from maelzel.core import chain
 
 
 __all__ = (
     'MObj',
     'MContainer',
     'resetImageCache',
-    '_MObjT'
 )
 
 
@@ -206,7 +207,7 @@ class MObj(ABC):
         if self.properties:
             other.properties = self.properties.copy()
 
-    def setProperty(self: _MObjT, key: str, value) -> _MObjT:
+    def setProperty(self, key: str, value) -> Self:
         """
         Set a property, returns self
 
@@ -429,7 +430,15 @@ class MObj(ABC):
             return self
         return self.clone(offset=self.relOffset())
 
-    def setPlay(self: _MObjT, /, **kws) -> _MObjT:
+    def _asVoices(self) -> list[chain.Voice]:
+        raise NotImplementedError
+
+    def plot(self, **kws) -> plt.Axes:
+        voices = self._asVoices()
+        from maelzel.core import plotting
+        return plotting.plotVoices(voices, **kws)
+
+    def setPlay(self, /, **kws) -> Self:
         """
         Set any playback attributes, returns self
 
@@ -503,8 +512,8 @@ class MObj(ABC):
         playargs.update(kws)
         return self
 
-    def clone(self: _MObjT,
-              **kws) -> _MObjT:
+    def clone(self,
+              **kws) -> Self:
         """
         Clone this object, changing parameters if needed
 
@@ -529,8 +538,8 @@ class MObj(ABC):
         self._copyAttributesTo(out)
         return out
 
-    def remap(self: _MObjT, deststruct: ScoreStruct, sourcestruct: ScoreStruct = None
-              ) -> _MObjT:
+    def remap(self, deststruct: ScoreStruct, sourcestruct: ScoreStruct = None
+              ) -> Self:
         """
         Remap times (offset, dur) from source scorestruct to destination scorestruct
 
@@ -549,11 +558,11 @@ class MObj(ABC):
         offset, dur = deststruct.remapSpan(sourcestruct, self.absOffset(), self.dur)
         return self.clone(offset=offset, dur=dur)
 
-    def copy(self: _MObjT) -> _MObjT:
+    def copy(self) -> Self:
         """Returns a copy of this object"""
         raise NotImplementedError
 
-    def timeShift(self: _MObjT, timeoffset: time_t) -> _MObjT:
+    def timeShift(self, timeoffset: time_t) -> Self:
         """
         Return a copy of this object with an added offset
 
@@ -590,11 +599,11 @@ class MObj(ABC):
         """
         return None if self.offset is None else self.offset + self.dur
 
-    def quantizePitch(self: _MObjT, step=0.) -> _MObjT:
+    def quantizePitch(self, step=0.) -> Self:
         """ Returns a new object, with pitch rounded to step """
         raise NotImplementedError()
 
-    def transposeByRatio(self: _MObjT, ratio: float) -> _MObjT:
+    def transposeByRatio(self, ratio: float) -> _MObjT:
         """
         Transpose this by a given frequency ratio, if applicable
 
@@ -1291,7 +1300,7 @@ class MObj(ABC):
             sustain: a time added to the playback events to facilitate overlapping/legato between
                 notes, or to allow one-shot samples to play completely without being cropped.
             workspace: a Workspace. If given, overrides the current workspace. It's scorestruct
-                is used to to determine the mapping between beat-time and real-time. 
+                is used to to determine the mapping between beat-time and real-time.
             transpose: add a transposition interval to the pitch of this object
             config: if given, overrides the current config
             whenfinished: function to be called when the playback is finished. Only applies to
@@ -1442,7 +1451,7 @@ class MObj(ABC):
         """
         return False
 
-    def addSymbol(self: _MObjT, *args, **kws) -> _MObjT:
+    def addSymbol(self, *args, **kws) -> Self:
         raise NotImplementedError
 
     def _addSymbol(self, symbol: _symbols.Symbol) -> None:
@@ -1495,7 +1504,7 @@ class MObj(ABC):
         classname = classname.lower()
         return next((s for s in self.symbols if s.name==classname), None)
 
-    def addText(self: _MObjT,
+    def addText(self,
                 text: str,
                 placement='above',
                 italic=False,
@@ -1503,7 +1512,7 @@ class MObj(ABC):
                 fontsize: int = None,
                 fontfamily='',
                 box=''
-                ) -> _MObjT:
+                ) -> Self:
         """
         Add a text annotation to this object
 
@@ -1529,7 +1538,7 @@ class MObj(ABC):
                                      box=box))
         return self
 
-    def timeTransform(self: _MObjT, timemap: Callable[[F], F], inplace=False) -> _MObjT:
+    def timeTransform(self, timemap: Callable[[F], F], inplace=False) -> Self:
         """
         Apply a time-transform to this object
 
@@ -1595,7 +1604,7 @@ class MObj(ABC):
         _, dursecs = self.timeRangeSecs()
         return dursecs
 
-    def pitchTransform(self: _MObjT, pitchmap: Callable[[float], float]) -> _MObjT:
+    def pitchTransform(self, pitchmap: Callable[[float], float]) -> Self:
         """
         Apply a pitch-transform to this object, returns a copy
 
@@ -1607,7 +1616,7 @@ class MObj(ABC):
         """
         raise NotImplementedError("Subclass should implement this")
 
-    def timeScale(self: _MObjT, factor: num_t, offset: num_t = 0) -> _MObjT:
+    def timeScale(self, factor: num_t, offset: num_t = 0) -> Self:
         """
         Create a copy with modified timing by applying a linear transformation
 
@@ -1621,7 +1630,7 @@ class MObj(ABC):
         transform = _TimeScale(asF(factor), offset=asF(offset))
         return self.timeTransform(transform)
 
-    def invertPitch(self: _MObjT, pivot: pitch_t) -> _MObjT:
+    def invertPitch(self, pivot: pitch_t) -> Self:
         """
         Invert the pitch of this object
 
@@ -1648,7 +1657,7 @@ class MObj(ABC):
         func = lambda pitch: pivotm*2 - pitch
         return self.pitchTransform(func)
 
-    def transpose(self: _MObjT, interval: int | float) -> _MObjT:
+    def transpose(self, interval: int | float) -> Self:
         """
         Transpose this object by the given interval
 

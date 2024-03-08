@@ -17,7 +17,9 @@ safeColors = {
     'cyan': '#70D0D0',
     'grey1': '#BBBBBB',
     'grey2': '#A0A0A0',
-    'grey3': '#909090'
+    'grey3': '#909090',
+    'yellow1': '#ffcc00',
+    'yellow2': '#cccc00'
 }
 
 

@@ -9,12 +9,12 @@ from maelzel.common import F
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
+    from typing_extensions import Self
     from .chain import Voice
     from maelzel.scorestruct import ScoreStruct
     from ._typedefs import *
-    from typing import Any, Callable, TypeVar
+    from typing import Any, Callable
     from .synthevent import PlayArgs, SynthEvent
-    MObjT = TypeVar("MObjT", bound="MObj")
 
 
 _EMPTYSLICE = slice(None, None, None)
@@ -108,7 +108,7 @@ class MObjList(MObj):
             out.extend(events)
         return out
 
-    def quantizePitch(self: MObjT, step=0.) -> MObjT:
+    def quantizePitch(self, step=0.) -> Self:
         if step == 0:
             step = 1 / getConfig()['semitoneDivisions']
         items = [i.quantizePitch(step) for i in self]
@@ -119,7 +119,7 @@ class MObjList(MObj):
         items = [item.timeShift(timeoffset) for item in resolved]
         return self.clone(items=items)
 
-    def pitchTransform(self: MObjT, pitchmap: Callable[[float], float]) -> MObjT:
+    def pitchTransform(self, pitchmap: Callable[[float], float]) -> Self:
         newitems = [item.pitchTransform(pitchmap) for item in self]
         return self.clone(items=newitems)
 

@@ -8,7 +8,6 @@ from maelzel.core.synthevent import SynthEvent, PlayArgs
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import *
-    MEventT = TypeVar('MEventT', bound=MEvent)
 
 
 def splitNotesOnce(notes: Chord | Sequence[Note], splitpoint: float, deviation=None,

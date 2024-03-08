@@ -28,7 +28,7 @@ from emlib import iterlib
 
 import pitchtools as pt
 
-from maelzel.core import MObj, _MObjT
+from maelzel.core import MObj
 from maelzel.common import F, asF, F0, asmidi
 from maelzel import scoring
 from maelzel.scoring import enharmonics

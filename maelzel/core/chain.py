@@ -24,9 +24,9 @@ from emlib import iterlib
 
 from typing import TYPE_CHECKING, overload
 if TYPE_CHECKING:
-    from typing import Any, Iterator, TypeVar, Callable, Sequence
+    from typing_extensions import Self
+    from typing import Any, Iterator, Callable, Sequence
     from ._typedefs import time_t, location_t, num_t
-    ChainT = TypeVar("ChainT", bound="Chain")
 
 
 __all__ = (
@@ -203,7 +203,7 @@ class Chain(MContainer):
         self._copyAttributesTo(out)
         return out
 
-    def copy(self: ChainT) -> ChainT:
+    def copy(self) -> Self:
         return self.__deepcopy__()
 
     def stack(self) -> F:
@@ -336,7 +336,7 @@ class Chain(MContainer):
         _resolveGlissandi(flatitems)
         return flatitems
 
-    def flat(self: ChainT, forcecopy=False) -> ChainT:
+    def flat(self, forcecopy=False) -> Self:
         """
         A flat version of this Chain
 
@@ -391,7 +391,7 @@ class Chain(MContainer):
         durs = [max(item.dur, gracenoteDur) for item in items]
         return float(sum(pitch * dur for pitch, dur in zip(pitches, durs)) / sum(durs))
 
-    def withExplicitTimes(self: ChainT, forcecopy=False) -> ChainT:
+    def withExplicitTimes(self, forcecopy=False) -> Self:
         """
         Copy of self with explicit times
 
@@ -892,8 +892,11 @@ class Chain(MContainer):
         voice.removeRedundantOffsets()
         return voice
 
-    def timeTransform(self: ChainT, timemap: Callable[[F], F], inplace=False
-                      ) -> ChainT:
+    def _asVoices(self) -> list[chain.Voice]:
+        return [self.asVoice()]
+
+    def timeTransform(self, timemap: Callable[[F], F], inplace=False
+                      ) -> Self:
         items = []
         for item in self.items:
             items.append(item.timeTransform(timemap, inplace=inplace))
@@ -1013,7 +1016,7 @@ class Chain(MContainer):
         items = [i.quantizePitch(step) for i in self.items]
         return self.clone(items=items)
 
-    def timeShift(self: ChainT, timeoffset: time_t) -> ChainT:
+    def timeShift(self, timeoffset: time_t) -> Self:
         items = [item.timeShift(timeoffset) for item in self.items]
         return self.clone(items=items)
 
@@ -1024,7 +1027,7 @@ class Chain(MContainer):
         event = self.firstEvent()
         return None if not event else event.absOffset() - self.absOffset()
 
-    def pitchTransform(self: ChainT, pitchmap: Callable[[float], float]) -> ChainT:
+    def pitchTransform(self, pitchmap: Callable[[float], float]) -> Self:
         newitems = [item.pitchTransform(pitchmap) for item in self.items]
         return self.clone(items=newitems)
 
@@ -1218,7 +1221,8 @@ class Chain(MContainer):
         assert isinstance(first, (Note, Chord)) and isinstance(last, (Note, Chord))
         spanner.bind(first, last)
 
-    def addSymbolAt(self: ChainT, location: time_t | tuple[int, time_t], symbol: symbols.Symbol) -> ChainT:
+    def addSymbolAt(self, location: time_t | tuple[int, time_t], symbol: symbols.Symbol
+                    ) -> Self:
         """
         Adds a symbol at the given location
 
@@ -1255,7 +1259,7 @@ class Chain(MContainer):
             self._postSymbols.append((offset, symbol))
         return self
 
-    def beamBreak(self: ChainT, location: time_t | tuple[int, time_t]) -> ChainT:
+    def beamBreak(self, location: time_t | tuple[int, time_t]) -> Self:
         """
         Add a 'soft' beam break at the given location
 
@@ -1462,7 +1466,7 @@ class Chain(MContainer):
         self.items = items
         self._changed()
 
-    def cycle(self: ChainT, totaldur: F, crop=False) -> ChainT:
+    def cycle(self, totaldur: F, crop=False) -> Self:
         """
         Cycle over the items of self for the given total duration
 
@@ -1556,6 +1560,9 @@ class Chain(MContainer):
             self.playargs = PlayArgs()
         self.playargs.addAutomation(param=param, breakpoints=breakpoints,
                                     interpolation=interpolation, relative=relative)
+
+    def crop(self, start: time_t|location_t, end: time_t|location_t) -> Self:
+        pass
 
 
 class PartGroup:
@@ -1810,6 +1817,8 @@ class Voice(Chain):
         """
         self.addSymbol(symbols.BeamBreak(location=location))
 
+    def _asVoices(self) -> list[chain.Voice]:
+        return [self]
 
 def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
                                ) -> list[SynthEvent | list[SynthEvent]]:

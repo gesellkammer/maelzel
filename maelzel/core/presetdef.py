@@ -12,6 +12,7 @@ from . import presetutils
 from . import environment
 from ._common import logger
 from . import _tools
+from maelzel import colortheory
 
 from maelzel.core.workspace import Workspace
 
@@ -377,6 +378,11 @@ class PresetDef:
                     raise ValueError(f"Cannot use builtin variables as arguments "
                                      f"({arg} is a builtin variable)")
 
+    @cache
+    def _argsToAliases(self) -> dict[str, str]:
+        """Maps arg names to aliases"""
+        return {arg: alias for alias, arg in self.aliases.items()} if self.aliases else {}
+
     def dynamicParams(self, aliases=True, aliased=False) -> dict[str, float|str]:
         """
         All dynamic params of this preset
@@ -477,9 +483,13 @@ class PresetDef:
         codefont = smallfont
         argsfont = smallfont
         fontsize = normalfont
+        strcolor = colortheory.safeColors['green2']
+        numbercolor = colortheory.safeColors['blue2']
+        argcolor = colortheory.safeColors['yellow2']
 
         def _header(text):
-            return span(text, fontsize=headerfont, bold=True)
+            return f'{span(text, fontsize=headerfont, bold=True)}<br>'
+            # return f'<p>{span(text, fontsize=headerfont, bold=True)}</p>'
 
         if info:
             infostr = "(" + ', '.join(info) + ")\n"
@@ -500,10 +510,22 @@ class PresetDef:
         ps.append(_header("code"))
         if self.args:
             def _quote(obj):
-                return f'"{obj}"' if isinstance(obj, str) else obj
-            argstr = ", ".join(f"{key}={_quote(value)}" for key, value in self.args.items())
+                if isinstance(obj, str):
+                    return span(f'"{obj}"', strcolor)
+                return span(obj, numbercolor)
+
+            def _argname(arg):
+                if not self.aliases:
+                    return arg
+                alias = self._argsToAliases().get(arg)
+                if not alias:
+                    return span(arg, color=argcolor)
+                return f"{span(arg, color=argcolor)}{span('@' + alias, italic=True, color=faintcolor)}"
+
+            argstr = ", ".join(f"{_argname(key)}={_quote(value)}" for key, value in self.args.items())
             argstr = f"{_INSTR_INDENT}|{argstr}|"
-            arghtml = csoundengine.csoundlib.highlightCsoundOrc(argstr, theme=theme)
+            arghtml = f'<pre>{argstr}</pre>'
+            # arghtml = csoundengine.csoundlib.highlightCsoundOrc(argstr, theme=theme)
             ps.append(span(arghtml, fontsize=codefont))
         # TODO: solve how to generate body at this stage
         instr = self.getInstr()

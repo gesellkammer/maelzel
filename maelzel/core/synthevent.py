@@ -749,6 +749,7 @@ class SynthEvent:
             db = playargs.db.copy()
         db.pop('transpose', None)
         linkednext = db.pop('linkednext', False) or db.get('glisstime') is not None
+        db.pop('glisstime', None)
         return SynthEvent(bps=bps,
                           properties=properties,
                           linkednext=linkednext,

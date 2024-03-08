@@ -37,8 +37,8 @@ import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import Set, Sequence, Any, TypeVar, Callable
-    TSpanner = TypeVar('TSpanner', bound='Spanner')
+    from typing_extensions import Self
+    from typing import Set, Sequence, Any, Callable
     from maelzel.core import event
     from maelzel.core import mobj
 
@@ -179,7 +179,7 @@ class Spanner(Symbol):
         self.makeEndSpanner(anchor=endobj)
         assert self.partnerSpanner is not None
 
-    def makeEndSpanner(self: TSpanner, anchor: event.MEvent = None) -> TSpanner:
+    def makeEndSpanner(self, anchor: event.MEvent = None) -> Self:
         """
         Creates the end spanner for an already existing start spanner
 

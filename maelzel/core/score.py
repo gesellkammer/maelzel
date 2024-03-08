@@ -272,6 +272,9 @@ class Score(MContainer):
         # TODO: deal with groupid
         return flatevents
 
+    def _asVoices(self) -> list[chain.Voice]:
+        return self.voices
+
     def _synthEvents(self,
                      playargs: PlayArgs,
                      parentOffset: F,

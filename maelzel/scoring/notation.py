@@ -16,7 +16,7 @@ from . import util
 from . import definitions
 from . import spanner as _spanner
 
-from typing import TYPE_CHECKING, TypeVar, cast as _cast
+from typing import TYPE_CHECKING, cast as _cast
 if TYPE_CHECKING:
     from typing import Callable, Sequence, Any
     import maelzel.core

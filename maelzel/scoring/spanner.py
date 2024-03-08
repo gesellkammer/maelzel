@@ -8,8 +8,8 @@ from maelzel._util import reprObj
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from maelzel.scoring import Notation
-    from typing import TypeVar, Iterable
-    SpannerT = TypeVar('SpannerT', bound='Spanner')
+    from typing_extensions import Self
+    from typing import Iterable
 
 
 class Spanner:
@@ -56,7 +56,7 @@ class Spanner:
         else:
             return 1 + self.basePriority
 
-    def copy(self: SpannerT) -> SpannerT:
+    def copy(self) -> Self:
         """
         Create a copy of this Spanner
 
@@ -65,7 +65,7 @@ class Spanner:
         """
         return copy.copy(self)
 
-    def makeEndSpanner(self: SpannerT) -> SpannerT:
+    def makeEndSpanner(self) -> Self:
         """
         Create an end spanner corresponding to this start/continue spanner
 
