@@ -316,3 +316,15 @@ def proportionalSpacing(num=1, den=20, strict=True, uniform=True
     }}
     """
 
+
+def flagStyleLayout(style: str, context='Score') -> str:
+    assert style in ('normal', 'modern-straight-flag', 'old-straight-flag', "flat-flag")
+    assert context in ('Score',)
+    return fr"""
+    \layout {{
+      \context {{
+        \{context}
+         \override Flag.stencil = #{style}
+      }}
+    }}
+    """

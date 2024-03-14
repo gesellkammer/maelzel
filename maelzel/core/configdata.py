@@ -59,6 +59,7 @@ defaultdict = {
     'show.clipNoteheadShape': 'square',
     'show.referenceStaffsize': 12.0,
     'show.musicxmlFontScaling': 1.0,
+    'show.flagStyle': 'normal',
     'show.autoClefChanges': True,
     'show.proportionalSpacing': False,
     'show.proportionalSpacingKind': 'strict',
@@ -168,6 +169,7 @@ validator = {
                                         'cluster'),
     'show.proportionalNotationDuration': lambda cfg, key, val: isValidFraction(val),
     'show.proportionalSpacingKind::choices': ('strict', 'uniform', ''),
+    'show.flagStyle::choices': ('normal', 'straight', 'flat'),
     'dynamicCurveShape': lambda cfg, key, val: val.split("(")[0] in ('linear', 'expon', 'halfcos'),
     'dynamicCurveMindb::range': (-160, 0),
     'dynamicCurveMaxdb::range': (-160, 0),
@@ -343,6 +345,9 @@ docs = {
 
     'show.musicxmlFontScaling':
         "A scaling factor applied to font sizes when rendering to musicxml",
+
+    'show.flagStyle':
+        "The flag style. At the moment only valid in lilypond",
 
     '.enharmonic.debug':
         "If True, print debug information while calculating automatic enharmonic spelling",

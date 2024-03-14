@@ -30,7 +30,6 @@ __all__ = (
     'showPresets',
     'defPreset',
     'defPresetSoundfont',
-    # 'PresetManager',
     'getPreset'
 )
 
@@ -635,7 +634,7 @@ class PresetManager:
     def makeRenderer(self,
                      sr: int = None,
                      numChannels: int = None,
-                     ksmps: int = None
+                     ksmps: int = None,
                      ) -> csoundengine.Renderer:
         """
         Make an offline Renderer from instruments defined here

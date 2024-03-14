@@ -612,10 +612,11 @@ class Notation:
         """
         if not self.spanners:
             raise ValueError(f"spanner {spanner} not found in notation {self}")
-        if spanner.parent and spanner.parent is not self:
-            logger.error(f"This spanner {spanner} has a different parent! parent={spanner.parent}, self={self}")
 
         if isinstance(spanner, _spanner.Spanner):
+            if spanner.parent and spanner.parent is not self:
+                logger.error(f"This spanner {spanner} has a different parent! parent={spanner.parent}, self={self}")
+
             spanner.parent = None
             self.spanners.remove(spanner)
         else:
@@ -668,45 +669,37 @@ class Notation:
         n.setNotehead(definitions.Notehead('harmonic'), 1)
         return n
 
-    def fixNotename(self, notename: str, idx: int | None = None, fail=True) -> None:
+    def clearFixedNotenames(self) -> None:
+        if self.fixedNotenames:
+            self.fixedNotenames.clear()
+
+    def fixNotename(self, notename: str, idx: int | None = None) -> None:
         """
         Fix the spelling for the pitch at index **inplace**
 
         Args:
             notename: if given, it will be fixed to the given notename.
                 If nothing is given, it will be fixed to n2m(self.pitches[idx])
-                Alternatively 'enharmonic' can be given as notename, in which
-                case the enharmonic variant of the current notename will be used
             idx: the index of the note to modify. If None, a matching pitch in this notation
-                is searched
-            fail: if idx was set to None (to search for a matching fit) and there
-                is no match, an Exception will be raised if fail is set to True.
-                Otherwise, we fail silently.
+                is searched. ValueError is raised if no pitch is found
 
         .. seealso:: :meth:`Notation.notenames`
         """
         if self.fixedNotenames is None:
             self.fixedNotenames = {}
 
-        if notename == 'enharmonic':
-            if idx is None:
-                if len(self.pitches) > 1:
-                    raise ValueError(f"Note index not given, but it is needed since this"
-                                     f" is a chord with pitches {self.pitches}")
-                notename = self.notename(0)
-            else:
-                notename = self.notename(idx)
-            notename = pt.enharmonic(notename)
+        tolerance = 0.04
 
         if idx is None:
-            spellingPitch = pt.n2m(notename)
-            idx = next((idx for idx in range(len(self.pitches))
-                        if abs(spellingPitch - self.pitches[idx]) < 0.04), None)
-            if idx is None:
-                if fail:
+            if len(self.pitches) == 1:
+                idx = 0
+            else:
+                spellingPitch = pt.n2m(notename)
+                idx = next((idx for idx in range(len(self.pitches))
+                            if abs(spellingPitch - self.pitches[idx]) < tolerance), None)
+                if idx is None:
                     raise ValueError(f"No pitch in this notation matches the given notename {notename}"
                                      f" (pitches: {self.resolveNotenames()})")
-                return
 
         self.fixedNotenames[idx] = notename
 
@@ -802,7 +795,7 @@ class Notation:
         if not self.fixedNotenames:
             return
         for notename in self.fixedNotenames.values():
-            other.fixNotename(notename, None, fail=False)
+            other.fixNotename(notename, idx=None)
 
     def clone(self, **kws) -> Notation:
         """
@@ -971,6 +964,32 @@ class Notation:
         """
         return self.duration * self.fusedDurRatio()
 
+    def setPitches(self, pitches: list[float | str], fixNotenames=False) -> None:
+        """
+        Set the pitches of this notation, in place
+
+        Args:
+            pitches: a list of midinotes or notenames, or any combination
+            fixNotenames: if True, fix the notenames for those pitches given
+                as strings. Notenames can also be fixed with a '!' suffix
+        """
+        assert len(pitches) == len(self.pitches)
+        self.clearFixedNotenames()
+        pitches = sorted(pitches, key=lambda p: pt.n2m(p) if isinstance(p, str) else p)
+        midinotes = [p if isinstance(p, (int, float)) else pt.n2m(p)
+                     for p in pitches]
+        self.pitches = midinotes
+        if fixNotenames:
+            for i, pitch in enumerate(pitches):
+                if isinstance(pitch, str):
+                    if pitch[-1] == '!':
+                        pitch = pitch[:-1]
+                    self.fixNotename(pitch, idx=i)
+        else:
+            for i, pitch in enumerate(pitches):
+                if isinstance(pitch, str) and pitch[0] == '!':
+                    self.fixNotename(pitch[:-1], idx=i)
+
     def notename(self, index=0, addExplicitMark=False) -> str:
         """
         Returns the notename corresponding to the given pitch index
@@ -1039,10 +1058,6 @@ class Notation:
                 notename += '!'
             out.append(notename)
         return out
-
-    @property
-    def _notenames(self) -> list[str]:
-        return [self.getFixedNotename(i) or pt.m2n(p) for i, p in enumerate(self.pitches)]
 
     def verticalPosition(self, index=0) -> int:
         """

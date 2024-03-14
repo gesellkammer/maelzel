@@ -18,22 +18,13 @@ a score structure.
 # offset
 #
 # Each object has an offset. This offset can be None if not explicitly set
-# by the object itself. A cached object, ._resolvedOffset, can be set by
+# by the object itself. A cached offset, ._resolvedOffset, can be set by
 # either the object itself or by the parent
 #
 # dur
 #
 # Each object has a duration (.dur). The duration is always explicit. It is implemented
 # as a property since it might be calculated.
-#
-# TODO: revise this docs
-#
-# * _calculateDuration: this method should return the duration in beats or None if the
-#   object itself cannot determine its own duration
-# * the parent should always be able to determine the duration of a child. If the object
-#   has no implicit duration, _calculateDuration is called and if this returns None,
-#   a default duration is set.
-#
 
 
 from __future__ import annotations
@@ -392,8 +383,16 @@ class MObj(ABC):
             the absolute start position of this object
 
         """
-        offset = self.relOffset()
-        return offset + self.parent.absOffset() if self.parent else offset
+        return self.relOffset() + self.parentAbsOffset()
+
+    def parentAbsOffset(self) -> F:
+        """
+        The absolute offset of the parent
+
+        Returns:
+            the absolute offset of the parent if this object has a parent, else 0
+        """
+        return self.parent.absOffset() if self.parent else F0
 
     def withExplicitTimes(self, forcecopy=False):
         """

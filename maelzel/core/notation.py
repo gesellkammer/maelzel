@@ -85,7 +85,8 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
         centsAnnotationSnap=cfg['show.centsAnnotationSnap'],
         proportionalSpacing=cfg['show.proportionalSpacing'],
         proportionalNotationDuration=cfg['show.proportionalNotationDuration'],
-        proportionalSpacingKind=cfg['show.proportionalSpacingKind']
+        proportionalSpacingKind=cfg['show.proportionalSpacingKind'],
+        flagStyle=cfg['show.flagStyle']
 
     )
     return renderOptions

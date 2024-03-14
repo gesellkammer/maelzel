@@ -88,8 +88,8 @@ class MEvent(MObj):
         """
         Add a notation symbol to this object
 
-        Notation symbols are any attributes which are attached to **one event**
-        and are intended for **notation only**. Such attributes include articulations,
+        Notation symbols are attributes attached to **one event**
+        and are intended for **notation only**. Such symbols include articulations,
         ornaments, fermatas but also properties, like color, size, etc.
         Also customizations like notehead shape, bend signs, all are
         considered symbols. Notation symbols spanning across multiple events
@@ -140,7 +140,7 @@ class MEvent(MObj):
         self._addSymbol(symbol)
         if isinstance(symbol, _symbols.Spanner):
             symbol.setAnchor(self)
-        elif isinstance(symbol, _symbols.NoteSymbol):
+        elif isinstance(symbol, _symbols.EventSymbol):
             if errormsg := symbol.checkAnchor(self):
                 raise ValueError(f"Cannot add this symbol to {self}: {errormsg}")
         return self
@@ -177,6 +177,32 @@ class MEvent(MObj):
     def name(self) -> str:
         """A string representing this event"""
         raise NotImplementedError('Subclass should implement this')
+
+    def splitAt(self, offset: beat_t, tie=True) -> tuple[Self, Self] | tuple[Self]:
+        """
+        Split this event at the given absolute offset
+
+        Args:
+            offset: the absolute offset at which to split this event. Can be a beat
+                or a location
+            tie: tie the parts
+
+        Returns:
+            a tuple with the parts. If the offset lies perfectly at the start or
+            end of this event, only one part will be returned. If the offset does
+            not intersect the event, ValueError is raised
+
+        Example
+        -------
+
+            >>> n = Note(60, 4)
+            >>> n.splitAt(2)
+            TODO
+        """
+        parts = self.splitAtOffsets([offset], tie=tie, absolute=True)
+        if not parts:
+            raise ValueError(f"Offset {offset} does not intersect {self}")
+        return tuple(parts)
 
     def splitAtOffsets(self, offsets: list[time_t], tie=True, absolute=True
                        ) -> list[Self]:

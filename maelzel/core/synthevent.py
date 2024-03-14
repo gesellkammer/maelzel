@@ -424,9 +424,15 @@ class SynthEvent:
                  'initfunc', '_initdone')
 
     dynamicAttributes = (
-        'position',
+        'position', 'gain'
     )
     """Attributes which can change within merged events"""
+
+    staticAttributes = (
+        'chan',
+        'priority',
+        'numchans',
+    )
 
     pitchinterpolToInt = {
         'linear': 0,
@@ -747,9 +753,9 @@ class SynthEvent:
             db = playargs.db | kws
         else:
             db = playargs.db.copy()
-        db.pop('transpose', None)
         linkednext = db.pop('linkednext', False) or db.get('glisstime') is not None
-        db.pop('glisstime', None)
+        for k in ('transpose', 'glisstime', 'end'):
+            db.pop(k, None)
         return SynthEvent(bps=bps,
                           properties=properties,
                           linkednext=linkednext,
@@ -814,9 +820,9 @@ class SynthEvent:
         if l > 3:
             headers += [str(i) for i in range(4, l+1)]
         htmltab = emlib.misc.html_table(rows, headers=headers)
-        return f"{self._reprHeader()}<br>" + htmltab
+        return f"SynthEvent({self._reprInfo()})<br>" + htmltab
 
-    def _reprHeader(self) -> str:
+    def _reprInfo(self) -> str:
         info = [f"delay={float(self.delay):.3g}, dur={self.dur:.3g}, "
                 f"instr={self.instr}, "
                 f"gain={self.gain:.4g}, chan={self.chan}"
@@ -825,8 +831,6 @@ class SynthEvent:
             info.append('linkednext=True')
         if self.args:
             info.append(f"args={self.args}")
-        #if self.kws:
-        #    info.append(f"kws={self.kws}")
         if self.sustain:
             info.append(f"sustain={self.sustain}")
         if self.position is not None and self.position >= 0:
@@ -836,22 +840,28 @@ class SynthEvent:
         if self.automations:
             info.append(f'automations={self.automations}')
         infostr = ", ".join(info)
-        return f"SynthEvent({infostr})"
+        return infostr
 
     def __repr__(self) -> str:
-        lines = [self._reprHeader()]
+        info = self._reprInfo()
+        if len(self.bps) <= 3:
+            def bprepr3(bp):
+                parts = [f"{bp[0]:2.6}s"] + [f"{b:.6g}" for b in bp[1:]]
+                return " ".join(parts)
+            bps = "; ".join([bprepr3(bp) for bp in self.bps])
+            return f"SynthEvent({info}, bps=‹{bps}›)"
+        else:
+            def bpline(bp):
+                rest = " ".join(("%.6g" % b).ljust(8) if isinstance(b, float) else str(b) for b in bp[1:])
+                return f"{float(bp[0]):7.6g}s: {rest}"
 
-        def bpline(bp):
-            rest = " ".join(("%.6g" % b).ljust(8) if isinstance(b, float) else str(b) for b in bp[1:])
-            return f"{float(bp[0]):7.6g}s: {rest}"
-
-        for i, bp in enumerate(self.bps):
-            if i == 0:
-                lines.append(f"bps {bpline(bp)}")
-            else:
-                lines.append(f"    {bpline(bp)}")
-        lines.append("")
-        return "\n".join(lines)
+            for i, bp in enumerate(self.bps):
+                if i == 0:
+                    lines.append(f"bps {bpline(bp)}")
+                else:
+                    lines.append(f"    {bpline(bp)}")
+            lines.append("")
+            return "\n".join(lines)
 
     @staticmethod
     def cropEvents(events: list[SynthEvent], skip=0., end=math.inf
@@ -1139,7 +1149,8 @@ class SynthEvent:
         return axes
 
 
-def mergeEvents(events: Sequence[SynthEvent]) -> SynthEvent:
+def mergeEvents(events: Sequence[SynthEvent], checkStaticAttributes=True
+                ) -> SynthEvent:
     """
     Merge linked events
 
@@ -1158,6 +1169,8 @@ def mergeEvents(events: Sequence[SynthEvent]) -> SynthEvent:
 
     Args:
         events: the events to merge
+        checkStaticAttributes: check if linked events modify attributes which are static
+            (like gain or chann) show a warning if this is the case
 
     Returns:
         the merged event
@@ -1172,12 +1185,12 @@ def mergeEvents(events: Sequence[SynthEvent]) -> SynthEvent:
     firstdelay = firstevent.delay
     now = firstevent.delay
     for event in events:
-        if event.delay < now:
-            raise ValueError(f"Trying to merge {events=}\nEvent {event} starts before the end "
-                             f"of last event ({now=})")
-        elif event.delay - now > eps:
-            raise ValueError(f"Trying to merge {events=}\nEvent {event} is not aligned with the "
-                             f"end of last event ({now=}, gap = {event.delay-now})")
+        gap = abs(event.delay - now)
+        if gap > eps:
+            logger.error(f"Misaligned events:\n{event=}\nend of last event: {now}\n{events=}")
+            raise ValueError(f"Trying to merge events. Event starting at {event.delay} is not "
+                             f"aligned with the end of last event "
+                             f"({now=}, {gap=}, {event=}")
         assert event.bps[0][0] == 0
         now = event.bps[-1][0] + event.delay
 
@@ -1192,9 +1205,12 @@ def mergeEvents(events: Sequence[SynthEvent]) -> SynthEvent:
     lastbp[0] += lastevent.delay - firstdelay
     bps.append(lastbp)
 
+    # Fades are only relevant for the first and the last event
+    fade = (events[0].fadein, events[-1].fadeout)
     mergedevent = firstevent.clone(bps=bps,
                                    linkednext=lastevent.linkednext,
-                                   sustain=lastevent.sustain)
+                                   sustain=lastevent.sustain,
+                                   fade=fade)
     restevents = events[1:]
     if mergedevent.args is None and any(ev.args for ev in restevents):
         mergedevent.args = {}
@@ -1231,6 +1247,16 @@ def mergeEvents(events: Sequence[SynthEvent]) -> SynthEvent:
                                                 kind='normal')
                 automationPoints.append(automation)
                 state[attr] = value
+
+        if checkStaticAttributes:
+            for attr in SynthEvent.staticAttributes:
+                value = getattr(event, attr)
+                prevalue = getattr(firstevent, attr)
+                if value is not None and value != prevalue:
+                    logger.warning(f"Linked event sets playback attribute {attr}={value}, "
+                                   f"which is different from the previous value of {prevalue}, "
+                                   f"but attribute '{attr}' is static and cannot change within "
+                                   f"a linked event. Event: {event}")
 
         lastoffset = offset
     mergedevent.automationSegments = automationPoints

@@ -291,6 +291,42 @@ def _evalArgs(args: list[str]) -> dict[str, Any]:
     return dict(evalArg(arg) for arg in args)
 
 
+def regexSplit(pattern: str, string: str, maxsplit=0, strip=False, removeEmpty=False):
+    """
+    Similar to re.split but can strip lines and remove empty parts
+
+    Args:
+        pattern: regex pattern
+        string: string to split
+        maxsplit: max number of splits
+        strip: strip each line
+        removeEmpty: remove empty items
+
+    Returns:
+        a list of strings
+
+    Example
+    -------
+
+        >>> s = r'''
+        ...     C4:1
+        ...     D4:2
+        ...     E3:3; E4:4
+        ... '''
+        # Split on new lines and semicolons
+        >>> re.split('[\n;]', s)
+        ['', '    C4:1 ', '    D4:2', '    E3:3', ' E4:4', '    ']
+        >>> regexSplit('[\n;]', s, strip=True, removeEmpty=True)
+        ['C4:1', 'D4:2', 'E3:3', 'E4:4']
+    """
+    parts = re.split(pattern=pattern, string=string, maxsplit=maxsplit)
+    if strip:
+        parts = [part.strip() for part in parts]
+    if removeEmpty:
+        parts = [part for part in parts if part]
+    return parts
+
+
 def stripNoteComments(s: str) -> str:
     """
     Strip comments from notes defined as strings

@@ -338,6 +338,8 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
     if n.attachments and (attach := first(a for a in n.attachments if isinstance(a, attachment.StemTraits))):
         if attach.hidden:
             _(r"\once \override Stem.transparent = ##t")
+        elif attach.color:
+            _(rf'\once \override Stem.color = "{attach.color}" ')
 
     if n.isGracenote:
         base, dots = 8, 0
@@ -1023,6 +1025,12 @@ def makeScore(score: quant.QuantizedScore,
           }
         }
         """ % options.glissLineThickness, dedent=True)
+
+    if options.flagStyle != 'normal':
+        lilyFlagStyle = {'straight': 'modern-straight-flag',
+                         'flat': 'flat-flag',
+                         'old-straight': 'old-straight-flag'}[options.flagStyle]
+        _(lilypondsnippets.flagStyleLayout(lilyFlagStyle))
 
     if options.horizontalSpacing:
         spacingPreset = lilypondsnippets.horizontalSpacingPresets[options.horizontalSpacing]

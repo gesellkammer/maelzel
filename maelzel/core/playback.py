@@ -185,7 +185,7 @@ class RealtimeRenderer(Renderer):
                                              sessionevents=sessionevents,
                                              whenfinished=whenfinished)
         numevents = len(coreevents) + (len(sessionevents) if sessionevents else 0)
-        assert len(synths) == numevents, f"{len(synths)=}, {numevents=}"
+        assert len(synths) + len(sessionsynths) == numevents, f"{len(synths)=}, {numevents=}"
         synths.extend(sessionsynths)
         return csoundengine.synth.SynthGroup(synths)
 

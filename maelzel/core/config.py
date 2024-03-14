@@ -389,17 +389,16 @@ class CoreConfig(ConfigDict):
     def __enter__(self):
         from . import workspace
         w = workspace.Workspace.active
-        assert w is not None
         self._previousState = (w, w.config)
         w.config = self
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        assert self._previousState is not None
-        workspace, previousconfig = self._previousState
+        workspace, prevconfig = self._previousState
         assert workspace.isActive()
         assert workspace.config is self
-        workspace.config = previousconfig
+        assert prevconfig
+        workspace.config = prevconfig
 
     def activate(self) -> None:
         """

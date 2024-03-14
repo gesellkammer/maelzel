@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, overload
 if TYPE_CHECKING:
     from typing_extensions import Self
     from typing import Any, Iterator, Callable, Sequence
-    from ._typedefs import time_t, location_t, num_t
+    from ._typedefs import time_t, location_t, num_t, beat_t
 
 
 __all__ = (
@@ -142,7 +142,9 @@ class Chain(MContainer):
                 offset = offset if isinstance(offset, F) else asF(offset)
             if items is not None:
                 if isinstance(items, str):
-                    items = [_tools.stripNoteComments(line) for line in items.splitlines()]
+                    # split using new lines and semicolons as separators
+                    items = _tools.regexSplit('[\n;]', items, strip=True, removeEmpty=True)
+                    items = [_tools.stripNoteComments(item) for item in items]
                     items = [asEvent(item) for item in items if item]
                 else:
                     items = [item if isinstance(item, (MEvent, Chain)) else asEvent(item)
@@ -317,16 +319,23 @@ class Chain(MContainer):
         return prev if isinstance(prev, MEvent) else prev.lastEvent()
 
     def isFlat(self) -> bool:
-        """Is self flat?
+        """
+        Is self flat?
 
-        A flat sequence contains only events, not other containers
+        A flat chain/voice contains only events, not other containers
         """
         return all(isinstance(item, MEvent) for item in self.items)
 
-    def flatItems(self) -> list[MEvent]:
+    def flatEvents(self) -> list[MEvent]:
         """
         A list of flat events, with explicit absolute offsets set
 
+        The returned events are a clone of the events in this chain,
+        not the actual events themselves
+
+        Returns:
+            a list of events (Notes, Chords, Clips, ...) with explicit
+            offset
         """
         if not self.items:
             return []
@@ -344,7 +353,7 @@ class Chain(MContainer):
         this Chain and any sub-chains to a flat chain of notes/chords.
 
         If this Chain is already flat (it does not contain any
-        Chains), self is returned unmodified.
+        Chains), self is returned unmodified unless forcecopy is set to True.
 
         .. note::
 
@@ -504,7 +513,7 @@ class Chain(MContainer):
             # later, after events have been merged.
             playargs = playargs.updated(self.playargs, automations=False)
 
-        flatitems = self.flatItems()
+        flatitems = self.flatEvents()
         assert all(item.offset is not None and item.dur >= 0 for item in flatitems)
         if self.offset:
             for item in flatitems:
@@ -640,8 +649,7 @@ class Chain(MContainer):
 
     @dur.setter
     def dur(self, value):
-        cls = type(self).__name__
-        raise AttributeError(f"Objects of class {cls} cannot set their duration")
+        raise AttributeError(f"Objects of class {type(self).__name__} cannot set their duration")
 
     def append(self, item: MEvent) -> None:
         """
@@ -927,7 +935,7 @@ class Chain(MContainer):
             config = Workspace.active.config
 
         if parentOffset is None:
-            parentOffset = self.parent.absOffset() if self.parent else F0
+            parentOffset = self.parentAbsOffset()
 
         if self._postSymbols:
             postsymbols = self._postSymbols
@@ -939,25 +947,24 @@ class Chain(MContainer):
                 else:
                     logger.error(f"No event found at {offset} for symbol {symbol}")
 
-        chainitems = self.flatItems()
+        chainitems = self.flatEvents()
         notations: list[scoring.Notation] = []
         if self.label and chainitems[0].offset > 0:
-            notations.append(scoring.makeRest(duration=chainitems[0].dur, annotation=self.label))
+            firstrest = scoring.makeRest(duration=chainitems[0].dur, annotation=self.label)
+            notations.append(firstrest)
 
         for item in chainitems:
-            notations.extend(item.scoringEvents(groupid=groupid, config=config, parentOffset=parentOffset))
-
-        scoring.resolveOffsets(notations)
+            itemNotations = item.scoringEvents(groupid=groupid, config=config, parentOffset=parentOffset)
+            if self.symbols:
+                for s in self.symbols:
+                    if isinstance(s, symbols.EventSymbol) and not isinstance(s, symbols.VoiceSymbol):
+                        for n in itemNotations:
+                            s.applyToNotation(n, parent=item)
+            notations.extend(itemNotations)
 
         for n0, n1 in iterlib.pairwise(notations):
             if n0.tiedNext and not n1.isRest:
                 n1.tiedPrev = True
-
-        if self.symbols:
-            for s in self.symbols:
-                if isinstance(s, symbols.NoteSymbol) and not isinstance(s, symbols.PartSymbol):
-                    for n in notations:
-                        s.applyToNotation(n)
 
         return notations
 
@@ -1049,6 +1056,8 @@ class Chain(MContainer):
             offset for each returned event one needs to add the absolute offset of this
             chain
 
+
+        .. seealso:: :meth:`Chain.eventsWithOffset
         """
         if not reverse:
             for item in self.items:
@@ -1090,6 +1099,22 @@ class Chain(MContainer):
         self._cachedEventsWithOffset = eventpairs
         return eventpairs
 
+    def itemsWithOffset(self) -> Iterator[tuple[MEvent|Chain], F]:
+        """
+        Iterate over the items of this chain with their absolute offset
+
+        Returns:
+            an iterator over tuple[item, offset], where an item can be
+            an event or a Chain, and offset is the absolute offset
+
+        .. seealso:: :meth:`Chain.eventsWithOffset`
+        """
+        self._update()
+        now = self.absOffset()
+        for item in self.items:
+            yield item, now
+            now += item.dur
+
     def _eventsWithOffset(self,
                           frame: F
                           ) -> tuple[list[tuple[MEvent, F]], F]:
@@ -1112,7 +1137,7 @@ class Chain(MContainer):
                           frame: F,
                           ) -> tuple[list[tuple[MEvent | list, F, F]], F]:
         """
-        For each item returns a tuple (item, dur)
+        For each item returns a tuple (item, offset, dur)
 
         Each event is represented as a tuple (event, offset, dur), a chain
         is represented as a list of such tuples
@@ -1159,32 +1184,10 @@ class Chain(MContainer):
                 now += subdur
         return out, now - frame
 
-    def iterateWithTimes(self, absolute=False
-                         ) -> list[tuple[MEvent, F, F] | list]:
-        """
-        Iterates over the items in self, returns a tuple (event, offset, duration) for each
-
-        The explicit times (offset, duration) of the events are not modified. For each event
-        it returns a tuple (event, offset, duration), where the event is unmodified, the
-        offset is the start offset relative to its parent and the duration is total duration
-        Nested subchains result in nested lists. All times are in beats
-
-        Args:
-            absolute: if True, offsets are returned as absolute offsets
-
-        Returns:
-            a list of tuples, one tuple for each event.
-            Each tuple has the form (event: MEvent, offset: F, duration: F). The
-            explicit times in the events themselves are never modified. *offset* will
-            be the offset to self if ``absolute=False`` or the absolute offset otherwise
-        """
-        offset = self.absOffset() if absolute else F(0)
-        items, itemsdur = self._iterateWithTimes(frame=offset, recurse=True)
-        self._dur = itemsdur
-        return items
-
-    def addSpanner(self, spanner: str | symbols.Spanner
-                   ) -> None:
+    def addSpanner(self,
+                   spanner: str | symbols.Spanner,
+                   endobj: MEvent = None
+                   ) -> Self:
         """
         Adds a spanner symbol across this object
 
@@ -1195,6 +1198,8 @@ class Chain(MContainer):
             spanner: a Spanner object or a spanner description (one of 'slur', '<', '>',
                 'trill', 'bracket', etc. - see :func:`maelzel.core.symbols.makeSpanner`
                 When passing a string description, prepend it with '~' to create an end spanner
+            endobj: the object where this spanner ends. If not given, the last event
+                of this chain
 
         Returns:
             self (allows to chain calls)
@@ -1214,12 +1219,14 @@ class Chain(MContainer):
             >>> chain[0].addSpanner('slur', chain[-1])
 
         """
-        first = self.firstEvent()
-        last = self.lastEvent()
+        startobj = self.firstEvent()
+        if endobj is None:
+            endobj = self.lastEvent()
         if isinstance(spanner, str):
             spanner = symbols.makeSpanner(spanner)
-        assert isinstance(first, (Note, Chord)) and isinstance(last, (Note, Chord))
-        spanner.bind(first, last)
+        assert isinstance(startobj, (Note, Chord)) and isinstance(endobj, (Note, Chord))
+        spanner.bind(startobj, endobj)
+        return self
 
     def addSymbolAt(self, location: time_t | tuple[int, time_t], symbol: symbols.Symbol
                     ) -> Self:
@@ -1318,51 +1325,36 @@ class Chain(MContainer):
         """
         start = self._asAbsOffset(location)
         end = start + margin
-        events = self.eventsBetween(start, end)
-        if not events:
+        items = self.itemsBetween(start, end)
+        if not items:
             return None
-        event = events[0]
+        event = items[0]
         if split and event.absOffset() < start:
             event = self.splitAt(start, beambreak=False, nomerge=False)
         return event
 
-    def eventsBetween(self,
-                      start: time_t | tuple[int, time_t],
-                      end: time_t | tuple[int, time_t],
-                      absolute=True
-                      ) -> list[MEvent]:
+    def itemsBetween(self,
+                     start: time_t | tuple[int, time_t],
+                     end: time_t | tuple[int, time_t],
+                     ) -> list[MEvent]:
         """
-        Returns the events which are **included** by the given times in quarternotes
+        Returns the items which are **included** by the given times in quarternotes
 
-        Events which start before *startbeat* or end after *endbeat* are not
+        Items which start before *startbeat* or end after *endbeat* are not
         included, even if parts of them might lie between the given time interval.
         Chains are treated as one item. To access sub-chains, first flatten self.
 
         Args:
-            start: the start location (a beat or a score location)
-            end: end location (a beat or score location)
-            absolute: if True, interpret start and end as absolute, otherwise interpret
-                beats as relative to the beginning of this chain. In the case of using score
-                locations, using absolute=False will raise a ValueError exception
+            start: absolute start location (a beat or a score location)
+            end: absolute end location (a beat or score location)
 
         Returns:
             a list of events located between the given time-interval
 
         """
-
-        if isinstance(start, tuple) or isinstance(end, tuple):
-            if not absolute:
-                raise ValueError("absolute must be false when giving beats as a score location")
-            scorestruct = self.scorestruct() or Workspace.active.scorestruct
-            startbeat = scorestruct.locationToBeat(*start) if isinstance(start, tuple) else asF(start)
-            endbeat = scorestruct.locationToBeat(*end) if isinstance(end, tuple) else asF(end)
-        else:
-            startbeat = start if isinstance(start, F) else asF(start)
-            endbeat = end if isinstance(end, F) else asF(end)
-            if not absolute:
-                ownoffset = self.absOffset()
-                startbeat += ownoffset
-                endbeat += end
+        sco = self.scorestruct(resolve=True)
+        startbeat = sco.asBeat(start)
+        endbeat = sco.asBeat(end)
         items = []
         for item, itemoffset in self.eventsWithOffset():
             itemend = itemoffset + item.dur
@@ -1456,7 +1448,7 @@ class Chain(MContainer):
         struct = self.scorestruct() or Workspace.active.scorestruct
         absoffsets = [struct.locationToBeat(*loc) if isinstance(loc, tuple) else loc
                       for loc in locations]
-        for item, itemoffset, itemdur in self.iterateWithTimes(absolute=True):
+        for item, offset in self.itemsWithOffset():
             if isinstance(item, Chain):
                 item.splitEventsAtOffsets(absoffsets, tie=tie)
                 items.append(item)
@@ -1536,8 +1528,10 @@ class Chain(MContainer):
                         startspanner.setPartnerSpanner(spanner)
                     elif removeUnmatched:
                         assert spanner.anchor is not None
-                        obj = spanner.anchor()
-                        if obj is None or obj.symbols is None:
+                        obj = spanner.anchor
+                        if obj is None:
+                            logger.error(f"The spanner has no anchor ({spanner=})")
+                        elif obj.symbols is None:
                             logger.error(f"The spanner's anchor seems invalid. {spanner=}, anchor={obj}")
                         else:
                             logger.debug(f"Removing spanner {spanner} from {obj}")
@@ -1562,7 +1556,29 @@ class Chain(MContainer):
                                     interpolation=interpolation, relative=relative)
 
     def crop(self, start: time_t|location_t, end: time_t|location_t) -> Self:
-        pass
+        """
+        Crop this chain at the given beat range
+
+        Args:
+            start: start of the beat range
+            end: end of the beat range
+
+        Returns:
+            a Chain cropped at the given beat range
+        """
+        scorestruct = self.scorestruct(resolve=True)
+        startbeat = scorestruct.asBeat(start)
+        endbeat = scorestruct.asBeat(end)
+        items = self.itemsBetween(start=startbeat, end=endbeat, absolute=True)
+        first = items[0]
+        if first.absOffset() < startbeat:
+            first = first.splitAt(startbeat, tie=False)[1]
+        last = items[-1]
+        if last.absOffset()+last.dur > endbeat:
+            last = last.splitAt(endbeat, tie=False)[0]
+        out = [first] + items[1:-1]
+        out.append(last)
+        return self.clone(items=out)
 
 
 class PartGroup:
@@ -1683,6 +1699,9 @@ class Voice(Chain):
     def group(self) -> PartGroup | None:
         return self._group
 
+    def parentAbsOffset(self) -> F:
+        return F0
+
     def setConfig(self, key: str, value) -> Voice:
         """
         Set a configuration key for this object.
@@ -1783,7 +1802,7 @@ class Voice(Chain):
                                    addQuantizationProfile=ownconfig is not None)
         if self.symbols:
             for symbol in self.symbols:
-                if isinstance(symbol, symbols.PartSymbol):
+                if isinstance(symbol, symbols.VoiceSymbol):
                     if symbol.applyToAllParts:
                         for part in parts:
                             symbol.applyToPart(part)
@@ -1800,7 +1819,7 @@ class Voice(Chain):
 
     def addSymbol(self, *args, **kws) -> Voice:
         symbol = symbols.parseAddSymbol(args, kws)
-        if not isinstance(symbol, symbols.PartSymbol):
+        if not isinstance(symbol, symbols.VoiceSymbol):
             raise ValueError(f"Cannot add {symbol} to a {type(self).__name__}")
         self._addSymbol(symbol)
         return self

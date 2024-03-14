@@ -1870,7 +1870,7 @@ class ScoreStruct:
         Returns:
             the absolute beat in quarter notes
         """
-        return self.locationToBeat(*location) if isinstance(location, tuple) else location
+        return self.locationToBeat(*location) if isinstance(location, tuple) else asF(location)
 
     def locationToBeat(self, measure: int, beat: num_t = F(0)) -> F:
         """

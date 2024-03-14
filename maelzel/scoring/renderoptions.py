@@ -192,6 +192,9 @@ class RenderOptions:
 
     proportionalSpacingKind: str = 'strict'
 
+    flagStyle: str = 'normal'
+    """Flag style, one of 'normal', 'straight', 'flat'"""
+
     @classmethod
     def keys(cls) -> set[str]:
         return {f.name for f in _dataclassfields(cls)}

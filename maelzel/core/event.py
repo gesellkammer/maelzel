@@ -113,7 +113,8 @@ class Note(MEvent):
 
     __slots__ = ('pitch',
                  'pitchSpelling',
-                 '_gliss')
+                 '_gliss'
+                 )
 
     def __init__(self,
                  pitch: pitch_t,
@@ -202,14 +203,14 @@ class Note(MEvent):
 
             assert properties is None or isinstance(properties, dict)
 
+        super().__init__(dur=dur, offset=offset, label=label, properties=properties,
+                         symbols=symbols, tied=tied, amp=amp, dynamic=dynamic)
+
         self.pitch: float = midinote
         "The pitch of this note"
 
         self.pitchSpelling = '' if not fixed else pitchSpelling
         "The pitch representation of this Note. Can be different from the sounding pitch"
-
-        super().__init__(dur=dur, offset=offset, label=label, properties=properties,
-                         symbols=symbols, tied=tied, amp=amp, dynamic=dynamic)
 
         self._gliss: float | bool = gliss
 
@@ -543,8 +544,8 @@ class Note(MEvent):
                 rest.addText(self.label, role='label')
             if self.symbols:
                 for symbol in self.symbols:
-                    if isinstance(symbol, _symbols.NoteSymbol) and symbol.appliesToRests:
-                        symbol.applyToNotation(rest)
+                    if isinstance(symbol, _symbols.EventSymbol) and symbol.appliesToRests:
+                        symbol.applyToNotation(rest, parent=self)
             return [rest]
 
         notation = scoring.makeNote(pitch=self.pitch,
@@ -579,7 +580,7 @@ class Note(MEvent):
 
         if self.symbols:
             for symbol in self.symbols:
-                symbol.applyToTiedGroup(notes)
+                symbol.applyToTiedGroup(notes, parent=self)
         return notes
 
     def _asTableRow(self, config: CoreConfig = None) -> list[str]:
@@ -593,8 +594,8 @@ class Note(MEvent):
             if self.symbols:
                 notatedPitch = next((s for s in self.symbols
                                      if isinstance(s, _symbols.NotatedPitch)), None)
-                if notatedPitch and notatedPitch.notename != notename:
-                    notename = f'{notename} ({notatedPitch.notename})'
+                if notatedPitch and notatedPitch.pitch != notename:
+                    notename = f'{notename} ({notatedPitch.pitch})'
 
             elements = [notename]
             config = config or getConfig()
@@ -666,7 +667,7 @@ class Note(MEvent):
         if step == 0:
             step = 1 / getConfig()['semitoneDivisions']
         out = self.clone(pitch=round(self.pitch / step) * step)
-        if self._gliss > 1:  # a pitched glissando
+        if isinstance(self._gliss, (int, float)):
             self._gliss = round(self._gliss / step) * step
         out.pitchSpelling = ''
         return out
@@ -861,8 +862,8 @@ class Chord(MEvent):
          'notes',
          'dynamic',
          '_gliss',
+         '_glissTarget',
          '_notatedPitches',
-         '_glissTarget'
     )
 
     def __init__(self,
@@ -1136,14 +1137,14 @@ class Chord(MEvent):
 
         if self.symbols:
             for s in self.symbols:
-                s.applyToNotation(notation)
+                s.applyToNotation(notation, parent=self)
 
         # Transfer note symbols
         for i, n in enumerate(self.notes):
             if n.symbols:
                 for symbol in n.symbols:
-                    if isinstance(symbol, _symbols.PitchAttachedSymbol):
-                        symbol.applyToPitch(notation, idx=i)
+                    if isinstance(symbol, _symbols.NoteheadAttachedSymbol):
+                        symbol.applyToPitch(notation, idx=i, parent=n)
                     else:
                         logger.debug(f"Cannot apply symbol {symbol} to a pitch inside chord {self}")
 

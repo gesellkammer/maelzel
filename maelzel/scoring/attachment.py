@@ -317,7 +317,6 @@ class Clef(Attachment):
         return hash(('Clef', self.kind))
 
 
-
 class Hook:
     """
     A Hook is a wrapper around a function, triggered at different situations
