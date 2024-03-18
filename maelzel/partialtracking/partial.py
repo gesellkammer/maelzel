@@ -124,6 +124,10 @@ class Partial:
             return numpyx.weightedavg(freqs, self.times, np.ones_like(freqs))
 
     @cache
+    def maxfreq(self) -> float:
+        return float(self.freqs.max())
+
+    @cache
     def meanpitch(self) -> float:
         freq = self.meanfreq()
         return pt.f2m(freq)

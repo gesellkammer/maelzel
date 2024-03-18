@@ -227,6 +227,12 @@ class Spectrum:
     def __len__(self):
         return len(self.partials)
 
+    def maxFrequency(self) -> float:
+        """
+        The max. frequency of any partial within this spectrum
+        """
+        return max(p.maxfreq() for p in self.partials)
+
     def partialsBetween(self, start: float, end: float, crop=False, minfreq=0, maxfreq=0
                         ) -> list[Partial]:
         """
@@ -323,7 +329,7 @@ class Spectrum:
         return Spectrum(partials or self.partials,
                         indexTimeResolution=indexTimeResolution or self._indexTimeResolution)
 
-    def timeScaleOffsets(self, factor: float, reference=0.) -> Spectrum:
+    def timeScaleOffsets(self, factor: float, reference=0., itemfactor=1.) -> Spectrum:
         """
         Similar to :meth:`Spectrum.timeScale` but only transforms the offsets
 
@@ -332,7 +338,8 @@ class Spectrum:
         a time transform to transient partials
 
         Args:
-            factor: the scaling factor
+            factor: the scaling factor for the time offset of each partial
+            itemfactor: a stretch factor applied to each partial
             reference: the center of the transformation
 
         Returns:
@@ -357,7 +364,13 @@ class Spectrum:
             data = p.data.copy()
             offset = data[0, 0]
             newoffset = (offset - reference) * factor + reference
-            data[:, 0] += (newoffset - offset)
+            if itemfactor == 1.:
+                data[:, 0] += (newoffset - offset)
+            else:
+                times = data[:, 0]
+                times -= times[0]
+                times *= itemfactor
+                times += newoffset
             partials.append(Partial(data=data, label=p.label))
         return self.clone(partials=partials)
 
@@ -441,6 +454,7 @@ class Spectrum:
         return self.clone(partials=partials)
 
     def synthesize(self, sr=44100, start=0., end=0., fadetime: float | None = None,
+                   gain=1.
                    ) -> audiosample.Sample:
         """
         Synthesize the partials as audio samples
@@ -452,6 +466,7 @@ class Spectrum:
             fadetime: any partial starting or ending at a non-zero amplitude will
                 be faded in or out using this fadetime to avoid clicks.
                 Use None to use a default
+            gain: a gain factor applied to all amplitudes
 
         Returns:
             the generated samples as a numpy array.
@@ -470,6 +485,10 @@ class Spectrum:
         if end == 0:
             end = -1
         arrays = [p.data for p in self.partials]
+        if gain != 1.:
+            arrays = [arr.copy() for arr in arrays]
+            for arr in arrays:
+                arr[:, 2] *= gain
         samples = lt.synthesize(arrays, samplerate=sr, start=start, end=end,
                                 fadetime=fadetime if fadetime is not None else -1)
         return audiosample.Sample(samples, sr=sr)
@@ -587,7 +606,10 @@ class Spectrum:
              linewidth=1,
              avg=True,
              cmap='inferno',
-             downsample=1):
+             downsample=1,
+             maxfreq=20000,
+             scale='linear',
+             exp=1.):
         """
         Plot this spectrum using matplotlib
 
@@ -597,13 +619,17 @@ class Spectrum:
             avg: if True, use the average of two breakpoints for the amp value of a line between those breakpoints
             cmap: the colormap to use
             downsample: if higher than 1, downsample the data by the given amount
+            exp: apply an exponential to the amplitude for better contrast
+            maxfreq: max. frequency to plot
+            scale: the scale of the frequency axes, one of 'linear', 'log'
 
         Returns:
             the axes used
 
         """
         from . import plotting
-        plotting.plotmpl(self, axes=axes, linewidth=linewidth, avg=avg, cmap=cmap, downsample=downsample)
+        plotting.plotmpl(self, axes=axes, maxfreq=maxfreq, linewidth=linewidth, avg=avg, cmap=cmap,
+                         downsample=downsample, exp=exp, yscale=scale)
 
     def histogram(self, metric='energy', loudnessCompensation=True) -> histogram.Histogram:
         """

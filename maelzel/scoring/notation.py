@@ -792,16 +792,18 @@ class Notation:
 
     def copyFixedSpellingTo(self, other: Notation):
         """Copy fixed spelling to *other*"""
-        if not self.fixedNotenames:
-            return
+        assert self.fixedNotenames
         for notename in self.fixedNotenames.values():
-            other.fixNotename(notename, idx=None)
+            if pt.n2m(notename) in other.pitches:
+                other.fixNotename(notename, idx=None)
 
-    def clone(self, **kws) -> Notation:
+    def clone(self, copyFixedNotenames=True, **kws) -> Notation:
         """
         Clone this Notation, overriding any value.
 
         Args:
+            copyFixedNotenames: transfer any fixed notenames to the cloned
+                notation   
             kws: keyword arguments, as passed to the Notation constructor.
                 Any parameter given will override the corresponding value in
                 this Notation
@@ -812,7 +814,8 @@ class Notation:
         out = self.copy()
         if (pitches := kws.pop('pitches', None)) is not None:
             out._setPitches(pitches)
-            self.copyFixedSpellingTo(out)
+            if self.fixedNotenames and copyFixedNotenames:
+                self.copyFixedSpellingTo(out)
         if kws:
             for key, value in kws.items():
                 setattr(out, key, value)
@@ -1382,17 +1385,20 @@ class Notation:
         """
         indexes.sort()
         pitches = [self.pitches[index] for index in indexes]
-        mappedIndexes = {index: indexes.index(index) for index in indexes}
+        mappedIndexes = {idx: indexes.index(idx) for idx in indexes}
         if self.noteheads:
             noteheads = {}
             for index in indexes:
                 if (notehead := self.noteheads.get(index)) is not None:
                     noteheads[mappedIndexes[index]] = notehead
-            if not noteheads:
-                noteheads = None
-
         else:
             noteheads = None
+        fixedNotenames = {}
+        if self.fixedNotenames:
+            for index in indexes:
+                if (notename := self.fixedNotenames.get(index)) is not None:
+                    fixedNotenames[mappedIndexes[index]] = notename
+
         attachments = []
         if self.attachments:
             for a in self.attachments:
@@ -1406,8 +1412,9 @@ class Notation:
 
         out = self.clone(pitches=pitches,
                          noteheads=noteheads)
+        out.fixedNotenames = fixedNotenames
         out.attachments = attachments
-        self.copyFixedSpellingTo(out)
+        # self.copyFixedSpellingTo(out)
         out.clearClefHints()
         for idx in indexes:
             if hint := self.getClefHint(idx):

@@ -403,7 +403,6 @@ def _notePitch(doc: md.Document,
         _elemText(doc, parent, 'stem', 'none')
 
 
-
 def _tupletNotation(doc: md.Document,
                     notationsElem: md.Element,
                     tuplet: tuple[int, int],
@@ -610,7 +609,7 @@ def _renderNotation(n: Notation,
     if (starttuplets := n.getProperty('__starttuplets__', None)):
         for tupindex, tupratio in enumerate(starttuplets):
             _tupletNotation(doc, notations(0), tuplet=tupratio, tupletnumber=tupindex+1,
-                            bracket=tupratio[0] != 3)
+                            bracket=True if tupratio[0] != 3 else None)
 
     elif (tuplets := n.getProperty('__stoptuplets__', None)):
         for tupindex, tuplet in iterlib.reversed_enumerate(tuplets):
@@ -838,9 +837,6 @@ def _renderNode(node: Node,
                             lineend = spanner.lineend or ('down' if placement == 'above' else 'up')
                             _direction(doc, parent, direction='bracket',
                                        attrs={'type': 'stop', 'line-end': lineend})
-
-    #if node.durRatio != (1, 1):
-    #    state.tupletStack.pop()
 
 
 _scoringBarstyleToXmlBarstyle = {
@@ -1127,10 +1123,17 @@ def callMuseScore(musicxmlfile: str,
         dpi: image resolution when generating PNG
         trim: ask MuseScreo to trim the image to its contents
         forcetrim: force trimming by doing it ourselves (uses pillow)
+        captureStderr: capture stderr, mostly to prevent spurious error messages
+            from showing up
 
     """
     fmt = os.path.splitext(outfile)[1][1:]
-    assert fmt in ('pdf', 'png', 'svg')
+    if fmt not in ('pdf', 'png', 'svg'):
+        raise ValueError(f"Invalid format, expected 'pdf', 'png' or 'svg', got {fmt} ({outfile=}")
+
+    if not os.path.exists(musescorepath):
+        raise OSError(f"The path to musescore is not valid, {musescorepath=}")
+
     args = [musescorepath, '-o', outfile, '--force']
     if dpi:
         args.extend(['--image-resolution', str(dpi)])

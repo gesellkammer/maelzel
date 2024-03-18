@@ -46,7 +46,10 @@ def plotmpl(spectrum: sp.Spectrum,
             exp=1.,
             offset=0.,
             downsample=1,
-            autolim=True
+            autolim=True,
+            figsize=(20, 8),
+            maxfreq=20000,
+            yscale='linear',
             ) -> plt.Axes:
     """
     Plot a Spectrum with matplotlib
@@ -62,6 +65,8 @@ def plotmpl(spectrum: sp.Spectrum,
         autolim: auto limit, passed to matplotlib add_collection
         downsample: the amount of downsampling, results in picking one breakpoint every the
             downsample value
+        figsize: figure size to set if an axes is not given
+        maxfreq: the max. frequency of the plot, sets the y limit
 
     Returns:
         the axes used (will be the same as `axes` if it was passed)
@@ -72,8 +77,9 @@ def plotmpl(spectrum: sp.Spectrum,
 
     downsample = max(downsample, 1)
     if axes is None:
-        fig, axes = plt.subplots()
-        # axes = plt.subplot(111)
+        fig = plt.figure(figsize=figsize)
+        axes = fig.add_subplot(1, 1, 1)
+        # fig, axes = plt.subplots()
     else:
         fig = None
     # bg = matplotlib.cm.inferno(0.005)[:3]
@@ -104,8 +110,12 @@ def plotmpl(spectrum: sp.Spectrum,
         plt.tight_layout()
 
     plt.sci(lc)
-    axes.set_ylim(0, 22000)
     axes.set_xlim(0, spectrum.end)
-    axes.autoscale()
+    if yscale == 'linear':
+        maxfreq = min(maxfreq, spectrum.maxFrequency())
+        axes.set_ylim(0, maxfreq)
+    else:
+        axes.set_yscale(yscale)
+        axes.autoscale()
     axes.use_sticky_edges = True
     return axes

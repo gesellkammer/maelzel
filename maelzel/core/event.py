@@ -198,9 +198,6 @@ class Note(MEvent):
             if amp and amp > 0:
                 assert midinote > 0
 
-            if dynamic:
-                assert dynamic in scoring.definitions.dynamicLevels
-
             assert properties is None or isinstance(properties, dict)
 
         super().__init__(dur=dur, offset=offset, label=label, properties=properties,

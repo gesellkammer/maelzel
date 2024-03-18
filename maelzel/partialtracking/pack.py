@@ -204,6 +204,9 @@ class SplitResult:
         return f"SplitResult(tracks: {len(self.tracks)}, noisetracks: {len(self.noisetracks)}, " \
                f"residual: {len(self.residual)} partials)"
 
+    def __iter__(self):
+        return iter((self.tracks, self.noisetracks, self.residual))
+
 
 def optimizeSplit(partials: list[Partial],
                   maxtracks: int,

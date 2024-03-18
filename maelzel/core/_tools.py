@@ -421,6 +421,8 @@ def parseNote(s: str) -> NoteProperties:
                     properties[key] = value
             elif part in _knownDynamics:
                 properties['dynamic'] = part
+            elif part[-1] == '!' and part[:-1] in _knownDynamics:
+                properties['dynamic'] = part
             elif part in _knownArticulations:
                 # properties['articulation'] = part
                 symbols.append(_symbols.Articulation(part))

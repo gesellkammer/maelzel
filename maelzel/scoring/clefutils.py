@@ -144,6 +144,7 @@ def bestClefForPitch(pitch: float,
     best = max(data)
     return best[1], best[0]
 
+
 def explodeNotations(notations: list[Notation],
                      maxstaves=3,
                      ) -> list[tuple[str, list[Notation]]]:
@@ -213,7 +214,7 @@ def splitNotationsByClef(notations: list[Notation],
             if len(n.pitches) == 1 or all(clef == clef0 for clef in pitchindexToClef):
                 parts[clef0].append(n)
                 for otherclef in clefs:
-                    if otherclef != clef0:
+                    if otherclef != clef0 and n.duration > 0:
                         parts[otherclef].append(n.asRest())
             else:
                 # A chord, distribute notes within parts

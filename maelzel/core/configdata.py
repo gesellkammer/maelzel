@@ -59,7 +59,7 @@ defaultdict = {
     'show.clipNoteheadShape': 'square',
     'show.referenceStaffsize': 12.0,
     'show.musicxmlFontScaling': 1.0,
-    'show.flagStyle': 'normal',
+    'show.flagStyle': 'straight',
     'show.autoClefChanges': True,
     'show.proportionalSpacing': False,
     'show.proportionalSpacingKind': 'strict',

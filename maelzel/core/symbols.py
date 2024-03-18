@@ -243,8 +243,10 @@ class TrillLine(Spanner):
                  startmark='trill',
                  trillpitch='',
                  alteration='',
-                 placement='above', uuid=''):
-        super().__init__(kind=kind, placement=placement, uuid=uuid)
+                 placement='above',
+                 uuid='',
+                 **kws):
+        super().__init__(kind=kind, placement=placement, uuid=uuid, **kws)
         self.startmark = startmark
         self.trillpitch = trillpitch
         self.alteration = alteration
@@ -426,7 +428,7 @@ _spannerNameToConstructor: dict[str, Any] = {
 }
 
 
-def makeSpanner(descr: str, kind='start', linetype='solid', placement='', color=''
+def makeSpanner(descr: str, kind='start', linetype='', placement='', color=''
                 ) -> Spanner:
     """
     Create a spanner from a descriptor
@@ -565,7 +567,8 @@ class NoteheadAttachedSymbol(EventSymbol):
         raise NotImplementedError
 
     def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        self.applyToPitch(n, idx=0, parent=parent)
+        for idx in range(len(n.pitches)):
+            self.applyToPitch(n, idx=idx, parent=parent)
 
 
 class VoiceSymbol(Symbol):
@@ -1063,6 +1066,33 @@ def knownSymbols() -> set[str]:
     return out
 
 
+class Dynamic(EventSymbol):
+    """
+    A notation only dynamic
+
+    This should only be used for the seldom case where a note should
+    have a dynamic only for display
+    """
+    exclusive = True
+    appliesToRests = False
+
+    def __init__(self, kind: str, force=False, placement=''):
+        if kind not in scoring.definitions.dynamicLevels:
+            raise ValueError(f"Invalid dynamic '{kind}', "
+                             f"possible dynamics: {scoring.definitions.dynamicLevels}")
+        super().__init__(placement=placement)
+        self.kind = kind
+        self.force = force
+
+    def __hash__(self):
+        return hash((type(self).__name__, self.kind, self.placement))
+
+    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
+        n.dynamic = self.kind
+        if self.force:
+            n.dynamic += '!'
+
+
 class Articulation(EventSymbol):
     """
     Represents a note attached articulation
@@ -1079,7 +1109,7 @@ class Articulation(EventSymbol):
         self.kind = normalized
 
     def __hash__(self):
-        return hash((type(self).__name__, self.kind))
+        return hash((type(self).__name__, self.kind, self.color, self.placement))
 
     def __repr__(self):
         return _util.reprObj(self, priorityargs=('kind',), hideFalsy=True)

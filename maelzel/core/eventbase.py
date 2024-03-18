@@ -5,6 +5,7 @@ from maelzel.common import F
 from maelzel.core.mobj import MObj, MContainer
 import maelzel.core.symbols as _symbols
 from maelzel.core.synthevent import PlayArgs
+from maelzel.scoring import definitions
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -36,6 +37,12 @@ class MEvent(MObj):
 
         self.amp: float | None = amp
         "The playback amplitude 0-1 of this note"
+
+        if dynamic:
+            if dynamic.endswith('!'):
+                dynamic = dynamic[:-1]
+                self.addSymbol(_symbols.Dynamic(dynamic, force=True))
+            assert dynamic in definitions.dynamicLevels
 
         self.dynamic: str = dynamic
 

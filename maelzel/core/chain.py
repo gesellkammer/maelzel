@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import sys
 
 from maelzel.scorestruct import ScoreStruct
 from maelzel.common import F, asF, F0
@@ -1072,9 +1073,22 @@ class Chain(MContainer):
                 else:
                     yield from item.recurse(reverse=True)
 
-    def eventsWithOffset(self) -> list[tuple[MEvent, F]]:
+    def eventsWithOffset(self,
+                         start: beat_t = None,
+                         end: beat_t = None,
+                         partial=True) -> list[tuple[MEvent, F]]:
         """
         Recurse the events in self and resolves each event's offset
+
+        Args:
+            start: absolute start beat/location. Filters the returned
+                event pairs to events within this time range
+            end: absolute end beat/location. Filters the returned event
+                pairs to events within the given range
+            partial: only used if either start or end are given, this controls
+                how events are matched. If True, events only need to be
+                defined within the time range. Otherwise, events need
+                to be fully included within the time range
 
         Returns:
             a list of pairs, where each pair has the form (event, offset), the offset being
@@ -1093,10 +1107,19 @@ class Chain(MContainer):
         """
         self._update()
         if self._cachedEventsWithOffset:
-            return self._cachedEventsWithOffset
-        eventpairs, totaldur = self._eventsWithOffset(frame=self.absOffset())
-        self._dur = totaldur
-        self._cachedEventsWithOffset = eventpairs
+            eventpairs = self._cachedEventsWithOffset
+        else:
+            eventpairs, totaldur = self._eventsWithOffset(frame=self.absOffset())
+            self._dur = totaldur
+            self._cachedEventsWithOffset = eventpairs
+        if start is not None or end is not None:
+            struct = self.scorestruct(resolve=True)
+            start = struct.asBeat(start) if start else F0
+            end = struct.asBeat(end) if end else F(sys.maxsize)
+            eventpairs = _eventPairsBetween(eventpairs,
+                                            start=start,
+                                            end=end,
+                                            partial=partial)
         return eventpairs
 
     def itemsWithOffset(self) -> Iterator[tuple[MEvent|Chain], F]:
@@ -1333,37 +1356,71 @@ class Chain(MContainer):
             event = self.splitAt(start, beambreak=False, nomerge=False)
         return event
 
-    def itemsBetween(self,
-                     start: time_t | tuple[int, time_t],
-                     end: time_t | tuple[int, time_t],
-                     ) -> list[MEvent]:
+    def eventsBetween(self,
+                      start: beat_t,
+                      end: beat_t,
+                      partial=True
+                      ) -> list[MEvent]:
         """
-        Returns the items which are **included** by the given times in quarternotes
+        Events between the given time range
 
-        Items which start before *startbeat* or end after *endbeat* are not
-        included, even if parts of them might lie between the given time interval.
-        Chains are treated as one item. To access sub-chains, first flatten self.
+        If ``partial`` is false, only events which lie completey within
+        the given range are included.
 
         Args:
             start: absolute start location (a beat or a score location)
             end: absolute end location (a beat or score location)
+            partial: include also events wich are partially included within
+                the given time range
 
         Returns:
-            a list of events located between the given time-interval
+            a list of the events within the given time range
+
+        .. seealso:: :meth:`Chain.eventsWithOffset`, :meth:`Chain.itemsBetween`
+        """
+        eventpairs = self.eventsWithOffset(start=start, end=end, partial=partial)
+        return [event for event, offset in eventpairs]
+
+    def itemsBetween(self,
+                     start: beat_t,
+                     end: beat_t,
+                     partial=True
+                     ) -> list[MEvent | Chain]:
+        """
+        Items between the given time range
+
+        If ``partial`` is false, only items which lie completey within
+        the given range are included.
+
+        Args:
+            start: absolute start location (a beat or a score location)
+            end: absolute end location (a beat or score location)
+            partial: include also events wich are partially included within
+                the given time range
+
+        Returns:
+            a list of the items within the given time range
+
+        .. seealso:: :meth:`Chain.itemsWithOffset`, :meth:`Chain.eventsBetween`
 
         """
         sco = self.scorestruct(resolve=True)
         startbeat = sco.asBeat(start)
         endbeat = sco.asBeat(end)
-        items = []
-        for item, itemoffset in self.eventsWithOffset():
-            itemend = itemoffset + item.dur
-            if itemoffset > endbeat:
-                break
-            if itemend > startbeat and ((item.dur > 0 and itemoffset < endbeat) or
-                                        (item.dur == 0 and itemoffset <= endbeat)):
-                items.append(item)
-        return items
+        out = []
+        if partial:
+            for item, offset in self.itemsWithOffset():
+                if offset > endbeat:
+                    break
+                if offset < endbeat and offset + item.dur > startbeat:
+                    out.append(item)
+        else:
+            for item, offset in self.eventsWithOffset():
+                if offset > endbeat:
+                    break
+                if startbeat <= offset and offset + item.dur <= endbeat:
+                    out.append(item)
+        return out
 
     def splitEventsAtMeasures(self, scorestruct: ScoreStruct = None, startindex=0, stopindex=0
                               ) -> None:
@@ -1398,6 +1455,8 @@ class Chain(MContainer):
                 ) -> MEvent | None:
         """
         Split any event present at the given absolute offset (in place)
+
+        The parts resulting from the split operation will be part of this chain/voice.
 
         If you need to split at a relative offset, just substract the absolute
         offset of this Chain from the given offset
@@ -1919,12 +1978,13 @@ def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
     return out
 
 
-def _resolveGlissandi(flatevents: Sequence[MEvent], force=False) -> None:
+def _resolveGlissandi(flatevents: Iterator[MEvent], force=False) -> None:
     """
     Set the _glissTarget attribute with the pitch of the gliss target
     if a note or chord has an unset gliss target (in place)
 
     Args:
+        flatevents: subsequent events
         force: if True, calculate/update all glissando targets
 
     """
@@ -1958,3 +2018,40 @@ def _resolveGlissandi(flatevents: Sequence[MEvent], force=False) -> None:
             ev2._glissTarget = ev2.pitches
         elif isinstance(ev2, Note):
             ev2._glissTarget = ev2.pitch
+
+
+def _eventPairsBetween(eventpairs: list[tuple[MEvent, F]],
+                       start: F,
+                       end: F,
+                       partial=True,
+                       ) -> list[tuple[MEvent, F]]:
+    """
+    Events between the given time range
+
+    If ``partial`` is false, only events which lie completey within
+    the given range are included.
+
+    Args:
+        eventpairs: list of pairs (event, absoluteOffset)
+        start: absolute start location in beats
+        end: absolute end location in beats
+        partial: include also events wich are partially included within
+            the given time range
+
+    Returns:
+        a list pairs (event: MEvent, absoluteoffset: F)
+    """
+    out = []
+    if partial:
+        for event, offset in eventpairs:
+            if offset > end:
+                break
+            if offset < end and offset + event.dur > start:
+                out.append((event, offset))
+    else:
+        for event, offset in eventpairs:
+            if offset > end:
+                break
+            if start <= offset and offset + event.dur <= end:
+                out.append((event, offset))
+    return out

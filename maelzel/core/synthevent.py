@@ -851,6 +851,8 @@ class SynthEvent:
             bps = "; ".join([bprepr3(bp) for bp in self.bps])
             return f"SynthEvent({info}, bps=‹{bps}›)"
         else:
+            lines = [f"SynthEvent({info})"]
+
             def bpline(bp):
                 rest = " ".join(("%.6g" % b).ljust(8) if isinstance(b, float) else str(b) for b in bp[1:])
                 return f"{float(bp[0]):7.6g}s: {rest}"

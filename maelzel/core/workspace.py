@@ -495,9 +495,10 @@ def setScoreStruct(score: str | ScoreStruct | None = None,
     """
     Sets the current score structure
 
-    If given a ScoreStruct, this is simply a shortcut to ``getWorkspace().scorestruct = s``
-    If given a score as string or simply a time signature and/or tempo, it creates
-    a ScoreStruct and sets it as active
+    If given a ScoreStruct, it sets it as the active score structure.
+    As an alternative a score structure as string can be given, or simply
+    a time signature and/or tempo, in which case it will create the ScoreStruct
+    and set it as active
 
     Args:
         score: the scorestruct as a ScoreStruct or a string score (see ScoreStruct for more
