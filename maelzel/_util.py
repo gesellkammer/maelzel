@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import tempfile
 import warnings
 import weakref
 import sys
@@ -6,12 +8,36 @@ import os
 import emlib.misc
 from maelzel.common import F
 import functools
+import appdirs
 
 
 from typing import Callable, Sequence, TYPE_CHECKING
 from maelzel.common import T
 if TYPE_CHECKING:
     import PIL.Image
+
+
+_tempdir = tempfile.TemporaryDirectory(dir=appdirs.user_cache_dir())
+
+
+def mktemp(suffix: str, prefix='') -> str:
+    """
+    Drop-in replacement for tempfile.mktemp, uses a temp dir located under $HOME
+
+    This prevents some errors with processes which do not have access to the
+    root folder (and thus to "/tmp/..."), which is where tempfiles are created
+    in linux and macos
+
+    Args:
+        suffix: a suffix to add to the file
+        prefix: prefix to preprend to the file
+
+    Returns:
+        the path of the temporary file. Notice that as with tempfile.mktemp, this
+        file is not created
+
+    """
+    return tempfile.mktemp(suffix=suffix, prefix=prefix, dir=_tempdir.name)
 
 
 def reprObj(obj,
@@ -52,7 +78,7 @@ def reprObj(obj,
         attrs.sort(key=lambda attr: 0 if attr in priorityargs else 1)
     for attr in attrs:
         value = getattr(obj, attr)
-        if value is None or (not value and hideFalsy) or (value == '' and hideEmptyStr) or (value is False and hideFalse):
+        if value is None or (hideFalsy and not value) or (hideEmptyStr and value == '') or (hideFalse and value is False):
             continue
         elif convert and attr in convert:
             value = convert[attr](obj)

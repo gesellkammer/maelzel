@@ -513,7 +513,9 @@ class Sample:
     def _repr_html_(self) -> str:
         return self.reprHtml()
 
-    def reprHtml(self, withHeader=True, withAudiotag: bool = None) -> str:
+    def reprHtml(self, withHeader=True, withAudiotag: bool = None,
+                 figsize=(24, 4)
+                 ) -> str:
         """
         Returns an HTML representation of this Sample
 
@@ -555,7 +557,7 @@ class Sample:
         else:
             profile = 'low'
         plotting.plotWaveform(self.samples, self.sr, profile=profile,
-                              saveas=pngfile)
+                              saveas=pngfile, figsize=figsize)
         img = emlib.img.htmlImgBase64(pngfile)   # , maxwidth='800px')
         if self.duration > 60:
             durstr = emlib.misc.sec2str(self.duration)

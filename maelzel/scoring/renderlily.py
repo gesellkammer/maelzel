@@ -1134,7 +1134,7 @@ class LilypondRenderer(Renderer):
             open(outfile, "w").write(lilytxt)
 
         elif fmt == 'png' or fmt == 'pdf':
-            lilyfile = tempfile.mktemp(suffix=".ly")
+            lilyfile = _util.mktemp(suffix=".ly")
             tempbase = os.path.splitext(lilyfile)[0]
             tempout = f"{tempbase}.{fmt}"
             open(lilyfile, "w").write(lilytxt)
@@ -1167,7 +1167,7 @@ class LilypondRenderer(Renderer):
             # Cascade: if preview: base.preview.fmt, if crop: base.crop.fmt else base.fmt
 
         elif fmt == 'mid' or fmt == 'midi':
-            lilyfile = tempfile.mktemp(suffix='.ly')
+            lilyfile = _util.mktemp(suffix='.ly')
             open(lilyfile, "w").write(lilytxt)
             lilytools.renderLily(lilyfile=lilyfile, lilypondBinary=lilypondBinary)
             midifile = emlib.filetools.withExtension(lilyfile, "midi")

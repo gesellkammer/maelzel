@@ -144,6 +144,13 @@ class Workspace:
         return active
 
     @staticmethod
+    def getConfig() -> CoreConfig:
+        """
+        Get the active config
+        """
+        return Workspace.active.config
+
+    @staticmethod
     def _initclass() -> None:
         if Workspace._initdone:
             logger.debug("init was already done")

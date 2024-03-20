@@ -1741,14 +1741,20 @@ class Voice(Chain):
         superhash = super().__hash__()
         return hash((superhash, self.name, self.shortname, self.maxstaves, id(self._group)))
 
+    def _copyAttributesTo(self, other: Self) -> None:
+        super()._copyAttributesTo(other)
+        if self._config:
+            other._config = self._config.copy()
+        if self._scorestruct:
+            other._scorestruct = self._scorestruct
+
     def __copy__(self: Voice) -> Voice:
-        voice = Voice(items=self.items.copy(),
+        # always a deep copy
+        voice = Voice(items=[item.copy() for item in self.items],
                       name=self.name,
                       shortname=self.shortname,
-                      maxstaves = self.maxstaves)
+                      maxstaves=self.maxstaves)
         self._copyAttributesTo(voice)
-        if self._config:
-            voice._config = self._config.copy()
         return voice
 
     def __deepcopy__(self, memodict={}) -> Voice:

@@ -293,6 +293,8 @@ class OfflineRenderer(renderer.Renderer):
         sndfile = self.lastOutfile()
         if not sndfile:
             return f'<strong>OfflineRenderer</strong>(sr={self.sr})'
+        config = Workspace.getConfig()
+
         from maelzel import colortheory
         blue = colortheory.safeColors['blue1']
         if not os.path.exists(sndfile):
@@ -300,7 +302,12 @@ class OfflineRenderer(renderer.Renderer):
             return f'<strong>OfflineRenderer</strong>({info})'
         from maelzel.snd import audiosample
         sample = audiosample.Sample(sndfile)
-        samplehtml = sample.reprHtml(withHeader=False, withAudiotag=True)
+        plotHeight = config['soundfilePlotHeight']
+        plotWidth = config['.soundfilePlotWidth']
+
+        plotHeightChannel = plotHeight * (0.8 ** (sample.numchannels - 1))
+        figsize = (plotWidth, plotHeightChannel * sample.numchannels)
+        samplehtml = sample.reprHtml(withHeader=False, withAudiotag=True, figsize=figsize)
         header = '<strong>OfflineRenderer</strong>'
 
         def _(s):
@@ -876,6 +883,8 @@ def render(outfile='',
            run=True,
            endtime=0.,
            show=False,
+           tempfolder='',
+           fmt='wav',
            **kws
            ) -> OfflineRenderer:
     """

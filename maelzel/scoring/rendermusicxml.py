@@ -25,7 +25,7 @@ from .node import Node
 from .render import Renderer, RenderOptions
 from . import util
 from maelzel.scoring.tempo import inferMetronomeMark
-
+from maelzel import _util
 
 _articulationAttachments = {
     'staccato': 'staccato',
@@ -813,7 +813,7 @@ def _renderNode(node: Node,
                                italic=attach.italic,
                                fontsize=fontsize,
                                enclosure=attach.box,
-                               bold=attach.weight=='bold',
+                               bold=attach.weight == 'bold',
                                placement=attach.placement)
 
             if not item.isRest and options.showCents and not item.tiedPrev:
@@ -1090,8 +1090,7 @@ class MusicxmlRenderer(Renderer):
                        " install MuseScore follow the instructions here: "
                        "https://musescore.org/en/download")
                 raise RuntimeError(msg)
-            import tempfile
-            musicxmlfile = tempfile.mktemp(suffix='.musicxml')
+            musicxmlfile = _util.mktemp(suffix='.musicxml')
             open(musicxmlfile, "w").write(xmltext)
             if not outfile.endswith(fmt):
                 raise ValueError(f"The outfile {outfile} does not match the format {fmt}")
@@ -1109,7 +1108,8 @@ def callMuseScore(musicxmlfile: str,
                   dpi: int = 0,
                   trim=True,
                   forcetrim=True,
-                  captureStderr=True
+                  captureStderr=True,
+                  trimmargin=20
                   ) -> None:
     """
     Call MuseScore to render musicxml as pdf, png or svg
@@ -1138,7 +1138,7 @@ def callMuseScore(musicxmlfile: str,
     if dpi:
         args.extend(['--image-resolution', str(dpi)])
     if fmt == 'png' and trim:
-        args.extend(['--trim-image', '20'])
+        args.extend(['--trim-image', str(trimmargin)])
     args.append(musicxmlfile)
     logger.debug(f"Rendering musicxml via MuseScore. Args: {args}")
     if os.path.exists(outfile):
@@ -1149,7 +1149,7 @@ def callMuseScore(musicxmlfile: str,
         pattern = base + '-*.png'
         pagefiles = glob.glob(pattern)
         if not pagefiles:
-            logger.error(f"callMusescore: output files not found. Pattern: {pattern}.\n"
+            logger.error(f"callMusescore: output files not found. Pattern: '{pattern}'\n"
                          f"Subprocess called with {args}")
             raise RuntimeError("MuseScore was called, but no files were generated as expected. "
                                f"Search pattern: {pattern}")

@@ -542,10 +542,10 @@ class QuantizedMeasure:
             self._offsets = [beat.offset for beat in self.beatStructure()]
         return self._offsets
 
-    def _fixEnharmonics(self,
-                        options: enharmonics.EnharmonicOptions,
-                        prevMeasure: QuantizedMeasure | None = None
-                        ) -> None:
+    def _pinEnharmonicSpelling(self,
+                               options: enharmonics.EnharmonicOptions,
+                               prevMeasure: QuantizedMeasure | None = None
+                               ) -> None:
         """
         Pin the enharmonic spellings within this measure (inplace)
 
@@ -1750,7 +1750,7 @@ class QuantizedPart:
     def repair(self):
         # self._repairGracenotesInBeats()
         self.removeUnnecessaryGracenotes()
-        self._repairLinks()
+        self._repairLinks(ensureTiesHaveSameSpelling=True)
         self.repairSpanners()
 
     def check(self):
@@ -1912,10 +1912,10 @@ class QuantizedPart:
                                 threshold=threshold, biasfactor=biasFactor,
                                 key=property)
 
-    def fixEnharmonics(self, options: enharmonics.EnharmonicOptions) -> None:
+    def resolveEnharmonics(self, options: enharmonics.EnharmonicOptions) -> None:
         prevMeasure = None
         for measure in self.measures:
-            measure._fixEnharmonics(options=options, prevMeasure=prevMeasure)
+            measure._pinEnharmonicSpelling(options=options, prevMeasure=prevMeasure)
             prevMeasure = measure
 
     def removeUnnecessaryDynamics(self, resetAfterEmptyMeasure=True) -> None:
@@ -2078,7 +2078,7 @@ class QuantizedPart:
                 self.measures.append(qmeasure)
         return self.measures[idx]
 
-    def _repairLinks(self) -> None:
+    def _repairLinks(self, ensureTiesHaveSameSpelling=True) -> None:
         """
         Repairs ties and glissandi (in place)
         """
@@ -2088,11 +2088,23 @@ class QuantizedPart:
             return any(part.notation is n for part in tie)
 
         for n0, n1 in iterlib.pairwise(self.flatNotations()):
+            assert isinstance(n0, Notation)
+            assert isinstance(n1, Notation)
             if n0.tiedNext:
                 if n0.isRest or n1.isRest or set(n0.pitches).isdisjoint(set(n1.pitches)):
                     # No pitches in common
                     n0.tiedNext = False
                     n1.tiedPrev = False
+                elif ensureTiesHaveSameSpelling:
+                    # Ensure that tied pitches have the same spelling
+                    for idx0, pitch0 in enumerate(n0.pitches):
+                        idx1 = next((idx for idx, pitch in enumerate(n1.pitches) if pitch == pitch0), None)
+                        if idx1 is not None:
+                            note0 = n0.notename(idx0)
+                            note1 = n1.notename(idx1)
+                            if note1 != note0:
+                                n1.fixNotename(note0, idx=idx1)
+
             elif n0.gliss:
                 if n1.isRest or n0.pitches == n1.pitches:
                     if n0.tiedPrev:
@@ -2119,10 +2131,10 @@ class QuantizedPart:
                                      parent=self)
             self.measures.append(empty)
 
-    def fixChordSpellings(self, enharmonicOptions: enharmonics.EnharmonicOptions = None
-                          ) -> None:
+    def resolveChordEnharmonics(self, enharmonicOptions: enharmonics.EnharmonicOptions = None
+                                ) -> None:
         """
-        Finds the best spelling for each chord individually
+        Finds the best enharmonic variant for each chord individually
 
         As an alternative for finding the best global spelling it is possible to
         just fix each chord individually
@@ -2357,7 +2369,7 @@ class QuantizedScore:
         for pidx, part in enumerate(self.parts):
             part.check()
 
-    def fixEnharmonics(self, enharmonicOptions: enharmonics.EnharmonicOptions) -> None:
+    def resolveEnharmonics(self, enharmonicOptions: enharmonics.EnharmonicOptions) -> None:
         """
         Finds the best spelling for each part in this score, inplace
 
@@ -2365,19 +2377,19 @@ class QuantizedScore:
             enharmonicOptions: the enharmonic options to use
         """
         for part in self.parts:
-            part.fixEnharmonics(enharmonicOptions)
+            part.resolveEnharmonics(enharmonicOptions)
 
-    def fixChordSpellings(self, enharmonicOptions: enharmonics.EnharmonicOptions = None
-                          ) -> None:
+    def resolveChordEnharmonics(self, enharmonicOptions: enharmonics.EnharmonicOptions = None
+                                ) -> None:
         """
-        Finds the best spelling for each chord individually
+        Finds the best enharmonic variant for each chord individually and pins it to it
 
         As an alternative for finding the best global spelling it is possible to
         just fix each chord individually
 
         """
         for part in self.parts:
-            part.fixChordSpellings(enharmonicOptions=enharmonicOptions)
+            part.resolveChordEnharmonics(enharmonicOptions=enharmonicOptions)
 
     def __hash__(self):
         partHashes = [hash(p) for p in self.parts]
@@ -2675,9 +2687,9 @@ def quantize(parts: list[core.UnquantizedPart],
         qparts.append(qpart)
     qscore = QuantizedScore(qparts)
     if enharmonicOptions:
-        qscore.fixEnharmonics(enharmonicOptions)
+        qscore.resolveEnharmonics(enharmonicOptions)
     else:
-        qscore.fixChordSpellings(enharmonicOptions=enharmonicOptions)
+        qscore.resolveChordEnharmonics()
 
     qscore.check()
     return qscore

@@ -4,7 +4,6 @@ This module declares the basic classes for all renderers.
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-import tempfile
 from maelzel.scorestruct import ScoreStruct
 from maelzel.scoring.renderoptions import RenderOptions
 from maelzel.scoring import quant
@@ -115,11 +114,11 @@ class Renderer(ABC):
 
         if fmt == 'png':
             from maelzel.core import _tools
-            png = tempfile.mktemp(suffix='.png')
+            png = _util.mktemp(suffix='.png')
             self.write(png)
             _util.pngShow(png, forceExternal=external, inlineScale=scalefactor)
         elif fmt == 'pdf':
-            outfile = tempfile.mktemp(suffix=f'.{fmt}')
+            outfile = _util.mktemp(suffix=f'.{fmt}')
             self.write(outfile)
             emlib.misc.open_with_app(outfile)
         else:
@@ -127,7 +126,7 @@ class Renderer(ABC):
 
     def _repr_html_(self) -> str:
         scale = config['pngScale']
-        pngfile = tempfile.mktemp(suffix=".png", prefix="render-")
+        pngfile = _util.mktemp(suffix=".png", prefix="render-")
         self.write(pngfile)
         w, h = emlib.img.imgSize(pngfile)
         img = emlib.img.htmlImgBase64(pngfile, removeAlpha=True, width=f'{int(w*scale)}px')

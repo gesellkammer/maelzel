@@ -318,6 +318,7 @@ def _playEngine(numchannels: int = None,
                 verbose: bool = None,
                 buffersize: int = None,
                 latency: float = None,
+                numbuffers: int = None
                 ) -> csoundengine.Engine:
     """
     Get the play engine; start it if needed
@@ -373,7 +374,8 @@ def _playEngine(numchannels: int = None,
                                  quiet=not verbose,
                                  latency=latency,
                                  buffersize=buffersize,
-                                 a4=config['A4'])
+                                 a4=config['A4'],
+                                 numbuffers=numbuffers)
     waitAfterStart = config['play.waitAfterStart']
     if waitAfterStart > 0:
         import time
@@ -398,7 +400,8 @@ def playSession(numchannels: int = None,
                 outdev: str = None,
                 verbose: bool = None,
                 buffersize: int = None,
-                latency: float = None
+                latency: float = None,
+                numbuffers: int = None
                 ) -> csoundengine.session.Session:
     """
     Returns the csoundengine Session
@@ -425,7 +428,8 @@ def playSession(numchannels: int = None,
     if isSessionActive():
         return _playEngine().session()
     engine = _playEngine(numchannels=numchannels, backend=backend, outdev=outdev,
-                         verbose=verbose, buffersize=buffersize, latency=latency)
+                         verbose=verbose, buffersize=buffersize, latency=latency,
+                         numbuffers=numbuffers)
     return engine.session()
 
 

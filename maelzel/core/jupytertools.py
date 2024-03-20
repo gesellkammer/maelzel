@@ -4,7 +4,6 @@ from . import environment
 if not environment.insideJupyter:
     raise ImportError("This module is only available inside a jupyter session")
 
-import tempfile
 import os
 from ._common import logger
 

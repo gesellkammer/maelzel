@@ -18,6 +18,9 @@ defaultdict = {
     'jupyterHtmlRepr': True,
     'fixStringNotenames': False,
     'openImagesInExternalApp': False,
+    'soundfilePlotHeight': 3,
+    '.soundfilePlotWidth': 24,
+
     'enharmonic.horizontalWeight': 1,
     'enharmonic.verticalWeight': 0.5,
     '.enharmonic.debug': False,
@@ -55,7 +58,7 @@ defaultdict = {
     'show.jupyterMaxImageWidth': 1000,
     'show.hideRedundantDynamics': True,
     'show.asoluteOffsetForDetachedObjects': False,
-    'show.voiceMaxStaves': 1,
+    'show.voiceMaxStaves': 2,
     'show.clipNoteheadShape': 'square',
     'show.referenceStaffsize': 12.0,
     'show.musicxmlFontScaling': 1.0,
@@ -594,7 +597,12 @@ docs = {
 
     '.show.autoClefChangesWindow':
         'When adding automatic clef changes, use this window size (number of elements '
-        'per evaluation)'
+        'per evaluation)',
+
+    'soundfilePlotHeight':
+        'Height used for plotting soundfiles. This is used, for example, to set the'
+        ' figsize in matplotlib plots used inline within Jupyter.',
+
 
 
 }

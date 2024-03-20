@@ -792,7 +792,8 @@ class Notation:
 
     def copyFixedSpellingTo(self, other: Notation):
         """Copy fixed spelling to *other*"""
-        assert self.fixedNotenames
+        if not self.fixedNotenames:
+            return
         for notename in self.fixedNotenames.values():
             if pt.n2m(notename) in other.pitches:
                 other.fixNotename(notename, idx=None)

@@ -31,7 +31,6 @@ from __future__ import annotations
 import functools
 from abc import ABC, abstractmethod
 import os
-import tempfile as _tempfile
 import shutil as _shutil
 import html as _html
 from dataclasses import dataclass
@@ -60,6 +59,7 @@ from . import _dialogs
 from . import _tools
 from . import presetmanager
 
+from maelzel import _util
 from maelzel import scoring
 from maelzel.scorestruct import ScoreStruct
 
@@ -190,7 +190,7 @@ class MObj(ABC):
     def parent(self, parent: MContainer):
         self._parent = parent
 
-    def _copyAttributesTo(self, other: MObj) -> None:
+    def _copyAttributesTo(self, other: Self) -> None:
         if self.symbols:
             other.symbols = self.symbols.copy()
         if self.playargs:
@@ -665,7 +665,7 @@ class MObj(ABC):
         if fmt == 'ly':
             renderer = self.render(backend='lilypond', scorestruct=scorestruct, config=cfg)
             if external:
-                lyfile = _tempfile.mktemp(suffix=".ly")
+                lyfile = _util.mktemp(suffix='.ly')
                 renderer.write(lyfile)
                 emlib.misc.open_with_app(lyfile)
             else:
@@ -848,7 +848,7 @@ class MObj(ABC):
             backend = 'lilypond'
         if not outfile:
             assert fmt in ('png', 'pdf')
-            outfile = _tempfile.mktemp(suffix='.' + fmt)
+            outfile = _util.mktemp(suffix='.' + fmt)
         if scorestruct is None:
             scorestruct = self.scorestruct() or w.scorestruct
 
@@ -1761,7 +1761,7 @@ def _renderImageCached(obj: MObj,
     assert fmt in ('pdf', 'png')
     renderer = obj.render(backend=backend, renderoptions=renderoptions, scorestruct=scorestruct,
                           config=config)
-    outfile = _tempfile.mktemp(suffix="." + fmt)
+    outfile = _util.mktemp(suffix="." + fmt)
     renderer.write(outfile)
     if not os.path.exists(outfile):
         raise RuntimeError(f"Error rendering to file '{outfile}', file does not exist")

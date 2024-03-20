@@ -347,10 +347,19 @@ class Note(MEvent):
         """
         self._gliss = gliss if isinstance(gliss, bool) else asmidi(gliss)
 
-    def __eq__(self, other: Note) -> bool:
-        if not isinstance(other, Note):
-            return False
-        return hash(self) == hash(other)
+    def __eq__(self, other: Note | str | float) -> bool:
+        if isinstance(other, (int, float)):
+            return self.pitch == other
+        elif isinstance(other, str):
+            try:
+                pitch = pt.str2midi(other)
+                return self.pitch == pitch
+            except ValueError as e:
+                raise ValueError(f"Cannot interpret '{other}' as a note: {e}")
+        elif isinstance(other, Note):
+            return hash(self) == hash(other)
+        else:
+            raise TypeError(f"Expected a Note or a pitch as float or str, got {other}")
 
     def copy(self) -> Note:
         out = Note(self.pitch, dur=self.dur, amp=self.amp, gliss=self._gliss, tied=self.tied,
@@ -422,14 +431,6 @@ class Note(MEvent):
     def isRest(self) -> bool:
         """ Is this a Rest? """
         return self.amp == 0 and self.pitch == 0
-
-    def convertToRest(self) -> None:
-        """Convert this Note to a rest, inplace"""
-        self.amp = 0.
-        self.pitch = 0.
-        self.pitchSpelling = ''
-        if self.parent:
-            self.parent._childChanged(self)
 
     def pitchRange(self) -> tuple[float, float] | None:
         return self.pitch, self.pitch
@@ -658,7 +659,7 @@ class Note(MEvent):
         configured via ``getConfig()['semitoneDivisions']``)
 
         .. note::
-            - If this note has a pitch gliss, the target pitch is also quantized
+            - If this note has a gliss, the target pitch is also quantized
             - Any set pitch spelling is deleted
         """
         if step == 0:
@@ -692,7 +693,6 @@ class Note(MEvent):
         scorestruct = workspace.scorestruct
         if self.playargs is not None:
             playargs = playargs.updated(self.playargs)
-            # playargs._checkArgs()
 
         amp = self.resolveAmp(config=conf, dyncurve=workspace.dynamicCurve)
         glisstime = playargs.get('glisstime')
@@ -757,7 +757,8 @@ class Note(MEvent):
         """
         if not self.gliss:
             raise ValueError("This note does not have a glissando")
-        elif self._glissTarget:
+
+        if self._glissTarget:
             return self._glissTarget if isinstance(self._glissTarget, str) else pt.m2n(self._glissTarget)
         elif not isinstance(self._gliss, bool):
             return pt.m2n(self._gliss)
@@ -1187,7 +1188,7 @@ class Chord(MEvent):
 
             # filter out notes which do not belong to the C-major triad
             >>> ch = Chord("C3 D3 E4 G4")
-            >>> ch2 = ch.filter(lambda note: (note.notename % 12) in {0, 4, 7})
+            >>> ch2 = ch.filter(lambda note: (note.pitch % 12) in {0, 4, 7})
 
         """
         return self._withNewNotes([n for n in self if predicate(n)])
@@ -1544,6 +1545,23 @@ class Chord(MEvent):
         newnotes = [n.transpose(interval) for n, interval in zip(self.notes, transpositions)]
         return self.clone(notes=newnotes,
                           gliss=self.gliss if isinstance(self.gliss, bool) else list(map(pitchmap, self.gliss)))
+
+    def findNote(self, pitch: pitch_t | None) -> Note | None:
+        """
+        Find a note within this Chord
+
+        Args:
+            pitch: the pitch to match (a midinote or a notename)
+
+        Returns:
+            the matched note or None
+
+        """
+        out = self.notes
+        if pitch is not None:
+            midi = pt.str2midi(pitch) if isinstance(pitch, str) else pitch
+            out = [n for n in out if n.pitch == midi]
+        return out[0] if out else None
 
 
 def _asChord(obj, amp: float = None, dur: float = None) -> Chord:

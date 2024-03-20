@@ -134,11 +134,12 @@ def _frames_to_samples(frames, hop_length=512, n_fft=None):
     return (np.asanyarray(frames) * hop_length + offset).astype(int)
 
 
-def _plot_matplotlib(samples: np.ndarray, samplerate: int, timelabels: bool, figsize=(24, 4)
+def _plot_matplotlib(samples: np.ndarray, samplerate: int, timelabels: bool,
+                     figsize=(24, 4), tight=True
                      ) -> plt.Figure:
     numch = numChannels(samples)
     numsamples = samples.shape[0]
-    f = plt.figure(figsize=figsize)
+    fig = plt.figure(figsize=figsize)
     ax1 = None
     if timelabels:
         formatter = matplotlib.ticker.FuncFormatter(
@@ -149,19 +150,20 @@ def _plot_matplotlib(samples: np.ndarray, samplerate: int, timelabels: bool, fig
     locator = _TimeLocator(samplerate)
     for i in range(numch):
         if i == 0:
-            axes = ax1 = f.add_subplot(numch, 1, i + 1)
+            axes = ax1 = fig.add_subplot(numch, 1, i + 1)
         else:
-            axes = f.add_subplot(numch, 1, i + 1, sharex=ax1, sharey=ax1)
+            axes = fig.add_subplot(numch, 1, i + 1, sharex=ax1, sharey=ax1)
         if i < numch - 1:
             plt.setp(axes.get_xticklabels(), visible=False)
         chan = getChannel(samples, i)
-        # axes.plot(times, chan, linewidth=1)
         axes.plot(chan, linewidth=1)
         axes.xaxis.set_major_formatter(formatter)
         axes.xaxis.set_major_locator(locator)
 
     ax1.set_xlim(0, numsamples)
-    return f
+    if tight:
+        fig.tight_layout()
+    return fig
 
 
 _diff_to_step = bpf4.nointerpol(
@@ -247,6 +249,7 @@ def plotWaveform(samples,
             based on the duration and other parameters given
         saveas: if given, the plot is saved and not displayed
         timelabels: if True, the x axes' labels are shown as MM:SS if needed
+        figsize: the figsize used
 
     Returns:
         the axes used (one per channel)
@@ -310,7 +313,7 @@ def plotWaveform(samples,
             undersample = min(32, len(samples) // (1024 * 8))
             samples = samples[::undersample]
             samplerate = samplerate // undersample
-        fig = _plot_matplotlib(samples, samplerate, timelabels=timelabels)
+        fig = _plot_matplotlib(samples, samplerate, timelabels=timelabels, figsize=figsize)
         if saveas:
             plt.close(fig)
             fig.savefig(saveas, transparent=False, facecolor="white", bbox_inches='tight')
