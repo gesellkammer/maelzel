@@ -1168,8 +1168,10 @@ class ScoreStruct:
                 continue
 
             if line == ".":
-                assert len(struct.measuredefs) > 0
-                struct.addMeasure()
+                if not self.measuredefs:
+                    raise ValueError("Cannot repeat last measure definition since there are "
+                                     "no measures defined yet")
+                self.addMeasure()
                 measureIndex += 1
                 continue
 

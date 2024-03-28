@@ -228,15 +228,28 @@ def splitLinkedGroupIntoLines(objs: list[MEvent]
                         note.playargs.fillWith(obj.playargs)
 
     # gliss pass
-    for ev0, ev1 in pairwise(objs):
-        if isinstance(ev0, Chord) and ev0.gliss is True:
-            if isinstance(ev1, Chord):
-                # Notes are matched in sort order (which is normally by pitch)
-                for n0, n1 in zip(ev0.notes, ev1.notes):
-                    continuations[n0] = n1
-            elif isinstance(ev1, Note):
-                for n0 in ev0.notes:
-                    continuations[n0] = ev1
+    if len(objs) > 1:
+        ev0 = objs[0]
+        for ev1 in objs[1:]:
+            if isinstance(ev0, Chord) and ev0.gliss is True:
+                if isinstance(ev1, Chord):
+                    # Notes are matched in sort order (which is normally by pitch)
+                    for n0, n1 in zip(ev0.notes, ev1.notes):
+                        continuations[n0] = n1
+                elif isinstance(ev1, Note):
+                    for n0 in ev0.notes:
+                        continuations[n0] = ev1
+            ev0 = ev1
+
+    # for ev0, ev1 in pairwise(objs):
+    #     if isinstance(ev0, Chord) and ev0.gliss is True:
+    #         if isinstance(ev1, Chord):
+    #             # Notes are matched in sort order (which is normally by pitch)
+    #             for n0, n1 in zip(ev0.notes, ev1.notes):
+    #                 continuations[n0] = n1
+    #         elif isinstance(ev1, Note):
+    #             for n0 in ev0.notes:
+    #                 continuations[n0] = ev1
 
     for objidx, obj in enumerate(objs):
         notes = obj.notes if isinstance(obj, Chord) else [obj]

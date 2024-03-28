@@ -641,6 +641,8 @@ def postProcessFile(lilyfile: str, outfile='', removeHeader=True,
 
 
 _octaveMapping = {
+    -3: ",,,,,,",
+    -2: ",,,,,",
     -1: ",,,,",
     0: ",,,",
     1: ",,",
@@ -651,7 +653,10 @@ _octaveMapping = {
     6: "'''",
     7: "''''",
     8: "'''''",
-    9: "''''''"
+    9: "''''''",
+    10: "'''''''",
+    11: "''''''''",
+    12: "'''''''''"
 }
 
 _centsToSuffix = {
@@ -684,7 +689,13 @@ def lilyOctave(octave: int) -> str:
     ...
     """
     assert isinstance(octave, int), f"Expected an int, got {octave}"
-    assert -1 <= octave <= 9, f"Expected an octave between -1 and 9, got {octave}"
+    lilyoctave = _octaveMapping.get(octave)
+    if lilyoctave is None:
+        octaves = _octaveMapping.keys()
+        o0 = min(octaves)
+        o1 = max(octaves)
+        raise ValueError(f"Invalid octave. Octave should be between {o0} and {o1}, "
+                         f"got {octave}")
     return _octaveMapping[octave]
 
 
@@ -724,7 +735,7 @@ def notenameToLily(notename: str, divsPerSemitone=4) -> str:
         the corresponding lilypond representation.
     """
     notename = pt.quantize_notename(notename, divisions_per_semitone=divsPerSemitone)
-    noteparts = pt.split_notename(notename, default_octave=-2)
+    noteparts = pt.split_notename(notename)
     octave = noteparts.octave
     lilyoctave = lilyOctave(octave) if octave >= -1 else ''
     pitchname = pitchName(noteparts.diatonic_name, noteparts.alteration_cents + noteparts.cents_deviation)
@@ -941,7 +952,7 @@ def makePitch(pitch: pitch_t,
         notename = pt.m2n(pitch)
     elif isinstance(pitch, str):
         notename = pitch
-        assert pt.is_valid_notename(notename), f"Invalid notename: {notename}"
+        assert pt.is_valid_notename(notename, minpitch=1), f"Invalid notename: {notename}"
     else:
         raise TypeError(f"Expected a midinote or a notename, got {pitch} (type: {type(pitch)})")
     lilypitch = notenameToLily(notename, divsPerSemitone=divsPerSemitone)

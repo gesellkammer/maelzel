@@ -29,7 +29,7 @@ from emlib import iterlib
 import pitchtools as pt
 
 from maelzel.core import MObj
-from maelzel.common import F, asF, F0, asmidi
+from maelzel.common import F, asF, F0, F1, asmidi
 from maelzel import scoring
 from maelzel.scoring import enharmonics
 from maelzel.dynamiccurve import DynamicCurve
@@ -160,7 +160,6 @@ class Note(MEvent):
                     if props.spanners:
                         for spanner in props.spanners:
                             self.addSpanner(spanner)
-
                 elif "/" in pitch:
                     parsednote = _tools.parseNote(pitch)
                     assert isinstance(parsednote.notename, str), f"Expected a notename, got {parsednote.notename}"
@@ -186,8 +185,7 @@ class Note(MEvent):
                 if not fixed and Workspace.active.config['fixStringNotenames']:
                     fixed = True
 
-            if dur is not None:
-                dur = asF(dur)
+            dur = asF(dur) if dur is not None else F1
 
             if offset is not None:
                 offset = asF(offset)
@@ -359,7 +357,7 @@ class Note(MEvent):
         elif isinstance(other, Note):
             return hash(self) == hash(other)
         else:
-            raise TypeError(f"Expected a Note or a pitch as float or str, got {other}")
+            return False
 
     def copy(self) -> Note:
         out = Note(self.pitch, dur=self.dur, amp=self.amp, gliss=self._gliss, tied=self.tied,
@@ -384,10 +382,11 @@ class Note(MEvent):
 
         Returns a new note
         """
+        offset = self.offset if offset is UNSET else None if offset is None else asF(offset)
         out = Note(pitch=pitch if pitch is not None else self.pitch,
                    dur=asF(dur) if dur is not None else self.dur,
                    amp=amp if amp is not None else self.amp,
-                   offset=asF(offset) if offset is not UNSET else self.offset,
+                   offset=offset,
                    gliss=gliss if gliss is not None else self.gliss,
                    label=label if label is not None else self.label,
                    tied=tied if tied is not None else self.tied,
@@ -437,6 +436,15 @@ class Note(MEvent):
 
     def meanPitch(self) -> float | None:
         return self.pitch
+
+    def timeShift(self, timeoffset: time_t) -> Self:
+        reloffset = self.relOffset()
+        reloffset += timeoffset
+        if reloffset < 0:
+            raise ValueError(f"Cannot shift to a negative offset, {timeoffset=}, "
+                             f"relative offset prior to shift: {self.relOffset()}, "
+                             f"resulting offset: {reloffset}. ({self=})")
+        return self.clone(offset=reloffset)
 
     def freqShift(self, freq: float) -> Note:
         """
@@ -908,9 +916,28 @@ class Chord(MEvent):
             super().__init__(dur=dur, offset=None, label=label)
             return
 
+        symbols = None
         # notes might be: Chord([n1, n2, ...]) or Chord("4c 4e 4g", ...)
         if isinstance(notes, str):
-            if ',' in notes:
+            if ':' in notes:
+                props = _tools.parseNote(notes)
+                dur = dur if dur is not None else props.dur
+                pitches = props.notename if isinstance(props.notename, list) else [props.notename]
+                if p := props.keywords:
+                    offset = offset or p.pop('offset', None)
+                    dynamic = dynamic or p.pop('dynamic', '')
+                    tied = tied or p.pop('tied', False)
+                    gliss = gliss or p.pop('gliss', False)
+                    fixed = p.pop('fixPitch', False) or fixed
+                    label = label or p.pop('label', '')
+                    properties = p if not properties else misc.dictmerge(p, properties)
+                if props.symbols:
+                    symbols = props.symbols
+                if props.spanners:
+                    for spanner in props.spanners:
+                        self.addSpanner(spanner)
+                notes = [Note(pitch, amp=amp, fixed=fixed) for pitch in pitches]
+            elif ',' in notes:
                 notes = [Note(n.strip(), amp=amp, fixed=fixed) for n in notes.split(',')]
             else:
                 notes = [Note(n.strip(), amp=amp, fixed=fixed) for n in notes.split()]
@@ -939,11 +966,15 @@ class Chord(MEvent):
                     raise ValueError(f"The destination chord of the gliss should have "
                                      f"the same length as the chord itself, {notes=}, {gliss=}")
 
-        super().__init__(dur=dur, offset=offset, label=label, properties=properties,
+        super().__init__(dur=dur if dur is not None else F1,
+                         offset=offset, label=label, properties=properties,
                          tied=tied, amp=amp, dynamic=dynamic)
         self.notes: list[Note] = notes2
         self._gliss: bool | list[float] = gliss
         self._glissTarget: list[float] | None = None
+        if symbols:
+            for symbol in symbols:
+                self.addSymbol(symbol)
 
     @property
     def gliss(self) -> list[float] | bool:

@@ -115,7 +115,7 @@ class MObjList(MObj):
         return self.clone(items=items)
 
     def timeShift(self, timeoffset: time_t):
-        resolved = self.withExplicitTimes()
+        resolved = self.withExplicitOffset()
         items = [item.timeShift(timeoffset) for item in resolved]
         return self.clone(items=items)
 

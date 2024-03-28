@@ -411,6 +411,11 @@ class CoreConfig(ConfigDict):
         assert active is not None
         active.config = self
 
+    def saveKey(self, key: str) -> None:
+        conf = CoreConfig()
+        conf[key] = self[key]
+        conf.save()
+
     def reset(self, removesaved=False) -> None:
         """
         Reset this config to its defaults
@@ -421,8 +426,8 @@ class CoreConfig(ConfigDict):
         """
         super().reset()
         from maelzel.core.presetmanager import presetManager
-        if '_piano' in presetManager.presetdefs:
-            self['play.instr'] = '_piano'
+        if '.piano' in presetManager.presetdefs:
+            self['play.instr'] = '.piano'
 
         if removesaved:
             path = self.getPath()

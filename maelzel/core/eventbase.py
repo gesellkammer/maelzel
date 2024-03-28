@@ -6,6 +6,9 @@ from maelzel.core.mobj import MObj, MContainer
 import maelzel.core.symbols as _symbols
 from maelzel.core.synthevent import PlayArgs
 from maelzel.scoring import definitions
+from maelzel import _util
+from maelzel.scorestruct import ScoreStruct
+from maelzel.core import workspace
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -30,6 +33,8 @@ class MEvent(MObj):
                  label='',
                  dynamic='',
                  tied=False):
+        if not isinstance(dur, F):
+            raise ValueError(f"Invalid (None) duration for {self}")
         super().__init__(dur=dur, offset=offset, label=label, parent=parent,
                          properties=properties, symbols=symbols)
         self.tied: bool = tied
@@ -185,7 +190,35 @@ class MEvent(MObj):
         """A string representing this event"""
         raise NotImplementedError('Subclass should implement this')
 
-    def splitAt(self, offset: beat_t, tie=True) -> tuple[Self, Self] | tuple[Self]:
+    def cropped(self, start: beat_t, end: beat_t
+                ) -> Self:
+        """
+        A copy of Self, cropped to the given time range
+
+        The returned event will have an explicit offset set to its
+        absolute offset. It is parentless
+
+        Args:
+            start: the start location to crop this event
+            end: the end location to crop this event
+
+        Returns:
+            the cropped event
+
+        """
+        scorestruct = self.scorestruct(resolve=True)
+        startbeat = start if isinstance(start, F) else scorestruct.asBeat(start)
+        endbeat = end if isinstance(end, F) else scorestruct.asBeat(end)
+        absoffset = self.absOffset()
+        if intersect := _util.intersectF(startbeat, endbeat, absoffset, absoffset + self.dur):
+            intersect0, intersect1 = intersect
+            return self.clone(offset=intersect0, dur=intersect1 - intersect0)
+        else:
+            raise ValueError(f"No intersection between {self} and the given time range "
+                             f"({start=}, {end=}")
+
+    def splitAt(self, offset: beat_t, tie=True, nomerge=False
+                ) -> tuple[Self, ...]:
         """
         Split this event at the given absolute offset
 
@@ -193,6 +226,8 @@ class MEvent(MObj):
             offset: the absolute offset at which to split this event. Can be a beat
                 or a location
             tie: tie the parts
+            nomerge: if True, adds a break symbol to the events resulted in the split
+                operation to prevent them from being merged when converted to notation
 
         Returns:
             a tuple with the parts. If the offset lies perfectly at the start or
@@ -206,12 +241,12 @@ class MEvent(MObj):
             >>> n.splitAt(2)
             TODO
         """
-        parts = self.splitAtOffsets([offset], tie=tie, absolute=True)
+        parts = self.splitAtOffsets([offset], tie=tie, nomerge=nomerge)
         if not parts:
             raise ValueError(f"Offset {offset} does not intersect {self}")
         return tuple(parts)
 
-    def splitAtOffsets(self, offsets: list[time_t], tie=True, absolute=True
+    def splitAtOffsets(self, offsets: list[time_t], tie=True, nomerge=False
                        ) -> list[Self]:
         """
         Split this event at the given offsets
@@ -220,7 +255,8 @@ class MEvent(MObj):
             offsets: absolute offsets. To use score locations, convert those to absolute
                 offsets via :meth:`scorestruct.locationToBeat <maelzel.scorestruct.ScoreStruct.locationToBeat>`
             tie: if True, tie the parts
-            absolute: if True, the offsets are interpreted as absolute offsets
+            nomerge: if True, adds a break symbol to the events resulted in the split
+                operation to prevent them from being merged when converted to notation
 
         Returns:
             the parts. The total duration of the parts should sum up to the
@@ -229,14 +265,21 @@ class MEvent(MObj):
         if not offsets:
             raise ValueError("No offsets given")
 
-        offset = self.absOffset() if absolute else self.relOffset()
+        offset = self.absOffset()
         dur = self.dur
-        intervals = mathlib.split_interval_at_values(offset, offset + dur, offsets)
-        events = [self.clone(offset=intervalstart, dur=intervalend-intervalstart)
-                  for intervalstart, intervalend in intervals]
-        if tie:
+        if offset >= offsets[-1] or offset + dur <= offsets[0]:
+            return [self]
+
+        intervals = _util.splitInterval(offset, offset + dur, offsets)
+        events = [self.clone(dur=end-start, offset=None)
+                  for start, end in intervals]
+        events[0].offset = self.offset
+        if tie and len(events) > 1:
             for event in events[:-1]:
                 event.tied = True
+            if nomerge:
+                for event in events[1:]:
+                    event.addSymbol(_symbols.NoMerge())
         return events
 
     def addSpanner(self,

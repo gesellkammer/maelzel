@@ -277,9 +277,37 @@ class Partial:
 
         TODO
         """
+        return self.withFreqs(transform(self.freqs))
 
+    def withFreqs(self, freqs: np.ndarray) -> Partial:
+        """
+        A copy of this Partial with new frequencies
+
+        Args:
+            freqs: new frequencies. The given array must be 1D and have
+                the same size as the number of breakpoints in this partial
+
+        Returns:
+            a new Partial with the given frequencies replacing the old frequencies
+
+        Example
+        ~~~~~~~
+
+        Transpose a Spectrum by a major third
+
+            >>> from maelzel.pitchtracking import Spectrum
+            >>> import pitchtools as pt
+            >>> sp = Spectrum.analyze(...)
+            >>> ratio = pt.interval2ratio(4)
+            >>> transposed = Spectrum([p.withFreqs(p.freqs * ratio) for p in sp.partials])
+
+        """
+        if len(freqs) != self.numbreakpoints:
+            raise ValueError(f"The given frequencies must have the same size as the number"
+                             f"of breakpoints in this Partial "
+                             f"({len(freqs)=}, {self.numbreakpoints=})")
         data = self.data.copy()
-        data[:, 1] = transform(self.freqs)
+        data[:, 1] = freqs
         return self.clone(data=data)
 
     def timeTransform(self, transform: Callable[[np.ndarray], np.ndarray]) -> Partial:

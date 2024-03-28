@@ -59,7 +59,7 @@ class Score(MContainer):
         self.voices: list[Voice] = asvoices
         """the voices of this score"""
 
-        super().__init__(label=title, offset=F0)
+        super().__init__(label=title, offset=F0, dur=self._calculateDuration())
 
         self._scorestruct = scorestruct
         self._modified = True
@@ -230,10 +230,13 @@ class Score(MContainer):
         self._modified = True
         self._dur = None
 
+    def _calculateDuration(self) -> F:
+        return max(v.dur for v in self.voices) if self.voices else F0
+
     def _update(self):
         if not self._modified:
             return
-        self._dur = max(v.dur for v in self.voices) if self.voices else F0
+        self._dur = self._calculateDuration()
         self._modified = False
 
     def append(self, voice: Voice | Chain) -> None:
@@ -249,7 +252,6 @@ class Score(MContainer):
         """The duration of this object"""
         if self._modified:
             self._update()
-        assert self._dur is not None
         return self._dur
 
     def scoringParts(self, config: CoreConfig | None = None

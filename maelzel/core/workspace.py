@@ -343,6 +343,10 @@ class Workspace:
             os.makedirs(path)
         return path
 
+    def setRecordPath(self, path: str, persist=False) -> None:
+        self.config['rec.path'] = path
+        self.saveKey('rec.path')
+
     def setDynamicsCurve(self, shape='expon(0.5)', mindb=-80, maxdb=0) -> Workspace:
         """
         Set a new dynamics curve for this Workspace

@@ -352,3 +352,64 @@ def getPlatform(normalize=True) -> tuple[str, str]:
         }.get(machine, machine)
 
     return system, machine
+
+
+def splitInterval(start: F, end: F, offsets: Sequence[F]
+                  ) -> list[tuple[F, F]]:
+    """
+    Split interval (start, end) at the given offsets
+
+    Args:
+        start: start of the interval
+        end: end of the interval
+        offsets: offsets to split the interval at. Must be sorted
+
+    Returns:
+        a list of (start, end) segments where no segment extends over any
+        of the given offsets
+    """
+    assert end > start
+    assert offsets
+
+    if offsets[0] > end or offsets[-1] < start:
+        # no intersection, return the original time range
+        return [(start, end)]
+
+    out = []
+    for offset in offsets:
+        if offset >= end:
+            break
+        if start < offset:
+            out.append((start, offset))
+            start = offset
+    if start != end:
+        out.append((start, end))
+
+    assert len(out) >= 1
+    return out
+
+
+def intersectF(u1: F, u2: F, v1: F, v2: F) -> tuple[F, F] | None:
+    """
+    return the intersection of (u1, u2) and (v1, v2) or None if no intersection
+
+    Args:
+        u1: lower bound of range U
+        u2: higher bound of range U
+        v1: lower bound of range V
+        v2: higher bound of range V
+
+    Returns:
+        the intersection between range U and range V as a tuple (start, end).
+        If no intersection is found, None is returned
+
+    Example::
+
+        >>> if intersect := intersection(0, 3, 2, 5):
+        ...     start, end = intersect
+        ...     ...
+
+    """
+    x0 = u1 if u1 > v1 else v1
+    x1 = u2 if u2 < v2 else v2
+    return (x0, x1) if x0 < x1 else None

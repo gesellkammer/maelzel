@@ -43,11 +43,20 @@ def clefEvaluators() -> dict[str, bpf4.BpfInterface]:
             (n2m("5D"), -2)
         ),
         'bass8': bpf4.linear(
-            (n2m("0C"), 1),
+            (n2m("-1A"), -2),
+            (n2m("0C"), 0),
+            (n2m("0E"), 1),
             (n2m("3D"), 1),
             (n2m("3A"), 0),
             (n2m("4E"), -2)
         ),
+        'bass15': bpf4.linear(
+            (n2m("-1D"), 1),
+            (n2m("1C"), 1),
+            (n2m("1G"), 0),
+            (n2m("2C"), -2)
+        ),
+
     }
 
 
@@ -88,7 +97,7 @@ def findBestClefs(notations: list[Notation], firstclef='', winsize=1, threshold=
         a list of tuples (notationsindex, clef)
     """
     points = []
-    clefbyindex = ['treble15', 'treble8', 'treble', 'bass', 'bass8']
+    clefbyindex = ['treble15', 'treble8', 'treble', 'bass', 'bass8', 'bass15']
     currentclef = firstclef
     notations = [n for n in notations if not n.isRest]
     if not notations:
@@ -164,11 +173,17 @@ def explodeNotations(notations: list[Notation],
         possibleClefs = [
             ('treble15', 'treble', 'bass'),
             ('treble15', 'treble', 'bass8'),
-            ('treble', 'bass', 'bass8')
+            ('treble15', 'treble', 'bass15'),
+            ('treble15', 'bass', 'bass8'),
+
+            ('treble', 'bass', 'bass8'),
+            ('treble', 'bass', 'bass15')
         ]
     elif maxstaves == 4:
         possibleClefs = [
-            ('treble15', 'treble', 'bass', 'bass8')
+            ('treble15', 'treble', 'bass', 'bass8'),
+            ('treble15', 'treble', 'bass', 'bass15'),
+
         ]
     else:
         raise ValueError(f"The max. number of staves must be between between 1 and 4, "

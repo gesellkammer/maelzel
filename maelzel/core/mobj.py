@@ -123,14 +123,12 @@ class MObj(ABC):
                  '__weakref__')
 
     def __init__(self,
-                 dur: F = None,
+                 dur: F,
                  offset: F = None,
                  label: str = '',
                  parent: MContainer | None = None,
                  properties: dict[str, Any] = None,
                  symbols: list[_symbols.Symbol] | None = None):
-
-        assert dur is None or dur >= 0, f"A Duration cannot be negative: {self}"
 
         self._parent: MContainer | None = parent
         "The parent of this object (or None if it has no parent)"
@@ -138,7 +136,7 @@ class MObj(ABC):
         self.label: str = label
         "a label can be used to identify an object within a group of objects"
 
-        self._dur: F | None = dur
+        self._dur: F = dur
         "the duration of this object in quarternotes. It cannot be None"
 
         self.offset: F | None = offset
@@ -168,8 +166,7 @@ class MObj(ABC):
     @property
     def dur(self) -> F:
         """The duration of this object, in quarternotes"""
-        d = self._dur
-        return F1 if d is None else d
+        return self._dur
 
     @dur.setter
     def dur(self, dur: time_t):
@@ -191,6 +188,16 @@ class MObj(ABC):
         self._parent = parent
 
     def _copyAttributesTo(self, other: Self) -> None:
+        """
+        Copy symbols, playargs and properties to other
+
+        Args:
+            other: destination object
+
+        """
+        if type(other) != type(self):
+            logger.warning(f"Copying attributes to an object of different class, "
+                           f"{self=}, {type(self)=}, {other=}, {type(other)=}")
         if self.symbols:
             other.symbols = self.symbols.copy()
         if self.playargs:
@@ -383,7 +390,8 @@ class MObj(ABC):
             the absolute start position of this object
 
         """
-        return self.relOffset() + self.parentAbsOffset()
+        reloffset = self.relOffset()
+        return reloffset if not self.parent else reloffset + self.parent.absOffset()
 
     def parentAbsOffset(self) -> F:
         """
@@ -394,7 +402,7 @@ class MObj(ABC):
         """
         return self.parent.absOffset() if self.parent else F0
 
-    def withExplicitTimes(self, forcecopy=False):
+    def withExplicitOffset(self, forcecopy=False):
         """
         Copy of self with explicit times
 
@@ -572,7 +580,7 @@ class MObj(ABC):
             a copy of this object shifted in time by the given amount
         """
         timeoffset = asF(timeoffset)
-        return self.timeTransform(lambda t: t+timeoffset)
+        return self.timeTransform(lambda t: t+timeoffset, inplace=False)
 
     def __eq__(self, other) -> bool:
         if isinstance(other, type(self)):
@@ -994,8 +1002,9 @@ class MObj(ABC):
             >>> n.scorestruct()
             ScoreStruct(timesig=(3, 4), tempo=72)
         """
-        struct = self._scorestruct or (self.parent.scorestruct() if self.parent else None)
-        return struct if struct or not resolve else Workspace.active.scorestruct
+        if not self.parent:
+            return Workspace.active.scorestruct if resolve else None
+        return self.parent.scorestruct(resolve=resolve)
 
     def write(self,
               outfile: str,
@@ -1563,10 +1572,12 @@ class MObj(ABC):
         Args:
             timeoffset: the time delta (in quarterNotes)
         """
-        if self.offset is None:
-            raise ValueError("Only objects with an explicit offset can be modified with"
-                             "this method")
-        self.offset = self.offset + asF(timeoffset)
+        offset = self.relOffset() + asF(timeoffset)
+        if offset < 0:
+            raise ValueError(f"This operation would result in a negative offset. "
+                             f"Own offset: {self.relOffset()}, timeoffset: {timeoffset}, "
+                             f"resulting offset: {offset}, self: {self}")
+        self.offset = offset
         self._changed()
 
     def timeRangeSecs(self,
@@ -1716,6 +1727,9 @@ class MContainer(MObj):
 
     def nextItem(self, item: MObj) -> MObj | None:
         """Returns the item after *item*, if any (None otherwise)"""
+        return None
+
+    def previousItem(self, item: MObj) -> MObj | None:
         return None
 
     def previousEvent(self, event: MObj) -> MObj | None:

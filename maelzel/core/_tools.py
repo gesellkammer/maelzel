@@ -160,11 +160,11 @@ def enharmonic(n: str) -> str:
     else:
         return n
 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# ------------------------------------------------------------
 #
 # Helper functions for Note, Chord, ...
 #
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# ------------------------------------------------------------
 
 
 def midicents(midinote: float) -> int:
@@ -257,6 +257,8 @@ def parsePitch(s: str) -> tuple[str, bool, bool]:
     """
     Parse a pitch like 4a~ or 4C#+15!
 
+    If both tied and fixed, the order is important: 4C!~
+
     Args:
         s: the notename to parse
 
@@ -264,14 +266,17 @@ def parsePitch(s: str) -> tuple[str, bool, bool]:
         a tuple (notename, tied, fixed)
 
     """
-    tied = None
-    fixed = None
-    if s.endswith('~'):
-        tied = True
-        s = s[:-1]
+    tied, fixed = False, False
     if s.endswith('!'):
         fixed = True
         s = s[:-1]
+    elif s.endswith('~'):
+        tied = True
+        if s[-2] == '!':
+            fixed = True
+            s = s[:-2]
+        else:
+            s = s[:-1]
     return s, tied, fixed
 
 
@@ -331,6 +336,9 @@ def stripNoteComments(s: str) -> str:
     """
     Strip comments from notes defined as strings
 
+    If the line is itself a comment (no note definition), an
+    empty string is returned
+
     Args:
         s: the note definition
 
@@ -344,11 +352,14 @@ def stripNoteComments(s: str) -> str:
         4F#:3/4:ff:dim
 
     """
+    if s.lstrip().startswith("#"):
+        # A comment in itself
+        return ''
     parts = s.split(" #")
     return parts[0].strip()
 
 
-def parseNote(s: str) -> NoteProperties:
+def parseNote(s: str, check=True) -> NoteProperties:
     """
     Parse a note definition string with optional duration and other properties
 
@@ -443,12 +454,25 @@ def parseNote(s: str) -> NoteProperties:
     if "/" in note:
         note, symbolicdur = note.split("/")
         dur = _parseSymbolicDuration(symbolicdur)
+    if note[-1] == '~':
+        properties['tied'] = True
+        note = note[:-1]
     if "," in note:
         notename = [p.strip() for p in note.split(",")]
+    elif " " in note:
+        notename = [p.strip() for p in note.split(" ")]
     elif note.lower() in ('r', 'rest'):
         notename = 'rest'
     else:
         notename = note
+    if check:
+        if isinstance(notename, list):
+            for n in notename:
+                if not pt.is_valid_notename(n, minpitch=0):
+                    raise ValueError(f"Invalid notename '{n}' while parsing '{s}'")
+        else:
+            if not pt.is_valid_notename(notename):
+                raise ValueError(f"Invalid notename '{notename}' while parsing '{s}'")
     return NoteProperties(notename=notename, dur=dur, keywords=properties,
                           symbols=symbols, spanners=spanners)
 

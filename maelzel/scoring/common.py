@@ -80,12 +80,14 @@ def asmidi(x, maxmidi=130) -> float:
 
     """
     if isinstance(x, float):
-        assert 0<=x<=maxmidi, f"Invalid midinote: {x}"
+        if x > maxmidi:
+            logger.warning(f"Invalid midinote: {x}")
         return x
     elif isinstance(x, str):
         return pt.n2m(x)
     elif isinstance(x, int):
-        assert 0 <= x < maxmidi
+        if x > maxmidi:
+            logger.warning(f"Invalid midinote: {x}")
         return float(x)
     elif hasattr(x, "pitch"):
         return x.notename
