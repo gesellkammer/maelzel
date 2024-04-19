@@ -4,17 +4,19 @@ perform_tests: &PERFORM_TESTS
 
   main_test_script: |
     set -x
-    ./py --version
+    python --version
     echo "ID: '$ID'"
+    mkdir -p artifacts
     cd test
-    ../py test-rec.py -o "test-rec-macos-$ID.wav"
-    ../py test-dependencies.py
-    ../py test-notation.py -o "test-notation-macos-$ID.pdf"
+    python test-rec.py -o "test-rec-macos-$ID.wav"
+    python test-dependencies.py
+    python test-notation.py -o "test-notation-macos-$ID.pdf"
     ls -l 
     cp *.wav ../artifacts
     cp *.pdf ../artifacts
     cd ..
-    
+
+    ls -l
     ls -l artifacts/*
 
   test_artifacts:
@@ -30,16 +32,16 @@ setup_macos: &SETUP_MACOS
     cd Csound-universal-6.18.1
     sudo installer -pkg csound-MacOS-universal-6.18.1.pkg -target /
     csound --version
-    mkdir -p artifacts
-
+   
 test_git_310_task:
   environment:
     ID: git-310
   <<: *SETUP_MACOS
   install_script: |
     brew install python@3.10
-    ln -s $(which python3.10) py
-    ./py -m pip install .
+    python3.10 -m venv .venv
+    source .venv/bin/activate
+    python -m pip install .
   <<: *PERFORM_TESTS
 
 test_git_311_task:
@@ -48,8 +50,9 @@ test_git_311_task:
   <<: *SETUP_MACOS
   install_script: |
     brew install python@3.11
-    ln -s $(which python3.11) py
-    ./py -m pip install .
+    python3.10 -m venv .venv
+    source .venv/bin/activate
+    python -m pip install .
   <<: *PERFORM_TESTS
 
 test_pip_310_task:
@@ -58,8 +61,9 @@ test_pip_310_task:
   <<: *SETUP_MACOS
   install_script: |
     brew install python@3.10
-    ln -s $(which python3.10) py
-    ./py -m pip install maelzel
+    python3.10 -m venv .venv
+    source .venv/bin/activate
+    python -m pip install maelzel
   <<: *PERFORM_TESTS
 
 test_pip_311_task:
@@ -68,7 +72,8 @@ test_pip_311_task:
   <<: *SETUP_MACOS
   install_script: |
     brew install python@3.11
-    ln -s $(which python3.11) py
-    ./py -m pip install maelzel
+    python3.11 -m venv .venv
+    source .venv/bin/activate
+    python -m pip install maelzel
   <<: *PERFORM_TESTS
 
