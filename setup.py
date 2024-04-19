@@ -64,11 +64,11 @@ setup(
         # Own libraries
         "emlib>=1.14.1",
         "ctcsound7>=0.4.6",
-        "bpf4>=1.8.4",
+        "bpf4>=1.10.0",
         "configdict>=2.10.0",
         "sndfileio>=1.9.1",
         "numpyx>=1.3.1",
-        "csoundengine>=2.7.2",
+        "csoundengine>=2.8.0",
         "pitchtools>=1.14.0",
         "risset>=2.8.0",
         "loristrck>=1.6.1",

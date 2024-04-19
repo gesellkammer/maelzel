@@ -1,5 +1,5 @@
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as _replace
 
 
 @dataclass
@@ -70,3 +70,6 @@ class TranscriptionOptions:
         assert isinstance(self.unvoicedPitch, (str, int))
         assert isinstance(self.unvoicedMinAmpDb, (int, float))
         assert isinstance(self.a4, (int, float)) and 432 < self.a4 < 460
+
+    def copy(self) -> Self:
+        return _replace(self)

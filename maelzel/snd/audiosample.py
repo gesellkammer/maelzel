@@ -59,6 +59,7 @@ from pitchtools import amp2db
 import emlib.numpytools as _nptools
 import emlib.misc
 
+from maelzel import _util
 from maelzel.common import getLogger
 from maelzel.snd import _common
 from maelzel.snd import numpysnd as _npsnd
@@ -71,6 +72,7 @@ if TYPE_CHECKING:
     from typing import Iterator, Sequence
     import matplotlib.pyplot as plt
     from maelzel.partialtracking import spectrum as _spectrum
+    from maelzel.transcribe import mono
 
 __all__ = (
     'Sample',
@@ -86,16 +88,20 @@ _config = {
     'reprhtml_audiotag_width': '100%',
     'reprhtml_audiotag_maxwidth': '1200px',
     'reprhtml_audiotag_embed_maxduration_seconds': 20,
-    'reprhtml_audio_format': 'wav',
+    'reprhtml_audio_format': 'mp3',
     'csoundengine': _common.CSOUNDENGINE,
 }
 
+_validator = {
+    'reprhtml_audio_format::choices': ('wav', 'mp3', 'ogg')
+}
 
-config = configdict.ConfigDict(name='maelzel.snd.audiosample',
-                               default=_config)
+
+config = configdict.ConfigDict(name='maelzel.snd.audiosample', default=_config, validator=_validator)
 
 
 _sessionTempfiles = []
+_tempFolder = "tmp"
 
 
 @_atexit.register
@@ -106,6 +112,8 @@ def _cleanup():
                 shutil.rmtree(f)
             else:
                 os.remove(f)
+    if os.path.exists(_tempFolder):
+        os.rmdir(_tempFolder)
 
 
 class PlaybackStream(abc.ABC):
@@ -462,29 +470,31 @@ class Sample:
             logger.debug("Playback using portaudio (sounddevice)")
             return self._playPortaudio(loop=loop, chan=chan, gain=gain,
                                        speed=speed, skip=skip, dur=dur, block=block)
+        elif backend == 'csound':
+            # Use csoundengine
+            logger.debug("Playback using csoundengine")
+            if not engine:
+                engine = Sample.getEngine()
 
-        # Use csoundengine
-        logger.debug("Playback using csoundengine")
-        if not engine:
-            engine = Sample.getEngine()
+            tabnum = self._makeCsoundTable(engine)
+            if pan is None:
+                if self.numchannels == 1:
+                    pan = 0
+                else:
+                    pan = 0.5
 
-        tabnum = self._makeCsoundTable(engine)
-        if pan is None:
-            if self.numchannels == 1:
-                pan = 0
-            else:
-                pan = 0.5
-
-        if dur == 0:
-            dur = -1
-        synth = engine.session().playSample(tabnum, chan=chan, gain=gain, loop=loop,
-                                            skip=skip, dur=dur, delay=delay, pan=pan,
-                                            speed=speed)
-        if block:
-            import time
-            while synth.playing():
-                time.sleep(0.02)
-        return _CsoundenginePlayback(synth=synth)
+            if dur == 0:
+                dur = -1
+            synth = engine.session().playSample(tabnum, chan=chan, gain=gain, loop=loop,
+                                                skip=skip, dur=dur, delay=delay, pan=pan,
+                                                speed=speed)
+            if block:
+                import time
+                while synth.playing():
+                    time.sleep(0.02)
+            return _CsoundenginePlayback(synth=synth)
+        else:
+            raise ValueError(f"backend should be one of 'csound', 'portaudio', got {backend}")
 
     def asbpf(self) -> bpf4.BpfInterface:
         """
@@ -513,8 +523,17 @@ class Sample:
     def _repr_html_(self) -> str:
         return self.reprHtml()
 
+    def show(self, withAudiotag=True, figsize=(24, 4), external=False, profile=''):
+        if external:
+            raise ValueError(f"External editor not supported")
+        if _util.pythonSessionType() == 'jupyter':
+            from IPython.display import display_html
+            display_html(self.reprHtml(withAudiotag=withAudiotag, figsize=figsize, profile=profile), raw=True)
+        else:
+            self.plot()
+
     def reprHtml(self, withHeader=True, withAudiotag: bool = None,
-                 figsize=(24, 4)
+                 figsize=(24, 4), profile=''
                  ) -> str:
         """
         Returns an HTML representation of this Sample
@@ -548,14 +567,15 @@ class Sample:
         import emlib.img
         from . import plotting
         pngfile = tempfile.mktemp(suffix=".png", prefix="plot")
-        if self.duration < 20:
-            profile = 'highest'
-        elif self.duration < 40:
-            profile = 'high'
-        elif self.duration < 180:
-            profile = 'medium'
-        else:
-            profile = 'low'
+        if not profile:
+            if self.duration < 2:
+                profile = 'highest'
+            elif self.duration < 20:
+                profile = 'high'
+            elif self.duration < 180:
+                profile = 'medium'
+            else:
+                profile = 'low'
         plotting.plotWaveform(self.samples, self.sr, profile=profile,
                               saveas=pngfile, figsize=figsize)
         img = emlib.img.htmlImgBase64(pngfile)   # , maxwidth='800px')
@@ -585,14 +605,16 @@ class Sample:
                     # ipython needs the samples in the shape (numchannels, samples)
                     samples = self.samples.T
                 audioobj = IPython.display.Audio(samples, rate=self.sr)
-                audiotag = audioobj._repr_html_()
             else:
-                os.makedirs('tmp', exist_ok=True)
-                outfile = tempfile.mktemp(dir="tmp", suffix='.mp3')
-                self.write(outfile, overflow='normalize')
-                _sessionTempfiles.append(outfile)
+                if self.path:
+                    outfile = self.path
+                else:
+                    os.makedirs('tmp', exist_ok=True)
+                    outfile = tempfile.mktemp(dir=_tempFolder, suffix='.' + config['reprhtml_audio_format'])
+                    self.write(outfile, overflow='normalize')
+                    _sessionTempfiles.append(outfile)
                 audioobj = IPython.display.Audio(outfile)
-                audiotag = audioobj._repr_html_()
+            audiotag = audioobj._repr_html_()
             audiotag = audiotag.replace('audio  controls="controls"',
                                         fr'audio controls style="width: {audiotag_width}; max-width: {maxwidth};"')
             s += "<br>" + audiotag
@@ -728,8 +750,13 @@ class Sample:
             return Sample(sndfile)
         return None
 
-    def write(self, outfile: str, encoding='', overflow='fail',
-              fmt='', bitrate=224, **metadata
+    def write(self,
+              outfile: str,
+              encoding='',
+              overflow='fail',
+              fmt='',
+              bitrate=224,
+              **metadata
               ) -> None:
         """
         Write the samples to outfile
@@ -789,8 +816,11 @@ class Sample:
         return Sample(self.samples.copy(), self.sr)
 
     def _changed(self) -> None:
+        # clear cached values
         self._csoundTable = None
         self._reprHtml = ''
+        self._asbpf = None
+        self._f0 = None
 
     def __add__(self, other: float | Sample) -> Sample:
         if isinstance(other, (int, float)):
@@ -974,6 +1004,12 @@ class Sample:
     def prependSilence(self, dur: float) -> Sample:
         """
         Return a new Sample with silence of given dur at the beginning
+
+        Args:
+            dur: duration of the silence to add at the beginning
+
+        Returns:
+            new Sample
         """
         silence = Sample.createSilent(dur, self.numchannels, self.sr)
         return concatenate([silence, self])
@@ -1032,7 +1068,7 @@ class Sample:
         return self
 
     def peak(self) -> float:
-        """return the highest sample value in dB"""
+        """Highest sample value in dB"""
         return amp2db(np.abs(self.samples).max())
 
     def peaksbpf(self, framedur=0.01, overlap=2) -> bpf4.core.Sampled:
@@ -1067,14 +1103,15 @@ class Sample:
 
     def rmsbpf(self, dt=0.01, overlap=1) -> bpf4.core.Sampled:
         """
-        Return a bpf representing the rms of this sample over time
+        Creates a BPF representing the rms of this sample over time
 
         .. seealso:: https://bpf4.readthedocs.io/en/latest/
         """
         return _npsnd.rmsbpf(self.samples, self.sr, dt=dt, overlap=overlap)
 
     def rms(self) -> float:
-        """ Returns the rms of the samples
+        """
+        RMS of the samples
 
         This method returns the rms for **all** the frames at once. As such
         it is only of use for short samples. The use case is as follows:
@@ -1090,14 +1127,18 @@ class Sample:
         """
         return _npsnd.rms(self.samples)
 
-    def mixdown(self) -> Sample:
+    def mixdown(self, enforceCopy=False) -> Sample:
         """
         Return a new Sample with this sample downmixed to mono
 
-        Returns self if already mono
+        Args:
+            enforceCopy: always return a copy, even if self is already mono
+
+        Returns:
+            a mono version of self.
         """
         if self.numchannels == 1:
-            return self
+            return self if not enforceCopy else self.copy()
         return Sample(_npsnd.asmono(self.samples), sr=self.sr)
 
     def stripLeft(self, threshold=-120.0, margin=0.01, window=0.02) -> Sample:
@@ -1215,6 +1256,48 @@ class Sample:
         if self.samples.flags.c_contiguous:
             return self
         return Sample(np.ascontiguousarray(self.samples), self.sr)
+
+    def fundamentalAnalysis(self,
+                            semitoneQuantization=0,
+                            fftsize: int = None,
+                            simplify=0.08,
+                            overlap=8,
+                            minFrequency=50,
+                            minSilence=0.08,
+                            onsetThreshold=0.05,
+                            onsetOverlap=8,
+                            ) -> mono.FundamentalAnalysisMonophonic:
+        """
+        Analyze the fundamental of this sound, assuming it is a monophonic sound
+
+        This is a wrapper around ``maelzel.transcribe.mono.FundamentalAnalysisMono`` and
+        is placed here for visibility and easy of use. To access all parameters,
+        use that dirctly
+
+        Returns:
+            a :class:`maelzel.transcribe.mono.FundamentalAnalysisMono`
+
+        Example
+        ~~~~~~~
+
+            >>> from maelzel.snd import audiosample
+            >>> samp = audiosample.Sample("sndfile.wav")
+            >>> f0analysis = samp.fundamentalAnalysis()
+            >>> notes = [(group.start(), group.duration(), group.meanfreq())
+            ...          for group in f0analysis.groups]
+        """
+        from maelzel.transcribe import mono
+        analysis = mono.FundamentalAnalysisMonophonic(samples=self.samples,
+                                                      sr=self.sr,
+                                                      semitoneQuantization=semitoneQuantization,
+                                                      fftSize=fftsize,
+                                                      overlap=overlap,
+                                                      simplify=simplify,
+                                                      minFrequency=minFrequency,
+                                                      minSilence=minSilence,
+                                                      onsetThreshold=onsetThreshold,
+                                                      onsetOverlap=onsetOverlap)
+        return analysis
 
     def onsets(self, fftsize=2048, overlap=4, method: str = 'rosita',
                threshold: float = None, mingap=0.03) -> np.ndarray:
@@ -1402,7 +1485,7 @@ class Sample:
         assert not math.isnan(avgfreq)
         return avgfreq
 
-    def fundamental(self, fftsize=2048, overlap=4
+    def fundamental(self, fftsize=2048, overlap=4, unvoiced='negative'
                     ) -> tuple[np.ndarray, np.ndarray]:
         """
         Track the fundamental frequency of this sample
@@ -1410,6 +1493,7 @@ class Sample:
         Args:
             fftsize: the fft size to use
             overlap: number of overlaps
+            unvoiced: one of 'negative' or 'nan'
 
         Returns:
             a tuple (times, freqs), both numpy arrays. The frequency array will
@@ -1420,6 +1504,7 @@ class Sample:
         """
         from maelzel.snd import vamptools
         samples = self.getChannel(0).samples
+        _util.checkChoice("unvoiced", unvoiced, choices=('negative', 'nan'))
         dt, freqs = vamptools.pyinSmoothPitch(samples, self.sr,
                                               fftSize=fftsize,
                                               stepSize=fftsize // overlap,
@@ -1872,3 +1957,72 @@ def spectrumAt(samples: np.ndarray,
     pairs = [(float(bp[0]), float(bp[1])) for bp in breakpoints]
     pairs.sort(key=lambda pair: pair[0])
     return pairs
+
+
+def playSamples(samples: np.ndarray,
+                sr: int,
+                loop=False,
+                chan=1,
+                gain=1.,
+                speed=1.,
+                skip=0.,
+                dur=0.,
+                block=False) -> _PortaudioPlayback:
+    """
+    Simple playback for samples
+
+    If more complex playback is needed, use ``Sample(samples, sr).play()``
+
+    Args:
+        samples: the samples to play
+        sr: sample rate
+        loop: should playback be looped?
+        chan: first channel to play to. For stereo samples, output
+            is routed to consecutive channels starting with this channel
+        gain: a gain modifier
+        speed: the playback speed. A variation in speed will change
+            the pitch accordingly.
+        skip: start playback at a given point in time
+        dur: duration of playback. 0 indicates to play until the end of the sample
+        block: if True, block execution until playback is finished
+    Returns:
+        a :class:`PlaybackStream`. This can be used to stop playback
+
+    See Also
+    ~~~~~~~~
+
+    * :meth:`Sample.getEngine`
+    * :meth:`Sample.setEngine`
+
+    """
+    import sounddevice
+    sr = int(sr * speed)
+    numchannels = _npsnd.numChannels(samples)
+    mapping = list(range(chan, numchannels + chan))
+    if skip:
+        samples = samples[int(sr * skip):]
+
+    if dur:
+        samples = samples[:int(sr*dur)]
+
+    ctx = sounddevice._CallbackContext(loop=loop)
+    ctx.frames = ctx.check_data(data=samples, mapping=mapping, device=None)
+
+    def callback(outdata, numframes, time, status, gain=gain):
+        assert len(outdata) == numframes
+        ctx.callback_enter(status, outdata)
+        if gain != 1:
+            outdata *= gain
+        ctx.write_outdata(outdata)
+        ctx.callback_exit()
+
+    ctx.start_stream(sounddevice.OutputStream,
+                     samplerate=sr,
+                     channels=ctx.output_channels,
+                     dtype=ctx.output_dtype,
+                     callback=callback,
+                     blocking=block,
+                     prime_output_buffers_using_stream_callback=False)
+
+    return _PortaudioPlayback(stream=ctx.stream)
+

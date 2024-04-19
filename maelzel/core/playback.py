@@ -251,7 +251,7 @@ class _SyncSessionHandler(SessionHandler):
     def __init__(self, renderer: SynchronizedContext):
         self.renderer = renderer
 
-    def sched(self, event: csoundengine.event.Event):
+    def schedEvent(self, event: csoundengine.event.Event):
         return self.renderer._schedSessionEvent(event)
 
 

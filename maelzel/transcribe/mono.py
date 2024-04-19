@@ -7,6 +7,7 @@ from dataclasses import astuple as _astuple
 
 from maelzel.snd import features
 from maelzel.snd import freqestimate
+from maelzel.snd import audiosample
 from maelzel.snd.numpysnd import rmsbpf
 from pitchtools import amp2db, PitchConverter, db2amp
 from math import isnan
@@ -15,7 +16,7 @@ from emlib import iterlib
 from maelzel.scorestruct import ScoreStruct
 from maelzel import histogram
 
-from .breakpoint import Breakpoint, simplifyBreakpoints, simplifyBreakpointsByDensity
+from .breakpoint import Breakpoint, BreakpointGroup, simplifyBreakpoints, simplifyBreakpointsByDensity
 from .options import TranscriptionOptions
 
 import logging
@@ -27,7 +28,7 @@ if TYPE_CHECKING:
 
 
 __all__ = (
-    'FundamentalAnalysisMono',
+    'FundamentalAnalysisMonophonic',
 )
 
 
@@ -57,7 +58,7 @@ def _quantizeFreq(pitchconv: PitchConverter, freq: float, divs: int) -> float:
         return -pitchconv.m2f(round(pitchconv.f2m(-freq) * divs) / divs)
 
 
-class FundamentalAnalysisMono:
+class FundamentalAnalysisMonophonic:
     """
     Perform monophonic f0 analysis (one source, one sound at a a time)
 
@@ -107,6 +108,11 @@ class FundamentalAnalysisMono:
             min. frequency as unvoiced. Under certain circumstances the f0 tracking algorithm
             might predict frequencies lower than the given min. frequency. An alternative
             way to mitigate such false predictions is to increase the overlap
+        removeSustain: remove sustain via :func:`maelzel.snd.deverb.removeSustain` prior
+            to analysis. This is helpful for audio signals like piano with pedal or
+            long reverberation, where the sustain of one note is still audible on
+            the next one, confusing the algorithm
+        lowAmpSuppression: supress low amplitude pitch estimates. 0.01=-40dB, 0.001=-60dB
 
     Attributes:
         groups: each group is a list of Breakpoints representing a note
@@ -141,7 +147,8 @@ class FundamentalAnalysisMono:
                  referenceFrequency=442,
                  markLowFrequenciesAsUnvoiced=True,
                  unvoicedMinAmplitudePercentile=0,
-                 lowAmpSuppression=0.05
+                 lowAmpSuppression=0.01,
+                 removeSustain=False,
                  ):
 
         if sr > 48000:
@@ -187,6 +194,17 @@ class FundamentalAnalysisMono:
         onsets = onsets[onsetsMask]
         offsets = features.findOffsets(onsets, samples=samples, sr=sr, rmscurve=rmscurve)
 
+        if removeSustain:
+            from maelzel.snd.deverb import removeSustain
+            samples = removeSustain(samples=samples, sr=sr,
+                                    fftsize=fftSize,
+                                    overlap=overlap,
+                                    onsets=onsets)
+
+        if minFrequency > 100:
+            from maelzel.snd import filters
+            samples = filters.spectralFilter(samples, sr=sr, pairs=[0, 0, minFrequency, 0, minFrequency+1, 1, sr, 1])
+
         f0, voicedcurve = freqestimate.f0curvePyinVamp(sig=samples,
                                                        sr=sr,
                                                        fftsize=fftSize,
@@ -215,9 +233,10 @@ class FundamentalAnalysisMono:
         # Algorithm:
         # * for each onset calculate an offset
         # * if there is an offset, sample f0 between onset and offset and simplify. Both onset and
-        #   offset should be included in the simplification
+        #   * offset should be included in the simplification
         # * if there is no offset, sample f0 between onset and next onset and simplify.
-        #   The next onset should NOT be part of the group
+        #   * The next onset should NOT be part of the group
+        #   * TODO: decide what to do for static notes
         # * In both cases, do not simplify if the duration between onset-offset (or onset and next
         #   onset) is less than minDuration. In this case make a group with just the onset breakpoint
 
@@ -239,7 +258,7 @@ class FundamentalAnalysisMono:
             first = group[0]
             first.kind = 'onset'
             first.isaccent = bool(first.onsetStrength > accentStrength)
-            if simplify:
+            if simplify > 0:
                 group = simplifyBreakpoints(group,
                                             method=simplificationMethod,
                                             param=simplify,
@@ -247,7 +266,7 @@ class FundamentalAnalysisMono:
             group[-1].linked = False
             return group
 
-        groups: list[list[Breakpoint]] = []
+        groups: list[BreakpointGroup] = []
         for i, onset, offset in zip(range(len(onsets)), onsets, offsets):
             if offset > 0:
                 # There is an offset, sample f0 between onset and offset and simplify.
@@ -274,11 +293,14 @@ class FundamentalAnalysisMono:
                        for bp in group):
                     continue
 
-            groups.append(group)
+            groups.append(BreakpointGroup(group))
 
         # TODO: minSilence - remove short silences between breakpoints within a group
 
-        self.groups: list[list[Breakpoint]] = groups
+        self.sample = audiosample.Sample(samples, sr=sr)
+        """Sample holding the samples used for this analysis"""
+
+        self.groups: list[BreakpointGroup] = groups
         """Each group is a list of Breakpoints representing a note"""
 
         self.rms = rmscurve
@@ -316,12 +338,40 @@ class FundamentalAnalysisMono:
 
     def _repr_html_(self):
         import tabulate
-        columnnames = self.groups[0][0].fields()
+        columnnames = Breakpoint.fields()
         rows = [_astuple(bp) for bp in self.flatBreakpoints()]
         html = tabulate.tabulate(rows, tablefmt='html', headers=columnnames, floatfmt=".4f")
         return html
 
-    def plot(self, linewidth=2, axes=None, spanAlpha=0.2):
+    def play(self, voicedInstr='saw', unvoicedInstr='.bandnoise', unvoicedbw=0.9,
+             unvoicedGain=0.):
+        from maelzel.core import Note, Voice, defPreset
+        defPreset('.bandnoise', r'''
+            |kbw=0.9|
+            aout1 = beosc(kfreq, kbw) * a(kamp)
+        ''')
+        notes = []
+        struct = ScoreStruct(tempo=60)
+        for b0, b1 in iterlib.pairwise(self.flatBreakpoints()):
+            assert b0.time + b0.duration <= b1.time, f"{b0=}, {b1=}"
+            if b0.voiced:
+                n = Note(self._pitchconv.f2m(b0.freq), offset=struct.t2b(b0.time), dur=b0.duration,
+                         tied=b0.linked, gliss=b0.linked)
+                n.setPlay(instr=voicedInstr)
+                notes.append(n)
+            elif unvoicedGain > 0:
+                if b0.linked:
+                    dur = b0.duration
+                else:
+                    dur = min(b0.duration, 0.1)
+                n = Note(self._pitchconv.f2m(b0.freq), offset=struct.t2b(b0.time),
+                         dur=dur, tied=b0.linked, gliss=b0.linked)
+                n.setPlay(instr=unvoicedInstr, kbw=unvoicedbw, gain=unvoicedGain)
+                notes.append(n)
+        v = Voice(notes)
+        v.play()
+
+    def plot(self, linewidth=2, axes=None, spanAlpha=0.2, onsetAlpha=0.4, spanColor='red') -> plt.Axes:
         """
         Plot the breakpoints of this analysis
 
@@ -330,21 +380,20 @@ class FundamentalAnalysisMono:
             axes: if given, a pyplot Axes instance to plot on
             spanAlpha: the alpha value for the axvspan used to mark the
                 onset-offset regions
+            onsetAlpha: alpha value for onset lines
+            spanColor: color for onset-offset span
 
+        Returns:
+            the axes used
         """
-        import matplotlib.pyplot as plt
         if not axes:
+            import matplotlib.pyplot as plt
             axes = plt.axes()
+
         for group in self.groups:
-            times = [bp.time for bp in group]
-            freqs = [bp.freq for bp in group]
-            axes.plot(times, freqs, linewidth=linewidth)
-            t0 = group[0].time
-            if len(group) > 1:
-                t1 = group[-1].time
-                axes.axvspan(t0, t1, alpha=spanAlpha, color='red')
-            else:
-                axes.axvline(t0, color='red')
+            group.plot(ax=axes, linewidth=linewidth, spanAlpha=spanAlpha, onsetAlpha=onsetAlpha, spanColor=spanColor)
+
+        return axes
 
     def simplify(self, algorithm='visvalingam', threshold=0.05) -> None:
         """Simplify the breakpoints inside each group, inplace
@@ -380,6 +429,8 @@ class FundamentalAnalysisMono:
         """
         if options is None:
             options = TranscriptionOptions()
+        else:
+            options = options.copy()
 
         options.unvoicedMinAmpDb = min(self.dbHistogram.percentileToValue(0.05),
                                        options.unvoicedMinAmpDb)
@@ -401,7 +452,7 @@ class FundamentalAnalysisMono:
         return voice
 
 
-def transcribeVoice(groups: list[list[Breakpoint]],
+def transcribeVoice(groups: list[list[Breakpoint]] | list[BreakpointGroup],
                     scorestruct: ScoreStruct = None,
                     options: TranscriptionOptions | None = None,
                     ) -> Voice:
@@ -419,6 +470,8 @@ def transcribeVoice(groups: list[list[Breakpoint]],
 
     """
     from maelzel.core import Note, Voice, getScoreStruct
+    from maelzel.core import symbols
+
     if scorestruct is None:
         scorestruct = getScoreStruct()
 
@@ -456,9 +509,9 @@ def transcribeVoice(groups: list[list[Breakpoint]],
             note = Note(pitch, amp=bp1.amp, offset=offset, dur=end - offset, gliss=options.addGliss)
             note.setProperty('voiced', bp1.voiced)
             if not bp1.voiced and options.unvoicedNotehead:
-                note.addSymbol('notehead', options.unvoicedNotehead)
+                note.addSymbol(symbols.Notehead(options.unvoicedNotehead))
             if options.addAccents and bp1.isaccent:
-                note.addSymbol('articulation', 'accent')
+                note.addSymbol('accent')
             if pitch == unvoicedPitch:
                 note.setProperty('unvoicedGroup', True)
                 note.gliss = False

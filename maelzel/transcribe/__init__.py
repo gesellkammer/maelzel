@@ -1,5 +1,5 @@
 from .breakpoint import *
-from .mono import FundamentalAnalysisMono
+from .mono import FundamentalAnalysisMonophonic
 from .options import TranscriptionOptions
 
 

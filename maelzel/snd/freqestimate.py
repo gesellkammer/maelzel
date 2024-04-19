@@ -212,7 +212,7 @@ def f0curvePyinVamp(sig: np.ndarray,
                     sr: int,
                     fftsize=2048,
                     overlap=4,
-                    lowAmpSuppression=0.1,
+                    lowAmpSuppression=0.01,
                     onsetSensitivity=0.7,
                     pruneThreshold=0.1,
                     threshDistr='beta15',
@@ -227,7 +227,7 @@ def f0curvePyinVamp(sig: np.ndarray,
         sr: the sr
         fftsize: with sizes lower than 2048 the result might be unstable
         overlap: hop size as fftsize//overlap
-        lowAmpSuppression: supress low amplitude pitch estimates
+        lowAmpSuppression: supress low amplitude pitch estimates, 0.01=-40dB, 0.001=-60dB
         onsetSensitivity: onset sensitivity
         pruneThreshold: totalDuration pruning threshold
         threshDistr: yin threshold distribution (see table below) - One of

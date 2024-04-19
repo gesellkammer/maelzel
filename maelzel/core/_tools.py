@@ -468,11 +468,14 @@ def parseNote(s: str, check=True) -> NoteProperties:
     if check:
         if isinstance(notename, list):
             for n in notename:
+                if n[-1] == '!':
+                    n = n[:-1]
                 if not pt.is_valid_notename(n, minpitch=0):
                     raise ValueError(f"Invalid notename '{n}' while parsing '{s}'")
         else:
-            if not pt.is_valid_notename(notename):
-                raise ValueError(f"Invalid notename '{notename}' while parsing '{s}'")
+            n = notename if notename[-1] != '!' else notename[:-1]
+            if not pt.is_valid_notename(n):
+                raise ValueError(f"Invalid notename '{n}' while parsing '{s}'")
     return NoteProperties(notename=notename, dur=dur, keywords=properties,
                           symbols=symbols, spanners=spanners)
 

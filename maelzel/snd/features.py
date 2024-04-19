@@ -152,6 +152,7 @@ def onsets(samples: np.ndarray,
         hopsize: samples to skip between windows
         threshold: the delta needed to trigger an onset
         mingap: min. time gap between onsets
+        backtrack: detected onsets are backtracked to the nearest energy minimum
 
     Returns:
         a tuple (onset array, onset strength bpf)

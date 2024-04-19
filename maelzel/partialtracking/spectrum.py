@@ -208,14 +208,19 @@ class Spectrum:
         return Spectrum(self.partials.copy(), indexTimeResolution=self._indexTimeResolution)
 
     def __deepcopy__(self, memodict={}):
-        return self.__copy__()
+        return Spectrum([p.copy() for p in self.partials], indexTimeResolution=self._indexTimeResolution)
 
     def __add__(self, other):
         if isinstance(other, Spectrum):
             return Spectrum(self.partials + other.partials)
 
     def copy(self) -> Spectrum:
-        """Copy this Spectrum"""
+        """
+        Copy this Spectrum
+
+        This performs a shallow copy since Partials are considered immutable
+        do ``Spectrum(self.partials.copy())``
+        """
         return self.__deepcopy__()
 
     @property
@@ -404,6 +409,30 @@ class Spectrum:
         partials = [p.timeTransform(transform) for p in self.partials]
         return Spectrum(partials)
 
+    def scale(self, freqfactor=1., ampfactor=1., bwfactor=1., timefactor=1., timeref=0.,
+              freqbias=0., timebias=0.,
+              ) -> Self:
+        """
+        Apply a scaling factor to one or multiple parameters
+
+        Args:
+            freqfactor: frequency factor
+            ampfactor: amplitude factor
+            bwfactor: bandwidth factor
+            timefactor: time factor
+            timeref: time reference (this point remains invariant)
+            freqbias: an offset to add to all frequencies
+            timebias: an offset to add to all times
+
+        Returns:
+            the modified Spectrum
+        """
+        partials = [p.scale(freqfactor=freqfactor, ampfactor=ampfactor, timefactor=timefactor,
+                            bwfactor=bwfactor,
+                            timeref=timeref, freqbias=freqbias, timebias=timebias)
+                    for p in self.partials]
+        return Spectrum(partials)
+
     def timeScale(self, factor: float, reference=0.) -> Spectrum:
         """
         Scale the times of this Spectrum
@@ -453,8 +482,13 @@ class Spectrum:
         partials = [p.freqTransform(transform) for p in self]
         return self.clone(partials=partials)
 
-    def synthesize(self, sr=44100, start=0., end=0., fadetime: float | None = None,
-                   gain=1.
+    def synthesize(self,
+                   sr=44100,
+                   start=0.,
+                   end=0.,
+                   fadetime: float | None = None,
+                   gain=1.,
+                   speed=1.,
                    ) -> audiosample.Sample:
         """
         Synthesize the partials as audio samples
@@ -463,35 +497,80 @@ class Spectrum:
             sr: the samplerate
             start: start time of synthesis.
             end: end time of synthesis.
+            speed: playback speed (does not affect pitch)
             fadetime: any partial starting or ending at a non-zero amplitude will
                 be faded in or out using this fadetime to avoid clicks.
                 Use None to use a default
             gain: a gain factor applied to all amplitudes
 
         Returns:
-            the generated samples as a numpy array.
+            the generated samples as a :class:`maelzel.snd.audiosample.Sample`
 
         Example
         ~~~~~~~
 
             >>> from maelzel.partialtracking import spectrum
-            >>> from sndfileio import *
             >>> samples, sr = sndread("path/to/soundfile.wav")
             >>> sp = spectrum.analyze(samples, sr=sr, resolution=50)
             >>> resynthesized = sp.synthesize()
-            >>> sndwrite("resynth.wav", samples, sr=sr)
+            >>> resynthesized.write("resynth.wav")
 
         """
+        writable = False
+        if speed != 1:
+            if speed <= 0:
+                raise ValueError(f"Invalid speed: {speed}")
+            self = self.timeScale(1/speed)
+            writable = True
+
         if end == 0:
             end = -1
+
         arrays = [p.data for p in self.partials]
         if gain != 1.:
-            arrays = [arr.copy() for arr in arrays]
+            if not writable:
+                arrays = [arr.copy() for arr in arrays]
+                writable = True
             for arr in arrays:
                 arr[:, 2] *= gain
+
         samples = lt.synthesize(arrays, samplerate=sr, start=start, end=end,
                                 fadetime=fadetime if fadetime is not None else -1)
         return audiosample.Sample(samples, sr=sr)
+
+    def rec(self,
+            outfile='?',
+            sr=44100,
+            start=0.,
+            end=0.,
+            fadetime: float | None = None,
+            speed=1.,
+            gain=1.,
+            ) -> audiosample.Sample:
+        """
+        Synthesize and write this spectrum to outfile
+
+        Args:
+            outfile: the soundfile to write to
+            sr: the samplerate
+            start: start time of synthesis.
+            end: end time of synthesis.
+            speed: playback speed (does not affect pitch)
+            fadetime: any partial starting or ending at a non-zero amplitude will
+                be faded in or out using this fadetime to avoid clicks.
+                Use None to use a default
+            gain: a gain factor applied to all amplitudes
+
+        Returns:
+            the samples synthesized as a :class:`maelzel.snd.audiosample.Sample`
+
+        .. seealso:: :meth:`Spectrum.synthesize`, :meth:`Spectrum.play`
+        """
+        sample = self.synthesize(sr=sr, start=start, end=end,
+                                 fadetime=fadetime, gain=gain,
+                                 speed=speed)
+        sample.write(outfile=outfile)
+        return sample
 
     def play(self,
              speed=1.,
@@ -666,8 +745,8 @@ class Spectrum:
                minpercentile=0.,
                loudnessCompensation=True,
                numbands=5,
-               maxbandwidth=1.,
-               minbandwidth=0.,
+               maxbw=1.,
+               minbw=0.,
                banddistribution=0.7
                ) -> tuple[Spectrum, Spectrum]:
         """
@@ -684,8 +763,8 @@ class Spectrum:
             numbands: only relevant if minpercentile > 0. If greater than 1, the
                 spectrum is first split into bands and the min. percentile is applied
                 to each band. `banddistribution` determines the weighting of the bands
-            maxbandwidth: the maximum bandwidth (noisyness) for a partial to be selected
-            minbandwidth: the minimum bandwidth (noisyness) for a partial to be selected
+            maxbw: the maximum bandwidth (noisyness) for a partial to be selected
+            minbw: the minimum bandwidth (noisyness) for a partial to be selected
             banddistribution: the weight distribution of the bands. A value below
                 1 will compress the weight on the lower part of the spectrum, while
                 a value higher than 1 will give more weight to the upper part of the
@@ -720,8 +799,8 @@ class Spectrum:
                                                  minbreakpoints=minbreakpoints,
                                                  minpercentile=minpercentile,
                                                  loudnessCompensation=loudnessCompensation,
-                                                 minbandwidth=minbandwidth,
-                                                 maxbandwidth=maxbandwidth)
+                                                 minbw=minbw,
+                                                 maxbw=maxbw)
                 allselected.extend(selected)
                 allresidual.extend(residual)
             return Spectrum(allselected), Spectrum(allresidual)
@@ -742,7 +821,7 @@ class Spectrum:
                     minfreq <= freq <= maxfreq and
                     partial.duration >= mindur and
                     len(partial) >= minbreakpoints and
-                    minbandwidth <= partial.meanbw() < maxbandwidth and
+                    minbw <= partial.meanbw() < maxbw and
                     energyfunc(partial) >= minenergy):
                 selected.append(partial)
             else:

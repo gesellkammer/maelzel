@@ -279,6 +279,41 @@ class Partial:
         """
         return self.withFreqs(transform(self.freqs))
 
+    def scale(self, freqfactor=1., ampfactor=1., bwfactor=1., timefactor=1., timeref=0.,
+              freqbias=0., timebias=0.,
+              ) -> Self:
+        """
+        Apply a scaling factor to one or multiple parameters
+
+        Args:
+            freqfactor: frequency factor
+            ampfactor: amplitude factor
+            bwfactor: bandwidth factor
+            timefactor: time factor
+            timeref: time reference (this point remains invariant)
+            freqbias: an offset to add to all frequencies
+            timebias: an offset to add to all times
+
+        Returns:
+            the modified Partial
+        """
+        data = self.data.copy()
+        if freqfactor != 1.:
+            data[:, 1] *= freqfactor
+        if freqbias != 0:
+            data[:, 0] += freqbias
+        if ampfactor != 1.:
+            data[:, 2] *= ampfactor
+        if bwfactor != 1.:
+            data[:, 4] *= bwfactor
+        if timefactor != 1.:
+            data[:, 0] *= timefactor
+            data[:, 0] -= timeref * (timefactor + 1)
+        if timebias != 0.:
+            data[:, 0] += timebias * timefactor
+
+        return Partial(data)
+
     def withFreqs(self, freqs: np.ndarray) -> Partial:
         """
         A copy of this Partial with new frequencies
@@ -383,7 +418,7 @@ class Partial:
         return self.__copy__()
 
     def copy(self) -> Partial:
-        """Copy this Partial"""
+        """Copy this Partial. This performs a deep copy"""
         return self.__copy__()
 
     def crop(self, start: float, end: float) -> Partial | None:

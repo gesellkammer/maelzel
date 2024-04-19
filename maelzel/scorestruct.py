@@ -1998,8 +1998,8 @@ class ScoreStruct:
         return [self.getMeasureDef(idx=i) for i in range(idx0, idx1)]
 
     def timeDelta(self,
-                  start: num_t | tuple[int, num_t],
-                  end: num_t | tuple[int, num_t]
+                  start: beat_t,
+                  end: beat_t
                   ) -> F:
         """
         Returns the elapsed time between two beats or score locations.

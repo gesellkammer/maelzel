@@ -1,11 +1,18 @@
 from __future__ import annotations
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, astuple
 import pitchtools as pt
-from typing import Callable
+from emlib import iterlib
+from typing import Callable, Iterator, TYPE_CHECKING
+import numpy as np
+
+
+if TYPE_CHECKING:
+    import matplotlib.pyplot as plt
 
 
 __all__ = (
     'Breakpoint',
+    'BreakpointGroup',
     'simplifyBreakpoints',
     'simplifyBreakpointsByDensity',
 )
@@ -48,8 +55,9 @@ class Breakpoint:
     def __post_init__(self):
         assert self.freq >= 0
 
-    def fields(self) -> list[str]:
-        return [field.name for field in fields(self)]
+    @classmethod
+    def fields(cls) -> list[str]:
+        return [field.name for field in fields(cls)]
 
     def setProperty(self, key: str, value) -> None:
         if self.properties is None:
@@ -63,7 +71,7 @@ class Breakpoint:
         return self.properties.get(key, default)
 
 
-def simplifyBreakpointsByDensity(breakpoints: list[Breakpoint],
+def simplifyBreakpointsByDensity(breakpoints: list[Breakpoint] | BreakpoimtGroup,
                                  maxdensity=0.05,
                                  pitchconv: pt.PitchConverter | None = None
                                  ) -> list[Breakpoint]:
@@ -108,7 +116,7 @@ def simplifyBreakpointsByDensity(breakpoints: list[Breakpoint],
     return simplifyBreakpoints(breakpoints, param=threshold, pitchconv=pitchconv)
 
 
-def simplifyBreakpoints(breakpoints: list[Breakpoint],
+def simplifyBreakpoints(breakpoints: list[Breakpoint] | BreakpointGroup,
                         method='visvalingam',
                         param=0.1,
                         pitchconv: pt.PitchConverter | None = None
@@ -131,12 +139,127 @@ def simplifyBreakpoints(breakpoints: list[Breakpoint],
     else:
         raise ValueError(f"Method {method} not supported")
 
-    def matchBreakpoint(t: float, breakpoints: list[Breakpoint], eps=1e-10) -> Breakpoint:
+    def matchBreakpoint(t: float, breakpoints: list[Breakpoint] | BreakpointGroup, eps=1e-10
+                        ) -> Breakpoint:
         bp = next((bp for bp in breakpoints if abs(bp.time - t) < eps), None)
         if bp is None:
             raise ValueError(f"Breakpoint not found for t = {t}")
         return bp
 
     return [matchBreakpoint(t, breakpoints) for t, p in simplified]
+
+
+class BreakpointGroup:
+    """
+    A list of breakpoints representing a note
+
+    Args:
+        breakpoint: a list of breakpoints
+    """
+    def __init__(self, breakpoints: list[Breakpoint]):
+        self.breakpoints = breakpoints
+
+    def __iter__(self) -> Iterator[Breakpoint]:
+        return iter(self.breakpoints)
+
+    def __len__(self) -> int:
+        return len(self.breakpoints)
+
+    def __getitem__(self, item):
+        return self.breakpoints.__getitem__(item)
+
+    def __repr__(self):
+        return (f"Group(start={self.start():.6g}, end={self.end():.6g}, meanfreq={self.meanfreq():.5g}, "
+                f"breakpoints={self.breakpoints}")
+
+    def start(self) -> float:
+        """Start time of this group"""
+        return self.breakpoints[0].time
+
+    def end(self) -> float:
+        """End time of this group"""
+        return self.breakpoints[-1].time
+
+    def duration(self) -> float:
+        """The duration of this group"""
+        return self.breakpoints[-1].time - self.breakpoints[0].time
+
+    def meanfreq(self, weighted=True) -> float:
+        """Mean frequency of this group
+
+        Args:
+            weighted: weight the frequency by the breakpoints energy
+
+        Returns:
+              the average frequency
+        """
+        if len(self.breakpoints) == 1:
+            return self.breakpoints[0].freq
+        elif not weighted:
+            return sum(b.freq for b in self.breakpoints) / len(self.breakpoints)
+        else:
+            weights, freqs = 0, 0
+            for b0, b1 in iterlib.pairwise(self.breakpoints):
+                dur = b1.time - b0.time
+                weight = (b0.amp + b1.amp) / 2 * dur
+                freqs += b0.freq * weight
+                weights += weight
+            return freqs / weights
+
+    def meanamp(self, weighted=True) -> float:
+        """
+        Average amplitude of this group
+
+        Args:
+            weighted: weight the amplitude by the duration of the breakpoint
+
+        Returns:
+            the average amplitude, optionally weighted
+        """
+        if not weighted:
+            return sum(b.amp for b in self.breakpoints)
+        else:
+            weights, amps = 0., 0.
+            for b0, b1 in iterlib.pairwise(self.breakpoints):
+                weight = b0.amp * (b1.time - b0.time)
+                amps += b0.amp * weight
+                weights += weight
+            return amps / weights
+
+    def times(self) -> list[float]:
+        return [bp.time for bp in self.breakpoints]
+
+    def freqs(self) -> list[float]:
+        return [bp.freq for bp in self.breakpoints]
+
+    def _repr_html_(self):
+        import tabulate
+        columnnames = Breakpoint.fields()
+        rows = [astuple(bp) for bp in self.breakpoints]
+        html = tabulate.tabulate(rows, tablefmt='html', headers=columnnames, floatfmt=".4f")
+        return html
+
+    def plot(self, ax: plt.Axes, spanAlpha=0.2, linewidth=2, onsetAlpha=0.4, spanColor='red') -> None:
+        """
+        Plot this group
+
+        Args:
+            ax: the axes to plot onto
+            spanColor: color used for axvspan and onset marks
+            spanAlpha: alpha used for axvspan used to mark onset-offset regions
+            linewidth: line width for the breakpoints
+            onsetAlpha: alpha for onset marks
+
+        """
+        times = self.times()
+        freqs = self.freqs()
+        ax.plot(times, freqs, linewidth=linewidth)
+        t0 = self.start()
+        if len(self) > 1:
+            t1 = self.end()
+            ax.axvspan(t0, t1, alpha=spanAlpha, color=spanColor)
+        ax.axvline(t0, color=spanColor, alpha=onsetAlpha)
+        ax.plot(times, freqs)
+
 
 

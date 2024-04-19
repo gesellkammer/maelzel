@@ -205,7 +205,8 @@ class Clip(event.MEvent):
         if offset is not None:
             offset = asF(offset)
 
-        super().__init__(offset=offset, dur=dur, label=label)
+        super().__init__(offset=offset, dur=F0, label=label)
+        self._calculateDuration()
 
     @property
     def sr(self) -> float:
@@ -294,24 +295,6 @@ class Clip(event.MEvent):
     def pitchRange(self) -> tuple[float, float]:
         return (self.pitch, self.pitch)
 
-    def _durationInBeats(self,
-                         absoffset: F | None = None,
-                         scorestruct: ScoreStruct = None) -> F:
-        """
-        Calculate the duration in beats without considering looping or explicit duration
-
-        Args:
-            scorestruct: the score structure
-
-        Returns:
-            the duration in quarternotes
-        """
-        absoffset = absoffset if absoffset is not None else self.absOffset()
-        struct = scorestruct or self.scorestruct() or Workspace.getActive().scorestruct
-        starttime = struct.beatToTime(absoffset)
-        endbeat = struct.timeToBeat(starttime + self.durSecs())
-        return endbeat - absoffset
-
     @property
     def dur(self) -> F:
         "The duration of this Clip, in quarter notes"
@@ -319,21 +302,32 @@ class Clip(event.MEvent):
             return self._explicitDur
 
         absoffset = self.absOffset()
-        struct = self.scorestruct() or Workspace.getActive().scorestruct
+        struct = self.scorestruct(resolve=True)
 
-        if self._dur is not None and self._durContext is not None:
+        if self._dur and self._durContext is not None:
             cachedstruct, cachedbeat = self._durContext
             if struct is cachedstruct and cachedbeat == absoffset:
                 return self._dur
 
-        dur = self._durationInBeats(absoffset=absoffset, scorestruct=struct)
+        self._calculateDuration(absoffset=absoffset, struct=struct)
+        return self._dur
+
+    def _calculateDuration(self, absoffset: F = None, struct: ScoreStruct = None
+                           ) -> None:
+        if absoffset is None:
+            absoffset = self.absOffset()
+        if struct is None:
+            struct = self.scorestruct(resolve=True)
+        dur = struct.beatDelta(absoffset, absoffset + self.durSecs())
         self._dur = dur
         self._durContext = (struct, absoffset)
-        return dur
 
     def __repr__(self):
-        return (f"Clip(source={self.source}, numChannels={self.numChannels}, sr={self.sr}, "
-                f"dur={self.dur}, sourcedursecs={_util.showT(self.sourceDurSecs)}secs)")
+        return (f"Clip(source={self.source}, "
+                f"numChannels={self.numChannels}, "
+                f"sr={self.sr}, "
+                f"dur={_util.showT(self.dur)}, "
+                f"sourcedur={_util.showT(self.sourceDurSecs)}s)")
 
     def _synthEvents(self,
                      playargs: PlayArgs,

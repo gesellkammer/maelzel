@@ -99,8 +99,10 @@ _matplotlib_cmaps = [
 def plotPowerSpectrum(samples: np.ndarray,
                       samplerate: int,
                       framesize=2048,
-                      window: Union[str, tuple[str, float]] = ('kaiser', 9)
-                      ) -> None:
+                      window: Union[str, tuple[str, float]] = ('kaiser', 9),
+                      axes: plt.Axes = None,
+                      figsize=(24, 4)
+                      ) -> plt.Axes:
     """
     Plot the power spectrum of a sound
 
@@ -111,12 +113,17 @@ def plotPowerSpectrum(samples: np.ndarray,
         window: As passed to scipy.signal.get_window. One of "blackman", "hamming", "hann",
             "bartlett", "flattop", "parzen", "bohman", "blackmanharris", "nuttall", "barthann", "kaiser" (needs beta),
             "gaussian" (needs standard deviation)
+        axes: the axes to plot to
 
     """
+    if axes is None:
+        f: plt.Figure = plt.figure(figsize=figsize)
+        axes:plt.Axes = f.add_subplot(1, 1, 1)
+
     from scipy import signal
     w = signal.get_window(window, framesize)
-    return plt.psd(samples, framesize, samplerate, window=lambda s, w=w: s*w)
-
+    axes.psd(samples, NFFT=framesize, Fs=samplerate, window=lambda s, w=w: s*w)
+    return axes
 
 
 def _envelope(x, hop):
@@ -320,10 +327,10 @@ def plotWaveform(samples,
         return fig.axes
     elif profile == 'low':
         maxpoints, maxsr = 600, 20
-    elif profile == 'medium':
+    elif profile == 'medium' or profile == 'middle':
         maxpoints, maxsr = 1200, 40
     else:
-        raise ValueError("preset should be one of 'low', 'medium' or 'highest'")
+        raise ValueError("preset should be one of 'low', 'medium', 'high' or 'highest'")
 
     targetsr = samplerate
     numch = numChannels(samples)

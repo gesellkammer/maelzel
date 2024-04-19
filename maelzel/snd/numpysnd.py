@@ -38,7 +38,7 @@ def rms(arr: np.ndarray) -> float:
     return sqrt(np.sum(arr) / len(arr))
 
 
-def rmsbpf(samples: np.ndarray, sr:int, dt=0.01, overlap=1) -> bpf4.core.Sampled:
+def rmsbpf(samples: np.ndarray, sr: int, dt=0.01, overlap=1) -> bpf4.core.Sampled:
     """
     Return a bpf representing the rms of this sample as a function of time
 
@@ -49,7 +49,7 @@ def rmsbpf(samples: np.ndarray, sr:int, dt=0.01, overlap=1) -> bpf4.core.Sampled
         overlap: overlap of analysis frames
 
     Returns:
-        a samples bpf
+        a Sampled bpf mapping time to rms
     """
     s = samples
     period = int(sr * dt + 0.5)
@@ -308,6 +308,29 @@ def _lastSound(samples: np.ndarray, samplerate:int, threshold:float=-120, resolu
         if rms(chunk) > minamp:
             return frame0 / samplerate
     return 0
+
+
+def normalizeByMaxPeak(samples: np.ndarray, maxdb=0., out: np.ndarray = None
+                       ) -> np.ndarray:
+    """
+    Normalize samples by maximum peak
+
+    Args:
+        samples: the samples to normalize
+        maxdb: maximum peak in dB
+        out: where to place the results. Can be the input samples
+            itself, it which case the operation is performed in place
+
+    Returns:
+        the normalized samples
+
+    """
+    ratio = normalizationRatio(samples, maxdb=maxdb)
+    if out is not None:
+        out *= ratio
+        return out
+    else:
+        return samples * ratio
 
 
 def normalizationRatio(samples: np.ndarray, maxdb=0.) -> float:

@@ -197,6 +197,14 @@ builtinPresets = [
     ),
 
     PresetDef(
+        '.bandnoise',
+        code=r'''
+        |kbw=0.9|
+        aout1 = beosc(kfreq, kbw) * a(kamp)
+        '''
+    ),
+
+    PresetDef(
         '.sing', description="Simple vowel singing simulation",
         init=r"""
         gi__formantFreqs__[] fillarray \

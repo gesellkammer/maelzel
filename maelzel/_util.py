@@ -9,6 +9,7 @@ import emlib.misc
 from maelzel.common import F
 import functools
 import appdirs
+import logging
 
 
 from typing import Callable, Sequence, TYPE_CHECKING
@@ -98,6 +99,7 @@ def reprObj(obj,
 def fuzzymatch(query: str, choices: Sequence[str], limit=5
                ) -> list[tuple[str, int]]:
     """
+    Fuzzy matching
 
     Args:
         query: query to match
@@ -114,10 +116,31 @@ def fuzzymatch(query: str, choices: Sequence[str], limit=5
     return thefuzz.process.extract(query, choices=choices, limit=limit)
 
 
-def checkChoice(name: str, s: str, choices: Sequence[str], threshold=8):
+def checkChoice(name: str, s: str, choices: Sequence[str], maxSuggestions=12, throw=True, logger: logging.Logger=None
+                ) -> bool:
+    """
+    Check than `name` is one of `choices`
+
+    Args:
+        name: what are we checking, used for error messages
+        s: the value to check
+        choices: possible choices
+        maxSuggestions: possible choices shown when s does not match any
+        throw: throw an exception if no match
+        logger: if given, any error will be logged using this logger
+
+    Returns:
+        True if a match was found, False otherwise
+    """
     if s not in choices:
-        if len(choices) > threshold:
-            matches = fuzzymatch(s, choices, limit=20)
+        if logger:
+            logger.error(f"Invalud value '{s}' for {name}, possible choices: {sorted(choices)}")
+
+        if not throw:
+            return False
+
+        if len(choices) > 8:
+            matches = fuzzymatch(s, choices, limit=maxSuggestions)
             raise ValueError(f'Invalid value "{s}" for {name}, maybe you meant "{matches[0][0]}"? '
                              f'Other possible choices: {[m[0] for m in matches]}')
         else:
@@ -161,8 +184,8 @@ def showF(f: F, maxdenom=1000) -> str:
 
     """
     if f.denominator > maxdenom:
-        f2 = f.limit_denominator(maxdenom)
-        return "*%d/%d" % (f2.numerator, f2.denominator)
+        num, den = limitDenominator(f.numerator, f.denominator, maxden=maxdenom)
+        return f"~{num}/{den}"
     return "%d/%d" % (f.numerator, f.denominator)
 
 
@@ -413,3 +436,35 @@ def intersectF(u1: F, u2: F, v1: F, v2: F) -> tuple[F, F] | None:
     x0 = u1 if u1 > v1 else v1
     x1 = u2 if u2 < v2 else v2
     return (x0, x1) if x0 < x1 else None
+
+
+def limitDenominator(num: int, den: int, maxden: int) -> tuple[int, int]:
+    """
+    Copied from https://github.com/python/cpython/blob/main/Lib/fractions.py
+    """
+    if maxden < 1:
+        raise ValueError("max_denominator should be at least 1")
+    if den <= maxden:
+        return num, den
+
+    p0, q0, p1, q1 = 0, 1, 1, 0
+    n, d = num, den
+    while True:
+        a = n // d
+        q2 = q0 + a * q1
+        if q2 > maxden:
+            break
+        p0, q0, p1, q1 = p1, q1, p0 + a * p1, q2
+        n, d = d, n - a * d
+    k = (maxden - q0) // q1
+
+    # Determine which of the candidates (p0+k*p1)/(q0+k*q1) and p1/q1 is
+    # closer to self. The distance between them is 1/(q1*(q0+k*q1)), while
+    # the distance from p1/q1 to self is d/(q1*self._denominator). So we
+    # need to compare 2*(q0+k*q1) with self._denominator/d.
+    if 2 * d * (q0 + k * q1) <= den:
+        return p1, q1
+    else:
+        return p0 + k * p1, q0 + k * q1
+
+

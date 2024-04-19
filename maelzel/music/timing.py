@@ -1,5 +1,7 @@
 from __future__ import annotations
 import warnings
+
+from maelzel import _util
 from maelzel.common import *
 
 from emlib import iterlib 
@@ -12,8 +14,7 @@ if TYPE_CHECKING:
     from numbers import Real as  number_t
 
 
-
-def measureDuration(timesig: Union[str, timesig_t], tempo: number_t) -> F:
+def measureDuration(timesig: str | timesig_t, tempo: number_t) -> F:
     """
     calculate the duration of a given measure with the given tempo
 
@@ -22,6 +23,10 @@ def measureDuration(timesig: Union[str, timesig_t], tempo: number_t) -> F:
         tempo:   a tempo value corresponding to the denominator of the time
                  signature
 
+    Returns:
+        the measure duration corresponding to the time signature and tempo
+        
+        
     Examples
     ~~~~~~~~
 
@@ -53,8 +58,8 @@ def measureDuration(timesig: Union[str, timesig_t], tempo: number_t) -> F:
 
 
 @returns_tuple("linear2framed framed2linear")
-def framedTime(offsets: List[number_t], durations: List[number_t]
-               ) -> Tuple[bpf.BpfInterface, bpf.BpfInterface]:
+def framedTime(offsets: list[number_t], durations: list[number_t]
+               ) -> tuple[bpf.BpfInterface, bpf.BpfInterface]:
     """
     Returns two bpfs to convert a value between linear and framed coords, and viceversa
 
@@ -121,40 +126,39 @@ def _force_sorted(xs):
     return out
 
 
-def findNearestDuration(dur, possibleDurations: List[T], direction="<>") -> T:
-    """
-    Args:
-        dur: a Dur or a float (will be converted to Dur via .fromfloat)
-        possibleDurations: a seq of Durs
-        direction: "<"  -> find a dur from possible_durations which is lower than dur
-                   ">"  -> find a dur from possible_durations which is higher than dur
-                   "<>" -> find the nearest dur in possibleDurations
-
-    Example
-    ~~~~~~~
-
-    >>> possible_durations = [0.5, 0.75, 1]
-    >>> findNearestDuration(0.61, possibleDurations, "<>")
-    0.5
-
-    """
-    possdurs = sorted(possibleDurations, key=lambda d: float(d))
-    inf = float("inf")
-    if dur < possibleDurations[0]:
-        return possibleDurations[0] if direction != "<" else None
-    elif dur > possibleDurations[-1]:
-        return possibleDurations[-1] if direction != ">" else None
-    if direction == "<":
-        nearest = sorted(possdurs, key=lambda d:abs(dur - d) if d < dur else inf)[0]
-        return nearest if nearest < inf else None
-    elif direction == ">":
-        nearest = sorted(possdurs, key=lambda d:abs(dur - d) if d > dur else inf)[0]
-        return nearest if nearest < inf else None
-    elif direction == "<>":
-        nearest = sorted(possdurs, key=lambda d:abs(dur - d))[0]
-        return nearest
-    else:
-        raise ValueError("direction should be one of '>', '<', or '<>'")
+# def findNearestDuration(dur, possibleDurations: list[number_t], direction="<>") -> number_t:
+#     """
+#     Args:
+#         dur: a Dur or a float (will be converted to Dur via .fromfloat)
+#         possibleDurations: a seq of Durs
+#         direction: "<" = find a dur from possibleDurations which is lower than dur; ">" = find a dur from
+#             possibleDurations which is higher than dur; "<>" = find the nearest dur in possibleDurations
+#
+#     Example
+#     ~~~~~~~
+#
+#     >>> possible_durations = [0.5, 0.75, 1]
+#     >>> findNearestDuration(0.61, possibleDurations, "<>")
+#     0.5
+#
+#     """
+#     possdurs = sorted(possibleDurations, key=lambda d: float(d))
+#     inf = float("inf")
+#     if dur < possibleDurations[0]:
+#         return possibleDurations[0] if direction != "<" else None
+#     elif dur > possibleDurations[-1]:
+#         return possibleDurations[-1] if direction != ">" else None
+#     if direction == "<":
+#         nearest = sorted(possdurs, key=lambda d:abs(dur - d) if d < dur else inf)[0]
+#         return nearest if nearest < inf else None
+#     elif direction == ">":
+#         nearest = sorted(possdurs, key=lambda d:abs(dur - d) if d > dur else inf)[0]
+#         return nearest if nearest < inf else None
+#     elif direction == "<>":
+#         nearest = sorted(possdurs, key=lambda d:abs(dur - d))[0]
+#         return nearest
+#     else:
+#         raise ValueError("direction should be one of '>', '<', or '<>'")
 
 
 DEFAULT_TEMPI = (
@@ -167,63 +171,61 @@ def tempo2beatdur(tempo):
 
 
 @returns_tuple("bestTempi resultingDurations numBeats")
-def bestTempo(duration, possible_tempi=DEFAULT_TEMPI,
-              num_solutions=5, verbose=True):
+def bestTempo(duration, possibleTempi=DEFAULT_TEMPI,
+              numSolutions=5, verbose=True):
     """
     Find best tempi that fit the given duration
     """
     remainings = [(duration % tempo2beatdur(tempo), i)
-                  for i, tempo in enumerate(possible_tempi)]
-    best_tempi = [possible_tempi[i] for remaining, i in
-                  sorted(remainings)[:num_solutions]]
+                  for i, tempo in enumerate(possibleTempi)]
+    bestTempi = [possibleTempi[i] for remaining, i in
+                  sorted(remainings)[:numSolutions]]
     numbeats = [int(duration / tempo2beatdur(tempo) + 0.4999)
-                for tempo in best_tempi]
-    resulting_durs = [tempo2beatdur(tempo) * n
-                      for tempo, n in zip(best_tempi, numbeats)]
+                for tempo in bestTempi]
+    resultingDurs = [tempo2beatdur(tempo) * n for tempo, n in zip(bestTempi, numbeats)]
     if verbose:
-        for tempo, dur, n in zip(best_tempi, resulting_durs, numbeats):
-            print("Tempo: %f \t Resulting duration: %f \t Number of Beats: %d" %
-                  (tempo, dur, n))
+        for tempo, dur, n in zip(bestTempi, resultingDurs, numbeats):
+            print(f"Tempo: {tempo} \tResulting duration: {dur}\t Number of Beats: {n}")
     else:
-        return best_tempi, resulting_durs, numbeats
+        return bestTempi, resultingDurs, numbeats
 
 
-def translateSubdivision(subdivision, new_tempo, original_tempo=60):
-    dur_subdiv = tempo2beatdur(original_tempo) / subdivision
-    new_beat = tempo2beatdur(new_tempo)
-    dur_in_new_tempo = dur_subdiv / new_beat
-    return dur_in_new_tempo
+def translateSubdivision(subdivision, newTempo, originalTempo=60):
+    durSubdiv = tempo2beatdur(originalTempo) / subdivision
+    newBeat = tempo2beatdur(newTempo)
+    durInNewTempo = durSubdiv / newBeat
+    return durInNewTempo
 
 
-def _ratio_to_dur(num: int, den: int) -> float:
+def _ratio2dur(num: int, den: int) -> float:
     return int(num) * (4 / int(den))
 
 
 def parseDur(dur, tempo=60):
     if '//' in dur:
-        d = _ratio_to_dur(*dur.split('//'))
+        d = _ratio2dur(*dur.split('//'))
     elif '/' in dur:
-        d = _ratio_to_dur(*dur.split('/'))
+        d = _ratio2dur(*dur.split('/'))
     else:
         d = int(dur)
     return d * (60 / tempo)
 
 
-def possibleTimesigs(tempo: float) -> List[float]:
+def possibleTimesigs(tempo: float) -> list[float]:
     """
     Return possible timesignatures for a given tempo
 
     Time signatures are given in fractions where 2.5 means 5/8, 3.5 means 7/8
     it is assumed that tempo refers to a quarter note
     """
-    fractional_timesigs = [1.5, 2.5, 3.5, 4.5]
-    int_timesigs = [2., 3., 4., 5., 6., 7., 8., 9.]
+    fractionalTimesigs = [1.5, 2.5, 3.5, 4.5]
+    intTimesigs = [2., 3., 4., 5., 6., 7., 8., 9.]
     if tempo > 80:
-        return int_timesigs
-    return sorted(int_timesigs + fractional_timesigs)
+        return intTimesigs
+    return sorted(intTimesigs + fractionalTimesigs)
 
 
-def quartersToTimesig(quarters:float, snap=True, mindiv=64) -> Tuple[int, int]:
+def quartersToTimesig(quarters:float, snap=True, mindiv=64) -> tuple[int, int]:
     """
     Transform a duration in quarters to a timesig
 
@@ -253,8 +255,9 @@ def quartersToTimesig(quarters:float, snap=True, mindiv=64) -> Tuple[int, int]:
             quarters = round(quarters*2)/2
         else:
             quarters = round(quarters)
-    mindenom = mindiv >> 2
-    f = F.from_float(quarters).limit_denominator(mindenom)
+    maxden = mindiv >> 2
+    f = F(quarters)
+    f = F(*_util.limitDenominator(f.numerator, f.denominator, maxden=maxden))
     timesig0 = f.numerator, f.denominator*4
     transforms = {
         (1, 4):(2, 8),
@@ -266,8 +269,8 @@ def quartersToTimesig(quarters:float, snap=True, mindiv=64) -> Tuple[int, int]:
 
 def bestTimesig(duration: float,
                 tempo=60,
-                timesigs: List[float]=None,
-                tolerance=0.25) -> List[float]:
+                timesigs: list[number:t] = None,
+                tolerance=0.25) -> list[float]:
     """
     Best timesignature for the given duration
 
@@ -298,10 +301,10 @@ def bestTimesig(duration: float,
 
 def bestTimesigWithCombinations(duration: float,
                                 tempo: float,
-                                timesigs: List[float] = None,
+                                timesigs: list[float] = None,
                                 maxcombinations=3,
                                 tolerance=0.25
-                                ) -> List[List[float]]:
+                                ) -> list[list[float]]:
     """
     Best timesignature to cover the given duration with multiple measures
 
@@ -343,7 +346,7 @@ def bestTimesigWithCombinations(duration: float,
         return []
     solutions.sort(key=objective)
 
-    def getvalues(solution) -> List[float]:
+    def getvalues(solution) -> list[float]:
         values = [value for name, value in sorted(solution.items()) if value > 0]
         values.sort()
         return values

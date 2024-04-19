@@ -79,10 +79,8 @@ def plotmpl(spectrum: sp.Spectrum,
     if axes is None:
         fig = plt.figure(figsize=figsize)
         axes = fig.add_subplot(1, 1, 1)
-        # fig, axes = plt.subplots()
     else:
         fig = None
-    # bg = matplotlib.cm.inferno(0.005)[:3]
     bg = mpl.colormaps.get_cmap('inferno')(0.005)[:3]
     axes.set_facecolor(bg)
     axes.autoscale(False)
@@ -112,7 +110,7 @@ def plotmpl(spectrum: sp.Spectrum,
     plt.sci(lc)
     axes.set_xlim(0, spectrum.end)
     if yscale == 'linear':
-        maxfreq = min(maxfreq, spectrum.maxFrequency())
+        maxfreq = min(maxfreq, int(spectrum.maxFrequency()))
         axes.set_ylim(0, maxfreq)
     else:
         axes.set_yscale(yscale)
