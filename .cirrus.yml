@@ -5,8 +5,7 @@ setup_macos: &SETUP_MACOS
     brew install p7zip
     brew install lilypond
     7z x csound6.18.dmg
-    cd Csound-universal-6.18.1
-    sudo installer -pkg csound-MacOS-universal-6.18.1.pkg -target /
+    sudo installer -pkg Csound-universal-6.18.1/csound-MacOS-universal-6.18.1.pkg -target /
     csound --version
     brew install python@$PYVERSION
     ls -l
