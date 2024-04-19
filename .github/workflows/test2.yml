@@ -7,8 +7,9 @@ jobs:
     strategy:
       matrix:
         os: ["windows-latest", "macos-latest", "ubuntu-latest"]
-        python-version: ["3.9", "3.10", "3.11"]
-        install-method: ["git", "pip"]
+        python-version: ["3.9", "3.11", "3.12"]
+        # install-method: ["git", "pip"]
+        install-method: ["git"]
       fail-fast: false
     steps:
       - uses: actions/checkout@v3
