@@ -62,8 +62,9 @@ test_git_311_task:
     METHOD: git
     PYVERSION: 3.11
 
-  test_script:
   <<: *SETUP_MACOS
+
+  <<: *PERFORM_TESTS
 
 test_pip_309_task:
   macos_instance:
@@ -72,9 +73,11 @@ test_pip_309_task:
   environment:
     METHOD: pip
     PYVERSION: 3.9
-  test_script:
+
   <<: *SETUP_MACOS
+
   <<: *PERFORM_TESTS
+
 
 test_pip_311_task:
   macos_instance:
@@ -84,7 +87,7 @@ test_pip_311_task:
     METHOD: pip
     PYVERSION: 3.11
 
-  test_script:
   <<: *SETUP_MACOS
+
   <<: *PERFORM_TESTS
 
