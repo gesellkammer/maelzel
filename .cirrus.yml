@@ -10,13 +10,14 @@ setup_macos: &SETUP_MACOS
     csound --version
     brew install python@$PYVERSION
     ls -l
-    python3 --version
-    python3 -m venv .venv
+    python$PYVERSION --version
+    python$PYVERSION -m venv .venv
     source .venv/bin/activate
+    python --version
     if  [[ "$METHOD" == "pip" ]]; then
-      python3 -m pip install maelzel
+      python -m pip install maelzel
     else
-      python3 -m pip install .
+      python -m pip install .
     fi
 
 
