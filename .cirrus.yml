@@ -2,15 +2,34 @@ perform_tests: &PERFORM_TESTS
   macos_instance:
     image: ghcr.io/cirruslabs/macos-ventura-xcode:latest
 
+setup_macos: &SETUP_MACOS
+  setup_script: |
+    curl -L -o csound6.18.dmg https://github.com/csound/csound/releases/download/6.18.1/Csound-MacOS-universal-6.18.1.dmg
+    brew install p7zip
+    brew install lilypond
+    7z x csound6.18.dmg
+    cd Csound-universal-6.18.1
+    sudo installer -pkg csound-MacOS-universal-6.18.1.pkg -target /
+    csound --version
+    brew install python@$PYVERSION
+    python3 -m venv .venv
+    source .venv/bin/activate
+    if [ $METHOD = pip ]; then
+      python3 -m pip install maelzel
+    else
+      python3 -m pip install .
+    fi
+
   main_test_script: |
     set -x
+    python3 -m venv .venv
+    source .venv/bin/activate
     python --version
-    echo "ID: '$ID'"
     mkdir -p artifacts
     cd test
-    python test-rec.py -o "test-rec-macos-$ID.wav"
+    python test-rec.py -o "test-rec-macos-$PYVERSION-$METHOD.wav"
     python test-dependencies.py
-    python test-notation.py -o "test-notation-macos-$ID.pdf"
+    python test-notation.py -o "test-notation-macos-$PYVERSION-$METHOD.pdf"
     ls -l 
     cp *.wav ../artifacts
     cp *.pdf ../artifacts
@@ -23,57 +42,34 @@ perform_tests: &PERFORM_TESTS
     path: artifacts/*
 
 
-setup_macos: &SETUP_MACOS
-  setup_script: |
-    curl -L -o csound6.18.dmg https://github.com/csound/csound/releases/download/6.18.1/Csound-MacOS-universal-6.18.1.dmg
-    brew install p7zip
-    brew install lilypond
-    7z x csound6.18.dmg
-    cd Csound-universal-6.18.1
-    sudo installer -pkg csound-MacOS-universal-6.18.1.pkg -target /
-    csound --version
    
-test_git_310_task:
+test_git_309_task:
   environment:
-    ID: git-310
+    PYVERSION:3.9
+    METHOD: git
   <<: *SETUP_MACOS
-  install_script: |
-    brew install python@3.10
-    python3.10 -m venv .venv
-    source .venv/bin/activate
-    python -m pip install .
   <<: *PERFORM_TESTS
 
 test_git_311_task:
   environment:
-    ID: git-311
+    METHOD: git
+    PYVERSION: 3.11
   <<: *SETUP_MACOS
-  install_script: |
-    brew install python@3.11
-    python3.10 -m venv .venv
-    source .venv/bin/activate
-    python -m pip install .
   <<: *PERFORM_TESTS
 
-test_pip_310_task:
+test_pip_309_task:
   environment:
-    ID: pip-310
+    METHOD: pip
+    PYVERSION: 3.9
+
   <<: *SETUP_MACOS
-  install_script: |
-    brew install python@3.10
-    python3.10 -m venv .venv
-    source .venv/bin/activate
-    python -m pip install maelzel
   <<: *PERFORM_TESTS
 
 test_pip_311_task:
   environment:
-    ID: pip-311
+    METHOD: pip
+    PYVERSION: 3.11
+  
   <<: *SETUP_MACOS
-  install_script: |
-    brew install python@3.11
-    python3.11 -m venv .venv
-    source .venv/bin/activate
-    python -m pip install maelzel
   <<: *PERFORM_TESTS
 
