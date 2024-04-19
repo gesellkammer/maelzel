@@ -1,8 +1,8 @@
-perform_tests: &PERFORM_TESTS
+
+setup_macos: &SETUP_MACOS
   macos_instance:
     image: ghcr.io/cirruslabs/macos-ventura-xcode:latest
 
-setup_macos: &SETUP_MACOS
   setup_script: |
     curl -L -o csound6.18.dmg https://github.com/csound/csound/releases/download/6.18.1/Csound-MacOS-universal-6.18.1.dmg
     brew install p7zip
@@ -20,6 +20,8 @@ setup_macos: &SETUP_MACOS
       python3 -m pip install .
     fi
 
+
+perform_tests: &PERFORM_TESTS
   main_test_script: |
     set -x
     python3 -m venv .venv
@@ -44,9 +46,11 @@ setup_macos: &SETUP_MACOS
 
    
 test_git_309_task:
+
   environment:
     PYVERSION:3.9
     METHOD: git
+
   <<: *SETUP_MACOS
   <<: *PERFORM_TESTS
 
@@ -54,6 +58,7 @@ test_git_311_task:
   environment:
     METHOD: git
     PYVERSION: 3.11
+
   <<: *SETUP_MACOS
   <<: *PERFORM_TESTS
 
