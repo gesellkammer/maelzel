@@ -465,7 +465,7 @@ def parseNote(s: str, check=True) -> NoteProperties:
         notename = 'rest'
     else:
         notename = note
-    if check:
+    if check and notename != 'rest':
         if isinstance(notename, list):
             for n in notename:
                 if n[-1] == '!':

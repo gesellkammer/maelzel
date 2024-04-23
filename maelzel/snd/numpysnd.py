@@ -118,10 +118,29 @@ def numChannels(array: np.ndarray) -> int:
     return 1 if len(array.shape) == 1 else array.shape[1]
 
 
-def getChannel(array: np.ndarray, channel:int) -> np.ndarray:
-    """ Get a view into a channel of array. If array is mono, array
-    itself is returned """
-    return array if len(array.shape) == 1 else array[:, channel]
+def getChannel(array: np.ndarray, channel: int, ensureContiguous=False) -> np.ndarray:
+    """
+    Get a view into a channel of array.
+
+    If array is mono, array itself is returned
+
+    Args:
+        array: the original array
+        channel: which channel to get
+        ensureContiguous: if True, ensure that the returned array is contiguous
+
+    Returns:
+        the given channel from array
+    """
+    if len(array.shape) == 1:
+        if channel > 0:
+            raise IndexError("The given array is 1D")
+        return array
+
+    out = array[:, channel]
+    if ensureContiguous:
+        out = np.ascontiguousarray(out)
+    return out
 
 
 def arrayFade(samples: np.ndarray, sr: int, fadetime: float,

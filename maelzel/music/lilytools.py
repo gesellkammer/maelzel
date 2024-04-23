@@ -14,6 +14,7 @@ from emlib import misc
 from functools import cache
 from dataclasses import dataclass
 from maelzel import _util
+from maelzel._imgtools import imagefileAutocrop
 from maelzel.common import F
 
 from typing import TYPE_CHECKING
@@ -281,7 +282,7 @@ def show(text: str, external=False, maxwidth: int = None, snippet: bool | None =
     outfile = tempfile.mktemp(suffix='.png')
     renderScore(text, outfile=outfile)
     assert os.path.exists(outfile)
-    croppedok = _util.imagefileAutocrop(outfile, outfile, bgcolor="#FFFFFF")
+    croppedok = imagefileAutocrop(outfile, outfile, bgcolor="#FFFFFF")
     assert croppedok
     from maelzel.core import jupytertools
     jupytertools.showPng(pngpath=outfile, forceExternal=external, maxwidth=maxwidth)

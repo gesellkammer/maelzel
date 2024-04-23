@@ -55,7 +55,7 @@ from pathlib import Path
 import atexit as _atexit
 import configdict
 
-from pitchtools import amp2db
+import pitchtools as pt
 import emlib.numpytools as _nptools
 import emlib.misc
 
@@ -1069,7 +1069,7 @@ class Sample:
 
     def peak(self) -> float:
         """Highest sample value in dB"""
-        return amp2db(np.abs(self.samples).max())
+        return pt.amp2db(np.abs(self.samples).max())
 
     def peaksbpf(self, framedur=0.01, overlap=2) -> bpf4.core.Sampled:
         """
@@ -1485,7 +1485,7 @@ class Sample:
         assert not math.isnan(avgfreq)
         return avgfreq
 
-    def fundamental(self, fftsize=2048, overlap=4, unvoiced='negative'
+    def fundamental(self, fftsize=2048, overlap=4, unvoiced='negative', minAmpDb=-60, sensitivity=0.7
                     ) -> tuple[np.ndarray, np.ndarray]:
         """
         Track the fundamental frequency of this sample
@@ -1503,12 +1503,14 @@ class Sample:
         .. seealso:: :func:`maelzel.snd.vamptools.pyinSmoothPitch`,  :func:`maelzel.snd.freqestimate.f0curvePyinVamp`
         """
         from maelzel.snd import vamptools
-        samples = self.getChannel(0).samples
+        samples = _npsnd.getChannel(self.samples, 0, ensureContiguous=True)
         _util.checkChoice("unvoiced", unvoiced, choices=('negative', 'nan'))
         dt, freqs = vamptools.pyinSmoothPitch(samples, self.sr,
                                               fftSize=fftsize,
                                               stepSize=fftsize // overlap,
                                               outputUnvoiced='negative',
+                                              lowAmpSuppression=pt.db2amp(minAmpDb),
+                                              onsetSensitivity=sensitivity
                                               )
         times = np.arange(0, dt * len(freqs) - dt*0.5, dt)
         assert len(times) == len(freqs), f"{len(times)=}, {len(freqs)=}"
@@ -1591,7 +1593,7 @@ class Sample:
                                hop=hop,
                                padwith=(0 if pad else None))
 
-    def firstPitch(self, threshold=-120, minfreq=60, overlap=4, channel=0
+    def firstPitch(self, threshold=-120, minfreq=60, overlap=4, channel=0, chunkdur=0.25
                    ) -> tuple[float, float]:
         """
         Returns the first (monophonic) pitch found
@@ -1601,6 +1603,7 @@ class Sample:
             minfreq: the min. frequency to considere valid
             overlap: pitch analysis overlap
             channel: for multichannel audio, which channel to use
+            chunkdur: chunk duration to analyze, in seconds
 
         Returns:
             a tuple (time, freq) of the first pitched sound found.
@@ -1614,13 +1617,13 @@ class Sample:
             return (0, 0)
 
         from maelzel.snd import freqestimate
-        chunksize = self.sr // 4
+        chunksize = int(chunkdur * self.sr)
         for idx in range(firstidx, lastidx, chunksize):
             fragm = samples[idx:idx+chunksize]
             f0, prob = freqestimate.f0curve(fragm, sr=self.sr, minfreq=minfreq,
-                                            overlap=overlap, unvoicedFreqs='negative')
+                                            overlap=overlap, unvoicedFreqs='nan')
             times, freqs = f0.points()
-            mask = freqs > minfreq
+            mask = ~np.isnan(freqs)
             if not mask.any():
                 continue
             selfreqs = freqs[mask]
