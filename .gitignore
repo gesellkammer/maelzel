@@ -31,3 +31,4 @@ Untitled*.ipynb
 *.texi
 .virtual_documents
 test/output
+*.kate-swp
