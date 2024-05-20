@@ -73,7 +73,7 @@ setup(
         "risset>=2.8.0",
         "loristrck>=1.6.1",
         "vamphost>=1.3.0",
-        "lilyponddist>=1.0.0",
+        "lilyponddist>=1.0.1",
         "sounddevice",
         "typing_extensions"
     ],
