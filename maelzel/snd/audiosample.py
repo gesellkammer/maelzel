@@ -73,6 +73,7 @@ if TYPE_CHECKING:
     import matplotlib.pyplot as plt
     from maelzel.partialtracking import spectrum as _spectrum
     from maelzel.transcribe import mono
+    from typing_extensions import Self
 
 __all__ = (
     'Sample',
@@ -257,13 +258,17 @@ class Sample:
         self._f0: bpf4.BpfInterface | None = None
 
         self.path = ''
-        """If non-empty, the path from which the audio data was loaded"""
+        """If non-empty, the audio was loaded from this path and has not changed"""
+
+        self.originalpath = ''
+        """The original path from which the sample data was loaded, if applicable"""
 
         self.readonly = readonly
 
         if isinstance(sound, (str, Path)):
             samples, sr = readSoundfile(sound, start=start, end=end)
             self.path = str(sound)
+            self.originalpath = self.path
         elif isinstance(sound, np.ndarray):
             assert sr
             samples = sound
@@ -450,6 +455,7 @@ class Sample:
                 is performed via portaudio
             block: if True, block execution until playback is finished
             backend: one of 'portaudio', 'csound'
+
         Returns:
             a :class:`PlaybackStream`. This can be used to stop playback
 
@@ -476,6 +482,9 @@ class Sample:
             if not engine:
                 engine = Sample.getEngine()
 
+            if self.path:
+                synth = engine.session().play
+
             tabnum = self._makeCsoundTable(engine)
             if pan is None:
                 if self.numchannels == 1:
@@ -498,7 +507,7 @@ class Sample:
 
     def asbpf(self) -> bpf4.BpfInterface:
         """
-        Convert this sample to a bpf4.core.Sampled bpf
+        Convert this sample to a ``bpf4.core.Sampled`` bpf
 
         .. seealso:: `bpf <https://bpf4.readthedocs.io>`_
         """
@@ -512,7 +521,7 @@ class Sample:
         plot the sample data
 
         Args:
-            profile: one of 'low', 'medium', 'high'
+            profile: one of 'low', 'medium', 'high' or 'auto'
 
         Returns:
             a list of pyplot Axes
@@ -621,8 +630,9 @@ class Sample:
         self._reprHtml = s
         return s
 
-    def plotSpetrograph(self, framesize=2048, window='hamming', start=0.,
-                        dur=0.) -> None:
+    def plotSpetrograph(self, framesize=2048, window='hamming', start=0., dur=0.,
+                        axes: plt.Axes = None
+                        ) -> plt.Axes:
         """
         Plot the spectrograph of this sample or a fragment thereof
 
@@ -646,8 +656,8 @@ class Sample:
                                                  int(dur*self.sr)-s0)
         if s0 > 0 or s1 != self.numframes:
             samples = samples[s0:s1]
-        plotting.plotPowerSpectrum(samples, self.sr, framesize=framesize,
-                                   window=window)
+        return plotting.plotPowerSpectrum(samples, self.sr, framesize=framesize,
+                                          window=window, axes=axes)
 
     def plotSpectrogram(self,
                         fftsize=2048,
@@ -659,7 +669,8 @@ class Sample:
                         maxfreq: int = 12000,
                         yaxis='linear',
                         figsize=(24, 10),
-                        axes=None) -> plt.Axes:
+                        axes: plt.Axes = None
+                        ) -> plt.Axes:
         """
         Plot the spectrogram of this sound using matplotlib
 
@@ -697,9 +708,9 @@ class Sample:
                            overlap=4,
                            winsize: int = None,
                            nmels=128,
-                           axes=None,
+                           axes: plt.Axes = None,
                            axislabels=False,
-                           cmap: str = 'magma'
+                           cmap: str = 'magma',
                            ) -> plt.Axes:
         """
         Plot a mel-scale spectrogram
@@ -724,7 +735,7 @@ class Sample:
                                            setlabel=axislabels, nmels=nmels, cmap=cmap)
 
     def openInEditor(self, wait=True, app=None, fmt='wav'
-                     ) -> Sample | None:
+                     ) -> Self | None:
         """
         Open the sample in an external editor.
 
@@ -805,7 +816,7 @@ class Sample:
                            bitrate=bitrate,
                            metadata=metadata)
 
-    def copy(self) -> Sample:
+    def copy(self) -> Self:
         """
         Return a copy of this Sample
 
@@ -816,13 +827,14 @@ class Sample:
         return Sample(self.samples.copy(), self.sr)
 
     def _changed(self) -> None:
-        # clear cached values
+        # clear cached values, invalidate path
         self._csoundTable = None
         self._reprHtml = ''
         self._asbpf = None
         self._f0 = None
+        self.path = ''
 
-    def __add__(self, other: float | Sample) -> Sample:
+    def __add__(self, other: float | Sample) -> Self:
         if isinstance(other, (int, float)):
             return Sample(self.samples+other, self.sr)
         elif isinstance(other, Sample):
@@ -851,7 +863,7 @@ class Sample:
         else:
             raise TypeError(f"Expected a scalar or a sample, got {other}")
 
-    def __sub__(self, other: float | Sample) -> Sample:
+    def __sub__(self, other: float | Sample) -> Self:
         if isinstance(other, (int, float)):
             return Sample(self.samples-other, self.sr)
         elif isinstance(other, Sample):
@@ -880,7 +892,7 @@ class Sample:
             raise TypeError(f"Expected a scalar or a sample, got {other}")
         self._changed()
 
-    def __mul__(self, other: float | Sample) -> Sample:
+    def __mul__(self, other: float | Sample) -> Self:
         if isinstance(other, (int, float)):
             return Sample(self.samples*other, self.sr)
         elif isinstance(other, Sample):
@@ -894,7 +906,7 @@ class Sample:
         else:
             raise TypeError(f"Expected a scalar or a sample, got {other}")
 
-    def __imul__(self, other: float | Sample) -> Sample:
+    def __imul__(self, other: float | Sample) -> Self:
         if isinstance(other, (int, float)):
             self.samples *= other
         elif isinstance(other, Sample):
@@ -910,13 +922,13 @@ class Sample:
         self._changed()
         return self
 
-    def __pow__(self, other: float) -> Sample:
+    def __pow__(self, other: float) -> Self:
         return Sample(self.samples**other, self.sr)
 
     def __len__(self) -> int:
         return len(self.samples)
 
-    def __getitem__(self, item: slice) -> Sample:
+    def __getitem__(self, item: slice) -> Self:
         """
         Samples support slicing
 
@@ -957,7 +969,7 @@ class Sample:
         return Sample(self.samples[frame0:frame1], self.sr)
 
     def fade(self, fadetime: float | tuple[float, float], shape: str = 'linear'
-             ) -> Sample:
+             ) -> Self:
         """
         Fade this Sample **inplace**, returns self.
 
@@ -1001,7 +1013,7 @@ class Sample:
         self._changed()
         return self
 
-    def prependSilence(self, dur: float) -> Sample:
+    def prependSilence(self, dur: float) -> Self:
         """
         Return a new Sample with silence of given dur at the beginning
 
@@ -1014,7 +1026,7 @@ class Sample:
         silence = Sample.createSilent(dur, self.numchannels, self.sr)
         return concatenate([silence, self])
 
-    def appendSilence(self, dur: float) -> Sample:
+    def appendSilence(self, dur: float) -> Self:
         """
         Return a new Sample with added silence at the end
 
@@ -1031,7 +1043,7 @@ class Sample:
         samples = np.concatenate([self.samples, silence])
         return Sample(samples, sr=self.sr)
 
-    def concat(self, *other: Sample) -> Sample:
+    def concat(self, *other: Sample) -> Self:
         """
         Join (concatenate) this Sample with other(s)
 
@@ -1051,7 +1063,7 @@ class Sample:
             raise RuntimeError("This Sample is readonly. Create a copy (which will"
                                " be writable) and operate on that copy")
 
-    def normalize(self, headroom=0.) -> Sample:
+    def normalize(self, headroom=0.) -> Self:
         """Normalize inplace, returns self
 
         Args:
@@ -1094,7 +1106,7 @@ class Sample:
         """
         return _npsnd.peaksbpf(self.samples, self.sr, res=framedur, overlap=overlap)
 
-    def reverse(self) -> Sample:
+    def reverse(self) -> Self:
         """ reverse the sample **in-place**, returns self """
         self._checkWrite()
         self.samples[:] = self.samples[-1::-1]
@@ -1141,7 +1153,7 @@ class Sample:
             return self if not enforceCopy else self.copy()
         return Sample(_npsnd.asmono(self.samples), sr=self.sr)
 
-    def stripLeft(self, threshold=-120.0, margin=0.01, window=0.02) -> Sample:
+    def stripLeft(self, threshold=-120.0, margin=0.01, window=0.02) -> Self:
         """
         Remove silence from the left. Returns a new Sample
 
@@ -1161,7 +1173,7 @@ class Sample:
             return self[time:]
         return self
 
-    def stripRight(self, threshold=-120.0, margin=0.01, window=0.02) -> Sample:
+    def stripRight(self, threshold=-120.0, margin=0.01, window=0.02) -> Self:
         """
         Remove silence from the right. Returns a new Sample
 
@@ -1181,7 +1193,7 @@ class Sample:
             return self[:time]
         return self
 
-    def strip(self, threshold=-120.0, margin=0.01, window=0.02) -> Sample:
+    def strip(self, threshold=-120.0, margin=0.01, window=0.02) -> Self:
         """
         Remove silence from the sides. Returns a new Sample
 
@@ -1684,7 +1696,7 @@ class Sample:
                                   startidx=int(start*self.sr))
         return idx/self.sr if idx is not None else None
 
-    def addChannels(self, channels: np.ndarray | int) -> Sample:
+    def addChannels(self, channels: np.ndarray | int) -> Self:
         """
         Create a new Sample with added channels
 
@@ -1704,11 +1716,11 @@ class Sample:
         else:
             assert len(channels) == len(self)
         frames = np.column_stack((self.samples, channels))
-        return Sample(frames, sr=self.sr)
+        return self.__class__(frames, sr=self.sr)
 
     @staticmethod
     def mix(samples: list[Sample], offsets: list[float] = None, gains: list[float] = None
-            ) -> Sample:
+            ) -> Self:
         """
         Static method: mix the given samples down, optionally with a time offset
 
@@ -1735,7 +1747,7 @@ class Sample:
         return mixsamples(samples, offsets=offsets, gains=gains)
 
     @staticmethod
-    def join(samples: Sequence[Sample]) -> Sample:
+    def join(samples: Sequence[Sample]) -> Self:
         """
         Concatenate a sequence of Samples
 

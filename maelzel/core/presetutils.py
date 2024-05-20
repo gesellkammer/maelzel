@@ -91,24 +91,34 @@ def loadYamlPreset(path: str) -> presetdef.PresetDef:
 
 
 def makeSoundfontAudiogen(sf2path: str = None,
-                          instrnum: int = None,
                           preset: tuple[int, int] = None,
                           interpolation='linear',
                           ampDivisor: int = None,
+                          normalize=False,
+                          velocityCurve: presetdef.GainToVelocityCurve | list[float] = None,
+                          # velocityToCutoffMapping: dict[int, int] = None,
+                          referencePeakPitch: int = None,
                           mono=False) -> str:
     """
     Generate audiogen code for a soundfont.
 
     This can be used as the audiogen parameter to defPreset
+    Notice than using instruments directly (also known as layers) bypasses
+    the soundfont's own layer triggering (which is preserved when using presets)
+    and is only recommended for this very specific objective.
 
     Args:
         sf2path: path to a sf2 soundfont. If None, the default fluidsynth soundfont
             is used
-        instrnum: as returned via `csoundengine.csoundlib.soundfontInstruments`
         preset: a tuple (bank, presetnumber) as returned via
             `csoundengine.csoundlib.soundfontPresets`
         interpolation: refers to the wave interpolation performed on the sample
             data (options: 'linear' or 'cubic')
+        ampDivisor: a divisor to scale amplitudes down. The soundfont spec says
+            that samples should be signed 16 bit, which means that values need
+            to be scaled down if using 0dbfs=0, which we use throughout in maelzel.
+        normalize: if True, a reference peak of the soundfont is queried and this
+            is used as the amplitude divisor
 
     Returns:
         the audio code for a soundfont preset
@@ -130,65 +140,85 @@ def makeSoundfontAudiogen(sf2path: str = None,
     """
     sf2path = resolveSoundfontPath(sf2path)
     ampdiv = ampDivisor or getConfig()['play.soundfontAmpDiv']
-    assert bool(instrnum) != bool(preset), "Either instrnum or preset should be given"
     if not sf2path:
         raise ValueError("No soundfont was given and no default soundfont found")
     if not os.path.exists(sf2path):
         raise OSError(f"Soundfont file not found: '{sf2path}'")
-    if instrnum is not None:
-        if not mono:
-            opcode = 'sfinstr' if interpolation == 'linear' else 'sfinstr3'
-            audiogen = fr'''
-            iSfTable sfloadonce "{sf2path}"
-            inote0_ = round(p(idataidx_ + 1))
-            ivel_ = p(idataidx_ + 2) * 127
-            kpitch2 = lag:k(kpitch+ktransp, ipitchlag)
-            aout1, aout2  {opcode} ivel_, inote0_, kamp/{ampdiv}, mtof:k(kpitch2), {instrnum}, iSfTable, 1
-            '''
+
+    presets = csoundengine.csoundlib.soundfontPresets(sf2path)
+    if not presets:
+        raise ValueError(f"The given soundfont has no presets")
+
+    if preset is None:
+        bank, presetnum, presetname = presets[0]
+        logger.debug(f"No preset was given. Using first preset found: '{presetname}', "
+                     f"bank: {bank}, preset number: {presetnum}")
+    else:
+        bank, presetnum = preset
+        for availablepreset in presets:
+            if bank == availablepreset[0] and presetnum == availablepreset[1]:
+                break
         else:
-            opcode = 'sfinstrm' if interpolation == 'linear' else 'sfinstr3m'
-            audiogen = fr'''
-            iSfTable sfloadonce "{sf2path}"
-            inote0_ = round(p(idataidx_ + 1))
-            ivel_ = p(idataidx_ + 2) * 127
-            kpitch2 = lag:k(kpitch+ktransp, ipitchlag)
-            aout1 {opcode} ivel_, inote0_, kamp/{ampdiv}, mtof:k(kpitch2), {instrnum}, iSfTable, 1
-            '''
+            raise ValueError(f"Preset ({preset}) not found. Available presets: {presets}")
+    parts = [fr'''
+        ipresetidx sfPresetIndex "{sf2path}", {bank}, {presetnum}
+        iamp0_ = p(idataidx_ + 2)
+        inote0_ = round(p(idataidx_ + 1))
+        kpitch2 = lag:k(kpitch + ktransp, ipitchlag)
+        iampdiv_ = {ampdiv}
+        ''']
+
+    if normalize:
+        keyrange = csoundengine.csoundlib.soundfontKeyrange(sf2path, preset=(bank, presetnum))
+        if keyrange is None:
+            raise RuntimeError(f"No key range found for preset {(bank, presetnum)} "
+                               f"for soundfont {sf2path}")
+        if referencePeakPitch:
+            refpitch1 = referencePeakPitch
+            refpitch2 = referencePeakPitch + 12
+        else:
+            minpitch, maxpitch = keyrange
+            refpitch1 = int((maxpitch - minpitch) * 0.2 + minpitch)
+            refpitch2 = int((maxpitch - minpitch) * 0.8 + minpitch)
+
+        parts.append(fr'''
+        isfpeak_ = dict_get:i(gi__soundfont_peaks, ipresetidx, 0)
+        if isfpeak_ > 0 then
+            iampdiv_ = isfpeak_
+        else
+            schedule "_sfpeak", 0, 0.1, ipresetidx, {refpitch1}, {refpitch2}
+        endif
+        ''')
+
+    if velocityCurve is None:
+        velocityCurve = presetdef.GainToVelocityCurve()
+
+    if isinstance(velocityCurve, presetdef.GainToVelocityCurve):
+        ivelstr = f'ivel _linexp dbamp(iamp0_), {velocityCurve.exponent}, {velocityCurve.mindb}, {velocityCurve.maxdb}, {velocityCurve.minvel}, {velocityCurve.maxvel}'
+    else:
+        assert isinstance(velocityCurve, list)
+        # breakpoints mapping db to velocity
+        valuestr = ', '.join(map(str, velocityCurve))
+        ivelstr = f'ivel = bpf(dbamp(iamp0_), {valuestr})'
+
+    parts.append(fr'''
+    if ivel < 0 then
+        {ivelstr}
+    endif
+    ''')
+
+    if not mono:
+        opcode = 'sfplay' if interpolation == 'linear' else 'sfplay3'
+        parts.append(fr'''
+        aout1, aout2 {opcode} ivel, inote0_, kamp/iampdiv_, mtof:k(kpitch2), ipresetidx, 1        
+        ''')
 
     else:
-        presets = csoundengine.csoundlib.soundfontPresets(sf2path)
-        if preset is None:
-            if not presets:
-                raise ValueError(f"The given soundfont has not presets")
-            bank, presetnum, presetname = presets[0]
-            logger.debug(f"No preset was given. Using first preset found: '{presetname}', "
-                         f"bank: {bank}, preset number: {presetnum}")
-        else:
-            bank, presetnum = preset
-            for availablepreset in presets:
-                if bank == availablepreset[0] and presetnum == availablepreset[1]:
-                    break
-            else:
-                raise ValueError(f"Preset ({preset}) not found. Available presets: {presets}")
-
-        if not mono:
-            opcode = 'sfplay' if interpolation == 'linear' else 'sfplay3'
-            audiogen = fr'''
-            ipresetidx sfPresetIndex "{sf2path}", {bank}, {presetnum}
-            inote0_ = round(p(idataidx_ + 1))
-            ivel_ = p(idataidx_ + 2) * 127
-            kpitch2 = lag:k(kpitch+ktransp, ipitchlag)
-            aout1, aout2 {opcode} ivel_, inote0_, kamp/{ampdiv}, mtof:k(kpitch2), ipresetidx, 1
-            '''
-        else:
-            opcode = 'sfplaym' if interpolation == 'linear' else 'sfplay3m'
-            audiogen = fr'''
-            ipresetidx sfPresetIndex "{sf2path}", {bank}, {presetnum}
-            inote0_ = round(p(idataidx_ + 1))
-            ivel_ = p(idataidx_ + 2) * 127
-            kpitch2 = lag:k(kpitch+ktransp, ipitchlag)
-            aout1 {opcode} ivel_, inote0_, kamp/{ampdiv}, mtof:k(kpitch2), ipresetidx, 1
-            '''
+        opcode = 'sfplaym' if interpolation == 'linear' else 'sfplay3m'
+        parts.append(fr'''
+        aout1 {opcode} ivel, inote0_, kamp/iampdiv_, mtof:k(kpitch2), ipresetidx, 1
+        ''')
+    audiogen = emlib.textlib.joinPreservingIndentation(parts, maxEmptyLines=0)
     return textwrap.dedent(audiogen)
 
 

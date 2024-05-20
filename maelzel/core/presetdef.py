@@ -113,6 +113,18 @@ def _parseAudiogen(code: str, check=False) -> ParsedAudiogen:
                           argdocs=docstring.args if docstring else None)
 
 
+@dataclasses.dataclass
+class GainToVelocityCurve:
+    """
+    Maps a gain in dB to a velocity
+    """
+    exponent: float = 2.6
+    mindb: float = -72
+    maxdb: float = 0.
+    minvel: int = 1
+    maxvel: int = 127
+
+
 def _makePresetBody(audiogen: str,
                     numsignals: int,
                     withEnvelope=True,

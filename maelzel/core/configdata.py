@@ -89,6 +89,7 @@ defaultdict = {
     'play.useDynamics': True,
     'play.waitAfterStart': 0.5,
     'play.gracenoteDuration': '1/14',
+    'play.soundfontFindPeakAheadOfTime': False,
 
     'rec.blocking': True,
     'rec.sr': 44100,
@@ -276,6 +277,10 @@ docs = {
 
     'play.gracenoteDuration':
         'Duration assigned to a gracenote for playback (in quarternotes)',
+
+    'play.soundfontFindPeakAheadOfTime':
+        'If True, find the peak of a soundfont to adjust its normalization at'
+        ' the moment an soundfont preset is defined',
 
     'show.labelStyle':
         'Text size used for labels'

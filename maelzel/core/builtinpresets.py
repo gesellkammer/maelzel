@@ -282,15 +282,18 @@ soundfontGeneralMidiPresets = {
 }
 
 
-_builtinSoundfonts = {
-    # relative paths are relative to the package root
-    '.piano': ('sf2/SalC5Light2.sf2', (0, 0), "Default piano sound")
+_builtinSoundfontPresets = {
+    '.piano': {'relpath': 'sf2/SalC5Light2.sf2',
+               'preset': (0, 0),
+               'description': 'Default piano sound',
+               'ampDivisor': 16000,
+               }
 }
 
 
-def builtinSoundfonts() -> dict:
+def builtinSoundfonts() -> dict[str, dict]:
     """
-    Get the paths of the builtin soundfonts
+    Collects the builtin soundfonts
 
     Returns:
         a dict of {name: soundfontpath}, where *soundfontpath* is the absolute path
@@ -300,8 +303,9 @@ def builtinSoundfonts() -> dict:
     from maelzel.dependencies import dataPath
     datadir = dataPath()
     out = {}
-    for presetname, (relpath, preset, description) in _builtinSoundfonts.items():
-        path = datadir / relpath
-        if path.exists():
-            out[presetname] = (path, preset, description)
+    for presetname, info in _builtinSoundfontPresets.items():
+        abspath = datadir / info['relpath']
+        if abspath.exists():
+            info['sf2path'] = abspath.as_posix()
+            out[presetname] = info
     return out

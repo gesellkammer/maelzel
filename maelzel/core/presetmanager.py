@@ -13,7 +13,7 @@ import glob
 import csoundengine.csoundlib
 import csoundengine
 
-from .presetdef import PresetDef
+from .presetdef import PresetDef, GainToVelocityCurve
 from .workspace import Workspace
 from . import presetutils
 from . import builtinpresets
@@ -35,6 +35,26 @@ __all__ = (
 
 
 _csoundPrelude = r"""
+; dict holding peaks for soundfont normalization
+gi__soundfont_peaks dict_new "int:float"
+
+instr _sfpeak
+    ipreset = p4
+    ipitch1 = p5
+    ipitch2 = p6
+    kmax0 init 0
+    a1 sfplaym 127, ipitch1, 1, 1, ipreset, 0
+    a2 sfplaym 127, ipitch2, 1, 1, ipreset, 0
+    kmax1 peak a1
+    kmax2 peak a2
+    kmax = max(kmax1, kmax2)
+    if kmax > kmax0 then
+        println "sf peak: %f", kmax
+        dict_set gi__soundfont_peaks, ipreset, kmax 
+    endif
+    kmax0 = kmax
+endin
+
 opcode turnoffWhenSilent, 0, a
     asig xin
     ksilent_  trigger detectsilence:k(asig, 0.0001, 0.05), 0.5, 0
@@ -42,6 +62,24 @@ opcode turnoffWhenSilent, 0, a
       turnoff
     endif    
 endop
+
+opcode _linexp, i, iiiiii
+    ix, iexp, ix0, ix1, iy0, iy1 xin
+    idx = (ix - ix0) / (ix1 - ix0)
+    iy = (idx ^ iexp) * (iy1 - iy0) + iy0
+    ; iy = limit:i(iy, iy0, iy1)
+    xout iy
+endop
+
+/*
+opcode _linexp, k, kkkkkk
+    kx, kexp, kx0, kx1, ky0, ky1 xin
+    kdx = (kx - kx0) / (kx1 - kx0)
+    ky = (kdx ^ kexp) * (ky1 - ky0) + ky0
+    ky = limit:i(ky, ky0, ky1)
+    xout ky
+endop
+*/
 
 opcode makePresetEnvelope, a, iii
     ifadein, ifadeout, ifadekind xin
@@ -136,9 +174,14 @@ class PresetManager:
                     self.defPresetSoundfont(presetname, sf2path=sf2, preset=preset,
                                             _builtin=True, description=descr)
 
-        for name, (path, preset, descr) in builtinpresets.builtinSoundfonts().items():
-            self.defPresetSoundfont(name, sf2path=path, preset=preset, _builtin=True,
-                                    description=descr)
+        for name, info in builtinpresets.builtinSoundfonts().items():
+            self.defPresetSoundfont(name,
+                                    sf2path=info['sf2path'],
+                                    preset=info['preset'],
+                                    description=info.get('description', ''),
+                                    ampDivisor=info.get('ampDivisor'),
+                                    _builtin=True,
+                                    )
 
     def defPreset(self,
                   name: str,
@@ -276,6 +319,8 @@ class PresetManager:
                            ampDivisor: int = None,
                            turnoffWhenSilent=True,
                            description='',
+                           normalize=False,
+                           velocityCurve: list[float] | GainToVelocityCurve = None,
                            _builtin=False) -> PresetDef:
         """
         Define a new instrument preset based on a soundfont
@@ -297,7 +342,6 @@ class PresetManager:
              (0, 4, 'Bright Grand'),
              (0, 5, 'Very Bright Grand')]
 
-
         Args:
             name: the name of the preset. If not given, the name of the preset
                 is used.
@@ -313,6 +357,8 @@ class PresetManager:
             includes: files to include (if needed by init or postproc)
             args: mutable values needed by postproc (if any). See :meth:`~PresetManager.defPreset`
             mono: if True, only the left channel of the soundfont is read
+            velocityCurve: either a flat list of pairs of the form [db0, vel0, db1, vel1, ...],
+                mapping dB values to velocities, or an instance of GainToVelocityCurve
             ampDivisor: most soundfonts are PCM 16bit files and need to be scaled down
                 to use them in the range of -1:1. This value is used to scale amp down.
                 The default is 16384, but it can be changed in the config
@@ -323,6 +369,8 @@ class PresetManager:
             turnoffWhenSilent: if True, turn a note off when the sample stops (by detecting
                 silence for a given amount of time)
             description: a short string describing this preset
+            normalize: if True, queries the amplitude divisor of the soundfont at runtime
+                and uses that to scale amplitudes to 0dbfs
             _builtin: if True, marks this preset as built-in
 
         Example
@@ -371,14 +419,22 @@ class PresetManager:
         if (bank, presetnum) not in idx.presetToName:
             raise ValueError(f"Preset ({bank}:{presetnum}) not found. Possible presets: "
                              f"{idx.presetToName.keys()}")
+        if normalize and ampDivisor is None and cfg['play.soundfontFindPeakAheadOfTime']:
+            sfpeak = csoundengine.csoundlib.soundfontPeak(sfpath=sf2path, preset=(bank, presetnum))
+            if sfpeak > 0:
+                ampDivisor = sfpeak
+                normalize = False
+
         code = presetutils.makeSoundfontAudiogen(sf2path=sf2path,
                                                  preset=(bank, presetnum),
                                                  interpolation=interpolation,
                                                  ampDivisor=ampDivisor,
-                                                 mono=mono)
+                                                 mono=mono,
+                                                 normalize=normalize)
+
         # We don't actually need the global variable because sfloadonce
         # saves the table number into a channel
-        init0 = f'i__SfTable__ sfloadonce "{sf2path}"'
+        init0 = f'''i__SfTable__ sfloadonce "{sf2path}"'''
         if init:
             init = "\n".join((init0, init))
         else:
@@ -386,7 +442,7 @@ class PresetManager:
         if postproc:
             code = emlib.textlib.joinPreservingIndentation((code, '\n;; postproc\n', postproc))
         epilogue = "turnoffWhenSilent aout1" if turnoffWhenSilent else ''
-        ownargs = {'ktransp': 0., 'ipitchlag': 0.1}
+        ownargs = {'ktransp': 0., 'ipitchlag': 0.1, 'ivel': -1}
         args = ownargs if not args else args | ownargs
         presetdef = self.defPreset(name=name,
                                    code=code,
@@ -397,7 +453,8 @@ class PresetManager:
                                    description=description,
                                    aliases={'transpose': 'ktransp'})
         presetdef.userDefined = not _builtin
-        presetdef.properties = {'sfpath': sf2path}
+        presetdef.properties = {'sfpath': sf2path,
+                                'ampDivisor': ampDivisor}
         return presetdef
 
     def registerPreset(self, presetdef: PresetDef) -> None:

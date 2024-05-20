@@ -419,6 +419,7 @@ def playSession(numchannels: int = None,
         buffersize: if given, use this as the buffer size. None to use a sensible
             default for the backend
         latency: an added latency
+        numbuffers: the number of buffers used by the csound engine
 
     Returns:
         the active Session
