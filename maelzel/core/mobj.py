@@ -43,7 +43,7 @@ import csoundengine
 from maelzel.common import asmidi, F, asF, F0, F1
 from maelzel.textstyle import TextStyle
 
-from ._common import logger
+from maelzel.core._common import logger
 from ._typedefs import *
 from .config import CoreConfig
 from .workspace import Workspace
@@ -68,6 +68,7 @@ if TYPE_CHECKING:
     from typing_extensions import Self
     import matplotlib.pyplot as plt
     from maelzel.core import chain
+    from maelzel.scoring.renderoptions import RenderOptions
 
 
 __all__ = (
@@ -610,7 +611,7 @@ class MObj(ABC):
         """ Returns a new object, with pitch rounded to step """
         raise NotImplementedError()
 
-    def transposeByRatio(self, ratio: float) -> _MObjT:
+    def transposeByRatio(self, ratio: float) -> Self:
         """
         Transpose this by a given frequency ratio, if applicable
 
@@ -658,7 +659,7 @@ class MObj(ABC):
             resolution: dpi resolution when rendering to an image, overrides the
                 :ref:`config key 'show.pngResolution' <config_show_pngresolution>`
         """
-        cfg = config or Workspace.active.config
+        cfg = config or Workspace.getConfig()
         if resolution:
             cfg = cfg.clone({'show.pngResolution': resolution})
 
@@ -732,7 +733,7 @@ class MObj(ABC):
         list of QuantizedMeasures. To access the recursive notation structure of each measure
         call its :meth:`~maelzel.scoring.QuantizedMeasure.asTree` method
         """
-        w = Workspace.active
+        w = Workspace.getActive()
         if config is None:
             config = w.config
 
@@ -847,7 +848,7 @@ class MObj(ABC):
 
         .. seealso:: :meth:`~maelzel.core.mobj.MObj.render`
         """
-        w = Workspace.active
+        w = Workspace.getActive()
         if not config:
             config = w.config
         if not backend:
@@ -924,7 +925,7 @@ class MObj(ABC):
         package to represent notated events. It represents a list of non-simultaneous Notations,
         unquantized and independent of any score structure
         """
-        notations = self.scoringEvents(config=config or Workspace.active.config)
+        notations = self.scoringEvents(config=config or Workspace.getConfig())
         if not notations:
             return []
         scoring.resolveOffsets(notations)
@@ -1050,7 +1051,7 @@ class MObj(ABC):
                 return
             outfile = selected
         ext = os.path.splitext(outfile)[1]
-        cfg = Workspace.active.config
+        cfg = Workspace.getConfig()
         if ext == '.ly' or ext == '.mid' or ext == '.midi':
             backend = 'lilypond'
         elif ext == '.xml' or ext == '.musicxml':
@@ -1078,7 +1079,7 @@ class MObj(ABC):
         imgpath = self._renderImage()
         if not imgpath:
             return ''
-        scaleFactor = Workspace.active.config.get('show.scaleFactor', 1.0)
+        scaleFactor = Workspace.getConfig().get('show.scaleFactor', 1.0)
         width, height = emlib.img.imgSize(imgpath)
         img = emlib.img.htmlImgBase64(imgpath,
                                       width=f'{int(width * scaleFactor)}px')
@@ -1211,7 +1212,7 @@ class MObj(ABC):
                 args = kwargs
 
         if workspace is None:
-            workspace = Workspace.active
+            workspace = Workspace.getActive()
 
         if (struct := self.scorestruct()) is not None:
             workspace = workspace.clone(scorestruct=struct, config=workspace.config)
@@ -1355,9 +1356,9 @@ class MObj(ABC):
             ...     Chord("4E 4G", 3).play(instr='piano')
         """
         if config is not None:
-            workspace = Workspace.active.clone(config=config)
+            workspace = Workspace.getActive().clone(config=config)
         elif workspace is None:
-            workspace = Workspace.active
+            workspace = Workspace.getActive()
 
         events = self.events(delay=delay,
                              chan=chan,

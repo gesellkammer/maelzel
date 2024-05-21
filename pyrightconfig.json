@@ -1,6 +1,5 @@
 {
   "ignore": ["**/node_modules", "**/__pycache__"],
-  "include": ["csoundengine"],
   "pythonPlatform": "Linux",
   "pythonVersion": "3.10",
   "reportMissingImports": true,
@@ -9,5 +8,9 @@
   "typeCheckingMode": "basic",
   "venvPath": "/home/em/.virtualenvs",
   "venv": "maelzel",
-  "strictParameterNoneValue": false
+  "strictParameterNoneValue": false,
+  "executionEnvironments": [
+      {"root": "."}
+  ],
+  "include": ["maelzel/core", "maelzel/scoring", "scorestruct"]
 }

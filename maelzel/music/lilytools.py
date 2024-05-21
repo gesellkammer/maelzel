@@ -162,7 +162,7 @@ def installLilypond(usehomebrew=True) -> str:
                                             "'brew install lilypond'. For more information see "
                                             "https://formulae.brew.sh/formula/lilypond#default")
 
-    lilybin = lilyponddist.lilypondbin(autoinstall=True)
+    lilybin = lilyponddist.lilypondbin()
     if not lilybin or not lilybin.exists():
         raise RuntimeError(f"Could not install lilypond")
     lilypath = lilybin.as_posix()

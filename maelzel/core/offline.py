@@ -494,7 +494,7 @@ class OfflineRenderer(renderer.Renderer):
         return instrs
 
     def playSample(self,
-                   source: int | str | TableProxy | tuple[np.ndarray, int] | audiosample.Sample,
+                   source: int | str | tuple[np.ndarray, int] | audiosample.Sample,
                    delay=0.,
                    dur=0,
                    chan=1,
