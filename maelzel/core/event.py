@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from .config import CoreConfig
     from typing import Callable, Any, Sequence, Iterator
     from ._typedefs import *
+    from typing_extensions import Self
 
 
 __all__ = (
@@ -359,7 +360,7 @@ class Note(MEvent):
         else:
             return False
 
-    def copy(self) -> Note:
+    def copy(self) -> Self:
         out = Note(self.pitch, dur=self.dur, amp=self.amp, gliss=self._gliss, tied=self.tied,
                    dynamic=self.dynamic, offset=self.offset, label=self.label,
                    _init=False)
@@ -376,7 +377,7 @@ class Note(MEvent):
               gliss: pitch_t | bool | None = None,
               label: str = None,
               tied: bool = None,
-              dynamic: str = None) -> Note:
+              dynamic: str = None) -> Self:
         """
         Clone this note with overridden attributes
 
@@ -446,7 +447,7 @@ class Note(MEvent):
                              f"resulting offset: {reloffset}. ({self=})")
         return self.clone(offset=reloffset)
 
-    def freqShift(self, freq: float) -> Note:
+    def freqShift(self, freq: float) -> Self:
         """
         Return a copy of self, shifted in freq.
 
@@ -481,7 +482,7 @@ class Note(MEvent):
         else:
             raise NotImplementedError()
 
-    def __abs__(self) -> Note:
+    def __abs__(self) -> Self:
         if self.pitch >= 0:
             return self
         return self.clone(pitch=-self.pitch)
@@ -522,18 +523,6 @@ class Note(MEvent):
     def cents(self) -> int:
         """The fractional part of this pitch, rounded to the cent"""
         return _tools.midicents(self.pitch)
-
-    def overtone(self, n: float) -> Note:
-        """
-        Return a new Note representing the `nth` overtone of this Note
-
-        Args:
-            n: the overtone number (1 = fundamental)
-
-        Returns:
-            a new Note
-        """
-        return Note(pt.f2m(self.freq * n), _init=False)
 
     def scoringEvents(self,
                       groupid='',
@@ -646,7 +635,7 @@ class Note(MEvent):
 
     def __int__(self) -> int: return int(self.pitch)
 
-    def __add__(self, other: num_t) -> Note:
+    def __add__(self, other: num_t) -> Self:
         if isinstance(other, (int, float)):
             out = self.copy()
             out._setpitch(self.pitch + other)
@@ -654,12 +643,12 @@ class Note(MEvent):
             return out
         raise TypeError(f"can't add {other} ({other.__class__}) to a Note")
 
-    def __xor__(self, freq) -> Note: return self.freqShift(freq)
+    def __xor__(self, freq) -> Self: return self.freqShift(freq)
 
-    def __sub__(self, other: num_t) -> Note:
+    def __sub__(self, other: num_t) -> Self:
         return self + (-other)
 
-    def quantizePitch(self, step=0.) -> Note:
+    def quantizePitch(self, step=0.) -> Self:
         """
         Returns a new Note, rounded to step.
 
@@ -782,7 +771,7 @@ class Note(MEvent):
         # TODO: query the parent to see the currently active dynamic
         return self.dynamic or conf['play.defaultDynamic']
 
-    def pitchTransform(self, pitchmap: Callable[[float], float]) -> Note:
+    def pitchTransform(self, pitchmap: Callable[[float], float]) -> Self:
         if self.isRest():
             return self
         pitch = pitchmap(self.pitch)
@@ -1090,7 +1079,7 @@ class Chord(MEvent):
         elif self._glissTarget:
             return self._glissTarget if isinstance(self._glissTarget, str) else pt.m2n(self._glissTarget)
         elif not isinstance(self._gliss, bool):
-            return pt.m2n(self._gliss)
+            return [pt.m2n(pitch) for pitch in self._gliss]
         elif self.parent:
             self.parent._resolveGlissandi()
             return self._glissTarget if isinstance(self._glissTarget, str) else pt.m2n(self._glissTarget)

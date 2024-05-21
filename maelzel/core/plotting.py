@@ -273,7 +273,7 @@ def plotVoices(voices: list[Voice],
                             ledgerLineColor=ledgerLineColor)
 
     if not scorestruct:
-        scorestruct = voices[0].scorestruct(resolve=True)
+        scorestruct = voices[0].activeScorestruct()
 
     scoreend = max(voice.dur for voice in voices)
     measureOffsets = _measureOffsetsIncluding(scorestruct, scoreend, realtime=realtime)

@@ -1214,7 +1214,7 @@ class Chain(MContainer):
             self._dur = totaldur
             self._cachedEventsWithOffset = eventpairs
         if start is not None or end is not None:
-            struct = self.scorestruct(resolve=True)
+            struct = self.activeScorestruct()
             start = struct.asBeat(start) if start else F0
             end = struct.asBeat(end) if end else F(sys.maxsize)
             eventpairs = _eventPairsBetween(eventpairs,
@@ -1402,7 +1402,7 @@ class Chain(MContainer):
 
         .. seealso:: :meth:`Chain.beamBreak`
         """
-        offset = self.scorestruct(resolve=True).asBeat(location)
+        offset = self.activeScorestruct().asBeat(location)
         event = self.eventAt(offset)
         if event and event.absOffset() == offset:
             event.addSymbol(symbol)
@@ -1532,7 +1532,7 @@ class Chain(MContainer):
         .. seealso:: :meth:`Chain.itemsWithOffset`, :meth:`Chain.eventsBetween`
 
         """
-        sco = self.scorestruct(resolve=True)
+        sco = self.activeScorestruct()
         startbeat = sco.asBeat(start)
         endbeat = sco.asBeat(end)
         out = []
@@ -1573,7 +1573,7 @@ class Chain(MContainer):
                 included (similar to how python's builtin `range` behaves`
         """
         if scorestruct is None:
-            scorestruct = self.scorestruct(resolve=True)
+            scorestruct = self.activeScorestruct()
         else:
             if self.scorestruct():
                 clsname = type(self).__name__
@@ -1648,7 +1648,7 @@ class Chain(MContainer):
         if not offsets:
             raise ValueError("No locations given")
         items = []
-        sco = self.scorestruct(resolve=True)
+        sco = self.activeScorestruct()
         absoffsets = [sco.asBeat(offset) for offset in offsets]
         for item, offset in self.itemsWithOffset():
             if isinstance(item, Chain):
@@ -1742,8 +1742,8 @@ class Chain(MContainer):
                             obj.symbols.remove(spanner)
                             spanner.anchor = None
 
-    def remap(self: _MObjT, deststruct: ScoreStruct, sourcestruct: ScoreStruct = None
-              ) -> _MObjT:
+    def remap(self, deststruct: ScoreStruct, sourcestruct: ScoreStruct = None
+              ) -> Self:
         remappedEvents = [ev.remap(deststruct, sourcestruct=sourcestruct)
                           for ev in self]
         return self.clone(items=remappedEvents)
@@ -1817,7 +1817,7 @@ class Chain(MContainer):
         Returns:
             a Chain cropped at the given beat range
         """
-        sco = self.scorestruct(resolve=True)
+        sco = self.activeScorestruct()
         startbeat = sco.asBeat(start)
         endbeat = sco.asBeat(end)
         cropped = _cropped(self, startbeat=startbeat, endbeat=endbeat)

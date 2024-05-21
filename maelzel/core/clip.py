@@ -302,7 +302,7 @@ class Clip(event.MEvent):
             return self._explicitDur
 
         absoffset = self.absOffset()
-        struct = self.scorestruct(resolve=True)
+        struct = self.activeScorestruct()
 
         if self._dur and self._durContext is not None:
             cachedstruct, cachedbeat = self._durContext
@@ -317,7 +317,7 @@ class Clip(event.MEvent):
         if absoffset is None:
             absoffset = self.absOffset()
         if struct is None:
-            struct = self.scorestruct(resolve=True)
+            struct = self.activeScorestruct()
         dur = struct.beatDelta(absoffset, absoffset + self.durSecs())
         self._dur = dur
         self._durContext = (struct, absoffset)

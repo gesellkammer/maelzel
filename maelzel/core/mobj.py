@@ -562,7 +562,7 @@ class MObj(ABC):
 
         """
         if sourcestruct is None:
-            sourcestruct = self.scorestruct(resolve=True)
+            sourcestruct = self.activeScorestruct()
         offset, dur = deststruct.remapSpan(sourcestruct, self.absOffset(), self.dur)
         return self.clone(offset=offset, dur=dur)
 
@@ -974,6 +974,21 @@ class MObj(ABC):
                                        weight='bold' if labelstyle.bold else '',
                                        color=labelstyle.color)
 
+    def activeScorestruct(self) -> ScoreStruct:
+        """
+        Returns the ScoreStruct active for this obj or its parent.
+
+        Otherwise returns the scorestruct for the active workspace
+
+        Returns:
+            the active scorestruct for this object
+
+        .. seealso:: :meth:`MObj.scorestruct`
+        """
+        if not self.parent:
+            return Workspace.getActive().scorestruct
+        return self.parent.activeScorestruct()
+
     def scorestruct(self, resolve=False) -> ScoreStruct | None:
         """
         Returns the ScoreStruct active for this obj or its parent (recursively)
@@ -1003,6 +1018,9 @@ class MObj(ABC):
             >>> n.scorestruct()
             ScoreStruct(timesig=(3, 4), tempo=72)
         """
+        if resolve:
+            logger.warning("The resolve paremeter is deprecated, use the "
+                           "method .activeScorestruct")
         if not self.parent:
             return Workspace.active.scorestruct if resolve else None
         return self.parent.scorestruct(resolve=resolve)

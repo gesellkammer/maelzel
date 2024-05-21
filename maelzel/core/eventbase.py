@@ -206,7 +206,7 @@ class MEvent(MObj):
             the cropped event
 
         """
-        scorestruct = self.scorestruct(resolve=True)
+        scorestruct = self.activeScorestruct()
         startbeat = start if isinstance(start, F) else scorestruct.asBeat(start)
         endbeat = end if isinstance(end, F) else scorestruct.asBeat(end)
         absoffset = self.absOffset()
