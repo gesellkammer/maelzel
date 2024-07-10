@@ -561,7 +561,7 @@ class PresetDef:
         This method is cached, the Instr is constructed only the first time
 
         Returns:
-            the csoundengine.Instr corresponding to this PresetDef
+            the csoundengine.instr.Instr corresponding to this PresetDef
 
         """
         if self._instr:
@@ -570,15 +570,13 @@ class PresetDef:
         aliases = {'position': 'kpos', 'gain': 'kgain'}
         if self.aliases:
             aliases |= self.aliases
-        instr = csoundengine.Instr(name=self.instrname,
-                                   body=self.body,
-                                   init=self.init,
-                                   includes=self.includes,
-                                   args=self.args,
-                                   numchans=self.numouts,
-                                   aliases=aliases
-                                   )
-
+        instr = csoundengine.instr.Instr(name=self.instrname,
+                                         body=self.body,
+                                         init=self.init,
+                                         includes=self.includes,
+                                         args=self.args,
+                                         numchans=self.numouts,
+                                         aliases=aliases)
         self._instr = instr
         return instr
 

@@ -368,16 +368,16 @@ class OfflineRenderer(renderer.Renderer):
     def registerInstr(self, name: str, instrdef: csoundengine.instr.Instr
                       ) -> None:
         """
-        Register a csoundengine.Instr to be used with this OfflineRenderer
+        Register a csoundengine.instr.Instr to be used with this OfflineRenderer
 
         .. note::
 
-            All :class:`csoundengine.Instr` defined in the play Session are
+            All :class:`csoundengine.instr.Instr` defined in the play Session are
             available to be rendered offline without the need to be registered
 
         Args:
             name: the name of this preset
-            instrdef: the csoundengine.Instr instance
+            instrdef: the csoundengine.instr.Instr instance
 
         """
         self.instrs[name] = instrdef
@@ -505,7 +505,7 @@ class OfflineRenderer(renderer.Renderer):
         Session (as returned via getPlaySession) are available
 
         Returns:
-            dict {instrname: csoundengine.Instr} with all instruments available
+            dict {instrname: csoundengine.instr.Instr} with all instruments available
 
         """
         from maelzel.core import playback

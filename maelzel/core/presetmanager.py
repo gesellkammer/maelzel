@@ -10,8 +10,8 @@ import emlib.textlib
 import emlib.misc
 import fnmatch
 import glob
-import csoundengine.csoundlib
 import csoundengine
+import csoundengine.csoundlib
 
 from .presetdef import PresetDef, GainToVelocityCurve
 from .workspace import Workspace
@@ -497,7 +497,7 @@ class PresetManager:
             raise KeyError(f"Preset '{name}' not known. Available presets: {self.definedPresets()}")
         return preset
 
-    def getInstr(self, presetname: str) -> csoundengine.Instr:
+    def getInstr(self, presetname: str) -> csoundengine.instr.Instr:
         """
         Get the Instr corresponding to the given presetname
 
@@ -505,7 +505,7 @@ class PresetManager:
             presetname: the name of the preset
 
         Returns:
-            the actual :class:`csoundengine.Instr`
+            the actual :class:`csoundengine.instr.Instr`
 
         """
         return self.presetdefs[presetname].getInstr()
