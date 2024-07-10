@@ -72,6 +72,7 @@ def spectralFilter(samples: np.ndarray,
             processing
         tail: extra render time at the end.
         outfile: if given, the audio samples are written to this outfile
+        verbose: output debugging information
 
     Returns:
         the resulting samples
@@ -105,8 +106,8 @@ def spectralFilter(samples: np.ndarray,
 
     nchnls = numpysnd.numChannels(samples)
 
-    from csoundengine.offline import Renderer
-    renderer = Renderer(sr=sr, nchnls=nchnls, ksmps=64)
+    from csoundengine.offline import OfflineSession
+    renderer = OfflineSession(sr=sr, nchnls=nchnls, ksmps=64)
 
     channelTables = []
     for n in range(nchnls):

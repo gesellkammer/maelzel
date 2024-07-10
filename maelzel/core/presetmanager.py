@@ -692,7 +692,7 @@ class PresetManager:
                      sr: int = None,
                      numChannels: int = None,
                      ksmps: int = None,
-                     ) -> csoundengine.Renderer:
+                     ) -> csoundengine.OfflineSession:
         """
         Make an offline Renderer from instruments defined here
 
@@ -702,14 +702,14 @@ class PresetManager:
             ksmps: if not explicitely set, will use config 'rec.ksmps'
 
         Returns:
-            a csoundengine.Renderer
+            a csoundengine.OfflineSession
         """
         workspace = Workspace.getActive()
         config = workspace.config
         sr = sr or config['rec.sr']
         ksmps = ksmps or config['rec.ksmps']
         numChannels = numChannels or config['rec.numChannels']
-        renderer = csoundengine.Renderer(sr=sr, nchnls=numChannels, ksmps=ksmps,
+        renderer = csoundengine.OfflineSession(sr=sr, nchnls=numChannels, ksmps=ksmps,
                                          a4=workspace.a4)
         renderer.addGlobalCode(presetManager.csoundPrelude)
         return renderer
