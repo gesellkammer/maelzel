@@ -160,6 +160,7 @@ class Chain(MContainer):
             if not isinstance(items, list):
                 items = list(items)
             for item in items:
+                assert isinstance(item, MEvent)
                 if item.parent is not None:
                     # We need to make a copy in this case
                     item = item.copy()
@@ -1804,6 +1805,33 @@ class Chain(MContainer):
                 self.removeRedundantOffsets()
             self._changed()
 
+    def _cropped(self, startbeat: F, endbeat: F, absorbOffset=False
+                 ) -> Self:
+        items = []
+        # frame = chain.absOffset()
+        for item, offset in self.itemsWithOffset():
+            if offset > endbeat or (offset == endbeat and item.dur > 0):
+                break
+
+            if item.dur == 0 and startbeat <= offset:
+                items.append(item.clone(offset=offset - startbeat))
+            elif offset + item.dur > startbeat:
+                # Add a cropped part or the entire item?
+                if startbeat <= offset and offset + item.dur <= endbeat:
+                    items.append(item.clone(offset=offset - startbeat))
+                else:
+                    if isinstance(item, MEvent):
+                        item2 = item.cropped(startbeat, endbeat)
+                        items.append(item2.clone(offset=item2.offset - startbeat))
+                    else:
+                        # TODO: combine these two operations, if needed
+                        self = item._cropped(startbeat, endbeat, absorbOffset=True)
+                        items.append(self.clone(offset=self.offset - startbeat))
+        out = self.clone(items=items, offset=startbeat)
+        if absorbOffset:
+            out.absorbInitialOffset()
+        return out
+
     def cropped(self, start: beat_t, end: beat_t) -> Self | None:
         """
         Returns a copy of this chain, cropped to the given beat range
@@ -1821,39 +1849,11 @@ class Chain(MContainer):
         sco = self.activeScorestruct()
         startbeat = sco.asBeat(start)
         endbeat = sco.asBeat(end)
-        cropped = _cropped(self, startbeat=startbeat, endbeat=endbeat)
-        if not cropped:
+        cropped = self._cropped(startbeat=startbeat, endbeat=endbeat)
+        if not cropped.items:
             return None
         cropped.removeRedundantOffsets()
         return cropped
-
-
-def _cropped(chain: Chain, startbeat: F, endbeat: F, absorbOffset=False
-             ) -> Chain:
-    items = []
-    # frame = chain.absOffset()
-    for item, offset in chain.itemsWithOffset():
-        if offset > endbeat or (offset == endbeat and item.dur > 0):
-            break
-
-        if item.dur == 0 and startbeat <= offset:
-            items.append(item.clone(offset=offset - startbeat))
-        elif offset + item.dur > startbeat:
-            # Add a cropped part or the entire item?
-            if startbeat <= offset and offset + item.dur <= endbeat:
-                items.append(item.clone(offset=offset - startbeat))
-            else:
-                if isinstance(item, MEvent):
-                    item2 = item.cropped(startbeat, endbeat)
-                    items.append(item2.clone(offset=item2.offset - startbeat))
-                else:
-                    # TODO: combine these two operations, if needed
-                    chain = _cropped(item, startbeat, endbeat, absorbOffset=True)
-                    items.append(chain.clone(offset=chain.offset - startbeat))
-    out = chain.clone(items=items, offset=startbeat)
-    if absorbOffset:
-        out.absorbInitialOffset()
-    return out
 
 
 class PartGroup:

@@ -26,6 +26,8 @@ from maelzel.snd import audiosample
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import csoundengine.baseschedevent
+    import csoundengine.tableproxy
+    import csoundengine.instr
     from typing import Sequence, Callable
     from .mobj import MObj
     from maelzel.snd import audiosample
@@ -349,7 +351,7 @@ def _playEngine(numchannels: int = None,
     """
     config = Workspace.getActive().config
     engineName = config['play.engineName']
-    if engine := csoundengine.getEngine(engineName):
+    if engine := csoundengine.Engine.activeEngines.get(engineName):
         if any(_ is not None for _ in (numchannels, backend, outdev, verbose, buffersize, latency)):
             prettylog('WARNING',
                       "\nThe sound engine has been started already. Any configuration passed "
@@ -439,7 +441,7 @@ def isSessionActive() -> bool:
     Returns True if the sound engine is active
     """
     name = getConfig()['play.engineName']
-    return csoundengine.getEngine(name) is not None
+    return name in csoundengine.Engine.activeEngines
 
 
 def _dummySynth(dur=0.001, engine: csoundengine.Engine = None) -> csoundengine.synth.Synth:
@@ -708,7 +710,7 @@ class SynchronizedContext(Renderer):
         self.session: csoundengine.session.Session = playSession()
         """The corresponding Session, can be used to access the session during the context"""
 
-        self.engine: csoundengine.Engine = self.session.engine
+        self.engine: csoundengine.engine.Engine = self.session.engine
         """The play engine, can be used during the context"""
 
         self.synthgroup: csoundengine.synth.SynthGroup | None = None
@@ -895,17 +897,17 @@ class SynchronizedContext(Renderer):
     def registerPreset(self, presetdef: PresetDef) -> bool:
         return self.session.registerInstr(presetdef.getInstr())
 
-    def _automate(self,
-                  token: int,
-                  param: str,
-                  pairs: Sequence[float] | np.ndarray,
-                  delay=0.,
-                  overtake=False):
-        future = self._tokenToFuture.get(token)
-        if not future:
-            raise ValueError(f"Invalid token {token}. Known tokens: {self._tokenToFuture}")
-        event = SynthAutomation(token=token, param=param, data=pairs, delay=delay, overtake=overtake)
-        self._automationEvents.append(event)
+    # def _automate(self,
+    #               token: int,
+    #               param: str,
+    #               pairs: Sequence[float] | np.ndarray,
+    #               delay=0.,
+    #               overtake=False):
+    #     future = self._tokenToFuture.get(token)
+    #     if not future:
+    #         raise ValueError(f"Invalid token {token}. Known tokens: {self._tokenToFuture}")
+    #     event = SynthAutomation(token=token, param=param, data=pairs, delay=delay, overtake=overtake)
+    #     self._automationEvents.append(event)
 
     def _presetFromToken(self, token: int) -> PresetDef | None:
         future = self._tokenToFuture.get(token)
@@ -918,15 +920,15 @@ class SynchronizedContext(Renderer):
         presetdef = self.presetManager.getPreset(event.instr)
         return presetdef
 
-    def _set(self, token: int, param: str, value: float, delay: float):
-        presetdef = self._presetFromToken(token)
-        if presetdef is None:
-            raise RuntimeError(f"Unknown token {token}")
-        params = presetdef.dynamicParams(aliases=True, aliased=True)
-        if param not in params:
-            raise KeyError(f"Parameter {param} not known. Possible parameters: {params}")
-        event = SynthAutomation(token=token, param=param, data=[0, value], delay=delay)
-        self._automationEvents.append(event)
+    # def _set(self, token: int, param: str, value: float, delay: float):
+    #     presetdef = self._presetFromToken(token)
+    #     if presetdef is None:
+    #         raise RuntimeError(f"Unknown token {token}")
+    #     params = presetdef.dynamicParams(aliases=True, aliased=True)
+    #     if param not in params:
+    #         raise KeyError(f"Parameter {param} not known. Possible parameters: {params}")
+    #     event = SynthAutomation(token=token, param=param, data=[0, value], delay=delay)
+    #     self._automationEvents.append(event)
 
     def getSynth(self, token: int) -> csoundengine.synth.Synth | None:
         """
@@ -942,34 +944,6 @@ class SynchronizedContext(Renderer):
         if not self.synthgroup:
             raise RuntimeError("Synths are only accessible after render")
         return self._tokenToSynth.get(token)
-
-    # def _scheduleAutomations(self, synths: list[csoundengine.synth.Synth]
-    #                          ) -> None:
-    #     """
-    #     This is called as callback with the synths generated from the future events
-    #
-    #     There should be a 1:1 correspondence between the scheduled core events,
-    #     the tokens and the synths.
-    #
-    #     """
-    #     for event in self._automationEvents:
-    #         if event.token is None:
-    #             logger.error(f"Automation event {event} has no valid token (token is None)")
-    #             continue
-    #         if event.token < 0 or event.token >= len(synths):
-    #             logger.error(f"Token out of range in automation event {event}, "
-    #                          f"token={event.token}, number of synths: {len(synths)}, "
-    #                          f"synths: {synths}, tokens: {self._tokenToSynth}")
-    #             continue
-    #         synth = synths[event.token]
-    #         if isinstance(event.data, float):
-    #             synth.set(param=event.param, value=event.data, delay=event.delay)
-    #         elif len(event.data) == 2:
-    #             t, v = event.data
-    #             delay = event.delay + t
-    #             synth.set(param=event.param, value=v, delay=delay)
-    #         else:
-    #             synth.automate(param=event.param, pairs=event.data, delay=event.delay)
 
     def __enter__(self):
         """
@@ -1047,7 +1021,7 @@ class SynchronizedContext(Renderer):
             self.show()
 
     def playSample(self,
-                   source: int | str | TableProxy | tuple[np.ndarray, int] | audiosample.Sample,
+                   source: int | str | csoundengine.tableproxy.TableProxy | tuple[np.ndarray, int] | audiosample.Sample,
                    delay=0.,
                    dur=-1,
                    chan=1,
@@ -1080,6 +1054,7 @@ class SynchronizedContext(Renderer):
         """
         if isinstance(source, audiosample.Sample):
             source = (source.samples, source.sr)
+        # TODO: make a FutureSynth event instead
         return self.session.playSample(source=source, delay=delay, dur=dur, chan=chan, gain=gain,
                                        speed=speed, loop=loop, pan=pos, skip=skip, fade=fade,
                                        crossfade=crossfade)
@@ -1259,7 +1234,10 @@ class _FutureSynth(csoundengine.baseschedevent.BaseSchedEvent, csoundengine.synt
         if isinstance(self.event, SynthEvent):
             return self.event.getPreset().getInstr()
         else:
-            return self.session.getInstr(self.event.instrname)
+            instr = self.session.getInstr(self.event.instrname)
+            if instr is None:
+                raise RuntimeError(f"Could not find this event's instr. {self=}")
+            return instr
 
     def set(self, param='', value: float = 0., delay=0., **kws) -> None:
         """
@@ -1302,7 +1280,6 @@ class _FutureSynth(csoundengine.baseschedevent.BaseSchedEvent, csoundengine.synt
         else:
             # A Session event
             self.event.automate(param=param, pairs=pairs, delay=delay, interpolation=mode, overtake=overtake)
-        # self.parent._automate(token=self.token, param=param, pairs=pairs, delay=delay, overtake=overtake)
 
     def stop(self, delay=0.) -> None:
         """ Stop this synth """
@@ -1370,6 +1347,7 @@ class _FutureSynthGroup(csoundengine.baseschedevent.BaseSchedEvent):
             raise ValueError(f"Parameter '{param}' not known by any synth in this "
                              f"group. Possible parameters: {possibleparams}.\n "
                              f"Synths: {self.synths}")
+        return 0.
 
     def _setPfield(self, param: str, value: float, delay=0.) -> None:
         for synth in self.synths:
