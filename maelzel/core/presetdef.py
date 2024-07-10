@@ -18,7 +18,7 @@ from maelzel.core.workspace import Workspace
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import *
+    from typing import Any, Set
 
 _INSTR_INDENT = "  "
 
@@ -305,7 +305,7 @@ class PresetDef:
                  init='',
                  includes: list[str] = None,
                  epilogue: str = '',
-                 args: Dict[str, float] = None,
+                 args: dict[str, float] = None,
                  numsignals: int = None,
                  numouts: int = None,
                  description="",

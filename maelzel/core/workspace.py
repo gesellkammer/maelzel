@@ -66,12 +66,12 @@ class Workspace:
             notes.show()
 
     """
-    root: Workspace | None = None
+    root: Workspace
     """The root workspace. This is the workspace active at the start of a session
     and is always kept alive since it holds a reference to the root config. It should
     actually never be None"""
 
-    active: Workspace | None = None
+    active: Workspace
     """The currently active workspace. Never None after the class has been initialized"""
 
     _initdone: bool = False
@@ -115,7 +115,7 @@ class Workspace:
         self._scorestruct = scorestruct
         """The scorestruct attached to this workspace"""
 
-        self._previousWorkspace: Workspace | None = Workspace.active
+        self._previousWorkspace: Workspace | None = None
         """The previous workspace. Will be activated when this one is desactivated"""
 
         if active:
@@ -156,11 +156,9 @@ class Workspace:
             logger.debug("init was already done")
             return
         Workspace._initdone = True
-        if CoreConfig.root is None:
-            CoreConfig.root = root = CoreConfig(source='load')
-        else:
-            root = CoreConfig.root
+        CoreConfig.root = root = CoreConfig(source='load')
         # The root config itself should never be active since it is read-only
+        Workspace.active = None
         w = Workspace(config=root.copy(), active=True)
         Workspace.root = w
 
@@ -252,6 +250,7 @@ class Workspace:
             442
         """
         pitchtools.set_reference_freq(self.a4)
+        self._previousWorkspace = Workspace.active
         Workspace.active = self
         return self
 

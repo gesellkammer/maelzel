@@ -13,9 +13,9 @@ __all__ = (
 )
 
 
-time_t = Union[float, Rational, F]
+time_t = Union[float, F]
 fade_t = Union[float, tuple[float, float]]
 # breakpoint_t = list[num_t]
 breakpoint_t = list[float]
 location_t = tuple[int, time_t]
-beat_t = Union[F, Rational, float, tuple[int, time_t]]
+beat_t = Union[F, float, tuple[int, time_t]]

@@ -21,6 +21,8 @@ from maelzel.core import _tools
 from maelzel import scoring
 from maelzel import _util
 
+from typing_extensions import Self
+
 
 __all__ = (
     'Clip',
@@ -100,9 +102,10 @@ class Clip(event.MEvent):
                  noteheadShape: str = None
                  ):
         if source == '?':
-            source = _dialogs.selectSndfileForOpen()
-            if not source:
+            selection = _dialogs.selectSndfileForOpen()
+            if selection is None or not selection:
                 raise ValueError("No source selected")
+            source = selection
 
         if loop and dur is None:
             raise ValueError(f"The duration of a looping Clip needs to be given (source: {source})")
@@ -225,20 +228,20 @@ class Clip(event.MEvent):
     def name(self) -> str:
         return f"Clip(source={self.source})"
 
-    def copy(self) -> Clip:
+    def copy(self) -> Self:
         # We do not copy the parent attr
-        out = Clip(source=self.source,
-                   pitch=self.pitch,
-                   amp=self.amp,
-                   offset=self.offset,
-                   label=self.label,
-                   dynamic=self.dynamic,
-                   startsecs=self.selectionStartSecs,
-                   endsecs=self.selectionEndSecs,
-                   channel=self.channel,
-                   speed=self.speed,
-                   loop=self.loop,
-                   tied=self.tied)
+        out = self.__class__(source=self.source,
+                             pitch=self.pitch,
+                             amp=self.amp,
+                             offset=self.offset,
+                             label=self.label,
+                             dynamic=self.dynamic,
+                             startsecs=self.selectionStartSecs,
+                             endsecs=self.selectionEndSecs,
+                             channel=self.channel,
+                             speed=self.speed,
+                             loop=self.loop,
+                             tied=self.tied)
         self._copyAttributesTo(out)
         return out
 

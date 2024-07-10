@@ -225,7 +225,7 @@ class CoreConfig(ConfigDict):
     .. seealso:: :func:`maelzel.core.workspace.makeConfig`
 
     """
-    root: CoreConfig | None = None
+    root: CoreConfig
     _defaultName: str = 'maelzel.core'
     _keyToType: dict[str, type | tuple[type, ...]] = {}
 

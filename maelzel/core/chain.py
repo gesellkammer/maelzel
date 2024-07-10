@@ -204,24 +204,24 @@ class Chain(MContainer):
               offset: time_t | None | _Unset = UNSET,
               label: str | None = None,
               properties: dict | None = None
-              ) -> Chain:
+              ) -> Self:
         # parent is not cloned
-        out = Chain(items=self.items if items is None else items,
-                    offset=self.offset if offset is UNSET else asF(offset),
-                    label=self.label if label is None else label,
-                    _init=False)
+        out = self.__class__(items=self.items if items is None else items,
+                             offset=self.offset if offset is UNSET else asF(offset),
+                             label=self.label if label is None else label,
+                             _init=False)
         self._copyAttributesTo(out)
         return out
 
-    def __copy__(self: Chain) -> Chain:
-        out = Chain(self.items.copy(), offset=self.offset, label=self.label,
-                    properties=self.properties, _init=False)
+    def __copy__(self) -> Self:
+        out = self.__class__(self.items.copy(), offset=self.offset, label=self.label,
+                             properties=self.properties, _init=False)
         self._copyAttributesTo(out)
         return out
 
-    def __deepcopy__(self, memodict={}) -> Chain:
+    def __deepcopy__(self, memodict={}) -> Self:
         items = [item.copy() for item in self.items]
-        out = Chain(items=items, offset=self.offset, label=self.label, _init=False)
+        out = self.__class__(items=items, offset=self.offset, label=self.label, _init=False)
         self._copyAttributesTo(out)
         out._check()
         return out
@@ -356,7 +356,7 @@ class Chain(MContainer):
         except ValueError as e:
             raise ValueError(f"event {event} not part of {self}")
         previtem = self.items[idx - 1]
-        return previtem if isinstance(prev, MEvent) else previtem.lastEvent()
+        return previtem if isinstance(previtem, MEvent) else previtem.lastEvent()
 
     def isFlat(self) -> bool:
         """
@@ -935,7 +935,7 @@ class Chain(MContainer):
             voice.playargs = self.playargs.copy()
         return voice
 
-    def _asVoices(self) -> list[chain.Voice]:
+    def _asVoices(self) -> list[Voice]:
         return [self.asVoice()]
 
     def timeTransform(self, timemap: Callable[[F], F], inplace=False
@@ -984,7 +984,7 @@ class Chain(MContainer):
 
         chainitems = self.flatEvents()
         notations: list[scoring.Notation] = []
-        if self.label and chainitems[0].offset > 0:
+        if self.label and chainitems[0].relOffset() > 0:
             firstrest = scoring.makeRest(duration=chainitems[0].dur, annotation=self.label)
             notations.append(firstrest)
 
@@ -1102,6 +1102,7 @@ class Chain(MContainer):
 
         # Negative offset. First decrease the offset to the first event.
         firstoffset = self.firstOffset()
+        assert firstoffset is not None
         newfirstoffset = max(F0, firstoffset + timeoffset)
         itemshift = newfirstoffset - firstoffset
         for item in self.items:
@@ -1223,7 +1224,7 @@ class Chain(MContainer):
                                             partial=partial)
         return eventpairs
 
-    def itemsWithOffset(self) -> Iterator[tuple[MEvent|Chain], F]:
+    def itemsWithOffset(self) -> Iterator[tuple[MEvent|Chain, F]]:
         """
         Iterate over the items of this chain with their absolute offset
 
@@ -1793,7 +1794,7 @@ class Chain(MContainer):
             
         """
         firstoffset = self.firstOffset()
-        if firstoffset > 0:
+        if firstoffset is not None and firstoffset > 0:
             # self.stack()
             self._update()
             for item in self.items:
@@ -1828,9 +1829,9 @@ class Chain(MContainer):
 
 
 def _cropped(chain: Chain, startbeat: F, endbeat: F, absorbOffset=False
-             ) -> Chain | None:
+             ) -> Chain:
     items = []
-    frame = chain.absOffset()
+    # frame = chain.absOffset()
     for item, offset in chain.itemsWithOffset():
         if offset > endbeat or (offset == endbeat and item.dur > 0):
             break
@@ -1850,59 +1851,6 @@ def _cropped(chain: Chain, startbeat: F, endbeat: F, absorbOffset=False
                     chain = _cropped(item, startbeat, endbeat, absorbOffset=True)
                     items.append(chain.clone(offset=chain.offset - startbeat))
     out = chain.clone(items=items, offset=startbeat)
-    if absorbOffset:
-        out.absorbInitialOffset()
-    return out
-
-
-def _cropped2(chain: Chain, startbeat: F, endbeat: F, absorbOffset=False
-             ) -> Chain | None:
-    """
-    Returns a copy of this chain, cropped to the given beat range
-
-    Args:
-        start: absolute start of the beat range
-        end: absolute end of the beat range
-        absorbOffset: if the first object in the chain has an offset relative
-            to the beginning of the chain itself, absorb that offset
-            into the chain's offset
-
-    Returns:
-        a Chain cropped at the given beat range
-    """
-    items = chain.itemsBetween(start=startbeat, end=endbeat, partial=True)
-    if not items:
-        return None
-    first = items[0]
-    chainoffset = chain.absOffset()
-    firstoffset = first.relOffset() + chainoffset
-    if firstoffset < startbeat or firstoffset + first.dur > endbeat:
-        if isinstance(first, MEvent):
-            first = first.cropped(startbeat, endbeat)
-        else:
-            first = _cropped(first, startbeat, first.absOffset() + first.dur)
-    else:
-        first = first.clone(offset=startbeat)
-    out = [first]
-    if len(items) > 2:
-        out.extend((item.copy() for item in items[1:-1]))
-
-    if len(items) > 1:
-        last = items[-1]
-        if last.absOffset() + last.dur > endbeat:
-            if isinstance(last, MEvent):
-                last = last.splitAt(endbeat, tie=False)[0]
-            else:
-                last = _cropped(last, last.absOffset(), endbeat, absorbOffset=True)
-        if last:
-            out.append(last)
-    # All items in out have an absolute offset set, we need to shift them by the
-    # absolute offset of the parent
-    if chainoffset == 0:
-        out = chain.clone(items=out)
-    else:
-        out = chain.clone(items=out, offset=F0)
-
     if absorbOffset:
         out.absorbInitialOffset()
     return out
@@ -2183,7 +2131,7 @@ class Voice(Chain):
         """
         self.addSymbol(symbols.BeamBreak(location=location))
 
-    def _asVoices(self) -> list[chain.Voice]:
+    def _asVoices(self) -> list[Voice]:
         return [self]
 
 

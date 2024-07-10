@@ -361,9 +361,9 @@ class Note(MEvent):
             return False
 
     def copy(self) -> Self:
-        out = Note(self.pitch, dur=self.dur, amp=self.amp, gliss=self._gliss, tied=self.tied,
-                   dynamic=self.dynamic, offset=self.offset, label=self.label,
-                   _init=False)
+        out = self.__class__(self.pitch, dur=self.dur, amp=self.amp, gliss=self._gliss, tied=self.tied,
+                             dynamic=self.dynamic, offset=self.offset, label=self.label,
+                             _init=False)
         out.pitchSpelling = self.pitchSpelling
         out._scorestruct = self._scorestruct
         self._copyAttributesTo(out)
@@ -384,15 +384,15 @@ class Note(MEvent):
         Returns a new note
         """
         offset = self.offset if offset is UNSET else None if offset is None else asF(offset)
-        out = Note(pitch=pitch if pitch is not None else self.pitch,
-                   dur=asF(dur) if dur is not None else self.dur,
-                   amp=amp if amp is not None else self.amp,
-                   offset=offset,
-                   gliss=gliss if gliss is not None else self.gliss,
-                   label=label if label is not None else self.label,
-                   tied=tied if tied is not None else self.tied,
-                   dynamic=dynamic if dynamic is not None else self.dynamic,
-                   _init=False)
+        out = self.__class__(pitch=pitch if pitch is not None else self.pitch,
+                             dur=asF(dur) if dur is not None else self.dur,
+                             amp=amp if amp is not None else self.amp,
+                             offset=offset,
+                             gliss=gliss if gliss is not None else self.gliss,
+                             label=label if label is not None else self.label,
+                             tied=tied if tied is not None else self.tied,
+                             dynamic=dynamic if dynamic is not None else self.dynamic,
+                             _init=False)
         if pitch is not None:
             if self.pitchSpelling:
                 out.pitchSpelling = pt.transpose(self.pitchSpelling, out.pitch - self.pitch)
@@ -1121,7 +1121,7 @@ class Chord(MEvent):
         if not config:
             config = getConfig()
         notenames = [note.name for note in self.notes]
-        annot = None if not self.label else self._scoringAnnotation(config=config)
+        annot = '' if not self.label else self._scoringAnnotation(config=config)
         dur = self.dur
         offset = self.absOffset() if parentOffset is None else self.relOffset() + parentOffset
         notation = scoring.makeChord(pitches=notenames,
