@@ -6,19 +6,51 @@ import weakref
 import sys
 import os
 import emlib.misc
-from maelzel.common import F
+from maelzel.common import F, getLogger
 import functools
 import appdirs
 import logging
 
 
-from typing import Callable, Sequence, TYPE_CHECKING
-from maelzel.common import T
+from typing import Callable, Sequence, Any, TYPE_CHECKING
 if TYPE_CHECKING:
     import PIL.Image
 
 
-_tempdir = tempfile.TemporaryDirectory(dir=appdirs.user_cache_dir())
+logger = getLogger('maelzel')
+
+
+def createTempdir() -> tempfile.TemporaryDirectory:
+    """
+    Creates a temporary directory within the user space, ensures that it is writable
+
+    Returns:
+        the tempfile.TemporaryDirectory object
+
+    Raises IOError if it failes to create the temp directory
+    """
+    base = appdirs.user_cache_dir(appname='maelzel')
+    os.makedirs(base, exist_ok=True)
+    if not os.path.exists(base):
+        raise IOError(f"Could not create base for temporary folder, tried '{base}'")
+    tempdir = tempfile.TemporaryDirectory(dir=appdirs.user_cache_dir())
+    if not os.path.exists(tempdir.name):
+        raise IOError(f"Could not create temporary directory, '{tempdir.name}' does not exist")
+
+    checkfile = tempfile.mktemp(dir=tempdir.name)
+    assert not os.path.exists(checkfile)
+    with open(checkfile, "w") as f:
+        s = "check"
+        numchars = f.write(s)
+        assert numchars == len(s)
+    if not os.path.exists(checkfile):
+        raise IOError(f"Could not create temporary file '{checkfile}' in temporary directory '{tempdir.name}'")
+    os.remove(checkfile)
+    logger.debug(f"Created temporary directory, ensured it is writable: '{tempdir.name}'")
+    return tempdir
+
+
+_tempdir = createTempdir()
 
 
 def mktemp(suffix: str, prefix='') -> str:
@@ -247,6 +279,9 @@ def pngShow(pngpath: str, forceExternal=False, app: str = '',
         app: used if a specific external app is needed. Otherwise, the os
             defined app is used
     """
+    if not os.path.exists(pngpath):
+        raise IOError(f"PNG does not exist: '{pngpath}'")
+
     if app:
         forceExternal = True
 
