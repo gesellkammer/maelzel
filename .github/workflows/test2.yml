@@ -81,9 +81,12 @@ jobs:
           python test-rec.py -o test-rec--windows-${{ matrix.install-method }}.wav
           python test-dependencies.py
           python test-notation.py -o 'test-notation-${{ matrix.os }}-${{ matrix.install-method }}-${{ matrix.python-version }}.pdf'
+          python test-notation.py -o 'test-notation-${{ matrix.os }}-${{ matrix.install-method }}-${{ matrix.python-version }}.png'
+
           cp *.wav ../artifacts
           cp *.pdf ../artifacts
-
+          cp *.png ../artifacts
+          
           # new tests
           python test-clip-chords.py
           python rosita-centroid.py

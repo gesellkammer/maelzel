@@ -21,6 +21,7 @@ from maelzel.music import lilytools
 from maelzel.textstyle import TextStyle
 from maelzel._indentedwriter import IndentedWriter
 from maelzel import _util
+from maelzel import _imgtools
 from .common import *
 from . import attachment
 from . import definitions
@@ -147,7 +148,7 @@ _lilyBarlines = {
 
 
 def markConsecutiveGracenotes(root: Node) -> None:
-    """
+    r"""
     Marks consecutive gracenotes by setting their 'graceGroup' attribute inplace
 
     This is needed in lilypond since groups of gracenotes need to
@@ -191,7 +192,7 @@ def lyArticulation(articulation: attachment.Articulation) -> str:
 
 
 def lyNotehead(notehead: definitions.Notehead, insideChord=False) -> str:
-    """
+    r"""
     Convert a scoring Notehead to its lilypond representation
 
     This uses ``\override`` so it can't be placed inside a chord
@@ -947,7 +948,7 @@ def makeScore(score: quant.QuantizedScore,
               options: RenderOptions,
               midi=False
               ) -> str:
-    """
+    r"""
     Convert a list of QuantizedParts to a lilypond score (as str)
 
     Args:
@@ -1151,14 +1152,14 @@ class LilypondRenderer(Renderer):
             elif options.cropToContent:
                 cropfile = f"{tempbase}.cropped.{fmt}"
                 if os.path.exists(cropfile):
-                    logger.debug(f"Found crop file {cropfile}, using that as output")
+                    logger.debug(f"Found crop file '{cropfile}', using that as output")
                     tempout = cropfile
                 else:
-                    logger.debug(f"Asked to generate a crop file, but the file {cropfile} "
-                                 f"was not found.")
+                    logger.debug(f"Asked to generate a crop file, but the file '{cropfile}' "
+                                 f"was not found. Outfile: {outfile}")
                     if fmt == 'png':
                         logger.debug("Trying to generate cropped file via pillow")
-                        _util.imagefileAutocrop(tempout, cropfile, bgcolor="#ffffff")
+                        _imgtools.imagefileAutocrop(tempout, cropfile, bgcolor="#ffffff")
                         if not os.path.exists(cropfile):
                             logger.debug("Faild to generate crop file, aborting")
 
