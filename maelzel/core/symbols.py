@@ -1295,8 +1295,7 @@ class Accidental(NoteheadAttachedSymbol):
                                                          parenthesis=self.parenthesis,
                                                          force=self.force,
                                                          size=self.size)
-        attachment.anchor = idx
-        n.addAttachment(attachment)
+        n.addAttachment(attachment, anchor=idx)
 
 
 # -------------------------------------------------------------------
@@ -1420,4 +1419,3 @@ def makeSymbol(clsname: str, *args, **kws) -> Symbol:
         raise ValueError(f"Class '{clsname}' unknown. "
                          f"Known symbol names: {list(_symbolNameToClass.keys())}")
     return cls(*args, **kws)
-

@@ -476,7 +476,7 @@ class MeasureDef:
     def __init__(self,
                  timesig: TimeSignature,
                  quarterTempo: F | int,
-                 parent: ScoreStruct | None,
+                 parent: ScoreStruct | None = None,
                  annotation='',
                  timesigInherited=False,
                  tempoInherited=False,
@@ -522,8 +522,6 @@ class MeasureDef:
 
         self.readonly = readonly
         """Is this measure definition read only?"""
-
-        assert parent is not None
 
     @property
     def durationQuarters(self) -> F:

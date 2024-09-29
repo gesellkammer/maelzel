@@ -50,7 +50,7 @@ instr _sfpeak
     kmax = max(kmax1, kmax2)
     if kmax > kmax0 then
         println "sf peak: %f", kmax
-        dict_set gi__soundfont_peaks, ipreset, kmax 
+        dict_set gi__soundfont_peaks, ipreset, kmax
     endif
     kmax0 = kmax
 endin
@@ -60,7 +60,7 @@ opcode turnoffWhenSilent, 0, a
     ksilent_  trigger detectsilence:k(asig, 0.0001, 0.05), 0.5, 0
     if ksilent_ == 1  then
       turnoff
-    endif    
+    endif
 endop
 
 opcode _linexp, i, iiiiii
@@ -91,7 +91,7 @@ opcode makePresetEnvelope, a, iii
         elseif (ifadekind == 1) then
             aenv cosseg 0, ifadein, igain, p3-ifadein-ifadeout, igain, ifadeout, 0
         elseif (ifadekind == 2) then
-            aenv transeg 0, ifadein*.5, 2, igain*0.5, ifadein*.5, -2, igain, p3-ifadein-ifadeout, igain, 1, ifadeout*.5, 2, igain*0.5, ifadeout*.5, -2, 0 	
+            aenv transeg 0, ifadein*.5, 2, igain*0.5, ifadein*.5, -2, igain, p3-ifadein-ifadeout, igain, 1, ifadeout*.5, 2, igain*0.5, ifadeout*.5, -2, 0
             ; aenv *= linenr:a(1, 0, ifadeout, 0.01)
         endif
         if ifadeout > 0 then
@@ -104,7 +104,7 @@ opcode makePresetEnvelope, a, iii
         elseif (ifadekind == 1) then
             aenv cossegr 0, ifadein, igain, ifadeout, 0
         elseif (ifadekind == 2) then
-            aenv transegr 0, ifadein*.5, 2, igain*0.5, ifadein*.5, -2, igain, ifadeout, -2, 0 	
+            aenv transegr 0, ifadein*.5, 2, igain*0.5, ifadein*.5, -2, igain, ifadeout, -2, 0
             aenv *= linenr:a(1, 0, ifadeout, 0.01)
         endif
     endif
@@ -301,7 +301,7 @@ class PresetManager:
                               aliases=aliases)
         self.registerPreset(presetdef)
         # NB: before, we would register the preset to the session
-        # via playback.playSession().registerInstr(presetdef.getInstr())
+        # via playback.getSession().registerInstr(presetdef.getInstr())
         # But it is not necessary, since it will be done the first time
         # the instrument is used
         return presetdef
@@ -558,7 +558,7 @@ class PresetManager:
             Preset: piano
               init: iSfTable_ sfloadonce "/home/user/sf2/grand-piano-YDP.sf2"
               code:
-                ipresetidx sfPresetIndex "/home/user/sf2/grand-piano-YDP.sf2", 0, 0
+                ipresetidx sfpresetindex "/home/user/sf2/grand-piano-YDP.sf2", 0, 0
                 inote0_ = round(p(idataidx_ + 1))
                 ivel_ = p(idataidx_ + 2) * 127
                 aout1, aout2 sfplay ivel_, inote0_, kamp/16384, mtof:k(kpitch), ipresetidx, 1

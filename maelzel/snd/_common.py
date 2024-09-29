@@ -11,7 +11,4 @@ def getEngine() -> csoundengine.Engine:
     Returns:
         the created/active Engine
     """
-    engine = csoundengine.getEngine(CSOUNDENGINE)
-    if engine is not None:
-        return engine
-    return csoundengine.Engine(name=CSOUNDENGINE)
+    return csoundengine.Engine.activeEngines.get(CSOUNDENGINE) or csoundengine.Engine(name=CSOUNDENGINE)

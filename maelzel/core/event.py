@@ -406,11 +406,15 @@ class Note(MEvent):
         return hash((self.pitch, self._dur, self.offset, self._gliss, self.label,
                      self.dynamic, self.tied, self.pitchSpelling, hashsymbols))
 
-    def asChord(self) -> Chord:
+    def asChord(self, pitches: list[pitch_t] | None = None) -> Chord:
         """ Convert this Note to a Chord of one note """
         gliss: bool | list[float] = self.gliss if isinstance(self.gliss, bool) else [self.gliss]
         properties = self.properties.copy() if self.properties else None
-        chord = Chord(notes=[self],
+        if pitches:
+            notes = pitches
+        else:
+            notes = [self]
+        chord = Chord(notes=notes,
                       dur=self.dur,
                       amp=self.amp,
                       offset=self.offset,
@@ -1178,7 +1182,7 @@ class Chord(MEvent):
         symbolshash = hash(tuple(self.symbols)) if self.symbols else 0
 
         data = (self.dur, self.offset, self.label, glisshash, self.dynamic,
-                symbolshash,
+                self.tied, symbolshash,
                 *(hash(n) for n in self.notes))
         return hash(data)
 
@@ -1744,5 +1748,3 @@ def asEvent(obj, **kws) -> MEvent:
         raise TypeError(f"Cannot convert {obj} to a Note or Chord")
 
     return out
-
-

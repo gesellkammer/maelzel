@@ -15,6 +15,7 @@ from functools import cache
 
 import emlib.textlib
 import emlib.filetools
+import emlib.mathlib
 from emlib.iterlib import pairwise, first, duplicates
 
 from maelzel.music import lilytools
@@ -44,12 +45,17 @@ __all__ = (
 )
 
 
-def lyNote(pitch: pitch_t, baseduration: int, dots: int = 0, tied=False, cautionary=False,
-           fingering: str = ''
+def lyNote(pitch: pitch_t,
+           baseduration: int,
+           dots: int = 0,
+           tied=False,
+           cautionary=False,
+           fingering: str = '',
+           forceAccidental=False
            ) -> str:
-    assert baseduration in {0, 1, 2, 4, 8, 16, 32, 64, 128}, \
-        f'baseduration should be a power of two, got {baseduration}'
-    pitch = lilytools.makePitch(pitch, parenthesizeAccidental=cautionary)
+    if not emlib.mathlib.ispowerof2(baseduration):
+        raise ValueError(f'baseduration should be a power of two, got {baseduration}')
+    pitch = lilytools.makePitch(pitch, parenthesizeAccidental=cautionary, forceAccidental=forceAccidental)
     out = fr"{pitch}{baseduration}{'.'*dots}"
     if tied:
         out += '~'
@@ -330,7 +336,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         _(fr'\once \override Beam.color = "{n.color}" '
           fr'\once \override Stem.color = "{n.color}" '
           fr'\once \override Accidental.color = "{n.color}" '
-          fr'\once \override Flag.color = "{n.color}" ' 
+          fr'\once \override Flag.color = "{n.color}" '
           fr'\once \override NoteHead.color = "{n.color}"')
 
     if n.sizeFactor is not None and n.sizeFactor != 1:
@@ -383,25 +389,25 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
             _(lyNotehead(definitions.Notehead(hidden=True)))
 
         fingering = first(a for a in n.attachments if isinstance(a, attachment.Fingering)) if n.attachments else None
-        accidentalTraits = n.findAttachment(attachment.AccidentalTraits)
-        if accidentalTraits:
-            assert isinstance(accidentalTraits, attachment.AccidentalTraits)
-        else:
-            accidentalTraits = attachment.AccidentalTraits.default()
-
-        if accidentalTraits.color:
-            _(fr'\once \override Accidental.color = "{accidentalTraits.color}"')
+        parenthesis = False
+        if not n.tiedPrev:
+            if accidentalTraits := n.findAttachment(attachment.AccidentalTraits):
+                parenthesis = accidentalTraits.parenthesis
+                if accidentalTraits.color:
+                    _(fr'\once \override Accidental.color = "{accidentalTraits.color}"')
 
         _(lyNote(n.notename(),
                  baseduration=base,
                  dots=dots,
                  tied=n.tiedNext,
-                 cautionary=accidentalTraits.parenthesis,
+                 cautionary=parenthesis,
                  fingering=fingering.fingering if fingering else ''))
     else:
         # ***************************
         # **         Chord         **
         # ***************************
+
+        # TODO: accidentals
         if n.tiedPrev and n.gliss and state.glissando and options.glissHideTiedNotes:
             _(lyNotehead(definitions.Notehead(hidden=True)))
             noteheads = None
@@ -414,35 +420,40 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         else:
             noteheads = n.noteheads
         _("<")
-        notenames = n.resolveNotenames()
-        notenames = [n if n[-1] != '!' else n[:-1] for n in notenames]
+        notenames = n.resolveNotenames(removeFixedAnnotation=True)
         notatedpitches = [pt.notated_pitch(notename) for notename in notenames]
         chordAccidentalTraits = n.findAttachment(cls=attachment.AccidentalTraits, anchor=None) or attachment.AccidentalTraits.default()
+        backties = n.tieHints('backward') if n.tiedPrev else None
         for i, pitch in enumerate(n.pitches):
             if noteheads and (notehead := noteheads.get(i)) is not None:
                 _(lyNotehead(notehead, insideChord=True))
             notename = notenames[i]
             notatedpitch = notatedpitches[i]
+
             accidentalTraits = n.findAttachment(cls=attachment.AccidentalTraits, anchor=i) or chordAccidentalTraits
-            assert isinstance(accidentalTraits, attachment.AccidentalTraits)
-            if any(otherpitch.diatonic_index == notatedpitch.diatonic_index for otherpitch in notatedpitches
-                   if otherpitch is not notatedpitch):
-                forceAccidental = True
-            else:
-                forceAccidental = accidentalTraits.force
 
             if accidentalTraits.hidden:
                 _(r"\once\omit Accidental")
             if accidentalTraits.color:
                 _(fr'\tweak Accidental.color "{accidentalTraits.color}"')
 
+            forceAccidental = accidentalTraits.force
+            if n.tiedPrev:
+                assert backties is not None
+                if i in backties:
+                    forceAccidental = False
+            elif any(otherpitch.chromatic_index == notatedpitch.chromatic_index and
+                     otherpitch.diatonic_name != notatedpitch.diatonic_name
+                     for otherpitch in notatedpitches):
+                forceAccidental = True
+
             _(lilytools.makePitch(notename,
                                   parenthesizeAccidental=accidentalTraits.parenthesis,
                                   forceAccidental=forceAccidental))
+
         _(f">{base}{'.'*dots}{'~' if n.tiedNext else ''}")
 
     if trem := n.findAttachment(attachment.Tremolo):
-        assert isinstance(trem, attachment.Tremolo)
         if trem.tremtype == 'single':
             if trem.relative:
                 _(f":{trem.singleDuration()}")
@@ -1019,7 +1030,7 @@ def makeScore(score: quant.QuantizedScore,
     if options.glissLineThickness != 1:
         _(r"""
         \layout {
-          \context { 
+          \context {
             \Voice
             \override Glissando.thickness = #%d
             \override Glissando.gap = #0.05
@@ -1180,4 +1191,3 @@ class LilypondRenderer(Renderer):
         if removeTemporaryFiles:
             for f in tempfiles:
                 os.remove(f)
-

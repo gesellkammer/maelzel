@@ -83,7 +83,7 @@ class EnharmonicOptions:
 
     fixedSlotMaxHistory: int = 4
 
-    threeQuarterMicrotonePenalty: float = 100.
+    threeQuarterMicrotonePenalty: float = 80.
     """penalty applied for 3/4 microtones like #+ or b- (prefer A+ over Bb-)"""
 
     respellingPenalty: float = 75.
@@ -96,10 +96,10 @@ class EnharmonicOptions:
     unisonAlterationPenalty: float = 12.
     "penalty for C / C+"
 
-    chordUnisonAlterationPenalty: float = 40.
+    chordUnisonAlterationPenalty: float = 300.
     "penalty for C / C+ within a chord"
 
-    chordMispelledInterval: float = 30.
+    chordMispelledInterval: float = 20.
     "penalty for D - Gb within a chord"
 
     intervalPenaltyWeight: float = 1.
@@ -114,12 +114,8 @@ class EnharmonicOptions:
     verticalWeight: float = 0.5
     "The weight of how a variant affects chords (vertically)"
 
-    _hash: int = 0
-
     def __hash__(self):
-        if not self._hash:
-            self._hash = hash(tuple(_astuple(self)))
-        return self._hash
+        return hash(tuple(_astuple(self)))
 
 
 _defaultEnharmonicOptions = EnharmonicOptions()
@@ -292,11 +288,14 @@ def intervalPenalty(n0: str, n1: str, chord=False, options: EnharmonicOptions = 
     _ = penalties.append
 
     if chord and notated0.vertical_position == notated1.vertical_position:
-        _((options.chordUnisonAlterationPenalty * 3, 'crammed unison'))
+        _((options.chordUnisonAlterationPenalty, 'crammed unison'))
 
     if ((notated0.diatonic_alteration <= -1 and notated1.diatonic_alteration >= 1) or
             (notated0.diatonic_alteration >= 1 and notated1.diatonic_alteration <= -1)):
-        _((options.confusingIntervalPenalty * 1, "Accidentals in mixed directions"))
+        if not chord:
+            _((options.confusingIntervalPenalty * 1, "Accidentals in mixed directions"))
+        else:
+            _((options.confusingIntervalPenalty * 0.25, "Accidentals in mixed directions"))
     if dpos == 0:
         if dpitch >= 1.5:
             # G / Gb- or Gb / G+
@@ -561,6 +560,8 @@ def _rateChordSpelling(notes: Sequence[str], options: EnharmonicOptions) -> tupl
         totalpenalty += penalty
         sources.append(source)
     sourcestr = ":".join(sources)
+    if options.debug:
+        print(f"Notes: {notes}, penalty: {totalpenalty}, source: {sourcestr}")
     return totalpenalty, sourcestr
 
 
@@ -807,7 +808,28 @@ def fixEnharmonicsInPlace(notations: list[Notation],
                 tiestart.fixNotename(n0fixed)
             else:
                 n0.fixNotename(n0fixed)
-
+    # Fix tied notes
+    for n0, n1 in iterlib.window(notations, 2):
+        if n0.isRest or n1.isRest:
+            continue
+        if n1.tiedPrev:
+            if not n0.tiedNext:
+                logger.debug(f"Inconsistent ties: {n1=} is tied to previous event, "
+                             f"but {n0=} is not tied to it")
+                n1.tiedPrev = False
+            else:
+                notenames1 = n1.resolveNotenames(removeFixedAnnotation=True)
+                notenames0 = n0.resolveNotenames()
+                fixedNotenames = []
+                for notename1 in notenames1:
+                    pitch1 = pt.notated_pitch(notename1)
+                    for notename0 in notenames0:
+                        pitch0 = pt.notated_pitch(notename0)
+                        if pitch1.midinote == pitch0.midinote and pitch1.vertical_position != pitch0.vertical_position:
+                            pitch1 = pitch0
+                            print(f"Fixing tied pitch from {pitch1.fullname} to {pitch0.fullname}")
+                    fixedNotenames.append(pitch1.fullname)
+                n1.setPitches(fixedNotenames, fixNotenames=True)
     return
 
 
@@ -818,5 +840,3 @@ def _verifyVariants(variants: list[tuple[str, ...]], slots):
             idx = notated.microtone_index(2)
             assert not slots.get(idx, 0) or slots[idx] == notated.alteration_direction(), \
                 f"{variant=}, {idx=}, {notated.fullname=}, {slots=}"
-
-

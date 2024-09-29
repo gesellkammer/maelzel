@@ -8,6 +8,7 @@ import numpy as np
 import csoundengine
 
 import csoundengine.event
+import csoundengine.tableproxy
 
 from maelzel.core import presetdef
 from maelzel.core import synthevent
@@ -264,7 +265,7 @@ class Renderer(ABC):
                   size: int = 0,
                   sr: int = 0,
                   tabnum: int = 0
-                  ) -> int:
+                  ) -> csoundengine.tableproxy.TableProxy:
         """Create a Table to be used within this renderer"""
         raise NotImplementedError
 
@@ -334,4 +335,3 @@ class Renderer(ABC):
         rendering offline
         """
         pass
-

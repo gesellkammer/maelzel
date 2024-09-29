@@ -972,7 +972,7 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
 
         debuginfo = ''
         if profile.debug:
-            debuginfo = (f"{gridError=:.3g}, {rhythmComplexity=:.3g} ({rhythmInfo}), " 
+            debuginfo = (f"{gridError=:.3g}, {rhythmComplexity=:.3g} ({rhythmInfo}), "
                          f"{divPenalty=:.3g} ({divPenalty*profile.divisionErrorWeight:.4g}, "
                          f"{divPenaltyInfo})"
                          )
@@ -1674,10 +1674,10 @@ def _mergeSiblings(root: Node,
                 items.append(item2)
             else:
                 if r := _nodesCanMerge(item1, item2, profile=profile, beatOffsets=beatOffsets):
-                    logger.debug(f"Nodes can merge: \n    {item1}\n    {item2}")
+                    logger.debug(f"Nodes can merge:\n{item1}\n{item2}")
                     mergednode = _mergeNodes(item1, item2, profile=profile, beatOffsets=beatOffsets)
                     items[-1] = mergednode
-                    logger.debug(f"---- Merged node:\n    {mergednode}")
+                    logger.debug(f"---- Merged node:\n{mergednode}")
                 else:
                     if r.info:
                         logger.debug(f'Nodes cannot merge: \n{item1}\n{item2}\n----> {r.info}')
@@ -1750,7 +1750,7 @@ class QuantizedPart:
     def repair(self):
         # self._repairGracenotesInBeats()
         self.removeUnnecessaryGracenotes()
-        self._repairLinks(ensureTiesHaveSameSpelling=True)
+        self.repairLinks(tieSpelling=True)
         self.repairSpanners()
 
     def check(self):
@@ -1914,7 +1914,8 @@ class QuantizedPart:
 
     def resolveEnharmonics(self, options: enharmonics.EnharmonicOptions) -> None:
         prevMeasure = None
-        for measure in self.measures:
+        for i, measure in enumerate(self.measures):
+            logger.debug(f"Resolving enharmonics for measure {i}")
             measure._pinEnharmonicSpelling(options=options, prevMeasure=prevMeasure)
             prevMeasure = measure
 
@@ -2078,9 +2079,28 @@ class QuantizedPart:
                 self.measures.append(qmeasure)
         return self.measures[idx]
 
-    def _repairLinks(self, ensureTiesHaveSameSpelling=True) -> None:
+    def setTieHints(self) -> None:
+        for n0, n1 in iterlib.pairwise(self.flatNotations()):
+            if n0.isRest or n1.isRest or not n0.tiedNext:
+                continue
+            hints0 = n0.tieHints('forward')
+            hints1 = n1.tieHints('backward')
+            hints0.clear()
+            hints1.clear()
+            for idx0, pitch0 in enumerate(n0.pitches):
+                idx1 = next((idx for idx, pitch in enumerate(n1.pitches) if pitch == pitch0), None)
+                if idx1 is not None:
+                    hints0.add(idx0)
+                    hints1.add(idx1)
+
+    def repairLinks(self, tieSpelling=True) -> None:
         """
         Repairs ties and glissandi (in place)
+
+        Args:
+            tieSpellings: if True, ensures that tied notes share the same spelling
+            tieHints: adds hints indicating which notes within a chord are tied
+                forward and backward
         """
         ties = self.logicalTies()
 
@@ -2095,15 +2115,18 @@ class QuantizedPart:
                     # No pitches in common
                     n0.tiedNext = False
                     n1.tiedPrev = False
-                elif ensureTiesHaveSameSpelling:
-                    # Ensure that tied pitches have the same spelling
+                else:
+                    hints0 = n0.tieHints('forward')
+                    hints1 = n1.tieHints('backward')
                     for idx0, pitch0 in enumerate(n0.pitches):
                         idx1 = next((idx for idx, pitch in enumerate(n1.pitches) if pitch == pitch0), None)
                         if idx1 is not None:
                             note0 = n0.notename(idx0)
                             note1 = n1.notename(idx1)
-                            if note1 != note0:
+                            if tieSpelling and note1 != note0:
                                 n1.fixNotename(note0, idx=idx1)
+                            hints0.add(idx0)
+                            hints1.add(idx1)
 
             elif n0.gliss:
                 if n1.isRest or n0.pitches == n1.pitches:
@@ -2717,4 +2740,3 @@ def _logicalTies(self: QuantizedPart) -> list[list[TreeLocation]]:
             current = tie
     mergedties.append(current)
     return mergedties
-

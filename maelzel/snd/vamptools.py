@@ -90,11 +90,11 @@ def vampFolder(pluginbits=64) -> str:
     Operating System   Plugin folder
     ================   =========================================================
     macos              ``$HOME/Library/Audio/Plug-Ins/Vamp``
-    windows 64bits     64-bit plugins in ``C:\Program Files\Vamp Plugins``
-                       32-bit plugins in ``C:\Program Files (x86)\Vamp Plugins``
+    windows 64bits     64-bit plugins in ``C:/Program Files/Vamp Plugins``
+                       32-bit plugins in ``C:/Program Files (x86)/Vamp Plugins``
                        Both 32- and 64-bit plugins can be used, as long as they
                        are placed in the correct folder.
-    windows 32bits     ``C:\Program Files\Vamp Plugins``
+    windows 32bits     ``C:/Program Files/Vamp Plugins``
                        64 bit plugins cannot be used
     linux              ~/vamp
                        Only plugins with the correct architecture can be used
@@ -659,5 +659,3 @@ def pyinSmoothPitch(samples: np.ndarray,
     dt, freqs = result1['vector']
     freqsarray = np.array(freqs, dtype=float)
     return (float(dt), freqsarray)
-
-

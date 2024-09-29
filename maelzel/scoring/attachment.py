@@ -4,7 +4,8 @@ import copy
 from maelzel import _util
 from . import definitions
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar, Type
+
 if TYPE_CHECKING:
     from typing import Callable
     from typing_extensions import Self
@@ -33,7 +34,7 @@ class Attachment:
         """The color of this attachment, if applicable"""
 
         self.instancePriority: int = instancePriority
-        """A priority for this attachment in relation to others of the same kind. A 
+        """A priority for this attachment in relation to others of the same kind. A
         negative priority will place this attachment nearer to the note/notehead"""
 
         self.anchor: int | None = anchor
@@ -89,8 +90,9 @@ class AccidentalTraits(Attachment):
     _default: AccidentalTraits | None = None
 
     def __init__(self, color='', hidden=False, parenthesis=False,
-                 brackets=False, force=False, size: float = None):
-        super().__init__(color=color)
+                 brackets=False, force=False, size: float = None,
+                 anchor: int | None = None):
+        super().__init__(color=color, anchor=anchor)
 
         self.hidden = hidden
         """Hide accidental"""
@@ -347,3 +349,7 @@ class PostPartQuantHook(Hook):
         from maelzel.scoring.quant import QuantizedPart
         assert isinstance(part, QuantizedPart)
         self._func(part)
+
+
+# See Notation.findAttachment for a usage of this typevar
+AttachmentT = TypeVar('AttachmentT', bound=Attachment)

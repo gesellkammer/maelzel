@@ -9,7 +9,8 @@ import numpy as np
 
 import csoundengine
 import csoundengine.instr
-from csoundengine import Event
+import csoundengine.tableproxy
+from csoundengine.event import Event
 from csoundengine.sessionhandler import SessionHandler
 
 from maelzel.core import renderer
@@ -53,7 +54,7 @@ class _OfflineSessionHandler(SessionHandler):
                   data: np.ndarray | list[float] | None = None,
                   size: int | tuple[int, int] = 0,
                   sr: int = 0,
-                  ) -> TableProxy:
+                  ) -> csoundengine.tableproxy.TableProxy:
         return self.renderer.makeTable(data=data, size=size, sr=sr)
 
     def readSoundfile(self,
@@ -62,7 +63,7 @@ class _OfflineSessionHandler(SessionHandler):
                       skiptime=0.,
                       delay=0.,
                       force=False,
-                      ) -> TableProxy:
+                      ) -> csoundengine.tableproxy.TableProxy:
         return self.renderer.readSoundfile(soundfile=path, chan=chan, skiptime=skiptime)
 
 
@@ -91,8 +92,8 @@ class OfflineRenderer(renderer.Renderer):
 
 
     If rendering offline in tandem with audio samples and other csoundengine's
-    functionality, it is possible to access the underlying csoundengine's Renderer
-    via the ``.renderer`` attribute
+    functionality, it is possible to access the underlying csoundengine's OfflineSession
+    via the ``.session`` attribute
 
     .. [1] To get the current *record path*: ``getWorkspace().recordPath()``
 
@@ -106,15 +107,13 @@ class OfflineRenderer(renderer.Renderer):
     Render a chromatic scale in sync with a soundfile
 
         >>> from maelzel.core import *
-        >>> import sndfileio
         >>> notes = [Note(n, dur=0.5) for n in range(48, 72)]
         >>> chain = Chain(notes)
         >>> defPresetSoundfont('piano', sf2path='/path/to/piano.sf2')
-        >>> samples, sr = sndfileio.sndread('/path/to/soundfile')
         >>> with render('scale.wav') as r:
         ...     chain.play(instr='piano')
-        ...     # This allows access to the underlying csound renderer
-        ...     r.renderer.playSample((samples, sr))
+        ...     # This allows access to the underlying csound offline session
+        ...     r.session.playSample('/path/to/soundfile')
 
     When exiting the context manager the file 'scale.wav' is rendered. During
     the context manager, all calls to .play are intersected and scheduled
@@ -158,8 +157,8 @@ class OfflineRenderer(renderer.Renderer):
 
         self._verbose = verbose
 
-        self._session: csoundengine.session.Session | None = session
-        """A reference to the playback Session"""
+        self._liveSession: csoundengine.session.Session | None = session
+        """A reference to the active live Session"""
 
         self.endtime = endtime
         """Default endtime"""
@@ -180,27 +179,27 @@ class OfflineRenderer(renderer.Renderer):
         self.showAtExit = False
         """Display the results at exit if running in jupyter"""
 
-        self.csoundRenderer: csoundengine.offline.OfflineSession = self._makeCsoundRenderer()
+        self.session: csoundengine.offline.OfflineSession = self._makeCsoundRenderer()
         """The actual csoundengine.OfflineSession"""
 
     def isRealtime(self) -> bool:
         """Is this a realtime renderer?"""
         return False
 
-    def getSession(self) -> csoundengine.session.Session | None:
+    def liveSession(self) -> csoundengine.session.Session | None:
         """
-        Return the Session associated with this OfflineRenderer, if any
+        Return the realtime Session associated with this OfflineRenderer, if any
         """
-        if self._session is not None:
-            return self._session
+        if self._liveSession is not None:
+            return self._liveSession
         elif playback.isSessionActive():
-            self._session = playback.playSession()
-            return self._session
+            self._liveSession = playback.getSession()
+            return self._liveSession
         return None
 
     def _makeCsoundRenderer(self) -> csoundengine.offline.OfflineSession:
         """
-        Construct a :class:`csoundengine.OfflineSession` from this OfflineRenderer
+        Construct an :class:`csoundengine.OfflineSession` from this OfflineRenderer
 
         Returns:
             the corresponding :class:`csoundengine.offline.OfflineSession`
@@ -208,7 +207,7 @@ class OfflineRenderer(renderer.Renderer):
         from maelzel.core import playback
         renderer = self.presetManager.makeRenderer(self.sr, ksmps=self.ksmps,
                                                    numChannels=self.numChannels)
-        session = self.getSession()
+        session = self.liveSession()
         if session:
             engine = session.engine
             for s, idx in engine.definedStrings().items():
@@ -233,9 +232,9 @@ class OfflineRenderer(renderer.Renderer):
 
         """
         instrname = instr.name
-        if instrname not in self.csoundRenderer.registeredInstrs():
+        if instrname not in self.session.registeredInstrs():
             self.registerInstr(name=instrname, instrdef=instr)
-        self.csoundRenderer.commitInstrument(instrname, priority)
+        self.session.commitInstrument(instrname, priority)
         return False
 
     def getInstr(self, instrname: str) -> csoundengine.instr.Instr | None:
@@ -248,9 +247,9 @@ class OfflineRenderer(renderer.Renderer):
         Returns:
             If found, the csoundengine's Instr
         """
-        instr = self.csoundRenderer.getInstr(instrname)
+        instr = self.session.getInstr(instrname)
         if instr is None:
-            session = playback.playSession()
+            session = playback.getSession()
             instr = session.getInstr(instrname)
             if instr is None:
                 return None
@@ -260,7 +259,7 @@ class OfflineRenderer(renderer.Renderer):
     @property
     def scheduledEvents(self) -> dict[int, csoundengine.schedevent.SchedEvent]:
         """The scheduled events"""
-        return self.csoundRenderer.scheduledEvents
+        return self.session.scheduledEvents
 
     def assignBus(self, kind='', value=None, persist=False) -> int:
         """
@@ -269,7 +268,7 @@ class OfflineRenderer(renderer.Renderer):
         Returns:
             the bus token. Can be used with any bus opcode (busin, busout, busmix, etc)
         """
-        bus = self.csoundRenderer.assignBus()
+        bus = self.session.assignBus()
         return bus.token
 
     def releaseBus(self, busnum: int) -> None:
@@ -293,7 +292,7 @@ class OfflineRenderer(renderer.Renderer):
             path: the path of the file to include
 
         """
-        self.csoundRenderer.includeFile(path)
+        self.session.includeFile(path)
 
     def timeRange(self) -> tuple[float, float]:
         """
@@ -361,7 +360,7 @@ class OfflineRenderer(renderer.Renderer):
             for include in presetdef.includes:
                 self.includeFile(include)
         if presetdef.init:
-            self.csoundRenderer.addGlobalCode(presetdef.init)
+            self.session.addGlobalCode(presetdef.init)
         self.registeredPresets[presetdef.name] = presetdef
         return False
 
@@ -381,7 +380,7 @@ class OfflineRenderer(renderer.Renderer):
 
         """
         self.instrs[name] = instrdef
-        self.csoundRenderer.registerInstr(instrdef)
+        self.session.registerInstr(instrdef)
 
     def play(self, obj: mobj.MObj, **kws) -> csoundengine.schedevent.SchedEventGroup:
         """
@@ -456,7 +455,7 @@ class OfflineRenderer(renderer.Renderer):
                 self.preparePreset(preset, event.priority)
                 instr = preset.getInstr()
             pfields5, dynargs = event._resolveParams(instr)
-            return self.csoundRenderer.sched(instrname=instr.name,
+            return self.session.sched(instrname=instr.name,
                                              delay=event.delay,
                                              dur=event.dur,
                                              args=pfields5,
@@ -502,16 +501,17 @@ class OfflineRenderer(renderer.Renderer):
         Get all instruments available within this OfflineRenderer
 
         All presets and all extra intruments registered at the active
-        Session (as returned via getPlaySession) are available
+        Session (as returned via :func:`getSession <maelzel.core.playback.getSession>`)
+        are available
 
         Returns:
-            dict {instrname: csoundengine.instr.Instr} with all instruments available
+            dict `{instrname: csoundengine.instr.Instr}` with all instruments available
 
         """
         from maelzel.core import playback
         instrs = {}
-        instrs.update(self.csoundRenderer.registeredInstrs())
-        instrs.update(playback.playSession().registeredInstrs())
+        instrs.update(self.session.registeredInstrs())
+        instrs.update(playback.getSession().registeredInstrs())
         return instrs
 
     def playSample(self,
@@ -549,7 +549,7 @@ class OfflineRenderer(renderer.Renderer):
         """
         if isinstance(source, audiosample.Sample):
             source = (source.samples, source.sr)
-        return self.csoundRenderer.playSample(source=source, delay=delay, dur=dur, chan=chan,
+        return self.session.playSample(source=source, delay=delay, dur=dur, chan=chan,
                                               gain=gain, speed=speed, loop=loop, pan=pos,
                                               skip=skip, fade=fade, crossfade=crossfade)
 
@@ -596,12 +596,13 @@ class OfflineRenderer(renderer.Renderer):
 
         Schedule a reverb at a higher priority to affect all notes played. Notice
         that the reverb instrument is declared at the play Session (see
-        :func:`play.getPlaySession() <maelzel.core.play.getPlaySession>`). All instruments
+        :func:`getSession() <maelzel.core.playback.getPlaySession>`). All instruments
         registered at this Session are immediately available for offline rendering.
 
             >>> from maelzel.core import *
             >>> scale = Chain([Note(n) for n in "4C 4D 4E 4F 4G".split()])
-            >>> playback.playSession().defInstr('reverb', r'''
+            >>> session = getSession()
+            >>> session.defInstr('reverb', r'''
             ... |kfeedback=0.6|
             ... amon1, amon2 monitor
             ... a1, a2 reverbsc amon1, amon2, kfeedback, 12000, sr, 0.6
@@ -613,16 +614,16 @@ class OfflineRenderer(renderer.Renderer):
             ...     scale.play('piano')
 
         """
-        if self.csoundRenderer.getInstr(instrname) is None and playback.isSessionActive():
+        if self.session.getInstr(instrname) is None and playback.isSessionActive():
             # Instrument not defined, try to get it from the current session
-            session = playback.playSession()
+            session = playback.getSession()
             instr = session.getInstr(instrname)
             if not instr:
                 logger.error(f"Unknown instrument {instrname}. "
-                             f"Defined instruments: {self.csoundRenderer.registeredInstrs().keys()}")
+                             f"Defined instruments: {self.session.registeredInstrs().keys()}")
                 raise ValueError(f"Instrument {instrname} unknown")
-            self.csoundRenderer.registerInstr(instr)
-        return self.csoundRenderer.sched(instrname=instrname,
+            self.session.registerInstr(instr)
+        return self.session.sched(instrname=instrname,
                                          delay=delay,
                                          dur=dur,
                                          priority=priority,
@@ -693,7 +694,7 @@ class OfflineRenderer(renderer.Renderer):
         outfile = _util.normalizeFilename(outfile)
         if verbose is None:
             verbose = self._verbose if self._verbose is not None else cfg['rec.verbose']
-        job = self.csoundRenderer.render(outfile=outfile,
+        job = self.session.render(outfile=outfile,
                                          ksmps=ksmps or self.ksmps,
                                          wait=wait if wait is not None else cfg['rec.blocking'],
                                          verbose=verbose,
@@ -719,7 +720,7 @@ class OfflineRenderer(renderer.Renderer):
         Returns:
             the path of the soundfile or an empty string if no soundfile was rendered
         """
-        lastjob = self.csoundRenderer.renderedJobs[-1] if self.csoundRenderer.renderedJobs else None
+        lastjob = self.session.renderedJobs[-1] if self.session.renderedJobs else None
         if not lastjob:
             return ''
         lastjob.wait(timeout=timeout)
@@ -762,7 +763,7 @@ class OfflineRenderer(renderer.Renderer):
         """
         Return the .csd as string
         """
-        return self.csoundRenderer.generateCsdString()
+        return self.session.generateCsdString()
 
     def writeCsd(self, outfile: str = '?') -> str:
         """
@@ -779,11 +780,11 @@ class OfflineRenderer(renderer.Renderer):
             if not selected:
                 raise CancelledError("Save operation cancelled")
             outfile = selected
-        self.csoundRenderer.writeCsd(outfile)
+        self.session.writeCsd(outfile)
         return outfile
 
     def getSynth(self, token: int) -> csoundengine.schedevent.SchedEvent | None:
-        return self.csoundRenderer.getEventById(token)
+        return self.session.getEventById(token)
 
     def __enter__(self):
         """
@@ -795,7 +796,7 @@ class OfflineRenderer(renderer.Renderer):
         self._oldRenderer = self._workspace.renderer
         self._workspace.renderer = self
 
-        session = self.getSession()
+        session = self.liveSession()
         if session:
             session.setHandler(_OfflineSessionHandler(self))
 
@@ -810,7 +811,7 @@ class OfflineRenderer(renderer.Renderer):
         self._workspace = Workspace.active
         self._oldRenderer = None
 
-        session = self.getSession()
+        session = self.liveSession()
         if session:
             session.setHandler(None)
             # self._session.setSchedCallback(self._oldSessionSchedCallback)
@@ -843,36 +844,33 @@ class OfflineRenderer(renderer.Renderer):
         proc = self.lastRenderProc()
         return proc is not None and proc.poll() is not None
 
-    def readSoundfile(self, soundfile: str, chan=0, skiptime=0.) -> int:
-        tabproxy = self.csoundRenderer.readSoundfile(path=soundfile, chan=chan,
-                                                     skiptime=skiptime)
-        return tabproxy.tabnum
+    def readSoundfile(self, soundfile: str, chan=0, skiptime=0.
+                      ) -> csoundengine.tableproxy.TableProxy:
+        return self.session.readSoundfile(path=soundfile, chan=chan, skiptime=skiptime)
 
     def makeTable(self,
                   data: np.ndarray | list[float] | None = None,
-                  size: int = 0,
+                  size: int | tuple[int, int] = 0,
                   sr: int = 0,
                   tabnum: int = 0
-                  ) -> int:
+                  ) -> csoundengine.tableproxy.TableProxy:
         """
         Create a table in this renderer
 
         Args:
             data: if given, the table will be created with the given data
             size: if data is not given, an empty table of the given size is created. Otherwise,
-                this parameter is ignored
+                this parameter is ignored. A multichannel table can be created by specifying
+                the size as a tuple ``(numframes: int, numchannels: int)``
             sr: the sample rate of the data, if applicable
             tabnum: leave it as 0 to let the renderer assign a table number
 
         Returns:
             the assigned table number
         """
-        if data is not None and size > 0:
+        if (data is not None and size) or (data is None and not size):
             raise ValueError("Either data or size must be given, not both")
-        if data is None and not size:
-            raise ValueError("Either data or size must be given")
-        tabproxy = self.csoundRenderer.makeTable(data=data, size=size, sr=sr, tabnum=tabnum)
-        return tabproxy.tabnum
+        return self.session.makeTable(data=data, size=size, sr=sr, tabnum=tabnum)
 
     def wait(self, timeout=0) -> None:
         """

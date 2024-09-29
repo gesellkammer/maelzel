@@ -41,10 +41,6 @@ class TreeLocation:
     """The measure index this notation belongs to, if known"""
 
 
-def _unpackRational(r: Rational) -> tuple[int, int]:
-    return r.numerator, r.denominator
-
-
 def _mergeProperties(a: dict | None, b: dict | None) -> dict | None:
     return a | b if (a and b) else (a or b)
 
@@ -236,17 +232,31 @@ class Node:
             else:
                 item.dump(numindents=numindents + 1, stream=stream)
 
-    def __repr__(self):
-        parts = [f"Node({self.durRatio[0]}/{self.durRatio[1]}, "]
-        for item in self.items:
+    def _treeRepr(self, indent=0):
+        indent0 = " " * indent
+        if not self.items:
+            return indent0 + f"Node({self.durRatio[0]}/{self.durRatio[1]}, [])"
+
+        header = f"{indent0}Node({self.durRatio[0]}/{self.durRatio[1]}, "
+        if isinstance(self.items[0], Notation):
+            parts = [header + str(self.items[0])]
+            indentstr = " " * len(header)
+        else:
+            parts = [header]
+            indentstr = " " * (indent + 4)
+
+        for item in self.items[1:]:
             if isinstance(item, Notation):
-                parts.append("  " + str(item))
+                parts.append(indentstr + str(item))
             else:
-                s = str(item)
-                for line in s.splitlines():
-                    parts.append("  " + line)
-        parts.append(")")
+                s = item._treeRepr(len(indentstr))
+                parts.append(s)
+
+        parts[-1] += ")"
         return "\n".join(parts)
+
+    def __repr__(self):
+        return self._treeRepr(indent=0)
 
     def _flattenUnnecessaryChildren(self):
         if self.durRatio != (1, 1):
@@ -582,12 +592,6 @@ class Node:
         self.repairLinks()
         self.removeUnnecessaryGracenotes()
         self.setParentRecursively()
-
-    # def _splitUnnecessarySiblings(self, mindur=F(2)) -> None:
-    #     items = []
-    #     for n0, n1 in iterlib.pairwise(self.items):
-    #         if isinstance(n0, Node) and n0.totalDuration() >= mindur:
-    #             n0._splitUnnecessaryNodes(duration=mindur)
 
     def fixEnharmonics(self,
                        options: enharmonics.EnharmonicOptions,

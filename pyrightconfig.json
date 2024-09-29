@@ -1,7 +1,7 @@
 {
   "ignore": ["**/node_modules", "**/__pycache__"],
   "pythonPlatform": "Linux",
-  "pythonVersion": "3.10",
+  "pythonVersion": "3.12",
   "reportMissingImports": true,
   "reportMissingTypeStubs": false,
   "stubPath": "typings",
@@ -9,8 +9,6 @@
   "venvPath": "/home/em/.virtualenvs",
   "venv": "maelzel",
   "strictParameterNoneValue": false,
-  "executionEnvironments": [
-      {"root": "."}
-  ],
+  "executionEnvironments": [{ "root": "." }],
   "include": ["maelzel/core", "maelzel/scoring", "scorestruct"]
 }

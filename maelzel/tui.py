@@ -5,17 +5,55 @@ This package provides utilities for generating simple output / user interfaces f
 for the terminal
 """
 from __future__ import annotations
-
 import textwrap
-
 import rich.panel
 import rich.console
+import sys
+
+
+def insideInteractiveTerminal() -> bool:
+    """
+    Are we running interactively inside a terminal?
+    Returns:
+
+    """
+    return sys.stdout.isatty()
 
 
 def panel(text: str, title: str = None, subtitle: str = None,
           width: int = None, padding=(0, 1), titlealign='center',
           bordercolor: str = None, margin=(0, 0), dedent=True
     ) -> None:
+    """
+    Print a panel to the console
+
+    Args:
+        text: the content of the panel
+        title: am optional title
+        subtitle: an optional subtitle
+        width: the width of the panel, in chars
+        padding: distance from panel to text
+        titlealign: alignment of the title
+        bordercolor: color of the border
+        margin: margin from the terminal to the border
+        dedent: dedent the text
+
+    Example
+    ~~~~~~~
+
+    .. code-block:: python
+
+        >>> from maelzel import tui
+        >>> tui.panel("This is my text", "mytitle", padding=1, margin=1, titlealign='left')
+
+        ╭─ mytitle ───────╮
+        │                 │
+        │ This is my text │
+        │                 │
+        ╰─────────────────╯
+
+    """
+
     console = rich.console.Console()
     style = bordercolor or "none"
     if dedent:
@@ -34,6 +72,21 @@ def panel(text: str, title: str = None, subtitle: str = None,
 
 
 def menu(options: list[str]) -> int | None:
+    """
+    A cli menu
+
+    Will raise RuntimeError if not running inside an interactive terminal
+
+    Args:
+        options: a list of string options
+
+    Returns:
+        the index of the selection option, or None if no selection was made
+
+    """
+    if not insideInteractiveTerminal():
+        raise RuntimeError("Not inside an interactive terminal")
+
     from simple_term_menu import TerminalMenu
     terminalMenu = TerminalMenu(options)
     menuindex = terminalMenu.show()
