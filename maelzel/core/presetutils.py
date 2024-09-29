@@ -161,7 +161,7 @@ def makeSoundfontAudiogen(sf2path: str = None,
         else:
             raise ValueError(f"Preset ({preset}) not found. Available presets: {presets}")
     parts = [fr'''
-        ipresetidx sfPresetIndex "{sf2path}", {bank}, {presetnum}
+        ipresetidx sfpresetindex "{sf2path}", {bank}, {presetnum}
         iamp0_ = p(idataidx_ + 2)
         inote0_ = round(p(idataidx_ + 1))
         kpitch2 = lag:k(kpitch + ktransp, ipitchlag)

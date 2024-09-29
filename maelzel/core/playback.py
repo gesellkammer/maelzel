@@ -26,6 +26,7 @@ from maelzel.snd import audiosample
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import csoundengine.baseschedevent
+    import csoundengine.schedevent
     import csoundengine.tableproxy
     import csoundengine.instr
     from typing import Sequence, Callable
@@ -36,7 +37,7 @@ if TYPE_CHECKING:
 __all__ = (
     'play',
     'testAudio',
-    'playSession',
+    'getSession',
 )
 
 
@@ -196,20 +197,18 @@ class RealtimeRenderer(Renderer):
 
     def makeTable(self,
                   data: np.ndarray | list[float] | None = None,
-                  size: int = 0,
+                  size: int | tuple[int, int] = 0,
                   sr: int = 0,
                   tabnum: int = 0
-                  ) -> int:
-        table = self.session.makeTable(data=data, size=size, sr=sr, tabnum=tabnum)
-        return table.tabnum
+                  ) -> csoundengine.tableproxy.TableProxy:
+        return self.session.makeTable(data=data, size=size, sr=sr, tabnum=tabnum)
 
     def readSoundfile(self,
                       soundfile: str,
                       chan=0,
                       skiptime=0.
-                      ) -> int:
-        table = self.session.readSoundfile(path=soundfile, chan=chan, skiptime=skiptime)
-        return table.tabnum
+                      ) -> csoundengine.tableproxy.TableProxy:
+        return self.session.readSoundfile(path=soundfile, chan=chan, skiptime=skiptime)
 
     def sched(self,
               instrname: str,
@@ -394,17 +393,27 @@ def stopSynths():
 
     If stopengine is True, the play engine itself is stopped
     """
-    playSession().unschedAll(future=True)
+    getSession().unschedAll(future=True)
 
 
-def playSession(numchannels: int = None,
-                backend: str = None,
-                outdev: str = None,
-                verbose: bool = None,
-                buffersize: int = None,
-                latency: float = None,
-                numbuffers: int = None
-                ) -> csoundengine.session.Session:
+def playSession(*args, **kws):
+    import warnings
+    warnings.warn("Deprecated, use XXX")
+    return getSession(*args, **kws)
+
+
+class SessionParametersMismatchError(Exception): ...
+
+
+def getSession(numchannels: int = None,
+               backend: str = None,
+               outdev: str = None,
+               verbose: bool = None,
+               buffersize: int = None,
+               latency: float = None,
+               numbuffers: int = None,
+               ensure: bool = False
+               ) -> csoundengine.session.Session:
     """
     Returns the csoundengine Session
 
@@ -422,17 +431,38 @@ def playSession(numchannels: int = None,
             default for the backend
         latency: an added latency
         numbuffers: the number of buffers used by the csound engine
+        ensurenew: if True, an exception is raised if a Session already existed
+            with parameters differing from the given
 
     Returns:
         the active Session
 
+    Raises:
+        SessionParametersMismatchError: if ensure was True and the given parameters
+            do not match the existing session
+
     .. seealso:: :class:`csoundengine.Session <https://csoundengine.readthedocs.io/en/latest/api/csoundengine.session.Session.html>`
     """
-    if isSessionActive():
-        return _playEngine().session()
-    engine = _playEngine(numchannels=numchannels, backend=backend, outdev=outdev,
-                         verbose=verbose, buffersize=buffersize, latency=latency,
-                         numbuffers=numbuffers)
+    if not isSessionActive():
+        return _playEngine(numchannels=numchannels, backend=backend, outdev=outdev,
+                           verbose=verbose, buffersize=buffersize, latency=latency,
+                           numbuffers=numbuffers).session()
+
+    engine = _playEngine()
+    if not ensure:
+        return engine.session()
+    msgs = []
+    def check(paramname, value):
+        if value is not None and (old := getattr(engine, paramname)) != value:
+            msgs.append(f'{paramname} differs: engine.{paramname}={old} != {value}')
+    check('nchnls', numchannels)
+    check('backend', backend)
+    check('outdev', outdev)
+    check('extraLatency', latency)
+    check('numBuffers', numbuffers)
+    check('bufferSize', buffersize)
+    if msgs:
+        raise SessionParametersMismatchError(f"A Session already exists with different parameters: {msgs}")
     return engine.session()
 
 
@@ -491,7 +521,7 @@ def play(*sources: MObj | Sequence[SynthEvent] | csoundengine.event.Event,
         >>> from maelzel.core import *
         >>> from csoundengine.session import SessionEvent
         >>> import csoundengine as ce
-        >>> session = playSession()
+        >>> session = getSession()
         >>> session.defInstr('reverb', r'''
         >>> |kfeedback=0.85|
         ... a1, a2 monitor
@@ -684,7 +714,7 @@ class SynchronizedContext(Renderer):
     ~~~~~~~
 
         >>> from maelzel.core import *
-        >>> session = playSession()  # returns a csoundengine.session.Session
+        >>> session = getSession()  # returns a csoundengine.session.Session
         >>> session.defInstr('reverb', r'''
         ... |kfeedback=0.85|
         ... a1, a2 monitor
@@ -707,7 +737,7 @@ class SynchronizedContext(Renderer):
 
         super().__init__(presetManager=presetmanager.presetManager)
 
-        self.session: csoundengine.session.Session = playSession()
+        self.session: csoundengine.session.Session = getSession()
         """The corresponding Session, can be used to access the session during the context"""
 
         self.engine: csoundengine.engine.Engine = self.session.engine
@@ -749,22 +779,24 @@ class SynchronizedContext(Renderer):
         self._exitActions: list[Callable[[SynchronizedContext], None]] = []
         self._coresynths: list[csoundengine.synth.Synth] = []
         self._sessionsynths: list[csoundengine.synth.Synth] = []
-
-        # self._eventToToken: dict[csoundengine.event.Event | SynthEvent, int] = {}
+        self._insideContext = False
 
     def isRealtime(self) -> bool:
         return True
 
     def makeTable(self,
                   data: np.ndarray | list[float] | None = None,
-                  size: int = 0,
+                  size: int | tuple[int, int] = 0,
                   sr: int = 0,
                   tabnum: int = 0
-                  ) -> int:
-        return self.session.makeTable(data=data, size=size, sr=sr, tabnum=tabnum).tabnum
+                  ) -> csoundengine.tableproxy.TableProxy:
+        # raise NotImplementedError
+        if self.session._handler:
+            raise NotImplementedError
+        return self.session.makeTable(data=data, size=size, sr=sr, tabnum=tabnum)
 
-    def readSoundfile(self, soundfile: str, chan=0, skiptime=0.) -> int:
-        return self.session.readSoundfile(path=soundfile, chan=chan, skiptime=skiptime).tabnum
+    def readSoundfile(self, path: str, chan=0, skiptime=0.) -> csoundengine.tableproxy.TableProxy:
+        return self.session.readSoundfile(path=path, chan=chan, skiptime=skiptime)
 
     def includeFile(self, path: str) -> None:
         self.session.includeFile(path)
@@ -897,18 +929,6 @@ class SynchronizedContext(Renderer):
     def registerPreset(self, presetdef: PresetDef) -> bool:
         return self.session.registerInstr(presetdef.getInstr())
 
-    # def _automate(self,
-    #               token: int,
-    #               param: str,
-    #               pairs: Sequence[float] | np.ndarray,
-    #               delay=0.,
-    #               overtake=False):
-    #     future = self._tokenToFuture.get(token)
-    #     if not future:
-    #         raise ValueError(f"Invalid token {token}. Known tokens: {self._tokenToFuture}")
-    #     event = SynthAutomation(token=token, param=param, data=pairs, delay=delay, overtake=overtake)
-    #     self._automationEvents.append(event)
-
     def _presetFromToken(self, token: int) -> PresetDef | None:
         future = self._tokenToFuture.get(token)
         if not future:
@@ -919,16 +939,6 @@ class SynchronizedContext(Renderer):
                              "a maelzel.core")
         presetdef = self.presetManager.getPreset(event.instr)
         return presetdef
-
-    # def _set(self, token: int, param: str, value: float, delay: float):
-    #     presetdef = self._presetFromToken(token)
-    #     if presetdef is None:
-    #         raise RuntimeError(f"Unknown token {token}")
-    #     params = presetdef.dynamicParams(aliases=True, aliased=True)
-    #     if param not in params:
-    #         raise KeyError(f"Parameter {param} not known. Possible parameters: {params}")
-    #     event = SynthAutomation(token=token, param=param, data=[0, value], delay=delay)
-    #     self._automationEvents.append(event)
 
     def getSynth(self, token: int) -> csoundengine.synth.Synth | None:
         """
@@ -949,10 +959,9 @@ class SynchronizedContext(Renderer):
         """
         Performs initialization of the context
 
-        If not called as a context manager, this method together with `exitContext`
-        can be called manually to produce the same effect.
-
         """
+        if self._insideContext:
+            raise RuntimeError("Alread inside this context")
         self.workspace = workspace = Workspace.getActive()
         for action in self._enterActions:
             action(self)
@@ -961,6 +970,7 @@ class SynchronizedContext(Renderer):
         workspace.renderer = self
         # self._prevSessionSchedCallback = self.session.setSchedCallback(self._schedSessionEvent)
         self._prevSessionHandler = self.session.setHandler(_SyncSessionHandler(self))
+        self._insideContext = True
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -973,7 +983,7 @@ class SynchronizedContext(Renderer):
         # first, restore the state prior to the context
         # self.session.setSchedCallback(self._prevSessionSchedCallback)
         # self._prevSessionSchedCallback = None
-
+        self._insideContext = False
         self.session.setHandler(self._prevSessionHandler)
         self._prevSessionHandler = None
 
@@ -994,11 +1004,12 @@ class SynchronizedContext(Renderer):
         sessionfutures = [f for f in self._futureSynths if f.kind == 'sessionevent']
 
         renderer = RealtimeRenderer()
+        coreevents = [f._synthevent() for f in corefutures]
+        sessionevents = [f._csoundevent() for f in sessionfutures]
         synths, sessionsynths = _schedEvents(renderer,
                                              presetManager=self.presetManager,
-                                             coreevents=[f.event for f in corefutures],
-                                             sessionevents=[f.event for f in sessionfutures],
-                                             # posthook=self._scheduleAutomations,
+                                             coreevents=coreevents,
+                                             sessionevents=sessionevents,
                                              whenfinished=self._finishedCallback)
 
         for idx, synth in enumerate(synths):
@@ -1050,14 +1061,18 @@ class SynchronizedContext(Renderer):
             crossfade: a crossfade time when looping
 
         Returns:
-            a FutureSynth
+            a :class:`_FutureSynth`
         """
-        if isinstance(source, audiosample.Sample):
-            source = (source.samples, source.sr)
         # TODO: make a FutureSynth event instead
-        return self.session.playSample(source=source, delay=delay, dur=dur, chan=chan, gain=gain,
-                                       speed=speed, loop=loop, pan=pos, skip=skip, fade=fade,
-                                       crossfade=crossfade)
+        if isinstance(source, tuple):
+            data, sr = source
+            source = self.session.makeTable(data=data, sr=sr)
+        elif isinstance(source, audiosample.Sample):
+            source = self.session.makeTable(data=source.samples, sr=source.sr)
+        event = self.session.makeSampleEvent(source=source, delay=delay, dur=dur, chan=chan, gain=gain,
+                                             speed=speed, loop=loop, pan=pos, skip=skip, fade=fade,
+                                             crossfade=crossfade)
+        return self._schedSessionEvent(event=event)
 
     def sched(self,
               instrname: str,
@@ -1091,11 +1106,11 @@ class SynchronizedContext(Renderer):
 
         Schedule a reverb at a higher priority to affect all notes played. Notice
         that the reverb instrument is declared at the Session (see
-        :func:`playback.playSession <maelzel.core.playback.playSession>`). All instruments
+        :func:`playback.getSession <maelzel.core.playback.getSession>`). All instruments
         registered at this Session are immediately available for offline rendering.
 
         >>> from maelzel.core import *
-        >>> session = playSession()
+        >>> session = getSession()
         >>> session.defInstr('reverb', r'''
         >>> |kfeedback=0.85|
         ... a1, a2 monitor
@@ -1157,6 +1172,17 @@ class _FutureSynth(csoundengine.baseschedevent.BaseSchedEvent, csoundengine.synt
         self.token: int = token
         self.kind = 'synthevent' if isinstance(event, SynthEvent) else 'sessionevent'
         self.session = parent.session
+
+    def _synthevent(self) -> SynthEvent:
+        if isinstance(self.event, SynthEvent):
+            return self.event
+        raise ValueError(f"This FutureSynth has an event of type {type(self.event)}")
+
+    def _csoundevent(self) -> csoundengine.event.Event:
+        if isinstance(self.event, csoundengine.event.Event):
+            return self.event
+        raise ValueError(f"This FutureSynth has an event of type {type(self.event)}")
+
 
     def aliases(self) -> dict[str, str]:
         return self.instr.aliases

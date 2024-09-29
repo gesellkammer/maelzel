@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 def _csoundEngine(name='maelzel') -> csoundengine.Engine:
     import csoundengine as ce
-    return ce.getEngine(name) or ce.Engine(name=name)
+    return ce.Engine.activeEngines.get(name) or ce.Engine(name=name)
 
 
 def _firstPartialAfter(partials: list[Partial], t0: float) -> int:

@@ -160,12 +160,12 @@ class Chain(MContainer):
             if not isinstance(items, list):
                 items = list(items)
             for item in items:
-                assert isinstance(item, MEvent)
+                assert isinstance(item, (MEvent, Chain)), f"Item {item} should be a MEvent or a Chain, got: {type(item)}"
                 if item.parent is not None:
                     # We need to make a copy in this case
                     item = item.copy()
                 item.parent = self
-        assert isinstance(items, list)
+        assert isinstance(items, list), f"Items should be a list, got {items}"
         super().__init__(offset=offset, dur=F0, label=label,
                          properties=properties, parent=parent)
 
@@ -436,7 +436,7 @@ class Chain(MContainer):
             return None
         return min(p[0] for p in pitchRanges), max(p[1] for p in pitchRanges)
 
-    def meanPitch(self):
+    def meanPitch(self) -> F | None:
         items = [item for item in self.items if not item.isRest()]
         gracenoteDur = F(1, 16)
         pitches = [item.meanPitch() for item in items]
@@ -919,6 +919,9 @@ class Chain(MContainer):
 
         Args:
             removeOffsets: if True, remove any redundant offsets in the returned voice
+
+        Returns:
+            this chain as a Voice
         """
         self._update()
         items = self.copy().items
@@ -926,7 +929,8 @@ class Chain(MContainer):
         if self.offset:
             for item in items:
                 item.offset += self.offset
-        voice = Voice(items, name=self.label)
+        voice = Voice(name=self.label)
+        voice.items = items
         if removeOffsets:
             voice.removeRedundantOffsets()
         if self.symbols:
@@ -1644,7 +1648,7 @@ class Chain(MContainer):
             offsets: the offsets to split items at (either absolute offsets or
                 score locations as tuple (measureindex, measureoffset)
             tie: if True, parts of an item are tied together
-            nomerge: if True, add event breaks to prevent events from being
+            nomerge: add a break to prevent events from being
                 merged
         """
         if not offsets:
@@ -1738,7 +1742,7 @@ class Chain(MContainer):
                         if obj is None:
                             logger.error(f"The spanner has no anchor ({spanner=})")
                         elif obj.symbols is None:
-                            logger.error(f"The spanner's anchor seems invalid. {spanner=}, anchor={obj}")
+                            logger.error(f"Invalid spanner anchor, {spanner=}, anchor={obj}")
                         else:
                             logger.debug(f"Removing spanner {spanner} from {obj}")
                             obj.symbols.remove(spanner)
@@ -1792,7 +1796,7 @@ class Chain(MContainer):
             0:0.5     0.5    (0)         1           4C
             0:1.5     1.5    (1)         1           4E
             0:2.5     2.5    (2)         1           4G
-            
+
         """
         firstoffset = self.firstOffset()
         if firstoffset is not None and firstoffset > 0:
@@ -1980,10 +1984,10 @@ class Voice(Chain):
 
     def __copy__(self: Voice) -> Voice:
         # always a deep copy
-        voice = Voice(items=[item.copy() for item in self.items],
-                      name=self.name,
+        voice = Voice(name=self.name,
                       shortname=self.shortname,
                       maxstaves=self.maxstaves)
+        voice.items = [item.copy() for item in self.items]
         self._copyAttributesTo(voice)
         return voice
 
@@ -2118,6 +2122,14 @@ class Voice(Chain):
             raise ValueError(f"Cannot add {symbol} to a {type(self).__name__}")
         self._addSymbol(symbol)
         return self
+
+    def relOffset(self) -> F:
+        # A voice always starts at 0
+        return F0
+
+    def absOffset(self) -> F:
+        # A voice always starts at 0
+        return F0
 
     def breakBeam(self, location: F | tuple[int, F]) -> None:
         """

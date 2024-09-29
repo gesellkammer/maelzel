@@ -19,7 +19,7 @@ ENGINE = 'maelzel.wavesim'
 
 
 def _getEngine() -> csoundengine.Engine:
-    return csoundengine.getEngine(ENGINE)
+    return csoundengine.Engine.activeEngines.get(ENGINE) or csoundengine.Engine(ENGINE)
 
 
 class Instr:

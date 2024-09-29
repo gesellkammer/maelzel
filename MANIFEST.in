@@ -1,1 +1,6 @@
-recursive-include data *
+recursive-include maelzel
+prune test
+prune notebooks
+prune docs
+prune scripts
+exclude MANIFEST.in

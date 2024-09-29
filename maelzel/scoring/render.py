@@ -10,6 +10,7 @@ from .renderer import Renderer
 from .renderoptions import RenderOptions
 from . import renderlily
 from .common import logger
+from . import attachment
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -51,11 +52,12 @@ def renderQuantizedScore(score: quant.QuantizedScore,
     for i, part in enumerate(score.parts):
         if part.autoClefChanges or (options.autoClefChanges and part.autoClefChanges is None):
             # Do not add if there are manual clefs
-            if any(n.findAttachment('Clef') for n in part.flatNotations()):
+            if any(n.findAttachment(attachment.Clef) for n in part.flatNotations()):
                 logger.debug(f"Part #{i} (name={part.name}) already has manual clefs set, skipping automatic clefs")
             else:
                 part.findClefChanges(apply=True, biasFactor=options.keepClefBiasFactor,
                                      window=options.autoClefChangesWindow)
+        part.repairLinks()
 
     if backend == 'musicxml':
         from . import rendermusicxml

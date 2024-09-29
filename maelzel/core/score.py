@@ -15,6 +15,7 @@ from ._common import UNSET
 from typing import TYPE_CHECKING, Sequence, Callable
 if TYPE_CHECKING:
     from ._typedefs import *
+    from typing_extensions import Self
 
 
 __all__ = (
@@ -131,6 +132,10 @@ class Score(MContainer):
         from maelzel.core import musicxmlparser as mxml
         return mxml.parseMusicxml(musicxml, enforceParsedSpelling=enforceParsedSpelling)
 
+    def remap(self, deststruct: ScoreStruct, sourcestruct: ScoreStruct = None) -> Score:
+        voices = [v.remap(deststruct, sourcestruct) for v in self.voices]
+        return self.clone(voices=voices, scorestruct=deststruct)
+
     @staticmethod
     def pack(objects: list[MEvent | Chain | Voice], maxrange=36, mingap=0) -> Score:
         """
@@ -147,13 +152,16 @@ class Score(MContainer):
         """
         from maelzel import packing
         voices = []
-        items = []
+        items: list[packing.Item] = []
         for obj in objects:
             if isinstance(obj, Voice):
                 voices.append(obj)
             elif isinstance(obj, (MEvent, Chain)):
-                items.append(packing.Item(obj, offset=obj.absOffset(), dur=obj.dur,
-                                          step=obj.meanPitch()))
+                pitch = obj.meanPitch()
+                if pitch is None:
+                    pitch = items[-1].step if items else 60
+                item = packing.Item(obj, offset=obj.absOffset(), dur=obj.dur, step=pitch)
+                items.append(item)
             else:
                 raise TypeError(f"Cannot pack {obj}")
         tracks = packing.packInTracks(items, maxrange=maxrange, mingap=mingap)
@@ -274,7 +282,7 @@ class Score(MContainer):
         # TODO: deal with groupid
         return flatevents
 
-    def _asVoices(self) -> list[chain.Voice]:
+    def _asVoices(self) -> list[Voice]:
         return self.voices
 
     def _synthEvents(self,

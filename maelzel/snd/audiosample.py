@@ -329,14 +329,11 @@ class Sample:
         """
         if Sample._csoundEngine:
             return Sample._csoundEngine
-        else:
-            import csoundengine as ce
-            name = config['csoundengine']
-            if (engine := ce.getEngine(name)) is not None:
-                Sample._csoundEngine = engine
-            else:
-                Sample._csoundEngine = ce.Engine(name=name, **kws)
-            return Sample._csoundEngine
+        import csoundengine as ce
+        name = config['csoundengine']
+        engine = ce.Engine.activeEngines.get(name) or ce.Engine(name=name, **kws)
+        Sample._csoundEngine = engine
+        return engine
 
     @classmethod
     def createSilent(cls, dur: float, channels: int, sr: int) -> Sample:

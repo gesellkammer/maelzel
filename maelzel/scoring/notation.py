@@ -74,7 +74,9 @@ class Notation:
         '.mergeable',
         '.forceTupletBracket',
         '.snappedGracenote',   # Is this a note which has been snapped to 0 duration?
-        '.originalDuration'    # For snapped notes, it is useful to keep track of the original duration
+        '.originalDuration',    # For snapped notes, it is useful to keep track of the original duration
+        '.forwardTies',
+        '.backwardTies'
     }
 
     __slots__ = ("duration",
@@ -163,7 +165,7 @@ class Notation:
 
         self.durRatios: tuple[F, ...] = durRatios
         """A set of ratios to apply to .duration to convert it to its notated duration
-        
+
         see :meth:`Notation.notatedDuration`
         """
 
@@ -306,10 +308,10 @@ class Notation:
         return attachments
 
     def findAttachment(self,
-                       cls: str | type,
+                       cls: type[AttachmentT],
                        anchor: int | None | Unset = UNSET,
                        predicate: Callable = None
-                       ) -> Attachment | None:
+                       ) -> AttachmentT | None:
         """
         Find an attachment by class or classname
 
@@ -328,9 +330,12 @@ class Notation:
             return None
         attachments = self.getAttachments(cls=cls, anchor=anchor, predicate=predicate)
         if attachments:
-            return attachments[0]
+            out = attachments[0]
+            assert isinstance(out, cls)
+            return out
 
-    def addAttachment(self, attachment: Attachment) -> Notation:
+    def addAttachment(self, attachment: Attachment, anchor: int | None = None
+                      ) -> Notation:
         """
         Add an attachment to this Notation
 
@@ -344,6 +349,9 @@ class Notation:
 
         Args:
             attachment: an instance of scoring.attachment.Attachment
+            anchor: for pitch anchored symbols, the index of the pitch to add
+                this attachment to. Alternatively the anchor can be set in the
+                attachment itself
 
         Returns:
             self
@@ -366,6 +374,8 @@ class Notation:
 
         if attachment.anchor is not None:
             assert 0 <= attachment.anchor < len(self.pitches)
+        if anchor is not None:
+            attachment.anchor = anchor
         self.attachments.append(attachment)
         return self
 
@@ -716,6 +726,56 @@ class Notation:
         """
         return self.fixedNotenames.get(idx) if self.fixedNotenames else None
 
+    def tieHints(self, direction='forward', clear=False) -> set[int]:
+        """
+        Get any tie hints set
+
+        Tie hints indicate which pitches within a chord are actually tied
+        to the next/previous notation. This can be set manually and is
+        set after quantization
+
+        Args:
+            direction: one of "forward" or "backward"
+            clear: if True, clear the set if applicable
+        """
+        if direction == 'forward':
+            key = '.forwardTies'
+            assert self.tiedNext
+        elif direction == 'backward':
+            key = '.backwardTies'
+            assert self.tiedPrev
+        else:
+            raise KeyError(f"direction must be one of 'forward', 'backward', got {direction}")
+        hints = self.getProperty(key)
+        if hints is None:
+            hints = set()
+            self.setProperty(key, hints)
+        else:
+            assert isinstance(hints, set)
+            if clear:
+                hints.clear()
+        return hints
+
+    def setTieHint(self, idx: int, direction="forward") -> None:
+        """
+        Set a tie hint for a specific pitch in this notation
+
+        Args:
+            idx: the index of the pitch
+            direction: one of "forward" or "backward"
+        """
+        self.tieHints(direction).add(idx)
+
+    def getTieHint(self, idx: int, direction="fotward") -> bool:
+        """
+        True if the pitch with the given idx has a tie hint set
+
+        Args:
+            idx: the index of the pitch
+            direction: one of "forward or "backward"
+        """
+        return idx in self.tieHints(direction)
+
     def fixedSlots(self, semitoneDivs=2) -> dict[int, int] | None:
         """
         Calculate the fixed slots within this chord
@@ -804,7 +864,7 @@ class Notation:
 
         Args:
             copyFixedNotenames: transfer any fixed notenames to the cloned
-                notation   
+                notation
             kws: keyword arguments, as passed to the Notation constructor.
                 Any parameter given will override the corresponding value in
                 this Notation
@@ -885,6 +945,7 @@ class Notation:
 
     def copy(self) -> Notation:
         """Copy this Notation"""
+        properties = None if self.properties is None else copy.deepcopy(self.properties)
         out = Notation(duration=self.duration,
                        pitches=self.pitches.copy() if self.pitches else None,
                        offset=self.offset,
@@ -897,7 +958,7 @@ class Notation:
                        gliss=self.gliss,
                        color=self.color,
                        sizeFactor=self.sizeFactor,
-                       properties=self.properties.copy() if self.properties else None,
+                       properties=properties,
                        _init=False)
         if self.attachments:
             out.attachments = self.attachments.copy()
@@ -991,7 +1052,7 @@ class Notation:
                     self.fixNotename(pitch, idx=i)
         else:
             for i, pitch in enumerate(pitches):
-                if isinstance(pitch, str) and pitch[0] == '!':
+                if isinstance(pitch, str) and pitch[-1] == '!':
                     self.fixNotename(pitch[:-1], idx=i)
 
     def notename(self, index=0, addExplicitMark=False) -> str:
@@ -1013,7 +1074,7 @@ class Notation:
             index = len(self.pitches) + index
         assert 0 <= index < len(self.pitches), f"Invalid index {index}, num. pitches={len(self.pitches)}"
         if fixed := self.getFixedNotename(index):
-            return fixed if not addExplicitMark else fixed+'!'
+            return fixed if not addExplicitMark else fixed + '!'
         return pt.m2n(self.pitches[index])
 
     def pitchclassIndex(self, semitoneDivs=2, index=0) -> int:
@@ -1040,12 +1101,15 @@ class Notation:
         notename = self.notename(index=index)
         return pt.pitchclass(notename, semitone_divisions=semitoneDivs)
 
-    def resolveNotenames(self, addFixedAnnotation=False) -> list[str]:
+    def resolveNotenames(self, addFixedAnnotation=False, removeFixedAnnotation=False
+                         ) -> list[str]:
         """Resolve the enharmonic spellings for this Notation
 
         Args:
             addFixedAnnotation: if True, enforce the returned spelling by adding
-            a '!' suffix.
+                a '!' suffix.
+            removeFixedAnnotation: if True, remove any fixed annotation marks ('!')
+                from the notenames
 
         Returns:
             the notenames of each pitch in this Notation
@@ -1058,7 +1122,10 @@ class Notation:
             notename = self.getFixedNotename(i)
             if not notename:
                 notename = pt.m2n(p)
-            elif addFixedAnnotation and not notename.endswith('!'):
+            if notename.endswith('!'):
+                if removeFixedAnnotation:
+                    notename = notename[:-1]
+            elif addFixedAnnotation:
                 notename += '!'
             out.append(notename)
         return out
@@ -1149,7 +1216,7 @@ class Notation:
     def canMergeWith(self, other: Notation) -> bool:
         """Can this Notation merge with *other*?"""
         return notationsCanMerge(self, other)
-    
+
     def mergeWith(self, other: Notation) -> Notation:
         """Merge this Notation with ``other``"""
         return mergeNotations(self, other)
@@ -1288,7 +1355,7 @@ class Notation:
                 info.append(showT(self.duration) + '♩')
             else:
                 info.append(f"{self.duration.numerator}/{self.duration.denominator}♩")
-            
+
         if self.durRatios and self.durRatios != [F(1)]:
             info.append(",".join(showF(r) for r in self.durRatios))
 
@@ -1904,6 +1971,3 @@ class SnappedNotation:
 
     def __repr__(self):
         return repr(self.makeSnappedNotation())
-
-
-

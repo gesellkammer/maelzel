@@ -362,10 +362,7 @@ def synthVowel(midinote: Union[float, Tuple[float, float]],
         the synth
 
     """
-    if enginename:
-        engine = csoundengine.getEngine(enginename)
-    else:
-        engine = playback.getEngine()
+    engine = csoundengine.Engine.activeEngines.get(enginename) or playback.getEngine()
     if method == 'fof2':
         return _synthVowelFof2(engine,
                                midinote,

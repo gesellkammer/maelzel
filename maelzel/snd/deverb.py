@@ -4,7 +4,7 @@ from maelzel.snd import numpysnd
 import sndfileio
 
 
-_deverbInstr = r'''
+_removeSustainInstr = r'''
 |ionsettab, iaudiotab, isr, ichan=1, iwet=1, ifftsize=2048, iwinsize=2048, iwintype=0, ioverlap=8, ifreezemargin=0.1, imorphtime=0.2, ireduction=1, irelthreshold=0.01|
 inumsamps = ftlen(iaudiotab)
 idur = inumsamps / isr
@@ -37,7 +37,7 @@ if konset > 0 then
   kmags2 = kmags1
 endif
 
-kenv = linenv(konset, 0, 0, 0.2, 1)
+kenv = linenv(konset, 0, 0, imorphtime, 1)
 kmags4 = linlin(kenv, kmags3, kmags2)
 kmagstest = kmags0 - kmags4 * ireduction
 kmagstest limit kmagstest, 0, 1
@@ -45,7 +45,6 @@ if sumarray(kmagstest) / sumarray(kmags0) > irelthreshold then
     kmags0 = kmagstest
 endif
 
-; kmags0 -= kmags4 * ireduction
 fsig3 pvsfromarray kmags0, kfreqs0, ihopsize, iwinsize, 0
 aout pvsynth fsig3	
 if iwet < 1 then
@@ -153,7 +152,7 @@ def removeSustain(samples: np.ndarray,
 
     onsetTable = renderer.makeTable(data=onsets)
 
-    renderer.defInstr('deverb', _deverbInstr)
+    renderer.defInstr('deverb', _removeSustainInstr)
     sampledur = len(samples) / sr
     if not winsize:
         winsize = fftsize
