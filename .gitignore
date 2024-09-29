@@ -3,6 +3,7 @@ dist/
 docs/api
 docs/tmp/
 docs/_build
+.zed
 *.egg*
 __pycache__
 *.pyc

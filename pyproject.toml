@@ -1,0 +1,90 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+version = "1.5.22"
+name = "maelzel"
+description = "Framework for computer music and composition"
+authors = [
+    { name = "Eduardo Moguillansky", email = "eduardo.moguillansky@gmail.com" },
+]
+license = { file = "LICENSE.md" }
+readme = "README.rst"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    'Topic :: Multimedia :: Sound/Audio',
+]
+
+
+dependencies = [
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "appdirs",
+    "tabulate",
+    "cachetools",
+    "pyyaml",
+    "psutil",
+    "lxml",
+    "quicktions",
+    "rich",
+    "chardet",
+    "simple-term-menu",
+    "visvalingamwyatt",
+    "distro",
+    "thefuzz",
+    # "resampy",  # Do not include it by default, since this pulls numba
+    "python-constraint",
+    "pillow",
+    "sounddevice",
+    "typing_extensions",
+
+    # Own libraries
+    "emlib>=1.16.5",
+    "ctcsound7>=0.4.6",
+    "bpf4>=1.10.0",
+    "configdict>=2.10",
+    "sndfileio>=1.9.1",
+    "numpyx>=1.3.1",
+    "csoundengine>=2.11.0",
+    "pitchtools>=1.14.0",
+    "risset>=2.8.0",
+    "loristrck>=1.6.1",
+    "vamphost>=1.3.0",
+    "lilyponddist>=1.0.1",
+
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["maelzel", "maelzel.*"]
+exclude = ["docs", "notebooks", "test", "scripts"]
+
+
+# [tool.setuptools]
+# packages = [
+#     'maelzel',
+#     'maelzel.core',
+#     'maelzel.midi',
+#     'maelzel.snd',
+#     'maelzel.acoustics',
+#     'maelzel.ext',
+#     'maelzel.music',
+#     'maelzel.scoring',
+#     'maelzel.musicxml',
+#     'maelzel.transcribe',
+#     'maelzel.partialtracking',
+# ]
+
+
+[tool.setuptools.package-data]
+maelzel = ['maelzel/data']
+
+
+[project.urls]
+"Homepage" = "https://github.com/gesellkammer/maelzel"
