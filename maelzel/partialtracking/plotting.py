@@ -4,7 +4,7 @@ import numpy as np
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    import matplotlib.pyplot as plt
+    from matplotlib.axes import Axes
 
 
 def _segmentsZ(data: np.ndarray, downsample=1, avg=True
@@ -39,7 +39,7 @@ def _segmentsZ(data: np.ndarray, downsample=1, avg=True
 
 
 def plotmpl(spectrum: sp.Spectrum,
-            axes: plt.Axes | None = None,
+            axes: Axes | None = None,
             linewidth=1,
             avg=True,
             cmap='inferno',
@@ -50,7 +50,7 @@ def plotmpl(spectrum: sp.Spectrum,
             figsize=(20, 8),
             maxfreq=20000,
             yscale='linear',
-            ) -> plt.Axes:
+            ) -> Axes:
     """
     Plot a Spectrum with matplotlib
 

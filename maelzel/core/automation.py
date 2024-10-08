@@ -33,7 +33,7 @@ class Automation:
     """A list of breakpoints
 
     Each breakpoint has the form (time, value, interpolation)
-    where time is the time in quarternotes, value is the value of 
+    where time is the time in quarternotes, value is the value of
     the param at the time and interpolation is one of 'linear', 'cos',
     expon(x), etc.
     """
@@ -163,6 +163,7 @@ class Automation:
 
         normalized: list[tuple[F | location_t, float, str]] = []
         for bp in breakpoints:
+            assert isinstance(bp, tuple)
             bplen = len(bp)
             if bplen == 3:
                 normalized.append(bp)
@@ -189,7 +190,7 @@ class SynthAutomation:
 
     data: list[float] | np.ndarray
     """The automation data
-    
+
     A flat list of (time, value) pairs. For a single event, the data should be [0, value]"""
 
     delay: float = 0.

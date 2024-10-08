@@ -1,13 +1,14 @@
 from __future__ import annotations
 from maelzel.common import F
 from emlib.iterlib import pairwise, first
+
+from maelzel.packing import F0
 from .event import *
 from .workspace import getConfig, Workspace
 from maelzel.core.synthevent import SynthEvent, PlayArgs
 
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from typing import *
+
+from typing import Sequence
 
 
 def splitNotesOnce(notes: Chord | Sequence[Note], splitpoint: float, deviation=None,
@@ -37,26 +38,6 @@ def splitNotesOnce(notes: Chord | Sequence[Note], splitpoint: float, deviation=N
         for note in notes:
             (above if note.pitch > splitpoint else below).append(note)
     return above, below
-
-
-# old
-def ___splitNotesIfNecessary(notes: list[Note], splitpoint: float, deviation=None
-                             ) -> list[list[Note]]:
-    """
-    Like splitNotesOnce, but returns only parts which have notes in them
-
-    This can be used to split in more than one staves, which should not overlap
-
-    Args:
-        notes: the notes to split
-        splitpoint: the split point
-        deviation: an acceptable deviation, if all notes could fit in one part
-
-    Returns:
-        a list of parts (a part is a list of notes)
-
-    """
-    return [p for p in splitNotesOnce(notes, splitpoint, deviation) if p]
 
 
 def fillTempDynamics(items: list[MEvent], initialDynamic='mf',
@@ -89,16 +70,17 @@ def fillTempDynamics(items: list[MEvent], initialDynamic='mf',
             item.setProperty('.tempdynamic', True)
     else:
         lastDynamic = initialDynamic
-        lastEnd = 0
+        lastEnd = F0
         for item in items:
-            if resetMinGap > 0 and item.offset - lastEnd > resetMinGap:
+            itemOffset = item.relOffset()
+            if resetMinGap > 0 and itemOffset - lastEnd > resetMinGap:
                 lastDynamic = initialDynamic
             if not item.dynamic:
                 item.dynamic = lastDynamic
                 item.setProperty('.tempdynamic', True)
             else:
                 lastDynamic = item.dynamic
-            lastEnd = item.end
+            lastEnd = itemOffset + item.dur
 
 
 def addDurationToGracenotes(events: list[MEvent], dur: F) -> None:
@@ -209,7 +191,7 @@ def splitLinkedGroupIntoLines(objs: list[MEvent]
 
     """
     if all(isinstance(obj, Note) for obj in objs):
-        return [objs]
+        return [objs]  # type: ignore
 
     finished: list[list[Note]] = []
     started: list[list[Note]] = []
@@ -241,18 +223,13 @@ def splitLinkedGroupIntoLines(objs: list[MEvent]
                         continuations[n0] = ev1
             ev0 = ev1
 
-    # for ev0, ev1 in pairwise(objs):
-    #     if isinstance(ev0, Chord) and ev0.gliss is True:
-    #         if isinstance(ev1, Chord):
-    #             # Notes are matched in sort order (which is normally by pitch)
-    #             for n0, n1 in zip(ev0.notes, ev1.notes):
-    #                 continuations[n0] = n1
-    #         elif isinstance(ev1, Note):
-    #             for n0 in ev0.notes:
-    #                 continuations[n0] = ev1
-
     for objidx, obj in enumerate(objs):
-        notes = obj.notes if isinstance(obj, Chord) else [obj]
+        if isinstance(obj, Chord):
+            notes = obj.notes
+        elif isinstance(obj, Note):
+            notes = [obj]
+        else:
+            raise TypeError(f"Expected notes or chords, got {obj}")
         usednotes = set()
         assert all(n.offset is not None for n in notes)
         if not started:
@@ -271,7 +248,7 @@ def splitLinkedGroupIntoLines(objs: list[MEvent]
                         # notes.pop(matchidx)
                         usednotes.add(notes[matchidx])
                 elif last.gliss is True:
-                    if continuation:=continuations.get(last):
+                    if continuation := continuations.get(last):
                         group.append(continuation)
                         if continuation in notes:
                             usednotes.add(continuation)
@@ -295,51 +272,3 @@ def splitLinkedGroupIntoLines(objs: list[MEvent]
     # We finished iterating, are there any started groups? Finish them
     finished.extend(started)
     return finished
-
-
-# old
-def ___chainSynthEvents(objs: list[MEvent],
-                        playargs: PlayArgs,
-                        parentOffset: F,
-                        workspace: Workspace
-                        ) -> list[SynthEvent]:
-    """
-    Calculate synthevents for a chain of events
-
-    Args:
-        objs: a sequence of events
-        playargs: playargs for the sequence
-        workspace: the activeworkspace
-
-    Returns:
-        the corresponding list of synthevents
-    """
-    synthevents = []
-    groups = groupLinkedEvents(objs)
-    struct = workspace.scorestruct
-    transpose = playargs.get('transpose', 0.)
-    for group in groups:
-        if isinstance(group, MEvent):
-            events = group._synthEvents(playargs.copy(), parentOffset=parentOffset,
-                                        workspace=workspace)
-            synthevents.extend(events)
-        elif isinstance(group, list):
-            lines = splitLinkedGroupIntoLines(group)
-            # A line of notes
-            for line in lines:
-                bps = [[float(struct.beatToTime(item.offset)), item.pitch + transpose, item.resolveAmp(workspace=workspace)]
-                       for item in line]
-                lastev = line[-1]
-                pitch = lastev.gliss or lastev.pitch
-                assert lastev.end is not None
-                bps.append([float(struct.time(lastev.end)), pitch + transpose, lastev.resolveAmp(workspace=workspace)])
-                for bp in bps:
-                    assert all(isinstance(x, (int, float)) for x in bp), f"bp: {bp}\n{bps=}"
-                first = line[0]
-                evplayargs = playargs if not first.playargs else playargs.updated(first.playargs)
-                synthevents.append(SynthEvent.fromPlayArgs(bps=bps, playargs=evplayargs))
-        else:
-            raise TypeError(f"Did not expect {group}")
-    return synthevents
-
-

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from maelzel import scorestruct
+from maelzel.common import F
 from maelzel.core._typedefs import time_t
 from maelzel.core import Note, Voice, Score
 from typing import Sequence
@@ -8,7 +9,7 @@ from typing import Sequence
 
 def makeClickTrack(struct: scorestruct.ScoreStruct,
                    minMeasures: int = 0,
-                   clickdur: time_t = None,
+                   clickdur: time_t | None = None,
                    strongBeatPitch="5C",
                    middleBeatPitch="5E",
                    weakBeatPitch="5G",
@@ -74,7 +75,7 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
                      now: F,
                      strongPitch: float | str,
                      weakPitch: float | str,
-                     clickdur: float,
+                     clickdur: time_t | None,
                      subdivisions: Sequence[F] | None = None
                      ) -> tuple[list[Note], F]:
         events = []

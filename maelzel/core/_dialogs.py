@@ -82,7 +82,7 @@ def selectFileForOpen(key: str, filter="All (*.*)", prompt="Open", ifcancel:str=
     Returns:
         the selected file, or None if the operation was cancelled
     """
-    if _util.checkBuildingDocumentation(logger):
+    if _tools.checkBuildingDocumentation(logger):
         return None
     import emlib.dialogs
     lastdir = _appstate.get(key)

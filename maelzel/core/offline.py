@@ -393,7 +393,7 @@ class OfflineRenderer(renderer.Renderer):
         Returns:
             the offline score events
         """
-        events = obj.events(**kws)
+        events = obj.synthEvents(**kws)
         return self.schedEvents(events)
 
     def prepareSessionEvent(self, sessionevent: csoundengine.event.Event
@@ -470,7 +470,7 @@ class OfflineRenderer(renderer.Renderer):
                     whenfinished: Callable = None
                     ) -> csoundengine.schedevent.SchedEventGroup:
         """
-        Schedule multiple events as returned by :meth:`MObj.events() <maelzel.core.MObj.events>`
+        Schedule multiple events as returned by :meth:`MObj.synthEvents() <maelzel.core.MObj.events>`
 
         Args:
             coreevents: the events to schedule
@@ -488,7 +488,7 @@ class OfflineRenderer(renderer.Renderer):
             >>> from maelzel.core import *
             >>> scale = Chain([Note(m, 0.5) for m in range(60, 72)])
             >>> renderer = OfflineRenderer()
-            >>> renderer.schedEvents(scale.events(instr='piano'))
+            >>> renderer.schedEvents(scale.synthEvents(instr='piano'))
             >>> renderer.render('outfile.wav')
         """
         scoreEvents = [self.schedEvent(ev) for ev in coreevents]
@@ -678,7 +678,7 @@ class OfflineRenderer(renderer.Renderer):
             ... ''')
             >>> presetManager.defPresetSoundfont('piano', '/path/to/piano.sf2')
             >>> renderer = playback.OfflineRenderer()
-            >>> renderer.schedEvents(scale.events(instr='piano'))
+            >>> renderer.schedEvents(scale.synthEvents(instr='piano'))
             >>> renderer._sched('reverb', priority=2)
             >>> renderer.render('outfile.wav')
 
@@ -945,8 +945,8 @@ def render(outfile='',
         >>> a = Chord("A4 C5", start=1, dur=2)
         >>> b = Note("G#4", dur=4)
         >>> render("out.wav", events=[
-        ...     a.events(chain=1),
-        ...     b.events(chan=2, gain=0.2)
+        ...     a.synthEvents(chain=1),
+        ...     b.synthEvents(chan=2, gain=0.2)
         ... ])
 
     This function can be also used as a context manager, similar to

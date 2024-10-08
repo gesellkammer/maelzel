@@ -415,10 +415,22 @@ def getSession(numchannels: int = None,
                ensure: bool = False
                ) -> csoundengine.session.Session:
     """
-    Returns the csoundengine Session
+    Returns the csoundengine Session / inits the main session
 
-    If a Session is already present, the active session is returned. In this case,
-    any arguments passed are ignored.
+    If no Session has been created already, a Session is initialized
+    with the given parameters and returned. Otherwise the active
+    Session is returned and any parameters passed are ignored
+
+    .. note::
+        There is one audio session, shared by all workspaces. Only the
+        first call to this function will initialize the session to
+        specific parameters. If you need to initialize the session
+        to specific values, call this function before any playback
+        related functionality is used. If any playback related
+        function/method is called before, the session is created
+        from default values. To configure these default values see
+        the configuration
+
 
     Args:
         numchannels: the number of output channels, overrides config 'play.numChannels'
@@ -535,13 +547,13 @@ def play(*sources: MObj | Sequence[SynthEvent] | csoundengine.event.Event,
         ... outch 1, a1
         ... ''')
         >>> play(
-        >>>     Chord("4C 4E", 7, start=1).events(position=0.5),
+        >>>     Chord("4C 4E", 7, start=1).synthEvents(position=0.5),
         >>>     Note("4C#", 6, offset=1.5),  # No customization,
         >>>     SessionEvent('reverb', dur=10, args={'kfeedback': 0.8}, priority=2),
         >>>     SessionEvent('sin', delay=0.1, dur=3, args={'imidi': 61.33, 'iamp':0.02})
         >>> )
 
-    As context manager
+    As context manager:
 
         >>> note = Note(...)
         >>> clip = Clip(...)
@@ -552,10 +564,11 @@ def play(*sources: MObj | Sequence[SynthEvent] | csoundengine.event.Event,
     .. seealso::
 
         :class:`Synched`, :func:`render`, :meth:`MObj.play() <maelzel.core.mobj.MObj.play>`,
-        :meth:`MObj.events() <maelzel.core.mobj.MObj.events>`
+        :meth:`MObj.synthEvents() <maelzel.core.mobj.MObj.synthEvents>`
 
     """
     if not sources:
+        # Used as context manager
         return SynchronizedContext(whenfinished=whenfinished)
 
     coreevents, sessionevents = _playbacktools.collectEvents(events=sources,
@@ -563,14 +576,14 @@ def play(*sources: MObj | Sequence[SynthEvent] | csoundengine.event.Event,
                                                              workspace=Workspace.active)
     numChannels = _playbacktools.nchnlsForEvents(coreevents)
     if not isSessionActive():
-        _playEngine(numchannels=numChannels)
+        engine = _playEngine(numchannels=numChannels)
     else:
         engine = _playEngine()
         assert engine.nchnls is not None
         if engine.nchnls < numChannels:
             logger.error("Some events output to channels outside of the engine's range")
 
-    rtrenderer = RealtimeRenderer()
+    rtrenderer = RealtimeRenderer(engine=engine)
     return rtrenderer.schedEvents(coreevents=coreevents, sessionevents=sessionevents, whenfinished=whenfinished)
 
 
@@ -1396,24 +1409,6 @@ class _FutureSynthGroup(csoundengine.baseschedevent.BaseSchedEvent):
         if not count:
             raise KeyError(f"Parameter '{param}' unknown. "
                            f"Possible parameters: {self.dynamicParamNames(aliased=True)}")
-
-    # def automate(self,
-    #              param: str | int,
-    #              pairs: Sequence[float] | np.ndarray,
-    #              mode='linear',
-    #              delay=0.,
-    #              overtake=False,
-    #              strict=True
-    #              ) -> float:
-    #     count = 0
-    #     for futuresynth in self.synths:
-    #         if param in futuresynth.dynamicParamNames(aliased=True):
-    #             futuresynth.automate(param=param, pairs=pairs, delay=delay)
-    #             count += 1
-    #     if count == 0:
-    #         raise KeyError(f"Unknown parameter '{param}'. "
-    #                        f"Possible parameters: {self.dynamicParamNames(aliased=True)}")
-    #     return 0
 
     def synthgroup(self) -> csoundengine.synth.SynthGroup:
         if self.parent.synthgroup is None:

@@ -11,7 +11,8 @@ from dataclasses import dataclass
 from ._common import logger, F
 from typing import TYPE_CHECKING, cast as _cast
 from maelzel.core import renderer
-from maelzel.core.automation import Automation, SynthAutomation
+from maelzel.core import automation as _automation
+# from maelzel.core.automation import Automation, SynthAutomation
 from maelzel.core import presetmanager
 from maelzel.core import presetdef
 import csoundengine
@@ -21,7 +22,6 @@ if TYPE_CHECKING:
     from .config import CoreConfig
     from ._typedefs import *
     from matplotlib.axes import Axes
-    # import matplotlib.pyplot as plt
     from maelzel.scorestruct import ScoreStruct
 
 
@@ -100,7 +100,7 @@ class PlayArgs:
 
     def __init__(self,
                  db: dict[str, Any] = None,
-                 automations: list[Automation] = None):
+                 automations: list[_automation.Automation] = None):
         if db is None:
             db = {}
         else:
@@ -112,7 +112,7 @@ class PlayArgs:
         self.db: dict[str, Any] = db
         """A dictionary holding the arguments explicitely specified"""
 
-        self.automations: list[Automation] | None = automations
+        self.automations: list[_automation.Automation] | None = automations
         """A list of Automations"""
 
     def setArgs(self, **kws: float | str) -> None:
@@ -187,11 +187,12 @@ class PlayArgs:
                       breakpoints: list[tuple[time_t | location_t, float]] | list[tuple[time_t|location_t, float, str]] | list[num_t],
                       interpolation='linear',
                       relative=True) -> None:
-        breakpoints = Automation.normalizeBreakpoints(breakpoints, interpolation=interpolation)
+        breakpoints = _automation.Automation.normalizeBreakpoints(breakpoints, interpolation=interpolation)
         if self.automations is None:
             self.automations = []
-        self.automations.append(Automation(param=param, breakpoints=breakpoints,
-                                           relative=relative))
+        self.automations.append(_automation.Automation(param=param, breakpoints=breakpoints,
+                                                       relative=relative))
+
 
     @staticmethod
     def _updatedb(db: dict, other: dict) -> None:
@@ -203,11 +204,14 @@ class PlayArgs:
         elif otherargs:
             db['args'] = otherargs
 
-    def _updateAutomations(self, automations: dict[str, Automation]) -> None:
+    def _updateAutomations(self, automations: list[_automation.Automation]) -> None:
         if self.automations is None:
             self.automations = automations.copy()
         else:
-            self.automations |= automations
+            merged: dict[str, _automation.Automation] = {autom.param: autom for autom in self.automations}
+            for automation in automations:
+                merged[automation.param] = automation
+            self.automations = list(merged.values())
 
     def updated(self, other: PlayArgs, automations=True) -> PlayArgs:
         """
@@ -235,10 +239,8 @@ class PlayArgs:
             return PlayArgs({})
         db = self.db.copy()
         if (args := self.db.get('args')) is not None:
-            assert isinstance(args, dict)
             db['args'] = args.copy()
-        return PlayArgs(db=db,
-                        automations=_unique(self.automations, deep=False))
+        return PlayArgs(db=db, automations=self.automations)
 
     def clone(self, **kws) -> PlayArgs:
         """
@@ -317,7 +319,7 @@ class PlayArgs:
     def makeSynthAutomations(self,
                              scorestruct: ScoreStruct,
                              parentOffset: F,
-                             ) -> list[SynthAutomation]:
+                             ) -> list[_automation.SynthAutomation]:
         if not self.automations:
             return []
         return [automation.makeSynthAutomation(scorestruct=scorestruct, parentOffset=parentOffset)
@@ -558,10 +560,10 @@ class SynthEvent:
         # """Ignored at the moment"""
 
         self.linkednext: bool = linkednext
-        """Is this event linked to the next? 
-        A linked synthevent is a tied note or a note with a glissando followed by 
-        some continuation. In any case, the last breakpoint of this synthevent and the 
-        first breakpoint of the following event should be equal for a two events to 
+        """Is this event linked to the next?
+        A linked synthevent is a tied note or a note with a glissando followed by
+        some continuation. In any case, the last breakpoint of this synthevent and the
+        first breakpoint of the following event should be equal for a two events to
         be linked. NB: since we are dealing with floats, code should always check that
         the numbers are near instead of using ==
         """
@@ -578,25 +580,25 @@ class SynthEvent:
         self.sustain: float = sustain
         """Sustain time after the actual duration"""
 
-        self.automations: list[SynthAutomation] | None = None
-        """A list of SynthAutomation. 
-        
+        self.automations: list[_automation.SynthAutomation] | None = None
+        """A list of SynthAutomation.
+
         This keeps track of any automation for this event, both automation
         lines and single set events. Add automation via .addAutomation"""
 
         self.automationSegments: list[_AutomationSegment] | None = None
         """List of automation points
-        
+
         These are created when multiple events are merged into one.
-        The dynamic parameters of the subsequent events are 
+        The dynamic parameters of the subsequent events are
         gathered as automation points."""
 
         self.initfunc = initfunc
-        """A function called when the event is being scheduled. 
-        It has the form (synthevent, renderer) -> None, where synthevent is 
-        the event being rendered and renderer is the renderer performing the render 
-        (either a maelzel.core.playback.RealtimeRenderer or a 
-        maelzel.core.playback.OfflineRenderer). It can be used to initialize any 
+        """A function called when the event is being scheduled.
+        It has the form (synthevent, renderer) -> None, where synthevent is
+        the event being rendered and renderer is the renderer performing the render
+        (either a maelzel.core.playback.RealtimeRenderer or a
+        maelzel.core.playback.OfflineRenderer). It can be used to initialize any
         resources needed by the event (load/make tables, add includes, global code, etc)"""
 
         self._initdone = False
@@ -704,14 +706,14 @@ class SynthEvent:
     def fade(self, value: tuple[float, float]):
         self.fadein, self.fadeout = value
 
-    def addAutomation(self, automation: SynthAutomation):
-        assert isinstance(automation, SynthAutomation)
+    def addAutomation(self, automation: _automation.SynthAutomation):
+        assert isinstance(automation, _automation.SynthAutomation)
         if self.automations is None:
             self.automations = []
         self.automations.append(automation)
 
     def set(self, param: str, value: float, delay=0.) -> None:
-        automation = SynthAutomation(param=param, data=[0, value], delay=delay)
+        automation = _automation.SynthAutomation(param=param, data=[0, value], delay=delay)
         self.addAutomation(automation)
 
     def addAutomationsFromPlayArgs(self, playargs: PlayArgs, scorestruct: ScoreStruct) -> None:
@@ -905,7 +907,7 @@ class SynthEvent:
             >>> from maelzel.core import *
             >>> from maelzel.core import synthevent
             >>> chord = Chord("4E 4G# 4B", 2, gliss="4Eb 4F 4G")
-            >>> synthevent.plotEvents(chord.events(), notenames=True)
+            >>> synthevent.plotEvents(chord.synthEvents(), notenames=True)
         """
         import matplotlib.pyplot as plt
         import matplotlib.ticker
@@ -1048,77 +1050,6 @@ class SynthEvent:
         pfields5.extend(self._flatBreakpoints())
         return pfields5, dynargs
 
-    # def resolvePfields(self: SynthEvent,
-    #                    instr: csoundengine.instr.Instr
-    #                    ) -> list[float | str]:
-    #     """
-    #     Returns pfields, **beginning with p2**.
-    #
-    #     ==== =====  ============================================
-    #     idx  parg    desc
-    #     ==== =====  ============================================
-    #     0    2       delay
-    #     1    3       duration
-    #     2    4       tabnum
-    #     3    5       bpsoffset (pfield index, starting with 1)
-    #     4    6       bpsrows
-    #     5    7       bpscols
-    #     6    8       gain
-    #     7    9       chan
-    #     8    0       position
-    #     9    1       fade0
-    #     0    2       fade1
-    #     1    3       pitchinterpol
-    #     2    4       fadeshape
-    #     .
-    #     .            reserved space for user pargs
-    #     .
-    #     ==== =====  ============================================
-    #
-    #     breakpoint data is appended
-    #
-    #     """
-    #     if not self.linkednext and self.sustain > 0:
-    #         self._applySustain()
-    #
-    #     pitchInterpolMethod = SynthEvent.pitchinterpolToInt[self.pitchinterpol]
-    #     fadeshape = SynthEvent.fadeshapeToInt[self.fadeshape]
-    #     # if no userpargs, bpsoffset is 15
-    #     numPargs5 = len(instr.pfieldIndexToName)
-    #     bpsrows = len(self.bps)
-    #     bpscols = self.breakpointSize()
-    #     pfields = [
-    #         float(self.delay),
-    #         float(self.dur),
-    #         0,  # table index, to be filled later
-    #     ]
-    #
-    #     pfields5 = [
-    #         0,            # p5, idx: 4 (bpsoffset)
-    #         bpsrows,
-    #         bpscols,
-    #         self.gain,
-    #         self.chan,
-    #         self.position,
-    #         self.fadein,
-    #         self.fadeout,
-    #         pitchInterpolMethod,
-    #         fadeshape
-    #     ]
-    #     numBuiltinPargs = len(pfields5)  # 10
-    #     numUserArgs = numPargs5 - numBuiltinPargs
-    #     bpsoffset = 15 + numUserArgs
-    #     pfields5[0] = bpsoffset
-    #
-    #     # if self._namedArgsMethod == 'pargs' and numUserArgs > 0:
-    #     #     pfields5 = instr.pfieldsTranslate(args=pfields5, kws=self.args)
-    #     pfields.extend(pfields5)
-    #     for bp in self.bps:
-    #         pfields.extend(bp)
-    #     pfields = [x if isinstance(x, str) else float(x) for x in pfields]
-    #     if len(pfields) > _MAX_NUM_PFIELDS:
-    #         logger.error(f"This SynthEvent has too many pfields: {len(pfields)}")
-    #     return pfields
 
     def plot(self, axes: Axes = None, notenames=False) -> Axes:
         """
@@ -1273,5 +1204,3 @@ def _mergeOptionalDicts(a: dict[str, Any] | None, b: dict[str, Any] | None) -> d
     elif b:
         return b
     return {}
-
-

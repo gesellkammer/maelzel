@@ -22,10 +22,11 @@ from maelzel.snd import audiosample
 from .partial import Partial
 from . import pack
 
-
+from typing_extensions import Self
 from typing import TYPE_CHECKING, Callable
 if TYPE_CHECKING:
     import csoundengine
+    from matplotlib.axes import Axes
 
 
 def _csoundEngine(name='maelzel') -> csoundengine.Engine:
@@ -176,7 +177,7 @@ class Spectrum:
         return self.end - self.start
 
     @classmethod
-    def read(cls, path: str) -> Spectrum:
+    def read(cls, path: str) -> Self:
         """
         Read a sdif file
 
@@ -192,13 +193,13 @@ class Spectrum:
     def __iter__(self):
         return iter(self.partials)
 
-    def __getitem__(self, item):
+    def __getitem__(self, item) -> Partial | Self:
         out = self.partials.__getitem__(item)
         if isinstance(out, Partial):
             return out
         else:
             assert isinstance(out, list)
-            return Spectrum(out)
+            return self.__class__(out)
 
     def __repr__(self):
         density = sum(partial.numbreakpoints for partial in self.partials) / self.duration
@@ -208,13 +209,13 @@ class Spectrum:
         return Spectrum(self.partials.copy(), indexTimeResolution=self._indexTimeResolution)
 
     def __deepcopy__(self, memodict={}):
-        return Spectrum([p.copy() for p in self.partials], indexTimeResolution=self._indexTimeResolution)
+        return self.__class__([p.copy() for p in self.partials], indexTimeResolution=self._indexTimeResolution)
 
     def __add__(self, other):
         if isinstance(other, Spectrum):
             return Spectrum(self.partials + other.partials)
 
-    def copy(self) -> Spectrum:
+    def copy(self) -> Self:
         """
         Copy this Spectrum
 
@@ -292,7 +293,7 @@ class Spectrum:
         outfile = normalizePath(outfile)
         lt.util.write_sdif(arrays, outfile=outfile, fmt='RBEP' if rbep else '1TRC', labels=labels)
 
-    def crop(self, start: float, end: float) -> Spectrum:
+    def crop(self, start: float, end: float) -> Self:
         """
         Crop this Spectrum to the given time interval
 
@@ -309,9 +310,9 @@ class Spectrum:
             p2 = p.crop(start, end)
             if p2:
                 partials.append(p2)
-        return Spectrum(partials, indexTimeResolution=self._indexTimeResolution)
+        return self.__class__(partials, indexTimeResolution=self._indexTimeResolution)
 
-    def timeShift(self, offset: float) -> Spectrum:
+    def timeShift(self, offset: float) -> Self:
         """
         Shift all partials in time by the given offset
 
@@ -326,15 +327,15 @@ class Spectrum:
             data = p.data.copy()
             data[:, 0] += offset
             partials.append(Partial(data, label=p.label))
-        return Spectrum(partials)
+        return self.__class__(partials)
 
     def clone(self, *,
               partials: list[Partial] = None,
-              indexTimeResolution: float = None):
-        return Spectrum(partials or self.partials,
-                        indexTimeResolution=indexTimeResolution or self._indexTimeResolution)
+              indexTimeResolution: float = None) -> Self:
+        return self.__class__(partials or self.partials,
+                              indexTimeResolution=indexTimeResolution or self._indexTimeResolution)
 
-    def timeScaleOffsets(self, factor: float, reference=0., itemfactor=1.) -> Spectrum:
+    def timeScaleOffsets(self, factor: float, reference=0., itemfactor=1.) -> Self:
         """
         Similar to :meth:`Spectrum.timeScale` but only transforms the offsets
 
@@ -379,7 +380,7 @@ class Spectrum:
             partials.append(Partial(data=data, label=p.label))
         return self.clone(partials=partials)
 
-    def timeTransform(self, transform: Callable[[np.ndarray], np.ndarray]) -> Spectrum:
+    def timeTransform(self, transform: Callable[[np.ndarray], np.ndarray]) -> Self:
         """
         Apply a time transformation to this Spectrum
 
@@ -407,7 +408,7 @@ class Spectrum:
             >>> sp2 = sp.timeTransform(transform.map)
         """
         partials = [p.timeTransform(transform) for p in self.partials]
-        return Spectrum(partials)
+        return self.__class__(partials)
 
     def scale(self, freqfactor=1., ampfactor=1., bwfactor=1., timefactor=1., timeref=0.,
               freqbias=0., timebias=0.,
@@ -431,9 +432,9 @@ class Spectrum:
                             bwfactor=bwfactor,
                             timeref=timeref, freqbias=freqbias, timebias=timebias)
                     for p in self.partials]
-        return Spectrum(partials)
+        return self.__class__(partials)
 
-    def timeScale(self, factor: float, reference=0.) -> Spectrum:
+    def timeScale(self, factor: float, reference=0.) -> Self:
         """
         Scale the times of this Spectrum
 
@@ -451,9 +452,9 @@ class Spectrum:
             times *= factor
             times -= reference * (factor + 1)
             partials.append(Partial(data, label=p.label))
-        return Spectrum(partials)
+        return self.__class__(partials)
 
-    def freqTransform(self, transform: Callable[[np.ndarray], np.ndarray]) -> Spectrum:
+    def freqTransform(self, transform: Callable[[np.ndarray], np.ndarray]) -> Self:
         """
         Apply a transformation to the frequencies of this spectrum
 
@@ -688,7 +689,7 @@ class Spectrum:
              downsample=1,
              maxfreq=20000,
              scale='linear',
-             exp=1.):
+             exp=1.) -> Axes:
         """
         Plot this spectrum using matplotlib
 
@@ -707,8 +708,9 @@ class Spectrum:
 
         """
         from . import plotting
-        plotting.plotmpl(self, axes=axes, maxfreq=maxfreq, linewidth=linewidth, avg=avg, cmap=cmap,
-                         downsample=downsample, exp=exp, yscale=scale)
+        axes = plotting.plotmpl(self, axes=axes, maxfreq=maxfreq, linewidth=linewidth, avg=avg, cmap=cmap,
+                                downsample=downsample, exp=exp, yscale=scale)
+        return axes
 
     def histogram(self, metric='energy', loudnessCompensation=True) -> histogram.Histogram:
         """
@@ -891,7 +893,7 @@ class Spectrum:
 
         return Spectrum(partials=[Partial(data) for data in partialarrays])
 
-    def fundamental(self, minfreq=60.) -> tuple[bpf4.BpfInterface, bpf4.BpfInterface]:
+    def fundamental(self, minfreq=60) -> tuple[bpf4.BpfInterface, bpf4.BpfInterface]:
         """
         Extract the fundamental of this spectrum
 
@@ -909,7 +911,7 @@ class Spectrum:
         f0curve, voicedness = freqestimate.f0curve(sample.samples, sr=sample.sr, minfreq=minfreq)
         return f0curve, voicedness
 
-    def splitInBands(self, numbands: int, distribution: float | bpf4.core.BpfInterface = 1.0
+    def splitInBands(self, numbands: int, distribution: float | bpf4.BpfInterface = 1.0
                      ) -> list[pack.SpectralBand]:
         """
         Split this spectrum into bands
@@ -939,7 +941,7 @@ class Spectrum:
                       noisetracks: int = 0,
                       maxrange: int = 36,
                       relerror=0.05,
-                      distribution: float | Callable[[float], float] | list[float] | None = 2,
+                      distribution: float | Callable[[float], float] | list[float] | None = 2.,
                       numbands: int = None,
                       mingap=0.1,
                       audibilityCurveWeight=1.,
@@ -1004,7 +1006,7 @@ class Spectrum:
         else:
             partials = self.partials
 
-        if isinstance(distribution, (int, float, bpf4.BpfInterface)):
+        if isinstance(distribution, (int, float, bpf4.BpfInterface)) or callable(distribution):
             tracks, residualtracks, unfittedpartials = pack.splitInTracks(
                 partials,
                 maxtracks=maxtracks,

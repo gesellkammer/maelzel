@@ -264,6 +264,7 @@ class Score(MContainer):
 
     def scoringParts(self, config: CoreConfig | None = None
                      ) -> list[scoring.UnquantizedPart]:
+        self._update()
         parts = []
         for voice in self.voices:
             voiceparts = voice.scoringParts(config or getConfig())

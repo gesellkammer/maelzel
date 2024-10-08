@@ -164,19 +164,20 @@ def checkChoice(name: str, s: str, choices: Sequence[str], maxSuggestions=12, th
     Returns:
         True if a match was found, False otherwise
     """
-    if s not in choices:
-        if logger:
-            logger.error(f"Invalud value '{s}' for {name}, possible choices: {sorted(choices)}")
+    if s in choices:
+        return True
 
-        if not throw:
-            return False
+    if logger:
+        logger.error(f"Invalud value '{s}' for {name}, possible choices: {sorted(choices)}")
 
-        if len(choices) > 8:
-            matches = fuzzymatch(s, choices, limit=maxSuggestions)
-            raise ValueError(f'Invalid value "{s}" for {name}, maybe you meant "{matches[0][0]}"? '
-                             f'Other possible choices: {[m[0] for m in matches]}')
-        else:
-            raise ValueError(f'Invalid value "{s}" for {name}, it should be one of {list(choices)}')
+    if not throw:
+        return False
+
+    if len(choices) > 8:
+        matches = fuzzymatch(s, choices, limit=maxSuggestions)
+        raise ValueError(f'Invalid value "{s}" for {name}, maybe you meant "{matches[0][0]}"? '
+                            f'Other possible choices: {[m[0] for m in matches]}')
+    raise ValueError(f'Invalid value "{s}" for {name}, it should be one of {list(choices)}')
 
 
 def readableTime(t: float) -> str:
@@ -501,5 +502,3 @@ def limitDenominator(num: int, den: int, maxden: int) -> tuple[int, int]:
         return p1, q1
     else:
         return p0 + k * p1, q0 + k * q1
-
-

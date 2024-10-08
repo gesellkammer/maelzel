@@ -27,7 +27,7 @@ def collectEvents(events,
         elif isinstance(ev, csoundengine.event.Event):
             sessionevents.append(ev)
         else:
-            synthevents.extend(ev.events(workspace=workspace, **eventparams))
+            synthevents.extend(ev.synthEvents(workspace=workspace, **eventparams))
     return synthevents, sessionevents
 
 

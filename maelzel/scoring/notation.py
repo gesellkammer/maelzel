@@ -102,7 +102,7 @@ class Notation:
 
     def __init__(self,
                  duration: time_t,
-                 pitches: list[pitch_t] = None,
+                 pitches: Sequence[pitch_t] | None = None,
                  offset: time_t = None,
                  isRest=False,
                  tiedPrev=False,
@@ -145,7 +145,7 @@ class Notation:
         self.duration: F = duration
         "The duration of this Notation, in quarternotes"
 
-        self.pitches: list[float] = midinotes
+        self.pitches: list[float | int] = midinotes
         "The pitches of this Notation (without spelling, just midinotes)"
 
         self.offset: F | None = offset
@@ -1029,7 +1029,7 @@ class Notation:
         """
         return self.duration * self.fusedDurRatio()
 
-    def setPitches(self, pitches: list[float | str], fixNotenames=False) -> None:
+    def setPitches(self, pitches: Sequence[float | str], fixNotenames=False) -> None:
         """
         Set the pitches of this notation, in place
 
