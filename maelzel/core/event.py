@@ -28,7 +28,7 @@ from emlib import iterlib
 
 import pitchtools as pt
 
-from maelzel.core import MObj
+from maelzel.core import mobj
 from maelzel.common import F, asF, F0, F1, asmidi
 from maelzel import scoring
 from maelzel.scoring import enharmonics
@@ -37,7 +37,7 @@ import maelzel._util as _util
 
 from ._common import UNSET, MAXDUR, logger, _Unset
 from .workspace import getConfig, Workspace
-from .synthevent import PlayArgs, SynthEvent
+from . import synthevent
 from .eventbase import MEvent
 from maelzel.core import _tools
 
@@ -684,10 +684,10 @@ class Note(MEvent):
             return config['play.defaultAmplitude']
 
     def _synthEvents(self,
-                     playargs: PlayArgs,
+                     playargs: synthevent.PlayArgs,
                      parentOffset: F,
                      workspace: Workspace,
-                     ) -> list[SynthEvent]:
+                     ) -> list[synthevent.SynthEvent]:
         if self.isRest():
             return []
         conf = workspace.config
@@ -719,7 +719,7 @@ class Note(MEvent):
             bps = [[starttime, self.pitch+transp, amp],
                    [endtime,   endmidi+transp,    amp]]
 
-        event = SynthEvent.fromPlayArgs(bps=bps, playargs=playargs)
+        event = synthevent.SynthEvent.fromPlayArgs(bps=bps, playargs=playargs)
         if playargs.automations:
             event.addAutomationsFromPlayArgs(playargs, scorestruct=scorestruct)
 
@@ -1034,7 +1034,7 @@ class Chord(MEvent):
             if notename:
                 n.pitchSpelling = notename
 
-    def _canBeLinkedTo(self, other: MObj) -> bool:
+    def _canBeLinkedTo(self, other: mobj.MObj) -> bool:
         if other.isRest():
             return False
         if self._gliss is True:
@@ -1333,10 +1333,10 @@ class Chord(MEvent):
         return amps
 
     def _synthEvents(self,
-                     playargs: PlayArgs,
+                     playargs: synthevent.PlayArgs,
                      parentOffset: F,
                      workspace: Workspace
-                     ) -> list[SynthEvent]:
+                     ) -> list[synthevent.SynthEvent]:
         conf = workspace.config
         scorestruct = workspace.scorestruct
         playargs0 = playargs
@@ -1370,7 +1370,7 @@ class Chord(MEvent):
                 glissabstime = float(scorestruct.beatToTime(offset+dur-glisstime))
                 bps.append([glissabstime, startpitch, amp])
             bps.append([float(endsecs),   endpitch+transpose,   amp])
-            event = SynthEvent.fromPlayArgs(bps=bps, playargs=playargs)
+            event = synthevent.SynthEvent.fromPlayArgs(bps=bps, playargs=playargs)
             if playargs.automations:
                 # assert abs(scorestruct.beatToTime(offset) - event.delay) < 1e-12
                 event.addAutomationsFromPlayArgs(playargs, scorestruct=scorestruct)
@@ -1505,7 +1505,7 @@ class Chord(MEvent):
             >>> chord = Chord("3f 3b 4d# 4g#", dur=4)
             >>> chord.amp = 0.5                 # Fallback amplitude
             >>> chord[0:-1].setAmplitude(0.01)  # Sets the amp of all notes but the last
-            >>> chord.events()
+            >>> chord.synthEvents()
             [SynthEvent(delay=0, dur=4, gain=0.5, chan=1, fade=(0.02, 0.02), instr=_piano)
              bps 0.000s: 53       0.01
                  4.000s: 53       0.01    ,

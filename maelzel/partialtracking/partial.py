@@ -8,6 +8,7 @@ from maelzel.snd import amplitudesensitivity
 import visvalingamwyatt
 
 from typing import Callable, TYPE_CHECKING
+from typing_extensions import Self
 if TYPE_CHECKING:
     from maelzel import transcribe
 
@@ -32,7 +33,7 @@ class Partial:
             raise ValueError(f"Expected a 2D numpy array with at least 3 columns (times, freqs, amps), got {data.shape[1]}")
 
         self.data = data
-        """The breakpoints of this Partial, as a 2D array with columns time, 
+        """The breakpoints of this Partial, as a 2D array with columns time,
         frequency, amplitude, phase and bandwidth"""
 
         self.start = float(data[0, 0])
@@ -84,24 +85,24 @@ class Partial:
         return tuple(float(_) for _ in bp[1:])
 
     @cache
-    def freqbpf(self) -> bpf4.core.Linear:
+    def freqbpf(self) -> bpf4.Linear:
         """
         Create a bpf curve from this partial's frequency
 
         Returns:
             a bpf representing this partial's frequency
         """
-        return bpf4.core.Linear(self.times, self.freqs)
+        return bpf4.Linear(self.times, self.freqs)
 
     @cache
-    def ampbpf(self) -> bpf4.core.Linear:
+    def ampbpf(self) -> bpf4.Linear:
         """
         Create a bpf curve from this partial's amplitude
 
         Returns:
             a bpf representing this partial's amplitude
         """
-        return bpf4.core.Linear(self.times, self.amps)
+        return bpf4.Linear(self.times, self.amps)
 
     @cache
     def meanfreq(self, weighted=True) -> float:
@@ -245,11 +246,11 @@ class Partial:
     def clone(self, *,
               data: np.ndarray | None = None,
               label: int = None
-              ) -> Partial:
-        return Partial(data=data if data is not None else self.data,
-                       label=label if label is not None else self.label)
+              ) -> Self:
+        return self.__class__(data=data if data is not None else self.data,
+                              label=label if label is not None else self.label)
 
-    def freqTransform(self, transform: Callable[[np.ndarray], np.ndarray]) -> Partial:
+    def freqTransform(self, transform: Callable[[np.ndarray], np.ndarray]) -> Self:
         """
         Apply a frequency transformation to this Partial
 
@@ -312,9 +313,9 @@ class Partial:
         if timebias != 0.:
             data[:, 0] += timebias * timefactor
 
-        return Partial(data)
+        return self.__class__(data)
 
-    def withFreqs(self, freqs: np.ndarray) -> Partial:
+    def withFreqs(self, freqs: np.ndarray) -> Self:
         """
         A copy of this Partial with new frequencies
 

@@ -10,5 +10,10 @@
   "venv": "maelzel",
   "strictParameterNoneValue": false,
   "executionEnvironments": [{ "root": "." }],
-  "include": ["maelzel/core", "maelzel/scoring", "scorestruct"]
+  "include": [
+    "maelzel/core",
+    "maelzel/scoring",
+    "scorestruct",
+    "maelzel/partialtracking"
+  ]
 }

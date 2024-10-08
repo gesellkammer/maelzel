@@ -1,6 +1,7 @@
 from __future__ import annotations
 from .partial import Partial
 from .track import Track
+from . import pack
 
 
 class Channel:
@@ -25,7 +26,7 @@ class Channel:
 
     def packByTime(self, numtracks: int, maxrange: float, mingap: float):
         partials = sorted(self.partials, key=lambda partial: partial.start)
-        tracks = [Track(mingap=mingap) for _ in range(numtracks)]
+        tracks = [Track() for _ in range(numtracks)]
         rejected: list[Partial] = []
         for partial in partials:
             possibleTracks = [track for track in tracks
@@ -40,10 +41,10 @@ class Channel:
 
     def packByWeight(self, numtracks: int, maxrange: int, mingap: float):
         partials: list[Partial] = sorted(self.partials, key=lambda p: p.audibility())
-        tracks: list[Track] = [Track(mingap=mingap) for _ in range(numtracks)]
+        tracks: list[Track] = [Track() for _ in range(numtracks)]
         rejected = []
         for partial in partials:
-            track = _bestTrack(tracks, partial)
+            track = pack.bestTrack(tracks, partial)
             if track is not None:
                 track.append(partial)
             else:

@@ -71,7 +71,7 @@ class Workspace:
     and is always kept alive since it holds a reference to the root config. It should
     actually never be None"""
 
-    active: Workspace
+    active: Workspace = None
     """The currently active workspace. Never None after the class has been initialized"""
 
     _initdone: bool = False
@@ -156,11 +156,9 @@ class Workspace:
             logger.debug("init was already done")
             return
         Workspace._initdone = True
-        CoreConfig.root = root = CoreConfig(source='load')
+        CoreConfig.root = rootconfig = CoreConfig(source='load')
         # The root config itself should never be active since it is read-only
-        Workspace.active = None
-        w = Workspace(config=root.copy(), active=True)
-        Workspace.root = w
+        Workspace.root = Workspace(config=rootconfig.copy(), active=True)
 
     def deactivate(self) -> None:
         """
@@ -210,7 +208,7 @@ class Workspace:
     def scorestruct(self) -> ScoreStruct:
         """The default ScoreSctruct for this Workspace"""
         return self._scorestruct
-    
+
     @scorestruct.setter
     def scorestruct(self, s: ScoreStruct):
         self._scorestruct = s
@@ -257,7 +255,7 @@ class Workspace:
     def isActive(self) -> bool:
         """Is this the active Workspace?"""
         return Workspace.active is self
-    
+
     def clone(self,
               config: CoreConfig = None,
               scorestruct: ScoreStruct = None,
@@ -398,8 +396,8 @@ def getWorkspace() -> Workspace:
 
 def setTempo(tempo: float, reference=1, measureIndex=0) -> None:
     """
-    Set the current tempo. 
-    
+    Set the current tempo.
+
     Args:
         tempo: the new tempo.
         reference: the reference value (1=quarternote, 2=halfnote, 0.5: 8th note)
@@ -537,7 +535,7 @@ def setScoreStruct(score: str | ScoreStruct | None = None,
         ... 20, 3/4, 60   # At measure index 20, set the time-signature to 3/4 and tempo to 60
         ... ...       # Endless score
         ... ''')
-        
+
     """
     if isinstance(score, str):
         s = ScoreStruct(score)

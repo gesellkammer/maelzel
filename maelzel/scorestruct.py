@@ -115,22 +115,22 @@ class TimeSignature:
         self.normalizedParts: tuple[tuple[int, int], ...] = tuple((num, minden) for num in numerators)
         """
         The normalized parts with a shared common denominator
-        
+
         parts: (3/4 3/8), common den: 8, normalizedParts: (6/8, 3/8), fusedSignature: 9/8
         """
 
         self.fusedSignature: tuple[int, int] = (int(sum(numerators)), minden)
         """
         One signature epresenting all compound parts
-         
-        The fused signature is based on the min. common multiple of the compound parts. 
+
+        The fused signature is based on the min. common multiple of the compound parts.
         For example, a signature 3/4+3/16 will have a fused signature of 15/16 (3*4+3).
         For non-compound signatures, the fused signature is the same as the time signature
         itself."""
 
         self.subdivisionStruct: tuple[int, ...] = tuple(subdivisions)
         """
-        Subdivisions as multiples of the fused denominator. 
+        Subdivisions as multiples of the fused denominator.
         """
 
     def copy(self) -> TimeSignature:
@@ -1201,6 +1201,16 @@ class ScoreStruct:
         s.modified()
         return s
 
+    def activate(self) -> None:
+        """
+        Set this scorestruct as active for the current workspace within maelzel.core
+
+        .. seealso:: :func:`~maelzel.core.workspace.setScoreStruct`
+        """
+        from maelzel.core import Workspace
+        workspace = Workspace.getActive()
+        workspace.scorestruct = self
+
     def numMeasures(self) -> int:
         """
         Returns the number of measures in this score structure
@@ -1936,6 +1946,12 @@ class ScoreStruct:
         if self._needsUpdate:
             self._update()
 
+        if not isinstance(measure, int):
+            raise TypeError(f"Expected a measure index, got {measure=}")
+
+        if not isinstance(beat, (int, float, F)):
+            raise TypeError(f"Expected a number as beat, got {beat=}")
+
         beat = asF(beat)
         if measure < self.numMeasures():
             # Use the index
@@ -2026,7 +2042,7 @@ class ScoreStruct:
         endTime = self.locationToTime(*end) if isinstance(end, tuple) else self.beatToTime(end)
         return endTime - startTime
 
-    def beatDelta(self, 
+    def beatDelta(self,
                   start: num_t | tuple[int, num_t],
                   end: num_t | tuple[int, num_t]) -> F:
         """

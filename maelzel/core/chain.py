@@ -147,9 +147,10 @@ class Chain(MContainer):
             if items is not None:
                 if isinstance(items, str):
                     # split using new lines and semicolons as separators
-                    items = _tools.regexSplit('[\n;]', items, strip=True, removeEmpty=True)
-                    items = [_tools.stripNoteComments(item) for item in items]
-                    items = [asEvent(item) for item in items if item if item]
+                    tokens = _tools.regexSplit('[\n;]', items, strip=True, removeEmpty=True)
+                    tokens = [_tools.stripNoteComments(item) for item in items]
+                    items = [asEvent(tok) for tok in tokens if tok]
+
                 else:
                     items = [item if isinstance(item, (MEvent, Chain)) else asEvent(item)
                              for item in items]
@@ -162,8 +163,7 @@ class Chain(MContainer):
             for item in items:
                 assert isinstance(item, (MEvent, Chain)), f"Item {item} should be a MEvent or a Chain, got: {type(item)}"
                 if item.parent is not None:
-                    # We need to make a copy in this case
-                    item = item.copy()
+                    logger.debug("Switching parent for {item}, from {item.parent} to {self}")
                 item.parent = self
         assert isinstance(items, list), f"Items should be a list, got {items}"
         super().__init__(offset=offset, dur=F0, label=label,
@@ -206,8 +206,7 @@ class Chain(MContainer):
               label: str | None = None,
               properties: dict | None = None
               ) -> Self:
-        # parent is not cloned
-        out = self.__class__(items=self.items if items is None else items,
+        out = self.__class__(items=self.items.copy() if items is None else items,
                              offset=self.offset if offset is UNSET else asF(offset),
                              label=self.label if label is None else label,
                              _init=False)
@@ -236,6 +235,27 @@ class Chain(MContainer):
 
         Returns:
             the total duration of self
+
+        Example
+        ~~~~~~~
+
+            >>> chain = Chain([Note("4C", dur=0.5),
+            ...                Note("4D", dur=1, offset=4),
+            ...                Note("4E", dur=0.5)])
+            >>> chain.dump()
+            Chain -- beat: 0, offset: None, dur: 11/2
+              beat   offset  dur    item
+              0      None    0.5    4C:0.5♩
+              4      4       1      4D:1♩:offset=4
+              5      None    0.5    4E:0.5♩
+            >>> chain.stack()
+            >>> chain.dump()  # Notice how all offsets are now explicit (they are no longer None)
+            Chain -- beat: 0, offset: None, dur: 11/2
+              beat   offset  dur    item
+              0      0       0.5    4C:0.5♩:offset=0
+              4      4       1      4D:1♩:offset=4
+              5      5       0.5    4E:0.5♩:offset=5
+
         """
         dur = _stackEvents(self.items, explicitOffsets=True)
         self._dur = dur
@@ -268,9 +288,7 @@ class Chain(MContainer):
             if isinstance(item, Chain) and recurse:
                 item.fillGaps(recurse=True)
             now += item.dur
-        self.items = items
-        if changed:
-            self._changed()
+        self.setItems(items)
 
     def nextItem(self, item: MEvent | Chain) -> MEvent | Chain | None:
         """
@@ -295,6 +313,8 @@ class Chain(MContainer):
             >>> chain.itemAfter(chain[1])
             Chain([4E, 4F])
 
+        .. seealso:: :meth:`Chain.nextEvent`
+
         """
         idx = self.items.index(item)
         return self.items[idx + 1] if idx < len(self.items) - 2 else None
@@ -303,14 +323,24 @@ class Chain(MContainer):
         """
         Returns the next event after *event*
 
+        Args:
+            event: the start event
+
+        Returns:
+            The event following the given event, even if this
+            is part of a chain, or None if no event exists after
+            the given event
+
         Example
         ~~~~~~~
 
             >>> from maelzel.core import *
             >>> chain = Chain(['4C', '4D', Chain(['4E', '4F'])])
-            >>> chain.eventAfter(chain[1])
+            # Notice how this method returns the event within the sub-chain
+            >>> chain.nextEvent(chain[1])
             4E
-            >>> chain.itemAfter(chain[1])
+            # In this case the next item is the entire chain
+            >>> chain.nextItem(chain[1])
             Chain([4E, 4F])
         """
         idx = self.items.index(event)
@@ -377,7 +407,11 @@ class Chain(MContainer):
         Returns:
             a list of events (Notes, Chords, Clips, ...) with explicit
             offset
+
+        .. seealso:: :meth:`Chain.itemsWithOffset`
+
         """
+
         if not self.items:
             return []
         self._update()
@@ -588,13 +622,10 @@ class Chain(MContainer):
         event does not provide any extra information (does not have
         an individual amplitude, dynamic, does not start a gliss, etc.)
 
-        Returns:
-            True if self was modified
         """
         out = []
         last = None
         lastidx = len(self.items) - 1
-        modified = False
         for i, item in enumerate(self.items):
             if isinstance(item, Chain):
                 item.mergeTiedEvents()
@@ -611,8 +642,6 @@ class Chain(MContainer):
                         last = merged
                     else:
                         out.append(merged)
-                    modified = True
-
             else:
                 if last is not None:
                     out.append(last)
@@ -620,8 +649,7 @@ class Chain(MContainer):
                 if i == lastidx:
                     out.append(item)
         self.items = out
-        if modified:
-            self._changed()
+        self._changed()
 
     def childOffset(self, child: MObj) -> F:
         """
@@ -655,7 +683,6 @@ class Chain(MContainer):
             return self._dur
 
         self._update()
-        # assert self._dur is not None
         return self._dur
 
     @dur.setter
@@ -673,7 +700,7 @@ class Chain(MContainer):
         self.items.append(item)
         self._changed()
 
-    def extend(self, items: list[MEvent]) -> None:
+    def extend(self, items: list[MEvent | Chain]) -> None:
         """
         Extend this chain with items
 
@@ -763,7 +790,6 @@ class Chain(MContainer):
 
         if environment.insideJupyter and not forcetext:
             r = type(self).__name__
-
             header = (f'<code><span style="font-size: {fontsize}">{IND*indents}<b>{r}</b> - '
                       f'beat: {_util.showT(self.absOffset())}, offset: {selfstart}, '
                       f'dur: {_util.showT(self.dur)}'
@@ -826,15 +852,16 @@ class Chain(MContainer):
                     rows.extend(item._dumpRows(indents=indents+1, now=now+itemoffset, forcetext=forcetext))
             return rows
         else:
-            rows = [f"{IND * indents}Chain -- beat: {self.absOffset()}, offset: {selfstart}, dur: {self.dur}",
+            rows = [f"{IND * indents}Chain -- beat: {_util.showT(self.absOffset())}, offset: {selfstart}, dur: {self.dur}",
                     f'{IND * (indents + 1)}beat   offset  dur    item']
             items, itemsdur = self._iterateWithTimes(recurse=False, frame=F(0))
             for item, itemoffset, itemdur in items:
                 if isinstance(item, MEvent):
+                    itemoffsetstr = _util.showT(item.offset) if item.offset is not None else 'None'
                     rows.append(f'{IND * (indents+1)}'
-                                f'{repr(now + itemoffset).ljust(7)}'
-                                f'{repr(itemoffset).ljust(7)} '
-                                f'{repr(itemdur).ljust(7)}'
+                                f'{_util.showT(now + itemoffset).ljust(7)}'
+                                f'{itemoffsetstr.ljust(7)} '
+                                f'{_util.showT(itemdur).ljust(7)}'
                                 f'{item}')
                 elif isinstance(item, Chain):
                     rows.extend(item._dumpRows(indents=indents+1, forcetext=forcetext, now=now+itemoffset))
@@ -929,8 +956,8 @@ class Chain(MContainer):
         if self.offset:
             for item in items:
                 item.offset += self.offset
-        voice = Voice(name=self.label)
-        voice.items = items
+        voice = Voice(items, name=self.label)
+        # voice.items = items
         if removeOffsets:
             voice.removeRedundantOffsets()
         if self.symbols:
@@ -994,7 +1021,7 @@ class Chain(MContainer):
             notations.append(firstrest)
 
         for item in chainitems:
-            itemNotations = item.scoringEvents(groupid=groupid, config=config, parentOffset=parentOffset)
+            itemNotations = item.scoringEvents(groupid=groupid, config=config)
             if self.symbols:
                 for s in self.symbols:
                     if isinstance(s, symbols.EventSymbol) and not isinstance(s, symbols.VoiceSymbol):
@@ -1066,7 +1093,18 @@ class Chain(MContainer):
         items = [i.quantizePitch(step) for i in self.items]
         return self.clone(items=items)
 
-    def _setItems(self, items: list[MEvent|Chain]) -> None:
+    def setItems(self, items: list[MEvent|Chain]) -> None:
+        """
+        Set the items of this chain/voice, inplace
+
+        Args:
+            items: the new items
+
+        Setting the ``.items`` attribute directly will result
+        in errors, since the given items need to be modified in order
+        to have their ``.parent`` attribute set and the cache for this
+        container and its parents, if any, need to be invalidated
+        """
         for item in items:
             item.parent = self
         self.items = items
@@ -1219,6 +1257,7 @@ class Chain(MContainer):
             eventpairs, totaldur = self._eventsWithOffset(frame=self.absOffset())
             self._dur = totaldur
             self._cachedEventsWithOffset = eventpairs
+
         if start is not None or end is not None:
             struct = self.activeScorestruct()
             start = struct.asBeat(start) if start else F0
@@ -1249,8 +1288,8 @@ class Chain(MContainer):
         Iterate over the items of this chain with their relative offset
 
         Returns:
-            an iterator over tuple[item, offset], where an item can be
-            an event or a Chain, and offset is the offset relative to this chain
+            an iterator over tuple ``(item: MEvent|Chain, offset: F)``, where offset
+            is the relative offset of the item to this chain
 
         .. seealso:: :meth:`Chain.eventsWithOffset`
         """
@@ -1471,7 +1510,7 @@ class Chain(MContainer):
 
         Returns:
             the event present at the given location, or None if no event was found. An
-            explicit rest will be returned if found but empty space will return None
+            explicit rest will be returned if found but empty space will return None.
         """
         start = self._asAbsOffset(location)
         end = start + margin
@@ -1499,13 +1538,15 @@ class Chain(MContainer):
         Chain or subchains: they are NOT copies.
 
         Args:
-            start: absolute start location (a beat or a score location)
-            end: absolute end location (a beat or score location)
+            start: **absolute** start location (a beat or a score location)
+            end: **absolute** end location (a beat or score location)
             partial: include also events wich are partially included within
                 the given time range
 
         Returns:
-            a list of the events within the given time range
+            a list of the events within the given time range. The actual events
+            are returned, so modifying the returned events will modify
+            self
 
         .. seealso:: :meth:`Chain.eventsWithOffset`, :meth:`Chain.itemsBetween`
         """
@@ -1533,7 +1574,8 @@ class Chain(MContainer):
                 the given time range
 
         Returns:
-            a list of the items within the given time range
+            a list of the items within the given time range. The actual items
+            are returned
 
         .. seealso:: :meth:`Chain.itemsWithOffset`, :meth:`Chain.eventsBetween`
 
@@ -1577,6 +1619,8 @@ class Chain(MContainer):
             startindex: the first measure index to use
             stopindex: the last measure index to use. 0=len(measures). The stopindex is not
                 included (similar to how python's builtin `range` behaves`
+
+        .. seealso:: :meth:`Chain.splitAt`
         """
         if scorestruct is None:
             scorestruct = self.activeScorestruct()
@@ -1636,9 +1680,9 @@ class Chain(MContainer):
                              nomerge=False
                              ) -> None:
         """
-        Splits items in self at the given offsets, **inplace** (recursively)
+        Splits events in self at the given offsets, **inplace** (recursively)
 
-        The offsets are absolute. Split items are by default tied together.
+        The offsets are absolute. Split events are by default tied together.
         This method is useful for the case where a part of an event needs
         to be adressed in some way. For example, a symbol needs to be
         added to a part of a note (a crescendo hairpin which starts in the
@@ -1812,7 +1856,6 @@ class Chain(MContainer):
     def _cropped(self, startbeat: F, endbeat: F, absorbOffset=False
                  ) -> Self:
         items = []
-        # frame = chain.absOffset()
         for item, offset in self.itemsWithOffset():
             if offset > endbeat or (offset == endbeat and item.dur > 0):
                 break
@@ -1915,7 +1958,7 @@ class Voice(Chain):
     * A Voice does not have a time offset, its offset is always 0.
 
     Args:
-        items: the items in this voice. Items can also be added later via .append
+        items: the items in this voice. Items can also be added later via :meth:`Voice.append`
         name: the name of this voice. This will be interpreted as the staff name
             when shown as notation
         shortname: optionally a shortname can be given, it will be used for subsequent
@@ -1927,7 +1970,7 @@ class Voice(Chain):
     _configKeys: set[str] | None = None
 
     def __init__(self,
-                 items: list[MEvent | str] | Chain = None,
+                 items: Sequence[MEvent | str | Chain] | Chain | str = None,
                  name='',
                  shortname='',
                  maxstaves: int = None,
@@ -2085,9 +2128,13 @@ class Voice(Chain):
             kws['shortname'] = self.shortname
         if 'name' not in kws:
             kws['name'] = self.name
+
+        offset = kws.pop('offset', F0)
         out = Voice(**kws)
         if self.label:
             out.label = self.label
+        if offset:
+            out.timeShiftInPlace(offset)
         return out
 
     def scoringParts(self, config: CoreConfig = None
@@ -2145,6 +2192,34 @@ class Voice(Chain):
 
     def _asVoices(self) -> list[Voice]:
         return [self]
+
+    def timeShift(self, timeoffset: time_t) -> Self:
+        out = self.copy()
+        if timeoffset != 0:
+            out.timeShiftInPlace(timeoffset)
+        return out
+
+    def timeShiftInPlace(self, timeoffset: time_t) -> None:
+        """
+        Shift the time of this by the given offset (inplace)
+
+        Args:
+            timeoffset: the time delta (in quarterNotes)
+        """
+        if timeoffset == 0:
+            return
+
+        self._update()
+        timeoffset = asF(timeoffset)
+        if timeoffset < 0:
+            firstoffset = self.firstOffset()
+            assert firstoffset is not None
+            if firstoffset + timeoffset < 0:
+                raise ValueError(f"Cannot shift to negative time: first item "
+                                 f"starts at {firstoffset}, cannot shift by {timeoffset}")
+        for item in self.items:
+            item.timeShiftInPlace(timeoffset)
+        self._changed()
 
 
 def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
@@ -2301,10 +2376,9 @@ def _eventPairsBetween(eventpairs: list[tuple[MEvent, F]],
             if event.dur > 0:
                 if offset < end and offset + event.dur > start:
                     out.append((event, offset))
-            else:
+            elif start <= offset <= end:
                 # A gracenote
-                if start <= offset <= end:
-                    out.append((event, offset))
+                out.append((event, offset))
     else:
         for event, offset in eventpairs:
             if offset > end:

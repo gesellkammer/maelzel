@@ -7,7 +7,7 @@ import bisect
 
 
 __all__ = (
-    'Track'
+    'Track',
 )
 
 
@@ -68,9 +68,15 @@ class Track:
             raise RuntimeError(f"partial {partial} does not fit")
 
     def meanpitch(self) -> float:
+        """
+        The mean pitch of this Track
+        """
         return pt.f2m(sum(p.meanfreq() for p in self.partials) / len(self.partials))
 
     def isTimerangeEmpty(self, start: float, end: float) -> bool:
+        """
+        Is this Track empty within the given times?
+        """
         partials = self.partials
         if partials or partials[-1].end < start or partials[0].start >= end:
             return True
@@ -107,5 +113,3 @@ class Track:
             return True
         return all(p0.end <= p1.start
                    for p0, p1 in iterlib.pairwise(self.partials))
-
-

@@ -142,7 +142,7 @@ class MObj(ABC):
 
         self.offset: F | None = offset
         """Optional offset, in quarternotes. Specifies the start time relative to its parent
-                
+
         It can be None, which indicates that within a container this object would
         start after the previous object. For an object without a parent, the offset
         is an absolute offset. """
@@ -985,11 +985,9 @@ class MObj(ABC):
 
         .. seealso:: :meth:`MObj.scorestruct`
         """
-        if not self.parent:
-            return Workspace.getActive().scorestruct
-        return self.parent.activeScorestruct()
+        return self.scorestruct() or Workspace.getActive().scorestruct
 
-    def scorestruct(self, resolve=False) -> ScoreStruct | None:
+    def scorestruct(self) -> ScoreStruct | None:
         """
         Returns the ScoreStruct active for this obj or its parent (recursively)
 
@@ -997,13 +995,8 @@ class MObj(ABC):
         and this object has no associated scorestruct, the active scorestruct
         is returned
 
-        Args:
-            resolve: if True and this obj (or its parent, recursively) has no associated
-                scorestruct, the active scorestruct is returned
-
         Returns:
-            the associated scorestruct or the active struct if resolve is True and
-            this object has no associated struct (either directly or through its parent)
+            the associated scorestruct, if set (either directly or through its parent)
 
         Example
         ~~~~~~~
@@ -1018,12 +1011,7 @@ class MObj(ABC):
             >>> n.scorestruct()
             ScoreStruct(timesig=(3, 4), tempo=72)
         """
-        if resolve:
-            logger.warning("The resolve paremeter is deprecated, use the "
-                           "method .activeScorestruct")
-        if not self.parent:
-            return Workspace.active.scorestruct if resolve else None
-        return self.parent.scorestruct(resolve=resolve)
+        return self._scorestruct or self.parent.scorestruct() if self.parent else None
 
     def write(self,
               outfile: str,
@@ -1117,7 +1105,7 @@ class MObj(ABC):
                              eventoptions={}
                              ) -> offline.OfflineRenderer:
         r = offline.OfflineRenderer(sr=sr, numchannels=numchannels)
-        events = self.events(**eventoptions)
+        events = self.synthEvents(**eventoptions)
         r.schedEvents(coreevents=events)
         return r
 
@@ -1155,23 +1143,26 @@ class MObj(ABC):
         """
         raise NotImplementedError("Subclass should implement this")
 
-    def events(self,
-               instr: str = None,
-               delay: float = None,
-               args: dict[str, float] = None,
-               gain: float = None,
-               chan: int = None,
-               pitchinterpol: str = None,
-               fade: float | tuple[float, float] = None,
-               fadeshape: str = None,
-               position: float = None,
-               skip: float = None,
-               end: float = None,
-               sustain: float = None,
-               workspace: Workspace = None,
-               transpose: float = 0.,
-               **kwargs
-               ) -> list[SynthEvent]:
+    #def events(self, *args, **kws):
+    #    return self.synthEvents(*args, **kws)
+
+    def synthEvents(self,
+                    instr: str = None,
+                    delay: float = None,
+                    args: dict[str, float] = None,
+                    gain: float = None,
+                    chan: int = None,
+                    pitchinterpol: str = None,
+                    fade: float | tuple[float, float] = None,
+                    fadeshape: str = None,
+                    position: float = None,
+                    skip: float = None,
+                    end: float = None,
+                    sustain: float = None,
+                    workspace: Workspace = None,
+                    transpose: float = 0.,
+                    **kwargs
+                    ) -> list[SynthEvent]:
         """
         Returns the SynthEvents needed to play this object
 
@@ -1210,11 +1201,11 @@ class MObj(ABC):
 
             >>> from maelzel.core import *
             >>> n = Note(60, dur=1).setPlay(instr='piano')
-            >>> n.events(gain=0.5)
+            >>> n.synthEvnets(gain=0.5)
             [SynthEvent(delay=0.000, gain=0.5, chan=1, fade=(0.02, 0.02), instr=piano)
              bps 0.000s:  60, 1.000000
                  1.000s:  60, 1.000000]
-            >>> play(n.events(chan=2))
+            >>> play(n.synthEvents(chan=2))
 
         """
         if instr == "?":
@@ -1356,8 +1347,8 @@ class MObj(ABC):
         Play multiple objects synchronised
 
             >>> play(
-            ... Note(60, 1.5).events(gain=0.1, position=0.5)
-            ... Chord("4E 4G", 2, start=1.2).events(instr='piano')
+            ... Note(60, 1.5).synthEvents(gain=0.1, position=0.5)
+            ... Chord("4E 4G", 2, start=1.2).synthEvents(instr='piano')
             ... )
 
         Or using play as a context managger:
@@ -1378,21 +1369,21 @@ class MObj(ABC):
         elif workspace is None:
             workspace = Workspace.getActive()
 
-        events = self.events(delay=delay,
-                             chan=chan,
-                             fade=fade,
-                             gain=gain,
-                             instr=instr,
-                             pitchinterpol=pitchinterpol,
-                             fadeshape=fadeshape,
-                             args=args,
-                             position=position,
-                             sustain=sustain,
-                             workspace=workspace,
-                             skip=skip,
-                             end=end,
-                             transpose=transpose,
-                             **kwargs)
+        events = self.synthEvents(delay=delay,
+                                  chan=chan,
+                                  fade=fade,
+                                  gain=gain,
+                                  instr=instr,
+                                  pitchinterpol=pitchinterpol,
+                                  fadeshape=fadeshape,
+                                  args=args,
+                                  position=position,
+                                  sustain=sustain,
+                                  workspace=workspace,
+                                  skip=skip,
+                                  end=end,
+                                  transpose=transpose,
+                                  **kwargs)
 
         if not events:
             group = csoundengine.synth.SynthGroup([playback._dummySynth()])
@@ -1463,10 +1454,10 @@ class MObj(ABC):
 
         .. seealso:: :class:`~maelzel.core.playback.OfflineRenderer`
         """
-        events = self.events(instr=instr, position=position,
-                             delay=delay, args=args, gain=gain,
-                             workspace=workspace,
-                             **kws)
+        events = self.synthEvents(instr=instr, position=position,
+                                  delay=delay, args=args, gain=gain,
+                                  workspace=workspace,
+                                  **kws)
         return offline.render(outfile=outfile, events=events, sr=sr, wait=wait,
                               verbose=verbose, nchnls=nchnls, tail=extratime)
 

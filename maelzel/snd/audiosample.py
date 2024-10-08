@@ -49,6 +49,7 @@ import math
 import tempfile
 import shutil
 import bpf4
+import bpf4.core
 import sndfileio
 import logging
 from pathlib import Path
@@ -56,8 +57,8 @@ import atexit as _atexit
 import configdict
 
 import pitchtools as pt
-import emlib.numpytools as _nptools
 import emlib.misc
+import emlib.numpytools as _nptools
 
 from maelzel import _util
 from maelzel.common import getLogger
@@ -70,7 +71,8 @@ if TYPE_CHECKING:
     import sounddevice
     import csoundengine
     from typing import Iterator, Sequence
-    import matplotlib.pyplot as plt
+    # import matplotlib.pyplot as plt
+    from matplotlib.axes import Axes
     from maelzel.partialtracking import spectrum as _spectrum
     from maelzel.transcribe import mono
     from typing_extensions import Self
@@ -83,22 +85,30 @@ __all__ = (
 logger = getLogger("maelzel.snd")
 
 
-_config = {
-    'reprhtml_include_audiotag': True,
-    'reprhtml_audiotag_maxduration_minutes': 10,
-    'reprhtml_audiotag_width': '100%',
-    'reprhtml_audiotag_maxwidth': '1200px',
-    'reprhtml_audiotag_embed_maxduration_seconds': 20,
-    'reprhtml_audio_format': 'mp3',
-    'csoundengine': _common.CSOUNDENGINE,
-}
-
-_validator = {
-    'reprhtml_audio_format::choices': ('wav', 'mp3', 'ogg')
-}
-
-
-config = configdict.ConfigDict(name='maelzel.snd.audiosample', default=_config, validator=_validator)
+config = configdict.ConfigDict(
+    name='maelzel.snd.audiosample',
+    default={
+        'reprhtml_include_audiotag': True,
+        'reprhtml_audiotag_maxduration_minutes': 10,
+        'reprhtml_audiotag_width': '100%',
+        'reprhtml_audiotag_maxwidth': '1200px',
+        'reprhtml_audiotag_embed_maxduration_seconds': 8,
+        'reprhtml_audio_format': 'mp3',
+        'csoundengine': _common.CSOUNDENGINE,
+    },
+    validator = {
+        'reprhtml_audio_format::choices': ('wav', 'mp3', 'ogg')
+    },
+    docs = {
+        'reprhtml_include_audiotag':
+            'Include an <audio> tag when representing a Sample as html',
+        'reprhtml_audiotag_embed_maxduration_seconds':
+            'Samples with a duration less than this value are embedded as raw '
+            'audio (uncompressed). This can result in very big notebooks',
+        'csoundengine': 'name of the csound engine to use',
+        'reprhtml_audio_format': 'format used when not embedding raw audio'
+    }
+)
 
 
 _sessionTempfiles = []
@@ -168,7 +178,7 @@ def _normalizePath(path: str) -> str:
 def _openInEditor(soundfile: str, wait=False, app=None) -> None:
     """
     Open soundfile in an external app
-    
+
     Args:
         soundfile: the file to open
         wait: if True, wait until editing is finished
@@ -480,18 +490,16 @@ class Sample:
                 engine = Sample.getEngine()
 
             if self.path:
-                synth = engine.session().play
+                source = self.path
+            else:
+                source = self._makeCsoundTable(engine)
 
-            tabnum = self._makeCsoundTable(engine)
             if pan is None:
-                if self.numchannels == 1:
-                    pan = 0
-                else:
-                    pan = 0.5
+                pan = 0 if self.numchannels == 1 else 0.5
 
             if dur == 0:
                 dur = -1
-            synth = engine.session().playSample(tabnum, chan=chan, gain=gain, loop=loop,
+            synth = engine.session().playSample(source, chan=chan, gain=gain, loop=loop,
                                                 skip=skip, dur=dur, delay=delay, pan=pan,
                                                 speed=speed)
             if block:
@@ -510,10 +518,11 @@ class Sample:
         """
         if self._asbpf not in (None, False):
             return self._asbpf
-        self._asbpf = bpf4.core.Sampled(self.samples, 1/self.sr)
-        return self._asbpf
+        bpf = bpf4.Sampled(self.samples, 1/self.sr)
+        self._asbpf = bpf
+        return bpf
 
-    def plot(self, profile='auto') -> list[plt.Axes]:
+    def plot(self, profile='auto') -> list[Axes]:
         """
         plot the sample data
 
@@ -538,8 +547,11 @@ class Sample:
         else:
             self.plot()
 
-    def reprHtml(self, withHeader=True, withAudiotag: bool = None,
-                 figsize=(24, 4), profile=''
+    def reprHtml(self,
+                 withHeader=True,
+                 withAudiotag: bool = None,
+                 figsize=(24, 4),
+                 profile=''
                  ) -> str:
         """
         Returns an HTML representation of this Sample
@@ -610,13 +622,16 @@ class Sample:
                 else:
                     # ipython needs the samples in the shape (numchannels, samples)
                     samples = self.samples.T
+                logger.debug(f"Embedding audio as uncompressed samples: {self.duration} secs @ {self.sr} Hz")
                 audioobj = IPython.display.Audio(samples, rate=self.sr)
             else:
                 if self.path:
                     outfile = self.path
                 else:
+                    fmt = config['reprhtml_audio_format']
+                    logger.debug(f"Saving audio as {fmt} to be embedded as soundfile in jupyter")
                     os.makedirs('tmp', exist_ok=True)
-                    outfile = tempfile.mktemp(dir=_tempFolder, suffix='.' + config['reprhtml_audio_format'])
+                    outfile = tempfile.mktemp(dir=_tempFolder, suffix='.' + fmt)
                     self.write(outfile, overflow='normalize')
                     _sessionTempfiles.append(outfile)
                 audioobj = IPython.display.Audio(outfile)
@@ -628,8 +643,8 @@ class Sample:
         return s
 
     def plotSpetrograph(self, framesize=2048, window='hamming', start=0., dur=0.,
-                        axes: plt.Axes = None
-                        ) -> plt.Axes:
+                        axes: Axes = None
+                        ) -> Axes:
         """
         Plot the spectrograph of this sample or a fragment thereof
 
@@ -666,8 +681,8 @@ class Sample:
                         maxfreq: int = 12000,
                         yaxis='linear',
                         figsize=(24, 10),
-                        axes: plt.Axes = None
-                        ) -> plt.Axes:
+                        axes: Axes = None
+                        ) -> Axes:
         """
         Plot the spectrogram of this sound using matplotlib
 
@@ -705,10 +720,10 @@ class Sample:
                            overlap=4,
                            winsize: int = None,
                            nmels=128,
-                           axes: plt.Axes = None,
+                           axes: Axes = None,
                            axislabels=False,
-                           cmap: str = 'magma',
-                           ) -> plt.Axes:
+                           cmap='magma',
+                           ) -> Axes:
         """
         Plot a mel-scale spectrogram
 
@@ -755,7 +770,7 @@ class Sample:
         logger.debug(f"open_in_editor: opening {sndfile}")
         _openInEditor(sndfile, wait=wait, app=app)
         if wait:
-            return Sample(sndfile)
+            return self.__class__(sndfile)
         return None
 
     def write(self,
@@ -770,7 +785,7 @@ class Sample:
         Write the samples to outfile
 
         Args:
-            outfile: the name of the soundfile. The extension determines the 
+            outfile: the name of the soundfile. The extension determines the
                 file format
             encoding: the encoding to use. One of pcm16, pcm24, pcm32, float32,
                 float64 or, in the case of mp3 or ogg, the frame rate as integer
@@ -821,7 +836,7 @@ class Sample:
 
             if self is readonly, the copied Sample will not be readonly.
         """
-        return Sample(self.samples.copy(), self.sr)
+        return self.__class__(self.samples.copy(), self.sr)
 
     def _changed(self) -> None:
         # clear cached values, invalidate path
@@ -833,15 +848,15 @@ class Sample:
 
     def __add__(self, other: float | Sample) -> Self:
         if isinstance(other, (int, float)):
-            return Sample(self.samples+other, self.sr)
+            return self.__class__(self.samples+other, self.sr)
         elif isinstance(other, Sample):
             assert self.numchannels == other.numchannels and self.sr == other.sr
             if len(self) == len(other):
-                return Sample(self.samples+other.samples, self.sr)
+                return self.__class__(self.samples+other.samples, self.sr)
             elif len(self) > len(other):
-                return Sample(self.samples[:len(other)]+other.samples, self.sr)
+                return self.__class__(self.samples[:len(other)]+other.samples, self.sr)
             else:
-                return Sample(self.samples + other.samples[:len(self)], self.sr)
+                return self.__class__(self.samples + other.samples[:len(self)], self.sr)
         else:
             raise TypeError(f"Expected a scalar or a sample, got {other}")
 
@@ -860,21 +875,21 @@ class Sample:
         else:
             raise TypeError(f"Expected a scalar or a sample, got {other}")
 
-    def __sub__(self, other: float | Sample) -> Self:
+    def __sub__(self, other: float | Self) -> Self:
         if isinstance(other, (int, float)):
-            return Sample(self.samples-other, self.sr)
+            return self.__class__(self.samples-other, self.sr)
         elif isinstance(other, Sample):
             assert self.numchannels == other.numchannels and self.sr == other.sr
             if len(self) == len(other):
-                return Sample(self.samples-other.samples, self.sr)
+                return self.__class__(self.samples-other.samples, self.sr)
             elif len(self) > len(other):
-                return Sample(self.samples[:len(other)]-other.samples, self.sr)
+                return self.__class__(self.samples[:len(other)]-other.samples, self.sr)
             else:
-                return Sample(self.samples - other.samples[:len(self)], self.sr)
+                return self.__class__(self.samples - other.samples[:len(self)], self.sr)
         else:
             raise TypeError(f"Expected a scalar or a sample, got {other}")
 
-    def __isub__(self, other: float | Sample) -> None:
+    def __isub__(self, other: float | Self) -> None:
         if isinstance(other, (int, float)):
             self.samples -= other
         elif isinstance(other, Sample):
@@ -889,17 +904,17 @@ class Sample:
             raise TypeError(f"Expected a scalar or a sample, got {other}")
         self._changed()
 
-    def __mul__(self, other: float | Sample) -> Self:
+    def __mul__(self, other: float | Self) -> Self:
         if isinstance(other, (int, float)):
-            return Sample(self.samples*other, self.sr)
+            return self.__class__(self.samples*other, self.sr)
         elif isinstance(other, Sample):
             assert self.numchannels == other.numchannels and self.sr == other.sr
             if len(self) == len(other):
-                return Sample(self.samples*other.samples, self.sr)
+                return self.__class__(self.samples*other.samples, self.sr)
             elif len(self) > len(other):
-                return Sample(self.samples[:len(other)]*other.samples, self.sr)
+                return self.__class__(self.samples[:len(other)]*other.samples, self.sr)
             else:
-                return Sample(self.samples * other.samples[:len(self)], self.sr)
+                return self.__class__(self.samples * other.samples[:len(self)], self.sr)
         else:
             raise TypeError(f"Expected a scalar or a sample, got {other}")
 
@@ -920,7 +935,7 @@ class Sample:
         return self
 
     def __pow__(self, other: float) -> Self:
-        return Sample(self.samples**other, self.sr)
+        return self.__class__(self.samples**other, self.sr)
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -963,7 +978,7 @@ class Sample:
         assert 0 <= start <= stop
         frame0 = int(start*self.sr)
         frame1 = int(stop*self.sr)
-        return Sample(self.samples[frame0:frame1], self.sr)
+        return self.__class__(self.samples[frame0:frame1], self.sr)
 
     def fade(self, fadetime: float | tuple[float, float], shape: str = 'linear'
              ) -> Self:
@@ -1020,8 +1035,9 @@ class Sample:
         Returns:
             new Sample
         """
-        silence = Sample.createSilent(dur, self.numchannels, self.sr)
-        return concatenate([silence, self])
+        silence = _silentFrames(numframes=int(self.sr*dur), channels=self.numchannels)
+        samples = np.concatenate([silence, self.samples])
+        return self.__class__(samples, sr=self.sr)
 
     def appendSilence(self, dur: float) -> Self:
         """
@@ -1038,9 +1054,9 @@ class Sample:
         """
         silence = _silentFrames(numframes=int(self.sr*dur), channels=self.numchannels)
         samples = np.concatenate([self.samples, silence])
-        return Sample(samples, sr=self.sr)
+        return self.__class__(samples, sr=self.sr)
 
-    def concat(self, *other: Sample) -> Self:
+    def concat(self, *other: Self) -> Self:
         """
         Join (concatenate) this Sample with other(s)
 
@@ -1053,7 +1069,8 @@ class Sample:
         .. seealso:: :meth:`Sample.join`
         """
         samples = [self, *other]
-        return concatenate(samples)
+        samp = concatenate(samples)
+        return self.__class__(samp.samples, sr=samp.sr)
 
     def _checkWrite(self) -> None:
         if self.readonly:
@@ -1717,7 +1734,7 @@ class Sample:
 
     @staticmethod
     def mix(samples: list[Sample], offsets: list[float] = None, gains: list[float] = None
-            ) -> Self:
+            ) -> Sample:
         """
         Static method: mix the given samples down, optionally with a time offset
 
@@ -1744,7 +1761,7 @@ class Sample:
         return mixsamples(samples, offsets=offsets, gains=gains)
 
     @staticmethod
-    def join(samples: Sequence[Sample]) -> Self:
+    def join(samples: Sequence[Sample]) -> Sample:
         """
         Concatenate a sequence of Samples
 
@@ -1766,7 +1783,7 @@ def broadcastSamplerate(samples: list[Sample]) -> list[Sample]:
 
     The audio sample with the lowest sr is resampled to the
     higher one.
-    
+
     """
     assert all(isinstance(s, Sample) for s in samples)
     sr = max(s.sr for s in samples)
@@ -1803,6 +1820,37 @@ def asSample(source: str | Sample | tuple[np.ndarray, int]) -> Sample:
         raise TypeError("can't convert source to Sample")
 
 
+def matchSamplerates(sampleseq: Sequence[Sample], sr: int = None, forcecopy=False) -> list[Sample]:
+    """
+    Match the samplerates of the given Samples
+
+    Args:
+        sampleseq: a sequence of Sample instances
+        sr: the sr to use or None to use the highest samplerate of all samples
+        forcecopy: if True, a copy of the Sample is returned even if no resampling
+            is needed
+
+    Returns:
+        a list of Samples, where all Samples share the same samplerate.
+        Only samples which need to be resampled will be resampled. Sample
+        instances matching the used samplerate will be returned as is
+    """
+    numchannels = sampleseq[0].numchannels
+    if any(s.numchannels != numchannels for s in sampleseq):
+        s = next(s for s in sampleseq if s.numchannels != numchannels)
+        raise ValueError(f"All samples should have {numchannels} channels, "
+                         f"but one Sample has {s.numchannels} channels")
+    if sr is None:
+        sr = max(s.sr for s in sampleseq)
+
+    if any(s.sr != sr for s in sampleseq):
+        logger.info(f"concat: Mismatching samplerates. Samples will be upsampled to {sr}")
+        sampleseq = [s.resample(sr) if s.sr != sr else s.copy() if forcecopy else s for s in sampleseq]
+    else:
+        sampleseq = list(sampleseq)
+    return sampleseq
+
+
 def concatenate(sampleseq: Sequence[Sample]) -> Sample:
     """
     Concatenate a sequence of Samples
@@ -1816,17 +1864,8 @@ def concatenate(sampleseq: Sequence[Sample]) -> Sample:
     Returns:
         the concatenated samples as one Sample
     """
-    numchannels = sampleseq[0].numchannels
-    if any(s.numchannels != numchannels for s in sampleseq):
-        s = next(s for s in sampleseq if s.numchannels != numchannels)
-        raise ValueError(f"All samples should have {numchannels} channels, "
-                         f"but one Sample has {s.numchannels} channels")
-    sr = max(s.sr for s in sampleseq)
-    if any(s.sr != sr for s in sampleseq):
-        logger.info(f"concat: Mismatching samplerates. Samples will be upsampled to {sr}")
-        sampleseq = [s if s.sr == sr else s.resample(sr) for s in sampleseq]
-    s = np.concatenate([s.samples for s in sampleseq])
-    return Sample(s, sr)
+    s = np.concatenate([s.samples for s in matchSamplerates(sampleseq)])
+    return Sample(s, sampleseq[0].sr)
 
 
 def _mapn_between(func, n: int, t0: float, t1: float) -> np.ndarray:
@@ -1954,7 +1993,7 @@ def spectrumAt(samples: np.ndarray,
     endsample = int(endtime * sr)
     samples = samples[startsample:endsample]
     samples = np.ascontiguousarray(samples)
-    
+
     try:
         import loristrck
     except ImportError:
@@ -2037,4 +2076,3 @@ def playSamples(samples: np.ndarray,
                      prime_output_buffers_using_stream_callback=False)
 
     return _PortaudioPlayback(stream=ctx.stream)
-

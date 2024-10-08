@@ -26,6 +26,7 @@ from __future__ import annotations
 from abc import abstractmethod, ABC
 import random
 import copy
+from functools import cache
 
 from maelzel import _util
 from maelzel.common import F
@@ -159,6 +160,7 @@ class Spanner(Symbol):
         Args:
             startobj: start anchor object
             endobj: end anchor object
+
         Example
         ~~~~~~~
 
@@ -835,12 +837,14 @@ class NotatedPitch(NoteheadAttachedSymbol):
 
     def applyToPitch(self, n: scoring.Notation, idx: int | None, parent: mobj.MObj | None
                      ) -> None:
-        if type(parent).__name__ != 'Note':
-            raise TypeError(f"Expected a Note, got {parent}")
+        #if type(parent).__name__ != 'Note':
+        #    raise TypeError(f"Expected a Note, got {parent}")
 
         if idx is None:
-            m = parent.pitch
-            idx = min(range(len(n.pitches)), key=lambda idx: abs(m - n.pitches[idx]))
+            from maelzel.core import event
+            assert isinstance(parent, event.Note)
+            pitch = parent.pitch
+            idx = min(range(len(n.pitches)), key=lambda idx: abs(pitch - n.pitches[idx]))
 
         n.fixNotename(notename=self.pitch, idx=idx)
 
@@ -1058,10 +1062,11 @@ def makeKnownSymbol(name: str) -> Symbol | None:
     return None
 
 
+@cache
 def knownSymbols() -> set[str]:
     out = set()
     out |= scoring.definitions.allArticulations()
-    out |= scoring.definitions.availableOrnaments()
+    out |= scoring.definitions.availableOrnaments
     out |= {'comma', 'caesura', 'fermata', 'break'}
     return out
 

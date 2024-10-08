@@ -5,8 +5,8 @@ import bpf4
 import numpy as np
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    import matplotlib.pyplot as plt
     from typing import Sequence, Callable
+    from matplotlib.axes import Axes
 
 
 class Histogram:
@@ -17,8 +17,9 @@ class Histogram:
         values: the values to evaluate
         numbins: the number of bins
     """
-    def __init__(self, values: Sequence[Number] | np.ndarray, numbins: int = 20):
-        counts, edges = np.histogram(values, bins=numbins)
+    def __init__(self, values: Sequence[int | float] | np.ndarray, numbins: int = 20):
+        valuearray = np.asarray(values)
+        counts, edges = np.histogram(valuearray, bins=numbins)
         self.counts = counts
         """How many values lie within each bin"""
 
@@ -57,12 +58,22 @@ class Histogram:
             of bins within the histogram
 
         """
-        return np.interp(percentile, self._percentiles, self.edges)
+        return float(np.interp(percentile, self._percentiles, self.edges))
 
     def __repr__(self):
         return f"Histogram(numbins={self.numbins}, edges={self.edges})"
 
-    def plot(self, axes=None) -> plt.Axes:
+    def plot(self, axes=None) -> Axes:
+        """
+        Plot this histogram
+
+        Args:
+            axes: the matplotlib axes to use
+
+        Returns:
+            the Axes used. It will be the value passed, if given, or the
+            created Axes if None
+        """
         import matplotlib.pyplot as plt
         if axes is None:
             fig, axes = plt.subplots()
@@ -127,5 +138,3 @@ def weightedHistogram(values: Sequence[Number],
     if edges[-1] < sortedvalues[-1]:
         edges.append(float(sortedvalues[-1]))
     return edges
-
-
