@@ -329,9 +329,9 @@ class MObj(ABC):
         """
         return _ if (_:=self.offset) is not None else _ if (_:=self._resolvedOffset) is not None else default
 
-    def resolveEnd(self) -> F:
+    def relEnd(self) -> F:
         """
-        Returns the resolved end of this object, relative to its parent
+        Resolved end of this object, relative to its parent
 
         An object's offset can be explicit (set in the ``.offset`` attributes)
         or implicit, as calculated from the context of the parent. For example,
@@ -341,7 +341,7 @@ class MObj(ABC):
         .. note::
 
             To calculate the absolute end of an object, use
-            ``obj.absOffset() + obj.resolveEnd``
+            ``obj.absOffset() + obj.dur``
 
         Returns:
             the resolved end of this object, relative to its parent. If this
@@ -368,13 +368,13 @@ class MObj(ABC):
 
         .. seealso:: :meth:`MObj.absOffset`
         """
-        if self.offset is not None:
-            return self.offset
+        if (offset := self.offset) is not None:
+            return offset
         elif self._resolvedOffset is not None:
             return self._resolvedOffset
         elif self.parent:
-            self._resolvedOffset = offset = self.parent.childOffset(self)
-            return offset
+            self._resolvedOffset = self.parent.childOffset(self)
+            return self._resolvedOffset
         else:
             return F0
 
@@ -391,8 +391,8 @@ class MObj(ABC):
             the absolute start position of this object
 
         """
-        reloffset = self.relOffset()
-        return reloffset if not self.parent else reloffset + self.parent.absOffset()
+        offset = self.relOffset()
+        return offset if not self.parent else offset + self.parent.absOffset()
 
     def parentAbsOffset(self) -> F:
         """

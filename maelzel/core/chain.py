@@ -560,9 +560,6 @@ class Chain(MContainer):
 
         flatitems = self.flatEvents()
         assert all(item.offset is not None and item.dur >= 0 for item in flatitems)
-        if self.offset:
-            for item in flatitems:
-                item.offset += self.offset
 
         if any(n.isGracenote() for n in flatitems):
             gracenoteDur = F(conf['play.gracenoteDuration'])
@@ -576,12 +573,11 @@ class Chain(MContainer):
         groups = _mobjtools.groupLinkedEvents(flatitems)
         for item in groups:
             if isinstance(item, MEvent):
-                events = item._synthEvents(playargs,
-                                           parentOffset=offset,
-                                           workspace=workspace)
+                # item has absolute timing so parent offset is 0
+                events = item._synthEvents(playargs, parentOffset=F0, workspace=workspace)
                 synthevents.extend(events)
             elif isinstance(item, list):
-                synthgroups = [event._synthEvents(playargs, parentOffset=offset, workspace=workspace)
+                synthgroups = [event._synthEvents(playargs, parentOffset=F0, workspace=workspace)
                                for event in item]
                 synthlines = _splitSynthGroupsIntoLines(synthgroups)
                 for synthline in synthlines:
@@ -1168,7 +1164,7 @@ class Chain(MContainer):
                     self.offset = newreloffset
                 else:
                     assert isinstance(previtem, (MEvent, Chain))
-                    if newreloffset < previtem.resolveEnd():
+                    if newreloffset < previtem.relEnd():
                         raise ValueError("The shift would result in negative time")
                     self.offset = newreloffset
         self._changed()
