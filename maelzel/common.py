@@ -31,8 +31,8 @@ timesig_t = t.Tuple[int, int]
 number_t = t.Union[int, float, Rational, F]
 
 
-F0 = F(0)
-F1 = F(1)
+F0: F = F(0)
+F1: F = F(1)
 
 
 def asF(t) -> F:
