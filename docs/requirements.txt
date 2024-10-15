@@ -9,7 +9,7 @@ appdirs
 pillow
 cachetools
 pyyaml
-csoundengine>=1.13
+csoundengine
 pitchtools>=1.9
 lxml
 quicktions
