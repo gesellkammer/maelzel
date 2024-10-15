@@ -657,6 +657,10 @@ class Sample:
             start: if given, plot the spectrograph at this time
             dur: if given, use this fragment of the sample (0=from start to end of
                 sample)
+            axes: the axes to plot to. A new axes will be created if not given
+
+        Returns:
+            the used axes
 
         Plots the spectrograph of the entire sample (slice before to use only
         a fraction)
@@ -1520,6 +1524,9 @@ class Sample:
             fftsize: the fft size to use
             overlap: number of overlaps
             unvoiced: one of 'negative' or 'nan'
+            minAmpDb: the minimum amplitude in dB. Any sound softer than this
+                will be supressed
+            sensitivity: onset sensitivity, a value between 0 and 1
 
         Returns:
             a tuple (times, freqs), both numpy arrays. The frequency array will
@@ -1581,7 +1588,7 @@ class Sample:
                                                   stepSize=fftsize // overlap,
                                                   outputUnvoiced=unvoiced,
                                                   )
-            return bpf4.core.Sampled(freqs, dt)
+            return bpf4.Sampled(freqs, dt)
 
         elif method == 'pyin-native':
             from maelzel.snd import freqestimate

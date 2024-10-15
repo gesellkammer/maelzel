@@ -87,6 +87,9 @@ def playTicks(times: list[float] | np.ndarray,
         decay: decay duration
         sustain: sustain amplitude
         release: release dur.
+        engine: a csoundengine.Engine used for playback. If not given a new
+            engine is created
+        extraLatency: extra latency added to playback
 
     Returns:
         a csoundengine.SynthGroup, which constrols playback.

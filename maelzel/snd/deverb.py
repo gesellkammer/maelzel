@@ -14,8 +14,8 @@ ihopsize = ifftsize / ioverlap
 fsig1 pvsanal asig, ifftsize, ihopsize, iwinsize, iwintype
 i_overlap, i_numbins, i_winsize, i_format pvsinfo fsig1
 
-kmags0[]  init i_numbins
 kfreqs0[] init i_numbins
+kmags0[]  init i_numbins
 kmags1[]  init i_numbins
 kmags2[]  init i_numbins
 kmags3[]  init i_numbins

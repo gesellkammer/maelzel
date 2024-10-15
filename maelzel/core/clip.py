@@ -156,13 +156,13 @@ class Clip(event.MEvent):
             self.soundfile = source
             info = sndfileio.sndinfo(source)
             self._sr = info.samplerate
-            self.sourceDurSecs = info.duration
+            self.sourceDurSecs = F(info.duration)
             self.numChannels = info.channels if self.channel is None else 1
             self._playbackMethod = 'diskin'
 
         elif isinstance(source, audiosample.Sample):
             self._sr = source.sr
-            self.sourceDurSecs = source.duration
+            self.sourceDurSecs = F(source.duration)
             self.numChannels = source.numchannels
             self._playbackMethod = 'table'
 
@@ -467,9 +467,3 @@ class Clip(event.MEvent):
             for symbol in self.symbols:
                 symbol.applyToNotation(notation, parent=self)
         return [notation]
-
-
-
-
-
-

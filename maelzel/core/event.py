@@ -33,7 +33,8 @@ from maelzel.common import F, asF, F0, F1, asmidi
 from maelzel import scoring
 from maelzel.scoring import enharmonics
 from maelzel.dynamiccurve import DynamicCurve
-import maelzel._util as _util
+from maelzel import _util
+from maelzel._util import showT
 
 from ._common import UNSET, MAXDUR, logger, _Unset
 from .workspace import getConfig, Workspace
@@ -74,7 +75,7 @@ class Note(MEvent):
     :meth:`~Note.setPlay` method.
 
     Any aspects regarding notation (articulation, enharmonic variant, etc)
-    can be set via :meth:`~Note.setSymbol`
+    can be set via :meth:`~Note.addSymbol`
 
     The *pitch* parameter can be used to set the pitch and other attributes in
     multiple ways.
@@ -236,7 +237,7 @@ class Note(MEvent):
                     dynamic=dynamic, _init=False)
 
     def setPlay(self, /, **kws) -> Note:
-        if glide := kws.pop('gliss', None):
+        if glide := kws.pop('gliss', None) is not None:
             glisstime = float(glide) if glide is not True else min(0.1, self.dur * F(3, 4))
             kws['glisstime'] = glisstime
             if not self._gliss:
@@ -442,11 +443,11 @@ class Note(MEvent):
     def meanPitch(self) -> float | None:
         return self.pitch
 
-    def timeShift(self, timeoffset: time_t) -> Self:
+    def timeShift(self, offset: time_t) -> Self:
         reloffset = self.relOffset()
-        reloffset += timeoffset
+        reloffset += offset
         if reloffset < 0:
-            raise ValueError(f"Cannot shift to a negative offset, {timeoffset=}, "
+            raise ValueError(f"Cannot shift to a negative offset, {offset=}, "
                              f"relative offset prior to shift: {self.relOffset()}, "
                              f"resulting offset: {reloffset}. ({self=})")
         return self.clone(offset=reloffset)
@@ -586,7 +587,10 @@ class Note(MEvent):
         if self.isRest():
             elements = ["REST"]
         else:
+            config = config or getConfig()
             notename = self.name
+            if config['reprUseUnicodeAccidentals']:
+                notename = _util.unicodeNotename(notename)
             if self.tied:
                 notename += "~"
 
@@ -597,7 +601,6 @@ class Note(MEvent):
                     notename = f'{notename} ({notatedPitch.pitch})'
 
             elements = [notename]
-            config = config or getConfig()
             if config['reprShowFreq']:
                 elements.append("%dHz" % int(self.freq))
             if self.amp is not None and self.amp < 1:
@@ -607,10 +610,10 @@ class Note(MEvent):
             if self.dur >= MAXDUR:
                 elements.append("dur=inf")
             else:
-                elements.append(f"{_util.showT(self.dur)}♩")
+                elements.append(f"{showT(self.dur)}♩")
 
         if self.offset is not None:
-            elements.append(f"offset={_util.showT(self.offset)}")
+            elements.append(f"offset={showT(self.offset)}")
 
         if self.gliss:
             if isinstance(self.gliss, bool):
@@ -626,8 +629,8 @@ class Note(MEvent):
     def __repr__(self) -> str:
         if self.isRest():
             if self.offset is not None:
-                return f"Rest:{_util.showT(self.dur)}♩:offset={_util.showT(self.offset)}"
-            return f"Rest:{_util.showT(self.dur)}♩"
+                return f"Rest:{showT(self.dur)}♩:offset={showT(self.offset)}"
+            return f"Rest:{showT(self.dur)}♩"
         elements = self._asTableRow()
         if len(elements) == 1:
             return elements[0]
@@ -671,10 +674,23 @@ class Note(MEvent):
         out.pitchSpelling = ''
         return out
 
-    def resolveAmp(self,
-                   config: CoreConfig,
-                   dyncurve: DynamicCurve
-                   ) -> float:
+    def _resolveAmp(self,
+                    config: CoreConfig,
+                    dyncurve: DynamicCurve
+                    ) -> float:
+        """
+        Resolves the amplitude of this event.
+
+        This is mostly used internally to determine the amplitude corresponding
+        to a given event.
+
+        Args:
+            config: the active config
+            dyncurve: the active dynamic curve
+
+        Returns:
+            the playback amplitude as a float between 0 and 1
+        """
         if self.amp is not None:
             return self.amp
         else:
@@ -682,6 +698,21 @@ class Note(MEvent):
                 dyn = self.dynamic or config['play.defaultDynamic']
                 return dyncurve.dyn2amp(dyn)
             return config['play.defaultAmplitude']
+
+    def resolveAmp(self) -> float:
+        """
+        Resolves the amplitude of this event.
+
+        The amplitude can be set explicitely (the ``.amp`` attribute) or can
+        be set via the dynamic if ``config['play.useDynamics']`` is True.
+        If no amplitude is set, a default amplitude via ``config['play.defaultAmplitude']``
+        is used as fallback
+
+        Returns:
+            the playback amplitude as a float between 0 and 1
+        """
+        w = Workspace.getActive()
+        return self._resolveAmp(config=w.config, dyncurve=w.dynamicCurve)
 
     def _synthEvents(self,
                      playargs: synthevent.PlayArgs,
@@ -691,37 +722,36 @@ class Note(MEvent):
         if self.isRest():
             return []
         conf = workspace.config
-        scorestruct = workspace.scorestruct
+        struct = workspace.scorestruct
         if self.playargs is not None:
             playargs = playargs.updated(self.playargs)
 
-        amp = self.resolveAmp(config=conf, dyncurve=workspace.dynamicCurve)
-        glisstime = playargs.get('glisstime')
-        linkednext = self.gliss or glisstime is not None
-        endmidi = self.resolveGliss() if linkednext else self.pitch
-        offset = self._detachedOffset(F0) + parentOffset
-        dur = playargs.get('end', self.dur)
-        offset += playargs.get('skip', 0.)
-
-        starttime = float(scorestruct.beatToTime(offset))
-        endtime = float(scorestruct.beatToTime(offset + dur))
-        transp = playargs.get('transpose', 0.)
-        if starttime >= endtime:
-            raise ValueError(f"Trying to play an event with 0 or negative duration: {endtime-starttime}. "
+        amp = self._resolveAmp(config=conf, dyncurve=workspace.dynamicCurve)
+        glissdur = playargs.get('glisstime', None)
+        linkednext = self.gliss or glissdur
+        endpitch = self.resolveGliss() if linkednext else self.pitch
+        startbeat = self.relOffset() + parentOffset
+        startbeat = max(startbeat, playargs.get('skip', 0))
+        endbeat = min(startbeat + self.dur, playargs.get('end', float('inf')))
+        startsecs = float(struct.beatToTime(startbeat))
+        endsecs = float(struct.beatToTime(endbeat))
+        if startsecs >= endsecs:
+            raise ValueError(f"Trying to play an event with 0 or negative duration: {endsecs-startsecs}. "
                              f"Object: {self}")
+        transp = playargs.get('transpose', 0.)
         startpitch = self.pitch + transp
-        if glisstime and glisstime < dur:
-            glissabstime = float(scorestruct.beatToTime(offset + dur - glisstime))
-            bps = [[starttime, startpitch, amp],
-                   [glissabstime, startpitch, amp],
-                   [endtime, endmidi + transp, amp]]
+        if glissdur is not None and glissdur > 0:
+            glissstart = float(struct.beatToTime(max(startbeat, endbeat - glissdur)))
+            bps = [[startsecs,  startpitch,        amp],
+                   [glissstart, startpitch,        amp],
+                   [endsecs,    endpitch + transp, amp]]
         else:
-            bps = [[starttime, self.pitch+transp, amp],
-                   [endtime,   endmidi+transp,    amp]]
+            bps = [[startsecs, self.pitch + transp, amp],
+                   [endsecs,   endpitch + transp,   amp]]
 
         event = synthevent.SynthEvent.fromPlayArgs(bps=bps, playargs=playargs)
         if playargs.automations:
-            event.addAutomationsFromPlayArgs(playargs, scorestruct=scorestruct)
+            event.addAutomationsFromPlayArgs(playargs, scorestruct=struct)
 
         if self.tied or linkednext:
             event.linkednext = True
@@ -906,7 +936,7 @@ class Chord(MEvent):
             dur = asF(dur)
 
         if not notes:
-            super().__init__(dur=dur, offset=None, label=label)
+            super().__init__(dur=dur if dur is not None else F1, offset=None, label=label)
             return
 
         symbols = None
@@ -963,6 +993,8 @@ class Chord(MEvent):
                          offset=offset, label=label, properties=properties,
                          tied=tied, amp=amp, dynamic=dynamic)
         self.notes: list[Note] = notes2
+        """The notes in this chord, each an instance of Note"""
+
         self._gliss: bool | list[float] = gliss
         self._glissTarget: list[float] | None = None
         if symbols:
@@ -1307,6 +1339,9 @@ class Chord(MEvent):
 
     @property
     def pitches(self) -> list[float]:
+        """
+        The pitches of this chord (a list of midinotes)
+        """
         return [n.pitch for n in self.notes]
 
     def resolveAmps(self,
@@ -1337,43 +1372,43 @@ class Chord(MEvent):
                      parentOffset: F,
                      workspace: Workspace
                      ) -> list[synthevent.SynthEvent]:
+        if not self.notes:
+            return []
         conf = workspace.config
-        scorestruct = workspace.scorestruct
+        struct = workspace.scorestruct
         playargs0 = playargs
         if self.playargs:
             playargs = playargs.updated(self.playargs)
 
         if conf['chordAdjustGain']:
-            gain = playargs.get('gain', 1.0)
             if playargs is playargs0:
                 playargs = playargs.copy()
-            playargs['gain'] = gain / math.sqrt(len(self))
+            playargs['gain'] = playargs.get('gain', 1.0) / math.sqrt(len(self))
 
-        offset = self._detachedOffset(F0) + parentOffset
-        dur = playargs.get('end', self.dur)
-        offset += playargs.get('skip', 0)
-        startsecs = float(scorestruct.beatToTime(offset))
-        endsecs = float(scorestruct.beatToTime(offset + dur))
+        startbeat = self.relOffset() + parentOffset
+        startbeat = max(startbeat, playargs.get('skip', F0))
+        endbeat = min(startbeat + self.dur, playargs.get('end', float('inf')))
+        startsecs = float(struct.beatToTime(startbeat))
+        endsecs = float(struct.beatToTime(endbeat))
         endpitches = self.pitches if not self.gliss else self.resolveGliss()
         amps = self.resolveAmps(config=conf, dyncurve=workspace.dynamicCurve)
         transpose = playargs.get('transpose', 0.)
-        synthevents = []
-        glisstime = playargs.get('glisstime', 0)
-        linkednext = self.gliss or glisstime > 0
-        if glisstime > dur:
-            glisstime = 0
+        glissdur = playargs.get('glisstime', 0)
+        linkednext = self.gliss or glissdur > 0
+        if glissdur > endbeat - startbeat:
+            glissdur = endbeat - startbeat
 
+        synthevents = []
         for note, endpitch, amp in zip(self.notes, endpitches, amps):
             startpitch = note.pitch + transpose
             bps = [[float(startsecs), startpitch, amp]]
-            if glisstime:
-                glissabstime = float(scorestruct.beatToTime(offset+dur-glisstime))
+            if glissdur:
+                glissabstime = float(struct.beatToTime(endbeat - glissdur))
                 bps.append([glissabstime, startpitch, amp])
             bps.append([float(endsecs),   endpitch+transpose,   amp])
             event = synthevent.SynthEvent.fromPlayArgs(bps=bps, playargs=playargs)
             if playargs.automations:
-                # assert abs(scorestruct.beatToTime(offset) - event.delay) < 1e-12
-                event.addAutomationsFromPlayArgs(playargs, scorestruct=scorestruct)
+                event.addAutomationsFromPlayArgs(playargs, scorestruct=struct)
             if linkednext or self._isNoteTied(note):
                 event.linkednext = True
             synthevents.append(event)

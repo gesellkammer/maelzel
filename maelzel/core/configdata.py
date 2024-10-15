@@ -11,6 +11,7 @@ defaultdict = {
     'splitAcceptableDeviation': 4,
     'chordAdjustGain': True,
     'reprShowFreq': False,
+    'reprUseUnicodeAccidentals': True,
     'semitoneDivisions': 4,
     'musescorepath': '',
     'lilypondpath': '',

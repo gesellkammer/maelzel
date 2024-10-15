@@ -16,6 +16,7 @@ from maelzel.core import automation as _automation
 from maelzel.core import presetmanager
 from maelzel.core import presetdef
 import csoundengine
+import csoundengine.config
 
 if TYPE_CHECKING:
     from typing import Any, Callable, Iterable, Sequence
@@ -40,15 +41,15 @@ def _unique(d: dict | None, deep: bool) -> dict | None:
     return copy.deepcopy(d) if deep else d.copy()
 
 
-def _normalizeSynthValue(val) -> float | int | str:
-    if isinstance(val, (float, int, str)):
+def _normalizeSynthValue(val) -> float | str:
+    if isinstance(val, (float, str)):
         return val
     else:
         try:
             return float(val)
         except ValueError as e:
             raise ValueError(f"Could not convert {val} to a float to be used as argument"
-                             f" to a synth event")
+                             f" to a synth event ({e=})")
 
 
 class PlayArgs:
@@ -280,19 +281,6 @@ class PlayArgs:
         d = conf._makeDefaultPlayArgsDict(copy=copy)
         return PlayArgs(d)
 
-        # d = dict(delay=0,
-        #          chan=1,
-        #          gain=conf['play.gain'],
-        #          fade=conf['play.fade'],
-        #          instr=conf['play.instr'],
-        #          pitchinterpol=conf['play.pitchInterpolation'],
-        #          fadeshape=conf['play.fadeShape'],
-        #          priority=1,
-        #          position=-1,
-        #          sustain=0,
-        #          transpose=0)
-        # return PlayArgs(d)
-
     def fillWith(self, other: PlayArgs) -> None:
         """
         Fill any unset value in self with the value in other **inplace**
@@ -339,12 +327,16 @@ def cropBreakpoints(bps: list[breakpoint_t], start: float, end: float
     Returns:
         the cropped breakpoints
     """
-    assert bps[0][0] == 0
-    if start <= bps[0][0] and (end == 0 or end > bps[-1][0]):
+    if not 0 <= start <= end:
+        raise ValueError(f"Invalid crop times: {start=}, {end=}")
+    time0 = bps[0][0]
+    assert time0 == 0
+    if start <= time0 and (end == 0 or end > bps[-1][0]):
         return bps
+    if end < start:
+        raise ValueError(f"Invalid crop range, {start=}, {end=} (end < start)")
     newbps = []
-    for i in range(len(bps)):
-        bp = bps[i]
+    for i, bp in enumerate(bps):
         bptime = bp[0]
         if bptime < start:
             continue
@@ -365,7 +357,8 @@ def cropBreakpoints(bps: list[breakpoint_t], start: float, end: float
 def _interpolateBreakpoints(t: num_t, bp0: Sequence[num_t], bp1: Sequence[num_t]
                             ) -> list[float]:
     t0, t1 = bp0[0], bp1[0]
-    assert t0 <= t <= t1, f"{t0=}, {t=}, {t1=}"
+    if not t0 <= t <= t1:
+        raise ValueError(f"Invalid breakpoint: {t0=}, {t=}, {t1=}, {bp0=}, {bp1=}")
     delta = (t - t0) / (t1 - t0)
     bp = [float(t)]
     for v0, v1 in zip(bp0[1:], bp1[1:]):
@@ -637,7 +630,7 @@ class SynthEvent:
 
     def _applySustain(self) -> None:
         if self.linkednext and self.sustain:
-            logger.debug(f"A linked event cannot have sustain ({self=}")
+            logger.warning(f"A linked event cannot have sustain ({self=}")
             return
         if self.sustain > 0:
             last = self.bps[-1]
@@ -646,7 +639,8 @@ class SynthEvent:
             bp[0] = last[0] + self.sustain
             self.bps.append(bp)
         elif self.sustain < 0:
-            self.crop(self.dur + self.sustain)
+            self.crop(0., self.dur + self.sustain)
+        self.sustain = 0
 
     @property
     def start(self) -> float:
@@ -778,17 +772,67 @@ class SynthEvent:
         for bp in self.bps:
             bp[0] *= timefactor
 
-    def timeShifted(self, offset: float) -> SynthEvent:
-        """A clone of this event, shifted in time by the given offset"""
-        return self.clone(delay=self.delay+offset)
+    def shiftInPlace(self, offset: float, crop=True) -> None:
+        """
+        Shift the times of this event, in place
 
-    def crop(self, dur: float) -> None:
-        self.bps = cropBreakpoints(self.bps, 0, dur)
+        Args:
+            offset: the offset to add
+            crop: allow cropping if the given offset results in negative delay
+
+        """
+        if offset == 0:
+            return
+        delay = self.delay + offset
+        assert self.bps[0][0] == 0.
+        if delay >= 0:
+            self.delay = delay
+        elif not crop:
+            raise ValueError(f"Cannot shift to negative time without cropping ({self=})")
+        else:
+            self.crop(-delay, math.inf)
+            self.delay = 0
+            self._consolidateDelay()
+
+    def shifted(self, offset: float, crop=True) -> SynthEvent:
+        """
+        A clone of this event, shifted in time by the given offset
+
+        Args:
+            offset: the offset to add
+            crop: allow cropping if the given offset results in negative delay
+
+        Returns:
+            the resulting event
+        """
+        out = self.copy()
+        out.shiftInPlace(offset=offset, crop=crop)
+        return out
+
+    def crop(self, start: float, end: float) -> None:
+        """
+        Crop this event in place
+
+        Args:
+            start: start time, in seconds
+            end: end time, in seconds
+        """
+        assert self.bps[0][0] == 0
+        start = max(0, start - self.delay)
+        end = max(start, end - self.delay)
+        bps = cropBreakpoints(self.bps, start, end)
+        self.bps = bps
+        self._consolidateDelay()
 
     def cropped(self, start: float, end: float) -> SynthEvent:
         """
         Return a cropped version of this SynthEvent
         """
+        out = self.copy()
+        out.crop(start, end)
+        return out
+
+        # ------ TODO: remove this code
         start = max(start - self.delay, 0)
         end -= self.delay
         if end - start <= 0:
@@ -828,7 +872,7 @@ class SynthEvent:
         info = [f"delay={float(self.delay):.3g}, dur={self.dur:.3g}, "
                 f"instr={self.instr}, "
                 f"gain={self.gain:.4g}, chan={self.chan}"
-                f", fade=({self.fadein}, {self.fadeout})"]
+                f", fade=({self.fadein:.5g}, {self.fadeout:.5g})"]
         if self.linkednext:
             info.append('linkednext=True')
         if self.args:
@@ -868,7 +912,7 @@ class SynthEvent:
             return "\n".join(lines)
 
     @staticmethod
-    def cropEvents(events: list[SynthEvent], skip=0., end=math.inf
+    def cropEvents(events: list[SynthEvent], start=0., end=math.inf
                    ) -> list[SynthEvent]:
         """
         Crop the events at the given time slice (staticmethod)
@@ -877,15 +921,23 @@ class SynthEvent:
 
         Args:
             events: the events to crop
-            skip: start of the time slice (None will only crop at the end)
+            start: start of the time slice (None will only crop at the end)
             end: end of the time slice (None will only crop at the beginning)
 
         Returns:
             the cropped events
 
         """
-        return [event.cropped(skip, end) for event in events
-                if mathlib.hasintersect(skip, end, event.delay, event.end)]
+        if start >= end:
+            return []
+        assert 0 <= start <= end, f"{start=}, {end=}"
+        out = []
+        for event in events:
+            if start <= event.delay and end >= event.end:
+                out.append(event)
+            elif mathlib.hasintersect(start, end, event.delay, event.end):
+                out.append(event.cropped(start, end))
+        return out
 
     @staticmethod
     def plotEvents(events: list[SynthEvent], axes: Axes = None, notenames=False
@@ -915,7 +967,7 @@ class SynthEvent:
         if axes is None:
             # f: plt.Figure = plt.figure(figsize=figsize)
             f = plt.figure()
-            axes: Axes = f.add_subplot(1, 1, 1)
+            axes = f.add_subplot(1, 1, 1)
 
         for event in events:
             event.plot(axes=axes, notenames=False)
@@ -988,7 +1040,6 @@ class SynthEvent:
             ]
             if self.args:
                 dynargs = {arg: _normalizeSynthValue(val) for arg, val in self.args.items()}
-
             else:
                 dynargs = {}
         else:
@@ -1002,7 +1053,7 @@ class SynthEvent:
                 SynthEvent.pitchinterpolToInt[self.pitchinterpol],  # ipchintrp_
                 SynthEvent.fadeshapeToInt[self.fadeshape]           # ifadekind
             ]
-            dynargs: dict[str, float] = {'kpos': self.position, 'kgain': self.gain}
+            dynargs = {'kpos': self.position, 'kgain': self.gain}
             if self.args:
                 assert all(isinstance(value, float) for value in self.args.values())
                 dynargs |= self.args
@@ -1068,7 +1119,7 @@ class SynthEvent:
         if axes is None:
             # f: plt.Figure = plt.figure(figsize=figsize)
             f = plt.figure()
-            axes: Axes = f.add_subplot(1, 1, 1)
+            axes = f.add_subplot(1, 1, 1)
         times = [bp[0] for bp in self.bps]
         midis = [bp[1] for bp in self.bps]
         if notenames:

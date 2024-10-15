@@ -100,6 +100,7 @@ def addDurationToGracenotes(events: list[MEvent], dur: F) -> None:
     d = {}
     # first we build a registry mapping real notes to their grace notes
     now = events[0].offset
+    assert now is not None
     for i, n in enumerate(events):
         if not n.isGracenote():
             lastRealNote = i
@@ -116,6 +117,7 @@ def addDurationToGracenotes(events: list[MEvent], dur: F) -> None:
                 assert dur > 0
                 assert nextreal.dur > dur, f"{nextreal=}, {dur=}, {i=}, {nextrealidx=}"
                 nextreal.dur -= dur
+                assert nextreal.offset is not None
                 nextreal.offset += dur
                 n.dur = dur
                 n.offset = now
@@ -163,7 +165,7 @@ def groupLinkedEvents(items: list[MEvent],
     lastitem = items[0]
     groups = [[lastitem]]
     for item in items[1:]:
-        assert item.offset is not None
+        assert item.offset is not None and lastitem.end is not None
         gap = item.offset - lastitem.end
         if gap < 0:
             raise ValueError(f"Events supperpose: {lastitem=}, {item=}")
@@ -198,10 +200,10 @@ def splitLinkedGroupIntoLines(objs: list[MEvent]
     continuations: dict[Note, Note] = {}
     for obj in objs:
         if isinstance(obj, Chord):
-            for note in obj.notes:
+            for i, note in enumerate(obj.notes):
                 note.offset = obj.offset
                 note.dur = obj.dur
-                note.gliss = obj.gliss
+                note.gliss = obj.gliss if isinstance(obj.gliss, bool) else obj.gliss[i]
                 note.tied = obj.tied
                 if obj.playargs:
                     if not note.playargs:

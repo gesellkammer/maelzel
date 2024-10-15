@@ -228,13 +228,17 @@ class PresetManager:
             description: an optional description of the preset. The description can include
                 documentation for the parameters (see Example)
             envelope: If True, apply an envelope as determined by the fadein/fadeout
-                play arguments. If False, the user is responsible for applying any fadein/fadeout (csound variables:
-                ``ifadein``, ``ifadeout``
+                play arguments. If False, the user is responsible for applying any fadein/fadeout
+                (the csound variables ``ifadein`` and ``ifadeout`` will be set to the given
+                fade times). No envelope code is generated if no output variables are defined
+                (``aout1``, ``aout2``, ...)
             output: if True, generate output routing (panning and output) for this
                 preset. Otherwise, the user is responsible for applying panning (``kpos``)
                 and routing the generated audio to any output channels (``ichan``), buses, etc.
-            aliases: if given, a dict mapping alias to real parameter name. This allow to
-                use any name for a parameter, instead of a csound variable
+                No output code is generated if the user does not define any output variables
+                (``aout1``, ``aout2``, ...)
+            aliases: if given, a dict mapping alias to real parameter name. This mechanism
+                allows to use any name for a parameter, instead of a csound variable
 
         Returns:
             a PresetDef
@@ -280,6 +284,27 @@ class PresetManager:
         **NB**: Parameters can be modified while the synth is running :
 
             >>> synth.set(kcutoff=2000)
+
+        To output sound to anything different than the hardware output use output=False and
+        implement the output directly within the instr body
+
+        >>> defPreset('mysynth', r'''
+        ... asig vco2 kamp, kfreq, 10
+        ... asigL, asigR pan2 asig, kpos
+        ... chnmix asigL, "left"
+        ... chnmix asigR, "right"
+        ... ''')
+        >>> session = getSession()
+        >>> session.defInstr('reverb', r'''
+        ...     |kwet=0.8|
+        ...     aleft = chnget:a("left")
+        ...     aright = chnget:a("right")
+        ...     awetL, awetR reverbsc aleft, aright, 0.85, 12000, sr, 0.5, 1
+        ...     outch 1, awetL * kwet + aleft * (1 - kwet), 2, awetR * kwet + aright * (1 - kwet)
+        ...     chnclear "left", "right"
+        ... ''')
+        >>> reverb = session.sched('reverb', priority=2)
+        >>> synth = Note("4C", dur=1).play(instr='mysynth')
 
         .. seealso::
 

@@ -443,7 +443,7 @@ def getSession(numchannels: int = None,
             default for the backend
         latency: an added latency
         numbuffers: the number of buffers used by the csound engine
-        ensurenew: if True, an exception is raised if a Session already existed
+        ensure: if True, an exception is raised if a Session already existed
             with parameters differing from the given
 
     Returns:
@@ -803,7 +803,6 @@ class SynchronizedContext(Renderer):
                   sr: int = 0,
                   tabnum: int = 0
                   ) -> csoundengine.tableproxy.TableProxy:
-        # raise NotImplementedError
         if self.session._handler:
             raise NotImplementedError
         return self.session.makeTable(data=data, size=size, sr=sr, tabnum=tabnum)

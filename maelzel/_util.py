@@ -6,10 +6,11 @@ import weakref
 import sys
 import os
 import emlib.misc
-from maelzel.common import F, getLogger
+from maelzel.common import F, getLogger, num_t
 import functools
 import appdirs
 import logging
+
 
 
 from typing import Callable, Sequence, Any, TYPE_CHECKING
@@ -231,12 +232,12 @@ def showT(f: F | float | None) -> str:
     return f"{f:.3f}".rstrip('0').rstrip('.')
 
 
-def hasoverlap(x0: number_t, x1: number_t, y0: number_t, y1: number_t) -> bool:
+def hasoverlap(x0: num_t, x1: num_t, y0: num_t, y1: num_t) -> bool:
     """ do (x0, x1) and (y0, y1) overlap? """
     return x1 > y0 if x0 < y0 else y1 > x0
 
 
-def overlap(u1: number_t, u2: number_t, v1: number_t, v2: number_t) -> tuple[number_t, number_t]:
+def overlap(u1: num_t, u2: num_t, v1: num_t, v2: num_t) -> tuple[num_t, num_t]:
     """
     The overlap betwen (u1, u2) and (v1, v2)
 
@@ -502,3 +503,18 @@ def limitDenominator(num: int, den: int, maxden: int) -> tuple[int, int]:
         return p1, q1
     else:
         return p0 + k * p1, q0 + k * q1
+
+
+def unicodeNotename(notename: str) -> str:
+    """
+    Replace ascii accidentals with unicode accidentals
+
+    C#+45   C♯+45
+    Db-15   D♭-15
+    """
+    if "#" in notename:
+        return notename.replace('#', '♯')
+    elif "b" in notename:
+        return notename.replace("b", "♭")
+    else:
+        return notename
