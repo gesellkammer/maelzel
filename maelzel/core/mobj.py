@@ -31,6 +31,7 @@ from __future__ import annotations
 import functools
 from abc import ABC, abstractmethod
 import os
+import math
 import shutil as _shutil
 import html as _html
 from dataclasses import dataclass
@@ -44,7 +45,7 @@ from maelzel.common import asmidi, F, asF, F0, F1
 from maelzel.textstyle import TextStyle
 
 from maelzel.core._common import logger
-from ._typedefs import *
+from ._typedefs import location_t, beat_t, time_t, num_t
 from .config import CoreConfig
 from .workspace import Workspace
 from .synthevent import PlayArgs, SynthEvent
@@ -66,8 +67,10 @@ from maelzel.scorestruct import ScoreStruct
 from typing import TYPE_CHECKING, Any, Callable
 if TYPE_CHECKING:
     from typing_extensions import Self
+    from matplotlib.axes import Axes
     import matplotlib.pyplot as plt
     from maelzel.core import chain
+    import maelzel.core.event as _event
     from maelzel.scoring.renderoptions import RenderOptions
 
 
@@ -130,6 +133,12 @@ class MObj(ABC):
                  parent: MContainer | None = None,
                  properties: dict[str, Any] = None,
                  symbols: list[_symbols.Symbol] | None = None):
+
+        if offset is not None and offset < F0:
+            raise ValueError(f"Invalid offset: {offset}")
+
+        if dur is None or dur < F0:
+            raise ValueError(f"Invalid duration: {dur}")
 
         self._parent: MContainer | None = parent
         "The parent of this object (or None if it has no parent)"
@@ -251,10 +260,16 @@ class MObj(ABC):
         """
         Get a playback attribute previously set via :meth:`MObj.setPlay`
 
+        All locally set playback attributes are accessible via the
+        :attr:`MEvent.playargs` attribute. This method checks
+        not only the locally set attributes, but any attribute set
+        by the parent
+
         Args:
             key: the key (see  setPlay for possible keys)
             default: the value to return if the given key has not been set
             recursive: if True, search the given attribute up the parent chain
+
         Returns:
             either the value previously set, or default otherwise.
         """
@@ -284,7 +299,7 @@ class MObj(ABC):
         Returns:
             the value of the property, or the default value
 
-        .. seealso:: :meth:`~MObj.setProperty`, :attr:`~MObj.properties`
+        .. seealso:: :meth:`setProperty() <maelzel.core.mobj.MObj.setProperty>`, :attr:`properties <maelzel.core.mobj.MObj.properties>`
         """
         if not self.properties:
             return default
@@ -315,7 +330,7 @@ class MObj(ABC):
         """
         raise NotImplementedError
 
-    def _detachedOffset(self, default=None) -> F | None:
+    def _detachedOffset(self, default: F | None = None) -> F | None:
         """
         The explicit or implicit offset (if it has been resolved), or default otherwise
 
@@ -366,15 +381,16 @@ class MObj(ABC):
             the offset, in quarter notes. If no explicit or implicit
             offset and the object has no parent it returns 0.
 
-        .. seealso:: :meth:`MObj.absOffset`
+        .. seealso:: :meth:`absOffset() <maelzel.core.mobj.MObj.absOffset>`
         """
+
         if (offset := self.offset) is not None:
             return offset
         elif self._resolvedOffset is not None:
             return self._resolvedOffset
         elif self.parent:
-            self._resolvedOffset = self.parent.childOffset(self)
-            return self._resolvedOffset
+            self._resolvedOffset = offset = self.parent._childOffset(self)
+            return offset
         else:
             return F0
 
@@ -403,7 +419,7 @@ class MObj(ABC):
         """
         return self.parent.absOffset() if self.parent else F0
 
-    def withExplicitOffset(self, forcecopy=False):
+    def withExplicitOffset(self, forcecopy=False) -> Self:
         """
         Copy of self with explicit times
 
@@ -441,7 +457,7 @@ class MObj(ABC):
     def _asVoices(self) -> list[chain.Voice]:
         raise NotImplementedError
 
-    def plot(self, **kws) -> plt.Axes:
+    def plot(self, **kws) -> Axes:
         voices = self._asVoices()
         from maelzel.core import plotting
         return plotting.plotVoices(voices, **kws)
@@ -499,7 +515,7 @@ class MObj(ABC):
             # When .play is called, the note will play with the preset instr and position
             >>> note.play()
 
-        .. seealso:: :meth:`~MObj.addSymbol`, :attr:`~MObj.playargs`
+        .. seealso:: :meth:`MObj.addSymbol <maelzel.core.mobj.MObj.addSymbol>`, :attr:`MObj.playargs <maelzel.core.mobj.MObj.playargs>`
         """
         playargs = self.playargs
         if playargs is None:
@@ -540,8 +556,11 @@ class MObj(ABC):
         out = self.copy()
         for k, v in kws.items():
             if k == 'offset':
-                v = asF(v)
-            setattr(out, k, v)
+                offset = asF(v)
+                assert offset >= F0, f"Invalid offset for {self}: {offset}"
+                out.offset = asF(v)
+            else:
+                setattr(out, k, v)
 
         self._copyAttributesTo(out)
         return out
@@ -570,18 +589,18 @@ class MObj(ABC):
         """Returns a copy of this object"""
         raise NotImplementedError
 
-    def timeShift(self, timeoffset: time_t) -> Self:
+    def timeShift(self, offset: time_t) -> Self:
         """
         Return a copy of this object with an added offset
 
         Args:
-            timeoffset: a delta time added
+            offset: a delta time added
 
         Returns:
             a copy of this object shifted in time by the given amount
         """
-        timeoffset = asF(timeoffset)
-        return self.timeTransform(lambda t: t+timeoffset, inplace=False)
+        offset = asF(offset)
+        return self.timeTransform(lambda t: t + offset, inplace=False)
 
     def __eq__(self, other) -> bool:
         if isinstance(other, type(self)):
@@ -944,16 +963,16 @@ class MObj(ABC):
 
         An :class:`~maelzel.scoring.UnquantizedScore` is a list of
         :class:`~maelzel.scoring.UnquantizedPart`, which is itself a list of
-        :class:`~maelzel.scoring.Notation`. An :class:`Arrangement` represents
-        an **unquantized** score, meaning that the Notations within each part are
-        not split into measures, nor organized in beats. To generate a quantized score
-        see :meth:`~MObj.quantizedScore`
+        :class:`~maelzel.scoring.Notation`. It represents a score in which
+        the Notations within each part are not split into measures, nor organized
+        in beats. To generate a quantized score see
+        :meth:`quantizedScore() <maelzel.core.mobj.MObj.quantizedScore>`
 
         This method is mostly used internally when an object is asked to be represented
-        as a score. In this case, an Arrangement is created first, which is then quantized,
+        as a score. In this case, an UnquantizedScore is created first, which is then quantized,
         generating a :class:`~maelzel.scoring.quant.QuantizedScore`
 
-        .. seealso:: :meth:`~MObj.quantizedScore`, :class:`~maelzel.scoring.quant.QuantizedScore`
+        .. seealso::  :meth:`quantizedScore() <maelzel.core.mobj.MObj.quantizedScore>`, :class:`~maelzel.scoring.quant.QuantizedScore`
 
         """
         parts = self.scoringParts()
@@ -987,13 +1006,21 @@ class MObj(ABC):
         """
         return self.scorestruct() or Workspace.getActive().scorestruct
 
+    def _asBeat(self, time: beat_t) -> F:
+        if isinstance(time, F):
+            return time
+        elif isinstance(time, tuple):
+            return self.activeScorestruct().locationToBeat(*time)
+        else:
+            return F(time)
+
     def scorestruct(self) -> ScoreStruct | None:
         """
         Returns the ScoreStruct active for this obj or its parent (recursively)
 
-        If this object has no parent ``None`` is returned. If resolve is True
-        and this object has no associated scorestruct, the active scorestruct
-        is returned
+        If this object has no parent ``None`` is returned. Use
+        :meth:`activeScorestruct() <maelzel.core.mobj.MObj.activeScorestruct>`
+        to always resolve the active struct for this object
 
         Returns:
             the associated scorestruct, if set (either directly or through its parent)
@@ -1010,6 +1037,8 @@ class MObj(ABC):
             >>> score.setScoreStruct(ScoreStruct(timesig=(3, 4), tempo=72))
             >>> n.scorestruct()
             ScoreStruct(timesig=(3, 4), tempo=72)
+
+        .. seealso:: :meth:`activeScorestruct() <maelzel.core.mobj.MObj.activeScorestruct>`
         """
         return self._scorestruct or self.parent.scorestruct() if self.parent else None
 
@@ -1158,6 +1187,7 @@ class MObj(ABC):
                     position: float = None,
                     skip: float = None,
                     end: float = None,
+                    offset: float = None,
                     sustain: float = None,
                     workspace: Workspace = None,
                     transpose: float = 0.,
@@ -1173,7 +1203,8 @@ class MObj(ABC):
             gain: modifies the own amplitude for playback/recording (0-1)
             delay: delay in seconds, added to the start of the object
                 As opposed to the .offset attribute of each object, which is defined
-                in quarternotes, the delay is always in seconds
+                in quarternotes, the delay is always in seconds. It can be negative, in
+                which case synth events start the given amount of seconds earlier.
             instr: which instrument to use (see defPreset, definedPresets). Use "?" to
                 select from a list of defined presets.
             chan: the channel to output to. **Channels start at 1**
@@ -1182,11 +1213,12 @@ class MObj(ABC):
             fadeshape: 'linear' | 'cos'
             args: named arguments passed to the note. A dict ``{paramName: value}``
             position: the panning position (0=left, 1=right)
-            skip: start playback at the given offset (in quarternotes), relative
+            skip: start playback at the given beat (in quarternotes), relative
                 to the start of the object. Allows to play a fragment of the object
                 (NB: this trims the playback of the object. Use `delay` to offset
                 the playback in time while keeping the playback time unmodified)
             end: end time of playback, in quarternotes. Allows to play a fragment of the object by trimming the end of the playback
+
             sustain: a time added to the playback events to facilitate overlapping/legato between
                 notes, or to allow one-shot samples to play completely without being cropped.
             workspace: a Workspace. If given, overrides the current workspace. It's scorestruct
@@ -1252,16 +1284,17 @@ class MObj(ABC):
         if transpose:
             db['transpose'] = transpose
 
+        parentOffset = self.parent.absOffset() if self.parent else F(0)
         events = self._synthEvents(playargs=playargs,
-                                   parentOffset=self.parent.absOffset() if self.parent else F(0),
+                                   parentOffset=parentOffset,
                                    workspace=workspace)
 
-        if skip is not None or end is not None:
-            playdelay: float = playargs['delay']
-            struct = workspace.scorestruct
+        struct = workspace.scorestruct
+        playdelay: float = playargs['delay']
+        if skip is not None or end is not None or playdelay < 0.:
             skiptime = 0. if skip is None else float(struct.beatToTime(skip))
-            endtime = float("inf") if end is None else float(struct.beatToTime(end))
-            events = SynthEvent.cropEvents(events, skip=skiptime+playdelay, end=endtime+playdelay)
+            endtime = math.inf if end is None else float(struct.beatToTime(end))
+            events = SynthEvent.cropEvents(events, start=max(0, skiptime+playdelay), end=endtime + playdelay)
 
         if any(ev.delay < 0 for ev in events):
             raise ValueError(f"Events cannot have negative delay, events={events}")
@@ -1280,6 +1313,7 @@ class MObj(ABC):
              position: float = None,
              skip: float = None,
              end: float = None,
+             offset: float = None,
              whenfinished: Callable = None,
              sustain: float = None,
              workspace: Workspace = None,
@@ -1302,7 +1336,9 @@ class MObj(ABC):
             gain: modifies the own amplitude for playback/recording (0-1)
             delay: delay in seconds, added to the start of the object
                 As opposed to the .offset attribute of each object, which is defined
-                in symbolic (beat) time, the delay is always in real (seconds) time
+                in symbolic (beat) time, the delay is always in real (seconds) time.
+                Delay can be negative, in which case synth events start the given amount
+                of seconds earlier.
             instr: which instrument to use (see defPreset, definedPresets). Use "?" to
                 select from a list of defined presets.
             chan: the channel to output to. **Channels start at 1**
@@ -1330,9 +1366,9 @@ class MObj(ABC):
 
 
         .. seealso::
-            * :meth:`MObj.events <maelzel.core.mobj.MObj.events>`
-            * :meth:`MObj.rec <maelzel.core.mobj.MObj.rec>`
-            * :func:`~maelzel.core.playback.render`,
+            * :meth:`synthEvents() <maelzel.core.mobj.MObj.synthEvents>`
+            * :meth:`MObj.rec() <maelzel.core.mobj.MObj.rec>`
+            * :func:`~maelzel.core.offline.render`,
             * :func:`~maelzel.core.playback.play`
 
 
@@ -1383,10 +1419,12 @@ class MObj(ABC):
                                   skip=skip,
                                   end=end,
                                   transpose=transpose,
+                                  offset=offset,
                                   **kwargs)
 
         if not events:
-            group = csoundengine.synth.SynthGroup([playback._dummySynth()])
+            # group = csoundengine.synth.SynthGroup([playback._dummySynth()])
+            group = csoundengine.synth.SynthGroup([])
         else:
             renderer = workspace.renderer or playback.RealtimeRenderer()
             group = renderer.schedEvents(coreevents=events, whenfinished=whenfinished)
@@ -1394,7 +1432,6 @@ class MObj(ABC):
                 from IPython.display import display
                 display(group)
         return group
-        # return proxysynth.ProxySynthGroup(group=group)
 
     def rec(self,
             outfile='',
@@ -1440,7 +1477,7 @@ class MObj(ABC):
         Returns:
             the offline renderer used. If no outfile was given it is possible to
             access the renderer soundfile via
-            :meth:`OfflineRenderer.lastOutfile() <maelzel.core.playback.OfflineRenderer.lastOutfile>`
+            :meth:`OfflineRenderer.lastOutfile() <maelzel.core.offline.OfflineRenderer.lastOutfile>`
 
         Example
         ~~~~~~~
@@ -1452,7 +1489,7 @@ class MObj(ABC):
             >>> renderer.lastOutfile()
             '/home/testuser/.local/share/maelzel/recordings/tmpashdas.wav'
 
-        .. seealso:: :class:`~maelzel.core.playback.OfflineRenderer`
+        .. seealso:: :class:`~maelzel.core.offline.OfflineRenderer`
         """
         events = self.synthEvents(instr=instr, position=position,
                                   delay=delay, args=args, gain=gain,
@@ -1470,6 +1507,34 @@ class MObj(ABC):
         return False
 
     def addSymbol(self, *args, **kws) -> Self:
+        """
+        Add a notation symbol to this object
+
+        Some symbols are exclusive, meaning that adding a symbol of this kind will
+        replace a previously set symbol. Exclusive symbols include any properties
+        (color, size, etc) and other customizations like notehead shape
+
+        Example
+        -------
+
+            >>> from maelzel.core import *
+            >>> n = Note(60)
+            >>> n.addSymbol(symbols.Articulation('accent'))
+            # The same can be achieved via keyword arguments:
+            >>> n.addSymbol(articulation='accent')
+            # Multiple symbols can be added at once:
+            >>> n = Note(60).addSymbol(text='dolce', articulation='tenuto')
+            >>> n2 = Note("4G").addSymbol(symbols.Articulation('accent'), symbols.Ornament('mordent'))
+            # Known symbols - most common symbols don't actually need keyword arguments:
+            >>> n = Note("4Db").addSymbol('accent').addSymbol('fermata')
+            # Some symbols can take customizations:
+            >>> n3 = Note("4C+:1/3").addSymbol(symbols.Harmonic(interval='4th'))
+
+
+        Returns:
+            self (similar to setPlay, allows to chain calls)
+
+        """
         raise NotImplementedError
 
     def _addSymbol(self, symbol: _symbols.Symbol) -> None:
@@ -1548,8 +1613,18 @@ class MObj(ABC):
                 are 'square', 'circle', 'rounded'
 
         Returns:
-            self
+            self. This can be used to create an object and add text in one call
 
+        Example
+        ~~~~~~~
+
+            >>> chain = Chain([
+            ...     Note("4C", 1).addText('do'),
+            ...     Note("4D", 1).addText('re')
+            ... ])
+            >>> chain
+
+        .. image:: assets/event-addText.png
         """
         self.addSymbol(_symbols.Text(text, placement=placement, fontsize=fontsize,
                                      italic=italic, weight=weight, fontfamily=fontfamily,
@@ -1570,24 +1645,24 @@ class MObj(ABC):
         .. note::
 
             time is conceived as abstract 'beat' time, measured in quarter-notes.
-            The actual time will be also determined by any tempo changes in the
-            active score structure.
+            The actual time in seconds will be also determined by any tempo changes
+            in the active score structure.
         """
         raise NotImplementedError
 
-    def timeShiftInPlace(self, timeoffset: time_t) -> None:
+    def timeShiftInPlace(self, offset: time_t) -> None:
         """
         Shift the time of this by the given offset (inplace)
 
         Args:
-            timeoffset: the time delta (in quarterNotes)
+            offset: the time delta (in quarterNotes)
         """
-        offset = self.relOffset() + asF(timeoffset)
+        newoffset = self.relOffset() + asF(offset)
         if offset < 0:
             raise ValueError(f"This operation would result in a negative offset. "
-                             f"Own offset: {self.relOffset()}, timeoffset: {timeoffset}, "
-                             f"resulting offset: {offset}, self: {self}")
-        self.offset = offset
+                             f"Own offset: {self.relOffset()}, resulting offset: {newoffset}, "
+                             f"given time shift: {offset}, self: {self}")
+        self.offset = newoffset
         self._changed()
 
     def timeRangeSecs(self,
@@ -1598,21 +1673,19 @@ class MObj(ABC):
         The absolute time range, in seconds
 
         Args:
-            parentOffset: if given, use this offset as parent offset. This is useful
-                if the parent's offset has already been calculated
-            scorestruct: use this scorestruct to calculate absolute time. This is
-                useful if the scorestruct is already known.
+            parentOffset: if given, use this offset as parent offset. This is used
+                internally when the parent's offset has already been calculated
+            scorestruct: use this scorestruct to calculate absolute time, used internally
+                if the scorestruct is already known.
 
         Returns:
-            a tuple (absolute start time in seconds, absolute end time in seconds)
+            a tuple ``(starttime: F, endtime: F)``, where starttime
+            and endtime are both absolute times in seconds
         """
-        if parentOffset is None:
-            absoffset = self.absOffset()
-        else:
-            absoffset = self._detachedOffset(F0) + parentOffset
         if scorestruct is None:
-            scorestruct = self.scorestruct() or Workspace.active.scorestruct
-        return scorestruct.beatToTime(absoffset), scorestruct.beatToTime(absoffset + self.dur)
+            scorestruct = self.activeScorestruct()
+        start = self.absOffset() if parentOffset is None else self.relOffset() + parentOffset
+        return scorestruct.beatToTime(start), scorestruct.beatToTime(start+self.dur)
 
     def durSecs(self) -> F:
         """
@@ -1621,8 +1694,8 @@ class MObj(ABC):
         Returns:
             the duration of self in seconds
         """
-        _, dursecs = self.timeRangeSecs()
-        return dursecs
+        startsecs, endsecs = self.timeRangeSecs()
+        return endsecs - startsecs
 
     def pitchTransform(self, pitchmap: Callable[[float], float]) -> Self:
         """
@@ -1636,7 +1709,7 @@ class MObj(ABC):
         """
         raise NotImplementedError("Subclass should implement this")
 
-    def timeScale(self, factor: num_t, offset: num_t = 0) -> Self:
+    def timeScale(self, factor: num_t, offset: num_t = F0) -> Self:
         """
         Create a copy with modified timing by applying a linear transformation
 
@@ -1699,7 +1772,7 @@ class MContainer(MObj):
     Implemented downstream by classes like Chain or Score.
     """
 
-    def nextEvent(self, event: MObj) -> MObj | None:
+    def nextEvent(self, event: MObj) -> _event.MEvent | None:
         """
         Returns the next event after *event*
 
@@ -1710,7 +1783,7 @@ class MContainer(MObj):
         return None
 
     @abstractmethod
-    def childOffset(self, child: MObj) -> F:
+    def _childOffset(self, child: MObj) -> F:
         """The offset of child relative to this parent"""
         raise NotImplementedError
 
@@ -1742,7 +1815,7 @@ class MContainer(MObj):
     def previousItem(self, item: MObj) -> MObj | None:
         return None
 
-    def previousEvent(self, event: MObj) -> MObj | None:
+    def previousEvent(self, event: _event.MEvent) -> _event.MEvent | None:
         return None
 
 # --------------------------------------------------------------------

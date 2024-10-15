@@ -237,9 +237,10 @@ def parseDuration(s: str) -> F:
 
     if "*" not in s or "(" not in s:
         # simple form
-        terms = s.split('+')
-        fterms = [F(term) for term in terms]
-        return sum(fterms)
+        out = F(0)
+        for term in s.split('+'):
+            out += F(term)
+        return out
     parts = []
     cursor = 0
     for match in re.finditer(r"\d+\/\d+", s):
@@ -390,7 +391,7 @@ def parseNote(s: str, check=True) -> NoteProperties:
     4C#~
     """
     dur = None
-    properties: dict[str, str | float | bool | F] = {}
+    properties: dict[str, Any] = {}
     symbols: list[_symbols.Symbol] = []
     spanners: list[_symbols.Spanner] = []
 
@@ -435,7 +436,6 @@ def parseNote(s: str, check=True) -> NoteProperties:
             elif part[-1] == '!' and part[:-1] in _knownDynamics:
                 properties['dynamic'] = part
             elif part in _knownArticulations:
-                # properties['articulation'] = part
                 symbols.append(_symbols.Articulation(part))
             elif part in ('gliss', 'tied'):
                 properties[part] = True
@@ -450,24 +450,23 @@ def parseNote(s: str, check=True) -> NoteProperties:
             else:
                 allkeys = _allkeys()
                 _util.checkChoice(s, part, allkeys)
-
+    note = note.strip()
     if "/" in note:
         note, symbolicdur = note.split("/")
         dur = _parseSymbolicDuration(symbolicdur)
-    if note[-1] == '~':
+    if note and note[-1] == '~':
         properties['tied'] = True
         note = note[:-1]
-    if "," in note:
-        notename = [p.strip() for p in note.split(",")]
-    elif " " in note:
-        notename = [p.strip() for p in note.split(" ")]
+    if "," in note or " " in note:
+        notename = [_ for _ in re.split(r'[\ ,]', note) if _]
     elif note.lower() in ('r', 'rest'):
         notename = 'rest'
     else:
         notename = note
-    if check and notename != 'rest':
+    if check and notename and notename != 'rest':
         if isinstance(notename, list):
-            for n in notename:
+            tokens = [_ for _ in notename if _]
+            for n in tokens:
                 if n[-1] == '!':
                     n = n[:-1]
                 if not pt.is_valid_notename(n, minpitch=0):
@@ -563,7 +562,7 @@ def htmlSpan(text, color='', fontsize='', italic=False, bold=False) -> str:
     return f'<span style="{stylestr}">{text}</span>'
 
 
-def cropBreakpoints(bps: list[Sequence[num_t]], t0: float, t1: float
+def cropBreakpoints(bps: list[Sequence[num_t]], t0: num_t, t1: num_t
                     ) -> list[Sequence[num_t]]:
     """
     Crop a sequence of breakpoints
@@ -619,4 +618,3 @@ def _interpolateBreakpoints(t: float, bp0: Sequence[num_t], bp1: Sequence[num_t]
     for v0, v1 in zip(bp0[1:], bp1[1:]):
         bp.append(v0 + (v1-v0)*delta)
     return bp
-

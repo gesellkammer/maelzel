@@ -1903,7 +1903,7 @@ class ScoreStruct:
         """
         return self.locationToBeat(measure, beat)
 
-    def asBeat(self, location: num_t | tuple[int, F]) -> F:
+    def asBeat(self, location: num_t | tuple[int, float | F]) -> F:
         """
         Given a beat or a location (measureidx, relativeoffset), returns an absolute beat
 
@@ -1914,6 +1914,19 @@ class ScoreStruct:
             the absolute beat in quarter notes
         """
         return self.locationToBeat(*location) if isinstance(location, tuple) else asF(location)
+
+    def asBeats(self, offsets: Sequence[F | float | int | tuple[int, float | F]]) -> list[F]:
+        """
+        Similar to .asBeat, converts multiple offsets to beats
+
+        Args:
+            offsets: a sequence of beats as absolute beats or as locations (measureindex, beatoffset)
+
+        Returns:
+            a list of absolute beats, guaranteed to be of rational type
+        """
+        return [x if isinstance(x, F) else self.locationToBeat(*x) if isinstance(x, tuple) else F(x)
+                for x in offsets]
 
     def locationToBeat(self, measure: int, beat: num_t = F(0)) -> F:
         """

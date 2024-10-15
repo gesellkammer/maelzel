@@ -236,7 +236,6 @@ class Score(MContainer):
 
     def _changed(self) -> None:
         self._modified = True
-        self._dur = None
 
     def _calculateDuration(self) -> F:
         return max(v.dur for v in self.voices) if self.voices else F0
@@ -253,7 +252,7 @@ class Score(MContainer):
             voice = voice.asVoice()
         voice.parent = self
         self.voices.append(voice)
-        self._changed()
+        if not self._modified: self._changed()
 
     @property
     def dur(self) -> F:
@@ -301,34 +300,34 @@ class Score(MContainer):
             out.extend(events)
         return out
 
-    def __copy__(self):
+    def __copy__(self) -> Self:
         voices = [voice for voice in self.voices]
-        return Score(voices=voices, scorestruct=self._scorestruct, title=self.label)
+        return self.__class__(voices=voices, scorestruct=self._scorestruct, title=self.label)
 
     def copy(self):
         return self.__deepcopy__()
 
-    def __deepcopy__(self, memodict={}):
+    def __deepcopy__(self, memodict={}) -> Self:
         voices = [voice for voice in self.voices]
-        return Score(voices=voices.copy(), scorestruct=self._scorestruct, title=self.label)
+        return self.__class__(voices=voices.copy(), scorestruct=self._scorestruct, title=self.label)
 
     def clone(self,
               voices: list[Voice] = None,
               scorestruct: ScoreStruct = None,
               label: str = None,
-              ):
-        return Score(voices=self.voices.copy() if voices is None else voices,
-                     scorestruct=self.scorestruct() if scorestruct is None else scorestruct,
-                     title=self.label if label is None else label)
+              ) -> Self:
+        return self.__class__(voices=self.voices.copy() if voices is None else voices,
+                              scorestruct=self.scorestruct() if scorestruct is None else scorestruct,
+                              title=self.label if label is None else label)
 
-    def childOffset(self, child: MObj) -> F:
+    def _childOffset(self, child: MObj) -> F:
         offset = child._detachedOffset()
         return offset if offset is not None else F0
 
     def absOffset(self) -> F:
         return F0
 
-    def pitchTransform(self, pitchmap: Callable[[float], float]) -> Score:
+    def pitchTransform(self, pitchmap: Callable[[float], float]) -> Self:
         voices = [voice.pitchTransform(pitchmap) for voice in self.voices]
         return self.clone(voices=voices)
 

@@ -13,13 +13,26 @@ from maelzel.core import workspace
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing_extensions import Self
+    from maelzel.core import chain
     from typing import Any, Callable
-    from ._typedefs import time_t, location_t, num_t
+    from ._typedefs import time_t, location_t, num_t, beat_t
+
 
 
 class MEvent(MObj):
     """
     A discrete event in time (a Note, Chord, etc)
+
+    Args:
+        dur: the duration of the object, in beats
+        offset: an explicit offset (start time) in beats
+        amp: an amplitude value
+        parent: the parent of this object, if any
+        properties: user-defined properties
+        symbols: notations symbols attached to this event
+        label: a label for this object
+        dynamic: a dynamic as string, if applicable
+        tied: is this event tied to the next event?
     """
     __slots__ = ('tied', 'amp', 'dynamic', '_glissTarget')
 
@@ -50,6 +63,7 @@ class MEvent(MObj):
             assert dynamic in definitions.dynamicLevels
 
         self.dynamic: str = dynamic
+        """A musical dynamic (*pppp, ppp, ..., mp, mf, f, ..., ffff*)"""
 
         self._glissTarget: float = 0.
 
@@ -70,7 +84,10 @@ class MEvent(MObj):
         if not self.parent:
             return False
         prev = self.parent.previousEvent(self)
-        return prev.linkedNext() if prev else False
+        if not prev:
+            return False
+        assert isinstance(prev, MEvent)
+        return prev.linkedNext()
 
     @property
     def gliss(self):
@@ -93,8 +110,8 @@ class MEvent(MObj):
         return not self.isRest() and self.dur == 0
 
     def _asVoices(self) -> list[chain.Voice]:
-        from maelzel.core.chain import Voice
-        return [Voice([self])]
+        from maelzel.core import chain
+        return [chain.Voice([self])]
 
     def addSymbol(self, *args, **kws) -> Self:
         """
@@ -223,37 +240,44 @@ class MEvent(MObj):
         Split this event at the given absolute offset
 
         Args:
-            offset: the absolute offset at which to split this event. Can be a beat
-                or a location
-            tie: tie the parts
+            offset: the absolute offset (in beats) at which to split this event.
+                Can be a beat or a location as a tuple ``(measureindex, beatoffset)``.
+            tie: tie the parts. The returned events are tied.
             nomerge: if True, adds a break symbol to the events resulted in the split
                 operation to prevent them from being merged when converted to notation
 
         Returns:
             a tuple with the parts. If the offset lies perfectly at the start or
             end of this event, only one part will be returned. If the offset does
-            not intersect the event, ValueError is raised
+            not intersect the event, ValueError is raised. The returned events are
+            parentless.
 
         Example
         -------
 
             >>> n = Note(60, 4)
             >>> n.splitAt(2)
-            TODO
+            (4C~:2♩, 4C:2♩)
+
+            >>> n = Note(60, 3.5)
+            >>> notes = n.splitAt(1.8)
+            >>> notes[1].addSymbol('>')
+            >>> Chain(notes)
+
+        .. image:: ../assets/note-splitat.png
         """
         parts = self.splitAtOffsets([offset], tie=tie, nomerge=nomerge)
         if not parts:
             raise ValueError(f"Offset {offset} does not intersect {self}")
         return tuple(parts)
 
-    def splitAtOffsets(self, offsets: list[time_t], tie=True, nomerge=False
+    def _splitAtOffsets(self, offsets: list[F], tie=True, nomerge=False
                        ) -> list[Self]:
         """
-        Split this event at the given offsets
+        Internal and efficient version of splitAtOffsets which only accepts absolute offsets as F
 
         Args:
-            offsets: absolute offsets. To use score locations, convert those to absolute
-                offsets via :meth:`scorestruct.locationToBeat <maelzel.scorestruct.ScoreStruct.locationToBeat>`
+            offsets: absolute offsets to split this event at
             tie: if True, tie the parts
             nomerge: if True, adds a break symbol to the events resulted in the split
                 operation to prevent them from being merged when converted to notation
@@ -263,8 +287,7 @@ class MEvent(MObj):
             duration of self
         """
         if not offsets:
-            raise ValueError("No offsets given")
-
+            return []
         offset = self.absOffset()
         dur = self.dur
         if offset >= offsets[-1] or offset + dur <= offsets[0]:
@@ -281,6 +304,24 @@ class MEvent(MObj):
                 for event in events[1:]:
                     event.addSymbol(_symbols.NoMerge())
         return events
+
+    def splitAtOffsets(self, offsets: list[beat_t], tie=True, nomerge=False
+                       ) -> list[Self]:
+        """
+        Split this event at the given offsets
+
+        Args:
+            offsets: absolute offsets. To use score locations, convert those to absolute
+                offsets via :meth:`scorestruct.locationToBeat <maelzel.scorestruct.ScoreStruct.locationToBeat>`
+            tie: if True, tie the parts
+            nomerge: if True, adds a break symbol to the events resulted in the split
+                operation to prevent them from being merged when converted to notation
+
+        Returns:
+            the parts. The total duration of the parts should sum up to the
+            duration of self
+        """
+        return self._splitAtOffsets(self.activeScorestruct().asBeats(offsets), tie=tie, nomerge=nomerge)
 
     def addSpanner(self,
                    spanner: str | _symbols.Spanner,
@@ -350,13 +391,14 @@ class MEvent(MObj):
     def timeTransform(self, timemap: Callable[[F], F], inplace=False
                       ) -> Self:
         """
-        Apply a transformation to the time axes of this
+        Apply a transformation to the time axes of this event
 
         Args:
             timemap: a callable mapping time (in quarterbeats) to time (in quarterbeats)
-            inplace:
+            inplace: transform the object in place
 
         Returns:
+            the transformed object, or self if inplace is True
 
         """
         offset = self.relOffset()
@@ -448,4 +490,3 @@ class MEvent(MObj):
             self.playargs = PlayArgs()
         self.playargs.addAutomation(param=param, breakpoints=breakpoints,
                                     interpolation=interpolation, relative=relative)
-

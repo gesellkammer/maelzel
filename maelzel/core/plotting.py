@@ -7,8 +7,8 @@ Layout (SMuFL) (see https://w3c.github.io/smufl/gitbook/).
 """
 
 from __future__ import annotations
-from math import *
 import pitchtools as pt
+from maelzel.common import F
 from maelzel import colortheory
 import matplotlib.pyplot as plt
 import emlib.mathlib
@@ -27,6 +27,7 @@ import itertools
 from functools import cache
 
 from maelzel.core import Score, Voice, Note, Chord, MEvent
+from maelzel.core import logger
 from maelzel.scorestruct import ScoreStruct
 
 
@@ -214,7 +215,7 @@ def _measureOffsetsIncluding(scorestruct: ScoreStruct, end: F, realtime: bool) -
 
 
 def makeAxes(tightlayout=True, hideyaxis=False, figsize: tuple[int, int] = None
-             ) -> tuple[plt.Figure, plt.Axes]:
+             ) -> tuple[Figure, Axes]:
     fig, axes = plt.subplots(1, 1, figsize=figsize)
     if hideyaxis:
         axes.get_yaxis().set_visible(False)
@@ -224,7 +225,7 @@ def makeAxes(tightlayout=True, hideyaxis=False, figsize: tuple[int, int] = None
 
 
 def plotVoices(voices: list[Voice],
-               axes: plt.Axes = None,
+               axes: Axes = None,
                realtime=False,
                colors: list[tuple[float, float, float]] = None,
                eventHeadAlpha=0.3,
@@ -255,20 +256,21 @@ def plotVoices(voices: list[Voice],
                dynamicSize=20,
                dynamicColor=(0.6, 0.6, 0.6),
                figsize: tuple[int, int] = (15, 5),
-               grid=True):
+               grid=True) -> Axes:
     if axes is None:
         fig, axes = makeAxes(figsize=figsize)
     else:
         fig = axes.get_figure()
-
+        assert fig is not None
     z0 = 3
     smuflpath = _bravuraPath().as_posix()
-
     minpitch, maxpitch = 127, 0
     for voice in voices:
-        voicemin, voicemax = voice.pitchRange()
-        minpitch = min(minpitch, voicemin)
-        maxpitch = max(maxpitch, voicemax)
+        pitchrange = voice.pitchRange()
+        if pitchrange is not None:
+            voicemin, voicemax = pitchrange
+            minpitch = min(minpitch, voicemin)
+            maxpitch = max(maxpitch, voicemax)
     drawnclefs = drawStaffs(axes, minpitch=int(minpitch), maxpitch=int(maxpitch),
                             ledgerLineColor=ledgerLineColor)
 
@@ -438,16 +440,16 @@ def plotVoices(voices: list[Voice],
             axes.set_xlim(-0.5, max(voice.durSecs() for voice in voices))
         else:
             axes.set_xlim(-0.5, max(float(voice.dur) for voice in voices))
-
     if grid:
         axes.grid(axis='x', color=(0.95, 0.95, 0.95, 0.3))
+    return axes
 
 
 def _pitchToPosition(pitch: str) -> float:
     return _verticalPosToClefPos(pt.notated_pitch(pitch).vertical_position)
 
 
-def drawStaffs(axes: plt.Axes, minpitch: int, maxpitch: int,
+def drawStaffs(axes: Axes, minpitch: int, maxpitch: int,
                ledgerLineColor=(0., 0., 0., 0.3),
                linestyles={
                    '4C': LineStyle(color=(0., 0., 0., 0.6), style=':'),
@@ -495,4 +497,3 @@ def drawStaffs(axes: plt.Axes, minpitch: int, maxpitch: int,
     axes.set_yticklabels(ylabels)
 
     return drawn
-

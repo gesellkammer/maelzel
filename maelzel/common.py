@@ -5,10 +5,14 @@ from __future__ import annotations
 import numbers as _numbers
 import logging as _logging
 import pitchtools as pt
-import typing as t
-
-from quicktions import Fraction as F
 from numbers import Rational
+
+import typing as _t
+
+if not _t.TYPE_CHECKING:
+    from quicktions import Fraction as F
+else:
+    from fractions import Fraction as F
 
 
 __all__ = (
@@ -23,19 +27,17 @@ __all__ = (
     'num_t',
 )
 
-T = t.TypeVar('T')
 
-num_t = t.Union[float, Rational, F]
-pitch_t = t.Union[int, float, str]
-timesig_t = t.Tuple[int, int]
-number_t = t.Union[int, float, Rational, F]
+num_t = _t.Union[int, float, F]
+pitch_t = _t.Union[int, float, str]
+timesig_t = _t.Tuple[int, int]
 
 
 F0: F = F(0)
 F1: F = F(1)
 
 
-def asF(t) -> F:
+def asF(t: int | float | str | F) -> F:
     """
     Convert ``t`` to a fraction if needed
     """
@@ -43,8 +45,6 @@ def asF(t) -> F:
         return t
     elif isinstance(t, (int, float, str)):
         return F(t)
-    elif isinstance(t, _numbers.Rational):
-        return F(t.numerator, t.denominator)
     else:
         raise TypeError(f"Could not convert {t} to a rational")
 
