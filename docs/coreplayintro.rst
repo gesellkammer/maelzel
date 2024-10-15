@@ -27,7 +27,7 @@ terms of a list of :class:`~maelzel.core.synthevent.SynthEvent`.
 
 
 Within the :meth:`~maelzel.core.mobj.MObj.play` method a number of parameters
-regarding playback can be determined. **Such parameters are common to all objects. **The most
+regarding playback can be determined. **Such parameters are common to all objects**. The most
 relevant of these playback parameters are:
 
 **instr**
@@ -230,5 +230,3 @@ Playback API
     :hidden:
 
     abstractrenderer
-
-

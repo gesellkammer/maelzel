@@ -39,7 +39,6 @@ from dataclasses import dataclass
 import emlib.misc
 import emlib.img
 import pitchtools as pt
-import csoundengine
 
 from maelzel.common import asmidi, F, asF, F0, F1
 from maelzel.textstyle import TextStyle
@@ -72,6 +71,7 @@ if TYPE_CHECKING:
     from maelzel.core import chain
     import maelzel.core.event as _event
     from maelzel.scoring.renderoptions import RenderOptions
+    import csoundengine
 
 
 __all__ = (
@@ -1423,7 +1423,7 @@ class MObj(ABC):
                                   **kwargs)
 
         if not events:
-            # group = csoundengine.synth.SynthGroup([playback._dummySynth()])
+            import csoundengine
             group = csoundengine.synth.SynthGroup([])
         else:
             renderer = workspace.renderer or playback.RealtimeRenderer()

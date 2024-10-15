@@ -66,22 +66,6 @@ include = ["maelzel", "maelzel.*"]
 exclude = ["docs", "notebooks", "test", "scripts"]
 
 
-# [tool.setuptools]
-# packages = [
-#     'maelzel',
-#     'maelzel.core',
-#     'maelzel.midi',
-#     'maelzel.snd',
-#     'maelzel.acoustics',
-#     'maelzel.ext',
-#     'maelzel.music',
-#     'maelzel.scoring',
-#     'maelzel.musicxml',
-#     'maelzel.transcribe',
-#     'maelzel.partialtracking',
-# ]
-
-
 [tool.setuptools.package-data]
 maelzel = ['maelzel/data']
 
