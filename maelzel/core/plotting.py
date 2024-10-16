@@ -335,6 +335,9 @@ def plotVoices(voices: list[Voice],
         tied = False
 
         for event, offset in voice.eventsWithOffset():
+            if event.isRest():
+                # TODO: find a way to show rests in an unobtrussive way
+                continue
             if isinstance(event, Note):
                 pitches = [event.name]
                 targets = [''] if not event.gliss else [event.glissTarget()]
@@ -437,7 +440,7 @@ def plotVoices(voices: list[Voice],
             tied = event.tied
     if setLimits:
         if realtime:
-            axes.set_xlim(-0.5, max(voice.durSecs() for voice in voices))
+            axes.set_xlim(-0.5, max(float(voice.durSecs()) for voice in voices))
         else:
             axes.set_xlim(-0.5, max(float(voice.dur) for voice in voices))
     if grid:
