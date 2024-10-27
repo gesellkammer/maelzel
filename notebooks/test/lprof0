@@ -1,0 +1,28 @@
+Timer unit: 1e-09 s
+
+Total time: 0.000486032 s
+File: /home/em/dev/python/maelzel/maelzel/scoring/quant.py
+Function: beatGroups at line 830
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+   830                                               def beatGroups(self) -> list[DurationGroup]:
+   831                                                   """
+   832                                                   Returns the contents of this measure grouped as a list of DurationGroups
+   833                                                   """
+   834         1       1088.0   1088.0      0.2          if not self.beats:
+   835                                                       return []
+   836         1     470840.0 470840.0     96.9          groups = [beat.group().mergedNotations() for beat in self.beats]
+   837                                           
+   838         1        611.0    611.0      0.1          def removeUnnecessarySubgroupsInplace(group: DurationGroup) -> None:
+   839                                                       items = []
+   840                                                       for item in group.items:
+   841                                                           if isinstance(item, DurationGroup) and len(item.items) == 1:
+   842                                                               item = item.items[0]
+   843                                                           items.append(item)
+   844                                                       group.items = items
+   845                                           
+   846         4       1952.0    488.0      0.4          for group in groups:
+   847         4      11394.0   2848.5      2.3              removeUnnecessarySubgroupsInplace(group)
+   848                                           
+   849         1        147.0    147.0      0.0          return groups
