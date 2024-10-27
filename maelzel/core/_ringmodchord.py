@@ -20,7 +20,10 @@ class RingmodChord(Chord):
         conf = workspace.config
         if self.playargs:
             playargs = playargs.updated(self.playargs)
-        startsecs, endsecs = self.timeRangeSecs(parentOffset=parentOffset, scorestruct=workspace.scorestruct)
+        struct = workspace.scorestruct
+        startbeat = parentOffset + self.relOffset()
+        startsecs = struct.beatToTime(startbeat)
+        endsecs = struct.beatToTime(startbeat + self.dur)
         amps = self.resolveAmps(config=conf, dyncurve=workspace.dynamicCurve)
         endpitches = self.pitches if not self.gliss else self.resolveGliss()
         rmpairs1 = combtones.ringmodWithAmps(self.pitches, amps, unique=False)
@@ -81,11 +84,3 @@ class RingmodChord(Chord):
             return events
         else:
             return self.clone(notes=notes).scoringEvents(groupid=groupid, config=config, parentOffset=parentOffset)
-
-
-
-
-
-
-
-

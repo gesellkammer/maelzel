@@ -202,7 +202,8 @@ class CoreConfig(ConfigDict):
     A **CoreConfig** reads its settings from a persistent copy. This persistent version is
     generated whenever the user calls the method :meth:`CoreConfig.save`.
     When **maelzel.core** is imported it reads this configuration and creates
-    the ``rootConfig``, which is an instance of :class:`CoreConfig`.
+    the **root**, which is an instance of :class:`CoreConfig` and can be accessed
+    via the class variable :attr:``CoreConfig.root``
 
     Notice that a configuration, in order to modify the behaviour of the environment,
     needs to be either actively used (passed as an argument to any function accepting
@@ -247,7 +248,7 @@ class CoreConfig(ConfigDict):
         self._hash: int = 0
         self._defaultPlayArgsDict: dict | None = None
 
-        load = source == 'load' or (source == 'root' and self.root is None)
+        load = source == 'load' or (source == 'root' and CoreConfig.root is None)
 
         super().__init__(CoreConfig._defaultName,
                          default=configdata.defaultdict,
@@ -259,8 +260,8 @@ class CoreConfig(ConfigDict):
 
         if not load:
             if source == 'root':
+                assert hasattr(CoreConfig, 'root') and CoreConfig.root is not None
                 source = CoreConfig.root
-                assert source is not None
             if isinstance(source, ConfigDict):
                 d = dict(source)
                 dict.update(self, d)
@@ -395,10 +396,9 @@ class CoreConfig(ConfigDict):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        assert self._previousState is not None
         workspace, prevconfig = self._previousState
-        assert workspace.isActive()
-        assert workspace.config is self
-        assert prevconfig
+        assert workspace.isActive() and workspace.config is self and prevconfig
         workspace.config = prevconfig
 
     def activate(self) -> None:

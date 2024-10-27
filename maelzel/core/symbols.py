@@ -588,7 +588,7 @@ class VoiceSymbol(Symbol):
 
 class Clef(EventSymbol):
     """
-    An explicit clef sign
+    An explicit clef sign, applied prior to the event attached
 
     Args:
         kind: one of 'treble15', 'treble8', 'treble', 'bass', 'alto', 'bass8', 'bass15'

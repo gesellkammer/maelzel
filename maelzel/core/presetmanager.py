@@ -285,7 +285,7 @@ class PresetManager:
 
             >>> synth.set(kcutoff=2000)
 
-        To output sound to anything different than the hardware output use output=False and
+        To output sound to anything different than the hardware output use ``output=False`` and
         implement the output directly within the instr body
 
         >>> defPreset('mysynth', r'''
@@ -386,8 +386,9 @@ class PresetManager:
                 mapping dB values to velocities, or an instance of GainToVelocityCurve
             ampDivisor: most soundfonts are PCM 16bit files and need to be scaled down
                 to use them in the range of -1:1. This value is used to scale amp down.
-                The default is 16384, but it can be changed in the config
-                (:ref:`key 'play.soundfontAmpDiv' <config_play_soundfontampdiv>`)
+                The default is 16384 (it can be changed in the config
+                (:ref:`key 'play.soundfontAmpDiv' <config_play_soundfontampdiv>`), but
+                different soundfonts might need different scaling factors.
             interpolation: one of 'linear', 'cubic'. Refers to the interpolation used
                 when reading the sample waveform. If None, use the default defined
                 in the config (:ref:`key 'play.soundfontInterpolation' <config_play_soundfontinterpolation>`)

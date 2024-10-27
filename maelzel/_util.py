@@ -6,6 +6,7 @@ import weakref
 import sys
 import os
 import emlib.misc
+import emlib.textlib
 from maelzel.common import F, getLogger, num_t
 import functools
 import appdirs
@@ -505,16 +506,42 @@ def limitDenominator(num: int, den: int, maxden: int) -> tuple[int, int]:
         return p0 + k * p1, q0 + k * q1
 
 
-def unicodeNotename(notename: str) -> str:
+_unicodeReplacerFull = emlib.textlib.makeReplacer({
+    '#>': '𝄰',
+    '#<': '𝄱',
+    'b<': '𝄭',
+    'b>': '𝄬',
+    '#': '♯',
+    'b': '♭',
+    '>': '↑',
+    '<': '↓'})
+
+_unicodeReplacerSimple = emlib.textlib.makeReplacer({
+    # '#>': '𝄰',
+    # '#<': '𝄱',
+    # 'b<': '𝄭',
+    # 'b>': '𝄬',
+    '#': '♯',
+    'b': '♭',
+    '>': '↑',
+    '<': '↓'})
+
+
+def unicodeNotename(notename: str, full=True) -> str:
     """
     Replace ascii accidentals with unicode accidentals
 
     C#+45   C♯+45
     Db-15   D♭-15
+
+    Args:
+        notename: the note name
+        full: replace compound alterations to merged alterations (``#>`` to ``𝄰``)
+
+    Returns:
+        the replacement
     """
-    if "#" in notename:
-        return notename.replace('#', '♯')
-    elif "b" in notename:
-        return notename.replace("b", "♭")
+    if full:
+        return _unicodeReplacerFull(notename)
     else:
-        return notename
+        return _unicodeReplacerSimple(notename)

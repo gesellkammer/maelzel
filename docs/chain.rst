@@ -38,7 +38,7 @@ the chain becomes its *parent* (see :attr:`MEvent.parent <maelzel.core.event.MEv
 -----------------
 
 Voice
-~~~~~
+-----
 
 A :class:`Voice` is a subclass of :class:`Chain` and all said before applies to it, with
 the following differences:
@@ -48,5 +48,13 @@ the following differences:
 * A :class:`Voice` is used to represent a *UnquantizedPart* or *Instrument* within a score.
   It includes multiple attributes and methods to customize its representation and playback.
 
-.. automodapi:: maelzel.core.chain
 
+-----------------
+
+
+maelzel.core.chain
+------------------
+
+.. automodapi:: maelzel.core.chain
+    :headings: ^^
+    :no-heading:

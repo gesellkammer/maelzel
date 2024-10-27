@@ -15,6 +15,7 @@ from ._common import UNSET
 from typing import TYPE_CHECKING, Sequence, Callable
 if TYPE_CHECKING:
     from ._typedefs import *
+    from typing import Any, Iterator
     from typing_extensions import Self
 
 
@@ -46,12 +47,15 @@ class Score(MContainer):
     """
     _acceptsNoteAttachedSymbols = False
 
-    __slots__ = ('voices', '_modified')
+    __slots__ = ('voices', 'groups', '_modified')
 
     def __init__(self,
                  voices: Sequence[Voice | Chain | MEvent] = (),
                  scorestruct: ScoreStruct | None = None,
                  title=''):
+
+        super().__init__(label=title, offset=F0)
+
         asvoices: list[Voice] = [item if isinstance(item, Voice) else _asvoice(item)
                                  for item in voices]
         for voice in asvoices:
@@ -60,12 +64,32 @@ class Score(MContainer):
         self.voices: list[Voice] = asvoices
         """the voices of this score"""
 
-        super().__init__(label=title, offset=F0, dur=self._calculateDuration())
-
-        self._scorestruct = scorestruct
+        self._scorestruct = None
         self._modified = True
+        self._config: dict[str, Any] = {}
+        self._dur = self._calculateDuration()
+
+        self.groups: set[PartGroup] = set()
+        """Groups added via makeGroup are added here for reference"""
+
+        self.setScoreStruct(scorestruct)
+
+
+    def setConfig(self, key: str, value):
+        configkeys = self.__class__._configKeys()
+        if key not in configkeys:
+            raise KeyError(f"Invalid key '{key}' for a Score. Valid keys are {configkeys}")
+        if errmsg := CoreConfig.root.checkValue(key, value):
+            raise ValueError(f"Invalid value {value} for key '{key}': {errmsg}")
+        self._config[key] = value
+
+    def getConfig(self, prototype: CoreConfig = None) -> CoreConfig | None:
+        if not self._config:
+            return None
+        return (prototype or Workspace.active.config).clone(self._config)
 
     def dump(self, indents=0, forcetext=False) -> None:
+        self._update()
         for i, part in enumerate(self.voices):
             print("  "*indents + f"Voice #{i}, name='{part.name}'")
             part.dump(indents=indents+1, forcetext=forcetext)
@@ -175,47 +199,55 @@ class Score(MContainer):
         sco = Score(voices)
         return sco
 
+    def __iter__(self) -> Iterator[Voice]:
+        return iter(self.voices)
+
     def __getitem__(self, item):
         return self.voices.__getitem__(item)
 
-    def scorestruct(self, resolve=False) -> ScoreStruct | None:
-        """The attached ScoreStruct, if present"""
-        if self._scorestruct:
-            return self._scorestruct
-        elif resolve:
-            return Workspace.active.scorestruct
-        else:
-            return None
+    def __contains__(self, item) -> bool:
+        return item in self.voices
 
-    def setScoreStruct(self, scorestruct: ScoreStruct) -> None:
+    def setScoreStruct(self, scorestruct: ScoreStruct | None) -> None:
         """
         Set the ScoreStruct for this Score
 
-        Scores are the only objects in `maelzel.core` which can have a
-        ScoreStruct attached to them. This ScoreStruct will be
-        used for any object embedded downstream
+        This ScoreStruct will be used for any object embedded downstream
 
         Args:
-            scorestruct: the ScoreStruct
+            scorestruct: the ScoreStruct or None to remove any previously
+                set struct in this object and any child
 
         """
         self._scorestruct = scorestruct
+        for voice in self.voices:
+            voicestruct = voice.scorestruct()
+            if voicestruct is not None:
+                voice.setScoreStruct(None)
         self._changed()
 
     def makeGroup(self,
                   parts: list[Voice],
                   name: str = '',
                   shortname: str = '',
-                  showPartNames=False):
+                  showPartNames=False) -> None:
+        """
+        Create a group from a list of voices
+
+        A group of voices can be created for notational purposes, to group those
+        voices under one name, add a shortname to the group, etc.
+
+        Args:
+            name: the name of the group. It will be used when rendering as notation
+            shortname: a short name to use for all systems after the first one
+            showPartNames: do not hide the names of the parts which form this group
+        """
         for part in parts:
             if part.parent and part.parent is not self:
                 raise RuntimeError(f"Cannot make a group with a part which belongs to another"
                                    f" score (part={part}, parent={part.parent})")
-        PartGroup(parts=parts, name=name, shortname=shortname, showPartNames=showPartNames)
-        for part in parts:
-            if not any(v is part for v in self.voices):
-                raise RuntimeError(f"Parts can only be bundled into a group if they are already "
-                                   f"part of this Score, but {part} is not")
+        group = PartGroup(parts=parts, name=name, shortname=shortname, showPartNames=showPartNames)
+        self.groups.add(group)
 
     def __hash__(self):
         items = [type(self).__name__, self.label, self.offset, len(self.voices)]
@@ -265,8 +297,10 @@ class Score(MContainer):
                      ) -> list[scoring.UnquantizedPart]:
         self._update()
         parts = []
+        activeconfig = config or Workspace.active.config
+        ownconfig = self.getConfig(prototype=activeconfig)
         for voice in self.voices:
-            voiceparts = voice.scoringParts(config or getConfig())
+            voiceparts = voice.scoringParts(config=ownconfig or activeconfig)
             parts.extend(voiceparts)
         return parts
 
@@ -332,7 +366,16 @@ class Score(MContainer):
         return self.clone(voices=voices)
 
 
-def show(*objs: MObj | list[MObj], **kws) -> None:
+def show(*objs: MObj | list[MObj], **kws) -> Score:
+    """
+    Packs all objects into a score and displays them as notation
+
+    Args:
+        objs: objects to pack
+
+    Returns:
+
+    """
     flatobjs = []
     for obj in objs:
         if isinstance(obj, MObj):
@@ -341,6 +384,6 @@ def show(*objs: MObj | list[MObj], **kws) -> None:
             flatobjs.extend(obj)
         else:
             raise TypeError(f"Object of type {type(obj)} not supported ({obj})")
-    from maelzel.core import Score
     sco = Score.pack(flatobjs)
     sco.show(**kws)
+    return sco

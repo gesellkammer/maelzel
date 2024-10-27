@@ -89,6 +89,15 @@ class MEvent(MObj):
         assert isinstance(prev, MEvent)
         return prev.linkedNext()
 
+    def root(self) -> MContainer | None:
+        """
+        The root of this object or None if this object has no parent
+
+        Returns:
+            the root which contains this object
+        """
+        return None if self.parent is None else self.parent.root()
+
     @property
     def gliss(self):
         """The end target of this event, if any"""

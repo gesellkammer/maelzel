@@ -32,6 +32,7 @@ import functools
 from abc import ABC, abstractmethod
 import os
 import math
+import re
 import shutil as _shutil
 import html as _html
 from dataclasses import dataclass
@@ -65,6 +66,7 @@ from maelzel.scorestruct import ScoreStruct
 
 from typing import TYPE_CHECKING, Any, Callable
 if TYPE_CHECKING:
+    from typing import Iterator
     from typing_extensions import Self
     from matplotlib.axes import Axes
     import matplotlib.pyplot as plt
@@ -195,6 +197,10 @@ class MObj(ABC):
 
     @parent.setter
     def parent(self, parent: MContainer):
+        if self._parent is not None and parent is not self._parent:
+            if self in self._parent:
+                raise ValueError(f"Cannot set the parent for {self} to {parent}, since "
+                                 f"it already is a part of {self._parent}")
         self._parent = parent
 
     def _copyAttributesTo(self, other: Self) -> None:
@@ -653,12 +659,31 @@ class MObj(ABC):
         """
         return self.transpose(pt.r2i(ratio))
 
+    def getConfig(self, prototype: CoreConfig = None) -> CoreConfig | None:
+        """
+        Returns a CoreConfig overloaded with options set for this object
+
+        Returns None if no modifications have been made.
+
+        Args:
+            prototype: the config to use as prototype, falls back to the active config
+
+        Returns:
+            A clone of the active config with any customizations made via :meth:`Voice.setConfig` or
+            :meth:`Voice.configQuantization`
+            If no customizations have been made, None is returned
+
+        .. seealso::
+            * :meth:`setConfig() <maelzel.core.chain.Voice.configQuantization>`
+            * :meth:`configQuantization() <maelzel.core.chain.Voice.configQuantization>`
+        """
+        return self.parent.getConfig(prototype) if self.parent else None
+
     def show(self,
              fmt: str = None,
              external: bool = None,
              backend='',
              scorestruct: ScoreStruct = None,
-             config: CoreConfig = None,
              resolution: int = None
              ) -> None:
         """
@@ -678,7 +703,7 @@ class MObj(ABC):
             resolution: dpi resolution when rendering to an image, overrides the
                 :ref:`config key 'show.pngResolution' <config_show_pngresolution>`
         """
-        cfg = config or Workspace.getConfig()
+        cfg = self.getConfig() or Workspace.active.config
         if resolution:
             cfg = cfg.clone({'show.pngResolution': resolution})
 
@@ -690,6 +715,7 @@ class MObj(ABC):
 
         if fmt is None:
             fmt = 'png' if not external and environment.insideJupyter else cfg['show.format']
+
         if fmt == 'ly':
             renderer = self.render(backend='lilypond', scorestruct=scorestruct, config=cfg)
             if external:
@@ -867,7 +893,7 @@ class MObj(ABC):
 
         .. seealso:: :meth:`~maelzel.core.mobj.MObj.render`
         """
-        w = Workspace.getActive()
+        w = Workspace.active
         if not config:
             config = w.config
         if not backend:
@@ -879,6 +905,7 @@ class MObj(ABC):
             outfile = _util.mktemp(suffix='.' + fmt)
         if scorestruct is None:
             scorestruct = self.scorestruct() or w.scorestruct
+
 
         _renderImage(obj=self, outfile=outfile, backend=backend,
                      scorestruct=scorestruct, config=config)
@@ -1040,7 +1067,9 @@ class MObj(ABC):
 
         .. seealso:: :meth:`activeScorestruct() <maelzel.core.mobj.MObj.activeScorestruct>`
         """
-        return self._scorestruct or self.parent.scorestruct() if self.parent else None
+        if self._scorestruct is not None:
+            return self._scorestruct
+        return self.parent.scorestruct() if self.parent else None
 
     def write(self,
               outfile: str,
@@ -1658,34 +1687,24 @@ class MObj(ABC):
             offset: the time delta (in quarterNotes)
         """
         newoffset = self.relOffset() + asF(offset)
-        if offset < 0:
+        if newoffset < 0:
             raise ValueError(f"This operation would result in a negative offset. "
                              f"Own offset: {self.relOffset()}, resulting offset: {newoffset}, "
-                             f"given time shift: {offset}, self: {self}")
+                             f"given time shift: {offset}, self: {self}, absolute offset: {self.absOffset()}")
         self.offset = newoffset
         self._changed()
 
-    def timeRangeSecs(self,
-                      parentOffset: F | None = None,
-                      scorestruct: ScoreStruct = None
-                      ) -> tuple[F, F]:
+    def timeRange(self) -> tuple[F, F]:
         """
-        The absolute time range, in seconds
-
-        Args:
-            parentOffset: if given, use this offset as parent offset. This is used
-                internally when the parent's offset has already been calculated
-            scorestruct: use this scorestruct to calculate absolute time, used internally
-                if the scorestruct is already known.
+        Returns a tuple (starttime, endtime), in seconds
 
         Returns:
             a tuple ``(starttime: F, endtime: F)``, where starttime
             and endtime are both absolute times in seconds
         """
-        if scorestruct is None:
-            scorestruct = self.activeScorestruct()
-        start = self.absOffset() if parentOffset is None else self.relOffset() + parentOffset
-        return scorestruct.beatToTime(start), scorestruct.beatToTime(start+self.dur)
+        struct = self.activeScorestruct()
+        start = self.absOffset()
+        return struct.beatToTime(start), struct.beatToTime(start+self.dur)
 
     def durSecs(self) -> F:
         """
@@ -1694,8 +1713,34 @@ class MObj(ABC):
         Returns:
             the duration of self in seconds
         """
-        startsecs, endsecs = self.timeRangeSecs()
+        startsecs, endsecs = self.timeRange()
         return endsecs - startsecs
+
+    def location(self) -> tuple[location_t, location_t]:
+        """
+        Returns the location of this object within the active score struct
+
+        Returns:
+            a tuple ``(startlocation, endlocation)`` where both ``startlocation``
+            are tuples ``(measureindex, beatoffset)`` representing the position
+            of this object within the score
+
+
+        Example
+        -------
+
+            >>> setScoreStruct(timesig='3/4')
+            >>> note = Note("4C", 1, offset=5)
+            >>> note.location()
+            ((1, Fraction(2, 1)), (2, Fraction(0, 1)))
+
+        The note starts at measure 1, beat 2 and ends at
+        measure 2, beat 0 (both measures and beats start at 0)
+
+        """
+        struct = self.activeScorestruct()
+        startbeat = self.absOffset()
+        return struct.beatToLocation(startbeat), struct.beatToLocation(startbeat + self.dur)
 
     def pitchTransform(self, pitchmap: Callable[[float], float]) -> Self:
         """
@@ -1771,6 +1816,139 @@ class MContainer(MObj):
 
     Implemented downstream by classes like Chain or Score.
     """
+    _configKeysRegistry = {}
+    "A cache for all class config keys"
+
+    __slots__ = ('_config',)
+
+    def __init__(self,
+                 offset: F | None = None,
+                 label='',
+                 parent: MContainer | None = None,
+                 properties: dict[str, Any] | None = None):
+
+        super().__init__(offset=offset, dur=F0, label=label,
+                         properties=properties, parent=parent)
+        self._config: dict[str, Any] = {}
+
+    @abstractmethod
+    def __iter__(self) -> Iterator[MObj | MContainer]:
+        raise NotImplementedError
+
+    @classmethod
+    def _classConfigKeys(cls) -> set[str]:
+        # This method can be overloaded to return keys specific to a subclass
+        pattern = r'\.?(quant|show)\.\w[a-zA-Z0-9_]*'
+        corekeys = CoreConfig.root.keys()
+        return set(k for k in corekeys if re.match(pattern, k))
+
+    @classmethod
+    def _configKeys(cls) -> set[str]:
+        # This method should probably not be overloaded. It is a workaround
+        # to the fact that we want to cache config keys without any subclass
+        # needing to worry about what kind of caching we are using
+        clsname = cls.__qualname__
+        if (keys := cls._configKeysRegistry.get(clsname)) is not None:
+            return keys
+        configkeys = cls._classConfigKeys()
+        cls._configKeysRegistry[clsname] = configkeys
+        return configkeys
+
+    def setScoreStruct(self, scorestruct: ScoreStruct | None) -> None:
+        """
+        Set the ScoreStruct for this object and its children
+
+        This ScoreStruct will be used for any object embedded
+        downstream. For a chain/voice to set its scorestruct
+        it must be itself parentless, since a scorestruct can
+        be propagated downstream but not upstream (a voice cannot
+        set the scorestruct of a score)
+
+        Args:
+            scorestruct: the ScoreStruct, or None to remove any scorestruct
+                previously set
+
+        """
+        if scorestruct is None:
+            self._scorestruct = None
+            for item in self:
+                if isinstance(item, MContainer):
+                    item.setScoreStruct(None)
+            return
+
+        if self.parent:
+            parentstruct = self.parent.scorestruct()
+            if parentstruct is None:
+                raise ValueError(f"An object cannot promote a scorestruct up in the tree structure. Set the score"
+                                 f" structure at the root: ({self.root()})")
+            elif scorestruct is not parentstruct:
+                raise ValueError(f"This {self.__class__} has a parent with a scorestruct "
+                                    f"different than the given one."
+                                    f"\nParent struct: {parentstruct}"
+                                    f"\nNew struct: {scorestruct}")
+        self._scorestruct = scorestruct
+        self._changed()
+
+    def _copyAttributesTo(self, other: Self) -> None:
+        super()._copyAttributesTo(other)
+        if self._scorestruct:
+            other.setScoreStruct(self._scorestruct)
+
+    def setConfig(self, key: str, value: Any) -> None:
+        """
+        Set a configuration key for this object.
+
+        Possible keys are any CoreConfig keys with the prefixes 'quant.' and 'show.'
+        and also secondary keys starting with '.quant' and '.show', but any subclass
+        can set the keys accepted by its instances by overloading :meth:`MContainer._configKeys`
+
+        Args:
+            key: the key to set
+            value: the value. It will be validated via CoreConfig
+
+        Returns:
+            self. This allows multiple calls to be chained
+
+        Example
+        ~~~~~~~
+
+        Configure the voice to break syncopations at every beat when
+        rendered or quantized as a QuantizedScore
+
+            >>> voice = Voice(...)
+            >>> voice.setConfig('quant.brakeSyncopationsLevel', 'all')
+
+        Now, whenever the voice is shown all syncopations across beat boundaries
+        will be split into tied notes.
+
+        This is the same as:
+
+            >>> voice = Voice(...)
+            >>> score = Score([voice])
+            >>> quantizedscore = score.quantizedScore()
+            >>> quantizedscore.parts[0].brakeSyncopations(level='all')
+            >>> quantizedscore.render()
+        """
+        keys = self._classConfigKeys()
+        if key not in keys:
+            raise KeyError(f"Invalid key '{key}' for a {self.__class__}. "
+                           f"Valid keys are {keys}")
+        if errmsg := CoreConfig.root.checkValue(key, value):
+            raise ValueError(f"Invalid value {value} for key '{key}': {errmsg}")
+        self._config[key] = value
+
+    def getConfig(self, prototype: CoreConfig = None) -> CoreConfig | None:
+        if not self.parent:
+            return None if not self._config else (prototype or Workspace.getConfig()).clone(self._config)
+        parentconfig = self.parent.getConfig(prototype)
+        if parentconfig is not None and self._config is not None:
+            return parentconfig.clone(self._config)
+        elif parentconfig is not None:
+            return parentconfig
+        elif self._config is not None:
+            return Workspace.active.config.clone(self._config)
+        else:
+            return None
 
     def nextEvent(self, event: MObj) -> _event.MEvent | None:
         """
@@ -1818,6 +1996,46 @@ class MContainer(MObj):
     def previousEvent(self, event: _event.MEvent) -> _event.MEvent | None:
         return None
 
+    def __contains__(self, item: MObj) -> bool:
+        raise NotImplementedError
+
+    def root(self) -> MContainer:
+        """
+        The root of this object
+
+        Objects are organized in a tree structure. For example,
+        a note can be embedded in a Chain, which is part
+        of a Voice, which is part of a Score. In this case, the
+        root of all this objects is the score. A container
+        without no parent is its own root.
+
+        Returns:
+            the root of this object
+
+        Example
+        ~~~~~~~
+
+            >>> voice = Voice([
+            ... "4C:1",
+            ... Chain("4D 4E 4F")
+            ... ])
+            >>> score = Score([voice])
+            >>> voice[0].root() is score
+            True
+            >>> score.root() is score
+            True
+
+            >>> Note(60).root() is None
+            True
+
+            >>> voice2 = voice.copy()
+            >>> voice2.parent is None
+            True
+            >>> voice2.root() is voice2
+            True
+        """
+        return self if self.parent is None else self.parent.root()
+
 # --------------------------------------------------------------------
 
 
@@ -1836,7 +2054,7 @@ def _renderImage(obj: MObj,
     tmpfile, renderer = _renderImageCached(obj=obj, fmt=fmt, config=config, backend=backend,
                                            scorestruct=scorestruct, renderoptions=renderoptions)
     if not os.path.exists(tmpfile):
-        logger.debug(f"Cached file '{tmpfile}' not found, resetting cache")
+        logger.debug(f"Cached file '{tmpfile}' not found, resetting cache, trying again")
         resetImageCache()
         tmpfile, renderer = _renderImageCached(obj=obj, fmt=fmt, config=config, backend=backend,
                                                scorestruct=scorestruct, renderoptions=renderoptions)

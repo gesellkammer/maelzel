@@ -13,7 +13,7 @@ __all__ = (
 )
 
 
-time_t = Union[float, F]
+time_t = Union[int, float, F]
 fade_t = Union[float, tuple[float, float]]
 breakpoint_t = list[float]
 location_t = tuple[int, time_t]

@@ -71,8 +71,8 @@ class Workspace:
     and is always kept alive since it holds a reference to the root config. It should
     actually never be None"""
 
-    active: Workspace = None
-    """The currently active workspace. Never None after the class has been initialized"""
+    active: Workspace
+    """The currently active workspace"""
 
     _initdone: bool = False
 
@@ -159,6 +159,7 @@ class Workspace:
         CoreConfig.root = rootconfig = CoreConfig(source='load')
         # The root config itself should never be active since it is read-only
         Workspace.root = Workspace(config=rootconfig.copy(), active=True)
+        assert Workspace.active is Workspace.root
 
     def deactivate(self) -> None:
         """
@@ -248,7 +249,8 @@ class Workspace:
             442
         """
         pitchtools.set_reference_freq(self.a4)
-        self._previousWorkspace = Workspace.active
+        if hasattr(Workspace, "active"):
+            self._previousWorkspace = Workspace.active
         Workspace.active = self
         return self
 

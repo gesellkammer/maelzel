@@ -589,8 +589,9 @@ class Note(MEvent):
         else:
             config = config or getConfig()
             notename = self.name
-            if config['reprUseUnicodeAccidentals']:
-                notename = _util.unicodeNotename(notename)
+            if (unicodeaccidentals := config['reprUseUnicodeAccidentals']):
+                full = unicodeaccidentals == 'full'
+                notename = _util.unicodeNotename(notename, full=full)
             if self.tied:
                 notename += "~"
 

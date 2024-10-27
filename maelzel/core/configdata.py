@@ -183,8 +183,8 @@ validator = {
     '.quant.divisionErrorWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,
     '.quant.gridErrorWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,
     '.quant.rhythmComplexityWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,
-    'quant.breakSyncopationsLevel::choices': ('none', 'all', 'weak', 'strong')
-
+    'quant.breakSyncopationsLevel::choices': ('none', 'all', 'weak', 'strong'),
+    'reprUseUnicodeAccidentals::choices': (False, True, 'full', 'simple')
 }
 
 docs = {
@@ -231,6 +231,9 @@ docs = {
 
     'reprShowFreq':
         "Show frequency when printing a Note in the console",
+
+    'reprUseUnicodeAccidentals':
+        "Use unicode accidentals for representation of notes",
 
     'show.arpeggiateChord':
         "Arpeggiate notes of a chord when showing. In auto mode, only arpeggiate"

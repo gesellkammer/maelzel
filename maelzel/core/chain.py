@@ -17,6 +17,7 @@ from . import presetmanager
 from . import _mobjtools
 from . import _tools
 from ._common import UNSET, _Unset, logger
+from functools import cache
 
 from maelzel import scoring
 from maelzel.colortheory import safeColors
@@ -129,7 +130,7 @@ class Chain(MContainer):
     """
 
     __slots__ = ('items', '_modified', '_cachedEventsWithOffset', '_postSymbols',
-                 '_absOffset')
+                 '_absOffset', '_hasRedundantOffsets')
 
     def __init__(self,
                  items: Sequence[MEvent | Chain | str] | str | None = None,
@@ -155,25 +156,12 @@ class Chain(MContainer):
                     items = [item if isinstance(item, (MEvent, Chain)) else asEvent(item)
                              for item in items]
 
-        if items is None:
-            items = []
-        elif items:
-            if not isinstance(items, list):
-                items = list(items)
-            for item in items:
-                assert isinstance(item, (MEvent, Chain)), f"Item {item} should be a MEvent or a Chain, got: {type(item)}"
-                if item.parent is not None:
-                    logger.debug("Switching parent for {item}, from {item.parent} to {self}")
-                item.parent = self
-        assert isinstance(items, list), f"Items should be a list, got {items}"
-        assert offset is None or isinstance(offset, F)
-        super().__init__(offset=offset, dur=F0, label=label,
+        super().__init__(offset=offset, label=label,
                          properties=properties, parent=parent)
 
-        self.items: list[MEvent | Chain] = items
-        """The items in this chain, a list of events of other chains"""
-
         self._modified = bool(items)
+        """True if this object was modified and needs to be updated"""
+
         self._cachedEventsWithOffset: list[tuple[MEvent, F]] | None = None
 
         self._postSymbols: list[tuple[time_t, symbols.Symbol]] = []
@@ -184,6 +172,20 @@ class Chain(MContainer):
 
         self._hasRedundantOffsets = True
         """Assume redundant offsets at creation"""
+
+        if items is None:
+            items = []
+        elif items and not isinstance(items, list):
+            items = list(items)
+
+        self.items: list[MEvent | Chain] = items
+        """The items in this chain, a list of events of other chains"""
+
+        for item in items:
+            assert isinstance(item, (MEvent, Chain)), f"Item {item} should be a MEvent or a Chain, got: {type(item)}"
+            if item.parent is not None and item.parent is not self:
+                logger.debug(f"Switching parent for {item}, from {item.parent} to {self}")
+            item.parent = self
 
     def _check(self):
         for item in self.items:
@@ -209,7 +211,12 @@ class Chain(MContainer):
               ) -> Self:
         if offset is UNSET:
             offset = None if self.offset is None else self.offset
-        out = self.__class__(items=self.items.copy() if items is None else items,
+        elif offset is not None:
+            offset = asF(offset)
+
+        if items is None:
+            items = [item.copy() for item in self.items]
+        out = self.__class__(items=items,
                              offset=offset,
                              label=self.label if label is None else label,
                              _init=False)
@@ -232,12 +239,11 @@ class Chain(MContainer):
     def copy(self) -> Self:
         return self.__deepcopy__()
 
-    def stack(self) -> F:
+    def stack(self) -> None:
         """
         Stack events to the left **INPLACE**, making offsets explicit
 
-        Returns:
-            the total duration of self
+        This method modifies the items within this object
 
         Example
         ~~~~~~~
@@ -263,10 +269,6 @@ class Chain(MContainer):
         dur = _stackEvents(self.items, explicitOffsets=True)
         self._dur = dur
         self._cachedEventsWithOffset = None
-        # No need to call ._changed since this should not alter the
-        # duration of self in any way. The only thing which is invalidated
-        # is the cache
-        return dur
 
     def fillGaps(self, recurse=True) -> None:
         """
@@ -661,6 +663,9 @@ class Chain(MContainer):
     def updateChildrenOffsets(self) -> None:
         self._update()
 
+    def __contains__(self, item: MObj) -> bool:
+        return item in self.items
+
     def _childOffset(self, child: MObj) -> F:
         """
         Returns the offset of child within this chain
@@ -955,7 +960,7 @@ class Chain(MContainer):
             this chain as a Voice
         """
         self._update()
-        items = self.copy().items
+        items = [item.copy() for item in self.items]
         _ = _stackEvents(items, explicitOffsets=True)
         if self.offset and self.offset > F0:
             for item in items:
@@ -969,6 +974,11 @@ class Chain(MContainer):
                 voice.addSymbol(symbol)
         if self.playargs:
             voice.playargs = self.playargs.copy()
+        if self._scorestruct:
+            voice.setScoreStruct(self._scorestruct)
+        if self._config:
+            for k, v in self._config.items():
+                voice.setConfig(k, v)
         return voice
 
     def _asVoices(self) -> list[Voice]:
@@ -1007,6 +1017,8 @@ class Chain(MContainer):
 
         # if parentOffset is None:
         #     parentOffset = self.parentAbsOffset()
+
+        config = self.getConfig(prototype=config) or config
 
         if self._postSymbols:
             postsymbols = self._postSymbols
@@ -1070,6 +1082,7 @@ class Chain(MContainer):
         if not notations:
             return []
         scoring.resolveOffsets(notations)
+        config = self.getConfig(config) or config
         maxstaves = maxstaves or config['show.voiceMaxStaves']
 
         if maxstaves == 1:
@@ -1267,7 +1280,7 @@ class Chain(MContainer):
             self._cachedEventsWithOffset = eventpairs
 
         if start is not None or end is not None:
-            struct = self.activeScorestruct()
+            struct = self.scorestrucct() or Workspace.active.scorestruct
             start = struct.asBeat(start) if start else F0
             end = struct.asBeat(end) if end else F(sys.maxsize)
             eventpairs = _eventPairsBetween(eventpairs,
@@ -1435,7 +1448,8 @@ class Chain(MContainer):
 
         .. seealso:: :meth:`Chain.beamBreak`
         """
-        offset = self.activeScorestruct().asBeat(location)
+        struct = self.scorestruct() or Workspace.getActive().scorestruct
+        offset = struct.asBeat(location)
         event = self.eventAt(offset)
         if event and event.absOffset() == offset:
             event.addSymbol(symbol)
@@ -1529,7 +1543,11 @@ class Chain(MContainer):
             the event present at the given location, or None if no event was found. An
             explicit rest will be returned if found but empty space will return None.
         """
-        start = self.activeScorestruct().locationToBeat(*location) if isinstance(location, tuple) else asF(location)
+        if isinstance(location, tuple):
+            struct = self.scorestruct() or Workspace.active.scorestruct
+            start = struct.locationToBeat(*location)
+        else:
+            start = asF(location)
         end = start + margin
         events = self.eventsBetween(start, end)
         if not events:
@@ -1551,8 +1569,15 @@ class Chain(MContainer):
 
         If ``partial`` is false, only events which lie completey within
         the given range are included. Gracenotes at the edges are always
-        included. The returned events are the actual events in this
-        Chain or subchains: they are NOT copies.
+        included.
+
+        .. note::
+
+            The returned events are the actual events in this
+            Chain or subchains: they are NOT copies. If these events
+            do not have an `.offset` set or they are nested, their
+            resulting offset when used parentless will differ. To force every
+            event having an explicit offset use :meth:`.stack() <maelzel.core.chain.Chain.stack>`
 
         Args:
             start: **absolute** start location (a beat or a score location)
@@ -1597,7 +1622,7 @@ class Chain(MContainer):
         .. seealso:: :meth:`Chain.itemsWithOffset`, :meth:`Chain.eventsBetween`
 
         """
-        sco = self.activeScorestruct()
+        sco = self.scorestruct() or Workspace.active.scorestruct
         startbeat = sco.asBeat(start)
         endbeat = sco.asBeat(end)
         out = []
@@ -1911,7 +1936,7 @@ class Chain(MContainer):
         Returns:
             a Chain cropped at the given beat range
         """
-        sco = self.activeScorestruct()
+        sco = self.scorestruct() or Workspace.active.scorestruct
         startbeat = sco.asBeat(start)
         endbeat = sco.asBeat(end)
         cropped = self._cropped(startbeat=startbeat, endbeat=endbeat)
@@ -1928,6 +1953,8 @@ class PartGroup:
     It is used to indicate that a group of parts are to be notated
     within a staff group, sharing a name/shortname if given. This is
     usefull for things like piano scores, for example
+
+    A PartGroup is immutable
 
     Args:
         parts: the parts inside this group
@@ -1955,10 +1982,9 @@ class PartGroup:
         self.showPartNames = showPartNames
         """Show the names of the individual parts?"""
 
-    def append(self, part: Voice) -> None:
-        """Append a part to this group"""
-        if part not in self.parts:
-            self.parts.append(part)
+    def __hash__(self) -> int:
+        partshash = hash(tuple(id(part) for part in self.parts))
+        return hash((self.name, len(self.parts), partshash))
 
 
 class Voice(Chain):
@@ -1985,8 +2011,6 @@ class Voice(Chain):
             as notation. If not given the config key 'show.voiceMaxStaves' is used
     """
 
-    _configKeys: set[str] | None = None
-
     def __init__(self,
                  items: Sequence[MEvent | str | Chain] | Chain | str = None,
                  name='',
@@ -2009,15 +2033,15 @@ class Voice(Chain):
         self.shortname = shortname
         """A shortname to display as abbreviation after the first system"""
 
-        self.maxstaves = maxstaves if maxstaves is not None else Workspace.active.config['show.voiceMaxStaves']
-        """The max. number of staves this voice can be expanded to"""
-
         self._config: dict[str, Any] = {}
         """Any key set here will override keys from the coreconfig for rendering
         Any key in CoreConfig is supported"""
 
         self._group: PartGroup | None = None
         """A part group is created via Score.makeGroup"""
+
+        if maxstaves is not None:
+            self.configNotation(maxStaves=maxstaves)
 
     def __repr__(self):
         if len(self.items) < 10:
@@ -2034,20 +2058,20 @@ class Voice(Chain):
 
     def __hash__(self):
         superhash = super().__hash__()
-        return hash((superhash, self.name, self.shortname, self.maxstaves, id(self._group)))
+        return hash((superhash, self.name, self.shortname, id(self._group)))
 
     def _copyAttributesTo(self, other: Self) -> None:
         super()._copyAttributesTo(other)
         if self._config:
             other._config = self._config.copy()
         if self._scorestruct:
-            other._scorestruct = self._scorestruct
+            other.setScoreStruct(self._scorestruct)
+            # other._scorestruct = self._scorestruct
 
     def __copy__(self) -> Self:
         # always a deep copy
         voice = self.__class__(name=self.name,
-                               shortname=self.shortname,
-                               maxstaves=self.maxstaves)
+                               shortname=self.shortname)
         voice.items = [item.copy() for item in self.items]
         self._copyAttributesTo(voice)
         return voice
@@ -2062,82 +2086,69 @@ class Voice(Chain):
     def parentAbsOffset(self) -> F:
         return F0
 
-    def setConfig(self, key: str, value) -> Self:
+    def configNotation(self,
+                       autoClefChanges=True,
+                       staffSize: float = None,
+                       maxStaves: int = None
+                       ) -> None:
         """
-        Set a configuration key for this object.
+        Customize options for rendering this voice as notation
 
-        Possible keys are any CoreConfig keys with the prefixes 'quant.' and 'show.'
+        Each of these options corresponds to a setting in the config
 
         Args:
-            key: the key to set
-            value: the value. It will be validated via CoreConfig
+            autoClefChanges: add clef changes to a quantized part if needed.
+                Otherwise one clef is determined for each part
+                (see config key `show.autoClefChanges <config_show_autoclefchanges>`).
+                **NB**: clef changes can be added manually via ``Voice.eventAt(...).addSymbol(symbols.Clef(...))``
+            staffSize: the size of a staff, in points (see config key `show.staffSize` <config_show_staffsize>`)
+            maxStaves: the max. number of staves per voice when showing a
+                Voice as notation (see config `show.voiceMaxStaves <config_show_voicemaxstaves>`)
 
-        Returns:
-            self. This allows multiple calls to be chained
-
-        Example
-        ~~~~~~~
-
-        Configure the voice to break syncopations at every beat when
-        rendered or quantized as a QuantizedScore
-
-            >>> voice = Voice(...)
-            >>> voice.setConfig('quant.brakeSyncopationsLevel', 'all')
-
-        Now, whenever the voice is shown in itself or as part of a score
-        all syncopations across beat boundaries will be split into tied notes.
-
-        This is the same as:
-
-            >>> voice = Voice(...)
-            >>> score = Score([voice])
-            >>> quantizedscore = score.quantizedScore()
-            >>> quantizedscore.parts[0].brakeSyncopations(level='all')
-            >>> quantizedscore.render()
+        .. seealso:: :meth:`~Voice.configQuantization`
         """
-        configkeys = Voice._configKeys
-        if not configkeys:
-            pattern = r'(quant|show)\..+'
-            corekeys = CoreConfig.root.keys()
-            configkeys = set(k for k in corekeys if re.match(pattern, k))
-            Voice._configKeys = configkeys
-        if key not in configkeys:
-            raise KeyError(f"Key {key} not known. Possible keys: {configkeys}")
-        if errormsg := CoreConfig.root.checkValue(key, value):
-            raise ValueError(f"Cannot set {key} to {value}: {errormsg}")
-        self._config[key] = value
-        return self
-
-    def getConfig(self, prototype: CoreConfig = None) -> CoreConfig | None:
-        """
-        Returns a CoreConfig overloaded with any option set via :meth:`~Voice.setConfig`
-
-        Args:
-            prototype: the config to use as prototype. If not given, the active config
-                will be used
-
-        Returns:
-            the resulting CoreConfig set via :meth:`Voice.setConfig`. If not prototype
-            and no changes have been made, None is returned
-
-        """
-        if not self._config:
-            return prototype
-        return (prototype or Workspace.active.config).clone(self._config)
+        if staffSize is not None:
+            self.setConfig('show.staffSize', staffSize)
+        if autoClefChanges is not None:
+            self.setConfig('show.autoClefChanges', autoClefChanges)
+        if maxStaves is not None:
+            self.setConfig('show.voiceMaxStaves', maxStaves)
 
     def configQuantization(self,
                            breakSyncopationsLevel: str = None,
+                           complexity: str = None,
+                           nestedTuplets: bool | None = None,
+                           syncopationMinBeatFraction: F = None,
+                           debug=False
                            ) -> None:
         """
         Customize the quantization process for this Voice
 
         Args:
             breakSyncopationsLevel: one of 'all', 'weak', 'strong' (see
-                config key `quant.breakSyncopationsLevel <config_quant_breaksyncopationslevel>`)
+                config key `quant.breakSyncopationsLevel <config_quant_breaksyncopationslevel>`).
+                Factory default: 'weak'
+            complexity: the quantization complexity, one of 'lowest', 'low', 'medium', 'high', 'highest'
+                (see config key `quant.complexity <config_quant_complexity>`). Default: 'high'
+            nestedTuplets: if False, nested tuplets are disabled. (see config key `quant.nestedTuplets <config_quant_nestedtuplets>`)
+            syncopationMinBeatFraction: a merged duration across beats cannot be smaller than this. Setting it too low
+                can result in very complex rhythms (see config key `quant.syncopationMinBeatFraction <config_quant_syncopationminbeatfraction>`)
+            debug: if True, display debugging information when quantizing this voice
+
+        .. seealso:: :meth:`~Voice.configNotation`, :meth:`setConfig() <maelzel.core.chain.Voice.setConfig>`
 
         """
+        config = Workspace.active.config
         if breakSyncopationsLevel is not None:
             self.setConfig('quant.breakSyncopationsLevel', breakSyncopationsLevel)
+        if complexity is not None:
+            self.setConfig('quant.complexity', complexity)
+        if nestedTuplets is not None:
+            self.setConfig('quant.nestedTuplets', nestedTuplets)
+        if syncopationMinBeatFraction is not None:
+            self.setConfig('quant.syncopationMinBeatFraction', asF(syncopationMinBeatFraction))
+        if debug != config['.quant.debug']:
+            self.setConfig('.quant.debug', debug)
 
     def clone(self, **kws) -> Self:
         if 'items' not in kws:
@@ -2153,13 +2164,17 @@ class Voice(Chain):
             out.label = self.label
         if offset:
             out.timeShiftInPlace(offset)
+        if self._scorestruct:
+            out.setScoreStruct(self._scorestruct)
         return out
 
     def scoringParts(self, config: CoreConfig = None
                      ) -> list[scoring.UnquantizedPart]:
-        ownconfig = self.getConfig(prototype=config)
-        parts = self._scoringParts(config=ownconfig or Workspace.active.config,
-                                   maxstaves=self.maxstaves,
+        activeconfig = config or Workspace.active.config
+        ownconfig = self.getConfig(prototype=activeconfig)
+        config = ownconfig or activeconfig
+        parts = self._scoringParts(config=config,
+                                   maxstaves=config['show.voiceMaxStaves'],
                                    name=self.name or self.label,
                                    shortname=self.shortname,
                                    groupParts=self._group is None,

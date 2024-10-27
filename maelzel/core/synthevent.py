@@ -859,6 +859,29 @@ class SynthEvent:
         """ Returns the number of breakpoints in this SynthEvent """
         return len(self.bps[0])
 
+    @staticmethod
+    def dumpEvents(events: Sequence[SynthEvent], forcetext=False):
+        rows = []
+        for event in events:
+            row = [f"{event.delay:.3f}", f"{event.dur:.3f}{'~' if event.linkednext else ''}",
+                   event.instr, event.chan]
+            def bprepr(bp):
+                parts = [f"{bp[0]:2.6}s"] + [f"{b:.6g}" for b in bp[1:]]
+                return " ".join(parts)
+            if len(event.bps) == 2 and event.bps[0][1:] == event.bps[1][1:]:
+                t, pitch, amp = event.bps[0]
+                row.append(f"{pitch:.4g} {pt.amp2db(amp):.1f}dB")
+            elif len(event.bps) <= 3:
+                bps = "; ".join(bprepr(bp) for bp in event.bps)
+                row.append(bps)
+            else:
+                pre = "; ".join(bprepr(bp) for bp in event.bps[:2])
+                post = "; ".join(bprepr(bp) for bp in events.bps[-2:])
+                row.append(f"{pre}…{post}")
+            rows.append(row)
+        from emlib.misc import print_table
+        print_table(rows, headers=("delay", "dur", "instr", "chan", "bps"))
+
     def _repr_html_(self) -> str:
         rows = [[f"{bp[0] + self.delay:.3f}", f"{bp[0]:.3f}"] + ["%.6g" % x for x in bp[1:]] for bp in self.bps]
         headers = ["Abs time", "0. Rel. time", "1. Pitch", "2. Amp"]
@@ -940,7 +963,8 @@ class SynthEvent:
         return out
 
     @staticmethod
-    def plotEvents(events: list[SynthEvent], axes: Axes = None, notenames=False
+    def plotEvents(events: list[SynthEvent], axes: Axes = None, notenames=False,
+                   linewidth=1
                    ) -> Axes:
         """
         Plot all given events within the same axes (static method)
@@ -949,6 +973,7 @@ class SynthEvent:
             events: the events to plot
             axes: the matplotlib Axes to use, if given
             notenames: if True, use notenames for the y axes
+            linewidth: width to use between breakpoints
 
         Returns:
             the axes used
@@ -970,7 +995,7 @@ class SynthEvent:
             axes = f.add_subplot(1, 1, 1)
 
         for event in events:
-            event.plot(axes=axes, notenames=False)
+            event.plot(axes=axes, notenames=False, linewidth=linewidth)
 
         axes.grid()
 
@@ -1102,7 +1127,7 @@ class SynthEvent:
         return pfields5, dynargs
 
 
-    def plot(self, axes: Axes = None, notenames=False) -> Axes:
+    def plot(self, axes: Axes = None, notenames=False, linewidth=1) -> Axes:
         """
         Plot the trajectory of this synthevent
 
@@ -1120,7 +1145,8 @@ class SynthEvent:
             # f: plt.Figure = plt.figure(figsize=figsize)
             f = plt.figure()
             axes = f.add_subplot(1, 1, 1)
-        times = [bp[0] for bp in self.bps]
+        t0 = self.delay
+        times = [t0 + bp[0] for bp in self.bps]
         midis = [bp[1] for bp in self.bps]
         if notenames:
             noteformatter = matplotlib.ticker.FuncFormatter(lambda s, y: f'{str(s).ljust(3)}: {pt.m2n(s)}')
@@ -1129,7 +1155,7 @@ class SynthEvent:
 
         if ownaxes:
             axes.grid()
-        axes.plot(times, midis)
+        axes.plot(times, midis, linewidth=linewidth)
         return axes
 
 

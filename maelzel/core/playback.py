@@ -129,7 +129,7 @@ class RealtimeRenderer(Renderer):
         assert event.instrname in self.session.instrs
         return self.session.schedEvent(event)
 
-    def schedDummyEvent(self, dur=0.001) -> csoundengine.synth.Synth:
+    def _schedDummyEvent(self, dur=0.001) -> csoundengine.synth.Synth:
         """
         Schedule a dummy synth
 
@@ -398,11 +398,23 @@ def stopSynths():
 
 def playSession(*args, **kws):
     import warnings
-    warnings.warn("Deprecated, use XXX")
+    warnings.warn("Deprecated, use getSession")
     return getSession(*args, **kws)
 
 
 class SessionParametersMismatchError(Exception): ...
+
+
+_builtinInstrs = [
+    csoundengine.instr.Instr('.reverbstereo', r'''
+    |kfeedback=0.85, kwet=0.8, ichan=1, kcutoff=12000|
+    a1, a2 monitor
+    aL, aR  reverbsc a1, a2, kfeedback, kcutoff, sr, 0.5, 1
+    aL = aL * kwet - a1 * (1 - kwet)
+    aR = aR * kwet - a2 * (1 - kwet)
+    outch ichan, aL, ichan+1, aR
+    ''')
+]
 
 
 def getSession(numchannels: int = None,
@@ -456,10 +468,14 @@ def getSession(numchannels: int = None,
     .. seealso:: :class:`csoundengine.Session <https://csoundengine.readthedocs.io/en/latest/api/csoundengine.session.Session.html>`
     """
     if not isSessionActive():
-        return _playEngine(numchannels=numchannels, backend=backend, outdev=outdev,
-                           verbose=verbose, buffersize=buffersize, latency=latency,
-                           numbuffers=numbuffers).session()
+        session = _playEngine(numchannels=numchannels, backend=backend, outdev=outdev,
+                              verbose=verbose, buffersize=buffersize, latency=latency,
+                              numbuffers=numbuffers).session()
+        for instr in _builtinInstrs:
+            session.registerInstr(instr)
+        return session
 
+    # Session is already active, check params
     engine = _playEngine()
     if not ensure:
         return engine.session()
@@ -632,7 +648,7 @@ def _schedEvents(renderer: RealtimeRenderer,
     synths: list[csoundengine.synth.Synth] = []
     for coreevent, (pfields5, dynargs) in zip(coreevents, resolvedParams):
         if coreevent.gain == 0:
-            synths.append(renderer.schedDummyEvent())
+            synths.append(renderer._schedDummyEvent())
             continue
 
         synth = renderer.sched(PresetDef.presetNameToInstrName(coreevent.instr),

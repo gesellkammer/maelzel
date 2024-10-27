@@ -475,7 +475,7 @@ class MeasureDef:
 
     def __init__(self,
                  timesig: TimeSignature,
-                 quarterTempo: F | int,
+                 quarterTempo: F | int | float,
                  parent: ScoreStruct | None = None,
                  annotation='',
                  timesigInherited=False,
@@ -487,8 +487,8 @@ class MeasureDef:
                  maxEighthTempo=48,
                  readonly=True
                  ):
-        assert not barline or barline in _barstyles, \
-            f"Unknown barline style: '{barline}', possible values: {_barstyles}"
+        if barline and barline not in _barstyles:
+            raise ValueError(f"Unknown barline style: '{barline}', possible values: {_barstyles}")
 
         assert isinstance(timesig, TimeSignature), f"Expected a TimeSignature, got {timesig}"
         self._timesig: TimeSignature = timesig

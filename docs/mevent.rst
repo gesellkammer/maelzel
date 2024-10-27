@@ -27,8 +27,13 @@ The :attr:`~maelzel.core.event.MEvent.offset` attribute of an event determines i
 start time **relative** to the parent container. This offset can be ``None``,
 in which case it is resolved based on the context of the event
 (is the object part of a Chain / Voice, which events precede it, etc).
-The resolved offset can be queried via :meth:`~maelzel.core.mobj.MObj.resolveOffset`,
-the absolute offset via :meth:`~maelzel.core.mobj.MObj.absoluteOffset`
+The resolved relative offset can be queried via :meth:`~maelzel.core.mobj.MObj.relOffset`,
+the absolute offset via :meth:`~maelzel.core.mobj.MObj.absOffset`. These values are always
+in quarternote beats. To query the position of an event within a score structure or to
+know its absolute position in time (in seconds), see :meth:`~maelzel.core.mobj.MObj.
+
+start, end = note.location()
+note.timeRange
 
 **Example**
 
@@ -71,4 +76,3 @@ score structure defines the overall structure of a score (measures, time-signatu
 .. automodapi:: maelzel.core.event
     :no-main-docstr:
     :no-heading:
-
