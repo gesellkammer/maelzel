@@ -1,6 +1,8 @@
 from __future__ import annotations
 from dataclasses import dataclass, replace as _replace
 
+from typing_extensions import Self
+
 
 @dataclass
 class TranscriptionOptions:
@@ -55,7 +57,7 @@ class TranscriptionOptions:
 
     maxDensity: float = 0.
     """
-    max. breakpoint density. 0 disables simplification 
+    max. breakpoint density. 0 disables simplification
     """
 
     debug: bool = False

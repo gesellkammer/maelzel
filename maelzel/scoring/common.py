@@ -5,31 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 import enum
 
-import numbers as _numbers
 import pitchtools as pt
-from maelzel.common import F, F1, asF, getLogger
-import sys
+from maelzel.common import F, F1, getLogger
 
-from typing import NamedTuple, Union
+from typing import NamedTuple, TypeAlias
 
-if sys.version_info.minor >= 10:
-    from typing import TypeAlias
-    time_t: TypeAlias = Union[float, int, F]
-    pitch_t: TypeAlias = Union[int, float, str]
-    timesig_t: TypeAlias = tuple[int, int]
-    # division_t: TypeAlias = tuple[Union[int, 'division_t'], ...]
-    division_t: TypeAlias = tuple[int, ...]
-    timerange_t: TypeAlias = tuple[F, F]
-    number_t: TypeAlias = Union[int, float, _numbers.Rational, F]
+division_t: TypeAlias = tuple[int, ...]
+timerange_t: TypeAlias = tuple[F, F]
 
-else:
-    time_t = Union[float, int, F]
-    pitch_t = Union[int, float, str]
-    timesig_t = tuple[int, int]
-    # division_t = tuple[Union[int, 'division_t'], ...]
-    division_t = tuple[int, ...]
-    timerange_t = tuple[F, F]
-    number_t = Union[int, float, _numbers.Rational, F]
 
 logger = getLogger("maelzel.scoring")
 
@@ -37,31 +20,14 @@ logger = getLogger("maelzel.scoring")
 
 
 __all__ = (
-    'F',
-    'asF',
     'logger',
     'asmidi',
     'TimeSpan',
     'NotatedDuration',
     'GLISS',
-    'time_t',
-    'pitch_t',
-    'timesig_t',
     'division_t',
     'timerange_t',
-    'number_t'
 )
-
-
-def _asF(t: _numbers.Real) -> F:
-    """
-    Convert ``t`` to a fraction if needed
-    """
-    if isinstance(t, F):
-        return t
-    elif isinstance(t, _numbers.Rational):
-        return F(t.numerator, t.denominator)
-    return F(t)
 
 
 def asmidi(x, maxmidi=130) -> float:

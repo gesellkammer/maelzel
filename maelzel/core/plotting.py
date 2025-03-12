@@ -13,20 +13,18 @@ from maelzel import colortheory
 import matplotlib.pyplot as plt
 import emlib.mathlib
 from dataclasses import dataclass
-from matplotlib.artist import Artist
 from matplotlib.textpath import TextPath
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.font_manager import FontProperties
 from matplotlib.lines import Line2D
-from matplotlib.patches import Arc, Rectangle, Circle, Polygon, PathPatch
-from matplotlib.text import Text
+from matplotlib.patches import Rectangle, Polygon, PathPatch
 from matplotlib import transforms
 from pathlib import Path
 import itertools
 from functools import cache
 
-from maelzel.core import Score, Voice, Note, Chord, MEvent
+from maelzel.core import Voice, Note, Chord
 from maelzel.core import logger
 from maelzel.scorestruct import ScoreStruct
 

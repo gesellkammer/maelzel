@@ -6,33 +6,33 @@ from __future__ import annotations
 from math import pi, sqrt
 
 import bpf4 as bpf
-from pitchtools import *
+import pitchtools as pt
 from dataclasses import dataclass
 import csoundengine
 
 from emlib.iterlib import flatten
-from emlib.misc import runonce
+from functools import cache
 
 from maelzel.core import Chord, Note
 from maelzel.snd import playback
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import *
+    pass
 
 
 @dataclass
 class Vowel:
-    dbs: List[float]
-    bws: List[float]
-    freqs: List[float]
+    dbs: list[float]
+    bws: list[float]
+    freqs: list[float]
 
     def shift(self, freq):
         freqs = [formantfreq + freq for formantfreq in self.freqs]
         return Vowel(dbs=self.dbs, bws=self.bws, freqs=freqs)
 
     def transpose(self, interval):
-        ratio = interval2ratio(interval)
+        ratio = pt.interval2ratio(interval)
         freqs = [f * ratio for f in self.freqs]
         return Vowel(dbs=self.dbs, bws=self.bws, freqs=freqs)
 
@@ -41,7 +41,7 @@ class Vowel:
         return Vowel(bws=bws, dbs=self.dbs, freqs=self.freqs)
 
 
-def getVowel(descr: Union[str, Tuple[str, str]]) -> Vowel:
+def getVowel(descr: str | tuple[str, str]) -> Vowel:
     """
     Args:
         descr: a string of the form "vocal:register", like "i:bass", or
@@ -65,7 +65,7 @@ def getVowel(descr: Union[str, Tuple[str, str]]) -> Vowel:
 # have been reduced. The analysis does not yield intesity values for the
 # bandwidths.
 
-formants: Dict[str, Dict[str, Vowel]] = {
+formants: dict[str, dict[str, Vowel]] = {
     'e': {
         'bass':
         Vowel(dbs=[0, -12, -9, -12, -18],
@@ -192,15 +192,15 @@ formants: Dict[str, Dict[str, Vowel]] = {
 }
 
 
-def _listmul(seq, scalar):
+def _listmul(seq: list[float], scalar: float) -> list[float]:
     return [item * scalar for item in seq]
 
 
-def _sumcolumns(rows):
+def _sumcolumns(rows) -> list[float]:
     return [sum(row[i] for row in rows) for i in range(len(rows[0]))]
 
 
-def interpolateVowel(vowels: List[str], weights:List[float]=None) -> Vowel:
+def interpolateVowel(vowels: list[str | Vowel], weights: list[float] = None) -> Vowel:
     """
     Create a mix between different vowels according to the weights given
     If no weights are given, all vowels are mixed equally
@@ -210,59 +210,42 @@ def interpolateVowel(vowels: List[str], weights:List[float]=None) -> Vowel:
         weights: if given, a numerical weight for each vowel.
     """
     if weights is None:
-        weights = [1] * len(vowels)
-    if isinstance(vowels[0], str):
-        vowels = [getVowel(vowel) for vowel in vowels]
+        weights = [1.] * len(vowels)
+
+    vowels2: list[Vowel] = [vowel if isinstance(vowel, Vowel) else getVowel(vowel) for vowel in vowels]
     sumweights = sum(weights)
     normalizedWeights = [w / sumweights for w in weights]
-    rows = list(zip(vowels, normalizedWeights))
-    avgfreqs = _sumcolumns(
-        [_listmul(vowel.freqs, weight) for vowel, weight in rows])
-    avgdbs = _sumcolumns(
-        [_listmul(vowel.dbs, weight) for vowel, weight in rows])
-    avgbws = _sumcolumns(
-        [_listmul(vowel.bws, weight) for vowel, weight in rows])
+    rows = list(zip(vowels2, normalizedWeights))
+    avgfreqs = _sumcolumns([_listmul(vowel.freqs, weight) for vowel, weight in rows])
+    avgdbs = _sumcolumns([_listmul(vowel.dbs, weight) for vowel, weight in rows])
+    avgbws = _sumcolumns([_listmul(vowel.bws, weight) for vowel, weight in rows])
     return Vowel(dbs=avgdbs, bws=avgbws, freqs=avgfreqs)
 
 
-def vowelInstr(kind='fof2') -> csoundengine.instr.Instr:
-    """
-    Args:
-        kind: one of 'fof2', TODO
-
-    Returns:
-        the csoundengine Instr
-    """
-    if kind == 'fof2':
-        return _vowelInstrFof2()
-    else:
-        raise KeyError(f"no instr with kind {kind}")
-
-
-@runonce
-def _vowelInstrFof2():
-    body = """
+@cache
+def _vowelInstrFof2() -> csoundengine.instr.Instr:
+    return csoundengine.instr.Instr("vowelsfof2", r'''
         itotdur = p3
-        iamp = p4
-        imidi0 = p5
-        imidi1 = p6
-        ivibrate = p7
-        ivibinterval = p8
-        iform1 = p9
-        iband1 = p10
-        iamp1  = p11
-        iform2 = p12
-        iband2 = p13
-        iamp2  = p14
-        iform3 = p15
-        iband3 = p16
-        iamp3  = p17
-        iform4 = p18
-        iband4 = p19
-        iamp4  = p20
-        iform5 = p21
-        iband5 = p22
-        iamp5  = p23
+        iamp = p5
+        imidi0 = p6
+        imidi1 = p7
+        ivibrate = p8
+        ivibinterval = p9
+        iform1 = p10
+        iband1 = p11
+        iamp1  = p12
+        iform2 = p13
+        iband2 = p14
+        iamp2  = p15
+        iform3 = p16
+        iband3 = p17
+        iamp3  = p18
+        iform4 = p19
+        iband4 = p20
+        iamp4  = p21
+        iform5 = p22
+        iband5 = p23
+        iamp5  = p24
 
         ivibamount = 2 ^ (-ivibinterval / 12)   ; vibrato should be always downwards
 
@@ -291,26 +274,33 @@ def _vowelInstrFof2():
         aenv linsegr 0, 0.05, iamp, 0.1, 0
         aout *= aenv
         outs aout, aout
+    ''')
+
+
+def instrData(vowel: str | Vowel) -> list[float]:
     """
-    instr = csoundengine.instr.Instr('vowelsfof2', body)
-    return instr
+    Returns the data for the given vowel.
 
+    Args:
+        vowel: The vowel to get the data for.
 
-def instrData(vowel: Union[str, Vowel]) -> List[float]:
+    Returns:
+        A list of floats representing the data for the given vowel.
+    """
     vowel = asVowel(vowel)
-    amps = [db2amp(db) for db in vowel.dbs]
+    amps = [pt.db2amp(db) for db in vowel.dbs]
     data = list(flatten(zip(vowel.freqs, vowel.bws, amps)))
     return data
 
 
 def _synthVowelFof2(engine: csoundengine.Engine,
-                    midinote: Union[float, Tuple[float, float]],
-                    vowel: Union[str, Vowel],
-                    dur:float,
+                    midinote: float | tuple[float, float],
+                    vowel: str | Vowel,
+                    dur: float,
                     vibrate=0.,
                     vibamount=0.25,
                     gain=1.0
-                    ) -> csoundengine.synth.AbstrSynth:
+                    ) -> csoundengine.synth.Synth:
     """
     Synthesize the vowel via csoundengine
 
@@ -336,15 +326,31 @@ def _synthVowelFof2(engine: csoundengine.Engine,
     return synth
 
 
-def synthVowel(midinote: Union[float, Tuple[float, float]],
-               vowel: Union[str, Vowel],
+def vowelInstr(kind='fof2') -> csoundengine.instr.Instr:
+    """
+    The instrument for synthesizing vowels
+
+    Args:
+        kind: one of 'fof2', TODO
+
+    Returns:
+        the csoundengine Instr
+    """
+    if kind == 'fof2':
+        return _vowelInstrFof2()
+    else:
+        raise KeyError(f"no instr with kind {kind}")
+
+
+def synthVowel(midinote: float | tuple[float, float],
+               vowel: str | Vowel,
                dur=4.,
                gain=1.0,
                method='fof2',
                vibrate=0.,
                vibamount=0.25,
                enginename: str = ''
-               ) -> csoundengine.synth.AbstrSynth:
+               ) -> csoundengine.synth.Synth:
     """
     Synthesize a vowel
 
@@ -379,7 +385,7 @@ def synthVowel(midinote: Union[float, Tuple[float, float]],
 # ------------------------------------------------------------
 
 
-def _overtones_tri(f0, maxfreq):
+def _overtonesTri(f0, maxfreq):
     """
     It is possible to approximate a triangle wave with additive synthesis by summing
     odd harmonics of the fundamental while multiplying every other odd harmonic by −1
@@ -400,7 +406,7 @@ def _overtones_tri(f0, maxfreq):
     return overtones
 
 
-def _overtones_saw(f0: float, maxfreq: float) -> List[Tuple[float, float]]:
+def _overtonesSaw(f0: float, maxfreq: float) -> list[tuple[float, float]]:
     """
     Calculate overtones for a saw signal
 
@@ -424,7 +430,7 @@ def _overtones_saw(f0: float, maxfreq: float) -> List[Tuple[float, float]]:
     return overtones
 
 
-def _overtones_square(f0, maxfreq):
+def _overtonesSquare(f0: float, maxfreq: float) -> list[tuple[float, float]]:
     overtones = []
     for n in range(1, 1000000, 2):
         fn = f0 * n
@@ -436,7 +442,7 @@ def _overtones_square(f0, maxfreq):
     return overtones
 
 
-def _overtones_const(f0, maxfreq):
+def _overtonesConst(f0: float, maxfreq: float) -> list[tuple[float, float]]:
     overtones = []
     for n in range(1, 1000000):
         fn = f0 * n
@@ -447,7 +453,7 @@ def _overtones_const(f0, maxfreq):
 
 
 def makeOvertones(f0: float, model='saw', maxfreq=8000
-                  ) -> List[Tuple[float, float]]:
+                  ) -> list[tuple[float, float]]:
     """
     Generate overtones for the given fundamental
 
@@ -461,34 +467,34 @@ def makeOvertones(f0: float, model='saw', maxfreq=8000
         a list of tuples (freq, amplitude) for each overtone generated
     """
     if model == 'saw':
-        pairs = _overtones_saw(f0, maxfreq=maxfreq)
+        pairs = _overtonesSaw(f0, maxfreq=maxfreq)
     elif model == 'tri':
-        pairs = _overtones_tri(f0, maxfreq=maxfreq)
+        pairs = _overtonesTri(f0, maxfreq=maxfreq)
     elif model == 'square':
-        pairs = _overtones_square(f0, maxfreq=maxfreq)
+        pairs = _overtonesSquare(f0, maxfreq=maxfreq)
     elif model == 'const':
-        pairs = _overtones_const(f0, maxfreq=maxfreq)
+        pairs = _overtonesConst(f0, maxfreq=maxfreq)
     else:
         raise ValueError(f"model '{model}' not known")
     return pairs
 
 
-def findVowel(freqs: List[float]) -> str:
+def findVowel(freqs: list[float]) -> str:
     """
     Find the vowel whose formant freqs are nearest to the freqs given
-    
+
     Args:
         freqs: formant frequencies
-        
+
     Returns:
-        a string describing the vowel with the format {vowel}:{register} 
+        a string describing the vowel with the format {vowel}:{register}
         ("a:tenor")
     """
 
-    def vowelDistance(voweldef: Vowel, freqs: List[float]) -> float:
+    def vowelDistance(voweldef: Vowel, freqs: list[float]) -> float:
         vowelfreqs = voweldef.freqs[:len(freqs)]
         dist = sqrt(
-            sum((f2m(vowelfreq) - f2m(freq))**2
+            sum((pt.f2m(vowelfreq) - pt.f2m(freq))**2
                 for vowelfreq, freq in zip(vowelfreqs, freqs)))
         return dist
 
@@ -502,7 +508,7 @@ def findVowel(freqs: List[float]) -> str:
     return f"{vowel}:{register}"
 
 
-def asVowel(vowel: Union[str, Vowel]) -> Vowel:
+def asVowel(vowel: str | Vowel) -> Vowel:
     """
     Converts a string to a Vowel.
 
@@ -525,7 +531,7 @@ def asVowel(vowel: Union[str, Vowel]) -> Vowel:
         )
 
 
-@runonce
+@cache
 def listVowels():
     allvowels = []
     for voweltype, voices in formants.items():
@@ -536,7 +542,7 @@ def listVowels():
 
 
 class VowelFilter:
-    def __init__(self, vowel:Union[str, Vowel], bwmul=1.0, gain=1.0, bwknee=0.1) -> None:
+    def __init__(self, vowel: str | Vowel, bwmul=1.0, gain=1.0, bwknee=0.1) -> None:
         """
         a VowelFilter uses a vowel definition to generate a spectral surface,
         mapping frequency to gain
@@ -561,16 +567,16 @@ class VowelFilter:
         transition = 1 - self.bwknee
         for i in range(numFormants):
             freq = self.vowel.freqs[i]
-            amp = db2amp(self.vowel.dbs[i]) * self.gain
+            amp = pt.db2amp(self.vowel.dbs[i]) * self.gain
             bw = self.vowel.bws[i] * self.bwmul
             bw2 = bw * 0.5
             transitionbw = bw2 * transition
             b = bpf.halfcos(0, 0, freq - bw2 - transitionbw, 0, freq - bw2,
                             amp, freq + bw2, amp, freq + bw2 + transitionbw, 0)
             curves.append(b)
-        return bpf.core.Max(*curves)
+        return bpf.Max(*curves)
 
-    def filter(self, overtones: List[Tuple[float, float]], mindb=-90, wet=1.0):
+    def filter(self, overtones: list[tuple[float, float]], mindb=-90, wet=1.0):
         """
         Returns a Chord with the filtered overtones
 
@@ -580,7 +586,7 @@ class VowelFilter:
             wet: the result is a combination of the original overtones and the
                 filtered result. When wet is 1, the result is composed only of
                 the filtered result.
-        
+
         Returns:
             a Chord with the filtered overtones
         """
@@ -588,6 +594,21 @@ class VowelFilter:
 
 
 def vocalChordFromF0(f0, vowel, model='saw', mindb=-90, wet=1.0):
+    """
+    Returns a Chord with the filtered overtones
+
+    Args:
+        f0: fundamental frequency
+        vowel: a Vowel or a string description of a vowel (eg: "a:male")
+        model: the model to use for the overtones (see makeOvertones)
+        mindb: min. amplitude to be present in the result
+        wet: the result is a combination of the original overtones and the
+            filtered result. When wet is 1, the result is composed only of
+            the filtered result.
+
+    Returns:
+        a Chord with the filtered overtones
+    """
     overtones = makeOvertones(f0=f0, model=model)
     vowelfilter = VowelFilter(asVowel(vowel))
     return vocalChord(overtones=overtones,
@@ -596,8 +617,8 @@ def vocalChordFromF0(f0, vowel, model='saw', mindb=-90, wet=1.0):
                       wet=wet)
 
 
-def vocalChord(overtones: List[Tuple[float, float]],
-               vowelfilter: Union[VowelFilter, str],
+def vocalChord(overtones: list[tuple[float, float]],
+               vowelfilter: VowelFilter | str,
                mindb=-90,
                wet=1.0) -> Chord:
     """
@@ -605,6 +626,10 @@ def vocalChord(overtones: List[Tuple[float, float]],
         overtones: a list of (freq, amplitude), as returned, for instance, by makeOvertones
         vowelfilter: a VowelFilter or a string description of a vowel (eg: "a:male")
         mindb: after filtering only overtones with a min. db of mindb will be kept
+        wet: the amount of wetness to apply to the filtered overtones
+
+    Returns:
+        a Chord with the filtered overtones
 
     See Also
     ~~~~~~~~
@@ -626,6 +651,6 @@ def vocalChord(overtones: List[Tuple[float, float]],
     for freq, amp in overtones:
         ampwet = vowelfilter.ampAt(freq) * amp
         amp2 = amp * (1 - wet) + ampwet * wet
-        if amp2db(amp2) > mindb:
+        if pt.amp2db(amp2) > mindb:
             pairs.append((freq, amp2))
-    return Chord([Note(f2m(freq), amp=amp) for freq, amp in pairs])
+    return Chord([Note(pt.f2m(freq), amp=amp) for freq, amp in pairs])

@@ -3,45 +3,46 @@ String flageolets
 """
 from __future__ import annotations
 from maelzel.common import F
-from pitchtools import *
+import pitchtools as pt
+import math
 from emlib.misc import returns_tuple as _returns_tuple
 from maelzel.core import Note
 from dataclasses import dataclass
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import *
+    from typing import Sequence
 
 
 @dataclass
 class Fret:
     fret: float
     midinote: float
-    
+
     @property
     def note(self):
-        return m2n(self.midinote)
+        return pt.m2n(self.midinote)
 
     @property
     def freq(self):
-        return m2f(self.midinote)
-    
+        return pt.m2f(self.midinote)
+
     def __repr__(self):
         return f"Fret(fret={self.fret}, note={self.note})"
-    
+
 
 @dataclass
 class Node:
     midinote: float
     frets: list[Fret]
-    
+
     @property
     def freq(self):
-        return m2f(self.midinote)
+        return pt.m2f(self.midinote)
 
-    @property 
+    @property
     def note(self):
-        return m2n(self.midinote)
+        return pt.m2n(self.midinote)
 
     def __repr__(self):
         return "Node %s (%.2f Hz, %.2f) Frets: %s" % (
@@ -51,18 +52,31 @@ class Node:
 class InstrumentString:
     """
     Defines the string of an instrument
+
+    Args:
+        pitch: The pitch of the string.
+        fretsPerOctave: The number of frets per octave.
+
+    Attributes:
+        midi: The MIDI note corresponding to the pitch.
+        fretsPerOctave: The number of frets per octave.
+        freq: The frequency of the string.
+
     """
-    def __init__(self, pitch: Union[float, str], fretsPerOctave=12):
-        """
-        """
-        self.midi = pitch if isinstance(pitch, (int, float)) else n2m(pitch)
+    def __init__(self, pitch: float | str, fretsPerOctave=12):
+        self.midi = pitch if isinstance(pitch, (int, float)) else pt.n2m(pitch)
         self.fretsPerOctave = fretsPerOctave
-        self.freq = m2f(self.midi)
-        
+        self.freq = pt.m2f(self.midi)
+
     def ratio2fret(self, ratio: float) -> float:
         """
+        Convert a ratio to a fret number.
+
         Args:
             ratio: the position on the string (0-1)
+
+        Returns:
+            The fret number corresponding to the ratio.
         """
         if ratio != 1:
             return math.log(-1 / (ratio - 1)) / math.log(2) * self.fretsPerOctave
@@ -70,17 +84,53 @@ class InstrumentString:
             return 0
 
     def fret2midi(self, fret: float) -> float:
+        """
+        Convert a fret number to a MIDI note.
+
+        Args:
+            fret: The fret number to convert.
+
+        Returns:
+            The MIDI note corresponding to the fret number.
+        """
         return self.midi + 12 * (fret / self.fretsPerOctave)
 
     def fret2note(self, fret: float) -> str:
-        return m2n(self.fret2midi(fret))
+        """
+        Convert a fret number to a note.
+
+        Args:
+            fret: The fret number to convert.
+
+        Returns:
+            The note corresponding to the fret number.
+        """
+        return pt.m2n(self.fret2midi(fret))
 
     def midi2fret(self, midinote: float) -> float:
+        """
+        Convert a MIDI note to a fret number.
+
+        Args:
+            midinote: The MIDI note to convert.
+
+        Returns:
+            The fret number corresponding to the MIDI note.
+        """
         fret = (midinote - self.midi) / 12 * self.fretsPerOctave
         return fret
 
     def note2fret(self, note: str) -> float:
-        return self.midi2fret(n2m(note))
+        """
+        Convert a note to a fret number.
+
+        Args:
+            note: The note to convert.
+
+        Returns:
+            The fret number corresponding to the note.
+        """
+        return self.midi2fret(pt.n2m(note))
 
     def findNode(self, harmonic=2, minfret=0, maxfret=24) -> Node:
         """
@@ -106,7 +156,7 @@ class InstrumentString:
                 positionAsMidi = self.midi + 12 * (fret / self.fretsPerOctave)
                 frets.append(Fret(fret, positionAsMidi))
         freq = self.freq * harmonic
-        return Node(f2m(freq), frets)
+        return Node(pt.f2m(freq), frets)
 
     def flageolets(self, note, minfret=0, maxfret=24, kind=None):
         """
@@ -119,8 +169,8 @@ class InstrumentString:
         """
         raise NotImplementedError("not yet...")
 
-    @_returns_tuple("harmonic note fret")   
-    def nearestNode(self, note: Union[str, float], maxHarmonic=16):
+    @_returns_tuple("harmonic note fret")
+    def nearestNode(self, note: str | float, maxHarmonic=16):
         """
         Find node closest to the given position
 
@@ -128,7 +178,7 @@ class InstrumentString:
             note: The position in the string as a note (str or midinumber)
             maxHarmonic: Consider only harmonics lower or equal to this harmonic
         """
-        fq = n2f(note) if isinstance(note, str) else m2f(note)
+        fq = pt.n2f(note) if isinstance(note, str) else pt.m2f(note)
         if fq < self.freq:
             raise ValueError("The given note is lower than the fundamental")
         ratio = F(self.freq/fq).limit_denominator(maxHarmonic)
@@ -136,11 +186,11 @@ class InstrumentString:
         frets = self.findNode(harmonic).frets
         diff, fret_pos = min((abs(fret.freq - fq), fret) for fret in frets)
         resulting_freq = self.freq * harmonic
-        return harmonic, Note(f2m(resulting_freq)), fret_pos
+        return harmonic, Note(pt.f2m(resulting_freq)), fret_pos
 
     def __mul__(self, other):
         return self.findNode(other)
-        
+
     def __rmul__(self, other):
         return self * other
 
@@ -151,11 +201,11 @@ class InstrumentString:
         return self.nearestNode(other)
 
     def __repr__(self):
-        return "%f Hz | %s | %f midi" % (self.freq, f2n(self.freq), f2m(self.freq))
+        return f"{self.freq} Hz | {pt.f2n(self.freq)} | {pt.f2m(self.freq)} midi"
 
 
 class StringedInstrument:
-    def __init__(self, pitches: list[Union[float, str]]):
+    def __init__(self, pitches: Sequence[str]):
         self.strings = [InstrumentString(pitch) for pitch in pitches]
 
     def __getitem__(self, idx: int) -> InstrumentString:

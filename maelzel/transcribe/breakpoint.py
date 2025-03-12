@@ -2,12 +2,10 @@ from __future__ import annotations
 from dataclasses import dataclass, fields, astuple
 import pitchtools as pt
 from emlib import iterlib
-from typing import Callable, Iterator, TYPE_CHECKING
-import numpy as np
-
+from typing import Iterator, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    import matplotlib.pyplot as plt
+    from matplotlib.axes import Axes
 
 
 __all__ = (
@@ -71,7 +69,7 @@ class Breakpoint:
         return self.properties.get(key, default)
 
 
-def simplifyBreakpointsByDensity(breakpoints: list[Breakpoint] | BreakpoimtGroup,
+def simplifyBreakpointsByDensity(breakpoints: list[Breakpoint] | BreakpointGroup,
                                  maxdensity=0.05,
                                  pitchconv: pt.PitchConverter | None = None
                                  ) -> list[Breakpoint]:
@@ -89,6 +87,9 @@ def simplifyBreakpointsByDensity(breakpoints: list[Breakpoint] | BreakpoimtGroup
         be returned as is
 
     """
+    if isinstance(breakpoints, BreakpointGroup):
+        breakpoints = breakpoints.breakpoints
+
     if len(breakpoints) <= 2:
         return breakpoints
 
@@ -112,7 +113,7 @@ def simplifyBreakpointsByDensity(breakpoints: list[Breakpoint] | BreakpoimtGroup
     res = optimize.minimize_scalar(lambda thresh: abs(func(thresh) - maxdensity),
                                    bracket=(0.0001, 0.99),
                                    tol=0.1)
-    threshold = float(res['x'])
+    threshold = float(res['x'])  # type: ignore
     return simplifyBreakpoints(breakpoints, param=threshold, pitchconv=pitchconv)
 
 
@@ -125,6 +126,12 @@ def simplifyBreakpoints(breakpoints: list[Breakpoint] | BreakpointGroup,
     #       both pitch and amplitude (or other extra features) and simplify on that
     #       It must be reduced to one dimension
     #       example: feature = sqrt(b.pitch**2 + b.amp**2)
+
+    if isinstance(breakpoints, BreakpointGroup):
+        breakpoints = breakpoints.breakpoints
+    elif not isinstance(breakpoints, list):
+        raise TypeError(f"Expected list or BreakpointGroup, got {type(breakpoints)}")
+
     if len(breakpoints) <= 2:
         return breakpoints
 
@@ -239,7 +246,7 @@ class BreakpointGroup:
         html = tabulate.tabulate(rows, tablefmt='html', headers=columnnames, floatfmt=".4f")
         return html
 
-    def plot(self, ax: plt.Axes, spanAlpha=0.2, linewidth=2, onsetAlpha=0.4, spanColor='red') -> None:
+    def plot(self, ax: Axes, spanAlpha=0.2, linewidth=2, onsetAlpha=0.4, spanColor='red') -> None:
         """
         Plot this group
 
@@ -260,6 +267,3 @@ class BreakpointGroup:
             ax.axvspan(t0, t1, alpha=spanAlpha, color=spanColor)
         ax.axvline(t0, color=spanColor, alpha=onsetAlpha)
         ax.plot(times, freqs)
-
-
-

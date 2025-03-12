@@ -2,7 +2,6 @@ from __future__ import annotations
 from emlib import iterlib
 from dataclasses import dataclass
 import sys
-from numbers import Rational
 import textwrap
 import weakref
 
@@ -10,7 +9,6 @@ from maelzel.common import asF, F
 from .common import logger
 from .core import Notation
 from . import attachment
-from . import quantdata
 
 
 from typing import TYPE_CHECKING
@@ -86,7 +84,7 @@ class Node:
         >>> Node(ratio=(3, 2), items=notations)
     """
     def __init__(self,
-                 ratio: tuple[int, int] | Rational = (1, 1),
+                 ratio: tuple[int, int] | F = (1, 1),
                  items: 'list[Notation | Node]' = None,
                  parent: Node | None = None,
                  properties: dict | None = None,
@@ -107,9 +105,10 @@ class Node:
         return self._parent() if self._parent is not None else None
 
     @parent.setter
-    def parent(self, other: Node):
+    def parent(self, other: Node | None):
         """Set the parent of this node"""
-        self._parent = weakref.ref(other)
+        self._parent = weakref.ref(other) if other else None
+
 
     def empty(self) -> bool:
         """Is this node empty? """
@@ -840,7 +839,7 @@ class Node:
         """
         if len(nodes) == 1 and nodes[0].durRatio == (1, 1):
             return nodes[0]
-        root = Node(ratio=(1, 1), items=nodes)
+        root = Node(ratio=(1, 1), items=nodes)  # type: ignore
         assert root.totalDuration() == sum(n.totalDuration() for n in nodes)
         root.setParentRecursively()
         return root

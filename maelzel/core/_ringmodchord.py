@@ -2,7 +2,7 @@ from __future__ import annotations
 from maelzel.core.event import Chord, Note
 from maelzel.core.synthevent import PlayArgs, SynthEvent
 from maelzel.core.workspace import Workspace
-from maelzel.common import F, asF
+from maelzel.common import F
 from maelzel.music import combtones
 from maelzel.core.config import CoreConfig
 from maelzel import scoring

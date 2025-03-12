@@ -219,16 +219,15 @@ def packInTracks(items: list[Item],
     """
     Pack the items into tracks, minimizing the amount of tracks needed
 
-    To _packold an arbitrary list of objects:
+    To pack an arbitrary list of objects:
 
     1. Wrap these objects into Items
-    2. call ``packInTracks`` to distribute these Items into Tracks
-    3. call ``track.unwrap()`` for each track to retrieve the objects
+    2. call :func:`packInTracks` to distribute these Items into Tracks
+    3. call :meth:`Track.unwrap` for each track to retrieve the objects
         packed in that Track
 
     Args:
         items: a seq. of Items
-
         maxrange: the maximum step range of a track. An item
             can be added to a track if the resulting range of the track
             would be smaller than this value. This is to minimize
@@ -241,8 +240,7 @@ def packInTracks(items: list[Item],
         maxtracks: if given, packing will fail early if the number of tracks is exceeded, returning None
 
     Returns:
-        a list of the packed Tracks, or None if failed to _packold the items within the given max. number
-        of tracks
+        a list of the packed Tracks, or None if the number of tracks exceeded the maximum given
     """
     tracks: list[Track] = []
     items2: list[Item] = sorted(items, key=operator.attrgetter('offset'))
@@ -446,4 +444,3 @@ def _checkTrack(track: Track) -> bool:
         if item0.end > item1.offset:
             return False
     return True
-

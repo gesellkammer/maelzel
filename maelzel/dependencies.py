@@ -6,9 +6,7 @@ import shutil
 from pathlib import Path
 import os
 import sys
-import logging
 from datetime import datetime
-import functools
 
 import csoundengine
 from maelzel import _state
@@ -99,6 +97,7 @@ def checkVampPlugins(fix=True) -> str:
                 "https://code.soundsoftware.ac.uk/projects/pyin.")
     try:
         installVampPlugins()
+        return ''
     except RuntimeError as err:
         logger.error(f"Error while trying to install vamp plugins: {err}")
         return str(err)
@@ -187,6 +186,9 @@ def vampPluginsDataFolder() -> Path:
         'windows': 'windows',
         'linux': 'linux'
     }.get(sys.platform, None)
+
+    if not subfolder:
+        raise ValueError(f"Unsupported platform: {sys.platform}")
     return dataPath() / 'vamp' / subfolder
 
 
@@ -287,7 +289,8 @@ def checkDependencies(abortIfErrors=False, fix=True, verbose=False
         a list of errors (or an empty list if no errors where found)
     """
     def _csoundengineDependencies(fix=True):
-        ok = csoundengine.checkDependencies(fix=fix)
+        import csoundengine.dependencies
+        ok = csoundengine.dependencies.checkDependencies(fix=fix)
         return '' if ok else 'csoundengine: dependencies not fullfilled or error during check'
 
     steps = [
@@ -325,6 +328,10 @@ def checkDependencies(abortIfErrors=False, fix=True, verbose=False
 
 
 def printReport(echo=print, updaterisset=False):
+    """
+    Print a report of the dependencies.
+    """
+    import importlib
     import risset
     import vamp
     from maelzel.music import lilytools
@@ -340,7 +347,8 @@ def printReport(echo=print, updaterisset=False):
     else:
         echo("WARNING: csound binary not found")
     echo(f"Lilypond binary: {lilytools.findLilypond()}")
-    echo(f"Risset version: {risset.__version__}")
+    rissetversion = importlib.import_module('risset').__version__
+    echo(f"Risset version: {rissetversion}")
     rissetidx = risset.MainIndex(update=updaterisset)
     rissetidx.list_plugins(installed=True)
     echo(f"Vamp plugins: {vamp.list_plugins()}")
@@ -370,10 +378,7 @@ def checkDependenciesIfNeeded(daysSinceLastCheck=0) -> bool:
     errors = checkDependencies(abortIfErrors=False, fix=True)
     if not errors:
         return True
-    logger.error(f"Error while checking dependencies: ")
+    logger.error("Error while checking dependencies: ")
     for err in errors:
         logger.error(f"    {err}")
     return False
-
-
-

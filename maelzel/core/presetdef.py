@@ -16,9 +16,10 @@ from maelzel import colortheory
 
 from maelzel.core.workspace import Workspace
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast as _cast
 if TYPE_CHECKING:
-    from typing import Any, Set
+    from typing import Any, Callable
+    import csoundengine.abstractrenderer
 
 _INSTR_INDENT = "  "
 
@@ -26,7 +27,7 @@ _INSTR_INDENT = "  "
 @dataclasses.dataclass
 class ParsedAudiogen:
     originalAudiogen: str
-    signals: Set[str]
+    signals: set[str]
     numSignals: int
     minSignal: int
     maxSignal: int
@@ -106,7 +107,7 @@ def _parseAudiogen(code: str, check=False) -> ParsedAudiogen:
                           numOutchs=numOutchs,
                           needsRouting=needsRouting,
                           numOutputs=numOuts,
-                          inlineArgs=inlineargs.args if inlineargs else None,
+                          inlineArgs=inlineargs.args if inlineargs else None,  # type: ignore
                           audiogen=inlineargs.body if inlineargs else code,
                           shortdescr=docstring.shortdescr if docstring else '',
                           longdescr=docstring.longdescr if docstring else '',
@@ -146,8 +147,8 @@ def _makePresetBody(audiogen: str,
         the presets body
     """
     # TODO: generate user pargs
-    prologue = r'''
-|kpos, kgain, idataidx_, inumbps, ibplen, ichan, ifadein, ifadeout, ipchintrp_, ifadekind| 
+    prologue = r'''\
+|kpos, kgain, idataidx_, inumbps, ibplen, ichan, ifadein, ifadeout, ipchintrp_, ifadekind|
 
 ; common case (2 breakpoints is the minimum for a simple note)
 if inumbps == 2 && ipchintrp_ == 0 then
@@ -171,8 +172,8 @@ iAmps[]      slicearray iArgs, 2, ilastidx_, ibplen
 
 k_time = (timeinstk() - 1) * ksmps/sr  ; use eventtime (csound 6.18)
 
-if ipchintrp_ == 0 then      
-    ; linear midi interpolation    
+if ipchintrp_ == 0 then
+    ; linear midi interpolation
     kpitch, kamp bpf k_time, iTimes, iPitches, iAmps
     kfreq mtof kpitch
 elseif (ipchintrp_ == 1) then  ; cos midi interpolation
@@ -198,10 +199,10 @@ ifadeout = max:i(ifadeout, 1/kr)
 
     '''
     # makePresetEnvelope is defined in the preset system's prelude (presetmanager.py)
-    envelope1 = r"""
+    envelope1 = r'''\
     aenv_ = makePresetEnvelope(ifadein, ifadeout, ifadekind)
     aenv_ *= kgain
-    """
+    '''
     parts = [prologue]
     if numsignals == 0:
         withEnvelope = 0
@@ -222,66 +223,74 @@ ifadeout = max:i(ifadeout, 1/kr)
     parts.append(audiogen)
     if withOutput:
         if numsignals == 1:
-            routing = r"""
+            routing = '''\
             aL_, aR_ pan2 aout1, kpos
             outch ichan, aL_, ichan+1, aR_
-            """
+            '''
         elif numsignals == 2:
-            routing = r"""
+            routing = '''\
             kpos = (kpos == -1) ? 0.5 : kpos
             aL_, aR_ panstereo aout1, aout2, kpos
             outch ichan, aL_, ichan+1, aR_
-            """
+            '''
         else:
             logger.error("Invalid preset. Audiogen:\n")
-            logger.error(_textlib.reindent(audiogen, prefix="    "))
-            raise ValueError(f"For presets with more than 2 outputs (got {numsignals})" 
+            logger.error(audiogen)
+            raise ValueError(f"For presets with more than 2 outputs (got {numsignals})"
                              " the user needs to route these manually, including applying"
                              " any panning/spatialization needed")
         parts.append(routing)
     if epilogue:
         parts.append(epilogue)
-    parts = [_textlib.reindent(part) for part in parts]
+    parts = [_textwrap.dedent(part) for part in parts]
     body = '\n'.join(parts)
     return body
 
 
 class PresetDef:
-
     """
     An instrument preset definition
-    
+
     Normally a user does not create a PresetDef directly. A PresetDef is created
     when calling :func:`~maelzel.core.presetmanager.defPreset` .
-    
+
     A Preset is aware of the pitch and amplitude of a SynthEvent and generates all the
-    interface code regarding play parameters like panning position, fadetime, 
+    interface code regarding play parameters like panning position, fadetime,
     fade shape, gain, etc. The user only needs to define the audio generating code and
-    any init code needed (global code needed by the instrument, like soundfiles which 
+    any init code needed (global code needed by the instrument, like soundfiles which
     need to be loaded, buffers which need to be allocated, etc). A Preset can define
     any number of extra parameters (transposition, filter cutoff frequency, etc.).
-    
+
     Args:
         name: the name of the preset
         code: the audio generating code
         init: any init code (global code)
         includes: #include files
         epilogue: code to include after any other code. Needed when using turnoff,
-            since calling turnoff in the middle of an instrument can cause undefined behaviour.    
+            since calling turnoff in the middle of an instrument can cause undefined behaviour.
         args: a dict(arg1: value1, arg2: value2, ...). Parameter names
             need to follow csound's naming: init-only parameters need to start with 'i',
-            variable parameters need to start with 'k', string parameters start with 'S'. 
-        description: a description of this instr definition
+            variable parameters need to start with 'k', string parameters start with 'S'.
+        numouts: number of output signals. If not given, this information is parsed from
+            the actual audiogen
         envelope: If True, apply an envelope as determined by the fadein/fadeout
-            play arguments. 
+            play arguments.
         routing: if True code is generated to output the audio
             to its corresponding channel. If False the audiogen code should
-            be responsible for applying panning and sending the audio to 
+            be responsible for applying panning and sending the audio to
             an output channel, bus, etc.
+        description: a description of this instr definition
         aliases: an optional dict mapping alias parameters to their real name as
             csound variables. This is used, for example, in a Clip to provide coherence
             between names of python parameters ('speed') and their controls
             within the generated synth ('kspeed').
+        inithook: if given, a function ``f(AbstractRenderer) -> None`` to be called
+            the first time an instance of this preset is instanciated (at any priority).
+            This can be used to allocate any resources that this preset might need. It is
+            given access to the renderer being used
+        _builtin: is this a built-in preset? (internal param, used by maelzel itself to
+            declare its built-in presets)
+
 
     Example
     ~~~~~~~
@@ -295,7 +304,7 @@ class PresetDef:
         ... ''')
         >>> synthgroup = Chord(["4C", "4E", "4G"], 8).play(instr='moogsaw')
         >>> synthgroup.automate('kcutoff', (0, 500, synthgroup.dur, 4000))
-            
+
     """
     _builtinVariables = ('kfreq', 'kamp', 'kpitch')
 
@@ -306,14 +315,14 @@ class PresetDef:
                  includes: list[str] = None,
                  epilogue: str = '',
                  args: dict[str, float] = None,
-                 numsignals: int = None,
                  numouts: int = None,
-                 description="",
-                 builtin=False,
-                 properties: dict[str, Any] = None,
                  envelope=True,
                  routing=True,
-                 aliases: dict[str, str] = None
+                 description="",
+                 properties: dict[str, Any] = None,
+                 aliases: dict[str, str] = None,
+                 inithook: Callable[[csoundengine.abstractrenderer.AbstractRenderer], None] = None,
+                 _builtin=False,
                  ):
         assert isinstance(code, str)
 
@@ -357,10 +366,10 @@ class PresetDef:
         self.args: dict[str, float] | None = args or parsedAudiogen.inlineArgs
         "Named args, if present"
 
-        self.userDefined = not builtin
+        self.userDefined = not _builtin
         "Is this PresetDef user defined?"
 
-        self.numsignals = numsignals if numsignals is not None else parsedAudiogen.numSignals
+        self.numsignals = parsedAudiogen.numSignals
         "Number of audio signals used in the audiogen (aout1, aout2, ...)"
 
         self.description = description
@@ -380,6 +389,9 @@ class PresetDef:
 
         self.aliases = aliases
         """Dict mapping aliases to real csound parameters"""
+
+        self.initHook = inithook
+        """Function to be called the first time this preset is instanciated"""
 
         self._consolidatedInit: str = ''
         self._instr: csoundengine.instr.Instr | None = None
@@ -409,7 +421,8 @@ class PresetDef:
         Returns:
             a dict of all dynamic params of this preset and their default values
         """
-        return self.getInstr().dynamicParams(aliases=aliases, aliased=aliased)
+        params = self.getInstr().dynamicParams(aliases=aliases, aliased=aliased)
+        return _cast(dict[str, float|str], params)
 
     @staticmethod
     @cache
@@ -514,7 +527,7 @@ class PresetDef:
             ps.append('</ul>')
 
         if self.init:
-            init = _textlib.reindent(self.init, _INSTR_INDENT)
+            init = _textwrap.indent(_textwrap.dedent(self.init), _INSTR_INDENT)
             inithtml = csoundengine.csoundlib.highlightCsoundOrc(init, theme=theme)
             ps.append(_header('init'))
             ps.append(span(inithtml, fontsize=codefont))
@@ -574,7 +587,7 @@ class PresetDef:
                                          body=self.body,
                                          init=self.init,
                                          includes=self.includes,
-                                         args=self.args,
+                                         args=self.args,   # type: ignore
                                          numchans=self.numouts,
                                          aliases=aliases)
         self._instr = instr
@@ -586,6 +599,9 @@ class PresetDef:
 
         All presets are saved to the presets path. Saved presets will be available
         in a future session
+
+        Returns:
+            the path to the saved preset
 
         .. seealso:: :func:`maelzel.core.workspace.presetsPath`
         """
@@ -603,5 +619,3 @@ def _consolidateInitCode(init: str, includes: list[str]) -> str:
 
 def _genIncludes(includes: list[str]) -> str:
     return "\n".join(csoundengine.csoundlib.makeIncludeLine(inc) for inc in includes)
-
-

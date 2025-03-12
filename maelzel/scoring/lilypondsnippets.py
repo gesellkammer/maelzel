@@ -1,5 +1,4 @@
 from string import Template
-from functools import cache
 
 
 prelude = r"""
@@ -179,7 +178,7 @@ pitchnames = \arrowedPitchNames
   }
   \context {
     \Staff
-    
+
     % The glyph-list needs to be loaded into each object that
     %  draws accidentals.
     alterationGlyphs = #`(
@@ -200,7 +199,7 @@ pitchnames = \arrowedPitchNames
         (-3/4                   . "accidentals.mirroredflat.flat")
         (,SEVEN-E-FLAT          . "accidentals.flatflat.slash")
         (-1                     . "accidentals.flatflat"))
-        
+
     extraNatural = ##f % this is a workaround for bug #1701
   }
 
@@ -243,7 +242,7 @@ _horizontalSpacingLarge = r"""
     \override SpacingSpanner.base-shortest-duration = #(ly:make-moment 1/32)
     \override SpacingSpanner.shortest-duration-space = #4.0
   }
-}  
+}
 """
 
 _horizontalSpacingXL = r"""

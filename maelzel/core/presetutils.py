@@ -44,7 +44,7 @@ def saveYamlPreset(p: presetdef.PresetDef, outpath: str) -> None:
         f.write(f"name: {p.name}\n")
         if p.description:
             f.write(f"description: {p.description}\n")
-        f.write(f"code: |\n")
+        f.write("code: |\n")
         audiogen = textwrap.indent(p.code, "    ")
         f.write(audiogen)
         if not audiogen.endswith("\n"):
@@ -52,12 +52,12 @@ def saveYamlPreset(p: presetdef.PresetDef, outpath: str) -> None:
         if p.args:
             f.write(f"args: {p.args}\n")
         if p.init:
-            f.write(f"init: |\n")
+            f.write("init: |\n")
             f.write(textwrap.indent(p.init, "    "))
             if not p.init.endswith("\n"):
                 f.write("\n")
         if p.epilogue:
-            f.write(f"epilogue: |\n")
+            f.write("epilogue: |\n")
             f.write(textwrap.indent(p.epilogue, "    "))
             if not p.epilogue.endswith("\n"):
                 f.write("\n")
@@ -93,12 +93,15 @@ def loadYamlPreset(path: str) -> presetdef.PresetDef:
 def makeSoundfontAudiogen(sf2path: str = None,
                           preset: tuple[int, int] = None,
                           interpolation='linear',
-                          ampDivisor: int = None,
+                          ampDivisor: int | float = None,
                           normalize=False,
                           velocityCurve: presetdef.GainToVelocityCurve | list[float] = None,
                           # velocityToCutoffMapping: dict[int, int] = None,
                           referencePeakPitch: int = None,
-                          mono=False) -> str:
+                          mono=False,
+                          reverb=False,
+                          reverbChanPrefix='.maelzelreverb'
+                          ) -> str:
     """
     Generate audiogen code for a soundfont.
 
@@ -119,6 +122,9 @@ def makeSoundfontAudiogen(sf2path: str = None,
             to be scaled down if using 0dbfs=0, which we use throughout in maelzel.
         normalize: if True, a reference peak of the soundfont is queried and this
             is used as the amplitude divisor
+        velocityCurve: a curve mapping ... (#TODO)
+        reverb: if True, include code to send audio to a global reverb. At this
+            point many aspects of this are hardcoded
 
     Returns:
         the audio code for a soundfont preset
@@ -147,7 +153,7 @@ def makeSoundfontAudiogen(sf2path: str = None,
 
     presets = csoundengine.csoundlib.soundfontPresets(sf2path)
     if not presets:
-        raise ValueError(f"The given soundfont has no presets")
+        raise ValueError(f"The given soundfont {sf2path} has no presets")
 
     if preset is None:
         bank, presetnum, presetname = presets[0]
@@ -210,7 +216,7 @@ def makeSoundfontAudiogen(sf2path: str = None,
     if not mono:
         opcode = 'sfplay' if interpolation == 'linear' else 'sfplay3'
         parts.append(fr'''
-        aout1, aout2 {opcode} ivel, inote0_, kamp/iampdiv_, mtof:k(kpitch2), ipresetidx, 1        
+        aout1, aout2 {opcode} ivel, inote0_, kamp/iampdiv_, mtof:k(kpitch2), ipresetidx, 1
         ''')
 
     else:
@@ -218,7 +224,22 @@ def makeSoundfontAudiogen(sf2path: str = None,
         parts.append(fr'''
         aout1 {opcode} ivel, inote0_, kamp/iampdiv_, mtof:k(kpitch2), ipresetidx, 1
         ''')
-    audiogen = emlib.textlib.joinPreservingIndentation(parts, maxEmptyLines=0)
+    if reverb:
+        # TODO: add reverb code
+        reverbChanPrefix = ".maelzelreverb"
+        if mono:
+            parts.append("kpos = kpos == -1 ? 0 : kpos")
+            parts.append("a_outL, a_outR = pan2(aout1, kpos)")
+        else:
+            parts.append("kpos = kpos == -1 ? 0.5 : kpos")
+            parts.append("a_outL, a_outR = panstereo(aout1, aout2, kpos)")
+        parts.append(fr'''
+        chnmix a_outL * kwet, "{reverbChanPrefix}.1"
+        chnmix a_outR * kwet, "{reverbChanPrefix}.2"
+        outch ichan, a_outL * (1 - kwet), ichan + 1, a_outR * (1 - kwet)
+        ''')
+    parts = [emlib.textlib.stripLines(part) for part in parts]
+    audiogen = emlib.textlib.joinPreservingIndentation(parts)
     return textwrap.dedent(audiogen)
 
 

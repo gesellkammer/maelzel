@@ -10,11 +10,10 @@ from .synthevent import PlayArgs, SynthEvent
 from .workspace import Workspace
 from maelzel.scorestruct import ScoreStruct
 from maelzel import scoring
-from ._common import UNSET
+
 
 from typing import TYPE_CHECKING, Sequence, Callable
 if TYPE_CHECKING:
-    from ._typedefs import *
     from typing import Any, Iterator
     from typing_extensions import Self
 
@@ -284,7 +283,8 @@ class Score(MContainer):
             voice = voice.asVoice()
         voice.parent = self
         self.voices.append(voice)
-        if not self._modified: self._changed()
+        if not self._modified:
+            self._changed()
 
     @property
     def dur(self) -> F:
@@ -294,7 +294,7 @@ class Score(MContainer):
         return self._dur
 
     def scoringParts(self, config: CoreConfig | None = None
-                     ) -> list[scoring.UnquantizedPart]:
+                     ) -> list[scoring.core.UnquantizedPart]:
         self._update()
         parts = []
         activeconfig = config or Workspace.active.config

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import re
 import sys
 
 from maelzel.scorestruct import ScoreStruct
-from maelzel.common import F, asF, F0
+from maelzel.common import F, asF, F0, UNSET, UnsetType
 from maelzel import _util
 from maelzel.core.config import CoreConfig
 from .mobj import MObj, MContainer
@@ -16,8 +15,8 @@ from . import environment
 from . import presetmanager
 from . import _mobjtools
 from . import _tools
-from ._common import UNSET, _Unset, logger
-from functools import cache
+from ._common import logger
+
 
 from maelzel import scoring
 from maelzel.colortheory import safeColors
@@ -28,7 +27,7 @@ from typing import TYPE_CHECKING, overload
 if TYPE_CHECKING:
     from typing_extensions import Self
     from typing import Any, Iterable, Iterator, Callable, Sequence
-    from ._typedefs import time_t, location_t, num_t, beat_t
+    from maelzel.common import time_t, location_t, num_t, beat_t
 
 
 __all__ = (
@@ -178,7 +177,7 @@ class Chain(MContainer):
         elif items and not isinstance(items, list):
             items = list(items)
 
-        self.items: list[MEvent | Chain] = items
+        self.items: list[MEvent | Chain] = items  # type: ignore
         """The items in this chain, a list of events of other chains"""
 
         for item in items:
@@ -205,11 +204,11 @@ class Chain(MContainer):
 
     def clone(self,
               items: Sequence[MEvent | Chain] | None = None,
-              offset: time_t | None | _Unset = UNSET,
+              offset: time_t | None | UnsetType = UNSET,
               label: str | None = None,
               properties: dict | None = None
               ) -> Self:
-        if offset is UNSET:
+        if isinstance(offset, UnsetType):
             offset = None if self.offset is None else self.offset
         elif offset is not None:
             offset = asF(offset)
@@ -476,7 +475,7 @@ class Chain(MContainer):
             return None
         return min(p[0] for p in pitchRanges), max(p[1] for p in pitchRanges)
 
-    def meanPitch(self) -> float | None:
+    def meanPitch(self) -> float:
         items = [item for item in self.items if not item.isRest()]
         gracenoteDur = F(1, 16)
         sumpitch, sumdur = 0., 0.
@@ -486,6 +485,8 @@ class Chain(MContainer):
                 dur = item.dur if item.dur > 0 else gracenoteDur
                 sumpitch += pitch * dur
                 sumdur += float(dur)
+        if sumdur == 0:
+            return 0.0
         return sumpitch / sumdur
 
     def withExplicitOffset(self, forcecopy=False) -> Self:
@@ -640,7 +641,7 @@ class Chain(MContainer):
                 item.mergeTiedEvents()
                 out.append(item)
                 last = None
-            elif last is not None and type(last) == type(item):
+            elif last is not None and type(last) is type(item):
                 merged = last.mergeWith(item)
                 if merged is None:
                     if last is not None:
@@ -1033,7 +1034,7 @@ class Chain(MContainer):
         chainEvents = self.flatEvents()
         allNotations: list[scoring.Notation] = []
         if self.label and chainEvents[0].relOffset() > 0:
-            firstrest = scoring.makeRest(duration=chainEvents[0].dur, annotation=self.label)
+            firstrest = scoring.Notation.makeRest(duration=chainEvents[0].dur, annotation=self.label)
             allNotations.append(firstrest)
 
         for event in chainEvents:
@@ -1067,7 +1068,7 @@ class Chain(MContainer):
 
             if n.symbols:
                 for s in n.symbols:
-                    if isinstance(s, symbols.Hairpin) and s.kind == 'start' and not s.partnerSpanner:
+                    if isinstance(s, symbols.Hairpin) and s.kind == 'start' and not s.partner:
                         lastHairpin = s
 
     def _scoringParts(self,
@@ -1081,17 +1082,17 @@ class Chain(MContainer):
         notations = self.scoringEvents(config=config)
         if not notations:
             return []
-        scoring.resolveOffsets(notations)
+        scoring.core.resolveOffsets(notations)
         config = self.getConfig(config) or config
         maxstaves = maxstaves or config['show.voiceMaxStaves']
 
         if maxstaves == 1:
-            parts = [scoring.UnquantizedPart(notations, name=name, shortname=shortname)]
+            parts = [scoring.core.UnquantizedPart(notations, name=name, shortname=shortname)]
         else:
-            parts = scoring.distributeNotationsByClef(notations, name=name, shortname=shortname,
+            parts = scoring.core.distributeNotationsByClef(notations, name=name, shortname=shortname,
                                                       maxstaves=maxstaves)
             if len(parts) > 1 and groupParts:
-                scoring.UnquantizedPart.groupParts(parts, name=name, shortname=shortname)
+                scoring.core.UnquantizedPart.groupParts(parts, name=name, shortname=shortname)
 
         if addQuantizationProfile:
             quantProfile = config.makeQuantizationProfile()
@@ -1101,7 +1102,7 @@ class Chain(MContainer):
 
     def scoringParts(self,
                      config: CoreConfig = None
-                     ) -> list[scoring.UnquantizedPart]:
+                     ) -> list[scoring.core.UnquantizedPart]:
         return self._scoringParts(config or Workspace.active.config, name=self.label)
 
     def quantizePitch(self, step=0.25):
@@ -1280,7 +1281,7 @@ class Chain(MContainer):
             self._cachedEventsWithOffset = eventpairs
 
         if start is not None or end is not None:
-            struct = self.scorestrucct() or Workspace.active.scorestruct
+            struct = self.scorestruct() or Workspace.active.scorestruct
             start = struct.asBeat(start) if start else F0
             end = struct.asBeat(end) if end else F(sys.maxsize)
             eventpairs = _eventPairsBetween(eventpairs,
@@ -1545,7 +1546,8 @@ class Chain(MContainer):
         """
         if isinstance(location, tuple):
             struct = self.scorestruct() or Workspace.active.scorestruct
-            start = struct.locationToBeat(*location)
+            measidx, beat = location
+            start = struct.locationToBeat(measidx, beat)
         else:
             start = asF(location)
         end = start + margin
@@ -1804,7 +1806,7 @@ class Chain(MContainer):
         for event in self.recurse():
             if event.symbols:
                 for symbol in event.symbols:
-                    if isinstance(symbol, symbols.Spanner) and symbol.partnerSpanner is None:
+                    if isinstance(symbol, symbols.Spanner) and symbol.partner is None:
                         unmatched.append(symbol)
         if not unmatched:
             return
@@ -1832,7 +1834,7 @@ class Chain(MContainer):
                         else:
                             logger.debug(f"Removing spanner {spanner} from {obj}")
                             obj.symbols.remove(spanner)
-                            spanner.anchor = None
+                            spanner._anchor = None
 
     def remap(self, deststruct: ScoreStruct, sourcestruct: ScoreStruct = None
               ) -> Self:
@@ -1898,7 +1900,7 @@ class Chain(MContainer):
     def _cropped(self, startbeat: F, endbeat: F, absorbOffset=False
                  ) -> Self:
         items = []
-        absoffset = self.absOffset()
+        # absoffset = self.absOffset()
         for item, offset in self.itemsWithOffset():
             if offset > endbeat or (offset == endbeat and item.dur > 0):
                 break
@@ -1976,7 +1978,7 @@ class PartGroup:
         self.shortname = shortname
         """A short name for the group"""
 
-        self.groupid = scoring.makeGroupId()
+        self.groupid = scoring.core.makeGroupId()
         """A group ID"""
 
         self.showPartNames = showPartNames
@@ -2169,7 +2171,7 @@ class Voice(Chain):
         return out
 
     def scoringParts(self, config: CoreConfig = None
-                     ) -> list[scoring.UnquantizedPart]:
+                     ) -> list[scoring.core.UnquantizedPart]:
         activeconfig = config or Workspace.active.config
         ownconfig = self.getConfig(prototype=activeconfig)
         config = ownconfig or activeconfig
@@ -2189,7 +2191,7 @@ class Voice(Chain):
                         symbol.applyToPart(parts[0])
 
         if self._group:
-            scoring.UnquantizedPart.groupParts(parts,
+            scoring.core.UnquantizedPart.groupParts(parts,
                                                groupid=self._group.groupid,
                                                name=self._group.name,
                                                shortname=self._group.shortname,

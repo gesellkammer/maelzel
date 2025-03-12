@@ -20,7 +20,7 @@ a Note, a Chord or a Rest. Notations can be grouped together in a
 Quantized / Unquantized
 -----------------------
 
-.. seealso:: :py:mod:`maelzel.scoring.quant`
+.. seealso:: :py:mod:`maelze^l.scoring.quant`
 
 In all these cases durations are abstract and measured in quarter notes.
 The generated UnquantizedPart/UnquantizedScore do not have any measures or
@@ -52,8 +52,8 @@ as ``musicxml`` or even as ``midi``.
     rendering in the general *maelzel* configuration. See :ref:`config`
 
 """
-from .notation import *
-from .core import *
+from .notation import (Notation,)
+from . import core
 from .common import logger
 from . import quant
 from . import render
@@ -63,4 +63,15 @@ from . import attachment
 from . import enharmonics
 
 
-
+__all__ = [
+    'Notation',
+    'core',
+    'common',
+    'quant',
+    'render',
+    'definitions',
+    'spanner',
+    'attachment',
+    'enharmonics',
+    'logger'
+]

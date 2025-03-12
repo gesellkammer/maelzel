@@ -4,7 +4,7 @@ from maelzel.core import F, Note, asEvent
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from maelzel.core._typedefs import time_t
+    from maelzel.common import time_t
 
 
 __all__ = (

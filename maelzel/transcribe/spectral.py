@@ -9,7 +9,7 @@ from maelzel.partialtracking import spectrum as sp
 from .breakpoint import Breakpoint, simplifyBreakpoints
 from .options import TranscriptionOptions
 
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from maelzel.partialtracking.track import Track
     import maelzel.core as mc
@@ -124,4 +124,3 @@ def transcribe(spectrum: sp.Spectrum,
                              scorestruct=scorestruct,
                              options=options)
     return score, result.residual
-

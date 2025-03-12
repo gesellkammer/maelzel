@@ -299,7 +299,7 @@ def intervalPenalty(n0: str, n1: str, chord=False, options: EnharmonicOptions = 
     if dpos == 0:
         if dpitch >= 1.5:
             # G / Gb- or Gb / G+
-            _((options.confusingIntervalPenalty * 10, f"confusing interval"))
+            _((options.confusingIntervalPenalty * 10, "confusing interval"))
         # same position, different pitch
         elif notated0.diatonic_alteration == -1.5 and notated1.diatonic_alteration == 0:
             # 4Gb- / 4G
@@ -313,9 +313,9 @@ def intervalPenalty(n0: str, n1: str, chord=False, options: EnharmonicOptions = 
         elif notated0.chromatic_alteration != 0 and notated1.chromatic_alteration == 0:
             # 4E+ 4E
             if not chord:
-                _((options.unisonAlterationPenalty, f"unison"))
+                _((options.unisonAlterationPenalty, "unison"))
             else:
-                _((options.chordUnisonAlterationPenalty, f"unison"))
+                _((options.chordUnisonAlterationPenalty, "unison"))
         else:
             _((options.unisonAlterationPenalty, "unisonAlteration"))
     elif dpos == 1:

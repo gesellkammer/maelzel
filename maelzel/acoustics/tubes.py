@@ -2,9 +2,6 @@
 Pipe acoustics
 """
 from __future__ import annotations
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from typing import *
 
 
 def tubeFrequency(length: float, width: float, kind='open', shape="circular", c=343.0
@@ -77,4 +74,3 @@ def organSlideLength(freq: float, widthRatio=12.0, c=343.0
                      ) -> float:
     return organPipeLength(freq=freq, widthRatio=widthRatio, kind='closed',
                            footmount=2, c=c)
-

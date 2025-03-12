@@ -1,11 +1,11 @@
 from __future__ import annotations
 from maelzel.common import F
-from emlib.iterlib import pairwise, first
+from emlib.iterlib import first
 
 from maelzel.packing import F0
-from .event import *
-from .workspace import getConfig, Workspace
-from maelzel.core.synthevent import SynthEvent, PlayArgs
+from .eventbase import MEvent
+from .event import Note, Chord
+from .workspace import getConfig
 
 
 from typing import Sequence

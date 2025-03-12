@@ -11,16 +11,14 @@ import textwrap
 import pitchtools as pt
 from emlib import filetools
 from emlib import misc
-from functools import cache
 from dataclasses import dataclass
-from maelzel import _util
 from maelzel._imgtools import imagefileAutocrop
 from maelzel.common import F
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Union, Iterator
-    pitch_t = Union[int, float, str]
+    from typing import Iterator
+    from maelzel.common import pitch_t
 
 
 logger = logging.getLogger("maelzel")
@@ -164,7 +162,7 @@ def installLilypond(usehomebrew=True) -> str:
 
     lilybin = lilyponddist.lilypondbin()
     if not lilybin or not lilybin.exists():
-        raise RuntimeError(f"Could not install lilypond")
+        raise RuntimeError("Could not install lilypond")
     lilypath = lilybin.as_posix()
     _cache['lilypath'] = lilypath
     return lilypath
@@ -259,7 +257,7 @@ def renderScore(score: str,
     return out
 
 
-def show(text: str, external=False, maxwidth: int = None, snippet: bool | None = None) -> None:
+def show(text: str, external=False, maxwidth=0, snippet: bool | None = None) -> None:
     """
     Render the given lilypond text and show it as an image
 
@@ -294,7 +292,7 @@ def snippetToScore(snippet: str) -> str:
 <<
   \new Staff {{
       {snippet}
-  }} 
+  }}
 >>
 }}
     """
@@ -816,7 +814,7 @@ def isValidLilypondDuration(s: str) -> bool:
     return True
 
 
-def makeDuration(quarterLength: Union[int, float, str, F], dots=0) -> str:
+def makeDuration(quarterLength: int | float | str | F, dots=0) -> str:
     """
     Args:
         quarterLength: the duration as a fraction of a quarter-note. Possible string
@@ -874,6 +872,7 @@ def customNotehead(notehead: str = 'default', parenthesis: bool = False, color: 
                    sizeFactor: float = None
                    ) -> str:
     """
+    Creates a custom notehead in LilyPond.
 
     Args:
         notehead: one of 'cross', 'harmonic', 'triangleup', 'xcircle', 'triangle',
@@ -993,13 +992,7 @@ def keySignature(fifths: int, mode='major') -> str:
         mode: 'major' or 'minor'
 
     Returns:
-        the corresponding lilypond code (for example '\key a major')
-
-    Example
-    ~~~~~~~
-
-        >>> keySignature(3, 'major')
-        \key a major
+        the corresponding lilypond code
 
     """
     # \key f \major
@@ -1017,14 +1010,14 @@ def keySignature(fifths: int, mode='major') -> str:
 def makeClef(clef: str) -> str:
     """
     Create a lilypond clef indication from the clef given
-    
+
     .. note::
-    
+
         clef can be one of treble, bass or alto. To indicate octave displacement
         add an '8' and 'a' for 8va alta, and 'b' for octava bassa. If not specified
         'treble8' indicates *8va bassa* and 'bass8' indicates *8va bassa*. Also
-        possible is the '15' modifier for two octaves (higher or lower). 
-    
+        possible is the '15' modifier for two octaves (higher or lower).
+
     Args:
         clef: one of treble, bass, treble8, bass8, alto, treble15, bass15
 
@@ -1059,7 +1052,7 @@ def makeNote(pitch: pitch_t,
              cautionary=False) -> str:
     """
     Returns the lilypond representation of the given note
-    
+
     **NB**: Tuplets should be created independently
 
     Args:

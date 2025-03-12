@@ -17,8 +17,7 @@ if TYPE_CHECKING:
     from typing import TypeVar, Callable, Sequence
     import matplotlib.pyplot
     T = TypeVar('T')
-    
-from dataclasses import dataclass
+
 import numpy as np
 
 import bpf4
@@ -298,13 +297,12 @@ def partitionCurvedSpace(x: float,
         return [roundgrid(part/fscale, accuracy) for part in parts]
 
     else:  # accuracy == 0
-        from functools import partial
         import constraint
 
         normcurve = curve.fit_between(0, 1)
         normcurve = (normcurve / normcurve(1)) * x
         optimal_results = np.diff(normcurve.map(numpart+1))
-        maxval = min(int(max(optimal_results) + 1), x-(numpart-1)*minval)
+        maxval = int(min(int(max(optimal_results) + 1), x-(numpart-1)*minval))
 
         # maxval = x - minval * (numpart - 1)
         V = list(range(numpart))
@@ -316,8 +314,7 @@ def partitionCurvedSpace(x: float,
             return sum(abs(val-res) for val, res in zip(values, optimal_results))
 
         for var, res in zip(V, optimal_results):
-            func = lambda x, res: abs(x-res) <= maxdev
-            p.addConstraint(partial(func, res), [var])
+            p.addConstraint((lambda x, res=res: abs(x-res) <= maxdev), [var])
         p.addConstraint(constraint.ExactSumConstraint(x), V)
 
         solutions = p.getSolutions()
@@ -526,8 +523,12 @@ def ditherCurve(curve: bpf4.BpfInterface, numsamples: int, resolution=2) -> list
     return out
 
 
-def pulseCurve(curve: bpf4.BpfInterface, n: int, resolution=5, entropy=0.,
-               x0:float=None, x1:float=None
+def pulseCurve(curve: bpf4.BpfInterface,
+               n: int,
+               resolution=5,
+               entropy=0.,
+               x0: float | None = None,
+               x1: float | None = None
                ) -> list[int]:
     """
     Generates a list of 0s/1s of length n, following the curve

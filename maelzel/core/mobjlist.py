@@ -1,6 +1,6 @@
 
 from __future__ import annotations
-from .event import MObj
+from maelzel.core.mobj import MObj
 from .config import CoreConfig
 from . import environment
 from .workspace import Workspace, getConfig
@@ -9,10 +9,8 @@ from maelzel.common import F
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
+    from maelzel.common import time_t
     from typing_extensions import Self
-    from .chain import Voice
-    from maelzel.scorestruct import ScoreStruct
-    from ._typedefs import *
     from typing import Any, Callable
     from .synthevent import PlayArgs, SynthEvent
 
@@ -72,8 +70,9 @@ class MObjList(MObj):
         return out
 
     def pitchRange(self) -> tuple[float, float] | None:
-        pitchRanges = [item.pitchRange() for item in self]
-        return min(p[0] for p in pitchRanges), max(p[1] for p in pitchRanges)
+        ranges = [item.pitchRange() for item in self]
+        ranges = [r for r in ranges if r is not None]
+        return min(r[0] for r in ranges), max(r[1] for r in ranges)
 
     def scoringEvents(self,
                       groupid='',
@@ -134,4 +133,3 @@ class MObjList(MObj):
                 print("  "*(indents+1), self.playargs)
         for item in self:
             item.dump(indents+1)
-

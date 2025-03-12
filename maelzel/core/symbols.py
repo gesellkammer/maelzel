@@ -23,7 +23,7 @@ Property
 # This module cannot import from maelzel.core
 
 from __future__ import annotations
-from abc import abstractmethod, ABC
+from abc import abstractmethod
 import random
 import copy
 from functools import cache
@@ -39,8 +39,9 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from typing_extensions import Self
-    from typing import Set, Sequence, Any, Callable
+    from typing import Sequence, Any
     from maelzel.core import mobj
+    from maelzel.core import event
 
 _uuid_alphabet = '0123456789abcdefghijklmnopqrstuvwxyz'
 
@@ -111,10 +112,17 @@ class Spanner(Symbol):
     exclusive = False
     appliesToRests = True
 
-    def __init__(self, kind='start', uuid: str = '', linetype='solid',
-                 placement='', color=''):
+    def __init__(self,
+                 kind='start',
+                 uuid: str = '',
+                 linetype='solid',
+                 placement='',
+                 color='',
+                 anchor: event.MEvent = None):
         super().__init__()
         assert kind == 'start' or kind == 'end', f"got kind={kind}"
+        if anchor:
+            assert isinstance(anchor, event.MEvent)
         assert linetype in {'', 'solid', 'dashed', 'dotted', 'wavy', 'trill', 'zigzag'}, f"got {linetype}"
         if placement:
             assert placement == 'above' or placement == 'below'
@@ -123,18 +131,27 @@ class Spanner(Symbol):
         self.linetype = linetype
         self.placement = placement
         self.color = color
-
-        self.anchor: event.MEvent | None = None
+        self._anchor: event.MEvent | None = anchor
         """The event to which this spanner is anchored to"""
 
-        self.partnerSpanner: Spanner | None = None
+        self._partner: Spanner | None = None
         """The partner spanner"""
 
+    @property
+    def anchor(self) -> event.MEvent | None:
+        return self._anchor
+
+    @property
+    def partner(self) -> Spanner | None:
+        return self._partner
+
     def __repr__(self) -> str:
-        def convertRef(val):
-            return f"{type(val).__name__}"
-        return _util.reprObj(self, hideFalsy=True,
-                             convert={'anchor': convertRef, 'partnerSpanner': convertRef})
+        return _util.reprObj(self,
+                             hideFalsy=True,
+                             properties=('anchor',),
+                             filter={'linetype': lambda val: val!='solid'},
+                             convert={'anchor': lambda ev: ev.name,
+                                      'partnerSpanner': lambda val: f"{type(val).__name__}"},)
 
     def _attrs(self) -> dict:
         keys = ('kind', 'uuid', 'linetype', 'placement', 'color')
@@ -151,7 +168,7 @@ class Spanner(Symbol):
         Args:
             obj: the object this spanner is anchored to, either as start or end
         """
-        self.anchor = obj
+        self._anchor = obj
 
     def bind(self, startobj: event.MEvent, endobj: event.MEvent) -> None:
         """
@@ -179,7 +196,7 @@ class Spanner(Symbol):
         if self.anchor is None:
             self.setAnchor(startobj)
         self.makeEndSpanner(anchor=endobj)
-        assert self.partnerSpanner is not None
+        assert self.partner is not None
 
     def makeEndSpanner(self, anchor: event.MEvent = None) -> Self:
         """
@@ -201,12 +218,13 @@ class Spanner(Symbol):
         if anchor and self.anchor is anchor:
             raise ValueError("Start anchor and end anchor cannot be the same object")
         endSpanner = copy.copy(self)
-        self.setPartnerSpanner(endSpanner)
+        # endSpanner.kind = 'end'    # This is set by setPartner
+        self.setPartner(endSpanner)
         if anchor:
             anchor.addSymbol(endSpanner)
         return endSpanner
 
-    def setPartnerSpanner(self, other: Spanner) -> None:
+    def setPartner(self, partner: Spanner) -> None:
         """
         Set the given spanner as the partner spanner of self (and self as partner of other)
 
@@ -214,14 +232,14 @@ class Spanner(Symbol):
             other: the partner spanner
 
         """
-        other.partnerSpanner = self
-        self.partnerSpanner = other
+        partner._partner = self
+        self._partner = partner
         if self.kind == 'start':
-            other.kind = 'end'
-            other.uuid = self.uuid
+            partner.kind = 'end'
+            partner.uuid = self.uuid
         else:
-            other.kind = 'start'
-            self.uuid = other.uuid
+            partner.kind = 'start'
+            self.uuid = partner.uuid
 
 
 class TrillLine(Spanner):
@@ -580,7 +598,7 @@ class VoiceSymbol(Symbol):
     """Within a multipart voice, apply this symbol to all parts"""
 
     @abstractmethod
-    def applyToPart(self, part: scoring.UnquantizedPart) -> None:
+    def applyToPart(self, part: scoring.core.UnquantizedPart) -> None:
         raise NotImplementedError
 
 
@@ -804,7 +822,7 @@ class Transpose(EventSymbol, VoiceSymbol):
             for i, pitch in fixed.items():
                 n.fixNotename(pt.transpose(pitch, self.interval), idx=i)
 
-    def applyToPart(self, part: scoring.UnquantizedPart) -> None:
+    def applyToPart(self, part: scoring.core.UnquantizedPart) -> None:
         for notation in part.notations:
             if not notation.isRest:
                 self.applyToNotation(notation, parent=None)
@@ -1335,7 +1353,7 @@ class BeamBreak(EventSymbol, VoiceSymbol):
     def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
         n.addAttachment(scoring.attachment.Breath(visible=False))
 
-    def applyToPart(self, part: scoring.UnquantizedPart) -> None:
+    def applyToPart(self, part: scoring.core.UnquantizedPart) -> None:
         if self.location is None:
             raise ValueError("A BeamBreak can only be applied to a part if its location"
                              " is set.")

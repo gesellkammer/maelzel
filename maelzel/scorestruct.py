@@ -1,21 +1,21 @@
 from __future__ import annotations
 
-import copy
 from pathlib import Path
 from dataclasses import dataclass
 from bisect import bisect
 import sys
 import functools
+import re
 
 import emlib.textlib
 from emlib import iterlib
-from maelzel.common import F, asF, F0, num_t, timesig_t
-from maelzel._util import aslist
+from maelzel.common import F, asF, F0
 
 from typing import TYPE_CHECKING, overload as _overload
 if TYPE_CHECKING:
     from typing import Iterator, Sequence, Union
     import maelzel.core
+    from maelzel.common import num_t, timesig_t, beat_t
     from maelzel.scoring.renderoptions import RenderOptions
     from maelzel.scoring.renderer import Renderer
 
@@ -281,7 +281,7 @@ class TimeSignature:
             (16, (4, 4, 3))
         """
         if not self.subdivisionStruct:
-            raise ValueError(f"This time signature does not have a subdivision structure")
+            raise ValueError("This time signature does not have a subdivision structure")
         return self.fusedSignature[1], self.subdivisionStruct
 
 
@@ -299,7 +299,10 @@ def _parseTimesigPart(s: str) -> tuple[tuple[int, int], tuple[int, ...]]:
         subdivs = tuple(int(subdiv) for subdiv in p2.split("-"))
         return ((num, den), subdivs)
     else:
-        nums, dens = s.split("/")
+        fracparts = s.split("/")
+        if len(fracparts) != 2:
+            raise ValueError(f"Invalid time signature: {s}")
+        nums, dens = fracparts
         return ((int(nums), int(dens)), ())
 
 
@@ -627,7 +630,7 @@ class MeasureDef:
         if self.rehearsalMark:
             parts.append(f'rehearsalMark={self.rehearsalMark}')
         if self.readonly:
-            parts.append(f'readonly=True')
+            parts.append('readonly=True')
         return f'MeasureDef({", ".join(parts)})'
 
     def __hash__(self) -> int:
@@ -1146,11 +1149,9 @@ class ScoreStruct:
 
         """
         assert not self.measuredefs
-
-        tempo = initialTempo
-        timesig = initialTimeSignature
         measureIndex = -1
-        lines = emlib.textlib.splitAndStripLines(s, r'[\n;]')
+        lines = re.split(r'[\n;]', s)
+        lines = emlib.textlib.linesStrip(lines)
         if lines[-1].strip() == '...':
             self.endless = True
             lines = lines[:-1]
@@ -1174,6 +1175,12 @@ class ScoreStruct:
                 continue
 
             mdef = _parseScoreStructLine(line)
+            if i == 0:
+                if mdef.timesig is None:
+                    mdef.timesig = initialTimeSignature
+                if mdef.tempo is None:
+                    mdef.tempo = initialTempo
+
             if mdef.measureIndex is None:
                 mdef.measureIndex = measureIndex + 1
             else:
@@ -1528,7 +1535,8 @@ class ScoreStruct:
         Returns:
             a time in seconds (as a Fraction to avoid rounding problems)
         """
-        if self._needsUpdate: self._update()
+        if self._needsUpdate:
+            self._update()
 
         numdefs = len(self.measuredefs)
         if measure > numdefs - 1:
@@ -1847,7 +1855,8 @@ class ScoreStruct:
         """
         if isinstance(a, tuple):
             assert b is None
-            return self.locationToBeat(*a)
+            measureidx, beat = a
+            return self.locationToBeat(measureidx, beat)
         elif b is not None:
             assert isinstance(a, int)
             return self.locationToBeat(a, b)
@@ -1883,7 +1892,8 @@ class ScoreStruct:
         """
         if isinstance(a, tuple):
             assert b is None
-            return self.locationToTime(*a)
+            measure, beat = a
+            return self.locationToTime(measure, beat)
         elif b is not None:
             assert isinstance(a, int)
             return self.locationToTime(a, b)
@@ -1913,20 +1923,12 @@ class ScoreStruct:
         Returns:
             the absolute beat in quarter notes
         """
-        return self.locationToBeat(*location) if isinstance(location, tuple) else asF(location)
+        if isinstance(location, tuple):
+            measure, beat = location
+            return self.locationToBeat(measure, beat)
+        else:
+            return asF(location)
 
-    def asBeats(self, offsets: Sequence[F | float | int | tuple[int, float | F]]) -> list[F]:
-        """
-        Similar to .asBeat, converts multiple offsets to beats
-
-        Args:
-            offsets: a sequence of beats as absolute beats or as locations (measureindex, beatoffset)
-
-        Returns:
-            a list of absolute beats, guaranteed to be of rational type
-        """
-        return [x if isinstance(x, F) else self.locationToBeat(*x) if isinstance(x, tuple) else F(x)
-                for x in offsets]
 
     def locationToBeat(self, measure: int, beat: num_t = F(0)) -> F:
         """
@@ -2051,8 +2053,8 @@ class ScoreStruct:
         .. seealso:: :meth:`~ScoreStruct.beatDelta`
 
         """
-        startTime = self.locationToTime(*start) if isinstance(start, tuple) else self.beatToTime(start)
-        endTime = self.locationToTime(*end) if isinstance(end, tuple) else self.beatToTime(end)
+        startTime = self.beatToTime(self.asBeat(start))
+        endTime = self.beatToTime(self.asBeat(end))
         return endTime - startTime
 
     def beatDelta(self,
@@ -2213,7 +2215,7 @@ class ScoreStruct:
         else:
             haskey = False
 
-        parts = [f'<p><strong>ScoreStruct</strong></p>']
+        parts = ['<p><strong>ScoreStruct</strong></p>']
         tempo = -1
         rows = []
         for i, m in enumerate(self.measuredefs):

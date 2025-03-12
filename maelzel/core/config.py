@@ -138,10 +138,8 @@ import os
 
 import configdict
 from configdict import ConfigDict
-from maelzel.common import F
 from maelzel.core._common import logger
 from maelzel.core import configdata
-import logging
 
 import typing
 if typing.TYPE_CHECKING:
@@ -180,14 +178,6 @@ def _propagateA4(config: CoreConfig, a4: float) -> None:
     # Is it the active config?
     if config is w.config:
         w.a4 = a4
-
-
-def _fractionsAsFloat(val: bool):
-    try:
-        F._reprWithFraction = not val
-    except:
-        logger.info(f"Rational class {F} does not support repr as float")
-        pass
 
 
 #####################################
@@ -237,7 +227,6 @@ class CoreConfig(ConfigDict):
         'htmlTheme': lambda config, key, val: _syncCsoundengineTheme(val),
         r"(show|quant)\..+": lambda config, key, val: _resetImageCacheCallback(config, force=True),
         "A4": lambda config, key, val: _propagateA4(config, val),
-        ".reprShowFractionsAsFloat": lambda config, key, val: _fractionsAsFloat(val)
     }
 
     def __init__(self,

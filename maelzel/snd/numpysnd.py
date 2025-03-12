@@ -4,11 +4,13 @@ numpy utilities for audio arrays
 from __future__ import annotations
 import numpy as np
 import bpf4
+import bpf4.core
+import bpf4.util
 from math import sqrt
 from pitchtools import db2amp, amp2db
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import *
+    from typing import Iterator, Callable
 
 
 def asmono(samples: np.ndarray) -> np.ndarray:
@@ -144,7 +146,7 @@ def getChannel(array: np.ndarray, channel: int, ensureContiguous=False) -> np.nd
 
 
 def arrayFade(samples: np.ndarray, sr: int, fadetime: float,
-              mode='inout', shape: Union[str, Callable[[float], float]] = 'linear',
+              mode='inout', shape: str | Callable[[float], float] = 'linear',
               margin=0
               ) -> None:
     """
@@ -191,7 +193,7 @@ def arrayFade(samples: np.ndarray, sr: int, fadetime: float,
 
 
 def chunks(start:int, stop: int = None, step: int = None
-           ) -> Iterable[Tuple[int, int]]:
+           ) -> Iterator[tuple[int, int]]:
     """
     Like xrange, but returns a Tuplet (position, distance form last position)
 
@@ -211,7 +213,7 @@ def chunks(start:int, stop: int = None, step: int = None
 
 def firstSound(samples: np.ndarray, threshold=-120.0, periodsamps=256, overlap=2,
                skip=0
-               ) -> Optional[int]:
+               ) -> int | None:
     """
     Find the first sample in samples whith a rms
     exceeding the given threshold
@@ -242,7 +244,7 @@ def firstSound(samples: np.ndarray, threshold=-120.0, periodsamps=256, overlap=2
 
 def firstSilence(samples: np.ndarray, threshold=-100, period=256,
                  overlap=2, soundthreshold=-60, startidx=0
-                 ) -> Optional[int]:
+                 ) -> int | None:
     """
     Return the sample where rms decays below threshold
 
@@ -281,7 +283,7 @@ def firstSilence(samples: np.ndarray, threshold=-100, period=256,
 
 
 def lastSound(samples: np.ndarray, threshold=-120.0, period=256, overlap=2
-              ) -> Optional[int]:
+              ) -> int | None:
     """
     Find the end of the last sound in the samples.
 
@@ -376,5 +378,3 @@ def normalizationRatio(samples: np.ndarray, maxdb=0.) -> float:
     peak = np.abs(samples).max()
     ratio = max_peak_possible / peak
     return ratio
-
-

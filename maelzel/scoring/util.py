@@ -1,22 +1,21 @@
 from __future__ import annotations
-import random
-from emlib import iterlib
-from emlib import misc
-import pitchtools as pt
-from .common import F, asF, NotatedDuration
-from maelzel._util import showF, showT
 
+import random
 from typing import TYPE_CHECKING
 
+import pitchtools as pt
+
+from maelzel.common import F, asF
+from maelzel.scoring.common import NotatedDuration
+
 if TYPE_CHECKING:
-    from typing import *
-    from .common import timesig_t
-    from numbers import Real
+    from typing import Iterator, Sequence
+    from maelzel.common import timesig_t
 
 # This module can only import .common from .
 
 
-def asSimplestNumberType(f: F) -> Union[int, float]:
+def asSimplestNumberType(f: F) -> int | float:
     """
     convert a fraction to the simplest number type it represents
     """
@@ -28,17 +27,17 @@ def asSimplestNumberType(f: F) -> Union[int, float]:
 def roundMidinote(a: float, divsPerSemitone=4) -> float:
     """
     Round a midi note to the nearest division
-    
+
     Args:
-        a: the midinote 
+        a: the midinote
         divsPerSemitone: the number of subdivisions per semitone
 
     Returns:
         the rounded midinote
-        
+
     Example
     ~~~~~~~
-    
+
         >>> from maelzel.scoring import util
         >>> util.roundMidinote(60.1)
         60.0
@@ -71,10 +70,9 @@ def measureQuarterDuration(timesig: timesig_t) -> F:
         Fraction(5, 2)
 
     """
-    misc.assert_type(timesig, (int, int))
+    assert isinstance(timesig, tuple) and isinstance(timesig[0], int) and isinstance(timesig[1], int)
     num, den = timesig
     quarterDuration = F(num)/den * 4
-    assert isinstance(quarterDuration, F), f"Expected type F, got {type(quarterDuration).__name__}={quarterDuration}"
     return quarterDuration
 
 
@@ -90,12 +88,9 @@ def measureTimeDuration(timesig: timesig_t, quarterTempo: F) -> F:
         The duration **in seconds**
 
     """
-    misc.assert_type(timesig, (int, int))
-    quarterTempo = asF(quarterTempo)
+    assert isinstance(quarterTempo, (int, F))
     quarters = measureQuarterDuration(timesig=timesig)
-    dur = quarters * (F(60)/quarterTempo)
-    assert isinstance(dur, F), f"Expected type F, got {type(dur).__name__}={dur}"
-    return dur
+    return (F(60) / quarterTempo) * quarters
 
 
 def midinotesNeedMultipleClefs(midinotes: list[float], threshold=1) -> bool:
@@ -112,7 +107,7 @@ def midinotesNeedMultipleClefs(midinotes: list[float], threshold=1) -> bool:
 
     Returns:
         True if midinotes can't be represened through one clef alone
-        """
+    """
     G, F, G15a = 0, 0, 0
     for midinote in midinotes:
         if 55 < midinote <= 93:
@@ -163,7 +158,59 @@ def centsShown(centsdev: int, divsPerSemitone=4, snap=2, addplus=False) -> str:
     return f'+{centsdev:d}' if addplus else str(int(centsdev))
 
 
-def nextInGrid(x: Union[float, F], ticks: list[F]) -> F:
+def snapToGrids(x: F, ticks: list[F], offsets: list[F] | F = F(0), mode='nearest') -> F:
+    """
+    Snap x to the a grid created by the given grids
+
+    Args:
+        x: an unquantized value
+        ticks: deltas which constitute a grid
+        offsets: offsets for each grid. Either a list of offsets or a single offset
+        mode: 'nearest', 'floor', 'ceil'
+
+    Returns:
+        the nearest value to x within the grid, according to the specified mode
+
+    Example
+    ~~~~~~~
+
+       >>> snapToGrids(0.4, [1/4, 1/3])
+       1/2
+
+       >>> snapToGrids(0.29, [1/4, 1/3])
+       1/3
+
+    """
+    def snapRound(x: F, tick: F, offset: F) -> F:
+        return tick * round((x - offset) * (1 / tick)) + offset
+
+    def snapFloor(x: F, tick: F, offset: F) -> F:
+        return tick * int((x - offset) * (1 / tick)) + offset
+
+    def snapCeil(x: F, tick: F, offset: F) -> F:
+        xtick = (x - offset) * (1 / tick)
+        xtickfloor = int(xtick)
+        if xtick > xtickfloor:
+            xtick = xtickfloor + 1
+        return tick * xtick + offset
+
+    func = {
+        'floor': snapFloor,
+        'ceil': snapCeil,
+        'nearest': snapRound,
+    }.get(mode)
+    if func is None:
+        raise ValueError(f"mode should be one of 'floor', 'ceil', 'round', but got {mode}")
+    if not isinstance(offsets, list):
+        offsets = [offsets] * len(ticks)
+    if len(offsets) != len(ticks):
+        raise ValueError(f"offsets and ticks should have the same length, {ticks=}, {offsets=}")
+    quants = [func(x, t, o) for t, o in zip(ticks, offsets)]
+    quants.sort(key=lambda quant: abs(quant - x))
+    return quants[0]
+
+
+def nextInGrid(x: float|F, ticks: list[F]) -> F:
     """
     Snap x to the right within a grid created by the given ticks
 
@@ -184,8 +231,7 @@ def nextInGrid(x: Union[float, F], ticks: list[F]) -> F:
        0.33333333
 
     """
-    out = misc.snap_to_grids(x + F(1, 9999999), ticks, mode='ceil')
-    return asF(out)
+    return snapToGrids(asF(x) + F(1, 999999999), ticks, mode='ceil')
 
 
 def snapTime(start: F,
@@ -213,8 +259,8 @@ def snapTime(start: F,
         durdivisors = divisors
     ticks = [F(1, div) for div in divisors]
     durticks = [F(1, div) for div in durdivisors]
-    start = asF(misc.snap_to_grids(start, ticks))
-    end = asF(misc.snap_to_grids(start + duration, durticks))
+    start = snapToGrids(start, ticks)
+    end = snapToGrids(start + duration, durticks)
     if end - start <= mindur:
         end = nextInGrid(start + mindur, ticks)
     return (start, end-start)
@@ -312,7 +358,7 @@ def durationRatiosToTuplets(durRatios: Sequence[F]) -> list[tuple[int, int]]:
 
 
 def parseScoreStructLine(line: str
-                         ) -> tuple[Optional[int], Optional[timesig_t], Optional[float]]:
+                         ) -> tuple[int|None, timesig_t|None, float|None]:
     """
     Parse a line of a ScoreStructure definition
 
@@ -394,7 +440,7 @@ def centsDeviation(pitch: float, divsPerSemitone=4) -> int:
     return pt.pitch_round(pitch, divsPerSemitone)[1]
 
 
-def centsAnnotation(pitch: Union[float, list[float]],
+def centsAnnotation(pitch: float | list[float],
                     divsPerSemitone=4,
                     order='ascending',
                     addplus=False,
@@ -402,7 +448,7 @@ def centsAnnotation(pitch: Union[float, list[float]],
                     separator=',') -> str:
     """
     Generates the string used to annotate a note/chord when showCents is true
-    
+
     Args:
         pitch: midinote/s as float
         divsPerSemitone: subdivisions of the semitone
@@ -411,7 +457,7 @@ def centsAnnotation(pitch: Union[float, list[float]],
         snap: if the difference to the nearest microtone is within this error,
             no annotation is shown
         separator: separator used for chords
-        
+
     Returns:
         a string which can be attached to a note/chord to show
         the cents deviation from the notaten pitches

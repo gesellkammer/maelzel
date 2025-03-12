@@ -5,6 +5,14 @@ from . import pack
 
 
 class Channel:
+    """
+    A Channel represents a frequency range within a sound spectrum.
+
+    Args:
+        minfreq: The minimum frequency of the channel.
+        maxfreq: The maximum frequency of the channel.
+        partials: A list of partials within the channel.
+    """
     def __init__(self, minfreq: float, maxfreq: float, partials: list[Partial] | None = None):
         self.minfreq = minfreq
         self.maxfreq = maxfreq
@@ -13,6 +21,15 @@ class Channel:
         self.rejected: list[Partial] = []
 
     def pack(self, numtracks: int, maxrange: int, mingap: float, method='weight') -> None:
+        """
+        Packs the partials into tracks within the channel.
+
+        Args:
+            numtracks: The number of tracks to pack the partials into.
+            maxrange: The maximum range of frequencies for each track.
+            mingap: The minimum gap between partials on the same track.
+            method: The packing method to use ('weight' or 'time').
+        """
         if method == 'weight':
             self.packByWeight(numtracks, maxrange=maxrange, mingap=mingap)
         else:
@@ -25,6 +42,14 @@ class Channel:
 
 
     def packByTime(self, numtracks: int, maxrange: float, mingap: float):
+        """
+        Packs the partials into tracks within the channel based on their start time.
+
+        Args:
+            numtracks: The number of tracks to pack the partials into.
+            maxrange: The maximum range of frequencies for each track.
+            mingap: The minimum gap between partials on the same track.
+        """
         partials = sorted(self.partials, key=lambda partial: partial.start)
         tracks = [Track() for _ in range(numtracks)]
         rejected: list[Partial] = []
@@ -40,6 +65,14 @@ class Channel:
         self.rejected = rejected
 
     def packByWeight(self, numtracks: int, maxrange: int, mingap: float):
+        """
+        Packs the partials into tracks within the channel based on their weight.
+
+        Args:
+            numtracks: The number of tracks to pack the partials into.
+            maxrange: The maximum range of frequencies for each track.
+            mingap: The minimum gap between partials on the same track.
+        """
         partials: list[Partial] = sorted(self.partials, key=lambda p: p.audibility())
         tracks: list[Track] = [Track() for _ in range(numtracks)]
         rejected = []

@@ -4,19 +4,16 @@ Multiple backends to perform resampling on numpy arrays
 from __future__ import annotations
 import os
 import numpy as np
+import importlib.util
 
 
 def _getBackend() -> str:
-    try:
-        import resampy
+    spec = importlib.util.find_spec("resampy")
+    if spec is not None:
         return "resampy"
-    except ImportError:
-        pass
-    try:
-        import samplerate
+    spec = importlib.util.find_spec("samplerate")
+    if spec is not None:
         return "samplerate"
-    except ImportError:
-        pass
     return ''
 
 
@@ -68,7 +65,7 @@ def resample(samples: np.ndarray, samplerate:int, newsamplerate:int, backend=''
             range -1 to 1). Can be multichannel
         samplerate: the original sr
         newsamplerate: the new sr
-        backend: one of 'resampy', 'samplerate' or 'cli'
+        backend: one of 'resampy' or 'samplerate'
 
     Returns:
         the resampled samples. The shape of the output will be the same as

@@ -104,7 +104,7 @@ def plotmpl(spectrum: sp.Spectrum,
 
     axes.add_collection(lc, autolim=autolim)
     if fig:
-        axcb = fig.colorbar(lc)
+        _ = fig.colorbar(lc)
         plt.tight_layout()
 
     plt.sci(lc)

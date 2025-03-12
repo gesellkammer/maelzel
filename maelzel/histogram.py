@@ -1,8 +1,9 @@
 from __future__ import annotations
-from numbers import Number
 
 import bpf4
+import bpf4.util
 import numpy as np
+import numpy.typing as npt
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Sequence, Callable
@@ -81,8 +82,8 @@ class Histogram:
         return axes
 
 
-def weightedHistogram(values: Sequence[Number],
-                      weights: list[Number] | np.ndarray,
+def weightedHistogram(values: npt.ArrayLike,
+                      weights: npt.ArrayLike,
                       numbins: int,
                       distribution: float | Callable[[float], float] = 1.0
                       ) -> list[float]:
@@ -112,7 +113,7 @@ def weightedHistogram(values: Sequence[Number],
     elif isinstance(distribution, bpf4.BpfInterface):
         curve = distribution
     elif callable(distribution):
-        curve = bpf4.asbpf(distribution, bounds=(0, 1))
+        curve = bpf4.util.asbpf(distribution, bounds=(0, 1))
     else:
         raise TypeError(f"Expected a float or a bpf, got {distribution}")
 
@@ -125,13 +126,13 @@ def weightedHistogram(values: Sequence[Number],
     sortedweights = weightsarr[sortedindexes]
 
     binweight = 0
-    edges = [sortedvalues[0]]
+    edges = [float(sortedvalues[0])]
     binindex = 0
     threshold = relthresholds[binindex]
     for weight, value in zip(sortedweights, sortedvalues):
         binweight += weight
         if binweight / totalweight > threshold:
-            edges.append(value)
+            edges.append(float(value))
             binindex += 1
             if binindex < numbins:
                 threshold = relthresholds[binindex]

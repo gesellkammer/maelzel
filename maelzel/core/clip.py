@@ -11,18 +11,18 @@ from maelzel.scorestruct import ScoreStruct
 from maelzel.common import F, asF, F0, F1, asmidi
 from maelzel.core.config import CoreConfig
 from maelzel.core import event
-from maelzel.core._typedefs import *
 from maelzel.core import _dialogs
 from maelzel.core.synthevent import SynthEvent, PlayArgs
 from maelzel.core.workspace import Workspace
 from maelzel.core import playback
 from maelzel.snd import audiosample
-from maelzel.core import _tools
 from maelzel import scoring
 from maelzel import _util
 
-from typing_extensions import Self
-
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from maelzel.common import time_t, pitch_t
+    from typing_extensions import Self
 
 __all__ = (
     'Clip',
@@ -387,18 +387,18 @@ class Clip(event.MEvent):
         if self._playbackMethod == 'table':
             if not self._csoundTable:
                 if isinstance(self.source, audiosample.Sample):
-                    self._csoundTable = renderer.makeTable(self.source.samples, sr=int(self.sr))
+                    self._csoundTable = renderer.makeTable(self.source.samples, sr=int(self.sr)).tabnum
                 else:
                     assert os.path.exists(self.soundfile)
                     self._csoundTable = renderer.readSoundfile(self.soundfile)
             event._ensureArgs()['isndtab'] = self._csoundTable
 
     def chordAt(self,
-                time: num_t,
+                time: time_t,
                 resolution: float = 50,
                 channel=0,
                 mindb=-90,
-                dur: num_t = None,
+                dur: time_t = None,
                 maxcount=0,
                 ampfactor=1.0,
                 maxfreq=20000,
@@ -449,11 +449,11 @@ class Clip(event.MEvent):
             config = Workspace.getActive().config
         offset = self.absOffset()
         dur = self.dur
-        notation = scoring.makeNote(pitch=self.pitch,
-                                    duration=dur,
-                                    offset=offset,
-                                    dynamic=self.dynamic,
-                                    gliss=bool(self.gliss))
+        notation = scoring.Notation.makeNote(pitch=self.pitch,
+                                             duration=dur,
+                                             offset=offset,
+                                             dynamic=self.dynamic,
+                                             gliss=bool(self.gliss))
         if self.tied:
             notation.tiedNext = True
 

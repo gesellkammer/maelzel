@@ -2,16 +2,23 @@ from __future__ import annotations
 from math import sqrt
 from functools import cache
 from dataclasses import dataclass, field as _field, fields as _fields
-from maelzel.scoring.common import F, division_t, number_t, logger
+
+from maelzel.common import F
+from maelzel.scoring.common import logger
 from maelzel.scoring import quantdata
 from maelzel.scoring import quantutils
 import copy
 import pprint
-from emlib import misc
 from emlib import mathlib
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Sequence
+    from maelzel.common import num_t
+    from maelzel.scoring.common import division_t
 
 
-def _factory(obj) -> _field:
+def _factory(obj):
     return _field(default_factory=lambda: copy.copy(obj))
 
 
@@ -59,7 +66,7 @@ class QuantizationProfile:
     """Are nested tuplets allowed?"""
 
     gridErrorWeight: float = 1
-    """Weight of the overall effect of offset and duration errors when fitting events to a grid. 
+    """Weight of the overall effect of offset and duration errors when fitting events to a grid.
     A higher weight minimizes offset and duration errors at the cost of more complex divisions"""
 
     gridErrorExp: float = 0.85
@@ -78,7 +85,7 @@ class QuantizationProfile:
     """
     If given (higher than 0) it discards any division of the beat with a higher number
     of slots than this value. For example, a division of (3, 4, 4) has a density of 12,
-    since the highest subdivision, 4, applied to the entire beat would result in 
+    since the highest subdivision, 4, applied to the entire beat would result in
     12 notes per beat
     """
 
@@ -111,17 +118,16 @@ class QuantizationProfile:
 
     gracenoteErrorWeight: float = 0
 
-    possibleDivisionsByTempo: dict[int, list] = _factory(quantdata.presets['high']['possibleDivisionsByTempo'])
-    """A mapping of possible divisions ordered by max. tempo"""
+    divisionDefs: tuple[quantdata.DivisionDef, ...] = _field(default_factory=lambda: quantdata.quantpresets['high'].divisionDefs)
 
-    divisionPenaltyMap: dict[int, float] = _factory(quantdata.presets['high']['divisionPenaltyMap'])
+    divisionPenaltyMap: dict[int, float] = _factory(quantdata.quantpresets['high'].divisionsPenaltyMap)
     """A mapping of the penalty of each division"""
 
     divisionCardinalityPenaltyMap: dict[int, float] = _factory({1: 0.0, 2: 0.1, 3: 0.4})
-    """Penalty applied when different divisions are used within a beat 
+    """Penalty applied when different divisions are used within a beat
     (e.g 4 where one 8 is a 3-plet and the other a 5-plet)"""
 
-    numNestedTupletsPenalty: list[float] = _factory([0., 0.1, 0.4, 0.5, 0.8, 0.8])
+    numNestedTupletsPenalty: tuple[float, ...] = (0., 0.1, 0.4, 0.5, 0.8, 0.8)
     """Penalty applied to nested levels by level"""
 
     complexNestedTupletsFactor: float = 1.8
@@ -167,7 +173,7 @@ class QuantizationProfile:
     allowedTupletsAcrossBeat: tuple[int, ...] = (1, 2, 3, 4, 5, 8)
     """Which tuplets are allowed to cross the beat"""
 
-    allowedNestedTupletsAcrossBeat: list[tuple[int, int]] = _factory([(3, 3)])
+    allowedNestedTupletsAcrossBeat: tuple[tuple[int, int], ...] = ((3, 3),)
     """Which nested tuplets are allowed to cross the beat?
 
     Nested tuplets are those which are non-binary at more than one level, like
@@ -191,7 +197,7 @@ class QuantizationProfile:
     debugMaxDivisions: int = 20
     """Max number of quantization possibilities to display when debugging"""
 
-    blacklist: set[division_t] = _field(default_factory=set)
+    blacklist: tuple[division_t, ...] = ()
     """A set of divisions which should never be considered"""
 
     name: str = ''
@@ -199,74 +205,77 @@ class QuantizationProfile:
 
     breakSyncopationsLevel: str = 'strong'
     """
-    Break syncopations at beat boundaries ('none': do not break syncopations, 'all': break at all beats, 
-    'strong': only strong beats)
+    Break syncopations at beat boundaries ('none': do not break syncopations, 'all': break at all beats,
+    'strong': only strong beats, 'weak': ??)
     """
 
     tiedSnappedGracenoteMinRealDuration: F = F(1, 1000000)
     """
-    The min. real duration of a tied snapped gracenote in order for it NOT 
+    The min. real duration of a tied snapped gracenote in order for it NOT
     to be removed
     """
 
-    _cachedDivisionsByTempo: dict[tuple[number_t, bool], list[division_t]] = _field(default_factory=dict)
+    _cachedDivisionsByTempo: dict[tuple[num_t, bool], list[division_t]] = _field(default_factory=dict)
     _cachedDivisionPenalty: dict[tuple[int, ...], tuple[float, str]] = _field(default_factory=dict)
 
     def __post_init__(self):
-        self._cachedDivisionsByTempo = {}
-        self._cachedDivisionPenalty = {}
+        assert self.breakSyncopationsLevel in ('strong', 'none', 'all', 'weak'), f"{self.breakSyncopationsLevel=}"
+        self.debug = False
+        for attr, value in self.__dataclass_fields__.items():
+            assert not isinstance(value, (list, dict)), f"Unhashable {attr=}{value}"
 
-    @staticmethod
-    def makeSimple(maxSubdivisions=3,
-                   possibleSubdivisions=(1, 2, 3, 4, 5, 6, 8),
-                   maxDensity=16,
-                   allegroTempo=132,
-                   allegroMaxSubdivisions=1,
-                   allegroPossibleSubdivisions=(1, 2, 3, 4, 6),
-                   nestedTuplets=False,
-                   complexityPreset='medium',
-                   mintempo=1) -> QuantizationProfile:
+    def modified(self):
         """
-        Static method to create a simple QuantizationProfile based on a preset
-
-        Args:
-            maxSubdivisions: the max. subdivisions of a beat for tempi under allegro
-            possibleSubdivisions: the kind of subdivisions possible
-            maxDensity: the max. number of slots per quarter note
-            allegroTempo: tempo used to switch to the allegro subdivision profile. Set
-                this very high to always use the slow profile, or set it very low
-                to always use the high profile
-            allegroMaxSubdivisions: similar to maxSubdivisions, used for tempi which
-                are higher than the value given for allegroTempo
-            allegroPossibleSubdivisions: similar to possibleSubdivisions, used for
-                tempi higher than *allegroTempo*
-            nestedTuplets: are nested tuplets allowed? A nested tuple is a non-binary
-                subdivision of the beat within a non-binary subdivision of the
-                beat (something like (3, 5, 7), which divides the beat in three, each
-                subdivision itself divided in 3, 5 and 7 parts)
-            complexityPreset: the preset to use to fill the rest of the parameters
-                (one of 'lowest', 'low', 'medium', 'high', 'highest')
-            mintempo: the min. allowed tempo for the quarter note.
-
-        Returns:
-            a QuantizationProfile
-
+        This method needs to be called after self is modified in order to clear caches
         """
-        divs = {
-            mintempo: [],
-            allegroTempo: quantutils.allSubdivisions(maxsubdivs=maxSubdivisions,
-                                                     possiblevals=possibleSubdivisions,
-                                                     maxdensity=maxDensity),
-            999: quantutils.allSubdivisions(maxsubdivs=allegroMaxSubdivisions,
-                                            possiblevals=allegroPossibleSubdivisions,
-                                            maxdensity=max(int(maxDensity * 0.5), 8))
-        }
-        out = QuantizationProfile.fromPreset(complexity=complexityPreset,
-                                             nestedTuplets=nestedTuplets)
-        out.possibleDivisionsByTempo = divs
-        return out
+        self._cachedDivisionsByTempo.clear()
+        self._cachedDivisionPenalty.clear()
 
-    def possibleBeatDivisionsByTempo(self, tempo: number_t) -> list[division_t]:
+    def divisionsByTempo(self) -> dict[int, tuple[division_t, ...]]:
+        return quantdata.divisionsByTempo(self.divisionDefs, blacklist=self.blacklist)
+
+    def __hash__(self) -> int:
+        return hash((
+            self.nestedTuplets,
+            self.gridErrorWeight,
+            self.gridErrorExp,
+            self.divisionErrorWeight,
+            self.maxDivPenalty,
+            self.maxGridDensity,
+            self.rhythmComplexityWeight,
+            self.rhythmComplexityNotesAcrossSubdivisionWeight,
+            self.rhythmComplexityIrregularDurationsWeight,
+            self.offsetErrorWeight,
+            self.restOffsetErrorWeight,
+            self.durationErrorWeight,
+            self.gracenoteDuration,
+            self.gracenoteErrorWeight,
+            self.divisionDefs,
+            self.divisionPenaltyMap.values(),
+            self.divisionCardinalityPenaltyMap.values(),
+            self.numNestedTupletsPenalty,
+            self.complexNestedTupletsFactor,
+            self.numSubdivsPenaltyMap.values(),
+            self.divisionPenaltyWeight,
+            self.cardinalityPenaltyWeight,
+            self.numNestedTupletsPenaltyWeight,
+            self.numSubdivisionsPenaltyWeight,
+            self.syncopationMinBeatFraction,
+            self.syncopationMinSymbolicDuration,
+            self.syncopationMaxAsymmetry,
+            self.mergedTupletsMaxDuration,
+            self.mergeTupletsOfDifferentDuration,
+            self.allowNestedTupletsAcrossBeat,
+            self.allowedTupletsAcrossBeat,
+            self.allowedNestedTupletsAcrossBeat,
+            self.breakLongGlissandi,
+            self.maxPenalty,
+            self.blacklist,
+            self.breakSyncopationsLevel,
+            self.tiedSnappedGracenoteMinRealDuration,
+        ))
+
+    def possibleBeatDivisionsForTempo(self, tempo: num_t) -> list[division_t]:
         """
         The possible divisions of the pulse for the given tempo
 
@@ -283,20 +292,16 @@ class QuantizationProfile:
         if cached:
             return cached
 
-        divsByTempo = self.possibleDivisionsByTempo
-        divs = None
-        for maxTempo, possibleDivs in divsByTempo.items():
-            if tempo < maxTempo:
-                divs = possibleDivs
-                break
+        divsByTempo = self.divisionsByTempo()
+        divs = next((divs for maxTempo, divs in divsByTempo.items() if tempo < maxTempo), None)
         if not divs:
             logger.error("Possible divisions of the beat, by tempo: ")
-            logger.error(pprint.pformat(self.possibleDivisionsByTempo))
-            raise ValueError(f"No divisions for the given tempo (q={int(tempo)})")
+            logger.error(pprint.pformat(divsByTempo))
+            raise ValueError(f"No divisions for the given tempo ({tempo=})")
 
         if not self.nestedTuplets:
             divs = [div for div in divs if not quantutils.isNestedTupletDivision(div)]
-        divs.sort(key=lambda div: len(div))
+        divs = sorted(divs, key=lambda div: len(div))
         self._cachedDivisionsByTempo[(tempo, self.nestedTuplets)] = divs
         return divs
 
@@ -327,10 +332,15 @@ class QuantizationProfile:
         self._cachedDivisionPenalty[division] = (penalty, info)
         return penalty, info
 
+    @cache
+    @staticmethod
+    def default() -> QuantizationProfile:
+        return QuantizationProfile()
+
     @staticmethod
     def fromPreset(complexity='high',
                    nestedTuplets: bool = None,
-                   blacklist: list[division_t] = None,
+                   blacklist: Sequence[division_t] = (),
                    **kws) -> QuantizationProfile:
         """
         Create a QuantizationProfile from a preset
@@ -339,39 +349,41 @@ class QuantizationProfile:
             complexity: complexity presets, one of 'low', 'medium', 'high', 'highest'
                 (see ``maelzel.scoring.quantdata.presets``)
             nestedTuplets: if True, allow nested tuplets.
-            blacklist: if given, a list of divisions to exclude
+            blacklist: if given, a sequence of divisions to exclude
             kws: any keywords passed to :class:`QuantizationProfile`
 
         Returns:
             the quantization preset
 
         """
+        def cascade(key: str, kws: dict, preset: quantdata.QuantPreset, default: QuantizationProfile):
+            if (val := kws.get(key, None)) is not None:
+                return val
+            if hasattr(preset, key) and ((val := getattr(preset, key)) is not None):
+                return val
+            if (val := getattr(default, key)) is not None:
+                return val
+            raise ValueError(f"All values are None for key '{key}'")
 
-        def cascade(key: str, kws: dict, preset: dict, default: QuantizationProfile):
-            return misc.firstval(kws.pop(key, None), preset.get(key), getattr(default, key))
+        preset = quantdata.quantpresets.get(complexity)
+        if preset is None:
+            raise ValueError(f"complexity preset {complexity} unknown. Possible values: {quantdata.quantpresets.keys()}")
 
-        if complexity not in quantdata.presets:
-            raise ValueError(f"complexity preset {complexity} unknown. Possible values: {quantdata.presets.keys()}")
-        preset = quantdata.presets[complexity]
-        keys = [field.name for field in _fields(defaultQuantizationProfile)]
+        keys = [field.name for field in _fields(QuantizationProfile)
+                if not field.name.startswith('_')]
+        defaultProfile = QuantizationProfile.default()
         for key in keys:
-            value = cascade(key, kws, preset, defaultQuantizationProfile)
+            if key.startswith('_'):
+                continue
+            value = cascade(key, kws, preset, defaultProfile)
             kws[key] = value
         if nestedTuplets is not None:
             kws['nestedTuplets'] = nestedTuplets
         if not kws.get('name'):
             kws['name'] = complexity
-        out = QuantizationProfile(**kws)
-        if blacklist:
-            blacklistset = set(blacklist)
-            for maxtempo, divisions in out.possibleDivisionsByTempo.items():
-                divisions = [div for div in divisions if div not in blacklistset]
-                out.possibleDivisionsByTempo[maxtempo] = divisions
-            out.blacklist = blacklistset
-        return out
-
-
-defaultQuantizationProfile = QuantizationProfile()
+        if blacklist is not None:
+            kws['blacklist'] = blacklist if isinstance(blacklist, tuple) else tuple(blacklist)
+        return QuantizationProfile(**kws)
 
 
 @cache
@@ -400,7 +412,7 @@ def _divisionDepth(division: division_t) -> int:
     return 2
 
 
-def _divisionPenalty(division: division_t,
+def _divisionPenalty(division: int | division_t,
                      profile: QuantizationProfile,
                      nestingLevel=0,
                      maxPenalty=0.7,
@@ -452,12 +464,12 @@ def _divisionPenalty(division: division_t,
     ])
 
     if nestingLevel == 0 and isinstance(division, tuple):
-        l = len(division)
-        if l == 5 or l == 7:
+        divlen = len(division)
+        if divlen == 5 or divlen == 7:
             numComplexSubdivs = sum(subdiv > 8 or subdiv in (3, 5, 7)
                                     for subdiv in division)
             penalty *= profile.complexNestedTupletsFactor ** numComplexSubdivs
-        elif l == 6:
+        elif divlen == 6:
             numComplexSubdivs = sum(subdiv == 5 or subdiv == 7 or subdiv > 8
                                     for subdiv in division)
             penalty *= profile.complexNestedTupletsFactor ** numComplexSubdivs
@@ -467,4 +479,3 @@ def _divisionPenalty(division: division_t,
     else:
         info = ''
     return min(penalty, 1), info
-

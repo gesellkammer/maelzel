@@ -14,7 +14,6 @@ import bpf4
 from maelzel.snd import vamptools
 from math import ceil
 from emlib.mathlib import nextpowerof2
-from maelzel.snd import numpysnd
 
 logger = logging.getLogger(__name__)
 
@@ -37,18 +36,18 @@ def parabolic(f: np.ndarray, x: int) -> tuple[float, float]:
     Returns:
         (vx, vy), the coordinates of the vertex of a parabola that goes
         through point x and its two neighbors.
-   
+
     Example
     =======
 
     Defining a vector f with a local maximum at index 3 (= 6), find local
     maximum if points 2, 3, and 4 actually defined a parabola.
-   
+
     >>> f = [2, 3, 1, 6, 4, 2, 3, 1]
-   
+
     >>> parabolic(f, 3)
     Out[4]: (3.2142857142857144, 6.1607142857142856)
-   
+
     """
     xv = 1/2. * (f[x-1] - f[x+1]) / (f[x-1] - 2 * f[x] + f[x+1]) + x
     yv = f[x] - 1/4. * (f[x-1] - f[x+1]) * (xv - x)
@@ -76,15 +75,15 @@ def f0ZeroCross(sig: np.ndarray, sr: int) -> tuple[float, float]:
 
     # Find all indices right before a rising-edge zero crossing
     indices = _find((sig[1:] >= 0) & (sig[:-1] < 0))
-    
+
     # Naive (Measures 1000.185 Hz for 1000 Hz, for instance)
     # crossings = indices
-    
-    # More accurate, using linear interpolation to find intersample 
+
+    # More accurate, using linear interpolation to find intersample
     # zero-crossings (Measures 1000.000129 Hz for 1000 Hz, for instance)
     crossings = [i - sig[i] / (sig[i+1] - sig[i]) for i in indices]
-    
-    # Some other interpolation based on neighboring points might be better. 
+
+    # Some other interpolation based on neighboring points might be better.
     # Spline, cubic, whatever
     return sr / np.mean(np.diff(crossings)), 1
 
@@ -105,11 +104,11 @@ def f0FFT(sig: np.ndarray, sr: int) -> tuple[float, float]:
     # Compute Fourier transform of windowed signal
     windowed = sig * scipy.signal.windows.blackmanharris(len(sig))
     f = np.fft.rfft(windowed)
-    
+
     # Find the peak and interpolate to get a more accurate peak
     i = int(np.argmax(abs(f)))    # Just use this for less-accurate, naive version
     true_i = parabolic(np.log(abs(f)), i)[0]
-    
+
     # Convert to equivalent frequency
     return sr * true_i / len(windowed), 1
 
@@ -129,28 +128,28 @@ def f0Autocorr(sig: np.ndarray, sr: int) -> tuple[float, float]:
     if _sigNumChannels(sig) > 1:
         raise ValueError("sig should be a mono signal")
 
-    # Calculate autocorrelation (same thing as convolution, but with 
+    # Calculate autocorrelation (same thing as convolution, but with
     # one input reversed in time), and throw away the negative lags
     corr = scipy.signal.fftconvolve(sig, sig[::-1], mode='full')
     corr = corr[int(len(corr)/2):]
-    
+
     # Find the first low point
     d = np.diff(corr)
     start = _find(d > 0)[0]
-    
-    # Find the next peak after the low point (other than 0 lag).  This bit is 
-    # not reliable for long signals, due to the desired peak occurring between 
+
+    # Find the next peak after the low point (other than 0 lag).  This bit is
+    # not reliable for long signals, due to the desired peak occurring between
     # samples, and other peaks appearing higher.
     # Should use a weighting function to de-emphasize the peaks at longer lags.
     peak = np.argmax(corr[start:]) + start
-    px, py = parabolic(corr, peak) 
+    px, py = parabolic(corr, peak)
     return sr / px, 1
 
 
 def f0HPS(sig: np.ndarray, sr: int, maxharms=5) -> tuple[float, float]:
     """
     Estimate frequency using harmonic product spectrum (HPS)
-    
+
     """
     if _sigNumChannels(sig) > 1:
         raise ValueError("sig should be a mono signal")
@@ -174,7 +173,7 @@ def f0HPS(sig: np.ndarray, sr: int, maxharms=5) -> tuple[float, float]:
 
 def f0curvePyin(sig: np.ndarray, sr: int, minfreq=50, maxfreq=5000,
                 framelength=2048, winlength=None, hoplength=512
-                ) -> tuple[bpf4.BpfInterface, bpf4.BpfInterface]:
+                ) -> tuple[bpf4.Linear, bpf4.Linear]:
     """
     Calculate the fundamental based on the pyin method
 
@@ -205,7 +204,7 @@ def f0curvePyin(sig: np.ndarray, sr: int, minfreq=50, maxfreq=5000,
                                                 win_length=winlength,
                                                 hop_length=hoplength)
     times = np.linspace(0, totaldur, len(f0))
-    return bpf4.core.Linear(times, f0), bpf4.core.Linear(times, voiced_probs)
+    return bpf4.Linear(times, f0), bpf4.Linear(times, voiced_probs)
 
 
 def f0curvePyinVamp(sig: np.ndarray,
@@ -252,7 +251,7 @@ def f0curvePyinVamp(sig: np.ndarray,
     single15       Single value 0.15
     single20       Single value 0.20
     ============   ============
-        
+
     """
     if _sigNumChannels(sig) > 1:
         raise ValueError("sig should be a mono signal")
@@ -302,7 +301,7 @@ def frequencyToWindowSize(freq: int, sr: int, powerof2=False, factor=2.0) -> int
 
 def f0curve(sig: np.ndarray, sr: int, minfreq=60, overlap=4,
             method='pyin', unvoicedFreqs='nan'
-            ) -> tuple[bpf4.BpfInterface, bpf4.BpfInterface]:
+            ) -> tuple[bpf4.Linear, bpf4.Linear]:
     """
     Estimate the fundamental and its voicedness
 
@@ -393,7 +392,7 @@ def f0curve(sig: np.ndarray, sr: int, minfreq=60, overlap=4,
         freqs.append(freq)
         times.append(idx/sr)
         probs.append(prob)
-    return bpf4.core.Linear(times, freqs), bpf4.core.Linear(times, probs)
+    return bpf4.Linear(times, freqs), bpf4.Linear(times, probs)
 
 
 def detectMinFrequency(samples: np.ndarray, sr: int, freqThreshold=30, overlap=4,

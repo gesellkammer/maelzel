@@ -8,7 +8,6 @@ a :class:`QuantizedScore`
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import cache
 import sys
 import os
 import time
@@ -16,11 +15,9 @@ from math import sqrt
 
 import emlib.misc
 
-from maelzel.common import F, F0
+from maelzel.common import F, F0, asF
 from maelzel._result import Result
 from maelzel._util import readableTime, showF, hasoverlap
-
-from .common import *
 
 from . import core
 from . import definitions
@@ -34,9 +31,10 @@ from . import spanner as _spanner
 from . import renderoptions
 from . import attachment
 from .quantprofile import QuantizationProfile
+from .common import logger
 
-from .notation import Notation, makeRest, SnappedNotation, tieNotations, splitNotationsAtOffsets
-from .node import Node, SplitError, TreeLocation
+from .notation import Notation, SnappedNotation, tieNotations, splitNotations
+from .node import Node, SplitError
 import maelzel.scorestruct as st
 
 from emlib import iterlib
@@ -46,9 +44,11 @@ from emlib import mathlib
 
 from typing import TYPE_CHECKING, cast as _cast
 if TYPE_CHECKING:
-    from maelzel.scoring.common import timesig_t
-    from typing import Iterator, Sequence
+    from maelzel.common import timesig_t
+    from .common import division_t
+    from typing import Iterator
     import maelzel.core
+    from .node import TreeLocation
 
 
 __all__ = (
@@ -201,24 +201,25 @@ def _fillDuration(notations: list[Notation], duration: F, offset=F0, check=True
 
     if not notations:
         # measure is empty
-        out.append(makeRest(duration, offset=now))
+        out.append(Notation.makeRest(duration, offset=now))
         return out
 
     if notations[0].offset > now:
-        out.append(makeRest(notations[0].offset-now, offset=now))
+        out.append(Notation.makeRest(notations[0].offset-now, offset=now))
         now = notations[0].offset
 
     for n0, n1 in iterlib.pairwise(notations):
+        assert n0.offset is not None
         if n0.offset > now:
             # there is a gap, fill it with a rest
-            out.append(makeRest(offset=now, duration=n0.offset - now))
+            out.append(Notation.makeRest(offset=now, duration=n0.offset - now))
         if n0.duration is None:
             out.append(n0.clone(duration=n1.offset - n0.offset))
         else:
             out.append(n0)
             n0end = n0.end
             if n0end < n1.offset:
-                out.append(makeRest(offset=n0end, duration=n1.offset - n0end))
+                out.append(Notation.makeRest(offset=n0end, duration=n1.offset - n0end))
         now = n1.offset
 
     # last event
@@ -228,7 +229,7 @@ def _fillDuration(notations: list[Notation], duration: F, offset=F0, check=True
     else:
         out.append(n)
         if n.end < offset + duration:
-            out.append(makeRest(offset=n.end, duration=duration + offset - n.end))
+            out.append(Notation.makeRest(offset=n.end, duration=duration + offset - n.end))
     end = offset + duration
     assert sum(n.duration for n in out) == duration
     assert all(offset <= n.offset <= end for n in out)
@@ -608,7 +609,7 @@ class QuantizedMeasure:
         Returns the root of a tree of Nodes representing the items in this measure
         """
         if not self.quantprofile:
-            raise ValueError(f"Cannot create tree without a QuantizationProfile")
+            raise ValueError("Cannot create tree without a QuantizationProfile")
 
         if not self.beats:
             return Node()
@@ -691,8 +692,8 @@ class QuantizedMeasure:
                     nidx = node.items.index(n)
                     if len(node.items) > nidx + 1:
                         nextnote = node.items[nidx + 1]
+                        assert isinstance(nextnote, Notation)
                         nextnote.tiedPrev = False
-                        node.items[nidx + 1].tiedPrev = False
                         if n.hasAttributes():
                             n.copyAttributesTo(nextnote)
                     del node.items[nidx]
@@ -761,7 +762,7 @@ def _makeTree(beats: list[QuantizedBeat],
     root.repair()
 
     if root.totalDuration() != sum(beat.duration for beat in beats):
-        raise ValueError(f"Duration mismatch in tree")
+        raise ValueError(f"Duration mismatch in tree, root dur: {root.totalDuration()}, beats dur: {sum(beat.duration for beat in beats)}")
 
     return root
 
@@ -861,7 +862,7 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
     time0 = time.time()
 
     tempo = asF(quarterTempo) / beatDuration
-    possibleDivisions = profile.possibleBeatDivisionsByTempo(tempo)
+    possibleDivisions = profile.possibleBeatDivisionsForTempo(tempo)
     rows = []
     seen = set()
     events0 = [ev.clone(offset=ev.offset - beatOffset) for ev in eventsInBeat]
@@ -1057,7 +1058,7 @@ def quantizeBeatTernary(eventsInBeat: list[Notation],
 
     results = []
     for offsets in possibleOffsets:
-        eventsInSubbeats = splitNotationsAtOffsets(eventsInBeat, offsets)
+        eventsInSubbeats = splitNotations(eventsInBeat, offsets)
         beats = [quantizeBeatBinary(events, quarterTempo=quarterTempo, profile=profile,
                                     beatDuration=span.duration, beatOffset=span.start)
                  for span, events in eventsInSubbeats]
@@ -1373,7 +1374,7 @@ def quantizeMeasure(events: list[Notation],
     beatOffsets.append(beatStructure[-1].end)
 
     idx = 0
-    for span, eventsInBeat in splitNotationsAtOffsets(events, offsets=beatOffsets):
+    for span, eventsInBeat in splitNotations(events, offsets=beatOffsets):
         beatWeight = beatStructure[idx].weight
         beatdur = span.end - span.start
         if beatdur.numerator in (1, 2, 4):
@@ -1472,6 +1473,18 @@ def _mergeNodes(node1: Node,
                 profile: QuantizationProfile,
                 beatOffsets: list[F]
                 ) -> Node:
+    """
+    Merge two nodes into a single node.
+
+    Args:
+        node1: The first node to merge.
+        node2: The second node to merge.
+        profile: The quantization profile.
+        beatOffsets: The offsets of the beat subdivisions.
+
+    Returns:
+        The merged node.
+    """
     # we don't check here, just merge
     node = Node(ratio=node1.durRatio, items=node1.items + node2.items, parent=node1.parent)
     node = node.mergedNotations()
@@ -1744,7 +1757,6 @@ class QuantizedPart:
     def __post_init__(self):
         for measure in self.measures:
             measure.parent = self
-
         self.repair()
 
     def repair(self):
@@ -1834,6 +1846,11 @@ class QuantizedPart:
         return None
 
     def logicalTies(self) -> list[list[TreeLocation]]:
+        """
+        Return a list of logical ties in this part
+
+        A logical tie is a sequence of notations that are tied together.
+        """
         # return _logicalTies(self)
         ties = []
         for i, measure in enumerate(self.measures):

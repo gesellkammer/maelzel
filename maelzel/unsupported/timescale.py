@@ -6,14 +6,15 @@ from math import sqrt, inf
 import bpf4 as bpf
 import copy
 import logging
-from typing import Union as U, Optional as Opt, List
 import dataclasses
 import time
+from typing import Callable
 
 logger = logging.getLogger("maelzel.timescale")
 
 
-class Timedout(Exception): pass
+class Timedout(Exception):
+    pass
 
 
 default = {
@@ -25,40 +26,47 @@ default = {
 class Rating:
     name: str
     weight: float
-    func: t.Callable
+    func: Callable
     exp: float = 1.0
 
 
 @dataclasses.dataclass
 class Solution:
-    slots: List[float]
+    slots: list[float]
     score: float = 0.0
-    data: Opt[dict] = None
+    data: dict | None = None
 
 
-def indexDistance(seq, elem0, elem1, exact=True):
+def gridDistance(grid: list[float], elem0: float, elem1: float, exact=True):
     """
     Return the distance in indexes between elem1 and elem0
-    if exact:
-        assume that elem0 and elem1 are present in seq, otherwise the nearest
-        element in seq is used
+
+    Args:
+        grid: the grid to search in
+        elem0: the first element
+        elem1: the second element
+        exact: if True, assume that elem0 and elem1 are present in seq, otherwise the nearest
+            element in seq is used
+
+    Returns:
+        the distance in indexes between elem1 and elem0
     """
     if not exact:
-        elem0 = misc.nearest_element(elem0, seq)
-        elem1 = misc.nearest_element(elem1, seq)
-    return seq.index(elem1) - seq.index(elem0)
+        elem0 = misc.nearest_element(elem0, grid)
+        elem1 = misc.nearest_element(elem1, grid)
+    return grid.index(elem1) - grid.index(elem0)
 
 
-def getSolutions(problem: constraint.Problem, numSlots:int, maxSolutions=0, timeout=0.,
-                 timeoutSearch=0.) -> list:
+def getSolutions(problem: constraint.Problem,
+                 numSlots: int,
+                 maxSolutions=0,
+                 timeoutSearch=0.) -> list[list[int]]:
     """
 
     Args:
         problem: the problem to solve, after having added all constraints
         numSlots: the number of variables (slots) defined for this problem
         maxSolutions: stop searching for solutions if this amount is reached
-        timeout: raise Timedout if now solutions were found before
-            this time.
         timeoutSearch: interrupt search after this period of time. Returns the
             results so far
 
@@ -69,13 +77,6 @@ def getSolutions(problem: constraint.Problem, numSlots:int, maxSolutions=0, time
         Timedout: if timeout > 0 and no solution is found in that time
     """
     solutions = []
-    if timeout:
-        # try to get one solution
-        try:
-            func_timeout.func_timeout(timeout, problem.getSolution)
-        except func_timeout.FunctionTimedOut:
-            raise Timedout("Function timed out before first solution")
-
     t0 = time.time()
     for sol in problem.getSolutionIter():
         if not sol:
@@ -90,34 +91,35 @@ def getSolutions(problem: constraint.Problem, numSlots:int, maxSolutions=0, time
 
 
 class Solver:
-    def __init__(self, *, values=None, dur=None, absError=None, relError=None, timeout=None, fixedslots=None, 
-                 maxIndexJump=None, maxRepeats=None, maxSlotDelta=None, minSlotDelta=None, 
+    def __init__(self, *, values=None, dur=None, absError=None, relError=None, timeout=0., fixedslots=None,
+                 maxIndexJump=None, maxRepeats=None, maxSlotDelta=None, minSlotDelta=None,
                  monotonous='up', minvalue=-inf, maxvalue=inf):
         """
         Partition dur into timeslices
         To add extra constraints, use .addConstraint
 
-        dur            sum of all values
-        values         possible values         
-        maxIndexJump   max index distance between two consecutive slots
-        absError       absolute error of dur
-        relError       relative error (only one of absError or relError should be given)
-        timeout        timeout for the solve function, in seconds
-        fixedslots     a dictionary of the form {0: 0.5, 2: 3} would speficy that the 
-                       slot 0 should have a value of 0.5 and the slot 2 a value of 3
-        maxIndexJump   max. distance, in indices, between two slots
-        maxRepeats     how many consecutive slots can have the same value
-        maxSlotDelta   the max. difference between two slots
-        minSlotDelta   the min. difference between two slots
-        monotonous     possible values: 'up', 'down'. It indicates that all values 
-                       should grow monotonously in the given direction
-        minvalue       min. value for a slot
-        maxvalue       max. value for a slot
-                       These are convenience values, we could just filter values (from param. `values`)
-                       which fall between these constraints (in fact this is what we do)
+        Args:
+            values: possible values
+            dur: sum of all values
+            absError: absolute error of dur
+            relError: relative error (only one of absError or relError should be given)
+            timeout: timeout for the solve function, in seconds
+            fixedslots: a dictionary of the form {0: 0.5, 2: 3} would specify that the
+                slot 0 should have a value of 0.5 and the slot 2 a value of 3
+            maxIndexJump: max. distance, in indices, between two slots
+            maxRepeats: how many consecutive slots can have the same value
+            maxSlotDelta: the max. difference between two slots
+            minSlotDelta: the min. difference between two slots
+            monotonous: possible values: 'up', 'down'. It indicates that all values
+                should grow monotonously in the given direction
+            minvalue: min. value for a slot
+            maxvalue: max. value for a slot
+
+        These are convenience values, we could just filter values (from param. `values`)
+        which fall between these constraints (in fact this is what we do)
         """
         self.dur = dur
-        self.values = values or default['values'] 
+        self.values = values or default['values']
         self.absError = absError
         self.fixedslots = fixedslots
         self.timeout = timeout
@@ -142,7 +144,7 @@ class Solver:
             setattr(out, key, val)
         return out
 
-    def solve(self, numslots):
+    def solve(self, numslots: int):
         values = self.values
         dur = self.dur
         timeout = self.timeout
@@ -152,15 +154,15 @@ class Solver:
         if dur is not None:
             if self.relError is None and self.absError is None:
                 absError = min(values)
-            elif self.absError is None:  
+            elif self.absError is None:
                 absError = self.relError * dur
             elif self.relError is None:
                 absError = self.absError
             else:
-                absError = min(self.absError, self.relError*dur)    
+                absError = min(self.absError, self.relError*dur)
             problem.addConstraint(constraint.MinSumConstraint(dur-absError))
             problem.addConstraint(constraint.MaxSumConstraint(dur+absError))
-        
+
         if self.fixedslots:
             for idx, slotdur in self.fixedslots.items():
                 try:
@@ -168,13 +170,13 @@ class Solver:
                     problem.addConstraint(lambda s, slotdur=slotdur: s==slotdur, variables=[slot])
                 except IndexError:
                     pass
-        
+
         self._applyConstraints(problem, slots)
 
         for callback in self._constraintCallbacks:
             callback(problem, slots)
 
-        return getSolutions(problem, numSlots=numslots, timeout=timeout)
+        return getSolutions(problem, numSlots=numslots, timeoutSearch=timeout)
 
     def _applyConstraints(self, problem, slots):
         constr = problem.addConstraint
@@ -192,7 +194,7 @@ class Solver:
                 constr(lambda s0, s1: abs(s1 - s0) >= self.minSlotDelta, variables=[s0, s1])
         if self.maxIndexJump is not None:
             for s0, s1 in pairwise(slots):
-                constr(lambda s0, s1: abs(indexDistance(self.values, s0, s1)) <= self.maxIndexJump, variables=[s0, s1])
+                constr(lambda s0, s1: abs(gridDistance(self.values, s0, s1)) <= self.maxIndexJump, variables=[s0, s1])
         if self.maxRepeats is not None:
             for group in window(slots, self.maxRepeats + 1):
                 constr(lambda *values: len(set(values)) > 1, variables=group)
@@ -254,7 +256,7 @@ def asCurve(curve) -> bpf.BpfInterface:
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
-def _ascurve(curve) -> Opt[bpf.BpfInterface]:
+def _ascurve(curve) -> bpf.BpfInterface | None:
     if isinstance(curve, bpf.BpfInterface):
         return curve
     elif isinstance(curve, (int, float)):
@@ -267,13 +269,17 @@ def _ascurve(curve) -> Opt[bpf.BpfInterface]:
 
 class Rater:
 
-    def __init__(self, relcurve: U[bpf.BpfInterface, float, None]=None, abscurve=None,
-                 varianceWeight=1., curveWeight=3., curveExp=1.):
+    def __init__(self,
+                 relcurve: bpf.BpfInterface | float | None = None,
+                 abscurve: bpf.BpfInterface | float | None = None,
+                 varianceWeight=1.,
+                 curveWeight=3.,
+                 curveExp=1.):
         """
         relcurve: a bpf defined between x:0-1, y:0-1, or the exponent of an exponential curve
         """
-        self.relcurve: bpf.BpfInterface = asCurve(relcurve) if relcurve is not None else None
-        self.abscurve: bpf.BpfInterface = asCurve(abscurve) if abscurve is not None else None
+        self.relcurve: bpf.BpfInterface | None = asCurve(relcurve) if relcurve is not None else None
+        self.abscurve: bpf.BpfInterface | None = asCurve(abscurve) if abscurve is not None else None
         self.varianceWeight = varianceWeight
         self.curveWeight = curveWeight
         self.curveExp = curveExp
@@ -283,8 +289,8 @@ class Rater:
     def _postinit(self):
         self.relcurve = asCurve(self.relcurve) if self.relcurve is not None else None
         self.abscurve = asCurve(self.abscurve) if self.abscurve is not None else None
-        
-    def __call__(self, solution: List[float]) -> Solution:
+
+    def __call__(self, solution: list[float]) -> Solution:
         numvalues = len(set(solution))
         ratedict = {
             'variance': (numvalues / len(solution), self.varianceWeight)
@@ -295,7 +301,7 @@ class Rater:
             relcurve = (self.abscurve - solution[0]) / (solution[-1] - solution[0])
         else:
             relcurve = None
-        
+
         if relcurve:
             score = rateRelativeCurve(solution, relcurve)
             ratedict['curve'] = (score**self.curveExp, self.curveWeight)
@@ -318,16 +324,16 @@ class Rater:
     def addRating(self, name, weight, func):
         """
         Example: rate higher solutions which have a small error
-    
+
         NB: put extra info in the lambda itself
 
-        rater.addRating("minError", weight=2, 
+        rater.addRating("minError", weight=2,
                         func=lambda slots, dur=10, absError=2: abs(sum(slots)-dur)/absError)
         """
         self._ratings.append(Rating(name, weight, func))
 
 
-def rateRelativeCurve(slots: List[float], relcurve: bpf.BpfInterface, plot=False) -> float:            
+def rateRelativeCurve(slots: list[float], relcurve: bpf.BpfInterface, plot=False) -> float:
     solxs = mathlib.linspace(0, 1, len(slots))
     x0 = min(slots)
     x1 = max(slots)
@@ -337,15 +343,16 @@ def rateRelativeCurve(slots: List[float], relcurve: bpf.BpfInterface, plot=False
         solys = [mathlib.linlin(slot, x0, x1,0, 1) for slot in slots]
         solcurve = bpf.core.Linear(solxs, solys)
         if plot:
-            solcurve.plot(), relcurve.plot(show=True)
+            solcurve.plot(show=False)
+            relcurve.plot(show=True)
         diff = (solcurve - relcurve).abs().integrate()
     assert diff <= 1, diff
     score = (1 - diff)
     return score
 
 
-def solve(solver: Solver, numslots: t.Union[int, List[int]], rater: Rater=None,
-          report=False, reportMaxRows=10) -> List[Solution]:
+def solve(solver: Solver, numslots: int | list[int], rater: Rater=None,
+          report=False, reportMaxRows=10) -> list[Solution]:
     """
     numslots: the number of slots to use, or a list of possible numslots
 
@@ -360,7 +367,7 @@ def solve(solver: Solver, numslots: t.Union[int, List[int]], rater: Rater=None,
 
     """
     allsolutions = []
-    possibleNumslots = numslots if misc.isiterable(numslots) else [numslots]
+    possibleNumslots: list[int] = [numslots] if isinstance(numslots, int) else numslots
     for numslots in possibleNumslots:
         solutions = solver.solve(numslots)
         allsolutions.extend(solutions)
@@ -378,7 +385,7 @@ def solve(solver: Solver, numslots: t.Union[int, List[int]], rater: Rater=None,
     return ratedSolutions
 
 
-def reportSolutions(solutions: List[Solution], plotbest=0, rater=None) -> None:
+def reportSolutions(solutions: list[Solution], plotbest=0, rater=None) -> None:
     """
     If given a rater, the solution will be plotted against the desired relcurve
     """
@@ -386,7 +393,7 @@ def reportSolutions(solutions: List[Solution], plotbest=0, rater=None) -> None:
         raise ValueError("No solutions!")
     table = []
     for solution in solutions:
-        ratings = solution.data.get('ratings')
+        ratings = solution.data.get('ratings') if solution.data else None
         if ratings:
             infostr = "\t".join([f"{key}: {value[0]:.3f}x{value[1]}={value[0]*value[1]:.3f}"
                                  for key, value in ratings.items()])
@@ -398,4 +405,3 @@ def reportSolutions(solutions: List[Solution], plotbest=0, rater=None) -> None:
     if plotbest and rater is not None and rater.relcurve is not None:
         for sol in solutions[:plotbest]:
             rateRelativeCurve(sol.slots, rater.relcurve)
-

@@ -6,7 +6,7 @@ import tempfile
 import os
 from math import sqrt
 import numpy as np
-import bpf4 as bpf
+import bpf4
 from emlib.iterlib import flatten
 from pitchtools import db2amp, amp2db
 import sndfileio
@@ -14,18 +14,18 @@ import logging
 import numpyx
 from maelzel.snd import numpysnd as npsnd
 from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from typing import *
 
-
-logger = logging.Logger("maelzel.sndfiletools")
 
 if TYPE_CHECKING:
-    from typing import Callable, Iterator
-    Func1 = Callable[[float], float]
-    sample_t = tuple[np.ndarray, int]
-    processfunc_t = Callable[[np.ndarray, int, float], np.ndarray]
-    _FloatFunc = Callable[[float], float]
+    from typing import Callable, Iterator, TypeAlias
+    Func1: TypeAlias = Callable[[float], float]
+    sample_t: TypeAlias = tuple[np.ndarray, int]
+    processfunc_t: TypeAlias = Callable[[np.ndarray, int, float], None]
+    _FloatFunc: TypeAlias = Callable[[float], float]
+
+
+def _getlogger() -> logging.Logger:
+    return logging.getLogger("maelzel.sndfiletools")
 
 
 def _chunks(start: int, stop: int = None, step: int = None
@@ -48,7 +48,7 @@ def _chunks(start: int, stop: int = None, step: int = None
 
 
 def fadeSndfile(sndfile: str, outfile: str, fadetime: float,
-                mode: str = 'inout', shape: Union[str, Func1] = 'halfcos'
+                mode: str = 'inout', shape: str | Func1 = 'halfcos'
                 ) -> None:
     """
     Generate a new file `outfile` with the faded source
@@ -117,7 +117,7 @@ def process(sourcefile: str,
         pos += len(chunk)
 
 
-def gain(filename: str, factor: Union[float, _FloatFunc], outfile: str) -> None:
+def gain(filename: str, factor: float | _FloatFunc, outfile: str) -> None:
     """
     Change the volume of a audiofile.
 
@@ -127,8 +127,8 @@ def gain(filename: str, factor: Union[float, _FloatFunc], outfile: str) -> None:
         outfile: the output filename
     """
     if callable(factor):
-        factorfunc = bpf.asbpf(factor)
-        return _dynamic_gain(filename, factorfunc, outfile)
+        factorfunc = bpf4.asbpf(factor)
+        return _dynamicGain(filename, factorfunc, outfile)
 
     def callback(data: np.ndarray, sampleidx: int, now: float):
         data *= factor
@@ -136,7 +136,7 @@ def gain(filename: str, factor: Union[float, _FloatFunc], outfile: str) -> None:
     process(filename, outfile, callback)
 
 
-def _dynamic_gain(sndfile: str, curve: bpf.BpfInterface, outfile='inplace') -> None:
+def _dynamicGain(sndfile: str, curve: bpf4.BpfInterface, outfile='inplace') -> None:
     """
     Apply a dynamic gain to source
 
@@ -243,8 +243,8 @@ def equalPowerPan(pan: float) -> tuple[float, float]:
     return sqrt(1 - pan), sqrt(pan)
 
 
-def peakbpf(filename: str, resolution=0.01, method='peak', channel: Union[int, str] = 'mix',
-            normalize=False) -> bpf.BpfInterface:
+def peakbpf(filename: str, resolution=0.01, method='peak', channel: int | str = 'mix',
+            normalize=False) -> bpf4.BpfInterface:
     """
     Build a bpf representing the peaks envelope of the source
 
@@ -290,7 +290,7 @@ def peakbpf(filename: str, resolution=0.01, method='peak', channel: Union[int, s
     peaksarr = np.array(peaks)
     if normalize:
         peaksarr /= peaksarr.max()
-    return bpf.core.Linear(timesarr, peaksarr)
+    return bpf4.core.Linear(timesarr, peaksarr)
 
 
 def maxPeak(filename: str, start: float = 0, end: float = 0, resolution=0.01
@@ -436,7 +436,7 @@ def normalize(path: str, outfile: str, headroom=0.) -> None:
 def detectRegions(sndfile: str, attackthresh: float, decaythresh: float,
                   mindur=0.020, func='rms', resolution=0.004, mingap: float = 0,
                   normalize=False
-                  ) -> tuple[list[tuple[float, float]], bpf.BpfInterface]:
+                  ) -> tuple[list[tuple[float, float]], bpf4.BpfInterface]:
     """
     Detect fragments inside a soundfile.
 
@@ -457,7 +457,7 @@ def detectRegions(sndfile: str, attackthresh: float, decaythresh: float,
         each region is a tuple (region start, region end)
     """
     b = peakbpf(sndfile, resolution=resolution, method=func, normalize=normalize)
-    bsmooth = bpf.util.smoothen((b + db2amp(-160)).applyTo(amp2db), window=int(mindur/8))
+    bsmooth = bpf4.util.smoothen((b + db2amp(-160)).applyTo(amp2db), window=int(mindur/8))
     regions = []
     Y = bsmooth.sample(resolution)
     X = np.linspace(b.x0, b.x1, len(Y))
@@ -490,7 +490,7 @@ def detectRegions(sndfile: str, attackthresh: float, decaythresh: float,
             mergedregions.append(last_region)
         regions = [region for region in mergedregions
                    if region[0] >= b.x0 and region[1] <= b.x1]
-    mask = bpf.nointerpol(*flatten([((x0, 1), (x1, 0)) for x0, x1 in regions]))
+    mask = bpf4.nointerpol(*flatten([((x0, 1), (x1, 0)) for x0, x1 in regions]))
     return regions, mask
 
 
@@ -575,14 +575,14 @@ def addSilentChannel(monofile: str, outfile: str) -> None:
     samples, sr = sndfileio.sndread(monofile)
     numchannels = npsnd.numChannels(samples)
     if numchannels != 1:
-        logger.warning(f"{monofile} expected to be mono, but contains {numchannels}!")
+        _getlogger().warning(f"{monofile} expected to be mono, but contains {numchannels}!")
     numsamples = len(samples)
     silence = np.zeros((numsamples,), dtype=float)
     data = np.column_stack((samples, silence))
     sndfileio.sndwrite_like(outfile=outfile, samples=data, likefile=monofile)
 
 
-def _getsamples(source: Union[str, sample_t]) -> sample_t:
+def _getsamples(source: str | sample_t) -> sample_t:
     """
     source can be: "/path/to/source" or (samples, sr)
     """
@@ -597,8 +597,8 @@ def _getsamples(source: Union[str, sample_t]) -> sample_t:
     return (samples, sr)
 
 
-def scrub(source: Union[str, tuple[np.ndarray, int]], curve: bpf.BpfInterface,
-          rewind=False, outfile: str = None) -> sample_t:
+def scrub(source: str | tuple[np.ndarray, int], curve: bpf4.BpfInterface,
+          rewind=False, outfile='') -> sample_t:
     """
     Scrub soundfile with curve
 
@@ -613,14 +613,14 @@ def scrub(source: Union[str, tuple[np.ndarray, int]], curve: bpf.BpfInterface,
         a tuple (samples: np.ndarray, sr: int)
     """
     samples, sr = _getsamples(source)
-    samplebpf = bpf.core.Sampled(samples, 1.0 / sr)
+    samplebpf = bpf4.core.Sampled(samples, 1.0 / sr)
     warped = curve | samplebpf
     newsamples = warped[curve.x0:curve.x1:1.0 / sr].ys
     if not rewind and curve.x0 > 0:
         out = np.zeros((sr * curve.x1,), dtype=float)
         out[-len(newsamples):] = newsamples
         newsamples = out
-    if outfile is not None:
+    if outfile:
         if isinstance(source, str):
             sndfileio.sndwrite_like(outfile, likefile=source, samples=newsamples)
         else:

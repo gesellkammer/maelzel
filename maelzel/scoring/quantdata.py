@@ -1,6 +1,9 @@
 from __future__ import annotations
 from . import quantutils
 from functools import cache
+from dataclasses import dataclass
+from maelzel.scoring.common import division_t
+
 
 # A quantization preset consists of presetname.key, where needed keys are:
 # divisionsByTempo and divisionPenaltyMap
@@ -28,8 +31,203 @@ defaultDivisionPenaltyMap = {
     16:0.4,
 }
 
+
+@dataclass
+class DivisionDef:
+    maxTempo: int
+    maxSubdivisions: int
+    possibleValues: tuple[int, ...]
+    maxDensity: int
+
+    @cache
+    def subdivisions(self, blacklist: tuple[division_t] | None = None) -> tuple[division_t, ...]:
+        subdivs = quantutils.allSubdivisions(maxsubdivs=self.maxSubdivisions,
+                                             possiblevals=self.possibleValues,
+                                             maxdensity=self.maxDensity)
+        if not blacklist:
+            return tuple(subdivs)
+        else:
+            blacklistset = set(blacklist)
+            return tuple(subdiv for subdiv in subdivs if subdiv not in blacklistset)
+
+    def __hash__(self):
+        return hash((self.maxTempo, self.maxSubdivisions, hash(self.possibleValues), self.maxDensity))
+
+
+@dataclass
+class QuantPreset:
+    divisionDefs: tuple[DivisionDef, ...]
+    divisionsPenaltyMap: dict[int, float]
+    nestedTuplets: bool
+    numNestedTupletsPenalty: tuple[float, ...]
+    gridErrorWeight: float
+    divisionErrorWeight: float
+    rhythmComplexityWeight: float
+    gridErrorExp: float
+    maxDivPenalty: float | None = None
+    cardinalityPenaltyWeight: float | None = None
+    numSubdivisionsPenaltyWeight: float | None = None
+
+
+@cache
+def divisionsByTempo(divisionDefs: tuple[DivisionDef, ...], blacklist: tuple[division_t, ...] = None
+                     ) -> dict[int, tuple[division_t, ...]]:
+    return {d.maxTempo: d.subdivisions(blacklist=blacklist) for d in divisionDefs}
+
+
+quantpresets = {
+    'highest': QuantPreset(
+        divisionDefs = (
+            DivisionDef(maxTempo=62,
+                maxSubdivisions=6,
+                possibleValues=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 15),
+                maxDensity=30),
+            DivisionDef(maxTempo=300,
+                maxSubdivisions=5,
+                possibleValues=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 15),
+                maxDensity=29),
+            DivisionDef(maxTempo=800,
+                maxSubdivisions=3,
+                possibleValues=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
+                maxDensity=28)),
+        divisionsPenaltyMap={
+            1:0.0,  2:0.0,  3:0.0,  4:0.01, 5:0.02,
+            6:0.02, 7:0.02, 8:0.01, 9:0.04, 10:0.04,
+            11:0.1, 12:0.1, 13:0.2, 14:0.1, 15:0.2,
+            16:0.4,
+        },
+        nestedTuplets=True,
+        numNestedTupletsPenalty=(0., 0., 0., 0.1, 0.4, 0.8),
+        gridErrorWeight=1.0,
+        divisionErrorWeight=0.002,
+        rhythmComplexityWeight=0.0001,
+        numSubdivisionsPenaltyWeight=0.,
+        gridErrorExp=0.7,
+        maxDivPenalty=0.4),
+    'high': QuantPreset(
+        divisionDefs = (
+            DivisionDef(maxTempo=48,
+                maxSubdivisions=6,
+                possibleValues=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
+                maxDensity=30),
+            DivisionDef(maxTempo=63,
+                maxSubdivisions=6,
+                possibleValues=(3, 5, 6, 7, 8, 9, 11),
+                maxDensity=28),
+            DivisionDef(maxTempo=80,
+                maxSubdivisions=5,
+                possibleValues=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
+                maxDensity=24),
+            DivisionDef(maxTempo=100,
+                maxSubdivisions=4,
+                possibleValues=(1, 2, 3, 4, 5, 6, 7, 8, 9),
+                maxDensity=16),
+            DivisionDef(maxTempo=132,
+                maxSubdivisions=4,
+                possibleValues=(1, 2, 3, 4, 5, 6, 7, 8, 9),
+                maxDensity=12),
+            DivisionDef(maxTempo=180,
+                maxSubdivisions=3,
+                possibleValues=(1, 2, 3, 4, 5, 6, 7, 8, 9),
+                maxDensity=10),
+            DivisionDef(maxTempo=400,
+                maxSubdivisions=3,
+                possibleValues=(1, 2, 3, 4, 5, 6),
+                maxDensity=8),
+            DivisionDef(maxTempo=800,
+                maxSubdivisions=1,
+                possibleValues=(1, 2, 3, 4, 5, 6),
+                maxDensity=6)),
+        divisionsPenaltyMap=defaultDivisionPenaltyMap,
+        nestedTuplets=True,
+        numNestedTupletsPenalty=(0., 0., 0.03, 0.4, 0.5, 0.8),
+        gridErrorWeight=1.0,
+        divisionErrorWeight=0.01,
+        rhythmComplexityWeight=0.001,
+        cardinalityPenaltyWeight=0,
+        gridErrorExp=0.75,
+        maxDivPenalty=0.2),
+    'medium': QuantPreset(
+        divisionDefs = (
+            DivisionDef(maxTempo=60,
+                maxSubdivisions=4,
+                possibleValues=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
+                maxDensity=20),
+            DivisionDef(maxTempo=80,
+                maxSubdivisions=4,
+                possibleValues=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
+                maxDensity=16),
+            DivisionDef(maxTempo=100,
+                maxSubdivisions=3,
+                possibleValues=(1, 2, 3, 4, 5, 6, 7, 8, 9),
+                maxDensity=12),
+            DivisionDef(maxTempo=132,
+                maxSubdivisions=3,
+                possibleValues=(1, 2, 3, 4, 5, 6, 7, 8),
+                maxDensity=8),
+            DivisionDef(maxTempo=180,
+                maxSubdivisions=2,
+                possibleValues=(1, 2, 3, 4, 5, 6, 8),
+                maxDensity=6),
+            DivisionDef(maxTempo=400,
+                maxSubdivisions=1,
+                possibleValues=(1, 2, 3, 4),
+                maxDensity=4),
+            DivisionDef(800,
+                maxSubdivisions=1,
+                possibleValues=(1, 2, 3, 4),
+                maxDensity=4)),
+        divisionsPenaltyMap=defaultDivisionPenaltyMap,
+        nestedTuplets=False,
+        numNestedTupletsPenalty=(0, 0., 0.05, 0.4, 0.5, 0.8),
+        gridErrorWeight=1.0,
+        divisionErrorWeight=0.01,
+        rhythmComplexityWeight=0.01,
+        gridErrorExp=0.9,
+        maxDivPenalty=0.2),
+    'low': QuantPreset(
+        divisionDefs = (
+            DivisionDef(maxTempo=60,
+                maxSubdivisions=4,
+                possibleValues=(1, 2, 3, 4, 5, 6, 8),
+                maxDensity=16),
+            DivisionDef(maxTempo=80,
+                maxSubdivisions=3,
+                possibleValues=(1, 2, 3, 4, 5, 6, 8),
+                maxDensity=14),
+            DivisionDef(maxTempo=100,
+                maxSubdivisions=2,
+                possibleValues=(1, 2, 3, 4, 5, 6, 8),
+                maxDensity=12),
+            DivisionDef(maxTempo=132,
+                maxSubdivisions=2,
+                possibleValues=(1, 2, 3, 4, 6, 8),
+                maxDensity=8),
+            DivisionDef(maxTempo=180,
+                maxSubdivisions=1,
+                possibleValues=(1, 2, 3, 4, 6, 8),
+                maxDensity=6),
+            DivisionDef(maxTempo=400,
+                maxSubdivisions=1,
+                possibleValues=(1, 2, 3, 4),
+                maxDensity=4),
+            DivisionDef(800,
+                maxSubdivisions=1,
+                possibleValues=(1, 2, 4),
+                maxDensity=4)),
+        divisionsPenaltyMap=defaultDivisionPenaltyMap,
+        nestedTuplets=False,
+        numNestedTupletsPenalty=(0, 0., 0.05, 0.4, 0.5, 0.8),
+        gridErrorWeight=1.0,
+        divisionErrorWeight=0.5,
+        rhythmComplexityWeight=0.1,
+        gridErrorExp=1.)
+}
+
+
+
 # Presets used to create a QuantizationProfile
-presets = {
+_oldpresets = {
     'highest': {
         'possibleDivisionsByTempo': {
             10: [],
@@ -51,7 +249,7 @@ presets = {
             16:0.4,
        },
         'nestedTuplets': True,
-        'numNestedTupletsPenalty': [0.0, 0.0, 0.0, 0.1, 0.4, 0.8],
+        'numNestedTupletsPenalty': (0.0, 0.0, 0.0, 0.1, 0.4, 0.8),
         'gridErrorWeight': 1.0,
         'divisionErrorWeight': 0.002,
         'rhythmComplexityWeight': 0.0001,
@@ -92,7 +290,7 @@ presets = {
         },
         'divisionPenaltyMap': defaultDivisionPenaltyMap,
         'nestedTuplets': True,
-        'numNestedTupletsPenalty': [0., 0., 0.03, 0.4, 0.5, 0.8],
+        'numNestedTupletsPenalty': (0., 0., 0.03, 0.4, 0.5, 0.8),
         'gridErrorWeight': 1.0,
         'divisionErrorWeight': 0.01,
         'rhythmComplexityWeight': 0.001,
@@ -128,7 +326,7 @@ presets = {
         },
         'divisionPenaltyMap': defaultDivisionPenaltyMap,
         'nestedTuplets': False,
-        'numNestedTupletsPenalty': [0, 0.0, 0.05, 0.4, 0.5, 0.8],
+        'numNestedTupletsPenalty': (0, 0.0, 0.05, 0.4, 0.5, 0.8),
         'gridErrorWeight': 1.0,
         'divisionErrorWeight': 0.01,
         'rhythmComplexityWeight': 0.01,
@@ -197,7 +395,7 @@ presets = {
         },
         'divisionPenaltyMap': defaultDivisionPenaltyMap,
         'nestedTuplets': False,
-        'numNestedTupletsPenalty': [0, 0.0, 0.05, 0.4, 0.5, 0.8],
+        'numNestedTupletsPenalty': (0, 0.0, 0.05, 0.4, 0.5, 0.8),
         'gridErrorWeight': 1.0,
         'divisionErrorWeight': 0.5,
         'rhythmComplexityWeight': 0.1,

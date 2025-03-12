@@ -2,14 +2,12 @@
 NB: this module cannot import anything from maelzel itself
 """
 from __future__ import annotations
-import numbers as _numbers
 import logging as _logging
 import pitchtools as pt
-from numbers import Rational
 
-import typing as _t
+from typing import Union, TYPE_CHECKING, TypeAlias
 
-if not _t.TYPE_CHECKING:
+if TYPE_CHECKING:
     from quicktions import Fraction as F
 else:
     from fractions import Fraction as F
@@ -23,14 +21,20 @@ __all__ = (
     'asF',
     'asmidi',
     'pitch_t',
+    'time_t',
     'timesig_t',
     'num_t',
+    'beat_t',
+    'location_t'
 )
 
 
-num_t = _t.Union[int, float, F]
-pitch_t = _t.Union[int, float, str]
-timesig_t = _t.Tuple[int, int]
+num_t: TypeAlias = Union[int, float, F]
+time_t: TypeAlias = Union[int, float, F]
+pitch_t: TypeAlias = Union[int, float, str]
+timesig_t: TypeAlias = tuple[int, int]
+location_t: TypeAlias = tuple[int, time_t]
+beat_t: TypeAlias = Union[F, float, location_t]
 
 
 F0: F = F(0)
@@ -69,8 +73,10 @@ def asmidi(x) -> float:
     raise TypeError(f"Expected a str, a Note or a midinote, got {x}")
 
 
-def getLogger(name: str, fmt='[%(name)s:%(filename)s:%(lineno)s:%(funcName)s:%(levelname)s] %(message)s',
-              filelog: str = ''
+def getLogger(name: str,
+              fmt='[%(name)s:%(filename)s:%(lineno)s:%(funcName)s:%(levelname)s] %(message)s',
+              filelog: str = '',
+              force=False
               ) -> _logging.Logger:
     """
     Construct a logger
@@ -85,9 +91,12 @@ def getLogger(name: str, fmt='[%(name)s:%(filename)s:%(lineno)s:%(funcName)s:%(l
     """
     logger = _logging.getLogger(name)
     if logger.hasHandlers():
+        # an old logger
+        if not force:
+            return logger
         logger.handlers.clear()
-    logger.propagate = False
 
+    logger.propagate = False
     handler = _logging.StreamHandler()
     formatter = _logging.Formatter(fmt)
     handler.setFormatter(formatter)
@@ -96,10 +105,19 @@ def getLogger(name: str, fmt='[%(name)s:%(filename)s:%(lineno)s:%(funcName)s:%(l
         filehandler = _logging.FileHandler(filelog)
         filehandler.setFormatter(formatter)
         logger.addHandler(filehandler)
+    logger.debug(f"Created logger {name}")
     return logger
 
 
-class Unset:
+class _Singleton(type):
+    _instances = {}
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            cls._instances[cls] = super().__call__(*args, **kwargs)
+        return cls._instances[cls]
+
+
+class UnsetType(metaclass=_Singleton):
     def __repr__(self):
         return 'UNSET'
 
@@ -107,4 +125,4 @@ class Unset:
         return False
 
 
-UNSET = Unset()
+UNSET = UnsetType()

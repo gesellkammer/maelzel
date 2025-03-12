@@ -109,7 +109,7 @@ def parseStyle(style: str, separator=';') -> TextStyle:
                 value = convertfunc(value)
         else:
             key, value = part.strip(), True
-        if not key in validkeys:
+        if key not in validkeys:
             raise ValueError(f"Invalid key '{key}' in style '{style}'. Valid keys are {'validkeys'}")
         attrs[key] = value
     return TextStyle(**attrs)

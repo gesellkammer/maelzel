@@ -46,7 +46,7 @@ if sumarray(kmagstest) / sumarray(kmags0) > irelthreshold then
 endif
 
 fsig3 pvsfromarray kmags0, kfreqs0, ihopsize, iwinsize, 0
-aout pvsynth fsig3	
+aout pvsynth fsig3
 if iwet < 1 then
     aout = aout * iwet + (1-iwet) * delay:a(asig, iwinsize/sr)
 endif
@@ -114,7 +114,7 @@ def removeSustain(samples: np.ndarray,
         the modified samples
     """
     if backend != 'csound':
-        raise ValeuError(f"At the moment only 'csound' is supported, got '{backend}'")
+        raise ValueError(f"At the moment only 'csound' is supported, got '{backend}'")
 
     wintypeNumber = {
         'hamming': 0,
@@ -176,8 +176,9 @@ def removeSustain(samples: np.ndarray,
                        )
     job = renderer.render(outfile=outfile, verbose=verbose, tail=tail, wait=True)
     if not os.path.exists(job.outfile):
+        args = job.process.args if job.process else None
         raise RuntimeError(f"Could not generate output file '{job.outfile}', file not found. "
-                           f"Args used: {job.process.args}")
+                           f"Args used: {args}")
     outsamples, _ = sndfileio.sndread(job.outfile)
     if realign:
         outsamples = outsamples[fftsize:]
@@ -185,7 +186,3 @@ def removeSustain(samples: np.ndarray,
             # We were asked to save to a file, so save the realigned audio
             sndfileio.sndwrite(outfile, outsamples, sr=sr)
     return outsamples
-
-
-
-

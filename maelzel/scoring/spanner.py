@@ -1,18 +1,29 @@
 from __future__ import annotations
-from . import util
-from . import definitions
+
 import copy
-from .common import logger
+from typing import TYPE_CHECKING
+
 from maelzel._util import reprObj
 
-from typing import TYPE_CHECKING
+from . import definitions, util
+from .common import logger
+
 if TYPE_CHECKING:
-    from maelzel.scoring import Notation
-    from typing_extensions import Self
     from typing import Iterable
+    from typing_extensions import Self
+    from maelzel.scoring import Notation
 
 
 class Spanner:
+    """A spanner is a line that connects two or more notes.
+
+    Attributes:
+        kind: One of start or end
+        uuid: A uuid for this spanner. uuid is shared with the partner spanner
+        linetype: One of solid, dashed, dotted
+        placement: above or below
+        color: A valid css color
+    """
     endingAtTie = 'last'
     basePriority = 0
     lilyPlacementPost = True
@@ -23,7 +34,7 @@ class Spanner:
                  color=''):
         assert kind in {'start', 'end'}
         if kind != 'start':
-            assert uuid, f"A uuid is needed when continuing or closing a spanner"
+            assert uuid, "A uuid is needed when continuing or closing a spanner"
         self.kind = kind
         """One of start or end"""
         self.uuid = uuid or util.makeuuid(8)
@@ -81,6 +92,15 @@ class Spanner:
 
 
 def markNestingLevels(notations: Iterable[Notation]) -> None:
+    """
+    Mark the nesting level of each spanner in the given notations.
+
+    Args:
+        notations: An iterable of notations to mark.
+
+    Returns:
+        None
+    """
     openSpannersByClass: dict[type, list[Spanner]] = {}
     uuidToLevel: dict[str, int] = {}
     for n in notations:
@@ -105,6 +125,15 @@ def markNestingLevels(notations: Iterable[Notation]) -> None:
 
 
 def matchOrfanSpanners(notations: Iterable[Notation], removeUnmatched=False) -> None:
+    """Match orphan spanners with their partners.
+
+    Args:
+        notations: An iterable of notations to match.
+        removeUnmatched: Whether to remove unmatched spanners.
+
+    Returns:
+        None
+    """
     unmatched = collectUnmatchedSpanners(notations)
     byclass: dict[type, list[Spanner]] = {}
     for spanner, n in unmatched:
@@ -253,6 +282,18 @@ class OctaveShift(Spanner):
 
 
 class Hairpin(Spanner):
+    """Hairpin crescendo / diminuendo spanner.
+
+    Args:
+        kind: The kind of hairpin.
+        uuid: The unique identifier of the hairpin.
+        direction: The direction of the hairpin.
+        niente: Whether the hairpin is a niente.
+        placement: The placement of the hairpin.
+
+    Returns:
+        None
+    """
     endingAtTie = 'first'
     basePriority = 2
 
@@ -282,6 +323,10 @@ def solveHairpins(notations: Iterable[Notation], startDynamic='mf') -> None:
     A hairpin can be created without an end spanner. In that case the end
     of the hairpin is the next dynamic
 
+    Args:
+        notations: The notations to solve hairpins for.
+        startDynamic: The starting dynamic for hairpins.
+
     """
     hairpins = {(s.uuid, s.kind) for n in notations if n.spanners
                 for s in n.spanners if isinstance(s, Hairpin)}
@@ -296,7 +341,7 @@ def solveHairpins(notations: Iterable[Notation], startDynamic='mf') -> None:
                 lastHairpin = None
         if n.spanners:
             for spanner in n.spanners:
-                if isinstance(spanner, Hairpin) and spanner.kind == 'start' and not (spanner.uuid, 'end') in hairpins:
+                if isinstance(spanner, Hairpin) and spanner.kind == 'start' and (spanner.uuid, 'end') not in hairpins:
                     lastHairpin = spanner
 
 
@@ -325,5 +370,3 @@ def moveEndSpannersToEndOfLogicalTie(notations: Iterable[Notation]) -> None:
                 if spanner.kind == 'end' and isinstance(spanner, spannerClasses):
                     stack.append(spanner)
                     n.spanners.remove(spanner)
-
-

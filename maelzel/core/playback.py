@@ -3,7 +3,6 @@ This module handles playing of events
 
 """
 from __future__ import annotations
-from functools import cache
 
 import numpy as np
 import csoundengine
@@ -19,8 +18,6 @@ from maelzel.core import _playbacktools
 from maelzel.core.synthevent import SynthEvent
 from maelzel.core.renderer import Renderer
 from maelzel.core.automation import SynthAutomation
-from maelzel import _util
-from maelzel.snd import audiosample
 
 
 from typing import TYPE_CHECKING

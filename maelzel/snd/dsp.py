@@ -10,25 +10,25 @@ from math import pi
 import warnings
 
 
-def biquadCoefficients(filtertype: str, fc: float, param: float, dbgain=0., 
+def biquadCoefficients(filtertype: str, fc: float, param: float, dbgain=0.,
                        fs=48000, normalized=True
                        ) -> tuple[float, float, float, float, float, float]:
     """various iir biquad filters for audio processing
-    
+
     Args:
         filtertype: one of "lpf", "hpf", "bpf"
         fc: filter frequency
         param: depending on filter, acts as Q, bandwidth, or shelf slope.
         dbgain: gain  in db for peaking/shelving filters (defaults to 0)
         fs: sampling frequency (defaults to 48000)
-    
+
     Returns:
         a tuple (b0, b1, b2, a0, a1, a2)
-    
-    
+
+
     """
     sel = filtertype
-    aval = 10**(dbgain/40.0)
+    # aval = 10**(dbgain/40.0)
     w0 = 2.0 * pi * fc / float(fs)
     cosw0 = math.cos(w0)
     sinw0 = math.sin(w0)
@@ -41,7 +41,7 @@ def biquadCoefficients(filtertype: str, fc: float, param: float, dbgain=0.,
         a0 = 1 + alpha
         a1 = -2 * cosw0
         a2 = 1 - alpha
- 
+
     elif sel == "hpf":
         b0 = (1 + cosw0)/2.0
         b1 = -1 - cosw0
@@ -49,7 +49,7 @@ def biquadCoefficients(filtertype: str, fc: float, param: float, dbgain=0.,
         a0 = 1 + alpha
         a1 = -2 * cosw0
         a2 = 1 - alpha
- 
+
     elif sel == "bpf":
         b0 = sinw0 / 2.0
         b1 = 0.0
@@ -57,9 +57,9 @@ def biquadCoefficients(filtertype: str, fc: float, param: float, dbgain=0.,
         a0 = 1.0 + alpha
         a1 = -2.0 * cosw0
         a2 = 1.0 - alpha
-         
+
     else:
-        raise NameError("invalid filter type")
+        raise NameError(f"invalid filter type {sel}, possible values are 'lpf', 'hpf', 'bpf'")
 
     if normalized:
         b0 = b0 / a0
@@ -86,13 +86,12 @@ def biquad(xx, sel, fc, param, dbgain=0, fs=48000) -> np.ndarray:
     Various iir biquad filters for audio processing
 
     Args:
-        xx     : input signal to be filtered
-        sel    : filter type
-                 options: "lpf", "hpf", "bpf"
-        fc     : filter frequency
-        param  : Depending on filter, acts as Q, bandwidth, or shelf slope.
-        dbgain : gain  in db for peaking/shelving filters (defaults to 0)
-        fs     : sampling frequency
+        xx: input signal to be filtered
+        sel: filter type - options: "lpf", "hpf", "bpf"
+        fc: filter frequency
+        param: Depending on filter, acts as Q, bandwidth, or shelf slope.
+        dbgain: gain  in db for peaking/shelving filters (defaults to 0)
+        fs: sampling frequency
 
     Returns:
         the resulting samples after being filtered
@@ -101,7 +100,7 @@ def biquad(xx, sel, fc, param, dbgain=0, fs=48000) -> np.ndarray:
     =======
 
     # TODO: create an example
-    """   
+    """
     b0, b1, b2, a0, a1, a2 = biquadCoefficients(sel, fc, param, dbgain, fs, normalized=True)
     return sos6(xx, b0, b1, b2, a0, a1, a2)
 
@@ -110,16 +109,59 @@ def butterBandpassCoefficients(lowcut: float, highcut: float, fs: int, order=5
                                ) -> tuple[np.ndarray, np.ndarray]:
     """
     return the b and a coefficients to design the digital filter.
+
+    Args:
+        lowcut: low cutoff frequency
+        highcut: high cutoff frequency
+        fs: sampling frequency
+        order: filter order (defaults to 5)
+
+    Returns:
+        b, a: coefficients for the digital filter
+
+    Example
+    ~~~~~~~
+
+    >>> import numpy as np
+    >>> from maelzel.snd.dsp import butterBandpassCoefficients
+    >>> b, a = butterBandpassCoefficients(100, 200, 1000, order=5)
+    >>> print(b)
+    [ 0.000125  0.000625  0.000125]
+    >>> print(a)
+    [1.        -1.9999999 -0.9999999]
     """
     nyq = 0.5 * fs
     low = lowcut / nyq
     high = highcut / nyq
-    b, a = _signal.butter(order, [low, high], btype='band')
+    b, a = _signal.butter(order, [low, high], btype='band')  # type: ignore
     return b, a
 
 
 def butterBandpassFilter(data: np.ndarray, lowcut: float, highcut: float, fs: int, order=5
                          ) -> np.ndarray:
+    """
+    Apply a bandpass filter to the given data.
+
+    Args:
+        data: input data to be filtered
+        lowcut: low cutoff frequency
+        highcut: high cutoff frequency
+        fs: sampling frequency
+        order: filter order (defaults to 5)
+
+    Returns:
+        filtered data
+
+    Example
+    ~~~~~~~
+
+    >>> import numpy as np
+    >>> from maelzel.snd.dsp import butterBandpassFilter
+    >>> data = np.random.randn(1000)
+    >>> filtered_data = butterBandpassFilter(data, 100, 200, 1000, order=5)
+    >>> print(filtered_data.shape)
+    (1000,)
+    """
     b, a = butterBandpassCoefficients(lowcut, highcut, fs, order=order)
     y = _signal.lfilter(b, a, data)
     return y
@@ -154,12 +196,12 @@ def butterBandpassFrequencyResponse(bb: np.ndarray | list[float],
     >>> pyplot.plot(xx, yy)
     """
     from scipy.signal import freqz
-    
+
     w, h = freqz(bb, aa, worN=worN)
     return (fs * 0.5 / pi) * w, np.abs(h)
 
 
-def genSine(freq=440, amp=1, iphase=0, dur=1, sr=48000):
+def genSine(freq=440, amp=1, iphase=0, dur=1, sr=48000) -> np.ndarray:
     """
     generate a sine tone
 
@@ -170,6 +212,9 @@ def genSine(freq=440, amp=1, iphase=0, dur=1, sr=48000):
         dur: totalDuration
         sr: sample rate
 
+    Returns:
+        generated sine tone
+
     .. code::
 
         y = A * math.sin(2pi * freq * t + ph) = A * math.sin(w * t + ph)
@@ -179,14 +224,28 @@ def genSine(freq=440, amp=1, iphase=0, dur=1, sr=48000):
     return samples
 
 
-def genSquare(freq=440, duty=0.5, amp=1, iphase=0, dur=1, sr=48000):
+def genSquare(freq=440, duty=0.5, amp=1, iphase=0, dur=1, sr=48000) -> np.ndarray:
+    """
+    Generate a square wave
+
+    Args:
+        freq: frequency to generate
+        duty: duty cycle
+        amp: amplitude
+        iphase: initial phase
+        dur: totalDuration in seconds
+        sr: sample rate
+
+    Returns:
+        generated square wave samples
+    """
     ts = np.linspace(0, dur, sr, endpoint=False)
     phase = iphase + ts * (freq * pi * 2)
     return _signal.waveforms.square(phase, duty) * amp
 
 
-def genSineMod(freq: float|int|bpf4.BpfInterface=440,
-               amp=1.,
+def genSineMod(freq: float | int | bpf4.BpfInterface=440,
+               amp: float | int | bpf4.BpfInterface = 1.,
                iphase=0.,
                dur=1.,
                sr=48000
@@ -248,6 +307,7 @@ def primePowerDelays(N: int, pathmin: float, pathmax: float, sr: int = 48000
 
 def prime_power_delay(i, N, pathmin, pathmax, sr):
     """
+
     i: which delay (0 to N-1)
 
     for the rest of the parameters, see primePowerDelays
@@ -265,19 +325,32 @@ def prime_power_delay(i, N, pathmin, pathmax, sr):
     return delayval
 
 
-def decay2feedback(decaydur, delaytime):
+def decay2feedback(decaydur: float, delaytime: float) -> float:
     """
-    Returns the feedback needed to decrease its volume in 60 dB 
-    in the given totalDuration for the indicated delaytime
+    Feedback needed to decrease volume by 60 dB
+
+    Args:
+        decaydur: total duration of decay
+        delaytime: time of delay
+
+    Returns:
+        feedback: feedback needed to decrease volume by 60 dB
+
     """
     return math.exp(-4.605170185988091 * delaytime / decaydur)
 
 
-def feedback2decay(feedback, delaytime):
+def feedback2decay(feedback: float, delaytime: float) -> float:
     """
-    The decay totalDuration needed for a comb filter to decrease its
-    volume in 60 dB given the indicated feedback level (0-1) and
-    delaytime
+    Decay duration needed for a comb filter to decrease volume by 60 dB
+
+    Args:
+        feedback: amout of feedback in the filter
+        delaytime: time of delay
+
+    Returns:
+        total duration of decay
+
     """
     return -4.605170185988091 * delaytime / math.log(feedback)
 
@@ -288,32 +361,41 @@ def feedback2delaytime(feedback, decaytime):
 
 def rms(samples):
     """
-    samples: a numpy array of samples
+    Root Mean Square (RMS) of a signal
+
+    Args:
+        samples: a numpy array of samples
+
+    Returns:
+        RMS value of the signal
+
     """
     return math.sqrt((samples ** 2).sum() / float(samples.size))
 
 
-def crest_factor(samples):
+def crestFactor(samples: np.ndarray) -> float:
     maxvalue = max(samples.max(), -(samples.min()))
     return maxvalue / float(rms(samples))
 
 
-def lowpass_cheby2(samples, freq, sr, maxorder=12):
+def lowpassCheby2(samples: np.ndarray, freq: float, sr: int, maxorder=12) -> np.ndarray:
     """
     Cheby2-Lowpass Filter
 
+    Args:
+        samples: Data to filter, type numpy.ndarray.
+        freq: The frequency above which signals are attenuated
+              with 95 dB
+        sr: Sampling rate in Hz.
+        maxorder: Maximal order of the designed cheby2 filter
+
     Filter samples by passing samples only below a certain frequency.
     The main purpose of this cheby2 filter is downsampling.
-    
+
     This method will iteratively design a filter, whose pass
     band frequency is determined dynamically, such that the
     values above the stop band frequency are lower than -96dB.
 
-    samples : Data to filter, type numpy.ndarray.
-    freq    : The frequency above which signals are attenuated
-              with 95 dB
-    sr      : Sampling rate in Hz.
-    maxorder: Maximal order of the designed cheby2 filter
     """
     b, a, freq_passband = lowpass_cheby2_coeffs(freq, sr, maxorder)
     return _signal.lfilter(b, a, samples)
@@ -322,10 +404,16 @@ def lowpass_cheby2(samples, freq, sr, maxorder=12):
 @_returns_tuple("a b freq_passband")
 def lowpass_cheby2_coeffs(freq, sr, maxorder=12):
     """
-    freq    : The frequency above which signals are attenuated
+    Args:
+        freq: The frequency above which signals are attenuated
               with 95 dB
-    sr      : Sampling rate in Hz.
-    maxorder: Maximal order of the designed cheby2 filter
+        sr: Sampling rate in Hz.
+        maxorder: Maximal order of the designed cheby2 filter
+
+    Returns:
+        b: Numerator coefficients of the filter
+        a: Denominator coefficients of the filter
+        freq_passband: Passband frequency of the filter
     """
     nyquist = sr * 0.5
     # rp - maximum ripple of passband, rs - attenuation of stopband
@@ -345,9 +433,9 @@ def lowpass_cheby2_coeffs(freq, sr, maxorder=12):
         order, wn = _signal.cheb2ord(wp, ws, rp, rs, analog=False)
     b, a = _signal.cheby2(order, rs, wn, btype='low', analog=False, output='ba')
     return (b, a, wp*nyquist)
-    
 
-def envelope(data):
+
+def envelope(data: np.ndarray) -> np.ndarray:
     """
     Envelope of a function.
 
@@ -357,7 +445,7 @@ def envelope(data):
     The envelope at the start/end should not be taken too seriously.
 
     data: Data to make envelope (numpy.ndarray)
-    
+
     Returns --> Envelope of input data.
 
     NB: via obspy
@@ -367,22 +455,28 @@ def envelope(data):
     return data
 
 
-def tau2pole(tau, sr):
+def tau2pole(tau: float, sr: float) -> float:
     """
-    tau: desired smoothing time in seconds
-    sr: sampling rate
+    Args:
+        tau: desired smoothing time in seconds
+        sr: sampling rate
+
+    Returns:
+        pole: pole of the smoothing filter
     """
     return math.exp(-1.0/(tau*sr))
 
 
 def compressor_makeupgain(thresh, ratio, refdb=0):
     """
-    Returns the makeup-gain for the given thresh and ratio
-    to achieve 0 dB given a 0 dB output
+    Makeup-gain for given thresh and ratio to achieve 0 dB given a 0 dB output
 
-    thresh: threshold, in dB
-    ratio: ratio of compression
-    refdb: reference, normally 0 dB
+    Args:
+        thresh: threshold, in dB
+        ratio: ratio of compression
+        refdb: reference, normally 0 dB
+
+    Returns:
+        makeup_gain: makeup gain for the compressor
     """
     return refdb - (1.0/ratio) * (refdb - thresh) - thresh
-

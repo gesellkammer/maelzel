@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import copy
 import math
-from functools import cache
 from emlib import mathlib
 import emlib.misc
 import pitchtools as pt
@@ -12,33 +10,25 @@ from ._common import logger, F
 from typing import TYPE_CHECKING, cast as _cast
 from maelzel.core import renderer
 from maelzel.core import automation as _automation
-# from maelzel.core.automation import Automation, SynthAutomation
 from maelzel.core import presetmanager
 from maelzel.core import presetdef
 import csoundengine
 import csoundengine.config
 
 if TYPE_CHECKING:
-    from typing import Any, Callable, Iterable, Sequence
+    from maelzel.common import time_t, location_t, num_t
+    from typing import Any, Callable, Iterable, Sequence, TypeAlias
     from .config import CoreConfig
-    from ._typedefs import *
     from matplotlib.axes import Axes
     from maelzel.scorestruct import ScoreStruct
+    breakpoint_t: TypeAlias = list[float]
+
 
 
 __all__ = (
     'PlayArgs',
     'SynthEvent',
 )
-
-
-_MAX_NUM_PFIELDS = 1900
-
-
-def _unique(d: dict | None, deep: bool) -> dict | None:
-    if d is None:
-        return d
-    return copy.deepcopy(d) if deep else d.copy()
 
 
 def _normalizeSynthValue(val) -> float | str:
@@ -876,7 +866,7 @@ class SynthEvent:
                 row.append(bps)
             else:
                 pre = "; ".join(bprepr(bp) for bp in event.bps[:2])
-                post = "; ".join(bprepr(bp) for bp in events.bps[-2:])
+                post = "; ".join(bprepr(bp) for bp in event.bps[-2:])
                 row.append(f"{pre}…{post}")
             rows.append(row)
         from emlib.misc import print_table
@@ -885,9 +875,9 @@ class SynthEvent:
     def _repr_html_(self) -> str:
         rows = [[f"{bp[0] + self.delay:.3f}", f"{bp[0]:.3f}"] + ["%.6g" % x for x in bp[1:]] for bp in self.bps]
         headers = ["Abs time", "0. Rel. time", "1. Pitch", "2. Amp"]
-        l = len(self.bps[0])
-        if l > 3:
-            headers += [str(i) for i in range(4, l+1)]
+        bplen = len(self.bps[0])
+        if bplen > 3:
+            headers += [str(i) for i in range(4, bplen+1)]
         htmltab = emlib.misc.html_table(rows, headers=headers)
         return f"SynthEvent({self._reprInfo()})<br>" + htmltab
 
@@ -940,7 +930,7 @@ class SynthEvent:
         """
         Crop the events at the given time slice (staticmethod)
 
-        Removes any event / part of an event outside the time slice start:end
+        Removes any event or part of an event outside the time slice start:end
 
         Args:
             events: the events to crop
@@ -1028,7 +1018,7 @@ class SynthEvent:
 
     def _resolveParams(self: SynthEvent,
                        instr: csoundengine.instr.Instr
-                       ) -> tuple[list[float | str], dict[str, float]]:
+                       ) -> tuple[list[float | str], dict[str, float|str]]:
         """
         Resolves the values for pfields and dynamic params
 
@@ -1047,6 +1037,8 @@ class SynthEvent:
         # if not self.linkednext and self.sustain > 0:
         if self.sustain > 0:
             self._applySustain()
+
+        dynargs: dict[str, float|str]
 
         # |kpos, kgain, idataidx_, inumbps, ibplen, ichan, ifadein, ifadeout, ipchintrp_, ifadekind|
         if csoundengine.config['dynamic_pfields']:
@@ -1088,7 +1080,8 @@ class SynthEvent:
         return pfields5, dynargs
 
     def _resolveParamsGeneric(self: SynthEvent,
-                              instr: csoundengine.instr.Instr):
+                              instr: csoundengine.instr.Instr
+                              ) -> tuple[list[float|str], dict[str, float]]:
         """
         Resolves the values for pfields and dynamic params
 
@@ -1119,13 +1112,12 @@ class SynthEvent:
             'ipchintrp_': SynthEvent.pitchinterpolToInt[self.pitchinterpol],
             'ifadekind': SynthEvent.fadeshapeToInt[self.fadeshape]
         }
-        dynargs = {'kpos': self.position, 'kgain': self.gain}
+        dynargs: dict[str, float|str] = {'kpos': self.position, 'kgain': self.gain}
         if self.args:
             dynargs |= self.args
-        pfields5, dynargs = instr.parseSchedArgs(args=pfields, kws=dynargs)
+        pfields5, kwargs = instr.parseSchedArgs(args=pfields, kws=dynargs)
         pfields5.extend(self._flatBreakpoints())
-        return pfields5, dynargs
-
+        return pfields5, kwargs
 
     def plot(self, axes: Axes = None, notenames=False, linewidth=1) -> Axes:
         """
@@ -1244,7 +1236,9 @@ def mergeEvents(events: Sequence[SynthEvent], checkStaticAttributes=True
                                                     pretime=lastoffset,
                                                     kind='arg')
                     automationPoints.append(automation)
-            argstate = _mergeOptionalDicts(mergedevent.args, event.args)
+            # argstate = _mergeOptionalDicts(mergedevent.args, event.args)
+            if event.args:
+                argstate |= event.args
         for attr in SynthEvent.dynamicAttributes:
             value = getattr(event, attr, None)
             prevalue = state.get(attr)
@@ -1271,13 +1265,3 @@ def mergeEvents(events: Sequence[SynthEvent], checkStaticAttributes=True
         lastoffset = offset
     mergedevent.automationSegments = automationPoints
     return mergedevent
-
-
-def _mergeOptionalDicts(a: dict[str, Any] | None, b: dict[str, Any] | None) -> dict:
-    if a and b:
-        return a | b
-    elif a:
-        return a
-    elif b:
-        return b
-    return {}

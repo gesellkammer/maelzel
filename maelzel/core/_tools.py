@@ -21,7 +21,7 @@ from maelzel.core import symbols as _symbols
 
 from typing import TYPE_CHECKING, Any, Sequence
 if TYPE_CHECKING:
-    from ._typedefs import *
+    from maelzel.common import num_t
 
 
 @cache
@@ -94,7 +94,7 @@ def carryColumns(rows: list, sentinel=None) -> list:
     return outrows[1:]
 
 
-def normalizeFade(fade: fade_t,
+def normalizeFade(fade: float | tuple[float, float],
                   defaultfade: float
                   ) -> tuple[float, float]:
     """ Returns (fadein, fadeout) """

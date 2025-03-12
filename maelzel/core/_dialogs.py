@@ -7,7 +7,7 @@ from emlib import envir
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Sequence, Optional
+    from typing import Optional
 
 
 def selectFromList(options: list[str],
@@ -85,7 +85,7 @@ def selectFileForOpen(key: str, filter="All (*.*)", prompt="Open", ifcancel:str=
     if _tools.checkBuildingDocumentation(logger):
         return None
     import emlib.dialogs
-    lastdir = _appstate.get(key)
+    lastdir = _appstate.get(key, '')
     selected = emlib.dialogs.selectFile(filter=filter, directory=lastdir, title=prompt)
     if selected:
         _appstate[key] = os.path.split(selected)[0]

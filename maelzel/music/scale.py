@@ -18,7 +18,7 @@ knownscales = {
 }
 
 
-def _asmidi(x: Union[str, float]) -> float:
+def _asmidi(x: str | float) -> float:
     return pt.n2m(x) if isinstance(x, str) else x
 
 
@@ -38,22 +38,6 @@ def _scale(startnote: str,
         note = pt.transpose(note, step)
         notes.append(note)
     return notes
-
-
-def scale(startnote: str,
-          steps: str | Sequence[float] = 'chromatic',
-          endnote: str = '8C'
-          ) -> list[str]:
-    # TODO: this could be better...
-    if isinstance(steps, str):
-        steps = knownscales.get(steps)
-        if steps is None:
-            raise ValueError(f"steps should be either a sequence of intervals or the name of"
-                             f"a known interval sequence. Known sequences: {knownscales.keys()}")
-    elif not isinstance(steps, tuple):
-        steps = tuple(steps)
-
-    return _cache(startnote=startnote, steps=steps, endnote=endnote)
 
 
 @cache
@@ -100,11 +84,11 @@ def pitchscale(startpitch: float | str,
     endpitch = _asmidi(endpitch)
 
     if isinstance(steps, str):
-        steps = knownscales.get(steps)
-        if steps is None:
+        scale = knownscales.get(steps)
+        if scale is None:
             raise ValueError(f"steps should be either a sequence of intervals or the name of"
                              f"a known interval sequence. Known sequences: {knownscales.keys()}")
     elif not isinstance(steps, tuple):
-        steps = tuple(steps)
+        scale = tuple(steps)
 
-    return _pitchscale(startpitch=startpitch, steps=steps, endpitch=endpitch)
+    return _pitchscale(startpitch=startpitch, steps=scale, endpitch=endpitch)

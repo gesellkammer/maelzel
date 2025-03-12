@@ -113,7 +113,6 @@ class Renderer(ABC):
             external = True
 
         if fmt == 'png':
-            from maelzel.core import _tools
             png = _util.mktemp(suffix='.png')
             self.write(png)
             _util.pngShow(png, forceExternal=external, inlineScale=scalefactor)
@@ -128,8 +127,9 @@ class Renderer(ABC):
         scale = config['pngScale']
         pngfile = _util.mktemp(suffix=".png", prefix="render-")
         self.write(pngfile)
-        w, h = emlib.img.imgSize(pngfile)
-        img = emlib.img.htmlImgBase64(pngfile, removeAlpha=True, width=f'{int(w*scale)}px')
+        # w, h = emlib.img.imgSize(pngfile)
+        # html = emlib.img.htmlImgBase64(pngfile, removeAlpha=True, width=f'{int(w*scale)}px')
+        img64, w, h = _util.readImageAsBase64(pngfile)
+        html = _util.htmlImage64(img64, w, width=f'{int(w*scale)}px')
         parts = "1 part" if len(self.quantizedScore) == 1 else f"{len(self.quantizedScore)} parts"
-        html = f'<b>{type(self).__name__}</b> ({parts})<br>'+img
-        return html
+        return f'<b>{type(self).__name__}</b> ({parts})<br>'+html

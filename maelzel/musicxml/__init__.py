@@ -1,5 +1,5 @@
 from __future__ import annotations
-from .definitions import *
+from .definitions import MUSICXML_TENTHS, MUSICXML_ACCIDENTALS
 
 
 def pointsToMillimeters(points:float) -> float:
@@ -43,4 +43,3 @@ def microToAccidental(alter:float, semitoneDivisions=4) -> str:
     assert semitoneDivisions in (1, 2, 4)
     alter = round(alter*semitoneDivisions)/semitoneDivisions
     return MUSICXML_ACCIDENTALS[alter]
-

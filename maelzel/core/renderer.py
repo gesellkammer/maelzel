@@ -15,7 +15,7 @@ from maelzel.core import synthevent
 from maelzel.core.presetmanager import PresetManager
 from . import environment
 
-from typing import Callable, Sequence
+from typing import Callable
 
 
 __all__ = (

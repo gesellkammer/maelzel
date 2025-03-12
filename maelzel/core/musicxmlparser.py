@@ -3,6 +3,7 @@ Implements a musicxml parser to maelzel.core.Score
 """
 from __future__ import annotations
 import copy
+from typing import Sequence
 from maelzel.scorestruct import ScoreStruct, TimeSignature
 from .event import Note, Chord, Rest
 from .chain import Voice
@@ -15,7 +16,12 @@ from emlib.iterlib import pairwise
 import emlib.mathlib
 from dataclasses import dataclass
 from maelzel import scoring
-from typing import Callable, Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Callable, Any, TypeVar
+    _T = TypeVar('_T')
+
 
 import xml.etree.ElementTree as ET
 
@@ -482,7 +488,7 @@ def _parseNote(root: ET.Element, context: _ParseContext) -> Note:
     return note
 
 
-def _joinChords(notes: list[Note]) -> list[Note | Chord]:
+def _joinChords(notes: list[Note]) -> Sequence[Note | Chord]:
     """
     Join notes belonging to a chord
 
@@ -541,13 +547,13 @@ class Direction:
     placement: str = ''
     properties: dict | None = None
 
-    def getProperty(self, key, default=None):
+    def getProperty(self, key: str, default: _T) -> _T:
         if not self.properties:
             return default
         return self.properties.get(key, default)
 
 
-def _attr(attrib: dict, key: str, default, convert=None):
+def _attr(attrib: dict, key: str, default: Any, convert=None):
     value = attrib.get(key)
     if value is not None:
         return value if not convert else convert(value)
@@ -642,7 +648,7 @@ def _parseDirection(item: ET.Element, context: _ParseContext) -> Direction | Non
                          properties=properties)
     elif tag == 'rehearsal':
         enclosure = inner.attrib.get('enclosure')
-        return Direction('rehearsal', inner.text,
+        return Direction('rehearsal', inner.text or '',
                          properties={'enclosure': enclosure,
                                      'placement': placement})
     elif tag == 'wedge':
@@ -691,8 +697,8 @@ def _handleDirection(note: Note, direction: Direction, context: _ParseContext):
     elif direction.kind == 'words':
         note.addText(direction.value,
                      placement=direction.placement,
-                     fontsize=direction.getProperty('font-size'),
-                     italic=direction.getProperty('font-style') == 'italic')
+                     fontsize=direction.getProperty('font-size', None),
+                     italic=direction.getProperty('font-style', None) == 'italic')
 
     elif direction.kind == 'hairpin':
         if direction.value == 'crescendo':
@@ -789,7 +795,7 @@ def _matchClef(sign: str, line=0, octave=0) -> str:
         elif octave == 2:
             clefkind += '15'
         elif octave < 0:
-            logger.error(f"Negative octaves are not supported for treble clefs")
+            logger.error("Negative octaves are not supported for treble clefs")
     elif sign == 'f':
         clefkind = 'bass'
         if octave == -1:
@@ -896,6 +902,7 @@ def _parsePart(part: ET.Element, context: _ParseContext
             elif tag == 'note':
                 note = _parseNote(item, context)
                 voicenum = note.getProperty('voice', 1)
+                assert isinstance(voicenum, int), f"Expected int, got {type(voicenum)}"
                 cursorWithinMeasure = cursor - measureCursor
                 note.offset = cursor
                 for direction in directions:
@@ -965,14 +972,12 @@ def _parsePart(part: ET.Element, context: _ParseContext
                 continue
             for s in event.symbols:
                 if isinstance(s, symbols.NoteheadLine) and s.kind == 'start':
-                    assert s.anchor is not None
-                    anchor = s.anchor()
+                    anchor = s.anchor
                     assert anchor is not None
-                    assert s.partnerSpanner
-                    partnerSpanner = s.partnerSpanner()
+                    partnerSpanner = s.partner
                     assert partnerSpanner is not None
                     assert partnerSpanner.anchor is not None
-                    endanchor = partnerSpanner.anchor()
+                    endanchor = partnerSpanner.anchor
                     assert endanchor is not None
                     if voice.nextItem(anchor) == endanchor:
                         try:
@@ -993,7 +998,8 @@ def _guessEncoding(path: str, length=1024) -> str:
     import chardet
     teststr = open(path, "rb").read(length)
     info = chardet.detect(teststr)
-    return info['encoding']
+    encoding = info.get('encoding')
+    return encoding if encoding is not None else 'utf-8'
 
 
 @dataclass

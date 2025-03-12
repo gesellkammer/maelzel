@@ -22,11 +22,11 @@ def whiteNoise(dur: float, sr=44100, amp=1.) -> np.ndarray:
 
 
 def _noise_psd(N, psd=lambda f: 1):
-    X_white = np.fft.rfft(np.random.randn(N));
+    X_white = np.fft.rfft(np.random.randn(N))
     S = psd(np.fft.rfftfreq(N))
     # Normalize S
     S = S / np.sqrt(np.mean(S ** 2))
-    X_shaped = X_white * S;
+    X_shaped = X_white * S
     return np.fft.irfft(X_shaped)
 
 

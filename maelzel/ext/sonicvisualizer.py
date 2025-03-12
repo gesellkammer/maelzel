@@ -4,7 +4,7 @@ Utilities to interact with Sonic Visualizer
 from __future__ import annotations
 import os
 import bpf4 as bpf
-from pitchtools import *
+from pitchtools import f2n, db2amp, n2m, m2n
 from emlib.containers import RecordList
 from emlib import csvtools
 
@@ -37,9 +37,9 @@ def readQtrans(path: str, minpitch=36, octaveDivision=12):
     Read a Q-Transform analysis
 
     Args:
-        path: 
-        minpitch: 
-        octaveDivision: 
+        path:
+        minpitch:
+        octaveDivision:
 
     Returns:
         a QTransf
@@ -53,10 +53,10 @@ def readQtrans(path: str, minpitch=36, octaveDivision=12):
     assert model.get("name").split(":")[-1].strip() == "Constant-Q Spectrogram"
     sr = int(model.get("sampleRate"))
     start = int(model.get("start"))
-    end = int(model.get("end"))
+    # end = int(model.get("end"))
     wsize = int(model.get("windowSize"))
-    startframe = int(model.get("startFrame"))
-    bins_per_row = int(model.get("yBinCount"))
+    # startframe = int(model.get("startFrame"))
+    # bins_per_row = int(model.get("yBinCount"))
     rows = []
     for row in dset.findall("row"):
         text = row.text
@@ -80,7 +80,7 @@ class QTransform:
         self.octave_division = octave_division
         self.max_idx = len(values)
         self.maxpitch = minpitch + len(values[0]) * (12 / octave_division)
-    
+
     def __call__(self, t: float, midi: Union[float, str]) -> float:
         if isinstance(midi, str):
             midi = n2m(midi)
@@ -88,7 +88,7 @@ class QTransform:
         midi_idx = int((midi - self.minpitch) * (self.octave_division / 12.))
         value = self.values[idx][midi_idx]
         return value
-    
+
     def chordAt(self, t: float, maxnotes=8, minamp=-60) -> list[tuple[str, float]]:
         idx = int((t - self.start) / self.dt)
         values = self.values[idx]
@@ -143,4 +143,3 @@ class Spectrum:
             else:
                 bpfs.append(bpf.const(0))
         self.bpfs = bpfs
-

@@ -39,6 +39,7 @@ import matplotlib.pyplot as plt
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
+    from typing import Callable
     from matplotlib.collections import QuadMesh
 
 # Constrain STFT block sizes to 256 KB
@@ -3971,7 +3972,7 @@ class TimeFormatter(mplticker.Formatter):
             s = "{:d}:{:02d}".format(int(value / 60.0), int(np.mod(value, 60)))
         elif self.unit == "s":
             s = f"{value:.3g}"
-        elif self.unit == None and (vmax - vmin >= 1):
+        elif self.unit is None and (vmax - vmin >= 1):
             s = f"{value:.2g}"
         elif self.unit == "ms":
             s = "{:.3g}".format(value * 1000)

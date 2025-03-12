@@ -1,9 +1,7 @@
-from __future__ import division as _division
 from math import log, log10, exp
 
 
-def soundpressure_to_soundlevel(soundpressure, p0=0.00002):
-    # type: (float, float) -> float
+def soundpressure_to_soundlevel(soundpressure: float, p0=0.00002) -> float:
     """
     convert soundpressure in Pascal to sound level in dB (dBSPL)
 
@@ -14,30 +12,27 @@ def soundpressure_to_soundlevel(soundpressure, p0=0.00002):
     return 20 * log10(soundpressure/p0)
 
 
-def soundlevel_to_soundpressure(soundlevel, p0=0.00002):
-    # type: (float, float) -> float
+def soundlevel_to_soundpressure(soundlevel: float, p0=0.00002) -> float:
     """
     convert sound-level in dB to sound-pressure in Pascal
 
     p = p0 * e^(1/20*Lp*log10(10))
 
-    p0: threshold of hearing, 0.00002 Pa (20uPa) 
+    p0: threshold of hearing, 0.00002 Pa (20uPa)
     """
     return p0 * exp(1/20*soundlevel*log(10))
 
 
-def soundintensity_to_soundlevel(soundintensity, I0=10e-12):
-    # type: (float, float) -> float
+def soundintensity_to_soundlevel(soundintensity: float, I0=10e-12) -> float:
     """
     convert sound intensity (in W/m2) to sound-level (dBSIL)
 
     Li(dbSIL) = 10 * log10(I/I0)
     """
     return 10 * log10(soundintensity/I0)
-    
 
-def soundlevel_to_soundintensity(soundlevel, I0=10e-12):
-    # type: (float, float) -> float
+
+def soundlevel_to_soundintensity(soundlevel: float, I0=10e-12) -> float:
     """
     convert soundlevel (dBSPI) to sound-intensity in W/m2
 
@@ -48,24 +43,19 @@ def soundlevel_to_soundintensity(soundlevel, I0=10e-12):
     return I0 * exp(1/10. * soundlevel * log10(10))
 
 
-def soundpressure_to_soundintensity(soundpressure, p0=0.00002, I0=10e-12):
-    # type: (float, float, float) -> float
+def soundpressure_to_soundintensity(soundpressure: float, p0=0.00002, I0=10e-12) -> float:
     L = soundpressure_to_soundlevel(soundpressure, p0)
-    I = soundlevel_to_soundintensity(L, I0)
-    return I
+    return soundlevel_to_soundintensity(L, I0)
 
 
-def soundintensity_to_soundpressure(soundintensity, p0=0.00002, I0=10e-12):
-    # type: (float, float, float) -> float
+def soundintensity_to_soundpressure(soundintensity: float, p0=0.00002, I0=10e-12) -> float:
     L = soundintensity_to_soundlevel(soundintensity, I0)
-    p = soundlevel_to_soundpressure(L, p0)
-    return p
+    return soundlevel_to_soundpressure(L, p0)
 
 
-def amplitude_to_soundlevelfullscale(amp):
-    # type: (float) -> float
+def amplitude_to_soundlevelfullscale(amp: float) -> float:
     """
-    convert linear amplitude (as used in DSP, 0 to 1) to dB 
+    convert linear amplitude (as used in DSP, 0 to 1) to dB
     (~ -120 to 0 depending on the bitrate)
 
     dBFS = 20 * log10(amp)
@@ -73,16 +63,14 @@ def amplitude_to_soundlevelfullscale(amp):
     return 20 * log10(amp)
 
 
-def soundlevelfullscale_to_amplitude(soundlevel):
-    # type: (float) -> float
+def soundlevelfullscale_to_amplitude(soundlevel: float) -> float:
     """
     convert soundlevel fullscale (as used in digital audio) to linear ampitude (0-1)
     """
     return exp(1/20. * soundlevel * log(10))
 
 
-def dL_coherent_sources(numsources):
-    # type: (int) -> float
+def dL_coherent_sources(numsources: int) -> float:
     """
     calculates the variation in intesity for the sum of numsources equal loud sources
 

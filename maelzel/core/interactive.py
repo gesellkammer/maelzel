@@ -1,5 +1,5 @@
 from __future__ import annotations
-from maelzel.core import Note, Chord
+from maelzel.core import Note
 from maelzel.core import _tools
 import pitchtools as pt
 
@@ -24,7 +24,7 @@ def generateNotes(start=12, end=127) -> dict[str, Note]:
         original_note = rest + str(octave)
         notes[original_note] = Note(i)
         if "x" in rest or "b" in rest:
-            enharmonic_note = _util.enharmonic(rest)
+            enharmonic_note = _tools.enharmonic(rest)
             enharmonic_note += str(octave)
             notes[enharmonic_note] = Note(i)
     return notes

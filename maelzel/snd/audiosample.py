@@ -51,7 +51,6 @@ import shutil
 import bpf4
 import bpf4.core
 import sndfileio
-import logging
 from pathlib import Path
 import atexit as _atexit
 import configdict
@@ -540,7 +539,7 @@ class Sample:
 
     def show(self, withAudiotag=True, figsize=(24, 4), external=False, profile=''):
         if external:
-            raise ValueError(f"External editor not supported")
+            raise ValueError("External editor not supported")
         if _util.pythonSessionType() == 'jupyter':
             from IPython.display import display_html
             display_html(self.reprHtml(withAudiotag=withAudiotag, figsize=figsize, profile=profile), raw=True)
@@ -583,8 +582,9 @@ class Sample:
             return self._reprHtml
         import IPython.display
         import emlib.img
+        import emlib.misc
         from . import plotting
-        pngfile = tempfile.mktemp(suffix=".png", prefix="plot")
+        imgfile = tempfile.mktemp(suffix=".jpg", prefix="plot")
         if not profile:
             if self.duration < 2:
                 profile = 'highest'
@@ -595,8 +595,10 @@ class Sample:
             else:
                 profile = 'low'
         plotting.plotWaveform(self.samples, self.sr, profile=profile,
-                              saveas=pngfile, figsize=figsize)
-        img = emlib.img.htmlImgBase64(pngfile)   # , maxwidth='800px')
+                              saveas=imgfile, figsize=figsize)
+        img64, w, h = _util.readImageAsBase64(imgfile)
+        htmlimg = _util.htmlImage64(img64, imwidth=w)
+        # htmlimg = emlib.img.htmlImgBase64(pngfile)   # , maxwidth='800px')
         if self.duration > 60:
             durstr = emlib.misc.sec2str(self.duration)
         else:
@@ -607,7 +609,7 @@ class Sample:
                  f"numchannels=<code>{self.numchannels}</code>)<br>")
         else:
             s = ''
-        s += img
+        s += htmlimg
         if withAudiotag is None:
             withAudiotag = config['reprhtml_include_audiotag']
         if withAudiotag and self.duration/60 < config['reprhtml_audiotag_maxduration_minutes']:

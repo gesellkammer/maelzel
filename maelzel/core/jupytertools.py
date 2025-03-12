@@ -1,17 +1,14 @@
 from __future__ import annotations
 from . import environment
+from maelzel import _util
+
 
 if not environment.insideJupyter:
     raise ImportError("This module is only available inside a jupyter session")
 
-import os
 from ._common import logger
 
-import IPython
-from IPython.core.display import display, Image
-
-import emlib.img
-from .workspace import getConfig
+from IPython.display import display, Image
 
 # ipywidgets is a dependency of jupyter so it should be available
 import ipywidgets
@@ -24,8 +21,12 @@ def setJupyterHookForClass(cls, func, fmt='image/png') -> None:
     if not environment.insideJupyter:
         logger.debug("_setJupyterHookForClass: not inside IPython/jupyter, skipping")
         return
-    ip = IPython.get_ipython()
-    formatter = ip.display_formatter.formatters[fmt]
+    from IPython.core.getipython import get_ipython
+    ip = get_ipython()
+    if ip is None:
+        logger.debug("_setJupyterHookForClass: no IPython instance found, skipping")
+        return
+    formatter = ip.display_formatter.formatters[fmt]  # type: ignore
     return formatter.for_type(cls, func)
 
 
@@ -44,13 +45,13 @@ def jupyterMakeImage(path: str, scalefactor=1.0) -> Image:
     if not environment.insideJupyter:
         raise RuntimeError("Not inside a Jupyter session")
 
-    width, height = emlib.img.imgSize(path)
+    width, height = _util.imgSize(path)  # emlib.img.imgSize(path)
     if scalefactor != 1.0:
         width *= scalefactor
     return Image(filename=path, embed=True, width=width)
 
 
-def jupyterShowImage(path: str, scalefactor=1.0, maxwidth: int = None):
+def jupyterShowImage(path: str, scalefactor=1.0, maxwidth: int = 0):
     """
     Show an image inside (inline) of a jupyter notebook
 
@@ -61,13 +62,13 @@ def jupyterShowImage(path: str, scalefactor=1.0, maxwidth: int = None):
 
     """
     img = jupyterMakeImage(path, scalefactor=scalefactor)
-    if maxwidth is not None and img.width > maxwidth:
+    if maxwidth > 0 and img.width is not None and img.width > maxwidth:
         img.width = maxwidth
     return display(img)
 
 
 def showPng(pngpath: str, forceExternal=False, app='', scalefactor=1.0,
-            maxwidth: int | None = None
+            maxwidth: int = 0
             ) -> None:
     """
     Show a png either inside jupyter or with an external app
@@ -79,8 +80,8 @@ def showPng(pngpath: str, forceExternal=False, app='', scalefactor=1.0,
             app if running a normal session and show an embedded
             image if running inside a notebook
         scalefactor: a factor to apply when showing a png inline
-        app: used if a specific external app is needed. Otherwise the os
-            defined app is used
+        maxwidth: max. width of the image, in pixels (0: no limit)
+        app: the name of the external app to use
     """
     if environment.insideJupyter and not forceExternal:
         jupyterShowImage(pngpath, scalefactor=scalefactor, maxwidth=maxwidth)
@@ -88,8 +89,7 @@ def showPng(pngpath: str, forceExternal=False, app='', scalefactor=1.0,
         environment.openPngWithExternalApplication(pngpath, app=app)
 
 
-def displayButton(buttonText: str, callback: Callable[[], None]
-                  ) -> None:
+def displayButton(buttonText: str, callback) -> None:
     """
     Create and display an html button inside a jupyter notebook
 

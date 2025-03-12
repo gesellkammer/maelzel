@@ -5,37 +5,35 @@ It converts our own intermediate representation as defined after quantization
 into a .ly file and renders that via lilypond to pdf or png
 """
 from __future__ import annotations
-import os
-import tempfile
-import textwrap
-import shutil
-from dataclasses import dataclass, field
-import pitchtools as pt
-from functools import cache
 
-import emlib.textlib
+import os
+import shutil
+import textwrap
+from dataclasses import dataclass, field
+from functools import cache
+from typing import TYPE_CHECKING
+
 import emlib.filetools
 import emlib.mathlib
-from emlib.iterlib import pairwise, first, duplicates
+import emlib.textlib
+import pitchtools as pt
+from emlib.iterlib import first, pairwise
 
-from maelzel.music import lilytools
-from maelzel.textstyle import TextStyle
+from maelzel import _imgtools, _util
 from maelzel._indentedwriter import IndentedWriter
-from maelzel import _util
-from maelzel import _imgtools
-from .common import *
-from . import attachment
-from . import definitions
-from .core import Notation
-from .render import Renderer, RenderOptions
-from .node import Node
-from . import quant, util
-from . import spanner as _spanner
-from . import lilypondsnippets
+from maelzel.common import F, asF
+from maelzel.music import lilytools
+from maelzel.scoring.common import logger
+from maelzel.textstyle import TextStyle
 
-from typing import TYPE_CHECKING
+from . import attachment, definitions, lilypondsnippets, quant, util
+from . import spanner as _spanner
+from .core import Notation
+from .node import Node
+from .render import Renderer, RenderOptions
+
 if TYPE_CHECKING:
-    from .common import pitch_t
+    from maelzel.common import pitch_t
 
 
 __all__ = (
@@ -188,6 +186,17 @@ def markConsecutiveGracenotes(root: Node) -> None:
 
 
 def lyArticulation(articulation: attachment.Articulation) -> str:
+    """
+    Convert a scoring Articulation to its lilypond representation
+
+    Args:
+        articulation: the articulation to convert
+
+    Returns:
+        the lilypond code representing this articulation. This needs to be placed **before**
+        the note/chord it will modify.
+
+    """
     # TODO: render articulation color if present
     name = _articulationToLily[articulation.kind]
     parts = []
@@ -534,7 +543,7 @@ def _handleSpannerPre(spanner: _spanner.Spanner, state: RenderState) -> str | No
         if spanner.kind == 'start':
             _(rf"\ottava #{spanner.octaves} ")
         else:
-            _(rf"\ottava #0 ")
+            _(r"\ottava #0 ")
 
     elif isinstance(spanner, _spanner.Bracket):
         if spanner.kind == 'start' and spanner.linetype != 'solid':
@@ -565,7 +574,7 @@ def _handleSpannerPre(spanner: _spanner.Spanner, state: RenderState) -> str | No
         if spanner.kind == 'start':
             if not (spanner.startmark or spanner.alteration or spanner.trillpitch):
                 # It will be just a wavy line, so we use a textspanner
-                _(rf"\once \override TextSpanner.style = #'trill ")
+                _(r"\once \override TextSpanner.style = #'trill ")
             elif spanner.trillpitch:
                 _(r'\pitchedTrill ')
 
@@ -1076,7 +1085,7 @@ def makeScore(score: quant.QuantizedScore,
             _(partstr)
             partindex += 1
         if len(group) > 1:
-            _(rf">>", indent=1)
+            _(r">>", indent=1)
             indents -= 1
 
     _(r">>")

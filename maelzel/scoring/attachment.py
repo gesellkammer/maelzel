@@ -4,7 +4,7 @@ import copy
 from maelzel import _util
 from . import definitions
 
-from typing import TYPE_CHECKING, TypeVar, Type
+from typing import TYPE_CHECKING, TypeVar
 
 if TYPE_CHECKING:
     from typing import Callable
@@ -87,6 +87,7 @@ class StemTraits(Attachment):
 
 
 class AccidentalTraits(Attachment):
+    """Traits for accidentals"""
     _default: AccidentalTraits | None = None
 
     def __init__(self, color='', hidden=False, parenthesis=False,

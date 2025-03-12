@@ -5,7 +5,7 @@ builtinPresets = [
         'simplesin',
         'aout1 oscili a(kamp), mtof(lag(kpitch, 0.01))',
         description="simplest sine wave",
-        builtin=True
+        _builtin=True
     ),
 
     PresetDef(
@@ -13,7 +13,7 @@ builtinPresets = [
         "aout1 oscili a(kamp), mtof(lag(kpitch+ktransp, klag))",
         args=dict(ktransp=0, klag=0.1),
         description="transposable sine wave",
-        builtin=True
+        _builtin=True
     ),
 
     PresetDef(
@@ -32,7 +32,7 @@ builtinPresets = [
         endif
         ''',
         description="transposable triangle wave with optional lowpass-filter",
-        builtin=True
+        _builtin=True
     ),
 
     PresetDef(
@@ -49,7 +49,7 @@ builtinPresets = [
         aout1 = kcutoffratio == 0 ? asig : K35_lpf(asig, kfreq*kcutoffratio, kfilterq)
         ''',
         description="Transposable saw with optional low-pass filtering",
-        builtin=True
+        _builtin=True
     ),
 
     PresetDef(
@@ -63,7 +63,7 @@ builtinPresets = [
         aout1 = kcutoff == 0 ? aout1 : moogladder aout1, lag(kcutoff, 0.1), kresonance
         ''',
         description="square wave with optional filtering",
-        builtin=True
+        _builtin=True
     ),
 
     PresetDef(
@@ -76,7 +76,7 @@ builtinPresets = [
         ;   kpwm: pwm between 0-1
         aout1 vco2 kamp, mtof:k(lag:k(kpitch+ktransp, klag), 2, kpwm
         """,
-        builtin=True
+        _builtin=True
     ),
 
     PresetDef(
@@ -89,7 +89,7 @@ builtinPresets = [
         aout1 = oscili:a(aclickenv, mtof:k(kpitch+itransp))
         """,
         description="Default preset used when rendering a click-track",
-        builtin=True
+        _builtin=True
     ),
 
     PresetDef(
@@ -107,14 +107,14 @@ builtinPresets = [
         if strlen(Spath) == 0 then
             initerror sprintf("Soundfile '%s' not found", Spath)
         endif
-        
+
         iformat = 0
         ibufsize = 0   ; 0 sets the buffer to the default of 4096
         inumchannels = filenchnls(Spath)
         if inumchannels == 0 || inumchannels > 2 then
             initerror sprintf("Multichannel samples (> 2, got %d) not supported yet", inumchannels)
         endif
-        
+
         aenv = makePresetEnvelope(ifadein, ifadeout, ifadekind)
         aenv *= kgain
         asig[] diskin2 Spath, kspeed, iskip, iwrap, iformat, iwinsize, ibufsize
@@ -153,12 +153,12 @@ builtinPresets = [
         inumsamples = nsamp(isndtab)
         isr = ftsr(isndtab)
         ionecycle = ksmps/sr
-        
+
         if isr <= 0 then
             initerror sprintf("Could not determine sr of table %d", isndtab)
         endif
         idur = inumsamples / isr
-        
+
         know init istart
         if inumouts == 0 then
             ; not a gen1 table, fail
@@ -184,16 +184,16 @@ builtinPresets = [
             initerror sprintf("Multichannel samples (> 2, got %d) not supported yet", inumouts)
         endif
         outch ichan, aout1, ichan+1, aout2
-        
+
         know += ionecycle * kspeed
         imaxtime = idur - ifadeout - ionecycle
         if iloop == 0 && know >= imaxtime then
             turnoff
-        endif   
+        endif
         """,
         envelope=False,
         routing=False,
-        builtin=True
+        _builtin=True
     ),
 
     PresetDef(
@@ -209,25 +209,25 @@ builtinPresets = [
         init=r"""
         gi__formantFreqs__[] fillarray \
             668, 1191, 2428, 3321, 4600, \  ; A
-            327, 2157, 2754, 3630, 4600, \  ; E 
+            327, 2157, 2754, 3630, 4600, \  ; E
             208, 2152, 3128, 3425, 4200, \  ; I
             335, 628, 2689, 3515, 4200, \   ; O
             254, 796, 2515, 3274, 4160      ; U
-                       
+
         gi__formantDbs__[] fillarray   \
             28, 28, 22, 20, 20, \
             15, 25, 24, 20, 23, \
             10, 20, 27, 26, 20, \
             15, 18, 5,  7,  12, \
             12, 10, 6,  5,  12
-                                   
+
         gi__formantBws__[] fillarray   \
             80, 90, 120, 130, 140, \
             60, 100, 120, 150, 200, \
             60, 90, 100, 120, 120, \
             40, 80, 100, 120, 120, \
             50, 60, 170, 180, 200
-            
+
         gi__formantAmps__[] maparray gi__formantDbs__, "ampdb"
         reshapearray gi__formantFreqs__, 5, 5
         reshapearray gi__formantAmps__, 5, 5
@@ -243,9 +243,9 @@ builtinPresets = [
         ;   ivibstart: start time of vibrato
         ;   ivibfreq: vibrato frequency
         ;   ipitchlag: time lag for pitch modifications
-        
+
         knoVib = lag:k(trighold(changed2(kpitch), ivibstart*0.8), ivibstart*0.2)
-        kvibfreq2 = linseg:k(0, ivibstart*0.25, 0, ivibstart*0.75, 1) * randomi:k(0.9, 1.1, 2) * (1 - knoVib) * kvibfreq 
+        kvibfreq2 = linseg:k(0, ivibstart*0.25, 0, ivibstart*0.75, 1) * randomi:k(0.9, 1.1, 2) * (1 - knoVib) * kvibfreq
         kvibamount = linseg:k(0, ivibstart*0.2, 0, ivibstart*0.8, 1) * randomi:k(0.9, 1.1, 10)
         kvibsemi = kvibamount * kvibrange
         kvib = oscil:k(kvibsemi/2, kvibfreq2) - kvibsemi/2
@@ -267,7 +267,7 @@ builtinPresets = [
         aformants *= kformantAmps
         aout1 = sumarray(aformants) * 0.1
         """,
-        builtin=True
+        _builtin=True
     )
 ]
 

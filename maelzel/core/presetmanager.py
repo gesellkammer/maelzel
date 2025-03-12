@@ -71,15 +71,28 @@ opcode _linexp, i, iiiiii
     xout iy
 endop
 
-/*
-opcode _linexp, k, kkkkkk
-    kx, kexp, kx0, kx1, ky0, ky1 xin
-    kdx = (kx - kx0) / (kx1 - kx0)
-    ky = (kdx ^ kexp) * (ky1 - ky0) + ky0
-    ky = limit:i(ky, ky0, ky1)
-    xout ky
+opcode soundfontPlay, aa, ikkpjjppjj
+    ; aout1, aout2 soundfontPlay ipreset, kpitch, kamp
+    ; i      k       k     p        j        j        p          p          j        j
+    ipreset, kpitch, kamp, iinterp, iampdiv, ivelexp, ivelmindb, ivelmaxdb, iminvel, imaxvel xin
+    ; iinterp: 1=linear, 3=cubic
+    iampdiv = iampdiv > 0 ? iampdiv : 16000
+    ivelexp = ivelexp > 0 ? ivelexp : 3
+    ivelmindb = ivelmindb <= 0 ? ivelmindb : -60
+    ivelmaxdb = ivelmaxdb <= 0 ? ivelmaxdb : -3
+    iminvel = iminvel > 0 ? iminvel : 1
+    imaxvel = imaxvel > 0 ? imaxvel : 127
+
+    inote0 = round(i(kpitch))
+    iamp0 = i(kamp)
+    ivel = _linexp(dbamp:i(iamp0), ivelexp, ivelmindb, ivelmaxdb, iminvel, imaxvel)
+    if iinterp == 1 then
+        aout1, aout2 sfplay ivel, inote0, kamp/iampdiv, mtof:k(kpitch), ipreset, 1
+    else
+        aout1, aout2 sfplay3 ivel, inote0, kamp/iampdiv, mtof:k(kpitch), ipreset, 1
+    endif
+    xout aout1, aout2
 endop
-*/
 
 opcode makePresetEnvelope, a, iii
     ifadein, ifadeout, ifadekind xin
@@ -320,7 +333,6 @@ class PresetManager:
                               includes=includes,
                               args=args,
                               description=description,
-                              builtin=False,
                               envelope=envelope,
                               routing=output,
                               aliases=aliases)
@@ -337,15 +349,17 @@ class PresetManager:
                            preset: tuple[int, int] | str = (0, 0),
                            init='',
                            postproc='',
+                           reverb=False,
                            includes: list[str] = None,
                            args: dict[str, float] | None = None,
                            interpolation='',
                            mono=False,
-                           ampDivisor: int = None,
+                           ampDivisor: int | float = None,
                            turnoffWhenSilent=True,
                            description='',
                            normalize=False,
                            velocityCurve: list[float] | GainToVelocityCurve = None,
+                           reverbChanPrefix='',
                            _builtin=False) -> PresetDef:
         """
         Define a new instrument preset based on a soundfont
@@ -456,7 +470,9 @@ class PresetManager:
                                                  interpolation=interpolation,
                                                  ampDivisor=ampDivisor,
                                                  mono=mono,
-                                                 normalize=normalize)
+                                                 normalize=normalize,
+                                                 reverb=reverb,
+                                                 reverbChanPrefix=reverbChanPrefix)
 
         # We don't actually need the global variable because sfloadonce
         # saves the table number into a channel
@@ -468,7 +484,7 @@ class PresetManager:
         if postproc:
             code = emlib.textlib.joinPreservingIndentation((code, '\n;; postproc\n', postproc))
         epilogue = "turnoffWhenSilent aout1" if turnoffWhenSilent else ''
-        ownargs = {'ktransp': 0., 'ipitchlag': 0.1, 'ivel': -1}
+        ownargs = {'ktransp': 0., 'ipitchlag': 0.1, 'ivel': -1, 'kwet': 0.}
         args = ownargs if not args else args | ownargs
         presetdef = self.defPreset(name=name,
                                    code=code,
@@ -477,6 +493,7 @@ class PresetManager:
                                    includes=includes,
                                    args=args,
                                    description=description,
+                                   output=not reverb,
                                    aliases={'transpose': 'ktransp'})
         presetdef.userDefined = not _builtin
         presetdef.properties = {'sfpath': sf2path,
@@ -630,21 +647,21 @@ class PresetManager:
             else:
                 # short
                 for preset in matchingPresets:
-                    l = f"<b>{preset.name}</b>"
+                    line = f"<b>{preset.name}</b>"
                     if preset.isSoundFont():
                         sfpath = preset.properties.get('sfpath')
                         if not sfpath:
                             sfpath = presetutils.findSoundfontInPresetdef(preset) or '??'
-                        l += f" [sf: {sfpath}]"
+                        line += f" [sf: {sfpath}]"
                     if preset.args:
                         s = ", ".join(f"{k}={v}" for k, v in preset.args.items())
                         s = f" <code>({s})</code>"
-                        l += s
+                        line += s
                     if descr := preset.description:
-                        l += f"<br>&nbsp&nbsp&nbsp&nbsp<i>{descr}</i>"
-                    l += "<br>"
-                    htmls.append(l)
-            from IPython.core.display import display, HTML
+                        line += f"<br>&nbsp&nbsp&nbsp&nbsp<i>{descr}</i>"
+                    line += "<br>"
+                    htmls.append(line)
+            from IPython.display import display, HTML
             display(HTML("\n".join(htmls)))
 
     def eventMaxNumChannels(self, event: SynthEvent) -> int:

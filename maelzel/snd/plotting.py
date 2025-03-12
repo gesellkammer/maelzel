@@ -5,21 +5,25 @@ Uses matplotlib as a backend
 """
 from __future__ import annotations
 
-import emlib.misc
-import emlib.mathlib
-from emlib import numpytools
-import numpy as np
-import bpf4
-import matplotlib.ticker
-import matplotlib.pyplot as plt
-from maelzel.snd.numpysnd import numChannels, getChannel
 import logging
+from typing import TYPE_CHECKING
+
+import bpf4
+import emlib.mathlib
+import emlib.misc
+import matplotlib.pyplot as plt
+import matplotlib.ticker
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
+import numpy as np
+from emlib import numpytools
 from scipy import signal
 
-from typing import TYPE_CHECKING
+from maelzel.snd.numpysnd import getChannel, numChannels
 
 if TYPE_CHECKING:
     from typing import Union
+
     import matplotlib.pyplot as plt
 
 
@@ -100,9 +104,9 @@ def plotPowerSpectrum(samples: np.ndarray,
                       samplerate: int,
                       framesize=2048,
                       window: Union[str, tuple[str, float]] = ('kaiser', 9),
-                      axes: plt.Axes = None,
+                      axes: Axes = None,
                       figsize=(24, 4)
-                      ) -> plt.Axes:
+                      ) -> Axes:
     """
     Plot the power spectrum of a sound
 
@@ -117,8 +121,8 @@ def plotPowerSpectrum(samples: np.ndarray,
 
     """
     if axes is None:
-        f: plt.Figure = plt.figure(figsize=figsize)
-        axes:plt.Axes = f.add_subplot(1, 1, 1)
+        f: Figure = plt.figure(figsize=figsize)
+        axes: Axes = f.add_subplot(1, 1, 1)
 
     from scipy import signal
     w = signal.get_window(window, framesize)
@@ -143,11 +147,11 @@ def _frames_to_samples(frames, hop_length=512, n_fft=None):
 
 def _plot_matplotlib(samples: np.ndarray, samplerate: int, timelabels: bool,
                      figsize=(24, 4), tight=True
-                     ) -> plt.Figure:
+                     ) -> Figure:
     numch = numChannels(samples)
     numsamples = samples.shape[0]
     fig = plt.figure(figsize=figsize)
-    ax1 = None
+    ax1: Axes = None
     if timelabels:
         formatter = matplotlib.ticker.FuncFormatter(
             lambda idx, x:emlib.misc.sec2str(idx/samplerate, msdigits=3))
@@ -167,6 +171,7 @@ def _plot_matplotlib(samples: np.ndarray, samplerate: int, timelabels: bool,
         axes.xaxis.set_major_formatter(formatter)
         axes.xaxis.set_major_locator(locator)
 
+    assert ax1 is not None
     ax1.set_xlim(0, numsamples)
     if tight:
         fig.tight_layout()
@@ -245,7 +250,7 @@ def plotWaveform(samples,
                  saveas='',
                  timelabels=True,
                  figsize=(24, 4)
-                 ) -> list[plt.Axes]:
+                 ) -> list[Axes]:
     """
     Plot the waveform of a sound using pyplot
 
@@ -374,7 +379,7 @@ def plotSpectrogram(samples: np.ndarray,
                     window: str = 'hamming',
                     winsize: int = None,
                     overlap=4,
-                    axes: plt.Axes = None,
+                    axes: Axes = None,
                     cmap='inferno',
                     interpolation='bilinear',
                     minfreq=40,
@@ -384,7 +389,7 @@ def plotSpectrogram(samples: np.ndarray,
                     figsize=(24, 8),
                     method='specgram',
                     yaxis='linear'
-                    ) -> plt.Axes:
+                    ) -> Axes:
     """
     Plot the spectrogram of a sound
 
@@ -413,7 +418,7 @@ def plotSpectrogram(samples: np.ndarray,
         the matplotlib axes object
     """
     if numChannels(samples) > 1:
-        logger.info(f"plotSpectrogram only works on mono samples. Will use channel 0")
+        logger.info("plotSpectrogram only works on mono samples. Will use channel 0")
         samples = getChannel(samples, 0)
 
     if yaxis == 'log' or method == 'specshow':
@@ -423,8 +428,8 @@ def plotSpectrogram(samples: np.ndarray,
                                       yaxis=yaxis, maxfreq=maxfreq, minfreq=minfreq)
 
     if axes is None:
-        f: plt.Figure = plt.figure(figsize=figsize)
-        axes:plt.Axes = f.add_subplot(1, 1, 1)
+        f: Figure = plt.figure(figsize=figsize)
+        axes = f.add_subplot(1, 1, 1)
 
     # specgram does not support window sizes different than fftsize
     winsize = fftsize
@@ -452,14 +457,14 @@ def plotMelSpectrogram(samples: np.ndarray,
                        fftsize=2048,
                        overlap=4,
                        winsize: int = None,
-                       axes=None,
+                       axes: Axes = None,
                        setlabel=False,
                        nmels=128,
                        cmap='magma',
                        figsize=(24, 8),
                        minfreq=0,
                        maxfreq=16000
-                       ) -> plt.Axes:
+                       ) -> Axes:
     """
     Plot a mel spectrogram
 
@@ -488,8 +493,8 @@ def plotMelSpectrogram(samples: np.ndarray,
     from maelzel.snd import rosita
     hoplength = winsize // overlap
     if axes is None:
-        fig: plt.Figure = plt.figure(figsize=figsize)
-        axes: plt.Axes = fig.add_subplot(1, 1, 1)
+        fig: Figure = plt.figure(figsize=figsize)
+        axes = fig.add_subplot(1, 1, 1)
 
     melspec = rosita.melspectrogram(y=samples, sr=sr, n_fft=fftsize,
                                     hop_length=hoplength, win_length=winsize,
@@ -508,14 +513,14 @@ def _plotSpectrogramRosita(samples: np.ndarray,
                            window='hamming',
                            winsize: int = None,
                            overlap=4,
-                           axes: plt.Axes = None,
+                           axes: Axes = None,
                            cmap='inferno',
                            figsize=(24, 8),
                            yaxis='log',
                            dbamps=True,
                            maxfreq=16000,
                            minfreq=40
-                           ) -> plt.Axes:
+                           ) -> Axes:
     from maelzel.snd import rosita
     if not winsize:
         winsize = fftsize
@@ -526,7 +531,7 @@ def _plotSpectrogramRosita(samples: np.ndarray,
     hoplength = fftsize // overlap
 
     # compute stft
-    winarray = signal.get_window(window, winsize)
+    # winarray = signal.get_window(window, winsize)
 
     stft = rosita.stft(samples, n_fft=fftsize, hop_length=hoplength, win_length=winsize,
                        window=window)

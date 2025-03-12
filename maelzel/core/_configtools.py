@@ -10,8 +10,7 @@ def isValidFraction(obj) -> bool:
     True if obj can be interpreted as Fraction
     """
     try:
-        frac = F(obj)
+        _ = F(obj)
         return True
     except Exception:
         return False
-

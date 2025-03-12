@@ -9,12 +9,10 @@ Functionality to deal with the environment in which `maelzel.core` is running
 
 
 from __future__ import annotations
-import sys
 import os
 import shutil
 import emlib.misc
 import logging
-from functools import cache
 from maelzel._util import pythonSessionType
 
 

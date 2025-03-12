@@ -1,22 +1,18 @@
 from __future__ import annotations
 
-from emlib import mathlib
 from maelzel.common import F
 from maelzel.core.mobj import MObj, MContainer
 import maelzel.core.symbols as _symbols
 from maelzel.core.synthevent import PlayArgs
 from maelzel.scoring import definitions
 from maelzel import _util
-from maelzel.scorestruct import ScoreStruct
-from maelzel.core import workspace
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing_extensions import Self
     from maelzel.core import chain
     from typing import Any, Callable
-    from ._typedefs import time_t, location_t, num_t, beat_t
-
+    from maelzel.common import time_t, location_t, num_t, beat_t
 
 
 class MEvent(MObj):
@@ -102,6 +98,13 @@ class MEvent(MObj):
     def gliss(self):
         """The end target of this event, if any"""
         return False
+
+    @gliss.setter
+    def gliss(self, gliss):
+        """
+        Set the gliss attribute of this Note, inplace
+        """
+        raise NotImplementedError("gliss setter not implemented")
 
     def isRest(self) -> bool:
         """Is this a rest?"""
@@ -209,7 +212,7 @@ class MEvent(MObj):
             the merged event, or None
 
         """
-        raise NotImplemented
+        raise NotImplementedError
 
     @property
     def name(self) -> str:
@@ -330,7 +333,9 @@ class MEvent(MObj):
             the parts. The total duration of the parts should sum up to the
             duration of self
         """
-        return self._splitAtOffsets(self.activeScorestruct().asBeats(offsets), tie=tie, nomerge=nomerge)
+        sco = self.activeScorestruct()
+        beats = [sco.asBeat(offset) for offset in offsets]
+        return self._splitAtOffsets(beats, tie=tie, nomerge=nomerge)
 
     def addSpanner(self,
                    spanner: str | _symbols.Spanner,
@@ -394,7 +399,6 @@ class MEvent(MObj):
             spanner.bind(self, endobj)
         else:
             self.addSymbol(spanner)
-            spanner.setAnchor(self)
         return self
 
     def timeTransform(self, timemap: Callable[[F], F], inplace=False

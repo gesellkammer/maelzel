@@ -15,7 +15,9 @@ from emlib import iterlib
 import emlib.colordata
 import emlib.filetools
 
-from .common import *
+from maelzel.common import F
+from maelzel.scoring.common import logger
+from maelzel.scoring.common import NotatedDuration
 from . import attachment as _attachment
 from . import definitions
 from . import quant

@@ -41,24 +41,21 @@ import emlib.misc
 import emlib.img
 import pitchtools as pt
 
-from maelzel.common import asmidi, F, asF, F0, F1
+from maelzel.common import asmidi, F, asF, F0
 from maelzel.textstyle import TextStyle
 
 from maelzel.core._common import logger
-from ._typedefs import location_t, beat_t, time_t, num_t
 from .config import CoreConfig
 from .workspace import Workspace
 from .synthevent import PlayArgs, SynthEvent
 
 from . import playback
 from . import offline
-from . import proxysynth
 from . import environment
 from . import notation
 from . import symbols as _symbols
 from . import _dialogs
 from . import _tools
-from . import presetmanager
 
 from maelzel import _util
 from maelzel import scoring
@@ -69,7 +66,7 @@ if TYPE_CHECKING:
     from typing import Iterator
     from typing_extensions import Self
     from matplotlib.axes import Axes
-    import matplotlib.pyplot as plt
+    from maelzel.common import pitch_t, location_t, beat_t, time_t, num_t
     from maelzel.core import chain
     import maelzel.core.event as _event
     from maelzel.scoring.renderoptions import RenderOptions
@@ -175,6 +172,9 @@ class MObj(ABC):
         self._scorestruct: ScoreStruct | None = None
         self._resolvedOffset: F | None = None
 
+    @abstractmethod
+    def __hash__(self) -> int: ...
+
     @property
     def dur(self) -> F:
         """The duration of this object, in quarternotes"""
@@ -211,7 +211,7 @@ class MObj(ABC):
             other: destination object
 
         """
-        if type(other) != type(self):
+        if type(other) is not type(self):
             logger.warning(f"Copying attributes to an object of different class, "
                            f"{self=}, {type(self)=}, {other=}, {type(other)=}")
         if self.symbols:
@@ -857,11 +857,12 @@ class MObj(ABC):
             renderoptions = notation.makeRenderOptionsFromConfig(config)
         if not scorestruct:
             scorestruct = self.scorestruct() or w.scorestruct
-        if quantizationProfile is not None:
-            if isinstance(quantizationProfile, str):
-                quantizationProfile = scoring.quant.QuantizationProfile.fromPreset(quantizationProfile)
-            else:
-                assert isinstance(quantizationProfile, scoring.quant.QuantizationProfile)
+        if quantizationProfile is None:
+            quantizationProfile = config.makeQuantizationProfile()
+        elif isinstance(quantizationProfile, str):
+            quantizationProfile = scoring.quant.QuantizationProfile.fromPreset(quantizationProfile)
+        else:
+            assert isinstance(quantizationProfile, scoring.quant.QuantizationProfile)
 
         return _renderObject(self, backend=backend, renderoptions=renderoptions,
                              scorestruct=scorestruct, config=config,
@@ -952,7 +953,7 @@ class MObj(ABC):
 
     def scoringParts(self,
                      config: CoreConfig = None
-                     ) -> list[scoring.UnquantizedPart]:
+                     ) -> list[scoring.core.UnquantizedPart]:
         """
         Returns this object as a list of scoring UnquantizedParts.
 
@@ -974,11 +975,11 @@ class MObj(ABC):
         notations = self.scoringEvents(config=config or Workspace.getConfig())
         if not notations:
             return []
-        scoring.resolveOffsets(notations)
-        parts = scoring.distributeNotationsByClef(notations)
+        scoring.core.resolveOffsets(notations)
+        parts = scoring.core.distributeNotationsByClef(notations)
         return parts
 
-    def unquantizedScore(self, title='') -> scoring.UnquantizedScore:
+    def unquantizedScore(self, title='') -> scoring.core.UnquantizedScore:
         """
         Create a maelzel.scoring.UnquantizedScore from this object
 
@@ -1003,7 +1004,7 @@ class MObj(ABC):
 
         """
         parts = self.scoringParts()
-        return scoring.UnquantizedScore(parts, title=title)
+        return scoring.core.UnquantizedScore(parts, title=title)
 
     def _scoringAnnotation(self, text: str = None, config: CoreConfig = None
                            ) -> scoring.attachment.Text:
@@ -1037,7 +1038,8 @@ class MObj(ABC):
         if isinstance(time, F):
             return time
         elif isinstance(time, tuple):
-            return self.activeScorestruct().locationToBeat(*time)
+            measidx, beat = time
+            return self.activeScorestruct().locationToBeat(measidx, beat)
         else:
             return F(time)
 
@@ -1143,11 +1145,11 @@ class MObj(ABC):
         imgpath = self._renderImage()
         if not imgpath:
             return ''
+        assert os.path.exists(imgpath), f"Image not found: '{imgpath}'"
         scaleFactor = Workspace.getConfig().get('show.scaleFactor', 1.0)
-        width, height = emlib.img.imgSize(imgpath)
-        img = emlib.img.htmlImgBase64(imgpath,
-                                      width=f'{int(width * scaleFactor)}px')
-        return img
+        img64, width, height = _util.readImageAsBase64(imgpath)
+        html = _util.htmlImage64(img64=img64, imwidth=width, width=f'{int(width * scaleFactor)}px')
+        return html
 
     def _repr_html_header(self):
         return _html.escape(repr(self))
@@ -1792,8 +1794,9 @@ class MObj(ABC):
         .. image:: ../assets/dodecaphonic-series-1-inverted.png
         """
         pivotm = asmidi(pivot)
-        func = lambda pitch: pivotm*2 - pitch
-        return self.pitchTransform(func)
+        def transform(pitch, pivot=pivotm):
+            return pivotm * 2 - pitch
+        return self.pitchTransform(transform)
 
     def transpose(self, interval: int | float) -> Self:
         """
@@ -2062,6 +2065,7 @@ def _renderImage(obj: MObj,
             raise RuntimeError(f"Could not render {obj} to file '{tmpfile}'")
 
     _shutil.copy(tmpfile, outfile)
+    assert os.path.exists(outfile), f"Could not copy {tmpfile} to {outfile}"
     return renderer
 
 
@@ -2088,8 +2092,8 @@ def _renderObject(obj: MObj,
                   backend: str,
                   scorestruct: ScoreStruct,
                   config: CoreConfig,
-                  renderoptions: scoring.render.RenderOptions = None,
-                  quantizationProfile: scoring.quant.QuantizationProfile | None = None,
+                  renderoptions: scoring.render.RenderOptions,
+                  quantizationProfile: scoring.quant.QuantizationProfile,
                   check=True
                   ) -> scoring.render.Renderer:
     """

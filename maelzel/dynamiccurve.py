@@ -7,8 +7,9 @@ from bisect import bisect as _bisect
 from dataclasses import dataclass
 
 from pitchtools import db2amp, amp2db
-from emlib import misc
 import bpf4
+import bpf4.core
+import bpf4.util
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -42,7 +43,7 @@ class DynamicCurve:
     .. seealso:: :meth:`DynamicCurve.fromdescr`
 
     """
-    
+
     def __init__(self, curve: Callable[[float], float], dynamics: Sequence[str] = None):
         """
         Args:
@@ -56,7 +57,7 @@ class DynamicCurve:
 
         """
         self.dynamics: tuple[str, ...] = tuple(dynamics) if dynamics else dynamicSteps
-        bpf = bpf4.asbpf(curve, bounds=(0, 1)).fit_between(0, len(self.dynamics)-1)
+        bpf = bpf4.util.asbpf(curve, bounds=(0, 1)).fit_between(0, len(self.dynamics)-1)
         self._amps2dyns, self._dyns2amps = _makeDynamicsMapping(bpf, self.dynamics)
         self._shape: str = ''
         assert len(self._amps2dyns) == len(self.dynamics)
@@ -197,19 +198,19 @@ class DynamicCurve:
     def amp2index(self, amp:float) -> int:
         """
         Converts an amplitude (in the range 0-1) to a dynamic index
-        
+
         The dynamic index corresponds to the dynamics given when this
         DynamicCurve was created
-        
+
         Args:
-            amp: an amplitude in the range 0-1 
+            amp: an amplitude in the range 0-1
 
         Returns:
             the corresponding dynamic index
-            
+
         Example
         ~~~~~~~
-        
+
             >>> from maelzel.music.dynamics import DynamicCurve
             >>> curve = DynamicCurve.fromdescr('expon(0.5)', dynamics='pp p mf f ff'.split())
             >>> curve.amp2index(0.5)
@@ -253,7 +254,7 @@ class DynamicCurve:
         """
         indices = range(0, len(self.dynamics), step)
         dbs = [self.dyn2db(self.index2dyn(index)) for index in indices]
-        assert dbs 
+        assert dbs
         return dbs
 
     def plot(self, usedB=True):
@@ -328,6 +329,4 @@ def createShape(shape='expon(3)',
         have low resolution (meaning that a high variation in dynamic will have low variation
         in amplitude) and viceversa
     """
-    minamp, maxamp = db2amp(mindb), db2amp(maxdb)
     return bpf4.util.makebpf(shape, [0, 1], [mindb, maxdb]).db2amp()
-

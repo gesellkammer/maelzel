@@ -9,7 +9,7 @@ from maelzel.snd import features
 from maelzel.snd import freqestimate
 from maelzel.snd import audiosample
 from maelzel.snd.numpysnd import rmsbpf
-from pitchtools import amp2db, PitchConverter, db2amp
+from pitchtools import PitchConverter, db2amp
 from math import isnan
 from emlib import iterlib
 
@@ -25,6 +25,7 @@ logger = logging.getLogger("maelzel.transcribe")
 from typing import TYPE_CHECKING, Iterator
 if TYPE_CHECKING:
     from maelzel.core import Voice
+    from matplotlib.axes import Axes
 
 
 __all__ = (
@@ -289,8 +290,7 @@ class FundamentalAnalysisMonophonic:
                         bp.voiced = False
 
             if unvoicedMinAmplitudePercentile > 0 and all(not bp.voiced for bp in group) and group[0].getProperty('ampPercentile') is not None:
-                if all(bp.getProperty('ampPercentile', 1.) < unvoicedMinAmplitudePercentile
-                       for bp in group):
+                if all(bp.getProperty('ampPercentile', 1.) < unvoicedMinAmplitudePercentile for bp in group):  # type: ignore
                     continue
 
             groups.append(BreakpointGroup(group))
@@ -371,7 +371,7 @@ class FundamentalAnalysisMonophonic:
         v = Voice(notes)
         v.play()
 
-    def plot(self, linewidth=2, axes=None, spanAlpha=0.2, onsetAlpha=0.4, spanColor='red') -> plt.Axes:
+    def plot(self, linewidth=2, axes: Axes=None, spanAlpha=0.2, onsetAlpha=0.4, spanColor='red') -> Axes:
         """
         Plot the breakpoints of this analysis
 
@@ -406,8 +406,7 @@ class FundamentalAnalysisMonophonic:
                 this is the surface of the triangle being evaluated.
 
         """
-        groups = [simplifyBreakpoints(group, method=algorithm, param=threshold,
-                                      pitchconv=self._pitchconv)
+        groups = [BreakpointGroup(simplifyBreakpoints(group, method=algorithm, param=threshold, pitchconv=self._pitchconv))
                   for group in self.groups]
         self.groups = groups
 
@@ -479,7 +478,7 @@ def transcribeVoice(groups: list[list[Breakpoint]] | list[BreakpointGroup],
         options = TranscriptionOptions()
 
     notes = []
-    lastgroupidx = len(groups) - 1
+    # lastgroupidx = len(groups) - 1
     pitchconv = PitchConverter(a4=options.a4)
     unvoicedPitch = options.unvoicedPitch
     numslurs = 0
@@ -521,7 +520,7 @@ def transcribeVoice(groups: list[list[Breakpoint]] | list[BreakpointGroup],
 
         last = group[-1]
         # TODO
-        nextgroup = groups[groupidx + 1] if groupidx < lastgroupidx else None
+        # nextgroup = groups[groupidx + 1] if groupidx < lastgroupidx else None
 
         if last.kind == 'offset' and last.freq:
             fragment.append(Note(pitchconv.f2m(last.freq) or unvoicedPitch, dur=0, amp=last.amp))
@@ -553,10 +552,3 @@ def transcribeVoice(groups: list[list[Breakpoint]] | list[BreakpointGroup],
 
 
 # ------------------------------
-
-
-
-
-
-
-

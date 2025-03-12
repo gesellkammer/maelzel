@@ -5,7 +5,7 @@ from maelzel.textstyle import TextStyle
 import emlib.misc
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class RenderOptions:
     """
     Holds all options needed for rendering
@@ -133,7 +133,7 @@ class RenderOptions:
     """Png staffsize scaling when rendering to lilypond"""
 
     lilypondGlissandoMinimumLength: int = 5
-    """Mininum length of the glissando line when rendering with lilypond. 
+    """Mininum length of the glissando line when rendering with lilypond.
     This is to avoid too short glissandi actually not showing at all"""
 
     lilypondBinary: str = ''
@@ -162,7 +162,7 @@ class RenderOptions:
     """If True, add clef changes if necessary along a part during the rendering process"""
 
     autoClefChangesWindow: int = 1
-    """When adding automatic clef changes, use this window size (number of elements 
+    """When adding automatic clef changes, use this window size (number of elements
     per evaluation)"""
 
     keepClefBiasFactor: float = 2.0
@@ -170,17 +170,17 @@ class RenderOptions:
 
     compoundMeterSubdivision: str = 'all'
     """Sets the subdivision policy for compound meters. One of 'all', 'none', 'heterogeneous'
-    
-    * 'all': add subdivisions to all internal subdivisions. 
+
+    * 'all': add subdivisions to all internal subdivisions.
     * 'none': do not add any subdivision, let the backend decide
     * 'heterogeneous': add only subdivisions for compound meters with multiple denominators,
-        like 3/4+3/8  
+        like 3/4+3/8
     """
 
     addSubdivisionsForSmallDenominators: bool = True
     """
     Add subdivisions for measures with a time signature with a small denominator
-    
+
     A small denominator depends on tempo
     """
 
@@ -199,8 +199,8 @@ class RenderOptions:
     def keys(cls) -> set[str]:
         return {f.name for f in _dataclassfields(cls)}
 
-    def __hash__(self) -> int:
-        return hash(str(self))
+    #def __hash__(self) -> int:
+    #    return hash(str(self))
 
     def __eq__(self, other: RenderOptions) -> bool:
         return isinstance(other, RenderOptions) and hash(self) == hash(other)

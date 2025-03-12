@@ -1,23 +1,20 @@
 from __future__ import annotations
 
+import functools
+import logging
+import os
+import sys
 import tempfile
 import warnings
 import weakref
-import sys
-import os
+from typing import Any, Callable, Sequence
+
+import appdirs
 import emlib.misc
 import emlib.textlib
+from emlib.common import runonce
+
 from maelzel.common import F, getLogger, num_t
-import functools
-import appdirs
-import logging
-
-
-
-from typing import Callable, Sequence, Any, TYPE_CHECKING
-if TYPE_CHECKING:
-    import PIL.Image
-
 
 logger = getLogger('maelzel')
 
@@ -76,13 +73,15 @@ def mktemp(suffix: str, prefix='') -> str:
 
 
 def reprObj(obj,
+            exclude: Sequence[str] = None,
+            properties: Sequence[str] = None,
             filter: dict[str, Callable] = {},
             priorityargs: Sequence[str] = None,
             hideFalse=False,
             hideEmptyStr=False,
             hideFalsy=False,
             quoteStrings=False,
-            convert: dict[str, Callable[[Any], str]] = None
+            convert: dict[str, Callable[[Any], str]] = None,
             ) -> str:
     """
     Given an object, generate its repr
@@ -93,6 +92,7 @@ def reprObj(obj,
             be shown at all. The default is True, so if a filter function is given
             for a certain key, that key will be shown only if the function returns
             True.
+        exclude: a seq. of attributes to exclude
         priorityargs: a list of attributes which are shown first.
         hideFalsy: hide any attr which evaluates to False under bool(obj.attr)
         hideFalse: hide bool attributes which are False.
@@ -107,6 +107,13 @@ def reprObj(obj,
 
     """
     attrs = emlib.misc.find_attrs(obj)
+    if exclude:
+        import fnmatch
+        attrs = [a for a in attrs if any(fnmatch.fnmatch(a, p) for p in exclude)]
+    if properties:
+        for p in properties:
+            if p not in attrs:
+                attrs.append(p)
     info = []
     attrs.sort()
     if priorityargs:
@@ -116,7 +123,7 @@ def reprObj(obj,
         if value is None or (hideFalsy and not value) or (hideEmptyStr and value == '') or (hideFalse and value is False):
             continue
         elif convert and attr in convert:
-            value = convert[attr](obj)
+            value = convert[attr](value)
         elif (filterfunc := filter.get(attr)) and not filterfunc(value):
             continue
         elif isinstance(value, weakref.ref):
@@ -298,7 +305,7 @@ def pngShow(pngpath: str, forceExternal=False, app: str = '',
             emlib.misc.open_with_app(path=pngpath, wait=wait)
 
 
-@emlib.misc.runonce
+@runonce
 def pythonSessionType() -> str:
     """
     Returns the kind of python session
@@ -545,3 +552,121 @@ def unicodeNotename(notename: str, full=True) -> str:
         return _unicodeReplacerFull(notename)
     else:
         return _unicodeReplacerSimple(notename)
+
+
+def fileIsLocked(filepath: str) -> bool:
+    assert os.path.exists(filepath)
+    try:
+        bufsize = 8
+        # Opening file in append mode and read the first 8 characters.
+        fileobj = open(filepath, mode='a', buffering=bufsize)
+        if fileobj:
+            locked = False
+    except IOError:
+        locked = True
+    finally:
+        if fileobj:
+            fileobj.close()
+    return locked
+
+
+def waitForFile(filepath: str, period=0.1, timeout=1) -> None:
+    import time
+    accumtime = 0.
+    while fileIsLocked(filepath):
+        if accumtime > timeout:
+            raise TimeoutError
+        time.sleep(period)
+        accumtime += period
+
+
+def imgSize(imgfile: str) -> tuple[int, int]:
+    """
+    Similar to emlib.img.imgSize, fixes failure in pillow
+
+    When reading a png with embedded color profile, pillow might
+    fail with an UnidentifiedImageError. This uses pypng
+    to solve this issue
+    """
+    ext = os.path.splitext(imgfile)[-1]
+    if ext == '.png':
+        import png
+        r = png.Reader(imgfile)
+        r.preamble()
+        return r.width, r.height
+    else:
+        import emlib.img
+        return emlib.img.imgSize(imgfile)
+
+
+def htmlImage64(img64: bytes, imwidth: int, width: int | str = '', scale=1.,
+                maxwidth: int | str = '', margintop='14px', padding='10px') -> str:
+    """
+    Generate html for displaying an image as base64
+
+    Args:
+        img64: an image convertes to bytes, as returned by readImageAsBase64
+        imwidth: width of the original image, in pixels
+        width: a css width
+        scale: alternatively, a scaling width
+        maxwidth: a max. width to be applied, either in pixels or as a css rule
+        margintop: css top margin
+        padding: css padding
+
+    Returns:
+        the html generated
+    """
+    if scale and not width:
+        width = int(imwidth * scale)
+    attrs = [f'padding:{padding}',
+             f'margin-top:{margintop}']
+    if maxwidth:
+        if isinstance(maxwidth, int):
+            maxwidth = f'{maxwidth}px'
+        attrs.append(f'max-width: {maxwidth}')
+    if width is not None:
+        if isinstance(width, int):
+            width = f'{width}px'
+        attrs.append(f'width:{width}')
+    style = ";\n".join(attrs)
+    return fr'''
+        <img style="display:inline; {style}"
+             src="data:image/png;base64,{img64.decode('utf-8')}"/>'''
+
+
+def _pypngReadImageAsBase64(imgpath: str) -> tuple[bytes, int, int]:
+    import base64
+    import png
+    r = png.Reader(imgpath)
+    width, height, pixels, info = r.read_flat()
+    img64 = base64.b64encode(pixels.tobytes())
+    return img64, width, height
+
+
+def readImageAsBase64(imgpath: str) -> tuple[bytes, int, int]:
+    """
+    Read an image as base64
+
+    This is used in order to solve errors in pillow, were
+    a greyscale image with a color profile raises an error
+
+    Args:
+        imgpath: the path to the image
+
+    Returns:
+        a tuple ``(imagebytes: bytes, width: int, height: int)``
+
+    .. seealso:: :func:`htmlImage64`
+    """
+
+    ext = os.path.splitext(imgpath)[-1]
+    if ext == '.png':
+        try:
+            return _pypngReadImageAsBase64(imgpath)
+        except Exception:
+            logger.error(f"Could not read image {imgpath} with pypng")
+            import emlib.img
+            return emlib.img.readImageAsBase64(imgpath)
+    else:
+        import emlib.img
+        return emlib.img.readImageAsBase64(imgpath)

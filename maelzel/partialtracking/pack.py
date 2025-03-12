@@ -31,18 +31,18 @@ def _ratePartial(track: Track, partial: Partial, maxrange: int | None = None, mi
     if not track.partials:
         margin = partial.start
         mingap = 0
-        prevPitch = partialPitch
+        # prevPitch = partialPitch
 
     elif track.end < partial.start:
         margin = partial.start - track.end
         if margin < mingap:
             return -1
-        prevPitch = pt.f2m(track.partials[-1].meanfreq())
+        # prevPitch = pt.f2m(track.partials[-1].meanfreq())
     elif track.start >= partial.start:
         margin = track.start - partial.end
         if margin < mingap:
             return -1
-        prevPitch = pt.f2m(track.partials[0].meanfreq())
+        # prevPitch = pt.f2m(track.partials[0].meanfreq())
     else:
         prevPartialIdx = track.partialBefore(partial.start)
         assert prevPartialIdx is not None, f"{partial=}, partials={track.partials}, {track.start=}"
@@ -54,7 +54,7 @@ def _ratePartial(track: Track, partial: Partial, maxrange: int | None = None, mi
             return -1
         margin = min(partial.start - prevPartial.end, nextPartial.start - partial.end)
         assert margin >= mingap
-        prevPitch = pt.f2m(prevPartial.meanfreq())
+        # prevPitch = pt.f2m(prevPartial.meanfreq())
     marginRating = bpf4.Smooth.fromseq(mingap, 1, 1, 0.01, 5, 0.0001)(margin)
     marginWeight, rangeWeight, wrangeWeight = 3, 1, 1
     if not track.partials:
@@ -410,7 +410,7 @@ def splitInTracks(partials: list[Partial],
 
     if debug:
         percentiles = np.arange(0.001, 1.05, 0.05)
-        relenergies = [_packeval(perc) for perc in percentiles]
+        relenergies = [_packeval(float(perc)) for perc in percentiles]
         import matplotlib.pyplot as plt
         plt.plot(percentiles, [1 - rele for rele in relenergies])
         print(":::::::::::::::::::::::::::::::::::::::::::::")

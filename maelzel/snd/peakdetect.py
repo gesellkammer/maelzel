@@ -1,10 +1,12 @@
-from typing import Tuple, List
-
+from __future__ import annotations
+import numpy.typing as npt
 import numpy as np
 
 
-def peakDetect(y_axis: np.ndarray, x_axis: list[float] | np.ndarray | None = None,
-               lookahead=500, delta=0
+def peakDetect(y_axis: np.ndarray,
+               x_axis: npt.ArrayLike | None = None,
+               lookahead=500,
+               delta=0.
                ) -> tuple[list[tuple[float, float]], list[tuple[float, float]]]:
     """
     Converted from/based on a MATLAB script at http://billauer.co.il/peakdet.html
@@ -45,21 +47,21 @@ def peakDetect(y_axis: np.ndarray, x_axis: list[float] | np.ndarray | None = Non
 
     length = len(y_axis)
     if x_axis is None:
-        x_axis = list(range(length))
+        x_axis = np.arange(length, dtype=np.float64)
 
     # perform some checks
     if length != len(x_axis):
         raise ValueError("Input vectors y_axis and x_axis must have same length")
     if lookahead < 1:
         raise ValueError("Lookahead must be above '1' in value")
-    if not (np.isscalar(delta) and delta >= 0):
+    if not delta >= 0:
         raise ValueError("delta must be a positive number")
 
     # needs to be a numpy array
     y_axis = np.asarray(y_axis)
 
     # maxima and minima candidates are temporarily stored in mx and mn respectively
-    mn, mx = np.Inf, -np.Inf
+    mn, mx = np.inf, -np.inf
 
     # Only detect peak if there is 'lookahead' amount of points after it
     mxpos = 0.
@@ -73,26 +75,26 @@ def peakDetect(y_axis: np.ndarray, x_axis: list[float] | np.ndarray | None = Non
             mnpos = x
 
         # ***look for max***
-        if y < mx - delta and mx != np.Inf:
+        if y < mx - delta and mx != np.inf:
             # Maxima peak candidate found
             # look ahead in signal to ensure that this is a peak and not jitter
             if y_axis[index:index + lookahead].max() < mx:
                 maxtab.append((mxpos, mx))
                 dump.append(True)
                 # set algorithm to only find minima now
-                mx = np.Inf
-                mn = np.Inf
+                mx = np.inf
+                mn = np.inf
 
         # ***look for min***
-        if y > mn + delta and mn != -np.Inf:
-            # Minima peak candidate found 
+        if y > mn + delta and mn != -np.inf:
+            # Minima peak candidate found
             # look ahead in signal to ensure that this is a peak and not jitter
             if y_axis[index:index + lookahead].min() > mn:
                 mintab.append((mnpos, mn))
                 dump.append(False)
                 # set algorithm to only find maxima now
-                mn = -np.Inf
-                mx = -np.Inf
+                mn = -np.inf
+                mx = -np.inf
 
     # Remove the false hit on the first value of the y_axis
     try:
@@ -144,7 +146,7 @@ def peakDetectUsingZeroCrossing(y_axis: np.ndarray, window=49
     zero_indices = zeroCrossings(y_axis, window = window)
     period_lengths = np.diff(zero_indices)
 
-    bins = [y_axis[indice:indice + diff] for indice, diff in 
+    bins = [y_axis[indice:indice + diff] for indice, diff in
             zip(zero_indices, period_lengths)]
 
     even_bins = bins[::2]
@@ -171,12 +173,12 @@ def smooth(x: np.ndarray, window_len=11, window='hanning') -> np.ndarray:
     smooth the data using a window with requested size.
 
     This method is based on the convolution of a scaled window with the signal.
-    The signal is prepared by introducing reflected copies of the signal 
+    The signal is prepared by introducing reflected copies of the signal
     (with the window size) in both ends so that transient parts are minimized
     in the begining and end part of the output signal.
 
     Args:
-        x: the input signal 
+        x: the input signal
         window_len: the dimension of the smoothing window; should be an odd integer
         window: the type of window from 'flat', 'hanning', 'hamming', 'bartlett', 'blackman'
             flat window will produce a moving average smoothing.
@@ -198,7 +200,7 @@ def smooth(x: np.ndarray, window_len=11, window='hanning') -> np.ndarray:
     numpy.hanning, numpy.hamming, numpy.bartlett, numpy.blackman, numpy.convolve
     scipy.signal.lfilter
 
-    TODO: the window parameter could be the window itself if an array instead of a string   
+    TODO: the window parameter could be the window itself if an array instead of a string
     """
     if x.ndim != 1:
         raise ValueError("smooth only accepts 1 dimension arrays.")
@@ -241,9 +243,9 @@ def zeroCrossings(y_axis: np.ndarray, x_axis: np.ndarray = None, window=49
     # smooth the curve
     length = len(y_axis)
     if x_axis is None:
-        x_axis = list(range(length))
-
-    x_axis = np.asarray(x_axis)
+        x_axis = np.arange(length)
+    else:
+        x_axis = np.asarray(x_axis)
 
     y_axis = smooth(y_axis, window)[:length]
     zs = np.where(np.diff(np.sign(y_axis)))[0]
@@ -254,4 +256,3 @@ def zeroCrossings(y_axis: np.ndarray, x_axis: np.ndarray = None, window=49
     if diff.std() / diff.mean() > 0.1:
         raise ValueError("smoothing window too small, false zero-crossings found")
     return times
-

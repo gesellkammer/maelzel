@@ -4,7 +4,7 @@ import appdirs as _appdirs
 from functools import cache
 import pitchtools
 
-from ._common import logger, UNSET, _Unset
+from ._common import logger
 from .config import CoreConfig
 
 from maelzel.dynamiccurve import DynamicCurve
@@ -342,9 +342,8 @@ class Workspace:
             os.makedirs(path)
         return path
 
-    def setRecordPath(self, path: str, persist=False) -> None:
+    def setRecordPath(self, path: str) -> None:
         self.config['rec.path'] = path
-        self.saveKey('rec.path')
 
     def setDynamicsCurve(self, shape='expon(0.5)', mindb=-80, maxdb=0) -> Workspace:
         """

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from maelzel import scorestruct
 from maelzel.common import F
-from maelzel.core._typedefs import time_t
 from maelzel.core import Note, Voice, Score
-from typing import Sequence
+from typing import Sequence, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from maelzel.common import time_t
 
 
 def makeClickTrack(struct: scorestruct.ScoreStruct,
@@ -63,7 +65,7 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
     .. seealso:: :ref:`clicktrack_notebook`
 
     """
-    now = 0
+    now = F(0)
     events = []
     if minMeasures and minMeasures > struct.numMeasures():
         struct = struct.copy()
@@ -84,16 +86,16 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
                 pitch = strongPitch if i == 0 else weakPitch
                 ev = Note(pitch, offset=now, dur=clickdur or 1).setPlay(fade=(0, 0.1))
                 events.append(ev)
-                now += 1
+                now += F(1)
         elif den == 8:
             for i, n in enumerate(range(num)):
                 pitch = strongPitch if i == 0 else weakPitch
                 ev = Note(pitch, offset=now, dur=clickdur or 0.5).setPlay(fade=(0, 0.1))
                 events.append(ev)
-                now += 0.5
+                now += F(1, 2)
         elif den == 16:
             if quarterTempo > 80:
-                durationQuarters = num / 4
+                durationQuarters = F(num) / 4
                 dur = clickdur or durationQuarters
                 ev = Note(strongPitch, dur=dur, offset=now)
                 events.append(ev)

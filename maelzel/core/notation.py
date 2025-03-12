@@ -8,7 +8,8 @@ from .config import CoreConfig
 from .workspace import getConfig, getWorkspace
 from maelzel import scoring
 from maelzel.scorestruct import ScoreStruct
-from maelzel.common import F, asF
+from maelzel.common import asF
+from functools import cache
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -92,10 +93,11 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
     return renderOptions
 
 
-def makeQuantizationProfileFromConfig(cfg: CoreConfig = None
+@cache
+def makeQuantizationProfileFromConfig(cfg: CoreConfig
                                       ) -> scoring.quant.QuantizationProfile:
     """
-    Creates a scoring.quant.QuantizationProfile from a preset
+    Creates a scoring.quant.QuantizationProfile from a config
 
     Args:
         cfg: a CoreConfig
@@ -103,9 +105,6 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig = None
     Returns:
         a scoring.quant.QuantizationProfile
     """
-    if cfg is None:
-        cfg = getConfig()
-
     nestedTuplets = cfg['quant.nestedTuplets']
     if nestedTuplets is None:
         if cfg['show.backend'] == 'musicxml':
@@ -113,29 +112,32 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig = None
         else:
             nestedTuplets = True
 
-    profile = scoring.quant.QuantizationProfile.fromPreset(complexity=cfg['quant.complexity'],
-                                                           nestedTuplets=nestedTuplets)
-    profile.debug = cfg['.quant.debug']
-    profile.debugMaxDivisions = cfg['.quant.debugShowNumRows']
-
+    kws = {}
     if (gridWeight := cfg['.quant.gridErrorWeight']) is not None:
-        profile.gridErrorWeight = gridWeight
+        kws['gridErrorWeight'] = gridWeight
     if (divisionWeight := cfg['.quant.divisionErrorWeight']) is not None:
-        profile.divisionErrorWeight = divisionWeight
+        kws['divisionErrorWeight'] = divisionWeight
     if (rhythmWeight := cfg['.quant.rhythmComplexityWeight']) is not None:
-        profile.rhythmComplexityWeight = rhythmWeight
+        kws['rhythmComplexityWeight'] = rhythmWeight
     if (gridErrorExp := cfg['.quant.gridErrorExp']) is not None:
-        profile.gridErrorExp = gridErrorExp
+        kws['gridErrorExp'] = gridErrorExp
 
-    profile.syncopationMinBeatFraction = asF(cfg['quant.syncopationMinBeatFraction'])
-    profile.syncopationMaxAsymmetry = cfg['quant.syncopationMaxAsymmetry']
-    profile.breakSyncopationsLevel = cfg['quant.breakSyncopationsLevel']
-    profile.breakLongGlissandi = cfg['show.glissHideTiedNotes']
+    profile = scoring.quant.QuantizationProfile.fromPreset(
+        complexity=cfg['quant.complexity'],
+        nestedTuplets=nestedTuplets,
+        debug=cfg['.quant.debug'],
+        debugMaxDivisions = cfg['.quant.debugShowNumRows'],
+        syncopationMinBeatFraction = asF(cfg['quant.syncopationMinBeatFraction']),
+        syncopationMaxAsymmetry = cfg['quant.syncopationMaxAsymmetry'],
+        breakSyncopationsLevel = cfg['quant.breakSyncopationsLevel'],
+        breakLongGlissandi = cfg['show.glissHideTiedNotes'],
+        **kws
+    )
 
     return profile
 
 
-def renderWithActiveWorkspace(parts: list[scoring.UnquantizedPart],
+def renderWithActiveWorkspace(parts: list[scoring.core.UnquantizedPart],
                               backend: str = None,
                               renderoptions: scoring.render.RenderOptions = None,
                               scorestruct: ScoreStruct = None,

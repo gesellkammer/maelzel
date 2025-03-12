@@ -57,7 +57,7 @@ def allSubdivisions(maxsubdivs=5,
                     possiblevals: Sequence[int] = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14),
                     permutations=True,
                     blacklist: list[tuple[int, ...]] = None
-                    ) -> list[tuple[int, ...]]:
+                    ) -> list[division_t]:
     allsubdivs = []
     for numsubdivs in range(maxsubdivs, 0, -1):
         allsubdivs.extend(subdivisions(numdivs=numsubdivs, possiblevals=possiblevals, maxdensity=maxdensity))
@@ -167,7 +167,7 @@ def simplifyDivision(division: division_t, assignedSlots: list[int], reduce=True
             reduced.append(subdiv)
         cs += subdiv
 
-    newdiv = tuple(reduced)
+    newdiv: division_t = tuple(reduced)
     assert len(newdiv) == len(division), f'{division=}, {newdiv=}'
 
     if all(subdiv == 1 for subdiv in newdiv):
@@ -177,7 +177,7 @@ def simplifyDivision(division: division_t, assignedSlots: list[int], reduce=True
     # for example, (1, 2, 1) with slots 0 (0) and 2 (1/2) can be reduced to (2,)
     # first expand (1, 2, 1) to (6,) then reduce again
     if len(newdiv) > 1 and reduce:
-        newdiv = reduceDivision(division=division, newdiv=newdiv, assignedSlots=assignedSlots)
+        return reduceDivision(division=division, newdiv=newdiv, assignedSlots=assignedSlots)
     return newdiv
 
 
@@ -196,25 +196,25 @@ def reduceDivision(division: division_t, newdiv: division_t, assignedSlots: list
     return newdiv2 if numslots < sum(newdiv) else newdiv
 
 
-@cache
-def gridDurations(beatDuration: F, division: division_t) -> list[F]:
-    """
-    Called to recursively generate a grid corresponding to the given division
-    of the beat
-    """
-    if isinstance(division, int):
-        dt = beatDuration/division
-        grid = [dt] * division
-    elif isinstance(division, (list, tuple)):
-        if len(division) == 1:
-            grid = gridDurations(beatDuration, division[0])
-        else:
-            numDivisions = len(division)
-            subdivDur = beatDuration / numDivisions
-            grid = [gridDurations(subdivDur, subdiv) for subdiv in division]
-    else:
-        raise TypeError(f"Expected an int or a list, got {division} ({type(division)})")
-    return grid
+# @cache
+# def gridDurations(beatDuration: F, division: division_t) -> list[F]:
+#     """
+#     Called to recursively generate a grid corresponding to the given division
+#     of the beat
+#     """
+#     if isinstance(division, int):
+#         dt = beatDuration/division
+#         grid = [dt] * division
+#     elif isinstance(division, (list, tuple)):
+#         if len(division) == 1:
+#             grid = gridDurations(beatDuration, division[0])
+#         else:
+#             numDivisions = len(division)
+#             subdivDur = beatDuration / numDivisions
+#             grid = [gridDurations(subdivDur, subdiv) for subdiv in division]
+#     else:
+#         raise TypeError(f"Expected an int or a list, got {division} ({type(division)})")
+#     return grid
 
 
 @cache
@@ -335,7 +335,7 @@ def beatToTree(notations: list[Notation], division: int | division_t,
         division = division[0]
     if isinstance(division, int):
         durRatio = quantdata.durationRatios[division]
-        return Node(ratio=durRatio, items=notations)
+        return Node(ratio=durRatio, items=notations)  # type: ignore
 
     # assert isinstance(division, tuple) and len(division) >= 2
     numSubBeats = len(division)

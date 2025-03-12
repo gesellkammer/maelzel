@@ -9,8 +9,6 @@ import numpy as np
 
 import csoundengine
 import csoundengine.instr
-import csoundengine.tableproxy
-from csoundengine.event import Event
 from csoundengine.sessionhandler import SessionHandler
 
 from maelzel.core import renderer
@@ -27,7 +25,13 @@ from maelzel.core import _playbacktools
 from maelzel import _util
 from maelzel.snd import audiosample
 
-from typing import Callable, Sequence
+from typing import Callable, Sequence, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import csoundengine.schedevent
+    import csoundengine.tableproxy
+    import csoundengine.event
+
 
 
 __all__ = (
@@ -38,33 +42,6 @@ __all__ = (
 # -------------------------------------------------------------
 #                        OfflineRenderer
 # -------------------------------------------------------------
-
-
-class _OfflineSessionHandler(SessionHandler):
-    def __init__(self, renderer: OfflineRenderer):
-        self.renderer = renderer
-
-    def sched(self, event: csoundengine.event.Event):
-        return self.renderer._schedSessionEvent(event)
-
-    def schedEvent(self, event: Event) -> csoundengine.schedevent.SchedEvent:
-        return self.renderer.schedEvent(event)
-
-    def makeTable(self,
-                  data: np.ndarray | list[float] | None = None,
-                  size: int | tuple[int, int] = 0,
-                  sr: int = 0,
-                  ) -> csoundengine.tableproxy.TableProxy:
-        return self.renderer.makeTable(data=data, size=size, sr=sr)
-
-    def readSoundfile(self,
-                      path: str,
-                      chan=0,
-                      skiptime=0.,
-                      delay=0.,
-                      force=False,
-                      ) -> csoundengine.tableproxy.TableProxy:
-        return self.renderer.readSoundfile(soundfile=path, chan=chan, skiptime=skiptime)
 
 
 class OfflineRenderer(renderer.Renderer):
@@ -204,7 +181,6 @@ class OfflineRenderer(renderer.Renderer):
         Returns:
             the corresponding :class:`csoundengine.offline.OfflineSession`
         """
-        from maelzel.core import playback
         renderer = self.presetManager.makeRenderer(self.sr, ksmps=self.ksmps,
                                                    numChannels=self.numChannels)
         session = self.liveSession()
@@ -795,11 +771,9 @@ class OfflineRenderer(renderer.Renderer):
         self._workspace = Workspace.getActive()
         self._oldRenderer = self._workspace.renderer
         self._workspace.renderer = self
-
         session = self.liveSession()
         if session:
             session.setHandler(_OfflineSessionHandler(self))
-
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -883,6 +857,33 @@ class OfflineRenderer(renderer.Renderer):
         proc = self.lastRenderProc()
         if proc is not None and proc.poll() is None:
             proc.wait(timeout=timeout)
+
+
+class _OfflineSessionHandler(SessionHandler):
+    def __init__(self, renderer: OfflineRenderer):
+        self.renderer = renderer
+
+    def sched(self, event: csoundengine.event.Event):
+        return self.renderer._schedSessionEvent(event)
+
+    def schedEvent(self, event: csoundengine.event.Event) -> csoundengine.schedevent.SchedEvent:
+        return self.renderer.schedEvent(event)
+
+    def makeTable(self,
+                  data: np.ndarray | list[float] | None = None,
+                  size: int | tuple[int, int] = 0,
+                  sr: int = 0,
+                  ) -> csoundengine.tableproxy.TableProxy:
+        return self.renderer.makeTable(data=data, size=size, sr=sr)
+
+    def readSoundfile(self,
+                      path: str,
+                      chan=0,
+                      skiptime=0.,
+                      delay=0.,
+                      force=False,
+                      ) -> csoundengine.tableproxy.TableProxy:
+        return self.renderer.readSoundfile(soundfile=path, chan=chan, skiptime=skiptime)
 
 
 def render(outfile='',

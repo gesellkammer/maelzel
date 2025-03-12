@@ -126,10 +126,10 @@ def desaturate(color: tuple[float, float, float], factor: float
         return color
 
     # Convert to hls
-    h, l, s = colorsys.rgb_to_hls(*color)
+    hue, lum, sat = colorsys.rgb_to_hls(*color)
 
     # Desaturate the saturation channel
-    s *= factor
+    sat *= factor
 
     # Convert back to rgb
-    return colorsys.hls_to_rgb(h, l, s)
+    return colorsys.hls_to_rgb(hue, lum, sat)

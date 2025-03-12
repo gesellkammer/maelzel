@@ -3,7 +3,7 @@ import os
 import subprocess
 import glob
 
-from maelzel.scorestruct import *
+from maelzel.scorestruct import ScoreStruct
 from . import core
 from . import quant
 from .renderer import Renderer
@@ -117,22 +117,21 @@ def quantizeAndRender(parts: list[core.UnquantizedPart],
     return renderQuantizedScore(score=qscore, options=options)
 
 
-def _asParts(obj: Union[core.UnquantizedPart, core.Notation, list[core.UnquantizedPart], list[core.Notation]]
+def _asParts(obj: core.UnquantizedPart | core.Notation | list[core.UnquantizedPart] | list[core.Notation]
              ) -> list[core.UnquantizedPart]:
     if isinstance(obj, core.UnquantizedPart):
-        parts = [obj]
+        return [obj]
     elif isinstance(obj, list):
         if all(isinstance(item, core.UnquantizedPart) for item in obj):
-            parts = obj
+            return obj
         elif all(isinstance(item, core.Notation) for item in obj):
-            parts = [core.UnquantizedPart(obj)]
+            return [core.UnquantizedPart(notations=obj)]
         else:
             raise TypeError(f"Can't show {obj}")
     elif isinstance(obj, core.Notation):
-        parts = [core.UnquantizedPart([obj])]
+        return [core.UnquantizedPart([obj])]
     else:
         raise TypeError(f"Can't convert {obj} to a list of Parts")
-    return parts
 
 
 def render(obj: core.UnquantizedPart | core.Notation | list[core.UnquantizedPart] | list[core.Notation],

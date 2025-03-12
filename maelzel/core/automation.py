@@ -1,15 +1,16 @@
 from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
-from functools import cache
 from emlib import iterlib
 from maelzel.common import F
 from maelzel.scorestruct import ScoreStruct
 from maelzel.core.workspace import Workspace
 from maelzel.core import _tools
 
-from maelzel.core._typedefs import location_t, num_t
-from typing import Sequence
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import Sequence
+    from maelzel.common import location_t, num_t
 
 
 @dataclass
@@ -236,8 +237,7 @@ class SynthAutomation:
             a copy of self cropped between start and end
         """
         bps = list(iterlib.window(self.data, 2, 2))
-        bps = _tools.cropBreakpoints(bps, start - self.delay, end - self.delay)
-        # delay = max(0., self.delay - start)
+        bps = _tools.cropBreakpoints(bps, start - self.delay, end - self.delay)  # type: ignore
         data = [float(bp) for bp in _flattenBreakpoints(bps)]
         return SynthAutomation(param=self.param,
                                data=data,

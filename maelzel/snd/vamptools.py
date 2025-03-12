@@ -10,23 +10,28 @@ via pypi and installed by pip as a dependency)
 
 """
 from __future__ import annotations
-from dataclasses import dataclass
-import numpy as np
-from math import isnan
-import numpyx
-from emlib import iterlib
-import sys
+
 import os
-import bpf4
-import pitchtools as pt
+from dataclasses import dataclass
+from math import isnan
 from typing import TYPE_CHECKING
+
+import bpf4
+import bpf4.core
+import bpf4.util
+import numpy as np
+import numpyx
+import pitchtools as pt
+import vamp
+import vamp.frames
+import vamp.load
+import vamp.process
+from emlib import iterlib
+
+from maelzel import histogram
 from maelzel._util import getPlatform
 from maelzel.common import getLogger
 from maelzel.snd import numpysnd
-from maelzel import histogram
-import vamp
-import vamp.frames
-
 
 logger = getLogger('maelzel.snd')
 
@@ -353,9 +358,9 @@ def pyin(samples: np.ndarray,
     smoothpitchtimes = [frame['timestamp'].to_float() for frame in pts]
     for t0, t1 in iterlib.pairwise(smoothpitchtimes):
         if t1 < t0:
-            print(f"times not sorted", t0, t1)
+            raise RuntimeError(f"times not sorted, {t0=}, {t1=}")
         elif t0 == t1:
-            print(f"Duplicate times: {t0=}, {t1=}")
+            raise RuntimeError(f"Duplicate times: {t0=}, {t1=}")
 
     smoothpitchfreqs = [float(frame['values'][0]) for frame in pts]
     smoothpitch = bpf4.core.Linear(smoothpitchtimes, smoothpitchfreqs)
@@ -550,11 +555,11 @@ def pyinPitchTrack(samples: np.ndarray,
     arr = np.empty((len(vps), 3))
     i = 0
     NAN = float('nan')
-    for vp, pt, f0 in zip(vps, pts, f0s):
+    for vp, track, f0 in zip(vps, pts, f0s):
         t = vp['timestamp']
         probs = vp['values']
         candidates = f0.get('values', None)
-        freq = float(pt['values'][0])
+        freq = float(track['values'][0])
         if freq < 0:
             if outputUnvoiced == 'nan':
                 freq = NAN

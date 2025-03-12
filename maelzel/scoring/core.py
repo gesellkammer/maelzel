@@ -1,18 +1,25 @@
 from __future__ import annotations
+import uuid
 import itertools
-from emlib import iterlib
-from maelzel._util import reprObj
-from .common import *
-from .notation import *
-from . import definitions
-from . import util
-from . import attachment
-
-
 from typing import TYPE_CHECKING
+
+from emlib import iterlib
+
+from maelzel._util import reprObj
+from maelzel.common import F
+
+from . import attachment, definitions, util
+from .common import NotatedDuration
+from .notation import (
+    Notation,
+    mergeNotationsIfPossible,
+)
+
 if TYPE_CHECKING:
-    from typing import Union, Iterator, Callable
+    from typing import Iterator
+
     from maelzel.scoring import quant
+    from maelzel.common import time_t
 
 
 __all__ = (
@@ -23,7 +30,6 @@ __all__ = (
     'fillSilences',
     'resolveOffsets',
     'packInParts',
-    'notationsCanMerge',
     'mergeNotationsIfPossible',
     'removeSmallOverlaps',
     'distributeNotationsByClef',
@@ -134,7 +140,18 @@ class UnquantizedPart:
             idx += 1
         return None
 
-    def setGroup(self, groupid: str, name='', shortname='', showPartName=False):
+    def setGroup(self, groupid: str, name='', shortname='', showPartName=False) -> None:
+        """
+        Set group attributes for this part
+
+        Args:
+            groupid: the groupid this part belongs to. All parts with the same groupid
+                are grouped together
+            name: name of the group
+            shortname: abbreviation for the group name
+            showPartName: if True, show the name of each part, even if they are
+                within a group
+        """
         self.groupid = groupid
         self.groupname = (name, shortname)
         self.showName = showPartName
@@ -368,12 +385,13 @@ def removeSmallOverlaps(notations: list[Notation], threshold=F(1, 1000)) -> None
     """
     if len(notations) < 2:
         return
-    mindur = threshold * 4
     for n0, n1 in iterlib.pairwise(notations):
+        assert n1.offset is not None and n0.end is not None
         diff = n1.offset - n0.end
         if diff > 0:
             if diff < threshold:
                 # small gap between notations
+                assert n0.offset is not None
                 n0.duration = n1.offset - n0.offset
         elif diff < 0:
             # overlap
@@ -391,7 +409,7 @@ def fillSilences(notations: list[Notation], mingap=F(1, 64), offset: time_t = No
     Return a list of Notations filled with rests
 
     Args:
-        notations: the notes to fill
+        notations: the notes to fill, should have offset set
         mingap: min. gap between two notes. If any notes differ by less
                    than this, the first note absorvs the gap
         offset: if given, marks the start time to fill. If notations start after
@@ -411,7 +429,7 @@ def fillSilences(notations: list[Notation], mingap=F(1, 64), offset: time_t = No
     out: list[Notation] = []
     n0 = notations[0]
     if offset is not None and n0.offset is not None and n0.offset > offset:
-        out.append(makeRest(duration=n0.offset, offset=offset))
+        out.append(Notation.makeRest(duration=n0.offset, offset=offset))
     for ev0, ev1 in iterlib.pairwise(notations):
         assert isinstance(ev0.offset, F) and isinstance(ev0.duration, F)
         gap = ev1.offset - (ev0.offset + ev0.duration)
@@ -422,7 +440,7 @@ def fillSilences(notations: list[Notation], mingap=F(1, 64), offset: time_t = No
                 raise ValueError(f"Items overlap, {gap=}, {ev0=}, {ev1=}")
         elif gap > mingap:
             out.append(ev0)
-            rest = makeRest(duration=gap, offset=ev0.offset+ev0.duration)
+            rest = Notation.makeRest(duration=gap, offset=ev0.offset+ev0.duration)
             assert rest.offset is not None and rest.duration is not None
             out.append(rest)
         else:
@@ -434,14 +452,14 @@ def fillSilences(notations: list[Notation], mingap=F(1, 64), offset: time_t = No
     return out
 
 
-def _groupById(notations: list[Notation]) -> list[Union[Notation, list[Notation]]]:
+def _groupById(notations: list[Notation]) -> list[Notation | list[Notation]]:
     """
     Given a seq. of events, elements which are grouped together are wrapped
     in a list, whereas elements which don't belong to any group are
     appended as is
 
     """
-    out: list[Union[Notation, list[Notation]]] = []
+    out: list[Notation | list[Notation]] = []
     for groupid, elementsiter in itertools.groupby(notations, key=lambda n: n.groupid):
         if not groupid:
             out.extend(elementsiter)
@@ -458,6 +476,16 @@ def distributeNotationsByClef(notations: list[Notation],
                               name='',
                               shortname='',
                               ) -> list[UnquantizedPart]:
+    """
+    Distribute the given notations amongst parts with different clefs
+
+    Args:
+        notations: the notations to distribute
+        maxstaves: max. number of staves
+        groupid: a groupid to use for all created parts
+        name: a name to use for the resulting group
+        shortname: an abbreviation for the name of the group
+    """
     from . import clefutils
     partpairs = clefutils.explodeNotations(notations, maxstaves=maxstaves)
     parts = [UnquantizedPart(notations) for clef, notations in partpairs]
@@ -481,7 +509,7 @@ def distributeNotationsByClef(notations: list[Notation],
 
 def packInParts(notations: list[Notation],
                 maxrange=36,
-                keepGroupsTogether=True
+                keepGroupsTogether=True,
                 ) -> list[UnquantizedPart]:
     """
     Pack a list of possibly simultaneous notations into tracks
@@ -524,6 +552,7 @@ def packInParts(notations: list[Notation],
                              for n in group)
 
     packedTracks = packing.packInTracks(items, maxrange=maxrange)
+    assert packedTracks is not None
     return [UnquantizedPart(track.unwrap()) for track in packedTracks]
 
 
@@ -558,3 +587,17 @@ def removeRedundantDynamics(notations: list[Notation],
                 n.dynamic = ''
             else:
                 lastDynamic = n.dynamic
+
+
+def makeGroupId(parent: str = '') -> str:
+    """
+    Create an id to group notations together
+
+    Args:
+        parent: if given it will be prepended as {parent}/{groupid}
+
+    Returns:
+        the group id as string
+    """
+    groupid = str(uuid.uuid1())
+    return groupid if parent is None else f'{parent}/{groupid}'

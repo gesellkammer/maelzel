@@ -1,6 +1,5 @@
 from __future__ import annotations
 from .synthevent import SynthEvent
-from typing import Sequence
 import csoundengine
 import maelzel.core as mc
 from datetime import datetime
@@ -46,7 +45,7 @@ def makeRecordingFilename(ext=".wav", prefix="rec-"):
         The file will be created inside the recording path
         (see :meth:`Workspace.recordPath() <maelzel.core.workspace.Workspace.recordPath>`)
     """
-    path = mc.getWorkspace().recordPath()
+    path = mc.Workspace.active.recordPath()
     assert ext.startswith(".")
     base = datetime.now().isoformat(timespec='milliseconds')
     if prefix:
@@ -68,4 +67,3 @@ def nchnlsForEvents(events: list[SynthEvent]) -> int:
 
     """
     return max(int(math.ceil(ev.resolvedPosition() + ev.chan)) for ev in events)
-

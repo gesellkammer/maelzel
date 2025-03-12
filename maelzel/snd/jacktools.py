@@ -11,7 +11,8 @@ from typing import Optional
 _jackclient = None
 
 
-class PlatformNotSupportedError(Exception): pass
+class PlatformNotSupportedError(Exception):
+    pass
 
 
 @cachetools.cached(cache=cachetools.TTLCache(1, 60))
@@ -38,7 +39,7 @@ def jack_running_check() -> bool:
             if proc.wait() == 0:
                 return True
     try:
-        cl = jack.Client("checkjack", no_start_server=True)
+        _ = jack.Client("checkjack", no_start_server=True)
     except jack.JackOpenError:
         return False
     return True

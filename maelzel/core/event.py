@@ -23,7 +23,6 @@ import math
 import functools
 from numbers import Rational
 
-from emlib import misc
 from emlib import iterlib
 
 import pitchtools as pt
@@ -36,10 +35,11 @@ from maelzel.dynamiccurve import DynamicCurve
 from maelzel import _util
 from maelzel._util import showT
 
-from ._common import UNSET, MAXDUR, logger, _Unset
-from .workspace import getConfig, Workspace
-from . import synthevent
-from .eventbase import MEvent
+from maelzel.common import UNSET, UnsetType
+from maelzel.core.workspace import getConfig, Workspace
+from maelzel.core.eventbase import MEvent
+from maelzel.core._common import MAXDUR, logger
+from maelzel.core import synthevent
 from maelzel.core import _tools
 
 from . import symbols as _symbols
@@ -49,8 +49,9 @@ from typing import TYPE_CHECKING, overload as _overload, cast as _cast
 if TYPE_CHECKING:
     from .config import CoreConfig
     from typing import Callable, Any, Sequence, Iterator
-    from ._typedefs import *
     from typing_extensions import Self
+    from maelzel.common import time_t, pitch_t, num_t
+
 
 
 __all__ = (
@@ -153,7 +154,7 @@ class Note(MEvent):
                         gliss = gliss or p.pop('gliss', False)
                         fixed = p.pop('fixPitch', False) or fixed
                         label = label or p.pop('label', '')
-                        properties = p if not properties else misc.dictmerge(p, properties)
+                        properties = p if not properties else p | properties
                     if props.symbols:
                         if symbols is None:
                             symbols = props.symbols
@@ -374,7 +375,7 @@ class Note(MEvent):
               pitch: pitch_t = None,
               dur: time_t = None,
               amp: float = None,
-              offset: time_t | None | _Unset = UNSET,
+              offset: time_t | None | UnsetType = UNSET,
               gliss: pitch_t | bool | None = None,
               label: str = None,
               tied: bool = None,
@@ -539,7 +540,7 @@ class Note(MEvent):
         offset = self.absOffset() if parentOffset is None else self.relOffset() + parentOffset
         dur = self.dur
         if self.isRest():
-            rest = scoring.makeRest(dur, offset=offset, dynamic=self.dynamic)
+            rest = scoring.Notation.makeRest(dur, offset=offset, dynamic=self.dynamic)
             if self.label:
                 rest.addText(self.label, role='label')
             if self.symbols:
@@ -548,12 +549,12 @@ class Note(MEvent):
                         symbol.applyToNotation(rest, parent=self)
             return [rest]
 
-        notation = scoring.makeNote(pitch=self.pitch,
-                                    duration=asF(dur),
-                                    offset=offset,
-                                    gliss=bool(self.gliss),
-                                    dynamic=self.dynamic,
-                                    group=groupid)
+        notation = scoring.Notation.makeNote(pitch=self.pitch,
+                                             duration=asF(dur),
+                                             offset=offset,
+                                             gliss=bool(self.gliss),
+                                             dynamic=self.dynamic,
+                                             group=groupid)
         if self.pitchSpelling:
             notation.fixNotename(self.pitchSpelling, idx=0)
 
@@ -566,10 +567,10 @@ class Note(MEvent):
             groupid = groupid or str(hash(self))
             notes[0].groupid = groupid
             assert self.gliss >= 12, f"self.gliss = {self.gliss}"
-            notes.append(scoring.makeNote(pitch=self.gliss,
-                                          duration=0,
-                                          offset=offset,
-                                          group=groupid))
+            notes.append(scoring.Notation.makeNote(pitch=self.gliss,
+                                                   duration=0,
+                                                   offset=offset,
+                                                   group=groupid))
             if config['show.glissEndStemless']:
                 notes[-1].addAttachment(scoring.attachment.StemTraits(hidden=True))
 
@@ -954,7 +955,7 @@ class Chord(MEvent):
                     gliss = gliss or p.pop('gliss', False)
                     fixed = p.pop('fixPitch', False) or fixed
                     label = label or p.pop('label', '')
-                    properties = p if not properties else misc.dictmerge(p, properties)
+                    properties = p if not properties else p | properties
                 if props.symbols:
                     symbols = props.symbols
                 if props.spanners:
@@ -996,7 +997,7 @@ class Chord(MEvent):
         self.notes: list[Note] = notes2
         """The notes in this chord, each an instance of Note"""
 
-        self._gliss: bool | list[float] = gliss
+        self._gliss: bool | list[float] = gliss  # type: ignore
         self._glissTarget: list[float] | None = None
         if symbols:
             for symbol in symbols:
@@ -1025,10 +1026,10 @@ class Chord(MEvent):
 
     def copy(self):
         notes = [n.copy() for n in self.notes]
-        out = Chord(notes=notes, dur=self.dur, amp=self.amp, offset=self.offset,
-                    gliss=self.gliss, label=self.label, tied=self.tied,
-                    dynamic=self.dynamic,
-                    _init=False)
+        out = self.__class__(notes=notes, dur=self.dur, amp=self.amp, offset=self.offset,
+                             gliss=self.gliss, label=self.label, tied=self.tied,
+                             dynamic=self.dynamic,
+                             _init=False)
         self._copyAttributesTo(out)
         return out
 
@@ -1114,12 +1115,13 @@ class Chord(MEvent):
         if not self.gliss:
             raise ValueError("This Chord does not have a glissando")
         elif self._glissTarget:
-            return self._glissTarget if isinstance(self._glissTarget, str) else pt.m2n(self._glissTarget)
+            return [pt.m2n(pitch) for pitch in self._glissTarget]
         elif not isinstance(self._gliss, bool):
             return [pt.m2n(pitch) for pitch in self._gliss]
         elif self.parent:
             self.parent._resolveGlissandi()
-            return self._glissTarget if isinstance(self._glissTarget, str) else pt.m2n(self._glissTarget)
+            assert self._glissTarget is not None
+            return [pt.m2n(pitch) for pitch in self._glissTarget]
         else:
             return [note.name for note in self.notes]
 
@@ -1161,13 +1163,13 @@ class Chord(MEvent):
         annot = '' if not self.label else self._scoringAnnotation(config=config)
         dur = self.dur
         offset = self.absOffset() if parentOffset is None else self.relOffset() + parentOffset
-        notation = scoring.makeChord(pitches=notenames,
-                                     duration=dur,
-                                     offset=offset,
-                                     annotation=annot,
-                                     group=groupid,
-                                     dynamic=self.dynamic,
-                                     tiedNext=self.tied)
+        notation = scoring.Notation.makeChord(pitches=notenames,
+                                              duration=dur,
+                                              offset=offset,
+                                              annotation=annot,
+                                              group=groupid,
+                                              dynamic=self.dynamic,
+                                              tiedNext=self.tied)
         if chainlabel := self.getProperty('.chainlabel'):
             notation.addText(self._scoringAnnotation(chainlabel, config=config))
 
@@ -1181,10 +1183,10 @@ class Chord(MEvent):
         if self.gliss:
             notation.gliss = True
             if not isinstance(self.gliss, bool):
-                groupid = scoring.makeGroupId(groupid)
+                groupid = scoring.core.makeGroupId(groupid)
                 notation.groupid = groupid
-                endEvent = scoring.makeChord(pitches=self.gliss, duration=0,
-                                             offset=self.end, group=groupid)
+                endEvent = scoring.Notation.makeChord(pitches=self.gliss, duration=0,
+                                                      offset=self.end, group=groupid)
                 if config['show.glissEndStemless']:
                     endEvent.addAttachment(scoring.attachment.StemTraits(hidden=True))
                     # endEvent.stem = 'hidden'
@@ -1755,13 +1757,14 @@ def asEvent(obj, **kws) -> MEvent:
             dur = kws.pop('dur', None) or notedef.dur
 
             if notedef.keywords:
-                kws = misc.dictmerge(notedef.keywords, kws)
+                kws = notedef.keywords | kws
             if isinstance(notedef.notename, list):
                 if len(notedef.notename) > 1:
                     out = Chord(notedef.notename, dur=dur, **kws)
                 else:
                     out = Note(notedef.notename[0], dur=dur, **kws)
             elif notedef.notename == 'rest':
+                assert isinstance(dur, num_t)
                 out = Rest(dur=dur, **kws)
             else:
                 out = Note(notedef.notename, dur=dur, **kws)
