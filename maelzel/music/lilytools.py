@@ -14,6 +14,7 @@ from emlib import misc
 from dataclasses import dataclass
 from maelzel._imgtools import imagefileAutocrop
 from maelzel.common import F
+from numbers import Rational
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -832,7 +833,7 @@ def makeDuration(quarterLength: int | float | str | F, dots=0) -> str:
     elif isinstance(quarterLength, int):
         assert quarterLength in {1, 2, 4}, f"quarterLength: {quarterLength}"
         lilydur = _durationToLily[quarterLength]
-    elif isinstance(quarterLength, F):
+    elif isinstance(quarterLength, Rational):
         if quarterLength.denominator == 1:
             lilydur = _durationToLily[quarterLength.numerator]
         else:

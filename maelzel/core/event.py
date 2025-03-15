@@ -136,6 +136,7 @@ class Note(MEvent):
         pitchSpelling = ''
         if not _init:
             midinote = _cast(float, pitch)
+            assert offset is None or isinstance(offset, F)
         else:
             if not isinstance(pitch, str):
                 assert 0 <= pitch <= 200, f"Expected a midinote (0-127) but got {pitch}"
@@ -188,8 +189,6 @@ class Note(MEvent):
                 if not fixed and Workspace.active.config['fixStringNotenames']:
                     fixed = True
 
-            dur = asF(dur) if dur is not None else F1
-
             if offset is not None:
                 offset = asF(offset)
 
@@ -201,6 +200,7 @@ class Note(MEvent):
 
             assert properties is None or isinstance(properties, dict)
 
+        dur = asF(dur) if dur is not None else F1
         super().__init__(dur=dur, offset=offset, label=label, properties=properties,
                          symbols=symbols, tied=tied, amp=amp, dynamic=dynamic)
 
@@ -210,7 +210,7 @@ class Note(MEvent):
         self.pitchSpelling = '' if not fixed else pitchSpelling
         "The pitch representation of this Note. Can be different from the sounding pitch"
 
-        self._gliss: float | bool = gliss
+        self._gliss: float | bool = gliss  # type: ignore
 
     @staticmethod
     def makeRest(dur: time_t | str, offset: time_t = None, label: str = '', dynamic='') -> Note:
@@ -385,7 +385,7 @@ class Note(MEvent):
 
         Returns a new note
         """
-        offset = self.offset if offset is UNSET else None if offset is None else asF(offset)
+        offset = self.offset if offset is UNSET else None if offset is None else asF(offset)  # type: ignore
         out = self.__class__(pitch=pitch if pitch is not None else self.pitch,
                              dur=asF(dur) if dur is not None else self.dur,
                              amp=amp if amp is not None else self.amp,
@@ -991,6 +991,7 @@ class Chord(MEvent):
                     raise ValueError(f"The destination chord of the gliss should have "
                                      f"the same length as the chord itself, {notes=}, {gliss=}")
 
+        assert offset is None or isinstance(offset, F)
         super().__init__(dur=dur if dur is not None else F1,
                          offset=offset, label=label, properties=properties,
                          tied=tied, amp=amp, dynamic=dynamic)

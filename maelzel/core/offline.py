@@ -403,7 +403,7 @@ class OfflineRenderer(renderer.Renderer):
                           dur=event.dur,
                           priority=event.priority,
                           args=event.args,
-                          **kws)
+                          **kws)  # type: ignore
 
     def schedEvent(self, event: SynthEvent | csoundengine.event.Event
                    ) -> csoundengine.schedevent.SchedEvent:
@@ -436,7 +436,7 @@ class OfflineRenderer(renderer.Renderer):
                                              dur=event.dur,
                                              args=pfields5,
                                              priority=event.priority,
-                                             **dynargs)
+                                             **dynargs)  # type: ignore
         else:
             raise TypeError(f"Expected a SynthEvent or a csound event, got {event}")
 

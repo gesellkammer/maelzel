@@ -409,7 +409,7 @@ class Partial:
             times = self.times
             indexes = [numpyx.nearestidx(times, t, sorted=True) for t, f in simplifiedpoints]
             # indexes = [numpyx.searchsorted1(times, t) for t, f in simplifiedpoints]
-        data = np.vstack(self.data[indexes])
+        data = np.vstack(self.data[indexes])  # type: ignore
         return Partial(data=data)
 
     def __copy__(self) -> Partial:

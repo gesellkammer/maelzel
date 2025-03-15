@@ -610,7 +610,7 @@ def cropBreakpoints(bps: list[Sequence[num_t]], t0: num_t, t1: num_t
 
 
 def _interpolateBreakpoints(t: float, bp0: Sequence[num_t], bp1: Sequence[num_t]
-                            ) -> list[num_t]:
+                            ) -> Sequence[num_t]:
     t0, t1 = bp0[0], bp1[0]
     assert t0 <= t <= t1, f"{t0=}, {t=}, {t1=}"
     delta = (t - t0) / (t1 - t0)

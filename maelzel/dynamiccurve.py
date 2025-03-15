@@ -279,7 +279,7 @@ def _validateDynamics(dynamics: Sequence[str]) -> None:
         "Dynamics not understood"
 
 
-def _makeDynamicsMapping(bpf: bpf4.BpfInterface,
+def _makeDynamicsMapping(bpf: bpf4.core.BpfInterface,
                          dynamics:Sequence[str] = None
                          ) -> tuple[list[tuple[float, str]], dict[str, float]]:
     """
@@ -295,17 +295,16 @@ def _makeDynamicsMapping(bpf: bpf4.BpfInterface,
     """
     if dynamics is None:
         dynamics = dynamicSteps
-    assert isinstance(bpf, bpf4.core.BpfInterface)
     _validateDynamics(dynamics)
     dynamics_table = [(bpf(i), dyn) for i, dyn in enumerate(dynamics)]
-    dynamics_dict = {dyn: ampdb for ampdb, dyn, in dynamics_table}
+    dynamics_dict = {dyn: ampdb for ampdb, dyn in dynamics_table}
     return dynamics_table, dynamics_dict
 
 
 def createShape(shape='expon(3)',
                 mindb: int | float = -90,
                 maxdb: int | float = 0
-                ) -> bpf4.BpfInterface:
+                ) -> bpf4.core.BpfInterface:
     """
     Return a bpf mapping 0-1 to amplitudes, as needed by DynamicCurve
 

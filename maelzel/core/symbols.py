@@ -1346,6 +1346,9 @@ class BeamBreak(EventSymbol, VoiceSymbol):
         super().__init__()
 
     def callback(self, qpart: scoring.quant.QuantizedPart) -> None:
+        if self.location is None:
+            raise ValueError("A BeamBreak can only be applied to a part if its location"
+                             " is set.")
         notation = qpart.breakSyncopationAt(location=self.location)
         if notation:
             qpart.breakBeam(location=self.location)

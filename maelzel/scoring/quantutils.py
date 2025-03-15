@@ -322,7 +322,7 @@ def applyDurationRatio(notations: list[Notation],
         for subdiv in division:
             subdivEnd = now + dt
             subdivNotations = [n for n in notations
-                               if now <= n.offset < subdivEnd and n.end <= subdivEnd]
+                               if now <= n.qoffset < subdivEnd and n.end <= subdivEnd]
             applyDurationRatio(notations=subdivNotations, division=subdiv,
                                beatOffset=now, beatDur=dt)
             now += dt
@@ -344,8 +344,8 @@ def beatToTree(notations: list[Notation], division: int | division_t,
     durRatio = quantdata.durationRatios[numSubBeats]
     items = []
     for subdiv in division:
-        subdivEnd = now+dt
-        subdivNotations = [n for n in notations if now <= n.offset < subdivEnd and n.end <= subdivEnd]
+        subdivEnd = now + dt
+        subdivNotations = [n for n in notations if now <= n.qoffset < subdivEnd and n.end <= subdivEnd]
         if subdiv == 1:
             items.extend(subdivNotations)
         else:

@@ -42,20 +42,20 @@ dependencies = [
     "sounddevice",
     "typing_extensions",
     "pypng",
+
     # Own libraries
     "emlib>=1.18.0",
     "libcsound>=0.10.6",
-    "bpf4>=1.10.0",
+    "bpf4>=1.13.1",
     "configdict>=2.10",
     "sndfileio>=1.9.1",
-    "numpyx>=1.3.1",
+    "numpyx>=1.4.1",
     "csoundengine>=2.16.0",
     "pitchtools>=1.14.0",
     "risset>=3.2.0",
     "loristrck>=1.6.1",
     "vamphost>=1.3.0",
-    "lilyponddist>=1.0.1",
-    "jupyterlab>=4.3.5",
+    "lilyponddist>=1.1.0",
 ]
 
 [tool.setuptools]

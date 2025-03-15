@@ -178,7 +178,7 @@ class PlayArgs:
                       breakpoints: list[tuple[time_t | location_t, float]] | list[tuple[time_t|location_t, float, str]] | list[num_t],
                       interpolation='linear',
                       relative=True) -> None:
-        breakpoints = _automation.Automation.normalizeBreakpoints(breakpoints, interpolation=interpolation)
+        breakpoints = _automation.Automation.normalizeBreakpoints(breakpoints, interpolation=interpolation)  # type: ignore
         if self.automations is None:
             self.automations = []
         self.automations.append(_automation.Automation(param=param, breakpoints=breakpoints,

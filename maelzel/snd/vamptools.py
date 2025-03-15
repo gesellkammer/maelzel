@@ -243,13 +243,13 @@ class PyinResult:
 
     voicedProbabilityHistogram: histogram.Histogram
 
-    rmsCurve: bpf4.BpfInterface
+    rmsCurve: bpf4.core.BpfInterface
     """bpf mapping rms in time"""
 
     rmsDbHistogram: histogram.Histogram
     """rms histogram in dB, maps db values to their percentile"""
 
-    numCandidates: bpf4.BpfInterface
+    numCandidates: bpf4.core.BpfInterface
 
     def __repr__(self):
         def _(cs, maxnum=4, fmt='.6g'):
@@ -379,7 +379,8 @@ def pyin(samples: np.ndarray,
 
     rmscurve0 = numpysnd.rmsbpf(samples, sr=sr, dt=rmsPeriod, overlap=2)
     rmscurve = bpf4.util.smoothen(rmscurve0, window=rmsPeriod*4)
-    rmsdbhist = histogram.Histogram(rmscurve0.amp2db()[::rmsPeriod].ys)
+    rmsnum = rmscurve0.dxton(rmsPeriod)
+    rmsdbhist = histogram.Histogram(rmscurve0.amp2db().map(rmsnum))
     silencermsdb = rmsdbhist.percentileToValue(minRmsPercentile)
     silencerms = pt.db2amp(silencermsdb)
     # silencerms = rmshist.percentileToValue(minRmsPercentile)
@@ -411,8 +412,8 @@ def pyin(samples: np.ndarray,
             if f0pairs and f0pairs[-1][1] > 0:
                 # Only add a nan if the last breakpoint was not a nan
                 f0pairs.append((t, float('nan')))
-
-    f0bestcurve = bpf4.core.Linear(*zip(*f0pairs))
+    xs, ys = zip(*f0pairs)
+    f0bestcurve = bpf4.core.Linear(np.array(xs), np.array(ys))
 
     return PyinResult(voicedProbabilityCurve=vpcurve,
                       f0candidates=f0candidates,

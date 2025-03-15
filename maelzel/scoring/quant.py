@@ -136,11 +136,8 @@ def _eventsShow(events: list[Notation]) -> str:
         back = "←" if ev.tiedPrev else ""
         forth = "→" if ev.tiedNext else ""
         tiedStr = f"tied: {back}{forth}"
-        if ev.duration is None:
-            lines.append(f"  {showF(ev.offset)} – .. {tiedStr}")
-        else:
-            lines.append(f"  {showF(ev.offset)} – {showF(ev.end)} "
-                         f"dur={showF(ev.duration)} {tiedStr}")
+        lines.append(f"  {showF(ev.qoffset)} – {showF(ev.end)} "
+                     f"dur={showF(ev.duration)} {tiedStr}")
     return "\n".join(lines)
 
 
@@ -197,30 +194,30 @@ def _fillDuration(notations: list[Notation], duration: F, offset=F0, check=True
             raise ValueError(error)
 
     out = []
-    now = offset
+    now: F = offset
 
     if not notations:
         # measure is empty
         out.append(Notation.makeRest(duration, offset=now))
         return out
 
-    if notations[0].offset > now:
-        out.append(Notation.makeRest(notations[0].offset-now, offset=now))
-        now = notations[0].offset
+    if (n0offset := notations[0].qoffset) > now:
+        out.append(Notation.makeRest(n0offset-now, offset=now))
+        now = n0offset
 
     for n0, n1 in iterlib.pairwise(notations):
-        assert n0.offset is not None
-        if n0.offset > now:
+        n0offset = n0.qoffset
+        if n0offset > now:
             # there is a gap, fill it with a rest
-            out.append(Notation.makeRest(offset=now, duration=n0.offset - now))
+            out.append(Notation.makeRest(offset=now, duration=n0offset - now))
         if n0.duration is None:
-            out.append(n0.clone(duration=n1.offset - n0.offset))
+            out.append(n0.clone(duration=n1.qoffset - n0offset))
         else:
             out.append(n0)
             n0end = n0.end
-            if n0end < n1.offset:
-                out.append(Notation.makeRest(offset=n0end, duration=n1.offset - n0end))
-        now = n1.offset
+            if n0end < n1.qoffset:
+                out.append(Notation.makeRest(offset=n0end, duration=n1.qoffset - n0end))
+        now = n1.qoffset
 
     # last event
     n = notations[-1]
@@ -266,7 +263,7 @@ def _evalGridError(profile: QuantizationProfile,
     totalDurationError = 0
     for snapped in snappedEvents:
         event = snapped.notation
-        offsetError = abs(event.offset - snapped.offset) / beatdur
+        offsetError = abs(event.qoffset - snapped.offset) / beatdur
         if event.isRest:
             offsetError *= restOffsetErrorWeight / offsetErrorWeight
 
@@ -654,8 +651,8 @@ class QuantizedMeasure:
             if n.duration < 1:
                 return True
             for beat in beatstruct:
-                if beat.offset <= n.offset < beat.end:
-                    return n.offset - beat.offset > 0
+                if beat.offset <= n.qoffset < beat.end:
+                    return n.qoffset - beat.offset > 0
             else:
                 raise ValueError(f"Notation {n} is not part of this Measure")
 
@@ -865,11 +862,11 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
     possibleDivisions = profile.possibleBeatDivisionsForTempo(tempo)
     rows = []
     seen = set()
-    events0 = [ev.clone(offset=ev.offset - beatOffset) for ev in eventsInBeat]
+    events0 = [ev.clone(offset=ev.qoffset - beatOffset) for ev in eventsInBeat]
     minError = 999.
 
     firstOffset = eventsInBeat[0].duration
-    lastOffsetMargin = beatDuration - (eventsInBeat[-1].offset - beatOffset)
+    lastOffsetMargin = beatDuration - (eventsInBeat[-1].qoffset - beatOffset)
 
     optimizeMargins = True
 
@@ -1134,12 +1131,12 @@ def _notationNeedsBreak(n: Notation, beatDur: F, beatDivision: division_t,
         # check if n extends over subdivision
         dt = beatDur / len(beatDivision)
         for tick in util.fractionRange(beatOffset, beatOffset+beatDur, dt):
-            if n.offset < tick < n.end:
+            if n.qoffset < tick < n.end:
                 return True
         # n is confined to one subdivision of the beat, find which
         now = beatOffset
         for i, div in enumerate(beatDivision):
-            if now <= n.offset < now+dt:
+            if now <= n.qoffset < now+dt:
                 # found!
                 return _notationNeedsBreak(n, beatDur=dt, beatDivision=(div,), beatOffset=now)
         return False
@@ -1191,7 +1188,7 @@ def _breakIrregularDuration(n: Notation, beatDur: F, div: int, beatOffset: F = F
     if nslots.numerator in quantdata.regularDurations:
         return None
 
-    slotindex = (n.offset-beatOffset)/slotdur
+    slotindex = (n.qoffset-beatOffset)/slotdur
     assert int(slotindex) == slotindex
     slotindex = int(slotindex)
 
@@ -1206,7 +1203,7 @@ def _breakIrregularDuration(n: Notation, beatDur: F, div: int, beatOffset: F = F
 
     slotDivisions = quantdata.splitIrregularSlots(numslots=numslots, slotindex=slotindex)
 
-    offset = F(n.offset)
+    offset = F(n.qoffset)
     parts: list[Notation] = []
     for slots in slotDivisions:
         partDur = slotdur * slots
@@ -1275,7 +1272,7 @@ def breakIrregularDuration(n: Notation,
         together represent the original notation
     """
 
-    assert beatOffset <= n.offset and n.end <= beatOffset + beatDur
+    assert beatOffset <= n.qoffset and n.end <= beatOffset + beatDur
     assert n.duration >= 0
 
     if n.duration == 0:
@@ -1302,7 +1299,7 @@ def breakIrregularDuration(n: Notation,
     for subn in subns:
         # find the subdivision
         for timespan, numslots in subdivisions:
-            if hasoverlap(timespan[0], timespan[1], subn.offset, subn.end):
+            if hasoverlap(timespan[0], timespan[1], subn.qoffset, subn.end):
                 parts = breakIrregularDuration(n=subn,
                                                beatDur=divDuration,
                                                beatDivision=numslots,
@@ -1463,7 +1460,7 @@ def splitNotationAtMeasures(n: Notation, struct: st.ScoreStruct
         assert part.isRest or part.tiedPrev, f"{n=}, {pairs=}"
     # tieNotations(parts)
 
-    sumdur = sum(struct.beatDelta((i, n.offset), (i, n.end)) for i, n in pairs)
+    sumdur = sum(struct.beatDelta((i, n.qoffset), (i, n.end)) for i, n in pairs)
     assert sumdur == n.duration, f"{n=}, {sumdur=}, {numMeasures=}\n{pairs=}"
     return pairs
 

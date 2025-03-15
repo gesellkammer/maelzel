@@ -186,7 +186,7 @@ class SplitResult:
     residual: list[Partial]
     """Partials not fitted within tracks and noisetracks"""
 
-    distribution: float | bpf4.BpfInterface
+    distribution: float | bpf4.BpfInterface | Callable[[float], float]
     """The frequency distribution used to split the spectrum into bands"""
 
     def voicedPartials(self) -> list[Partial]:

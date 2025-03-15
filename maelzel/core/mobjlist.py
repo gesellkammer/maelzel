@@ -5,7 +5,7 @@ from .config import CoreConfig
 from . import environment
 from .workspace import Workspace, getConfig
 from maelzel import scoring
-from maelzel.common import F
+from maelzel.common import F, F0
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -29,8 +29,8 @@ class MObjList(MObj):
     def __init__(self,
                  label='',
                  properties: dict[str, Any] = None,
-                 offset: time_t = None,
-                 dur: time_t = None):
+                 offset: F = None,
+                 dur: F = F0):
         """a list of MusicObj inside this container"""
 
         super().__init__(dur=dur, offset=offset, label=label, properties=properties)

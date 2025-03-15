@@ -818,7 +818,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
         the rendered lilypond code
 
     """
-    quarterTempo = 0
+    quarterTempo = F(0)
     scorestruct = part.struct
     w = IndentedWriter(indentsize=indentSize, indents=indents)
 

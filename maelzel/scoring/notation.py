@@ -98,7 +98,7 @@ class Notation:
     def __init__(self,
                  duration: time_t,
                  pitches: Sequence[pitch_t] | None = None,
-                 offset: time_t = None,
+                 offset: time_t | None = None,
                  isRest=False,
                  tiedPrev=False,
                  tiedNext=False,
@@ -129,9 +129,9 @@ class Notation:
             if isRest:
                 tiedNext = False
                 tiedPrev = False
-
         else:
             midinotes = [] if pitches is None else _cast(list[float], pitches)
+            assert offset is None or isinstance(offset, F)
 
         if durRatios:
             assert isinstance(durRatios, tuple) and all(isinstance(r, F) for r in durRatios)

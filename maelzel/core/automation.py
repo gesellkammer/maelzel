@@ -167,9 +167,9 @@ class Automation:
             assert isinstance(bp, tuple)
             bplen = len(bp)
             if bplen == 3:
-                normalized.append(bp)
+                normalized.append(bp)  # type: ignore
             elif bplen == 2:
-                normalized.append(bp + (interpolation,))
+                normalized.append(bp + (interpolation,))  # type: ignore
             else:
                 raise ValueError(f"A breakpoint can have 2 or 3 items, got {bp}")
         return normalized

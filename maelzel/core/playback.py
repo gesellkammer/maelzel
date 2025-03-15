@@ -154,7 +154,7 @@ class RealtimeRenderer(Renderer):
                               args=pfields5,
                               priority=event.priority,
                               whenfinished=event.whenfinished,
-                              **dynargs)
+                              **dynargs)  # type: ignore
         else:
             return self._schedSessionEvent(event)
 
@@ -224,7 +224,7 @@ class RealtimeRenderer(Renderer):
                                   priority=priority,
                                   whenfinished=whenfinished,
                                   relative=relative,
-                                  **kws)
+                                  **kws)  # type: ignore
 
     def sync(self):
         self.engine.sync()
@@ -654,7 +654,7 @@ def _schedEvents(renderer: RealtimeRenderer,
                                args=pfields5,
                                priority=coreevent.priority,
                                whenfinished=coreevent.whenfinished,
-                               **dynargs)
+                               **dynargs)  # type: ignore
         synths.append(synth)
         if coreevent.automationSegments:
             instr = presetManager.getInstr(coreevent.instr)

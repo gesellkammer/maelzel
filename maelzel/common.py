@@ -5,12 +5,13 @@ from __future__ import annotations
 import logging as _logging
 import pitchtools as pt
 
-from typing import Union, TYPE_CHECKING, TypeAlias
+from typing import Union, TypeAlias, TYPE_CHECKING
+
 
 if TYPE_CHECKING:
-    from quicktions import Fraction as F
-else:
     from fractions import Fraction as F
+else:
+    from quicktions import Fraction as F
 
 
 __all__ = (

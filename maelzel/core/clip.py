@@ -143,7 +143,7 @@ class Clip(event.MEvent):
         self.noteheadShape = noteheadShape
         """The shape to use as notehead"""
 
-        self._explicitDur: F | None = dur
+        self._explicitDur: F | None = None if dur is None else asF(dur)
 
         if isinstance(source, tuple) and len(source) == 2 and isinstance(source[0], np.ndarray):
             data, sr = source

@@ -154,9 +154,13 @@ class Chain(MContainer):
                 else:
                     items = [item if isinstance(item, (MEvent, Chain)) else asEvent(item)
                              for item in items]
+        else:
+            assert isinstance(offset, F)
 
-        super().__init__(offset=offset, label=label,
-                         properties=properties, parent=parent)
+        super().__init__(offset=offset,
+                         label=label,
+                         properties=properties,
+                         parent=parent)
 
         self._modified = bool(items)
         """True if this object was modified and needs to be updated"""
@@ -1702,7 +1706,7 @@ class Chain(MContainer):
             if an event was split, returns the part of the event starting at
             the given offset. Otherwise returns None.
         """
-        absoffset = asF(location) if not isinstance(location, tuple) else self.activeScorestruct().locationToBeat(*location)
+        absoffset = asF(location) if not isinstance(location, tuple) else self.activeScorestruct().locationToBeat(*location)  # type: ignore
         self.splitEventsAtOffsets([absoffset], tie=tie)
         ev = self.eventAt(absoffset)
 

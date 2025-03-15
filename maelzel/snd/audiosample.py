@@ -66,6 +66,7 @@ from maelzel.snd import numpysnd as _npsnd
 from maelzel.snd import sndfiletools as _sndfiletools
 
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     import sounddevice
     import csoundengine
@@ -398,7 +399,7 @@ class Sample:
             samples = samples[:int(self.sr*dur)]
 
         ctx = sounddevice._CallbackContext(loop=loop)
-        ctx.frames = ctx.check_data(data=samples, mapping=mapping, device=None)
+        ctx.frames = ctx.check_data(data=samples, mapping=mapping, device=None)  # type: ignore
 
         def callback(outdata, numframes, time, status, gain=gain):
             assert len(outdata) == numframes
@@ -1083,6 +1084,41 @@ class Sample:
             raise RuntimeError("This Sample is readonly. Create a copy (which will"
                                " be writable) and operate on that copy")
 
+    def panned(self, pan: float) -> Self:
+        """Return a new Sample with panning applied
+
+        Args:
+            pan: panning value between 0 (left) and 1 (right)
+
+        Returns:
+            the new Sample, always a stereo sample
+        """
+        if self.numchannels > 2:
+            raise ValueError(f"Panning can only be applied to mono or stereo samples, "
+                             f"this sample has {self.numchannels} channels")
+        samples = _npsnd.panStereo(self.samples, pan)
+        return self.__class__(samples, sr=self.sr)
+
+    def applyPanning(self, pan: float) -> Self:
+        """Apply panning to the sample in place
+
+        .. note:: This method is only available for stereo samples.
+
+        Args:
+            pan: panning value between 0 (left) and 1 (right)
+
+        Returns:
+            self
+        """
+        if self.numchannels != 2:
+            raise ValueError(f"Panning can only be applied to stereo samples, "
+                             f"this sample has {self.numchannels} channels")
+
+        self._checkWrite()
+        _npsnd.applyPanning(self.samples, pan)
+        self._changed()
+        return self
+
     def normalize(self, headroom=0.) -> Self:
         """Normalize inplace, returns self
 
@@ -1103,7 +1139,7 @@ class Sample:
         """Highest sample value in dB"""
         return pt.amp2db(np.abs(self.samples).max())
 
-    def peaksbpf(self, framedur=0.01, overlap=2) -> bpf4.core.Sampled:
+    def peaksBpf(self, framedur=0.01, overlap=2) -> bpf4.core.Sampled:
         """
         Create a bpf representing the peaks envelope of the source
 
@@ -1112,10 +1148,14 @@ class Sample:
             overlap: determines the hop time between analysis frames.
                 ``hoptime = framedur / overlap``
 
+        Returns:
+            A bpf representing the peaks envelope of the source
+
         A peak is the absolute maximum value of a sample over a window
         of time (the *framedur* in this case). To use another metric
-        for tracking amplitude see :meth:`Sample.rmsbpf` which uses
-        rms.
+        for tracking amplitude see :meth:`Sample.rmsBpf` which uses
+        rms, or :meth:`Sample.amplitudeBpf` which uses an envelope
+        follower
 
         The resolution of the returned bpf will be ``framedur/overlap``
 
@@ -1133,9 +1173,20 @@ class Sample:
         self._changed()
         return self
 
-    def rmsbpf(self, dt=0.01, overlap=1) -> bpf4.core.Sampled:
+    def rmsBpf(self, dt=0.01, overlap=1) -> bpf4.core.Sampled:
         """
         Creates a BPF representing the rms of this sample over time
+
+        Args:
+            dt (float): The duration of each frame in seconds.
+            overlap (int): The number of frames to overlap.
+
+        Returns:
+            bpf4.core.Sampled: A BPF representing the rms of this sample over time.
+
+        Raises:
+            ValueError: If dt is not positive.
+            ValueError: If overlap is not positive.
 
         .. seealso:: https://bpf4.readthedocs.io/en/latest/
         """
@@ -1158,6 +1209,21 @@ class Sample:
         .. seealso:: :meth:`Sample.rmsbpf`
         """
         return _npsnd.rms(self.samples)
+
+    def amplitudeBpf(self, attack=0.01, release=0.01, chunktime=0.05, overlap=2) -> bpf4.core.Sampled:
+        """
+        Creates a bpf representing the average amplitude over time
+
+        Args:
+            attack: attack time in seconds for the envelope follower
+            release: decay time in seconds for the envelope follower
+            chunktime: chunk time in seconds, averages envelope over this time
+            overlap: overlap factor for averaging the envelope
+
+        Returns:
+            a bpf representing the average amplitude over time
+        """
+        return _npsnd.ampbpf(self.samples, self.sr, attack=attack, release=release, chunktime=chunktime, overlap=overlap)
 
     def mixdown(self, enforceCopy=False) -> Sample:
         """
@@ -1304,7 +1370,17 @@ class Sample:
 
         This is a wrapper around ``maelzel.transcribe.mono.FundamentalAnalysisMono`` and
         is placed here for visibility and easy of use. To access all parameters,
-        use that dirctly
+        use that directly
+
+        Args:
+            semitoneQuantization (float): Semitone quantization, 0 to disable quantization
+            fftsize (int): FFT size
+            simplify (float): Simplification threshold
+            overlap (int): Overlap factor
+            minFrequency (float): Minimum frequency
+            minSilence (float): Minimum silence duration
+            onsetThreshold (float): Onset threshold
+            onsetOverlap (int): overlap factor for onset analysis
 
         Returns:
             a :class:`maelzel.transcribe.mono.FundamentalAnalysisMono`
@@ -1551,20 +1627,16 @@ class Sample:
         assert len(times) == len(freqs), f"{len(times)=}, {len(freqs)=}"
         return times, freqs
 
-    def fundamentalBpf(self, fftsize=2048, overlap=4, method='pyin', unvoiced='negative'
-                       ) -> bpf4.BpfInterface:
+    def fundamentalBpf(self,
+        fftsize=2048,
+        overlap=4,
+        unvoiced='negative',
+        lowAmpSuppression=pt.db2amp(-60),
+        onsetSensitivity=0.7,
+        method='pyin-pitchtrack'
+        ) -> tuple[bpf4.BpfInterface, bpf4.BpfInterface]:
         """
         Construct a bpf which follows the fundamental of this sample in time
-
-        .. note::
-
-            The method 'pyin-vamp' depends on the python module 'vamphost' and the
-            pyin vamp plugin being installed
-
-            - vamp host: original code: https://code.soundsoftware.ac.uk/projects/vampy-host
-              (install via ``pip install vamphost``)
-            - pyin plugin can be downloaded from https://code.soundsoftware.ac.uk/projects/pyin/files.
-              More information about installing VAMP plugins: https://www.vamp-plugins.org/download.html#install
 
         Args:
             fftsize: the size of the fft, in samples
@@ -1573,41 +1645,36 @@ class Sample:
             unvoiced: method to handle unvoiced sections. One of 'nan', 'negative', 'keep'
 
         Returns:
-            a `bpf <https://bpf4.readthedocs.io>`_ representing the fundamental freq. of this sample
+            a tuple (f0bpf, voicednessbpf), each is a `bpf <https://bpf4.readthedocs.io>`_.
+            ``f0bpf`` represents the fundamental freq. over time, ``voicednessbpf``
+            represents the voicedness (how "Pitched" the signal is) at a given time
         """
-        if method == 'pyin':
-            # auto detect
-            if _vampPyinAvailable():
-                method = 'pyin-vamp'
-            else:
-                method = 'pyin-native'
-
-        if method == "pyin-vamp":
-            from maelzel.snd import vamptools
-            samples = self.getChannel(0).samples
+        from maelzel.snd import vamptools
+        samples = self.getChannel(0).samples
+        if method == 'pyin-pitchtrack':
+            data = vamptools.pyinPitchTrack(
+                samples=samples,
+                sr=self.sr,
+                fftSize=fftsize,
+                overlap=overlap,
+                lowAmpSuppression=lowAmpSuppression,
+                onsetSensitivity=onsetSensitivity,
+                outputUnvoiced=unvoiced)
+            times = data[:,0]
+            freqs = data[:,1]
+            voicedness = data[:,2]
+            return bpf4.Linear(times, freqs), bpf4.Linear(times, voicedness)
+        elif method == 'pyin-smoothpitch':
             dt, freqs = vamptools.pyinSmoothPitch(samples, self.sr,
-                                                  fftSize=fftsize,
-                                                  stepSize=fftsize // overlap,
-                                                  outputUnvoiced=unvoiced,
-                                                  )
-            return bpf4.Sampled(freqs, dt)
-
-        elif method == 'pyin-native':
-            from maelzel.snd import freqestimate
-            samples = self.getChannel(0).samples
-            f0curve, probcurve = freqestimate.f0curvePyin(samples, sr=self.sr,
-                                                          framelength=fftsize,
-                                                          hoplength=fftsize // overlap)
-            return f0curve
-
-        elif method == 'fft':
-            from maelzel.snd import freqestimate
-            samples = self.getChannel(0).samples
-            f0curve, probcurve = freqestimate.f0curve(samples, sr=self.sr,
-                                                      overlap=overlap, method='fft')
-            return f0curve
+                                                    fftSize=fftsize,
+                                                    stepSize=fftsize // overlap,
+                                                    lowAmpSuppression=lowAmpSuppression,
+                                                    onsetSensitivity=onsetSensitivity,
+                                                    outputUnvoiced=unvoiced)
+            return bpf4.Sampled(freqs, dt), bpf4.Const(1)
         else:
-            raise ValueError(f"Expected one of 'pyin', 'fft', got {method}")
+            raise ValueError(f"Unknown method {method}")
+
 
     def chunks(self, chunksize: int, hop: int = None, pad=False) -> Iterator[np.ndarray]:
         """
@@ -1767,7 +1834,7 @@ class Sample:
             >>> m.duration
             4.0
         """
-        return mixsamples(samples, offsets=offsets, gains=gains)
+        return mixSamples(samples, offsets=offsets, gains=gains)
 
     @staticmethod
     def join(samples: Sequence[Sample]) -> Sample:
@@ -1913,7 +1980,7 @@ def _silentFrames(numframes: int, channels: int) -> np.ndarray:
     return samples
 
 
-def mixsamples(samples: list[Sample], offsets: list[float] = None, gains: list[float] = None
+def mixSamples(samples: list[Sample], offsets: list[float] = None, gains: list[float] = None
                ) -> Sample:
     """
     Mix the given samples down, optionally with a time offset
@@ -2066,7 +2133,7 @@ def playSamples(samples: np.ndarray,
         samples = samples[:int(sr*dur)]
 
     ctx = sounddevice._CallbackContext(loop=loop)
-    ctx.frames = ctx.check_data(data=samples, mapping=mapping, device=None)
+    ctx.frames = ctx.check_data(data=samples, mapping=mapping, device=None)  # type: ignore
 
     def callback(outdata, numframes, time, status, gain=gain):
         assert len(outdata) == numframes

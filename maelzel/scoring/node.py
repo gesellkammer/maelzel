@@ -165,9 +165,16 @@ class Node:
         return self.properties.get(key, default)
 
     @property
+    def qoffset(self) -> F:
+        """The offset of this Node within the measure"""
+        item0 = self.items[0]
+        return item0.qoffset if isinstance(item0, Notation) else item0.offset
+
+    @property
     def offset(self) -> F:
         """The offset of this Node within the measure"""
-        return self.items[0].offset
+        item0 = self.items[0]
+        return item0.qoffset if isinstance(item0, Notation) else item0.offset
 
     @property
     def end(self) -> F:
@@ -633,7 +640,7 @@ class Node:
 
         """
         for item in self.items:
-            if offset < item.offset:
+            if offset < item.qoffset:
                 return None
             if offset < item.end:
                 if isinstance(item, Notation):
@@ -793,7 +800,7 @@ class Node:
             return None
 
         for i, item in enumerate(self.items):
-            if item.offset >= offset:
+            if item.qoffset >= offset:
                 return None
             elif offset < item.end:
                 if isinstance(item, Node):

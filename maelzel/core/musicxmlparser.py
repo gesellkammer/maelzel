@@ -950,10 +950,11 @@ def _parsePart(part: ET.Element, context: _ParseContext
                 unfilledDur = measureDur - filledDur
                 if unfilledDur > 0:
                     for item in voice:
+                        assert item.offset is not None
                         if item.offset >= measureCursor:
                             item.offset += unfilledDur
                     voice.append(Rest(unfilledDur, offset=measureCursor))
-                    voice.sort(key=lambda item: item.offset)
+                    voice.sort(key=lambda item: item.offset or 0.)
         measureCursor += F(beats*4, beattype)
 
     if len(sco) == 0:

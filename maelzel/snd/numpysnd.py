@@ -6,7 +6,7 @@ import numpy as np
 import bpf4
 import bpf4.core
 import bpf4.util
-from math import sqrt
+import math
 from pitchtools import db2amp, amp2db
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -37,7 +37,7 @@ def rms(arr: np.ndarray) -> float:
     """
     arr = np.abs(arr)
     arr **= 2
-    return sqrt(np.sum(arr) / len(arr))
+    return math.sqrt(np.sum(arr) / len(arr))
 
 
 def rmsbpf(samples: np.ndarray, sr: int, dt=0.01, overlap=1) -> bpf4.core.Sampled:
@@ -100,8 +100,35 @@ def peaksbpf(samples:np.ndarray, sr:int, res=0.01, overlap=2, channel=0
     return bpf4.core.Sampled(data, x0=0, dx=hopsamps/sr)
 
 
-def makeRamp(desc:str, numsamples:int) -> np.ndarray:
+def ampbpf(samples: np.ndarray, sr: int, attack=0.01, release=0.01, chunktime=0.05, overlap=2) -> bpf4.core.Sampled:
     """
+    Constructs a sampled amplitude envelope from a sound signal.
+
+    Args:
+        samples: the sound samples
+        sr: sample rate
+        attack: attack time in seconds
+        decay: decay time in seconds
+        chunktime: chunk time in seconds
+        overlap: how much do windows overlap
+
+    Returns:
+        a sampled bpf
+    """
+    assert numChannels(samples) == 1, "Only mono samples are supported"
+    import numpyx
+    env = numpyx.amp_follow(samples, sr, attack, release)
+    chunksize = int(sr*chunktime+0.5)
+    step = chunksize // overlap
+    amps = [np.mean(frame) for frame in frames(env, chunksize, step)]
+    dt = step / sr
+    return bpf4.core.Sampled(np.array(amps), x0=0, dx=dt)
+
+
+def makeRamp(desc: str, numsamples: int) -> np.ndarray:
+    """
+    Create a ramp from 0 to 1 following the given descriptor
+
     Args:
         desc: A string descriptor of a function. Possible descriptors are
             "linear", "expon(x)", "halfcos"
@@ -129,7 +156,8 @@ def getChannel(array: np.ndarray, channel: int, ensureContiguous=False) -> np.nd
     Args:
         array: the original array
         channel: which channel to get
-        ensureContiguous: if True, ensure that the returned array is contiguous
+        ensureContiguous: if True, ensure that the returned array is contiguous,
+            creating a new array if necessary
 
     Returns:
         the given channel from array
@@ -192,23 +220,58 @@ def arrayFade(samples: np.ndarray, sr: int, fadetime: float,
             samples[-margin:] = 0
 
 
-def chunks(start:int, stop: int = None, step: int = None
+def frames(arr: np.ndarray, chunksize: int, step=0) -> Iterator[np.ndarray]:
+    """
+    Split an array into overlapping frames
+
+    Args:
+        arr: The input array to be split.
+        chunksize: The size of each frame.
+        step: num of items to skip (use 0 for no overlap)
+
+    Returns:
+        A generator yielding frames as numpy arrays.
+
+    .. note::
+
+        The last frame may be smaller than chunksize if the array length
+        is not a multiple of chunksize.
+
+    Examples
+    ~~~~~~~~
+
+        >>> arr = np.arange(30)
+        >>> list(framesiter(arr, 8, 4))
+        [array([0, 1, 2, 3, 4, 5, 6, 7]),
+        array([ 4,  5,  6,  7,  8,  9, 10, 11]),
+        array([ 8,  9, 10, 11, 12, 13, 14, 15]),
+        array([12, 13, 14, 15, 16, 17, 18, 19]),
+        array([16, 17, 18, 19, 20, 21, 22, 23]),
+        array([20, 21, 22, 23, 24, 25, 26, 27]),
+        array([24, 25, 26, 27, 28, 29])]
+    """
+    for i in range(0, len(arr) - chunksize + step, step):
+        yield arr[i:i + chunksize]
+
+
+def chunks(start: int, stop: int, step: int
            ) -> Iterator[tuple[int, int]]:
     """
-    Like xrange, but returns a Tuplet (position, distance form last position)
+    Like xrange, but returns a tuple (position, chunk size)
 
     returns integers
+
+    Example
+    ~~~~~~~
+
+        >>> list(chunks(0, 10, 3))
+        [(0, 3), (3, 3), (6, 3), (9, 1)]
     """
-    if stop is None:
-        stop = int(start)
-        start = 0
-    if step is None:
-        step = 1
-    cur = int(start)
-    while cur + step < stop:
-        yield cur, step
-        cur += step
-    yield cur, stop - cur
+    for i in range(start, stop + 1 - step, step):
+        yield i, step
+    rest = (stop - start) % step
+    if rest > 0:
+        yield stop - rest, rest
 
 
 def firstSound(samples: np.ndarray, threshold=-120.0, periodsamps=256, overlap=2,
@@ -378,3 +441,61 @@ def normalizationRatio(samples: np.ndarray, maxdb=0.) -> float:
     peak = np.abs(samples).max()
     ratio = max_peak_possible / peak
     return ratio
+
+
+def panStereo(samples: np.ndarray, pan: float) -> np.ndarray:
+    """
+    Apply panning to samples
+
+    Args:
+        samples: the samples to pan, a numpy array holding one or two channels
+        pan: the panning value, between 0 and 1
+
+    Returns:
+        the panned samples, always a stereo array
+
+    Example
+    =======
+
+    >>> a = np.ndarray([-0.5, 0.3, 0.4])
+    >>> applyPanning(a, 0.5)
+    array([-0.25,  0.15,  0.2 ])
+    """
+    leftamp = math.sin(math.pi * 2 * (1-pan))
+    rightamp = math.sin(math.pi * 2 * pan)
+    nchnls = numChannels(samples)
+    if nchnls == 1:
+        out = np.zeros((), dtype=samples.dtype)
+        out[:,0] = samples * leftamp
+        out[:,1] = samples * rightamp
+        return out
+    elif nchnls == 2:
+        left = samples[:,0] * (1 - pan)
+        right = samples[:,1] * (1 + pan)
+        return np.stack((left, right), axis=-1)
+    elif nchnls == 3:
+        left = samples[:,0] * (1 - pan)
+        right = samples[:,1] * (1 + pan)
+        center = samples[:,2] * (1 - pan)
+        return np.stack((left, right, center), axis=-1)
+    else:
+        raise ValueError(f"Unsupported number of channels: {nchnls}")
+
+
+def applyPanning(samples: np.ndarray, pan: float) -> None:
+    """
+    Apply panning to samples, in place
+
+    Args:
+        samples: the samples to pan, a stereo numpy array
+        pan: the panning value, between 0 and 1
+
+    Returns:
+        None
+
+    """
+    leftamp = math.sin(math.pi * 2 * (1-pan))
+    rightamp = math.sin(math.pi * 2 * pan)
+    assert numChannels(samples) == 2, f"Unsupported number of channels: {numChannels(samples)}"
+    samples[:,0] *= leftamp
+    samples[:,1] *= rightamp

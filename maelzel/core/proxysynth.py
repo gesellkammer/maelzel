@@ -114,7 +114,7 @@ class ProxySynth(ProxySynthBase):
         if time == 'beats':
             delay = self.scorestruct.timeDelta(self.offset, self.offset+delay)
         if synth := self.synth():
-            synth.stop(delay=delay)
+            synth.stop(delay=float(delay))
 
     def playing(self) -> bool:
         return self.scheduled() and self.synth().playing()
@@ -147,7 +147,7 @@ class ProxySynthGroup(ProxySynthBase):
     def stop(self, delay: num_t = F0, time='beats'):
         if time == 'beats':
             delay = self.scorestruct.timeDelta(start=self.offset, end=self.offset + delay)
-        self._group.stop(delay=delay)
+        self._group.stop(delay=float(delay))
 
     def _repr_html_(self):
         return self._group._repr_html_()

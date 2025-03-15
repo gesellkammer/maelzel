@@ -431,8 +431,7 @@ def fillSilences(notations: list[Notation], mingap=F(1, 64), offset: time_t = No
     if offset is not None and n0.offset is not None and n0.offset > offset:
         out.append(Notation.makeRest(duration=n0.offset, offset=offset))
     for ev0, ev1 in iterlib.pairwise(notations):
-        assert isinstance(ev0.offset, F) and isinstance(ev0.duration, F)
-        gap = ev1.offset - (ev0.offset + ev0.duration)
+        gap = ev1.qoffset - (ev0.qoffset + ev0.duration)
         if gap < 0:
             if abs(gap) < 1e-14 and ev0.duration > 1e-13:
                 out.append(ev0.clone(duration=ev1.qoffset - ev0.qoffset))
@@ -440,7 +439,7 @@ def fillSilences(notations: list[Notation], mingap=F(1, 64), offset: time_t = No
                 raise ValueError(f"Items overlap, {gap=}, {ev0=}, {ev1=}")
         elif gap > mingap:
             out.append(ev0)
-            rest = Notation.makeRest(duration=gap, offset=ev0.offset+ev0.duration)
+            rest = Notation.makeRest(duration=gap, offset=ev0.qoffset+ev0.duration)
             assert rest.offset is not None and rest.duration is not None
             out.append(rest)
         else:

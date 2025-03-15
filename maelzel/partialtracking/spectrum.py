@@ -81,7 +81,7 @@ class _PartialIndex:
     function needs to always start a linear search from the beginning of the
     partials list.
 
-    !!! note
+    .. note::
 
         The index is only valid as long as the original partial list is not
         modified
@@ -187,7 +187,7 @@ class Spectrum:
         Returns:
             the Spectrum
         """
-        arrays, labels = lt.read_sdif(path)
+        arrays, labels = lt.read_sdif(path)  # type: ignore
         return cls(partials=[Partial(array, label=label) for array, label in zip(arrays, labels)])
 
     def __iter__(self):
