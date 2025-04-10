@@ -1021,13 +1021,13 @@ class Sample:
         if isinstance(fadetime, tuple):
             fadein, fadeout = fadetime
             if fadein:
-                _npsnd.arrayFade(self.samples, self.sr, fadetime=fadein,
+                _npsnd.applyFade(self.samples, self.sr, fadetime=fadein,
                                  mode='in', shape=shape)
             if fadeout:
-                _npsnd.arrayFade(self.samples, self.sr, fadetime=fadeout,
+                _npsnd.applyFade(self.samples, self.sr, fadetime=fadeout,
                                  mode='out', shape=shape)
         else:
-            _npsnd.arrayFade(self.samples, self.sr, fadetime=fadetime,
+            _npsnd.applyFade(self.samples, self.sr, fadetime=fadetime,
                              mode='inout', shape=shape)
         self._changed()
         return self
@@ -1164,7 +1164,7 @@ class Sample:
             https://bpf4.readthedocs.io/en/latest/
 
         """
-        return _npsnd.peaksbpf(self.samples, self.sr, res=framedur, overlap=overlap)
+        return _npsnd.peaksBpf(self.samples, self.sr, res=framedur, overlap=overlap)
 
     def reverse(self) -> Self:
         """ reverse the sample **in-place**, returns self """
@@ -1190,7 +1190,7 @@ class Sample:
 
         .. seealso:: https://bpf4.readthedocs.io/en/latest/
         """
-        return _npsnd.rmsbpf(self.samples, self.sr, dt=dt, overlap=overlap)
+        return _npsnd.rmsBpf(self.samples, self.sr, dt=dt, overlap=overlap)
 
     def rms(self) -> float:
         """
@@ -1223,7 +1223,7 @@ class Sample:
         Returns:
             a bpf representing the average amplitude over time
         """
-        return _npsnd.ampbpf(self.samples, self.sr, attack=attack, release=release, chunktime=chunktime, overlap=overlap)
+        return _npsnd.ampBpf(self.samples, self.sr, attack=attack, release=release, chunktime=chunktime, overlap=overlap)
 
     def mixdown(self, enforceCopy=False) -> Sample:
         """
@@ -1671,7 +1671,7 @@ class Sample:
                                                     lowAmpSuppression=lowAmpSuppression,
                                                     onsetSensitivity=onsetSensitivity,
                                                     outputUnvoiced=unvoiced)
-            return bpf4.Sampled(freqs, dt), bpf4.Const(1)
+            return bpf4.Sampled(freqs, dt), bpf4.Const(1.0)
         else:
             raise ValueError(f"Unknown method {method}")
 

@@ -28,7 +28,7 @@ import vamp.load
 import vamp.process
 from emlib import iterlib
 
-from maelzel import histogram
+from maelzel import stats
 from maelzel._util import getPlatform
 from maelzel.common import getLogger
 from maelzel.snd import numpysnd
@@ -241,13 +241,13 @@ class PyinResult:
     f0curve: bpf4.core.Linear
     """F0 curve resulting from picking the best f0 candidate over time. nan where there is no candidate"""
 
-    voicedProbabilityHistogram: histogram.Histogram
+    voicedProbabilityQuantile: stats.Quantile1d
 
     rmsCurve: bpf4.core.BpfInterface
     """bpf mapping rms in time"""
 
-    rmsDbHistogram: histogram.Histogram
-    """rms histogram in dB, maps db values to their percentile"""
+    rmsDbQuantile: stats.Quantile1d
+    """rms quantile evaluator in dB, maps db values to their quantile"""
 
     numCandidates: bpf4.core.BpfInterface
 
@@ -351,16 +351,16 @@ def pyin(samples: np.ndarray,
     vptimes = [vp['timestamp'].to_float() for vp in vps]
     vpvalues = [float(vp['values'][0]) for vp in vps]
     vpcurve = bpf4.core.Linear(vptimes, vpvalues)
-    voicedProbabilityHistogram = histogram.Histogram(values=vpvalues)
-
-    voicedThreshold = voicedProbabilityHistogram.percentileToValue(voicedThresholdPercentile)
+    voicedProbabilityQuantile = stats.Quantile1d(vpvalues)
+    voicedThreshold = voicedProbabilityQuantile.value(voicedThresholdPercentile)
 
     smoothpitchtimes = [frame['timestamp'].to_float() for frame in pts]
+
     for t0, t1 in iterlib.pairwise(smoothpitchtimes):
         if t1 < t0:
             raise RuntimeError(f"times not sorted, {t0=}, {t1=}")
-        elif t0 == t1:
-            raise RuntimeError(f"Duplicate times: {t0=}, {t1=}")
+        # elif t0 == t1:
+            # raise RuntimeError(f"Duplicate times: {t0=}, {t1=}")
 
     smoothpitchfreqs = [float(frame['values'][0]) for frame in pts]
     smoothpitch = bpf4.core.Linear(smoothpitchtimes, smoothpitchfreqs)
@@ -377,11 +377,11 @@ def pyin(samples: np.ndarray,
 
     smoothpitchnan = bpf4.core.Linear(nantimes, nanfreqs)
 
-    rmscurve0 = numpysnd.rmsbpf(samples, sr=sr, dt=rmsPeriod, overlap=2)
+    rmscurve0 = numpysnd.rmsBpf(samples, sr=sr, dt=rmsPeriod, overlap=2)
     rmscurve = bpf4.util.smoothen(rmscurve0, window=rmsPeriod*4)
     rmsnum = rmscurve0.dxton(rmsPeriod)
-    rmsdbhist = histogram.Histogram(rmscurve0.amp2db().map(rmsnum))
-    silencermsdb = rmsdbhist.percentileToValue(minRmsPercentile)
+    rmsdbquant = stats.Quantile1d(rmscurve0.amp2db().map(rmsnum))
+    silencermsdb = rmsdbquant.value(minRmsPercentile)
     silencerms = pt.db2amp(silencermsdb)
     # silencerms = rmshist.percentileToValue(minRmsPercentile)
     f0candidates = []
@@ -397,8 +397,11 @@ def pyin(samples: np.ndarray,
         else:
             f0candidates.append((t, None, None))
 
-    numCandidates = bpf4.core.NoInterpol(*zip(*[(t, len(candidates) if candidates is not None else 0)
-                                                for t, candidates, probs in f0candidates]))
+    times = [t for t, _, _ in f0candidates]
+    lencandidates = [float(len(candidates)) if candidates is not None else 0 for _, candidates, _ in f0candidates]
+    numCandidatesInTime = bpf4.core.NoInterpol(times, lencandidates)
+    # numCandidates = bpf4.core.NoInterpol(*zip(*[(t, len(candidates) if candidates is not None else 0)
+      #                                           for t, candidates, probs in f0candidates]))  # type: ignore
 
     f0pairs: list[tuple[float, float]] = []
     for t, candidates, probabilities in f0candidates:
@@ -420,10 +423,10 @@ def pyin(samples: np.ndarray,
                       smoothPitchCurve=smoothpitch,
                       f0curve=f0bestcurve,
                       smoothPitchCurveNan=smoothpitchnan,
-                      voicedProbabilityHistogram=voicedProbabilityHistogram,
+                      voicedProbabilityQuantile=voicedProbabilityQuantile,
                       rmsCurve=rmscurve,
-                      rmsDbHistogram=rmsdbhist,
-                      numCandidates=numCandidates)
+                      rmsDbQuantile=rmsdbquant,
+                      numCandidates=numCandidatesInTime)
 
 
 def pyinPitchTrack(samples: np.ndarray,

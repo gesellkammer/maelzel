@@ -11,19 +11,25 @@ Functionality to deal with the environment in which `maelzel.core` is running
 from __future__ import annotations
 import os
 import shutil
-import emlib.misc
 import logging
+import emlib.misc
 from maelzel._util import pythonSessionType
 
 
 insideJupyter = pythonSessionType() == 'jupyter'
-_logger = logging.getLogger()
 
 
 def hasBinary(binary: str) -> bool:
-    if shutil.which(binary):
-        return True
-    return False
+    """
+    Check if the given binary is available in the system's PATH.
+
+    Args:
+        binary (str): The name of the binary to check.
+
+    Returns:
+        bool: True if the binary is found, False otherwise.
+    """
+    return bool(shutil.which(binary))
 
 
 def openPngWithExternalApplication(path: str, wait=False, app: str = '') -> None:
@@ -57,6 +63,7 @@ def findMusescore() -> str | None:
     from maelzel.core import workspace
     cfg = workspace.getConfig()
     musescorepath = cfg.get('musescorepath')
+    _logger = logging.getLogger(__file__)
     if musescorepath:
         if os.path.exists(musescorepath):
             return musescorepath
@@ -68,7 +75,7 @@ def findMusescore() -> str | None:
         return path
     if (path := shutil.which('MuseScore')) is not None:
         return path
-        
+
     _logger.warning("MuseScore not found. Tried to find 'musescore' or 'MuseScore' in the path, "
                     "without success. To fix this issue, make sure MuseScore is installed. "
                     "Then set the path: \n"

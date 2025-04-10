@@ -4,7 +4,7 @@ import copy
 from maelzel import _util
 from . import definitions
 
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from typing import Callable
@@ -296,7 +296,7 @@ class Text(Attachment):
         self.role = role
 
     def __repr__(self):
-        return _util.reprObj(self, hideFalsy=True, priorityargs=('text',))
+        return _util.reprObj(self, hideFalsy=True, hideEmptyStr=True, priorityargs=('text',))
 
     def __hash__(self) -> int:
         return hash(('Text', self.text, self.placement, self.fontsize, self.box))
@@ -350,7 +350,3 @@ class PostPartQuantHook(Hook):
         from maelzel.scoring.quant import QuantizedPart
         assert isinstance(part, QuantizedPart)
         self._func(part)
-
-
-# See Notation.findAttachment for a usage of this typevar
-AttachmentT = TypeVar('AttachmentT', bound=Attachment)

@@ -1442,7 +1442,7 @@ def _spectrogram(
     S=None,
     n_fft=2048,
     hop_length=512,
-    power=1,
+    power: float = 1.,
     win_length=None,
     window="hann",
     center=True,

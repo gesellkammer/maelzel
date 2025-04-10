@@ -13,7 +13,7 @@ import glob
 import csoundengine
 import csoundengine.csoundlib
 
-from .presetdef import PresetDef, GainToVelocityCurve
+from . import presetdef as _presetdef
 from .workspace import Workspace
 from . import presetutils
 from . import builtinpresets
@@ -23,6 +23,7 @@ from . import environment
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .synthevent import SynthEvent
+
 
 
 __all__ = (
@@ -142,7 +143,7 @@ class PresetManager:
     def __init__(self):
         if self._instance is not None:
             raise RuntimeError("Only one PresetManager should be active")
-        self.presetdefs: dict[str, PresetDef] = {}
+        self.presetdefs: dict[str, _presetdef.PresetDef] = {}
         self.presetsPath = Workspace.presetsPath()
         self._prepareEnvironment()
         self._makeBuiltinPresets()
@@ -171,7 +172,7 @@ class PresetManager:
         """
         Defines all builtin presets
         """
-        for presetdef in builtinpresets.builtinPresets:
+        for presetdef in builtinpresets.makeBuiltinPresets():
             self.registerPreset(presetdef)
 
         sf2 = presetutils.resolveSoundfontPath(path=sf2path)
@@ -207,7 +208,7 @@ class PresetManager:
                   envelope=True,
                   output=True,
                   aliases: dict[str, str] | None = None
-                  ) -> PresetDef:
+                  ) -> _presetdef.PresetDef:
         """
         Define a new instrument preset.
 
@@ -326,7 +327,7 @@ class PresetManager:
             - :meth:`maelzel.core.MObj.play`
 
         """
-        presetdef = PresetDef(name=name,
+        presetdef = _presetdef.PresetDef(name=name,
                               code=code,
                               init=init,
                               epilogue=post,
@@ -358,9 +359,9 @@ class PresetManager:
                            turnoffWhenSilent=True,
                            description='',
                            normalize=False,
-                           velocityCurve: list[float] | GainToVelocityCurve = None,
+                           velocityCurve: list[float] | _presetdef.GainToVelocityCurve = None,
                            reverbChanPrefix='',
-                           _builtin=False) -> PresetDef:
+                           _builtin=False) -> _presetdef.PresetDef:
         """
         Define a new instrument preset based on a soundfont
 
@@ -438,7 +439,7 @@ class PresetManager:
                                                  filter="*.sf2", prompt="Select Soundfont",
                                                  ifcancel="No soundfont selected, aborting")
             assert sf2path is not None
-        cfg = Workspace.getActive().config
+        cfg = Workspace.active.config
         if not interpolation:
             interpolation = cfg['play.soundfontInterpolation']
         assert interpolation in ('linear', 'cubic')
@@ -500,7 +501,7 @@ class PresetManager:
                                 'ampDivisor': ampDivisor}
         return presetdef
 
-    def registerPreset(self, presetdef: PresetDef) -> None:
+    def registerPreset(self, presetdef: _presetdef.PresetDef) -> None:
         """
         Register this PresetDef.
 
@@ -510,7 +511,7 @@ class PresetManager:
         """
         self.presetdefs[presetdef.name] = presetdef
 
-    def getPreset(self, name: str = '?') -> PresetDef:
+    def getPreset(self, name: str = '?') -> _presetdef.PresetDef:
         """
         Get a preset by name
 
@@ -524,14 +525,14 @@ class PresetManager:
             the PresetDef corresponding to the given name
         """
         if name is None:
-            name = Workspace.getActive().config['play.instr']
+            name = Workspace.active.config['play.instr']
         elif name == "?":
             # Presets starting with _ are private, presets starting with . are builtin
             presets = [name for name in self.presetdefs.keys()
                        if not name.startswith('_')]
             selected = _dialogs.selectFromList(options=presets,
                                                title="Select Preset",
-                                               default=Workspace.getActive().config['play.instr'])
+                                               default=Workspace.active.config['play.instr'])
             if selected is None:
                 raise ValueError("No preset selected")
             name = selected
@@ -621,7 +622,7 @@ class PresetManager:
         matchingPresets = [p for name, p in self.presetdefs.items()
                            if fnmatch.fnmatch(name, pattern)]
 
-        def key(p: PresetDef):
+        def key(p: _presetdef.PresetDef):
             return 1 - int(p.userDefined), 1 - int(p.isSoundFont()), p.name
 
         matchingPresets.sort(key=key)
@@ -637,7 +638,7 @@ class PresetManager:
                     instr = preset.getInstr()
                     print(csoundengine.session.Session.defaultInstrBody(instr))
         else:
-            theme = Workspace.getActive().config['htmlTheme']
+            theme = Workspace.active.config['htmlTheme']
             htmls = []
             if full:
                 for preset in matchingPresets:
@@ -698,7 +699,7 @@ class PresetManager:
             if instrdef.userDefined and fnmatch.fnmatch(name, pattern):
                 self.savePreset(name)
 
-    def savePreset(self, preset: str | PresetDef) -> str:
+    def savePreset(self, preset: str | _presetdef.PresetDef) -> str:
         """
         Saves the preset in the presets' folder, returns the path to the saved file
 
@@ -709,7 +710,7 @@ class PresetManager:
             the path of the saved preset
         """
         fmt = "yaml"
-        if isinstance(preset, PresetDef):
+        if isinstance(preset, _presetdef.PresetDef):
             presetdef = preset
             if presetdef.name not in self.presetdefs:
                 self.registerPreset(presetdef)
@@ -747,7 +748,7 @@ class PresetManager:
         Returns:
             a csoundengine.OfflineSession
         """
-        workspace = Workspace.getActive()
+        workspace = Workspace.active
         config = workspace.config
         sr = sr or config['rec.sr']
         ksmps = ksmps or config['rec.ksmps']

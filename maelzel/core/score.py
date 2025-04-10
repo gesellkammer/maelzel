@@ -5,17 +5,16 @@ from .mobj import MObj, MContainer
 from .event import MEvent
 from .config import CoreConfig
 from .chain import Voice, Chain, PartGroup
-from .workspace import getConfig
-from .synthevent import PlayArgs, SynthEvent
 from .workspace import Workspace
-from maelzel.scorestruct import ScoreStruct
 from maelzel import scoring
 
-
-from typing import TYPE_CHECKING, Sequence, Callable
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Any, Iterator
+    from typing import Any, Iterator, Sequence, Callable
     from typing_extensions import Self
+    from maelzel.scorestruct import ScoreStruct
+    from .synthevent import PlayArgs, SynthEvent
+
 
 
 __all__ = (
@@ -63,16 +62,14 @@ class Score(MContainer):
         self.voices: list[Voice] = asvoices
         """the voices of this score"""
 
-        self._scorestruct = None
-        self._modified = True
-        self._config: dict[str, Any] = {}
-        self._dur = self._calculateDuration()
-
         self.groups: set[PartGroup] = set()
         """Groups added via makeGroup are added here for reference"""
 
+        self._scorestruct: ScoreStruct | None = None
+        self._modified = True
+        self._config: dict[str, Any] = {}
+        self._dur = self._calculateDuration()
         self.setScoreStruct(scorestruct)
-
 
     def setConfig(self, key: str, value):
         configkeys = self.__class__._configKeys()
@@ -309,7 +306,7 @@ class Score(MContainer):
                       config: CoreConfig = None,
                       parentOffset: F | None = None
                       ) -> list[scoring.Notation]:
-        parts = self.scoringParts(config or getConfig())
+        parts = self.scoringParts(config or Workspace.active.config)
         flatevents = []
         for part in parts:
             flatevents.extend(part)

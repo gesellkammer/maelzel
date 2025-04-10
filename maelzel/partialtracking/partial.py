@@ -169,7 +169,7 @@ class Partial:
         energy = self.energy()
         ampcurve = ampcurve or amplitudesensitivity.defaultCurve
         factor = ampcurve(self.meanfreq())
-        factor2 = (factor - 1) * curvefactor + 1
+        factor2 = curvefactor * factor + (1 - curvefactor)
         return energy * factor2
 
     @cache
@@ -204,10 +204,13 @@ class Partial:
         Returns:
             the mean bandwidth
         """
+        bws = self.bws
+        if bws is None:
+            return 0.0
+
         if weighted:
-            return numpyx.weightedavg(self.bws, self.times, self.amps)
+            return numpyx.weightedavg(bws, self.times, self.amps)
         else:
-            bws = self.bws
             return numpyx.weightedavg(bws, self.times, np.ones_like(bws))
 
     @property

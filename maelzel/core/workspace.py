@@ -85,12 +85,10 @@ class Workspace:
 
         assert self._initdone
 
-        if config is None or isinstance(config, str):
-            config = CoreConfig(updates=updates, source=config)
+        if config is None:
+            config = CoreConfig(updates=updates)
         elif updates:
             config = config.clone(updates=updates)
-        else:
-            assert isinstance(config, CoreConfig)
 
         if dynamicCurve is None:
             mindb = config['dynamicCurveMindb']
@@ -139,9 +137,9 @@ class Workspace:
 
     @staticmethod
     def getActive() -> Workspace:
-        active = Workspace.active
-        assert active is not None
-        return active
+        import warnings
+        warnings.warn("This method is deprecated. Use Workspace.active instead.", DeprecationWarning)
+        return Workspace.active
 
     @staticmethod
     def getConfig() -> CoreConfig:
@@ -293,6 +291,27 @@ class Workspace:
         return Workspace(config=config,
                          scorestruct=scorestruct or self.scorestruct,
                          active=active)
+
+    @staticmethod
+    def getScoreStruct() -> ScoreStruct:
+        """
+        Returns the active score structure
+
+        Returns:
+            ScoreStruct: The active score structure
+
+        Example
+        ~~~~~~~
+
+        Running in linux
+
+        .. code-block:: python
+
+            >>> from maelzel.core import *
+            >>> scorestruct = getWorkspace().activeScoreStruct()
+
+        """
+        return Workspace.active.scorestruct
 
     @staticmethod
     def presetsPath() -> str:

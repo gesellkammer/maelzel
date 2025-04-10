@@ -1,6 +1,6 @@
 """
 Implements some helper functions to interact with audacity, in
-particular to read markers and labels and convert 
+particular to read markers and labels and convert
 them to useful representations in python
 
 """
@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from pitchtools import f2n, f2m
 from emlib.filetools import fixLineEndings
-import bpf4 as bpf
+import bpf4
 from math import inf
 from dataclasses import dataclass
 
@@ -93,7 +93,7 @@ def writeLabels(outfile: str, markers: list[tuple[float, float] | tuple[float, f
             for label in labels:
                 f.write("\t".join(map(str, label)))
                 f.write("\n")
-    
+
 
 def readSpectrum(path: str) -> list[Bin]:
     """
@@ -114,7 +114,7 @@ def readSpectrum(path: str) -> list[Bin]:
     return out
 
 
-_dbToStepCurve = bpf.expon(
+_dbToStepCurve = bpf4.expon(
     -120, 0,
     -60, 0.0,
     -40, 0.1,
@@ -151,7 +151,7 @@ def readSpectrumAsChords(path: str, numsteps=8, maxNotesPerChord=inf
         a list of chords, where each chord is a list of Note
     """
     data = readSpectrum(path)
-    notes = [] 
+    notes = []
     for bin_ in data:
         note = Note(note=f2n(bin_.freq), midi=f2m(bin_.freq), freq=bin_.freq, level=bin_.level,
                     step=dbToStep(bin_.level, numsteps))
@@ -167,7 +167,7 @@ def readSpectrumAsChords(path: str, numsteps=8, maxNotesPerChord=inf
     return chords
 
 
-def readSpectrumAsBpf(path: str) -> bpf.BpfInterface:
+def readSpectrumAsBpf(path: str) -> bpf4.BpfInterface:
     """
     Read the spectrum saved in `path`, returns a bpf mapping freq to level
 
@@ -181,4 +181,4 @@ def readSpectrumAsBpf(path: str) -> bpf.BpfInterface:
         freq, level = list(map(float, line.split()))
         freqs.append(freq)
         levels.append(level)
-    return bpf.core.Linear(freqs, levels)
+    return bpf4.Linear(freqs, levels)

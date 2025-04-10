@@ -22,7 +22,6 @@ if _state.isFirstSession() and "sphinx" not in sys.modules:
     tui.panel(title='Welcome to maelzel!', titlealign='left',
               text=msg, padding=(1, 1))
 
-    # logging.basicConfig(level=logging.DEBUG)
     from maelzel import dependencies
     errors = dependencies.checkDependencies()
     if not errors:

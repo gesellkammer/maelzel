@@ -16,7 +16,6 @@ from math import sqrt
 import emlib.misc
 
 from maelzel.common import F, F0, asF
-from maelzel._result import Result
 from maelzel._util import readableTime, showF, hasoverlap
 
 from . import core
@@ -25,22 +24,19 @@ from . import util
 from . import quantdata
 from . import quantutils
 from . import clefutils
-from . import enharmonics
-from . import renderer
 from . import spanner as _spanner
-from . import renderoptions
 from . import attachment
 from .quantprofile import QuantizationProfile
 from .common import logger
 
-from .notation import Notation, SnappedNotation, tieNotations, splitNotations
+from .notation import Notation, SnappedNotation
 from .node import Node, SplitError
 import maelzel.scorestruct as st
 
 from emlib import iterlib
 from emlib import misc
-
 from emlib import mathlib
+from emlib.result import Result
 
 from typing import TYPE_CHECKING, cast as _cast
 if TYPE_CHECKING:
@@ -49,6 +45,9 @@ if TYPE_CHECKING:
     from typing import Iterator
     import maelzel.core
     from .node import TreeLocation
+    from . import enharmonics
+    from . import renderoptions
+    from . import renderer
 
 
 __all__ = (
@@ -980,7 +979,7 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
             break
 
     # first sort by div length, then by error
-    # Like this we make sure that (7,) is better than (7, 1) for the cases where the
+    # We make sure that (7,) is better than (7, 1) for the cases where the
     # assigned slots are actually the same
     rows.sort(key=lambda r: len(r[1]))
 
@@ -1055,7 +1054,7 @@ def quantizeBeatTernary(eventsInBeat: list[Notation],
 
     results = []
     for offsets in possibleOffsets:
-        eventsInSubbeats = splitNotations(eventsInBeat, offsets)
+        eventsInSubbeats = Notation.splitNotations(eventsInBeat, offsets)
         beats = [quantizeBeatBinary(events, quarterTempo=quarterTempo, profile=profile,
                                     beatDuration=span.duration, beatOffset=span.start)
                  for span, events in eventsInSubbeats]
@@ -1211,7 +1210,7 @@ def _breakIrregularDuration(n: Notation, beatDur: F, div: int, beatOffset: F = F
         parts.append(n.clone(offset=offset, duration=partDur))
         offset += partDur
 
-    tieNotations(parts)
+    Notation.tieNotations(parts)
     assert sum(part.duration for part in parts) == n.duration
     assert (p0 := parts[0]).offset == n.offset and p0.tiedPrev == n.tiedPrev and p0.spanners == n.spanners
     assert (p1 := parts[-1]).end == n.end and p1.tiedNext == n.tiedNext
@@ -1310,7 +1309,7 @@ def breakIrregularDuration(n: Notation,
                 else:
                     allparts.extend(parts)
     assert sum(part.duration for part in allparts) == n.duration
-    tieNotations(allparts)
+    Notation.tieNotations(allparts)
     return allparts
 
 
@@ -1371,7 +1370,7 @@ def quantizeMeasure(events: list[Notation],
     beatOffsets.append(beatStructure[-1].end)
 
     idx = 0
-    for span, eventsInBeat in splitNotations(events, offsets=beatOffsets):
+    for span, eventsInBeat in Notation.splitNotations(events, offsets=beatOffsets):
         beatWeight = beatStructure[idx].weight
         beatdur = span.end - span.start
         if beatdur.numerator in (1, 2, 4):
@@ -1458,7 +1457,6 @@ def splitNotationAtMeasures(n: Notation, struct: st.ScoreStruct
         assert part.isRest or part.tiedNext, f"{n=}, {pairs=}"
     for idx, part in pairs[1:]:
         assert part.isRest or part.tiedPrev, f"{n=}, {pairs=}"
-    # tieNotations(parts)
 
     sumdur = sum(struct.beatDelta((i, n.qoffset), (i, n.end)) for i, n in pairs)
     assert sumdur == n.duration, f"{n=}, {sumdur=}, {numMeasures=}\n{pairs=}"
@@ -1774,8 +1772,7 @@ class QuantizedPart:
             fmt: the format to show, one of 'png', 'pdf'
             backend: the backend to use. One of 'lilypond', 'musicxml'
         """
-        renderer = self.render(backend=backend)
-        renderer.show(fmt=fmt)
+        self.render(backend=backend).show(fmt=fmt)
 
     def render(self, options: renderoptions.RenderOptions = None, backend=''
                ) -> renderer.Renderer:
@@ -2177,6 +2174,7 @@ class QuantizedPart:
         just fix each chord individually
 
         """
+        from . import enharmonics
         for measure in self.measures:
             for n in measure.notations():
                 if n.isRest or len(n) <= 1:
@@ -2553,8 +2551,7 @@ class QuantizedScore:
             raise ValueError(f"Format {ext} not supported")
 
     def show(self, backend='', fmt='png', external: bool = False):
-        renderer = self.render(backend=backend)
-        renderer.show(fmt=fmt, external=external)
+        self.render(backend=backend).show(fmt=fmt, external=external)
 
     def render(self,
                options: renderer.RenderOptions | None = None,

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from maelzel.common import F
-from maelzel.core.mobj import MObj, MContainer
+from maelzel.common import F, F0
+from maelzel.core.mobj import MObj
 import maelzel.core.symbols as _symbols
-from maelzel.core.synthevent import PlayArgs
+from maelzel.core import synthevent
 from maelzel.scoring import definitions
 from maelzel import _util
 
@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from maelzel.core import chain
     from typing import Any, Callable
     from maelzel.common import time_t, location_t, num_t, beat_t
+    from maelzel.core.mobj import MContainer
 
 
 class MEvent(MObj):
@@ -500,6 +501,6 @@ class MEvent(MObj):
 
         """
         if self.playargs is None:
-            self.playargs = PlayArgs()
+            self.playargs = synthevent.PlayArgs()
         self.playargs.addAutomation(param=param, breakpoints=breakpoints,
                                     interpolation=interpolation, relative=relative)

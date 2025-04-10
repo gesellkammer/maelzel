@@ -20,6 +20,17 @@ def partialToBreakpoints(partial: Partial,
                          bandwidthThreshold=0.001,
                          simplify=0.
                          ) -> list[Breakpoint]:
+    """
+    Convert a partial to a list of breakpoints.
+
+    Args:
+        partial (Partial): The partial to convert.
+        bandwidthThreshold (float): The threshold for determining if a breakpoint is voiced.
+        simplify (float): The parameter for simplifying the breakpoints.
+
+    Returns:
+        list[Breakpoint]: The list of breakpoints.
+    """
     breakpoints = []
     data = partial.data
     lasti = partial.numbreakpoints - 1
@@ -45,7 +56,17 @@ def trackToVoice(partials: list[Partial],
                  scorestruct: ScoreStruct | None = None,
                  options: TranscriptionOptions | None = None
                  ) -> mc.Voice:
+    """
+    Convert a track to a voice.
 
+    Args:
+        partials: List of partials to convert.
+        scorestruct: Score structure to use for transcription.
+        options: Transcription options to use.
+
+    Returns:
+        A voice object representing the track.
+    """
     from maelzel.transcribe import mono
 
     breakpointGroups = [partialToBreakpoints(partial)
@@ -62,6 +83,18 @@ def transcribeTracks(tracks: list[Track],
                      scorestruct: ScoreStruct | None = None,
                      options: TranscriptionOptions | None = None
                      ) -> mc.Score:
+    """
+    Transcribe a list of tracks into a score.
+
+    Args:
+        tracks: List of tracks to transcribe.
+        noisetracks: List of noise tracks to transcribe.
+        scorestruct: Score structure to use for transcription.
+        options: Transcription options to use.
+
+    Returns:
+        A score object representing the transcribed tracks.
+    """
     import maelzel.core
 
     voices = [trackToVoice(track.partials, scorestruct=scorestruct, options=options)

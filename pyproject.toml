@@ -34,7 +34,8 @@ dependencies = [
     "chardet",
     "simple-term-menu",
     "visvalingamwyatt",
-    "distro",
+    "pybase64",
+    # "distro",
     "thefuzz",
     # "resampy",  # Do not include it by default, since this pulls numba
     "python-constraint",
@@ -44,13 +45,13 @@ dependencies = [
     "pypng",
 
     # Own libraries
-    "emlib>=1.18.0",
+    "emlib>=1.18.1",
     "libcsound>=0.10.6",
     "bpf4>=1.13.1",
     "configdict>=2.10",
     "sndfileio>=1.9.1",
     "numpyx>=1.4.1",
-    "csoundengine>=2.16.0",
+    "csoundengine>=2.17.0",
     "pitchtools>=1.14.0",
     "risset>=3.2.0",
     "loristrck>=1.6.1",

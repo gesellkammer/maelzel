@@ -3,20 +3,25 @@ Functionality to interface with `maelzel.scoring`
 
 """
 from __future__ import annotations
-from maelzel.textstyle import TextStyle
-from .config import CoreConfig
-from .workspace import getConfig, getWorkspace
-from maelzel import scoring
-from maelzel.scorestruct import ScoreStruct
-from maelzel.common import asF
+
 from functools import cache
-
 from typing import TYPE_CHECKING
+
+from maelzel.common import asF
+from maelzel.textstyle import TextStyle
+
+from .config import CoreConfig
+from .workspace import Workspace
+
 if TYPE_CHECKING:
-    import scoring.enharmonics
+    from maelzel import scoring
+    import maelzel.scoring.enharmonics as enharmonics
+    import maelzel.scoring.render as render
+    from maelzel.scorestruct import ScoreStruct
+    from maelzel.scoring import quant
 
 
-def makeEnharmonicOptionsFromConfig(cfg: CoreConfig) -> scoring.enharmonics.EnharmonicOptions:
+def makeEnharmonicOptionsFromConfig(cfg: CoreConfig) -> enharmonics.EnharmonicOptions:
     """
     Generate EnharmonicOptions needed for respelling during quantization
 
@@ -34,7 +39,7 @@ def makeEnharmonicOptionsFromConfig(cfg: CoreConfig) -> scoring.enharmonics.Enha
 
 
 def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
-                                ) -> scoring.render.RenderOptions:
+                                ) -> render.RenderOptions:
     """
     Generate RenderOptions needed for `scoring.render` based on the config
 
@@ -46,11 +51,12 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
         via `scoring.render` module
     """
     if cfg is None:
-        cfg = getConfig()
+        cfg = Workspace.active.config
 
     centsAnnotationStyle = TextStyle.parse(cfg['show.centsAnnotationStyle'])
 
-    renderOptions = scoring.render.RenderOptions(
+    from maelzel.scoring import render
+    renderOptions = render.RenderOptions(
         centsAnnotationFontsize=centsAnnotationStyle.fontsize or 8,
         centsAnnotationPlacement=centsAnnotationStyle.placement or 'above',
         centsAnnotationPlusSign=cfg['.show.centsAnnotationPlusSign'],
@@ -88,14 +94,13 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
         proportionalNotationDuration=cfg['show.proportionalNotationDuration'],
         proportionalSpacingKind=cfg['show.proportionalSpacingKind'],
         flagStyle=cfg['show.flagStyle']
-
     )
     return renderOptions
 
 
 @cache
 def makeQuantizationProfileFromConfig(cfg: CoreConfig
-                                      ) -> scoring.quant.QuantizationProfile:
+                                      ) -> quant.QuantizationProfile:
     """
     Creates a scoring.quant.QuantizationProfile from a config
 
@@ -122,7 +127,8 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig
     if (gridErrorExp := cfg['.quant.gridErrorExp']) is not None:
         kws['gridErrorExp'] = gridErrorExp
 
-    profile = scoring.quant.QuantizationProfile.fromPreset(
+    from maelzel.scoring import quant
+    return quant.QuantizationProfile.fromPreset(
         complexity=cfg['quant.complexity'],
         nestedTuplets=nestedTuplets,
         debug=cfg['.quant.debug'],
@@ -134,16 +140,14 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig
         **kws
     )
 
-    return profile
-
 
 def renderWithActiveWorkspace(parts: list[scoring.core.UnquantizedPart],
                               backend: str = None,
-                              renderoptions: scoring.render.RenderOptions = None,
+                              renderoptions: render.RenderOptions = None,
                               scorestruct: ScoreStruct = None,
                               config: CoreConfig = None,
-                              quantizationProfile: scoring.quant.QuantizationProfile = None
-                              ) -> scoring.render.Renderer:
+                              quantizationProfile: quant.QuantizationProfile = None
+                              ) -> render.Renderer:
     """
     Render the given scoring.UnquantizedParts with the current configuration
 
@@ -158,7 +162,7 @@ def renderWithActiveWorkspace(parts: list[scoring.core.UnquantizedPart],
     Returns:
         the rendered Renderer
     """
-    workspace = getWorkspace()
+    workspace = Workspace.active
     if not config:
         config = workspace.config
     if backend != config['show.backend']:
@@ -171,10 +175,12 @@ def renderWithActiveWorkspace(parts: list[scoring.core.UnquantizedPart],
         renderoptions.backend = backend
     if scorestruct is None:
         scorestruct = workspace.scorestruct
+    from maelzel import scoring
+    from maelzel.scoring import render
     if config['show.hideRedundantDynamics']:
         for part in parts:
             scoring.core.removeRedundantDynamics(part.notations)
-    return scoring.render.quantizeAndRender(parts,
-                                            struct=scorestruct,
-                                            options=renderoptions,
-                                            quantizationProfile=quantizationProfile)
+    return render.quantizeAndRender(parts,
+                                    struct=scorestruct,
+                                    options=renderoptions,
+                                    quantizationProfile=quantizationProfile)

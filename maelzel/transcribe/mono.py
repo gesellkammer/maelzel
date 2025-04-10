@@ -8,13 +8,14 @@ from dataclasses import astuple as _astuple
 from maelzel.snd import features
 from maelzel.snd import freqestimate
 from maelzel.snd import audiosample
-from maelzel.snd.numpysnd import rmsbpf
+from maelzel.snd.numpysnd import rmsBpf
 from pitchtools import PitchConverter, db2amp
 from math import isnan
 from emlib import iterlib
 
 from maelzel.scorestruct import ScoreStruct
-from maelzel import histogram
+from maelzel import stats
+# from maelzel import histogram
 
 from .breakpoint import Breakpoint, BreakpointGroup, simplifyBreakpoints, simplifyBreakpointsByDensity
 from .options import TranscriptionOptions
@@ -126,7 +127,6 @@ class FundamentalAnalysisMonophonic:
             confidence of the f0 prediction
         onsetStrength: a curve mapping time to onset strength. Onset strength is based on
             spectral flow and is not directly correlated with variations in amplitude
-        onsetStrengthHistogram: a histogram of the onset strength along the entire sound
 
     """
     def __init__(self,
@@ -174,21 +174,21 @@ class FundamentalAnalysisMonophonic:
                                                    backtrack=onsetBacktrack)
         hopsize = fftSize // overlap
         hoptime = hopsize / sr
-        numHistogramBins = 20
         # Secondary features:
-        rmscurve = rmsbpf(samples, sr, dt=rmsPeriod, overlap=2)
+        rmscurve = rmsBpf(samples, sr, dt=rmsPeriod, overlap=2)
 
         centroidFftsize = min(2048 if sr <= 48000 else 4098, fftSize)
-        centroidcurve = features.centroidbpf(samples=samples,
+        centroidcurve = features.centroidBpf(samples=samples,
                                              sr=sr,
                                              fftsize=centroidFftsize,
                                              overlap=min(8, overlap))
 
         pitchconv = PitchConverter(a4=referenceFrequency)
         dbs = rmscurve.amp2db().map(200)
-        dbHistogram = histogram.Histogram(dbs, numbins=numHistogramBins)
-        onsetStrengthHistogram = histogram.Histogram(onsetStrengthBpf.points()[1], numbins=numHistogramBins)
-        accentStrength = onsetStrengthHistogram.percentileToValue(accentPercentile)
+        # dbHistogram = histogram.Histogram(dbs, numbins=numHistogramBins)
+        # onsetStrengthHistogram = histogram.Histogram(onsetStrengthBpf.points()[1], numbins=numHistogramBins)
+        onsetStrengthQuantile = stats.Quantile1d(onsetStrengthBpf.points()[1])
+        accentStrength = onsetStrengthQuantile.value(accentPercentile)
 
         onsetsMask = features.filterOnsets(onsets, samples=samples, sr=sr, rmscurve=rmscurve,
                                            minampdb=onsetMinDb, rmsperiod=rmsPeriod)
@@ -247,7 +247,7 @@ class FundamentalAnalysisMonophonic:
                                        linked=False, kind='onset')]
             numBreakpoints = round((offset - onset) / groupSamplingPeriod)
             times = np.linspace(onset, offset, numBreakpoints)
-            freqs = f0.map(times)
+            freqs = f0.map(times)  # type: ignore
             amps = rmscurve.map(times + timeCorrection)
             breakpoints0 = list(zip(times, freqs, amps))
             breakpoints0 = _fixNanFreqs(breakpoints0, fallbackFreq=0)
@@ -306,7 +306,7 @@ class FundamentalAnalysisMonophonic:
         self.rms = rmscurve
         """The RMS curve of the sound. A bpf mapping time to rms"""
 
-        self.dbHistogram = dbHistogram
+        self.dbQuantile = stats.Quantile1d(dbs)
 
         self.f0 = f0
         """The f0 curve, mapping time to frequency. Parts with low confidence are marked as negative values"""
@@ -317,8 +317,8 @@ class FundamentalAnalysisMonophonic:
         self.onsetStrength = onsetStrengthBpf
         """A curve mapping time to onset strength"""
 
-        self.onsetStrengthHistogram = onsetStrengthHistogram
-        """The onset strength histogram"""
+        self.onsetStrengthQuantile = onsetStrengthQuantile
+        """Onset strenth quantile object"""
 
         self.centroid = centroidcurve
         """Spectral centroid over time (bpf)"""
@@ -345,6 +345,18 @@ class FundamentalAnalysisMonophonic:
 
     def play(self, voicedInstr='saw', unvoicedInstr='.bandnoise', unvoicedbw=0.9,
              unvoicedGain=0.):
+        """
+        Play the analysis as a sequence of notes.
+
+        Args:
+            voicedInstr: Instrument to use for voiced notes.
+            unvoicedInstr: Instrument to use for unvoiced notes.
+            unvoicedbw: Bandwidth for unvoiced notes.
+            unvoicedGain: Gain for unvoiced notes.
+
+        Returns:
+            A list of notes representing the analysis.
+        """
         from maelzel.core import Note, Voice, defPreset
         defPreset('.bandnoise', r'''
             |kbw=0.9|
@@ -431,7 +443,7 @@ class FundamentalAnalysisMonophonic:
         else:
             options = options.copy()
 
-        options.unvoicedMinAmpDb = min(self.dbHistogram.percentileToValue(0.05),
+        options.unvoicedMinAmpDb = min(self.dbQuantile.value(0.05),
                                        options.unvoicedMinAmpDb)
 
         voice = transcribeVoice(groups=self.groups,
@@ -445,7 +457,7 @@ class FundamentalAnalysisMonophonic:
         if self.centroid:
             for note in voice:
                 if not note.isRest():
-                    centroidfreq = self.centroid(scorestruct.time(note.absOffset()))
+                    centroidfreq = self.centroid(float(scorestruct.time(note.absOffset())))
                     note.setProperty('centroid', int(centroidfreq))
 
         return voice
@@ -468,11 +480,11 @@ def transcribeVoice(groups: list[list[Breakpoint]] | list[BreakpointGroup],
         the  resulting maelzel.core Voice
 
     """
-    from maelzel.core import Note, Voice, getScoreStruct
+    from maelzel.core import Note, Voice, Workspace
     from maelzel.core import symbols
 
     if scorestruct is None:
-        scorestruct = getScoreStruct()
+        scorestruct = Workspace.getScoreStruct()
 
     if options is None:
         options = TranscriptionOptions()

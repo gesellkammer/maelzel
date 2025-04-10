@@ -7,7 +7,8 @@ import pitchtools as pt
 from emlib import mathlib
 from emlib import iterlib
 
-from maelzel import histogram
+# from maelzel import histogram
+from maelzel import stats
 from maelzel.snd import amplitudesensitivity
 
 from . import spectrum as sp
@@ -134,44 +135,6 @@ def _pack(spectrum: sp.Spectrum,
     tracks = [track for track in tracks if len(track.partials) > 0]
 
     tracks.sort(key=lambda track: sum(p.audibility() for p in track.partials))
-    return tracks, rejected
-
-
-def _packold(spectrum: sp.Spectrum,
-             maxrange: int,
-             numtracks: int,
-             mingap=0.1,
-             packmethod='weight'
-             ) -> tuple[list[Track], list[Partial]]:
-    minchannels = min(3, numtracks)
-    maxchannels = max(numtracks, minchannels)
-    numPossibleChannels = min(maxchannels - minchannels, 5)
-    possibleChannels = [int(x) for x in np.linspace(minchannels, maxchannels, numPossibleChannels)]
-    minfreq = _estimateMinFreq(spectrum)
-    results = []
-    chanexps = [0.1, 0.4, 0.7, 1.3]
-    for numchannels in possibleChannels:
-        for chanexp in chanexps:
-            tracks, rejected = _pack(spectrum=spectrum,
-                                     numtracks=numtracks,
-                                     mingap=mingap,
-                                     numchannels=numchannels,
-                                     maxrange=maxrange,
-                                     minfreq=minfreq,
-                                     chanexp=chanexp,
-                                     method=packmethod)
-            assignedPartials = (partial for track in tracks for partial in track.partials)
-            assignedWeight  = sum(p.audibility() for p in assignedPartials)
-            rejectedWeight = sum(p.audibility() for p in rejected)
-            totalWeight = assignedWeight + rejectedWeight
-            if totalWeight:
-                rating = assignedWeight / totalWeight
-            else:
-                rating = 0
-            # n = sum(len(track.partials) for track in tracks)
-            results.append((rating, numchannels, chanexp, tracks, rejected))
-    results.sort(key=lambda result: result[0])
-    rating, numchannels, exp, tracks, rejected = results[-1]
     return tracks, rejected
 
 
@@ -340,8 +303,18 @@ def splitInTracks(partials: list[Partial],
             print(f"len={len(band.partials)}, {band.minfreq=:.0f}, {band.maxfreq=:.0f}, {min(p.meanfreq() for p in band.partials):.0f}, "
                   f"{max(p.meanfreq() for p in band.partials):.0f}")
 
-    histograms = [histogram.Histogram([p.audibility(curvefactor=audibilityCurveWeight) for p in band.partials])
-                  for band in bands]
+    quantiles = [stats.Quantile1d([p.audibility(curvefactor=audibilityCurveWeight) for p in band.partials])
+                 for band in bands]
+
+    if debug:
+        import matplotlib.pyplot as plt
+        fig, axes = plt.subplots(len(quantiles), 1, figsize=(8, 6 * len(quantiles)))
+        for i, quantile in enumerate(quantiles):
+            quantile.plot(axes=axes[i], show=False)
+        plt.show()
+
+    # histograms = [histogram.Histogram([p.audibility(curvefactor=audibilityCurveWeight) for p in band.partials])
+    #              for band in bands]
 
     results = {}
     totalEnergy = sum(p.audibility() for p in partials)
@@ -366,16 +339,18 @@ def splitInTracks(partials: list[Partial],
             percentile = 1
 
         selected = []
-        for band, hist in zip(bands, histograms):
-            threshold = hist.percentileToValue(percentile)
+        for band, bandquantile in zip(bands, quantiles):
+            threshold = bandquantile.value(percentile)
             bandselection = [p for p in band.partials
                              if p.audibility(curvefactor=audibilityCurveWeight) >= threshold]
             if debug:
-                print(f"... Partials from band {band.minfreq}:{band.maxfreq}: {len(bandselection)}")
+                print(f"... Partials from band {band.minfreq:.1f}:{band.maxfreq:.1f}: {len(bandselection)}, audibility threshold={threshold:.5f}")
             selected.extend(bandselection)
 
         # selected.sort(key=lambda p: p.label)
         selecteditems = [items[p.label] for p in selected]
+        if debug:
+            print(f"... Selected items: {len(selecteditems)}")
         tracks = packing.packInTracks(selecteditems, maxrange=maxrange, method='append', mingap=mingap)
         if tracks is None:
             return 0., []
@@ -408,12 +383,12 @@ def splitInTracks(partials: list[Partial],
         results[percentile] = tracks
         return relenergy
 
-    if debug:
-        percentiles = np.arange(0.001, 1.05, 0.05)
-        relenergies = [_packeval(float(perc)) for perc in percentiles]
-        import matplotlib.pyplot as plt
-        plt.plot(percentiles, [1 - rele for rele in relenergies])
-        print(":::::::::::::::::::::::::::::::::::::::::::::")
+    # if debug:
+    #     percentiles = np.arange(0.001, 1.05, 0.05)
+    #     relenergies = [_packeval(float(perc)) for perc in percentiles]
+    #     import matplotlib.pyplot as plt
+    #     plt.plot(percentiles, [1 - rele for rele in relenergies])
+    #     print(":::::::::::::::::::::::::::::::::::::::::::::")
 
     result = optimize.minimize_scalar(lambda percentile: 1 - _packeval(percentile), bracket=(0.001, 0.99), tol=relerror)
     assert isinstance(result, optimize.OptimizeResult)
@@ -498,7 +473,7 @@ def splitInBands(partials: list[Partial],
     energies = [p.energy() for p in partials]
     ampfactors = amplitudesensitivity.ampcomparray(freqs)
     energies *= ampfactors
-    freqedges = histogram.weightedHistogram(freqs, energies, numbins=numbands, distribution=distribution)
+    freqedges = stats.weightedHistogram(freqs, energies, numbins=numbands, distribution=distribution)
     bands = [SpectralBand(minfreq=minfreq, maxfreq=maxfreq, partials=[])
              for minfreq, maxfreq in iterlib.pairwise(freqedges)]
     assert len(bands) > 0, f"#freqs: {len(freqs)}, #energies: {energies}, numbads: {numbands}, distribution: {distribution}"

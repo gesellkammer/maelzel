@@ -3,7 +3,7 @@ Utilities to interact with Sonic Visualizer
 """
 from __future__ import annotations
 import os
-import bpf4 as bpf
+import bpf4.core
 from pitchtools import f2n, db2amp, n2m, m2n
 from emlib.containers import RecordList
 from emlib import csvtools
@@ -105,6 +105,7 @@ class QTransform:
 
 
 def readAdaptiveSpectr(path: str) -> Spectrum:
+    from lxml import etree
     t = etree.parse(path)
     root = t.getroot()
     data = root._find("data")
@@ -139,7 +140,7 @@ class Spectrum:
         bpfs = []
         for amps in values:
             if amps:
-                bpfs.append(bpf.core.NoInterpol(freqs, amps))
+                bpfs.append(bpf4.core.NoInterpol(freqs, amps))
             else:
-                bpfs.append(bpf.const(0))
+                bpfs.append(bpf4.core.Const(0))
         self.bpfs = bpfs

@@ -119,6 +119,9 @@ class _Singleton(type):
 
 
 class UnsetType(metaclass=_Singleton):
+    """
+    A singleton representing an unset value.
+    """
     def __repr__(self):
         return 'UNSET'
 

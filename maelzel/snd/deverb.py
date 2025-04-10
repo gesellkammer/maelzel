@@ -143,7 +143,7 @@ def removeSustain(samples: np.ndarray,
 
     from csoundengine.offline import OfflineSession
     nchnls = numpysnd.numChannels(samples)
-    renderer = OfflineSession(sr=sr, nchnls=nchnls, ksmps=csoundKsmps)
+    renderer = OfflineSession(sr=sr, nchnls=nchnls, ksmps=csoundKsmps, numAudioBuses=0, numControlBuses=0)
     channelTables = []
     for n in range(nchnls):
         chan = numpysnd.getChannel(samples, n)

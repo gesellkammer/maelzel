@@ -55,23 +55,16 @@ as ``musicxml`` or even as ``midi``.
 from .notation import (Notation,)
 from . import core
 from .common import logger
-from . import quant
-from . import render
 from . import definitions
 from . import spanner
 from . import attachment
-from . import enharmonics
 
 
 __all__ = [
     'Notation',
     'core',
-    'common',
-    'quant',
-    'render',
     'definitions',
     'spanner',
     'attachment',
-    'enharmonics',
     'logger'
 ]

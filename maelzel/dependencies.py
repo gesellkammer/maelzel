@@ -181,6 +181,9 @@ def dataPath() -> Path:
 
 
 def vampPluginsDataFolder() -> Path:
+    """
+    Returns the path to the data folder containing Vamp plugins.
+    """
     subfolder = {
         'darwin': 'macos',
         'windows': 'windows',
@@ -193,6 +196,9 @@ def vampPluginsDataFolder() -> Path:
 
 
 def checkDataFiles() -> bool:
+    """
+    Check if all required data files are present.
+    """
     data = dataPath()
     if not data.exists():
         print(f"Data path not found: {data}")

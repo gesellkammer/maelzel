@@ -1161,7 +1161,10 @@ def callMuseScore(musicxmlfile: str,
             os.remove(f)
         if trim and forcetrim:
             from emlib import img
-            img.cropToBoundingBox(outfile, margin=10)
+            try:
+                img.cropToBoundingBox(outfile, margin=10)
+            except Exception as e:
+                logger.error(f"Failed to crop image: {e}")
     elif fmt == 'pdf' or fmt == 'svg':
         if not os.path.exists(outfile):
             logger.error(f"callMusescore: output files not found: '{outfile}'.\n"

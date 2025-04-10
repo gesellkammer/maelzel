@@ -117,6 +117,15 @@ class EnharmonicOptions:
     def __hash__(self):
         return hash(tuple(_astuple(self)))
 
+    def bestChordSpelling(self, notes: Sequence[str]) -> tuple[str, ...]:
+        """
+        """
+        return bestChordSpelling(notes, self)
+
+    @staticmethod
+    def default() -> EnharmonicOptions:
+        return _defaultEnharmonicOptions
+
 
 _defaultEnharmonicOptions = EnharmonicOptions()
 

@@ -996,6 +996,14 @@ class Chain(MContainer):
             items.append(item.timeTransform(timemap, inplace=inplace))
         return self if inplace else self.clone(items=items)
 
+    @classmethod
+    def _labelSymbol(cls, label: str, config: CoreConfig = None):
+        if config is None:
+            config = Workspace.active.config
+        from maelzel.textstyle import TextStyle
+        labelstyle = TextStyle.parse(config['show.labelStyle'])
+        return symbols.Text(text=label, fontsize=labelstyle.fontsize, italic=labelstyle.italic, weight=labelstyle.weight, color=labelstyle.color)
+
     def scoringEvents(self,
                       groupid='',
                       config: CoreConfig = None,
@@ -1025,9 +1033,27 @@ class Chain(MContainer):
 
         config = self.getConfig(prototype=config) or config
 
-        if self._postSymbols:
-            postsymbols = self._postSymbols
+        # collect all labels
+        def collect_labels(chain: Chain, labels: list[tuple[str, F]] = None):
+            if labels is None:
+                labels = []
+            if chain.label:
+                labels.append((chain.label, chain.absOffset()))
+            for item in chain.items:
+                if isinstance(item, Chain):
+                    _ = collect_labels(item, labels)
+            return labels
+
+        labels = collect_labels(self)
+
+        if self._postSymbols or labels:
+            postsymbols = self._postSymbols.copy() if self._postSymbols else []
+            # TODO: no need to copy the whole chain just to split some events
             self = self.copy()
+            for label, offset in labels:
+                # notes[0].addText(self._scoringAnnotation(text=chainlabel, config=config))
+                postsymbols.append((offset, self._labelSymbol(label, config=config)))
+            postsymbols.sort(key=lambda x: x[0])
             for offset, symbol in postsymbols:
                 event = self.splitAt(offset, beambreak=False)
                 if event:
@@ -1035,8 +1061,10 @@ class Chain(MContainer):
                 else:
                     logger.error(f"No event found at {offset} for symbol {symbol}")
 
+        # TODO: no need to create a copy of the events
         chainEvents = self.flatEvents()
         allNotations: list[scoring.Notation] = []
+
         if self.label and chainEvents[0].relOffset() > 0:
             firstrest = scoring.Notation.makeRest(duration=chainEvents[0].dur, annotation=self.label)
             allNotations.append(firstrest)
@@ -1363,8 +1391,8 @@ class Chain(MContainer):
                 dur = item.dur
                 out.append((item, now, dur))
                 item._resolvedOffset = now - frame
-                if i == 0 and self.label:
-                    item.setProperty('.chainlabel', self.label)
+                # if i == 0 and self.label:
+                #     item.setProperty('.chainlabel', self.label)
                 now += dur
             else:
                 # a Chain
@@ -1453,7 +1481,7 @@ class Chain(MContainer):
 
         .. seealso:: :meth:`Chain.beamBreak`
         """
-        struct = self.scorestruct() or Workspace.getActive().scorestruct
+        struct = self.scorestruct() or Workspace.active.scorestruct
         offset = struct.asBeat(location)
         event = self.eventAt(offset)
         if event and event.absOffset() == offset:
@@ -1685,7 +1713,8 @@ class Chain(MContainer):
                 location: beat_t,
                 tie=True,
                 beambreak=False,
-                nomerge=False
+                nomerge=False,
+                ensureCopy=False
                 ) -> MEvent | None:
         """
         Split any event present at the given absolute offset (in place)
@@ -1703,10 +1732,13 @@ class Chain(MContainer):
                 merged at a later stage (they are marked with a NoMerge symbol)
 
         Returns:
-            if an event was split, returns the part of the event starting at
-            the given offset. Otherwise returns None.
+            Returns the event starting at the given offset, or None if no event found at
+            the given offset. The returned event can be a part of a previous event spanning
+            across the given offset, or an event starting exactly at the given offset.
+
         """
         absoffset = asF(location) if not isinstance(location, tuple) else self.activeScorestruct().locationToBeat(*location)  # type: ignore
+        ev = self.eventAt(absoffset)
         self.splitEventsAtOffsets([absoffset], tie=tie)
         ev = self.eventAt(absoffset)
 
@@ -2355,7 +2387,7 @@ def _resolveGlissandi(flatevents: Iterable[MEvent], force=False) -> None:
     for ev1, ev2 in iterlib.pairwise(flatevents):
         if ev1.isRest() or ev2.isRest():
             continue
-        if ev1.gliss or (ev1.playargs and ev1.playargs.get('glisstime') is not None):
+        if ev1.gliss or (ev1.playargs and ev1.playargs.get('glisstime', 0.) > 0):
             # Only calculate glissTarget if gliss is True
             if not force and ev1._glissTarget:
                 continue

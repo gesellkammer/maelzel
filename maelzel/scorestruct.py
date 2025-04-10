@@ -8,12 +8,12 @@ import functools
 import re
 
 import emlib.textlib
-from emlib import iterlib
+from emlib.iterlib import partialsum
 from maelzel.common import F, asF, F0
 
 from typing import TYPE_CHECKING, overload as _overload
 if TYPE_CHECKING:
-    from typing import Iterator, Sequence, Union
+    from typing import Iterator, Sequence, Union, Iterable
     import maelzel.core
     from maelzel.common import num_t, timesig_t, beat_t
     from maelzel.scoring.renderoptions import RenderOptions
@@ -27,6 +27,25 @@ __all__ = (
     'measureBeatStructure',
     'TimeSignature'
 )
+
+
+def _partialsum(seq: Iterable[F], start=F0) -> list[F]:
+    """
+    for each elem in seq return the partial sum
+
+    .. code::
+
+        n0 -> n0
+        n1 -> n0 + n1
+        n2 -> n0 + n1 + n2
+        n3 -> n0 + n1 + n2 + n3
+    """
+    accum = start
+    out = []
+    for i in seq:
+        accum += i
+        out.append(accum)
+    return out
 
 
 @dataclass
@@ -941,7 +960,8 @@ def measureBeatOffsets(timesig: timesig_t,
     beatdurs = beatDurations(timesig,
                              quarterTempo=quarterTempo,
                              subdivisionStructure=subdivstruct)
-    beatOffsets = [F(0)] + list(iterlib.partialsum(beatdurs))
+    beatOffsets = [F(0)]
+    beatOffsets += _partialsum(beatdurs)
     return beatOffsets
 
 
@@ -1215,8 +1235,7 @@ class ScoreStruct:
         .. seealso:: :func:`~maelzel.core.workspace.setScoreStruct`
         """
         from maelzel.core import Workspace
-        workspace = Workspace.getActive()
-        workspace.scorestruct = self
+        Workspace.active.scorestruct = self
 
     def numMeasures(self) -> int:
         """

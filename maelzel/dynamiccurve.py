@@ -135,12 +135,12 @@ class DynamicCurve:
             return curve[0][1]
         if amp > curve[-1][0]:
             return curve[-1][1]
-        insert_point = _bisect(curve, (amp, ''))
+        insertIndex = _bisect(curve, (amp, ''))
         if not nearest:
-            idx = max(0, insert_point-1)
+            idx = max(0, insertIndex-1)
             return curve[idx][1]
-        amp0, dyn0 = curve[insert_point - 1]
-        amp1, dyn1 = curve[insert_point]
+        amp0, dyn0 = curve[insertIndex - 1]
+        amp1, dyn1 = curve[insertIndex]
         db = amp2db(amp)
         return dyn0 if abs(db-amp2db(amp0)) < abs(db-amp2db(amp1)) else dyn1
 

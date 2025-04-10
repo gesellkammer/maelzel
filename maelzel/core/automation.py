@@ -3,7 +3,6 @@ from dataclasses import dataclass
 import numpy as np
 from emlib import iterlib
 from maelzel.common import F
-from maelzel.scorestruct import ScoreStruct
 from maelzel.core.workspace import Workspace
 from maelzel.core import _tools
 
@@ -11,6 +10,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Sequence
     from maelzel.common import location_t, num_t
+    from maelzel.scorestruct import ScoreStruct
+
 
 
 @dataclass
@@ -66,7 +67,7 @@ class Automation:
             a tuple (start, end), both expressed in seconds
         """
         if scorestruct is None:
-            scorestruct = Workspace.getActive().scorestruct
+            scorestruct = Workspace.active.scorestruct
         start = self._abstime(self.breakpoints[0][0], parentOffset=parentOffset, scorestruct=scorestruct)
         end = self._abstime(self.breakpoints[-1][0], parentOffset=parentOffset, scorestruct=scorestruct)
         return start, end
@@ -84,7 +85,7 @@ class Automation:
             a tuple (times: list[F], delay: F), all expressed in seconds
         """
         if scorestruct is None:
-            scorestruct = Workspace.getActive().scorestruct
+            scorestruct = Workspace.active.scorestruct
 
         times: list[F] = []
         parentAbstime = scorestruct.beatToTime(parentOffset)

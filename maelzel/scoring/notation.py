@@ -17,11 +17,13 @@ from . import spanner as _spanner
 
 from typing import TYPE_CHECKING, cast as _cast
 if TYPE_CHECKING:
-    from typing import Callable, Sequence, Any
+    from typing import Callable, Sequence, Any, TypeVar
     import maelzel.core
     import maelzel.core.symbols
     import maelzel.core.eventbase
     from maelzel.common import time_t, pitch_t
+    from maelzel.scoring.attachment import Attachment
+    AttachmentT = TypeVar('AttachmentT', bound=Attachment)
 
 
 __all__ = (
@@ -29,8 +31,6 @@ __all__ = (
     'notationsToCoreEvents',
     'durationsCanMerge',
     'mergeNotationsIfPossible',
-    'tieNotations',
-    'splitNotations'
 )
 
 
@@ -382,10 +382,10 @@ class Notation:
         return attachments
 
     def findAttachment(self,
-                       cls: type[att.AttachmentT],
+                       cls: type[AttachmentT],
                        anchor: int | None | UnsetType = UNSET,
                        predicate: Callable = None
-                       ) -> att.AttachmentT | None:
+                       ) -> AttachmentT | None:
         """
         Find an attachment by class or classname
 
@@ -1048,6 +1048,14 @@ class Notation:
             out.spanners = self.spanners.copy()
         return out
 
+    @staticmethod
+    def splitNotations(notations: list[Notation], offsets: Sequence[F]) -> list[tuple[TimeSpan, list[Notation]]]:
+        return _splitNotations(notations, offsets)
+
+    @staticmethod
+    def tieNotations(notations: list[Notation]) -> None:
+        _tieNotations(notations)
+
     def splitAtOffsets(self: Notation, offsets: Sequence[F]
                        ) -> list[Notation]:
         """
@@ -1082,7 +1090,7 @@ class Notation:
         parts.extend((self.cloneAsTie(offset=start, duration=end - start)
                       for start, end in intervals[1:]))
 
-        tieNotations(parts)
+        _tieNotations(parts)
         parts[0].tiedPrev = self.tiedPrev
         parts[-1].tiedNext = self.tiedNext
 
@@ -1659,16 +1667,12 @@ def mergeSpanners(a: Notation, b: Notation
     Returns:
         a list of merged spanners, or None if both a and b have no spanners
     """
-    if not a.spanners and not b.spanners:
-        spanners = None
-    elif not a.spanners:
-        spanners = b.spanners
+    if not a.spanners:
+        return b.spanners or None
     elif not b.spanners:
-        spanners = a.spanners
+        return a.spanners or None
     else:
-        spanners = a.spanners + b.spanners
-
-    return spanners
+        return a.spanners + b.spanners
 
 
 def notationsToCoreEvents(notations: list[Notation]
@@ -1838,7 +1842,7 @@ def transferAttributesWithinTies(notations: list[Notation]) -> None:
             n.gliss = True
 
 
-def tieNotations(notations: list[Notation]) -> None:
+def _tieNotations(notations: list[Notation]) -> None:
     """ Tie these notations inplace """
 
     for n in notations[:-1]:
@@ -1853,9 +1857,9 @@ def tieNotations(notations: list[Notation]) -> None:
             n.gliss = True
 
 
-def splitNotations(notations: list[Notation],
-                   offsets: Sequence[F]
-                   ) -> list[tuple[TimeSpan, list[Notation]]]:
+def _splitNotations(notations: list[Notation],
+                    offsets: Sequence[F]
+                    ) -> list[tuple[TimeSpan, list[Notation]]]:
     """
     Split the given notations between the given offsets
 
@@ -1893,6 +1897,15 @@ def splitNotations(notations: list[Notation],
 
 @dataclass
 class SnappedNotation:
+    """
+    Represents a notation that has been snapped to a specific offset and duration.
+
+    Attributes:
+        notation: the original notation
+        offset: the offset of the snapped notation
+        duration: the duration of the snapped notation
+
+    """
     notation: Notation
     offset: F
     duration: F

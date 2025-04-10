@@ -1181,8 +1181,8 @@ class LilypondRenderer(Renderer):
                         logger.debug("Trying to generate cropped file via pillow")
                         _imgtools.imagefileAutocrop(tempout, cropfile, bgcolor="#ffffff")
                         if not os.path.exists(cropfile):
-                            logger.debug("Faild to generate crop file, aborting")
-
+                            logger.debug("Failed to generate crop file, aborting cropping")
+            logger.debug(f"Moving {tempout} to {outfile}")
             shutil.move(tempout, outfile)
             tempfiles.append(lilyfile)
             # Cascade: if preview: base.preview.fmt, if crop: base.crop.fmt else base.fmt

@@ -17,7 +17,6 @@ from .notation import (
 
 if TYPE_CHECKING:
     from typing import Iterator
-
     from maelzel.scoring import quant
     from maelzel.common import time_t
 

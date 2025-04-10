@@ -17,7 +17,7 @@ import bpf4
 import pitchtools as pt
 from emlib.filetools import normalizePath
 
-from maelzel import histogram
+from maelzel import stats
 from maelzel.snd import audiosample
 from .partial import Partial
 from . import pack
@@ -712,9 +712,9 @@ class Spectrum:
                                 downsample=downsample, exp=exp, yscale=scale)
         return axes
 
-    def histogram(self, metric='energy', loudnessCompensation=True) -> histogram.Histogram:
+    def quantile(self, metric='energy', loudnessCompensation=True) -> stats.Quantile1d:
         """
-        Calculate a histogram over the partials of this spectrum.
+        Calculate a quantile over the partials of this spectrum.
 
         The possible metrics are 'energy', 'bandwidth' and 'duration'
 
@@ -724,7 +724,7 @@ class Spectrum:
                 is weighted by the loudness compensation curve (ANSA A-Weighting curve)
 
         Returns:
-            a :class:`maelzel.histogram.Histogram`
+            a :class:`maelzel.stats.Quantile1d`
 
         """
         if metric == 'energy':
@@ -736,7 +736,7 @@ class Spectrum:
             data = [p.meanbw() for p in self.partials]
         else:
             raise ValueError(f"Expected one of 'energy', 'bandwidth', got {metric}")
-        return histogram.Histogram(data)
+        return stats.Quantile1d(data)
 
     def filter(self,
                mindb: int | float = -120,
@@ -810,8 +810,13 @@ class Spectrum:
         selected, residue = [], []
         minamp = pt.db2amp(mindb)
         if minpercentile > 0:
-            energyhist = self.histogram(metric='energy', loudnessCompensation=loudnessCompensation)
-            minenergy = energyhist.percentileToValue(minpercentile)
+            if loudnessCompensation:
+                energydata = [p.audibility() for p in self.partials]
+            else:
+                energydata = [p.energy() for p in self.partials]
+            minenergy = np.quantile(energydata, minpercentile)
+            # energyquant = self.quantile(metric='energy', loudnessCompensation=loudnessCompensation)
+            # minenergy = energyquant.value(minpercentile)
         else:
             minenergy = 0.
 
@@ -850,8 +855,9 @@ class Spectrum:
         Args:
             samples: the samples to analyze. A 1D numpy array containing the audio samples
                 as floats between -1 and 1 or the path to a soundfile. If a multichannel
-                array / soundfile is given, only the first channel is used
-            sr: the samplerate
+                array / soundfile is given, only the first channel is used. When samples
+                is given as a path, the samplerate is determined automatically.
+            sr: the samplerate, ignored if samples is given as a path
             resolution: the analysis resolution, determines the fft size. As a rule of thumb, somewhat lower than the
                 lowest frequency expected for a monophonic source.
             windowsize: The window size in hz. This value needs to be higher than the resolution since the window in
@@ -947,7 +953,8 @@ class Spectrum:
                       audibilityCurveWeight=1.,
                       noisebw=0.001,
                       noisefreq=3500,
-                      minbreakpoints=1
+                      minbreakpoints=1,
+                      debug=False
                       ) -> pack.SplitResult:
         """
         Split this spectrum into tracks
@@ -1018,7 +1025,8 @@ class Spectrum:
                 audibilityCurveWeight=audibilityCurveWeight,
                 maxnoisetracks=noisetracks,
                 noisefreq=noisefreq,
-                noisebw=noisebw)
+                noisebw=noisebw,
+                debug=debug)
             return pack.SplitResult(distribution=distribution,
                                     tracks=tracks,
                                     noisetracks=residualtracks,
@@ -1033,7 +1041,8 @@ class Spectrum:
                                       mingap=mingap,
                                       noisetracks=noisetracks,
                                       noisefreq=noisefreq,
-                                      noisebw=noisebw)
+                                      noisebw=noisebw,
+                                      debug=debug)
 
 
 analyze = Spectrum.analyze

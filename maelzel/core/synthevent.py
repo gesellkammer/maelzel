@@ -1,28 +1,28 @@
 from __future__ import annotations
 
 import math
-from emlib import mathlib
 import emlib.misc
 import pitchtools as pt
 from dataclasses import dataclass
 
 from ._common import logger, F
-from typing import TYPE_CHECKING, cast as _cast
-from maelzel.core import renderer
+from maelzel._util import hasoverlap
 from maelzel.core import automation as _automation
 from maelzel.core import presetmanager
-from maelzel.core import presetdef
 import csoundengine
-import csoundengine.config
 
+from typing import TYPE_CHECKING, cast as _cast
 if TYPE_CHECKING:
     from maelzel.common import time_t, location_t, num_t
+    from maelzel.core import renderer
     from typing import Any, Callable, Iterable, Sequence, TypeAlias
     from .config import CoreConfig
     from matplotlib.axes import Axes
     from maelzel.scorestruct import ScoreStruct
     breakpoint_t: TypeAlias = list[float]
-
+    from maelzel.core import presetdef
+    from typing import TypeVar
+    _T = TypeVar('_T')
 
 
 __all__ = (
@@ -153,8 +153,8 @@ class PlayArgs:
         db = self.db
         return {k: db.get(k) for k in self.playkeys}
 
-    def get(self, key: str, default=None):
-        """Like dict.get()"""
+    def get(self, key: str, default: _T) -> _T:
+        """Like dict.get(), but requieres a default value"""
         if key not in self.playkeys:
             raise KeyError(f"Unknown key {key}. Possible keys are: {self.playkeys}")
         return self.db.get(key, default)
@@ -171,7 +171,7 @@ class PlayArgs:
             self.db[key] = value
 
     def linkedNext(self) -> bool:
-        return self.db.get('glisstime') is not None
+        return self.db.get('glisstime', 0.) > 0.
 
     def addAutomation(self,
                       param: str,
@@ -182,7 +182,7 @@ class PlayArgs:
         if self.automations is None:
             self.automations = []
         self.automations.append(_automation.Automation(param=param, breakpoints=breakpoints,
-                                                       relative=relative))
+                                                       relative=relative))  # type: ignore
 
 
     @staticmethod
@@ -614,7 +614,7 @@ class SynthEvent:
     def getInstr(self) -> csoundengine.instr.Instr:
         return self.getPreset().getInstr()
 
-    def initialize(self, renderer) -> None:
+    def initialize(self, renderer: renderer.Renderer) -> None:
         if not self._initdone and self.initfunc:
             self.initfunc(self, renderer)
 
@@ -691,7 +691,6 @@ class SynthEvent:
         self.fadein, self.fadeout = value
 
     def addAutomation(self, automation: _automation.SynthAutomation):
-        assert isinstance(automation, _automation.SynthAutomation)
         if self.automations is None:
             self.automations = []
         self.automations.append(automation)
@@ -733,12 +732,8 @@ class SynthEvent:
         Returns:
             a new SynthEvent
         """
-        if not playargs.db:
-            db = {}
-        elif kws:
-            db = playargs.db | kws
-        else:
-            db = playargs.db.copy()
+        assert playargs.db is not None
+        db = playargs.db | kws if kws else playargs.db.copy()
         linkednext = db.pop('linkednext', False) or db.get('glisstime') is not None
         for k in ('transpose', 'glisstime', 'end'):
             db.pop(k, None)
@@ -948,7 +943,7 @@ class SynthEvent:
         for event in events:
             if start <= event.delay and end >= event.end:
                 out.append(event)
-            elif mathlib.hasintersect(start, end, event.delay, event.end):
+            elif hasoverlap(start, end, event.delay, event.end):
                 out.append(event.cropped(start, end))
         return out
 

@@ -15,7 +15,6 @@ from emlib import misc
 from maelzel import _util
 from maelzel.scoring import definitions
 from maelzel.common import F
-from maelzel.colortheory import safeColors
 from maelzel.core import environment
 from maelzel.core import symbols as _symbols
 
@@ -547,6 +546,7 @@ def dictRemoveNoneKeys(d: dict):
 
 def htmlSpan(text, color='', fontsize='', italic=False, bold=False) -> str:
     if color.startswith(':'):
+        from maelzel.colortheory import safeColors
         color = safeColors[color[1:]]
     styleitems = {}
     if color:

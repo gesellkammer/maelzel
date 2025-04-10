@@ -9,21 +9,19 @@ import numpy as np
 
 import csoundengine
 import csoundengine.instr
-from csoundengine.sessionhandler import SessionHandler
+import csoundengine.sessionhandler
+
 
 from maelzel.core import renderer
 from maelzel.core import presetmanager
 from maelzel.core.workspace import Workspace
-from maelzel.core.presetdef import PresetDef
-from maelzel.core.synthevent import SynthEvent
-from maelzel.core.errors import CancelledError
+from maelzel.core import synthevent
+from maelzel.core import errors
 from maelzel.core import playback
 from maelzel.core import mobj
 from maelzel.core._common import logger
-from maelzel.core import _dialogs
 from maelzel.core import _playbacktools
 from maelzel import _util
-from maelzel.snd import audiosample
 
 from typing import Callable, Sequence, TYPE_CHECKING
 
@@ -31,6 +29,8 @@ if TYPE_CHECKING:
     import csoundengine.schedevent
     import csoundengine.tableproxy
     import csoundengine.event
+    from maelzel.snd import audiosample
+    from maelzel.core.presetdef import PresetDef
 
 
 
@@ -109,7 +109,7 @@ class OfflineRenderer(renderer.Renderer):
                  session: csoundengine.session.Session = None):
 
         super().__init__(presetManager=presetmanager.presetManager)
-        w = Workspace.getActive()
+        w = Workspace.active
         cfg = w.config
 
         self._outfile = outfile
@@ -405,7 +405,7 @@ class OfflineRenderer(renderer.Renderer):
                           args=event.args,
                           **kws)  # type: ignore
 
-    def schedEvent(self, event: SynthEvent | csoundengine.event.Event
+    def schedEvent(self, event: synthevent.SynthEvent | csoundengine.event.Event
                    ) -> csoundengine.schedevent.SchedEvent:
         """
         Schedule a SynthEvent or a csound event
@@ -419,7 +419,7 @@ class OfflineRenderer(renderer.Renderer):
         """
         if isinstance(event, csoundengine.event.Event):
             return self._schedSessionEvent(event)
-        elif isinstance(event, SynthEvent):
+        elif isinstance(event, synthevent.SynthEvent):
             if event.initfunc:
                 event.initfunc(event, self)
             presetname = event.instr
@@ -441,7 +441,7 @@ class OfflineRenderer(renderer.Renderer):
             raise TypeError(f"Expected a SynthEvent or a csound event, got {event}")
 
     def schedEvents(self,
-                    coreevents: list[SynthEvent],
+                    coreevents: list[synthevent.SynthEvent],
                     sessionevents: list[csoundengine.event.Event] = None,
                     whenfinished: Callable = None
                     ) -> csoundengine.schedevent.SchedEventGroup:
@@ -523,8 +523,12 @@ class OfflineRenderer(renderer.Renderer):
             a csoundengine.offline.SchedEvent
 
         """
-        if isinstance(source, audiosample.Sample):
-            source = (source.samples, source.sr)
+        if not isinstance(source, (int, str, tuple)):
+            from maelzel.snd import audiosample
+            if isinstance(source, audiosample.Sample):
+                source = (source.samples, source.sr)
+            else:
+                raise TypeError(f"Invalid source type: {type(source)}")
         return self.session.playSample(source=source, delay=delay, dur=dur, chan=chan,
                                               gain=gain, speed=speed, loop=loop, pan=pos,
                                               skip=skip, fade=fade, crossfade=crossfade)
@@ -660,11 +664,12 @@ class OfflineRenderer(renderer.Renderer):
 
         """
         self._renderProc = None
-        cfg = Workspace.getActive().config
+        cfg = Workspace.active.config
         if outfile == '?':
+            from maelzel.core import _dialogs
             outfile = _dialogs.saveRecordingDialog()
             if not outfile:
-                raise CancelledError("Render operation was cancelled")
+                raise errors.CancelledError("Render operation was cancelled")
         elif not outfile:
             outfile = self._outfile or _playbacktools.makeRecordingFilename(ext=".wav")
         outfile = _util.normalizeFilename(outfile)
@@ -752,9 +757,10 @@ class OfflineRenderer(renderer.Renderer):
             the outfile
         """
         if outfile == "?":
+            from maelzel.core import _dialogs
             selected = _dialogs.selectFileForSave("saveCsdLastDir", filter="Csd (*.csd)")
             if not selected:
-                raise CancelledError("Save operation cancelled")
+                raise errors.CancelledError("Save operation cancelled")
             outfile = selected
         self.session.writeCsd(outfile)
         return outfile
@@ -768,7 +774,7 @@ class OfflineRenderer(renderer.Renderer):
         recorded offline
 
         """
-        self._workspace = Workspace.getActive()
+        self._workspace = Workspace.active
         self._oldRenderer = self._workspace.renderer
         self._workspace.renderer = self
         session = self.liveSession()
@@ -859,7 +865,7 @@ class OfflineRenderer(renderer.Renderer):
             proc.wait(timeout=timeout)
 
 
-class _OfflineSessionHandler(SessionHandler):
+class _OfflineSessionHandler(csoundengine.sessionhandler.SessionHandler):
     def __init__(self, renderer: OfflineRenderer):
         self.renderer = renderer
 
@@ -887,7 +893,7 @@ class _OfflineSessionHandler(SessionHandler):
 
 
 def render(outfile='',
-           events: Sequence[SynthEvent | mobj.MObj | csoundengine.event.Event | Sequence[mobj.MObj | SynthEvent]] = None,
+           events: Sequence[synthevent.SynthEvent | mobj.MObj | csoundengine.event.Event | Sequence[mobj.MObj | synthevent.SynthEvent]] = None,
            sr: int = None,
            wait: bool = None,
            ksmps: int = None,
@@ -969,7 +975,7 @@ def render(outfile='',
     .. seealso:: :class:`OfflineRenderer`, :func:`maelzel.playback.play`
     """
     if tail is None:
-        cfg = Workspace.getActive().config
+        cfg = Workspace.active.config
         tail = cfg['rec.extratime']
     assert isinstance(tail, (int, float))
 
@@ -986,7 +992,7 @@ def render(outfile='',
             offlinerenderer.showAtExit = True
         return offlinerenderer
     if workspace is None:
-        workspace = Workspace.getActive()
+        workspace = Workspace.active
     coreEvents, sessionEvents = _playbacktools.collectEvents(events, eventparams=kws, workspace=workspace)
     if not nchnls:
         nchnls = max(int(ceil(ev.resolvedPosition() + ev.chan)) for ev in coreEvents)

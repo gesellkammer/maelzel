@@ -1,25 +1,28 @@
 from __future__ import annotations
 
 import functools
-import logging
 import os
 import sys
 import tempfile
-import warnings
 import weakref
-from typing import Any, Callable, Sequence
-
-import appdirs
 import emlib.misc
 import emlib.textlib
-from emlib.common import runonce
+from maelzel.common import getLogger
 
-from maelzel.common import F, getLogger, num_t
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import Any, Callable, Sequence
+    import logging
+    from maelzel.common import F, num_t
+
 
 logger = getLogger('maelzel')
 
 
-def createTempdir() -> tempfile.TemporaryDirectory:
+_cache = {}
+
+
+def createTempdir(check=True) -> tempfile.TemporaryDirectory:
     """
     Creates a temporary directory within the user space, ensures that it is writable
 
@@ -28,6 +31,7 @@ def createTempdir() -> tempfile.TemporaryDirectory:
 
     Raises IOError if it failes to create the temp directory
     """
+    import appdirs
     base = appdirs.user_cache_dir(appname='maelzel')
     os.makedirs(base, exist_ok=True)
     if not os.path.exists(base):
@@ -38,18 +42,31 @@ def createTempdir() -> tempfile.TemporaryDirectory:
 
     checkfile = tempfile.mktemp(dir=tempdir.name)
     assert not os.path.exists(checkfile)
-    with open(checkfile, "w") as f:
-        s = "check"
-        numchars = f.write(s)
-        assert numchars == len(s)
-    if not os.path.exists(checkfile):
-        raise IOError(f"Could not create temporary file '{checkfile}' in temporary directory '{tempdir.name}'")
-    os.remove(checkfile)
-    logger.debug(f"Created temporary directory, ensured it is writable: '{tempdir.name}'")
+    if check:
+        with open(checkfile, "w") as f:
+            s = "check"
+            numchars = f.write(s)
+            assert numchars == len(s)
+        if not os.path.exists(checkfile):
+            raise IOError(f"Could not create temporary file '{checkfile}' in temporary directory '{tempdir.name}'")
+        os.remove(checkfile)
+        logger.debug(f"Created temporary directory, ensured it is writable: '{tempdir.name}'")
+    else:
+        logger.debug(f"Created temporary directory: '{tempdir.name}'")
     return tempdir
 
 
-_tempdir = createTempdir()
+def sessionTempdir() -> tempfile.TemporaryDirectory:
+    """
+    Creates a temporary directory within user space, valid for a session
+
+    It is only run once, after the first run it returns always the same dir
+    """
+    if (tempdir := _cache.get('tempdir')) is not None:
+        return tempdir
+    _cache['tempdir'] = tempdir = createTempdir()
+    return tempdir
+
 
 
 def mktemp(suffix: str, prefix='') -> str:
@@ -69,7 +86,8 @@ def mktemp(suffix: str, prefix='') -> str:
         file is not created
 
     """
-    return tempfile.mktemp(suffix=suffix, prefix=prefix, dir=_tempdir.name)
+    tempdir = sessionTempdir()
+    return tempfile.mktemp(suffix=suffix, prefix=prefix, dir=tempdir.name)
 
 
 def reprObj(obj,
@@ -81,6 +99,7 @@ def reprObj(obj,
             hideEmptyStr=False,
             hideFalsy=False,
             quoteStrings=False,
+            quoteChar="'",
             convert: dict[str, Callable[[Any], str]] = None,
             ) -> str:
     """
@@ -130,7 +149,7 @@ def reprObj(obj,
             refobj = value()
             value = f'ref({type(refobj).__name__})'
         elif quoteStrings and isinstance(value, str):
-            value = f'"{value}"'
+            value = f'{quoteChar}{value}{quoteChar}'
         info.append(f'{attr}={value}')
     infostr = ', '.join(info)
     cls = type(obj).__name__
@@ -151,6 +170,7 @@ def fuzzymatch(query: str, choices: Sequence[str], limit=5
         list of tuples (matchingchoice: str, score: int)
     """
     if 'thefuzz.process' not in sys.modules:
+        import warnings
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             import thefuzz.process
@@ -177,12 +197,12 @@ def checkChoice(name: str, s: str, choices: Sequence[str], maxSuggestions=12, th
         return True
 
     if logger:
-        logger.error(f"Invalud value '{s}' for {name}, possible choices: {sorted(choices)}")
+        logger.error(f"Invalid value '{s}' for {name}, possible choices: {sorted(choices)}")
 
     if not throw:
         return False
 
-    if len(choices) > 8:
+    if len(choices) > maxSuggestions:
         matches = fuzzymatch(s, choices, limit=maxSuggestions)
         raise ValueError(f'Invalid value "{s}" for {name}, maybe you meant "{matches[0][0]}"? '
                             f'Other possible choices: {[m[0] for m in matches]}')
@@ -305,7 +325,6 @@ def pngShow(pngpath: str, forceExternal=False, app: str = '',
             emlib.misc.open_with_app(path=pngpath, wait=wait)
 
 
-@runonce
 def pythonSessionType() -> str:
     """
     Returns the kind of python session
@@ -319,15 +338,19 @@ def pythonSessionType() -> str:
         "python" if running normal python.
 
     """
+    if (session := _cache.get('sessiontype')) is not None:
+        return session
     try:
         # get_ipython should be available within an ipython/jupyter session
         shell = get_ipython().__class__.__name__   # type: ignore
         if shell == 'ZMQInteractiveShell':
-            return "jupyter"
+            session = "jupyter"
         elif shell == 'TerminalInteractiveShell':
-            return "ipython-terminal"
+            session = "ipython-terminal"
         else:
-            return "ipython"
+            session = "ipython"
+        _cache['sessiontype'] = session
+        return session
     except NameError:
         return "python"
 
@@ -643,6 +666,21 @@ def _pypngReadImageAsBase64(imgpath: str) -> tuple[bytes, int, int]:
     return img64, width, height
 
 
+def _pyllowReadAsBase64(imgpath: str) -> tuple[bytes, int, int]:
+    import io
+    import PIL.Image
+    try:
+        import pybase64 as base64
+    except ImportError:
+        import base64
+    im = PIL.Image.open(imgpath)
+    buffer = io.BytesIO()
+    im.save(buffer, format='PNG')
+    imgbytes = base64.b64encode(buffer.getvalue())
+    width, height = im.size
+    return imgbytes, width, height
+
+
 def readImageAsBase64(imgpath: str) -> tuple[bytes, int, int]:
     """
     Read an image as base64
@@ -658,15 +696,4 @@ def readImageAsBase64(imgpath: str) -> tuple[bytes, int, int]:
 
     .. seealso:: :func:`htmlImage64`
     """
-
-    ext = os.path.splitext(imgpath)[-1]
-    if ext == '.png':
-        try:
-            return _pypngReadImageAsBase64(imgpath)
-        except Exception:
-            logger.error(f"Could not read image {imgpath} with pypng")
-            import emlib.img
-            return emlib.img.readImageAsBase64(imgpath)
-    else:
-        import emlib.img
-        return emlib.img.readImageAsBase64(imgpath)
+    return _pyllowReadAsBase64(imgpath)

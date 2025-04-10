@@ -42,35 +42,38 @@ import emlib.img
 import pitchtools as pt
 
 from maelzel.common import asmidi, F, asF, F0
-from maelzel.textstyle import TextStyle
 
 from maelzel.core._common import logger
 from .config import CoreConfig
 from .workspace import Workspace
-from .synthevent import PlayArgs, SynthEvent
 
 from . import playback
-from . import offline
 from . import environment
 from . import notation
 from . import symbols as _symbols
-from . import _dialogs
 from . import _tools
+from .synthevent import PlayArgs
 
 from maelzel import _util
 from maelzel import scoring
-from maelzel.scorestruct import ScoreStruct
 
 from typing import TYPE_CHECKING, Any, Callable
 if TYPE_CHECKING:
     from typing import Iterator
     from typing_extensions import Self
     from matplotlib.axes import Axes
+    from .synthevent import SynthEvent
     from maelzel.common import pitch_t, location_t, beat_t, time_t, num_t
     from maelzel.core import chain
     import maelzel.core.event as _event
     from maelzel.scoring.renderoptions import RenderOptions
+    from maelzel.scoring import quant
+    from maelzel.scoring import enharmonics
+    from maelzel.scoring import render
     import csoundengine
+    from . import offline
+    from maelzel.scorestruct import ScoreStruct
+
 
 
 __all__ = (
@@ -279,8 +282,7 @@ class MObj(ABC):
         Returns:
             either the value previously set, or default otherwise.
         """
-        value = self.playargs.get(key) if self.playargs else None
-        if value is not None:
+        if self.playargs and (value := self.playargs.db.get(key)) is not None:
             return value
         if not recursive or not self.parent:
             return default
@@ -526,7 +528,9 @@ class MObj(ABC):
         playargs = self.playargs
         if playargs is None:
             self.playargs = playargs = PlayArgs()
-        extrakeys = set(kws.keys()).difference(PlayArgs.playkeys)
+        # extrakeys = set(kws.keys()).difference(PlayArgs.playkeys)
+        extrakeys = kws.keys() - PlayArgs.playkeys
+
         # set extrakeys as args, without checking the instrument
         if extrakeys:
             # raise ValueError(f"Unknown keys: {extrakeys}, {self=}")
@@ -731,7 +735,6 @@ class MObj(ABC):
                 scalefactor = cfg['show.scaleFactor']
                 if backend == 'musicxml':
                     scalefactor *= cfg['show.scaleFactorMusicxml']
-                assert isinstance(external, bool)
                 _tools.pngShow(img, forceExternal=external, scalefactor=scalefactor)
             else:
                 emlib.misc.open_with_app(img)
@@ -748,10 +751,10 @@ class MObj(ABC):
     def quantizedScore(self,
                        scorestruct: ScoreStruct = None,
                        config: CoreConfig = None,
-                       quantizationProfile: str | scoring.quant.QuantizationProfile = None,
-                       enharmonicOptions: scoring.enharmonics.EnharmonicOptions = None,
+                       quantizationProfile: str | quant.QuantizationProfile = None,
+                       enharmonicOptions: enharmonics.EnharmonicOptions = None,
                        nestedTuplets: bool | None = None
-                       ) -> scoring.quant.QuantizedScore:
+                       ) -> quant.QuantizedScore:
         """
         Returns a QuantizedScore representing this object
 
@@ -778,18 +781,20 @@ class MObj(ABC):
         list of QuantizedMeasures. To access the recursive notation structure of each measure
         call its :meth:`~maelzel.scoring.QuantizedMeasure.asTree` method
         """
-        w = Workspace.getActive()
+        w = Workspace.active
         if config is None:
             config = w.config
+
+        from maelzel.scoring import quant
 
         if not scorestruct:
             scorestruct = self.scorestruct() or w.scorestruct
         if quantizationProfile is None:
             quantizationProfile = config.makeQuantizationProfile()
         elif isinstance(quantizationProfile, str):
-            quantizationProfile = scoring.quant.QuantizationProfile.fromPreset(quantizationProfile)
+            quantizationProfile = quant.QuantizationProfile.fromPreset(quantizationProfile)
         else:
-            assert isinstance(quantizationProfile, scoring.quant.QuantizationProfile)
+            assert isinstance(quantizationProfile, quant.QuantizationProfile)
 
         if nestedTuplets is not None:
             quantizationProfile.nestedTuplets = nestedTuplets
@@ -797,19 +802,19 @@ class MObj(ABC):
         parts = self.scoringParts()
         if config['show.respellPitches'] and enharmonicOptions is None:
             enharmonicOptions = config.makeEnharmonicOptions()
-        qscore = scoring.quant.quantize(parts,
-                                        struct=scorestruct,
-                                        quantizationProfile=quantizationProfile,
-                                        enharmonicOptions=enharmonicOptions)
+        qscore = quant.quantize(parts,
+                                struct=scorestruct,
+                                quantizationProfile=quantizationProfile,
+                                enharmonicOptions=enharmonicOptions)
         return qscore
 
     def render(self,
                backend='',
-               renderoptions: scoring.render.RenderOptions = None,
+               renderoptions: render.RenderOptions = None,
                scorestruct: ScoreStruct = None,
                config: CoreConfig = None,
-               quantizationProfile: str | scoring.quant.QuantizationProfile = None
-               ) -> scoring.render.Renderer:
+               quantizationProfile: str | quant.QuantizationProfile = None
+               ) -> render.Renderer:
         """
         Renders this object as notation
 
@@ -857,12 +862,14 @@ class MObj(ABC):
             renderoptions = notation.makeRenderOptionsFromConfig(config)
         if not scorestruct:
             scorestruct = self.scorestruct() or w.scorestruct
+
+        from maelzel.scoring import quant
         if quantizationProfile is None:
             quantizationProfile = config.makeQuantizationProfile()
         elif isinstance(quantizationProfile, str):
-            quantizationProfile = scoring.quant.QuantizationProfile.fromPreset(quantizationProfile)
+            quantizationProfile = quant.QuantizationProfile.fromPreset(quantizationProfile)
         else:
-            assert isinstance(quantizationProfile, scoring.quant.QuantizationProfile)
+            assert isinstance(quantizationProfile, quant.QuantizationProfile)
 
         return _renderObject(self, backend=backend, renderoptions=renderoptions,
                              scorestruct=scorestruct, config=config,
@@ -910,6 +917,7 @@ class MObj(ABC):
 
         _renderImage(obj=self, outfile=outfile, backend=backend,
                      scorestruct=scorestruct, config=config)
+
         if not os.path.exists(outfile):
             # cached image does not exist?
             logger.debug(f"Error rendering {self}, the rendering process did not generate "
@@ -1014,6 +1022,7 @@ class MObj(ABC):
         if text is None:
             assert self.label
             text = self.label
+        from maelzel.textstyle import TextStyle
         labelstyle = TextStyle.parse(config['show.labelStyle'])
         return scoring.attachment.Text(text,
                                        fontsize=labelstyle.fontsize,
@@ -1032,7 +1041,7 @@ class MObj(ABC):
 
         .. seealso:: :meth:`MObj.scorestruct`
         """
-        return self.scorestruct() or Workspace.getActive().scorestruct
+        return self.scorestruct() or Workspace.active.scorestruct
 
     def _asBeat(self, time: beat_t) -> F:
         if isinstance(time, F):
@@ -1109,6 +1118,7 @@ class MObj(ABC):
             via ``pickle.load``: ``myobj = pickle.load(open('myobj.pickle'))``
         """
         if outfile == '?':
+            from . import _dialogs
             selected = _dialogs.selectFileForSave(key="writeLastDir",
                                                   filter="All formats (*.pdf, *.png, "
                                                          "*.ly, *.xml, *.mid)")
@@ -1141,21 +1151,28 @@ class MObj(ABC):
                                                config=cfg)
         r.write(outfile)
 
-    def _htmlImage(self) -> str:
+    def _htmlImage(self, scaleFactor: float = 0.) -> tuple[str, str]:
+        """
+        Returns a tuple of the image as a base64 string and the width and height of the image.
+
+        Args:
+            scaleFactor: The scale factor to apply to the image.
+
+        Returns:
+            A tuple `(base64 string of the image, html img tag)` representing the base64 string
+            of the image and the html img tag.
+        """
         imgpath = self._renderImage()
-        if not imgpath:
-            return ''
-        assert os.path.exists(imgpath), f"Image not found: '{imgpath}'"
-        scaleFactor = Workspace.getConfig().get('show.scaleFactor', 1.0)
         img64, width, height = _util.readImageAsBase64(imgpath)
-        html = _util.htmlImage64(img64=img64, imwidth=width, width=f'{int(width * scaleFactor)}px')
-        return html
+        if scaleFactor == 0.:
+            scaleFactor = Workspace.getConfig().get('show.scaleFactor', 1.0)
+        return img64, _util.htmlImage64(img64=img64, imwidth=width, width=f'{int(width * scaleFactor)}px')
 
     def _repr_html_header(self):
         return _html.escape(repr(self))
 
     def _repr_html_(self) -> str:
-        img = self._htmlImage()
+        img64, img = self._htmlImage()
         txt = self._repr_html_header()
         return rf'<code style="white-space: pre-line; font-size:0.9em;">{txt}</code><br>' + img
 
@@ -1164,6 +1181,7 @@ class MObj(ABC):
                              numchannels=2,
                              eventoptions={}
                              ) -> offline.OfflineRenderer:
+        from maelzel.core import offline
         r = offline.OfflineRenderer(sr=sr, numchannels=numchannels)
         events = self.synthEvents(**eventoptions)
         r.schedEvents(coreevents=events)
@@ -1284,7 +1302,7 @@ class MObj(ABC):
                 args = kwargs
 
         if workspace is None:
-            workspace = Workspace.getActive()
+            workspace = Workspace.active
 
         if (struct := self.scorestruct()) is not None:
             workspace = workspace.clone(scorestruct=struct, config=workspace.config)
@@ -1432,9 +1450,9 @@ class MObj(ABC):
             ...     Chord("4E 4G", 3).play(instr='piano')
         """
         if config is not None:
-            workspace = Workspace.getActive().clone(config=config)
+            workspace = Workspace.active.clone(config=config)
         elif workspace is None:
-            workspace = Workspace.getActive()
+            workspace = Workspace.active
 
         events = self.synthEvents(delay=delay,
                                   chan=chan,
@@ -1526,6 +1544,8 @@ class MObj(ABC):
                                   delay=delay, args=args, gain=gain,
                                   workspace=workspace,
                                   **kws)
+
+        from maelzel.core import offline
         return offline.render(outfile=outfile, events=events, sr=sr, wait=wait,
                               verbose=verbose, nchnls=nchnls, tail=extratime)
 
@@ -2047,7 +2067,7 @@ def _renderImage(obj: MObj,
                  config: CoreConfig,
                  backend: str,
                  scorestruct: ScoreStruct,
-                 ) -> scoring.render.Renderer:
+                 ) -> render.Renderer:
     assert outfile and config and backend and scorestruct
     ext = os.path.splitext(outfile)[1].lower()
     if ext not in ('.png', '.pdf'):
@@ -2076,7 +2096,7 @@ def _renderImageCached(obj: MObj,
                        backend: str,
                        scorestruct: ScoreStruct,
                        renderoptions: RenderOptions
-                       ) -> tuple[str, scoring.render.Renderer]:
+                       ) -> tuple[str, render.Renderer]:
     assert fmt in ('pdf', 'png')
     renderer = obj.render(backend=backend, renderoptions=renderoptions, scorestruct=scorestruct,
                           config=config)
@@ -2092,10 +2112,10 @@ def _renderObject(obj: MObj,
                   backend: str,
                   scorestruct: ScoreStruct,
                   config: CoreConfig,
-                  renderoptions: scoring.render.RenderOptions,
-                  quantizationProfile: scoring.quant.QuantizationProfile,
+                  renderoptions: render.RenderOptions,
+                  quantizationProfile: quant.QuantizationProfile,
                   check=True
-                  ) -> scoring.render.Renderer:
+                  ) -> render.Renderer:
     """
     Render an object
 

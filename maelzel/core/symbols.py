@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from typing import Sequence, Any
     from maelzel.core import mobj
     from maelzel.core import event
+    from maelzel.scoring import quant
 
 _uuid_alphabet = '0123456789abcdefghijklmnopqrstuvwxyz'
 
@@ -64,9 +65,15 @@ class Symbol:
         return _util.reprObj(self, hideFalsy=True)
 
     def getProperty(self, key: str, default=None) -> Any:
+        """
+        Get a property value by key, or return the default value if not found.
+        """
         return default if not self.properties else self.properties.get(key, default)
 
     def setProperty(self, key: str, value) -> None:
+        """
+        Set a property value by key.
+        """
         if self.properties is None:
             self.properties = {}
         self.properties[key] = value
@@ -82,6 +89,9 @@ class Symbol:
 
     def applyToTiedGroup(self, notations: Sequence[scoring.Notation], parent: mobj.MObj | None
                          ) -> None:
+        """
+        Apply this symbol to a group of tied notations, **inplace**.
+        """
         if self.applyToTieStrategy == 'all':
             for n in notations:
                 self.applyToNotation(n, parent=parent)
@@ -763,7 +773,8 @@ class Text(EventSymbol):
         self.box = box
 
     def __repr__(self):
-        return _util.reprObj(self, priorityargs=('text',),
+        return _util.reprObj(self, priorityargs=('text',), hideFalsy=True,
+                             quoteStrings=True,
                              filter={'italic': lambda val: val,
                                      'weight': lambda val: val != 'normal'})
 
@@ -1345,7 +1356,7 @@ class BeamBreak(EventSymbol, VoiceSymbol):
         self.location = location
         super().__init__()
 
-    def callback(self, qpart: scoring.quant.QuantizedPart) -> None:
+    def callback(self, qpart: quant.QuantizedPart) -> None:
         if self.location is None:
             raise ValueError("A BeamBreak can only be applied to a part if its location"
                              " is set.")

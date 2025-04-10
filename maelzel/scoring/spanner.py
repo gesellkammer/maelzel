@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import copy
-from typing import TYPE_CHECKING
 
 from maelzel._util import reprObj
 
 from . import definitions, util
 from .common import logger
 
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Iterable
     from typing_extensions import Self

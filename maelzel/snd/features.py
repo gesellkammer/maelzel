@@ -1,4 +1,5 @@
 from __future__ import annotations
+from emlib.iterlib import flatten
 import numpy as np
 import bpf4
 import bpf4.core
@@ -6,7 +7,7 @@ from emlib.numpytools import chunks
 from pitchtools import db2amp, amp2db
 
 from maelzel.snd import _common
-from maelzel.snd.numpysnd import numChannels, rmsbpf
+from maelzel.snd.numpysnd import numChannels, rmsBpf
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -276,7 +277,7 @@ def filterOnsets(onsets: np.ndarray,
 
     if rmsperiod > 0:
         if rmscurve is None:
-            rmscurve = rmsbpf(samples, sr=sr, dt=rmsperiod, overlap=2)
+            rmscurve = rmsBpf(samples, sr=sr, dt=rmsperiod, overlap=2)
         rmsdelay = rmsperiod * 2
         sel *= rmscurve.map(onsets + rmsdelay) > db2amp(minampdb)
     return sel
@@ -312,7 +313,7 @@ def findOffsets(onsets: list[float] | np.ndarray,
         is found before any silence is found
     """
     if rmscurve is None:
-        rmscurve = rmsbpf(samples, sr, dt=rmsperiod, overlap=2)
+        rmscurve = rmsBpf(samples, sr, dt=rmsperiod, overlap=2)
     assert rmscurve is not None
     end = len(samples) / sr
     offsets = []
@@ -335,7 +336,79 @@ def findOffsets(onsets: list[float] | np.ndarray,
     return offsets
 
 
-def centroidbpf(samples: np.ndarray,
+def voicedness(samples: np.ndarray,
+               sr: int,
+               fftsize: int = 2048,
+               overlap: int = 4,
+               winsize: int = 0,
+               minfreq: int = 50,
+               maxfreq: int = 16000,
+               magsumbins: int = 10,
+               window='hann') -> dict[str, np.ndarray]:
+    dur = len(samples) / sr
+    winsize = winsize or fftsize
+    hopsize = min(winsize, fftsize) // overlap
+    numdata = (len(samples) - fftsize + hopsize) // hopsize
+    wintype = {
+        'hamming': 0,
+        'hann': 1,
+        'kaiser': 3
+    }.get(window)
+    if wintype is None:
+        raise ValueError(f"Expected one of 'hamming', 'hann', 'kaiser', got '{window}'")
+
+    orc = r'''
+    instr analysis
+    |iaudiotab, isr, itimestab, iflatnesstab, icresttab, ipeakynesstab, iminfreq=50, imaxfreq=16000, imagsumbins=10, ifftsize, iwinsize, ihopsize, iwintype=0|
+    inumsamps = ftlen(iaudiotab)
+    kcount init 0
+    ktime = eventtime()
+    idatasize = ftlen(iflatnesstab)
+    asig poscil3 1, isr/inumsamps, iaudiotab
+    fsig = pvsanal(asig, ifftsize, ihopsize, iwinsize, iwintype)
+    kcrest = pvscrest(fsig, iminfreq, imaxfreq)
+    kflatness = pvsflatness(fsig)
+    kmagsum0 = pvsmagsum(fsig, iminfreq, imaxfreq)
+    kmagsum = pvsmagsumn(fsig, imagsumbins, iminfreq, imaxfreq)
+    kpeakyness = kmagsum0 == 0 ? 0 : kmagsum / kmagsum0
+    kframe = pvsframecount(fsig)
+    if changed(kframe) then
+        tabw ktime, kcount, itimestab
+        tabw kflatness, kcount, iflatnesstab
+        tabw kcrest, kcount, icresttab
+        tabw kpeakyness, kcount, ipeakynesstab
+    endif
+    if kcount == idatasize then
+        turnoff
+    endif
+    chnset kcount, "count"
+    kcount += 1
+    endin
+    '''
+    import csoundengine as ce
+    engine = ce.OfflineEngine(sr=sr, numAudioBuses=0, numControlBuses=0, commandlineOptions=['--nosound'])
+    # TODO
+    audiotab = engine.makeTable(samples, sr=sr)
+    timestab = engine.makeEmptyTable(numdata)
+    flatnesstab = engine.makeEmptyTable(numdata)
+    cresttab = engine.makeEmptyTable(numdata)
+    peakynesstab = engine.makeEmptyTable(numdata)
+    engine.compile(orc)
+    engine.sched('analysis', 0, dur=dur, args=[audiotab, sr, flatnesstab, cresttab, peakynesstab, minfreq, maxfreq, magsumbins, fftsize, winsize, hopsize, wintype])
+    engine.perform()
+    count = engine.getControlChannel("count")
+    assert count > 0
+    flatnessdata = engine.getTableData(flatnesstab).copy()
+    crestdata = engine.getTableData(cresttab).copy()
+    peakynessdata = engine.getTableData(peakynesstab).copy()
+    times = engine.getTableData(timestab).copy()
+    engine.stop()
+    return {'times': times, 'flatness': flatnessdata, 'crest': crestdata, 'peakyness': peakynessdata}
+
+
+
+
+def centroidBpf(samples: np.ndarray,
                 sr: int,
                 fftsize: int = 2048,
                 overlap: int = 4,

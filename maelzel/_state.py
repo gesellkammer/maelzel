@@ -1,9 +1,9 @@
 from configdict import ConfigDict
-from datetime import datetime
 from functools import cache
 
+
 _defaultState = {
-    'last_dependency_check': datetime(1900, 1, 1).isoformat(),
+    'last_dependency_check': '1900-01-01T00:00:00',
     'first_run': True
 }
 
@@ -22,4 +22,3 @@ def isFirstSession() -> bool:
         state['first_run'] = False
         return True
     return False
-

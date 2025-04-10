@@ -40,15 +40,15 @@ def rms(arr: np.ndarray) -> float:
     return math.sqrt(np.sum(arr) / len(arr))
 
 
-def rmsbpf(samples: np.ndarray, sr: int, dt=0.01, overlap=1) -> bpf4.core.Sampled:
+def rmsBpf(samples: np.ndarray, sr: int, dt=0.01, overlap=1) -> bpf4.core.Sampled:
     """
-    Return a bpf representing the rms of this sample as a function of time
+    Create a bpf representing the rms of this sample as a function of time
 
     Args:
         samples: the audio samples
         sr: the sample rate
         dt: analysis time period
-        overlap: overlap of analysis frames
+        overlap: overlap of analysis frames. The step time is ``dt / overlap``
 
     Returns:
         a Sampled bpf mapping time to rms
@@ -71,7 +71,7 @@ def peak(samples:np.ndarray) -> float:
     return amp2db(np.abs(samples).max())
 
 
-def peaksbpf(samples:np.ndarray, sr:int, res=0.01, overlap=2, channel=0
+def peaksBpf(samples:np.ndarray, sr:int, res=0.01, overlap=2, channel=0
              ) -> bpf4.core.Sampled:
     """
     Return a BPF representing the peaks envelope of the source with the
@@ -100,7 +100,7 @@ def peaksbpf(samples:np.ndarray, sr:int, res=0.01, overlap=2, channel=0
     return bpf4.core.Sampled(data, x0=0, dx=hopsamps/sr)
 
 
-def ampbpf(samples: np.ndarray, sr: int, attack=0.01, release=0.01, chunktime=0.05, overlap=2) -> bpf4.core.Sampled:
+def ampBpf(samples: np.ndarray, sr: int, attack=0.01, release=0.01, chunktime=0.05, overlap=2) -> bpf4.core.Sampled:
     """
     Constructs a sampled amplitude envelope from a sound signal.
 
@@ -173,7 +173,7 @@ def getChannel(array: np.ndarray, channel: int, ensureContiguous=False) -> np.nd
     return out
 
 
-def arrayFade(samples: np.ndarray, sr: int, fadetime: float,
+def applyFade(samples: np.ndarray, sr: int, fadetime: float,
               mode='inout', shape: str | Callable[[float], float] = 'linear',
               margin=0
               ) -> None:
@@ -210,13 +210,13 @@ def arrayFade(samples: np.ndarray, sr: int, fadetime: float,
     ramp = makeRamp(shape, fadeframes)
     if mode in ('in', 'inout'):
         mult(samples[margin:fadeframes+margin], ramp)
-        if margin>0:
+        if margin > 0:
             samples[:margin] = 0
     if mode in ('out', 'inout'):
         frame0 = max(0, len(samples)-fadeframes-margin)
         frame1 = min(frame0+fadeframes, numframes)
         mult(samples[frame0:frame1], ramp[::-1])
-        if margin>0:
+        if margin > 0:
             samples[-margin:] = 0
 
 

@@ -446,7 +446,7 @@ class Clip(event.MEvent):
                       parentOffset: F | None = None
                       ) -> list[scoring.Notation]:
         if not config:
-            config = Workspace.getActive().config
+            config = Workspace.active.config
         offset = self.absOffset()
         dur = self.dur
         notation = scoring.Notation.makeNote(pitch=self.pitch,

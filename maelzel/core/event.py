@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import math
 import functools
-from numbers import Rational
 
 from emlib import iterlib
 
@@ -30,13 +29,9 @@ import pitchtools as pt
 from maelzel.core import mobj
 from maelzel.common import F, asF, F0, F1, asmidi
 from maelzel import scoring
-from maelzel.scoring import enharmonics
-from maelzel.dynamiccurve import DynamicCurve
 from maelzel import _util
-from maelzel._util import showT
-
-from maelzel.common import UNSET, UnsetType
-from maelzel.core.workspace import getConfig, Workspace
+from maelzel.common import UNSET
+from maelzel.core.workspace import Workspace
 from maelzel.core.eventbase import MEvent
 from maelzel.core._common import MAXDUR, logger
 from maelzel.core import synthevent
@@ -50,7 +45,9 @@ if TYPE_CHECKING:
     from .config import CoreConfig
     from typing import Callable, Any, Sequence, Iterator
     from typing_extensions import Self
-    from maelzel.common import time_t, pitch_t, num_t
+    from maelzel.common import time_t, pitch_t, num_t, UnsetType
+    from maelzel.dynamiccurve import DynamicCurve
+
 
 
 
@@ -323,7 +320,7 @@ class Note(MEvent):
     def _canBeLinkedTo(self, other: MEvent) -> bool:
         if self.isRest() or not isinstance(other, (Note, Chord)) or other.isRest():
             return False
-        if self._gliss is True or (self.playargs and self.playargs.get('glisstime')):
+        if self._gliss is True or (self.playargs and self.playargs.get('glisstime', 0.) > 0.):
             return True
         if isinstance(other, Note):
             if self.tied and self.pitch == other.pitch:
@@ -471,7 +468,7 @@ class Note(MEvent):
     def __lt__(self, other: pitch_t | Note) -> bool:
         if isinstance(other, Note):
             return self.pitch < other.pitch
-        elif isinstance(other, (float, Rational)):
+        elif isinstance(other, (float, int, F)):
             return self.pitch < other
         elif isinstance(other, str):
             return self.pitch < pt.str2midi(other)
@@ -481,7 +478,7 @@ class Note(MEvent):
     def __gt__(self, other: pitch_t | Note) -> bool:
         if isinstance(other, Note):
             return self.pitch > other.pitch
-        elif isinstance(other, (float, Rational)):
+        elif isinstance(other, (float, int, F)):
             return self.pitch > other
         elif isinstance(other, str):
             return self.pitch > pt.str2midi(other)
@@ -536,7 +533,7 @@ class Note(MEvent):
                       parentOffset: F | None = None
                       ) -> list[scoring.Notation]:
         if not config:
-            config = getConfig()
+            config = Workspace.active.config
         offset = self.absOffset() if parentOffset is None else self.relOffset() + parentOffset
         dur = self.dur
         if self.isRest():
@@ -588,7 +585,7 @@ class Note(MEvent):
         if self.isRest():
             elements = ["REST"]
         else:
-            config = config or getConfig()
+            config = config or Workspace.active.config
             notename = self.name
             if (unicodeaccidentals := config['reprUseUnicodeAccidentals']):
                 full = unicodeaccidentals == 'full'
@@ -612,10 +609,10 @@ class Note(MEvent):
             if self.dur >= MAXDUR:
                 elements.append("dur=inf")
             else:
-                elements.append(f"{showT(self.dur)}♩")
+                elements.append(f"{_util.showT(self.dur)}♩")
 
         if self.offset is not None:
-            elements.append(f"offset={showT(self.offset)}")
+            elements.append(f"offset={_util.showT(self.offset)}")
 
         if self.gliss:
             if isinstance(self.gliss, bool):
@@ -629,10 +626,11 @@ class Note(MEvent):
         return elements
 
     def __repr__(self) -> str:
+        t = _util.showT
         if self.isRest():
             if self.offset is not None:
-                return f"Rest:{showT(self.dur)}♩:offset={showT(self.offset)}"
-            return f"Rest:{showT(self.dur)}♩"
+                return f"Rest:{t(self.dur)}♩:offset={t(self.offset)}"
+            return f"Rest:{t(self.dur)}♩"
         elements = self._asTableRow()
         if len(elements) == 1:
             return elements[0]
@@ -669,7 +667,7 @@ class Note(MEvent):
             - Any set pitch spelling is deleted
         """
         if step == 0:
-            step = 1 / getConfig()['semitoneDivisions']
+            step = 1 / Workspace.active.config['semitoneDivisions']
         out = self.clone(pitch=round(self.pitch / step) * step)
         if isinstance(self._gliss, (int, float)):
             self._gliss = round(self._gliss / step) * step
@@ -713,7 +711,7 @@ class Note(MEvent):
         Returns:
             the playback amplitude as a float between 0 and 1
         """
-        w = Workspace.getActive()
+        w = Workspace.active
         return self._resolveAmp(config=w.config, dyncurve=w.dynamicCurve)
 
     def _synthEvents(self,
@@ -729,8 +727,8 @@ class Note(MEvent):
             playargs = playargs.updated(self.playargs)
 
         amp = self._resolveAmp(config=conf, dyncurve=workspace.dynamicCurve)
-        glissdur = playargs.get('glisstime', None)
-        linkednext = self.gliss or glissdur
+        glissdur = playargs.get('glisstime', 0.)
+        linkednext = glissdur or self.gliss
         endpitch = self.resolveGliss() if linkednext else self.pitch
         startbeat = self.relOffset() + parentOffset
         startbeat = max(startbeat, playargs.get('skip', 0))
@@ -742,7 +740,7 @@ class Note(MEvent):
                              f"Object: {self}")
         transp = playargs.get('transpose', 0.)
         startpitch = self.pitch + transp
-        if glissdur is not None and glissdur > 0:
+        if glissdur > 0.:
             glissstart = float(struct.beatToTime(max(startbeat, endbeat - glissdur)))
             bps = [[startsecs,  startpitch,        amp],
                    [glissstart, startpitch,        amp],
@@ -803,7 +801,7 @@ class Note(MEvent):
 
     def resolveDynamic(self, conf: CoreConfig = None) -> str:
         if conf is None:
-            conf = getConfig()
+            conf = Workspace.active.config
         # TODO: query the parent to see the currently active dynamic
         return self.dynamic or conf['play.defaultDynamic']
 
@@ -1159,7 +1157,7 @@ class Chord(MEvent):
                       parentOffset: F | None = None
                       ) -> list[scoring.Notation]:
         if not config:
-            config = getConfig()
+            config = Workspace.active.config
         notenames = [note.name for note in self.notes]
         annot = '' if not self.label else self._scoringAnnotation(config=config)
         dur = self.dur
@@ -1287,7 +1285,7 @@ class Chord(MEvent):
         only the first one is kept.
         """
         if step == 0:
-            step = 1 / getConfig()['semitoneDivisions']
+            step = 1 / Workspace.active.config['semitoneDivisions']
         seenmidi = set()
         notes = []
         for note in self:
@@ -1455,6 +1453,7 @@ class Chord(MEvent):
     def _bestSpelling(self) -> tuple[str, ...]:
         notenames = [n.pitchSpelling + '!' if n.pitchSpelling else n.name
                      for n in self.notes]
+        from maelzel.scoring import enharmonics
         return enharmonics.bestChordSpelling(notenames)
 
     def __repr__(self):

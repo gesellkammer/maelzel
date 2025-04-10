@@ -13,7 +13,6 @@ from maelzel.core.presetdef import PresetDef
 from maelzel.core import presetmanager
 from maelzel.core.workspace import getConfig, Workspace
 from maelzel.core import environment
-from maelzel.core import _dialogs
 from maelzel.core import _playbacktools
 from maelzel.core.synthevent import SynthEvent
 from maelzel.core.renderer import Renderer
@@ -345,7 +344,7 @@ def _playEngine(numchannels: int = None,
 
     .. seealso:: :func:`getAudioDevices`
     """
-    config = Workspace.getActive().config
+    config = Workspace.active.config
     engineName = config['play.engineName']
     if engine := csoundengine.Engine.activeEngines.get(engineName):
         if any(_ is not None for _ in (numchannels, backend, outdev, verbose, buffersize, latency)):
@@ -359,6 +358,7 @@ def _playEngine(numchannels: int = None,
     numchannels = numchannels or config['play.numChannels']
     if backend == "?":
         backends = [b.name for b in csoundengine.csoundlib.audioBackends(available=True)]
+        from maelzel.core import _dialogs
         backend = _dialogs.selectFromList(backends, title="Select Backend")
     backend = backend or config['play.backend']
     verbose = verbose if verbose is not None else config['play.verbose']
@@ -772,7 +772,7 @@ class SynchronizedContext(Renderer):
         self.synthgroup: csoundengine.synth.SynthGroup | None = None
         """A SynthGroup holding all scheduled synths during the context"""
 
-        self.workspace: Workspace = Workspace.getActive()
+        self.workspace: Workspace = Workspace.active
         """The workspace active as the context manager is created"""
 
         self._instrDefs: dict[str, csoundengine.instr.Instr] = {}
@@ -987,7 +987,7 @@ class SynchronizedContext(Renderer):
         """
         if self._insideContext:
             raise RuntimeError("Alread inside this context")
-        self.workspace = workspace = Workspace.getActive()
+        self.workspace = workspace = Workspace.active
         for action in self._enterActions:
             action(self)
 
