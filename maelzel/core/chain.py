@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from re import L
 import sys
 
 from maelzel.scorestruct import ScoreStruct
@@ -138,30 +139,6 @@ class Chain(MContainer):
                  properties: dict[str, Any] = None,
                  parent: MContainer = None,
                  _init=True):
-        if isinstance(items,  str):
-            _init = True
-
-        if _init:
-            if offset is not None:
-                offset = offset if isinstance(offset, F) else asF(offset)
-            if items is not None:
-                if isinstance(items, str):
-                    # split using new lines and semicolons as separators
-                    tokens = _tools.regexSplit('[\n; ]', items, strip=True, removeEmpty=True)
-                    tokens = [_tools.stripNoteComments(token) for token in tokens]
-                    items = [asEvent(tok) for tok in tokens if tok]
-
-                else:
-                    items = [item if isinstance(item, (MEvent, Chain)) else asEvent(item)
-                             for item in items]
-        else:
-            assert isinstance(offset, F)
-
-        super().__init__(offset=offset,
-                         label=label,
-                         properties=properties,
-                         parent=parent)
-
         self._modified = bool(items)
         """True if this object was modified and needs to be updated"""
 
@@ -176,6 +153,45 @@ class Chain(MContainer):
         self._hasRedundantOffsets = True
         """Assume redundant offsets at creation"""
 
+        if isinstance(items,  str):
+            _init = True
+
+        if _init:
+            if offset is not None:
+                offset = offset if isinstance(offset, F) else asF(offset)
+            if items is None:
+                items = []
+            else:
+                if isinstance(items, str):
+                    # split using new lines and semicolons as separators
+                    tokens = _tools.regexSplit('[\n; ]', items, strip=True, removeEmpty=True)
+                    tokens = [_tools.stripNoteComments(token) for token in tokens]
+                    items = [asEvent(tok) for tok in tokens if tok]
+
+                else:
+                    uniqueitems = []
+                    for item in items:
+                        if isinstance(item, MEvent):
+                            uniqueitems.append(item if item.parent is None or item.parent is self else item.copy())
+                        elif isinstance(item, Chain):
+                            uniqueitems.append(item)
+                        else:
+                            uniqueitems.append(asEvent(item))
+                    items = uniqueitems
+                for item in items:
+                    item.parent = self
+        else:
+            assert offset is None or isinstance(offset, F), f"Expected a Fraction, got {offset}"
+            if items:
+                for item in items:
+                    assert isinstance(item, (MEvent, Chain)), f"Expected an MEvent or Chain, got {type(item)}"
+                    item.parent = self
+
+        super().__init__(offset=offset,
+                         label=label,
+                         properties=properties,
+                         parent=parent)
+
         if items is None:
             items = []
         elif items and not isinstance(items, list):
@@ -184,11 +200,6 @@ class Chain(MContainer):
         self.items: list[MEvent | Chain] = items  # type: ignore
         """The items in this chain, a list of events of other chains"""
 
-        for item in items:
-            assert isinstance(item, (MEvent, Chain)), f"Item {item} should be a MEvent or a Chain, got: {type(item)}"
-            if item.parent is not None and item.parent is not self:
-                logger.debug(f"Switching parent for {item}, from {item.parent} to {self}")
-            item.parent = self
 
     def _check(self):
         for item in self.items:
@@ -208,15 +219,11 @@ class Chain(MContainer):
 
     def clone(self,
               items: Sequence[MEvent | Chain] | None = None,
-              offset: time_t | None | UnsetType = UNSET,
+              offset: time_t | None = -1,
               label: str | None = None,
               properties: dict | None = None
               ) -> Self:
-        if isinstance(offset, UnsetType):
-            offset = None if self.offset is None else self.offset
-        elif offset is not None:
-            offset = asF(offset)
-
+        offset = None if offset is None else asF(offset) if offset >= 0 else self.offset
         if items is None:
             items = [item.copy() for item in self.items]
         out = self.__class__(items=items,
@@ -445,8 +452,7 @@ class Chain(MContainer):
             To remove any redundant .offset call :meth:`Chain.removeRedundantOffsets`
 
         Args:
-            forcecopy: all items in the returned Chain are a copy of self, even if
-                self is already flat
+            forcecopy: return a new chain, even if self is already flat
 
         Returns:
             a flat chain
@@ -458,19 +464,15 @@ class Chain(MContainer):
         if not forcecopy and all(isinstance(item, MEvent) for item in self.items) and self.hasOffsets():
             return self
 
-        flatevents = self.eventsWithOffset()
         ownoffset = self.absOffset()
-        events = []
-        if ownoffset == F0:
-            for ev, offset in flatevents:
-                if ev.offset == offset and not forcecopy:
-                    events.append(ev)
-                else:
-                    events.append(ev.clone(offset=offset))
-        else:
-            for ev, offset in flatevents:
-                events.append(ev.clone(offset=offset - ownoffset))
-        return self.clone(items=events)
+        events = [ev.clone(offset=offset - ownoffset) for ev, offset in self.eventsWithOffset()]
+        _resolveGlissandi(events)
+        postsymbols = self._flatPostSymbols(self.getConfig() or Workspace.active.config)
+        out = self.clone(items=events)
+        if postsymbols:
+            out._postSymbols.extend(postsymbols)
+            out._postSymbols.sort(key=lambda pair: pair[0])
+        return out
 
     def pitchRange(self) -> tuple[float, float] | None:
         pitchRanges = [pitchrange for item in self.items
@@ -1002,7 +1004,31 @@ class Chain(MContainer):
             config = Workspace.active.config
         from maelzel.textstyle import TextStyle
         labelstyle = TextStyle.parse(config['show.labelStyle'])
-        return symbols.Text(text=label, fontsize=labelstyle.fontsize, italic=labelstyle.italic, weight=labelstyle.weight, color=labelstyle.color)
+        return symbols.Text(text=label, fontsize=labelstyle.fontsize, italic=labelstyle.italic, weight="bold" if labelstyle.bold else "normal", color=labelstyle.color)
+
+    def _applyChainSymbols(self):
+        for item in self.items:
+            if isinstance(item, Chain):
+                item._applyChainSymbols()
+            elif self.symbols:
+                for symbol in self.symbols:
+                    if isinstance(symbol, symbols.EventSymbol) and not isinstance(symbol, symbols.VoiceSymbol):
+                        item.getProperty('.tempsymbols', []).append(symbol)
+
+    def _collectSubLabels(self, config: CoreConfig) -> Iterator[tuple[F, str]]:
+        for item in self.items:
+            if isinstance(item, Chain):
+                if item.label:
+                    yield (item.absOffset(), item.label)
+                yield from item._collectSubLabels(config)
+
+    def _flatPostSymbols(self, config: CoreConfig) -> list[tuple[time_t, symbols.Symbol]]:
+        postsymbols = self._postSymbols.copy() if self._postSymbols else []
+        sublabels = list(self._collectSubLabels(config))
+        for offset, label in sublabels:
+            postsymbols.append((offset, Chain._labelSymbol(label, config)))
+        postsymbols.sort(key=lambda x: x[0])
+        return postsymbols
 
     def scoringEvents(self,
                       groupid='',
@@ -1033,50 +1059,11 @@ class Chain(MContainer):
 
         config = self.getConfig(prototype=config) or config
 
-        # collect all labels
-        def collect_labels(chain: Chain, labels: list[tuple[str, F]] = None):
-            if labels is None:
-                labels = []
-            if chain.label:
-                labels.append((chain.label, chain.absOffset()))
-            for item in chain.items:
-                if isinstance(item, Chain):
-                    _ = collect_labels(item, labels)
-            return labels
+        self._applyChainSymbols()
 
-        labels = collect_labels(self)
-
-        if self._postSymbols or labels:
-            postsymbols = self._postSymbols.copy() if self._postSymbols else []
-            # TODO: no need to copy the whole chain just to split some events
-            self = self.copy()
-            for label, offset in labels:
-                # notes[0].addText(self._scoringAnnotation(text=chainlabel, config=config))
-                postsymbols.append((offset, self._labelSymbol(label, config=config)))
-            postsymbols.sort(key=lambda x: x[0])
-            for offset, symbol in postsymbols:
-                event = self.splitAt(offset, beambreak=False)
-                if event:
-                    event.addSymbol(symbol)
-                else:
-                    logger.error(f"No event found at {offset} for symbol {symbol}")
-
-        # TODO: no need to create a copy of the events
-        chainEvents = self.flatEvents()
         allNotations: list[scoring.Notation] = []
-
-        if self.label and chainEvents[0].relOffset() > 0:
-            firstrest = scoring.Notation.makeRest(duration=chainEvents[0].dur, annotation=self.label)
-            allNotations.append(firstrest)
-
-        for event in chainEvents:
-            eventNotations = event.scoringEvents(groupid=groupid, config=config)
-            if self.symbols:
-                for s in self.symbols:
-                    if isinstance(s, symbols.EventSymbol) and not isinstance(s, symbols.VoiceSymbol):
-                        for n in eventNotations:
-                            s.applyToNotation(n, parent=event)
-            allNotations.extend(eventNotations)
+        for event, offset in self.eventsWithOffset():
+            allNotations.extend(event.scoringEvents(groupid=groupid, config=config))
 
         if len(allNotations) > 1:
             n0 = allNotations[0]
@@ -1084,6 +1071,42 @@ class Chain(MContainer):
                 if n0.tiedNext and not n1.isRest:
                     n1.tiedPrev = True
                 n0 = n1
+
+        def _notationAt(notations: list[scoring.Notation], offset: F) -> int | None:
+            for i, notation in enumerate(notations):
+                noffset = notation.qoffset
+                if noffset > offset:
+                    return None
+                elif noffset <= offset < noffset + notation.duration:
+                    return i
+            return None
+
+        if postsymbols := self._flatPostSymbols(config):
+            sco = self.activeScorestruct()
+            postsymbols = [(sco.asBeat(offset), symbol) for offset, symbol in postsymbols]
+            if self.label:
+                postsymbols.append((self.absOffset(), Chain._labelSymbol(self.label, config)))
+                postsymbols.sort(key=lambda x: x[0])
+            offsets = [offset for offset, symbol in postsymbols]
+            allNotations = scoring.Notation.splitNotationsAtOffsets(allNotations, offsets)
+            assert all(n0.offset is not None and n1.offset is not None and n0.offset < n1.offset for n0, n1 in iterlib.pairwise(allNotations)), f"notations: {allNotations}"
+            for offset, symbol in postsymbols:
+                nindex = _notationAt(allNotations, sco.asBeat(offset))
+                if nindex is None:
+                    # we need to create rest starting from this offset and ending at the next notation
+                    nextidx = next((i for i, n in enumerate(allNotations) if n.qoffset > offset), None)
+                    if nextidx is None:
+                        rest = scoring.Notation.makeRest(duration=F(1), offset=offset)
+                        symbol.applyToNotation(rest, parent=None)
+                        allNotations.append(rest)
+                    else:
+                        nextnot = allNotations[nextidx]
+                        rest = scoring.Notation.makeRest(duration=nextnot.qoffset - offset, offset=offset)
+                        symbol.applyToNotation(rest, parent=None)
+                        allNotations.insert(nextidx, rest)
+                else:
+                    n = allNotations[nindex]
+                    symbol.applyToNotation(n, parent=None)
 
         return allNotations
 
@@ -1122,7 +1145,7 @@ class Chain(MContainer):
             parts = [scoring.core.UnquantizedPart(notations, name=name, shortname=shortname)]
         else:
             parts = scoring.core.distributeNotationsByClef(notations, name=name, shortname=shortname,
-                                                      maxstaves=maxstaves)
+                                                           maxstaves=maxstaves)
             if len(parts) > 1 and groupParts:
                 scoring.core.UnquantizedPart.groupParts(parts, name=name, shortname=shortname)
 

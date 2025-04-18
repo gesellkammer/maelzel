@@ -366,6 +366,7 @@ class Note(MEvent):
         out.pitchSpelling = self.pitchSpelling
         out._scorestruct = self._scorestruct
         self._copyAttributesTo(out)
+        assert out._parent is None
         return out
 
     def clone(self,
@@ -433,7 +434,7 @@ class Note(MEvent):
 
     def isRest(self) -> bool:
         """ Is this a Rest? """
-        return self.amp == 0 and self.pitch == 0
+        return self.pitch == 0
 
     def pitchRange(self) -> tuple[float, float] | None:
         return self.pitch, self.pitch
@@ -527,6 +528,17 @@ class Note(MEvent):
         """The fractional part of this pitch, rounded to the cent"""
         return _tools.midicents(self.pitch)
 
+    def scoringParts(self, config: CoreConfig = None) -> list[scoring.core.UnquantizedPart]:
+        if self.isRest():
+            notations = self.scoringEvents(config=config)
+            assert len(notations) == 1
+            notations[0].mergeableNext = False
+            notations[0].addAttachment(scoring.attachment.Breath(visible=False, horizontalPlacement='post'))
+            return [scoring.core.UnquantizedPart(notations)]
+        else:
+            return super().scoringParts(config)
+
+
     def scoringEvents(self,
                       groupid='',
                       config: CoreConfig = None,
@@ -536,12 +548,21 @@ class Note(MEvent):
             config = Workspace.active.config
         offset = self.absOffset() if parentOffset is None else self.relOffset() + parentOffset
         dur = self.dur
+
+        def _mergeOptionalLists(a: list | None, b: list | None) -> list | None:
+            if a is None:
+                return b
+            elif b is None:
+                return a
+            return a + b
+
         if self.isRest():
             rest = scoring.Notation.makeRest(dur, offset=offset, dynamic=self.dynamic)
             if self.label:
                 rest.addText(self.label, role='label')
-            if self.symbols:
-                for symbol in self.symbols:
+            tempsymbols = self.properties.pop('.tempsymbols', None) if self.properties else None
+            if (symbols := _mergeOptionalLists(tempsymbols, self.symbols)) is not None:
+                for symbol in symbols:
                     if isinstance(symbol, _symbols.EventSymbol) and symbol.appliesToRests:
                         symbol.applyToNotation(rest, parent=self)
             return [rest]
@@ -576,8 +597,9 @@ class Note(MEvent):
         elif chainlabel := self.getProperty('.chainlabel'):
             notes[0].addText(self._scoringAnnotation(text=chainlabel, config=config))
 
-        if self.symbols:
-            for symbol in self.symbols:
+        tempsymbols = self.properties.pop('.tempsymbols', None) if self.properties else None
+        if (symbols := _mergeOptionalLists(tempsymbols, self.symbols)) is not None:
+            for symbol in symbols:
                 symbol.applyToTiedGroup(notes, parent=self)
         return notes
 

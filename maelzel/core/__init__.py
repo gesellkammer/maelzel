@@ -1,18 +1,19 @@
 # API
 from .config import CoreConfig
-from .workspace import Workspace, getConfig
-from .event import Note, Chord, asEvent
+from .workspace import Workspace, getConfig, setScoreStruct
+from .event import Note, Chord, asEvent, Rest
 from .chain import Chain, Voice
 from .score import Score
 from .playback import play, getSession
 from .offline import render
+from . import symbols
 from .presetmanager import presetManager, defPreset
 from ._common import logger
 from . import _appstate
 
 from maelzel.scorestruct import ScoreStruct
-
 from maelzel.common import F
+
 # from . import synthevent
 
 
@@ -22,6 +23,7 @@ __all__ = [
     'Note',
     'Chord',
     'asEvent',
+    'Rest',
     'Chain',
     'Voice',
     'Score',
@@ -31,10 +33,12 @@ __all__ = [
     'presetManager',
     'defPreset',
     'ScoreStruct',
+    'setScoreStruct',
     'F',
     # 'synthevent',
     'getConfig',
-    'logger'
+    'logger',
+    'symbols'
 ]
 
 

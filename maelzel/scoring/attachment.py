@@ -29,7 +29,7 @@ class Attachment:
     priority = 100
     copyToSplitNotation = False
 
-    def __init__(self, color='', instancePriority=0, anchor: int = None):
+    def __init__(self, color='', instancePriority=0, anchor: int = None, horizontalPlacement: str = ''):
         self.color: str = color
         """The color of this attachment, if applicable"""
 
@@ -38,8 +38,11 @@ class Attachment:
         negative priority will place this attachment nearer to the note/notehead"""
 
         self.anchor: int | None = anchor
-        """if given, in index corresponding to the notehead this attachment should be
+        """if given, an index corresponding to the notehead this attachment should be
         anchored to."""
+
+        self.horizontalPlacement: str = horizontalPlacement
+        """The horizontal placement of the attachment, one of '', 'pre' or 'post """
 
     def getPriority(self) -> int:
         return self.priority + self.instancePriority
@@ -207,13 +210,14 @@ class Bend(Attachment):
 class Breath(Attachment):
     exclusive = True
 
-    def __init__(self, kind='', visible=True, placement='above'):
+    def __init__(self, kind='', visible=True, placement='above', horizontalPlacement='pre'):
         super().__init__()
         if kind:
             assert kind in definitions.breathMarks, f'Kind unknown, supported values are {definitions.breathMarks}'
         self.kind = kind
         self.visible = visible
         self.placement = placement
+        self.horizontalPlacement = horizontalPlacement
 
     def __hash__(self):
         return hash(('Breath', self.kind, self.visible))
@@ -296,7 +300,7 @@ class Text(Attachment):
         self.role = role
 
     def __repr__(self):
-        return _util.reprObj(self, hideFalsy=True, hideEmptyStr=True, priorityargs=('text',))
+        return _util.reprObj(self, hideFalsy=True, hideEmptyStr=True, priorityargs=('text',), quoteStrings=('text',), hideKeys=('text',))
 
     def __hash__(self) -> int:
         return hash(('Text', self.text, self.placement, self.fontsize, self.box))

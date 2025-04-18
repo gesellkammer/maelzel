@@ -14,7 +14,7 @@ from . import attachment
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Union
+    pass
 
 
 __all__ = (
@@ -42,6 +42,12 @@ def renderQuantizedScore(score: quant.QuantizedScore,
         a Renderer
     """
     assert isinstance(options, RenderOptions)
+    assert len(score.parts) > 0
+    # if len(score.parts) == 0:
+
+    #     measure0 = score.scorestruct.measuredefs[0]
+    #     part = core.UnquantizedPart(notations=[core.Notation.makeRest(measure0.beatStructure()[0].duration)])
+    #     score = quant.quantize(parts=[part], struct=score.scorestruct)
 
     backend = options.backend
 

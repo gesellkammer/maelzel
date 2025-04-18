@@ -202,7 +202,7 @@ class MObj(ABC):
     def parent(self, parent: MContainer):
         if self._parent is not None and parent is not self._parent:
             if self in self._parent:
-                raise ValueError(f"Cannot set the parent for {self} to {parent}, since "
+                raise ValueError(f"Cannot set the parent for {self}, since "
                                  f"it already is a part of {self._parent}")
         self._parent = parent
 
@@ -688,7 +688,8 @@ class MObj(ABC):
              external: bool = None,
              backend='',
              scorestruct: ScoreStruct = None,
-             resolution: int = None
+             resolution: int = None,
+             **kws
              ) -> None:
         """
         Show this as notation.
@@ -706,10 +707,20 @@ class MObj(ABC):
             config: if given overrides the current/default config
             resolution: dpi resolution when rendering to an image, overrides the
                 :ref:`config key 'show.pngResolution' <config_show_pngresolution>`
+            kws: any keyword is used to override a config setting under the ``show.``
+                prefix.
         """
         cfg = self.getConfig() or Workspace.active.config
-        if resolution:
-            cfg = cfg.clone({'show.pngResolution': resolution})
+
+        if resolution or kws:
+            cfg = cfg.copy()
+            if resolution:
+                cfg['show.pngResolution'] = resolution
+            for kw, value in kws.items():
+                if kw in cfg:
+                    cfg[kw] = value
+                else:
+                    logger.warning(f'Invalid keyword {kw}, no key {configkey} found in config')
 
         if external is None:
             external = cfg['openImagesInExternalApp']
@@ -1085,7 +1096,8 @@ class MObj(ABC):
     def write(self,
               outfile: str,
               backend='',
-              resolution: int = None
+              resolution: int = None,
+              format=''
               ) -> None:
         """
         Export to multiple formats
@@ -1104,6 +1116,9 @@ class MObj(ABC):
                 image so MuseScore needs to be installed)
             resolution: image DPI (only valid if rendering to an image) - overrides
                 the :ref:`config key 'show.pngResolution' <config_show_pngresolution>`
+            format: the format to write to. If not given, the format is inferred from the
+                extension of the output file. If the extension is not recognized, an error is raised.
+                One of 'pdf', 'png', 'lilypond', 'musicxml', 'midi', 'csd', 'pickle'.
 
         Formats
         -------
@@ -1128,21 +1143,33 @@ class MObj(ABC):
             outfile = selected
         ext = os.path.splitext(outfile)[1]
         cfg = Workspace.getConfig()
-        if ext == '.ly' or ext == '.mid' or ext == '.midi':
+        if not format:
+            format = {
+                '.ly': 'lilypond',
+                '.mid': 'midi',
+                '.midi': 'midi',
+                '.xml': 'musicxml',
+                '.musicxml': 'musicxml',
+                '.csd': 'csd',
+                '.pickle': 'pickle'
+            }.get(ext)
+        if format == 'lilypond' or format == 'midi':
             backend = 'lilypond'
-        elif ext == '.xml' or ext == '.musicxml':
+        elif format == 'musicxml':
             backend = 'musicxml'
-        elif ext == '.csd':
+        elif format == 'csd':
             renderer = self._makeOfflineRenderer()
             renderer.writeCsd(outfile)
             return
-        elif ext == '.pickle':
+        elif format == 'pickle':
             import pickle
             with open(outfile, 'wb') as f:
                 pickle.dump(self, f)
             return
         elif not backend:
             backend = cfg['show.backend']
+        elif format not in ('pdf', 'png'):
+            raise ValueError(f"Unsupported format: {format}")
         if resolution is not None:
             cfg = cfg.clone(updates={'show.pngResolution': resolution})
         r = notation.renderWithActiveWorkspace(self.scoringParts(config=cfg),
@@ -1962,7 +1989,7 @@ class MContainer(MObj):
 
     def getConfig(self, prototype: CoreConfig = None) -> CoreConfig | None:
         if not self.parent:
-            return None if not self._config else (prototype or Workspace.getConfig()).clone(self._config)
+            return None if not self._config else (prototype or Workspace.active.config).clone(self._config)
         parentconfig = self.parent.getConfig(prototype)
         if parentconfig is not None and self._config is not None:
             return parentconfig.clone(self._config)
@@ -2150,7 +2177,13 @@ def _renderObject(obj: MObj,
     assert scorestruct and config
     assert isinstance(backend, str) and backend in ('musicxml', 'lilypond')
     parts = obj.scoringParts()
-    if check:
+    if not parts:
+        if config['show.warnIfEmpty']:
+            logger.warning(f"The object {obj} did not produce any scoring parts")
+        measure0 = scorestruct.measuredefs[0]
+        part = scoring.core.UnquantizedPart(notations=[scoring.Notation.makeRest(measure0.beatStructure()[0].duration)])
+        parts = [part]
+    elif check:
         for part in parts:
             part.check()
     renderer = notation.renderWithActiveWorkspace(parts,

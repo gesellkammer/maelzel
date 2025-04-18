@@ -284,27 +284,7 @@ def _evalGridError(profile: QuantizationProfile,
     return error
 
 
-def _beatNodes(beats: list[QuantizedBeat]) -> list[Node]:
-    """
-    Returns the contents of this measure grouped as a list of Nodes
-    """
-    if not beats:
-        return []
-    nodes = [beat.asTree().mergedNotations() for beat in beats]
 
-    def removeUnnecessaryChildrenInplace(node: Node) -> None:
-        items = []
-        for item in node.items:
-            if isinstance(item, Node) and len(item.items) == 1:
-                item = item.items[0]
-            items.append(item)
-        node.items = items
-
-    for node in nodes:
-        removeUnnecessaryChildrenInplace(node)
-
-    assert sum(node.totalDuration() for node in nodes) == sum(beat.duration for beat in beats)
-    return nodes
 
 
 class QuantizedBeat:
@@ -580,9 +560,9 @@ class QuantizedMeasure:
         stream = stream or sys.stdout
         print(f"{ind}Timesig: {self.timesig}"
               f"(quarter={self.quarterTempo})", file=stream)
-        if self.empty():
-            print(f"{ind}EMPTY", file=stream)
-        elif tree:
+        # if self.empty():
+        #    print(f"{ind}EMPTY", file=stream)
+        if tree:
             self.tree.dump(numindents, indent=indent, stream=stream)
         elif self.beats:
             for beat in self.beats:
@@ -610,8 +590,8 @@ class QuantizedMeasure:
         if not self.beats:
             return Node()
 
-        return _makeTree(beats=self.beats, beatOffsets=self.beatOffsets(),
-                         quantprofile=self.quantprofile)
+        return _makeTreeFromQuantizedBeats(beats=self.beats, beatOffsets=self.beatOffsets(),
+                                           quantprofile=self.quantprofile)
 
     def logicalTies(self) -> list[list[TreeLocation]]:
         return self.tree.logicalTieLocations(measureIndex=self.measureIndex())
@@ -742,20 +722,37 @@ def _crossesSubdivisions(slotStart: int, slotEnd: int, slotsAtSubdivs: list[int]
     return False
 
 
-def _makeTree(beats: list[QuantizedBeat],
-              beatOffsets: list[F],
-              quantprofile: QuantizationProfile
-              ) -> Node:
+def _makeTreeFromQuantizedBeats(beats: list[QuantizedBeat],
+                                beatOffsets: list[F],
+                                quantprofile: QuantizationProfile
+                                ) -> Node:
     """
     Returns the root of a tree of Nodes representing the items in this measure
     """
     if not beats:
         return Node()
 
-    root = Node.asTree(_beatNodes(beats))
+    nodes = [beat.asTree().mergedNotations() for beat in beats]
+
+    def removeUnnecessaryChildrenInplace(root: Node) -> None:
+        items = []
+        for item in root.items:
+            if isinstance(item, Node) and len(item.items) == 1:
+                assert item.durRatio == root.durRatio
+                item = item.items[0]
+                removeUnnecessaryChildrenInplace(item)
+            items.append(item)
+        root.items = items
+
+    #for node in nodes:
+    #    removeUnnecessaryChildrenInplace(node)
+
+    assert sum(node.totalDuration() for node in nodes) == sum(beat.duration for beat in beats)
+
+    root = Node.asTree(nodes)
+    # removeUnnecessaryChildrenInplace(root)
     root.check()
-    root = _mergeSiblings(root, profile=quantprofile, beatOffsets=beatOffsets)
-    root.repair()
+    root = mergeSiblings(root, profile=quantprofile, beatOffsets=beatOffsets)
 
     if root.totalDuration() != sum(beat.duration for beat in beats):
         raise ValueError(f"Duration mismatch in tree, root dur: {root.totalDuration()}, beats dur: {sum(beat.duration for beat in beats)}")
@@ -1014,9 +1011,10 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
 
     if div != (1,) and len(beatNotations) == 1 and len(assignedSlots) == 1 and assignedSlots[0] == 0:
         div = (1,)
-    elif all(n.isRest for n in beatNotations) and len(beatNotations) > 1:
-        beatNotations = [beatNotations[0].clone(duration=beatDuration)]
+    elif len(beatNotations) > 1 and all(n.isRest for n in beatNotations) and all(n0.canMergeWith(n1) for n0, n1 in iterlib.pairwise(beatNotations)):
+        measureRest = beatNotations[0].clone(duration=beatDuration)
         div = (1,)
+        beatNotations = [measureRest]
 
     assert sum(n.duration for n in beatNotations) == beatDuration, f"{beatDuration=}, {beatNotations=}"
     return QuantizedBeat(div, assignedSlots=assignedSlots, notations=beatNotations,
@@ -1481,12 +1479,13 @@ def _mergeNodes(node1: Node,
         The merged node.
     """
     # we don't check here, just merge
+    assert node1.parent is node2.parent
     node = Node(ratio=node1.durRatio, items=node1.items + node2.items, parent=node1.parent)
     node = node.mergedNotations()
     out = _mergeSiblings(node, profile=profile, beatOffsets=beatOffsets)
-    assert node1.parent is node2.parent
     out.parent = node1.parent
     out.setParentRecursively()
+    logger.debug(f"---- Merged: {out}")
     return out
 
 
@@ -1537,6 +1536,8 @@ def _nodesCanMerge(g1: Node,
     if g1.durRatio == (1, 1) and len(g1) == len(g2) == 1:
         if g1last.gliss and g1last.tiedPrev and g1.symbolicDuration() + g2.symbolicDuration() > 1:
             return Result.Fail('A glissando over a beat needs to be broken at the beat')
+        if not g1last.canMergeWith(g2first):
+            return Result.Fail('Cannot merge notations')
         # Special case: always merge binary beats with single items since there is always
         # a way to notate those
         return Result.Ok()
@@ -1634,12 +1635,19 @@ def _nodesCanMerge(g1: Node,
         return Result.Ok()
 
 
+def mergeSiblings(root: Node, profile: QuantizationProfile, beatOffsets: list[F]) -> Node:
+    newroot = _mergeSiblings(root, profile=profile, beatOffsets=beatOffsets)
+    newroot.setParentRecursively()
+    newroot.repair()
+    return newroot
+
+
 def _mergeSiblings(root: Node,
                    profile: QuantizationProfile,
                    beatOffsets: list[F],
                    ) -> Node:
     """
-    Merge sibling tree of the same kind, if possible
+    Merge sibling tree of the same kind, if possible (recursively)
 
     Args:
         root: the root of a tree of Nodes
@@ -1650,52 +1658,45 @@ def _mergeSiblings(root: Node,
             this information
 
     Returns:
-        a new tree.
+        a new tree. Caller needs to call .setParentRecursively() on the returned
+        root
+
     """
     # merge only tree (not Notations) across tree of same level
-    if len(root.items) <= 1:
+    if len(root.items) < 2:
         return root
-    items = []
     item1 = root.items[0]
+    items = [item1]
     if isinstance(item1, Node):
-        item1.check()
         item1 = _mergeSiblings(item1, profile=profile, beatOffsets=beatOffsets)
         item1.parent = root
 
-    items.append(item1)
-
     for item2 in root.items[1:]:
         item1 = items[-1]
-
         if isinstance(item2, Node):
-            item2.check()
             item2 = _mergeSiblings(item2, profile=profile, beatOffsets=beatOffsets)
             item2.parent = root
 
         if isinstance(item1, Node) and isinstance(item2, Node):
             # check if the tree should merge
-            item1.check()
-            item2.check()
-            if item1.parent is not item2.parent:
-                raise ValueError("Invalid parents: ", item1.parent, item2.parent)
+            # item1.check()
+            # item2.check()
+            assert item1.parent is item2.parent, f"Invalid parents: {item1.parent=}, {item2.parent=}"
             if item1.durRatio != item2.durRatio:
                 items.append(item2)
             else:
                 if r := _nodesCanMerge(item1, item2, profile=profile, beatOffsets=beatOffsets):
-                    logger.debug(f"Nodes can merge:\n{item1}\n{item2}")
                     mergednode = _mergeNodes(item1, item2, profile=profile, beatOffsets=beatOffsets)
+                    logger.debug(f"Nodes can merge:\n{item1}\n{item2}\n---- Merged node:\n{mergednode}")
                     items[-1] = mergednode
-                    logger.debug(f"---- Merged node:\n{mergednode}")
                 else:
-                    if r.info:
-                        logger.debug(f'Nodes cannot merge: \n{item1}\n{item2}\n----> {r.info}')
+                    logger.debug(f'Nodes cannot merge ({r.info}): \n{item1}\n{item2}')
                     items.append(item2)
         elif isinstance(item1, Notation) and isinstance(item2, Notation) and item1.canMergeWith(item2):
             items[-1] = item1.mergeWith(item2)
         else:
             items.append(item2)
     newroot = Node(ratio=root.durRatio, items=items, parent=root.parent)
-    newroot.setParentRecursively()
     assert root.totalDuration() == newroot.totalDuration()
     return newroot
 
@@ -1753,6 +1754,12 @@ class QuantizedPart:
         for measure in self.measures:
             measure.parent = self
         self.repair()
+
+    def __getitem__(self, index: int) -> QuantizedMeasure:
+        return self.measures[index]
+
+    def __len__(self) -> int:
+        return len(self.measures)
 
     def repair(self):
         # self._repairGracenotesInBeats()
@@ -1887,7 +1894,7 @@ class QuantizedPart:
             low for bass)
         """
         notations = self.flatNotations()
-        return clefutils.bestclef(list(notations))
+        return clefutils.bestClef(list(notations))
 
     def findClefChanges(self, apply=False, removeManualClefs=False, window=1,
                         threshold=0., biasFactor=1.5, property='clef'
@@ -2279,7 +2286,7 @@ class QuantizedPart:
         measure, relbeat = self.measureAt(location)
         notation = measure.tree._splitNotationAtBoundary(relbeat)
         if notation:
-            notation.mergeable = False
+            notation.mergeablePrev = False
         return notation
 
 
@@ -2385,6 +2392,9 @@ class QuantizedScore:
                  title='',
                  composer='',
                  ):
+        if not parts:
+            raise ValueError("Score must have at least one part")
+
         self.parts: list[QuantizedPart] = parts
         """A list of QuantizedParts"""
 
@@ -2397,6 +2407,7 @@ class QuantizedScore:
         #if parts:
         #    for part in parts:
         #        part.repair()
+        #
 
     def check(self):
         """Check this QuantizedScore"""
@@ -2518,7 +2529,8 @@ class QuantizedScore:
     def write(self,
               outfile: str,
               options: renderer.RenderOptions | None = None,
-              backend=''
+              backend='',
+              format=''
               ) -> renderer.Renderer:
         """
         Export this score as pdf, png, lilypond, MIDI or musicxml
@@ -2527,28 +2539,43 @@ class QuantizedScore:
         musicxml backend can be used.
 
         Args:
-            outfile: the path of the written file
+            outfile: the path of the written file. Use 'stdout' to print to stdout
             options: render options used to generate the output
             backend: backend used when writing to png / pdf (one of 'lilypond', 'musicxml')
+            format: format used (one of 'pdf', 'png', 'musicxml', 'lilypond'). If not given
+                it is inferred from the file extension.
 
         Returns:
             the Renderer used
         """
         ext = os.path.splitext(outfile)[1].lower()
-        if ext == '.ly':
+        if not format:
+            format = {'.ly': 'lilypond',
+                      '.xml': 'musicxml',
+                      '.musicxml': 'musicxml',
+                      '.pdf': 'pdf',
+                      '.png': 'png'}.get(ext)
+        if format == 'lilypond' or format == 'ly':
             r = self.render(options=options, backend='lilypond')
-            r.write(outfile)
+            if outfile == 'stdout':
+                print(r.render())
+            else:
+                r.write(outfile)
             return r
-        elif ext == '.xml' or ext == '.musicxml':
+        elif format == 'musicxml':
             r = self.render(options=options, backend='musicxml')
-            r.write(outfile)
+            if outfile == 'stdout':
+                print(r.render())
+            else:
+                r.write(outfile)
             return r
-        elif ext == '.pdf' or ext == '.png':
+        elif format in ('pdf', 'png'):
+            assert outfile != 'stdout'
             r = self.render(options=options, backend=backend)
             r.write(outfile)
             return r
         else:
-            raise ValueError(f"Format {ext} not supported")
+            raise ValueError(f"Format {format} ({ext=}) not supported, possible formats are 'pdf', 'png', 'musicxml', 'lilypond'")
 
     def show(self, backend='', fmt='png', external: bool = False):
         self.render(backend=backend).show(fmt=fmt, external=external)
@@ -2710,6 +2737,8 @@ def quantize(parts: list[core.UnquantizedPart],
 
     .. image:: ../assets/quantize-example.png
     """
+    if not parts:
+        raise ValueError("No parts provided")
     if quantizationProfile is None:
         quantizationProfile = QuantizationProfile()
     if struct is None:

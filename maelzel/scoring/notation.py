@@ -66,7 +66,8 @@ class Notation:
     _privateKeys = {
         '.clefHint',
         '.graceGroup',
-        '.mergeable',
+        '.mergeablePrev',
+        '.mergeableNext',
         '.forceTupletBracket',
         '.snappedGracenote',   # Is this a note which has been snapped to 0 duration?
         '.originalDuration',    # For snapped notes, it is useful to keep track of the original duration
@@ -884,12 +885,23 @@ class Notation:
         return not self.isRest and self.duration > 0
 
     @property
-    def mergeable(self) -> bool:
-        return self.getProperty('.mergeable', True)
+    def mergeablePrev(self) -> bool:
+        """Is this notation mergeable to the previous?"""
+        return self.getProperty('.mergeablePrev', True)
 
-    @mergeable.setter
-    def mergeable(self, value: bool):
-        self.setProperty('.mergeable', value)
+    @mergeablePrev.setter
+    def mergeablePrev(self, value: bool):
+        self.setProperty('.mergeablePrev', value)
+
+    @property
+    def mergeableNext(self) -> bool:
+        """Is this notation mergeable to the right?"""
+        return self.getProperty('.mergeableNext', True)
+
+    @mergeableNext.setter
+    def mergeableNext(self, value: bool):
+        """Set whether this notation is mergeable to the right"""
+        self.setProperty('.mergeableNext', value)
 
     def meanPitch(self) -> float:
         """
@@ -1053,6 +1065,34 @@ class Notation:
         return _splitNotations(notations, offsets)
 
     @staticmethod
+    def splitNotationsAtOffsets(notations: list[Notation], offsets: Sequence[F], forcecopy=False) -> list[Notation]:
+        """
+        Split the given notations at the given offsets.
+
+        The returned notations do not extend over the offsets
+
+        Args:
+            notations: the notations to split. Their offset must be set
+            offsets: the offsets at which to split the notations. The offsets must be sorted in ascending order.
+            forcecopy: if True, all notations are copied even if they are not split
+
+        Returns:
+            A list of notations that do not extend over the offsets.
+        """
+        out = []
+
+        for n in notations:
+            if n.duration == 0:
+                out.append(n if forcecopy else n.copy())
+            else:
+                assert n.offset is not None, f"Notation.offset must be set for {n}"
+                if any(n.offset < offset < n.end for offset in offsets):
+                    out.extend(n.splitAtOffsets(offsets))
+                else:
+                    out.append(n if forcecopy else n.copy())
+        return out
+
+    @staticmethod
     def tieNotations(notations: list[Notation]) -> None:
         _tieNotations(notations)
 
@@ -1063,7 +1103,7 @@ class Notation:
 
         Args:
             self: the Notation to split
-            offsets: the offsets at which to split n
+            offsets: the offsets at which to split n. The offsets must be sorted in ascending order.
 
         Returns:
             the parts after splitting
@@ -1533,10 +1573,10 @@ class Notation:
         5/8 of a quarter is not)
 
         """
-        if not n1.mergeable:
+        if not self.mergeableNext or not n1.mergeablePrev:
             return False
 
-        if self.isRest and n1.isRest:
+        if self.isRest and n1.isRest and not n1.hasAttributes():
             return (self.durRatios == n1.durRatios and
                     durationsCanMerge(self.symbolicDuration(), n1.symbolicDuration()))
 

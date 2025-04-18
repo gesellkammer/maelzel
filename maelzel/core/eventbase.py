@@ -282,6 +282,7 @@ class MEvent(MObj):
         parts = self.splitAtOffsets([offset], tie=tie, nomerge=nomerge)
         if not parts:
             raise ValueError(f"Offset {offset} does not intersect {self}")
+        assert len(parts) <= 2
         return tuple(parts)
 
     def _splitAtOffsets(self, offsets: list[F], tie=True, nomerge=False

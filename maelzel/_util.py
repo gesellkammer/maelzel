@@ -98,7 +98,8 @@ def reprObj(obj,
             hideFalse=False,
             hideEmptyStr=False,
             hideFalsy=False,
-            quoteStrings=False,
+            hideKeys: Sequence[str] = None,
+            quoteStrings: bool | Sequence[str] = False,
             quoteChar="'",
             convert: dict[str, Callable[[Any], str]] = None,
             ) -> str:
@@ -116,7 +117,8 @@ def reprObj(obj,
         hideFalsy: hide any attr which evaluates to False under bool(obj.attr)
         hideFalse: hide bool attributes which are False.
         hideEmptyStr: hide str attributes which are empty
-        quoteStrings: if True, strings are quoted
+        quoteStrings: if True, strings are quoted. Alternative, a sequence of
+            attributes to quote.
         convert: if given, a dict mapping attr names to a function of the form (value) -> str,
             which returns the string representation of the given value
 
@@ -148,9 +150,12 @@ def reprObj(obj,
         elif isinstance(value, weakref.ref):
             refobj = value()
             value = f'ref({type(refobj).__name__})'
-        elif quoteStrings and isinstance(value, str):
+        elif isinstance(value, str) and (quoteStrings is True or (isinstance(quoteStrings, (tuple, list)) and attr in quoteStrings)):
             value = f'{quoteChar}{value}{quoteChar}'
-        info.append(f'{attr}={value}')
+        if hideKeys and attr in hideKeys:
+            info.append(str(value))
+        else:
+            info.append(f'{attr}={value}')
     infostr = ', '.join(info)
     cls = type(obj).__name__
     return f"{cls}({infostr})"

@@ -575,17 +575,32 @@ class EventSymbol(Symbol):
     These are symbols attached to one event (note, chord, rest, clip, ...).
     The color and placement attributes do not apply for all symbols of this
     kind but we include it at this level to make the structure simpler
+
+    Args:
+        color (str): The color of the symbol.
+        placement (str): The placement of the symbol. One of 'above', 'below' or ''
+            to use the default placement
     """
     appliesToRests = True
 
-    def __init__(self, color='', placement=''):
+    def __init__(self, color='', placement='', mergenext=True):
         super().__init__(color=color)
         assert not placement or placement in ('above', 'below')
         self.placement = placement
+        self.mergenext = mergenext
 
     def checkAnchor(self, anchor: event.MEvent) -> str:
         """Returns an error message if the event cannot add this symbol"""
         return ''
+
+    @abstractmethod
+    def scoringAttachment(self) -> scoring.attachment.Attachment:
+        pass
+
+    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
+        if not self.mergenext:
+            n.mergeableNext = False
+        n.addAttachment(self.scoringAttachment())
 
 
 class NoteheadAttachedSymbol(EventSymbol):
@@ -642,8 +657,11 @@ class Clef(EventSymbol):
             raise ValueError(f"Clef {kind} unknown. Possible values: {scoring.definitions.clefs}")
         self.kind = clef
 
-    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        n.addAttachment(scoring.attachment.Clef(self.kind))
+    def scoringAttachment(self) -> scoring.attachment.Attachment:
+        return scoring.attachment.Clef(self.kind)
+
+    #def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
+    #    n.addAttachment(scoring.attachment.Clef(self.kind))
 
     def __repr__(self):
         return _util.reprObj(self, priorityargs=('kind',), hideFalsy=True)
@@ -668,8 +686,11 @@ class Ornament(EventSymbol):
                              f"Possible values: {scoring.definitions.availableOrnaments}")
         self.kind = kind
 
-    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        n.addAttachment(scoring.attachment.Ornament(self.kind))
+    def scoringAttachment(self) -> scoring.attachment.Attachment:
+        return scoring.attachment.Ornament(self.kind)
+
+    #def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
+    #    n.addAttachment(scoring.attachment.Ornament(self.kind))
 
 
 class Tremolo(EventSymbol):
@@ -699,10 +720,9 @@ class Tremolo(EventSymbol):
         self.nummarks = nummarks
         self.relative = relative
 
-    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        n.addAttachment(scoring.attachment.Tremolo(tremtype=self.tremtype,
-                                                   nummarks=self.nummarks,
-                                                   relative=self.relative))
+    def scoringAttachment(self) -> scoring.attachment.Attachment:
+        return scoring.attachment.Tremolo(tremtype=self.tremtype, nummarks=self.nummarks, relative=self.relative)
+
 
 
 class Fermata(EventSymbol):
@@ -710,34 +730,50 @@ class Fermata(EventSymbol):
     exclusive = True
     appliesToRests = True
 
-    def __init__(self, kind: str = 'normal'):
+    def __init__(self, kind: str = 'normal', merge=True):
+        """
+        A fermata symbol over an event (note, rest, chord, ...)
+
+        Args:
+            kind: one of 'normal', 'square', 'angled', 'double-angled', 'double-square'
+            merge: whether an event with a fermata can be merged with
+                tied events (or rests in the case of a fermata over a rest)
+                at its right when translated to notation
+        """
         super().__init__()
         self.kind = kind
+        self.mergenext = merge
 
-    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        n.addAttachment(scoring.attachment.Fermata(kind=self.kind))
+    def scoringAttachment(self) -> scoring.attachment.Attachment:
+        return scoring.attachment.Fermata(kind=self.kind)
+
 
 
 class Breath(EventSymbol):
     """
     A breathmark symbol, will also break the beam at the given instant
 
+    The breathmark is applied prior to the event
+
     Args:
         kind: one of 'comma', 'varcomma', 'upbow', 'outsidecomma', 'caesura', 'chant'
             (see maelzel.scoring.definitions.breathMarks)
         visible: if False, the mark will not be shown in notation but will still have
             an effect on beaming
+        horizontalPlacement: one of 'pre', 'post'. Indicates whether the break
+            should be placed before or after the event
     """
     exclusive = True
     appliesToRests = True
 
-    def __init__(self, kind='', visible=True):
+    def __init__(self, kind='', visible=True, horizontalPlacement='pre'):
         super().__init__()
         self.visible = visible
         self.kind = kind
+        self.horizontalPlacement = horizontalPlacement
 
-    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        n.addAttachment(scoring.attachment.Breath(kind=self.kind, visible=self.visible))
+    def scoringAttachment(self) -> scoring.attachment.Attachment:
+        return scoring.attachment.Breath(kind=self.kind, visible=self.visible, horizontalPlacement=self.horizontalPlacement)
 
 
 class Text(EventSymbol):
@@ -753,13 +789,14 @@ class Text(EventSymbol):
         italic: should this text be italic?
         color: a valid css color
         box: one of 'square', 'rectangle', 'circle' or '' to disable
+        force: force the text to be displayed even if the event is tied
     """
     exclusive = False
     appliesToRests = True
 
     def __init__(self, text: str, placement='above', fontsize: float = None,
                  italic=False, weight='normal', box='',
-                 color='', fontfamily=''):
+                 color='', fontfamily='', force=False):
         assert fontsize is None or isinstance(fontsize, (int, float)), \
             f"Invalid fontsize: {fontsize}, type: {type(fontsize)}"
         _util.checkChoice('box', box, ('', 'square', 'rectangle', 'circle'))
@@ -771,6 +808,7 @@ class Text(EventSymbol):
         self.weight = weight
         self.fontfamily = fontfamily
         self.box = box
+        self.force = force
 
     def __repr__(self):
         return _util.reprObj(self, priorityargs=('text',), hideFalsy=True,
@@ -779,7 +817,7 @@ class Text(EventSymbol):
                                      'weight': lambda val: val != 'normal'})
 
     def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        if not n.tiedPrev:
+        if not n.tiedPrev or self.force:
             n.addText(self.text, placement=self.placement, fontsize=self.fontsize,
                       italic=self.italic, weight=self.weight, box=self.box,
                       fontfamily=self.fontfamily)
@@ -1082,6 +1120,9 @@ def makeKnownSymbol(name: str) -> Symbol | None:
     if name == 'break':
         return BeamBreak()
 
+    if name == 'tremolo':
+        return Tremolo()
+
     if re.match(r"^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$", name):
         return Color(name)
 
@@ -1201,8 +1242,16 @@ class NoMerge(EventSymbol):
     """
     appliesToRests = True
 
+    def __init__(self, prev=True, next=False):
+        super().__init__()
+        self.prev = prev
+        self.next = next
+
     def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        n.mergeable = False
+        if self.prev:
+            n.mergeablePrev = False
+        if self.next:
+            n.mergeableNext = False
 
 
 class Stem(EventSymbol):
@@ -1364,8 +1413,8 @@ class BeamBreak(EventSymbol, VoiceSymbol):
         if notation:
             qpart.breakBeam(location=self.location)
 
-    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        n.addAttachment(scoring.attachment.Breath(visible=False))
+    def scoringAttachment(self) -> scoring.attachment.Attachment:
+        return scoring.attachment.Breath(visible=False)
 
     def applyToPart(self, part: scoring.core.UnquantizedPart) -> None:
         if self.location is None:

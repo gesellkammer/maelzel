@@ -212,6 +212,48 @@ class Workspace:
     def scorestruct(self, s: ScoreStruct):
         self._scorestruct = s
 
+    @staticmethod
+    def setScoreStruct(score: str | ScoreStruct | None = None,
+                       timesig: tuple[int, int] | str = None,
+                       tempo: int = None) -> None:
+        """
+        Sets the current score structure
+
+        If given a ScoreStruct, it sets it as the active score structure.
+        As an alternative a score structure as string can be given, or simply
+        a time signature and/or tempo, in which case it will create the ScoreStruct
+        and set it as active
+
+        Args:
+            score: the scorestruct as a ScoreStruct or a string score (see ScoreStruct for more
+                information about the format). If None, a simple ScoreStruct using the given
+                time-signature and/or tempo will be created
+            timesig: only used if no score is given.
+            tempo: the quarter-note tempo. Only used if no score is given
+
+        .. seealso::
+            * :func:`~maelzel.core.workpsace.getScoreStruct`
+            * :func:`~maelzel.core.workpsace.setTempo` (modifies the tempo of the active scorestruct)
+            * :class:`~maelzel.scorestruct.ScoreStruct`
+            * :func:`~maelzel.core.workpsace.getWorkspace`
+
+        Example
+        ~~~~~~~
+
+            >>> from maelzel.core import *
+            >>> Workspace.setScoreStruct(ScoreStruct(tempo=72))
+            >>> Workspace.setScoreStruct(r'''
+            ... 4/4, 72
+            ... 3/8
+            ... 5/4
+            ... .         # Same time-signature and tempo
+            ... , 112     # Same time-signature, faster tempo
+            ... 20, 3/4, 60   # At measure index 20, set the time-signature to 3/4 and tempo to 60
+            ... ...       # Endless score
+            ... ''')
+        """
+        setScoreStruct(score=score, timesig=timesig, tempo=tempo)
+
     @property
     def a4(self) -> float:
         """The reference frequency in this Workspace"""
@@ -567,10 +609,7 @@ def setScoreStruct(score: str | ScoreStruct | None = None,
             s = ScoreStruct(timesig=timesig, tempo=tempo)
         else:
             s = ScoreStruct(timesig=(4, 4), tempo=60)
-    w = Workspace.active
-    assert w is not None
-    w.scorestruct = s
-
+    Workspace.active.scorestruct = s
 
 @cache
 def presetsPath() -> str:

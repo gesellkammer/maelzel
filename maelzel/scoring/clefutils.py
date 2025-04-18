@@ -60,7 +60,18 @@ def clefEvaluators() -> dict[str, bpf4.BpfInterface]:
     }
 
 
-def bestclef(notations: Sequence[Notation], biasclef='', biasfactor=1.5) -> str:
+def bestClef(notations: Sequence[Notation], biasclef='', biasfactor=1.5) -> str:
+    """
+    Find the best clef for a given sequence of notations.
+
+    Args:
+        notations: The notations to evaluate.
+        biasclef: The clef to bias towards.
+        biasfactor: The factor to bias the score by.
+
+    Returns:
+        The best clef for the given notations.
+    """
     pointsPerClef = {clef: sum(evaluator(p) for n in notations if not n.isRest
                                for p in n.pitches)
                      for clef, evaluator in clefEvaluators().items()}
@@ -105,7 +116,7 @@ def findBestClefs(notations: list[Notation], firstclef='', winsize=1, threshold=
         return []
 
     for i, group in enumerate(iterlib.window(notations, size=winsize)):
-        currentclef = bestclef(list(group), biasclef=currentclef, biasfactor=biasfactor)
+        currentclef = bestClef(list(group), biasclef=currentclef, biasfactor=biasfactor)
         points.append((i, clefbyindex.index(currentclef)))
 
     if threshold > 0 and len(points) > 2:
@@ -157,8 +168,12 @@ def bestClefForPitch(pitch: float,
 def explodeNotations(notations: list[Notation],
                      maxstaves=3,
                      ) -> list[tuple[str, list[Notation]]]:
+
+    if all(n.isRest for n in notations):
+        return [('treble', notations)]
+
     if maxstaves == 1:
-        clef = bestclef(notations)
+        clef = bestClef(notations)
         return [(clef, notations)]
     elif maxstaves == 2:
         possibleClefs = [
@@ -221,7 +236,8 @@ def splitNotationsByClef(notations: list[Notation],
         assert isinstance(n, Notation)
         if n.isRest:
             for part in parts.values():
-                part.append(n.copy())
+                # part.append(n.copy())
+                part.append(n)
         else:
             pitchindexToClef = [n.getClefHint(i) or bestClefForPitch(p, clefs=clefs, evaluators=evaluators)[0]
                                 for i, p in enumerate(n.pitches)]
@@ -248,10 +264,3 @@ def splitNotationsByClef(notations: list[Notation],
 
     return [(clef, part) for clef, part in parts.items()
             if any(not item.isRest for item in part)]
-
-
-
-
-
-
-

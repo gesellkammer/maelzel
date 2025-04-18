@@ -323,6 +323,41 @@ class CoreConfig(ConfigDict):
         return CoreConfig(source=self)
 
     def clone(self, updates: dict = None, **kws) -> CoreConfig:
+        """
+        Create a new CoreConfig from this config with modified values
+
+        Keywords which are not valid symbols (keys containing periods, like
+        'quant.nestedTuples') can be used by removing any invalid characters.
+        Also, config keys are not case sensitive. In the case above, ``quantNestedTuples``
+        could be used
+
+        .. note::
+
+            A :class:`CoreConfig` can be used as a context manager to activate
+            it temporarily. Used together with this method it can be used
+            to modify any rendering or playback condition for the code
+            within that block.
+
+        Args:
+            updates: a dictionary of updates to apply to the new config
+            **kws: keyword arguments to pass to the new config.
+
+        Returns:
+            the new CoreConfig
+
+        Example
+        ~~~~~~~
+
+        Render an object with modified quantization
+
+        .. code-block:: python
+
+            >>> from maelzel.core import *
+            >>> cfg = getConfig()
+            >>> with cfg.clone(quantNestedTuples=False):
+            ...     Chain(...).show()
+
+        """
         if kws:
             kws = self._normalizeDict(kws)
 

@@ -68,6 +68,7 @@ defaultdict = {
     'show.proportionalSpacing': False,
     'show.proportionalSpacingKind': 'strict',
     'show.proportionalNotationDuration': '1/24',
+    'show.warnIfEmpty': True,
     '.show.autoClefChangesWindow': 1,
     '.show.keepClefBiasFactor': 2.0,
 
@@ -360,6 +361,9 @@ docs = {
 
     'show.flagStyle':
         "The flag style. At the moment only valid in lilypond",
+
+    'show.warnIfEmpty':
+        "If True, warn if an object did not produce any scoring parts",
 
     '.enharmonic.debug':
         "If True, print debug information while calculating automatic enharmonic spelling",

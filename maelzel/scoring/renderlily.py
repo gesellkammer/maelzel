@@ -336,6 +336,14 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
                     _(_fermataToLily.get(attach.kind, r'\fermata'))
                 elif isinstance(attach, attachment.Clef):
                     _(lilytools.makeClef(attach.kind))
+                elif isinstance(attach, attachment.Breath) and attach.horizontalPlacement == 'post':
+                    if attach.visible:
+                        if attach.kind:
+                            logger.info("Setting breath type is not supported yet")
+                            # _(fr"\once \set breathMarkType = #'{attach.kind}")
+                        _(r"\breathe")
+                    else:
+                        _(r'\beamBreak')
                 else:
                     logger.warning(f"Attachment {attach} not supported for rests")
         return ' '.join(parts).strip()
@@ -377,7 +385,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         for attach in n.attachments:
             if isinstance(attach, attachment.Harmonic):
                 n = n.resolveHarmonic()
-            elif isinstance(attach, attachment.Breath):
+            elif isinstance(attach, attachment.Breath) and attach.horizontalPlacement == 'pre':
                 if attach.visible:
                     if attach.kind:
                         logger.info("Setting breath type is not supported yet")
@@ -498,6 +506,14 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
             elif isinstance(attach, attachment.Bend):
                 interval = ('+' if attach.interval > 0 else '')+str(round(attach.interval, 1))
                 _(fr'\bendAfter #{interval}')
+            elif isinstance(attach, attachment.Breath) and attach.horizontalPlacement == 'post':
+                if attach.visible:
+                    if attach.kind:
+                        logger.info("Setting breath type is not supported yet")
+                        # _(fr"\once \set breathMarkType = #'{attach.kind}")
+                    _(r"\breathe")
+                else:
+                    _(r'\beamBreak')
 
     if options.showCents and not n.tiedPrev:
         # TODO: cents annotation should follow options (below/above, fontsize)

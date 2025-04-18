@@ -109,16 +109,13 @@ class Node:
         """Set the parent of this node"""
         self._parent = weakref.ref(other) if other else None
 
-
     def empty(self) -> bool:
         """Is this node empty? """
         for item in self.items:
             if isinstance(item, Node):
                 if not item.empty():
                     return False
-            elif not item.isRest:
-                return False
-            elif item.hasAttributes():
+            elif not item.isRest or item.hasAttributes():
                 return False
         return True
 
@@ -206,7 +203,10 @@ class Node:
         This represents the notated figure (1=quarter, 1/2=eighth note, 1/4=16th note, etc)
         at the level of this node.
         """
-        return self.totalDuration() * F(*self.durRatio)
+        if self.parent:
+            return self.totalDuration() * F(*self.parent.durRatio)
+        else:
+            return self.totalDuration()
         # return sum((item.symbolicDuration() for item in self.items), F(0))
 
     def check(self):
@@ -325,12 +325,13 @@ class Node:
             n = out[0].copy()
             if n.durRatios and n.durRatios[-1] != 1:
                 n.durRatios = n.durRatios[:-1]
-            return Node(ratio=(1, 1), items=[n])
-        out = Node(ratio=self.durRatio,
-                   items=out,
-                   parent=self.parent,
-                   properties=self.properties.copy() if self.properties else None)
-        out.setParentRecursively()
+            out = Node(ratio=(1, 1), items=[n])
+        else:
+            out = Node(ratio=self.durRatio,
+                       items=out,
+                       parent=self.parent,
+                       properties=self.properties.copy() if self.properties else None)
+            out.setParentRecursively()
         return out
 
     def lastNotation(self) -> Notation:
@@ -592,12 +593,14 @@ class Node:
         return count
 
     def repair(self):
-        if self.totalDuration() >= 2:
-            self._splitUnnecessaryNodes(2)
-
+        #if self.totalDuration() >= 2:
+        #    self._splitUnnecessaryNodes(2)
+        self._flattenUnnecessaryChildren()
+        self._removeUnnecessaryNodesInPlace()
         self.repairLinks()
         self.removeUnnecessaryGracenotes()
         self.setParentRecursively()
+
 
     def fixEnharmonics(self,
                        options: enharmonics.EnharmonicOptions,
@@ -776,8 +779,11 @@ class Node:
         """
         Merge notations recursively **in place**
         """
+        itemsorig = self.items
         self.items = self.mergedNotations(flatten=True).items
         self.setParentRecursively()
+        if self.items != itemsorig:
+            logger.debug(f"Remerged {itemsorig} to {self.items}")
 
     def _splitNotationAtBoundary(self, offset: F, callback=None
                                  ) -> Notation | None:
@@ -824,7 +830,7 @@ class Node:
                     raise SplitError(f"Cannot split {item} at {offset} (parts: {parts}, "
                                      f"symbolic durations: {[p.symbolicDuration() for p in parts]}), "
                                      f"durRatios: {[p.durRatios for p in parts]}")
-                parts[1].mergeable = False
+                parts[1].mergeablePrev = False
                 newitems = self.items[:i] + parts + self.items[i+1:]
                 self.items = newitems
                 self._remerge()
@@ -844,9 +850,23 @@ class Node:
         Returns:
             the root of a tree structure
         """
+
         if len(nodes) == 1 and nodes[0].durRatio == (1, 1):
-            return nodes[0]
-        root = Node(ratio=(1, 1), items=nodes)  # type: ignore
+            root = nodes[0]
+        else:
+            root = Node(ratio=(1, 1), items=nodes)  # type: ignore
         assert root.totalDuration() == sum(n.totalDuration() for n in nodes)
-        root.setParentRecursively()
+        root.repair()
         return root
+
+    def _removeUnnecessaryNodesInPlace(self) -> None:
+        def _inner(node: Node) -> Node:
+            if len(node.items) == 1 and isinstance(node.items[0], Node) and node.durRatio == node.items[0].durRatio:
+                return _inner(node.items[0])
+            else:
+                return node
+        root = _inner(self)
+        if root is self:
+            return
+        self.items = root.items
+        self.durRatio = root.durRatio
