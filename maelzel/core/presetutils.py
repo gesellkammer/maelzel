@@ -281,6 +281,7 @@ def loadPresets(skipErrors=True) -> list[presetdef.PresetDef]:
             foundpaths.extend(paths)
     for path in foundpaths:
         try:
+            logger.debug(f"Loading preset from '{path}'")
             presetDef = loadPreset(path)
             presetdefs.append(presetDef)
         except ValueError as e:

@@ -8,7 +8,7 @@ import enum
 import pitchtools as pt
 from maelzel.common import F, F1, getLogger
 
-from typing import NamedTuple, TypeAlias
+from typing import TypeAlias
 
 division_t: TypeAlias = tuple[int, ...]
 timerange_t: TypeAlias = tuple[F, F]
@@ -22,7 +22,6 @@ logger = getLogger("maelzel.scoring")
 __all__ = (
     'logger',
     'asmidi',
-    'TimeSpan',
     'NotatedDuration',
     'GLISS',
     'division_t',
@@ -58,15 +57,6 @@ def asmidi(x, maxmidi=130) -> float:
     elif hasattr(x, "pitch"):
         return x.notename
     raise TypeError(f"Cannot interpret {x} as a midinote")
-
-
-class TimeSpan(NamedTuple):
-    start: F
-    end: F
-
-    @property
-    def duration(self) -> F:
-        return self.end - self.start
 
 
 _durationNames = {

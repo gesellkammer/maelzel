@@ -23,6 +23,12 @@ def _estimateMinFreq(spectrum: sp.Spectrum) -> float:
     return float(f0.map(1000).min())
 
 
+def _evalexpon(x: float, exp: float, x0: float, y0: float, x1: float, y1: float) -> float:
+    dx = (x - x0) / (x1 - x0)
+    dx = dx ** exp
+    return y0 + (y1 - y0) * dx
+
+
 def _ratePartial(track: Track, partial: Partial, maxrange: int | None = None, mingap=0.1) -> float:
     """
     The higher, the best. -1 indicates that the partial does not fit the track
@@ -66,7 +72,8 @@ def _ratePartial(track: Track, partial: Partial, maxrange: int | None = None, mi
     rangeWithPartial = max(trackmaxnote, partialPitch) - min(trackminnote, partialPitch)
     if rangeWithPartial > maxrange:
         return -1
-    rangeRating = bpf4.Expon.fromseq(0, 1, maxrange, 0.001, exp=1)(rangeWithPartial)
+    # rangeRating = bpf4.Expon.fromseq(0, 1, maxrange, 0.001, exp=1)(rangeWithPartial)
+    rangeRating = _evalexpon(rangeWithPartial, 1, 0, 1, maxrange, 0.001)
     trackPitch = track.meanpitch()
     pitchdiff = abs(trackPitch - pt.f2m(partial.meanfreq()))
     wrangeRating = bpf4.Halfcos.fromseq(0, 1, maxrange, 0.0001, exp=0.5)(pitchdiff)

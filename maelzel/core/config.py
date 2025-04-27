@@ -203,7 +203,7 @@ class CoreConfig(ConfigDict):
     Args:
         updates: if given, a dict which will be used to update the newly created instance
         source: either a ConfigDict to use as prototype; 'root', to use the root
-            config (the last saved config); 'load' to reload the last saved config.
+            config (the last saved config); 'load' to reload the last saved config
             This ConfigDict will be a copy of that prototype
         active: if True, set this CoreConfig as active (modifying the current Workspace)
         kws: any keywords will be used to update the config and must be valid keys for

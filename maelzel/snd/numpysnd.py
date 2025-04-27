@@ -3,14 +3,12 @@ numpy utilities for audio arrays
 """
 from __future__ import annotations
 import numpy as np
-import bpf4
-import bpf4.core
-import bpf4.util
 import math
 from pitchtools import db2amp, amp2db
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Iterator, Callable
+    import bpf4
 
 
 def asmono(samples: np.ndarray) -> np.ndarray:
@@ -40,7 +38,7 @@ def rms(arr: np.ndarray) -> float:
     return math.sqrt(np.sum(arr) / len(arr))
 
 
-def rmsBpf(samples: np.ndarray, sr: int, dt=0.01, overlap=1) -> bpf4.core.Sampled:
+def rmsBpf(samples: np.ndarray, sr: int, dt=0.01, overlap=1) -> bpf4.Sampled:
     """
     Create a bpf representing the rms of this sample as a function of time
 
@@ -63,16 +61,17 @@ def rmsBpf(samples: np.ndarray, sr: int, dt=0.01, overlap=1) -> bpf4.core.Sample
         idx0 = i * hopsamps
         chunk = s[idx0:idx0+period]
         data[i] = rms(chunk)
-    return bpf4.core.Sampled(data, x0=0, dx=dt2)
+    import bpf4
+    return bpf4.Sampled(data, x0=0, dx=dt2)
 
 
-def peak(samples:np.ndarray) -> float:
+def peak(samples: np.ndarray) -> float:
     """return the highest sample value (dB)"""
     return amp2db(np.abs(samples).max())
 
 
 def peaksBpf(samples:np.ndarray, sr:int, res=0.01, overlap=2, channel=0
-             ) -> bpf4.core.Sampled:
+             ) -> bpf4.Sampled:
     """
     Return a BPF representing the peaks envelope of the source with the
     resolution given
@@ -97,10 +96,11 @@ def peaksBpf(samples:np.ndarray, sr:int, res=0.01, overlap=2, channel=0
         idx0 = i * hopsamps
         chunk = samples[idx0:idx0+period]
         data[i] = np.abs(chunk).max()
-    return bpf4.core.Sampled(data, x0=0, dx=hopsamps/sr)
+    import bpf4
+    return bpf4.Sampled(data, x0=0, dx=hopsamps/sr)
 
 
-def ampBpf(samples: np.ndarray, sr: int, attack=0.01, release=0.01, chunktime=0.05, overlap=2) -> bpf4.core.Sampled:
+def ampBpf(samples: np.ndarray, sr: int, attack=0.01, release=0.01, chunktime=0.05, overlap=2) -> bpf4.Sampled:
     """
     Constructs a sampled amplitude envelope from a sound signal.
 
@@ -122,7 +122,8 @@ def ampBpf(samples: np.ndarray, sr: int, attack=0.01, release=0.01, chunktime=0.
     step = chunksize // overlap
     amps = [np.mean(frame) for frame in frames(env, chunksize, step)]
     dt = step / sr
-    return bpf4.core.Sampled(np.array(amps), x0=0, dx=dt)
+    import bpf4
+    return bpf4.Sampled(np.array(amps), x0=0, dx=dt)
 
 
 def makeRamp(desc: str, numsamples: int) -> np.ndarray:
@@ -139,6 +140,7 @@ def makeRamp(desc: str, numsamples: int) -> np.ndarray:
     """
     assert isinstance(desc, str)
     assert isinstance(numsamples, int)
+    import bpf4.util
     return bpf4.util.makebpf(desc, [0, 1], [0, 1]).map(numsamples)
 
 

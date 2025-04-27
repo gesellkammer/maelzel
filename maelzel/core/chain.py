@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from re import L
 import sys
 
 from maelzel.scorestruct import ScoreStruct
-from maelzel.common import F, asF, F0, UNSET, UnsetType
+from maelzel.common import F, asF, F0
 from maelzel import _util
 from maelzel.core.config import CoreConfig
 from .mobj import MObj, MContainer
@@ -1013,7 +1012,9 @@ class Chain(MContainer):
             elif self.symbols:
                 for symbol in self.symbols:
                     if isinstance(symbol, symbols.EventSymbol) and not isinstance(symbol, symbols.VoiceSymbol):
-                        item.getProperty('.tempsymbols', []).append(symbol)
+                        if item.properties is None:
+                            item.properties = {}
+                        item.properties.setdefault('.tempsymbols', []).append(symbol)
 
     def _collectSubLabels(self, config: CoreConfig) -> Iterator[tuple[F, str]]:
         for item in self.items:

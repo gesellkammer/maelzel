@@ -10,8 +10,6 @@ import emlib.textlib
 import emlib.misc
 import fnmatch
 import glob
-import csoundengine
-import csoundengine.csoundlib
 
 from . import presetdef as _presetdef
 from .workspace import Workspace
@@ -23,7 +21,7 @@ from . import environment
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .synthevent import SynthEvent
-
+    import csoundengine
 
 
 __all__ = (
@@ -454,6 +452,7 @@ class PresetManager:
                 bank, presetnum = presetutils.getSoundfontProgram(sf2path, preset)
         else:
             bank, presetnum = preset
+        import csoundengine.csoundlib
         idx = csoundengine.csoundlib.soundfontIndex(sf2path)
         if not name:
             name = idx.presetToName[(bank, presetnum)]
@@ -636,6 +635,7 @@ class PresetManager:
                     print(preset)
                 else:
                     instr = preset.getInstr()
+                    import csoundengine.session
                     print(csoundengine.session.Session.defaultInstrBody(instr))
         else:
             theme = Workspace.active.config['htmlTheme']
@@ -736,7 +736,7 @@ class PresetManager:
                      sr: int = None,
                      numChannels: int = None,
                      ksmps: int = None,
-                     ) -> csoundengine.OfflineSession:
+                     ) -> csoundengine.offline.OfflineSession:
         """
         Make an offline Renderer from instruments defined here
 
@@ -753,8 +753,9 @@ class PresetManager:
         sr = sr or config['rec.sr']
         ksmps = ksmps or config['rec.ksmps']
         numChannels = numChannels or config['rec.numChannels']
-        renderer = csoundengine.OfflineSession(sr=sr, nchnls=numChannels, ksmps=ksmps,
-                                         a4=workspace.a4)
+        from csoundengine.offline import OfflineSession
+        renderer = OfflineSession(sr=sr, nchnls=numChannels, ksmps=ksmps,
+                                  a4=workspace.a4)
         renderer.addGlobalCode(presetManager.csoundPrelude)
         return renderer
 

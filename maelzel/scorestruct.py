@@ -8,7 +8,6 @@ import functools
 import re
 
 import emlib.textlib
-from emlib.iterlib import partialsum
 from maelzel.common import F, asF, F0
 
 from typing import TYPE_CHECKING, overload as _overload

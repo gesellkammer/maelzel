@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import random
-from typing import TYPE_CHECKING
 
 import pitchtools as pt
 
 from maelzel.common import F, asF
 from maelzel.scoring.common import NotatedDuration
 
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Iterator, Sequence
     from maelzel.common import timesig_t

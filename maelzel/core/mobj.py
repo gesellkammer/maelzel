@@ -707,8 +707,7 @@ class MObj(ABC):
             config: if given overrides the current/default config
             resolution: dpi resolution when rendering to an image, overrides the
                 :ref:`config key 'show.pngResolution' <config_show_pngresolution>`
-            kws: any keyword is used to override a config setting under the ``show.``
-                prefix.
+            kws: any keyword is used to override the config
         """
         cfg = self.getConfig() or Workspace.active.config
 
@@ -717,13 +716,14 @@ class MObj(ABC):
             if resolution:
                 cfg['show.pngResolution'] = resolution
             for kw, value in kws.items():
-                if kw in cfg:
+                try:
                     cfg[kw] = value
-                else:
-                    logger.warning(f'Invalid keyword {kw}, no key {configkey} found in config')
+                except KeyError:
+                    logger.error(f'Invalid keyword {kw}, no such key found in config, skipping')
 
         if external is None:
             external = cfg['openImagesInExternalApp']
+            assert isinstance(external, bool)
 
         if not backend:
             backend = cfg['show.backend']
@@ -1178,7 +1178,7 @@ class MObj(ABC):
                                                config=cfg)
         r.write(outfile)
 
-    def _htmlImage(self, scaleFactor: float = 0.) -> tuple[str, str]:
+    def _htmlImage(self, scaleFactor: float = 0.) -> tuple[bytes, str]:
         """
         Returns a tuple of the image as a base64 string and the width and height of the image.
 

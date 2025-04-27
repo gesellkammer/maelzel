@@ -195,6 +195,8 @@ def makeMusicxmlDocument(score: quant.QuantizedScore,
                                  "-//Recordare//DTD MusicXML 4.0 Partwise//EN",
                                  "http://www.musicxml.org/dtds/partwise.dtd")
     doc: md.Document = impl.createDocument('http://www.w3.org/1999/xhtml', 'score-partwise', dt)
+    if doc.documentElement is None:
+        raise ValueError(f"No document element found: {doc}")
     root: md.Element  = doc.documentElement
     root.setAttribute('version', '4.0')
 
@@ -861,7 +863,7 @@ def _isXmlColor(color: str) -> bool:
 
 
 def _asXmlColor(color: str, default='') -> str:
-    """
+    r"""
     Within the xml standard, a color needs to adjust to '#[\dA-F]{6}([\dA-F][\dA-F])?'
 
     Returns:

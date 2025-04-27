@@ -790,8 +790,7 @@ class Node:
         """
         Split any notation which crosses the given offset, inplace
 
-        A notation will be split if it crosses the given offset. Raises
-        SplitError if it cannot split at the given offset. Here we do not evaluate
+        A notation will be split if it crosses the given offset. Here we do not evaluate
         if the split is necessary, this method just performs the action. It raises
         SplitError if the split cannot be performed
 

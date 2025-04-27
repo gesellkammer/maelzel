@@ -12,7 +12,8 @@ and can be also the basis for transcription in music notation.
 """
 from __future__ import annotations
 import numpy as np
-import loristrck as lt
+import loristrck
+import loristrck.util
 import bpf4
 import pitchtools as pt
 from emlib.filetools import normalizePath
@@ -187,7 +188,7 @@ class Spectrum:
         Returns:
             the Spectrum
         """
-        arrays, labels = lt.read_sdif(path)  # type: ignore
+        arrays, labels = loristrck.read_sdif(path)
         return cls(partials=[Partial(array, label=label) for array, label in zip(arrays, labels)])
 
     def __iter__(self):
@@ -291,7 +292,7 @@ class Spectrum:
         arrays = [p.data for p in self.partials]
         labels = [p.label for p in self.partials]
         outfile = normalizePath(outfile)
-        lt.util.write_sdif(arrays, outfile=outfile, fmt='RBEP' if rbep else '1TRC', labels=labels)
+        loristrck.util.write_sdif(arrays, outfile=outfile, fmt='RBEP' if rbep else '1TRC', labels=labels)
 
     def crop(self, start: float, end: float) -> Self:
         """
@@ -535,8 +536,8 @@ class Spectrum:
             for arr in arrays:
                 arr[:, 2] *= gain
 
-        samples = lt.synthesize(arrays, samplerate=sr, start=start, end=end,
-                                fadetime=fadetime if fadetime is not None else -1)
+        samples = loristrck.synthesize(arrays, samplerate=sr, start=start, end=end,
+                                       fadetime=fadetime if fadetime is not None else -1)
         return audiosample.Sample(samples, sr=sr)
 
     def rec(self,
@@ -678,7 +679,7 @@ class Spectrum:
         .. seealso:: :meth:`Spectrum.play`
         """
         arrays = [p.data for p in self.partials]
-        tracks, matrix = lt.util.partials_save_matrix(arrays, outfile=outfile, dt=period, maxtracks=maxtracks)
+        tracks, matrix = loristrck.util.partials_save_matrix(arrays, outfile=outfile, dt=period, maxtracks=maxtracks)
         return matrix
 
     def plot(self,
@@ -887,13 +888,13 @@ class Spectrum:
 
         if len(samples.shape) == 2:
             samples = samples[:, 0]
-        partialarrays = lt.analyze(samples,
-                                   sr=sr,
-                                   resolution=resolution,
-                                   windowsize=windowsize or -1,
-                                   hoptime=hoptime or -1,
-                                   ampfloor=mindb,
-                                   freqdrift=freqdrift or -1)
+        partialarrays = loristrck.analyze(samples,
+                                          sr=sr,
+                                          resolution=resolution,
+                                          windowsize=windowsize or -1,
+                                          hoptime=hoptime or -1,
+                                          ampfloor=mindb,
+                                          freqdrift=freqdrift or -1)
         if minbreakpoints > 1:
             partialarrays = [p for p in partialarrays if len(p) >= minbreakpoints]
 

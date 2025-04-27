@@ -572,6 +572,9 @@ class QuantizedMeasure:
         """
         Returns a flat list of all notations in this measure
 
+        The notations returned are the actual notations, so any modification
+        to them will affect the measure.
+
         Returns:
             a list of Notations in this measure
         """
@@ -579,6 +582,23 @@ class QuantizedMeasure:
             return []
 
         return list(self.tree.recurse())
+
+    def recurseNotationsWithParent(self, reverse=False) -> Iterator[tuple[Notation, Node]]:
+        """
+        Returns a flat iterator over all notations in this measure, along with their parent nodes
+
+        The notations returned are the actual notations, so any modification
+        to them will affect the measure.
+
+        Args:
+            reverse: If True, the notations are returned in reverse order
+
+        Returns:
+            an iterator over the Notations in this measure
+        """
+        if self.empty():
+            return iter(())
+        return self.tree.recurseWithNode(reverse=reverse)
 
     def _makeTree(self) -> Node:
         """
@@ -734,23 +754,19 @@ def _makeTreeFromQuantizedBeats(beats: list[QuantizedBeat],
 
     nodes = [beat.asTree().mergedNotations() for beat in beats]
 
-    def removeUnnecessaryChildrenInplace(root: Node) -> None:
-        items = []
-        for item in root.items:
-            if isinstance(item, Node) and len(item.items) == 1:
-                assert item.durRatio == root.durRatio
-                item = item.items[0]
-                removeUnnecessaryChildrenInplace(item)
-            items.append(item)
-        root.items = items
-
-    #for node in nodes:
-    #    removeUnnecessaryChildrenInplace(node)
+    # def removeUnnecessaryChildrenInplace(root: Node) -> None:
+    #     items = []
+    #     for item in root.items:
+    #         if isinstance(item, Node) and len(item.items) == 1:
+    #             assert item.durRatio == root.durRatio
+    #             item = item.items[0]
+    #             if isinstance(item, Node):
+    #                 removeUnnecessaryChildrenInplace(item)
+    #         items.append(item)
+    #     root.items = items
 
     assert sum(node.totalDuration() for node in nodes) == sum(beat.duration for beat in beats)
-
     root = Node.asTree(nodes)
-    # removeUnnecessaryChildrenInplace(root)
     root.check()
     root = mergeSiblings(root, profile=quantprofile, beatOffsets=beatOffsets)
 
@@ -1054,8 +1070,8 @@ def quantizeBeatTernary(eventsInBeat: list[Notation],
     for offsets in possibleOffsets:
         eventsInSubbeats = Notation.splitNotations(eventsInBeat, offsets)
         beats = [quantizeBeatBinary(events, quarterTempo=quarterTempo, profile=profile,
-                                    beatDuration=span.duration, beatOffset=span.start)
-                 for span, events in eventsInSubbeats]
+                                    beatDuration=end-start, beatOffset=start)
+                 for start, end, events in eventsInSubbeats]
         totalerror = sum(beat.quantizationError * beat.duration for beat in beats)
         results.append((totalerror, beats))
     if profile.debug:
@@ -1368,14 +1384,14 @@ def quantizeMeasure(events: list[Notation],
     beatOffsets.append(beatStructure[-1].end)
 
     idx = 0
-    for span, eventsInBeat in Notation.splitNotations(events, offsets=beatOffsets):
+    for spanstart, spanend, eventsInBeat in Notation.splitNotations(events, offsets=beatOffsets):
         beatWeight = beatStructure[idx].weight
-        beatdur = span.end - span.start
+        beatdur = spanend - spanstart
         if beatdur.numerator in (1, 2, 4):
             quantizedBeat = quantizeBeatBinary(eventsInBeat=eventsInBeat,
                                                quarterTempo=quarterTempo,
-                                               beatDuration=span.end - span.start,
-                                               beatOffset=span.start,
+                                               beatDuration=spanend - spanstart,
+                                               beatOffset=spanstart,
                                                profile=profile)
             quantizedBeat.weight = beatWeight
             quantizedBeats.append(quantizedBeat)
@@ -1383,7 +1399,7 @@ def quantizeMeasure(events: list[Notation],
             subBeats = quantizeBeatTernary(eventsInBeat=eventsInBeat,
                                            quarterTempo=quarterTempo,
                                            beatDuration=beatdur,
-                                           beatOffset=span.start,
+                                           beatOffset=spanstart,
                                            profile=profile)
             subBeats[0].weight = beatWeight
             quantizedBeats.extend(subBeats)
@@ -1896,14 +1912,14 @@ class QuantizedPart:
         notations = self.flatNotations()
         return clefutils.bestClef(list(notations))
 
-    def findClefChanges(self, apply=False, removeManualClefs=False, window=1,
-                        threshold=0., biasFactor=1.5, property='clef'
+    def findClefChanges(self, apply=True, removeManualClefs=False, window=1,
+                        threshold=0., biasFactor=1.5, propertyKey=''
                         ) -> None:
         """
         Determines the most appropriate clef changes for this part
 
         The clef changes are added as properties to the notations at which
-        the changes are to be made. If called with ``addClefs==True``,
+        the changes are to be made. If called with ``addClefs=True``,
         these clef changes are materialized as clef attachments
 
         Args:
@@ -1915,7 +1931,7 @@ class QuantizedPart:
             biasFactor: The higher this value, the more weight is given to the
                 previous clef, thus making it more difficult to change clef
                 for minor jumps
-            property: the property key to add to the notation to mark
+            propertyKey: the property key to add to the notation to mark
                 a clef change. Setting this property alone will not
                 result in a clef change in the notation (see `addClefs`)
 
@@ -1928,7 +1944,7 @@ class QuantizedPart:
                     n.removeAttachments(lambda attach: isinstance(attach, attachment.Clef))
         clefutils.findBestClefs(notations, addclefs=apply, winsize=window,
                                 threshold=threshold, biasfactor=biasFactor,
-                                key=property)
+                                key=propertyKey)
 
     def resolveEnharmonics(self, options: enharmonics.EnharmonicOptions) -> None:
         prevMeasure = None

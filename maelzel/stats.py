@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import bpf4
-import bpf4.util
 import numpy as np
-import numpy.typing as npt
 from typing import TYPE_CHECKING
 
+
 if TYPE_CHECKING:
+    import numpy.typing as npt
     from typing import Sequence, Callable
     from matplotlib.axes import Axes
 
@@ -200,15 +199,12 @@ def weightedHistogram(values: npt.ArrayLike,
 
     """
     if isinstance(distribution, (int, float)):
-        curve = bpf4.expon(0, 0, 1, 1, exp=distribution)
-    elif isinstance(distribution, bpf4.BpfInterface):
-        curve = distribution
+        from emlib import mathlib
+        relthresholds = mathlib.exponcurve(numbins+1, distribution, 0, 0, 1, 1)
     elif callable(distribution):
-        curve = bpf4.util.asbpf(distribution, bounds=(0, 1))
+        relthresholds = [distribution(x) for x in np.linspace(0, 1, numbins+1)]
     else:
         raise TypeError(f"Expected a float or a bpf, got {distribution}")
-
-    relthresholds = curve.map(numbins+1)[1:]
     weightsarr = np.asarray(weights)
     valuesarr = np.asarray(values)
     totalweight = weightsarr.sum()

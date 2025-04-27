@@ -62,7 +62,7 @@ def renderQuantizedScore(score: quant.QuantizedScore,
                 logger.debug(f"Part #{i} (name={part.name}) already has manual clefs set, skipping automatic clefs")
             else:
                 part.findClefChanges(apply=True, biasFactor=options.keepClefBiasFactor,
-                                     window=options.autoClefChangesWindow)
+                                     window=options.autoClefChangesWindow, propertyKey='')
         part.repairLinks()
 
     if backend == 'musicxml':
@@ -129,9 +129,9 @@ def _asParts(obj: core.UnquantizedPart | core.Notation | list[core.UnquantizedPa
         return [obj]
     elif isinstance(obj, list):
         if all(isinstance(item, core.UnquantizedPart) for item in obj):
-            return obj
+            return obj  # type: ignore
         elif all(isinstance(item, core.Notation) for item in obj):
-            return [core.UnquantizedPart(notations=obj)]
+            return [core.UnquantizedPart(notations=obj)]  # type: ignore
         else:
             raise TypeError(f"Can't show {obj}")
     elif isinstance(obj, core.Notation):

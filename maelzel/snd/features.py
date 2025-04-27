@@ -1,9 +1,6 @@
 from __future__ import annotations
-from emlib.iterlib import flatten
 import numpy as np
-import bpf4
-import bpf4.core
-from emlib.numpytools import chunks
+
 from pitchtools import db2amp, amp2db
 
 from maelzel.snd import _common
@@ -12,57 +9,58 @@ from maelzel.snd.numpysnd import numChannels, rmsBpf
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import csoundengine
+    import bpf4
 
 
-def onsetsAubio(samples: np.ndarray,
-                sr: int,
-                method='mkl',
-                winsize=1024,
-                hopsize=512,
-                threshold=0.03,
-                mingap=0.050,
-                silencedb=-70
-                ) -> list[float]:
-    """
-    Detect onsets in samples
+# def onsetsAubio(samples: np.ndarray,
+#                 sr: int,
+#                 method='mkl',
+#                 winsize=1024,
+#                 hopsize=512,
+#                 threshold=0.03,
+#                 mingap=0.050,
+#                 silencedb=-70
+#                 ) -> list[float]:
+#     """
+#     Detect onsets in samples
 
-    Args:
-        samples: the samples, as numpy array (1D), between -1 and 1
-        sr: the sample rate of samples
-        winsize: the size of the fft window size, in samples
-        hopsize: the hop size, in samples
-        threshold: depends on the method. The lower this value, the more probable
-            is it that an onset is detected
-        method: the method to detect onsets. One of:
-            - `energy`: local energy,
-            - `hfc`: high frequency content,
-            - `complex`: complex domain,
-            - `phase`: phase-based method,
-            - `wphase`: weighted phase deviation,
-            - `specdiff`: spectral difference,
-            - `kl`: Kullback-Liebler,
-            - `mkl`: modified Kullback-Liebler,
-            - `specflux`: spectral flux.
-        mingap: the min. amount of time (in seconds) between two onsets
-        silencedb: onsets will only be detected if the amplitude exceeds this value (in dB)
+#     Args:
+#         samples: the samples, as numpy array (1D), between -1 and 1
+#         sr: the sample rate of samples
+#         winsize: the size of the fft window size, in samples
+#         hopsize: the hop size, in samples
+#         threshold: depends on the method. The lower this value, the more probable
+#             is it that an onset is detected
+#         method: the method to detect onsets. One of:
+#             - `energy`: local energy,
+#             - `hfc`: high frequency content,
+#             - `complex`: complex domain,
+#             - `phase`: phase-based method,
+#             - `wphase`: weighted phase deviation,
+#             - `specdiff`: spectral difference,
+#             - `kl`: Kullback-Liebler,
+#             - `mkl`: modified Kullback-Liebler,
+#             - `specflux`: spectral flux.
+#         mingap: the min. amount of time (in seconds) between two onsets
+#         silencedb: onsets will only be detected if the amplitude exceeds this value (in dB)
 
-    Returns:
-        a list of floats, representing the times of the onsets
-    """
-    assert isinstance(samples, np.ndarray) and len(samples.shape) == 1
-    try:
-        import aubio
-    except ImportError:
-        raise ImportError("aubio (https://github.com/aubio/aubio) is needed for this "
-                          "functionality")
-    ao = aubio.onset(method, buf_size=winsize, hop_size=hopsize)
-    ao.set_threshold(threshold)
-    ao.set_silence(silencedb)
-    ao.set_minioi_s(mingap)
-    samples = samples.astype('float32')
-    onsets = [ao.get_last()/sr for chunk in chunks(samples, hopsize, padwith=0.0)
-              if ao(chunk)]
-    return onsets
+#     Returns:
+#         a list of floats, representing the times of the onsets
+#     """
+#     assert isinstance(samples, np.ndarray) and len(samples.shape) == 1
+#     try:
+#         import aubio
+#     except ImportError:
+#         raise ImportError("aubio (https://github.com/aubio/aubio) is needed for this "
+#                           "functionality")
+#     ao = aubio.onset(method, buf_size=winsize, hop_size=hopsize)
+#     ao.set_threshold(threshold)
+#     ao.set_silence(silencedb)
+#     ao.set_minioi_s(mingap)
+#     samples = samples.astype('float32')
+#     onsets = [ao.get_last()/sr for chunk in chunks(samples, hopsize, padwith=0.0)
+#               if ao(chunk)]
+#     return onsets
 
 
 def playTicks(times: list[float] | np.ndarray,
@@ -127,7 +125,7 @@ def playTicks(times: list[float] | np.ndarray,
         for time, pitch in zip(times, midinotes):
             args = dict(iPitch=pitch, iAmp=amp, iAtt=attack, iDec=decay,
                         iSust=sustain, iRel=release, iChan=chan)
-            synths.append(session.sched(instr.name, delay=time+extraLatency, dur=dur, args=args))
+            synths.append(session.sched(instr.name, delay=time+extraLatency, dur=dur, args=args))  # type: ignore
     return csoundengine.SynthGroup(synths)
 
 
@@ -138,7 +136,7 @@ def onsets(samples: np.ndarray,
            threshold=0.07,
            mingap=0.050,
            backtrack=False,
-           ) -> tuple[np.ndarray, bpf4.core.BpfBase]:
+           ) -> tuple[np.ndarray, bpf4.BpfBase]:
     """
     Detect onsets
 
@@ -170,14 +168,15 @@ def onsets(samples: np.ndarray,
     onsets = rosita.onset_detect(samples, sr, onset_envelope=env, hop_length=hopsize,
                                  units='time', delta=threshold, mingap=mingap, n_fft=winsize,
                                  backtrack=backtrack)
-    onsetbpf = bpf4.core.Linear(envtimes, env)
+    import bpf4
+    onsetbpf = bpf4.Linear(envtimes, env)
     return onsets, onsetbpf
 
 
 def plotOnsets(samples: np.ndarray,
                sr: int,
                onsets: np.ndarray,
-               onsetbpf: bpf4.core.BpfBase = None,
+               onsetbpf: bpf4.BpfBase = None,
                samplesgain=20,
                envalpha=0.8,
                samplesalpha=0.4,
@@ -237,9 +236,9 @@ def filterOnsets(onsets: np.ndarray,
                  samples: np.ndarray,
                  sr: int,
                  minampdb = -60,
-                 rmscurve: bpf4.core.BpfInterface = None,
+                 rmscurve: bpf4.BpfInterface = None,
                  rmsperiod = 0.05,
-                 onsetStrengthBpf: bpf4.core.BpfInterface = None,
+                 onsetStrengthBpf: bpf4.BpfInterface = None,
                  ) -> np.ndarray:
     """
     Returns a selection array where a value of 1 marks an onset as relevant
@@ -286,7 +285,7 @@ def filterOnsets(onsets: np.ndarray,
 def findOffsets(onsets: list[float] | np.ndarray,
                 samples: np.ndarray,
                 sr: int,
-                rmscurve: bpf4.core.BpfInterface = None,
+                rmscurve: bpf4.BpfInterface = None,
                 silenceThreshold=-60,
                 relativeThreshold: int = 90,
                 rmsperiod=0.05,
@@ -414,7 +413,7 @@ def centroidBpf(samples: np.ndarray,
                 overlap: int = 4,
                 winsize: int | None = None,
                 window='hann'
-                ) -> bpf4.core.Sampled:
+                ) -> bpf4.Sampled:
     """
     Construct a bpf representing the centroid of the given audio over time
 
@@ -442,4 +441,4 @@ def centroidBpf(samples: np.ndarray,
                                       hop_length=hopsize,
                                       win_length=winsize,
                                       window=window)
-    return bpf4.core.Sampled(frames[0], x0=0, dx=hopsize/sr)
+    return bpf4.Sampled(frames[0], x0=0, dx=hopsize/sr)

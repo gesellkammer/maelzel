@@ -181,8 +181,7 @@ class PlayArgs:
         breakpoints = _automation.Automation.normalizeBreakpoints(breakpoints, interpolation=interpolation)  # type: ignore
         if self.automations is None:
             self.automations = []
-        self.automations.append(_automation.Automation(param=param, breakpoints=breakpoints,
-                                                       relative=relative))  # type: ignore
+        self.automations.append(_automation.Automation(param=param, breakpoints=breakpoints, relative=relative))  # type: ignore
 
 
     @staticmethod

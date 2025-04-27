@@ -9,7 +9,7 @@ from emlib.iterlib import pairwise, first
 
 from maelzel.common import UNSET, UnsetType, F, F1, asF, asmidi
 from maelzel._util import showF, showT
-from .common import (logger, NotatedDuration, TimeSpan)
+from .common import (logger, NotatedDuration)
 from . import attachment as att
 from . import util
 from . import definitions
@@ -1061,7 +1061,7 @@ class Notation:
         return out
 
     @staticmethod
-    def splitNotations(notations: list[Notation], offsets: Sequence[F]) -> list[tuple[TimeSpan, list[Notation]]]:
+    def splitNotations(notations: list[Notation], offsets: Sequence[F]) -> list[tuple[F, F, list[Notation]]]:
         return _splitNotations(notations, offsets)
 
     @staticmethod
@@ -1899,7 +1899,7 @@ def _tieNotations(notations: list[Notation]) -> None:
 
 def _splitNotations(notations: list[Notation],
                     offsets: Sequence[F]
-                    ) -> list[tuple[TimeSpan, list[Notation]]]:
+                    ) -> list[tuple[F, F, list[Notation]]]:
     """
     Split the given notations between the given offsets
 
@@ -1910,10 +1910,11 @@ def _splitNotations(notations: list[Notation],
         offsets: the boundaries.
 
     Returns:
-        a list of tuples (timespan, notation)
+        a list of tuples ((start beat, end beat), notation)
 
     """
-    timeSpans = [TimeSpan(beat0, beat1) for beat0, beat1 in pairwise(offsets)]
+    timespans = [(beat0, beat1) for beat0, beat1 in pairwise(offsets)]
+    # timeSpans = [TimeSpan(beat0, beat1) for beat0, beat1 in pairwise(offsets)]
     splitEvents = []
     for ev in notations:
         if ev.duration > 0:
@@ -1922,17 +1923,17 @@ def _splitNotations(notations: list[Notation],
             splitEvents.append(ev)
 
     eventsPerBeat = []
-    for timeSpan in timeSpans:
+    for start, end in timespans:
         eventsInBeat = []
         for ev in splitEvents:
-            if timeSpan.start <= ev.offset < timeSpan.end:
-                assert ev.end <= timeSpan.end
+            if start <= ev.offset < end:
+                assert ev.end <= end
                 eventsInBeat.append(ev)
         eventsPerBeat.append(eventsInBeat)
-        assert sum(ev.duration for ev in eventsInBeat) == timeSpan.end - timeSpan.start
-        assert all(timeSpan.start <= ev.offset <= ev.end <= timeSpan.end
+        assert sum(ev.duration for ev in eventsInBeat) == end - start
+        assert all(start <= ev.offset <= ev.end <= end
                    for ev in eventsInBeat)
-    return list(zip(timeSpans, eventsPerBeat))
+    return [(*timespan, events) for timespan, events in zip(timespans, eventsPerBeat)]
 
 
 @dataclass

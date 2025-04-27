@@ -136,12 +136,6 @@ class Workspace:
         _resetCache()
 
     @staticmethod
-    def getActive() -> Workspace:
-        import warnings
-        warnings.warn("This method is deprecated. Use Workspace.active instead.", DeprecationWarning)
-        return Workspace.active
-
-    @staticmethod
     def getConfig() -> CoreConfig:
         """
         Get the active config

@@ -8,12 +8,12 @@ from dataclasses import dataclass
 
 from pitchtools import db2amp, amp2db
 import bpf4
-import bpf4.core
 import bpf4.util
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Union, Callable, Sequence
+    import bpf4.core
 
 
 dynamicSteps = ('pppp', 'ppp', 'pp', 'p', 'mp',
@@ -279,7 +279,7 @@ def _validateDynamics(dynamics: Sequence[str]) -> None:
         "Dynamics not understood"
 
 
-def _makeDynamicsMapping(bpf: bpf4.core.BpfInterface,
+def _makeDynamicsMapping(bpf: bpf4.BpfInterface,
                          dynamics:Sequence[str] = None
                          ) -> tuple[list[tuple[float, str]], dict[str, float]]:
     """
@@ -304,7 +304,7 @@ def _makeDynamicsMapping(bpf: bpf4.core.BpfInterface,
 def createShape(shape='expon(3)',
                 mindb: int | float = -90,
                 maxdb: int | float = 0
-                ) -> bpf4.core.BpfInterface:
+                ) -> bpf4.BpfInterface:
     """
     Return a bpf mapping 0-1 to amplitudes, as needed by DynamicCurve
 

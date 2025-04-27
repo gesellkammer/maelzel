@@ -1326,11 +1326,10 @@ class _FutureSynth(csoundengine.baseschedevent.BaseSchedEvent, csoundengine.synt
             raise ValueError(f"Parameter {param} unknown for instr {self.instr}. "
                              f"Possible parameters: {params}")
         if isinstance(self.event, SynthEvent):
-            self.event.addAutomation(SynthAutomation(param=param, data=pairs, delay=delay,
-                                                     interpolation=mode, overtake=overtake))
+            self.event.addAutomation(SynthAutomation(param=param, data=pairs, delay=delay, interpolation=mode, overtake=overtake))  # type: ignore
         else:
             # A Session event
-            self.event.automate(param=param, pairs=pairs, delay=delay, interpolation=mode, overtake=overtake)
+            self.event.automate(param=param, pairs=pairs, delay=delay, interpolation=mode, overtake=overtake)  # type: ignore
 
     def stop(self, delay=0.) -> None:
         """ Stop this synth """

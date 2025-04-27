@@ -5,20 +5,20 @@ Functionality to interface with `maelzel.scoring`
 from __future__ import annotations
 
 from functools import cache
-from typing import TYPE_CHECKING
 
 from maelzel.common import asF
 from maelzel.textstyle import TextStyle
 
-from .config import CoreConfig
 from .workspace import Workspace
 
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from maelzel import scoring
     import maelzel.scoring.enharmonics as enharmonics
     import maelzel.scoring.render as render
     from maelzel.scorestruct import ScoreStruct
     from maelzel.scoring import quant
+    from .config import CoreConfig
 
 
 def makeEnharmonicOptionsFromConfig(cfg: CoreConfig) -> enharmonics.EnharmonicOptions:

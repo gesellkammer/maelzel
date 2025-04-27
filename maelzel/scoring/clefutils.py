@@ -1,19 +1,22 @@
 from __future__ import annotations
+
 from functools import cache
-import bpf4
-import visvalingamwyatt
 from emlib import iterlib
 from pitchtools import n2m
-from .notation import Notation
 from .common import logger
 from . import attachment
 from . import definitions
 
-from typing import Sequence
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .notation import Notation
+    from typing import Sequence
+    import bpf4
 
 
 @cache
 def clefEvaluators() -> dict[str, bpf4.BpfInterface]:
+    import bpf4
     return {
         'treble': bpf4.linear(
             (n2m("1C"), -20),
@@ -81,7 +84,7 @@ def bestClef(notations: Sequence[Notation], biasclef='', biasfactor=1.5) -> str:
 
 
 def findBestClefs(notations: list[Notation], firstclef='', winsize=1, threshold=0.,
-                  biasfactor=1.5, addclefs=False, key='clef'
+                  biasfactor=1.5, addclefs=True, key=''
                   ) -> list[tuple[int, str]]:
     """
     Given a list of notations, find the clef changes
@@ -116,10 +119,11 @@ def findBestClefs(notations: list[Notation], firstclef='', winsize=1, threshold=
         return []
 
     for i, group in enumerate(iterlib.window(notations, size=winsize)):
-        currentclef = bestClef(list(group), biasclef=currentclef, biasfactor=biasfactor)
+        currentclef = bestClef(group, biasclef=currentclef, biasfactor=biasfactor)
         points.append((i, clefbyindex.index(currentclef)))
 
     if threshold > 0 and len(points) > 2:
+        import visvalingamwyatt
         simplifier = visvalingamwyatt.Simplifier(points)
         points = simplifier.simplify(threshold=threshold)
 
@@ -133,7 +137,8 @@ def findBestClefs(notations: list[Notation], firstclef='', winsize=1, threshold=
     clefs = [(idx, clefbyindex[clefindex]) for idx, clefindex in out]
     for idx, clef in clefs:
         n = notations[idx]
-        n.setProperty(key, clef)
+        if key:
+            n.setProperty(key, clef)
         if addclefs:
             n.addAttachment(attachment.Clef(clef))
     return clefs
@@ -233,7 +238,6 @@ def splitNotationsByClef(notations: list[Notation],
     parts = {clef: [] for clef in clefs}
     lastn = len(notations) - 1
     for nidx, n in enumerate(notations):
-        assert isinstance(n, Notation)
         if n.isRest:
             for part in parts.values():
                 # part.append(n.copy())
