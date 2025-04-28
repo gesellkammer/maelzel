@@ -1,5 +1,11 @@
 from __future__ import annotations
-from PIL import Image, ImageChops
+
+import os
+
+
+import typing
+if typing.TYPE_CHECKING:
+    from PIL import Image
 
 
 def imageAutocrop(img: Image.Image | str, bgcolor: str | tuple[int, int, int]
@@ -15,6 +21,7 @@ def imageAutocrop(img: Image.Image | str, bgcolor: str | tuple[int, int, int]
         cropped image or None if the operation was not successful
 
     """
+    from PIL import Image, ImageChops
     imgobj = img if isinstance(img, Image.Image) else Image.open(img)
     if imgobj.mode != "RGB":
         imgobj = imgobj.convert("RGB")
@@ -45,3 +52,64 @@ def imagefileAutocrop(imgfile: str, outfile: str, bgcolor: str | tuple[int, int,
         return False
     imgobj.save(outfile)
     return True
+
+
+def imgSize(imgfile: str) -> tuple[int, int]:
+    """
+    Similar to emlib.img.imgSize, fixes failure in pillow
+
+    When reading a png with embedded color profile, pillow might
+    fail with an UnidentifiedImageError. This uses pypng
+    to solve this issue
+    """
+    ext = os.path.splitext(imgfile)[-1]
+    if ext == '.png':
+        import png
+        r = png.Reader(imgfile)
+        r.preamble()
+        return r.width, r.height
+    else:
+        import emlib.img
+        return emlib.img.imgSize(imgfile)
+
+
+def _pypngReadImageAsBase64(imgpath: str) -> tuple[bytes, int, int]:
+    import base64
+    import png
+    r = png.Reader(imgpath)
+    width, height, pixels, info = r.read_flat()
+    img64 = base64.b64encode(pixels.tobytes())
+    return img64, width, height
+
+
+def _pyllowReadAsBase64(imgpath: str) -> tuple[bytes, int, int]:
+    import io
+    import PIL.Image
+    try:
+        import pybase64 as base64
+    except ImportError:
+        import base64
+    im = PIL.Image.open(imgpath)
+    buffer = io.BytesIO()
+    im.save(buffer, format='PNG')
+    imgbytes = base64.b64encode(buffer.getvalue())
+    width, height = im.size
+    return imgbytes, width, height
+
+
+def readImageAsBase64(imgpath: str) -> tuple[bytes, int, int]:
+    """
+    Read an image as base64
+
+    This is used in order to solve errors in pillow, were
+    a greyscale image with a color profile raises an error
+
+    Args:
+        imgpath: the path to the image
+
+    Returns:
+        a tuple ``(imagebytes: bytes, width: int, height: int)``
+
+    .. seealso:: :func:`htmlImage64`
+    """
+    return _pyllowReadAsBase64(imgpath)

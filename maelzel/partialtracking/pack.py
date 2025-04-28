@@ -10,23 +10,20 @@ from emlib import iterlib
 # from maelzel import histogram
 from maelzel import stats
 from maelzel.snd import amplitudesensitivity
+from maelzel.mathutils import linexp
 
-from . import spectrum as sp
-from .partial import Partial
 from .track import Track
 
-from typing import Callable, Sequence
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import Callable, Sequence
+    from .partial import Partial
+    from . import spectrum as sp
 
 
 def _estimateMinFreq(spectrum: sp.Spectrum) -> float:
     f0, voicedness = spectrum.fundamental()
     return float(f0.map(1000).min())
-
-
-def _evalexpon(x: float, exp: float, x0: float, y0: float, x1: float, y1: float) -> float:
-    dx = (x - x0) / (x1 - x0)
-    dx = dx ** exp
-    return y0 + (y1 - y0) * dx
 
 
 def _ratePartial(track: Track, partial: Partial, maxrange: int | None = None, mingap=0.1) -> float:
@@ -73,7 +70,7 @@ def _ratePartial(track: Track, partial: Partial, maxrange: int | None = None, mi
     if rangeWithPartial > maxrange:
         return -1
     # rangeRating = bpf4.Expon.fromseq(0, 1, maxrange, 0.001, exp=1)(rangeWithPartial)
-    rangeRating = _evalexpon(rangeWithPartial, 1, 0, 1, maxrange, 0.001)
+    rangeRating = linexp(rangeWithPartial, 1., 0, 1, maxrange, 0.001)
     trackPitch = track.meanpitch()
     pitchdiff = abs(trackPitch - pt.f2m(partial.meanfreq()))
     wrangeRating = bpf4.Halfcos.fromseq(0, 1, maxrange, 0.0001, exp=0.5)(pitchdiff)
@@ -243,8 +240,7 @@ def optimizeSplit(partials: list[Partial],
             packedEnergy = sum(sum(p.audibility() for p in track) for track in tracks)
             return 1 - (packedEnergy - totalEnergy)
 
-        r = optimize.minimize_scalar(func, bounds=(0, 1), tol=0.01)
-        assert isinstance(r, optimize.OptimizeResult)
+        r: optimize.OptimizeResult = optimize.minimize_scalar(func, bounds=(0, 1), tol=0.01)
         distr, tracks, residualtracks, unfitted = results[r['x']]
         return SplitResult(distribution=distr, tracks=tracks, noisetracks=residualtracks, residual=unfitted)
 

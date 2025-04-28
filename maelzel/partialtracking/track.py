@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from .partial import Partial
 from maelzel._util import hasoverlap
 from emlib import iterlib

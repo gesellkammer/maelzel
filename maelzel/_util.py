@@ -8,6 +8,8 @@ import weakref
 import emlib.misc
 import emlib.textlib
 from maelzel.common import getLogger
+from . import mathutils
+
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -248,10 +250,9 @@ def showF(f: F, maxdenom=1000) -> str:
 
     Returns:
         a readable string representation
-
     """
     if f.denominator > maxdenom:
-        num, den = limitDenominator(f.numerator, f.denominator, maxden=maxdenom)
+        num, den = mathutils.limitDenominator(f.numerator, f.denominator, maxden=maxdenom, assumeCoprime=True)
         return f"~{num}/{den}"
     return "%d/%d" % (f.numerator, f.denominator)
 
@@ -450,97 +451,6 @@ def getPlatform(normalize=True) -> tuple[str, str]:
     return system, machine
 
 
-def splitInterval(start: F, end: F, offsets: Sequence[F]
-                  ) -> list[tuple[F, F]]:
-    """
-    Split interval (start, end) at the given offsets
-
-    Args:
-        start: start of the interval
-        end: end of the interval
-        offsets: offsets to split the interval at. Must be sorted
-
-    Returns:
-        a list of (start, end) segments where no segment extends over any
-        of the given offsets
-    """
-    assert end > start
-    assert offsets
-
-    if offsets[0] > end or offsets[-1] < start:
-        # no intersection, return the original time range
-        return [(start, end)]
-
-    out = []
-    for offset in offsets:
-        if offset >= end:
-            break
-        if start < offset:
-            out.append((start, offset))
-            start = offset
-    if start != end:
-        out.append((start, end))
-
-    assert len(out) >= 1
-    return out
-
-
-def intersectF(u1: F, u2: F, v1: F, v2: F) -> tuple[F, F] | None:
-    """
-    return the intersection of (u1, u2) and (v1, v2) or None if no intersection
-
-    Args:
-        u1: lower bound of range U
-        u2: higher bound of range U
-        v1: lower bound of range V
-        v2: higher bound of range V
-
-    Returns:
-        the intersection between range U and range V as a tuple (start, end).
-        If no intersection is found, None is returned
-
-    Example::
-
-        >>> if intersect := intersection(0, 3, 2, 5):
-        ...     start, end = intersect
-        ...     ...
-
-    """
-    x0 = u1 if u1 > v1 else v1
-    x1 = u2 if u2 < v2 else v2
-    return (x0, x1) if x0 < x1 else None
-
-
-def limitDenominator(num: int, den: int, maxden: int) -> tuple[int, int]:
-    """
-    Copied from https://github.com/python/cpython/blob/main/Lib/fractions.py
-    """
-    if maxden < 1:
-        raise ValueError("max_denominator should be at least 1")
-    if den <= maxden:
-        return num, den
-
-    p0, q0, p1, q1 = 0, 1, 1, 0
-    n, d = num, den
-    while True:
-        a = n // d
-        q2 = q0 + a * q1
-        if q2 > maxden:
-            break
-        p0, q0, p1, q1 = p1, q1, p0 + a * p1, q2
-        n, d = d, n - a * d
-    k = (maxden - q0) // q1
-
-    # Determine which of the candidates (p0+k*p1)/(q0+k*q1) and p1/q1 is
-    # closer to self. The distance between them is 1/(q1*(q0+k*q1)), while
-    # the distance from p1/q1 to self is d/(q1*self._denominator). So we
-    # need to compare 2*(q0+k*q1) with self._denominator/d.
-    if 2 * d * (q0 + k * q1) <= den:
-        return p1, q1
-    else:
-        return p0 + k * p1, q0 + k * q1
-
-
 _unicodeReplacerFull = emlib.textlib.makeReplacer({
     '#>': '𝄰',
     '#<': '𝄱',
@@ -608,25 +518,6 @@ def waitForFile(filepath: str, period=0.1, timeout=1) -> None:
         accumtime += period
 
 
-def imgSize(imgfile: str) -> tuple[int, int]:
-    """
-    Similar to emlib.img.imgSize, fixes failure in pillow
-
-    When reading a png with embedded color profile, pillow might
-    fail with an UnidentifiedImageError. This uses pypng
-    to solve this issue
-    """
-    ext = os.path.splitext(imgfile)[-1]
-    if ext == '.png':
-        import png
-        r = png.Reader(imgfile)
-        r.preamble()
-        return r.width, r.height
-    else:
-        import emlib.img
-        return emlib.img.imgSize(imgfile)
-
-
 def htmlImage64(img64: bytes, imwidth: int, width: int | str = '', scale=1.,
                 maxwidth: int | str = '', margintop='14px', padding='10px') -> str:
     """
@@ -660,45 +551,3 @@ def htmlImage64(img64: bytes, imwidth: int, width: int | str = '', scale=1.,
     return fr'''
         <img style="display:inline; {style}"
              src="data:image/png;base64,{img64.decode('utf-8')}"/>'''
-
-
-def _pypngReadImageAsBase64(imgpath: str) -> tuple[bytes, int, int]:
-    import base64
-    import png
-    r = png.Reader(imgpath)
-    width, height, pixels, info = r.read_flat()
-    img64 = base64.b64encode(pixels.tobytes())
-    return img64, width, height
-
-
-def _pyllowReadAsBase64(imgpath: str) -> tuple[bytes, int, int]:
-    import io
-    import PIL.Image
-    try:
-        import pybase64 as base64
-    except ImportError:
-        import base64
-    im = PIL.Image.open(imgpath)
-    buffer = io.BytesIO()
-    im.save(buffer, format='PNG')
-    imgbytes = base64.b64encode(buffer.getvalue())
-    width, height = im.size
-    return imgbytes, width, height
-
-
-def readImageAsBase64(imgpath: str) -> tuple[bytes, int, int]:
-    """
-    Read an image as base64
-
-    This is used in order to solve errors in pillow, were
-    a greyscale image with a color profile raises an error
-
-    Args:
-        imgpath: the path to the image
-
-    Returns:
-        a tuple ``(imagebytes: bytes, width: int, height: int)``
-
-    .. seealso:: :func:`htmlImage64`
-    """
-    return _pyllowReadAsBase64(imgpath)

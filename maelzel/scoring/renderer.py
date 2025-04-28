@@ -9,6 +9,7 @@ from maelzel.scoring.renderoptions import RenderOptions
 from maelzel.scoring import quant
 from maelzel.scoring.config import config
 from maelzel import _util
+from maelzel import _imgtools
 
 import emlib.img
 import emlib.misc
@@ -129,7 +130,7 @@ class Renderer(ABC):
         self.write(pngfile)
         # w, h = emlib.img.imgSize(pngfile)
         # html = emlib.img.htmlImgBase64(pngfile, removeAlpha=True, width=f'{int(w*scale)}px')
-        img64, w, h = _util.readImageAsBase64(pngfile)
+        img64, w, h = _imgtools.readImageAsBase64(pngfile)
         html = _util.htmlImage64(img64, w, width=f'{int(w*scale)}px')
         parts = "1 part" if len(self.quantizedScore) == 1 else f"{len(self.quantizedScore)} parts"
         return f'<b>{type(self).__name__}</b> ({parts})<br>'+html

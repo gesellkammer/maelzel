@@ -1,7 +1,7 @@
 from __future__ import annotations
-from .partial import Partial
-from .track import Track
 from . import pack
+from .track import Track
+from .partial import Partial
 
 
 class Channel:

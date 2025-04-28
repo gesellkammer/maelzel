@@ -54,6 +54,7 @@ from . import symbols as _symbols
 from . import _tools
 from .synthevent import PlayArgs
 
+from maelzel import _imgtools
 from maelzel import _util
 from maelzel import scoring
 
@@ -1190,7 +1191,7 @@ class MObj(ABC):
             of the image and the html img tag.
         """
         imgpath = self._renderImage()
-        img64, width, height = _util.readImageAsBase64(imgpath)
+        img64, width, height = _imgtools.readImageAsBase64(imgpath)
         if scaleFactor == 0.:
             scaleFactor = Workspace.getConfig().get('show.scaleFactor', 1.0)
         return img64, _util.htmlImage64(img64=img64, imwidth=width, width=f'{int(width * scaleFactor)}px')

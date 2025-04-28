@@ -1,13 +1,11 @@
 from __future__ import annotations
 from . import environment
-from maelzel import _util
-
 
 if not environment.insideJupyter:
     raise ImportError("This module is only available inside a jupyter session")
 
+from maelzel import _imgtools
 from ._common import logger
-
 from IPython.display import display, Image
 
 # ipywidgets is a dependency of jupyter so it should be available
@@ -45,7 +43,7 @@ def jupyterMakeImage(path: str, scalefactor=1.0) -> Image:
     if not environment.insideJupyter:
         raise RuntimeError("Not inside a Jupyter session")
 
-    width, height = _util.imgSize(path)  # emlib.img.imgSize(path)
+    width, height = _imgtools.imgSize(path)  # emlib.img.imgSize(path)
     if scalefactor != 1.0:
         width *= scalefactor
     return Image(filename=path, embed=True, width=width)

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from maelzel.common import F, F0
+from maelzel.common import F
 from maelzel.core.mobj import MObj
 import maelzel.core.symbols as _symbols
 from maelzel.core import synthevent
 from maelzel.scoring import definitions
-from maelzel import _util
+from maelzel import mathutils
+
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -240,7 +241,7 @@ class MEvent(MObj):
         startbeat = start if isinstance(start, F) else scorestruct.asBeat(start)
         endbeat = end if isinstance(end, F) else scorestruct.asBeat(end)
         absoffset = self.absOffset()
-        if intersect := _util.intersectF(startbeat, endbeat, absoffset, absoffset + self.dur):
+        if intersect := mathutils.intersectF(startbeat, endbeat, absoffset, absoffset + self.dur):
             intersect0, intersect1 = intersect
             return self.clone(offset=intersect0, dur=intersect1 - intersect0)
         else:
@@ -307,7 +308,7 @@ class MEvent(MObj):
         if offset >= offsets[-1] or offset + dur <= offsets[0]:
             return [self]
 
-        intervals = _util.splitInterval(offset, offset + dur, offsets)
+        intervals = mathutils.splitInterval(offset, offset + dur, offsets)
         events = [self.clone(dur=end-start, offset=None)
                   for start, end in intervals]
         events[0].offset = self.offset
