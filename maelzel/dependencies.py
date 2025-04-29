@@ -337,7 +337,7 @@ def printReport(echo=print, updaterisset=False):
     """
     Print a report of the dependencies.
     """
-    import importlib
+    import importlib.metadata
     import risset
     import vamp
     from maelzel.music import lilytools
@@ -353,7 +353,7 @@ def printReport(echo=print, updaterisset=False):
     else:
         echo("WARNING: csound binary not found")
     echo(f"Lilypond binary: {lilytools.findLilypond()}")
-    rissetversion = importlib.import_module('risset').__version__
+    rissetversion = importlib.metadata.version('risset')
     echo(f"Risset version: {rissetversion}")
     rissetidx = risset.MainIndex(update=updaterisset)
     rissetidx.list_plugins(installed=True)
