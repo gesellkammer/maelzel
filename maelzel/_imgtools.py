@@ -56,21 +56,26 @@ def imagefileAutocrop(imgfile: str, outfile: str, bgcolor: str | tuple[int, int,
 
 def imgSize(imgfile: str) -> tuple[int, int]:
     """
-    Similar to emlib.img.imgSize, fixes failure in pillow
+    Size of the image
 
-    When reading a png with embedded color profile, pillow might
-    fail with an UnidentifiedImageError. This uses pypng
-    to solve this issue
+    Returns:
+        a tuple (width, height)
     """
-    ext = os.path.splitext(imgfile)[-1]
-    if ext == '.png':
-        import png
-        r = png.Reader(imgfile)
-        r.preamble()
-        return r.width, r.height
-    else:
-        import emlib.img
-        return emlib.img.imgSize(imgfile)
+    import imagesize
+    width, height = imagesize.get(imgfile)
+    assert isinstance(width, int) and width >= 0
+    assert isinstance(height, int) and height >= 0
+    return width, height
+
+    # ext = os.path.splitext(imgfile)[-1]
+    # if ext == '.png':
+    #     import png
+    #     r = png.Reader(imgfile)
+    #     r.preamble()
+    #     return r.width, r.height
+    # else:
+    #     import emlib.img
+    #     return emlib.img.imgSize(imgfile)
 
 
 def _pypngReadImageAsBase64(imgpath: str) -> tuple[bytes, int, int]:

@@ -128,8 +128,6 @@ class Renderer(ABC):
         scale = config['pngScale']
         pngfile = _util.mktemp(suffix=".png", prefix="render-")
         self.write(pngfile)
-        # w, h = emlib.img.imgSize(pngfile)
-        # html = emlib.img.htmlImgBase64(pngfile, removeAlpha=True, width=f'{int(w*scale)}px')
         img64, w, h = _imgtools.readImageAsBase64(pngfile)
         html = _util.htmlImage64(img64, w, width=f'{int(w*scale)}px')
         parts = "1 part" if len(self.quantizedScore) == 1 else f"{len(self.quantizedScore)} parts"

@@ -42,6 +42,7 @@ dependencies = [
     "pillow<11",
     "sounddevice",
     "typing_extensions",
+    "imagesize",
     "pypng",
 
     # Own libraries
