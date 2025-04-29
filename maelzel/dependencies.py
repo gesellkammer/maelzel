@@ -25,11 +25,11 @@ def csoundLibVersion() -> int | None:
         the version times 1000 (so 6.19 = 6190) or None if csound was not found
     """
     try:
-        import ctcsound7
+        import libcsound
     except Exception as e:
-        logger.error(f"Could not import ctcsound7: {e}")
+        logger.error(f"Could not import libcsound: {e}")
         return None
-    return ctcsound7.VERSION
+    return libcsound.VERSION
 
 
 def checkCsound(minversion="6.17", checkBinaryInPath=True) -> str:

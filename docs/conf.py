@@ -78,7 +78,7 @@ typehints_document_rtype = True
 numpydoc_show_class_members = False
 
 
-autodoc_mock_imports = ["ctcsound7", "csoundengine", "ctcsound", "numpy", "scipy", "matplotlib", "music21"
+autodoc_mock_imports = ["libcsound", "csoundengine", "numpy", "scipy", "matplotlib", "music21"
                         "bpf4", "sndfileio", "pillow", "numpyx", "rtmidi2", "sr",
                         "vamp", "lxml", "gmpy", "sndfileio", "risset", "constraint"
 ]
