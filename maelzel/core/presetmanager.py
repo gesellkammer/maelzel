@@ -758,7 +758,8 @@ class PresetManager:
         from csoundengine.offline import OfflineSession
         renderer = OfflineSession(sr=sr, nchnls=numChannels, ksmps=ksmps,
                                   a4=workspace.a4)
-        renderer.addGlobalCode(presetManager.csoundPrelude)
+
+        renderer.compile(presetManager.csoundPrelude)
         return renderer
 
     def openPresetsDir(self) -> None:

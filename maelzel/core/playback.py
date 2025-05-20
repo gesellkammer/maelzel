@@ -259,7 +259,7 @@ class _SyncSessionHandler(SessionHandler):
 
 
 def testAudio(duration=4, period=0.5, numChannels: int = None, delay=0.5,
-              backend: str = None
+              backend: str = ''
               ) -> None:
     """
     Test the audio engine by sending pink to each channel
@@ -313,12 +313,12 @@ def getAudioDevices(backend=''
 
 
 def _playEngine(numchannels: int = None,
-                backend: str = None,
-                outdev: str = None,
+                backend: str = '',
+                outdev: str = '',
                 verbose: bool = None,
-                buffersize: int = None,
+                buffersize: int = 0,
                 latency: float = None,
-                numbuffers: int = None
+                numbuffers: int = 0
                 ) -> csoundengine.Engine:
     """
     Get the play engine; start it if needed
@@ -362,8 +362,12 @@ def _playEngine(numchannels: int = None,
     if backend == "?":
         backends = [b.name for b in csoundengine.csoundlib.audioBackends()]
         from maelzel.core import _dialogs
-        backend = _dialogs.selectFromList(backends, title="Select Backend")
-    backend = backend or config['play.backend']
+        selectedbackend = _dialogs.selectFromList(backends, title="Select Backend")
+        if selectedbackend is None:
+            raise KeyboardInterrupt
+        backend = selectedbackend
+    elif not backend:
+        backend = config['play.backend']
     verbose = verbose if verbose is not None else config['play.verbose']
     logger.debug(f"Starting engine {engineName} (nchnls={numchannels})")
     latency = latency if latency is not None else config['play.schedLatency']
@@ -421,12 +425,12 @@ def _builtinInstrs() -> list[csoundengine.instr.Instr]:
 
 
 def getSession(numchannels: int = None,
-               backend: str = None,
-               outdev: str = None,
+               backend: str = '',
+               outdev: str = '',
                verbose: bool = None,
-               buffersize: int = None,
-               latency: float = None,
-               numbuffers: int = None,
+               buffersize: int = 0,
+               latency: float | None = None,
+               numbuffers: int = 0,
                ensure: bool = False
                ) -> csoundengine.session.Session:
     """

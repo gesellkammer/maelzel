@@ -13,6 +13,7 @@ import csoundengine
 
 from typing import TYPE_CHECKING, cast as _cast
 if TYPE_CHECKING:
+    import csoundengine.instr
     from maelzel.common import time_t, location_t, num_t
     from maelzel.core import renderer
     from typing import Any, Callable, Iterable, Sequence, TypeAlias

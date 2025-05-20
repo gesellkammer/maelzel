@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     import csoundengine.schedevent
     import csoundengine.tableproxy
     import csoundengine.event
+    import csoundengine.offline
     from maelzel.snd import audiosample
     from maelzel.core.presetdef import PresetDef
 
@@ -336,7 +337,7 @@ class OfflineRenderer(renderer.Renderer):
             for include in presetdef.includes:
                 self.includeFile(include)
         if presetdef.init:
-            self.session.addGlobalCode(presetdef.init)
+            self.session.compile(presetdef.init)
         self.registeredPresets[presetdef.name] = presetdef
         return False
 

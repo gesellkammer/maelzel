@@ -15,6 +15,8 @@ if TYPE_CHECKING:
     import csoundengine
     import csoundengine.event
     import csoundengine.tableproxy
+    import csoundengine.busproxy
+    import csoundengine.instr
     from maelzel.core.presetmanager import PresetManager
     from maelzel.core import synthevent
 
