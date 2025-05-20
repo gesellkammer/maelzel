@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .synthevent import SynthEvent
     import csoundengine
+    import csoundengine.instr
+    import csoundengine.offline
 
 
 __all__ = (
@@ -452,15 +454,15 @@ class PresetManager:
                 bank, presetnum = presetutils.getSoundfontProgram(sf2path, preset)
         else:
             bank, presetnum = preset
-        import csoundengine.csoundlib
-        idx = csoundengine.csoundlib.soundfontIndex(sf2path)
+        from csoundengine import sftools
+        idx = sftools.soundfontIndex(sf2path)
         if not name:
             name = idx.presetToName[(bank, presetnum)]
         if (bank, presetnum) not in idx.presetToName:
             raise ValueError(f"Preset ({bank}:{presetnum}) not found. Possible presets: "
                              f"{idx.presetToName.keys()}")
         if normalize and ampDivisor is None and cfg['play.soundfontFindPeakAheadOfTime']:
-            sfpeak = csoundengine.csoundlib.soundfontPeak(sfpath=sf2path, preset=(bank, presetnum))
+            sfpeak = sftools.soundfontPeak(sfpath=sf2path, preset=(bank, presetnum))
             if sfpeak > 0:
                 ampDivisor = sfpeak
                 normalize = False

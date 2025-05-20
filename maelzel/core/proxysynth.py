@@ -1,5 +1,4 @@
 from __future__ import annotations
-import csoundengine
 from maelzel.common import F, F0
 
 from typing import TYPE_CHECKING
@@ -8,6 +7,7 @@ if TYPE_CHECKING:
     from maelzel.core import presetdef
     from maelzel.scorestruct import ScoreStruct
     import csoundengine.synth
+    import csoundengine.instr
 
 
 class ProxySynthBase:

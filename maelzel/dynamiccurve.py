@@ -13,7 +13,6 @@ import bpf4.util
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Union, Callable, Sequence
-    import bpf4.core
 
 
 dynamicSteps = ('pppp', 'ppp', 'pp', 'p', 'mp',

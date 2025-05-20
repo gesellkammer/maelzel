@@ -49,21 +49,17 @@ import math
 import tempfile
 import shutil
 import bpf4
-import bpf4.core
-import sndfileio
 from pathlib import Path
 import atexit as _atexit
 import configdict
 
 import pitchtools as pt
 import emlib.misc
-import emlib.numpytools as _nptools
 
 from maelzel import _util
-from maelzel.common import getLogger
 from maelzel.snd import _common
 from maelzel.snd import numpysnd as _npsnd
-from maelzel.snd import sndfiletools as _sndfiletools
+from maelzel.common import getLogger
 
 from typing import TYPE_CHECKING
 
@@ -112,7 +108,6 @@ config = configdict.ConfigDict(
 
 
 _sessionTempfiles = []
-_tempFolder = "tmp"
 
 
 @_atexit.register
@@ -123,8 +118,6 @@ def _cleanup():
                 shutil.rmtree(f)
             else:
                 os.remove(f)
-    if os.path.exists(_tempFolder):
-        os.rmdir(_tempFolder)
 
 
 class PlaybackStream(abc.ABC):
@@ -219,6 +212,7 @@ def readSoundfile(sndfile: str | Path, start: float = 0., end: float = 0.
         if not sndfile:
             raise RuntimeError("No soundfile selected")
     sndfilestr = _normalizePath(str(sndfile))
+    import sndfileio
     return sndfileio.sndread(sndfilestr, start=start, end=end)
 
 
@@ -283,7 +277,7 @@ class Sample:
             assert sr
             samples = sound
         else:
-            raise TypeError("sound should be a path or an array of samples")
+            raise TypeError(f"sound should be a path or an array of samples, got {type(sound)}")
 
         self.samples: np.ndarray = samples
         """The actual audio samples as a numpy array. Can be multidimensional"""
@@ -595,10 +589,11 @@ class Sample:
                 profile = 'medium'
             else:
                 profile = 'low'
-        plotting.plotWaveform(self.samples, self.sr, profile=profile,
-                              saveas=imgfile, figsize=figsize)
-        img64, w, h = _util.readImageAsBase64(imgfile)
-        htmlimg = _util.htmlImage64(img64, imwidth=w)
+        fig = plotting.plotWaveform(self.samples, self.sr, profile=profile,
+                                    saveas=imgfile, figsize=figsize)
+        import csoundengine.plotting as ceplt
+        img64 = ceplt.figureToBase64(fig)
+        htmlimg = _util.htmlImage64(img64, imwidth=fig.canvas.get_width_height()[0])
         # htmlimg = emlib.img.htmlImgBase64(pngfile)   # , maxwidth='800px')
         if self.duration > 60:
             durstr = emlib.misc.sec2str(self.duration)
@@ -634,7 +629,8 @@ class Sample:
                     fmt = config['reprhtml_audio_format']
                     logger.debug(f"Saving audio as {fmt} to be embedded as soundfile in jupyter")
                     os.makedirs('tmp', exist_ok=True)
-                    outfile = tempfile.mktemp(dir=_tempFolder, suffix='.' + fmt)
+                    tempfolder = _util.sessionTempdir()
+                    outfile = tempfile.mktemp(dir=tempfolder.name, suffix='.' + fmt)
                     self.write(outfile, overflow='normalize')
                     _sessionTempfiles.append(outfile)
                 audioobj = IPython.display.Audio(outfile)
@@ -817,6 +813,8 @@ class Sample:
         if not fmt:
             fmt = os.path.splitext(outfile)[1][1:].lower()
             assert fmt in {'wav', 'aif', 'aiff', 'flac', 'mp3', 'ogg'}
+
+        import sndfileio
         if not encoding:
             encoding = sndfileio.util.default_encoding(fmt)
             if not encoding:
@@ -1139,7 +1137,7 @@ class Sample:
         """Highest sample value in dB"""
         return pt.amp2db(np.abs(self.samples).max())
 
-    def peaksBpf(self, framedur=0.01, overlap=2) -> bpf4.core.Sampled:
+    def peaksBpf(self, framedur=0.01, overlap=2) -> bpf4.Sampled:
         """
         Create a bpf representing the peaks envelope of the source
 
@@ -1173,7 +1171,7 @@ class Sample:
         self._changed()
         return self
 
-    def rmsBpf(self, dt=0.01, overlap=1) -> bpf4.core.Sampled:
+    def rmsBpf(self, dt=0.01, overlap=1) -> bpf4.Sampled:
         """
         Creates a BPF representing the rms of this sample over time
 
@@ -1182,7 +1180,7 @@ class Sample:
             overlap (int): The number of frames to overlap.
 
         Returns:
-            bpf4.core.Sampled: A BPF representing the rms of this sample over time.
+            bpf4.Sampled: A BPF representing the rms of this sample over time.
 
         Raises:
             ValueError: If dt is not positive.
@@ -1210,7 +1208,7 @@ class Sample:
         """
         return _npsnd.rms(self.samples)
 
-    def amplitudeBpf(self, attack=0.01, release=0.01, chunktime=0.05, overlap=2) -> bpf4.core.Sampled:
+    def amplitudeBpf(self, attack=0.01, release=0.01, chunktime=0.05, overlap=2) -> bpf4.Sampled:
         """
         Creates a bpf representing the average amplitude over time
 
@@ -1323,7 +1321,8 @@ class Sample:
             >>> sample2 = sample.scrub(bpf4.linear([(0, 0), (dur*2, dur)]))
 
         """
-        samples, sr = _sndfiletools.scrub((self.samples, self.sr), bpf,
+        from maelzel.snd import sndfiletools
+        samples, sr = sndfiletools.scrub((self.samples, self.sr), bpf,
                                           rewind=False)
         return Sample(samples, self.sr)
 
@@ -1690,10 +1689,11 @@ class Sample:
         Returns:
             an iterator over the chunks
         """
-        return _nptools.chunks(self.samples,
-                               chunksize=chunksize,
-                               hop=hop,
-                               padwith=(0 if pad else None))
+        import emlib.numpytools as nptools
+        return nptools.chunks(self.samples,
+                              chunksize=chunksize,
+                              hop=hop,
+                              padwith=(0 if pad else None))
 
     def firstPitch(self, threshold=-120, minfreq=60, overlap=4, channel=0, chunkdur=0.25
                    ) -> tuple[float, float]:

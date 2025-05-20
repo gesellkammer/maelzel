@@ -4,6 +4,7 @@ This module handles playing of events
 """
 from __future__ import annotations
 
+from functools import cache
 import numpy as np
 import csoundengine
 from csoundengine.sessionhandler import SessionHandler
@@ -25,6 +26,8 @@ if TYPE_CHECKING:
     import csoundengine.schedevent
     import csoundengine.tableproxy
     import csoundengine.instr
+    import csoundengine.busproxy
+    import csoundengine.csoundlib
     from typing import Sequence, Callable
     from .mobj import MObj
     from maelzel.snd import audiosample
@@ -357,7 +360,7 @@ def _playEngine(numchannels: int = None,
         return engine
     numchannels = numchannels or config['play.numChannels']
     if backend == "?":
-        backends = [b.name for b in csoundengine.csoundlib.audioBackends(available=True)]
+        backends = [b.name for b in csoundengine.csoundlib.audioBackends()]
         from maelzel.core import _dialogs
         backend = _dialogs.selectFromList(backends, title="Select Backend")
     backend = backend or config['play.backend']
@@ -402,16 +405,19 @@ def playSession(*args, **kws):
 class SessionParametersMismatchError(Exception): ...
 
 
-_builtinInstrs = [
-    csoundengine.instr.Instr('.reverbstereo', r'''
-    |kfeedback=0.85, kwet=0.8, ichan=1, kcutoff=12000|
-    a1, a2 monitor
-    aL, aR  reverbsc a1, a2, kfeedback, kcutoff, sr, 0.5, 1
-    aL = aL * kwet - a1 * (1 - kwet)
-    aR = aR * kwet - a2 * (1 - kwet)
-    outch ichan, aL, ichan+1, aR
-    ''')
-]
+@cache
+def _builtinInstrs() -> list[csoundengine.instr.Instr]:
+    from csoundengine.instr import Instr
+    return [
+        Instr('.reverbstereo', r'''\
+            |kfeedback=0.85, kwet=0.8, ichan=1, kcutoff=12000|
+            a1, a2 monitor
+            aL, aR  reverbsc a1, a2, kfeedback, kcutoff, sr, 0.5, 1
+            aL = aL * kwet - a1 * (1 - kwet)
+            aR = aR * kwet - a2 * (1 - kwet)
+            outch ichan, aL, ichan+1, aR
+            ''')
+    ]
 
 
 def getSession(numchannels: int = None,
@@ -468,7 +474,7 @@ def getSession(numchannels: int = None,
         session = _playEngine(numchannels=numchannels, backend=backend, outdev=outdev,
                               verbose=verbose, buffersize=buffersize, latency=latency,
                               numbuffers=numbuffers).session()
-        for instr in _builtinInstrs:
+        for instr in _builtinInstrs():
             session.registerInstr(instr)
         return session
 

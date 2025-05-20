@@ -550,4 +550,4 @@ def htmlImage64(img64: bytes, imwidth: int, width: int | str = '', scale=1.,
     style = ";\n".join(attrs)
     return fr'''
         <img style="display:inline; {style}"
-             src="data:image/png;base64,{img64.decode('utf-8')}"/>'''
+             src="data:image/png;base64,{img64}"/>'''

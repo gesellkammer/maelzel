@@ -13,8 +13,6 @@ import emlib.mathlib
 import emlib.misc
 import matplotlib.pyplot as plt
 import matplotlib.ticker
-from matplotlib.axes import Axes
-from matplotlib.figure import Figure
 import numpy as np
 from emlib import numpytools
 from scipy import signal
@@ -22,9 +20,9 @@ from scipy import signal
 from maelzel.snd.numpysnd import getChannel, numChannels
 
 if TYPE_CHECKING:
-    from typing import Union
-
     import matplotlib.pyplot as plt
+    from matplotlib.figure import Figure
+    from matplotlib.axes import Axes
 
 
 logger = logging.getLogger('maelzel.snd')
@@ -103,7 +101,7 @@ _matplotlib_cmaps = [
 def plotPowerSpectrum(samples: np.ndarray,
                       samplerate: int,
                       framesize=2048,
-                      window: Union[str, tuple[str, float]] = ('kaiser', 9),
+                      window: str | tuple[str, float] = ('kaiser', 9),
                       axes: Axes = None,
                       figsize=(24, 4)
                       ) -> Axes:
@@ -151,7 +149,7 @@ def _plot_matplotlib(samples: np.ndarray, samplerate: int, timelabels: bool,
     numch = numChannels(samples)
     numsamples = samples.shape[0]
     fig = plt.figure(figsize=figsize)
-    ax1: Axes = None
+    ax1: Axes | None = None
     if timelabels:
         formatter = matplotlib.ticker.FuncFormatter(
             lambda idx, x:emlib.misc.sec2str(idx/samplerate, msdigits=3))
@@ -250,7 +248,7 @@ def plotWaveform(samples,
                  saveas='',
                  timelabels=True,
                  figsize=(24, 4)
-                 ) -> list[Axes]:
+                 ) -> Figure:
     """
     Plot the waveform of a sound using pyplot
 
@@ -329,7 +327,7 @@ def plotWaveform(samples,
         if saveas:
             plt.close(fig)
             fig.savefig(saveas, transparent=False, facecolor="white", bbox_inches='tight')
-        return fig.axes
+        return fig
     elif profile == 'low':
         maxpoints, maxsr = 600, 20
     elif profile == 'medium' or profile == 'middle':
@@ -344,6 +342,7 @@ def plotWaveform(samples,
         targetsr = min(maxsr, (samplerate * numsamples) // maxpoints)
     hop_length = samplerate // targetsr
     f = plt.figure(figsize=figsize)
+    f.set_tight_layout(True)
     ax1 = None
     timeFormatter = matplotlib.ticker.FuncFormatter(
         lambda s, x:emlib.misc.sec2str(s, msdigits=3))
@@ -370,7 +369,7 @@ def plotWaveform(samples,
     if saveas:
         plt.close(f)
         f.savefig(saveas, transparent=False, facecolor="white", bbox_inches='tight')
-    return f.axes
+    return f
 
 
 def plotSpectrogram(samples: np.ndarray,

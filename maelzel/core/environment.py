@@ -11,12 +11,10 @@ Functionality to deal with the environment in which `maelzel.core` is running
 from __future__ import annotations
 import os
 import shutil
-import logging
-import emlib.misc
-from maelzel._util import pythonSessionType
+from maelzel import _util
 
 
-insideJupyter = pythonSessionType() == 'jupyter'
+insideJupyter = _util.pythonSessionType() == 'jupyter'
 
 
 def hasBinary(binary: str) -> bool:
@@ -36,6 +34,7 @@ def openPngWithExternalApplication(path: str, wait=False, app: str = '') -> None
     """
     Open the given png file
     """
+    import emlib.misc
     if app:
         return emlib.misc.open_with_app(path, app, wait=wait)
     emlib.misc.open_with_app(path, wait=wait)
@@ -61,6 +60,7 @@ def findMusescore() -> str | None:
         (which is actually a directory).
     """
     from maelzel.core import workspace
+    import logging
     cfg = workspace.getConfig()
     musescorepath = cfg.get('musescorepath')
     _logger = logging.getLogger(__file__)

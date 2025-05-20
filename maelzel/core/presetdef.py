@@ -6,13 +6,14 @@ import textwrap as _textwrap
 from functools import cache
 
 import emlib.textlib as _textlib
-import csoundengine
 
 from . import presetutils
 from . import environment
 from ._common import logger
 from . import _tools
 from maelzel import colortheory
+from csoundengine import csoundparse
+from csoundengine import instrtools
 
 from maelzel.core.workspace import Workspace
 
@@ -20,6 +21,7 @@ from typing import TYPE_CHECKING, cast as _cast
 if TYPE_CHECKING:
     from typing import Any, Callable
     import csoundengine.abstractrenderer
+    import csoundengine.instr
 
 _INSTR_INDENT = "  "
 
@@ -93,9 +95,9 @@ def _parseAudiogen(code: str, check=False) -> ParsedAudiogen:
     else:
         numOuts = numOutchs
 
-    inlineargs = csoundengine.instr.instrtools.parseInlineArgs(audiogenlines)
+    inlineargs = instrtools.parseInlineArgs(audiogenlines)
     if inlineargs:
-        docstring = csoundengine.instr.instrtools.parseDocstring(audiogenlines[inlineargs.linenum+1:])
+        docstring = instrtools.parseDocstring(audiogenlines[inlineargs.linenum+1:])
     else:
         docstring = None
 
@@ -528,7 +530,7 @@ class PresetDef:
 
         if self.init:
             init = _textwrap.indent(_textwrap.dedent(self.init), _INSTR_INDENT)
-            inithtml = csoundengine.csoundlib.highlightCsoundOrc(init, theme=theme)
+            inithtml = csoundparse.highlightCsoundOrc(init, theme=theme)
             ps.append(_header('init'))
             ps.append(span(inithtml, fontsize=codefont))
 
@@ -553,16 +555,19 @@ class PresetDef:
             # arghtml = csoundengine.csoundlib.highlightCsoundOrc(argstr, theme=theme)
             ps.append(span(arghtml, fontsize=codefont))
         # TODO: solve how to generate body at this stage
-        instr = self.getInstr()
-        body = self.code if not showGeneratedCode else csoundengine.session.Session.defaultInstrBody(instr)
+        if showGeneratedCode:
+            instr = self.getInstr()
+            body = csoundengine.session.Session.defaultInstrBody(instr)
+        else:
+            body = self.code
         body = _textwrap.indent(body, _INSTR_INDENT)
-        bodyhtml = csoundengine.csoundlib.highlightCsoundOrc(body, theme=theme)
+        bodyhtml = csoundparse.highlightCsoundOrc(body, theme=theme)
         ps.append(span(bodyhtml, fontsize=codefont))
 
         if self.epilogue:
             ps.append(_header("epilogue"))
             epilogue = _textwrap.indent(self.epilogue, _INSTR_INDENT)
-            html = csoundengine.csoundlib.highlightCsoundOrc(epilogue, theme=theme)
+            html = csoundparse.highlightCsoundOrc(epilogue, theme=theme)
             html = span(html, fontsize=codefont)
             ps.append(html)
         return "\n".join(ps)
@@ -583,13 +588,14 @@ class PresetDef:
         aliases = {'position': 'kpos', 'gain': 'kgain'}
         if self.aliases:
             aliases |= self.aliases
-        instr = csoundengine.instr.Instr(name=self.instrname,
-                                         body=self.body,
-                                         init=self.init,
-                                         includes=self.includes,
-                                         args=self.args,   # type: ignore
-                                         numchans=self.numouts,
-                                         aliases=aliases)
+        from csoundengine.instr import Instr
+        instr = Instr(name=self.instrname,
+                      body=self.body,
+                      init=self.init,
+                      includes=self.includes,
+                      args=self.args,   # type: ignore
+                      numchans=self.numouts,
+                      aliases=aliases)
         self._instr = instr
         return instr
 
@@ -618,4 +624,4 @@ def _consolidateInitCode(init: str, includes: list[str]) -> str:
 
 
 def _genIncludes(includes: list[str]) -> str:
-    return "\n".join(csoundengine.csoundlib.makeIncludeLine(inc) for inc in includes)
+    return "\n".join(csoundparse.makeIncludeLine(inc) for inc in includes)

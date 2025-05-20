@@ -1,9 +1,11 @@
 from __future__ import annotations
 import re
 import os
+import sys
 import glob
 import textwrap
-import csoundengine
+import csoundengine.sftools
+import csoundengine.csoundparse
 import emlib.textlib
 from .workspace import getConfig, getWorkspace
 from ._common import logger
@@ -151,7 +153,7 @@ def makeSoundfontAudiogen(sf2path: str = None,
     if not os.path.exists(sf2path):
         raise OSError(f"Soundfont file not found: '{sf2path}'")
 
-    presets = csoundengine.csoundlib.soundfontPresets(sf2path)
+    presets = csoundengine.sftools.soundfontPresets(sf2path)
     if not presets:
         raise ValueError(f"The given soundfont {sf2path} has no presets")
 
@@ -175,7 +177,7 @@ def makeSoundfontAudiogen(sf2path: str = None,
         ''']
 
     if normalize:
-        keyrange = csoundengine.csoundlib.soundfontKeyrange(sf2path, preset=(bank, presetnum))
+        keyrange = csoundengine.sftools.soundfontKeyrange(sf2path, preset=(bank, presetnum))
         if keyrange is None:
             raise RuntimeError(f"No key range found for preset {(bank, presetnum)} "
                                f"for soundfont {sf2path}")
@@ -302,15 +304,31 @@ def _fixNumericKeys(d: dict):
         d[int(key)] = v
 
 
+def defaultSoundfontPath() -> str:
+    """
+    Returns the path of the fluid sf2 file
+
+    Returns:
+        the path of the default soundfont or an empty path if this does not apply
+    """
+    if sys.platform == 'linux':
+        paths = ["/usr/share/sounds/sf2/FluidR3_GM.sf2"]
+        path = next((path for path in paths if os.path.exists(path)), '')
+    else:
+        logger.info("Default path for soundfonts only defined in linux")
+        path = ''
+    return path
+
+
 def resolveSoundfontPath(path: str = None) -> str | None:
     return (path or
             getConfig()['play.generalMidiSoundfont'] or
-            csoundengine.tools.defaultSoundfontPath() or
+            defaultSoundfontPath() or
             None)
 
 
 def getSoundfontProgram(sf2path: str, presetname: str) -> tuple[int, int]:
-    idx = csoundengine.csoundlib.soundfontIndex(sf2path)
+    idx = csoundengine.sftools.soundfontIndex(sf2path)
     if presetname not in idx.nameToIndex:
         raise KeyError("fPresetname {presetname} not defined in soundfont {sf2path}"
                        f" Possible presets: {idx.nameToPreset.keys()}")
@@ -329,7 +347,7 @@ def soundfontSelectProgram(sf2path: str) -> tuple[str, int, int] | None:
 
     """
     import emlib.dialogs
-    idx = csoundengine.csoundlib.soundfontIndex(sf2path)
+    idx = csoundengine.sftools.soundfontIndex(sf2path)
     programnames = list(idx.nameToPreset.keys())
     programname = emlib.dialogs.selectItem(programnames, title="Select Program")
     if programname is None:
@@ -375,7 +393,7 @@ def embedEnvelope(audiogen: str, audiovars: list[str], envelope="aenv_"
     """
     lines = audiogen.splitlines()
     for audiovar in audiovars:
-        lastassign = csoundengine.csoundlib.lastAssignmentToVariable(audiovar, lines)
+        lastassign = csoundengine.csoundparse.lastAssignmentToVariable(audiovar, lines)
         if lastassign is None:
             logger.error(f"Did not find any assignment to variable {audiovar}")
             logger.error("Audiogen:\n")

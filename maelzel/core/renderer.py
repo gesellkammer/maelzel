@@ -5,17 +5,18 @@ from __future__ import annotations
 from abc import abstractmethod, ABC
 
 import numpy as np
-import csoundengine
 
-import csoundengine.event
-import csoundengine.tableproxy
-
-from maelzel.core import presetdef
-from maelzel.core import synthevent
-from maelzel.core.presetmanager import PresetManager
+from maelzel.core import presetdef as _presetdef
 from . import environment
 
-from typing import Callable
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import Callable
+    import csoundengine
+    import csoundengine.event
+    import csoundengine.tableproxy
+    from maelzel.core.presetmanager import PresetManager
+    from maelzel.core import synthevent
 
 
 __all__ = (
@@ -32,7 +33,7 @@ class Renderer(ABC):
     """
 
     def __init__(self, presetManager: PresetManager):
-        self.registeredPresets: dict[str, presetdef.PresetDef] = {}
+        self.registeredPresets: dict[str, _presetdef.PresetDef] = {}
         """Maps preset name to preset definition"""
 
         self.presetManager = presetManager
@@ -146,7 +147,7 @@ class Renderer(ABC):
         """
         raise NotImplementedError
 
-    def preparePreset(self, presetdef: presetdef.PresetDef, priority: int
+    def preparePreset(self, presetdef: _presetdef.PresetDef, priority: int
                       ) -> bool:
         """
         Prepare a preset to be used
@@ -217,7 +218,7 @@ class Renderer(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def registerPreset(self, presetdef: presetdef.PresetDef) -> bool:
+    def registerPreset(self, presetdef: _presetdef.PresetDef) -> bool:
         """Register a Preset at this renderer"""
         raise NotImplementedError
 

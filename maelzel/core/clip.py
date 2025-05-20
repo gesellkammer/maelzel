@@ -1,28 +1,30 @@
 from __future__ import annotations
 import pitchtools as pt
 
-import sndfileio
 import numpy as np
 import os
 
-import csoundengine
 
-from maelzel.scorestruct import ScoreStruct
 from maelzel.common import F, asF, F0, F1, asmidi
 from maelzel.core.config import CoreConfig
 from maelzel.core import event
-from maelzel.core import _dialogs
-from maelzel.core.synthevent import SynthEvent, PlayArgs
+from maelzel.core.synthevent import SynthEvent
 from maelzel.core.workspace import Workspace
-from maelzel.core import playback
-from maelzel.snd import audiosample
-from maelzel import scoring
 from maelzel import _util
+from maelzel.snd import audiosample
+
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from maelzel.common import time_t, pitch_t
     from typing_extensions import Self
+    from maelzel.core.synthevent import PlayArgs
+    from maelzel.core import playback
+    from maelzel import scoring#
+    import csoundengine
+    from maelzel.scorestruct import ScoreStruct
+
+
 
 __all__ = (
     'Clip',
@@ -102,6 +104,7 @@ class Clip(event.MEvent):
                  noteheadShape: str = None
                  ):
         if source == '?':
+            from maelzel.core import _dialogs
             selection = _dialogs.selectSndfileForOpen()
             if selection is None or not selection:
                 raise ValueError("No source selected")
@@ -154,6 +157,7 @@ class Clip(event.MEvent):
             if not os.path.exists(source):
                 raise FileNotFoundError(f"Soundfile not found: '{source}'")
             self.soundfile = source
+            import sndfileio
             info = sndfileio.sndinfo(source)
             self._sr = info.samplerate
             self.sourceDurSecs = F(info.duration)
@@ -449,6 +453,7 @@ class Clip(event.MEvent):
             config = Workspace.active.config
         offset = self.absOffset()
         dur = self.dur
+        from maelzel import scoring
         notation = scoring.Notation.makeNote(pitch=self.pitch,
                                              duration=dur,
                                              offset=offset,
