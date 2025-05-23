@@ -2,7 +2,6 @@
 Isorhythmic structures
 """
 from __future__ import annotations
-from typing import TYPE_CHECKING, Generic, TypeVar
 from emlib import iterlib
 import itertools
 
@@ -11,11 +10,12 @@ try:
 except ImportError:
     from fractions import Fraction
 
-_T = TypeVar('_T')
-
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Sequence, Iterable, TypeVar
+    from typing import Sequence, Iterable, TypeVar, Generic
     from maelzel.common import num_t
+    _T = TypeVar('_T')
+
 
 
 class Isorhythm(Generic[_T]):

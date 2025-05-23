@@ -2,10 +2,10 @@ from __future__ import annotations
 from maelzel.common import F
 import math
 
-import typing
+import typing as _t
 
 
-def splitInterval(start: F, end: F, offsets: typing.Sequence[F]
+def splitInterval(start: F, end: F, offsets: _t.Sequence[F]
                   ) -> list[tuple[F, F]]:
     """
     Split interval (start, end) at the given offsets

@@ -9,6 +9,7 @@ from maelzel.snd.numpysnd import numChannels, rmsBpf
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import csoundengine
+    import csoundengine.synth
     import bpf4
 
 
@@ -126,7 +127,8 @@ def playTicks(times: list[float] | np.ndarray,
             args = dict(iPitch=pitch, iAmp=amp, iAtt=attack, iDec=decay,
                         iSust=sustain, iRel=release, iChan=chan)
             synths.append(session.sched(instr.name, delay=time+extraLatency, dur=dur, args=args))  # type: ignore
-    return csoundengine.SynthGroup(synths)
+    import csoundengine.synth
+    return csoundengine.synth.SynthGroup(synths)
 
 
 def onsets(samples: np.ndarray,
@@ -384,8 +386,8 @@ def voicedness(samples: np.ndarray,
     kcount += 1
     endin
     '''
-    import csoundengine as ce
-    engine = ce.OfflineEngine(sr=sr, numAudioBuses=0, numControlBuses=0, commandlineOptions=['--nosound'])
+    from csoundengine.offline import OfflineEngine
+    engine = OfflineEngine(sr=sr, numAudioBuses=0, numControlBuses=0, commandlineOptions=['--nosound'])
     # TODO
     audiotab = engine.makeTable(samples, sr=sr)
     timestab = engine.makeEmptyTable(numdata)
@@ -403,8 +405,6 @@ def voicedness(samples: np.ndarray,
     times = engine.getTableData(timestab).copy()
     engine.stop()
     return {'times': times, 'flatness': flatnessdata, 'crest': crestdata, 'peakyness': peakynessdata}
-
-
 
 
 def centroidBpf(samples: np.ndarray,
@@ -441,4 +441,5 @@ def centroidBpf(samples: np.ndarray,
                                       hop_length=hopsize,
                                       win_length=winsize,
                                       window=window)
+    import bpf4
     return bpf4.Sampled(frames[0], x0=0, dx=hopsize/sr)

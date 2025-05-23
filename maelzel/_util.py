@@ -361,8 +361,7 @@ def pythonSessionType() -> str:
         return "python"
 
 
-@functools.cache
-def getPlatform(normalize=True) -> tuple[str, str]:
+def getPlatform() -> tuple[str, str]:
     """
     Return a string with current platform (system and machine architecture).
 
@@ -395,6 +394,9 @@ def getPlatform(normalize=True) -> tuple[str, str]:
 
 
     """
+    if out := _cache.get('getPlatform') is not None:
+        return out
+
     import platform
     import sysconfig
 
@@ -441,14 +443,13 @@ def getPlatform(normalize=True) -> tuple[str, str]:
         else:
             machine = "i386"
 
-    if normalize:
-        machine = {
-            'x64': 'x86_64',
-            'aarch64': 'arm64',
-            'amd64': 'x86_64'
-        }.get(machine, machine)
-
-    return system, machine
+    machine = {
+        'x64': 'x86_64',
+        'aarch64': 'arm64',
+        'amd64': 'x86_64'
+    }.get(machine, machine)
+    _cache['getPlatform'] = out = (system, machine)
+    return out
 
 
 _unicodeReplacerFull = emlib.textlib.makeReplacer({
@@ -472,6 +473,7 @@ _unicodeReplacerSimple = emlib.textlib.makeReplacer({
     '<': '↓'})
 
 
+@functools.cache
 def unicodeNotename(notename: str, full=True) -> str:
     """
     Replace ascii accidentals with unicode accidentals

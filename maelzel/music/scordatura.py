@@ -34,9 +34,10 @@ class DetunedString:
     def sound2note(self, note: str) -> str:
         midinote = n2m(note)
         dx = midinote - self._sounding_midi
-        if dx >= 0:
-            written = self._written_midi + dx
-            return m2n(written)
+        if dx < 0:
+            raise ValueError("note not present in this string")
+        written = self._written_midi + dx
+        return m2n(written)
 
     def note2harmonic(self, written_note, kind='n'):
         """
@@ -51,7 +52,7 @@ class DetunedString:
         """
         raise NotImplementedError
 
-    def sound2harmonic(self, note, kind='all', tolerance=0.5):
+    def sound2harmonic(self, note: str, kind='all', tolerance=0.5):
         """
         find the harmonics in this string which can produce the given sound as result.
 
@@ -104,7 +105,7 @@ def aslist(x):
         return x
     return aslist(x)
 
-    
+
 class DetunedInstrument:
     def __init__(self, i, ii, iii, iv):
         self.i, self.ii, self.iii, self.iv = i, ii, iii, iv
@@ -120,7 +121,7 @@ class DetunedInstrument:
             return self.iv
         else:
             raise ValueError("The index indicates the string, 1-4")
-          
+
     def sound2note(self, note, strings=None):
         if strings is None:
             strings = (self.i, self.ii, self.iii, self.iv)

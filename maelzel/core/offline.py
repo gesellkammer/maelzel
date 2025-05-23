@@ -12,20 +12,24 @@ import csoundengine.instr
 import csoundengine.sessionhandler
 
 
-from maelzel.core import renderer
-from maelzel.core import presetmanager
-from maelzel.core.workspace import Workspace
-from maelzel.core import synthevent
-from maelzel.core import errors
-from maelzel.core import playback
-from maelzel.core import mobj
-from maelzel.core._common import logger
-from maelzel.core import _playbacktools
-from maelzel import _util
+from maelzel.core import (
+    renderer,
+    synthevent,
+    errors,
+    playback,
+    mobj,
+    _playbacktools,
+    )
 
-from typing import Callable, Sequence, TYPE_CHECKING
+from maelzel import _util
+from maelzel.core.workspace import Workspace
+from maelzel.core._common import logger
+
+from typing import TYPE_CHECKING
+
 
 if TYPE_CHECKING:
+    from typing import Sequence, Callable
     import csoundengine.schedevent
     import csoundengine.tableproxy
     import csoundengine.event
@@ -108,7 +112,7 @@ class OfflineRenderer(renderer.Renderer):
                  verbose: bool = None,
                  endtime=0.,
                  session: csoundengine.session.Session = None):
-
+        from maelzel.core import presetmanager
         super().__init__(presetManager=presetmanager.presetManager)
         w = Workspace.active
         cfg = w.config

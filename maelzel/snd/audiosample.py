@@ -46,8 +46,6 @@ import abc
 import numpy as np
 import os
 import math
-import tempfile
-import shutil
 import bpf4
 from pathlib import Path
 import atexit as _atexit
@@ -66,9 +64,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import sounddevice
     import csoundengine
+    import csoundengine.synth
     from typing import Iterator, Sequence
-    # import matplotlib.pyplot as plt
     from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
     from maelzel.partialtracking import spectrum as _spectrum
     from maelzel.transcribe import mono
     from typing_extensions import Self
@@ -85,7 +84,7 @@ config = configdict.ConfigDict(
     name='maelzel.snd.audiosample',
     default={
         'reprhtml_include_audiotag': True,
-        'reprhtml_audiotag_maxduration_minutes': 10,
+        'reprhtml_audiotag_maxduration_seconds': 600,
         'reprhtml_audiotag_width': '100%',
         'reprhtml_audiotag_maxwidth': '1200px',
         'reprhtml_audiotag_embed_maxduration_seconds': 8,
@@ -103,7 +102,9 @@ config = configdict.ConfigDict(
             'audio (uncompressed). This can result in very big notebooks',
         'csoundengine': 'name of the csound engine to use',
         'reprhtml_audio_format': 'format used when not embedding raw audio'
-    }
+    },
+    load=False,
+    persistent=False
 )
 
 
@@ -112,6 +113,7 @@ _sessionTempfiles = []
 
 @_atexit.register
 def _cleanup():
+    import shutil
     for f in _sessionTempfiles:
         if os.path.exists(f):
             if os.path.isdir(f):
@@ -121,6 +123,9 @@ def _cleanup():
 
 
 class PlaybackStream(abc.ABC):
+    """
+    A class to abstract the playback engine
+    """
 
     @abc.abstractmethod
     def stop(self) -> None:
@@ -142,6 +147,9 @@ class PlaybackStream(abc.ABC):
 
 
 class _PortaudioPlayback(PlaybackStream):
+    """
+    Portaudio based playback for audiosamples (based on sounddevice)
+    """
     def __init__(self, stream: sounddevice.OutputStream):
         self.stream = stream
 
@@ -153,6 +161,9 @@ class _PortaudioPlayback(PlaybackStream):
 
 
 class _CsoundenginePlayback(PlaybackStream):
+    """
+    Csoundengine playback for audiosamples
+    """
     def __init__(self, synth: csoundengine.synth.Synth):
         self.synth = synth
 
@@ -516,7 +527,7 @@ class Sample:
         self._asbpf = bpf
         return bpf
 
-    def plot(self, profile='auto') -> list[Axes]:
+    def plot(self, profile='auto') -> Figure:
         """
         plot the sample data
 
@@ -524,7 +535,7 @@ class Sample:
             profile: one of 'low', 'medium', 'high' or 'auto'
 
         Returns:
-            a list of pyplot Axes
+            the Figure used
         """
         from . import plotting
         return plotting.plotWaveform(self.samples, self.sr, profile=profile)
@@ -543,7 +554,7 @@ class Sample:
 
     def reprHtml(self,
                  withHeader=True,
-                 withAudiotag: bool = None,
+                 withAudiotag=True,
                  figsize=(24, 4),
                  profile=''
                  ) -> str:
@@ -575,71 +586,27 @@ class Sample:
         """
         if self._reprHtml:
             return self._reprHtml
-        import IPython.display
-        import emlib.img
-        import emlib.misc
-        from . import plotting
-        imgfile = tempfile.mktemp(suffix=".jpg", prefix="plot")
-        if not profile:
-            if self.duration < 2:
-                profile = 'highest'
-            elif self.duration < 20:
-                profile = 'high'
-            elif self.duration < 180:
-                profile = 'medium'
-            else:
-                profile = 'low'
-        fig = plotting.plotWaveform(self.samples, self.sr, profile=profile,
-                                    saveas=imgfile, figsize=figsize)
-        import csoundengine.plotting as ceplt
-        img64 = ceplt.figureToBase64(fig)
-        htmlimg = _util.htmlImage64(img64, imwidth=fig.canvas.get_width_height()[0])
-        # htmlimg = emlib.img.htmlImgBase64(pngfile)   # , maxwidth='800px')
-        if self.duration > 60:
-            durstr = emlib.misc.sec2str(self.duration)
-        else:
-            durstr = f"{self.duration:.3g}"
-        if withHeader:
-            s = (f"<b>Sample</b>(duration=<code>{durstr}</code>, "
-                 f"sr=<code>{self.sr}</code>, "
-                 f"numchannels=<code>{self.numchannels}</code>)<br>")
-        else:
-            s = ''
-        s += htmlimg
+        from csoundengine.internal import plotSamplesAsHtml
         if withAudiotag is None:
             withAudiotag = config['reprhtml_include_audiotag']
-        if withAudiotag and self.duration/60 < config['reprhtml_audiotag_maxduration_minutes']:
-            audiotag_width = config['reprhtml_audiotag_width']
-            maxwidth = config['reprhtml_audiotag_maxwidth']
-            # embed short audiofiles, the longer ones are written to disk and read
-            # from there
-            embeddur = config['reprhtml_audiotag_embed_maxduration_seconds']
-            if self.duration < embeddur:
-                if self.numchannels == 1:
-                    samples = self.samples
-                else:
-                    # ipython needs the samples in the shape (numchannels, samples)
-                    samples = self.samples.T
-                logger.debug(f"Embedding audio as uncompressed samples: {self.duration} secs @ {self.sr} Hz")
-                audioobj = IPython.display.Audio(samples, rate=self.sr)
-            else:
-                if self.path:
-                    outfile = self.path
-                else:
-                    fmt = config['reprhtml_audio_format']
-                    logger.debug(f"Saving audio as {fmt} to be embedded as soundfile in jupyter")
-                    os.makedirs('tmp', exist_ok=True)
-                    tempfolder = _util.sessionTempdir()
-                    outfile = tempfile.mktemp(dir=tempfolder.name, suffix='.' + fmt)
-                    self.write(outfile, overflow='normalize')
-                    _sessionTempfiles.append(outfile)
-                audioobj = IPython.display.Audio(outfile)
-            audiotag = audioobj._repr_html_()
-            audiotag = audiotag.replace('audio  controls="controls"',
-                                        fr'audio controls style="width: {audiotag_width}; max-width: {maxwidth};"')
-            s += "<br>" + audiotag
-        self._reprHtml = s
-        return s
+        if withHeader:
+            from emlib.misc import sec2str
+            dur = self.duration
+            durstr = durstr = sec2str(dur) if dur > 60 else f"{dur:.3g}"
+            header = (f"<b>Sample</b>(duration=<code>{durstr}</code>, "
+                      f"sr=<code>{self.sr}</code>, "
+                      f"numchannels=<code>{self.numchannels}</code>)<br>")
+        else:
+            header = ''
+        html  = plotSamplesAsHtml(samples=self.samples, sr=self.sr,
+                                  customHeader=header,
+                                  withAudiotag=withAudiotag,
+                                  profile=profile, path=self.path, figsize=figsize,
+                                  embedAudiotag=self.duration < 8,
+                                  audiotagMaxDuration=config['reprhtml_audiotag_embed_maxduration_seconds'])
+
+        self._reprHtml = html
+        return html
 
     def plotSpetrograph(self, framesize=2048, window='hamming', start=0., dur=0.,
                         axes: Axes = None
@@ -768,6 +735,7 @@ class Sample:
             if wait is True, returns the sample after closing editor
         """
         assert fmt in {'wav', 'aiff', 'aif', 'flac', 'mp3', 'ogg'}
+        import tempfile
         sndfile = tempfile.mktemp(suffix="." + fmt)
         self.write(sndfile)
         logger.debug(f"open_in_editor: opening {sndfile}")
@@ -1468,16 +1436,8 @@ class Sample:
                                                     threshold=threshold,
                                                     mingap=mingap)
             return onsets
-        elif method == 'aubio':
-            if threshold is None:
-                threshold = 0.03
-            from maelzel.snd import features
-            onsets = features.onsetsAubio(samples=self.samples, sr=self.sr, winsize=fftsize,
-                                          hopsize=fftsize//overlap, threshold=threshold,
-                                          mingap=mingap)
-            return np.asarray(onsets, dtype=float)
         else:
-            raise ValueError(f"method {method} not known. Possible methods: 'rosita', 'aubio'")
+            raise ValueError(f"method {method} not known. Possible methods: 'rosita'")
 
     def partialTrackingAnalysis(self,
                                 resolution: float = 50.,
@@ -2071,7 +2031,7 @@ def spectrumAt(samples: np.ndarray,
     samples = np.ascontiguousarray(samples)
 
     try:
-        import loristrck
+        import loristrck.util
     except ImportError:
         raise ImportError("loristrck is needed to perform this operation. Install it via "
                           "'pip install loristrck'")

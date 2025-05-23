@@ -8,23 +8,25 @@ from emlib.mathlib import frange
 import emlib.envir
 import emlib.iterlib
 from itertools import combinations
-import maelzel.core as mc
 
+import maelzel.core as mc
 from maelzel.common import asmidi
+
 from typing import Sequence, Union
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import TypeAlias, Union
+    pitch_t: TypeAlias = Union[int, float, str]
 
 # ------------------------------------------------------------
 #     COMBINATION TONES
 # ------------------------------------------------------------
 
 
-pitch_t = Union[int, float, str]
-
-
 def _asnote(n) -> mc.Note:
     return n if isinstance(n, mc.Note) else mc.Note(n)
-    
+
 
 def _ringmod2f(f1: float, f2: float) -> tuple[float, float]:
     """
@@ -128,7 +130,7 @@ def sumtones(*pitches: pitch_t) -> list[float]:
     midis = _parsePitches(pitches)
     freqs = list(map(m2f, midis))
     return [f2m(f1+f2) for f1, f2 in combinations(freqs, 2)]
-    
+
 
 class Difftone:
     _fields = ("note0", "note1", "freq0", "freq1", "diff", "freq", "desired", "beating")
@@ -152,10 +154,10 @@ class Difftone:
         if self.desired == self.diff:
             return f"Difftone(note0={self.note0}, note1={self.note1}, diff={self.diff})"
         return f"Difftone(note0={self.note0}, note1={self.note1}, diff={self.diff}, desired={self.desired}, beatings={self.beatings})"
-        
+
     def transpose(self, interval:float) -> Difftone:
         note0 = self.note0 + interval
-        note1 = self.note1 + interval 
+        note1 = self.note1 + interval
         return Difftone(note0.name, note1.name)
 
     def asChord(self, diff=True) -> mc.Chord:
@@ -189,7 +191,7 @@ class Difftone:
         .. note::
 
             if note1 and note2 produce a difftone d, when note1 and note2
-            both are transposed by the same interval i, the resulting 
+            both are transposed by the same interval i, the resulting
             difftone is also transposed by the same interval i
 
         Example
@@ -217,12 +219,12 @@ def difftones(*pitches: pitch_t) -> list[float]:
     midis = _parsePitches(*pitches)
     freqs = [m2f(m) for m in midis]
     return [f2m(abs(f2 - f1)) for f1, f2 in combinations(freqs, 2)]
-    
+
 
 def difftonesCubic(*pitches: pitch_t) -> list[float]:
     """
     Return the cubic difference tones
-    
+
     if f1 and f2 are pure tones and f1 < f2, the cubic diff-tone is ``2*f1 - f2``
 
     Args:
@@ -311,11 +313,11 @@ def _difftoneFindSources(pitch,
     return out
 
 
-def _sumtone_find_source(pitch, 
-                         maxdist=0.5, 
+def _sumtone_find_source(pitch,
+                         maxdist=0.5,
                          intervals: Sequence[int | float] | None = None,
-                         minnote: pitch_t = 'A0', 
-                         maxnote: pitch_t = 'C8', 
+                         minnote: pitch_t = 'A0',
+                         maxnote: pitch_t = 'C8',
                          difftonegap=0.
                          ) -> list[tuple[str, str]]:
     """
@@ -466,7 +468,7 @@ def ringmodExactSource(sideband1: pitch_t, sideband2: pitch_t
     f1 = (diffFreq + sumFreq) / 2.0
     f0 = sumFreq - f1
     return f2m(f0), f2m(f1)
-    
+
 
 def _matchone(orig, new, maxdiff):
     """
@@ -558,7 +560,7 @@ def ringmodSource(sidebands: pitch_t,
                 bestmatch = matching
     return sourcemidis
 
-        
+
 @dataclass
 class SumTone:
     notes: tuple[str, str]
@@ -610,15 +612,15 @@ def sumtoneSources(result,
         # _sumtones_sources_report(result, out)
     elif show:
         from maelzel import scoring
+        from maelzel.scoring import render
         events = []
         for pair in out:
-            notes = []
-            notes.extend(pair.notes)
-            notes.append(pair.sumnote)
-            chord = scoring.Notation(pitches=notes, duration=1)
+            pitches = list(pair.notes)
+            pitches.append(pair.sumnote)
+            chord = scoring.Notation(pitches=pitches, duration=1)
             chord.addArticulation('sum: %.2f' % pair.sumfreq)
             events.append(chord)
-        r = scoring.render.render(events)
+        r = render.render(events)
         r.show()
     return RecordList(out)
 
@@ -635,14 +637,14 @@ def overtoneRelativeAmplitude(wavetype="saw", overtone=2) -> float:
     if overtone < 1:
         raise ValueError("Overtone should be >= 1 (f0 = overtone 1)")
     if wavetype == "saw":
-        return 1/overtone 
+        return 1/overtone
     elif wavetype == "square":
         return 1 / overtone * (overtone % 2)
     elif wavetype == "tri":
         return 1 / (overtone**2) * (overtone % 2)
     else:
         raise KeyError("wavetype not known, should be one of saw, square or tri")
-    
+
 
 # #------------------------------------------------------------
 # #
@@ -673,15 +675,15 @@ def difftoneBeatings(pitch1: pitch_t, pitch2: pitch_t, maxbeatings=20, minbeatin
                      ) -> list[DifftoneBeating]:
     """
     estimate the beatings generated by the difference tone(s) between note1 and note2
-    
+
     for each pair of notes other than sinus-tones, many difference tones are generated:
        * between the fundamentals
        * between the overtones
-    
+
     The calculation is based on the relative amplitude of the overtones and presuposes
     simple waveforms. Any other routine would have to work with the actual sample data
     to calculate the beatings.
-    
+
     Using saw waves gives a sort of upper limit to the beatings which can be generated
     between two notes. In reality, the amplitude of the beatings will always be less than
     what is reported here.
@@ -783,7 +785,7 @@ def fmchord(carrierfreq: float, modfreq: float, index: float, minamp=0.01,
                     minamp=minamp, minfreq=minfreq, maxfreq=maxfreq)
     notes = [mc.Note(f2m(freq), amp=amp) for freq, amp in bands]
     return mc.Chord(notes)
-    
+
 
 def difftoneEvaluateInharmonicity(pitch1: pitch_t, pitch2: pitch_t) -> float:
     """

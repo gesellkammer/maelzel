@@ -8,7 +8,6 @@ import os
 import sys
 from datetime import datetime
 
-import csoundengine
 from maelzel import _state
 from maelzel._util import getPlatform
 from maelzel.common import getLogger
@@ -341,6 +340,7 @@ def printReport(echo=print, updaterisset=False):
     import risset
     import vamp
     from maelzel.music import lilytools
+    import csoundengine.csoundlib
     csoundbin = csoundengine.csoundlib.findCsound()
 
     echo("Dependencies report")

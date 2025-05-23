@@ -14,12 +14,9 @@ from __future__ import annotations
 import numpy as np
 import loristrck
 import loristrck.util
-import bpf4
 import pitchtools as pt
 from emlib.filetools import normalizePath
 
-from maelzel import stats
-from maelzel.snd import audiosample
 from .partial import Partial
 from . import pack
 
@@ -28,6 +25,10 @@ from typing import TYPE_CHECKING, Callable
 if TYPE_CHECKING:
     import csoundengine
     from matplotlib.axes import Axes
+    import csoundengine.synth
+    from maelzel.snd import audiosample
+    from maelzel import stats
+    import bpf4
 
 
 def _csoundEngine(name='maelzel') -> csoundengine.Engine:
@@ -538,6 +539,7 @@ class Spectrum:
 
         samples = loristrck.synthesize(arrays, samplerate=sr, start=start, end=end,
                                        fadetime=fadetime if fadetime is not None else -1)
+        from maelzel.snd import audiosample
         return audiosample.Sample(samples, sr=sr)
 
     def rec(self,
@@ -737,6 +739,7 @@ class Spectrum:
             data = [p.meanbw() for p in self.partials]
         else:
             raise ValueError(f"Expected one of 'energy', 'bandwidth', got {metric}")
+        from maelzel import stats
         return stats.Quantile1d(data)
 
     def filter(self,
@@ -1014,7 +1017,7 @@ class Spectrum:
         else:
             partials = self.partials
 
-        if isinstance(distribution, (int, float, bpf4.BpfInterface)) or callable(distribution):
+        if isinstance(distribution, (int, float)) or callable(distribution):
             tracks, residualtracks, unfittedpartials = pack.splitInTracks(
                 partials,
                 maxtracks=maxtracks,

@@ -9,10 +9,7 @@ import re
 import textwrap
 
 import pitchtools as pt
-from emlib import filetools
-from emlib import misc
 from dataclasses import dataclass
-from maelzel._imgtools import imagefileAutocrop
 from maelzel.common import F
 from numbers import Rational
 
@@ -126,7 +123,7 @@ def _installLilypondMacosHomebrew(checkbrew=True) -> str | None:
     return None
 
 
-def installLilypond(usehomebrew=True) -> str:
+def installLilypond() -> str:
     """
     Install lilypond, returns the binary
 
@@ -140,27 +137,6 @@ def installLilypond(usehomebrew=True) -> str:
         see pypi/lilyponddist
     """
     import lilyponddist
-    # Check first to provide a nicer error message
-    platform, arch = lilyponddist.get_platform(normalize=True)
-    if platform == 'darwin' and arch.startswith('arm'):
-        if usehomebrew:
-            if not shutil.which('brew'):
-                logger.error("Trying to install lilypond for macos/arm64. "
-                             "Homebrew was not found. Try installing homebrew "
-                             "first, then install lilypond via `brew install lilypond`")
-                raise RuntimeError("homebrew not found")
-            print("Will try to use homebrew to install lilypond")
-            lilypath = _installLilypondMacosHomebrew()
-            if not lilypath:
-                raise RuntimeError("Could not install lilypond")
-            _cache['lilypath'] = lilypath
-            return lilypath
-        else:
-            raise PlatformNotSupportedError("There is currently no binary distribution for lilypond "
-                                            "for macos arm64. Install lilypond via homebrew: "
-                                            "'brew install lilypond'. For more information see "
-                                            "https://formulae.brew.sh/formula/lilypond#default")
-
     lilybin = lilyponddist.lilypondbin()
     if not lilybin or not lilybin.exists():
         raise RuntimeError("Could not install lilypond")
@@ -172,9 +148,6 @@ def installLilypond(usehomebrew=True) -> str:
 def findLilypond(install=True) -> str | None:
     """
     Find lilypond binary, or None if not found
-
-    Args:
-        install: if True and lilypond is not installed yet, install it
 
     Returns:
         the path to a working lilypond binary, or None if
@@ -192,19 +165,16 @@ def findLilypond(install=True) -> str | None:
     lilypond = shutil.which('lilypond')
     if lilypond:
         logger.debug(f"... found! lilypond path: {lilypond}")
+        _cache['lilypath'] = lilypond
         return lilypond
 
     logger.debug("findLilypond: Lilypond is not in the path, trying lilyponddist")
     import lilyponddist
-    if lilyponddist.is_lilypond_installed():
-        lilypath = lilyponddist.lilypondbin().as_posix()
-        _cache['lilypath'] = lilypath
-        return lilypath
-    elif install:
-        return installLilypond()
-    else:
-        logger.error("Could not find lilypond and user did not ask to install it")
+    if not lilyponddist.is_lilypond_installed() and not install:
         return None
+    lilypath = lilyponddist.lilypondbin().as_posix()
+    _cache['lilypath'] = lilypath
+    return lilypath
 
 
 def saveScore(score: str, outfile: str, book=False, microtonal=False, cropToContent=False
@@ -258,7 +228,7 @@ def renderScore(score: str,
     return out
 
 
-def show(text: str, external=False, maxwidth=0, snippet: bool | None = None) -> None:
+def show(text: str, external=False, maxwidth=0, snippet: bool | None = None, crop=True) -> None:
     """
     Render the given lilypond text and show it as an image
 
@@ -281,8 +251,10 @@ def show(text: str, external=False, maxwidth=0, snippet: bool | None = None) -> 
     outfile = tempfile.mktemp(suffix='.png')
     renderScore(text, outfile=outfile)
     assert os.path.exists(outfile)
-    croppedok = imagefileAutocrop(outfile, outfile, bgcolor="#FFFFFF")
-    assert croppedok
+    from maelzel._imgtools import imagefileAutocrop
+    if crop:
+        croppedok = imagefileAutocrop(outfile, outfile, bgcolor="#FFFFFF")
+        assert croppedok
     from maelzel.core import jupytertools
     jupytertools.showPng(pngpath=outfile, forceExternal=external, maxwidth=maxwidth)
 
@@ -325,7 +297,8 @@ def renderLily(lilyfile: str,
     assert os.path.exists(lilyfile)
     assert imageResolution is None or imageResolution in {150, 200, 300, 600, 1200}
     if not outfile:
-        outfile = filetools.withExtension(lilyfile, 'pdf')
+        from emlib.filetools import withExtension
+        outfile = withExtension(lilyfile, 'pdf')
     fmt = os.path.splitext(outfile)[1][1:]
     assert fmt in ('pdf', 'png', 'ps')
 
@@ -383,6 +356,7 @@ def renderLily(lilyfile: str,
             logger.debug(textwrap.indent(result.stderr, " "))
 
     if openWhenFinished:
+        from emlib import misc
         misc.open_with_app(outfile)
 
     return outfile

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from .partial import Partial
 from maelzel._util import hasoverlap
 from emlib import iterlib
 import pitchtools as pt
 import bisect
+
+import typing as _t
+if _t.TYPE_CHECKING:
+    from .partial import Partial
 
 
 __all__ = (
@@ -18,16 +21,14 @@ class Track:
 
     Args:
         partials: the partials in this Track
+        maxrange: the max. range in semitones
     """
     __slots__ = ('partials', 'maxrange', 'minnote', 'maxnote', 'start', 'end', '_starts')
 
     def __init__(self, partials: list[Partial] = None, maxrange=36):
         assert isinstance(maxrange, (int, float))
-        if partials:
-            assert all(isinstance(p, Partial) for p in partials)
-
         self.partials: list[Partial] = partials or []
-        self.maxrange = maxrange
+        self.maxrange: int = int(maxrange)
         self.minnote = pt.f2m(min(p.meanfreq() for p in self.partials)) if partials else 0.
         self.maxnote = pt.f2m(max(p.meanfreq() for p in self.partials)) if partials else 0.
         self.start = self.partials[0].start if partials else 0.
@@ -48,25 +49,27 @@ class Track:
         return self.partials[item]
 
     def append(self, partial: Partial):
-        # We assume that the partial fits
-        if partial.start < self.end:
+        # We assume that there is no overlap
+        if partial.start >= self.end:
+            self.partials.append(partial)
+            self._starts.append(partial.start)
+            self.end = partial.end
+        else:
+            start, end = partial.start, partial.end
+            for p in self.partials:
+                if p.start > end:
+                    break
+                if hasoverlap(p.start, p.end, start, end):
+                    raise ValueError(f"Partial {partial} does not fit, partials in track: {self.partials}")
             idx = bisect.bisect(self._starts, partial.start)
             self.partials.insert(idx, partial)
             self._starts.insert(idx, partial.start)
             self.start = self._starts[0]
-        else:
-            self.partials.append(partial)
-            self._starts.append(partial.start)
-            self.end = partial.end
         meanpitch = partial.meanpitch()
         if meanpitch < self.minnote:
             self.minnote = meanpitch
         elif meanpitch > self.maxnote:
             self.maxnote = meanpitch
-        if not self.check():
-            print(f"{partial=}")
-            self.dump()
-            raise RuntimeError(f"partial {partial} does not fit")
 
     def meanpitch(self) -> float:
         """
@@ -81,7 +84,6 @@ class Track:
         partials = self.partials
         if partials or partials[-1].end < start or partials[0].start >= end:
             return True
-
         p0index = bisect.bisect_left(self._starts, end) - 1
         p0 = self.partials[p0index]
         return not hasoverlap(p0.start, p0.end, start, end)

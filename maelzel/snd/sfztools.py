@@ -4,14 +4,13 @@ Utilities to edit and generate sfz files
 from __future__ import annotations
 import os
 import math
-from maelzel.snd import audiosample as smpl
-from pitchtools import n2m, f2m
+from maelzel.snd import audiosample
+import pitchtools as pt
 from emlib.iterlib import pairwise
 import collections
-from typing import Tuple, List
 
 
-def region_from_file(sndfile: str, key='auto', offset=0, relpath=True, **kws) -> str:
+def regionFromFile(sndfile: str, key='auto', offset=0, relpath=True, a4=442, **kws) -> str:
     """
     Returns a <region> definition as a string
 
@@ -27,27 +26,22 @@ def region_from_file(sndfile: str, key='auto', offset=0, relpath=True, **kws) ->
     Returns:
         the <region> definition string
     """
+    conv = pt.PitchConverter(a4=a4)
     if key == 'auto':
-        key = int(f2m(estimate_freq(sndfile)) + 0.5)
-    key_str = str(key)
-    attrs = ["%s=%s" % (k, v) for k, v in kws.items()]
-    attr_str = " ".join(attrs)
-    if relpath:
-        samplename = os.path.split(sndfile)[1]
-    else:
-        samplename = sndfile
+        key = int(conv.f2m(estimateFreq(sndfile)) + 0.5)
+    attrstr = " ".join([f"{k}={v}" % (k, v) for k, v in kws.items()])
+    samplename = os.path.split(sndfile)[1] if relpath else sndfile
     if offset == 0:
-        offset_str = ""
+        offsetstr = ""
     elif offset == 'auto':
-        offset_str = str(estimate_offset(sndfile))
+        offsetstr = str(estimateOffset(sndfile))
     else:
-        offset_str = str(offset)
-    out = "<region> sample=%s key=%s %s %s" % (samplename, key_str, offset_str,
-                                               attr_str)
+        offsetstr = str(offset)
+    out = f"<region> sample={samplename} key={key} {offsetstr} {attrstr}"
     return out.strip()
 
 
-def regions_from_files(files: List[str],
+def regionsFromFiles(files: list[str],
                        key='auto',
                        offset='auto',
                        fillkeys=True,
@@ -55,33 +49,35 @@ def regions_from_files(files: List[str],
                        minkey=36,
                        skipbadestimations=True,
                        printregions=True,
+                       a4=442,
                        offset_thresh=-55):
     """
     files: a list of soundfiles
     key: 'auto': read the file and determine the main pitch
          a function: it is called with the path, it returns a midinote
-         an integer or string: the first note of the region, 
+         an integer or string: the first note of the region,
          all other samples are assigned chormatically
          a list of integers or strings: each file is assigned a specific key
     """
+    conv = pt.PitchConverter(a4=a4)
     if key == 'auto' and offset == 'auto':
-        freqs_and_offsets = [estimate_freq_and_offset(f, minamp=offset_thresh)
+        freqs_and_offsets = [estimateFreqAndOffset(f, minamp=offset_thresh)
                              for f in files]
-        keys = [int(f2m(freq) + 0.5) for freq, _ in freqs_and_offsets]
+        keys = [int(conv.f2m(freq) + 0.5) for freq, _ in freqs_and_offsets]
         offsets = [o for f, o in freqs_and_offsets]
     elif key == 'auto':
-        keys = [int(f2m(estimate_freq(f)) + 0.5) for f in files]
+        keys = [int(conv.f2m(estimateFreq(f)) + 0.5) for f in files]
         offsets = [offset] * len(keys)
     elif offset == 'auto':
         keys = list(map(key, files))
-        offsets = [estimate_offset(f) for f in files]
+        offsets = [estimateOffset(f) for f in files]
     else:
         if isinstance(key, int):
             keys = list(range(key, key + len(files)))
         elif isinstance(key, str):
-            key = n2m(key)
+            key = pt.n2m(key)
             keys = list(range(key, key + len(files)))
-        elif isinstance(key, collections.Callable):
+        elif callable(key):
             keys = list(map(key, files))
         else:
             keys = key
@@ -97,9 +93,8 @@ def regions_from_files(files: List[str],
             print("error in the frequency estimation: key of %s out of range"
                   "Trying another strategy"
                   % f)
-            key2 = int(estimate_freq(f, strategy='fft') + 0.5)
+            key2 = int(estimateFreq(f) + 0.5)
             if key2 < minkey:
-                print("    no luck...")
                 if not skipbadestimations:
                     raise RuntimeError(
                         "could not estimate the frequency of %s, aborting"
@@ -143,7 +138,7 @@ def normalize_filename(path: str) -> str:
     return path.replace(" ", "_").replace("__", "_")
 
 
-def estimate_freq(sndfile: str, strategy='autocorr') -> float:
+def estimateFreq(sndfile: str, start=0., minfreq=40) -> float:
     """
     Estimate the freq. of source
 
@@ -154,11 +149,16 @@ def estimate_freq(sndfile: str, strategy='autocorr') -> float:
     Returns:
         the estimated freq.
     """
-    s = smpl.Sample(sndfile)
-    return s.estimateFreq(start=0.1, strategy=strategy)
+    if start:
+        s = audiosample.Sample(sndfile, end=start+0.5)
+    else:
+        s = audiosample.Sample(sndfile, end=4)
+    f0time, f0freq = s.firstPitch(minfreq=minfreq)
+    freq = s.fundamentalFreq(max(f0time+0.05, start))
+    return 0. if freq is None else freq
 
 
-def estimate_offset(sndfile: str, minamp=-80) -> float:
+def estimateOffset(sndfile: str, minamp=-80) -> float | None:
     """
     Args:
         sndfile: the path to a soundfile
@@ -167,32 +167,33 @@ def estimate_offset(sndfile: str, minamp=-80) -> float:
     Returns:
         the starting time of the first sound, in seconds
     """
-    s = smpl.Sample(sndfile)
+    s = audiosample.Sample(sndfile)
     offset = s.firstSound(threshold=minamp)
     return offset
 
 
-def estimate_freq_and_offset(sndfile: str, minamp=-80) -> Tuple[float, float]:
-    s = smpl.Sample(sndfile)
-    freq = s.estimateFreq()
+def estimateFreqAndOffset(sndfile: str, minamp=-80) -> tuple[float, float | None]:
+    s = audiosample.Sample(sndfile)
     offset = s.firstSound(minamp)
-    return freq, offset
+    if offset is None:
+        return 0., None
+    freq = s.fundamentalFreq(offset+0.05)
+    return freq if freq is not None else 0., offset
 
 
-def log2(x:float) -> float:
+def log2(x: float) -> float:
     return math.log(x, 2)
 
 
-def group_template(name=None, release=0.1, loopmode='one_shot', **attrs):
+def groupTemplate(name: str, release=0.1, loopmode='one_shot', **attrs):
     if attrs:
-        attr_strs = ["%s=%s" % (k, str(v)) for k, v in attrs.items()]
-        attr_str = '\n'.join(attr_strs)
+        attrstr = '\n'.join([f"{k}={v}" for k, v in attrs.items()])
     else:
-        attr_str = ""
-    s = """<group>
-name=%s
-ampeg_release=%s
-loop_mode=%s
-%s
-""" % (name, release, loopmode, attr_str)
-    return s
+        attrstr = ""
+    return f"""\
+<group>
+name={name}
+ampeg_release={release}
+loop_mode={loopmode}
+{attrstr}
+"""

@@ -1,10 +1,13 @@
 from __future__ import annotations
 from .synthevent import SynthEvent
-import csoundengine
 import maelzel.core as mc
 from datetime import datetime
 import os
 import math
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    import csoundengine.event
 
 
 def collectEvents(events,
@@ -13,6 +16,7 @@ def collectEvents(events,
                   ) -> tuple[list[SynthEvent], list[csoundengine.event.Event]]:
     synthevents = []
     sessionevents = []
+    import csoundengine.event
     for ev in events:
         if isinstance(ev, (list, tuple)):
             if isinstance(ev[0], SynthEvent):

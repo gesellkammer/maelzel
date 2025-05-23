@@ -28,6 +28,8 @@ if TYPE_CHECKING:
     import csoundengine.instr
     import csoundengine.busproxy
     import csoundengine.csoundlib
+    import csoundengine.synth
+    import csoundengine.event
     from typing import Sequence, Callable
     from .mobj import MObj
     from maelzel.snd import audiosample

@@ -117,14 +117,18 @@ def plotPowerSpectrum(samples: np.ndarray,
             "gaussian" (needs standard deviation)
         axes: the axes to plot to
 
+    Returns:
+        the axes used
+
     """
     if axes is None:
         f: Figure = plt.figure(figsize=figsize)
-        axes: Axes = f.add_subplot(1, 1, 1)
+        axes = f.add_subplot(1, 1, 1)
 
     from scipy import signal
     w = signal.get_window(window, framesize)
-    axes.psd(samples, NFFT=framesize, Fs=samplerate, window=lambda s, w=w: s*w)
+    assert isinstance(w, np.ndarray)
+    axes.psd(samples, NFFT=framesize, Fs=samplerate, window=lambda s, w=w: s*w)  # type: ignore
     return axes
 
 
@@ -176,7 +180,7 @@ def _plot_matplotlib(samples: np.ndarray, samplerate: int, timelabels: bool,
     return fig
 
 
-_diff_to_step = bpf4.nointerpol(
+_diff_to_step = bpf4.NoInterpol.fromseq(
         0.01, 1/1000,
         0.025, 1/500,
         0.05, 1/100,

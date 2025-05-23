@@ -61,13 +61,13 @@ def measureQuarterDuration(timesig: timesig_t) -> F:
     Returns:
         the duration in quarter notes
 
-    Examples::
+    .. rubric:: Example
 
-        >>> measureQuarterDuration((3,4))
-        Fraction(3, 1)
+    >>> measureQuarterDuration((3,4))
+    Fraction(3, 1)
 
-        >>> measureQuarterDuration((5, 8))
-        Fraction(5, 2)
+    >>> measureQuarterDuration((5, 8))
+    Fraction(5, 2)
 
     """
     assert isinstance(timesig, tuple) and isinstance(timesig[0], int) and isinstance(timesig[1], int)

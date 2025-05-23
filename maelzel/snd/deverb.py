@@ -1,7 +1,6 @@
 import os
 import numpy as np
 from maelzel.snd import numpysnd
-import sndfileio
 
 
 _removeSustainInstr = r'''
@@ -143,7 +142,7 @@ def removeSustain(samples: np.ndarray,
 
     from csoundengine.offline import OfflineSession
     nchnls = numpysnd.numChannels(samples)
-    renderer = OfflineSession(sr=sr, nchnls=nchnls, ksmps=csoundKsmps, numAudioBuses=0, numControlBuses=0)
+    renderer = OfflineSession(sr=sr, nchnls=nchnls, ksmps=csoundKsmps, withBusSupport=False)
     channelTables = []
     for n in range(nchnls):
         chan = numpysnd.getChannel(samples, n)
@@ -179,6 +178,7 @@ def removeSustain(samples: np.ndarray,
         args = job.process.args if job.process else None
         raise RuntimeError(f"Could not generate output file '{job.outfile}', file not found. "
                            f"Args used: {args}")
+    import sndfileio
     outsamples, _ = sndfileio.sndread(job.outfile)
     if realign:
         outsamples = outsamples[fftsize:]

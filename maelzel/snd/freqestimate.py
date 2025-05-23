@@ -8,10 +8,8 @@ of the measurement)
 """
 from __future__ import annotations
 import numpy as np
-import scipy.signal
 import logging
 import bpf4
-from maelzel.snd import vamptools
 from math import ceil
 from emlib.mathlib import nextpowerof2
 
@@ -102,6 +100,8 @@ def f0FFT(sig: np.ndarray, sr: int) -> tuple[float, float]:
     if _sigNumChannels(sig) > 1:
         raise ValueError("sig should be a mono signal")
     # Compute Fourier transform of windowed signal
+    import scipy.signal
+
     windowed = sig * scipy.signal.windows.blackmanharris(len(sig))
     f = np.fft.rfft(windowed)
 
@@ -130,6 +130,8 @@ def f0Autocorr(sig: np.ndarray, sr: int) -> tuple[float, float]:
 
     # Calculate autocorrelation (same thing as convolution, but with
     # one input reversed in time), and throw away the negative lags
+
+    import scipy.signal
     corr = scipy.signal.fftconvolve(sig, sig[::-1], mode='full')
     corr = corr[int(len(corr)/2):]
 
@@ -154,6 +156,7 @@ def f0HPS(sig: np.ndarray, sr: int, maxharms=5) -> tuple[float, float]:
     if _sigNumChannels(sig) > 1:
         raise ValueError("sig should be a mono signal")
 
+    import scipy.signal
     windowed = sig * scipy.signal.windows.blackmanharris(len(sig))
     c = abs(np.fft.rfft(windowed))
     freq = 0
@@ -216,8 +219,7 @@ def f0curvePyinVamp(sig: np.ndarray,
                     pruneThreshold=0.1,
                     threshDistr='beta15',
                     unvoicedFreqs='nan'
-
-                    ) -> tuple[bpf4.BpfInterface, bpf4.BpfInterface]:
+                    ) -> tuple[bpf4.Linear, bpf4.Linear]:
     """
     Calculate the fundamental using the pyin vamp plugin
 
@@ -271,7 +273,7 @@ def f0curvePyinVamp(sig: np.ndarray,
     times = np.ascontiguousarray(data[:, 0])
     f0 = np.ascontiguousarray(data[:, 1])
     probs = np.ascontiguousarray(data[:, 2])
-    return bpf4.core.Linear(times, f0), bpf4.core.Linear(times, probs)
+    return bpf4.Linear(times, f0), bpf4.Linear(times, probs)
 
 
 def _sigNumChannels(sig: np.ndarray):
@@ -354,6 +356,7 @@ def f0curve(sig: np.ndarray, sr: int, minfreq=60, overlap=4,
     if _sigNumChannels(sig) > 1:
         raise ValueError("sig should be a mono signal")
 
+    from maelzel.snd import vamptools
     if method == 'pyin':
         if vamptools.pyinAvailable():
             method = 'pyin-vamp'
@@ -417,6 +420,7 @@ def detectMinFrequency(samples: np.ndarray, sr: int, freqThreshold=30, overlap=4
         a tuple (min. freq, corresponding time) or (0., 0.) if no pitched sound was detected
 
     """
+    from maelzel.snd import vamptools
     fftsize = frequencyToWindowSize(freqThreshold, sr=sr)
     f0data = vamptools.pyinPitchTrack(samples, sr=sr, fftSize=fftsize, overlap=overlap,
                                       lowAmpSuppression=lowAmpSuppression,
