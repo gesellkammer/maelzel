@@ -59,12 +59,12 @@ class Partial:
         """The duration of this partial"""
         return self.end - self.start
 
-    def at(self, time: float) -> tuple[float, ...]:
+    def at(self, time: float) -> list[float]:
         """
         Evaluate this partial at the given time, using linear interpolation
 
         If the Partial's data has columns (time, freq, amp, phase, bandwidth) then the returned tuple
-        will be (freq,amp, phase, bandwidth). The values at the given time are interpolated
+        will be (freq, amp, phase, bandwidth). The values at the given time are interpolated
 
         Args:
             time: the time to evaluate this partial at. Raises ValueError if the partial is not defined
@@ -82,8 +82,7 @@ class Partial:
         """
         if time < self.start or time > self.end:
             raise ValueError(f"This partial is not defined at time {time} (start={self.start}, end={self.end})")
-        bp = numpyx.table_interpol_linear(self.data, np.array([time], dtype=float))
-        return tuple(float(_) for _ in bp[1:])
+        return numpyx.table_interpol_linear(self.data, np.array([time], dtype=float))[0].tolist()
 
     @cache
     def freqbpf(self) -> bpf4.Linear:
@@ -445,10 +444,10 @@ class Partial:
         """
         if self.start >= start and self.end <= end:
             return self
-        data = _partialDataCrop(self.data, start, end)
-        if data is None:
+        if self.start > end or self.end < start:
             return None
-        return Partial(data, label=self.label)
+        data = _partialDataCrop(self.data, start, end)
+        return Partial(data, label=self.label) if data is not None else None
 
 
 def _partialDataCrop(p: np.ndarray, start: float, end: float) -> np.ndarray:

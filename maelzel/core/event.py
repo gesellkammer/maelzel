@@ -122,8 +122,8 @@ class Note(MEvent):
                  amp: float | None = None,
                  offset: time_t | None = None,
                  gliss: pitch_t | bool = False,
-                 label: str = '',
-                 dynamic: str = '',
+                 label='',
+                 dynamic='',
                  tied=False,
                  properties: dict[str, Any] | None = None,
                  symbols: list[_symbols.Symbol] | None = None,
@@ -210,7 +210,7 @@ class Note(MEvent):
         self._gliss: float | bool = gliss  # type: ignore
 
     @staticmethod
-    def makeRest(dur: time_t | str, offset: time_t = None, label: str = '', dynamic='') -> Note:
+    def makeRest(dur: time_t | str, offset: time_t = None, label='', dynamic='') -> Note:
         """
         Static method to create a Rest
 
@@ -226,13 +226,7 @@ class Note(MEvent):
             the Note object representing the rest
 
         """
-        fdur = _tools.parseDuration(dur) if isinstance(dur, str) else asF(dur)
-        assert fdur > 0, "A rest must have a duration"
-        return Note(pitch=0,
-                    dur=fdur,
-                    offset=None if offset is None else asF(offset),
-                    amp=0, label=label,
-                    dynamic=dynamic, _init=False)
+        return Rest(dur=dur, offset=offset, label=label, dynamic=dynamic)
 
     def setPlay(self, /, **kws) -> Note:
         if glide := kws.pop('gliss', None) is not None:
@@ -370,14 +364,14 @@ class Note(MEvent):
         return out
 
     def clone(self,
-              pitch: pitch_t = None,
-              dur: time_t = None,
-              amp: float = None,
+              pitch: pitch_t | None = None,
+              dur: time_t | None = None,
+              amp: float | None = None,
               offset: time_t | None | UnsetType = UNSET,
               gliss: pitch_t | bool | None = None,
-              label: str = None,
-              tied: bool = None,
-              dynamic: str = None) -> Self:
+              label='',
+              tied: bool | None = None,
+              dynamic='') -> Self:
         """
         Clone this note with overridden attributes
 
@@ -389,9 +383,9 @@ class Note(MEvent):
                              amp=amp if amp is not None else self.amp,
                              offset=offset,
                              gliss=gliss if gliss is not None else self.gliss,
-                             label=label if label is not None else self.label,
+                             label=label or self.label,
                              tied=tied if tied is not None else self.tied,
-                             dynamic=dynamic if dynamic is not None else self.dynamic,
+                             dynamic=dynamic or self.dynamic,
                              _init=False)
         if pitch is not None:
             if self.pitchSpelling:
@@ -528,7 +522,7 @@ class Note(MEvent):
         """The fractional part of this pitch, rounded to the cent"""
         return _tools.midicents(self.pitch)
 
-    def scoringParts(self, config: CoreConfig = None) -> list[scoring.core.UnquantizedPart]:
+    def scoringParts(self, config: CoreConfig | None = None) -> list[scoring.core.UnquantizedPart]:
         if self.isRest():
             notations = self.scoringEvents(config=config)
             assert len(notations) == 1
@@ -541,7 +535,7 @@ class Note(MEvent):
 
     def scoringEvents(self,
                       groupid='',
-                      config: CoreConfig = None,
+                      config: CoreConfig | None = None,
                       parentOffset: F | None = None
                       ) -> list[scoring.Notation]:
         if not config:
@@ -603,13 +597,13 @@ class Note(MEvent):
                 symbol.applyToTiedGroup(notes, parent=self)
         return notes
 
-    def _asTableRow(self, config: CoreConfig = None) -> list[str]:
+    def _asTableRow(self, config: CoreConfig | None = None) -> list[str]:
         if self.isRest():
             elements = ["REST"]
         else:
             config = config or Workspace.active.config
             notename = self.name
-            if (unicodeaccidentals := config['reprUseUnicodeAccidentals']):
+            if (unicodeaccidentals := config['reprUnicodeAccidentals']):
                 full = unicodeaccidentals == 'full'
                 notename = _util.unicodeNotename(notename, full=full)
             if self.tied:
@@ -688,11 +682,19 @@ class Note(MEvent):
             - If this note has a gliss, the target pitch is also quantized
             - Any set pitch spelling is deleted
         """
+        if self.isRest():
+            # When an event is already part of a container (chain/voice), we
+            # need to return a copy since otherwise it cannot be made part of
+            # a different container. For example, if .quantizedPitch is
+            # called on a chain, the returned events will be made part of
+            # a newly constructed chain
+            return self.copy() if self.parent else self
+
         if step == 0:
             step = 1 / Workspace.active.config['semitoneDivisions']
         out = self.clone(pitch=round(self.pitch / step) * step)
         if isinstance(self._gliss, (int, float)):
-            self._gliss = round(self._gliss / step) * step
+            out._gliss = round(out._gliss / step) * step
         out.pitchSpelling = ''
         return out
 
@@ -821,7 +823,7 @@ class Note(MEvent):
         else:
             return self.name
 
-    def resolveDynamic(self, conf: CoreConfig = None) -> str:
+    def resolveDynamic(self, conf: CoreConfig | None = None) -> str:
         if conf is None:
             conf = Workspace.active.config
         # TODO: query the parent to see the currently active dynamic
@@ -838,27 +840,15 @@ class Note(MEvent):
         return out
 
 
-def Rest(dur: time_t | str, offset: time_t = None, label='', dynamic='') -> Note:
-    """
-    Creates a Rest.
+def Rest(dur: time_t | str, offset: time_t | None = None, label='', dynamic='') -> Note:
+        fdur = _tools.parseDuration(dur) if isinstance(dur, str) else asF(dur)
+        if fdur <= 0:
+            raise ValueError(f"A rest must have a possitive duration, got {dur}")
+        return Note(pitch=0, dur=fdur,
+                    offset=None if offset is None else asF(offset),
+                    amp=0, label=label, dynamic=dynamic,
+                    _init=False)
 
-    A Rest is just a Note with pitch 0 and amp 0 (that is why this is a function
-    and not a class).
-
-    To test if an item is a rest, call :meth:`~MObj.isRest`
-
-    Args:
-        dur: duration of the Rest
-        offset: time offset of the Rest
-        label: a label for this rest
-        dynamic: a rest may have a dynamic
-
-    Returns:
-        the created rest
-
-    .. note:: this is just a shortcut to Note.makeRest
-    """
-    return Note.makeRest(dur=dur, offset=offset, label=label, dynamic=dynamic)
 
 
 class Chord(MEvent):
@@ -919,14 +909,14 @@ class Chord(MEvent):
 
     def __init__(self,
                  notes: str | Sequence[Note | int | float | str],
-                 dur: time_t = None,
-                 amp: float = None,
-                 offset: time_t = None,
+                 dur: time_t | None = None,
+                 amp: float | None = None,
+                 offset: time_t | None = None,
                  gliss: str | bool | Sequence[pitch_t] = False,
-                 label: str = '',
+                 label='',
                  tied=False,
-                 dynamic: str = '',
-                 properties: dict[str, Any] = None,
+                 dynamic='',
+                 properties: dict[str, Any] | None = None,
                  fixed=False,
                  _init=True
                  ) -> None:
@@ -1077,7 +1067,9 @@ class Chord(MEvent):
         return ",".join(self._bestSpelling())
 
     def asGracenote(self, slash=True) -> Chord:
-        return Gracenote(self.pitches, slash=slash)
+        out = Gracenote(self.pitches, slash=slash)
+        assert isinstance(out, Chord)
+        return out
 
     def setNotatedPitch(self, notenames: str | list[str]) -> None:
         if isinstance(notenames, str):
@@ -1175,7 +1167,7 @@ class Chord(MEvent):
 
     def scoringEvents(self,
                       groupid='',
-                      config: CoreConfig = None,
+                      config: CoreConfig | None = None,
                       parentOffset: F | None = None
                       ) -> list[scoring.Notation]:
         if not config:
@@ -1303,19 +1295,18 @@ class Chord(MEvent):
         Returns a copy of this chord, with the pitches quantized.
 
         Two notes with the same pitch are considered equal if they quantize to the same
-        pitch, independently of their amplitude. In the case of two equal notes,
-        only the first one is kept.
+        pitch, independently of their amplitude. Amplitudes of equal notes are accumulated
         """
         if step == 0:
             step = 1 / Workspace.active.config['semitoneDivisions']
-        seenmidi = set()
-        notes = []
+        notes = {}
         for note in self:
             note2 = note.quantizePitch(step)
-            if note2.pitch not in seenmidi:
-                seenmidi.add(note2.pitch)
-                notes.append(note2)
-        return self._withNewNotes(notes)
+            if accumnote := notes.get(note2.pitch):
+                accumnote.amp += note2.amp
+            else:
+                notes[note2.pitch] = note2
+        return self._withNewNotes(notes.values())
 
     def __setitem__(self, i: int, note: pitch_t) -> None:
         self.notes.__setitem__(i, note if isinstance(note, Note) else Note(note))
@@ -1437,6 +1428,43 @@ class Chord(MEvent):
                 event.linkednext = True
             synthevents.append(event)
         return synthevents
+
+    def tieNotes(self, notes: Sequence[Note | pitch_t]) -> None:
+        """
+        Marks the given notes as tied, in place
+
+        Raises ValueError if any note/pitch is not present in the given chord a
+        """
+        changed = False
+        for n in notes:
+            pitch = n.pitch if isinstance(n, Note) else asmidi(n)
+            if note := self.findNote(pitch):
+                note.tied = True
+                changed = True
+            else:
+                raise ValueError(f"Pitch {n} not present in this chord: {self}")
+        if changed:
+            self.tied = True
+            self._changed()
+
+    def tieCommonNotes(self, other: Chord, tolerance=0.) -> list[Note]:
+        notes = self.commonNotes(other, tolerance=tolerance)
+        if not notes:
+            return []
+        for note in notes:
+            note.tied = True
+        self.tied = True
+        self._changed()
+        return notes
+
+    def commonNotes(self, other: Chord, tolerance=0.) -> list[Note]:
+        """
+
+        """
+        otherpitches = other.pitches
+        common = [n for n in self.notes
+            if any(abs(n.pitch - p) <= tolerance for p in otherpitches)]
+        return common
 
     def _isNoteTied(self, note: Note) -> bool:
         """
@@ -1630,7 +1658,7 @@ class Chord(MEvent):
         return self.clone(notes=newnotes,
                           gliss=self.gliss if isinstance(self.gliss, bool) else list(map(pitchmap, self.gliss)))
 
-    def findNote(self, pitch: pitch_t | None) -> Note | None:
+    def findNote(self, pitch: pitch_t) -> Note | None:
         """
         Find a note within this Chord
 
@@ -1638,17 +1666,16 @@ class Chord(MEvent):
             pitch: the pitch to match (a midinote or a notename)
 
         Returns:
-            the matched note or None
+            the matched note or None. If multiple notes within this chord share
+            the same pitch only one is returned
 
         """
-        out = self.notes
-        if pitch is not None:
-            midi = pt.str2midi(pitch) if isinstance(pitch, str) else pitch
-            out = [n for n in out if n.pitch == midi]
-        return out[0] if out else None
+        midi = pt.str2midi(pitch) if isinstance(pitch, str) else pitch
+        return next((n for n in self.notes if n.pitch == midi), None)
 
 
-def _asChord(obj, amp: float = None, dur: float = None) -> Chord:
+
+def _asChord(obj, amp: float | None = None, dur: float | None = None) -> Chord:
     """
     Create a Chord from `obj`
 
@@ -1786,7 +1813,8 @@ def asEvent(obj, **kws) -> MEvent:
                 else:
                     out = Note(notedef.notename[0], dur=dur, **kws)
             elif notedef.notename == 'rest':
-                assert isinstance(dur, num_t)
+                if dur is None:
+                    raise ValueError(f"A rest needs a duration, got {obj}")
                 out = Rest(dur=dur, **kws)
             else:
                 out = Note(notedef.notename, dur=dur, **kws)

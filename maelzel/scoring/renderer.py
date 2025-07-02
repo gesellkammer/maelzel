@@ -43,7 +43,7 @@ class Renderer(ABC):
         return hash((hash(self.quantizedScore), hash(self.struct), hash(self.options)))
 
     @abstractmethod
-    def render(self, options: RenderOptions = None) -> str:
+    def render(self, options: RenderOptions | None = None) -> str:
         """
         Render the quantized score
 
@@ -74,7 +74,7 @@ class Renderer(ABC):
         raise NotImplementedError("Please Implement this method")
 
     @abstractmethod
-    def write(self, outfile: str, fmt: str = None, removeTemporaryFiles=False) -> None:
+    def write(self, outfile: str, fmt='', removeTemporaryFiles=False) -> None:
         """
         Write the rendered score to a file
 

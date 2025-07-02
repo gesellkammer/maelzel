@@ -10,9 +10,10 @@ import bpf4
 from emlib.iterlib import flatten
 from pitchtools import db2amp, amp2db
 import sndfileio
-import logging
+
 import numpyx
 from maelzel.snd import numpysnd as npsnd
+from maelzel.common import getLogger
 from typing import TYPE_CHECKING
 
 
@@ -25,7 +26,7 @@ if TYPE_CHECKING:
 
 
 def _getlogger() -> logging.Logger:
-    return logging.getLogger("maelzel.sndfiletools")
+    return getLogger("maelzel.sndfiletools")
 
 
 def _chunks(start: int, stop: int = None, step: int = None
@@ -563,24 +564,30 @@ def readRegions(sndfile: str, times: list[tuple[float, float]]
     return out, sr
 
 
-def addSilentChannel(monofile: str, outfile: str) -> None:
+def addSilentChannel(source: str, outfile: str, numchannels=1) -> np.ndarray:
     """
     Given a source, return a new source with an added channel of silence
 
+    Args:
+        source: the source soundfile
+        outfile: the path to save the resulting soundfile
+        numchannels: the number of silent channels to add
+
+    Returns:
+        the samples with the added silent channel
+        
     .. note::
         the use-case for this is to add a silent channel to a mono file, to make
         clear that the right channel should be silent and the left channel should
         not be played also through the right channel
     """
-    samples, sr = sndfileio.sndread(monofile)
-    numchannels = npsnd.numChannels(samples)
-    if numchannels != 1:
-        _getlogger().warning(f"{monofile} expected to be mono, but contains {numchannels}!")
+    samples, sr = sndfileio.sndread(source)
     numsamples = len(samples)
-    silence = np.zeros((numsamples,), dtype=float)
+    silence = np.zeros((numsamples, numchannels), dtype=float)
     data = np.column_stack((samples, silence))
-    sndfileio.sndwrite_like(outfile=outfile, samples=data, likefile=monofile)
-
+    sndfileio.sndwrite_like(outfile=outfile, samples=data, likefile=source)
+    return data
+    
 
 def _getsamples(source: str | sample_t) -> sample_t:
     """

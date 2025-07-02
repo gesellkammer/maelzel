@@ -7,8 +7,8 @@ from math import ceil
 import emlib.misc
 import numpy as np
 
-import csoundengine
-import csoundengine.instr
+import csoundengine.event
+import csoundengine.schedevent
 import csoundengine.sessionhandler
 
 
@@ -30,10 +30,12 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from typing import Sequence, Callable
-    import csoundengine.schedevent
     import csoundengine.tableproxy
-    import csoundengine.event
     import csoundengine.offline
+    import csoundengine.instr
+    import csoundengine.schedevent
+    import csoundengine.session
+
     from maelzel.snd import audiosample
     from maelzel.core.presetdef import PresetDef
 
@@ -104,14 +106,14 @@ class OfflineRenderer(renderer.Renderer):
     to :func:`render`
     """
     def __init__(self,
-                 outfile: str = '',
-                 sr: int | None = None,
-                 ksmps: int | None = None,
-                 numchannels: int | None = None,
+                 outfile='',
+                 sr=0,
+                 ksmps=0,
+                 numchannels=0,
                  tail=0.,
-                 verbose: bool = None,
+                 verbose: bool | None = None,
                  endtime=0.,
-                 session: csoundengine.session.Session = None):
+                 session: csoundengine.session.Session | None = None):
         from maelzel.core import presetmanager
         super().__init__(presetManager=presetmanager.presetManager)
         w = Workspace.active
@@ -422,9 +424,7 @@ class OfflineRenderer(renderer.Renderer):
             a SchedEvent
 
         """
-        if isinstance(event, csoundengine.event.Event):
-            return self._schedSessionEvent(event)
-        elif isinstance(event, synthevent.SynthEvent):
+        if isinstance(event, synthevent.SynthEvent):
             if event.initfunc:
                 event.initfunc(event, self)
             presetname = event.instr
@@ -442,13 +442,15 @@ class OfflineRenderer(renderer.Renderer):
                                              args=pfields5,
                                              priority=event.priority,
                                              **dynargs)  # type: ignore
+        elif isinstance(event, csoundengine.event.Event):
+            return self._schedSessionEvent(event)
         else:
             raise TypeError(f"Expected a SynthEvent or a csound event, got {event}")
 
     def schedEvents(self,
                     coreevents: list[synthevent.SynthEvent],
                     sessionevents: list[csoundengine.event.Event] = None,
-                    whenfinished: Callable = None
+                    whenfinished: Callable | None = None
                     ) -> csoundengine.schedevent.SchedEventGroup:
         """
         Schedule multiple events as returned by :meth:`MObj.synthEvents() <maelzel.core.MObj.events>`
@@ -543,7 +545,7 @@ class OfflineRenderer(renderer.Renderer):
               delay=0.,
               dur=-1.,
               priority=1,
-              args: list[float] | dict[str, float] = None,
+              args: list[float] | dict[str, float] | None = None,
               whenfinished=None,
               relative=True,
               **kws) -> csoundengine.schedevent.SchedEvent:
@@ -623,7 +625,7 @@ class OfflineRenderer(renderer.Renderer):
                compressionBitrate: int | None = None,
                endtime: float | None = None,
                ksmps: int | None = None,
-               tail: float = None,
+               tail: float| None  = None,
                ) -> str:
         """
         Render the events scheduled until now.
@@ -751,7 +753,7 @@ class OfflineRenderer(renderer.Renderer):
         """
         return self.session.generateCsdString()
 
-    def writeCsd(self, outfile: str = '?') -> str:
+    def writeCsd(self, outfile='?') -> str:
         """
         Write the .csd which would render all events scheduled until now
 
@@ -898,13 +900,13 @@ class _OfflineSessionHandler(csoundengine.sessionhandler.SessionHandler):
 
 
 def render(outfile='',
-           events: Sequence[synthevent.SynthEvent | mobj.MObj | csoundengine.event.Event | Sequence[mobj.MObj | synthevent.SynthEvent]] = None,
-           sr: int = None,
-           wait: bool = None,
-           ksmps: int = None,
-           verbose: bool = None,
-           nchnls: int = None,
-           workspace: Workspace = None,
+           events: Sequence[synthevent.SynthEvent | mobj.MObj | csoundengine.event.Event | Sequence[mobj.MObj | synthevent.SynthEvent]] = (),
+           sr=0,
+           wait: bool | None = None,
+           ksmps=0,
+           verbose: bool | None = None,
+           nchnls: int | None = None,
+           workspace: Workspace | None = None,
            tail: float | None = None,
            run=True,
            endtime=0.,

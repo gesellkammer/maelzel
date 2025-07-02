@@ -36,11 +36,11 @@ class MEvent(MObj):
 
     def __init__(self,
                  dur: F,
-                 offset: F = None,
+                 offset: F | None = None,
                  amp: float | None = None,
-                 parent: MContainer = None,
-                 properties: dict[str, Any] = None,
-                 symbols: list[_symbols.Symbol] = None,
+                 parent: MContainer | None = None,
+                 properties: dict[str, Any] | None = None,
+                 symbols: list[_symbols.Symbol] | None = None,
                  label='',
                  dynamic='',
                  tied=False):
@@ -65,27 +65,54 @@ class MEvent(MObj):
 
         self._glissTarget: float = 0.
 
-    def linkedNext(self) -> bool:
+    def isLinkedNext(self) -> bool:
         """
         Is this event linked to the next?
 
         An event is linked to a next event if it is tied or has
         glissando set to True where this applies. This is not the
         case if the event has a gliss value set to other than True
+
         """
         return self.tied or (self.gliss is True)
 
-    def linkedPrev(self) -> bool:
+    def isLinkedPrev(self) -> bool:
         """
         Is this event linked to the previous?
+
+        This can only be assessed if this event is part of a container.
+        A free standing event will always return False
         """
-        if not self.parent:
-            return False
-        prev = self.parent.previousEvent(self)
+        prev = self.previousEvent()
         if not prev:
             return False
-        assert isinstance(prev, MEvent)
-        return prev.linkedNext()
+        return prev.isLinkedNext()
+
+    def previousEvent(self) -> MEvent | None:
+        """
+        Return the event previous to self
+
+        This only applies if self has a parent
+
+        Returns:
+            the previous event within the parent container, or None
+        """
+        if not self.parent:
+            return None
+        return self.parent.previousEvent(self)
+
+    def nextEvent(self) -> MEvent | None:
+        """
+        Return the event next to self within the parent container
+
+        This only applies if self has a parent
+
+        Returns:
+            the next event within the parent container, or None
+        """
+        if not self.parent:
+            return None
+        return self.parent.nextEvent(self)
 
     def root(self) -> MContainer | None:
         """
@@ -258,13 +285,15 @@ class MEvent(MObj):
                 Can be a beat or a location as a tuple ``(measureindex, beatoffset)``.
             tie: tie the parts. The returned events are tied.
             nomerge: if True, adds a break symbol to the events resulted in the split
-                operation to prevent them from being merged when converted to notation
+                operation to prevent them from being merged when converted to notation.
 
         Returns:
-            a tuple with the parts. If the offset lies perfectly at the start or
-            end of this event, only one part will be returned. If the offset does
-            not intersect the event, ValueError is raised. The returned events are
+            a tuple with the parts. If the offset lies at the start or
+            end of this event, only one part will be returned. The returned events are
             parentless.
+
+        Raises:
+            ValueError: if the offset does not intersect this event
 
         Example
         -------
@@ -280,11 +309,25 @@ class MEvent(MObj):
 
         .. image:: ../assets/note-splitat.png
         """
-        parts = self.splitAtOffsets([offset], tie=tie, nomerge=nomerge)
-        if not parts:
-            raise ValueError(f"Offset {offset} does not intersect {self}")
-        assert len(parts) <= 2
-        return tuple(parts)
+        sco = self.activeScorestruct()
+        absbeat = sco.asBeat(offset)
+        start = self.absOffset()
+        end = start + self.dur
+        if absbeat < start or absbeat > end:
+            raise ValueError(f"offset {offset}, (abs. offset: {absbeat}) does not intersect "
+                             f"this event ({self=}")
+        if absbeat == start or absbeat == end:
+            return (self.copy(),)
+        left = self.clone(dur=start - absbeat)
+        right = self.clone(dur=end - absbeat, offset=None)
+        if tie:
+            left.tied = True
+
+        if nomerge and (tie or left.isRest()):
+            # Only add a nomerge mark if the parts might be merged in the future
+            left.addSymbol(_symbols.NoMerge())
+
+        return (left, right)
 
     def _splitAtOffsets(self, offsets: list[F], tie=True, nomerge=False
                        ) -> list[Self]:
@@ -342,7 +385,7 @@ class MEvent(MObj):
 
     def addSpanner(self,
                    spanner: str | _symbols.Spanner,
-                   endobj: MEvent = None
+                   endobj: MEvent | None = None
                    ) -> Self:
         """
         Adds a spanner symbol to this object

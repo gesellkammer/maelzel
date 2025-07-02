@@ -217,6 +217,7 @@ def normalizeDynamic(dynamic: str, default='') -> str:
 
     Args:
         dynamic: the dynamic to normalize
+        default: fallback dynamic
 
     Returns:
         the normalized dynamic
@@ -224,6 +225,7 @@ def normalizeDynamic(dynamic: str, default='') -> str:
     if dynamic in dynamicLevels or dynamic in dynamicExpressions:
         return dynamic
     elif (mapped := dynamicMappings.get(dynamic)) is not None:
+        assert isinstance(mapped, str)
         return mapped
     return default
 
@@ -274,12 +276,15 @@ boxMappings = {
 }
 
 
-def normalizeEnclosure(enclosure: str | bool, default='') -> str:
+def normalizeEnclosure(enclosure: str | bool) -> str:
+    if isinstance(enclosure, bool):
+        return 'square' if enclosure else ''
     if enclosure in enclosureBoxes:
         return enclosure
-    if (_ := boxMappings.get(enclosure)) is not None:
-        return _
-    return default
+    if (mapped := boxMappings.get(enclosure)) is not None:
+        return mapped
+    raise ValueError(f"Enclosure '{enclosure}' not known, possible values are {enclosureBoxes} or"
+                     f" {boxMappings.keys()}")
 
 
 barstyles = {
@@ -405,4 +410,3 @@ class Notehead:
                     shape = shape[:-1]
                     parenthesis = True
         return Notehead(shape=shape, color=color, size=size, parenthesis=parenthesis)
-

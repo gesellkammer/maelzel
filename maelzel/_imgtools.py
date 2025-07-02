@@ -39,7 +39,7 @@ def imagefileAutocrop(imgfile: str, outfile: str, bgcolor: str | tuple[int, int,
     Crop an image in a file to its content, save it to another file
 
     Args:
-        imgfile: original image file to crop
+        imgfile: original image file to crop 
         outfile: output file
         bgcolor: background color
 

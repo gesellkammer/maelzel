@@ -22,7 +22,15 @@ def _factory(obj):
     return _field(default_factory=lambda: copy.copy(obj))
 
 
-@dataclass
+_syncopationLevelToMinWeight = {
+    'all': 0,
+    'weak': 1,
+    'strong': 2,
+    'none': 10000
+}
+
+
+@dataclass(repr=False)
 class QuantizationProfile:
     """
     A QuantizationProfile is used to configure quantization
@@ -51,7 +59,7 @@ class QuantizationProfile:
       best subdivision
     - graceNoteDuration: if a note is considered a grace note (which have
       no duration per se), should we still account for this duration?
-    - syncopationMinBeatFraction: when merging durations across beats, a merged
+    - syncopMinFraction: when merging durations across beats, a merged
       duration can't be smaller than this duration. This is to prevent joining
       durations across beats which might result in high rhythmic complexity
     - tupletsAllowedAcrossBeats: list of tuplets allowed across a beat
@@ -151,13 +159,13 @@ class QuantizationProfile:
     numSubdivisionsPenaltyWeight: float = 0.2
     """Weight to penalize the number of subdivisions"""
 
-    syncopationMinBeatFraction: F = F(1, 6)
+    syncopMinFraction: F = F(1, 6)
     """How long can a synchopation be, in terms of the length of the beat"""
 
     syncopationMinSymbolicDuration: F = F(1, 3)
     """Min. symbolic duration of a syncopation"""
 
-    syncopationMaxAsymmetry: float = 2.0
+    syncopMaxAsymmetry: float = 2.0
     """The max. ratio between the longer and the shorter parts to be mergeable
     as a syncopation"""
 
@@ -215,13 +223,18 @@ class QuantizationProfile:
     to be removed
     """
 
+    beatWeightTempoThreshold: int = 52
+
+    subdivisionTempoThreshold: int = 96
+
+
     _cachedDivisionsByTempo: dict[tuple[num_t, bool], list[division_t]] = _field(default_factory=dict)
     _cachedDivisionPenalty: dict[tuple[int, ...], tuple[float, str]] = _field(default_factory=dict)
 
     def __post_init__(self):
         assert self.breakSyncopationsLevel in ('strong', 'none', 'all', 'weak'), f"{self.breakSyncopationsLevel=}"
         self.debug = False
-        for attr, value in self.__dataclass_fields__.items():
+        for attr, value in self.__dataclass_fields__.items():  # type: ignore
             assert not isinstance(value, (list, dict)), f"Unhashable {attr=}{value}"
 
     def modified(self):
@@ -235,7 +248,7 @@ class QuantizationProfile:
         return quantdata.divisionsByTempo(self.divisionDefs, blacklist=self.blacklist)
 
     def __hash__(self) -> int:
-        return hash((
+        return hash((           
             self.nestedTuplets,
             self.gridErrorWeight,
             self.gridErrorExp,
@@ -260,9 +273,9 @@ class QuantizationProfile:
             self.cardinalityPenaltyWeight,
             self.numNestedTupletsPenaltyWeight,
             self.numSubdivisionsPenaltyWeight,
-            self.syncopationMinBeatFraction,
+            self.syncopMinFraction,
             self.syncopationMinSymbolicDuration,
-            self.syncopationMaxAsymmetry,
+            self.syncopMaxAsymmetry,
             self.mergedTupletsMaxDuration,
             self.mergeTupletsOfDifferentDuration,
             self.allowNestedTupletsAcrossBeat,
@@ -332,6 +345,21 @@ class QuantizationProfile:
         self._cachedDivisionPenalty[division] = (penalty, info)
         return penalty, info
 
+    def breakSyncopationsMinWeight(self, level='') -> int:
+        """
+        Returns the min. weight of a beat in order to break syncopations across its boundary
+
+        Converts the setting .breakSyncopationsLevel, which is one of
+        'none', 'strong', 'weak', 'all' to the weight a beat must have in
+        order to break any notation across its boundary.
+
+        Returns:
+            the min. weight of the beat, as an int
+        """
+        weight = _syncopationLevelToMinWeight.get(level or self.breakSyncopationsLevel)
+        assert weight is not None
+        return weight
+
     @cache
     @staticmethod
     def default() -> QuantizationProfile:
@@ -339,7 +367,7 @@ class QuantizationProfile:
 
     @staticmethod
     def fromPreset(complexity='high',
-                   nestedTuplets: bool = None,
+                   nestedTuplets: bool | None = None,
                    blacklist: Sequence[division_t] = (),
                    **kws) -> QuantizationProfile:
         """

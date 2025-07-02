@@ -1,8 +1,7 @@
 from __future__ import annotations
-from maelzel.common import F
+from maelzel.common import F, F0
 from emlib.iterlib import first
 
-from maelzel.packing import F0
 from .eventbase import MEvent
 from .event import Note, Chord
 from .workspace import getConfig

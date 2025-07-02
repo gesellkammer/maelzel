@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import math
+
 import emlib.misc
 import pitchtools as pt
 from dataclasses import dataclass
 
-from ._common import logger, F
+from ._common import logger
+from maelzel.common import F
 from maelzel._util import hasoverlap
 from maelzel.core import automation as _automation
 from maelzel.core import presetmanager
-import csoundengine
+import functools
 
 from typing import TYPE_CHECKING, cast as _cast
 if TYPE_CHECKING:
@@ -22,7 +24,7 @@ if TYPE_CHECKING:
     from maelzel.scorestruct import ScoreStruct
     breakpoint_t: TypeAlias = list[float]
     from maelzel.core import presetdef
-    from typing import TypeVar
+    from typing import TypeVar, ClassVar
     _T = TypeVar('_T')
 
 
@@ -30,6 +32,12 @@ __all__ = (
     'PlayArgs',
     'SynthEvent',
 )
+
+
+@functools.cache
+def _csoundengineUseDynamicPfields() -> bool:
+    import csoundengine
+    return csoundengine.config['dynamic_pfields']
 
 
 def _normalizeSynthValue(val) -> float | str:
@@ -82,30 +90,32 @@ class PlayArgs:
     * glisstime: slide time to next event. This allows to add glissando lines for events
       even if their gliss attr is not set, or to generate legato lines
     """
-    playkeys = {'delay', 'chan', 'gain', 'fade', 'instr', 'pitchinterpol',
-                'fadeshape', 'args', 'priority', 'position', 'sustain', 'transpose',
-                'glisstime', 'skip', 'end', 'linkednext'}
+    playkeys: ClassVar[set[str]] = {
+        'delay', 'chan', 'gain', 'fade', 'instr', 'pitchinterpol',
+        'fadeshape', 'args', 'priority', 'position', 'sustain', 'transpose',
+        'glisstime', 'skip', 'end', 'linkednext'}
 
     """Available keys for playback customization"""
 
     __slots__ = ('db', 'automations')
 
     def __init__(self,
-                 db: dict[str, Any] = None,
-                 automations: list[_automation.Automation] = None):
-        if db is None:
-            db = {}
-        else:
-            assert not (db.keys() - self.playkeys), f"diff={db.keys() - self.playkeys}"
-            if any(v is None for v in db.values()):
-                raise ValueError(f"Values passed should not be None: "
-                                 f"{[k for k, v in db.items() if v is None]}")
+                 db: dict[str, Any] | None = None,
+                 automations: list[_automation.Automation] | None = None):
 
-        self.db: dict[str, Any] = db
+        self.db: dict[str, Any] = db if db is not None else {}
         """A dictionary holding the arguments explicitely specified"""
 
         self.automations: list[_automation.Automation] | None = automations
         """A list of Automations"""
+
+    def _check(self) -> None:
+        db = self.db
+        if db.keys() - self.playkeys:
+            raise ValueError(f"Invalid keys present: diff={db.keys() - self.playkeys}")
+        if any(v is None for v in db.values()):
+            raise ValueError(f"Values passed should not be None: "
+                             f"{[k for k, v in db.items() if v is None]}")
 
     def setArgs(self, **kws: float | str) -> None:
         """
@@ -443,15 +453,15 @@ class SynthEvent:
                  gain: float = 1.0,
                  pitchinterpol: str = 'linear',
                  fadeshape: str = 'cos',
-                 args: dict[str, float | str] = None,
+                 args: dict[str, float | str] | None = None,
                  priority: int = 1,
                  position: float = -1,
                  numchans: int = 2,
                  linkednext=False,
-                 whenfinished: Callable = None,
+                 whenfinished: Callable | None = None,
                  properties: dict[str, Any] | None = None,
                  sustain: float = 0.,
-                 initfunc: Callable[[SynthEvent, renderer.Renderer], None] = None,
+                 initfunc: Callable[[SynthEvent, renderer.Renderer], None] | None = None,
                  # **kws
                  ):
         """
@@ -471,7 +481,6 @@ class SynthEvent:
             priority: schedule the corresponding instr at this priority
             numchans: the number of channels this event outputs
             linkednext: a hint to merge multiple events into longer lines.
-            kws: ignored at the moment
         """
         if len(bps[0]) < 2:
             raise ValueError(f"A breakpoint should have at least (delay, pitch), "
@@ -737,7 +746,9 @@ class SynthEvent:
         linkednext = db.pop('linkednext', False) or db.get('glisstime') is not None
         for k in ('transpose', 'glisstime', 'end'):
             db.pop(k, None)
-        return SynthEvent(bps=bps,
+        instr = db.pop('instr')
+            return SynthEvent(bps=bps,
+                          instr=instr,
                           properties=properties,
                           linkednext=linkednext,
                           **db)
@@ -803,7 +814,7 @@ class SynthEvent:
             end: end time, in seconds
         """
         assert self.bps[0][0] == 0
-        start = max(0, start - self.delay)
+        start = max(0., start - self.delay)
         end = max(start, end - self.delay)
         bps = cropBreakpoints(self.bps, start, end)
         self.bps = bps
@@ -845,7 +856,7 @@ class SynthEvent:
         return len(self.bps[0])
 
     @staticmethod
-    def dumpEvents(events: Sequence[SynthEvent], forcetext=False):
+    def dumpEvents(events: Sequence[SynthEvent]):
         rows = []
         for event in events:
             row = [f"{event.delay:.3f}", f"{event.dur:.3f}{'~' if event.linkednext else ''}",
@@ -948,8 +959,10 @@ class SynthEvent:
         return out
 
     @staticmethod
-    def plotEvents(events: list[SynthEvent], axes: Axes = None, notenames=False,
-                   linewidth=1
+    def plotEvents(events: list[SynthEvent],
+                   axes: Axes | None = None,
+                   notenames=False,
+                   linewidth=1.
                    ) -> Axes:
         """
         Plot all given events within the same axes (static method)
@@ -1036,7 +1049,7 @@ class SynthEvent:
         dynargs: dict[str, float|str]
 
         # |kpos, kgain, idataidx_, inumbps, ibplen, ichan, ifadein, ifadeout, ipchintrp_, ifadekind|
-        if csoundengine.config['dynamic_pfields']:
+        if _csoundengineUseDynamicPfields():
             # pfields are also used for dynamic (k) arguments
             pfields5: list[float | str] = [
                 self.position,          # kpos
@@ -1076,7 +1089,7 @@ class SynthEvent:
 
     def _resolveParamsGeneric(self: SynthEvent,
                               instr: csoundengine.instr.Instr
-                              ) -> tuple[list[float|str], dict[str, float]]:
+                              ) -> tuple[list[float|str], dict[str, float | str]]:
         """
         Resolves the values for pfields and dynamic params
 
@@ -1112,15 +1125,20 @@ class SynthEvent:
             dynargs |= self.args
         pfields5, kwargs = instr.parseSchedArgs(args=pfields, kws=dynargs)
         pfields5.extend(self._flatBreakpoints())
+        assert isinstance(kwargs, dict)
         return pfields5, kwargs
 
-    def plot(self, axes: Axes = None, notenames=False, linewidth=1) -> Axes:
+    def plot(self,
+             axes: Axes | None = None,
+             notenames=False,
+             linewidth=1.) -> Axes:
         """
         Plot the trajectory of this synthevent
 
         Args:
             axes: a matplotlib.pyplot.Axes, will be used if given
             notenames: if True, use notenames for the y axes
+            linewidth: linewidth used for plotting
 
         Returns:
             the axes used

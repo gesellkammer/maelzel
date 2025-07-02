@@ -4,17 +4,19 @@ Utilities used during quantization
 from __future__ import division, annotations
 import math
 from functools import cache
-import itertools
 from emlib import iterlib
 from emlib import mathlib
+from itertools import pairwise
 
-from maelzel.common import F, F0
+from maelzel.common import F, F0, F1
 from .common import logger, division_t
-from .notation import Notation
-from .node import Node
+from . import node as _node
 from . import quantdata
 
-from typing import Sequence
+import typing as _t
+if _t.TYPE_CHECKING:
+    from .notation import Notation
+
 
 
 @cache
@@ -27,73 +29,6 @@ def isNestedTupletDivision(div: division_t) -> bool:
 
 def divisionDensity(division: division_t) -> int:
     return max(division) * len(division)
-
-
-def subdivisions(numdivs: int,
-                 possiblevals: Sequence[int] = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14),
-                 maxval=0,
-                 maxdensity=20
-                 ) -> list[tuple[int, ...]]:
-    if maxval == 0:
-        maxval = maxdensity // numdivs
-    minval = 1
-    used = set()
-    out = []
-    for i in range(maxval, minval-1, -1):
-        if i not in possiblevals or any(x % i == 0 for x in used):
-            continue
-        used.add(i)
-        if numdivs == 1:
-            out.append((i,))
-        else:
-            subdivs = subdivisions(numdivs - 1, possiblevals=possiblevals, maxval=i, maxdensity=maxdensity)
-            for subdiv in subdivs:
-                out.append((i,) + subdiv)
-    return out
-
-
-def allSubdivisions(maxsubdivs=5,
-                    maxdensity=20,
-                    possiblevals: Sequence[int] = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14),
-                    permutations=True,
-                    blacklist: list[tuple[int, ...]] = None
-                    ) -> list[division_t]:
-    allsubdivs = []
-    for numsubdivs in range(maxsubdivs, 0, -1):
-        allsubdivs.extend(subdivisions(numdivs=numsubdivs, possiblevals=possiblevals, maxdensity=maxdensity))
-
-    def issuperfluous(p):
-        if len(p) > 1 and all(x == p[0] for x in p) and sum(p) in possiblevals:
-            return True
-        if len(p) in (2, 4, 8) and all(x in (1, 2, 4, 8) for x in p) and max(p)*len(p) in possiblevals:
-            # (2, 4) == (4, 4) == 8, (2, 2, 2, 4) == 16, (4, 4) == 8
-            return True
-        return False
-
-    allsubdivs = [s for s in allsubdivs if not issuperfluous(s)]
-    if permutations:
-        out = []
-        for p in allsubdivs:
-            if len(p) == 1:
-                out.append(p)
-            else:
-                out.extend(set(itertools.permutations(p)))
-        allsubdivs = out
-        if blacklist:
-            permutations = []
-            for div in blacklist:
-                if len(div) == 1:
-                    permutations.append(div)
-                else:
-                    permutations.extend(set(itertools.permutations(div)))
-            blacklist = permutations
-
-    allsubdivs.sort(key=lambda p: sum(p))
-    if blacklist:
-        blacklistset = set(blacklist)
-        allsubdivs = [div for div in allsubdivs
-                      if div not in blacklistset]
-    return allsubdivs
 
 
 def resnap(assignedSlots: list[int], oldgrid: list[F], newgrid: list[F]) -> list[int]:
@@ -181,7 +116,10 @@ def simplifyDivision(division: division_t, assignedSlots: list[int], reduce=True
     return newdiv
 
 
-def reduceDivision(division: division_t, newdiv: division_t, assignedSlots: list[int], maxslots=20
+def reduceDivision(division: division_t,
+                   newdiv: division_t,
+                   assignedSlots: list[int],
+                   maxslots=20
                    ) -> division_t:
     assert len(newdiv) > 1
     subdiv = math.lcm(*newdiv)
@@ -194,27 +132,6 @@ def reduceDivision(division: division_t, newdiv: division_t, assignedSlots: list
     newslots = resnap(assignedSlots, oldgrid, expandedgrid)
     newdiv2 = simplifyDivision(expandeddiv, newslots, reduce=False)
     return newdiv2 if numslots < sum(newdiv) else newdiv
-
-
-# @cache
-# def gridDurations(beatDuration: F, division: division_t) -> list[F]:
-#     """
-#     Called to recursively generate a grid corresponding to the given division
-#     of the beat
-#     """
-#     if isinstance(division, int):
-#         dt = beatDuration/division
-#         grid = [dt] * division
-#     elif isinstance(division, (list, tuple)):
-#         if len(division) == 1:
-#             grid = gridDurations(beatDuration, division[0])
-#         else:
-#             numDivisions = len(division)
-#             subdivDur = beatDuration / numDivisions
-#             grid = [gridDurations(subdivDur, subdiv) for subdiv in division]
-#     else:
-#         raise TypeError(f"Expected an int or a list, got {division} ({type(division)})")
-#     return grid
 
 
 @cache
@@ -287,55 +204,62 @@ def applyDurationRatio(notations: list[Notation],
                        beatDur: F
                        ) -> None:
     """
-    Applies a duration ratio to each notation, recursively.
+    Applies a duration ratio to each notation.
 
     A duration ratio converts the actual duration of a notation to its
     notated value and is used to render these as tuplets later
 
     Args:
         notations: the notations inside the period beatOffset:beatOffset+beatDur
-        division: the division of the beat/subbeat. Examples: 4, [3, 4], [2, 2, 3], etc
+        division: the division of the beat/subbeat.
         beatOffset: the start of the beat
         beatDur: the duration of the beat
 
     """
+    def _apply(durRatio: F, notations: list[Notation]):
+        if durRatio == F1:
+            for n in notations:
+                if not n.durRatios:
+                    n.durRatios = (durRatio,)
+        else:
+            for n in notations:
+                n.durRatios += (durRatio,)
+
+        assert all(bool(n.durRatios) for n in notations)
+
     if isinstance(division, int) or len(division) == 1:
         num: int = division if isinstance(division, int) else division[0]
         durRatio = F(*quantdata.durationRatios[num])
-        if durRatio != 1:
-            for n in notations:
-                if n.durRatios is None:
-                    n.durRatios = (durRatio,)
-                else:
-                    n.durRatios = n.durRatios + (durRatio,)
+        _apply(durRatio, notations)
+
     else:
         numSubBeats = len(division)
         now = beatOffset
         dt = beatDur / numSubBeats
         durRatio = F(*quantdata.durationRatios[numSubBeats])
-        if durRatio != 1:
-            for n in notations:
-                if n.durRatios is None:
-                    n.durRatios = (durRatio,)
-                else:
-                    n.durRatios += (durRatio,)
+        _apply(durRatio, notations)
+        numNotations = 0
         for subdiv in division:
             subdivEnd = now + dt
             subdivNotations = [n for n in notations
-                               if now <= n.qoffset < subdivEnd and n.end <= subdivEnd]
+                               if now <= n.qoffset and n.end <= subdivEnd]
             applyDurationRatio(notations=subdivNotations, division=subdiv,
                                beatOffset=now, beatDur=dt)
             now += dt
+            numNotations += len(subdivNotations)
+        assert numNotations == len(notations)
+
+    assert all(n.durRatios is not None for n in notations), f"{notations=}"
 
 
 def beatToTree(notations: list[Notation], division: int | division_t,
                beatOffset: F, beatDur: F
-               ) -> Node:
+               ) -> _node.Node:
     if isinstance(division, tuple) and len(division) == 1:
         division = division[0]
     if isinstance(division, int):
         durRatio = quantdata.durationRatios[division]
-        return Node(ratio=durRatio, items=notations)  # type: ignore
+        return _node.Node(notations, ratio=durRatio)  # type: ignore
 
     # assert isinstance(division, tuple) and len(division) >= 2
     numSubBeats = len(division)
@@ -351,4 +275,45 @@ def beatToTree(notations: list[Notation], division: int | division_t,
         else:
             items.append(beatToTree(notations=subdivNotations, division=subdiv, beatOffset=now, beatDur=dt))
         now += dt
-    return Node(durRatio, items)
+    return _node.Node(items, ratio=durRatio)
+
+
+def breakNotationsByBeat(
+        notations: list[Notation],
+        beatOffsets: _t.Sequence[F]
+        ) -> list[tuple[F, F, list[Notation]]]:
+    """
+    Break the given notations between the given beat offsets, returns the 
+
+    **NB**: Any notations starting after the last offset will not be considered!
+
+    Args:
+        notations: the notations to split
+        beatOffsets: the boundaries. All notations should be included within the
+            boundaries of the bigen offsets
+
+    Returns:
+        a list of tuples ((start beat, end beat), notation)
+
+    """
+    assert beatOffsets[0] == notations[0].offset
+    assert beatOffsets[-1] == notations[-1].end
+
+    timespans = [(beat0, beat1) for beat0, beat1 in pairwise(beatOffsets)]
+    splitEvents = []
+    for ev in notations:
+        if ev.duration > 0:
+            splitEvents.extend(ev.splitAtOffsets(beatOffsets))
+        else:
+            splitEvents.append(ev)
+
+    eventsPerTimespan = []
+    for start, end in timespans:
+        eventsInTimespan = [ev for ev in splitEvents if start <= ev.offset < end]
+        eventsPerTimespan.append(eventsInTimespan)
+        assert sum(ev.duration for ev in eventsInTimespan) == end - start
+        assert all(start <= ev.offset <= ev.end <= end
+                   for ev in eventsInTimespan)
+    return [(start, end, events) for (start, end), events in zip(timespans, eventsPerTimespan)]
+
+

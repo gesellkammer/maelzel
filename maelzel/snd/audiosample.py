@@ -46,10 +46,7 @@ import abc
 import numpy as np
 import os
 import math
-import bpf4
 from pathlib import Path
-import atexit as _atexit
-import configdict
 
 import pitchtools as pt
 import emlib.misc
@@ -57,11 +54,12 @@ import emlib.misc
 from maelzel import _util
 from maelzel.snd import _common
 from maelzel.snd import numpysnd as _npsnd
-from maelzel.common import getLogger
+import maelzel.common
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import bpf4
     import sounddevice
     import csoundengine
     import csoundengine.synth
@@ -77,49 +75,15 @@ __all__ = (
 )
 
 
-logger = getLogger("maelzel.snd")
-
-
-config = configdict.ConfigDict(
-    name='maelzel.snd.audiosample',
-    default={
-        'reprhtml_include_audiotag': True,
-        'reprhtml_audiotag_maxduration_seconds': 600,
-        'reprhtml_audiotag_width': '100%',
-        'reprhtml_audiotag_maxwidth': '1200px',
-        'reprhtml_audiotag_embed_maxduration_seconds': 8,
-        'reprhtml_audio_format': 'mp3',
-        'csoundengine': _common.CSOUNDENGINE,
-    },
-    validator = {
-        'reprhtml_audio_format::choices': ('wav', 'mp3', 'ogg')
-    },
-    docs = {
-        'reprhtml_include_audiotag':
-            'Include an <audio> tag when representing a Sample as html',
-        'reprhtml_audiotag_embed_maxduration_seconds':
-            'Samples with a duration less than this value are embedded as raw '
-            'audio (uncompressed). This can result in very big notebooks',
-        'csoundengine': 'name of the csound engine to use',
-        'reprhtml_audio_format': 'format used when not embedding raw audio'
-    },
-    load=False,
-    persistent=False
-)
-
-
-_sessionTempfiles = []
-
-
-@_atexit.register
-def _cleanup():
-    import shutil
-    for f in _sessionTempfiles:
-        if os.path.exists(f):
-            if os.path.isdir(f):
-                shutil.rmtree(f)
-            else:
-                os.remove(f)
+config = {
+    'reprhtml_include_audiotag': True,
+    'reprhtml_audiotag_maxduration_seconds': 600,
+    'reprhtml_audiotag_width': '100%',
+    'reprhtml_audiotag_maxwidth': '1200px',
+    'reprhtml_audiotag_embed_maxduration_seconds': 8,
+    'reprhtml_audio_format': 'mp3',
+    'csoundengine': _common.CSOUNDENGINE,
+}
 
 
 class PlaybackStream(abc.ABC):
@@ -233,6 +197,33 @@ def _vampPyinAvailable() -> bool:
     except ImportError:
         return False
     return "pyin:pyin" in vamp.list_plugins()
+
+
+def _playSamples(samples: np.ndarray, sr: int, mapping: list[int], gain=1., speed=1., loop=False, block=False
+                 ) -> PlaybackStream:
+    import sounddevice
+    sr = int(sr * speed)
+    ctx = sounddevice._CallbackContext(loop=loop)
+    ctx.frames = ctx.check_data(data=samples, mapping=mapping, device=None)  # type: ignore
+
+    def callback(outdata, numframes, time, status, gain=gain):
+        assert len(outdata) == numframes
+        ctx.callback_enter(status, outdata)
+        if gain != 1:
+            outdata *= gain
+        ctx.write_outdata(outdata)
+        ctx.callback_exit()
+
+    ctx.start_stream(
+        sounddevice.OutputStream,
+        samplerate=sr,
+        channels=ctx.output_channels,
+        dtype=ctx.output_dtype,
+        callback=callback,
+        blocking=block,
+        prime_output_buffers_using_stream_callback=False)
+    return _PortaudioPlayback(stream=ctx.stream)
+
 
 
 class Sample:
@@ -372,7 +363,7 @@ class Sample:
             if usedengine == engine.name:
                 return table
             else:
-                logger.warning(f"Engine changed, was {usedengine}, now {engine.name}")
+                maelzel.common.getLogger(__file__).warning(f"Engine changed, was {usedengine}, now {engine.name}")
         tabproxy = engine.session().makeTable(self.samples, sr=self.sr, block=True)
         tabnum = tabproxy.tabnum
         self._csoundTable = (engine.name, tabnum)
@@ -392,9 +383,7 @@ class Sample:
                        speed=1.,
                        skip=0.,
                        dur=0.,
-                       block=False):
-        import sounddevice
-        sr = int(self.sr * speed)
+                       block=False) -> PlaybackStream:
         mapping = list(range(chan, self.numchannels + chan))
         samples = self.samples
         if skip:
@@ -403,26 +392,8 @@ class Sample:
         if dur:
             samples = samples[:int(self.sr*dur)]
 
-        ctx = sounddevice._CallbackContext(loop=loop)
-        ctx.frames = ctx.check_data(data=samples, mapping=mapping, device=None)  # type: ignore
-
-        def callback(outdata, numframes, time, status, gain=gain):
-            assert len(outdata) == numframes
-            ctx.callback_enter(status, outdata)
-            if gain != 1:
-                outdata *= gain
-            ctx.write_outdata(outdata)
-            ctx.callback_exit()
-
-        ctx.start_stream(sounddevice.OutputStream,
-                         samplerate=sr,
-                         channels=ctx.output_channels,
-                         dtype=ctx.output_dtype,
-                         callback=callback,
-                         blocking=block,
-                         prime_output_buffers_using_stream_callback=False)
-
-        return _PortaudioPlayback(stream=ctx.stream)
+        return _playSamples(samples=samples, sr=self.sr, mapping=mapping, loop=loop,
+                            block=block, gain=gain, speed=speed)
 
     def play(self,
              loop=False,
@@ -485,12 +456,12 @@ class Sample:
                 backend = 'csound'
 
         if backend == 'portaudio':
-            logger.debug("Playback using portaudio (sounddevice)")
+            maelzel.common.getLogger(__file__).debug("Playback using portaudio (sounddevice)")
             return self._playPortaudio(loop=loop, chan=chan, gain=gain,
                                        speed=speed, skip=skip, dur=dur, block=block)
         elif backend == 'csound':
             # Use csoundengine
-            logger.debug("Playback using csoundengine")
+            maelzel.common.getLogger(__file__).debug("Playback using csoundengine")
             if not engine:
                 engine = Sample.getEngine()
 
@@ -523,6 +494,7 @@ class Sample:
         """
         if self._asbpf not in (None, False):
             return self._asbpf
+        import bpf4
         bpf = bpf4.Sampled(self.samples, 1/self.sr)
         self._asbpf = bpf
         return bpf
@@ -592,7 +564,7 @@ class Sample:
         if withHeader:
             from emlib.misc import sec2str
             dur = self.duration
-            durstr = durstr = sec2str(dur) if dur > 60 else f"{dur:.3g}"
+            durstr = sec2str(dur) if dur > 60 else f"{dur:.3g}"
             header = (f"<b>Sample</b>(duration=<code>{durstr}</code>, "
                       f"sr=<code>{self.sr}</code>, "
                       f"numchannels=<code>{self.numchannels}</code>)<br>")
@@ -738,7 +710,6 @@ class Sample:
         import tempfile
         sndfile = tempfile.mktemp(suffix="." + fmt)
         self.write(sndfile)
-        logger.debug(f"open_in_editor: opening {sndfile}")
         _openInEditor(sndfile, wait=wait, app=app)
         if wait:
             return self.__class__(sndfile)
@@ -774,7 +745,6 @@ class Sample:
                                                title="Save soundfile",
                                                directory=os.getcwd())
             if not outfile:
-                logger.warning("No outfile selected, aborting")
                 return
         outfile = _normalizePath(outfile)
         samples = self.samples
@@ -953,7 +923,7 @@ class Sample:
         frame1 = int(stop*self.sr)
         return self.__class__(self.samples[frame0:frame1], self.sr)
 
-    def fade(self, fadetime: float | tuple[float, float], shape: str = 'linear'
+    def fade(self, fadetime: float | tuple[float, float], shape='linear'
              ) -> Self:
         """
         Fade this Sample **inplace**, returns self.
@@ -1374,7 +1344,7 @@ class Sample:
                                                       onsetOverlap=onsetOverlap)
         return analysis
 
-    def onsets(self, fftsize=2048, overlap=4, method: str = 'rosita',
+    def onsets(self, fftsize=2048, overlap=4, method='rosita',
                threshold: float = None, mingap=0.03) -> np.ndarray:
         """
         Detect onsets
@@ -1442,10 +1412,11 @@ class Sample:
     def partialTrackingAnalysis(self,
                                 resolution: float = 50.,
                                 channel=0,
-                                windowsize: float | None = None,
-                                freqdrift: float = None,
-                                hoptime: float = None,
-                                mindb=-90) -> _spectrum.Spectrum:
+                                windowsize=0.,
+                                freqdrift=0.,
+                                hoptime=0.,
+                                mindb=-90,
+                                ) -> _spectrum.Spectrum:
         """
         Analyze this audiosample using partial tracking
 
@@ -1470,9 +1441,12 @@ class Sample:
         """
         from maelzel.partialtracking.spectrum import Spectrum
         samples = self.getChannel(channel).samples
-        return Spectrum.analyze(samples=samples, sr=self.sr,
-                                resolution=resolution, windowsize=windowsize,
-                                hoptime=hoptime, freqdrift=freqdrift,
+        return Spectrum.analyze(samples=samples,
+                                sr=self.sr,
+                                resolution=resolution,
+                                windowsize=windowsize,
+                                hoptime=hoptime,
+                                freqdrift=freqdrift,
                                 mindb=mindb)
 
     def spectrumAt(self,
@@ -1481,7 +1455,7 @@ class Sample:
                    channel=0,
                    windowsize: float = -1,
                    mindb=-90,
-                   minfreq: int | None = None,
+                   minfreq=0,
                    maxfreq=12000,
                    maxcount=0
                    ) -> list[tuple[float, float]]:
@@ -1600,8 +1574,10 @@ class Sample:
         Args:
             fftsize: the size of the fft, in samples
             overlap: determines the hop size
-            method: one of 'pyin' or 'fft'.
             unvoiced: method to handle unvoiced sections. One of 'nan', 'negative', 'keep'
+            method: one of 'pyin-pitchtrack' or 'pyin-smoothpitch'
+            lowAmpSuppression: only analyzes audio louder than this threshold
+            onsetSensitivity: onset sensitivity of the pyin algorithm
 
         Returns:
             a tuple (f0bpf, voicednessbpf), each is a `bpf <https://bpf4.readthedocs.io>`_.
@@ -1609,6 +1585,7 @@ class Sample:
             represents the voicedness (how "Pitched" the signal is) at a given time
         """
         from maelzel.snd import vamptools
+        import bpf4
         samples = self.getChannel(0).samples
         if method == 'pyin-pitchtrack':
             data = vamptools.pyinPitchTrack(
@@ -1769,7 +1746,10 @@ class Sample:
         return self.__class__(frames, sr=self.sr)
 
     @staticmethod
-    def mix(samples: list[Sample], offsets: list[float] = None, gains: list[float] = None
+    def mix(samples: list[Sample],
+            offsets: list[float] = None,
+            gains: list[float] = None,
+            positions: list[float] = None
             ) -> Sample:
         """
         Static method: mix the given samples down, optionally with a time offset
@@ -1781,6 +1761,7 @@ class Sample:
             samples: the Samples to mix
             offsets: if given, an offset in seconds for each sample
             gains: if given, a gain for each sample
+            positions: if given, panning positions for each sample.
 
         Returns:
             the resulting Sample
@@ -1794,7 +1775,7 @@ class Sample:
             >>> m.duration
             4.0
         """
-        return mixSamples(samples, offsets=offsets, gains=gains)
+        return mixSamples(samples, offsets=offsets, gains=gains, positions=positions)
 
     @staticmethod
     def join(samples: Sequence[Sample]) -> Sample:
@@ -1880,7 +1861,6 @@ def matchSamplerates(sampleseq: Sequence[Sample], sr: int = None, forcecopy=Fals
         sr = max(s.sr for s in sampleseq)
 
     if any(s.sr != sr for s in sampleseq):
-        logger.info(f"concat: Mismatching samplerates. Samples will be upsampled to {sr}")
         sampleseq = [s.resample(sr) if s.sr != sr else s.copy() if forcecopy else s for s in sampleseq]
     else:
         sampleseq = list(sampleseq)
@@ -1940,7 +1920,10 @@ def _silentFrames(numframes: int, channels: int) -> np.ndarray:
     return samples
 
 
-def mixSamples(samples: list[Sample], offsets: list[float] = None, gains: list[float] = None
+def mixSamples(samples: list[Sample],
+               offsets: list[float] = None,
+               gains: list[float] = None,
+               positions: list[float] = None
                ) -> Sample:
     """
     Mix the given samples down, optionally with a time offset
@@ -1951,6 +1934,9 @@ def mixSamples(samples: list[Sample], offsets: list[float] = None, gains: list[f
         samples: the Samples to mix
         offsets: if given, an offset in seconds for each sample
         gains: if given, a gain for each sample
+        positions: if given, panning positions for each sample (between 0 and 1)
+            This will force the output sample to be stereo. Multichannel audio
+            does not support panning
 
     Returns:
         the resulting Sample
@@ -1964,23 +1950,43 @@ def mixSamples(samples: list[Sample], offsets: list[float] = None, gains: list[f
         >>> m.duration
         4.0
     """
-    nchannels = samples[0].numchannels
+    nchannels = max(s.numchannels for s in samples)
     sr = samples[0].sr
-    assert all(s.numchannels == nchannels and s.sr == sr for s in samples)
+
+    if not all(s.sr == sr for s in samples):
+        raise ValueError(f"All samples should have the same samplerate, got {[s.sr for s in samples]}")
+
     if offsets is None:
         offsets = [0.] * len(samples)
+    else:
+        assert len(offsets) == len(samples)
+
     if gains is None:
         gains = [1.] * len(samples)
+    else:
+        assert len(gains) == len(samples)
+
+    if positions:
+        assert len(positions) == len(samples)
+        if nchannels > 2:
+            raise ValueError("Multichannel (> 2) samples are not supported with panning")
+        nchannels = 2
+
     dur = max(s.duration + offset for s, offset in zip(samples, offsets))
     numframes = int(dur * sr)
     if nchannels == 1:
         buf = np.zeros((numframes,), dtype=float)
     else:
         buf = np.zeros((numframes, nchannels), dtype=float)
-    for s, offset, gain in zip(samples, offsets, gains):
+    for i in range(len(samples)):
+        s, gain, offset = samples[i], gains[i], offsets[i]
         startframe = int(offset * sr)
         endframe = startframe + len(s)
-        buf[startframe:endframe] += s.samples
+        data = s.samples
+        if positions and nchannels == 2:
+            position = positions[i]
+            data = _npsnd.panStereo(data, position)
+        buf[startframe:endframe] += data
         if gain != 1.0:
             buf[startframe:endframe] *= gain
     return Sample(buf, sr=sr)
@@ -1993,12 +1999,12 @@ def spectrumAt(samples: np.ndarray,
                channel=0,
                windowsize: float = -1,
                mindb=-90,
-               minfreq: int | None = None,
+               minfreq=0,
                maxfreq=12000,
                maxcount=0
                ) -> list[tuple[float, float]]:
     """
-    Analyze sinusoidal components of this Sample at the given time
+    Analyze sinusoidal components of these samples at the given time
 
     Args:
         samples: the samples, a 1D numpy array. If it is not contiguous it will
@@ -2050,11 +2056,12 @@ def playSamples(samples: np.ndarray,
                 sr: int,
                 loop=False,
                 chan=1,
-                gain=1.,
-                speed=1.,
-                skip=0.,
-                dur=0.,
-                block=False) -> _PortaudioPlayback:
+                gain=1.0,
+                speed=1.0,
+                skip=0.0,
+                dur=0.0,
+                block=False
+                ) -> PlaybackStream:
     """
     Simple playback for samples
 
@@ -2082,8 +2089,6 @@ def playSamples(samples: np.ndarray,
     * :meth:`Sample.setEngine`
 
     """
-    import sounddevice
-    sr = int(sr * speed)
     numchannels = _npsnd.numChannels(samples)
     mapping = list(range(chan, numchannels + chan))
     if skip:
@@ -2092,23 +2097,5 @@ def playSamples(samples: np.ndarray,
     if dur:
         samples = samples[:int(sr*dur)]
 
-    ctx = sounddevice._CallbackContext(loop=loop)
-    ctx.frames = ctx.check_data(data=samples, mapping=mapping, device=None)  # type: ignore
-
-    def callback(outdata, numframes, time, status, gain=gain):
-        assert len(outdata) == numframes
-        ctx.callback_enter(status, outdata)
-        if gain != 1:
-            outdata *= gain
-        ctx.write_outdata(outdata)
-        ctx.callback_exit()
-
-    ctx.start_stream(sounddevice.OutputStream,
-                     samplerate=sr,
-                     channels=ctx.output_channels,
-                     dtype=ctx.output_dtype,
-                     callback=callback,
-                     blocking=block,
-                     prime_output_buffers_using_stream_callback=False)
-
-    return _PortaudioPlayback(stream=ctx.stream)
+    return _playSamples(samples=samples, mapping=mapping, sr=sr, loop=loop,
+                        speed=speed, block=block, gain=gain)

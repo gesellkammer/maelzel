@@ -4,12 +4,13 @@ import os
 import sys
 import glob
 import textwrap
-import csoundengine.sftools
-import csoundengine.csoundparse
 import emlib.textlib
-from .workspace import getConfig, getWorkspace
+from .workspace import Workspace
 from ._common import logger
-from . import presetdef
+
+import typing as _t
+if _t.TYPE_CHECKING:
+    from . import presetdef
 
 
 _removeExtranousCharacters = emlib.textlib.makeReplacer({"[":"", "]":"", '"':'', "'":"", "{":"", "}":""})
@@ -33,9 +34,6 @@ def _parseTabledef(s):
         key = key.strip()
         out[key] = float(value)
     return out
-
-
-_UNSET = object()
 
 
 def saveYamlPreset(p: presetdef.PresetDef, outpath: str) -> None:
@@ -83,6 +81,7 @@ def loadYamlPreset(path: str) -> presetdef.PresetDef:
     code = d.get('code')
     if not code:
         raise ValueError("A preset should define an audiogen")
+    from . import presetdef
     return presetdef.PresetDef(name=d.get('name'),
                                code=code,
                                includes=d.get('includes'),
@@ -92,14 +91,14 @@ def loadYamlPreset(path: str) -> presetdef.PresetDef:
                                properties=d.get('properties'))
 
 
-def makeSoundfontAudiogen(sf2path: str = None,
-                          preset: tuple[int, int] = None,
+def makeSoundfontAudiogen(sf2path: str,
+                          preset: tuple[int, int] | None = None,
                           interpolation='linear',
-                          ampDivisor: int | float = None,
+                          ampDivisor: int | float = 0,
                           normalize=False,
-                          velocityCurve: presetdef.GainToVelocityCurve | list[float] = None,
+                          velocityCurve: presetdef.GainToVelocityCurve | _t.Sequence[float] = (),
                           # velocityToCutoffMapping: dict[int, int] = None,
-                          referencePeakPitch: int = None,
+                          referencePeakPitch: int = 0,
                           mono=False,
                           reverb=False,
                           reverbChanPrefix='.maelzelreverb'
@@ -113,8 +112,7 @@ def makeSoundfontAudiogen(sf2path: str = None,
     and is only recommended for this very specific objective.
 
     Args:
-        sf2path: path to a sf2 soundfont. If None, the default fluidsynth soundfont
-            is used
+        sf2path: path to a sf2 soundfont.
         preset: a tuple (bank, presetnumber) as returned via
             `csoundengine.csoundlib.soundfontPresets`
         interpolation: refers to the wave interpolation performed on the sample
@@ -146,13 +144,11 @@ def makeSoundfontAudiogen(sf2path: str = None,
         >>> defPreset('myinstr', code, args={'ktransp': 0})
 
     """
-    sf2path = resolveSoundfontPath(sf2path)
-    ampdiv = ampDivisor or getConfig()['play.soundfontAmpDiv']
-    if not sf2path:
-        raise ValueError("No soundfont was given and no default soundfont found")
+    ampdiv = ampDivisor or Workspace.active.config['play.soundfontAmpDiv']
     if not os.path.exists(sf2path):
         raise OSError(f"Soundfont file not found: '{sf2path}'")
 
+    import csoundengine.sftools
     presets = csoundengine.sftools.soundfontPresets(sf2path)
     if not presets:
         raise ValueError(f"The given soundfont {sf2path} has no presets")
@@ -198,26 +194,29 @@ def makeSoundfontAudiogen(sf2path: str = None,
         endif
         ''')
 
-    if velocityCurve is None:
-        velocityCurve = presetdef.GainToVelocityCurve()
-
-    if isinstance(velocityCurve, presetdef.GainToVelocityCurve):
-        ivelstr = f'ivel _linexp dbamp(iamp0_), {velocityCurve.exponent}, {velocityCurve.mindb}, {velocityCurve.maxdb}, {velocityCurve.minvel}, {velocityCurve.maxvel}'
-    else:
+    if not velocityCurve:
+        ivelstr = 'ivel _linexp dbamp(iamp0_), 2.6, -72, 0, 1, 127'
+    elif isinstance(velocityCurve, (list, tuple)):
         assert isinstance(velocityCurve, list)
         # breakpoints mapping db to velocity
         valuestr = ', '.join(map(str, velocityCurve))
         ivelstr = f'ivel = bpf(dbamp(iamp0_), {valuestr})'
+    else:
+        ivelstr = f'ivel _linexp dbamp(iamp0_), {velocityCurve.exponent}, {velocityCurve.mindb}, {velocityCurve.maxdb}, {velocityCurve.minvel}, {velocityCurve.maxvel}'
 
-    parts.append(fr'''
+    # ivel is a parameter of the preset, will be -1 by default,
+    # indicating that we should derive velocity from amplitude
+    # But the user is still able to set a specific velocity
+    # for an event, so we only do the calculation if the user
+    # has not set an explicit value
+    parts.append(f"""
     if ivel < 0 then
         {ivelstr}
     endif
-    ''')
-
+    """)
     if not mono:
         opcode = 'sfplay' if interpolation == 'linear' else 'sfplay3'
-        parts.append(fr'''
+        parts.append(f'''\
         aout1, aout2 {opcode} ivel, inote0_, kamp/iampdiv_, mtof:k(kpitch2), ipresetidx, 1
         ''')
 
@@ -226,16 +225,16 @@ def makeSoundfontAudiogen(sf2path: str = None,
         parts.append(fr'''
         aout1 {opcode} ivel, inote0_, kamp/iampdiv_, mtof:k(kpitch2), ipresetidx, 1
         ''')
+
     if reverb:
         # TODO: add reverb code
-        reverbChanPrefix = ".maelzelreverb"
         if mono:
             parts.append("kpos = kpos == -1 ? 0 : kpos")
             parts.append("a_outL, a_outR = pan2(aout1, kpos)")
         else:
             parts.append("kpos = kpos == -1 ? 0.5 : kpos")
             parts.append("a_outL, a_outR = panstereo(aout1, aout2, kpos)")
-        parts.append(fr'''
+        parts.append(f'''\
         chnmix a_outL * kwet, "{reverbChanPrefix}.1"
         chnmix a_outR * kwet, "{reverbChanPrefix}.2"
         outch ichan, a_outL * (1 - kwet), ichan + 1, a_outR * (1 - kwet)
@@ -270,7 +269,7 @@ def loadPresets(skipErrors=True) -> list[presetdef.PresetDef]:
 
     To get the current presets' path: ``getWorkspace().presetsPath()``
     """
-    basepath = getWorkspace().presetsPath()
+    basepath = Workspace.active.presetsPath()
     presetdefs = []
     if not os.path.exists(basepath):
         logger.debug(f"Presets path does not exist: {basepath}")
@@ -320,14 +319,15 @@ def defaultSoundfontPath() -> str:
     return path
 
 
-def resolveSoundfontPath(path: str = None) -> str | None:
+def resolveSoundfontPath(path='') -> str:
     return (path or
-            getConfig()['play.generalMidiSoundfont'] or
+            Workspace.active.config['play.generalMidiSoundfont'] or
             defaultSoundfontPath() or
-            None)
+            '')
 
 
 def getSoundfontProgram(sf2path: str, presetname: str) -> tuple[int, int]:
+    import csoundengine.sftools
     idx = csoundengine.sftools.soundfontIndex(sf2path)
     if presetname not in idx.nameToIndex:
         raise KeyError("fPresetname {presetname} not defined in soundfont {sf2path}"
@@ -347,6 +347,7 @@ def soundfontSelectProgram(sf2path: str) -> tuple[str, int, int] | None:
 
     """
     import emlib.dialogs
+    import csoundengine.sftools
     idx = csoundengine.sftools.soundfontIndex(sf2path)
     programnames = list(idx.nameToPreset.keys())
     programname = emlib.dialogs.selectItem(programnames, title="Select Program")
@@ -392,6 +393,7 @@ def embedEnvelope(audiogen: str, audiovars: list[str], envelope="aenv_"
         the audiogen with the embedded envelope
     """
     lines = audiogen.splitlines()
+    import csoundengine.csoundparse
     for audiovar in audiovars:
         lastassign = csoundengine.csoundparse.lastAssignmentToVariable(audiovar, lines)
         if lastassign is None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 import uuid
 import itertools
 from typing import TYPE_CHECKING
+from itertools import pairwise
 
 from emlib import iterlib
 
@@ -132,7 +133,7 @@ class UnquantizedPart:
             a tuple (overlapamount: F, eventindex: int), or None if no overlap
         """
         idx = 0
-        for (n1, offset1), (n2, offset2) in iterlib.pairwise(self.iterWithOffset()):
+        for (n1, offset1), (n2, offset2) in pairwise(self.iterWithOffset()):
             overlap = offset2 - (offset1 + n1.duration)
             if overlap < 0:
                 return (overlap, idx)
@@ -335,7 +336,6 @@ def resolvedOffsets(notations: list[Notation]
     now = notations[0].offset
     if now is None:
         now = F(0)
-    assert isinstance(now, F) and now >= 0
     for i, n in enumerate(notations):
         if n.offset is not None:
             if n.offset < now:
@@ -362,15 +362,13 @@ def resolveOffsets(notations: list[Notation], start=F(0), overrideOffset=False
     if all(ev.offset is not None and ev.duration is not None
            for ev in notations):
         return
-    now = _ if (_ := notations[0].offset) is not None else start if start is not None else F(0)
-    assert now is not None and now >= 0
+    now = _ if (_ := notations[0].offset) is not None else start
     for i, n in enumerate(notations):
         assert n.duration is not None
         if n.offset is None or overrideOffset:
-            assert n.duration is not None
             n.offset = now
         now += n.duration
-    for n1, n2 in iterlib.pairwise(notations):
+    for n1, n2 in pairwise(notations):
         if n1.end > n2.qoffset:
             raise ValueError(f"Notations are not sorted: {n1}, {n2}")
     removeSmallOverlaps(notations)
@@ -384,25 +382,26 @@ def removeSmallOverlaps(notations: list[Notation], threshold=F(1, 1000)) -> None
     """
     if len(notations) < 2:
         return
-    for n0, n1 in iterlib.pairwise(notations):
-        assert n1.offset is not None and n0.end is not None
-        diff = n1.offset - n0.end
-        if diff > 0:
-            if diff < threshold:
-                # small gap between notations
-                assert n0.offset is not None
-                n0.duration = n1.offset - n0.offset
+    for n0, n1 in pairwise(notations):
+        n1offset = n1.qoffset
+        n0offset = n0.qoffset
+        diff = n1offset - n0.end
+        if diff > 0 and diff < threshold:
+            # small gap between notations
+            n0.duration = n1offset - n0offset
         elif diff < 0:
             # overlap
             if abs(diff) > threshold:
                 raise ValueError(f"Notes overlap by too much: {diff=}, {n0=}, {n1=}")
-            duration = n1.qoffset - n0.qoffset
+            duration = n1offset - n0offset
             if duration < 0:
-                raise ValueError(f"Note with negative duration: {n0=}, {n1=}")
+                raise ValueError(f"Notations are not sorted: {n0=}, {n1=}")
             n0.duration = duration
 
 
-def fillSilences(notations: list[Notation], mingap=F(1, 64), offset: time_t = None
+def fillSilences(notations: list[Notation],
+                 mingap=F(1, 64),
+                 offset: time_t = None
                  ) -> list[Notation]:
     """
     Return a list of Notations filled with rests
@@ -410,7 +409,7 @@ def fillSilences(notations: list[Notation], mingap=F(1, 64), offset: time_t = No
     Args:
         notations: the notes to fill, should have offset set
         mingap: min. gap between two notes. If any notes differ by less
-                   than this, the first note absorvs the gap
+                   than this, the first note absorvs the gap (becomes longer or shorter)
         offset: if given, marks the start time to fill. If notations start after
             this offset a rest will be crated from this offset to the start
             of the first notation
@@ -418,9 +417,8 @@ def fillSilences(notations: list[Notation], mingap=F(1, 64), offset: time_t = No
     Returns:
         a list of new Notations
     """
-    assert notations
-    assert all(isinstance(n, Notation) and n.offset is not None and n.duration is not None
-               for n in notations)
+    assert notations and all(isinstance(n, Notation) and n.offset is not None and n.duration is not None
+                             for n in notations)
     if offset is not None:
         assert all(n.offset >= offset for n in notations
                    if n.offset is not None)
@@ -429,7 +427,7 @@ def fillSilences(notations: list[Notation], mingap=F(1, 64), offset: time_t = No
     n0 = notations[0]
     if offset is not None and n0.offset is not None and n0.offset > offset:
         out.append(Notation.makeRest(duration=n0.offset, offset=offset))
-    for ev0, ev1 in iterlib.pairwise(notations):
+    for ev0, ev1 in pairwise(notations):
         gap = ev1.qoffset - (ev0.qoffset + ev0.duration)
         if gap < 0:
             if abs(gap) < 1e-14 and ev0.duration > 1e-13:
@@ -439,13 +437,12 @@ def fillSilences(notations: list[Notation], mingap=F(1, 64), offset: time_t = No
         elif gap > mingap:
             out.append(ev0)
             rest = Notation.makeRest(duration=gap, offset=ev0.qoffset+ev0.duration)
-            assert rest.offset is not None and rest.duration is not None
             out.append(rest)
         else:
             # adjust the dur of n0 to match start of n1
             out.append(ev0.clone(duration=ev1.qoffset - ev0.qoffset))
     out.append(notations[-1])
-    for n0, n1 in iterlib.pairwise(out):
+    for n0, n1 in pairwise(out):
         assert n0.end == n1.offset, f'{n0=}, {n1=}'
     return out
 
@@ -556,7 +553,8 @@ def packInParts(notations: list[Notation],
 
 def removeRedundantDynamics(notations: list[Notation],
                             resetAfterRest=True,
-                            minRestDuration: time_t = F(1, 16)) -> None:
+                            minRestDuration: time_t = F(1, 16),
+                            resetAfterQuarters=0) -> None:
     """
     Removes redundant dynamics, inplace
 
@@ -570,21 +568,30 @@ def removeRedundantDynamics(notations: list[Notation],
         resetAfterRest: if True, any dynamic after a rest is not considered
             redundant
         minRestDuration: the min. duration of a rest to reset dynamic, in quarternotes
+        resetAfterQuarters: if given, an explicit dynamic after this number of quarters
+            will not be removed
     """
     lastDynamic = ''
+    now = F(0)
+    lastDynamicBeat = F(0)
     for n in notations:
+        if resetAfterQuarters and now - lastDynamicBeat > resetAfterQuarters:
+            lastDynamic = ''
+        now += n.duration
         if n.tiedPrev:
             continue
         if n.isRest and not n.dynamic:
             if resetAfterRest and n.duration > minRestDuration:
                 lastDynamic = ''
-        elif n.dynamic and n.dynamic in definitions.dynamicLevels:
-            if n.dynamic[-1] == '!':
+        elif n.dynamic:
+            if n.dynamic[-1] == "!":
                 lastDynamic = n.dynamic[:-1]
+                lastDynamicBeat = now
             elif n.dynamic == lastDynamic:
                 n.dynamic = ''
             else:
                 lastDynamic = n.dynamic
+                lastDynamicBeat = now
 
 
 def makeGroupId(parent: str = '') -> str:

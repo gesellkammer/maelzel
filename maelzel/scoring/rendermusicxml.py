@@ -8,6 +8,7 @@ import re
 import glob
 import math
 import subprocess
+from itertools import pairwise
 
 import pitchtools as pt
 
@@ -86,7 +87,10 @@ def _xmlAttributes(obj, attributes: tuple[str, ...]) -> dict:
             if (value:=getattr(obj, attr))}
 
 
-def _elem(doc: md.Document, parent: md.Element, name: str, attrs: dict = None,
+def _elem(doc: md.Document,
+          parent: md.Element,
+          name: str,
+          attrs: dict | None = None,
           **kws
           ) -> md.Element:
     """Create a child Element"""
@@ -109,7 +113,10 @@ def _elem(doc: md.Document, parent: md.Element, name: str, attrs: dict = None,
     return elem
 
 
-def _elemText(doc: md.Document, parent: md.Element, child: str, text, attrs: dict = None,
+def _elemText(doc: md.Document,
+              parent: md.Element,
+              child: str, text,
+              attrs: dict | None = None,
               **kws
               ) -> md.Element:
     """Create a child with text, <child>text</child>, returns <child>"""
@@ -253,11 +260,6 @@ def _timeModification(notatedDur: NotatedDuration, doc: md.Document, parent: md.
         timemod_ = _elem(doc, parent, 'time-modification')
         _elemText(doc, timemod_, 'actual-notes', durratio.numerator)
         _elemText(doc, timemod_, 'normal-notes', durratio.denominator)
-
-
-def _needsNotationsElement(n: Notation):
-    # TODO
-    return False
 
 
 _unfilledShapes = {
@@ -534,8 +536,6 @@ def _renderNotehead(doc: md.Document, parent: md.Element, notehead: definitions.
 
 
 def _renderNotation(n: Notation,
-                    nindex: int,
-                    node: Node,
                     doc: md.Document,
                     parent: md.Element,
                     options: RenderOptions,
@@ -570,7 +570,7 @@ def _renderNotation(n: Notation,
         _dynamicDirection(doc, parent, n.dynamic)
 
     numpitches = len(n.pitches) if not n.isRest else 1
-    notes_ = [_elem(doc, parent, 'note') for i in range(numpitches)]
+    notes_ = [_elem(doc, parent, 'note') for _ in range(numpitches)]
     note0_ = notes_[0]
 
     notenames = n.resolveNotenames()
@@ -823,14 +823,14 @@ def _renderNode(node: Node,
             if not item.isRest and options.showCents and not item.tiedPrev:
                 if text := util.centsAnnotation(item.pitches,
                                                 divsPerSemitone=options.divsPerSemitone,
-                                                addplus=options.centsAnnotationPlusSign,
+                                                addplus=options.centsTextPlusSign,
                                                 separator=options.centsAnnotationSeparator):
                     _words(doc, parent=parent,
                            text=text,
                            placement=options.centsAnnotationPlacement,
                            fontsize=options.centsAnnotationFontsize * options.musicxmlFontScaling)
 
-            _renderNotation(item, nindex=i, node=node, doc=doc, parent=parent,
+            _renderNotation(item, doc=doc, parent=parent,
                             options=options, state=state)
             # Spanner post, as direction
             if item.spanners:
@@ -907,7 +907,7 @@ def _prepareRender(part: quant.QuantizedPart) -> None:
     #    scoring, the breath mark indicates a breath before the note. So in
     #    order to render correctly we move all such attachments to the previous
     #    notation
-    for n0, n1 in iterlib.pairwise(part.flatNotations()):
+    for n0, n1 in pairwise(part.flatNotations()):
         assert isinstance(n0, Notation) and isinstance(n1, Notation)
         if not n1.attachments:
             continue
@@ -980,7 +980,7 @@ def _renderPart(part: quant.QuantizedPart,
         # Measure Marks
         if addMeasureMarks:
             if measuredef.annotation:
-                style = renderOptions.parsedMeasureAnnotationStyle
+                style = renderOptions.parsedmeasureLabelStyle
                 _words(doc, parent=measure_,
                        text=measuredef.annotation,
                        placement='above',
@@ -1063,13 +1063,13 @@ class MusicxmlRenderer(Renderer):
         xmltext = self.render()
         return xmltext
 
-    def write(self, outfile: str, fmt: str = None, removeTemporaryFiles=False
+    def write(self, outfile: str, fmt='', removeTemporaryFiles=False
               ) -> None:
         outfile = emlib.filetools.normalizePath(outfile)
         tempbase, ext = os.path.splitext(outfile)
         options = self.options
 
-        if fmt is None:
+        if not fmt:
             fmt = ext[1:]
             if fmt == 'xml':
                 fmt = 'musicxml'
@@ -1129,7 +1129,7 @@ def callMuseScore(musicxmlfile: str,
         forcetrim: force trimming by doing it ourselves (uses pillow)
         captureStderr: capture stderr, mostly to prevent spurious error messages
             from showing up
-
+        trimmargin: margin to use when trimming
     """
     fmt = os.path.splitext(outfile)[1][1:]
     if fmt not in ('pdf', 'png', 'svg'):

@@ -8,12 +8,10 @@ of the measurement)
 """
 from __future__ import annotations
 import numpy as np
-import logging
 import bpf4
 from math import ceil
 from emlib.mathlib import nextpowerof2
-
-logger = logging.getLogger(__name__)
+from maelzel.common import getLogger
 
 
 def _nextPow2(x: int) -> int:
@@ -259,8 +257,8 @@ def f0curvePyinVamp(sig: np.ndarray,
         raise ValueError("sig should be a mono signal")
 
     if fftsize < 2048:
-        logger.warning(f"The fft size ({fftsize}) is too small for f0 tracking, it needs to be"
-                       f" at least 2048. Using 2048 instead")
+        getLogger(__file__).warning(f"The fft size ({fftsize}) is too small for f0 tracking, it needs to be"
+                                    f" at least 2048. Using 2048 instead")
         fftsize = 2048
 
     from maelzel.snd import vamptools
@@ -362,8 +360,8 @@ def f0curve(sig: np.ndarray, sr: int, minfreq=60, overlap=4,
             method = 'pyin-vamp'
         else:
             method = 'pyin-native'
-            logger.warning("The pyin vamp plugin was not found. Falling back to"
-                           "the python version, this might be very slow")
+            getLogger(__file__).warning("The pyin vamp plugin was not found. Falling back to"
+                                        "the python version, this might be very slow")
 
 
     if method == 'pyin-native':

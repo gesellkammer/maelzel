@@ -4,12 +4,42 @@ numpy utilities for audio arrays
 from __future__ import annotations
 import numpy as np
 import math
-from pitchtools import db2amp, amp2db
+import sys
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Iterator, Callable
     import bpf4
+
+
+def db2amp(db: float) -> float:
+    """
+    convert dB to amplitude (0, 1)
+
+    Args:
+        db: a value in dB
+
+    .. seealso:: :func:`amp2db`
+    """
+    return 10.0 ** (0.05 * db)
+
+
+def amp2db(amp: float) -> float:
+    """
+    convert amp (0, 1) to dB
+
+    ``20.0 * log10(amplitude)``
+
+    Args:
+        amp: the amplitude between 0 and 1
+
+    Returns:
+        the corresponding amplitude in dB
+
+    .. seealso:: :func:`db2amp`
+    """
+    amp = max(amp, sys.float_info.epsilon)
+    return math.log10(amp) * 20
 
 
 def asmono(samples: np.ndarray) -> np.ndarray:

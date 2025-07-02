@@ -3,6 +3,7 @@ from __future__ import annotations
 import random
 
 import pitchtools as pt
+import math
 
 from maelzel.common import F, asF
 from maelzel.scoring.common import NotatedDuration
@@ -234,36 +235,36 @@ def nextInGrid(x: float|F, ticks: list[F]) -> F:
     return snapToGrids(asF(x) + F(1, 999999999), ticks, mode='ceil')
 
 
-def snapTime(start: F,
-             duration: F,
-             divisors: list[int],
-             mindur=F(1, 16),
-             durdivisors: list[int] = None
-             ) -> tuple[F, F]:
-    """
-    Quantize an event to snap to a grid defined by divisors and durdivisors
-
-    Args:
-        start: the start of the event
-        duration: the duration of the event
-        divisors: a list of divisions of the pulse
-        mindur: the min. duration of the note
-        durdivisors: if left unspecified, then the same list of divisors
-            is used for start and end of the note. Otherwise, it is possible
-            to define a specific grid for the end also
-
-    Returns:
-        a tuple (start, duration) quantized to the given grids
-    """
-    if durdivisors is None:
-        durdivisors = divisors
-    ticks = [F(1, div) for div in divisors]
-    durticks = [F(1, div) for div in durdivisors]
-    start = snapToGrids(start, ticks)
-    end = snapToGrids(start + duration, durticks)
-    if end - start <= mindur:
-        end = nextInGrid(start + mindur, ticks)
-    return (start, end-start)
+# def snapTime(start: F,
+#              duration: F,
+#              divisors: list[int],
+#              mindur=F(1, 16),
+#              durdivisors: list[int] | None = None
+#              ) -> tuple[F, F]:
+#     """
+#     Quantize an event to snap to a grid defined by divisors and durdivisors
+# 
+#     Args:
+#         start: the start of the event
+#         duration: the duration of the event
+#         divisors: a list of divisions of the pulse
+#         mindur: the min. duration of the note
+#         durdivisors: if left unspecified, then the same list of divisors
+#             is used for start and end of the note. Otherwise, it is possible
+#             to define a specific grid for the end also
+# 
+#     Returns:
+#         a tuple (start, duration) quantized to the given grids
+#     """
+#     if durdivisors is None:
+#         durdivisors = divisors
+#     ticks = [F(1, div) for div in divisors]
+#     durticks = [F(1, div) for div in durdivisors]
+#     start = snapToGrids(start, ticks)
+#     end = snapToGrids(start + duration, durticks)
+#     if end - start <= mindur:
+#         end = nextInGrid(start + mindur, ticks)
+#     return (start, end-start)
 
 
 def showB(b: bool) -> str:
@@ -357,6 +358,32 @@ def durationRatiosToTuplets(durRatios: Sequence[F]) -> list[tuple[int, int]]:
     return tuplets
 
 
+def highestPowerLowerOrEqualTo(limit: int, base: int) -> int:
+    """
+    Returns the highest power of base which does not exceed limit
+
+    Args:
+        limit: the limit to the power of base
+        base: the base
+
+    Returns:
+        the highest power of base not exceeding limit
+
+    Example
+    ~~~~~~~
+
+        >>> highestPowerLowerOrEqualTo(100, 2)
+        64
+
+    .. seealso:: :func:`lowestPowerHigherOrEqualTo`
+    """
+    return base ** int(math.log(limit, base))
+
+
+def lowestPowerHigherOrEqualTo(limit: int, base: int) -> int:
+    return base ** int(math.ceil(math.log(limit, base)))
+
+
 def parseScoreStructLine(line: str
                          ) -> tuple[int|None, timesig_t|None, float|None]:
     """
@@ -440,7 +467,7 @@ def centsDeviation(pitch: float, divsPerSemitone=4) -> int:
     return pt.pitch_round(pitch, divsPerSemitone)[1]
 
 
-def centsAnnotation(pitch: float | list[float],
+def centsAnnotation(pitch: float | Sequence[float],
                     divsPerSemitone=4,
                     order='ascending',
                     addplus=False,
@@ -486,14 +513,14 @@ def notatedDuration(duration: F, durRatios: Sequence[F] = ()
         return NotatedDuration(0)
 
     dur = duration
-    if durRatios and any(dr != F(1) for dr in durRatios):
+    if durRatios and any(dr != 1 for dr in durRatios):
         tuplets = durationRatiosToTuplets(durRatios)
         for durRatio in durRatios:
             dur *= durRatio
     else:
         tuplets = None
     num, den = dur.numerator, dur.denominator
-    assert den in {1, 2, 4, 8, 16, 32, 64}
+    assert den in {1, 2, 4, 8, 16, 32, 64}, f"Irregular denominator: {den}, {dur=}"
     assert num in {1, 3, 7} or den == 1
     if num == 1:
         # 1/1, 1/2, 1/4, 1/8

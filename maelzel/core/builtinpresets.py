@@ -1,9 +1,14 @@
-from .presetdef import PresetDef
+from __future__ import annotations
 from functools import cache
+
+import typing
+if typing.TYPE_CHECKING:
+    from .presetdef import PresetDef
 
 
 @cache
-def makeBuiltinPresets():
+def makeBuiltinPresets() -> list[PresetDef]:
+    from .presetdef import PresetDef
     return [
         PresetDef(
             'simplesin',

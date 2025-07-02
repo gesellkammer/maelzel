@@ -18,6 +18,17 @@ if TYPE_CHECKING:
 def clefEvaluators() -> dict[str, bpf4.BpfInterface]:
     import bpf4
     return {
+        'treble15': bpf4.linear(
+            (n2m("5C"), -2),
+            (n2m("6C"), 0),
+            (n2m("6F"), 1),
+            (n2m("10C"), 1)),
+        'treble8': bpf4.linear(
+            (n2m("4G"), -2),
+            (n2m("5C"), 0),
+            (n2m("5F"), 1),
+            (n2m("7C"), 1),
+            (n2m("7E"), 0)),
         'treble': bpf4.linear(
             (n2m("1C"), -20),
             (n2m("2A"), -2),
@@ -27,17 +38,6 @@ def clefEvaluators() -> dict[str, bpf4.BpfInterface]:
             (n2m("6B"), 0),
             (n2m("7A"), -2),
         ),
-        'treble8': bpf4.linear(
-            (n2m("4G"), -2),
-            (n2m("5C"), 0),
-            (n2m("5F"), 1),
-            (n2m("7C"), 1),
-            (n2m("7E"), 0)),
-        'treble15': bpf4.linear(
-            (n2m("5C"), -2),
-            (n2m("6C"), 0),
-            (n2m("6F"), 1),
-            (n2m("10C"), 1)),
         'bass': bpf4.linear(
             (n2m("1A"), 0),
             (n2m("2C"), 1),
@@ -63,69 +63,174 @@ def clefEvaluators() -> dict[str, bpf4.BpfInterface]:
     }
 
 
-def bestClef(notations: Sequence[Notation], biasclef='', biasfactor=1.5) -> str:
+class ClefEvaluator:
     """
-    Find the best clef for a given sequence of notations.
+    A class to evaluate clef changes within a voice
 
     Args:
-        notations: The notations to evaluate.
-        biasclef: The clef to bias towards.
-        biasfactor: The factor to bias the score by.
+        biasFactor: how much should we bias the current clef. A higher value
+            makes it more difficult to change clef
+        clefChangeBetweenTiedNotes: if True, allow clef changes between tied notes
+        changeDistanceFactor: a dict mapping distance to the last clef change to
+            a factor affecting the likelyhood of the clef change. A value below
+            1. makes it more difficult to change clef at a given distance. This is
+            used in order to prevent very frequent clef changes
+    """
+    clefs = ['treble15', 'treble8', 'treble', 'bass', 'bass8', 'bass15']
+
+    clefChangeFactor = {
+        ('treble', 'treble8'): 0.5,
+        ('treble8', 'treble15'): 0.2,
+        ('treble', 'treble15'): 0.9,
+        ('bass', 'treble15'): 0.9,
+        ('bass', 'bass8'): 0.5,
+        ('bass', 'bass15'): 0.9,
+        ('bass8', 'bass15'): 0.2
+    }
+
+    defaultDistanceFactor = {
+        3: 1,
+        2: 0.9,
+        1: 0.2,
+    }
+
+    def __init__(self,
+                 biasFactor: float = 1.5,
+                 clefChangeBetweenTiedNotes: bool = False,
+                 changeDistanceFactor: dict[int, float] | None = None,
+                 firstClef=''):
+        self.biasFactor = biasFactor
+        self.clefChangeBetweenTiedNotes = clefChangeBetweenTiedNotes
+        self.clefEvaluators = clefEvaluators()
+        self.history: list[tuple[int, str]] = []
+        self.currentClef = firstClef
+        self.currentIndex = 0
+        self.changeDistanceFactor = changeDistanceFactor or ClefEvaluator.defaultDistanceFactor
+
+    def _bestClef(self, notations: Sequence[Notation]) -> str:
+        pointsPerClef: dict[str, float] = {}
+        if all(n.isRest for n in notations):
+            return self.currentClef  # can be ''
+
+        for i, n in enumerate(notations):
+            if n.isRest:
+                continue
+            if n.tiedPrev and self.currentClef and not self.clefChangeBetweenTiedNotes:
+                return self.currentClef
+
+            if self.history:
+                distanceToLastChange = self.currentIndex + i - self.history[-1][0]
+                distanceFactor = self.changeDistanceFactor.get(distanceToLastChange, 1.0)
+            else:
+                distanceFactor = 1.0
+
+            for clef, evaluator in self.clefEvaluators.items():
+                points = sum(evaluator(p) for p in n.pitches)
+                if clef != self.currentClef:
+                    a, b = clef, self.currentClef
+                    pair = (a, b) if a < b else (b, a)
+                    changeFactor = self.clefChangeFactor.get(pair, 1.0)
+                    points *= changeFactor * distanceFactor
+                else:
+                    points *= self.biasFactor
+                pointsPerClef[clef] = pointsPerClef.get(clef, 0) + points
+
+        return max(pointsPerClef.items(), key=lambda pair: pair[1])[0]
+
+    def process(self, notations: Sequence[Notation]) -> str:
+        clef = self._bestClef(notations=notations)
+        if not clef:
+            assert not self.currentClef
+
+        elif clef and not self.currentClef:
+            if self.history:
+                # Rewrite history
+                idx, clefat0 = self.history[0]
+                assert not clefat0
+                self.history[0] = (idx, clef)
+
+        self.history.append((self.currentIndex, clef))
+        self.currentIndex += len(notations)
+        self.currentClef = clef
+        return clef
+
+
+def bestClefForNotations(notations: Sequence[Notation]) -> str:
+    """
+    Find the best clef to apply to all notations without changes
+
+    Args:
+        notations: a seq. of Notations
 
     Returns:
-        The best clef for the given notations.
+        the most appropriate clef, as a string. Might be an empty
+        string if no pitched notations are given
+
     """
-    pointsPerClef = {clef: sum(evaluator(p) for n in notations if not n.isRest
-                               for p in n.pitches)
-                     for clef, evaluator in clefEvaluators().items()}
-    if biasclef:
-        pointsPerClef[biasclef] *= biasfactor
-    return max(pointsPerClef.items(), key=lambda pair: pair[1])[0]
+    clefeval = ClefEvaluator()
+    clef = clefeval.process(notations)
+    return clef
 
 
-def findBestClefs(notations: list[Notation], firstclef='', winsize=1, threshold=0.,
-                  biasfactor=1.5, addclefs=True, key=''
+def findBestClefs(notations: list[Notation],
+                  firstClef='',
+                  windowSize=1,
+                  simplificationThreshold=0.,
+                  biasFactor=1.5,
+                  addClefs=True,
+                  key='',
+                  breakTies=False
                   ) -> list[tuple[int, str]]:
     """
     Given a list of notations, find the clef changes
 
     Args:
         notations: the notations.
-        firstclef: the clef to start with
-        winsize: the size of the sliding window. The bigger the window, the
+        firstClef: the clef to start with
+        windowSize: the size of the sliding window. The bigger the window, the
             broader the context considered.
-        threshold: if given, this is used to perform a simplification using
+        simplificationThreshold: if given, this is used to perform a simplification using
             the visvalingam-wyatt algorithm. The bigger this value, the
             sparser the clef changes. A value of 0. disables simpplification
-        biasfactor: The higher this value, the more weight is given to the
+        biasFactor: The higher this value, the more weight is given to the
             previous clef, thus making it more difficult to change clef
             more minor jumps
-        addclefs: if True, add a Clef change (an attachment.Clef) to the
+        addClefs: if True, add a Clef change (an attachment.Clef) to the
             notation where a clef change should happen.
         key: the property key to add to the notation to mark
              a clef change. Setting this property alone will not
-             result in a clef change in the notation (see `addclefs`)
+             result in a clef change in the notation (see `addClefs`)
+        breakTies: if True, a clef change is acceptable between tied notations
 
 
     Returns:
-        a list of tuples (notationsindex, clef)
+        a list of tuples (notationsindex, clef) where notationsindex is a
+        list of indexes into the notations passed, indicating where a given
+        clef should be applied, and clef is the clef to be applied to that
+        notation. If addClefs=True, then these clefs are actually applied
+        to the given notations. If key is given, a property with the given
+        key is set to the name of the clef to set at that notation
     """
     points = []
     clefbyindex = ['treble15', 'treble8', 'treble', 'bass', 'bass8', 'bass15']
-    currentclef = firstclef
     notations = [n for n in notations if not n.isRest]
     if not notations:
         logger.debug("No pitched notations given")
         return []
 
-    for i, group in enumerate(iterlib.window(notations, size=winsize)):
-        currentclef = bestClef(group, biasclef=currentclef, biasfactor=biasfactor)
+    evaluator = ClefEvaluator(clefChangeBetweenTiedNotes=breakTies,
+                              biasFactor=biasFactor,
+                              changeDistanceFactor=None,
+                              firstClef=firstClef)
+
+    for i, group in enumerate(iterlib.window(notations, size=windowSize)):
+        currentclef = evaluator.process(group)
         points.append((i, clefbyindex.index(currentclef)))
 
-    if threshold > 0 and len(points) > 2:
+    if simplificationThreshold > 0 and len(points) > 2:
         import visvalingamwyatt
         simplifier = visvalingamwyatt.Simplifier(points)
-        points = simplifier.simplify(threshold=threshold)
+        points = simplifier.simplify(threshold=simplificationThreshold)
 
     out = []
     lastidx = -1
@@ -139,14 +244,14 @@ def findBestClefs(notations: list[Notation], firstclef='', winsize=1, threshold=
         n = notations[idx]
         if key:
             n.setProperty(key, clef)
-        if addclefs:
+        if addClefs:
             n.addAttachment(attachment.Clef(clef))
     return clefs
 
 
 def bestClefForPitch(pitch: float,
                      clefs: Sequence[str],
-                     evaluators: dict[str, bpf4.BpfInterface] = None
+                     evaluators: dict[str, bpf4.BpfInterface] | None = None
                      ) -> tuple[str, float]:
     """
     Determines the most appropriate clef for the given pitch
@@ -178,7 +283,7 @@ def explodeNotations(notations: list[Notation],
         return [('treble', notations)]
 
     if maxstaves == 1:
-        clef = bestClef(notations)
+        clef = bestClefForNotations(notations)
         return [(clef, notations)]
     elif maxstaves == 2:
         possibleClefs = [

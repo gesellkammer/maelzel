@@ -42,9 +42,9 @@ lilypondpath:
     | Default: **''**  -- ``str``
     | *The path to the lilypond binary. It must be an absolute, existing path*
 
-.. _config__reprshowfractionsasfloat:
+.. _config__reprFractionsAsFloat:
 
-.reprShowFractionsAsFloat:
+.reprFractionsAsFloat:
     | Default: **True**  -- ``bool``
     | *All time offsets and durations are kept as rational numbers to avoid rounding errors. If this option is True, these fractions are printed as floats in order to make them more readable. *
 
@@ -86,7 +86,7 @@ enharmonic.verticalWeight:
 
 .. _config__enharmonic_threequartermicrotonepenalty:
 
-.enharmonic.threeQuarterMicrotonePenalty:
+.enharmonic.150centMicroPenalty:
     | Default: **20**  -- ``int``
 
 .. _config_show_arpeggiatechord:
@@ -96,21 +96,21 @@ show.arpeggiateChord:
     | Choices: ``auto, False, True``
     | *Arpeggiate notes of a chord when showing. In auto mode, only arpeggiate when needed*
 
-.. _config_show_centsannotationstyle:
+.. _config_show_centsTextStyle:
 
-show.centsAnnotationStyle:
+show.centsTextStyle:
     | Default: **fontsize=6; placement=below**  -- ``str``
     | *Style used for cents annotations. The format is a list of <key>=<value> pairs, separated by semicolons. Possible keys are: fontsize, box (choices: rectangle, square, circle), placement (choices: above, below), italic (flag), bold (flag). Flag keys do not need any values. Example: "fontsize=12; italic; box=rectangle"*
 
-.. _config_show_centsdeviationastextannotation:
+.. _config_show_centsAsText:
 
-show.centsDeviationAsTextAnnotation:
+show.centsAsText:
     | Default: **True**  -- ``bool``
     | *show cents deviation as text when rendering notation*
 
-.. _config__show_centsannotationplussign:
+.. _config__show_centsTextPlusSign:
 
-.show.centsAnnotationPlusSign:
+.show.centsTextPlusSign:
     | Default: **True**  -- ``bool``
     | *Show a plus sign for possitive cents deviations*
 
@@ -186,7 +186,7 @@ show.pageSize:
 
 .. _config_show_pagemarginmillimeters:
 
-show.pageMarginMillimeters:
+show.pageMarginMillim:
     | Default: **4**  -- ``int``
     | Between 0 - 1000
     | *The page margin in mm*
@@ -223,9 +223,9 @@ show.lilypondPngStaffsizeScale:
     | Default: **1.5**  -- ``float``
     | *A factor applied to the staffsize when rendering to png via lilypond. Useful if rendered images appear too small in a jupyter notebook*
 
-.. _config_show_lilypondglissandominimumlength:
+.. _config_show_lilypondGlissMinLength:
 
-show.lilypondGlissandoMinimumLength:
+show.lilypondGlissMinLength:
     | Default: **5**  -- ``int``
     | *The minimum length of a glissando in points. Increase this value if glissando linesare not shown or are too short (this might be the case within the context of dottednotes or accidentals)*
 
@@ -236,9 +236,9 @@ show.pngResolution:
     | Choices: ``100, 200, 300, 600, 1200``
     | *DPI used when rendering to png*
 
-.. _config_show_measureannotationstyle:
+.. _config_show_measureLabelStyle:
 
-show.measureAnnotationStyle:
+show.measureLabelStyle:
     | Default: **box=rectangle; fontsize=12**  -- ``str``
     | *Style for measure annotations. The format is a list of <key>=<value> pairs, separated by semicolons. Possible keys are: fontsize, box (choices: rectangle, square, circle), placement (choices: above, below), italic (flag), bold (flag). Flag keys do not need any values. Example: "fontsize=12; italic; box=rectangle"*
 
@@ -261,9 +261,9 @@ show.horizontalSpacing:
     | Choices: ``default, large, medium, small, xlarge``
     | *Hint for the renderer to adjust horizontal spacing. The actual result depends on the backend and the format used.*
 
-.. _config_show_filldynamicfromamplitude:
+.. _config_show_dynamicFromAmplitude:
 
-show.fillDynamicFromAmplitude:
+show.dynamicFromAmplitude:
     | Default: **False**  -- ``bool``
     | *If True, when rendering notation, if an object has an amplitude and does not have an explicit dynamic, add a dynamic according to the amplitude*
 
@@ -279,9 +279,9 @@ show.hideRedundantDynamics:
     | Default: **True**  -- ``bool``
     | *Hide redundant dynamics within a voice*
 
-.. _config_show_asoluteoffsetfordetachedobjects:
+.. _config_show_absoluteOffsetForDetachedObjects:
 
-show.asoluteOffsetForDetachedObjects:
+show.absOffsetWhenDetached:
     | Default: **False**  -- ``bool``
     | *When showing an object which has a parent but is shown detached from it, shouldthe absolute offset be used?*
 
@@ -319,13 +319,13 @@ show.autoClefChanges:
 
 .. _config__show_autoclefchangeswindow:
 
-.show.autoClefChangesWindow:
+.show.clefChangesWindow:
     | Default: **1**  -- ``int``
     | *When adding automatic clef changes, use this window size (number of elements per evaluation)*
 
 .. _config__show_keepclefbiasfactor:
 
-.show.keepClefBiasFactor:
+.show.keepClefBias:
     | Default: **2.0**  -- ``float``
     | *The higher this value, the more priority is  given to keeping the previous clef during automatic clef changes*
 
@@ -363,7 +363,7 @@ play.fadeShape:
 
 .. _config_play_pitchinterpolation:
 
-play.pitchInterpolation:
+play.pitchInterpol:
     | Default: **linear**  -- ``str``
     | Choices: ``cos, linear``
     | *Curve shape for interpolating between pitches*
@@ -414,9 +414,9 @@ play.soundfontAmpDiv:
     | Default: **16384**  -- ``int``
     | *A divisor used to scale the amplitude of soundfonts to a range 0-1*
 
-.. _config_play_soundfontinterpolation:
+.. _config_play_soundfontInterpol:
 
-play.soundfontInterpolation:
+play.soundfontInterpol:
     | Default: **linear**  -- ``str``
     | Choices: ``cubic, linear``
     | *Interpolation used when reading sample data from a soundfont.*
@@ -525,13 +525,13 @@ quant.nestedTuplets:
 
 .. _config_quant_nestedtupletsinmusicxml:
 
-quant.nestedTupletsInMusicxml:
+quant.nestedTupletsMusicxml:
     | Default: **False**  -- ``bool``
     | *If False, nested tuplets default to False when rendering to musicxml. This is because some musicxml renderers (MuseScore, for example) do not render nested tuplets properly. Nested tuplets will still be enabled if the config options "quant.nestedTuplets" is explicitely set to True.*
 
 .. _config_quant_breaksyncopationslevel:
 
-quant.breakSyncopationsLevel:
+quant.breakBeats:
     | Default: **weak**  -- ``str``
     | Choices: ``all, none, strong, weak``
     | *Level at which to break syncopations, one of "all" (break all syncopations), "weak (break only syncopations over secondary beats)", "strong" (break syncopations at strong beats) or "none" (do not break any syncopations)*
@@ -545,19 +545,19 @@ quant.complexity:
 
 .. _config__quant_divisionerrorweight:
 
-.quant.divisionErrorWeight:
+.quant.divisionWeight:
     | Default: **None**  -- ``NoneType``
     | *A weight (between 0 and 1) applied to the penalty of complex quantization of the beat. The higher this value is, the simpler the subdivision chosen. If set to None, this value is derived from the complexity preset (quant.complexity)*
 
 .. _config__quant_griderrorweight:
 
-.quant.gridErrorWeight:
+.quant.gridWeight:
     | Default: **None**  -- ``NoneType``
     | *A weight (between 0 and 1) applied to the deviation of a quantization to the actual attack times and durations during quantization. The higher this value, the more accurate the quantization (possibly resulting in more complex subdivisions of the beat). If None, the value is derived from the complexity preset (quant.complexity)*
 
 .. _config__quant_rhythmcomplexityweight:
 
-.quant.rhythmComplexityWeight:
+.quant.complexityWeight:
     | Default: **None**  -- ``NoneType``
     | *A weight (between 0 and 1) applied to the penalty calculated from the complexity of the rhythm during quantization. A higher value results in more complex rhythms being considered for quantization. If None, the value is derived from the complexity (quant.complexity)*
 
@@ -571,7 +571,7 @@ quant.complexity:
 
 .quant.debug:
     | Default: **False**  -- ``bool``
-    | *Turns on debugging for the quantization process. This will show how different divisions of the beat are being evaluated by the quantizer in terms of what is contributing more to the ranking. With this information it is possible to adjust the weights (quant.rhythmCompleityWeight, .quant.divisionErrorWeight, etc)*
+    | *Turns on debugging for the quantization process. This will show how different divisions of the beat are being evaluated by the quantizer in terms of what is contributing more to the ranking. With this information it is possible to adjust the weights (quant.rhythmCompleityWeight, .quant.divisionWeight, etc)*
 
 .. _config__quant_debugshownumrows:
 

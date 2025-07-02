@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from maelzel.common import F, F0
+from maelzel.common import F, F0, asF
 from .mobj import MObj, MContainer
 from .event import MEvent
 from .config import CoreConfig
@@ -79,7 +79,7 @@ class Score(MContainer):
             raise ValueError(f"Invalid value {value} for key '{key}': {errmsg}")
         self._config[key] = value
 
-    def getConfig(self, prototype: CoreConfig = None) -> CoreConfig | None:
+    def getConfig(self, prototype: CoreConfig | None = None) -> CoreConfig | None:
         if not self._config:
             return None
         return (prototype or Workspace.active.config).clone(self._config)
@@ -132,6 +132,7 @@ class Score(MContainer):
 
         .. seealso:: :meth:`Score.fromMusicxml`, :meth:`Score.read`, :meth:`Score.write`
         """
+        # TODO
         return Score()
 
     @staticmethod
@@ -152,12 +153,13 @@ class Score(MContainer):
         from maelzel.core import musicxmlparser as mxml
         return mxml.parseMusicxml(musicxml, enforceParsedSpelling=enforceParsedSpelling)
 
-    def remap(self, deststruct: ScoreStruct, sourcestruct: ScoreStruct = None) -> Score:
+    def remap(self, deststruct: ScoreStruct, sourcestruct: ScoreStruct | None = None
+              ) -> Score:
         voices = [v.remap(deststruct, sourcestruct) for v in self.voices]
         return self.clone(voices=voices, scorestruct=deststruct)
 
     @staticmethod
-    def pack(objects: list[MEvent | Chain | Voice], maxrange=36, mingap=0) -> Score:
+    def pack(objects: list[MEvent | Chain | Voice], maxrange=36, mingap=0.) -> Score:
         """
         Pack the given objects into a Score
 
@@ -172,7 +174,7 @@ class Score(MContainer):
         """
         from maelzel import packing
         voices = []
-        items: list[packing.Item] = []
+        items: list[packing.Item[MEvent|Chain]] = []
         for obj in objects:
             if isinstance(obj, Voice):
                 voices.append(obj)
@@ -184,7 +186,7 @@ class Score(MContainer):
                 items.append(item)
             else:
                 raise TypeError(f"Cannot pack {obj}")
-        tracks = packing.packInTracks(items, maxrange=maxrange, mingap=mingap)
+        tracks = packing.packInTracks(items, maxrange=maxrange, mingap=asF(mingap))
         if not tracks:
             raise ValueError("Cannot pack the given objects")
         for track in tracks:
@@ -303,7 +305,7 @@ class Score(MContainer):
 
     def scoringEvents(self,
                       groupid='',
-                      config: CoreConfig = None,
+                      config: CoreConfig | None = None,
                       parentOffset: F | None = None
                       ) -> list[scoring.Notation]:
         parts = self.scoringParts(config or Workspace.active.config)
@@ -343,13 +345,13 @@ class Score(MContainer):
         return self.__class__(voices=voices.copy(), scorestruct=self._scorestruct, title=self.label)
 
     def clone(self,
-              voices: list[Voice] = None,
-              scorestruct: ScoreStruct = None,
-              label: str = None,
+              voices: list[Voice] | None = None,
+              scorestruct: ScoreStruct | None = None,
+              label='',
               ) -> Self:
         return self.__class__(voices=self.voices.copy() if voices is None else voices,
                               scorestruct=self.scorestruct() if scorestruct is None else scorestruct,
-                              title=self.label if label is None else label)
+                              title=label or self.label)
 
     def _childOffset(self, child: MObj) -> F:
         offset = child._detachedOffset()

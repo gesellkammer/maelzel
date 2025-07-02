@@ -20,9 +20,9 @@ def insideInteractiveTerminal() -> bool:
     return sys.stdout.isatty()
 
 
-def panel(text: str, title: str = None, subtitle: str = None,
+def panel(text: str, title='', subtitle='',
           width: int = None, padding=(0, 1), titlealign='center',
-          bordercolor: str = None, margin=(0, 0), dedent=True
+          bordercolor='', margin=(0, 0), dedent=True
     ) -> None:
     """
     Print a panel to the console

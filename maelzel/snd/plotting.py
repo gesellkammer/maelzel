@@ -5,27 +5,24 @@ Uses matplotlib as a backend
 """
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
+import functools
 
 import bpf4
 import emlib.mathlib
 import emlib.misc
-import matplotlib.pyplot as plt
 import matplotlib.ticker
 import numpy as np
 from emlib import numpytools
-from scipy import signal
 
 from maelzel.snd.numpysnd import getChannel, numChannels
+from maelzel.common import getLogger
 
 if TYPE_CHECKING:
     import matplotlib.pyplot as plt
     from matplotlib.figure import Figure
     from matplotlib.axes import Axes
 
-
-logger = logging.getLogger('maelzel.snd')
 
 
 __all__ = (
@@ -37,65 +34,65 @@ __all__ = (
 
 
 # the result of matplotlib.pyplot.colormaps()
-_matplotlib_cmaps = [
-    'Accent',
-    'Accent_r',
-    'cividis',
-    'cividis_r',
-    'cool',
-    'cool_r',
-    'coolwarm',
-    'coolwarm_r',
-    'copper',
-    'copper_r',
-    'cubehelix',
-    'cubehelix_r',
-    'gnuplot',
-    'gnuplot2',
-    'gnuplot2_r',
-    'gnuplot_r',
-    'gray',
-    'gray_r',
-    'hot',
-    'hot_r',
-    'hsv',
-    'hsv_r',
-    'inferno',
-    'inferno_r',
-    'jet',
-    'jet_r',
-    'magma',
-    'magma_r',
-    'nipy_spectral',
-    'nipy_spectral_r',
-    'ocean',
-    'ocean_r',
-    'pink',
-    'pink_r',
-    'plasma',
-    'plasma_r',
-    'prism',
-    'prism_r',
-    'rainbow',
-    'rainbow_r',
-    'seismic',
-    'seismic_r',
-    'spring',
-    'spring_r',
-    'summer',
-    'summer_r',
-    'terrain',
-    'terrain_r',
-    'turbo',
-    'turbo_r',
-    'twilight',
-    'twilight_r',
-    'twilight_shifted',
-    'twilight_shifted_r',
-    'viridis',
-    'viridis_r',
-    'winter',
-    'winter_r']
+# _matplotlib_cmaps = [
+#     'Accent',
+#     'Accent_r',
+#     'cividis',
+#     'cividis_r',
+#     'cool',
+#     'cool_r',
+#     'coolwarm',
+#     'coolwarm_r',
+#     'copper',
+#     'copper_r',
+#     'cubehelix',
+#     'cubehelix_r',
+#     'gnuplot',
+#     'gnuplot2',
+#     'gnuplot2_r',
+#     'gnuplot_r',
+#     'gray',
+#     'gray_r',
+#     'hot',
+#     'hot_r',
+#     'hsv',
+#     'hsv_r',
+#     'inferno',
+#     'inferno_r',
+#     'jet',
+#     'jet_r',
+#     'magma',
+#     'magma_r',
+#     'nipy_spectral',
+#     'nipy_spectral_r',
+#     'ocean',
+#     'ocean_r',
+#     'pink',
+#     'pink_r',
+#     'plasma',
+#     'plasma_r',
+#     'prism',
+#     'prism_r',
+#     'rainbow',
+#     'rainbow_r',
+#     'seismic',
+#     'seismic_r',
+#     'spring',
+#     'spring_r',
+#     'summer',
+#     'summer_r',
+#     'terrain',
+#     'terrain_r',
+#     'turbo',
+#     'turbo_r',
+#     'twilight',
+#     'twilight_r',
+#     'twilight_shifted',
+#     'twilight_shifted_r',
+#     'viridis',
+#     'viridis_r',
+#     'winter',
+#     'winter_r']
 
 
 def plotPowerSpectrum(samples: np.ndarray,
@@ -180,7 +177,9 @@ def _plot_matplotlib(samples: np.ndarray, samplerate: int, timelabels: bool,
     return fig
 
 
-_diff_to_step = bpf4.NoInterpol.fromseq(
+@functools.cache
+def _difftostep():
+    return bpf4.NoInterpol.fromseq(
         0.01, 1/1000,
         0.025, 1/500,
         0.05, 1/100,
@@ -201,7 +200,7 @@ _diff_to_step = bpf4.NoInterpol.fromseq(
         4000, 240,
         8000, 400,
         16000, 600,
-)
+    )
 
 
 class _TimeLocator(matplotlib.ticker.LinearLocator):
@@ -226,6 +225,7 @@ class _TimeLocator(matplotlib.ticker.LinearLocator):
     def __init__(self, sr: int = 0):
         super().__init__()
         self.sr = sr
+        self.difftostep = _difftostep()
 
     def tick_values(self, valmin: float, valmax: float):
         "secmin and secmax are the axis limits, return the tick locations here"
@@ -235,7 +235,7 @@ class _TimeLocator(matplotlib.ticker.LinearLocator):
         else:
             secmin, secmax = valmin, valmax
         diff = secmax-secmin
-        step = _diff_to_step(diff)
+        step = self.difftostep(diff)
         firstelem = emlib.mathlib.next_in_grid(secmin, step)
         numticks = int((secmax+step - firstelem) / step)
         if numticks <= 3:
@@ -421,7 +421,7 @@ def plotSpectrogram(samples: np.ndarray,
         the matplotlib axes object
     """
     if numChannels(samples) > 1:
-        logger.info("plotSpectrogram only works on mono samples. Will use channel 0")
+        getLogger("maelzel.snd").info("plotSpectrogram only works on mono samples. Will use channel 0")
         samples = getChannel(samples, 0)
 
     if yaxis == 'log' or method == 'specshow':
@@ -439,6 +439,8 @@ def plotSpectrogram(samples: np.ndarray,
 
     hopsize = int(fftsize // overlap)
     noverlap = fftsize - hopsize
+
+    from scipy import signal
     win = signal.get_window(window, winsize)
     axes.specgram(samples,
                   NFFT=fftsize,

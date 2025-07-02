@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 def selectFromList(options: list[str],
                    title="",
                    default=None,
-                   gui: bool = None,
+                   gui: bool | None = None,
                    ) -> str | None:
     """
     Select an option from a list of options
@@ -26,7 +26,6 @@ def selectFromList(options: list[str],
         default: the value returned if no selection was made
         gui: if None, detect the environment. Otherwise, if True a gui dialog is forced
             and if False a terminal dialog is forced
-        ensure: if True, an exception is raised if the selection is cancelled
 
     Returns:
         the option selected, or *default* if not selection was done
@@ -41,8 +40,8 @@ def selectFromList(options: list[str],
         import emlib.dialogs
         return emlib.dialogs.selectItem(options, title=title) or default
     else:
-        from maelzel import tui
-        idx = tui.menu(options)
+        import maelzel.tui
+        idx = maelzel.tui.menu(options)
         return default if idx is None else options[idx]
 
 
@@ -67,8 +66,8 @@ def selectFileForSave(key: str, filter="All (*.*)", prompt="Save File"
     return outfile
 
 
-def selectFileForOpen(key: str, filter="All (*.*)", prompt="Open", ifcancel:str=None
-                      ) -> Optional[str]:
+def selectFileForOpen(key: str, filter="All (*.*)", prompt="Open"
+                      ) -> str:
     """
     Select a file for open via a gui dialog, remember the last directory
 
@@ -76,44 +75,37 @@ def selectFileForOpen(key: str, filter="All (*.*)", prompt="Open", ifcancel:str=
         key: the key to use to remember the last directory
         filter: for example "Images (*.png, *.jpg);; Videos (*.mp4)"
         prompt: title of the dialog
-        ifcancel: if given and the operation is cancelled a ValueError
-            with this as message is raised
+
 
     Returns:
         the selected file, or None if the operation was cancelled
     """
     if _tools.checkBuildingDocumentation(logger):
-        return None
+        return ''
     import emlib.dialogs
     lastdir = _appstate.get(key, '')
     selected = emlib.dialogs.selectFile(filter=filter, directory=lastdir, title=prompt)
     if selected:
         _appstate[key] = os.path.split(selected)[0]
-    elif ifcancel is not None:
-        raise ValueError(ifcancel)
     return selected
 
 
 def selectSndfileForOpen(prompt="Open Soundfile",
                          filter='Audio (*.wav, *.aif, *.flac, *.mp3)',
-                         ifcancel: str = None
-                         ) -> str | None:
+                         ) -> str:
     """
     Select a soundfile for open via a gui dialog, remember the last directory
 
     Args:
         prompt: title of the dialog
         filter: the file types to accept
-        ifcancel: if given and the operation is cacelled a ValueError with this message
-            is raised
 
     Returns:
-        the selected file, or None if the operation was cancelled
+        the selected file, or an empty string if the operation was cancelled
 
     .. seealso:: :func:`~maelzel.core.tools.selectFileForOpen`
     """
-    return selectFileForOpen(key='loadSndfileLastDir', filter=filter, ifcancel=ifcancel,
-                             prompt=prompt)
+    return selectFileForOpen(key='loadSndfileLastDir', filter=filter, prompt=prompt)
 
 
 def saveRecordingDialog(prompt="Save Recording") -> Optional[str]:

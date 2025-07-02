@@ -1,20 +1,17 @@
 from __future__ import annotations
 from dataclasses import dataclass
-import numpy as np
 from emlib import iterlib
 from maelzel.common import F
 from maelzel.core.workspace import Workspace
-from maelzel.core import _tools
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Sequence
     from maelzel.common import location_t, num_t
     from maelzel.scorestruct import ScoreStruct
+    import numpy as np
 
 
-
-@dataclass
 class Automation:
     """
     Represent an abstract automation
@@ -27,21 +24,24 @@ class Automation:
     parentbeat + beat).
 
     """
+    def __init__(self, param: str, breakpoints: list[tuple[F | location_t, float, str]], relative=True):
+        self.param = param
+        """The parameter to automate"""
 
-    param: str
-    """The parameter to automate"""
+        self.breakpoints = breakpoints
+        """A list of breakpoints
 
-    breakpoints: list[tuple[F | location_t, float, str]]
-    """A list of breakpoints
+        Each breakpoint has the form (time, value, interpolation)
+        where time is the time in quarternotes, value is the value of
+        the param at the time and interpolation is one of 'linear', 'cos',
+        expon(x), etc.
+        """
 
-    Each breakpoint has the form (time, value, interpolation)
-    where time is the time in quarternotes, value is the value of
-    the param at the time and interpolation is one of 'linear', 'cos',
-    expon(x), etc.
-    """
+        self.relative = relative
+        """Are the breakpoints relative to the parent?"""
 
-    relative: bool = True
-    """Are the breakpoints relative to the parent?"""
+    def __repr__(self) -> str:
+        return f"Automation({self.param}, breakpoints={self.breakpoints})"
 
     def _abstime(self, t: F | location_t, parentOffset: F, scorestruct: ScoreStruct) -> F:
         if self.relative:
@@ -161,7 +161,8 @@ class Automation:
             # a flat list
             assert len(breakpoints) % 2 == 0, "A flat list of breakpoints needs to be even"
             assert all(isinstance(x, (int, float, F)) for x in breakpoints)
-            breakpoints = list(iterlib.window(breakpoints, 2, 2))
+            breakpoints = [(breakpoints[i], breakpoints[i+1]) for i in range(0, len(breakpoints), 2)]
+            # breakpoints = list(iterlib.window(breakpoints, 2, 2))
 
         normalized: list[tuple[F | location_t, float, str]] = []
         for bp in breakpoints:
@@ -223,7 +224,10 @@ class SynthAutomation:
     def end(self) -> float:
         return self.delay + self.data[-2]
 
-    def cropped(self, start: float, end: float, overtake: bool = None
+    def cropped(self, 
+                start: float, 
+                end: float, 
+                overtake: bool | None = None
                 ) -> SynthAutomation | None:
         """
         Copy of this synth automation cropped between (start, end)
@@ -238,6 +242,7 @@ class SynthAutomation:
             a copy of self cropped between start and end
         """
         bps = list(iterlib.window(self.data, 2, 2))
+        from maelzel.core import _tools
         bps = _tools.cropBreakpoints(bps, start - self.delay, end - self.delay)  # type: ignore
         data = [float(bp) for bp in _flattenBreakpoints(bps)]
         return SynthAutomation(param=self.param,

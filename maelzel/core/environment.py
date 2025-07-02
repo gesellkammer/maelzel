@@ -30,7 +30,7 @@ def hasBinary(binary: str) -> bool:
     return bool(shutil.which(binary))
 
 
-def openPngWithExternalApplication(path: str, wait=False, app: str = '') -> None:
+def openPngWithExternalApplication(path: str, wait=False, app='') -> None:
     """
     Open the given png file
     """
@@ -71,10 +71,10 @@ def findMusescore() -> str | None:
             _logger.warning(f"musescorepath set to {musescorepath} in the active config, but the path does"
                             f"not exist")
 
-    if (path := shutil.which('musescore')) is not None:
-        return path
-    if (path := shutil.which('MuseScore')) is not None:
-        return path
+    possibleNames = ('musescore', 'MuseScore')
+    for name in possibleNames:
+        if (path := shutil.which(name)) is not None:
+            return path
 
     _logger.warning("MuseScore not found. Tried to find 'musescore' or 'MuseScore' in the path, "
                     "without success. To fix this issue, make sure MuseScore is installed. "

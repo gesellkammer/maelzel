@@ -119,6 +119,13 @@ class EnharmonicOptions:
 
     def bestChordSpelling(self, notes: Sequence[str]) -> tuple[str, ...]:
         """
+        Best chord spelling for the given notes using this options
+        
+        Args:
+            notes: a seq. of notenames
+            
+        Returns:
+            the best spelling for the given notes, assuming they belong to a chord
         """
         return bestChordSpelling(notes, self)
 
@@ -160,7 +167,8 @@ def isEnharmonicVariantValid(notes: list[str]) -> bool:
     return True
 
 
-def groupPenalty(notes: list[str], options: EnharmonicOptions = None) -> tuple[float, str]:
+def groupPenalty(notes: list[str], options: EnharmonicOptions
+                 ) -> tuple[float, str]:
     """
     Evaluate the enharmonic variant as a group
 
@@ -174,9 +182,6 @@ def groupPenalty(notes: list[str], options: EnharmonicOptions = None) -> tuple[f
         separated string collecting all sources of penalty
 
     """
-    if options is None:
-        options = _defaultEnharmonicOptions
-
     total = 0
     penaltysources = []
     notated: list[pt.NotatedPitch] = [pt.notated_pitch(n) for n in notes]
@@ -240,10 +245,10 @@ def groupPenalty(notes: list[str], options: EnharmonicOptions = None) -> tuple[f
     return total, ", ".join(penaltysources)
 
 
-def intervalsPenalty(notes: list[str], chord=False, options: EnharmonicOptions = None
+def intervalsPenalty(notes: list[str],
+                     chord=False,
+                     options: EnharmonicOptions = _defaultEnharmonicOptions
                      ) -> tuple[float, str]:
-    if options is None:
-        options = _defaultEnharmonicOptions
     total = 0
     sources = []
     for n0, n1 in iterlib.window(notes, 2):
@@ -587,7 +592,8 @@ def _makeFixedSlots(fixedNotes: list[str], semitoneDivs=2) -> dict[int, int]:
     return slots
 
 
-def bestChordSpelling(notes: Sequence[str], options: EnharmonicOptions = None
+def bestChordSpelling(notes: Sequence[str],
+                      options: EnharmonicOptions | None = None
                       ) -> tuple[str, ...]:
     notes2 = notes if isinstance(notes, tuple) else tuple(notes)
     return _bestChordSpelling(notes2, options=options or _defaultEnharmonicOptions)
@@ -629,13 +635,16 @@ def pitchSpellings(n: Notation) -> tuple[str, ...]:
     return spelling
 
 
-def _notationNotename(n: Notation, idx=0) -> str:
-    if fixed := n.getFixedNotename(idx):
-        return fixed
-    if len(n.pitches) == 0:
-        return pt.m2n(n.pitches[0])
-    bestspelling = bestChordSpelling(n.resolveNotenames())
-    return bestspelling[idx]
+# def _notationNotename(n: Notation, idx=0) -> str:
+#     if not n.pitches:
+#         raise ValueError(f"No pitches found for {n}")
+#     assert idx < len(n.pitches), f"Invalid index {idx} for {n}"
+#     if fixed := n.getFixedNotename(idx):
+#         return fixed
+#     elif len(n.pitches) == 1:
+#         return pt.m2n(n.pitches[0])
+#     bestspelling = bestChordSpelling(n.resolveNotenames())
+#     return bestspelling[idx]
 
 
 def fixEnharmonicsInPlace(notations: list[Notation],
@@ -796,21 +805,23 @@ def fixEnharmonicsInPlace(notations: list[Notation],
             tiestart = None
         if n0.isRest or n1.isRest or len(n0.pitches) > 1 or len(n1.pitches) > 1:
             continue
-        if n0.pitches[0] < n1.pitches[0] and n0.verticalPosition() > n1.verticalPosition():
+        assert len(n0.pitches) == len(n1.pitches) == 1
+        p0, p1 = n0.pitches[0], n1.pitches[0]
+        vpos0 = n0.verticalPosition()
+        vpos1 = n1.verticalPosition()
+        if p0 < p1 and vpos0 > vpos1:
             # 4Db- : 4C#  -> 4C+ : 4Db
             # print(f"### 1", n0, n0.getAttachments('text'))
 
             n0.fixNotename(pt.enharmonic(n0.notename()))
             n1.fixNotename(pt.enharmonic(n1.notename()))
-        elif n0.pitches[0] > n1.pitches[0] and n0.verticalPosition() < n1.verticalPosition():
+        elif p0 > p1 and vpos0 < vpos1:
             # 4C# : 4Db-  -> 4Db : 4C+
             # print(f"### 2", n0, n0.getAttachments('text'))
 
             n0.fixNotename(pt.enharmonic(n0.notename()))
             n1.fixNotename(pt.enharmonic(n1.notename()))
-        elif (n0.gliss and
-              not n0.tiedNext and
-              n0.verticalPosition() == n1.verticalPosition()):
+        elif (n0.gliss and not n0.tiedNext and vpos0 == vpos1):
             n0fixed, n1fixed = _bestChordSpelling((n0.notename(), n1.notename()), options=options)
             n1.fixNotename(n1fixed)
             if n0.tiedPrev and tiestart is not None:
@@ -839,7 +850,6 @@ def fixEnharmonicsInPlace(notations: list[Notation],
                             print(f"Fixing tied pitch from {pitch1.fullname} to {pitch0.fullname}")
                     fixedNotenames.append(pitch1.fullname)
                 n1.setPitches(fixedNotenames, fixNotenames=True)
-    return
 
 
 def _verifyVariants(variants: list[tuple[str, ...]], slots):

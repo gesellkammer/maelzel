@@ -4,7 +4,8 @@ import copy
 
 from maelzel._util import reprObj
 
-from . import definitions, util
+from . import definitions
+from . import util
 from .common import logger
 
 from typing import TYPE_CHECKING
@@ -285,11 +286,11 @@ class Hairpin(Spanner):
     """Hairpin crescendo / diminuendo spanner.
 
     Args:
-        kind: The kind of hairpin.
+        kind: The kind of hairpin ("start" / "end")
         uuid: The unique identifier of the hairpin.
-        direction: The direction of the hairpin.
-        niente: Whether the hairpin is a niente.
-        placement: The placement of the hairpin.
+        direction: The direction of the hairpin ("<", ">").
+        niente: Whether the hairpin is from/to niente.
+        placement: The placement of the hairpin ("above" / "below").
 
     Returns:
         None

@@ -6,7 +6,6 @@ from abc import abstractmethod, ABC
 
 import numpy as np
 
-from maelzel.core import presetdef as _presetdef
 from . import environment
 
 from typing import TYPE_CHECKING
@@ -17,6 +16,9 @@ if TYPE_CHECKING:
     import csoundengine.tableproxy
     import csoundengine.busproxy
     import csoundengine.instr
+    import csoundengine.synth
+
+    from maelzel.core import presetdef as _presetdef
     from maelzel.core.presetmanager import PresetManager
     from maelzel.core import synthevent
 
@@ -72,7 +74,7 @@ class Renderer(ABC):
 
     def prepareEvents(self,
                       events: list[synthevent.SynthEvent],
-                      sessionevents: list[csoundengine.event.Event] = None
+                      sessionevents: list[csoundengine.event.Event] | None = None
                       ) -> bool:
         """
         Prepare a series of events for scheduling
@@ -242,8 +244,8 @@ class Renderer(ABC):
     @abstractmethod
     def schedEvents(self,
                     coreevents: list[synthevent.SynthEvent],
-                    sessionevents: list[csoundengine.event.Event] = None,
-                    whenfinished: Callable = None):
+                    sessionevents: list[csoundengine.event.Event] | None = None,
+                    whenfinished: Callable | None = None):
         """
         Schedule multiple events simultanously
 
@@ -289,8 +291,8 @@ class Renderer(ABC):
               delay: float,
               dur: float,
               priority: int,
-              args: dict[str, float] | list[float|str] = None,
-              whenfinished: Callable = None,
+              args: dict[str, float] | list[float|str] | None = None,
+              whenfinished: Callable | None = None,
               **kws: dict[str, float],
               ):
         """

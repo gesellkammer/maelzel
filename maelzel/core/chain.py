@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from typing_extensions import Self
     from typing import Any, Iterable, Iterator, Callable, Sequence
     from maelzel.common import time_t, location_t, num_t, beat_t
+    from maelzel.scoring import quant
 
 
 __all__ = (
@@ -132,11 +133,11 @@ class Chain(MContainer):
                  '_absOffset', '_hasRedundantOffsets')
 
     def __init__(self,
-                 items: Sequence[MEvent | Chain | str] | str | None = None,
-                 offset: time_t = None,
+                 items: Sequence[MEvent | Chain | str] | str = (),
+                 offset: time_t | None = None,
                  label: str = '',
-                 properties: dict[str, Any] = None,
-                 parent: MContainer = None,
+                 properties: dict[str, Any] | None = None,
+                 parent: MContainer | None = None,
                  _init=True):
         self._modified = bool(items)
         """True if this object was modified and needs to be updated"""
@@ -163,9 +164,9 @@ class Chain(MContainer):
             else:
                 if isinstance(items, str):
                     # split using new lines and semicolons as separators
-                    tokens = _tools.regexSplit('[\n; ]', items, strip=True, removeEmpty=True)
-                    tokens = [_tools.stripNoteComments(token) for token in tokens]
-                    items = [asEvent(tok) for tok in tokens if tok]
+                    tokens = _tools.regexSplit('[\n;]', items, strip=True, removeEmpty=True)
+                    tokens2 = [_tools.stripNoteComments(token) for token in tokens]
+                    items = [asEvent(tok) for tok in tokens2 if tok]
 
                 else:
                     uniqueitems = []
@@ -998,7 +999,7 @@ class Chain(MContainer):
         return self if inplace else self.clone(items=items)
 
     @classmethod
-    def _labelSymbol(cls, label: str, config: CoreConfig = None):
+    def _labelSymbol(cls, label: str, config: CoreConfig | None = None):
         if config is None:
             config = Workspace.active.config
         from maelzel.textstyle import TextStyle
@@ -1033,7 +1034,7 @@ class Chain(MContainer):
 
     def scoringEvents(self,
                       groupid='',
-                      config: CoreConfig = None,
+                      config: CoreConfig | None = None,
                       parentOffset: F | None = None
                       ) -> list[scoring.Notation]:
         """
@@ -1129,7 +1130,7 @@ class Chain(MContainer):
 
     def _scoringParts(self,
                       config: CoreConfig,
-                      maxstaves: int = None,
+                      maxstaves=0,
                       name='',
                       shortname='',
                       groupParts=False,
@@ -1157,12 +1158,12 @@ class Chain(MContainer):
         return parts
 
     def scoringParts(self,
-                     config: CoreConfig = None
+                     config: CoreConfig | None = None
                      ) -> list[scoring.core.UnquantizedPart]:
         return self._scoringParts(config or Workspace.active.config, name=self.label)
 
-    def quantizePitch(self, step=0.25):
-        if step <= 0:
+    def quantizePitch(self, step=0.):
+        if step < 0:
             raise ValueError(f"Step should be possitive, got {step}")
         items = [i.quantizePitch(step) for i in self.items]
         return self.clone(items=items)
@@ -1293,8 +1294,8 @@ class Chain(MContainer):
                     yield from item.recurse(reverse=True)
 
     def eventsWithOffset(self,
-                         start: beat_t = None,
-                         end: beat_t = None,
+                         start: beat_t | None = None,
+                         end: beat_t | None = None,
                          partial=True) -> list[tuple[MEvent, F]]:
         """
         Recurse the events in self and resolves each event's offset
@@ -1433,7 +1434,7 @@ class Chain(MContainer):
 
     def addSpanner(self,
                    spanner: str | symbols.Spanner,
-                   endobj: MEvent = None
+                   endobj: MEvent | None = None
                    ) -> Self:
         """
         Adds a spanner symbol across this object
@@ -1605,7 +1606,7 @@ class Chain(MContainer):
             measidx, beat = location
             start = struct.locationToBeat(measidx, beat)
         else:
-            start = asF(location)
+            start = asF(location)  # type: ignore
         end = start + margin
         events = self.eventsBetween(start, end)
         if not events:
@@ -1699,7 +1700,7 @@ class Chain(MContainer):
         return out
 
     def splitEventsAtMeasures(self,
-                              scorestruct: ScoreStruct = None,
+                              scorestruct: ScoreStruct | None = None,
                               startindex=0,
                               stopindex=0
                               ) -> None:
@@ -1738,7 +1739,6 @@ class Chain(MContainer):
                 tie=True,
                 beambreak=False,
                 nomerge=False,
-                ensureCopy=False
                 ) -> MEvent | None:
         """
         Split any event present at the given absolute offset (in place)
@@ -1762,20 +1762,15 @@ class Chain(MContainer):
 
         """
         absoffset = asF(location) if not isinstance(location, tuple) else self.activeScorestruct().locationToBeat(*location)  # type: ignore
-        ev = self.eventAt(absoffset)
         self.splitEventsAtOffsets([absoffset], tie=tie)
         ev = self.eventAt(absoffset)
-
         if not ev:
             return None
-
         assert ev.absOffset() == absoffset, f"Failed to split correctly? {ev=}, event offset: {ev.absOffset()}, offset should be {absoffset}"
         if beambreak:
             ev.addSymbol(symbols.BeamBreak())
-
         if nomerge:
             ev.addSymbol(symbols.NoMerge())
-
         return ev
 
     def splitEventsAtOffsets(self,
@@ -1896,7 +1891,7 @@ class Chain(MContainer):
                             obj.symbols.remove(spanner)
                             spanner._anchor = None
 
-    def remap(self, deststruct: ScoreStruct, sourcestruct: ScoreStruct = None
+    def remap(self, deststruct: ScoreStruct, sourcestruct: ScoreStruct | None = None
               ) -> Self:
         remappedEvents = [ev.remap(deststruct, sourcestruct=sourcestruct)
                           for ev in self]
@@ -1983,6 +1978,22 @@ class Chain(MContainer):
         if absorbOffset:
             out.absorbInitialOffset()
         return out
+
+    def addBreak(self, location: F | tuple[int, F]) -> None:
+        """
+        Adds a symbolic break at the given location.
+
+        this only modifies the representation as notation, it does not
+        split any note/chord within this Chain
+
+        Args:
+            location: the absolute 2location to break the beam (a beat or a tuple (measureidx, beat))
+
+        Returns:
+
+        """
+        self.addSymbolAt(location=location, symbol=symbols.BeamBreak())
+
 
     def cropped(self, start: beat_t, end: beat_t) -> Self | None:
         """
@@ -2074,10 +2085,10 @@ class Voice(Chain):
     """
 
     def __init__(self,
-                 items: Sequence[MEvent | str | Chain] | Chain | str = None,
+                 items: Sequence[MEvent | str | Chain] | Chain | str = (),
                  name='',
                  shortname='',
-                 maxstaves: int = None,
+                 maxstaves=0,
                  ):
         if isinstance(items, Chain):
             chain = items
@@ -2102,7 +2113,7 @@ class Voice(Chain):
         self._group: PartGroup | None = None
         """A part group is created via Score.makeGroup"""
 
-        if maxstaves is not None:
+        if maxstaves:
             self.configNotation(maxStaves=maxstaves)
 
     def __repr__(self):
@@ -2150,8 +2161,8 @@ class Voice(Chain):
 
     def configNotation(self,
                        autoClefChanges=True,
-                       staffSize: float = None,
-                       maxStaves: int = None
+                       staffSize=0.,
+                       maxStaves=0
                        ) -> None:
         """
         Customize options for rendering this voice as notation
@@ -2173,14 +2184,14 @@ class Voice(Chain):
             self.setConfig('show.staffSize', staffSize)
         if autoClefChanges is not None:
             self.setConfig('show.autoClefChanges', autoClefChanges)
-        if maxStaves is not None:
+        if maxStaves:
             self.setConfig('show.voiceMaxStaves', maxStaves)
 
     def configQuantization(self,
-                           breakSyncopationsLevel: str = None,
-                           complexity: str = None,
+                           breakSyncopationsLevel='',
+                           complexity='',
                            nestedTuplets: bool | None = None,
-                           syncopationMinBeatFraction: F = None,
+                           syncopMinFraction: F | None = None,
                            debug=False
                            ) -> None:
         """
@@ -2188,27 +2199,27 @@ class Voice(Chain):
 
         Args:
             breakSyncopationsLevel: one of 'all', 'weak', 'strong' (see
-                config key `quant.breakSyncopationsLevel <config_quant_breaksyncopationslevel>`).
+                config key `quant.breakBeats <config_quant_breaksyncopationslevel>`).
                 Factory default: 'weak'
             complexity: the quantization complexity, one of 'lowest', 'low', 'medium', 'high', 'highest'
                 (see config key `quant.complexity <config_quant_complexity>`). Default: 'high'
             nestedTuplets: if False, nested tuplets are disabled. (see config key `quant.nestedTuplets <config_quant_nestedtuplets>`)
-            syncopationMinBeatFraction: a merged duration across beats cannot be smaller than this. Setting it too low
-                can result in very complex rhythms (see config key `quant.syncopationMinBeatFraction <config_quant_syncopationminbeatfraction>`)
+            syncopMinFraction: a merged duration across beats cannot be smaller than this. Setting it too low
+                can result in very complex rhythms (see config key `quant.syncopMinFraction <config_quant_syncopMinFraction>`)
             debug: if True, display debugging information when quantizing this voice
 
         .. seealso:: :meth:`~Voice.configNotation`, :meth:`setConfig() <maelzel.core.chain.Voice.setConfig>`
 
         """
         config = Workspace.active.config
-        if breakSyncopationsLevel is not None:
-            self.setConfig('quant.breakSyncopationsLevel', breakSyncopationsLevel)
-        if complexity is not None:
+        if breakSyncopationsLevel:
+            self.setConfig('quant.breakBeats', breakSyncopationsLevel)
+        if complexity:
             self.setConfig('quant.complexity', complexity)
         if nestedTuplets is not None:
             self.setConfig('quant.nestedTuplets', nestedTuplets)
-        if syncopationMinBeatFraction is not None:
-            self.setConfig('quant.syncopationMinBeatFraction', asF(syncopationMinBeatFraction))
+        if syncopMinFraction is not None:
+            self.setConfig('quant.syncopMinFraction', asF(syncopMinFraction))
         if debug != config['.quant.debug']:
             self.setConfig('.quant.debug', debug)
 
@@ -2230,7 +2241,13 @@ class Voice(Chain):
             out.setScoreStruct(self._scorestruct)
         return out
 
-    def scoringParts(self, config: CoreConfig = None
+    def quantizedPart(self, **kws) -> quant.QuantizedPart:
+        cfg = (self.getConfig() or Workspace.active.config).clone(showVoiceMaxStaves=1)
+        qscore = self.quantizedScore(config=cfg, **kws)
+        assert len(qscore.parts) == 1
+        return qscore.parts[0]
+
+    def scoringParts(self, config: CoreConfig | None = None
                      ) -> list[scoring.core.UnquantizedPart]:
         activeconfig = config or Workspace.active.config
         ownconfig = self.getConfig(prototype=activeconfig)
@@ -2272,18 +2289,6 @@ class Voice(Chain):
     def absOffset(self) -> F:
         # A voice always starts at 0
         return F0
-
-    def breakBeam(self, location: F | tuple[int, F]) -> None:
-        """
-        Shortcut to ``Voice.addSymbol(symbols.BeamBreak(...))``
-
-        Args:
-            location: the location to break the beam (a beat or a tuple (measureidx, beat))
-
-        Returns:
-
-        """
-        self.addSymbol(symbols.BeamBreak(location=location))
 
     def _asVoices(self) -> list[Voice]:
         return [self]

@@ -16,6 +16,9 @@ import loristrck
 import loristrck.util
 import pitchtools as pt
 from emlib.filetools import normalizePath
+from emlib import iterlib
+import emlib.mathlib
+
 
 from .partial import Partial
 from . import pack
@@ -36,9 +39,9 @@ def _csoundEngine(name='maelzel') -> csoundengine.Engine:
     return ce.Engine.activeEngines.get(name) or ce.Engine(name=name)
 
 
-def _firstPartialAfter(partials: list[Partial], t0: float) -> int:
-    for i, p in enumerate(partials):
-        if p.end > t0:
+def _firstPartialEndingAfter(partials: list[Partial], startidx: int, t0: float) -> int:
+    for i, p in enumerate(partials[startidx:], start=startidx):
+        if p.end >= t0:
             return i
     return -1
 
@@ -63,14 +66,27 @@ def _partialsBetween(partials: list[Partial], t0=0., t1=0.) -> list[Partial]:
 
 
     """
-    if t1 == 0:
-        t1 = max(p.end for p in partials)
     out = []
-    for p in partials:
-        if p.start > t1:
-            break
-        if p.end > t0:
-            out.append(p)
+    append = out.append
+
+    if t1 == 0:
+        for i, p in enumerate(partials):
+            if p.start > t0:
+                return out + partials[i:]
+            elif p.end > t0:
+                append(p)
+        return out
+    elif t0 == 0:
+        for p in partials:
+            if p.start > t1:
+                return out
+            append(p)
+    else:
+        for p in partials:
+            if p.start > t1:
+                break
+            if p.end > t0:
+                append(p)
     return out
 
 
@@ -78,10 +94,9 @@ class _PartialIndex:
     """
     Create an index to accelerate finding partials
 
-    After creating the PartialIndex, each call to `partialindex.partials_between`
-    should be faster than simply calling `partials_index` since the unoptimized
-    function needs to always start a linear search from the beginning of the
-    partials list.
+    After creating the PartialIndex, each call to `partialindex.partialsBetween`
+    should be faster since the index knows the the first partial to start
+    searching from given a start time
 
     .. note::
 
@@ -89,13 +104,18 @@ class _PartialIndex:
         modified
 
     """
-    def __init__(self, partials: list[Partial], end: float, dt=1.0):
+    def __init__(self, partials: list[Partial], end: float, dt=0.):
         """
         Args:
-            partials: the partials to index
+            partials: the partials to index, must be sorted by start time
             dt: the time resolution of the index. The lower this value the faster
-                each query will be but the slower the creation of the index itself
+                each query will be but the slower the creation of the index itself.
+                If 0 is given, a value is found depending on the time resolution
+                between the partials
         """
+        # Partials must be sorted
+        if dt == 0:
+            dt = _PartialIndex._findTimeDelta(partials)
         self.start = partials[0].start
         self.end = end
         self.dt = dt
@@ -103,11 +123,19 @@ class _PartialIndex:
         firstpartials = []
         startidx = 0
         for t in np.arange(self.start, end, dt):
-            relidx = _firstPartialAfter(partials[max(0, startidx - 1):], float(t))
-            absidx = startidx + relidx
-            firstpartials.append(absidx)
-            startidx = absidx
+            idx = _firstPartialEndingAfter(partials, startidx, float(t))
+            firstpartials.append(idx)
+            if idx < 0:
+                break
+            startidx = idx
         self.firstpartials = firstpartials
+
+    @staticmethod
+    def _findTimeDelta(partials: list[Partial], grouplen=200) -> float:
+        grouplen = max(1, min(grouplen, len(partials) // 10))
+        dts = [p1.start - p0.start for p0, p1 in iterlib.pairwise(partials)]
+        avgdt = sum(dts) / len(dts)
+        return avgdt * grouplen
 
     def partialsBetween(self, start: float, end: float) -> list[Partial]:
         """
@@ -122,7 +150,13 @@ class _PartialIndex:
         """
         if start > end:
             raise ValueError(f"The start time should not be later than the end time, got {start=}, {end=}")
-        idx = int((start - self.start) / self.dt)
+        if end == start:
+            end = start + 1e-12
+        overlap = emlib.mathlib.overlap(start, end, self.start, self.end)
+        if not overlap:
+            return []
+        start, end = overlap
+        idx = max(0, int((start - self.start) / self.dt))
         firstpartial = self.firstpartials[idx]
         if firstpartial < 0:
             return []
@@ -145,7 +179,7 @@ class Spectrum:
             to optimize searching for partials
     """
 
-    def __init__(self, partials: list[Partial], indexTimeResolution=1.0):
+    def __init__(self, partials: list[Partial], indexTimeResolution=0.):
         self.partials: list[Partial] = partials
         """The partials of this Spectrum"""
 
@@ -241,7 +275,7 @@ class Spectrum:
         """
         return max(p.maxfreq() for p in self.partials)
 
-    def partialsBetween(self, start: float, end: float, crop=False, minfreq=0, maxfreq=0
+    def partialsBetween(self, start: float, end: float, crop=False, minfreq=0., maxfreq=0.
                         ) -> list[Partial]:
         """
         Returns a list of Partials which are present between the given times
@@ -264,17 +298,20 @@ class Spectrum:
             a list of partials defined between the given time interval
 
         """
-        selected = self.index.partialsBetween(start, end)
+        assert end >= start, f"Expected start <= end, got {start=}, {end=}"
+        if start <= self.start and end >= self.end:
+            partials = self.partials
+        else:
+            partials = self.index.partialsBetween(start, end)
         if minfreq > 0 or maxfreq > 0:
             maxfreq = maxfreq or 24000
-            selected = [p for p in selected if minfreq <= p.meanfreq() <= maxfreq]
+            partials = [p for p in partials if minfreq <= p.meanfreq() <= maxfreq]
+        if partials and any(p.start >= end or p.end <= start for p in partials):
+            raise RuntimeError(f"Wrong partials for time: {start} - {end}: {partials}")
 
-        if not crop:
-            return selected
-
-        cropped = [p2 for p in selected
-                   if (p2 := p.crop(start, end)) is not None]
-        return cropped
+        if crop:
+            partials = [p2 for p in partials if (p2 := p.crop(start, end)) is not None]
+        return partials
 
     def write(self, outfile: str, rbep=True) -> None:
         """
@@ -845,11 +882,12 @@ class Spectrum:
                 samples: np.ndarray | str,
                 sr: int = 44100,
                 resolution: float = 50.,
-                windowsize: float = None,
-                hoptime: float = None,
-                freqdrift: float = None,
+                windowsize=0.,
+                hoptime=0.,
+                freqdrift=0.,
                 minbreakpoints=1,
                 mindb=-90,
+                indexresolution=0.
                 ) -> Spectrum:
         """
         Analyze audiosamples to generate a Spectrum via partial tracking
@@ -867,8 +905,8 @@ class Spectrum:
             windowsize: The window size in hz. This value needs to be higher than the resolution since the window in
                 samples needs to be smaller than the fft analysis
             hoptime: the time to move the window after each analysis. For overlap==1, this is 1/windowsize.
-                For overlap==2, 1/(windowsize*2)
-            freqdrift: the max. variation in frequency between two breakpoints (by default, 1/2 resolution)
+                For overlap==2, 1/(windowsize*2). 0=default
+            freqdrift: the max. variation in frequency between two breakpoints (0.: default, 1/2 resolution)
             minbreakpoints: the min. number of breakpoints a partial can have. If set to > 1, any unmatched breakpoint
                 will be removed)
             mindb: the amplitude floor, in dB. Breakpoints below this amplitude will
@@ -901,7 +939,7 @@ class Spectrum:
         if minbreakpoints > 1:
             partialarrays = [p for p in partialarrays if len(p) >= minbreakpoints]
 
-        return Spectrum(partials=[Partial(data) for data in partialarrays])
+        return Spectrum(partials=[Partial(data) for data in partialarrays], indexTimeResolution=indexresolution)
 
     def fundamental(self, minfreq=60) -> tuple[bpf4.BpfInterface, bpf4.BpfInterface]:
         """

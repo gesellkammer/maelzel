@@ -33,45 +33,39 @@ from abc import ABC, abstractmethod
 import os
 import math
 import re
-import shutil as _shutil
 import html as _html
 from dataclasses import dataclass
-
-import emlib.misc
-import emlib.img
-import pitchtools as pt
 
 from maelzel.common import asmidi, F, asF, F0
 
 from maelzel.core._common import logger
+
 from .config import CoreConfig
 from .workspace import Workspace
-
-from . import playback
 from . import environment
+from . import realtimerenderer
 from . import notation
-from . import symbols as _symbols
 from . import _tools
 from .synthevent import PlayArgs
 
-from maelzel import _imgtools
 from maelzel import _util
 from maelzel import scoring
 
-from typing import TYPE_CHECKING, Any, Callable
-if TYPE_CHECKING:
-    from typing import Iterator
+import typing as _t
+if _t.TYPE_CHECKING:
     from typing_extensions import Self
     from matplotlib.axes import Axes
     from .synthevent import SynthEvent
+    from . import symbols as _symbols
     from maelzel.common import pitch_t, location_t, beat_t, time_t, num_t
     from maelzel.core import chain
     import maelzel.core.event as _event
     from maelzel.scoring.renderoptions import RenderOptions
+    from maelzel.scoring.render import  Renderer
     from maelzel.scoring import quant
     from maelzel.scoring import enharmonics
-    from maelzel.scoring import render
     import csoundengine
+    import csoundengine.synth
     from . import offline
     from maelzel.scorestruct import ScoreStruct
 
@@ -131,10 +125,10 @@ class MObj(ABC):
 
     def __init__(self,
                  dur: F,
-                 offset: F = None,
-                 label: str = '',
+                 offset: F | None = None,
+                 label='',
                  parent: MContainer | None = None,
-                 properties: dict[str, Any] = None,
+                 properties: dict[str, _t.Any] | None = None,
                  symbols: list[_symbols.Symbol] | None = None):
 
         if offset is not None and offset < F0:
@@ -168,7 +162,7 @@ class MObj(ABC):
         self.playargs: PlayArgs | None = None
         "playargs are set via :meth:`.setPlay` and are used to customize playback (instr, gain, …). None by default"
 
-        self.properties: dict[str, Any] | None = properties
+        self.properties: dict[str, _t.Any] | None = properties
         """
         User-defined properties as a dict (None by default). Set them via :meth:`~maelzel.core.mobj.MObj.setProperty`
         """
@@ -229,7 +223,7 @@ class MObj(ABC):
         """
         Set a property, returns self
 
-        Any MObj can have user-defined properties. These properties are optional:
+        An MObj can have user-defined properties. These properties are optional:
         before any property is created the :attr:`.properties <properties>` attribute
         is ``None``. This method creates the dict if it is still None and
         sets the property.
@@ -293,7 +287,7 @@ class MObj(ABC):
         """
         Get a property of this objects
 
-        Any MObj can have multiple properties. A property is a key:value pair,
+        An MObj can have multiple properties. A property is a key:value pair,
         where the key is a string and the value can be anything. Properties can
         be used to attach information to an object, to tag it in any way needed.
 
@@ -576,7 +570,7 @@ class MObj(ABC):
         self._copyAttributesTo(out)
         return out
 
-    def remap(self, deststruct: ScoreStruct, sourcestruct: ScoreStruct = None
+    def remap(self, deststruct: ScoreStruct, sourcestruct: ScoreStruct | None = None
               ) -> Self:
         """
         Remap times (offset, dur) from source scorestruct to destination scorestruct
@@ -638,7 +632,16 @@ class MObj(ABC):
         return None if self.offset is None else self.offset + self.dur
 
     def quantizePitch(self, step=0.) -> Self:
-        """ Returns a new object, with pitch rounded to step """
+        """ Returns a new object, with pitch rounded to step
+
+        Args:
+            step: quantization step, in semitones. A value of 0 used the
+                default semitone division in the active config (can be
+                configured via ``getConfig()['semitoneDivisions']``
+
+        Returns:
+            a copy of self with the pitch quantized
+        """
         raise NotImplementedError()
 
     def transposeByRatio(self, ratio: float) -> Self:
@@ -662,13 +665,11 @@ class MObj(ABC):
             >>> n.transposeByRatio(2)
             5C
         """
-        return self.transpose(pt.r2i(ratio))
+        return self.transpose(12 * math.log(ratio, 2))
 
-    def getConfig(self, prototype: CoreConfig = None) -> CoreConfig | None:
+    def getConfig(self, prototype: CoreConfig | None = None) -> CoreConfig | None:
         """
         Returns a CoreConfig overloaded with options set for this object
-
-        Returns None if no modifications have been made.
 
         Args:
             prototype: the config to use as prototype, falls back to the active config
@@ -685,11 +686,11 @@ class MObj(ABC):
         return self.parent.getConfig(prototype) if self.parent else None
 
     def show(self,
-             fmt: str = None,
-             external: bool = None,
+             fmt='',
+             external: bool | None = None,
              backend='',
-             scorestruct: ScoreStruct = None,
-             resolution: int = None,
+             scorestruct: ScoreStruct | None = None,
+             resolution: int = 0,
              **kws
              ) -> None:
         """
@@ -705,7 +706,6 @@ class MObj(ABC):
                 (see :ref:`config['show.backend'] <config_show_backend>`)
             fmt: one of 'png', 'pdf', 'ly'. None to use default.
             scorestruct: if given overrides the current/default score structure
-            config: if given overrides the current/default config
             resolution: dpi resolution when rendering to an image, overrides the
                 :ref:`config key 'show.pngResolution' <config_show_pngresolution>`
             kws: any keyword is used to override the config
@@ -729,7 +729,7 @@ class MObj(ABC):
         if not backend:
             backend = cfg['show.backend']
 
-        if fmt is None:
+        if not fmt:
             fmt = 'png' if not external and environment.insideJupyter else cfg['show.format']
 
         if fmt == 'ly':
@@ -737,6 +737,7 @@ class MObj(ABC):
             if external:
                 lyfile = _util.mktemp(suffix='.ly')
                 renderer.write(lyfile)
+                import emlib.misc
                 emlib.misc.open_with_app(lyfile)
             else:
                 _tools.showLilypondScore(renderer.render())
@@ -749,6 +750,7 @@ class MObj(ABC):
                     scalefactor *= cfg['show.scaleFactorMusicxml']
                 _tools.pngShow(img, forceExternal=external, scalefactor=scalefactor)
             else:
+                import emlib.misc
                 emlib.misc.open_with_app(img)
 
     def _changed(self) -> None:
@@ -761,10 +763,10 @@ class MObj(ABC):
             self.parent._childChanged(self)
 
     def quantizedScore(self,
-                       scorestruct: ScoreStruct = None,
-                       config: CoreConfig = None,
-                       quantizationProfile: str | quant.QuantizationProfile = None,
-                       enharmonicOptions: enharmonics.EnharmonicOptions = None,
+                       scorestruct: ScoreStruct | None = None,
+                       config: CoreConfig | None = None,
+                       quantizationProfile: str | quant.QuantizationProfile | None = None,
+                       enharmonicOptions: enharmonics.EnharmonicOptions | None = None,
                        nestedTuplets: bool | None = None
                        ) -> quant.QuantizedScore:
         """
@@ -822,11 +824,11 @@ class MObj(ABC):
 
     def render(self,
                backend='',
-               renderoptions: render.RenderOptions = None,
-               scorestruct: ScoreStruct = None,
-               config: CoreConfig = None,
-               quantizationProfile: str | quant.QuantizationProfile = None
-               ) -> render.Renderer:
+               renderoptions: RenderOptions | None = None,
+               scorestruct: ScoreStruct | None = None,
+               config: CoreConfig | None = None,
+               quantizationProfile: str | quant.QuantizationProfile = ''
+               ) -> Renderer:
         """
         Renders this object as notation
 
@@ -848,7 +850,7 @@ class MObj(ABC):
                 :meth:`maelzel.core.config.CoreConfig.makeQuantizationProfileFromPreset`.
 
         Returns:
-            a scoring.render.Renderer. This can be used to write the rendered structure
+            a scoring.Renderer. This can be used to write the rendered structure
             to an image (png, pdf) or as a musicxml or lilypond file.
 
         Example
@@ -876,7 +878,7 @@ class MObj(ABC):
             scorestruct = self.scorestruct() or w.scorestruct
 
         from maelzel.scoring import quant
-        if quantizationProfile is None:
+        if not quantizationProfile:
             quantizationProfile = config.makeQuantizationProfile()
         elif isinstance(quantizationProfile, str):
             quantizationProfile = quant.QuantizationProfile.fromPreset(quantizationProfile)
@@ -891,8 +893,8 @@ class MObj(ABC):
                      backend='',
                      outfile='',
                      fmt="png",
-                     scorestruct: ScoreStruct = None,
-                     config: CoreConfig = None
+                     scorestruct: ScoreStruct | None = None,
+                     config: CoreConfig | None = None
                      ) -> str:
         """
         Creates an image representation, returns the path to the image
@@ -950,7 +952,7 @@ class MObj(ABC):
 
     def scoringEvents(self,
                       groupid='',
-                      config: CoreConfig = None,
+                      config: CoreConfig | None = None,
                       parentOffset: F | None = None
                       ) -> list[scoring.Notation]:
         """
@@ -972,7 +974,7 @@ class MObj(ABC):
         raise NotImplementedError("Subclass should implement this")
 
     def scoringParts(self,
-                     config: CoreConfig = None
+                     config: CoreConfig | None = None
                      ) -> list[scoring.core.UnquantizedPart]:
         """
         Returns this object as a list of scoring UnquantizedParts.
@@ -1026,13 +1028,14 @@ class MObj(ABC):
         parts = self.scoringParts()
         return scoring.core.UnquantizedScore(parts, title=title)
 
-    def _scoringAnnotation(self, text: str = None, config: CoreConfig = None
+    def _scoringAnnotation(self, text='', config: CoreConfig | None = None
                            ) -> scoring.attachment.Text:
         """ Returns owns annotations as a scoring Annotation """
         if config is None:
             config = Workspace.active.config
-        if text is None:
-            assert self.label
+        if not text:
+            if not self.label:
+                raise ValueError("This object has no label")
             text = self.label
         from maelzel.textstyle import TextStyle
         labelstyle = TextStyle.parse(config['show.labelStyle'])
@@ -1097,7 +1100,7 @@ class MObj(ABC):
     def write(self,
               outfile: str,
               backend='',
-              resolution: int = None,
+              resolution: int = 0,
               format=''
               ) -> None:
         """
@@ -1171,7 +1174,7 @@ class MObj(ABC):
             backend = cfg['show.backend']
         elif format not in ('pdf', 'png'):
             raise ValueError(f"Unsupported format: {format}")
-        if resolution is not None:
+        if resolution:
             cfg = cfg.clone(updates={'show.pngResolution': resolution})
         r = notation.renderWithActiveWorkspace(self.scoringParts(config=cfg),
                                                backend=backend,
@@ -1191,6 +1194,7 @@ class MObj(ABC):
             of the image and the html img tag.
         """
         imgpath = self._renderImage()
+        from maelzel import _imgtools
         img64, width, height = _imgtools.readImageAsBase64(imgpath)
         if scaleFactor == 0.:
             scaleFactor = Workspace.getConfig().get('show.scaleFactor', 1.0)
@@ -1205,7 +1209,7 @@ class MObj(ABC):
         return rf'<code style="white-space: pre-line; font-size:0.9em;">{txt}</code><br>' + img
 
     def _makeOfflineRenderer(self,
-                             sr: int | None = None,
+                             sr=0,
                              numchannels=2,
                              eventoptions={}
                              ) -> offline.OfflineRenderer:
@@ -1249,24 +1253,20 @@ class MObj(ABC):
         """
         raise NotImplementedError("Subclass should implement this")
 
-    #def events(self, *args, **kws):
-    #    return self.synthEvents(*args, **kws)
-
     def synthEvents(self,
-                    instr: str = None,
-                    delay: float = None,
-                    args: dict[str, float] = None,
-                    gain: float = None,
-                    chan: int = None,
-                    pitchinterpol: str = None,
-                    fade: float | tuple[float, float] = None,
-                    fadeshape: str = None,
-                    position: float = None,
-                    skip: float = None,
-                    end: float = None,
-                    offset: float = None,
-                    sustain: float = None,
-                    workspace: Workspace = None,
+                    instr='',
+                    delay: float | None = None,
+                    args: dict[str, float] | None = None,
+                    gain: float | None = None,
+                    chan: int | None = None,
+                    pitchinterpol='',
+                    fade: float | tuple[float, float] | None = None,
+                    fadeshape='',
+                    position: float | None = None,
+                    skip: float | None = None,
+                    end: float | None = None,
+                    sustain: float | None = None,
+                    workspace: Workspace | None = None,
                     transpose: float = 0.,
                     **kwargs
                     ) -> list[SynthEvent]:
@@ -1348,11 +1348,11 @@ class MObj(ABC):
             db['gain'] = gain
         if chan is not None:
             db['chan'] = chan
-        if pitchinterpol is not None:
+        if pitchinterpol:
             db['pitchinterpol'] = pitchinterpol
         if fade is not None:
             db['fade'] = fade
-        if fadeshape is not None:
+        if fadeshape:
             db['fadeshape'] = fadeshape
         if position is not None:
             db['position'] = position
@@ -1371,7 +1371,7 @@ class MObj(ABC):
         if skip is not None or end is not None or playdelay < 0.:
             skiptime = 0. if skip is None else float(struct.beatToTime(skip))
             endtime = math.inf if end is None else float(struct.beatToTime(end))
-            events = SynthEvent.cropEvents(events, start=max(0, skiptime+playdelay), end=endtime + playdelay)
+            events = SynthEvent.cropEvents(events, start=max(0., skiptime+playdelay), end=endtime + playdelay)
 
         if any(ev.delay < 0 for ev in events):
             raise ValueError(f"Events cannot have negative delay, events={events}")
@@ -1379,23 +1379,22 @@ class MObj(ABC):
         return events
 
     def play(self,
-             instr: str = None,
-             delay: float = None,
-             args: dict[str, float] = None,
-             gain: float = None,
-             chan: int = None,
-             pitchinterpol: str = None,
-             fade: float | tuple[float, float] = None,
-             fadeshape: str = None,
-             position: float = None,
-             skip: float = None,
-             end: float = None,
-             offset: float = None,
-             whenfinished: Callable = None,
-             sustain: float = None,
-             workspace: Workspace = None,
+             instr='',
+             delay: float | None = None,
+             args: dict[str, float] | None = None,
+             gain: float | None = None,
+             chan: int | None = None,
+             pitchinterpol='',
+             fade: float | tuple[float, float] | None = None,
+             fadeshape='',
+             position: float | None = None,
+             skip: float | None = None,
+             end: float | None = None,
+             whenfinished: _t.Callable | None = None,
+             sustain: float | None = None,
+             workspace: Workspace | None = None,
              transpose: float = 0,
-             config: CoreConfig = None,
+             config: CoreConfig | None = None,
              display=False,
              **kwargs
              ) -> csoundengine.synth.SynthGroup:
@@ -1496,14 +1495,13 @@ class MObj(ABC):
                                   skip=skip,
                                   end=end,
                                   transpose=transpose,
-                                  offset=offset,
                                   **kwargs)
 
         if not events:
-            import csoundengine
+            import csoundengine.synth
             group = csoundengine.synth.SynthGroup([])
         else:
-            renderer = workspace.renderer or playback.RealtimeRenderer()
+            renderer = workspace.renderer or realtimerenderer.RealtimeRenderer()
             group = renderer.schedEvents(coreevents=events, whenfinished=whenfinished)
             if display and environment.insideJupyter:
                 from IPython.display import display
@@ -1512,17 +1510,17 @@ class MObj(ABC):
 
     def rec(self,
             outfile='',
-            sr: int = None,
-            verbose: bool = None,
-            wait: bool = None,
-            nchnls: int = None,
-            instr: str = None,
-            delay: float = None,
-            args: dict[str, float] = None,
-            gain: float = None,
-            position: float = None,
-            extratime: float = None,
-            workspace: Workspace = None,
+            sr: int | None = None,
+            verbose: bool | None = None,
+            wait: bool | None = None,
+            nchnls: int | None = None,
+            instr='',
+            delay: float | None = None,
+            args: dict[str, float] | None = None,
+            gain: float | None = None,
+            position: float | None = None,
+            extratime: float | None = None,
+            workspace: Workspace | None = None,
             **kws
             ) -> offline.OfflineRenderer:
         """
@@ -1671,7 +1669,7 @@ class MObj(ABC):
                 placement='above',
                 italic=False,
                 weight='normal',
-                fontsize: int = None,
+                fontsize: int | None = None,
                 fontfamily='',
                 box=''
                 ) -> Self:
@@ -1705,12 +1703,13 @@ class MObj(ABC):
 
         .. image:: assets/event-addText.png
         """
+        from . import symbols as _symbols
         self.addSymbol(_symbols.Text(text, placement=placement, fontsize=fontsize,
                                      italic=italic, weight=weight, fontfamily=fontfamily,
                                      box=box))
         return self
 
-    def timeTransform(self, timemap: Callable[[F], F], inplace=False) -> Self:
+    def timeTransform(self, timemap: _t.Callable[[F], F], inplace=False) -> Self:
         """
         Apply a time-transform to this object
 
@@ -1792,7 +1791,7 @@ class MObj(ABC):
         startbeat = self.absOffset()
         return struct.beatToLocation(startbeat), struct.beatToLocation(startbeat + self.dur)
 
-    def pitchTransform(self, pitchmap: Callable[[float], float]) -> Self:
+    def pitchTransform(self, pitchmap: _t.Callable[[float], float]) -> Self:
         """
         Apply a pitch-transform to this object, returns a copy
 
@@ -1843,7 +1842,7 @@ class MObj(ABC):
         """
         pivotm = asmidi(pivot)
         def transform(pitch, pivot=pivotm):
-            return pivotm * 2 - pitch
+            return pivot * 2 - pitch
         return self.pitchTransform(transform)
 
     def transpose(self, interval: int | float) -> Self:
@@ -1876,14 +1875,14 @@ class MContainer(MObj):
                  offset: F | None = None,
                  label='',
                  parent: MContainer | None = None,
-                 properties: dict[str, Any] | None = None):
+                 properties: dict[str, _t.Any] | None = None):
 
         super().__init__(offset=offset, dur=F0, label=label,
                          properties=properties, parent=parent)
-        self._config: dict[str, Any] = {}
+        self._config: dict[str, _t.Any] = {}
 
     @abstractmethod
-    def __iter__(self) -> Iterator[MObj | MContainer]:
+    def __iter__(self) -> _t.Iterator[MObj | MContainer]:
         raise NotImplementedError
 
     @classmethod
@@ -1945,7 +1944,7 @@ class MContainer(MObj):
         if self._scorestruct:
             other.setScoreStruct(self._scorestruct)
 
-    def setConfig(self, key: str, value: Any) -> None:
+    def setConfig(self, key: str, value: _t.Any) -> None:
         """
         Set a configuration key for this object.
 
@@ -1988,18 +1987,15 @@ class MContainer(MObj):
             raise ValueError(f"Invalid value {value} for key '{key}': {errmsg}")
         self._config[key] = value
 
-    def getConfig(self, prototype: CoreConfig = None) -> CoreConfig | None:
+    def getConfig(self, prototype: CoreConfig | None = None) -> CoreConfig | None:
+        if prototype is None:
+            prototype = Workspace.active.config
         if not self.parent:
-            return None if not self._config else (prototype or Workspace.active.config).clone(self._config)
-        parentconfig = self.parent.getConfig(prototype)
-        if parentconfig is not None and self._config is not None:
-            return parentconfig.clone(self._config)
-        elif parentconfig is not None:
-            return parentconfig
-        elif self._config is not None:
-            return Workspace.active.config.clone(self._config)
-        else:
+            return None if not self._config else prototype.clone(self._config)
+        if (parentconfig := self.parent.getConfig(prototype)) is None:
             return None
+        else:
+            return parentconfig if not self._config else parentconfig.clone(self._config)
 
     def nextEvent(self, event: MObj) -> _event.MEvent | None:
         """
@@ -2095,7 +2091,7 @@ def _renderImage(obj: MObj,
                  config: CoreConfig,
                  backend: str,
                  scorestruct: ScoreStruct,
-                 ) -> render.Renderer:
+                 ) -> Renderer:
     assert outfile and config and backend and scorestruct
     ext = os.path.splitext(outfile)[1].lower()
     if ext not in ('.png', '.pdf'):
@@ -2112,7 +2108,8 @@ def _renderImage(obj: MObj,
         if not os.path.exists(tmpfile):
             raise RuntimeError(f"Could not render {obj} to file '{tmpfile}'")
 
-    _shutil.copy(tmpfile, outfile)
+    import shutil
+    shutil.copy(tmpfile, outfile)
     assert os.path.exists(outfile), f"Could not copy {tmpfile} to {outfile}"
     return renderer
 
@@ -2124,7 +2121,7 @@ def _renderImageCached(obj: MObj,
                        backend: str,
                        scorestruct: ScoreStruct,
                        renderoptions: RenderOptions
-                       ) -> tuple[str, render.Renderer]:
+                       ) -> tuple[str, Renderer]:
     assert fmt in ('pdf', 'png')
     renderer = obj.render(backend=backend, renderoptions=renderoptions, scorestruct=scorestruct,
                           config=config)
@@ -2140,10 +2137,10 @@ def _renderObject(obj: MObj,
                   backend: str,
                   scorestruct: ScoreStruct,
                   config: CoreConfig,
-                  renderoptions: render.RenderOptions,
+                  renderoptions: RenderOptions,
                   quantizationProfile: quant.QuantizationProfile,
                   check=True
-                  ) -> render.Renderer:
+                  ) -> Renderer:
     """
     Render an object
 
@@ -2162,8 +2159,8 @@ def _renderObject(obj: MObj,
 
     Returns:
         a scoring.Renderer. The returned object can be used to render (via the
-        :meth:`~maelzel.scoring.render.Renderer.write` method) or to have access to the
-        generated score (see :meth:`~maelzel.scoring.render.Renderer.nativeScore`)
+        :meth:`~maelzel.scoring.Renderer.write` method) or to have access to the
+        generated score (see :meth:`~maelzel.scoring.Renderer.nativeScore`)
 
     .. note::
 

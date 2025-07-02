@@ -147,7 +147,7 @@ _alterToAccidental = {
 }
 
 
-def _notename(step: str, octave: int, alter: float, accidental: str = '') -> str:
+def _notename(step: str, octave: int, alter: float, accidental='') -> str:
 
     cents = round(alter*100)
     if cents >= 0:

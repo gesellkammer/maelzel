@@ -12,12 +12,14 @@ import textwrap
 from dataclasses import dataclass, field
 from functools import cache
 from typing import TYPE_CHECKING
+from itertools import pairwise
 
 import emlib.filetools
 import emlib.mathlib
 import emlib.textlib
 import pitchtools as pt
-from emlib.iterlib import first, pairwise
+
+from emlib.iterlib import first
 
 from maelzel import _imgtools, _util
 from maelzel._indentedwriter import IndentedWriter
@@ -180,7 +182,7 @@ def markConsecutiveGracenotes(root: Node) -> None:
                 n0.setProperty(".graceGroup", "stop")
                 graceGroupOpen = False
     if graceGroupOpen:
-        if lastn := first(root.recurse(reverse=True)):
+        if lastn := next(root.recurse(reverse=True), None):
             assert lastn.isGracenote
             lastn.setProperty('.graceGroup', 'stop')
 
@@ -265,11 +267,12 @@ class RenderState:
     openSpanners: dict[str, _spanner.Spanner] = field(default_factory=dict)
 
 
-def _renderTextAttachment(attach: attachment.Text, options: RenderOptions, relativeSize=False
+def _renderTextAttachment(attach: attachment.Text,
+                          options: RenderOptions,
                           ) -> str:
     if not attach.role:
         return lilytools.makeText(text=attach.text,
-                                  fontrelative=relativeSize,
+                                  fontrelative=attach.relativeSize,
                                   fontsize=attach.fontsize,
                                   placement=attach.placement or 'above',
                                   italic=attach.italic,
@@ -278,8 +281,8 @@ def _renderTextAttachment(attach: attachment.Text, options: RenderOptions, relat
     elif attach.role == 'label':
         style = TextStyle.parse(options.noteLabelStyle)
         return lilytools.makeText(text=attach.text,
-                                  fontrelative=relativeSize,
-                                  fontsize=attach.fontsize or style.fontsize or 10,
+                                  fontrelative=attach.relativeSize,
+                                  fontsize=attach.fontsize or   style.fontsize or None,
                                   placement=attach.placement or style.placement or 'above',
                                   italic=attach.italic or style.italic,
                                   bold=attach.weight=='bold' or style.bold,
@@ -348,22 +351,25 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
                     logger.warning(f"Attachment {attach} not supported for rests")
         return ' '.join(parts).strip()
 
-    if n.color:
-        # apply color to notehead, stem and ard accidental
-        _(fr'\once \override Beam.color = "{n.color}" '
-          fr'\once \override Stem.color = "{n.color}" '
-          fr'\once \override Accidental.color = "{n.color}" '
-          fr'\once \override Flag.color = "{n.color}" '
-          fr'\once \override NoteHead.color = "{n.color}"')
-
-    if n.sizeFactor is not None and n.sizeFactor != 1:
-        _(rf"\once \magnifyMusic {n.sizeFactor}")
-
-    if n.attachments and (attach := first(a for a in n.attachments if isinstance(a, attachment.StemTraits))):
-        if attach.hidden:
-            _(r"\once \override Stem.transparent = ##t")
-        elif attach.color:
-            _(rf'\once \override Stem.color = "{attach.color}" ')
+    if n.attachments:
+        for attach in n.attachments:
+            if isinstance(attach, attachment.Color):
+                color = attach.color
+                # apply color to notehead, stem and ard accidental
+                _(fr'\once \override Beam.color = "{color}" '
+                  fr'\once \override Stem.color = "{color}" '
+                  fr'\once \override Accidental.color = "{color}" '
+                  fr'\once \override Flag.color = "{color}" '
+                  fr'\once \override NoteHead.color = "{color}"')
+            elif isinstance(attach, attachment.SizeFactor):
+                size = attach.size
+                if size != 1:
+                    _(rf"\once \magnifyMusic {size}")
+            elif isinstance(attach, attachment.StemTraits):
+                if attach.hidden:
+                    _(r"\once \override Stem.transparent = ##t")
+                elif attach.color:
+                    _(rf'\once \override Stem.color = "{attach.color}" ')
 
     if n.isGracenote:
         base, dots = 8, 0
@@ -519,9 +525,9 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         # TODO: cents annotation should follow options (below/above, fontsize)
         if text := util.centsAnnotation(n.pitches,
                                         divsPerSemitone=options.divsPerSemitone,
-                                        addplus=options.centsAnnotationPlusSign,
+                                        addplus=options.centsTextPlusSign,
                                         separator=options.centsAnnotationSeparator,
-                                        snap=options.centsAnnotationSnap):
+                                        snap=options.centsTextSnap):
             fontrelsize = options.centsAnnotationFontsize - options.staffSize
             _(lilytools.makeText(text,
                                  fontsize=fontrelsize,
@@ -810,7 +816,7 @@ def _isSmallDenominator(den: int, quarterTempo: F, eighthNoteThreshold=50) -> bo
 def quantizedPartToLily(part: quant.QuantizedPart,
                         options: RenderOptions,
                         addMeasureMarks=True,
-                        clef: str = None,
+                        clef='',
                         addTempoMarks=True,
                         indents=0,
                         indentSize=2,
@@ -930,7 +936,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
 
         if addMeasureMarks:
             if measureDef.annotation:
-                style = options.parsedMeasureAnnotationStyle
+                style = options.parsedmeasureLabelStyle
                 relfontsize = style.fontsize - options.staffSize if style.fontsize else 0
                 w.line(lilytools.makeTextMark(measureDef.annotation,
                                               fontsize=relfontsize,
@@ -1074,8 +1080,8 @@ def makeScore(score: quant.QuantizedScore,
         if spacingPreset:
             _(spacingPreset)
 
-    if options.lilypondGlissandoMinimumLength:
-        _(lilypondsnippets.glissandoMinimumLength(options.lilypondGlissandoMinimumLength))
+    if options.lilypondGlissMinLength:
+        _(lilypondsnippets.glissandoMinimumLength(options.lilypondGlissMinLength))
 
     _(r"\score {")
     _(r"<<")
@@ -1129,7 +1135,7 @@ class LilypondRenderer(Renderer):
         super().__init__(score, options=options)
         self._withMidi = False
 
-    def render(self, options: RenderOptions = None) -> str:
+    def render(self, options: RenderOptions | None = None) -> str:
         return self._render(options=options if options is not None else self.options)
 
     @cache
@@ -1140,11 +1146,11 @@ class LilypondRenderer(Renderer):
     def writeFormats(self) -> list[str]:
         return ['pdf', 'ly', 'png']
 
-    def write(self, outfile: str, fmt: str = None, removeTemporaryFiles=False) -> None:
+    def write(self, outfile: str, fmt='', removeTemporaryFiles=False) -> None:
         outfile = emlib.filetools.normalizePath(outfile)
         tempbase, ext = os.path.splitext(outfile)
         options = self.options.copy()
-        if fmt is None:
+        if not fmt:
             fmt = ext[1:]
 
         if fmt not in ('png', 'pdf', 'ly', 'mid'):

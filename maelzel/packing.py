@@ -17,12 +17,14 @@ import operator
 import bisect
 from math import sqrt, inf
 
+import typing as _t
+
 
 def asF(x) -> F:
     return x if isinstance(x, F) else F(x)
 
 
-class Item:
+class Item[T]:
     """
     an Item is used to wrap an object to be packed in a Track
 
@@ -39,7 +41,7 @@ class Item:
     __slots__ = ("obj", "offset", "dur", "step", "weight", "end")
 
     def __init__(self,
-                 obj,
+                 obj: T,
                  offset: F | float,
                  dur: F | float,
                  step: float,
@@ -56,7 +58,7 @@ class Item:
                 Currently unused
 
         """
-        self.obj = obj
+        self.obj: T = obj
         self.offset = asF(offset)
         self.dur = asF(dur)
         self.end = self.offset + self.dur
@@ -85,10 +87,10 @@ class Item:
         return self.offset > other.offset
 
 
-class Track:
+class Track[T]:
     """ A Track is a list of non-simultaneous Items """
 
-    def __init__(self, items: list[Item] = None):
+    def __init__(self, items: list[Item[T]] = None):
         """
         Args:
             items: the items  to add to this track
@@ -98,6 +100,9 @@ class Track:
         self._modified = True
         self._minstep: float = 0.
         self._maxstep: float = 0.
+
+    def __iter__(self) -> _t.Iterator[Item[T]]:
+        return iter(self.items)
 
     def _update(self) -> None:
         if not self.items:
@@ -120,7 +125,7 @@ class Track:
             self._update()
         return self._maxstep
 
-    def append(self, item: Item) -> None:
+    def append(self, item: Item[T]) -> None:
         """
         Append an item to this Track
 
@@ -174,31 +179,8 @@ class Track:
         """
         return self.items[-1].end if self.items else F0
 
-    def unwrap(self) -> list:
+    def unwrap(self) -> list[T]:
         return [item.obj for item in self.items]
-
-    def _unwrap(self) -> list:
-        """
-        Unwraps the values inside this track
-
-        Returns:
-            a list with the original items wrapped in each Item in this Track
-
-        In order to implement generic packing the strategy is to:
-
-        1. _packold each object as an Item, explicitely copying into the Item
-            the relvant information from the packed object: offset, duration, step
-        2. call packInTracks. Items are distributed into a list of Tracks
-        3. call unwrap for each Track to retrieve the packed objects
-        """
-        out = []
-        for item in self.items:
-            obj = item.obj
-            if isinstance(obj, list):
-                out.extend(obj)
-            else:
-                out.append(obj)
-        return out
 
     def hasoverlap(self) -> bool:
         if not self.items:
@@ -209,13 +191,13 @@ class Track:
         return False
 
 
-def packInTracks(items: list[Item],
-                 maxrange: float = inf,
-                 maxjump: float = inf,
-                 method='append',
-                 maxtracks: int = None,
-                 mingap=0.,
-                 ) -> list[Track] | None:
+def packInTracks[T](items: list[Item[T]],
+                    maxrange: float = inf,
+                    maxjump: float = inf,
+                    method='append',
+                    maxtracks: int = None,
+                    mingap=F0,
+                    ) -> list[Track[T]] | None:
     """
     Pack the items into tracks, minimizing the amount of tracks needed
 
@@ -296,7 +278,7 @@ def _rateFitAppend(track: Track, item: Item) -> float:
 
 
 def _bestTrackAppend(tracks: list[Track], item: Item, maxrange=inf,
-                     maxjump=inf, mingap=0.
+                     maxjump=inf, mingap=F0
                      ) -> Track | None:
     """
     Returns the best track in tracks to append the item to

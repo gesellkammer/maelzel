@@ -49,7 +49,7 @@ def checkBuildingDocumentation(logger=None) -> bool:
     return building
 
 
-def pngShow(pngpath: str, forceExternal=False, app: str = '', scalefactor=1.0) -> None:
+def pngShow(pngpath: str, forceExternal=False, app='', scalefactor=1.0) -> None:
     """
     Show a png either with an external app or inside jupyter
 
@@ -234,23 +234,11 @@ def parseDuration(s: str) -> F:
     except ValueError:
         pass
 
-    if "*" not in s or "(" not in s:
-        # simple form
-        out = F(0)
-        for term in s.split('+'):
-            out += F(term)
-        return out
-    parts = []
-    cursor = 0
-    for match in re.finditer(r"\d+\/\d+", s):
-        parts.append(s[cursor:match.start()])
-        num, den = match.group().split("/")
-        parts.append(f"F({num}, {den}")
-        cursor = match.end()
-    if cursor < len(s) - 1:
-        parts.append(s[cursor:])
-    s2 = "".join(parts)
-    return eval(s2)
+    try:
+        value = eval(s)
+        return F(value).limit_denominator(1e10)
+    except Exception as e:
+        raise ValueError(str(e))
 
 
 def parsePitch(s: str) -> tuple[str, bool, bool]:
@@ -383,6 +371,7 @@ def parseNote(s: str, check=True) -> NoteProperties:
 
     Args:
         s: the note definition to parse
+        check: check that the notename is valid
 
     Returns:
         a NoteProperties object with the result
@@ -457,15 +446,14 @@ def parseNote(s: str, check=True) -> NoteProperties:
         properties['tied'] = True
         note = note[:-1]
     if "," in note or " " in note:
-        notename = [_ for _ in re.split(r'[\ ,]', note) if _]
+        notename = list(filter(bool, re.split(r'[\ ,]', note)))
     elif note.lower() in ('r', 'rest'):
         notename = 'rest'
     else:
         notename = note
     if check and notename and notename != 'rest':
         if isinstance(notename, list):
-            tokens = [_ for _ in notename if _]
-            for n in tokens:
+            for n in filter(bool, notename):
                 if n[-1] == '!':
                     n = n[:-1]
                 if not pt.is_valid_notename(n, minpitch=0):

@@ -5,23 +5,21 @@ import re
 import textwrap as _textwrap
 from functools import cache
 
-import emlib.textlib as _textlib
+import emlib.textlib
 
 from . import presetutils
 from . import environment
 from ._common import logger
-from . import _tools
-from maelzel import colortheory
+
 from csoundengine import csoundparse
 from csoundengine import instrtools
 
-from maelzel.core.workspace import Workspace
-
-from typing import TYPE_CHECKING, cast as _cast
-if TYPE_CHECKING:
+import typing as _t
+if _t.TYPE_CHECKING:
     from typing import Any, Callable
     import csoundengine.abstractrenderer
     import csoundengine.instr
+    import csoundengine.session
 
 _INSTR_INDENT = "  "
 
@@ -215,7 +213,7 @@ ifadeout = max:i(ifadeout, 1/kr)
         audiovars = [f'aout{i}' for i in range(1, numsignals+1)]
         if withOutput:
             # apply envelope at the end
-            indentation = _textlib.getIndentation(audiogen)
+            indentation = emlib.textlib.getIndentation(audiogen)
             prefix = ' ' * indentation
             envlines = [f'{prefix}{audiovar} *= aenv_' for audiovar in audiovars]
             audiogen = '\n'.join([audiogen] + envlines)
@@ -314,16 +312,16 @@ class PresetDef:
                  name: str,
                  code: str,
                  init='',
-                 includes: list[str] = None,
-                 epilogue: str = '',
-                 args: dict[str, float] = None,
-                 numouts: int = None,
+                 includes: _t.Sequence[str] = (),
+                 epilogue='',
+                 args: dict[str, float] | None = None,
+                 numouts: int | None = None,
                  envelope=True,
                  routing=True,
                  description="",
-                 properties: dict[str, Any] = None,
-                 aliases: dict[str, str] = None,
-                 inithook: Callable[[csoundengine.abstractrenderer.AbstractRenderer], None] = None,
+                 properties: dict[str, Any] | None = None,
+                 aliases: dict[str, str] | None = None,
+                 inithook: Callable[[csoundengine.abstractrenderer.AbstractRenderer], None] | None = None,
                  _builtin=False,
                  ):
         assert isinstance(code, str)
@@ -344,25 +342,25 @@ class PresetDef:
                                withOutput=routing,
                                epilogue=epilogue)
 
-        self.name = name
+        self.name: str = name
         "Name of this preset"
 
-        self.instrname = self.presetNameToInstrName(name)
+        self.instrname: str = self.presetNameToInstrName(name)
         "The name of the corresponding Instrument"
 
         self.init = init
         "Code run before any instance is created"
 
-        self.includes = includes
+        self.includes: tuple[str, ...] = includes if isinstance(includes, tuple) else tuple(includes)
         "Include files needed"
 
         self.parsedAudiogen: ParsedAudiogen = parsedAudiogen
         "The parsed audiogen (a ParsedAudiogen instance)"
 
-        self.code = parsedAudiogen.audiogen
+        self.code: str = parsedAudiogen.audiogen
         "The original audio code itself"
 
-        self.epilogue = epilogue
+        self.epilogue: str = epilogue
         "Code run after any other code"
 
         self.args: dict[str, float] | None = args or parsedAudiogen.inlineArgs
@@ -424,7 +422,7 @@ class PresetDef:
             a dict of all dynamic params of this preset and their default values
         """
         params = self.getInstr().dynamicParams(aliases=aliases, aliased=aliased)
-        return _cast(dict[str, float|str], params)
+        return _t.cast(dict[str, float|str], params)
 
     @staticmethod
     @cache
@@ -475,12 +473,7 @@ class PresetDef:
             print(self.__repr__())
 
     def _repr_html_(self, theme='', showGeneratedCode=False):
-        workspace = Workspace.active
-        assert workspace is not None
-        if not workspace.config['jupyterHtmlRepr']:
-            return f'<pre style="font-size: 0.9em">{self.__repr__()}</pre>'
-
-        span = _tools.htmlSpan
+        from ._tools import htmlSpan as span
         faintcolor = ':grey2'
 
         if self.description:
@@ -510,6 +503,8 @@ class PresetDef:
         codefont = smallfont
         argsfont = smallfont
         fontsize = normalfont
+
+        from maelzel import colortheory
         strcolor = colortheory.safeColors['green2']
         numbercolor = colortheory.safeColors['blue2']
         argcolor = colortheory.safeColors['yellow2']
@@ -619,7 +614,7 @@ class PresetDef:
 def _consolidateInitCode(init: str, includes: list[str]) -> str:
     if includes:
         includesCode = _genIncludes(includes)
-        init = _textlib.joinPreservingIndentation((includesCode, init))
+        init = emlib.textlib.joinPreservingIndentation((includesCode, init))
     return init
 
 

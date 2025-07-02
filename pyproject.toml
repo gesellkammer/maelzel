@@ -11,7 +11,7 @@ authors = [
 ]
 license = { file = "LICENSE.md" }
 readme = "README.rst"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
@@ -79,3 +79,4 @@ maelzel = ['maelzel/data']
 [tool.ruff.lint]
 # 2. Avoid enforcing line-length violations (`E501`)
 ignore = ["E501", "I001", "E402"]
+

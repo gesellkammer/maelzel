@@ -9,19 +9,22 @@ import numpy as np
 import csoundengine
 from csoundengine.sessionhandler import SessionHandler
 
-from maelzel.core._common import logger, prettylog
+from maelzel.core._common import logger
 from maelzel.core.presetdef import PresetDef
 from maelzel.core import presetmanager
 from maelzel.core.workspace import getConfig, Workspace
 from maelzel.core import environment
 from maelzel.core import _playbacktools
 from maelzel.core.synthevent import SynthEvent
-from maelzel.core.renderer import Renderer
-from maelzel.core.automation import SynthAutomation
+import maelzel.core.renderer as _renderer
+import maelzel.core.automation as _automation
+import maelzel.core.realtimerenderer as _realtimerenderer
 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
+    import csoundengine.engine
+    import csoundengine.session
     import csoundengine.baseschedevent
     import csoundengine.schedevent
     import csoundengine.tableproxy
@@ -42,213 +45,6 @@ __all__ = (
 )
 
 
-class RealtimeRenderer(Renderer):
-    """
-    A RealtimeRenderer is created whenever realtime playback is initiated.
-
-    Normally a user does not create a RealtimeRenderer. It is created during
-    playback. There are three gateways to initiate a playback process:
-
-    * :meth:`maelzel.core.MObj.play`. The play method of an object
-      (a :class:`~maelzel.core.event.Note`, a :class:`~maelzel.core.chain.Chain`, a
-      :class:`~maelzel.core.score.Score`)
-      is called, this creates a :class:`RealtimeRenderer` which immediately calls its
-      :meth:`RealtimeRenderer.schedEvents` method
-    * :func:`maelzel.core.playback.play`. This initiates playback for multiple
-      objects / events and syncs the playback as if all the objects where part
-      of a group.
-    * :func:`maelzel.core.playback.synchedplay`. This context manager acts very similar
-      to the `play` function, ensureing that playback is synched.
-
-    """
-
-    def __init__(self, engine: csoundengine.Engine = None):
-        super().__init__(presetManager=presetmanager.presetManager)
-        if engine is None:
-            engine = _playEngine()
-        self.engine: csoundengine.Engine = engine
-        self.session: csoundengine.session.Session = engine.session()
-
-    def isRealtime(self) -> bool:
-        return True
-
-    def assignBus(self, kind='', value: float = None, persist=False
-                  ) -> csoundengine.busproxy.Bus:
-        return self.session.assignBus(kind=kind, value=value, persist=persist)
-
-    def releaseBus(self, bus: int | csoundengine.busproxy.Bus):
-        if isinstance(bus, int):
-            self.engine.releaseBus(bus)
-        else:
-            bus.release()
-
-    def registerPreset(self, presetdef: PresetDef) -> bool:
-        instr = presetdef.getInstr()
-        # The Session itself caches instrs and checks definitions
-        isnew = self.session.registerInstr(instr)
-        if isnew:
-            logger.debug(f"*********** Session registered new instr: '{instr.name}'")
-        self.registeredPresets[presetdef.name] = presetdef
-        return isnew
-
-    def isInstrDefined(self, instrname: str) -> bool:
-        return self.session.getInstr(instrname) is not None
-
-    def getInstr(self, instrname: str) -> csoundengine.instr.Instr:
-        instr = self.session.getInstr(instrname)
-        if instr is None:
-            raise ValueError(f"Instrument '{instrname}' unknown. Possible instruments: "
-                             f"{self.session.registeredInstrs().keys()}")
-        return instr
-
-    def prepareInstr(self, instr: str | csoundengine.instr.Instr, priority: int
-                     ) -> bool:
-        """
-        Prepare the given Instr for scheduling at the given priority
-
-        Args:
-            instr: the Instr or the instr name
-            priority: the priority to schedule the instr at
-
-        Returns:
-            True if the audio engine needs sync
-
-        """
-        instrname = instr if isinstance(instr, str) else instr.name
-        reifiedinstr, needssync = self.session.prepareSched(instrname, priority=priority)
-        return needssync
-
-    def prepareSessionEvent(self, event: csoundengine.event.Event
-                            ) -> bool:
-
-        _, needssync = self.session.prepareSched(instr=event.instrname,
-                                                 priority=event.priority)
-        return needssync
-
-    def _schedSessionEvent(self, event: csoundengine.event.Event
-                           ) -> csoundengine.synth.Synth:
-        assert event.instrname in self.session.instrs
-        return self.session.schedEvent(event)
-
-    def _schedDummyEvent(self, dur=0.001) -> csoundengine.synth.Synth:
-        """
-        Schedule a dummy synth
-
-        Args:
-            dur: the duration of the synth
-
-        Returns:
-            a Synth
-        """
-        return _dummySynth(dur=dur, engine=self.engine)
-
-    def getSynth(self, token: int) -> csoundengine.synth.Synth | None:
-        return self.session.getSynthById(token)
-
-    def schedEvent(self, event: SynthEvent | csoundengine.event.Event
-                   ) -> csoundengine.synth.Synth:
-        if isinstance(event, SynthEvent):
-            if event.initfunc:
-                event.initfunc(event, self)
-            instr = self.presetManager.getInstr(event.instr)
-            pfields5, dynargs = event._resolveParams(instr)
-            return self.sched(instrname=event.instr,
-                              delay=event.delay,
-                              dur=event.dur,
-                              args=pfields5,
-                              priority=event.priority,
-                              whenfinished=event.whenfinished,
-                              **dynargs)  # type: ignore
-        else:
-            return self._schedSessionEvent(event)
-
-    def schedEvents(self,
-                    coreevents: list[SynthEvent],
-                    sessionevents: list[csoundengine.event.Event] = None,
-                    whenfinished: Callable = None
-                    ) -> csoundengine.synth.SynthGroup:
-        """
-        Schedule core and session events in sync
-
-        All initialization is done beforehand so that it can be ensured
-        that the events are scheduled in sync without the need to set a fixed
-        extra latency. This is important when events include playing sound fonts,
-        louding large amounts of data/samples, etc
-
-        Args:
-            coreevents: the core events to schedule
-            sessionevents: the csound events to schedule
-            whenfinished: a callable to be fired when the synths have finished
-
-        Returns:
-            a :class:`csoundengine.synth.Synthgroup` with all the scheduled synths
-        """
-        synths, sessionsynths = _schedEvents(self,
-                                             presetManager=self.presetManager,
-                                             coreevents=coreevents,
-                                             sessionevents=sessionevents,
-                                             whenfinished=whenfinished)
-        numevents = len(coreevents) + (len(sessionevents) if sessionevents else 0)
-        assert len(synths) + len(sessionsynths) == numevents, f"{len(synths)=}, {numevents=}"
-        synths.extend(sessionsynths)
-        return csoundengine.synth.SynthGroup(synths)
-
-    def includeFile(self, path: str) -> None:
-        self.session.includeFile(path)
-
-    def makeTable(self,
-                  data: np.ndarray | list[float] | None = None,
-                  size: int | tuple[int, int] = 0,
-                  sr: int = 0,
-                  tabnum: int = 0
-                  ) -> csoundengine.tableproxy.TableProxy:
-        return self.session.makeTable(data=data, size=size, sr=sr, tabnum=tabnum)
-
-    def readSoundfile(self,
-                      soundfile: str,
-                      chan=0,
-                      skiptime=0.
-                      ) -> csoundengine.tableproxy.TableProxy:
-        return self.session.readSoundfile(path=soundfile, chan=chan, skiptime=skiptime)
-
-    def sched(self,
-              instrname: str,
-              delay: float = 0.,
-              dur: float = -1,
-              priority: int = 1,
-              args: list[float | str] | dict[str, float] = None,
-              whenfinished: Callable = None,
-              relative=True,
-              **kws: dict[str, float | str],
-              ):
-        return self.session.sched(instrname=instrname,
-                                  delay=delay,
-                                  dur=dur,
-                                  args=args,
-                                  priority=priority,
-                                  whenfinished=whenfinished,
-                                  relative=relative,
-                                  **kws)  # type: ignore
-
-    def sync(self):
-        self.engine.sync()
-
-    def pushLock(self):
-        """Lock the sound engine's clock, to schedule a number of synths in sync.
-
-        This is mostly used internally
-        """
-        # self.engine.sync()
-        self.engine.pushLock()
-
-    def popLock(self):
-        """Pop a previously pushed clock lock
-
-        This method is mostly used internally
-        """
-        self.engine.popLock()
-
-
 class _SyncSessionHandler(SessionHandler):
     def __init__(self, renderer: SynchronizedContext):
         self.renderer = renderer
@@ -257,11 +53,8 @@ class _SyncSessionHandler(SessionHandler):
         return self.renderer._schedSessionEvent(event)
 
 
-# <------------------- end RealtimeRenderer
-
-
-def testAudio(duration=4, period=0.5, numChannels: int = None, delay=0.5,
-              backend: str = ''
+def testAudio(duration=4, period=0.5, numChannels: int | None = None, delay=0.5,
+              backend=''
               ) -> None:
     """
     Test the audio engine by sending pink to each channel
@@ -275,8 +68,8 @@ def testAudio(duration=4, period=0.5, numChannels: int = None, delay=0.5,
     """
     engine = _playEngine(numchannels=numChannels, backend=backend)
     if not engine:
-        logger.info("Starting engine...")
         engine = _playEngine(numchannels=numChannels, backend=backend)
+        logger.info(f"Started engine, backend={engine.backend}...")
     engine.testAudio(dur=duration, period=period, delay=delay)
 
 
@@ -311,16 +104,17 @@ def getAudioDevices(backend=''
 
     .. seealso:: :func:`playEngine`
     """
+    import csoundengine.csoundlib
     return csoundengine.csoundlib.getAudioDevices(backend=backend)
 
 
-def _playEngine(numchannels: int = None,
-                backend: str = '',
-                outdev: str = '',
-                verbose: bool = None,
-                buffersize: int = 0,
-                latency: float = None,
-                numbuffers: int = 0
+def _playEngine(numchannels: int | None = None,
+                backend='',
+                outdev='',
+                verbose: bool | None = None,
+                buffersize=0,
+                latency: float | None = None,
+                numbuffers=0
                 ) -> csoundengine.Engine:
     """
     Get the play engine; start it if needed
@@ -352,13 +146,6 @@ def _playEngine(numchannels: int = None,
     config = Workspace.active.config
     engineName = config['play.engineName']
     if engine := csoundengine.Engine.activeEngines.get(engineName):
-        if any(_ is not None for _ in (numchannels, backend, outdev, verbose, buffersize, latency)):
-            prettylog('WARNING',
-                      "\nThe sound engine has been started already. Any configuration passed "
-                      f"will have no effect. To modify the configuration of the engine first "
-                      f"stop the engine (`playEngine().stop()`) and call `playEngine(...)` "
-                      f"with the desired configuration. "
-                      f"\nCurrent sound engine: {engine}")
         return engine
     numchannels = numchannels or config['play.numChannels']
     if backend == "?":
@@ -383,10 +170,6 @@ def _playEngine(numchannels: int = None,
                                  buffersize=buffersize,
                                  a4=config['A4'],
                                  numbuffers=numbuffers)
-    waitAfterStart = config['play.waitAfterStart']
-    if waitAfterStart > 0:
-        import time
-        time.sleep(waitAfterStart)
     # We create the session as soon as possible, to configure the engine for
     # the session's reserved instrument ranges / tables
     _ = engine.session()
@@ -426,10 +209,10 @@ def _builtinInstrs() -> list[csoundengine.instr.Instr]:
     ]
 
 
-def getSession(numchannels: int = None,
-               backend: str = '',
-               outdev: str = '',
-               verbose: bool = None,
+def getSession(numchannels: int | None = None,
+               backend='',
+               outdev='',
+               verbose: bool | None = None,
                buffersize: int = 0,
                latency: float | None = None,
                numbuffers: int = 0,
@@ -511,7 +294,7 @@ def isSessionActive() -> bool:
     return name in csoundengine.Engine.activeEngines
 
 
-def _dummySynth(dur=0.001, engine: csoundengine.Engine = None) -> csoundengine.synth.Synth:
+def _dummySynth(dur=0.001, engine: csoundengine.Engine | None = None) -> csoundengine.synth.Synth:
     if not engine:
         engine = _playEngine()
     session = engine.session()
@@ -519,7 +302,7 @@ def _dummySynth(dur=0.001, engine: csoundengine.Engine = None) -> csoundengine.s
 
 
 def play(*sources: MObj | Sequence[SynthEvent] | csoundengine.event.Event,
-         whenfinished: Callable = None,
+         whenfinished: Callable | None = None,
          **eventparams
          ) -> csoundengine.synth.SynthGroup | SynchronizedContext:
     """
@@ -608,114 +391,114 @@ def play(*sources: MObj | Sequence[SynthEvent] | csoundengine.event.Event,
         if engine.nchnls < numChannels:
             logger.error("Some events output to channels outside of the engine's range")
 
-    rtrenderer = RealtimeRenderer(engine=engine)
+    rtrenderer = _realtimerenderer.RealtimeRenderer(engine=engine)
     return rtrenderer.schedEvents(coreevents=coreevents, sessionevents=sessionevents, whenfinished=whenfinished)
 
 
-def _schedEvents(renderer: RealtimeRenderer,
-                 coreevents: list[SynthEvent],
-                 presetManager: presetmanager.PresetManager,
-                 sessionevents: list[csoundengine.event.Event] = None,
-                 posthook: Callable[[list[csoundengine.synth.Synth]], None] | None = None,
-                 whenfinished: Callable = None,
-                 locked=True
-                 ) -> tuple[list[csoundengine.synth.Synth], list[csoundengine.synth.Synth]]:
-    """
-    Schedule events in synch
+# def _schedEvents(renderer: _realtimerenderer.RealtimeRenderer,
+#                  coreevents: list[SynthEvent],
+#                  presetManager: presetmanager.PresetManager,
+#                  sessionevents: list[csoundengine.event.Event] = None,
+#                  posthook: Callable[[list[csoundengine.synth.Synth]], None] | None = None,
+#                  whenfinished: Callable = None,
+#                  locked=True
+#                  ) -> tuple[list[csoundengine.synth.Synth], list[csoundengine.synth.Synth]]:
+#     """
+#     Schedule events in synch
+#
+#     Args:
+#         renderer: the renderer
+#         coreevents: all SynthEvents generated by maelzel.core objects
+#         presetManager: the preset manager to translate presets in real csoundengine instrs
+#         sessionevents: pure csoundengine events
+#         posthook: a callback to be called after events have been scheduled
+#         whenfinished: a callback to be fired when all events here are finished
+#         locked: lock the renderer's clock
+#
+#     Returns:
+#         a tuple (coresynths, sessionsynths) where coresynths is a list of Synths generated
+#         by the core events (one synth per SynthEvent) and sessionsynths are the synths
+#         generated by the sessionevents (one synth per session event)
+#     """
+#     needssync = renderer.prepareEvents(events=coreevents, sessionevents=sessionevents)
+#     resolvedParams = [ev._resolveParams(instr=presetManager.getInstr(ev.instr))
+#                       for ev in coreevents]
+#
+#     if whenfinished and renderer.isRealtime():
+#         lastevent = max(coreevents, key=lambda ev: ev.end if ev.end > 0 else float('inf'))
+#         lastevent.whenfinished = lambda id: whenfinished() if not lastevent.whenfinished else lambda id, ev=lastevent: ev.whenfinished(id) or whenfinished()
+#
+#     if needssync:
+#         renderer.sync()
+#
+#     if len(coreevents) + (0 if not sessionevents else len(sessionevents)) < 2:
+#         locked = False
+#
+#     if locked:
+#         renderer.pushLock()  # <---------------- Lock
+#
+#     synths: list[csoundengine.synth.Synth] = []
+#     for coreevent, (pfields5, dynargs) in zip(coreevents, resolvedParams):
+#         if coreevent.gain == 0:
+#             synths.append(renderer._schedDummyEvent())
+#             continue
+#
+#         synth = renderer.sched(PresetDef.presetNameToInstrName(coreevent.instr),
+#                                delay=coreevent.delay,
+#                                dur=coreevent.dur,
+#                                args=pfields5,
+#                                priority=coreevent.priority,
+#                                whenfinished=coreevent.whenfinished,
+#                                **dynargs)  # type: ignore
+#         synths.append(synth)
+#         if coreevent.automationSegments:
+#             instr = presetManager.getInstr(coreevent.instr)
+#             for segment in coreevent.automationSegments:
+#                 if segment.pretime is None:
+#                     # a point
+#                     synth.set(segment.param, segment.value, delay=segment.time)
+#                 else:
+#                     # a segment
+#                     if (prevalue := segment.prevalue) is None:
+#                         prevalue = instr.dynamicParams().get(segment.param)
+#                         if prevalue is None:
+#                             raise ValueError(f"Default value for {segment.param} not known, "
+#                                              f"default values: {instr.dynamicParams()} (instr={instr})")
+#                     pairs = [0, prevalue,
+#                              segment.time - segment.pretime, segment.value]
+#                     synth.automate(param=segment.param, pairs=pairs, delay=segment.pretime)
+#         if coreevent.automations:
+#             for automation in coreevent.automations:
+#                 synth.automate(param=automation.param, pairs=automation.data, delay=automation.delay)
+#
+#     if sessionevents:
+#         sessionsynths = []
+#         for ev in sessionevents:
+#             synth = renderer._schedSessionEvent(ev)
+#             sessionsynths.append(synth)
+#             if ev.automations:
+#                 for automation in ev.automations:
+#                     synth.automate(param=automation.param,
+#                                    pairs=automation.pairs,
+#                                    delay=automation.delay,
+#                                    mode=automation.interpolation,
+#                                    overtake=automation.overtake)
+#
+#         # sessionsynths = [renderer._schedSessionEvent(ev) for ev in sessionevents]
+#
+#         # synths.extend(sessionsynths)
+#     else:
+#         sessionsynths = []
+#
+#     if posthook:
+#         posthook(synths)
+#
+#     if locked:
+#         renderer.popLock()  # <----------------- Unlock
+#     return synths, sessionsynths
 
-    Args:
-        renderer: the renderer
-        coreevents: all SynthEvents generated by maelzel.core objects
-        presetManager: the preset manager to translate presets in real csoundengine instrs
-        sessionevents: pure csoundengine events
-        posthook: a callback to be called after events have been scheduled
-        whenfinished: a callback to be fired when all events here are finished
-        locked: lock the renderer's clock
 
-    Returns:
-        a tuple (coresynths, sessionsynths) where coresynths is a list of Synths generated
-        by the core events (one synth per SynthEvent) and sessionsynths are the synths
-        generated by the sessionevents (one synth per session event)
-    """
-    needssync = renderer.prepareEvents(events=coreevents, sessionevents=sessionevents)
-    resolvedParams = [ev._resolveParams(instr=presetManager.getInstr(ev.instr))
-                      for ev in coreevents]
-
-    if whenfinished and renderer.isRealtime():
-        lastevent = max(coreevents, key=lambda ev: ev.end if ev.end > 0 else float('inf'))
-        lastevent.whenfinished = lambda id: whenfinished() if not lastevent.whenfinished else lambda id, ev=lastevent: ev.whenfinished(id) or whenfinished()
-
-    if needssync:
-        renderer.sync()
-
-    if len(coreevents) + (0 if not sessionevents else len(sessionevents)) < 2:
-        locked = False
-
-    if locked:
-        renderer.pushLock()  # <---------------- Lock
-
-    synths: list[csoundengine.synth.Synth] = []
-    for coreevent, (pfields5, dynargs) in zip(coreevents, resolvedParams):
-        if coreevent.gain == 0:
-            synths.append(renderer._schedDummyEvent())
-            continue
-
-        synth = renderer.sched(PresetDef.presetNameToInstrName(coreevent.instr),
-                               delay=coreevent.delay,
-                               dur=coreevent.dur,
-                               args=pfields5,
-                               priority=coreevent.priority,
-                               whenfinished=coreevent.whenfinished,
-                               **dynargs)  # type: ignore
-        synths.append(synth)
-        if coreevent.automationSegments:
-            instr = presetManager.getInstr(coreevent.instr)
-            for segment in coreevent.automationSegments:
-                if segment.pretime is None:
-                    # a point
-                    synth.set(segment.param, segment.value, delay=segment.time)
-                else:
-                    # a segment
-                    if (prevalue := segment.prevalue) is None:
-                        prevalue = instr.dynamicParams().get(segment.param)
-                        if prevalue is None:
-                            raise ValueError(f"Default value for {segment.param} not known, "
-                                             f"default values: {instr.dynamicParams()} (instr={instr})")
-                    pairs = [0, prevalue,
-                             segment.time - segment.pretime, segment.value]
-                    synth.automate(param=segment.param, pairs=pairs, delay=segment.pretime)
-        if coreevent.automations:
-            for automation in coreevent.automations:
-                synth.automate(param=automation.param, pairs=automation.data, delay=automation.delay)
-
-    if sessionevents:
-        sessionsynths = []
-        for ev in sessionevents:
-            synth = renderer._schedSessionEvent(ev)
-            sessionsynths.append(synth)
-            if ev.automations:
-                for automation in ev.automations:
-                    synth.automate(param=automation.param,
-                                   pairs=automation.pairs,
-                                   delay=automation.delay,
-                                   mode=automation.interpolation,
-                                   overtake=automation.overtake)
-
-        # sessionsynths = [renderer._schedSessionEvent(ev) for ev in sessionevents]
-
-        # synths.extend(sessionsynths)
-    else:
-        sessionsynths = []
-
-    if posthook:
-        posthook(synths)
-
-    if locked:
-        renderer.popLock()  # <----------------- Unlock
-    return synths, sessionsynths
-
-
-class SynchronizedContext(Renderer):
+class SynchronizedContext(_renderer.Renderer):
     """
     Context manager to group realtime events to ensure synched playback
 
@@ -770,7 +553,7 @@ class SynchronizedContext(Renderer):
         >>> ctx
     """
     def __init__(self,
-                 whenfinished: Callable = None,
+                 whenfinished: Callable | None = None,
                  display=False):
 
         super().__init__(presetManager=presetmanager.presetManager)
@@ -789,9 +572,6 @@ class SynchronizedContext(Renderer):
 
         self._instrDefs: dict[str, csoundengine.instr.Instr] = {}
         """An index of registered Instrs"""
-
-        # self._automationEvents: list[SynthAutomation] = []
-        # """A list of all the automation events scheduled"""
 
         self._futureSynths: list[_FutureSynth] = []
         """A list of all synths scheduled"""
@@ -939,8 +719,8 @@ class SynchronizedContext(Renderer):
 
     def schedEvents(self,
                     coreevents: list[SynthEvent],
-                    sessionevents: list[csoundengine.event.Event] = None,
-                    whenfinished: Callable = None
+                    sessionevents: list[csoundengine.event.Event] | None = None,
+                    whenfinished: Callable | None = None
                     ) -> _FutureSynthGroup:
         """
         Schedule multiple events at once
@@ -1040,14 +820,13 @@ class SynchronizedContext(Renderer):
         corefutures = [f for f in self._futureSynths if f.kind == 'synthevent']
         sessionfutures = [f for f in self._futureSynths if f.kind == 'sessionevent']
 
-        renderer = RealtimeRenderer()
+        renderer = _realtimerenderer.RealtimeRenderer(engine=self.engine)
         coreevents = [f._synthevent() for f in corefutures]
         sessionevents = [f._csoundevent() for f in sessionfutures]
-        synths, sessionsynths = _schedEvents(renderer,
-                                             presetManager=self.presetManager,
-                                             coreevents=coreevents,
-                                             sessionevents=sessionevents,
-                                             whenfinished=self._finishedCallback)
+        synths, sessionsynths = renderer._schedEvents(presetManager=self.presetManager,
+                                                      coreevents=coreevents,
+                                                      sessionevents=sessionevents,
+                                                      whenfinished=self._finishedCallback)
 
         for idx, synth in enumerate(synths):
             token = corefutures[idx].token
@@ -1116,7 +895,7 @@ class SynchronizedContext(Renderer):
               delay=0.,
               dur=-1.,
               priority=1,
-              args: list[float] | dict[str, float] = None,
+              args: list[float] | dict[str, float] | None = None,
               whenfinished: Callable | None = None,
               **kws: float | str) -> _FutureSynth:
         """
@@ -1338,7 +1117,7 @@ class _FutureSynth(csoundengine.baseschedevent.BaseSchedEvent, csoundengine.synt
             raise ValueError(f"Parameter {param} unknown for instr {self.instr}. "
                              f"Possible parameters: {params}")
         if isinstance(self.event, SynthEvent):
-            self.event.addAutomation(SynthAutomation(param=param, data=pairs, delay=delay, interpolation=mode, overtake=overtake))  # type: ignore
+            self.event.addAutomation(_automation.SynthAutomation(param=param, data=pairs, delay=delay, interpolation=mode, overtake=overtake))  # type: ignore
         else:
             # A Session event
             self.event.automate(param=param, pairs=pairs, delay=delay, interpolation=mode, overtake=overtake)  # type: ignore
@@ -1461,3 +1240,4 @@ class _FutureSynthGroup(csoundengine.baseschedevent.BaseSchedEvent):
             return synthgroup._repr_html_()
         else:
             return repr(self)
+

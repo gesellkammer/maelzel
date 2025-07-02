@@ -38,11 +38,11 @@ class RenderOptions:
     centsAnnotationSeparator: str = ','
     """Separator for cents annotations to be used in chords"""
 
-    centsAnnotationSnap: int = 2
+    centsTextSnap: int = 2
     """No cents annotation is added to a pitch if it is within this number of
     cents from the nearest microtone accoring to divsPerSemitone"""
 
-    centsAnnotationPlusSign: bool = False
+    centsTextPlusSign: bool = False
     """Show a plus sign for possitive cents annotations"""
 
     noteLabelStyle: str = 'fontsize=10'
@@ -97,7 +97,7 @@ class RenderOptions:
     rehearsalMarkStyle: str = 'box=square; bold; fontsize=13'
     """Text style used for rehearsal marks"""
 
-    measureAnnotationStyle: str = 'box=rectangle; fontsize=12'
+    measureLabelStyle: str = 'box=rectangle; fontsize=12'
     """Style used for measure annotations"""
 
     enharmonicGroupSize: int = 6
@@ -132,7 +132,7 @@ class RenderOptions:
     lilypondPngStaffsizeScale: float = 1.4
     """Png staffsize scaling when rendering to lilypond"""
 
-    lilypondGlissandoMinimumLength: int = 5
+    lilypondGlissMinLength: int = 5
     """Mininum length of the glissando line when rendering with lilypond.
     This is to avoid too short glissandi actually not showing at all"""
 
@@ -167,6 +167,9 @@ class RenderOptions:
 
     keepClefBiasFactor: float = 2.0
     """The higher this value, the more priority is given to keeping the previous clef"""
+
+    clefSimplificationThreshold: float = 0.
+    """Threshold used to simplify automatic clef changes"""
 
     compoundMeterSubdivision: str = 'all'
     """Sets the subdivision policy for compound meters. One of 'all', 'none', 'heterogeneous'
@@ -292,7 +295,7 @@ class RenderOptions:
     @staticmethod
     def parseTextStyle(style: str) -> TextStyle:
         """
-        Parses a textstyle (measureAnnotatioNStyle, rehearsalMarkStyle, ...)
+        Parses a textstyle (measureLabelStyle, rehearsalMarkStyle, ...)
 
         Args:
             style: the style to parse
@@ -312,14 +315,14 @@ class RenderOptions:
         return TextStyle.parse(self.rehearsalMarkStyle)
 
     @property
-    def parsedMeasureAnnotationStyle(self) -> TextStyle:
+    def parsedmeasureLabelStyle(self) -> TextStyle:
         """
         Parses the measure annotation style
 
         Returns:
             a TextStyle
         """
-        return TextStyle.parse(self.measureAnnotationStyle)
+        return TextStyle.parse(self.measureLabelStyle)
 
     def makeEnharmonicOptions(self) -> enharmonics.EnharmonicOptions:
         """

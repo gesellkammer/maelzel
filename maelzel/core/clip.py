@@ -4,9 +4,7 @@ import pitchtools as pt
 import numpy as np
 import os
 
-
 from maelzel.common import F, asF, F0, F1, asmidi
-from maelzel.core.config import CoreConfig
 from maelzel.core import event
 from maelzel.core.synthevent import SynthEvent
 from maelzel.core.workspace import Workspace
@@ -19,11 +17,11 @@ if TYPE_CHECKING:
     from maelzel.common import time_t, pitch_t
     from typing_extensions import Self
     from maelzel.core.synthevent import PlayArgs
-    from maelzel.core import playback
-    from maelzel import scoring#
+    from maelzel import scoring
     import csoundengine
     from maelzel.scorestruct import ScoreStruct
-
+    from maelzel.core.config import CoreConfig
+    from maelzel.core.renderer import Renderer
 
 
 __all__ = (
@@ -84,7 +82,8 @@ class Clip(event.MEvent):
                  '_csoundTable',
                  '_sample',
                  '_durContext',
-                 '_explicitDur'
+                 '_explicitDur',
+                 '_cache'
                  )
 
     def __init__(self,
@@ -101,7 +100,7 @@ class Clip(event.MEvent):
                  label: str = '',
                  dynamic: str = '',
                  tied=False,
-                 noteheadShape: str = None
+                 noteheadShape=''
                  ):
         if source == '?':
             from maelzel.core import _dialogs
@@ -148,6 +147,8 @@ class Clip(event.MEvent):
 
         self._explicitDur: F | None = None if dur is None else asF(dur)
 
+        self._cache = {}
+
         if isinstance(source, tuple) and len(source) == 2 and isinstance(source[0], np.ndarray):
             data, sr = source
             assert isinstance(data, np.ndarray)
@@ -191,7 +192,7 @@ class Clip(event.MEvent):
         self._speed: F = asF(speed)
         """Playback speed"""
 
-        self._sample: audiosample.Sample|None = None
+        self._sample: audiosample.Sample | None = None
         self._durContext: tuple[ScoreStruct, F] | None = None
 
         if pitch is None:
@@ -378,16 +379,11 @@ class Clip(event.MEvent):
                                         numchans=self.numChannels,
                                         initfunc=self._initEvent)
 
-        # event = SynthEvent(bps=bps,
-        #                    linkednext=self.tied,
-        #                    numchans=self.numChannels,
-        #                    initfunc=self._initEvent,
-        #                    **playargs.db)
         if playargs.automations:
             event.addAutomationsFromPlayArgs(playargs, scorestruct=scorestruct)
         return [event]
 
-    def _initEvent(self, event: SynthEvent, renderer: playback.Renderer):
+    def _initEvent(self, event: SynthEvent, renderer: Renderer) -> None:
         if self._playbackMethod == 'table':
             if not self._csoundTable:
                 if isinstance(self.source, audiosample.Sample):
@@ -397,8 +393,104 @@ class Clip(event.MEvent):
                     self._csoundTable = renderer.readSoundfile(self.soundfile)
             event._ensureArgs()['isndtab'] = self._csoundTable
 
+    def spectrum(self, resolution=50., windowsize=0., mindb=-90., hoptime=0., minfreq=0, maxfreq=0, start=0., end=0.):
+        """
+        Analyze this sample to construct a partial tracking spectrum
+
+        Args:
+            resolution: analysis resolution in Hz
+            windowsize: the window size, in Hz. Normally higher than resolution, defaults
+                to the same as resolution
+            mindb: min. amplitude for any bin to be used for partial tracking
+            hoptime: time offset between analysis windows. For an overlap of n, use
+                1/(windowsize*n)
+            minfreq: partials with an average freq. lower than this will be discarded
+            maxfreq: partials with an average freq. higher than this will be discarded
+            start: start time of the analysis, in seconds
+            end: end time of the analysis, in seconds
+
+        Returns:
+            a :class:`maelzel.partialtracking.spectrum.Spectrum`
+        """
+        if not windowsize:
+            windowsize = resolution
+        if hoptime == 0.:
+            hoptime = 1/(windowsize * 4)
+        if maxfreq == 0:
+            maxfreq = self.sr / 2
+        if end == 0:
+            end = float(self.sourceDurSecs)
+        cachekey = (resolution, windowsize, hoptime, minfreq, maxfreq, start, end)
+        if (subcache := self._cache.get('.spectrum')) is None:
+            self._cache['.spectrum'] = subcache = {}
+        elif spec := subcache.get(cachekey):
+            return spec
+        sample = self.asSample()
+        if end == 0:
+            end = sample.duration
+        elif end < 0:
+            end = sample.duration + end
+        else:
+            end = min(end, sample.duration)
+        assert end > start
+        if start > 0 or end < sample.duration:
+            sample = sample[start:end]
+        spec = sample.partialTrackingAnalysis(resolution=resolution, windowsize=windowsize, mindb=mindb, hoptime=hoptime)
+        if maxfreq:
+            partials = [p for p in spec.partials if minfreq <= p.meanfreq() < maxfreq]
+            spec = spec.__class__(partials)
+        if len(subcache) == 10:   # Evict oldest cached spectrum
+            del subcache[next(iter(subcache.keys()))]
+        subcache[cachekey] = spec
+        return spec
+
+    def chordsAt(self,
+                 times: list[float],
+                 resolution: float = 50,
+                 windowsize=0.,
+                 mindb=-90,
+                 dur: time_t = None,
+                 maxcount=0,
+                 ampfactor=1.,
+                 maxfreq=2000,
+                 minfreq=0.,
+                 averageAmplitude=False
+                 ) -> list[event.Chord | event.Note]:
+        margin = 1/resolution * 8
+        start = max(0., times[0] - margin)
+        end = times[-1] + margin
+        spectrum = self.spectrum(resolution=resolution, mindb=mindb, windowsize=windowsize, start=start, end=end)
+        chords = []
+        minamp = pt.db2amp(mindb)
+        minfreq = max(minfreq, resolution * 0.8)
+        for i, time in enumerate(times):
+            partials = spectrum.partialsBetween(start=time, end=time)
+            eventdur = dur or (times[i+1] - time if i < len(times) - 1 else F(1))
+            if not partials:
+                chords.append(event.Rest(dur=eventdur))
+            else:
+                bps = [partial.at(time) for partial in partials]
+                bps = [bp for bp in bps if minfreq <= bp[0] < maxfreq and bp[1] > minamp]
+                if maxcount > 0:
+                    bps.sort(key=lambda bp: bp[1], reverse=True)
+                    bps = bps[:maxcount]
+                if not bps:
+                    chords.append(event.Rest(dur=eventdur))
+                else:
+                    components = [event.Note(pt.f2m(bp[0]), amp=bp[1] * ampfactor, properties={'bandwidth': bp[3]})
+                                  for bp in bps]
+                    if averageAmplitude:
+                        for note in components:
+                            note.amp = 1.
+                        chordamp = sum(bp[1] for bp in bps) / len(bps)
+                    else:
+                        chordamp = 1.
+                    chord = event.Chord(components, dur=dur, amp=chordamp, properties={'time': time})
+                    chords.append(chord)
+        return chords
+
     def chordAt(self,
-                time: time_t,
+                time: float,
                 resolution: float = 50,
                 channel=0,
                 mindb=-90,
@@ -406,7 +498,7 @@ class Clip(event.MEvent):
                 maxcount=0,
                 ampfactor=1.0,
                 maxfreq=20000,
-                minfreq: int = None
+                minfreq=0
                 ) -> event.Chord | None:
         """
         Analyze the spectrum at the given time and extract the most relevant partials
@@ -415,10 +507,8 @@ class Clip(event.MEvent):
         components at the given time are extracted and returned in the form of a
         chord
 
-        See
-
         Args:
-            time: the time to analyze. This is a time within the clip, in seconds
+            time: the time to analyze. This is a time in seconds within the clip
             resolution: the resolution of the analysis, in Hz
             channel: which channel to analyze, for multichannel clips
             mindb: the min. amplitude (in dB) for a component to be included
@@ -435,7 +525,7 @@ class Clip(event.MEvent):
 
         """
         sample = self.asSample()
-        pairs = sample.spectrumAt(float(time), resolution=resolution, channel=channel,
+        pairs = sample.spectrumAt(time, resolution=resolution, channel=channel,
                                   mindb=mindb, maxcount=maxcount, maxfreq=maxfreq,
                                   minfreq=minfreq)
         if not pairs:

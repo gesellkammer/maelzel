@@ -4,15 +4,13 @@ from dataclasses import dataclass
 
 import bpf4
 import pitchtools as pt
-from emlib import mathlib
 from emlib import iterlib
 
 # from maelzel import histogram
+from maelzel.common import asF
 from maelzel import stats
-from maelzel.snd import amplitudesensitivity
 from maelzel.mathutils import linexp
-
-from .track import Track
+from .partialtrack import PartialTrack
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -26,7 +24,7 @@ def _estimateMinFreq(spectrum: sp.Spectrum) -> float:
     return float(f0.map(1000).min())
 
 
-def _ratePartial(track: Track, partial: Partial, maxrange: int | None = None, mingap=0.1) -> float:
+def _ratePartial(track: PartialTrack, partial: Partial, maxrange: int | None = None, mingap=0.1) -> float:
     """
     The higher, the best. -1 indicates that the partial does not fit the track
     """
@@ -35,18 +33,15 @@ def _ratePartial(track: Track, partial: Partial, maxrange: int | None = None, mi
     if not track.partials:
         margin = partial.start
         mingap = 0
-        # prevPitch = partialPitch
 
     elif track.end < partial.start:
         margin = partial.start - track.end
         if margin < mingap:
             return -1
-        # prevPitch = pt.f2m(track.partials[-1].meanfreq())
     elif track.start >= partial.start:
         margin = track.start - partial.end
         if margin < mingap:
             return -1
-        # prevPitch = pt.f2m(track.partials[0].meanfreq())
     else:
         prevPartialIdx = track.partialBefore(partial.start)
         assert prevPartialIdx is not None, f"{partial=}, partials={track.partials}, {track.start=}"
@@ -58,29 +53,28 @@ def _ratePartial(track: Track, partial: Partial, maxrange: int | None = None, mi
             return -1
         margin = min(partial.start - prevPartial.end, nextPartial.start - partial.end)
         assert margin >= mingap
-        # prevPitch = pt.f2m(prevPartial.meanfreq())
     marginRating = bpf4.Smooth.fromseq(mingap, 1, 1, 0.01, 5, 0.0001)(margin)
     marginWeight, rangeWeight, wrangeWeight = 3, 1, 1
+    import emlib.mathlib
     if not track.partials:
-        return mathlib.weighted_euclidian_distance([(marginRating, marginWeight),
-                                                    (1, rangeWeight),
-                                                    (1, wrangeWeight)])
+        return emlib.mathlib.weighted_euclidian_distance([(marginRating, marginWeight),
+                                                          (1, rangeWeight),
+                                                          (1, wrangeWeight)])
     trackminnote, trackmaxnote = track.minnote, track.maxnote
     rangeWithPartial = max(trackmaxnote, partialPitch) - min(trackminnote, partialPitch)
     if rangeWithPartial > maxrange:
         return -1
-    # rangeRating = bpf4.Expon.fromseq(0, 1, maxrange, 0.001, exp=1)(rangeWithPartial)
     rangeRating = linexp(rangeWithPartial, 1., 0, 1, maxrange, 0.001)
     trackPitch = track.meanpitch()
     pitchdiff = abs(trackPitch - pt.f2m(partial.meanfreq()))
     wrangeRating = bpf4.Halfcos.fromseq(0, 1, maxrange, 0.0001, exp=0.5)(pitchdiff)
-    total = mathlib.weighted_euclidian_distance([(marginRating, marginWeight),
-                                                 (rangeRating, rangeWeight),
-                                                 (wrangeRating, wrangeWeight)])
+    total = emlib.mathlib.weighted_euclidian_distance([(marginRating, marginWeight),
+                                                       (rangeRating, rangeWeight),
+                                                       (wrangeRating, wrangeWeight)])
     return total
 
 
-def bestTrack(tracks: list[Track], partial: Partial, mingap=0.1) -> Track | None:
+def bestTrack(tracks: list[PartialTrack], partial: Partial, mingap=0.1) -> PartialTrack | None:
     bestrating, besttrack = 0., None
     for track in tracks:
         rating = _ratePartial(track, partial, mingap=mingap)
@@ -91,15 +85,15 @@ def bestTrack(tracks: list[Track], partial: Partial, mingap=0.1) -> Track | None
     return besttrack
 
 
-def _pack(spectrum: sp.Spectrum,
-          numtracks: int,
-          maxrange: int,
-          mingap: float,
-          chanexp: float,
-          method: str,
-          numchannels: int | None = None,
-          minfreq=50.,
-          maxfreq=12000.):
+def _pack_old(spectrum: sp.Spectrum,
+              numtracks: int,
+              maxrange: int,
+              mingap: float,
+              chanexp: float,
+              method: str,
+              numchannels: int | None = None,
+              minfreq=50.,
+              maxfreq=12000.) -> tuple[list[PartialTrack], list[Partial]]:
 
     from maelzel import distribute
     from .packchannel import Channel
@@ -119,7 +113,7 @@ def _pack(spectrum: sp.Spectrum,
 
     chanWeights = [ch.weight() for ch in channels]
     numtracksPerChan = [numtracks+1 for numtracks in distribute.dohndt(numtracks-numchannels, chanWeights)]
-    tracks: list[Track] = []
+    tracks: list[PartialTrack] = []
     rejected0: list[Partial] = []
     for ch, tracksPerChan in zip(channels, numtracksPerChan):
         ch.pack(tracksPerChan, maxrange=maxrange, mingap=mingap, method=method)
@@ -144,10 +138,10 @@ def _pack(spectrum: sp.Spectrum,
 
 @dataclass
 class SplitResult:
-    tracks: list[Track]
+    tracks: list[PartialTrack]
     """The fitted tracks"""
 
-    noisetracks: list[Track]
+    noisetracks: list[PartialTrack]
     """Noise tracks, if any"""
 
     residual: list[Partial]
@@ -188,7 +182,8 @@ def optimizeSplit(partials: list[Partial],
                   debug=False
                   ) -> SplitResult:
     if distributions is not None:
-        results = []
+        # Pick best distribution from the given distributions
+        results: list[tuple[float, float, list[PartialTrack], list[PartialTrack], list[Partial]]] = []
         for distr in distributions:
             if debug:
                 print("Evaluating distribution", distr)
@@ -214,12 +209,13 @@ def optimizeSplit(partials: list[Partial],
             print(f"Best distribution: {best[1]} (energy: {best[0]})")
         return SplitResult(distribution=best[1], tracks=best[2], noisetracks=best[3], residual=best[4])
     else:
+        # Find best distribution which maximizes audibility
         from scipy import optimize
-        results = {}
+        distrToResult: dict[float, tuple[float, list[PartialTrack], list[PartialTrack], list[Partial]]] = {}
         totalEnergy = sum(p.audibility() for p in partials)
         curve = bpf4.Linear.fromseq(0, 0.2, 0.5, 1, 1, 6)
 
-        def func(distr0):
+        def func(distr0: float) -> float:
             distr = curve(distr0)
             if debug:
                 print("Evaluating distribution", distr)
@@ -236,12 +232,14 @@ def optimizeSplit(partials: list[Partial],
                 noisefreq=noisefreq,
                 noisebw=noisebw,
                 debug=debug)
-            results[distr0] = (distr, tracks, residualtracks, unfitted)
+            distrToResult[distr0] = (distr, tracks, residualtracks, unfitted)
             packedEnergy = sum(sum(p.audibility() for p in track) for track in tracks)
             return 1 - (packedEnergy - totalEnergy)
 
-        r: optimize.OptimizeResult = optimize.minimize_scalar(func, bounds=(0, 1), tol=0.01)
-        distr, tracks, residualtracks, unfitted = results[r['x']]
+        r = optimize.minimize_scalar(func, bounds=(0, 1), tol=0.01)
+        assert isinstance(r, optimize.OptimizeResult)
+        bestdistr = r['x']
+        distr, tracks, residualtracks, unfitted = distrToResult[bestdistr]
         return SplitResult(distribution=distr, tracks=tracks, noisetracks=residualtracks, residual=unfitted)
 
 
@@ -257,7 +255,7 @@ def splitInTracks(partials: list[Partial],
                   noisefreq=4000,
                   noisebw=0.05,
                   debug=False
-                  ) -> tuple[list[Track], list[Track], list[Partial]]:
+                  ) -> tuple[list[PartialTrack], list[PartialTrack], list[Partial]]:
     """
     Split the partials into tracks
 
@@ -285,10 +283,10 @@ def splitInTracks(partials: list[Partial],
     items = [packing.Item(obj=partial, offset=partial.start, dur=partial.duration, step=pt.f2m(partial.meanfreq()))
              for partial in partials]
 
-    packingtracks = packing.packInTracks(items, maxrange=maxrange, maxtracks=maxtracks, method='append', mingap=mingap)
+    packingtracks = packing.packInTracks(items, maxrange=maxrange, maxtracks=maxtracks, method='append', mingap=asF(mingap))
     if packingtracks is not None:
         assert len(packingtracks) <= maxtracks
-        return [Track(partials=track.unwrap()) for track in packingtracks], [], []
+        return [PartialTrack(partials=track.unwrap()) for track in packingtracks], [], []
 
     # Enumerate the partials to be able to access the corresponding Item
     for i, p in enumerate(partials):
@@ -316,13 +314,10 @@ def splitInTracks(partials: list[Partial],
             quantile.plot(axes=axes[i], show=False)
         plt.show()
 
-    # histograms = [histogram.Histogram([p.audibility(curvefactor=audibilityCurveWeight) for p in band.partials])
-    #              for band in bands]
-
-    results = {}
+    percentileToTracks: dict[float, list[PartialTrack]] = {}
     totalEnergy = sum(p.audibility() for p in partials)
 
-    def _pack(percentile: float) -> tuple[float, list[packing.Track]]:
+    def _pack(percentile: float) -> tuple[float, list[PartialTrack]]:
         """
         Pack partials by the given percentile
 
@@ -350,11 +345,10 @@ def splitInTracks(partials: list[Partial],
                 print(f"... Partials from band {band.minfreq:.1f}:{band.maxfreq:.1f}: {len(bandselection)}, audibility threshold={threshold:.5f}")
             selected.extend(bandselection)
 
-        # selected.sort(key=lambda p: p.label)
         selecteditems = [items[p.label] for p in selected]
         if debug:
             print(f"... Selected items: {len(selecteditems)}")
-        tracks = packing.packInTracks(selecteditems, maxrange=maxrange, method='append', mingap=mingap)
+        tracks = packing.packInTracks(selecteditems, maxrange=maxrange, method='append', mingap=asF(mingap))
         if tracks is None:
             return 0., []
         elif len(tracks) > maxtracks:
@@ -362,13 +356,14 @@ def splitInTracks(partials: list[Partial],
             tracks.sort(key=lambda track: sum(item.obj.audibility() for item in track.items), reverse=True)
             tracks = tracks[:maxtracks]
 
+        partialtracks = [PartialTrack(track.unwrap()) for track in tracks]
         packedEnergy = 0.
-        for track in tracks:
-            packedEnergy += sum(p.audibility() for p in track.unwrap())
+        for track in partialtracks:
+            packedEnergy += sum(partial.audibility() for partial in track)
         relenergy = packedEnergy / totalEnergy
         if debug:
             print("........ packed relative energy", relenergy)
-        return relenergy, tracks
+        return relenergy, partialtracks
 
     def _packeval(percentile: float) -> float:
         """
@@ -383,38 +378,28 @@ def splitInTracks(partials: list[Partial],
         """
         percentile = float(percentile)
         relenergy, tracks = _pack(percentile)
-        results[percentile] = tracks
+        percentileToTracks[percentile] = tracks
         return relenergy
 
-    # if debug:
-    #     percentiles = np.arange(0.001, 1.05, 0.05)
-    #     relenergies = [_packeval(float(perc)) for perc in percentiles]
-    #     import matplotlib.pyplot as plt
-    #     plt.plot(percentiles, [1 - rele for rele in relenergies])
-    #     print(":::::::::::::::::::::::::::::::::::::::::::::")
-
-    result = optimize.minimize_scalar(lambda percentile: 1 - _packeval(percentile), bracket=(0.001, 0.99), tol=relerror)
-    assert isinstance(result, optimize.OptimizeResult)
-    percentile = float(result['x'])
+    minimizedPercentile = optimize.minimize_scalar(lambda percentile: 1 - _packeval(percentile), bracket=(0.001, 0.99), tol=relerror)
+    assert isinstance(minimizedPercentile, optimize.OptimizeResult)
+    percentile = float(minimizedPercentile['x'])
     if debug:
         print("Solution percentile: ", percentile)
-    if percentile in results:
-        packingtracks = results[percentile]
+    if percentile in percentileToTracks:
+        partialtracks = percentileToTracks[percentile]
     else:
-        _, packingtracks = _pack(percentile)
-    out = []
+        _, partialtracks = _pack(percentile)
     selectedindexes = []
-    for track in packingtracks:
-        trackpartials = track.unwrap()
-        out.append(trackpartials)
-        selectedindexes.extend(p.label for p in trackpartials)
+    for track in partialtracks:
+        selectedindexes.extend(p.label for p in track.partials)
 
     selectedset = set(selectedindexes)
     unfitted = [p for p in partials if p.label not in selectedset]
-    tracks = [Track(partials=track) for track in out]
-    unfitted = fitPartialsInTracks(tracks, unfitted)
+    unfitted = fitPartialsInTracks(partialtracks, unfitted)
     if debug:
         print("Unfitted partials before noise:", len(unfitted), ", Selected:", len(selectedset))
+    noisetracks: list[PartialTrack]
     if maxnoisetracks == 0 or len(unfitted) == 0:
         noisetracks = []
     else:
@@ -429,9 +414,8 @@ def splitInTracks(partials: list[Partial],
             for partial in track.partials:
                 selectedset.add(partial.label)
         unfitted = [p for p in unfitted if p.label not in selectedset]
-
-    tracks.sort(key=lambda track: track.minnote)
-    return tracks, noisetracks, unfitted
+    partialtracks.sort(key=lambda track: track.minnote)
+    return partialtracks, noisetracks, unfitted
 
 
 @dataclass
@@ -474,6 +458,7 @@ def splitInBands(partials: list[Partial],
 
     freqs = [p.meanfreq() for p in partials]
     energies = [p.energy() for p in partials]
+    from maelzel.snd import amplitudesensitivity
     ampfactors = amplitudesensitivity.ampcomparray(freqs)
     energies *= ampfactors
     freqedges = stats.weightedHistogram(freqs, energies, numbins=numbands, distribution=distribution)
@@ -490,7 +475,7 @@ def splitInBands(partials: list[Partial],
     return bands
 
 
-def fitPartialsInTracks(tracks: list[Track], partials: list[Partial], mingap=0.1, debug=False
+def fitPartialsInTracks(tracks: list[PartialTrack], partials: list[Partial], mingap=0.1, debug=False
                         ) -> list[Partial]:
     """
     Fit the given partials within the given tracks

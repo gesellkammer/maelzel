@@ -124,11 +124,11 @@ class Spanner(Symbol):
 
     def __init__(self,
                  kind='start',
-                 uuid: str = '',
+                 uuid='',
                  linetype='solid',
                  placement='',
                  color='',
-                 anchor: event.MEvent = None):
+                 anchor: event.MEvent | None = None):
         super().__init__()
         assert kind == 'start' or kind == 'end', f"got kind={kind}"
         if anchor:
@@ -208,7 +208,7 @@ class Spanner(Symbol):
         self.makeEndSpanner(anchor=endobj)
         assert self.partner is not None
 
-    def makeEndSpanner(self, anchor: event.MEvent = None) -> Self:
+    def makeEndSpanner(self, anchor: event.MEvent | None = None) -> Self:
         """
         Creates the end spanner for an already existing start spanner
 
@@ -239,7 +239,7 @@ class Spanner(Symbol):
         Set the given spanner as the partner spanner of self (and self as partner of other)
 
         Args:
-            other: the partner spanner
+            partner: the partner spanner
 
         """
         partner._partner = self
@@ -366,7 +366,7 @@ class Hairpin(Spanner):
         direction: one of "<" or ">"
         niente: if True, add a niente 'o' to the start or end of the hairpin
     """
-    def __init__(self, direction, niente=False, kind='start', uuid='', placement='', linetype=''):
+    def __init__(self, direction: str, niente=False, kind='start', uuid='', placement='', linetype=''):
         super().__init__(kind=kind, uuid=uuid, placement=placement, linetype=linetype)
         assert direction == "<" or direction == ">"
         self.direction = direction
@@ -386,7 +386,7 @@ class Hairpin(Spanner):
 
 
 class Bracket(Spanner):
-    def __init__(self, kind='start', uuid: str = '', linetype='solid', placement='',
+    def __init__(self, kind='start', uuid='', linetype='solid', placement='',
                  text=''):
         super().__init__(kind=kind, uuid=uuid, linetype=linetype, placement=placement)
         self.text = text
@@ -416,7 +416,7 @@ class LineSpan(Spanner):
             Direction of the hook is opposito to placement. An endhook
             is mutually exclusive with an endtext
     """
-    def __init__(self, kind='start', uuid: str = '', linetype='solid', placement='',
+    def __init__(self, kind='start', uuid='', linetype='solid', placement='',
                  starttext='', endtext='', middletext='', verticalAlign='',
                  starthook=False, endhook=False):
         super().__init__(kind=kind, uuid=uuid, linetype=linetype, placement=placement)
@@ -546,8 +546,10 @@ class SizeFactor(Property):
         super().__init__()
         self.size = size
 
+
     def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        n.sizeFactor = int(self.size)
+        n.addAttachment(scoring.attachment.SizeFactor(size=self.size))
+        # n.sizeFactor = int(self.size)
 
 
 class Color(Property):
@@ -558,7 +560,8 @@ class Color(Property):
         self.color = color
 
     def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        n.color = self.color
+        n.addAttachment(scoring.attachment.Color(self.color))
+        # n.color = self.color
 
 
 class Hidden(Property):
@@ -600,7 +603,10 @@ class EventSymbol(Symbol):
     def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
         if not self.mergenext:
             n.mergeableNext = False
-        n.addAttachment(self.scoringAttachment())
+        attachment = self.scoringAttachment()
+        if attachment is None:
+            raise RuntimeError(f"No scoring attachment for {self}")
+        n.addAttachment(attachment)
 
 
 class NoteheadAttachedSymbol(EventSymbol):
@@ -730,7 +736,7 @@ class Fermata(EventSymbol):
     exclusive = True
     appliesToRests = True
 
-    def __init__(self, kind: str = 'normal', merge=True):
+    def __init__(self, kind='normal', merge=True):
         """
         A fermata symbol over an event (note, rest, chord, ...)
 
@@ -794,7 +800,7 @@ class Text(EventSymbol):
     exclusive = False
     appliesToRests = True
 
-    def __init__(self, text: str, placement='above', fontsize: float = None,
+    def __init__(self, text: str, placement='above', fontsize: float | None = None,
                  italic=False, weight='normal', box='',
                  color='', fontfamily='', force=False):
         assert fontsize is None or isinstance(fontsize, (int, float)), \
@@ -836,6 +842,7 @@ class Transpose(EventSymbol, VoiceSymbol):
 
     .. seealso:: :class:`NotatedPitch`
     """
+
     exclusive = True
     applyToTieStrategy = 'all'
     appliesToRests = False
@@ -1048,7 +1055,7 @@ class Notehead(NoteheadAttachedSymbol):
     appliesToRests = False
 
     def __init__(self, shape='', color='', parenthesis=False,
-                 size: float = None, hidden=False):
+                 size: float | None = None, hidden=False):
         super().__init__()
         self.hidden = hidden
         if shape and shape.endswith('?'):
@@ -1354,7 +1361,7 @@ class Accidental(NoteheadAttachedSymbol):
                  parenthesis=False,
                  color='',
                  force=False,
-                 size: float = None):
+                 size: float | None = None):
         super().__init__()
 
         self.hidden: bool = hidden
@@ -1401,12 +1408,12 @@ class BeamBreak(EventSymbol, VoiceSymbol):
         point (adding a tie if needed)
     """
 
-    def __init__(self, location: F | tuple[int, F] = None):
+    def __init__(self, location: F | tuple[int, F] | None = None):
         self.location = location
         super().__init__()
 
     def callback(self, qpart: quant.QuantizedPart) -> None:
-        if self.location is None:
+        if not self.location:
             raise ValueError("A BeamBreak can only be applied to a part if its location"
                              " is set.")
         notation = qpart.breakSyncopationAt(location=self.location)

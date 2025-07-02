@@ -29,7 +29,10 @@ class Attachment:
     priority = 100
     copyToSplitNotation = False
 
-    def __init__(self, color='', instancePriority=0, anchor: int = None, horizontalPlacement: str = ''):
+    def __init__(self, color='',
+                 instancePriority=0,
+                 anchor: int | None = None,
+                 horizontalPlacement=''):
         self.color: str = color
         """The color of this attachment, if applicable"""
 
@@ -56,7 +59,7 @@ class Attachment:
 
 class Property(Attachment):
 
-    def __init__(self, key: str, value=True, anchor: int = None):
+    def __init__(self, key: str, value=True, anchor: int | None = None):
         super().__init__(anchor=anchor)
         self.key = key
         self.value = value
@@ -71,6 +74,27 @@ class GlissProperties(Attachment):
         _util.checkChoice('linetype', linetype, GlissProperties.linetypes)
         self.linetype = linetype
         """The line type, one of 'solid', 'wavy', 'dotted', 'dashed'"""
+
+
+class Color(Attachment):
+    exclusive = True
+
+    def __init__(self, color: str):
+        super().__init__(color=color)
+
+
+class SizeFactor(Attachment):
+    exclusive = True
+
+    def __init__(self, size: float):
+        """
+        Size Factor applied to a Notation
+
+        Args:
+            size: relative size. 0 is normal, +1 is bigger, -1 is smaller
+        """
+        super().__init__()
+        self.size = size
 
 
 class GracenoteProperties(Attachment):
@@ -94,7 +118,7 @@ class AccidentalTraits(Attachment):
     _default: AccidentalTraits | None = None
 
     def __init__(self, color='', hidden=False, parenthesis=False,
-                 brackets=False, force=False, size: float = None,
+                 brackets=False, force=False, size: float | None = None,
                  anchor: int | None = None):
         super().__init__(color=color, anchor=anchor)
 
@@ -124,7 +148,7 @@ class Ornament(Attachment):
     exclusive = True
     priority = 1
 
-    def __init__(self, kind: str, color: str = ''):
+    def __init__(self, kind: str, color=''):
         assert kind in definitions.availableOrnaments
         super().__init__(color=color)
         self.kind = kind
@@ -150,7 +174,7 @@ class Articulation(Attachment):
         'flageolet': -1
     }
 
-    def __init__(self, kind: str, color: str = '', placement: str = '', **kws):
+    def __init__(self, kind: str, color='', placement='', **kws):
         assert kind in definitions.articulations
         assert not placement or placement in ('above', 'below')
         super().__init__(color=color)
@@ -268,7 +292,7 @@ class Text(Attachment):
     """
     priority = 100
 
-    __slots__ = ('text', 'placement', 'fontsize', 'italic', 'weight', 'fontfamily', 'box')
+    __slots__ = ('text', 'placement', 'fontsize', 'italic', 'weight', 'fontfamily', 'box', 'relativeSize')
 
     def __init__(self,
                  text: str,
@@ -279,7 +303,8 @@ class Text(Attachment):
                  fontfamily='',
                  box: str | bool = '',
                  color='',
-                 role=''):
+                 role='',
+                 relativeSize=False):
         super().__init__(color=color)
         assert not text.isspace()
         if fontsize is not None:
@@ -298,6 +323,7 @@ class Text(Attachment):
         self.weight = weight if weight != 'normal' else ''
         self.fontfamily = fontfamily
         self.role = role
+        self.relativeSize = relativeSize
 
     def __repr__(self):
         return _util.reprObj(self, hideFalsy=True, hideEmptyStr=True, priorityargs=('text',), quoteStrings=('text',), hideKeys=('text',))

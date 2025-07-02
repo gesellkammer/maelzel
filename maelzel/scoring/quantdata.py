@@ -1,8 +1,80 @@
 from __future__ import annotations
-from . import quantutils
 from functools import cache
 from dataclasses import dataclass
 from maelzel.scoring.common import division_t
+import itertools
+
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import Sequence
+
+
+def subdivisions(numdivs: int,
+                 possiblevals: Sequence[int] = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14),
+                 maxval=0,
+                 maxdensity=20
+                 ) -> list[tuple[int, ...]]:
+    if maxval == 0:
+        maxval = maxdensity // numdivs
+    minval = 1
+    used = set()
+    out = []
+    for i in range(maxval, minval-1, -1):
+        if i not in possiblevals or any(x % i == 0 for x in used):
+            continue
+        used.add(i)
+        if numdivs == 1:
+            out.append((i,))
+        else:
+            subdivs = subdivisions(numdivs - 1, possiblevals=possiblevals, maxval=i, maxdensity=maxdensity)
+            for subdiv in subdivs:
+                out.append((i,) + subdiv)
+    return out
+
+
+def allSubdivisions(maxsubdivs=5,
+                    maxdensity=20,
+                    possiblevals: Sequence[int] = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14),
+                    permutations=True,
+                    blacklist: Sequence[tuple[int, ...]] = () 
+                    ) -> list[division_t]:
+    allsubdivs = []
+    for numsubdivs in range(maxsubdivs, 0, -1):
+        allsubdivs.extend(subdivisions(numdivs=numsubdivs, possiblevals=possiblevals, maxdensity=maxdensity))
+
+    def issuperfluous(p):
+        if len(p) > 1 and all(x == p[0] for x in p) and sum(p) in possiblevals:
+            return True
+        if len(p) in (2, 4, 8) and all(x in (1, 2, 4, 8) for x in p) and max(p)*len(p) in possiblevals:
+            # (2, 4) == (4, 4) == 8, (2, 2, 2, 4) == 16, (4, 4) == 8
+            return True
+        return False
+
+    allsubdivs = [s for s in allsubdivs if not issuperfluous(s)]
+    if permutations:
+        out = []
+        for p in allsubdivs:
+            if len(p) == 1:
+                out.append(p)
+            else:
+                out.extend(set(itertools.permutations(p)))
+        allsubdivs = out
+        if blacklist:
+            permutations = []
+            for div in blacklist:
+                if len(div) == 1:
+                    permutations.append(div)
+                else:
+                    permutations.extend(set(itertools.permutations(div)))
+            blacklist = permutations
+
+    allsubdivs.sort(key=lambda p: sum(p))
+    if blacklist:
+        blacklistset = set(blacklist)
+        allsubdivs = [div for div in allsubdivs
+                      if div not in blacklistset]
+    return allsubdivs
 
 
 # A quantization preset consists of presetname.key, where needed keys are:
@@ -40,10 +112,10 @@ class DivisionDef:
     maxDensity: int
 
     @cache
-    def subdivisions(self, blacklist: tuple[division_t] | None = None) -> tuple[division_t, ...]:
-        subdivs = quantutils.allSubdivisions(maxsubdivs=self.maxSubdivisions,
-                                             possiblevals=self.possibleValues,
-                                             maxdensity=self.maxDensity)
+    def subdivisions(self, blacklist: tuple[division_t, ...] = ()) -> tuple[division_t, ...]:
+        subdivs = allSubdivisions(maxsubdivs=self.maxSubdivisions,
+                                  possiblevals=self.possibleValues,
+                                  maxdensity=self.maxDensity)
         if not blacklist:
             return tuple(subdivs)
         else:
@@ -70,7 +142,8 @@ class QuantPreset:
 
 
 @cache
-def divisionsByTempo(divisionDefs: tuple[DivisionDef, ...], blacklist: tuple[division_t, ...] = None
+def divisionsByTempo(divisionDefs: tuple[DivisionDef, ...], 
+                     blacklist: tuple[division_t, ...] = ()
                      ) -> dict[int, tuple[division_t, ...]]:
     return {d.maxTempo: d.subdivisions(blacklist=blacklist) for d in divisionDefs}
 
@@ -224,184 +297,183 @@ quantpresets = {
         gridErrorExp=1.)
 }
 
-
-
-# Presets used to create a QuantizationProfile
-_oldpresets = {
-    'highest': {
-        'possibleDivisionsByTempo': {
-            10: [],
-            62: quantutils.allSubdivisions(maxsubdivs=6,
-                                           possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 15),
-                                           maxdensity=30),
-
-            300: quantutils.allSubdivisions(maxsubdivs=5,
-                                            possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 15),
-                                            maxdensity=29),
-            800: quantutils.allSubdivisions(maxsubdivs=3,
-                                            possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
-                                            maxdensity=28),
-        },
-        'divisionPenaltyMap': {
-            1:0.0,  2:0.0,  3:0.0,  4:0.01, 5:0.02,
-            6:0.02, 7:0.02, 8:0.01, 9:0.04, 10:0.04,
-            11:0.1, 12:0.1, 13:0.2, 14:0.1, 15:0.2,
-            16:0.4,
-       },
-        'nestedTuplets': True,
-        'numNestedTupletsPenalty': (0.0, 0.0, 0.0, 0.1, 0.4, 0.8),
-        'gridErrorWeight': 1.0,
-        'divisionErrorWeight': 0.002,
-        'rhythmComplexityWeight': 0.0001,
-        'numSubdivisionsPenaltyWeight': 0.,
-        'gridErrorExp': 0.7,
-        'maxDivPenalty': 0.4,
-    },
-    'high': {
-        'possibleDivisionsByTempo': {
-            10: [],
-            48: quantutils.allSubdivisions(maxsubdivs=6,
-                                           possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
-                                           maxdensity=30),
-            63: quantutils.allSubdivisions(maxsubdivs=6,
-                                           # possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
-                                           possiblevals=(3, 5, 6, 7, 8, 9, 11),
-                                           maxdensity=28),
-            80: quantutils.allSubdivisions(maxsubdivs=5,
-                                           possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
-                                           maxdensity=24),
-            100: quantutils.allSubdivisions(maxsubdivs=4,
-                                            possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9),
-                                            maxdensity=16),
-            132: quantutils.allSubdivisions(maxsubdivs=4,
-                                            possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9),
-                                            maxdensity=12),
-            180: quantutils.allSubdivisions(maxsubdivs=3,
-                                            possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9),
-                                            maxdensity=10),
-            # 100 for 3/16
-            400: quantutils.allSubdivisions(maxsubdivs=3,
-                                            possiblevals=(1, 2, 3, 4, 5, 6),
-                                            maxdensity=8),
-            # 200 for 3/16
-            800: quantutils.allSubdivisions(maxsubdivs=1,
-                                            possiblevals=(1, 2, 3, 4, 5, 6),
-                                            maxdensity=6),
-        },
-        'divisionPenaltyMap': defaultDivisionPenaltyMap,
-        'nestedTuplets': True,
-        'numNestedTupletsPenalty': (0., 0., 0.03, 0.4, 0.5, 0.8),
-        'gridErrorWeight': 1.0,
-        'divisionErrorWeight': 0.01,
-        'rhythmComplexityWeight': 0.001,
-        'cardinalityPenaltyWeight': 0,
-        'gridErrorExp': 0.75,
-        'maxDivPenalty': 0.2,
-    },
-    'medium': {
-        'possibleDivisionsByTempo': {
-            10: [],
-            60: quantutils.allSubdivisions(maxsubdivs=4,
-                                           possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
-                                           maxdensity=20),
-            80: quantutils.allSubdivisions(maxsubdivs=4,
-                                           possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
-                                           maxdensity=16),
-            100: quantutils.allSubdivisions(maxsubdivs=3,
-                                            possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9),
-                                            maxdensity=12),
-            132: quantutils.allSubdivisions(maxsubdivs=3,
-                                            possiblevals=(1, 2, 3, 4, 5, 6, 7, 8),
-                                            maxdensity=8),
-            180: quantutils.allSubdivisions(maxsubdivs=2,
-                                            possiblevals=(1, 2, 3, 4, 5, 6, 8),
-                                            maxdensity=6),
-            400: quantutils.allSubdivisions(maxsubdivs=1,
-                                            possiblevals=(1, 2, 3, 4),
-                                            maxdensity=4),
-            800: quantutils.allSubdivisions(maxsubdivs=1,
-                                            possiblevals=(1, 2, 3, 4),
-                                            maxdensity=4),
-
-        },
-        'divisionPenaltyMap': defaultDivisionPenaltyMap,
-        'nestedTuplets': False,
-        'numNestedTupletsPenalty': (0, 0.0, 0.05, 0.4, 0.5, 0.8),
-        'gridErrorWeight': 1.0,
-        'divisionErrorWeight': 0.01,
-        'rhythmComplexityWeight': 0.01,
-        'gridErrorExp': 0.9,
-        'maxDivPenalty': 0.2,
-    },
-    'low': {
-        'possibleDivisionsByTempo': {
-            10: [],
-            60: quantutils.allSubdivisions(maxsubdivs=4,
-                                           possiblevals=(1, 2, 3, 4, 5, 6, 8),
-                                           maxdensity=16),
-            80: quantutils.allSubdivisions(maxsubdivs=3,
-                                           possiblevals=(1, 2, 3, 4, 5, 6, 8),
-                                           maxdensity=14),
-            100: quantutils.allSubdivisions(maxsubdivs=2,
-                                            possiblevals=(1, 2, 3, 4, 5, 6, 8),
-                                            maxdensity=12),
-            132: quantutils.allSubdivisions(maxsubdivs=2,
-                                            possiblevals=(1, 2, 3, 4, 6, 8),
-                                            maxdensity=8),
-            180: quantutils.allSubdivisions(maxsubdivs=1,
-                                            possiblevals=(1, 2, 3, 4, 6, 8),
-                                            maxdensity=6),
-            400: quantutils.allSubdivisions(maxsubdivs=1,
-                                            possiblevals=(1, 2, 3, 4),
-                                            maxdensity=4),
-            800: quantutils.allSubdivisions(maxsubdivs=1,
-                                            possiblevals=(1, 2, 4),
-                                            maxdensity=4),
-
-        },
-        'divisionPenaltyMap': defaultDivisionPenaltyMap,
-        'nestedTuplets': False,
-        'numNestedTupletsPenalty': [0, 0.0, 0.05, 0.4, 0.5, 0.8],
-        'gridErrorWeight': 1.0,
-        'divisionErrorWeight': 0.5,
-        'rhythmComplexityWeight': 0.1,
-        'gridErrorExp': 1,
-    },
-    'lowest': {
-        'possibleDivisionsByTempo': {
-            10: [],
-            60: quantutils.allSubdivisions(maxsubdivs=2,
-                                           possiblevals=(1, 2, 3, 4, 5, 6, 8),
-                                           maxdensity=16),
-            80: quantutils.allSubdivisions(maxsubdivs=2,
-                                           possiblevals=(1, 2, 3, 4, 5, 6, 8),
-                                           maxdensity=14),
-            100: quantutils.allSubdivisions(maxsubdivs=1,
-                                            possiblevals=(1, 2, 3, 4, 5, 6, 8, 12),
-                                            maxdensity=12),
-            132: quantutils.allSubdivisions(maxsubdivs=1,
-                                            possiblevals=(1, 2, 3, 4, 6, 8),
-                                            maxdensity=8),
-            180: quantutils.allSubdivisions(maxsubdivs=1,
-                                            possiblevals=(1, 2, 3, 4, 6, 8),
-                                            maxdensity=6),
-            400: quantutils.allSubdivisions(maxsubdivs=1,
-                                            possiblevals=(1, 2, 3, 4),
-                                            maxdensity=4),
-            800: quantutils.allSubdivisions(maxsubdivs=1,
-                                            possiblevals=(1, 2, 4),
-                                            maxdensity=4),
-
-        },
-        'divisionPenaltyMap': defaultDivisionPenaltyMap,
-        'nestedTuplets': False,
-        'numNestedTupletsPenalty': (0, 0.0, 0.05, 0.4, 0.5, 0.8),
-        'gridErrorWeight': 1.0,
-        'divisionErrorWeight': 0.5,
-        'rhythmComplexityWeight': 0.1,
-        'gridErrorExp': 1,
-    }
-}
+# 
+# 
+# # Presets used to create a QuantizationProfile
+# _oldpresets = {
+#     'highest': {
+#         'possibleDivisionsByTempo': {
+#             10: [],
+#             62: allSubdivisions(maxsubdivs=6,
+#                                 possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 15),
+#                                 maxdensity=30),
+# 
+#             300: allSubdivisions(maxsubdivs=5,
+#                                  possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 15),
+#                                  maxdensity=29),
+#             800: allSubdivisions(maxsubdivs=3,
+#                                  possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
+#                                  maxdensity=28),
+#         },
+#         'divisionPenaltyMap': {
+#             1:0.0,  2:0.0,  3:0.0,  4:0.01, 5:0.02,
+#             6:0.02, 7:0.02, 8:0.01, 9:0.04, 10:0.04,
+#             11:0.1, 12:0.1, 13:0.2, 14:0.1, 15:0.2,
+#             16:0.4,
+#        },
+#         'nestedTuplets': True,
+#         'numNestedTupletsPenalty': (0.0, 0.0, 0.0, 0.1, 0.4, 0.8),
+#         'gridErrorWeight': 1.0,
+#         'divisionErrorWeight': 0.002,
+#         'rhythmComplexityWeight': 0.0001,
+#         'numSubdivisionsPenaltyWeight': 0.,
+#         'gridErrorExp': 0.7,
+#         'maxDivPenalty': 0.4,
+#     },
+#     'high': {
+#         'possibleDivisionsByTempo': {
+#             10: [],
+#             48: allSubdivisions(maxsubdivs=6,
+#                                 possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
+#                                 maxdensity=30),
+#             63: allSubdivisions(maxsubdivs=6,
+#                                 possiblevals=(3, 5, 6, 7, 8, 9, 11),
+#                                 maxdensity=28),
+#             80: allSubdivisions(maxsubdivs=5,
+#                                 possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
+#                                 maxdensity=24),
+#             100: allSubdivisions(maxsubdivs=4,
+#                                  possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9),
+#                                  maxdensity=16),
+#             132: allSubdivisions(maxsubdivs=4,
+#                                  possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9),
+#                                  maxdensity=12),
+#             180: allSubdivisions(maxsubdivs=3,
+#                                  possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9),
+#                                  maxdensity=10),
+#             # 100 for 3/16
+#             400: allSubdivisions(maxsubdivs=3,
+#                                  possiblevals=(1, 2, 3, 4, 5, 6),
+#                                  maxdensity=8),
+#             # 200 for 3/16
+#             800: allSubdivisions(maxsubdivs=1,
+#                                  possiblevals=(1, 2, 3, 4, 5, 6),
+#                                  maxdensity=6),
+#         },
+#         'divisionPenaltyMap': defaultDivisionPenaltyMap,
+#         'nestedTuplets': True,
+#         'numNestedTupletsPenalty': (0., 0., 0.03, 0.4, 0.5, 0.8),
+#         'gridErrorWeight': 1.0,
+#         'divisionErrorWeight': 0.01,
+#         'rhythmComplexityWeight': 0.001,
+#         'cardinalityPenaltyWeight': 0,
+#         'gridErrorExp': 0.75,
+#         'maxDivPenalty': 0.2,
+#     },
+#     'medium': {
+#         'possibleDivisionsByTempo': {
+#             10: [],
+#             60: allSubdivisions(maxsubdivs=4,
+#                                 possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
+#                                 maxdensity=20),
+#             80: allSubdivisions(maxsubdivs=4,
+#                                 possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
+#                                 maxdensity=16),
+#             100: allSubdivisions(maxsubdivs=3,
+#                                  possiblevals=(1, 2, 3, 4, 5, 6, 7, 8, 9),
+#                                  maxdensity=12),
+#             132: allSubdivisions(maxsubdivs=3,
+#                                  possiblevals=(1, 2, 3, 4, 5, 6, 7, 8),
+#                                  maxdensity=8),
+#             180: allSubdivisions(maxsubdivs=2,
+#                                  possiblevals=(1, 2, 3, 4, 5, 6, 8),
+#                                  maxdensity=6),
+#             400: allSubdivisions(maxsubdivs=1,
+#                                  possiblevals=(1, 2, 3, 4),
+#                                  maxdensity=4),
+#             800: allSubdivisions(maxsubdivs=1,
+#                                  possiblevals=(1, 2, 3, 4),
+#                                  maxdensity=4),
+# 
+#         },
+#         'divisionPenaltyMap': defaultDivisionPenaltyMap,
+#         'nestedTuplets': False,
+#         'numNestedTupletsPenalty': (0, 0.0, 0.05, 0.4, 0.5, 0.8),
+#         'gridErrorWeight': 1.0,
+#         'divisionErrorWeight': 0.01,
+#         'rhythmComplexityWeight': 0.01,
+#         'gridErrorExp': 0.9,
+#         'maxDivPenalty': 0.2,
+#     },
+#     'low': {
+#         'possibleDivisionsByTempo': {
+#             10: [],
+#             60: allSubdivisions(maxsubdivs=4,
+#                                            possiblevals=(1, 2, 3, 4, 5, 6, 8),
+#                                            maxdensity=16),
+#             80: allSubdivisions(maxsubdivs=3,
+#                                            possiblevals=(1, 2, 3, 4, 5, 6, 8),
+#                                            maxdensity=14),
+#             100: allSubdivisions(maxsubdivs=2,
+#                                             possiblevals=(1, 2, 3, 4, 5, 6, 8),
+#                                             maxdensity=12),
+#             132: allSubdivisions(maxsubdivs=2,
+#                                             possiblevals=(1, 2, 3, 4, 6, 8),
+#                                             maxdensity=8),
+#             180: allSubdivisions(maxsubdivs=1,
+#                                             possiblevals=(1, 2, 3, 4, 6, 8),
+#                                             maxdensity=6),
+#             400: allSubdivisions(maxsubdivs=1,
+#                                             possiblevals=(1, 2, 3, 4),
+#                                             maxdensity=4),
+#             800: allSubdivisions(maxsubdivs=1,
+#                                             possiblevals=(1, 2, 4),
+#                                             maxdensity=4),
+# 
+#         },
+#         'divisionPenaltyMap': defaultDivisionPenaltyMap,
+#         'nestedTuplets': False,
+#         'numNestedTupletsPenalty': [0, 0.0, 0.05, 0.4, 0.5, 0.8],
+#         'gridErrorWeight': 1.0,
+#         'divisionErrorWeight': 0.5,
+#         'rhythmComplexityWeight': 0.1,
+#         'gridErrorExp': 1,
+#     },
+#     'lowest': {
+#         'possibleDivisionsByTempo': {
+#             10: [],
+#             60: allSubdivisions(maxsubdivs=2,
+#                                            possiblevals=(1, 2, 3, 4, 5, 6, 8),
+#                                            maxdensity=16),
+#             80: allSubdivisions(maxsubdivs=2,
+#                                            possiblevals=(1, 2, 3, 4, 5, 6, 8),
+#                                            maxdensity=14),
+#             100: allSubdivisions(maxsubdivs=1,
+#                                             possiblevals=(1, 2, 3, 4, 5, 6, 8, 12),
+#                                             maxdensity=12),
+#             132: allSubdivisions(maxsubdivs=1,
+#                                             possiblevals=(1, 2, 3, 4, 6, 8),
+#                                             maxdensity=8),
+#             180: allSubdivisions(maxsubdivs=1,
+#                                             possiblevals=(1, 2, 3, 4, 6, 8),
+#                                             maxdensity=6),
+#             400: allSubdivisions(maxsubdivs=1,
+#                                             possiblevals=(1, 2, 3, 4),
+#                                             maxdensity=4),
+#             800: allSubdivisions(maxsubdivs=1,
+#                                             possiblevals=(1, 2, 4),
+#                                             maxdensity=4),
+# 
+#         },
+#         'divisionPenaltyMap': defaultDivisionPenaltyMap,
+#         'nestedTuplets': False,
+#         'numNestedTupletsPenalty': (0, 0.0, 0.05, 0.4, 0.5, 0.8),
+#         'gridErrorWeight': 1.0,
+#         'divisionErrorWeight': 0.5,
+#         'rhythmComplexityWeight': 0.1,
+#         'gridErrorExp': 1,
+#     }
+# }
 
 
 # how to divide an irregular duration into regular parts

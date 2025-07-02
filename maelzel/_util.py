@@ -3,12 +3,7 @@ from __future__ import annotations
 import functools
 import os
 import sys
-import tempfile
 import weakref
-import emlib.misc
-import emlib.textlib
-from maelzel.common import getLogger
-from . import mathutils
 
 
 from typing import TYPE_CHECKING
@@ -16,9 +11,7 @@ if TYPE_CHECKING:
     from typing import Any, Callable, Sequence
     import logging
     from maelzel.common import F, num_t
-
-
-logger = getLogger('maelzel')
+    import tempfile
 
 
 _cache = {}
@@ -38,6 +31,7 @@ def createTempdir(check=True) -> tempfile.TemporaryDirectory:
     os.makedirs(base, exist_ok=True)
     if not os.path.exists(base):
         raise IOError(f"Could not create base for temporary folder, tried '{base}'")
+    import tempfile
     tempdir = tempfile.TemporaryDirectory(dir=appdirs.user_cache_dir())
     if not os.path.exists(tempdir.name):
         raise IOError(f"Could not create temporary directory, '{tempdir.name}' does not exist")
@@ -52,9 +46,6 @@ def createTempdir(check=True) -> tempfile.TemporaryDirectory:
         if not os.path.exists(checkfile):
             raise IOError(f"Could not create temporary file '{checkfile}' in temporary directory '{tempdir.name}'")
         os.remove(checkfile)
-        logger.debug(f"Created temporary directory, ensured it is writable: '{tempdir.name}'")
-    else:
-        logger.debug(f"Created temporary directory: '{tempdir.name}'")
     return tempdir
 
 
@@ -89,6 +80,7 @@ def mktemp(suffix: str, prefix='') -> str:
 
     """
     tempdir = sessionTempdir()
+    import tempfile
     return tempfile.mktemp(suffix=suffix, prefix=prefix, dir=tempdir.name)
 
 
@@ -103,6 +95,7 @@ def reprObj(obj,
             hideKeys: Sequence[str] = None,
             quoteStrings: bool | Sequence[str] = False,
             quoteChar="'",
+            sort=True,
             convert: dict[str, Callable[[Any], str]] = None,
             ) -> str:
     """
@@ -114,6 +107,10 @@ def reprObj(obj,
             be shown at all. The default is True, so if a filter function is given
             for a certain key, that key will be shown only if the function returns
             True.
+        sort: if True, sort the keys
+        properties: properties to include in the repr
+        hideKeys: show the value without the key name
+        quoteChar: char used to quote strings
         exclude: a seq. of attributes to exclude
         priorityargs: a list of attributes which are shown first.
         hideFalsy: hide any attr which evaluates to False under bool(obj.attr)
@@ -129,6 +126,7 @@ def reprObj(obj,
         which fullfill the given conditions
 
     """
+    import emlib.misc
     attrs = emlib.misc.find_attrs(obj)
     if exclude:
         import fnmatch
@@ -138,7 +136,8 @@ def reprObj(obj,
             if p not in attrs:
                 attrs.append(p)
     info = []
-    attrs.sort()
+    if sort:
+        attrs.sort()
     if priorityargs:
         attrs.sort(key=lambda attr: 0 if attr in priorityargs else 1)
     for attr in attrs:
@@ -252,6 +251,7 @@ def showF(f: F, maxdenom=1000) -> str:
         a readable string representation
     """
     if f.denominator > maxdenom:
+        from . import mathutils
         num, den = mathutils.limitDenominator(f.numerator, f.denominator, maxden=maxdenom, assumeCoprime=True)
         return f"~{num}/{den}"
     return "%d/%d" % (f.numerator, f.denominator)
@@ -325,6 +325,7 @@ def pngShow(pngpath: str, forceExternal=False, app: str = '',
         from maelzel.core import jupytertools
         jupytertools.jupyterShowImage(path=pngpath, scalefactor=inlineScale)
     else:
+        import emlib.misc
         if app:
             emlib.misc.open_with_app(path=pngpath, app=app, wait=wait)
         else:
@@ -392,9 +393,9 @@ def getPlatform() -> tuple[str, str]:
     * x64 -> x86_64
     * amd64 -> x86_64
 
-
     """
-    if out := _cache.get('getPlatform') is not None:
+    if (out := _cache.get('getPlatform')) is not None:
+        assert isinstance(out, tuple)
         return out
 
     import platform
@@ -452,25 +453,30 @@ def getPlatform() -> tuple[str, str]:
     return out
 
 
-_unicodeReplacerFull = emlib.textlib.makeReplacer({
-    '#>': '𝄰',
-    '#<': '𝄱',
-    'b<': '𝄭',
-    'b>': '𝄬',
-    '#': '♯',
-    'b': '♭',
-    '>': '↑',
-    '<': '↓'})
+@functools.cache
+def _unicodeReplacer(full=True) -> Callable[[str], str]:
+    import emlib.textlib
+    if full:
+        return emlib.textlib.makeReplacer({
+            '#>': '𝄰',
+            '#<': '𝄱',
+            'b<': '𝄭',
+            'b>': '𝄬',
+            '#': '♯',
+            'b': '♭',
+            '>': '↑',
+            '<': '↓'})
+    else:
+        return emlib.textlib.makeReplacer({
+            # '#>': '𝄰',
+            # '#<': '𝄱',
+            # 'b<': '𝄭',
+            # 'b>': '𝄬',
+            '#': '♯',
+            'b': '♭',
+            '>': '↑',
+            '<': '↓'})
 
-_unicodeReplacerSimple = emlib.textlib.makeReplacer({
-    # '#>': '𝄰',
-    # '#<': '𝄱',
-    # 'b<': '𝄭',
-    # 'b>': '𝄬',
-    '#': '♯',
-    'b': '♭',
-    '>': '↑',
-    '<': '↓'})
 
 
 @functools.cache
@@ -488,10 +494,7 @@ def unicodeNotename(notename: str, full=True) -> str:
     Returns:
         the replacement
     """
-    if full:
-        return _unicodeReplacerFull(notename)
-    else:
-        return _unicodeReplacerSimple(notename)
+    return _unicodeReplacer(full=full)(notename)
 
 
 def fileIsLocked(filepath: str) -> bool:
@@ -520,7 +523,7 @@ def waitForFile(filepath: str, period=0.1, timeout=1) -> None:
         accumtime += period
 
 
-def htmlImage64(img64: bytes, imwidth: int, width: int | str = '', scale=1.,
+def htmlImage64(img64: bytes | str, imwidth: int, width: int | str = '', scale=1.,
                 maxwidth: int | str = '', margintop='14px', padding='10px') -> str:
     """
     Generate html for displaying an image as base64
@@ -549,7 +552,7 @@ def htmlImage64(img64: bytes, imwidth: int, width: int | str = '', scale=1.,
         if isinstance(width, int):
             width = f'{width}px'
         attrs.append(f'width:{width}')
+    s = img64 if isinstance(img64, str) else img64.decode()
     style = ";\n".join(attrs)
-    return fr'''
-        <img style="display:inline; {style}"
-             src="data:image/png;base64,{img64}"/>'''
+    return fr'''<img style="display:inline; {style}" src="data:image/png;base64,{s}"/>'''
+

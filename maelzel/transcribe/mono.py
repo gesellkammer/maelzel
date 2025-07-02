@@ -15,13 +15,9 @@ from emlib import iterlib
 
 from maelzel.scorestruct import ScoreStruct
 from maelzel import stats
-# from maelzel import histogram
 
 from .breakpoint import Breakpoint, BreakpointGroup, simplifyBreakpoints, simplifyBreakpointsByDensity
 from .options import TranscriptionOptions
-
-import logging
-logger = logging.getLogger("maelzel.transcribe")
 
 from typing import TYPE_CHECKING, Iterator
 if TYPE_CHECKING:
@@ -118,9 +114,7 @@ class FundamentalAnalysisMonophonic:
 
     Attributes:
         groups: each group is a list of Breakpoints representing a note
-        breakpoints: all breakpoints within the .groups attribute, flattened
         rms: the RMS curve of the sound. A mpf mapping to to rms
-        dbToPercentile: maps db to percentile
         f0: the fundamental curve, mapping time to frequency. Parts with low confidence
             are marked as negative
         voicedness: a curve mapping time to voicedness. The highe this value the higher the

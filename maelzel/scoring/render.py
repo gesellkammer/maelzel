@@ -43,11 +43,6 @@ def renderQuantizedScore(score: quant.QuantizedScore,
     """
     assert isinstance(options, RenderOptions)
     assert len(score.parts) > 0
-    # if len(score.parts) == 0:
-
-    #     measure0 = score.scorestruct.measuredefs[0]
-    #     part = core.UnquantizedPart(notations=[core.Notation.makeRest(measure0.beatStructure()[0].duration)])
-    #     score = quant.quantize(parts=[part], struct=score.scorestruct)
 
     backend = options.backend
 
@@ -61,8 +56,11 @@ def renderQuantizedScore(score: quant.QuantizedScore,
             if any(n.findAttachment(attachment.Clef) for n in part.flatNotations()):
                 logger.debug(f"Part #{i} (name={part.name}) already has manual clefs set, skipping automatic clefs")
             else:
-                part.findClefChanges(apply=True, biasFactor=options.keepClefBiasFactor,
-                                     window=options.autoClefChangesWindow, propertyKey='')
+                part.findClefChanges(apply=True,
+                                     biasFactor=options.keepClefBiasFactor,
+                                     window=options.autoClefChangesWindow,
+                                     simplificationThreshold=options.clefSimplificationThreshold,
+                                     propertyKey='')
         part.repairLinks()
 
     if backend == 'musicxml':
@@ -99,7 +97,7 @@ def _groupNotationsByMeasure(part: core.UnquantizedPart,
 def quantizeAndRender(parts: list[core.UnquantizedPart],
                       struct: ScoreStruct,
                       options: RenderOptions,
-                      quantizationProfile: quant.QuantizationProfile = None,
+                      quantizationProfile: quant.QuantizationProfile | None = None,
                       ) -> Renderer:
     """
     Quantize and render unquantized events organized into parts
@@ -141,10 +139,10 @@ def _asParts(obj: core.UnquantizedPart | core.Notation | list[core.UnquantizedPa
 
 
 def render(obj: core.UnquantizedPart | core.Notation | list[core.UnquantizedPart] | list[core.Notation],
-           struct: ScoreStruct = None,
-           options: RenderOptions = None,
+           struct: ScoreStruct | None = None,
+           options: RenderOptions | None = None,
            backend='',
-           quantizationProfile: quant.QuantizationProfile = None
+           quantizationProfile: quant.QuantizationProfile | None = None
            ) -> Renderer:
     """
     Quantize and render the given object `obj` to generate musical notation
@@ -175,7 +173,7 @@ def render(obj: core.UnquantizedPart | core.Notation | list[core.UnquantizedPart
     """
     parts = _asParts(obj)
     if struct is None:
-        struct = ScoreStruct(timesig=(4, 4), tempo=60)
+        struct = ScoreStruct((4, 4), tempo=60)
     if options is None:
         options = RenderOptions()
     if backend and options.backend != backend:
@@ -184,7 +182,8 @@ def render(obj: core.UnquantizedPart | core.Notation | list[core.UnquantizedPart
                              quantizationProfile=quantizationProfile)
 
 
-def renderMusicxml(xmlfile: str, outfile: str, method='musescore', crop: bool = None, pngpage=1
+def renderMusicxml(xmlfile: str, outfile: str, method='musescore', crop: bool | None = None,
+                   pngpage=1
                    ) -> None:
     """
     Convert a saved musicxml file to pdf or png

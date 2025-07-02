@@ -10,9 +10,11 @@ from .config import CoreConfig
 from maelzel.dynamiccurve import DynamicCurve
 from maelzel.scorestruct import ScoreStruct
 
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from . import playback
+import typing as _t
+if _t.TYPE_CHECKING:
+    from maelzel.core.renderer import Renderer
+    from typing import Any
+    import csoundengine.session
 
 
 def _resetCache() -> None:
@@ -66,27 +68,27 @@ class Workspace:
             notes.show()
 
     """
-    root: Workspace
+    root: _t.ClassVar[Workspace]
     """The root workspace. This is the workspace active at the start of a session
     and is always kept alive since it holds a reference to the root config. It should
     actually never be None"""
 
-    active: Workspace
+    active: _t.ClassVar[Workspace]
     """The currently active workspace"""
 
-    _initdone: bool = False
+    _initdone: _t.ClassVar[bool] = False
 
     def __init__(self,
-                 config: CoreConfig = None,
+                 config: CoreConfig | None = None,
                  scorestruct: ScoreStruct | None = None,
-                 dynamicCurve: DynamicCurve = None,
-                 updates: dict = None,
+                 dynamicCurve: DynamicCurve | None = None,
+                 updates: dict[str, Any] | None = None,
                  active=False):
 
         assert self._initdone
 
         if config is None:
-            config = CoreConfig(updates=updates)
+            config = CoreConfig(updates=updates or None)
         elif updates:
             config = config.clone(updates=updates)
 
@@ -99,18 +101,18 @@ class Workspace:
                                                   dynamics=dynamics)
 
         if scorestruct is None:
-            scorestruct = ScoreStruct(timesig=(4, 4), tempo=60)
+            scorestruct = ScoreStruct((4, 4), tempo=60)
 
         self._config: CoreConfig = config
         """The CoreConfig attached to this Workspace"""
 
-        self.renderer: playback.Renderer | None = None
+        self.renderer: Renderer | None = None
         """The active renderer, if any"""
 
-        self.dynamicCurve = dynamicCurve
+        self.dynamicCurve: DynamicCurve = dynamicCurve
         """The dynamic curve used to convert dynamics to amplitudes"""
 
-        self._scorestruct = scorestruct
+        self._scorestruct: ScoreStruct = scorestruct
         """The scorestruct attached to this workspace"""
 
         self._previousWorkspace: Workspace | None = None
@@ -140,7 +142,9 @@ class Workspace:
         """
         Get the active config
         """
-        return Workspace.active.config
+        wspace = Workspace.active
+        assert wspace is not None
+        return wspace.config
 
     @staticmethod
     def _initclass() -> None:
@@ -172,8 +176,9 @@ class Workspace:
         elif self._previousWorkspace is None:
             logger.warning("This Workspace has not previous workspace, activating the root"
                            " Workspace instead")
-            assert Workspace.root is not None
-            Workspace.root.activate()
+            root = Workspace.root
+            assert root is not None
+            root.activate()
         else:
             self._previousWorkspace.activate()
 
@@ -207,9 +212,8 @@ class Workspace:
         self._scorestruct = s
 
     @staticmethod
-    def setScoreStruct(score: str | ScoreStruct | None = None,
-                       timesig: tuple[int, int] | str = None,
-                       tempo: int = None) -> None:
+    def setScoreStruct(score: str | ScoreStruct | tuple[int, int] = (4, 4),
+                       tempo=60) -> None:
         """
         Sets the current score structure
 
@@ -219,10 +223,8 @@ class Workspace:
         and set it as active
 
         Args:
-            score: the scorestruct as a ScoreStruct or a string score (see ScoreStruct for more
-                information about the format). If None, a simple ScoreStruct using the given
-                time-signature and/or tempo will be created
-            timesig: only used if no score is given.
+            score: the scorestruct as a ScoreStruct, a string score (see ScoreStruct for more
+                information about the format) or simply a time signature.
             tempo: the quarter-note tempo. Only used if no score is given
 
         .. seealso::
@@ -246,7 +248,7 @@ class Workspace:
             ... ...       # Endless score
             ... ''')
         """
-        setScoreStruct(score=score, timesig=timesig, tempo=tempo)
+        setScoreStruct(score=score, tempo=tempo)
 
     @property
     def a4(self) -> float:
@@ -293,8 +295,8 @@ class Workspace:
         return Workspace.active is self
 
     def clone(self,
-              config: CoreConfig = None,
-              scorestruct: ScoreStruct = None,
+              config: CoreConfig | None = None,
+              scorestruct: ScoreStruct | None = None,
               active=False
               ) -> Workspace:
         """
@@ -422,6 +424,10 @@ class Workspace:
 
     def amp2dyn(self, amp: float) -> str:
         return self.dynamicCurve.amp2dyn(amp)
+
+    def playSession(self) -> csoundengine.session.Session:
+        from maelzel.core import playback
+        return playback.getSession()
 
 
 def getWorkspace() -> Workspace:
@@ -553,9 +559,8 @@ def getScoreStruct() -> ScoreStruct:
     return active.scorestruct
 
 
-def setScoreStruct(score: str | ScoreStruct | None = None,
-                   timesig: tuple[int, int] | str = None,
-                   tempo: int = None) -> None:
+def setScoreStruct(score: str | ScoreStruct | tuple[int, int] = (4, 4),
+                   tempo: int | float = 60) -> None:
     """
     Sets the current score structure
 
@@ -565,11 +570,10 @@ def setScoreStruct(score: str | ScoreStruct | None = None,
     and set it as active
 
     Args:
-        score: the scorestruct as a ScoreStruct or a string score (see ScoreStruct for more
-            information about the format). If None, a simple ScoreStruct using the given
-            time-signature and/or tempo will be created
-        timesig: only used if no score is given.
-        tempo: the quarter-note tempo. Only used if no score is given
+        score: the scorestruct as a ScoreStruct, a string score (see ScoreStruct for more
+            information about the format) or a time signature as a (num, den) tuple
+        tempo: the quarter-note tempo. Used as the initial tempo for the score, or
+            when score just contains a time signature
 
     .. seealso::
         * :func:`~maelzel.core.workpsace.getScoreStruct`
@@ -591,18 +595,13 @@ def setScoreStruct(score: str | ScoreStruct | None = None,
         ... 20, 3/4, 60   # At measure index 20, set the time-signature to 3/4 and tempo to 60
         ... ...       # Endless score
         ... ''')
+        # Simple score structures can also be given succinctly: 3/4, tempo=96
+        >>> setScoreStruct((3, 4), tempo=96)
+        # More complex time signatures are also accepted
+        >>> setScoreStruct("3/8+2/8", 108)
 
     """
-    if isinstance(score, str):
-        s = ScoreStruct(score)
-    elif isinstance(score, ScoreStruct):
-        s = score
-    else:
-        assert score is None
-        if timesig is not None or tempo is not None:
-            s = ScoreStruct(timesig=timesig, tempo=tempo)
-        else:
-            s = ScoreStruct(timesig=(4, 4), tempo=60)
+    s = score if isinstance(score, ScoreStruct) else ScoreStruct(score=score, tempo=tempo)
     Workspace.active.scorestruct = s
 
 @cache

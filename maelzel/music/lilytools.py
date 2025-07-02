@@ -2,7 +2,6 @@ from __future__ import annotations
 import os
 import shutil
 import sys
-import logging
 import subprocess
 import tempfile
 import re
@@ -10,16 +9,13 @@ import textwrap
 
 import pitchtools as pt
 from dataclasses import dataclass
-from maelzel.common import F
+from maelzel.common import F, getLogger
 from numbers import Rational
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Iterator
     from maelzel.common import pitch_t
-
-
-logger = logging.getLogger("maelzel")
 
 
 _cache = {'lilypath': ''}
@@ -91,11 +87,11 @@ def _testLilypond(lilybin: str, fmt='.pdf') -> bool:
         outfile2 = renderLily(lyfile, outfile=outfile, removeHeader=False, lilypondBinary=lilybin)
         return outfile2 is not None and os.path.exists(outfile2)
     except Exception as e:
-        logger.error(f"Test lilypond raised an error: {e}")
+        getLogger(__file__).error(f"Test lilypond raised an error: {e}")
         return False
 
 
-def _installLilypondMacosHomebrew(checkbrew=True) -> str | None:
+def _installLilypondMacosHomebrew() -> str | None:
     """
     install lilypond via homebrew in macos
 
@@ -104,6 +100,7 @@ def _installLilypondMacosHomebrew(checkbrew=True) -> str | None:
     Returns:
         the path to lilypond, or None if failed
     """
+    logger = getLogger(__file__)
     logger.info("Installing lilypond via homebrew: `brew install lilypond`")
     retcode = subprocess.call('brew install lilypond', shell=True)
     if retcode != 0:
@@ -127,10 +124,6 @@ def installLilypond() -> str:
     """
     Install lilypond, returns the binary
 
-    Args:
-        usehomebrew: valid for macos only, use homebrew to try to install
-            lilypond, if present.
-
     .. note::
 
         The installed lilypond will only be available for usage within python
@@ -153,6 +146,7 @@ def findLilypond(install=True) -> str | None:
         the path to a working lilypond binary, or None if
         the path was not found
     """
+    logger = getLogger(__file__)
     if (lilypath := _cache.get('lilypath', '')):
         if os.path.exists(lilypath):
             return lilypath
@@ -228,35 +222,43 @@ def renderScore(score: str,
     return out
 
 
-def show(text: str, external=False, maxwidth=0, snippet: bool | None = None, crop=True) -> None:
+def show(text: str, fmt='png', external=False, maxwidth=0, snippet: bool | None = None, crop=True) -> None:
     """
     Render the given lilypond text and show it as an image
 
     Args:
         text: the lilypond text to render
+        fmt: format, one of 'png' or 'pdf'
         external: if True, show the image using an external app, even if
             run within jupyter.
         maxwidth: a maximum width applied when showing the image
             embedded within jupyter
         snippet: if True, the text is just a snippet (what is placed inside a staff)
             and will be converted to a full score via snippetToScore
+        crop: crop image to the actual music
 
     """
+    assert fmt in ('png', 'pdf')
+
     if snippet:
         text = snippetToScore(text)
     elif snippet is None:
         if "\\score" not in text:
             text = snippetToScore(text)
 
-    outfile = tempfile.mktemp(suffix='.png')
-    renderScore(text, outfile=outfile)
+    outfile = tempfile.mktemp(suffix='.' + fmt)
+    renderScore(text, outfile=outfile, cropToContent=crop)
     assert os.path.exists(outfile)
-    from maelzel._imgtools import imagefileAutocrop
-    if crop:
-        croppedok = imagefileAutocrop(outfile, outfile, bgcolor="#FFFFFF")
-        assert croppedok
-    from maelzel.core import jupytertools
-    jupytertools.showPng(pngpath=outfile, forceExternal=external, maxwidth=maxwidth)
+    if fmt == 'png':
+        if crop:
+            from maelzel._imgtools import imagefileAutocrop
+            croppedok = imagefileAutocrop(outfile, outfile, bgcolor="#FFFFFF")
+            assert croppedok
+        from maelzel.core import jupytertools
+        jupytertools.showPng(pngpath=outfile, forceExternal=external, maxwidth=maxwidth)
+    else:
+        import emlib.misc
+        emlib.misc.open_with_app(path=outfile, wait=True, min_wait=0.1)
 
 
 def snippetToScore(snippet: str) -> str:
@@ -301,7 +303,7 @@ def renderLily(lilyfile: str,
         outfile = withExtension(lilyfile, 'pdf')
     fmt = os.path.splitext(outfile)[1][1:]
     assert fmt in ('pdf', 'png', 'ps')
-
+    logger = getLogger(__file__)
     logger.debug(f"Rendering lilypond '{lilyfile}' to '{outfile}'")
 
     if removeHeader or book:
@@ -843,7 +845,7 @@ noteheadStyles = {
 }
 
 
-def customNotehead(notehead: str = 'default', parenthesis: bool = False, color: str = None,
+def customNotehead(notehead: str = 'default', parenthesis: bool = False, color='',
                    sizeFactor: float = None
                    ) -> str:
     """
@@ -1064,6 +1066,7 @@ def getLilypondVersion() -> str | None:
     **NB**: The result is not cached
     """
     lilybin = findLilypond()
+    logger = getLogger(__file__)
     if not lilybin:
         logger.error("Could not find lilypond")
         return None
@@ -1172,10 +1175,11 @@ _boxMarkup = {
 
 
 def makeText(text: str,
-             fontsize: int | float = None,
+             fontsize: int | float | None = None,
              fontrelative=False,
              placement='above',
-             italic=False, bold=False,
+             italic=False, 
+             bold=False,
              box=''
              ) -> str:
     """

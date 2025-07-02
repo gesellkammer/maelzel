@@ -217,9 +217,10 @@ class CoreConfig(ConfigDict):
     .. seealso:: :func:`maelzel.core.workspace.makeConfig`
 
     """
-    root: CoreConfig
+    root: CoreConfig = None
     _defaultName: str = 'maelzel.core'
     _keyToType: dict[str, type | tuple[type, ...]] = {}
+    _listHiddenKeysAtTheEnd: bool = True
 
     # A config callback has the form (config: CoreConfig, key: str, val: Any) -> None
     # It is called with the config being modified, the key being modified and the new value
@@ -230,8 +231,8 @@ class CoreConfig(ConfigDict):
     }
 
     def __init__(self,
-                 updates: dict[str, Any] = None,
-                 source: str | ConfigDict | None = 'root',
+                 updates: dict[str, Any] | None = None,
+                 source: ConfigDict | str = 'root',
                  active=False,
                  **kws):
         self._hash: int = 0
@@ -249,7 +250,8 @@ class CoreConfig(ConfigDict):
 
         if not load:
             if source == 'root':
-                assert hasattr(CoreConfig, 'root') and CoreConfig.root is not None
+                if not hasattr(CoreConfig, 'root') or CoreConfig.root is None:
+                    raise RuntimeError("CoreConfig not initialized!")
                 source = CoreConfig.root
             if isinstance(source, ConfigDict):
                 d = dict(source)
@@ -287,19 +289,27 @@ class CoreConfig(ConfigDict):
     def _ipython_key_completions_(self):
         return self.keys()
 
-    def save(self, path='') -> None:
-        """
-        Save this config.
+    def _repr_keys(self) -> list[str]:
+        # This places "hidden" entries (entries starting with a dot) at the end
+        # of any list
+        if not CoreConfig._listHiddenKeysAtTheEnd:
+            return super()._repr_keys()
+        lastchr = chr(9999)
+        return sorted(self.keys(), key=lambda k: k if not k.startswith(".") else lastchr + k)
 
-        If no path is given, this config is **saved as the default config
-        and loaded in the next session**. If a path is given, the config
-        is saved to the given location and can be recreated via :meth:`CoreConfig.read`
-
-        Args:
-            path: the path where to save this config
-
-        """
-        super().save(path=path)
+    # def save(self, path='') -> None:
+    #     """
+    #     Save this config.
+    #
+    #     If no path is given, this config is **saved as the default config
+    #     and loaded in the next session**. If a path is given, the config
+    #     is saved to the given location and can be recreated via :meth:`CoreConfig.read`
+    #
+    #     Args:
+    #         path: the path where to save this config
+    #
+    #     """
+    #     super().save(path=path)
 
     @classmethod
     def read(cls, path: str):
@@ -489,7 +499,7 @@ class CoreConfig(ConfigDict):
                      gain=self['play.gain'],
                      fade=self['play.fade'],
                      instr=self['play.instr'],
-                     pitchinterpol=self['play.pitchInterpolation'],
+                     pitchinterpol=self['play.pitchInterpol'],
                      fadeshape=self['play.fadeShape'],
                      priority=1,
                      position=-1,

@@ -15,11 +15,12 @@ from . import presetdef as _presetdef
 from .workspace import Workspace
 from . import presetutils
 from . import builtinpresets
-from ._common import logger
-from . import _dialogs
 from . import environment
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
+
+from ._common import logger
+
+import typing as _t
+if _t.TYPE_CHECKING:
     from .synthevent import SynthEvent
     import csoundengine
     import csoundengine.instr
@@ -168,25 +169,25 @@ class PresetManager:
         if not os.path.exists(self.presetsPath):
             os.makedirs(self.presetsPath)
 
-    def _makeBuiltinPresets(self, sf2path: str = None) -> None:
+    def _makeBuiltinPresets(self) -> None:
         """
         Defines all builtin presets
         """
         for presetdef in builtinpresets.makeBuiltinPresets():
             self.registerPreset(presetdef)
 
-        sf2 = presetutils.resolveSoundfontPath(path=sf2path)
-        if not sf2:
-            logger.info("No soundfont defined, builtin instruments using soundfonts will "
-                        "not be available. Set config['play.generalMidiSoundfont'] to "
-                        "the path of an existing soundfont")
-        else:
-            for instr, preset in builtinpresets.soundfontGeneralMidiPresets.items():
-                if sf2 and sf2 != "?":
-                    presetname = 'gm-' + instr
-                    descr = f'General MIDI {instr}'
-                    self.defPresetSoundfont(presetname, sf2path=sf2, preset=preset,
-                                            _builtin=True, description=descr)
+        # sf2 = presetutils.resolveSoundfontPath(path=sf2path)
+        # if not sf2:
+        #     logger.info("No soundfont defined, builtin instruments using soundfonts will "
+        #                 "not be available. Set config['play.generalMidiSoundfont'] to "
+        #                 "the path of an existing soundfont")
+        # else:
+        #     for instr, preset in builtinpresets.soundfontGeneralMidiPresets.items():
+        #         if sf2 and sf2 != "?":
+        #             presetname = 'gm-' + instr
+        #             descr = f'General MIDI {instr}'
+        #             self.defPresetSoundfont(presetname, sf2path=sf2, preset=preset,
+        #                                     _builtin=True, description=descr)
 
         for name, info in builtinpresets.builtinSoundfonts().items():
             self.defPresetSoundfont(name,
@@ -202,8 +203,8 @@ class PresetManager:
                   code: str,
                   init='',
                   post='',
-                  includes: list[str] = None,
-                  args: dict[str, float] = None,
+                  includes: _t.Sequence[str] = (),
+                  args: dict[str, float] | None = None,
                   description='',
                   envelope=True,
                   output=True,
@@ -351,15 +352,15 @@ class PresetManager:
                            init='',
                            postproc='',
                            reverb=False,
-                           includes: list[str] = None,
+                           includes: _t.Sequence[str] = (),
                            args: dict[str, float] | None = None,
                            interpolation='',
                            mono=False,
-                           ampDivisor: int | float = None,
+                           ampDivisor: int | float = 0,
                            turnoffWhenSilent=True,
                            description='',
                            normalize=False,
-                           velocityCurve: list[float] | _presetdef.GainToVelocityCurve = None,
+                           velocityCurve: _t.Sequence[float] | _presetdef.GainToVelocityCurve = (),
                            reverbChanPrefix='',
                            _builtin=False) -> _presetdef.PresetDef:
         """
@@ -406,12 +407,13 @@ class PresetManager:
                 different soundfonts might need different scaling factors.
             interpolation: one of 'linear', 'cubic'. Refers to the interpolation used
                 when reading the sample waveform. If None, use the default defined
-                in the config (:ref:`key 'play.soundfontInterpolation' <config_play_soundfontinterpolation>`)
+                in the config (:ref:`key 'play.soundfontInterpol' <config_play_soundfontInterpol>`)
             turnoffWhenSilent: if True, turn a note off when the sample stops (by detecting
                 silence for a given amount of time)
             description: a short string describing this preset
             normalize: if True, queries the amplitude divisor of the soundfont at runtime
                 and uses that to scale amplitudes to 0dbfs
+            reverbChanPrefix: ???
             _builtin: if True, marks this preset as built-in
 
         Example
@@ -431,17 +433,17 @@ class PresetManager:
         if name in self.presetdefs:
             logger.info(f"PresetDef {name} already exists, overwriting")
         if not sf2path:
-            sf2path = presetutils.resolveSoundfontPath()
-            if sf2path is None:
-                sf2path = "?"
+            sf2path = presetutils.resolveSoundfontPath() or '?'
         if sf2path == "?":
+            from . import _dialogs
             sf2path = _dialogs.selectFileForOpen('soundfontLastDirectory',
-                                                 filter="*.sf2", prompt="Select Soundfont",
-                                                 ifcancel="No soundfont selected, aborting")
-            assert sf2path is not None
+                                                 filter="*.sf2", prompt="Select Soundfont")
+            if sf2path is None:
+                raise ValueError("No soundfont selected")
+
         cfg = Workspace.active.config
         if not interpolation:
-            interpolation = cfg['play.soundfontInterpolation']
+            interpolation = cfg['play.soundfontInterpol']
         assert interpolation in ('linear', 'cubic')
 
         if isinstance(preset, str):
@@ -461,7 +463,7 @@ class PresetManager:
         if (bank, presetnum) not in idx.presetToName:
             raise ValueError(f"Preset ({bank}:{presetnum}) not found. Possible presets: "
                              f"{idx.presetToName.keys()}")
-        if normalize and ampDivisor is None and cfg['play.soundfontFindPeakAheadOfTime']:
+        if normalize and not ampDivisor and cfg['play.soundfontFindPeakAOT']:
             sfpeak = sftools.soundfontPeak(sfpath=sf2path, preset=(bank, presetnum))
             if sfpeak > 0:
                 ampDivisor = sfpeak
@@ -474,7 +476,8 @@ class PresetManager:
                                                  mono=mono,
                                                  normalize=normalize,
                                                  reverb=reverb,
-                                                 reverbChanPrefix=reverbChanPrefix)
+                                                 reverbChanPrefix=reverbChanPrefix,
+                                                 velocityCurve=velocityCurve)
 
         # We don't actually need the global variable because sfloadonce
         # saves the table number into a channel
@@ -531,6 +534,7 @@ class PresetManager:
             # Presets starting with _ are private, presets starting with . are builtin
             presets = [name for name in self.presetdefs.keys()
                        if not name.startswith('_')]
+            from . import _dialogs
             selected = _dialogs.selectFromList(options=presets,
                                                title="Select Preset",
                                                default=Workspace.active.config['play.instr'])
@@ -735,16 +739,16 @@ class PresetManager:
         return outpath
 
     def makeRenderer(self,
-                     sr: int = None,
-                     numChannels: int = None,
-                     ksmps: int = None,
+                     sr=0,
+                     numChannels: int | None = None,
+                     ksmps=0,
                      ) -> csoundengine.offline.OfflineSession:
         """
         Make an offline Renderer from instruments defined here
 
         Args:
-            sr: the sr of the renderer
-            numChannels: the number of channels
+            sr: if given, the sr of the renderer. Otherwise we use config `rec.sr'
+            numChannels: the number of channels, will use config 'rec.numChannels' if not given
             ksmps: if not explicitely set, will use config 'rec.ksmps'
 
         Returns:
@@ -769,31 +773,31 @@ class PresetManager:
         path = self.presetsPath
         emlib.misc.open_with_app(path)
 
-    def removeUserPreset(self, presetName: str = None) -> bool:
+    def removeUserPreset(self, presetName: str) -> bool:
         """
         Remove a user defined preset
 
         Args:
-            presetName: the name of the preset to remove. Use None or "?" to
+            presetName: the name of the preset to remove. Use "?" to
                 select from a list of removable presets
 
         Returns:
             True if the preset was removed, False if it did not exist
         """
-        if presetName is None or presetName == "?":
+        if presetName == "?":
             saved = self.savedPresets()
             if not saved:
                 logger.info("No saved presets, aborting")
                 return False
-
-            presetName = _dialogs.selectFromList(saved, title="Remove Preset")
-            if not presetName:
+            from . import _dialogs
+            selected = _dialogs.selectFromList(saved, title="Remove Preset")
+            if not selected:
                 return False
+            presetName = selected
+
         path = os.path.join(self.presetsPath, f"{presetName}.yaml")
         if not os.path.exists(path):
             logger.warning(f"Preset {presetName} does not exist (searched: {path})")
-            presetnames = self.savedPresets()
-            logger.info(f"User defined presets: {presetnames}")
             return False
         os.remove(path)
         return True
@@ -817,6 +821,7 @@ class PresetManager:
         Returns:
             the name of the selected preset, or None if selection was canceled
         """
+        from . import _dialogs
         return _dialogs.selectFromList(self.definedPresets(), title="Select Preset")
 
 

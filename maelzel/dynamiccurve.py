@@ -3,20 +3,28 @@ functions to convert between dB and musical dynamics
 also makes a representation of the amplitude in terms of musical dynamics
 """
 from __future__ import annotations
+import sys
+import math
 from bisect import bisect as _bisect
 from dataclasses import dataclass
-
-from pitchtools import db2amp, amp2db
-import bpf4
-import bpf4.util
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Union, Callable, Sequence
+    import bpf4
 
 
 dynamicSteps = ('pppp', 'ppp', 'pp', 'p', 'mp',
                 'mf', 'f', 'ff', 'fff', 'ffff')
+
+
+def db2amp(db: float) -> float:
+    return 10.0 ** (0.05 * db)
+
+
+def amp2db(amp: float) -> float:
+    amp = max(amp, sys.float_info.epsilon)
+    return math.log10(amp) * 20
 
 
 @dataclass
@@ -55,6 +63,7 @@ class DynamicCurve:
         * :meth:`DynamicCurve.fromdescr`
 
         """
+        import bpf4.util
         self.dynamics: tuple[str, ...] = tuple(dynamics) if dynamics else dynamicSteps
         bpf = bpf4.util.asbpf(curve, bounds=(0, 1)).fit_between(0, len(self.dynamics)-1)
         self._amps2dyns, self._dyns2amps = _makeDynamicsMapping(bpf, self.dynamics)
@@ -279,7 +288,7 @@ def _validateDynamics(dynamics: Sequence[str]) -> None:
 
 
 def _makeDynamicsMapping(bpf: bpf4.BpfInterface,
-                         dynamics:Sequence[str] = None
+                         dynamics: Sequence[str] = None
                          ) -> tuple[list[tuple[float, str]], dict[str, float]]:
     """
     Calculate the global dynamics table according to the bpf given
@@ -327,4 +336,5 @@ def createShape(shape='expon(3)',
         have low resolution (meaning that a high variation in dynamic will have low variation
         in amplitude) and viceversa
     """
+    import bpf4.util
     return bpf4.util.makebpf(shape, [0, 1], [mindb, maxdb]).db2amp()

@@ -1,6 +1,6 @@
 from __future__ import annotations
 from . import pack
-from .track import Track
+from .partialtrack import PartialTrack
 from .partial import Partial
 
 
@@ -17,7 +17,7 @@ class Channel:
         self.minfreq = minfreq
         self.maxfreq = maxfreq
         self.partials: list[Partial] = partials or []
-        self.tracks: list[Track] = []
+        self.tracks: list[PartialTrack] = []
         self.rejected: list[Partial] = []
 
     def pack(self, numtracks: int, maxrange: int, mingap: float, method='weight') -> None:
@@ -51,7 +51,7 @@ class Channel:
             mingap: The minimum gap between partials on the same track.
         """
         partials = sorted(self.partials, key=lambda partial: partial.start)
-        tracks = [Track() for _ in range(numtracks)]
+        tracks = [PartialTrack() for _ in range(numtracks)]
         rejected: list[Partial] = []
         for partial in partials:
             possibleTracks = [track for track in tracks
@@ -74,7 +74,7 @@ class Channel:
             mingap: The minimum gap between partials on the same track.
         """
         partials: list[Partial] = sorted(self.partials, key=lambda p: p.audibility())
-        tracks: list[Track] = [Track() for _ in range(numtracks)]
+        tracks: list[PartialTrack] = [PartialTrack() for _ in range(numtracks)]
         rejected = []
         for partial in partials:
             track = pack.bestTrack(tracks, partial)

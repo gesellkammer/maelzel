@@ -4,6 +4,7 @@ NB: this module cannot import anything from maelzel itself
 from __future__ import annotations
 import logging as _logging
 import pitchtools as pt
+import functools as _functools
 
 from typing import Union, TypeAlias, TYPE_CHECKING
 
@@ -74,10 +75,11 @@ def asmidi(x) -> float:
     raise TypeError(f"Expected a str, a Note or a midinote, got {x}")
 
 
+@_functools.cache
 def getLogger(name: str,
               fmt='[%(name)s:%(filename)s:%(lineno)s:%(funcName)s:%(levelname)s] %(message)s',
               filelog: str = '',
-              force=False
+              force=True
               ) -> _logging.Logger:
     """
     Construct a logger
@@ -86,6 +88,7 @@ def getLogger(name: str,
         name: the name of the logger
         fmt: the format used
         filelog: if given, logging info is **also** output to this file
+        force: set own handlers, even if the logger already exists
 
     Returns:
         the logger
@@ -106,7 +109,6 @@ def getLogger(name: str,
         filehandler = _logging.FileHandler(filelog)
         filehandler.setFormatter(formatter)
         logger.addHandler(filehandler)
-    logger.debug(f"Created logger {name}")
     return logger
 
 

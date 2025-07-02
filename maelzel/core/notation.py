@@ -5,10 +5,7 @@ Functionality to interface with `maelzel.scoring`
 from __future__ import annotations
 
 from functools import cache
-
 from maelzel.common import asF
-from maelzel.textstyle import TextStyle
-
 from .workspace import Workspace
 
 from typing import TYPE_CHECKING
@@ -38,7 +35,7 @@ def makeEnharmonicOptionsFromConfig(cfg: CoreConfig) -> enharmonics.EnharmonicOp
     return renderoptions.makeEnharmonicOptions()
 
 
-def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
+def makeRenderOptionsFromConfig(cfg: CoreConfig | None = None,
                                 ) -> render.RenderOptions:
     """
     Generate RenderOptions needed for `scoring.render` based on the config
@@ -53,46 +50,48 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig = None,
     if cfg is None:
         cfg = Workspace.active.config
 
-    centsAnnotationStyle = TextStyle.parse(cfg['show.centsAnnotationStyle'])
+    from maelzel.textstyle import TextStyle
+    centsTextStyle = TextStyle.parse(cfg['show.centsTextStyle'])
 
     from maelzel.scoring import render
     renderOptions = render.RenderOptions(
-        centsAnnotationFontsize=centsAnnotationStyle.fontsize or 8,
-        centsAnnotationPlacement=centsAnnotationStyle.placement or 'above',
-        centsAnnotationPlusSign=cfg['.show.centsAnnotationPlusSign'],
+        centsAnnotationFontsize=centsTextStyle.fontsize or 8,
+        centsAnnotationPlacement=centsTextStyle.placement or 'above',
+        centsTextPlusSign=cfg['.show.centsTextPlusSign'],
         divsPerSemitone=cfg['semitoneDivisions'],
         enharmonicDebug=cfg['.enharmonic.debug'],
         enharmonicHorizontalWeight=cfg['enharmonic.horizontalWeight'],
-        enharmonicThreeQuarterMicrotonePenalty=cfg['.enharmonic.threeQuarterMicrotonePenalty'],
+        enharmonicThreeQuarterMicrotonePenalty=cfg['.enharmonic.150centMicroPenalty'],
         enharmonicVerticalWeight=cfg['enharmonic.verticalWeight'],
         glissLineThickness=cfg['show.glissLineThickness'],
         glissHideTiedNotes=cfg['show.glissHideTiedNotes'],
         glissLineType=cfg['show.glissLineType'],
         horizontalSpacing=cfg['show.horizontalSpacing'],
         lilypondBinary=cfg['lilypondpath'],
-        lilypondGlissandoMinimumLength=cfg['show.lilypondGlissandoMinimumLength'],
+        lilypondGlissMinLength=cfg['show.lilypondGlissMinLength'],
         lilypondPngStaffsizeScale=cfg['show.lilypondPngStaffsizeScale'],
-        measureAnnotationStyle=cfg['show.measureAnnotationStyle'],
+        measureLabelStyle=cfg['show.measureLabelStyle'],
         musescoreBinary=cfg['musescorepath'],
         noteLabelStyle=cfg['show.labelStyle'],
         orientation=cfg['show.pageOrientation'],
-        pageMarginMillimeters=cfg['show.pageMarginMillimeters'],
+        pageMarginMillimeters=cfg['show.pageMarginMillim'],
         pageSize=cfg['show.pageSize'],
         pngResolution=cfg['show.pngResolution'],
         rehearsalMarkStyle=cfg['show.rehearsalMarkStyle'],
         renderFormat=cfg['show.format'],
         respellPitches=cfg['show.respellPitches'],
-        showCents=cfg['show.centsDeviationAsTextAnnotation'],
+        showCents=cfg['show.centsAsText'],
         staffSize=cfg['show.staffSize'],
         referenceStaffsize=cfg['show.referenceStaffsize'],
         autoClefChanges=cfg['show.autoClefChanges'],
-        keepClefBiasFactor=cfg['.show.keepClefBiasFactor'],
-        autoClefChangesWindow=cfg['.show.autoClefChangesWindow'],
+        keepClefBiasFactor=cfg['show.keepClefBias'],
+        autoClefChangesWindow=cfg['show.clefChangesWindow'],
+        clefSimplificationThreshold=cfg['show.clefSimplification'],
         musicxmlFontScaling=cfg['show.musicxmlFontScaling'],
-        centsAnnotationSnap=cfg['show.centsAnnotationSnap'],
-        proportionalSpacing=cfg['show.proportionalSpacing'],
-        proportionalNotationDuration=cfg['show.proportionalNotationDuration'],
-        proportionalSpacingKind=cfg['show.proportionalSpacingKind'],
+        centsTextSnap=cfg['show.centsTextSnap'],
+        proportionalSpacing=cfg['show.spacing'] != "normal",
+        proportionalNotationDuration=cfg['show.proportionalDuration'],
+        proportionalSpacingKind=cfg['show.spacing'],
         flagStyle=cfg['show.flagStyle']
     )
     return renderOptions
@@ -113,16 +112,16 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig
     nestedTuplets = cfg['quant.nestedTuplets']
     if nestedTuplets is None:
         if cfg['show.backend'] == 'musicxml':
-            nestedTuplets = cfg['quant.nestedTupletsInMusicxml']
+            nestedTuplets = cfg['quant.nestedTupletsMusicxml']
         else:
             nestedTuplets = True
 
     kws = {}
-    if (gridWeight := cfg['.quant.gridErrorWeight']) is not None:
+    if (gridWeight := cfg['.quant.gridWeight']) is not None:
         kws['gridErrorWeight'] = gridWeight
-    if (divisionWeight := cfg['.quant.divisionErrorWeight']) is not None:
+    if (divisionWeight := cfg['.quant.divisionWeight']) is not None:
         kws['divisionErrorWeight'] = divisionWeight
-    if (rhythmWeight := cfg['.quant.rhythmComplexityWeight']) is not None:
+    if (rhythmWeight := cfg['.quant.complexityWeight']) is not None:
         kws['rhythmComplexityWeight'] = rhythmWeight
     if (gridErrorExp := cfg['.quant.gridErrorExp']) is not None:
         kws['gridErrorExp'] = gridErrorExp
@@ -133,20 +132,20 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig
         nestedTuplets=nestedTuplets,
         debug=cfg['.quant.debug'],
         debugMaxDivisions = cfg['.quant.debugShowNumRows'],
-        syncopationMinBeatFraction = asF(cfg['quant.syncopationMinBeatFraction']),
-        syncopationMaxAsymmetry = cfg['quant.syncopationMaxAsymmetry'],
-        breakSyncopationsLevel = cfg['quant.breakSyncopationsLevel'],
+        syncopMinFraction = asF(cfg['quant.syncopMinFraction']),
+        syncopMaxAsymmetry = cfg['quant.syncopMaxAsymmetry'],
+        breakSyncopationsLevel = cfg['quant.breakBeats'],
         breakLongGlissandi = cfg['show.glissHideTiedNotes'],
         **kws
     )
 
 
 def renderWithActiveWorkspace(parts: list[scoring.core.UnquantizedPart],
-                              backend: str = None,
-                              renderoptions: render.RenderOptions = None,
-                              scorestruct: ScoreStruct = None,
-                              config: CoreConfig = None,
-                              quantizationProfile: quant.QuantizationProfile = None
+                              backend='',
+                              renderoptions: render.RenderOptions | None = None,
+                              scorestruct: ScoreStruct | None = None,
+                              config: CoreConfig | None = None,
+                              quantizationProfile: quant.QuantizationProfile | None = None
                               ) -> render.Renderer:
     """
     Render the given scoring.UnquantizedParts with the current configuration
@@ -165,21 +164,21 @@ def renderWithActiveWorkspace(parts: list[scoring.core.UnquantizedPart],
     workspace = Workspace.active
     if not config:
         config = workspace.config
-    if backend != config['show.backend']:
+    if backend and backend != config['show.backend']:
         config = config.clone({'show.backend': backend})
     if not renderoptions:
         renderoptions = config.makeRenderOptions()
     if not quantizationProfile:
         quantizationProfile = config.makeQuantizationProfile()
     if backend:
-        renderoptions.backend = backend
+        assert renderoptions.backend == backend
     if scorestruct is None:
         scorestruct = workspace.scorestruct
     from maelzel import scoring
     from maelzel.scoring import render
     if config['show.hideRedundantDynamics']:
         for part in parts:
-            scoring.core.removeRedundantDynamics(part.notations)
+            scoring.core.removeRedundantDynamics(part.notations, resetAfterQuarters=config['.show.hideRedundantDynamicsResetAfter'])
     return render.quantizeAndRender(parts,
                                     struct=scorestruct,
                                     options=renderoptions,
