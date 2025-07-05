@@ -240,7 +240,8 @@ docs = {
 
     'chordAdjustGain':
         "Adjust the gain of a chord according to the number of notes, to prevent "
-        "clipping",
+        "clipping. This is only applied if the notes of the chord do not have an "
+        "individual amplitude set",
 
     'show.scaleFactor':
         "Affects the size of the generated image when using png format",

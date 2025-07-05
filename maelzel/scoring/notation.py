@@ -1613,7 +1613,7 @@ class Notation:
             descrs = [f'{i}:{n.description()}' for i, n in self.noteheads.items()]
             info.append(f'noteheads={descrs}')
 
-        for attr in ('attachments', 'properties', 'spanners', 'color'):
+        for attr in ('attachments', 'properties', 'spanners'):
             val = getattr(self, attr)
             if val:
                 info.append(f"{attr}={val}")

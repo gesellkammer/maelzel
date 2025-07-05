@@ -8,17 +8,17 @@ from math import pi, sqrt
 import bpf4 as bpf
 import pitchtools as pt
 from dataclasses import dataclass
-import csoundengine
 
-from emlib.iterlib import flatten
 from functools import cache
 
 from maelzel.core import Chord, Note
 from maelzel.snd import playback
 
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    pass
+import typing as _t
+if _t.TYPE_CHECKING:
+    import csoundengine
+    import csoundengine.synth
+    import csoundengine.instr
 
 
 @dataclass
@@ -200,21 +200,26 @@ def _sumcolumns(rows) -> list[float]:
     return [sum(row[i] for row in rows) for i in range(len(rows[0]))]
 
 
-def interpolateVowel(vowels: list[str | Vowel], weights: list[float] = None) -> Vowel:
+def interpolateVowel(vowels: list[str | Vowel], weights: _t.Sequence[float] = ()) -> Vowel:
     """
     Create a mix between different vowels according to the weights given
+    
     If no weights are given, all vowels are mixed equally
 
     Args:
         vowels: a str of the form vowel:register, like "i:bass"
         weights: if given, a numerical weight for each vowel.
+    
+    Returns:
+        the resulting Vowel
     """
-    if weights is None:
-        weights = [1.] * len(vowels)
+    if not weights:
+        normalizedWeights = (1/len(vowels),) * len(vowels)
+    else:
+        sumweights = sum(weights)
+        normalizedWeights = [w / sumweights for w in weights]
 
     vowels2: list[Vowel] = [vowel if isinstance(vowel, Vowel) else getVowel(vowel) for vowel in vowels]
-    sumweights = sum(weights)
-    normalizedWeights = [w / sumweights for w in weights]
     rows = list(zip(vowels2, normalizedWeights))
     avgfreqs = _sumcolumns([_listmul(vowel.freqs, weight) for vowel, weight in rows])
     avgdbs = _sumcolumns([_listmul(vowel.dbs, weight) for vowel, weight in rows])
@@ -224,6 +229,7 @@ def interpolateVowel(vowels: list[str | Vowel], weights: list[float] = None) -> 
 
 @cache
 def _vowelInstrFof2() -> csoundengine.instr.Instr:
+    import csoundengine.instr
     return csoundengine.instr.Instr("vowelsfof2", r'''
         itotdur = p3
         iamp = p5
@@ -289,7 +295,9 @@ def instrData(vowel: str | Vowel) -> list[float]:
     """
     vowel = asVowel(vowel)
     amps = [pt.db2amp(db) for db in vowel.dbs]
-    data = list(flatten(zip(vowel.freqs, vowel.bws, amps)))
+    data: list[float] = []
+    for row in zip(vowel.freqs, vowel.bws, amps):
+        data.extend(row)
     return data
 
 
@@ -349,7 +357,7 @@ def synthVowel(midinote: float | tuple[float, float],
                method='fof2',
                vibrate=0.,
                vibamount=0.25,
-               enginename: str = ''
+               engine: csoundengine.Engine | None = None
                ) -> csoundengine.synth.Synth:
     """
     Synthesize a vowel
@@ -363,12 +371,13 @@ def synthVowel(midinote: float | tuple[float, float],
         method: 'fof2' at the moment
         vibrate: vibrato rate
         vibamount: amount of vibrato
+        engine: engine to use
 
     Returns:
         the synth
 
     """
-    engine = csoundengine.Engine.activeEngines.get(enginename) or playback.getEngine()
+    engine = engine or playback.getEngine()
     if method == 'fof2':
         return _synthVowelFof2(engine,
                                midinote,
@@ -574,7 +583,7 @@ class VowelFilter:
             b = bpf.halfcos(0, 0, freq - bw2 - transitionbw, 0, freq - bw2,
                             amp, freq + bw2, amp, freq + bw2 + transitionbw, 0)
             curves.append(b)
-        return bpf.Max(*curves)
+        return bpf.Max(curves)
 
     def filter(self, overtones: list[tuple[float, float]], mindb=-90, wet=1.0):
         """

@@ -104,7 +104,6 @@ def playTicks(times: list[float] | np.ndarray,
         # if needed to stop the playback at any moment:
         >>> synthgroup.stop()
     """
-    import csoundengine
     if engine is None:
         engine = _common.getEngine()
 
@@ -178,7 +177,7 @@ def onsets(samples: np.ndarray,
 def plotOnsets(samples: np.ndarray,
                sr: int,
                onsets: np.ndarray,
-               onsetbpf: bpf4.BpfBase = None,
+               onsetbpf: bpf4.BpfBase | None = None,
                samplesgain=20,
                envalpha=0.8,
                samplesalpha=0.4,
@@ -238,9 +237,9 @@ def filterOnsets(onsets: np.ndarray,
                  samples: np.ndarray,
                  sr: int,
                  minampdb = -60,
-                 rmscurve: bpf4.BpfInterface = None,
+                 rmscurve: bpf4.BpfInterface | None = None,
                  rmsperiod = 0.05,
-                 onsetStrengthBpf: bpf4.BpfInterface = None,
+                 onsetStrengthBpf: bpf4.BpfInterface | None = None,
                  ) -> np.ndarray:
     """
     Returns a selection array where a value of 1 marks an onset as relevant
@@ -287,7 +286,7 @@ def filterOnsets(onsets: np.ndarray,
 def findOffsets(onsets: list[float] | np.ndarray,
                 samples: np.ndarray,
                 sr: int,
-                rmscurve: bpf4.BpfInterface = None,
+                rmscurve: bpf4.BpfInterface | None = None,
                 silenceThreshold=-60,
                 relativeThreshold: int = 90,
                 rmsperiod=0.05,
@@ -302,6 +301,9 @@ def findOffsets(onsets: list[float] | np.ndarray,
         onsets: the onset times
         samples: the samples for which the onsets where calculated
         sr: the samplerate of the samples
+        rmscurve: if already calculated, can be passed here to avoid calculation
+        rmsperiod: rms period used to calculate rms curve, only needed if
+            not rms curve is being passed
         silenceThreshold: silence threshold in dB
         relativeThreshold: if the sound falls this amount of dB relative to the onset
             then it is also considered an offset (possitive dB)
@@ -411,7 +413,7 @@ def centroidBpf(samples: np.ndarray,
                 sr: int,
                 fftsize: int = 2048,
                 overlap: int = 4,
-                winsize: int | None = None,
+                winsize: int = 0,
                 window='hann'
                 ) -> bpf4.Sampled:
     """

@@ -66,7 +66,7 @@ class RingmodChord(Chord):
 
     def scoringEvents(self,
                       groupid='',
-                      config: CoreConfig = None,
+                      config: CoreConfig | None = None,
                       parentOffset: F | None = None
                       ) -> list[scoring.Notation]:
         notes = self.notes.copy()

@@ -54,7 +54,7 @@ def pinkNoiseFFT(dur: float, sr=44100, peaknorm=True) -> np.ndarray:
     return out
 
 
-def pinkNoise(dur: float, sr=44100, state: np.random.RandomState = None,
+def pinkNoise(dur: float, sr=44100, state: np.random.RandomState | None = None,
               peaknorm=True
               ) -> np.ndarray:
     """

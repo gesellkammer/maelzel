@@ -103,9 +103,6 @@ cloning any CoreConfig.
 
     >>> from maelzel.core import *
     >>> newconfig = CoreConfig({'show.pageSize': 'a3'}, active=True)
-    # This is the same as
-    >>> newconfig = CoreConfig.root.clone({'show.pageSize': 'a3'})
-    >>> setConfig(newconfig)
 
 Also creating a new :class:`~maelzel.core.workspace.Workspace` will create a new
 config based on the root config:
@@ -141,12 +138,11 @@ from configdict import ConfigDict
 from maelzel.core._common import logger
 from maelzel.core import configdata
 
-import typing
-if typing.TYPE_CHECKING:
-    from typing import Any
+import typing as _t
+if _t.TYPE_CHECKING:
     from maelzel.scoring.render import RenderOptions
     from maelzel.scoring.quantprofile import QuantizationProfile
-    import scoring.enharmonics
+    import maelzel.scoring.enharmonics as enharmonics
     from maelzel.core.workspace import Workspace
 
 
@@ -217,10 +213,10 @@ class CoreConfig(ConfigDict):
     .. seealso:: :func:`maelzel.core.workspace.makeConfig`
 
     """
-    root: CoreConfig = None
-    _defaultName: str = 'maelzel.core'
-    _keyToType: dict[str, type | tuple[type, ...]] = {}
-    _listHiddenKeysAtTheEnd: bool = True
+    _root: _t.ClassVar[CoreConfig | None] = None
+    _defaultName: _t.ClassVar[str] = 'maelzel.core'
+    _keyToType: _t.ClassVar[dict[str, type | tuple[type, ...]]] = {}
+    _listHiddenKeysAtTheEnd: _t.ClassVar[bool] = True
 
     # A config callback has the form (config: CoreConfig, key: str, val: Any) -> None
     # It is called with the config being modified, the key being modified and the new value
@@ -231,14 +227,14 @@ class CoreConfig(ConfigDict):
     }
 
     def __init__(self,
-                 updates: dict[str, Any] | None = None,
+                 updates: dict[str, _t.Any] | None = None,
                  source: ConfigDict | str = 'root',
                  active=False,
                  **kws):
         self._hash: int = 0
         self._defaultPlayArgsDict: dict | None = None
 
-        load = source == 'load' or (source == 'root' and CoreConfig.root is None)
+        load = source == 'load' or (source == 'root' and CoreConfig._root is None)
 
         super().__init__(CoreConfig._defaultName,
                          default=configdata.defaultdict,
@@ -250,15 +246,15 @@ class CoreConfig(ConfigDict):
 
         if not load:
             if source == 'root':
-                if not hasattr(CoreConfig, 'root') or CoreConfig.root is None:
+                if not hasattr(CoreConfig, 'root') or CoreConfig._root is None:
                     raise RuntimeError("CoreConfig not initialized!")
-                source = CoreConfig.root
+                source = CoreConfig._root
             if isinstance(source, ConfigDict):
                 d = dict(source)
                 dict.update(self, d)
         else:
             # Whenever loading, update root
-            CoreConfig.root = self
+            CoreConfig._root = self
 
         self._previousState: tuple[Workspace, CoreConfig] | None = None
 
@@ -281,6 +277,12 @@ class CoreConfig(ConfigDict):
 
         if active:
             self.activate()
+
+    @classmethod
+    def root(cls) -> CoreConfig:
+        root = CoreConfig._root
+        assert root is not None
+        return root
 
     def _changedCallback(self, cfg: ConfigDict, key: str, val):
         self._hash = 0
@@ -332,7 +334,7 @@ class CoreConfig(ConfigDict):
         """Create a copy of this config"""
         return CoreConfig(source=self)
 
-    def clone(self, updates: dict = None, **kws) -> CoreConfig:
+    def clone(self, updates: dict | None = None, **kws) -> CoreConfig:
         """
         Create a new CoreConfig from this config with modified values
 
@@ -408,7 +410,7 @@ class CoreConfig(ConfigDict):
         from maelzel.core import notation
         return notation.makeQuantizationProfileFromConfig(self)
 
-    def makeEnharmonicOptions(self) -> scoring.enharmonics.EnharmonicOptions:
+    def makeEnharmonicOptions(self) -> enharmonics.EnharmonicOptions:
         """
         Create EnharmonicOptions from this config
 

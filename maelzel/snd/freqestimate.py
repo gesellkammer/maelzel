@@ -429,7 +429,7 @@ def detectMinFrequency(samples: np.ndarray, sr: int, freqThreshold=30, overlap=4
     if len(selected) == 0:
         return 0., 0.
     idx = selected.argmin()
-    time = f0data[:,0][mask][idx]
+    time = float(f0data[:,0][mask][idx])
     if refine:
         margin = 0.2
         start = int((time - margin)*sr)
@@ -438,4 +438,4 @@ def detectMinFrequency(samples: np.ndarray, sr: int, freqThreshold=30, overlap=4
                                   overlap=overlap*4, lowAmpSuppression=lowAmpSuppression,
                                   refine=False)
         return f, time - margin + t
-    return selected[idx], time
+    return float(selected[idx]), time

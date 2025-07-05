@@ -893,9 +893,6 @@ class Chord(MEvent):
     Attributes:
         amp: the amplitude of the chord itself (each note can have an individual amp)
         notes: the notes which build this chord
-        gliss: if True, this Chord makes a gliss to another chord. Also, a list
-            of pitches can be given as gliss, these indicate the end pitch of the gliss
-            as midinote
         tied: is this Chord tied to another Chord?
     """
 
@@ -931,7 +928,8 @@ class Chord(MEvent):
         or a tuple (midinote, amp)
 
         Args:
-            amp: the amplitude (volume) of this chord
+            amp: the amplitude (volume) of this chord. This applies to all the notes in the chord,
+                but each note can have its own amplitude, which is then multiplied by this factor
             dur: the duration of this chord (in quarternotes)
             offset: the offset time (in quarternotes)
             gliss: either a list of end pitches (with the same size as the chord), or
@@ -1043,7 +1041,7 @@ class Chord(MEvent):
                              _init=False)
         self._copyAttributesTo(out)
         return out
-
+    
     def __len__(self) -> int:
         return len(self.notes)
 
@@ -1213,7 +1211,7 @@ class Chord(MEvent):
         for i, n in enumerate(self.notes):
             if n.symbols:
                 for symbol in n.symbols:
-                    if isinstance(symbol, _symbols.NoteheadAttachedSymbol):
+                    if isinstance(symbol, _symbols.NoteheadSymbol):
                         symbol.applyToPitch(notation, idx=i, parent=n)
                     else:
                         logger.debug(f"Cannot apply symbol {symbol} to a pitch inside chord {self}")
@@ -1252,19 +1250,6 @@ class Chord(MEvent):
         self.notes.insert(index, note if isinstance(note, Note) else Note(note))
         self._changed()
 
-    def filter(self, predicate) -> Chord:
-        """
-        Return a new Chord with only the notes which satisfy the given predicate
-
-        Example::
-
-            # filter out notes which do not belong to the C-major triad
-            >>> ch = Chord("C3 D3 E4 G4")
-            >>> ch2 = ch.filter(lambda note: (note.pitch % 12) in {0, 4, 7})
-
-        """
-        return self._withNewNotes([n for n in self if predicate(n)])
-
     def transposeTo(self, fundamental: pitch_t) -> Chord:
         """
         Return a copy of self, transposed to the new fundamental
@@ -1287,9 +1272,6 @@ class Chord(MEvent):
         """
         return Chord([note.freqShift(freq) for note in self])
 
-    def _withNewNotes(self, notes) -> Chord:
-        return self.clone(notes=notes)
-
     def quantizePitch(self, step=0.) -> Chord:
         """
         Returns a copy of this chord, with the pitches quantized.
@@ -1306,8 +1288,8 @@ class Chord(MEvent):
                 accumnote.amp += note2.amp
             else:
                 notes[note2.pitch] = note2
-        return self._withNewNotes(notes.values())
-
+        return self.clone(notes=notes.values())
+        
     def __setitem__(self, i: int, note: pitch_t) -> None:
         self.notes.__setitem__(i, note if isinstance(note, Note) else Note(note))
         self._changed()
@@ -1391,15 +1373,14 @@ class Chord(MEvent):
             return []
         conf = workspace.config
         struct = workspace.scorestruct
-        playargs0 = playargs
         if self.playargs:
             playargs = playargs.updated(self.playargs)
 
-        if conf['chordAdjustGain']:
-            if playargs is playargs0:
-                playargs = playargs.copy()
-            playargs['gain'] = playargs.get('gain', 1.0) / math.sqrt(len(self))
-
+        if conf['chordAdjustGain'] and all(n.amp is None for n in self.notes):
+            globalgain = 1/math.sqrt(len(self.notes))
+        else:
+            globalgain = 1.
+            
         startbeat = self.relOffset() + parentOffset
         startbeat = max(startbeat, playargs.get('skip', F0))
         endbeat = min(startbeat + self.dur, playargs.get('end', float('inf')))
@@ -1416,6 +1397,7 @@ class Chord(MEvent):
         synthevents = []
         for note, endpitch, amp in zip(self.notes, endpitches, amps):
             startpitch = note.pitch + transpose
+            amp *= globalgain
             bps = [[float(startsecs), startpitch, amp]]
             if glissdur:
                 glissabstime = float(struct.beatToTime(endbeat - glissdur))

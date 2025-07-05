@@ -13,7 +13,6 @@ import sndfileio
 
 import numpyx
 from maelzel.snd import numpysnd as npsnd
-from maelzel.common import getLogger
 from typing import TYPE_CHECKING
 
 
@@ -25,11 +24,7 @@ if TYPE_CHECKING:
     _FloatFunc: TypeAlias = Callable[[float], float]
 
 
-def _getlogger() -> logging.Logger:
-    return getLogger("maelzel.sndfiletools")
-
-
-def _chunks(start: int, stop: int = None, step: int = None
+def _chunks(start: int, stop: int | None = None, step: int | None = None
             ) -> Iterator[tuple[int, int]]:
     """
     Like xrange, but returns a Tuplet (position, distance form last position)
@@ -66,7 +61,7 @@ def fadeSndfile(sndfile: str, outfile: str, fadetime: float,
         the path of the generated outfile
     """
     samples, sr = sndfileio.sndread(sndfile)
-    npsnd.arrayFade(samples, sr, fadetime=fadetime, mode=mode, shape=shape)
+    npsnd.applyFade(samples, sr, fadetime=fadetime, mode=mode, shape=shape)
     sndfileio.sndwrite_like(outfile, samples, likefile=sndfile)
 
 
@@ -91,7 +86,7 @@ def copyFragment(path: str, start: float, end: float, outfile: str
 def process(sourcefile: str,
             outfile: str,
             callback: processfunc_t,
-            timerange: tuple[float, float] = None,
+            timerange: tuple[float, float] = (),
             bufsize=4096) -> None:
     """
     Process samples of sourcefile in fragments and write them to outfile
@@ -128,7 +123,8 @@ def gain(filename: str, factor: float | _FloatFunc, outfile: str) -> None:
         outfile: the output filename
     """
     if callable(factor):
-        factorfunc = bpf4.asbpf(factor)
+        import bpf4.util
+        factorfunc = bpf4.util.asbpf(factor)
         return _dynamicGain(filename, factorfunc, outfile)
 
     def callback(data: np.ndarray, sampleidx: int, now: float):
@@ -164,7 +160,7 @@ def _dynamicGain(sndfile: str, curve: bpf4.BpfInterface, outfile='inplace') -> N
         os.rename(outfile, sndfile)
 
 
-def mixArrays(sources: list[np.ndarray], offsets: list[int] = None) -> np.ndarray:
+def mixArrays(sources: list[np.ndarray], offsets: list[int] | None = None) -> np.ndarray:
     """
     Mix the sources together.
 
@@ -291,7 +287,7 @@ def peakbpf(filename: str, resolution=0.01, method='peak', channel: int | str = 
     peaksarr = np.array(peaks)
     if normalize:
         peaksarr /= peaksarr.max()
-    return bpf4.core.Linear(timesarr, peaksarr)
+    return bpf4.Linear(timesarr, peaksarr)
 
 
 def maxPeak(filename: str, start: float = 0, end: float = 0, resolution=0.01
@@ -407,7 +403,7 @@ def stripSilence(sndfile: str, outfile: str, threshold=-100, margin=0.050,
     new_data = data[frame0:frame1]
 
     if fadetime > 0:
-        npsnd.arrayFade(data, samplerate, fadetime=fadetime, mode='inout',
+        npsnd.applyFade(data, samplerate, fadetime=fadetime, mode='inout',
                         shape='linear', margin=32)
 
     sndfileio.sndwrite_like(outfile, new_data, likefile=sndfile)
@@ -437,7 +433,7 @@ def normalize(path: str, outfile: str, headroom=0.) -> None:
 def detectRegions(sndfile: str, attackthresh: float, decaythresh: float,
                   mindur=0.020, func='rms', resolution=0.004, mingap: float = 0,
                   normalize=False
-                  ) -> tuple[list[tuple[float, float]], bpf4.BpfInterface]:
+                  ) -> tuple[list[tuple[float, float]], bpf4.NoInterpol]:
     """
     Detect fragments inside a soundfile.
 
@@ -458,9 +454,10 @@ def detectRegions(sndfile: str, attackthresh: float, decaythresh: float,
         each region is a tuple (region start, region end)
     """
     b = peakbpf(sndfile, resolution=resolution, method=func, normalize=normalize)
-    bsmooth = bpf4.util.smoothen((b + db2amp(-160)).applyTo(amp2db), window=int(mindur/8))
-    regions = []
-    Y = bsmooth.sample(resolution)
+    import bpf4.util
+    bsmooth = bpf4.util.smoothen((b + db2amp(-160)).apply(amp2db), window=int(mindur/8))
+    regions: list[tuple[float, float]] = []
+    Y = bsmooth.sample_between(bsmooth.x0, bsmooth.x1, resolution)
     X = np.linspace(b.x0, b.x1, len(Y))
     regionopen = False
     regionx0 = 0
@@ -475,23 +472,21 @@ def detectRegions(sndfile: str, attackthresh: float, decaythresh: float,
                 regions.append((regionx0, x))
                 regionx0 = x
     # merge regions with gap smaller than minimumgap
-    if mingap > 0:
-        mergedregions = []
-        last_region = (-mingap * 2, -mingap * 2)
-        for region in regions:
-            gap = region[0] - last_region[1]
+    if mingap > 0 and len(regions) > 1:
+        mergedregions: list[tuple[float, float]] = [regions[0]]
+        for region in regions[1:]:
+            lastregion = mergedregions[-1]
+            gap = region[0] - lastregion[1]
             if gap >= mingap:
-                mergedregions.append(last_region)
-                last_region = region
+                mergedregions.append(lastregion)
             else:
                 # add the new region to the last region and hold it,
                 # do not append yet to new regions
-                last_region = (last_region[0], region[1])
-        if mergedregions and last_region[-1] != mergedregions[-1][-1]:
-            mergedregions.append(last_region)
+                mergedregions[-1] = (lastregion[0], region[1])
         regions = [region for region in mergedregions
                    if region[0] >= b.x0 and region[1] <= b.x1]
-    mask = bpf4.nointerpol(*flatten([((x0, 1), (x1, 0)) for x0, x1 in regions]))
+    import bpf4.api
+    mask = bpf4.api.nointerpol(*flatten([((x0, 1), (x1, 0)) for x0, x1 in regions]))
     return regions, mask
 
 
@@ -524,8 +519,8 @@ def extractRegions(sndfile: str,
     info = sndfileio.sndinfo(sndfile)
     regions, sr = readRegions(sndfile, times)
     for region in regions:
-        npsnd.arrayFade(region, sr, fadetimes[0], mode='in', shape=fadeshape)
-        npsnd.arrayFade(region, sr, fadetimes[1], mode='out', shape=fadeshape)
+        npsnd.applyFade(region, sr, fadetimes[0], mode='in', shape=fadeshape)
+        npsnd.applyFade(region, sr, fadetimes[1], mode='out', shape=fadeshape)
     writer = sndfileio.sndwrite_chunked_like(outfile, likefile=sndfile)
     if mode == 'original':
         shape = (info.nframes, info.channels) if info.channels > 1 else (info.nframes,)
@@ -620,11 +615,11 @@ def scrub(source: str | tuple[np.ndarray, int], curve: bpf4.BpfInterface,
         a tuple (samples: np.ndarray, sr: int)
     """
     samples, sr = _getsamples(source)
-    samplebpf = bpf4.core.Sampled(samples, 1.0 / sr)
+    samplebpf = bpf4.Sampled(samples, 1.0 / sr)
     warped = curve | samplebpf
-    newsamples = warped[curve.x0:curve.x1:1.0 / sr].ys
+    newsamples = warped.sample_between(curve.x0, curve.x1, 1./sr)
     if not rewind and curve.x0 > 0:
-        out = np.zeros((sr * curve.x1,), dtype=float)
+        out = np.zeros((int(sr * curve.x1),), dtype=float)
         out[-len(newsamples):] = newsamples
         newsamples = out
     if outfile:

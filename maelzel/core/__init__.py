@@ -54,12 +54,12 @@ def _onFirstRun():
     from maelzel.core.presetmanager import presetManager
     if '.piano' in presetManager.presetdefs:
         print("*** maelzel.core: found builtin piano soundfont; setting default instrument to '.piano'")
-        assert CoreConfig.root is not None
-        CoreConfig.root['play.instr'] = '.piano'
+        rootconfig = CoreConfig.root()
+        rootconfig['play.instr'] = '.piano'
         try:
-            CoreConfig.root.save()
+            rootconfig.save()
         except FileNotFoundError:
-            print(f"*** maelzel.core: Could not save config: {CoreConfig.root.getPath()}")
+            print(f"*** maelzel.core: Could not save config: {rootconfig.getPath()}")
 
     _appstate.appstate['firstRun'] = False   # state is persistent so no need to save
 

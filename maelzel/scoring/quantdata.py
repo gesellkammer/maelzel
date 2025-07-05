@@ -39,19 +39,22 @@ def allSubdivisions(maxsubdivs=5,
                     permutations=True,
                     blacklist: Sequence[tuple[int, ...]] = () 
                     ) -> list[division_t]:
-    allsubdivs = []
+    allsubdivs: list[division_t] = []
     for numsubdivs in range(maxsubdivs, 0, -1):
         allsubdivs.extend(subdivisions(numdivs=numsubdivs, possiblevals=possiblevals, maxdensity=maxdensity))
 
-    def issuperfluous(p):
-        if len(p) > 1 and all(x == p[0] for x in p) and sum(p) in possiblevals:
+    def issuperfluous(p: division_t, possiblevals: Sequence[int]) -> bool:
+        if len(p) == 1:
+            return False
+        p0 = p[0]
+        if all(x == p0 for x in p) and sum(p) in possiblevals:
             return True
         if len(p) in (2, 4, 8) and all(x in (1, 2, 4, 8) for x in p) and max(p)*len(p) in possiblevals:
             # (2, 4) == (4, 4) == 8, (2, 2, 2, 4) == 16, (4, 4) == 8
             return True
         return False
 
-    allsubdivs = [s for s in allsubdivs if not issuperfluous(s)]
+    allsubdivs = [s for s in allsubdivs if not issuperfluous(s, possiblevals)]
     if permutations:
         out = []
         for p in allsubdivs:

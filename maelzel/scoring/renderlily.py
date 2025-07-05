@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import shutil
 import textwrap
+import math
 from dataclasses import dataclass, field
 from functools import cache
 from typing import TYPE_CHECKING
@@ -477,16 +478,15 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         _(f">{base}{'.'*dots}{'~' if n.tiedNext else ''}")
 
     if trem := n.findAttachment(attachment.Tremolo):
+        if trem.color:
+            _(rf'\once \override StemTremolo.color = #"{trem.color}"')
         if trem.tremtype == 'single':
             if trem.relative:
                 _(f":{trem.singleDuration()}")
             else:
-                nummarksbase = {
-                    8: 1,
-                    16: 2,
-                    32: 3,
-                    64: 4
-                }.get(base, 0)
+                nummarksbase = int(math.log(base, 2) - 2)
+                assert nummarksbase > 0
+                # 8: 1, 16: 2, 32: 3, 64: 4, ...
                 tremdur = 2 ** (2 + nummarksbase + trem.nummarks)
                 _(f":{tremdur}")
         else:

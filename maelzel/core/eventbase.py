@@ -52,7 +52,7 @@ class MEvent(MObj):
         """Is this event tied?"""
 
         self.amp: float | None = amp
-        "The playback amplitude 0-1 of this note"
+        "The playback amplitude 0-1 of this note. None if not set"
 
         if dynamic:
             if dynamic.endswith('!'):
@@ -64,6 +64,9 @@ class MEvent(MObj):
         """A musical dynamic (*pppp, ppp, ..., mp, mf, f, ..., ffff*)"""
 
         self._glissTarget: float = 0.
+        
+    def __hash__(self):
+        raise NotImplementedError
 
     def isLinkedNext(self) -> bool:
         """

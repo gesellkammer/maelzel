@@ -94,11 +94,11 @@ class Clip(event.MEvent):
                  offset: time_t = None,
                  startsecs: float | F = 0.,
                  endsecs: float | F = 0.,
-                 channel: int = None,
+                 channel: int | None = None,
                  loop=False,
                  speed: F | float = F1,
-                 label: str = '',
-                 dynamic: str = '',
+                 label='',
+                 dynamic='',
                  tied=False,
                  noteheadShape=''
                  ):
@@ -320,7 +320,7 @@ class Clip(event.MEvent):
         self._calculateDuration(absoffset=absoffset, struct=struct)
         return self._dur
 
-    def _calculateDuration(self, absoffset: F = None, struct: ScoreStruct = None
+    def _calculateDuration(self, absoffset: F|None = None, struct: ScoreStruct|None = None
                            ) -> None:
         if absoffset is None:
             absoffset = self.absOffset()
@@ -536,8 +536,8 @@ class Clip(event.MEvent):
 
     def scoringEvents(self,
                       groupid='',
-                      config: CoreConfig = None,
-                      parentOffset: F | None = None
+                      config: CoreConfig|None = None,
+                      parentOffset: F|None = None
                       ) -> list[scoring.Notation]:
         if not config:
             config = Workspace.active.config

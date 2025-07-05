@@ -1308,82 +1308,6 @@ def _notationNeedsBreak(n: Notation, beatDur: F, beatDivision: division_t,
         return False
 
 
-# def _breakIrregularDuration(n: Notation, beatDur: F, div: int, beatOffset: F = F0,
-#                             minPartDuration=F(1,64)
-#                             ) -> list[Notation] | None:
-#     """
-#     Split irregular durations within a beat during quantization
-
-#     An irregular duration is a duration which cannot be expressed as a quarter/eights/16th/etc.
-#     For example a beat filled with a sextuplet with durations (1, 5), the second
-#     note is irregular and must be split. Since it begins in an uneven slot, it is
-#     split as 1+4
-
-#     Args:
-#         n: the Notation to split
-#         slotindex: which slot is n assigned to within the beat/subbeat
-#         slotdur: which is the quarterNote duration of slotDur
-
-#     ::
-
-#         5  -> 4+1 if n starts in an even slot, 1+4 if it starts in an odd slot
-#         9  -> 8+1 / 1+8
-#         10 -> 8+2 / 2+8
-#         11 -> 8+3 / 3+8
-#         13 -> 12+1 / 1+12
-#         15 -> 12+3 / 3+12
-#         17 -> 16+1 / 1+16
-#         18 -> 16+2 == 8+1
-#         19 -> 16+3 / 3+16
-#         20 -> 16+4 == 4+1
-#         21 -> 16+4+1 (quarter~16th~64th)
-#         22 -> 16+6 (quarter~16th·)
-#         23 -> 16+7 (quarter~16th··)
-#         25 -> 24+1 (16+9 == q~8th~64th)
-#         higher -> error
-
-#     """
-#     assert n.duration <= beatDur
-#     # beat is subdivided regularly
-#     slotdur = beatDur/div
-#     nslots = n.duration/slotdur
-
-#     if nslots.denominator != 1:
-#         raise ValueError(f"Duration is not quantized with given division.\n  {n=}, {div=}, {slotdur=}, {nslots=}")
-
-#     if nslots.numerator in quantdata.regularDurations:
-#         return None
-
-#     slotindex = (n.qoffset-beatOffset)/slotdur
-#     assert int(slotindex) == slotindex
-#     slotindex = int(slotindex)
-
-#     if not slotindex.denominator == 1:
-#         raise ValueError(f"Offset is not quantized with given division. n={n}, division={div}")
-
-#     numslots = int(n.duration / slotdur)
-#     if numslots == 1:
-#         return [n]
-#     elif numslots > 25:
-#         raise ValueError("Division not supported")
-
-#     slotDivisions = quantdata.splitIrregularSlots(numslots=numslots, slotindex=slotindex)
-
-#     offset = F(n.qoffset)
-#     parts: list[Notation] = []
-#     for slots in slotDivisions:
-#         partDur = slotdur * slots
-#         assert partDur > minPartDuration
-#         parts.append(n.clone(offset=offset, duration=partDur))
-#         offset += partDur
-
-#     Notation.tieNotations(parts)
-#     assert sum(part.duration for part in parts) == n.duration
-#     assert (p0 := parts[0]).offset == n.offset and p0.tiedPrev == n.tiedPrev and p0.spanners == n.spanners
-#     assert (p1 := parts[-1]).end == n.end and p1.tiedNext == n.tiedNext
-#     return parts
-
-
 def isRegularDuration(dur: F, beatDur: F) -> bool:
     """
     Is the duration regular?
@@ -1408,76 +1332,6 @@ def isRegularDuration(dur: F, beatDur: F) -> bool:
     if dur2.numerator not in quantdata.regularDurations:
         return False
     return True
-
-
-# def breakIrregularDuration(n: Notation,
-#                            beatDur: F,
-#                            beatDivision: int | division_t,
-#                            beatOffset: F = F0
-#                            ) -> list[Notation] | None:
-#     """
-#     Breaks a notation with irregular duration into its parts
-
-#     - a Notations should not extend over a subdivision of the beat if the
-#       subdivisions in question are coprimes
-#     - within a subdivision, a Notation should not result in an irregular multiple of the
-#       subdivision. Irregular multiples are all numbers which have prime factors other than
-#       2 or can be expressed with a dot
-#       Regular durations: 2, 3, 4, 6, 7 (double dotted), 8, 12, 16, 24, 32
-#       Irregular durations: 5, 9, 10, 11, 13, 15, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27,
-#       28, 29, 30, 31
-
-#     Args:
-#         n: the Notation to break
-#         beatDur: the duration of the beat
-#         beatDivision: the division of the beat, either a division tuple or an int
-#         beatOffset: the offset of the beat
-
-#     Returns:
-#         None if the notations has a regular duration, or a list of tied Notations which
-#         together represent the original notation
-#     """
-
-#     assert beatOffset <= n.qoffset and n.end <= beatOffset + beatDur
-#     assert n.duration >= 0
-
-#     if n.duration == 0:
-#         return None
-
-#     if isinstance(beatDivision, (tuple, list)) and len(beatDivision) == 1:
-#         beatDivision = beatDivision[0]
-
-#     if isinstance(beatDivision, int):
-#         return _breakIrregularDuration(n, beatDur=beatDur,
-#                                        div=beatDivision, beatOffset=beatOffset)
-
-#     # beat is not subdivided regularly. check if n extends over subdivision
-#     numDivisions = len(beatDivision)
-#     divDuration = beatDur/numDivisions
-
-#     ticks = list(mathlib.fraction_range(beatOffset, beatOffset+beatDur+divDuration, divDuration))
-#     assert len(ticks) == numDivisions + 1
-
-#     subdivisionTimespans = list(iterlib.pairwise(ticks))
-#     subdivisions = list(zip(subdivisionTimespans, beatDivision))
-#     subns = n.splitAtOffsets(ticks)
-#     allparts: list[Notation] = []
-#     for subn in subns:
-#         # find the subdivision
-#         for timespan, numslots in subdivisions:
-#             if hasoverlap(timespan[0], timespan[1], subn.qoffset, subn.end):
-#                 parts = breakIrregularDuration(n=subn,
-#                                                beatDur=divDuration,
-#                                                beatDivision=numslots,
-#                                                beatOffset=timespan[0])
-#                 if parts is None:
-#                     # subn is regular
-#                     allparts.append(subn)
-#                 else:
-#                     allparts.extend(parts)
-#     assert sum(part.duration for part in allparts) == n.duration
-#     Notation.tieNotations(allparts)
-#     return allparts
 
 
 def _isMeasureFilled(notations: list[Notation], quarterDuration: F) -> bool:
@@ -1509,6 +1363,13 @@ def quantizeMeasure(events: list[Notation],
         quarterTempo: the tempo of the measure using a quarter note as refernce
         profile: the quantization preset. Leave it unset to use the default
             preset.
+        beatWeightTempoThreshold: tempo at which a beat is given a stronger weight. If given,
+            overrides the value in the profile
+        subdivisionTempoThreshold: tempo at which a subdivision is considered a beat itself. This
+            is used, for example, to determine the beat structure of irregular time signatures,
+            where 5/8 can be considered 2+3, 3+2 or, if the tempo is slower than this value,
+            5 beats of 1/8th notes
+        
 
     Returns:
         a QuantizedMeasure

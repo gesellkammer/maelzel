@@ -747,7 +747,7 @@ class SynthEvent:
         for k in ('transpose', 'glisstime', 'end'):
             db.pop(k, None)
         instr = db.pop('instr')
-            return SynthEvent(bps=bps,
+        return SynthEvent(bps=bps,
                           instr=instr,
                           properties=properties,
                           linkednext=linkednext,

@@ -2,44 +2,22 @@
 Multiple backends to perform resampling on numpy arrays
 """
 from __future__ import annotations
-import os
 import numpy as np
 import importlib.util
+import functools
 
 
+@functools.cache
 def _getBackend() -> str:
-    spec = importlib.util.find_spec("resampy")
-    if spec is not None:
-        return "resampy"
-    spec = importlib.util.find_spec("samplerate")
-    if spec is not None:
-        return "samplerate"
+    backends = ['soxr', 'resampy', 'samplerate']
+    for backend in backends:
+        if importlib.util.find_spec(backend) is not None:
+            return backend
     return ''
 
 
-def _resampleViaCli(samples: np.ndarray, samplerate:int, newsamplerate:int
-                    ) -> np.ndarray:
-    import shutil
-    sndfile_resample = shutil.which("sndfile-resample")
-    if sndfile_resample is None:
-        raise RuntimeError("sndfile-resample is needed")
-
-    import subprocess
-    import tempfile
-    from sndfileio import sndwrite, sndread
-
-    tmpfile = tempfile.mktemp(suffix='.wav')
-    tmpfile2 = "%s-%d.wav" % (tmpfile, newsamplerate)
-    sndwrite(outfile=tmpfile, samples=samples, sr=samplerate, encoding='float32')
-    subprocess.call([sndfile_resample, "-to", str(newsamplerate), tmpfile, tmpfile2])
-    s1, s1_sr = sndread(tmpfile2)
-    assert s1_sr == newsamplerate
-    os.remove(tmpfile)
-    return s1
-
-
-def _resampleViaResampy(samples: np.ndarray, samplerate:int, newsamplerate:int
-                        ) -> np.ndarray:
+def _resampleResampy(samples: np.ndarray, samplerate: int, newsamplerate: int
+                     ) -> np.ndarray:
     try:
         import resampy
     except ImportError:
@@ -48,14 +26,27 @@ def _resampleViaResampy(samples: np.ndarray, samplerate:int, newsamplerate:int
     return resampy.resample(samples, samplerate, newsamplerate)
 
 
-def _resampleViaSamplerate(samples: np.ndarray, samplerate:int, newsamplerate:int
-                           ) -> np.ndarray:
-    import samplerate as sampleratecffi
-    ratio = samplerate / newsamplerate
-    return sampleratecffi.resample(samples, ratio, 'sinc_best')
+def _resampleSamplerate(samples: np.ndarray, samplerate: int, newsamplerate: int
+                        ) -> np.ndarray:
+    try:
+        import samplerate as sampleratecffi
+        ratio = samplerate / newsamplerate
+        return sampleratecffi.resample(samples, ratio, 'sinc_best')
+    except ImportError:
+        raise ImportError("samplerate package needed, install it via `pip install samplerate`")
 
 
-def resample(samples: np.ndarray, samplerate:int, newsamplerate:int, backend=''
+def _resampleSoxr(samples: np.ndarray, samplerate: int, newsamplerate: int) -> np.ndarray:
+    try:
+        import soxr
+        out = soxr.resample(samples, samplerate, newsamplerate)
+        return out
+    except ImportError as e:
+        raise ImportError(f"Could not import soxr package, install it via `pip install soxr` "
+                          f"original error: {e}")
+
+
+def resample(samples: np.ndarray, samplerate: int, newsamplerate: int, backend=''
              ) -> np.ndarray:
     """
     Resample samples from sr to newsamplerate
@@ -65,7 +56,8 @@ def resample(samples: np.ndarray, samplerate:int, newsamplerate:int, backend=''
             range -1 to 1). Can be multichannel
         samplerate: the original sr
         newsamplerate: the new sr
-        backend: one of 'resampy' or 'samplerate'
+        backend: one of 'soxr', 'resampy' or 'samplerate'. Not all backends are installed
+            by default (currently only soxr is installed as a dependency)
 
     Returns:
         the resampled samples. The shape of the output will be the same as
@@ -76,12 +68,15 @@ def resample(samples: np.ndarray, samplerate:int, newsamplerate:int, backend=''
     if not backend:
         raise RuntimeError("no backend found for resampling. Try installing one of the"
                            "following packages:\n"
+                           "    * soxr (pip install soxr)\n"
                            "    * resampy (pip install resampy) \n"
                            "    * samplerate (pip install samplerate) \n")
-    if backend == "samplerate":
-        return _resampleViaSamplerate(samples, samplerate, newsamplerate)
-    elif backend == "resampy":
-        return _resampleViaResampy(samples, samplerate, newsamplerate)
-    elif backend == 'cli':
-        return _resampleViaCli(samples, samplerate=samplerate, newsamplerate=newsamplerate)
-    raise RuntimeError("No backend is available")
+    func = {
+        'soxr': _resampleSoxr,
+        'resampy': _resampleResampy,
+        'samplerate': _resampleSamplerate
+    }.get(backend)
+    if func is None:
+        raise ValueError(f"backend {backend} not known, it should be one of 'soxr', 'resampy', 'samplerate'")        
+    return func(samples, samplerate, newsamplerate)
+    

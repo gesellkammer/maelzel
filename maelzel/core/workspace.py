@@ -152,7 +152,7 @@ class Workspace:
             logger.debug("init was already done")
             return
         Workspace._initdone = True
-        CoreConfig.root = rootconfig = CoreConfig(source='load')
+        CoreConfig._root = rootconfig = CoreConfig(source='load')
         # The root config itself should never be active since it is read-only
         Workspace.root = Workspace(config=rootconfig.copy(), active=True)
         assert Workspace.active is Workspace.root
@@ -416,11 +416,6 @@ class Workspace:
         """
         self.dynamicCurve = DynamicCurve.fromdescr(shape=shape, mindb=mindb, maxdb=maxdb)
         return self
-
-    @staticmethod
-    def rootConfig():
-        return CoreConfig.root
-        # return Workspace.root.config
 
     def amp2dyn(self, amp: float) -> str:
         return self.dynamicCurve.amp2dyn(amp)

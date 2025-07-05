@@ -99,7 +99,7 @@ def plotPowerSpectrum(samples: np.ndarray,
                       samplerate: int,
                       framesize=2048,
                       window: str | tuple[str, float] = ('kaiser', 9),
-                      axes: Axes = None,
+                      axes: Axes | None = None,
                       figsize=(24, 4)
                       ) -> Axes:
     """
@@ -113,6 +113,7 @@ def plotPowerSpectrum(samples: np.ndarray,
             "bartlett", "flattop", "parzen", "bohman", "blackmanharris", "nuttall", "barthann", "kaiser" (needs beta),
             "gaussian" (needs standard deviation)
         axes: the axes to plot to
+        figsize: figure size of the plot
 
     Returns:
         the axes used
@@ -380,9 +381,9 @@ def plotSpectrogram(samples: np.ndarray,
                     sr: int,
                     fftsize=2048,
                     window: str = 'hamming',
-                    winsize: int = None,
+                    winsize: int = 0,
                     overlap=4,
-                    axes: Axes = None,
+                    axes: Axes | None = None,
                     cmap='inferno',
                     interpolation='bilinear',
                     minfreq=40,
@@ -416,6 +417,7 @@ def plotSpectrogram(samples: np.ndarray,
         yaxis: one of 'linear', 'log'
         method: the actual routine to plot the data, one of 'specgram', 'specshow'
             (based on librosa)
+        axeslabels: draw labels for the axes
 
     Returns:
         the matplotlib axes object
@@ -461,8 +463,8 @@ def plotMelSpectrogram(samples: np.ndarray,
                        sr: int,
                        fftsize=2048,
                        overlap=4,
-                       winsize: int = None,
-                       axes: Axes = None,
+                       winsize=0,
+                       axes: Axes | None = None,
                        setlabel=False,
                        nmels=128,
                        cmap='magma',
@@ -493,7 +495,7 @@ def plotMelSpectrogram(samples: np.ndarray,
     """
     if len(samples.shape) > 1:
         samples = samples[:, 0]
-    if winsize is None:
+    if not winsize:
         winsize = fftsize
     from maelzel.snd import rosita
     hoplength = winsize // overlap
@@ -516,9 +518,9 @@ def _plotSpectrogramRosita(samples: np.ndarray,
                            sr: int,
                            fftsize=2048,
                            window='hamming',
-                           winsize: int = None,
+                           winsize=0,
                            overlap=4,
-                           axes: Axes = None,
+                           axes: Axes | None = None,
                            cmap='inferno',
                            figsize=(24, 8),
                            yaxis='log',

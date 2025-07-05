@@ -400,11 +400,11 @@ class Sample:
              chan: int = 1,
              gain=1.,
              delay=0.,
-             pan: float = None,
+             pan: float | None = None,
              speed=1.0,
              skip=0.,
              dur=0,
-             engine: csoundengine.Engine = None,
+             engine: csoundengine.Engine | None = None,
              block=False,
              backend=''
              ) -> PlaybackStream:
@@ -581,7 +581,7 @@ class Sample:
         return html
 
     def plotSpetrograph(self, framesize=2048, window='hamming', start=0., dur=0.,
-                        axes: Axes = None
+                        axes: Axes | None = None
                         ) -> Axes:
         """
         Plot the spectrograph of this sample or a fragment thereof
@@ -616,14 +616,14 @@ class Sample:
     def plotSpectrogram(self,
                         fftsize=2048,
                         window='hamming',
-                        winsize: int = None,
+                        winsize: int = 0,
                         overlap=4,
                         mindb=-120,
                         minfreq: int = 40,
                         maxfreq: int = 12000,
                         yaxis='linear',
                         figsize=(24, 10),
-                        axes: Axes = None
+                        axes: Axes | None = None
                         ) -> Axes:
         """
         Plot the spectrogram of this sound using matplotlib
@@ -660,9 +660,9 @@ class Sample:
     def plotMelSpectrogram(self,
                            fftsize=2048,
                            overlap=4,
-                           winsize: int = None,
+                           winsize: int = 0,
                            nmels=128,
-                           axes: Axes = None,
+                           axes: Axes | None = None,
                            axislabels=False,
                            cmap='magma',
                            ) -> Axes:
@@ -963,6 +963,7 @@ class Sample:
                 _npsnd.applyFade(self.samples, self.sr, fadetime=fadeout,
                                  mode='out', shape=shape)
         else:
+            assert isinstance(fadetime, (int, float))
             _npsnd.applyFade(self.samples, self.sr, fadetime=fadetime,
                              mode='inout', shape=shape)
         self._changed()
@@ -1294,7 +1295,7 @@ class Sample:
 
     def fundamentalAnalysis(self,
                             semitoneQuantization=0,
-                            fftsize: int = None,
+                            fftsize: int = 0,
                             simplify=0.08,
                             overlap=8,
                             minFrequency=50,
@@ -1345,7 +1346,7 @@ class Sample:
         return analysis
 
     def onsets(self, fftsize=2048, overlap=4, method='rosita',
-               threshold: float = None, mingap=0.03) -> np.ndarray:
+               threshold: float | None = None, mingap=0.03) -> np.ndarray:
         """
         Detect onsets
 
@@ -1480,7 +1481,7 @@ class Sample:
                           channel=channel, windowsize=windowsize, mindb=mindb,
                           minfreq=minfreq, maxfreq=maxfreq, maxcount=maxcount)
 
-    def fundamentalFreq(self, time: float = None, dur=0.2, fftsize=2048, overlap=4,
+    def fundamentalFreq(self, time: float | None = None, dur=0.2, fftsize=2048, overlap=4,
                         fallbackfreq=0
                         ) -> float | None:
         """
@@ -1612,7 +1613,7 @@ class Sample:
             raise ValueError(f"Unknown method {method}")
 
 
-    def chunks(self, chunksize: int, hop: int = None, pad=False) -> Iterator[np.ndarray]:
+    def chunks(self, chunksize: int, hop: int = 0, pad=False) -> Iterator[np.ndarray]:
         """
         Iterate over the samples in chunks of chunksize.
 
@@ -1629,7 +1630,7 @@ class Sample:
         import emlib.numpytools as nptools
         return nptools.chunks(self.samples,
                               chunksize=chunksize,
-                              hop=hop,
+                              hop=hop or None,
                               padwith=(0 if pad else None))
 
     def firstPitch(self, threshold=-120, minfreq=60, overlap=4, channel=0, chunkdur=0.25
@@ -1747,9 +1748,9 @@ class Sample:
 
     @staticmethod
     def mix(samples: list[Sample],
-            offsets: list[float] = None,
-            gains: list[float] = None,
-            positions: list[float] = None
+            offsets: list[float] | None = None,
+            gains: list[float] | None = None,
+            positions: list[float] | None = None
             ) -> Sample:
         """
         Static method: mix the given samples down, optionally with a time offset
@@ -1837,7 +1838,7 @@ def asSample(source: str | Sample | tuple[np.ndarray, int]) -> Sample:
         raise TypeError("can't convert source to Sample")
 
 
-def matchSamplerates(sampleseq: Sequence[Sample], sr: int = None, forcecopy=False) -> list[Sample]:
+def matchSamplerates(sampleseq: Sequence[Sample], sr: int = 0, forcecopy=False) -> list[Sample]:
     """
     Match the samplerates of the given Samples
 
@@ -1857,7 +1858,7 @@ def matchSamplerates(sampleseq: Sequence[Sample], sr: int = None, forcecopy=Fals
         s = next(s for s in sampleseq if s.numchannels != numchannels)
         raise ValueError(f"All samples should have {numchannels} channels, "
                          f"but one Sample has {s.numchannels} channels")
-    if sr is None:
+    if not sr:
         sr = max(s.sr for s in sampleseq)
 
     if any(s.sr != sr for s in sampleseq):
@@ -1921,9 +1922,9 @@ def _silentFrames(numframes: int, channels: int) -> np.ndarray:
 
 
 def mixSamples(samples: list[Sample],
-               offsets: list[float] = None,
-               gains: list[float] = None,
-               positions: list[float] = None
+               offsets: list[float] | None = None,
+               gains: list[float] | None = None,
+               positions: list[float] | None = None
                ) -> Sample:
     """
     Mix the given samples down, optionally with a time offset

@@ -29,8 +29,8 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import annotations
 import numpy as np
 from numpy import fft
-from scipy.signal import get_window
 import scipy
+from scipy.signal import get_window
 import warnings
 from numpy.lib.stride_tricks import as_strided
 import pitchtools as pt
@@ -350,6 +350,7 @@ def peak_pick(x, *, pre_max, post_max, pre_avg, post_avg, delta, wait):
     max_origin = np.ceil(0.5 * (pre_max - post_max))
     # Using mode='constant' and cval=x.min() effectively truncates
     # the sliding window at the boundaries
+    import scipy.ndimage.filters
     mov_max = scipy.ndimage.filters.maximum_filter1d(
         x, int(max_length), mode="constant", origin=int(max_origin), cval=x.min()
     )
@@ -2929,6 +2930,7 @@ def pyin(
     # differs from the method described in the paper.
     # 1. Define the prior over the thresholds.
     thresholds = np.linspace(0, 1, n_thresholds + 1)
+    import scipy.stats.beta
     beta_cdf = scipy.stats.beta.cdf(thresholds, beta_parameters[0], beta_parameters[1])
     beta_probs = np.diff(beta_cdf)
 
@@ -3383,7 +3385,7 @@ def viterbi(
     prob: np.ndarray,
     transition: np.ndarray,
     *,
-    p_init: np.ndarray = None,
+    p_init: np.ndarray | None = None,
     return_logp=False,
 ) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
     """Viterbi decoding from observation likelihoods.

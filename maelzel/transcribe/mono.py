@@ -128,7 +128,7 @@ class FundamentalAnalysisMonophonic:
                  sr: int,
                  onsetMinDb=-60,
                  rmsPeriod=0.05,
-                 fftSize: int | None = None,
+                 fftSize: int = 0,
                  overlap=8,
                  minFrequency=50,
                  minSilence=0.08,
@@ -151,12 +151,12 @@ class FundamentalAnalysisMonophonic:
             warnings.warn("Analysis from audio with a samplerate higher than 48k is"
                           " not supported at the moment")
 
-        if not minFrequency and fftSize is None:
+        if not minFrequency and not fftSize:
             minFrequency, _ = freqestimate.detectMinFrequency(samples, sr=sr, refine=False,
                                                               lowAmpSuppression=lowAmpSuppression)
             if minFrequency == 0:
                 raise ValueError("Could not detect any pitched sound")
-        if fftSize is None:
+        if not fftSize:
             fftSize = max(2048, freqestimate.frequencyToWindowSize(int(minFrequency), sr=sr, powerof2=True))
 
         onsetsFftSize = min(2048 if sr <= 48000 else 4098, fftSize)

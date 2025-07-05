@@ -216,15 +216,20 @@ def _parseSymbolicDuration(s: str) -> F:
     return F(4, int(s)) * ratio
 
 
-def parseDuration(s: str) -> F:
+def parseDuration(s: str, limitEvalDenominator=9999999) -> F:
     """
     Parse a duration given a str
 
-    Possible expressions include '3/4', '1+3/4', '4+1/3+2/5'
+    Possible expressions include '3/4', '1+3/4', '(4+1/3+2/5)*5/7' or any valid
+    math expression. 
     Raises ValueError if the expression cannot be parsed
 
     Args:
         s: the duration as string
+        limitEvalDenominator: limit denominator of evaluated durations. Since we
+            use eval for such expressions, fractions are evaluated as floats
+            and result in inaccurate representations. Until we do our own
+            parsing, this works just fine
 
     Returns:
         the parsed duration as fraction
@@ -236,7 +241,10 @@ def parseDuration(s: str) -> F:
 
     try:
         value = eval(s)
-        return F(value).limit_denominator(1e10)
+        fvalue = F(value)
+        if limitEvalDenominator:
+            fvalue = fvalue.limit_denominator(limitEvalDenominator)
+        return fvalue
     except Exception as e:
         raise ValueError(str(e))
 

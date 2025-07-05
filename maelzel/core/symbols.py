@@ -29,6 +29,7 @@ import copy
 from functools import cache
 
 from maelzel import _util
+from maelzel import colortheory
 from maelzel.common import F
 from maelzel import scoring
 
@@ -57,10 +58,9 @@ class Symbol:
     applyToTieStrategy = 'first'
     modifiesScoringContext = False
 
-    def __init__(self, color=''):
+    def __init__(self):
         self.properties: dict[str, Any] | None = None
-        self.color = color
-
+        
     def __repr__(self) -> str:
         return _util.reprObj(self, hideFalsy=True)
 
@@ -546,11 +546,9 @@ class SizeFactor(Property):
         super().__init__()
         self.size = size
 
-
     def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
         n.addAttachment(scoring.attachment.SizeFactor(size=self.size))
-        # n.sizeFactor = int(self.size)
-
+        
 
 class Color(Property):
     """Customizes the color of an object"""
@@ -558,6 +556,9 @@ class Color(Property):
     def __init__(self, color: str):
         super().__init__()
         self.color = color
+
+    def __repr__(self):
+        return f"Color:{self.color}"
 
     def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
         n.addAttachment(scoring.attachment.Color(self.color))
@@ -587,10 +588,11 @@ class EventSymbol(Symbol):
     appliesToRests = True
 
     def __init__(self, color='', placement='', mergenext=True):
-        super().__init__(color=color)
+        super().__init__()
         assert not placement or placement in ('above', 'below')
         self.placement = placement
         self.mergenext = mergenext
+        self.color = color
 
     def checkAnchor(self, anchor: event.MEvent) -> str:
         """Returns an error message if the event cannot add this symbol"""
@@ -609,10 +611,11 @@ class EventSymbol(Symbol):
         n.addAttachment(attachment)
 
 
-class NoteheadAttachedSymbol(EventSymbol):
+class NoteheadSymbol(Symbol):
     """Symbols attached to a notehead (a pitch)"""
     appliesToRests = False
 
+    @abstractmethod
     def applyToPitch(self, n: scoring.Notation, idx: int | None, parent: mobj.MObj | None
                      ) -> None:
         raise NotImplementedError
@@ -656,18 +659,15 @@ class Clef(EventSymbol):
     exclusive = True
     appliesToRests = True
 
-    def __init__(self, kind: str):
-        super().__init__()
+    def __init__(self, kind: str, color=''):
+        super().__init__(color=color)
         clef = scoring.definitions.clefs.get(kind)
         if clef is None:
             raise ValueError(f"Clef {kind} unknown. Possible values: {scoring.definitions.clefs}")
         self.kind = clef
 
     def scoringAttachment(self) -> scoring.attachment.Attachment:
-        return scoring.attachment.Clef(self.kind)
-
-    #def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-    #    n.addAttachment(scoring.attachment.Clef(self.kind))
+        return scoring.attachment.Clef(self.kind, color=self.color)
 
     def __repr__(self):
         return _util.reprObj(self, priorityargs=('kind',), hideFalsy=True)
@@ -685,20 +685,17 @@ class Ornament(EventSymbol):
     exclusive = False
     appliesToRests = False
 
-    def __init__(self, kind: str):
-        super().__init__()
+    def __init__(self, kind: str, color=''):
+        super().__init__(color=color)
         if kind not in scoring.definitions.availableOrnaments:
             raise ValueError(f"Ornament {kind} unknown. "
                              f"Possible values: {scoring.definitions.availableOrnaments}")
         self.kind = kind
 
     def scoringAttachment(self) -> scoring.attachment.Attachment:
-        return scoring.attachment.Ornament(self.kind)
+        return scoring.attachment.Ornament(self.kind, color=self.color)
 
-    #def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-    #    n.addAttachment(scoring.attachment.Ornament(self.kind))
-
-
+    
 class Tremolo(EventSymbol):
     """
     A stem-attached tremolo sign
@@ -707,7 +704,7 @@ class Tremolo(EventSymbol):
     exclusive = True
     appliesToRests = False
 
-    def __init__(self, tremtype='single', nummarks: int = 2, relative=False):
+    def __init__(self, tremtype='single', nummarks: int = 2, relative=False, color=''):
         """
         Args:
             tremtype: the type of tremolo. 'single' indicates a repeated note/chord,
@@ -720,14 +717,14 @@ class Tremolo(EventSymbol):
                 in a single-beam tremolo. If relative is False, nummarks will
                 always determine the number of beams
         """
-        super().__init__()
+        super().__init__(color=color)
         assert tremtype in {'single', 'start', 'end'}, f'Unknown tremolo type: {tremtype}'
         self.tremtype = tremtype
         self.nummarks = nummarks
         self.relative = relative
 
     def scoringAttachment(self) -> scoring.attachment.Attachment:
-        return scoring.attachment.Tremolo(tremtype=self.tremtype, nummarks=self.nummarks, relative=self.relative)
+        return scoring.attachment.Tremolo(tremtype=self.tremtype, nummarks=self.nummarks, relative=self.relative, color=self.color)
 
 
 
@@ -736,22 +733,20 @@ class Fermata(EventSymbol):
     exclusive = True
     appliesToRests = True
 
-    def __init__(self, kind='normal', merge=True):
+    def __init__(self, kind='normal', mergenext=True, color=''):
         """
         A fermata symbol over an event (note, rest, chord, ...)
 
         Args:
             kind: one of 'normal', 'square', 'angled', 'double-angled', 'double-square'
-            merge: whether an event with a fermata can be merged with
-                tied events (or rests in the case of a fermata over a rest)
-                at its right when translated to notation
+            mergenext: whether an event with a fermata can be merged with
+                its right neighbour (if tied or two rests)
         """
-        super().__init__()
+        super().__init__(color=color, mergenext=mergenext)
         self.kind = kind
-        self.mergenext = merge
-
+        
     def scoringAttachment(self) -> scoring.attachment.Attachment:
-        return scoring.attachment.Fermata(kind=self.kind)
+        return scoring.attachment.Fermata(kind=self.kind, color=self.color)
 
 
 
@@ -884,7 +879,7 @@ class Transpose(EventSymbol, VoiceSymbol):
                 self.applyToNotation(notation, parent=None)
 
 
-class NotatedPitch(NoteheadAttachedSymbol):
+class NotatedPitch(NoteheadSymbol):
     """
     Allows to customize the notated pitch of a note
 
@@ -1036,7 +1031,7 @@ class Harmonic(EventSymbol):
                 n.addAttachment(scoring.attachment.Harmonic(self.interval))
 
 
-class Notehead(NoteheadAttachedSymbol):
+class Notehead(NoteheadSymbol):
     """
     Customizes the notehead shape, color, parenthesis and size
 
@@ -1050,6 +1045,7 @@ class Notehead(NoteheadAttachedSymbol):
         size: a size factor (1.0 means the size corresponding to the staff size, 2. indicates
             a notehead twice as big)
     """
+
     exclusive = False
     applyToTieStrategy = 'all'
     appliesToRests = False
@@ -1103,7 +1099,7 @@ def makeKnownSymbol(name: str) -> Symbol | None:
     Args:
         name: the name of the symbol ('accent', 'fermata', 'mordent', etc.). Supported
             are all articulations, ornaments, breath marks ('comma', 'caesura'),
-            colors, 'fermata'.
+            colors, css colors, 'fermata'.
 
     Returns:
         the created Symbol, or None if the name cannot be interpreted
@@ -1130,7 +1126,7 @@ def makeKnownSymbol(name: str) -> Symbol | None:
     if name == 'tremolo':
         return Tremolo()
 
-    if re.match(r"^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$", name):
+    if re.match(r"^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$", name) or name in colortheory.cssColors():
         return Color(name)
 
     if name == 'fermata':
@@ -1337,7 +1333,7 @@ class GlissProperties(EventSymbol):
         return ''
 
 
-class Accidental(NoteheadAttachedSymbol):
+class Accidental(NoteheadSymbol):
     """
     Customizes the accidental of a note
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 import os
 import itertools
 import numpy as np
-import sndfileio
 from maelzel.snd import numpysnd
 
 
@@ -45,7 +44,7 @@ def spectralFilter(samples: np.ndarray,
                    pairs: list[float] | tuple[list[float], list[float]],
                    fftsize=2048,
                    overlap=8,
-                   winsize: int = None,
+                   winsize: int = 0,
                    wintype='hamming',
                    realign=True,
                    wet=1.,
@@ -134,6 +133,7 @@ def spectralFilter(samples: np.ndarray,
     if not os.path.exists(job.outfile):
         raise RuntimeError(f"Could not generate output file '{job.outfile}', file not found. "
                            f"Args used: {job.process.args}")
+    import sndfileio
     outsamples, _ = sndfileio.sndread(job.outfile)
     if realign:
         outsamples = outsamples[fftsize:]

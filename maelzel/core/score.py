@@ -75,7 +75,7 @@ class Score(MContainer):
         configkeys = self.__class__._configKeys()
         if key not in configkeys:
             raise KeyError(f"Invalid key '{key}' for a Score. Valid keys are {configkeys}")
-        if errmsg := CoreConfig.root.checkValue(key, value):
+        if errmsg := CoreConfig.root().checkValue(key, value):
             raise ValueError(f"Invalid value {value} for key '{key}': {errmsg}")
         self._config[key] = value
 

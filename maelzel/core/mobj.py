@@ -35,6 +35,7 @@ import math
 import re
 import html as _html
 from dataclasses import dataclass
+from functools import cache
 
 from maelzel.common import asmidi, F, asF, F0
 
@@ -1889,8 +1890,7 @@ class MContainer(MObj):
     def _classConfigKeys(cls) -> set[str]:
         # This method can be overloaded to return keys specific to a subclass
         pattern = r'\.?(quant|show)\.\w[a-zA-Z0-9_]*'
-        corekeys = CoreConfig.root.keys()
-        return set(k for k in corekeys if re.match(pattern, k))
+        return set(k for k in CoreConfig.root().keys() if re.match(pattern, k))
 
     @classmethod
     def _configKeys(cls) -> set[str]:
@@ -1983,7 +1983,7 @@ class MContainer(MObj):
         if key not in keys:
             raise KeyError(f"Invalid key '{key}' for a {self.__class__}. "
                            f"Valid keys are {keys}")
-        if errmsg := CoreConfig.root.checkValue(key, value):
+        if errmsg := CoreConfig.root().checkValue(key, value):
             raise ValueError(f"Invalid value {value} for key '{key}': {errmsg}")
         self._config[key] = value
 

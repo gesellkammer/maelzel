@@ -54,7 +54,7 @@ class Automation:
         else:
             return scorestruct.time(t)
 
-    def absTimeRange(self, parentOffset: F, scorestruct: ScoreStruct = None
+    def absTimeRange(self, parentOffset: F, scorestruct: ScoreStruct|None = None
                      ) -> tuple[F, F]:
         """
         Returns the absolute start and end of this Automation, in seconds
@@ -72,7 +72,7 @@ class Automation:
         end = self._abstime(self.breakpoints[-1][0], parentOffset=parentOffset, scorestruct=scorestruct)
         return start, end
 
-    def absoluteTimes(self, parentOffset: F, scorestruct: ScoreStruct = None
+    def absoluteTimes(self, parentOffset: F, scorestruct: ScoreStruct|None = None
                       ) -> tuple[list[F], F]:
         """
         The times of all the breakpoints in this automations as seconds

@@ -4,7 +4,6 @@ import bpf4
 import numpy as np
 from scipy import signal as _signal
 from scipy.fftpack import hilbert
-from emlib.misc import returns_tuple as _returns_tuple
 import math
 from math import pi
 import warnings
@@ -264,13 +263,13 @@ def genSineMod(freq: float | int | bpf4.BpfInterface=440,
     Returns:
         the generated samples as numpy array
     """
-    import bpf4
-    freq = bpf4.asbpf(freq)
-    amp = bpf4.asbpf(amp)
-    ts = np.linspace(0, dur, sr, endpoint=False)
+    import bpf4.util
+    freq = bpf4.util.asbpf(freq)
+    amp = bpf4.util.asbpf(amp)
+    ts = np.linspace(0., dur, sr, endpoint=False, dtype='float')
     freqs = freq.map(ts)
     amps = amp.map(ts)
-    samples = np.math.sin(freqs*(pi*2) * ts + iphase) * amps
+    samples = np.sin(freqs*(pi*2) * ts + iphase) * amps
     return samples
 
 
@@ -305,7 +304,7 @@ def primePowerDelays(N: int, pathmin: float, pathmax: float, sr: int = 48000
     return delayvals
 
 
-def prime_power_delay(i, N, pathmin, pathmax, sr):
+def primePowerDelay(i, N, pathmin, pathmax, sr):
     """
 
     i: which delay (0 to N-1)
@@ -397,12 +396,11 @@ def lowpassCheby2(samples: np.ndarray, freq: float, sr: int, maxorder=12) -> np.
     values above the stop band frequency are lower than -96dB.
 
     """
-    b, a, freq_passband = lowpass_cheby2_coeffs(freq, sr, maxorder)
+    b, a, freq_passband = lowpassCheby2Coeffs(freq, sr, maxorder)
     return _signal.lfilter(b, a, samples)
 
 
-@_returns_tuple("a b freq_passband")
-def lowpass_cheby2_coeffs(freq, sr, maxorder=12):
+def lowpassCheby2Coeffs(freq: float, sr: int, maxorder=12):
     """
     Args:
         freq: The frequency above which signals are attenuated
@@ -411,9 +409,10 @@ def lowpass_cheby2_coeffs(freq, sr, maxorder=12):
         maxorder: Maximal order of the designed cheby2 filter
 
     Returns:
+        a tuple (b, a, passband) where:
         b: Numerator coefficients of the filter
         a: Denominator coefficients of the filter
-        freq_passband: Passband frequency of the filter
+        passband: Passband frequency of the filter
     """
     nyquist = sr * 0.5
     # rp - maximum ripple of passband, rs - attenuation of stopband
@@ -467,7 +466,7 @@ def tau2pole(tau: float, sr: float) -> float:
     return math.exp(-1.0/(tau*sr))
 
 
-def compressor_makeupgain(thresh, ratio, refdb=0):
+def compressorMakeupGain(thresh: float, ratio: float, refdb=0.):
     """
     Makeup-gain for given thresh and ratio to achieve 0 dB given a 0 dB output
 

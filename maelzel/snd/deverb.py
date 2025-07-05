@@ -1,7 +1,9 @@
+from __future__ import annotations
 import os
 import numpy as np
 from maelzel.snd import numpysnd
 
+import typing as _t
 
 _removeSustainInstr = r'''
 |ionsettab, iaudiotab, isr, ichan=1, iwet=1, ifftsize=2048, iwinsize=2048, iwintype=0, ioverlap=8, ifreezemargin=0.1, imorphtime=0.2, ireduction=1, irelthreshold=0.01|
@@ -59,7 +61,7 @@ def removeSustain(samples: np.ndarray,
                   overlap=8,
                   wintype='hamming',
                   winsize: int = None,
-                  onsets: list[float] | np.ndarray = None,
+                  onsets: _t.Sequence[float] | np.ndarray | None = None,
                   transientMargin=0.1,
                   morphTime=0.15,
                   reductionFactor=1.0,

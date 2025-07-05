@@ -7,8 +7,8 @@ from math import ceil
 import emlib.misc
 import numpy as np
 
-import csoundengine.event
 import csoundengine.schedevent
+import csoundengine.event
 import csoundengine.sessionhandler
 
 
@@ -33,7 +33,6 @@ if TYPE_CHECKING:
     import csoundengine.tableproxy
     import csoundengine.offline
     import csoundengine.instr
-    import csoundengine.schedevent
     import csoundengine.session
 
     from maelzel.snd import audiosample
@@ -448,8 +447,8 @@ class OfflineRenderer(renderer.Renderer):
             raise TypeError(f"Expected a SynthEvent or a csound event, got {event}")
 
     def schedEvents(self,
-                    coreevents: list[synthevent.SynthEvent],
-                    sessionevents: list[csoundengine.event.Event] = None,
+                    coreevents: Sequence[synthevent.SynthEvent],
+                    sessionevents: Sequence[csoundengine.event.Event] = (),
                     whenfinished: Callable | None = None
                     ) -> csoundengine.schedevent.SchedEventGroup:
         """

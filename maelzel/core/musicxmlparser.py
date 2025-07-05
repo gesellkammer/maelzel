@@ -553,22 +553,15 @@ class Direction:
         return self.properties.get(key, default)
 
 
-def _attr(attrib: dict, key: str, default: Any, convert=None):
-    value = attrib.get(key)
-    if value is not None:
-        return value if not convert else convert(value)
-    return default
-
-
 def _parsePosition(x: ET.Element) -> str:
     attrib = x.attrib
-    defaulty: float = _attr(attrib, 'default-y', 0., float)
-    relativey: float = _attr(attrib, 'relative-y', 0., float)
+    defaulty = float(attrib.get('default-y', 0.))
+    relativey = float(attrib.get('relative-y', 0.))
     pos = defaulty + relativey
     return '' if pos == 0 else 'above' if pos > 0 else 'below'
 
 
-def _parseAttribs(attrib: dict, convertfuncs: dict[str, Callable] = None) -> dict:
+def _parseAttribs(attrib: dict, convertfuncs: dict[str, Callable] | None = None) -> dict:
     out = {}
     for k, v in attrib.items():
         convertfunc = None if not convertfuncs else convertfuncs.get(k)
@@ -998,6 +991,7 @@ def _escapeString(s: str) -> str:
 def _guessEncoding(path: str, length=1024) -> str:
     import chardet
     teststr = open(path, "rb").read(length)
+    assert isinstance(teststr, bytes)
     info = chardet.detect(teststr)
     encoding = info.get('encoding')
     return encoding if encoding is not None else 'utf-8'

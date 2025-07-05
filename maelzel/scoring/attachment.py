@@ -211,8 +211,8 @@ class Tremolo(Attachment):
 class Fermata(Attachment):
     exclusive = True
 
-    def __init__(self, kind='normal'):
-        super().__init__()
+    def __init__(self, kind='normal', color=''):
+        super().__init__(color=color)
         assert kind in definitions.availableFermatas
         self.kind = kind
 

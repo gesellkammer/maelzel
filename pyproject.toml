@@ -38,6 +38,7 @@ dependencies = [
     # "distro",
     "thefuzz",
     # "resampy",  # Do not include it by default, since this pulls numba
+    "soxr",
     "python-constraint",
     "pillow<11",
     "sounddevice",

@@ -984,7 +984,7 @@ def keySignature(fifths: int, mode='major') -> str:
     return fr'\key {key} \{mode}'
 
 
-def makeClef(clef: str) -> str:
+def makeClef(clef: str, color='') -> str:
     """
     Create a lilypond clef indication from the clef given
 
@@ -997,6 +997,7 @@ def makeClef(clef: str) -> str:
 
     Args:
         clef: one of treble, bass, treble8, bass8, alto, treble15, bass15
+        color: if given, color of the clef
 
     Returns:
         the lilypond clef representation
@@ -1007,7 +1008,10 @@ def makeClef(clef: str) -> str:
                          f"Possible values: {_clefToLilypondClef.keys()}")
     if "^" in lilyclef or "_" in lilyclef:
         lilyclef = '"' + lilyclef + '"'
-    return r"\clef " + lilyclef
+    out = r"\clef " + lilyclef
+    if color:
+        out = rf'\once \override Clef.color = #"{color}" ' + out
+    return out
 
 
 def colorFlag(color: str) -> str:
