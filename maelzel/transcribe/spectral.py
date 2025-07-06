@@ -11,7 +11,7 @@ from .options import TranscriptionOptions
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from maelzel.partialtracking.track import Track
+    from maelzel.partialtracking.partialtrack import PartialTrack
     import maelzel.core as mc
     from maelzel.scorestruct import ScoreStruct
 
@@ -78,8 +78,8 @@ def trackToVoice(partials: list[Partial],
     return voice
 
 
-def transcribeTracks(tracks: list[Track],
-                     noisetracks: list[Track] | None = None,
+def transcribeTracks(tracks: list[PartialTrack],
+                     noisetracks: list[PartialTrack] | None = None,
                      scorestruct: ScoreStruct | None = None,
                      options: TranscriptionOptions | None = None
                      ) -> mc.Score:

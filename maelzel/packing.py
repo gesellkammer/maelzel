@@ -90,7 +90,7 @@ class Item[T]:
 class Track[T]:
     """ A Track is a list of non-simultaneous Items """
 
-    def __init__(self, items: list[Item[T]] = None):
+    def __init__(self, items: list[Item[T]] | None = None):
         """
         Args:
             items: the items  to add to this track
@@ -195,7 +195,7 @@ def packInTracks[T](items: list[Item[T]],
                     maxrange: float = inf,
                     maxjump: float = inf,
                     method='append',
-                    maxtracks: int = None,
+                    maxtracks: int | None = None,
                     mingap=F0,
                     ) -> list[Track[T]] | None:
     """

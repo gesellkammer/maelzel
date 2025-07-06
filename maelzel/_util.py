@@ -85,18 +85,18 @@ def mktemp(suffix: str, prefix='') -> str:
 
 
 def reprObj(obj,
-            exclude: Sequence[str] = None,
-            properties: Sequence[str] = None,
+            exclude: Sequence[str] | None = None,
+            properties: Sequence[str] | None = None,
             filter: dict[str, Callable] = {},
-            priorityargs: Sequence[str] = None,
+            priorityargs: Sequence[str] | None = None,
             hideFalse=False,
             hideEmptyStr=False,
             hideFalsy=False,
-            hideKeys: Sequence[str] = None,
+            hideKeys: Sequence[str] | None = None,
             quoteStrings: bool | Sequence[str] = False,
             quoteChar="'",
             sort=True,
-            convert: dict[str, Callable[[Any], str]] = None,
+            convert: dict[str, Callable[[Any], str]] | None = None,
             ) -> str:
     """
     Given an object, generate its repr

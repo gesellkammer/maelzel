@@ -10,7 +10,7 @@ import sys
 _EPS = sys.float_info.epsilon
 
 
-def f2m(freqs: np.ndarray, out: np.ndarray = None, a4: float = None) -> np.ndarray:
+def f2m(freqs: np.ndarray, out: np.ndarray | None = None, a4: float = 0.) -> np.ndarray:
     """
     Vectorized version of pitchtools.f2m
 
@@ -81,7 +81,7 @@ def db2amp(db: np.ndarray, out: np.ndarray | None = None) -> np.ndarray:
     return out
 
 
-def amp2db(amp: np.ndarray, out: np.ndarray = None) -> np.ndarray:
+def amp2db(amp: np.ndarray, out: np.ndarray | None = None) -> np.ndarray:
     """
     Vectorized version of pitchtools.amp2db
 

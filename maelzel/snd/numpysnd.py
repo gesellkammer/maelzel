@@ -427,7 +427,7 @@ def _lastSound(samples: np.ndarray, samplerate:int, threshold:float=-120, resolu
     return 0
 
 
-def normalizeByMaxPeak(samples: np.ndarray, maxdb=0., out: np.ndarray = None
+def normalizeByMaxPeak(samples: np.ndarray, maxdb=0., out: np.ndarray | None = None
                        ) -> np.ndarray:
     """
     Normalize samples by maximum peak
@@ -472,9 +472,8 @@ def normalizationRatio(samples: np.ndarray, maxdb=0.) -> float:
     """
     max_peak_possible = db2amp(maxdb)
     peak = np.abs(samples).max()
-    ratio = max_peak_possible / peak
-    return ratio
-
+    return float(max_peak_possible / peak)
+    
 
 def panStereo(samples: np.ndarray, pan: float) -> np.ndarray:
     """

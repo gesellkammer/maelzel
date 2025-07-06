@@ -30,6 +30,7 @@ from __future__ import annotations
 import numpy as np
 from numpy import fft
 import scipy
+import scipy.signal
 from scipy.signal import get_window
 import warnings
 from numpy.lib.stride_tricks import as_strided

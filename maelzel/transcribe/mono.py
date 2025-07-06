@@ -273,7 +273,7 @@ class FundamentalAnalysisMonophonic:
                 # There is no offset: sample f0 between onset and next onset (or until end of
                 # the samples). Simplify between those onsets, then REMOVE the last breakpoint
                 if i < len(onsets) - 1:
-                    offset = onsets[i+1]
+                    offset = float(onsets[i+1])
                 else:
                     offset = len(samples)/sr
                 group = makeGroup(onset, offset)
@@ -377,7 +377,13 @@ class FundamentalAnalysisMonophonic:
         v = Voice(notes)
         v.play()
 
-    def plot(self, linewidth=2, axes: Axes=None, spanAlpha=0.2, onsetAlpha=0.4, spanColor='red') -> Axes:
+    def plot(self,
+             linewidth=2,
+             axes: Axes | None = None,
+             spanAlpha=0.2,
+             onsetAlpha=0.4,
+             spanColor='red'
+             ) -> Axes:
         """
         Plot the breakpoints of this analysis
 
@@ -417,7 +423,7 @@ class FundamentalAnalysisMonophonic:
         self.groups = groups
 
     def transcribe(self,
-                   scorestruct: ScoreStruct = None,
+                   scorestruct: ScoreStruct | None = None,
                    options: TranscriptionOptions | None = None
                    ) -> Voice:
         """
@@ -458,7 +464,7 @@ class FundamentalAnalysisMonophonic:
 
 
 def transcribeVoice(groups: list[list[Breakpoint]] | list[BreakpointGroup],
-                    scorestruct: ScoreStruct = None,
+                    scorestruct: ScoreStruct | None = None,
                     options: TranscriptionOptions | None = None,
                     ) -> Voice:
     """

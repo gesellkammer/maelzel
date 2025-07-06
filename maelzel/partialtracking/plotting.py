@@ -77,7 +77,7 @@ def plotmpl(spectrum: sp.Spectrum,
 
     downsample = max(downsample, 1)
     if axes is None:
-        fig = plt.figure(figsize=figsize)
+        fig = plt.figure(figsize=figsize, layout="constrained")
         axes = fig.add_subplot(1, 1, 1)
     else:
         fig = None
@@ -105,7 +105,7 @@ def plotmpl(spectrum: sp.Spectrum,
     axes.add_collection(lc, autolim=autolim)
     if fig:
         _ = fig.colorbar(lc)
-        plt.tight_layout()
+        # plt.tight_layout()
 
     plt.sci(lc)
     axes.set_xlim(0, spectrum.end)

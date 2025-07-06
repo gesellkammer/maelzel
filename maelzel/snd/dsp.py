@@ -422,9 +422,9 @@ def lowpassCheby2Coeffs(freq: float, sr: int, maxorder=12):
     # raise for some bad scenarios
     if ws > 1:
         ws = 1.0
-        msg = "Selected corner frequency is above Nyquist. " + \
-              "Setting Nyquist as high corner."
-        warnings.warn(msg)
+        warnings.warn("Selected corner frequency is above Nyquist. " 
+                      "Setting Nyquist as high corner.")
+    wn = 0
     while True:
         if order <= maxorder:
             break

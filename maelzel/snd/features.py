@@ -183,7 +183,7 @@ def plotOnsets(samples: np.ndarray,
                samplesalpha=0.4,
                onsetsalpha=0.3,
                figsize: tuple[int, int] | None = None,
-               offsets: np.ndarray | list[float] = None
+               offsets: np.ndarray | list[float] | None = None
                ) -> None:
     """
     Plot the results of onsets detection

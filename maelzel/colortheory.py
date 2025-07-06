@@ -35,7 +35,8 @@ def luminosityFactor(color: tuple[float, float, float], factor: float
         the resulting color
     """
     import colorsys
-    c = colorsys.rgb_to_hls(*color)
+    r, g, b = color
+    c = colorsys.rgb_to_hls(r, g, b)
     luminosity = c[1] * factor
     luminosity = max(min(luminosity, 1), 0)
     return colorsys.hls_to_rgb(c[0], luminosity, c[2])
@@ -115,6 +116,8 @@ def desaturate(color: tuple[float, float, float], factor: float
         the desaturated color as a float rgb tuple
 
     """
+    import colorsys
+
     # Check inputs
     if not 0 <= factor <= 1:
         raise ValueError("factor must be between 0 and 1")

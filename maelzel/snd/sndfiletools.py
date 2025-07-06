@@ -86,7 +86,7 @@ def copyFragment(path: str, start: float, end: float, outfile: str
 def process(sourcefile: str,
             outfile: str,
             callback: processfunc_t,
-            timerange: tuple[float, float] = (),
+            timerange: tuple[float, float] | None = None,
             bufsize=4096) -> None:
     """
     Process samples of sourcefile in fragments and write them to outfile

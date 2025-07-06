@@ -229,11 +229,14 @@ def makeAxes(tightlayout=True, hideyaxis=False, figsize: tuple[int, int] | None 
         a tuple (figure, axes)
 
     """
-    fig, axes = plt.subplots(1, 1, figsize=figsize)
+    if tightlayout:
+        fig, axes = plt.subplots(1, 1, figsize=figsize, layout="constrianed")
+    else:
+        fig, axes = plt.subplots(1, 1, figsize=figsize)
     if hideyaxis:
         axes.get_yaxis().set_visible(False)
-    if tightlayout:
-        fig.tight_layout()
+    # if tightlayout:
+    #     fig.tight_layout()
     return fig, axes
 
 

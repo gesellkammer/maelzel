@@ -61,13 +61,11 @@ def panel(text: str, title='', subtitle='',
     p = rich.panel.Panel.fit(text, title=title, width=width, border_style=style,
                              padding=padding, subtitle=subtitle,
                              title_align=titlealign)
-    margintop = 0
-    marginbottom = 0
-    if margin:
-        margintop, marginbottom = (margin, margin) if isinstance(margin, int) else margin
+    margintop, marginbottom = (margin, margin) if isinstance(margin, int) else margin
+    if margintop:
         print("\n"*margintop)
     console.print(p)
-    if margin:
+    if marginbottom:
         print("\n"*marginbottom)
 
 

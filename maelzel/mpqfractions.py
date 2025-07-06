@@ -42,7 +42,7 @@ class Q(numbers.Rational):
             return Q(self._val + other._val)
         return Q(self._val + other)
 
-    def __round__(self, ndigits: int = None) -> Q:
+    def __round__(self, ndigits: int | None = None) -> Q:
         if ndigits is None:
             floor, remainder = divmod(self.numerator, self.denominator)
             if remainder * 2 < self.denominator:

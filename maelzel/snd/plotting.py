@@ -150,7 +150,10 @@ def _plot_matplotlib(samples: np.ndarray, samplerate: int, timelabels: bool,
                      ) -> Figure:
     numch = numChannels(samples)
     numsamples = samples.shape[0]
-    fig = plt.figure(figsize=figsize)
+    if tight:
+        fig = plt.figure(figsize=figsize, layout='constrained')
+    else:
+        fig = plt.figure(figsize=figsize)
     ax1: Axes | None = None
     if timelabels:
         formatter = matplotlib.ticker.FuncFormatter(
@@ -173,8 +176,9 @@ def _plot_matplotlib(samples: np.ndarray, samplerate: int, timelabels: bool,
 
     assert ax1 is not None
     ax1.set_xlim(0, numsamples)
-    if tight:
-        fig.tight_layout()
+    # use layout="constrained" instead
+    # if tight:
+    #     fig.tight_layout()
     return fig
 
 
@@ -346,8 +350,8 @@ def plotWaveform(samples,
     if maxpoints < numsamples:
         targetsr = min(maxsr, (samplerate * numsamples) // maxpoints)
     hop_length = samplerate // targetsr
-    f = plt.figure(figsize=figsize)
-    f.set_tight_layout(True)
+    f = plt.figure(figsize=figsize, layout="constrained")
+    # f.set_tight_layout(True)
     ax1 = None
     timeFormatter = matplotlib.ticker.FuncFormatter(
         lambda s, x:emlib.misc.sec2str(s, msdigits=3))

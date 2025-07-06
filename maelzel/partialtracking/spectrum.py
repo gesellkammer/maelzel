@@ -370,7 +370,7 @@ class Spectrum:
 
     def clone(self, *,
               partials: list[Partial] = None,
-              indexTimeResolution: float = None) -> Self:
+              indexTimeResolution=0.) -> Self:
         return self.__class__(partials or self.partials,
                               indexTimeResolution=indexTimeResolution or self._indexTimeResolution)
 
@@ -1074,6 +1074,7 @@ class Spectrum:
                                     noisetracks=residualtracks,
                                     residual=unfittedpartials)
         else:
+            assert isinstance(distribution, (list, tuple))
             return pack.optimizeSplit(self.partials,
                                       maxtracks=maxtracks,
                                       maxrange=maxrange,

@@ -51,7 +51,7 @@ class DynamicCurve:
 
     """
 
-    def __init__(self, curve: Callable[[float], float], dynamics: Sequence[str] = None):
+    def __init__(self, curve: Callable[[float], float], dynamics: Sequence[str] | None = None):
         """
         Args:
             curve: a bpf mapping 0-1 to amplitude(0-1)
@@ -72,7 +72,7 @@ class DynamicCurve:
 
     @classmethod
     def fromdescr(cls, shape='expon(0.5)', mindb=-80.0, maxdb=0.0,
-                  dynamics:Union[str, Sequence[str]] = None) -> DynamicCurve:
+                  dynamics:Union[str, Sequence[str]] | None = None) -> DynamicCurve:
         """
         Creates a DynamicCurve from a shape description
 
@@ -288,7 +288,7 @@ def _validateDynamics(dynamics: Sequence[str]) -> None:
 
 
 def _makeDynamicsMapping(bpf: bpf4.BpfInterface,
-                         dynamics: Sequence[str] = None
+                         dynamics: Sequence[str] | None = None
                          ) -> tuple[list[tuple[float, str]], dict[str, float]]:
     """
     Calculate the global dynamics table according to the bpf given

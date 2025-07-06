@@ -47,7 +47,7 @@ def parabolic(f: np.ndarray, x: int) -> tuple[float, float]:
     """
     xv = 1/2. * (f[x-1] - f[x+1]) / (f[x-1] - 2 * f[x] + f[x+1]) + x
     yv = f[x] - 1/4. * (f[x-1] - f[x+1]) * (xv - x)
-    return xv, yv
+    return float(xv), float(yv)
 
 
 def _find(condition) -> np.ndarray:
@@ -81,7 +81,7 @@ def f0ZeroCross(sig: np.ndarray, sr: int) -> tuple[float, float]:
 
     # Some other interpolation based on neighboring points might be better.
     # Spline, cubic, whatever
-    return sr / np.mean(np.diff(crossings)), 1
+    return sr / float(np.mean(np.diff(crossings))), 1
 
 
 def f0FFT(sig: np.ndarray, sr: int) -> tuple[float, float]:

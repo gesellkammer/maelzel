@@ -503,9 +503,9 @@ class MeasureDef:
                  timesigInherited=False,
                  tempoInherited=False,
                  barline='',
-                 rehearsalMark: RehearsalMark = None,
-                 keySignature: KeySignature = None,
-                 properties: dict = None,
+                 rehearsalMark: RehearsalMark | None = None,
+                 keySignature: KeySignature | None = None,
+                 properties: dict | None = None,
                  subdivisionTempoThreshold: int | None = None,
                  beatWeightTempoThreshold: int | None = None,
                  readonly=True
@@ -773,7 +773,7 @@ def _checkSubdivisionStructure(s: tuple[int, tuple[int, ...]]) -> None:
 
 def measureSubdivisions(timesig: TimeSignature,
                         quarterTempo: F,
-                        subdivisionStructure: tuple[int, tuple[int, ...]] = (),
+                        subdivisionStructure: tuple[int, tuple[int, ...]] | None = None,
                         subdivisionTempoThreshold: int = 96
                         ) -> list[F]:
     if len(timesig.parts) == 1:
@@ -1054,7 +1054,7 @@ class ScoreStruct:
 
     """
     def __init__(self,
-                 score: str | timesig_t = None,
+                 score: str | timesig_t = '',
                  tempo: int | float | F = 0,
                  endless: bool = True,
                  title='',
@@ -1197,7 +1197,7 @@ class ScoreStruct:
             mdef = _parseScoreStructLine(line)
             if i == 0:
                 if mdef.timesig is None:
-                    mdef.timesig = initialTimeSignature
+                    mdef.timesig = TimeSignature(initialTimeSignature)
                 if mdef.tempo is None:
                     mdef.tempo = initialTempo
 
@@ -1271,7 +1271,7 @@ class ScoreStruct:
         """
         return self.numMeasures()
 
-    def getMeasureDef(self, idx: int, extend: bool = None) -> MeasureDef:
+    def getMeasureDef(self, idx: int, extend: bool | None = None) -> MeasureDef:
         """
         Returns the MeasureDef at the given index.
 
@@ -1349,13 +1349,13 @@ class ScoreStruct:
         return [self.getMeasureDef(idx) for idx in range(item.start, item.stop, item.step)]
 
     def addMeasure(self,
-                   timesig: tuple[int, int] | str | TimeSignature = None,
-                   quarterTempo: num_t = None,
+                   timesig: tuple[int, int] | str | TimeSignature = '',
+                   quarterTempo: num_t | None = None,
                    index: int | None = None,
                    annotation='',
                    numMeasures=1,
-                   rehearsalMark: str | RehearsalMark = None,
-                   keySignature: tuple[int, str] | KeySignature = None,
+                   rehearsalMark: str | RehearsalMark = '',
+                   keySignature: tuple[int, str] | KeySignature | None = None,
                    barline='',
                    **kws
                    ) -> None:
@@ -1371,6 +1371,7 @@ class ScoreStruct:
             quarterTempo: the tempo of a quarter note. If not given, the last tempo
                 will be used
             annotation: each measure can have a text annotation
+            index: if given, add measure at the given index
             numMeasures: if this is > 1, multiple measures of the same kind can be
                 added
             rehearsalMark: if given, add a rehearsal mark to the new measure definition.
@@ -1412,6 +1413,8 @@ class ScoreStruct:
 
         if not isinstance(timesig, TimeSignature):
             timesig = TimeSignature.parse(timesig)
+
+        assert keySignature is None or isinstance(keySignature, KeySignature)
 
         measure = MeasureDef(
             timesig=timesig,
@@ -1964,7 +1967,7 @@ class ScoreStruct:
             measure, beat = location
             return self.locationToBeat(measure, beat)
         else:
-            return asF(location)
+            return location if isinstance(location, F) else F(location)  # type: ignore
 
 
     def locationToBeat(self, measure: int, beat: num_t = F(0)) -> F:
@@ -2128,7 +2131,7 @@ class ScoreStruct:
              app='',
              scalefactor: float = 1.0,
              backend='',
-             renderoptions: RenderOptions = None
+             renderoptions: RenderOptions | None = None
              ) -> None:
         """
         Render and show this ScoreStruct
@@ -2280,7 +2283,7 @@ class ScoreStruct:
         parts.append(htmltable)
         return "".join(parts)
 
-    def _render(self, backend='', renderoptions: RenderOptions = None
+    def _render(self, backend='', renderoptions: RenderOptions | None = None
                 ) -> Renderer:
         self._update()
         from maelzel.scoring import quant
@@ -2391,7 +2394,7 @@ class ScoreStruct:
     def write(self,
               path: str | Path,
               backend='',
-              renderoptions: RenderOptions = None
+              renderoptions: RenderOptions | None = None
               ) -> None:
         """
         Export this score structure
@@ -2500,7 +2503,7 @@ class ScoreStruct:
 
     def makeClickTrack(self,
                        minMeasures: int = 0,
-                       clickdur: F = None,
+                       clickdur: F | None = None,
                        strongBeatPitch='5C',
                        weakBeatPitch='5G',
                        playTransposition=24,
