@@ -7,10 +7,10 @@ from itertools import pairwise
 from emlib import iterlib
 
 from maelzel._util import reprObj
-from maelzel.common import F
+from maelzel.common import F, F0
 
-from . import attachment, definitions, util
-from .common import NotatedDuration
+from . import attachment, util
+from .common import NotatedDuration, logger
 from .notation import (
     Notation,
     mergeNotationsIfPossible,
@@ -55,6 +55,7 @@ class UnquantizedPart:
                  groupname='',
                  showName=True,
                  quantProfile: quant.QuantizationProfile | None = None,
+                 firstClef='',
                  resolve=True
                  ):
         """
@@ -74,14 +75,14 @@ class UnquantizedPart:
         self.groupid: str = groupid
         """A UUID identifying this Part (can be left unset)"""
 
-        self.groupname: tuple[str, str] | None = _parseGroupname(groupname) if groupname else None
+        self.groupName: tuple[str, str] | None = _parseGroupname(groupname) if groupname else None
         """Used as staff group name for parts grouped together. It can include a shortname as
         <name>::<shortname>"""
 
         self.name: str = name
         """The name of the part"""
 
-        self.shortname: str = shortname
+        self.shortName: str = shortname
         """A shortname to use as abbreviation"""
 
         self.quantProfile = quantProfile
@@ -95,6 +96,8 @@ class UnquantizedPart:
 
         self.attachments: list[attachment.Attachment] = []
         """A list of Attachments for the part itself"""
+
+        self.firstClef: str = firstClef
 
         self.check()
 
@@ -153,7 +156,7 @@ class UnquantizedPart:
                 within a group
         """
         self.groupid = groupid
-        self.groupname = (name, shortname)
+        self.groupName = (name, shortname)
         self.showName = showPartName
 
     def __getitem__(self, item) -> Notation:
@@ -163,7 +166,7 @@ class UnquantizedPart:
         return iter(self.notations)
 
     def __repr__(self) -> str:
-        return reprObj(self, priorityargs=('notations',))
+        return reprObj(self, priorityargs=('notations',), hideFalsy=True)
 
     def dump(self) -> None:
         """Dump this to stdout"""
@@ -292,6 +295,10 @@ class UnquantizedScore:
     def append(self, part: UnquantizedPart):
         self.parts.append(part)
 
+    def dump(self):
+        for part in self.parts:
+            part.dump()
+
 
 def _repairGracenoteAsTargetGliss(notations: list[Notation]) -> bool:
     """
@@ -401,7 +408,7 @@ def removeSmallOverlaps(notations: list[Notation], threshold=F(1, 1000)) -> None
 
 def fillSilences(notations: list[Notation],
                  mingap=F(1, 64),
-                 offset: time_t = None
+                 offset=F0
                  ) -> list[Notation]:
     """
     Return a list of Notations filled with rests
@@ -417,33 +424,34 @@ def fillSilences(notations: list[Notation],
     Returns:
         a list of new Notations
     """
-    assert notations and all(isinstance(n, Notation) and n.offset is not None and n.duration is not None
-                             for n in notations)
-    if offset is not None:
-        assert all(n.offset >= offset for n in notations
-                   if n.offset is not None)
-
+    assert notations and all(n.offset is not None and n.offset >= offset for n in notations)
+    
     out: list[Notation] = []
     n0 = notations[0]
-    if offset is not None and n0.offset is not None and n0.offset > offset:
+    if n0.offset is not None and n0.offset > offset:
         out.append(Notation.makeRest(duration=n0.offset, offset=offset))
     for ev0, ev1 in pairwise(notations):
         gap = ev1.qoffset - (ev0.qoffset + ev0.duration)
-        if gap < 0:
-            if abs(gap) < 1e-14 and ev0.duration > 1e-13:
-                out.append(ev0.clone(duration=ev1.qoffset - ev0.qoffset))
-            else:
-                raise ValueError(f"Items overlap, {gap=}, {ev0=}, {ev1=}")
+        if gap == 0:
+            out.append(ev0)
         elif gap > mingap:
             out.append(ev0)
             rest = Notation.makeRest(duration=gap, offset=ev0.qoffset+ev0.duration)
             out.append(rest)
+        elif gap < 0:
+            if abs(gap) < 1e-14 and ev0.duration > 1e-13:
+                n = ev0.clone(duration=ev1.qoffset - ev0.qoffset)
+                logger.debug("Small negative gap", n)
+                out.append(n)
+            else:
+                raise ValueError(f"Items overlap, {gap=}, {ev0=}, {ev1=}")
         else:
-            # adjust the dur of n0 to match start of n1
+            # gap <= mingap: adjust the dur of n0 to match start of n1
+            logger.debug(f"Small gap ({gap}), absorve the gap in the first note")
             out.append(ev0.clone(duration=ev1.qoffset - ev0.qoffset))
+            
     out.append(notations[-1])
-    for n0, n1 in pairwise(out):
-        assert n0.end == n1.offset, f'{n0=}, {n1=}'
+    assert all(n0.end == n1.offset for n0, n1 in pairwise(out)), f"failed to fill gaps: {out}"
     return out
 
 
@@ -480,10 +488,13 @@ def distributeNotationsByClef(notations: list[Notation],
         groupid: a groupid to use for all created parts
         name: a name to use for the resulting group
         shortname: an abbreviation for the name of the group
+
+    Returns:
+        a list of UnquantizedParts
     """
     from . import clefutils
     partpairs = clefutils.explodeNotations(notations, maxstaves=maxstaves)
-    parts = [UnquantizedPart(notations) for clef, notations in partpairs]
+    parts = [UnquantizedPart(notations, firstClef=clef) for clef, notations in partpairs]
 
     if groupid:
         for p in parts:
@@ -492,12 +503,12 @@ def distributeNotationsByClef(notations: list[Notation],
     if name:
         if len(parts) == 1:
             parts[0].name = name
-            parts[0].shortname = shortname
+            parts[0].shortName = shortname
         else:
             for i, part in enumerate(parts):
                 part.name = f'{name}-{i + 1}'
                 if shortname:
-                    part.shortname = f'{shortname}{i + 1}'
+                    part.shortName = f'{shortname}{i + 1}'
 
     return parts
 

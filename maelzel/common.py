@@ -6,10 +6,9 @@ import logging as _logging
 import pitchtools as pt
 import functools as _functools
 
-from typing import Union, TypeAlias, TYPE_CHECKING
 
-
-if TYPE_CHECKING:
+import typing as _t
+if _t.TYPE_CHECKING:
     from fractions import Fraction as F
 else:
     from quicktions import Fraction as F
@@ -31,12 +30,12 @@ __all__ = (
 )
 
 
-num_t: TypeAlias = Union[int, float, F]
-time_t: TypeAlias = Union[int, float, F]
-pitch_t: TypeAlias = Union[int, float, str]
-timesig_t: TypeAlias = tuple[int, int]
-location_t: TypeAlias = tuple[int, time_t]
-beat_t: TypeAlias = Union[F, float, location_t]
+num_t: _t.TypeAlias = _t.Union[int, float, F]
+time_t: _t.TypeAlias = _t.Union[int, float, F]
+pitch_t: _t.TypeAlias = _t.Union[int, float, str]
+timesig_t: _t.TypeAlias = tuple[int, int]
+location_t: _t.TypeAlias = tuple[int, time_t]
+beat_t: _t.TypeAlias = _t.Union[F, float, location_t]
 
 
 F0: F = F(0)
@@ -93,6 +92,7 @@ def getLogger(name: str,
     Returns:
         the logger
     """
+    # TODO: move this to _logutils
     logger = _logging.getLogger(name)
     if logger.hasHandlers():
         # an old logger
@@ -129,6 +129,8 @@ class UnsetType(metaclass=_Singleton):
 
     def __bool__(self):
         return False
+
+
 
 
 UNSET = UnsetType()

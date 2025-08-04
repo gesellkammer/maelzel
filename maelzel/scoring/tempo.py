@@ -33,8 +33,8 @@ class Metronome:
 
 def inferMetronomeMark(quarterTempo: F,
                        timesig: tuple[int, int],
-                       mintempo=48.,
-                       maxtempo=144.
+                       mintempo=40.,
+                       maxtempo=160.
                        ) -> Metronome:
     """
     Infer a metronome mark for a given quartertempo

@@ -164,7 +164,7 @@ def _resetImageCacheCallback(config: CoreConfig, force=False):
     from . import workspace
     if force or config is workspace.getConfig():
         from . import mobj
-        mobj.resetImageCache()
+        mobj.clearImageCache()
 
 
 def _propagateA4(config: CoreConfig, a4: float) -> None:
@@ -222,7 +222,7 @@ class CoreConfig(ConfigDict):
     # It is called with the config being modified, the key being modified and the new value
     _builtinCallbacks = {
         'htmlTheme': lambda config, key, val: _syncCsoundengineTheme(val),
-        r"(show|quant)\..+": lambda config, key, val: _resetImageCacheCallback(config, force=True),
+        r"(show|quant|\.quant)\..+": lambda config, key, val: _resetImageCacheCallback(config, force=True),
         "A4": lambda config, key, val: _propagateA4(config, val),
     }
 
@@ -298,20 +298,6 @@ class CoreConfig(ConfigDict):
             return super()._repr_keys()
         lastchr = chr(9999)
         return sorted(self.keys(), key=lambda k: k if not k.startswith(".") else lastchr + k)
-
-    # def save(self, path='') -> None:
-    #     """
-    #     Save this config.
-    #
-    #     If no path is given, this config is **saved as the default config
-    #     and loaded in the next session**. If a path is given, the config
-    #     is saved to the given location and can be recreated via :meth:`CoreConfig.read`
-    #
-    #     Args:
-    #         path: the path where to save this config
-    #
-    #     """
-    #     super().save(path=path)
 
     @classmethod
     def read(cls, path: str):

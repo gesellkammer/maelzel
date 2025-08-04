@@ -32,7 +32,7 @@ from maelzel import scoring
 from maelzel import _util
 from maelzel.common import UNSET
 from maelzel.core.workspace import Workspace
-from maelzel.core.eventbase import MEvent
+from maelzel.core.mevent import MEvent
 from maelzel.core._common import MAXDUR, logger
 from maelzel.core import synthevent
 from maelzel.core import _tools
@@ -58,7 +58,7 @@ __all__ = (
     'Rest',
 
     'asEvent',
-    'Gracenote'
+    'Grace'
 )
 
 
@@ -119,6 +119,7 @@ class Note(MEvent):
     def __init__(self,
                  pitch: pitch_t,
                  dur: time_t | None = None,
+                 *,
                  amp: float | None = None,
                  offset: time_t | None = None,
                  gliss: pitch_t | bool = False,
@@ -163,7 +164,6 @@ class Note(MEvent):
                             self.addSpanner(spanner)
                 elif "/" in pitch:
                     parsednote = _tools.parseNote(pitch)
-                    assert isinstance(parsednote.notename, str), f"Expected a notename, got {parsednote.notename}"
                     pitch = parsednote.notename
                     dur = parsednote.dur
 
@@ -261,9 +261,35 @@ class Note(MEvent):
         out._setpitch(self.pitch+interval)
         return out
 
-    def asGracenote(self, slash=True) -> Note:
-        """A copy of this note as a gracenote"""
-        return Gracenote(self.pitch, slash=slash)
+    @classmethod
+    def grace(cls,
+              pitch: pitch_t,
+              stemless=False,
+              slash=False,
+              value: F | str | float | None = None,
+              parenthesis=False,
+              hidden=False,
+              **kws) -> Self:
+        """
+        Class method to create a grace note
+
+        Args:
+            pitch: the pitch of the grace chord
+            stemless: if is stemless?
+            slash: slashed stem
+            value: the rhythic value of the grace note ("1/2" or F(1, 2)=8th note,
+                "1/8"=32nd note, etc.
+            parenthesis: is the notehead parenthesized?
+            hidden: should the whole note be hidden?
+            **kws: keyword args passed to the Note constructor
+
+        Returns:
+            the grace note
+        """
+        note = cls(pitch=pitch, dur=0, **kws)
+        _customizeGracenote(note, stemless=stemless, slash=slash,
+                            value=value, hidden=hidden, parenthesis=parenthesis)
+        return note
 
     def mergeWith(self, other: Note) -> Note | None:
         """
@@ -324,7 +350,7 @@ class Note(MEvent):
                 return True
         return False
 
-    def isGracenote(self) -> bool:
+    def isGrace(self) -> bool:
         return not self.isRest() and self.dur == 0
 
     @property
@@ -526,8 +552,10 @@ class Note(MEvent):
         if self.isRest():
             notations = self.scoringEvents(config=config)
             assert len(notations) == 1
-            notations[0].mergeableNext = False
-            notations[0].addAttachment(scoring.attachment.Breath(visible=False, horizontalPlacement='post'))
+            n = notations[0]
+            n.mergeableNext = False
+            n.mergeablePrev = False
+            n.addAttachment(scoring.attachment.Breath(visible=False, horizontalPlacement='post'))
             return [scoring.core.UnquantizedPart(notations)]
         else:
             return super().scoringParts(config)
@@ -543,21 +571,17 @@ class Note(MEvent):
         offset = self.absOffset() if parentOffset is None else self.relOffset() + parentOffset
         dur = self.dur
 
-        def _mergeOptionalLists(a: list | None, b: list | None) -> list | None:
-            if a is None:
-                return b
-            elif b is None:
-                return a
-            return a + b
+        def _mergeOptLists(a: list | None, b: list | None) -> list | None:
+            return a+b if (a and b) else a or b
 
         if self.isRest():
             rest = scoring.Notation.makeRest(dur, offset=offset, dynamic=self.dynamic)
             if self.label:
                 rest.addText(self.label, role='label')
             tempsymbols = self.properties.pop('.tempsymbols', None) if self.properties else None
-            if (symbols := _mergeOptionalLists(tempsymbols, self.symbols)) is not None:
+            if (symbols := _mergeOptLists(tempsymbols, self.symbols)) is not None:
                 for symbol in symbols:
-                    if isinstance(symbol, _symbols.EventSymbol) and symbol.appliesToRests:
+                    if symbol.appliesToRests:
                         symbol.applyToNotation(rest, parent=self)
             return [rest]
 
@@ -568,7 +592,7 @@ class Note(MEvent):
                                              dynamic=self.dynamic,
                                              group=groupid)
         if self.pitchSpelling:
-            notation.fixNotename(self.pitchSpelling, idx=0)
+            notation.fixNotename(self.pitchSpelling, index=0)
 
         if self.tied:
             notation.tiedNext = True
@@ -592,7 +616,7 @@ class Note(MEvent):
             notes[0].addText(self._scoringAnnotation(text=chainlabel, config=config))
 
         tempsymbols = self.properties.pop('.tempsymbols', None) if self.properties else None
-        if (symbols := _mergeOptionalLists(tempsymbols, self.symbols)) is not None:
+        if (symbols := _mergeOptLists(tempsymbols, self.symbols)) is not None:
             for symbol in symbols:
                 symbol.applyToTiedGroup(notes, parent=self)
         return notes
@@ -624,9 +648,10 @@ class Note(MEvent):
         if self.dur:
             if self.dur >= MAXDUR:
                 elements.append("dur=inf")
+            elif config['reprDurationAsFraction']:
+                elements.append(f"{_util.showF(self.dur, maxdenom=32, approxAsFloat=True, unicode=config['reprUnicodeFractions'])}♩")
             else:
-                elements.append(f"{_util.showT(self.dur)}♩")
-
+                elements.append(f"{_util.showT(self.dur)}")
         if self.offset is not None:
             elements.append(f"offset={_util.showT(self.offset)}")
 
@@ -642,11 +667,17 @@ class Note(MEvent):
         return elements
 
     def __repr__(self) -> str:
-        t = _util.showT
         if self.isRest():
+            cfg = Workspace.active.config
+            if cfg['reprDurationAsFraction']:
+                parts = [f"{_util.showF(self.dur, maxdenom=32, approxAsFloat=True)}♩"]
+            else:
+                parts = [f"{_util.showT(self.dur)}"]
             if self.offset is not None:
-                return f"Rest:{t(self.dur)}♩:offset={t(self.offset)}"
-            return f"Rest:{t(self.dur)}♩"
+                parts.append(f"offset={_util.showT(self.offset)}")
+            if self.symbols:
+                parts.append(f"symbols={(self.symbols)}")
+            return "R:" + ":".join(parts)
         elements = self._asTableRow()
         if len(elements) == 1:
             return elements[0]
@@ -665,6 +696,12 @@ class Note(MEvent):
             out._gliss = self.gliss if isinstance(self.gliss, bool) else self.gliss + other
             return out
         raise TypeError(f"can't add {other} ({other.__class__}) to a Note")
+
+    def __mul__(self, other: num_t) -> Self:
+        # modify the duration
+        if isinstance(other, (int, float, F)):
+            return self.clone(dur=self.dur * other)
+        raise TypeError(f"Can't multiply {other} ({other.__class__}) to a {type(self)}")
 
     def __xor__(self, freq) -> Self: return self.freqShift(freq)
 
@@ -754,8 +791,7 @@ class Note(MEvent):
         glissdur = playargs.get('glisstime', 0.)
         linkednext = glissdur or self.gliss
         endpitch = self.resolveGliss() if linkednext else self.pitch
-        startbeat = self.relOffset() + parentOffset
-        startbeat = max(startbeat, playargs.get('skip', 0))
+        startbeat = max(self.relOffset() + parentOffset, playargs.get('skip', 0))
         endbeat = min(startbeat + self.dur, playargs.get('end', float('inf')))
         startsecs = float(struct.beatToTime(startbeat))
         endsecs = float(struct.beatToTime(endbeat))
@@ -814,22 +850,26 @@ class Note(MEvent):
             raise ValueError("This note does not have a glissando")
 
         if self._glissTarget:
-            return self._glissTarget if isinstance(self._glissTarget, str) else pt.m2n(self._glissTarget)
+            return pt.m2n(self._glissTarget)
         elif not isinstance(self._gliss, bool):
             return pt.m2n(self._gliss)
         elif self.parent:
             self.parent._resolveGlissandi()
-            return self._glissTarget if isinstance(self._glissTarget, str) else pt.m2n(self._glissTarget)
+            target = self._glissTarget
+            return target if isinstance(target, str) else pt.m2n(target)
         else:
             return self.name
 
-    def resolveDynamic(self, conf: CoreConfig | None = None) -> str:
-        if conf is None:
-            conf = Workspace.active.config
-        # TODO: query the parent to see the currently active dynamic
-        return self.dynamic or conf['play.defaultDynamic']
-
     def pitchTransform(self, pitchmap: Callable[[float], float]) -> Self:
+        """
+        A copy of self with the pitch transformed by the given callable
+
+        Args:
+            pitchmap: a function mapping ``pitch -> pitch``
+
+        Returns:
+            A copy of self with the pitch transformed
+        """
         if self.isRest():
             return self
         pitch = pitchmap(self.pitch)
@@ -841,13 +881,25 @@ class Note(MEvent):
 
 
 def Rest(dur: time_t | str, offset: time_t | None = None, label='', dynamic='') -> Note:
-        fdur = _tools.parseDuration(dur) if isinstance(dur, str) else asF(dur)
-        if fdur <= 0:
-            raise ValueError(f"A rest must have a possitive duration, got {dur}")
-        return Note(pitch=0, dur=fdur,
-                    offset=None if offset is None else asF(offset),
-                    amp=0, label=label, dynamic=dynamic,
-                    _init=False)
+    """
+    Create a Rest
+
+    Args:
+        dur: duration in beats
+        offset:
+        label:
+        dynamic:
+
+    Returns:
+
+    """
+    fdur = _tools.parseDuration(dur) if isinstance(dur, str) else asF(dur)
+    if fdur <= 0:
+        raise ValueError(f"A rest must have a possitive duration, got {dur}")
+    return Note(pitch=0, dur=fdur,
+                offset=None if offset is None else asF(offset),
+                amp=0, label=label, dynamic=dynamic,
+                _init=False)
 
 
 
@@ -907,6 +959,7 @@ class Chord(MEvent):
     def __init__(self,
                  notes: str | Sequence[Note | int | float | str],
                  dur: time_t | None = None,
+                 *,
                  amp: float | None = None,
                  offset: time_t | None = None,
                  gliss: str | bool | Sequence[pitch_t] = False,
@@ -1064,11 +1117,6 @@ class Chord(MEvent):
     def name(self) -> str:
         return ",".join(self._bestSpelling())
 
-    def asGracenote(self, slash=True) -> Chord:
-        out = Gracenote(self.pitches, slash=slash)
-        assert isinstance(out, Chord)
-        return out
-
     def setNotatedPitch(self, notenames: str | list[str]) -> None:
         if isinstance(notenames, str):
             return self.setNotatedPitch(notenames.split())
@@ -1095,6 +1143,36 @@ class Chord(MEvent):
             else:
                 logger.debug(f"Chord {self} is tied, but {other} has no pitches in common")
         return False
+
+    @classmethod
+    def grace(cls,
+              notes: str | Sequence[int | float | str],
+              stemless=False,
+              slash=False,
+              value: F | str | float | None = None,
+              parenthesis=False,
+              hidden=False,
+              **kws) -> Self:
+        """
+        Class method to create a grace chord
+
+        Args:
+            notes: the pitches of the grace chord
+            stemless: if is stemless?
+            slash: slashed stem
+            value: the rhythic value of the grace chord ("1/2" or F(1, 2)=8th note,
+                "1/8"=32nd note, etc.
+            parenthesis: are noteheads parenthesized?
+            hidden: should the whole note be hidden?
+            **kws: keyword args passed to the Chord constructor
+
+        Returns:
+            the grace chord
+        """
+        chord = cls(notes=notes, dur=0, **kws)
+        _customizeGracenote(chord, stemless=stemless, slash=slash, value=value,
+                            parenthesis=parenthesis, hidden=hidden)
+        return chord
 
     def mergeWith(self, other: Chord) -> Chord | None:
         if not isinstance(other, Chord):
@@ -1683,23 +1761,40 @@ def _asChord(obj, amp: float | None = None, dur: float | None = None) -> Chord:
 
 
 @_overload
-def Gracenote(pitch: pitch_t, slash=True, stemless=False, offset: time_t | None = None, **kws
-              ) -> Note:
+def Grace(pitch: pitch_t,
+          slash=False,
+          stemless=False,
+          offset: time_t | None = None,
+          value: F | None = None,
+          hidden=False,
+          parenthesis=False,
+          **kws
+          ) -> Note:
     ...
 
 
 @_overload
-def Gracenote(pitch: Sequence[pitch_t], slash=True, stemless=False, offset: time_t | None = None, **kws
-              ) -> Chord:
+def Grace(pitch: Sequence[pitch_t],
+          slash=False,
+          stemless=False,
+          offset: time_t | None = None,
+          value: F | None = None,
+          hidden=False,
+          parenthesis=False,
+          **kws
+          ) -> Note | Chord:
     ...
 
 
-def Gracenote(pitch: pitch_t | Sequence[pitch_t],
-              slash=True,
-              stemless=False,
-              offset: time_t | None = None,
-              **kws
-              ) -> Note | Chord:
+def Grace(pitch: pitch_t | Sequence[pitch_t],
+          slash=False,
+          stemless=False,
+          offset: time_t | None = None,
+          value: F | None = None,
+          hidden=False,
+          parenthesis=False,
+          **kws
+          ) -> Note | Chord:
     """
     Create a gracenote (a note or chord)
 
@@ -1707,8 +1802,8 @@ def Gracenote(pitch: pitch_t | Sequence[pitch_t],
 
     .. note::
         A gracenote is just a regular note or chord with a duration of 0.
-        This function is here for visibility and to allow to customize the slash
-        attribute
+        This function is here for visibility and to allow to customize
+        attributes specific to a gracenote
 
     Args:
         pitch: a single pitch (as midinote, notename, etc), a list of pitches or string
@@ -1716,6 +1811,7 @@ def Gracenote(pitch: pitch_t | Sequence[pitch_t],
         offset: the offset of this gracenote. Normally a gracenote should not have an explicit offset
         slash: if True, the gracenote will be marked as slashed
         stemless: if True, hide the stem of this gracenote
+        value: the rhythmic value to use (1/2=eighth note, 1/4=sixteenth note, etc.)
 
     Returns:
         a Note if one pitch is given, a Chord if a list of pitches are passed instead.
@@ -1736,11 +1832,32 @@ def Gracenote(pitch: pitch_t | Sequence[pitch_t],
     """
     out = asEvent(pitch, dur=0, offset=offset, **kws)
     assert isinstance(out, (Note, Chord))
-    if stemless:
-        out.addSymbol(_symbols.Stem(hidden=True))
-    elif slash:
-        out.addSymbol(_symbols.Gracenote(slash=True))
+    _customizeGracenote(out, slash=slash, stemless=stemless, value=value, hidden=hidden, parenthesis=parenthesis)
     return out
+
+
+def _customizeGracenote(grace: Note | Chord,
+                        slash=False,
+                        stemless=False,
+                        value: F | None = None,
+                        hidden=False,
+                        parenthesis=False,
+                        ) -> None:
+    if hidden:
+        grace.addSymbol(_symbols.Hidden())
+    else:
+        if stemless and (slash or value):
+            logger.debug("A gracenote cannot be stemless and have a slashed stem or "
+                         "a custom value...")
+            slash = False
+            value = None
+        if stemless:
+            grace.addSymbol(_symbols.Stem(hidden=True))
+        elif slash or value:
+            value = F(1, 2) if not value else asF(value)
+            grace.addSymbol(_symbols.Gracenote(slash=True, value=value))
+        if parenthesis:
+            grace.addSymbol(_symbols.Notehead(parenthesis=True))
 
 
 def asEvent(obj, **kws) -> MEvent:

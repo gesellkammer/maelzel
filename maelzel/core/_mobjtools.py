@@ -2,7 +2,7 @@ from __future__ import annotations
 from maelzel.common import F, F0
 from emlib.iterlib import first
 
-from .eventbase import MEvent
+from .mevent import MEvent
 from .event import Note, Chord
 from .workspace import getConfig
 
@@ -101,14 +101,14 @@ def addDurationToGracenotes(events: list[MEvent], dur: F) -> None:
     now = events[0].offset
     assert now is not None
     for i, n in enumerate(events):
-        if not n.isGracenote():
+        if not n.isGrace():
             lastRealNote = i
         else:
             if lastRealNote is None:
                 # First in the sequence is a gracenote. Diminish the dur of the next real note,
                 # make the gracenote "on the beat"
                 nextrealidx = first(j for j, n in enumerate(events[i+1:])
-                                    if not n.isGracenote() and n.dur > 0)
+                                    if not n.isGrace() and n.dur > 0)
                 if nextrealidx is None:
                     raise ValueError(f"No real notes in {events=}")
                 nextreal = events[nextrealidx+i+1]

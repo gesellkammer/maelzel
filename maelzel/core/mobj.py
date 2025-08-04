@@ -75,7 +75,7 @@ if _t.TYPE_CHECKING:
 __all__ = (
     'MObj',
     'MContainer',
-    'resetImageCache',
+    'clearImageCache',
 )
 
 
@@ -413,6 +413,21 @@ class MObj(ABC):
         """
         offset = self.relOffset()
         return offset if not self.parent else offset + self.parent.absOffset()
+
+    def absEnd(self) -> F:
+        """
+        Returns the absolute end of this offset, as quarternotes
+
+        If this object is embedded (has a parent) in a container,
+        its absolute end depends on the offset of its parent,
+        recursively. If the object has no parent then the absolute offset
+        is just the resolved offset
+
+        Returns:
+            the absolute end position of this object
+
+        """
+        return self.absOffset() + self.dur
 
     def parentAbsOffset(self) -> F:
         """
@@ -817,10 +832,10 @@ class MObj(ABC):
         parts = self.scoringParts()
         if config['show.respellPitches'] and enharmonicOptions is None:
             enharmonicOptions = config.makeEnharmonicOptions()
-        qscore = quant.quantize(parts,
-                                struct=scorestruct,
-                                quantizationProfile=quantizationProfile,
-                                enharmonicOptions=enharmonicOptions)
+        qscore = quant.quantizeParts(parts,
+                                     quantizationProfile=quantizationProfile,
+                                     struct=scorestruct,
+                                     enharmonicOptions=enharmonicOptions)
         return qscore
 
     def render(self,
@@ -939,7 +954,7 @@ class MObj(ABC):
                          f"the expected output file '{outfile}'. This might be a cached "
                          f"path and the cache might be invalid. Resetting the cache and "
                          f"trying again...")
-            resetImageCache()
+            clearImageCache()
             # Try again, uncached
             _renderImage(self, outfile, backend=backend, scorestruct=scorestruct,
                          config=config)
@@ -1205,9 +1220,13 @@ class MObj(ABC):
         return _html.escape(repr(self))
 
     def _repr_html_(self) -> str:
-        img64, img = self._htmlImage()
+        cfg = Workspace.active.config
         txt = self._repr_html_header()
-        return rf'<code style="white-space: pre-line; font-size:0.9em;">{txt}</code><br>' + img
+        html = rf'<code style="white-space: pre-line; font-size:0.9em;">{txt}</code><br>'
+        if cfg['jupyterReprShow']:
+            img64, img = self._htmlImage()
+            html += '<br>' + img
+        return html
 
     def _makeOfflineRenderer(self,
                              sr=0,
@@ -1880,7 +1899,9 @@ class MContainer(MObj):
 
         super().__init__(offset=offset, dur=F0, label=label,
                          properties=properties, parent=parent)
+
         self._config: dict[str, _t.Any] = {}
+        "Collects customizations to the config specific to this container"
 
     @abstractmethod
     def __iter__(self) -> _t.Iterator[MObj | MContainer]:
@@ -1993,7 +2014,8 @@ class MContainer(MObj):
         if not self.parent:
             return None if not self._config else prototype.clone(self._config)
         if (parentconfig := self.parent.getConfig(prototype)) is None:
-            return None
+            # parent made no changes
+            return None if not self._config else prototype.clone(self._config)
         else:
             return parentconfig if not self._config else parentconfig.clone(self._config)
 
@@ -2083,6 +2105,7 @@ class MContainer(MObj):
         """
         return self if self.parent is None else self.parent.root()
 
+
 # --------------------------------------------------------------------
 
 
@@ -2102,7 +2125,7 @@ def _renderImage(obj: MObj,
                                            scorestruct=scorestruct, renderoptions=renderoptions)
     if not os.path.exists(tmpfile):
         logger.debug(f"Cached file '{tmpfile}' not found, resetting cache, trying again")
-        resetImageCache()
+        clearImageCache()
         tmpfile, renderer = _renderImageCached(obj=obj, fmt=fmt, config=config, backend=backend,
                                                scorestruct=scorestruct, renderoptions=renderoptions)
         if not os.path.exists(tmpfile):
@@ -2193,9 +2216,9 @@ def _renderObject(obj: MObj,
     return renderer
 
 
-def resetImageCache() -> None:
+def clearImageCache() -> None:
     """
-    Reset the image cache. Useful when changing display format
+    Clear the image cache. Useful when changing display format
     """
     logger.info("Resetting image cache")
     _renderImageCached.cache_clear()

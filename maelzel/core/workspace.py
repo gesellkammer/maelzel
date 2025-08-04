@@ -15,11 +15,12 @@ if _t.TYPE_CHECKING:
     from maelzel.core.renderer import Renderer
     from typing import Any
     import csoundengine.session
+    from . import presetmanager
 
 
-def _resetCache() -> None:
-    from .mobj import resetImageCache
-    resetImageCache()
+def _clearCache() -> None:
+    from .mobj import clearImageCache
+    clearImageCache()
 
 
 __all__ = (
@@ -135,7 +136,7 @@ class Workspace:
     def _activateConfig(self) -> None:
         config = self._config
         pitchtools.set_reference_freq(config['A4'])
-        _resetCache()
+        _clearCache()
 
     @staticmethod
     def getConfig() -> CoreConfig:
@@ -145,6 +146,16 @@ class Workspace:
         wspace = Workspace.active
         assert wspace is not None
         return wspace.config
+
+    @staticmethod
+    def clearCache() -> None:
+        """
+        Cleat the Workspace cache.
+
+        At the moment this cache includes only the image generated via .show
+
+        """
+        _clearCache()
 
     @staticmethod
     def _initclass() -> None:
@@ -209,13 +220,20 @@ class Workspace:
 
     @scorestruct.setter
     def scorestruct(self, s: ScoreStruct):
+        if s.beatWeightTempoThreshold is None:
+            s.beatWeightTempoThreshold = self.config['quant.beatWeightTempoThreshold']
+        if s.subdivisionTempoThreshold is None:
+            s.subdivisionTempoThreshold = self.config['quant.subdivisionTempoThreshold']
         self._scorestruct = s
+        self.clearCache()
 
     @staticmethod
     def setScoreStruct(score: str | ScoreStruct | tuple[int, int] = (4, 4),
                        tempo=60) -> None:
         """
         Sets the current score structure
+
+        This is the same as `ScoreStruct(...).activate()`
 
         If given a ScoreStruct, it sets it as the active score structure.
         As an alternative a score structure as string can be given, or simply
@@ -424,6 +442,10 @@ class Workspace:
         from maelzel.core import playback
         return playback.getSession()
 
+    def presetManager(self) -> presetmanager.PresetManager:
+        from . import presetmanager
+        return presetmanager.presetManager
+
 
 def getWorkspace() -> Workspace:
     """
@@ -526,6 +548,9 @@ def setConfig(config: CoreConfig) -> None:
     Args:
         config: the new config
     """
+    import warnings
+    warnings.deprecated("setConfig is deprecated, call `config.activate()` on the config itself "
+                        "or `Workspace.active.config = config`")
     active = Workspace.active
     assert active is not None
     active.config = config
@@ -555,7 +580,7 @@ def getScoreStruct() -> ScoreStruct:
 
 
 def setScoreStruct(score: str | ScoreStruct | tuple[int, int] = (4, 4),
-                   tempo: int | float = 60) -> None:
+                   tempo: int | float = 60) -> ScoreStruct:
     """
     Sets the current score structure
 
@@ -569,6 +594,11 @@ def setScoreStruct(score: str | ScoreStruct | tuple[int, int] = (4, 4),
             information about the format) or a time signature as a (num, den) tuple
         tempo: the quarter-note tempo. Used as the initial tempo for the score, or
             when score just contains a time signature
+
+    Returns:
+        the now active ScoreStruct. It will be the same as the given struct if
+        one was passed, or the newly created struct if a string struct,
+        time signature or just tempo were given
 
     .. seealso::
         * :func:`~maelzel.core.workpsace.getScoreStruct`
@@ -598,6 +628,7 @@ def setScoreStruct(score: str | ScoreStruct | tuple[int, int] = (4, 4),
     """
     s = score if isinstance(score, ScoreStruct) else ScoreStruct(score=score, tempo=tempo)
     Workspace.active.scorestruct = s
+    return s
 
 @cache
 def presetsPath() -> str:

@@ -126,9 +126,9 @@ class QuantizationProfile:
 
     gracenoteErrorWeight: float = 0
 
-    divisionDefs: tuple[quantdata.DivisionDef, ...] = _field(default_factory=lambda: quantdata.quantpresets['high'].divisionDefs)
+    divisionDefs: tuple[quantdata.DivisionDef, ...] = _field(default_factory=lambda: quantdata.getPresets()['high'].divisionDefs)
 
-    divisionPenaltyMap: dict[int, float] = _factory(quantdata.quantpresets['high'].divisionsPenaltyMap)
+    divisionPenaltyMap: dict[int, float] = _factory(quantdata.defaultDivisionPenaltyMap)
     """A mapping of the penalty of each division"""
 
     divisionCardinalityPenaltyMap: dict[int, float] = _factory({1: 0.0, 2: 0.1, 3: 0.4})
@@ -159,15 +159,21 @@ class QuantizationProfile:
     numSubdivisionsPenaltyWeight: float = 0.2
     """Weight to penalize the number of subdivisions"""
 
-    syncopMinFraction: F = F(1, 6)
-    """How long can a synchopation be, in terms of the length of the beat"""
+    outerTupletMatchFactor: float = 0.01
+    """A factor applied to the division penalty when a div matches the outer tuplet of an adjacent beat"""
 
-    syncopationMinSymbolicDuration: F = F(1, 3)
-    """Min. symbolic duration of a syncopation"""
+    syncopPartMinFraction: F = F(1, 8)
+    """How long can any part of a synchopation be, in terms of the length of the beat"""
 
-    syncopMaxAsymmetry: float = 2.0
+    syncopMinFraction: F = F(1, 3)
+    """Min. fraction of a beat for the whole duration of a syncopation"""
+
+    syncopMaxAsymmetry: float = 4.0
     """The max. ratio between the longer and the shorter parts to be mergeable
     as a syncopation"""
+    
+    syncopExcludeSymDurs: tuple[int, ...] = (5, 7, 15)
+    """Symbolic numerators excluded from being syncopated (3=dotted, 7=double dotted, etc.)"""
 
     mergedTupletsMaxDuration: F = F(2)
     """How long can a tuplet over the beat be"""
@@ -233,7 +239,6 @@ class QuantizationProfile:
 
     def __post_init__(self):
         assert self.breakSyncopationsLevel in ('strong', 'none', 'all', 'weak'), f"{self.breakSyncopationsLevel=}"
-        self.debug = False
         for attr, value in self.__dataclass_fields__.items():  # type: ignore
             assert not isinstance(value, (list, dict)), f"Unhashable {attr=}{value}"
 
@@ -274,7 +279,6 @@ class QuantizationProfile:
             self.numNestedTupletsPenaltyWeight,
             self.numSubdivisionsPenaltyWeight,
             self.syncopMinFraction,
-            self.syncopationMinSymbolicDuration,
             self.syncopMaxAsymmetry,
             self.mergedTupletsMaxDuration,
             self.mergeTupletsOfDifferentDuration,
@@ -313,7 +317,7 @@ class QuantizationProfile:
             raise ValueError(f"No divisions for the given tempo ({tempo=})")
 
         if not self.nestedTuplets:
-            divs = [div for div in divs if not quantutils.isNestedTupletDivision(div)]
+            divs = [div for div in divs if isinstance(div, int) or not quantutils.isNestedTupletDivision(div)]
         divs = sorted(divs, key=lambda div: len(div))
         self._cachedDivisionsByTempo[(tempo, self.nestedTuplets)] = divs
         return divs
@@ -393,9 +397,10 @@ class QuantizationProfile:
                 return val
             raise ValueError(f"All values are None for key '{key}'")
 
-        preset = quantdata.quantpresets.get(complexity)
+        presets = quantdata.getPresets()
+        preset = presets.get(complexity)
         if preset is None:
-            raise ValueError(f"complexity preset {complexity} unknown. Possible values: {quantdata.quantpresets.keys()}")
+            raise ValueError(f"complexity preset {complexity} unknown. Possible values: {presets.keys()}")
 
         keys = [field.name for field in _fields(QuantizationProfile)
                 if not field.name.startswith('_')]
@@ -423,9 +428,9 @@ def _divisionCardinality(division: division_t, excludeBinary=False) -> int:
     allfactors = quantutils.primeFactors(len(division), excludeBinary=excludeBinary).copy()
     for subdiv in division:
         allfactors.update(quantutils.primeFactors(subdiv, excludeBinary=excludeBinary))
-    if 1 in allfactors:
-        allfactors.remove(1)
-    return len(allfactors)
+
+    return sum(1 for fact in allfactors if fact not in (1, 3))
+    # return len(allfactors)
 
 
 @cache

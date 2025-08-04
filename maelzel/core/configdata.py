@@ -15,10 +15,12 @@ defaultdict = {
     'chordAdjustGain': True,
     'reprShowFreq': False,
     'reprUnicodeAccidentals': True,
+    'reprUnicodeFractions': False,
+    'reprDurationAsFraction': True,
     'semitoneDivisions': 4,
     'musescorepath': '',
     'lilypondpath': '',
-    'jupyterHtmlRepr': True,
+    'jupyterReprShow': True,
     'fixStringNotenames': False,
     'openImagesInExternalApp': False,
     'soundfilePlotHeight': 3,
@@ -60,7 +62,9 @@ defaultdict = {
     'show.dynamicFromAmplitude': False,
     'show.jupyterMaxImageWidth': 1000,
     'show.hideRedundantDynamics': True,
-    '.show.hideRedundantDynamicsResetAfter': 64,
+    '.show.redundantDynamicsResetTime': 32,
+    '.show.redundantDynamicsResetAfterEmptyMeasure': True,
+    '.show.redundantDynamicsResetAfterRest': 1,
     'show.absOffsetWhenDetached': False,
     'show.voiceMaxStaves': 2,
     'show.clipNoteheadShape': 'square',
@@ -99,25 +103,31 @@ defaultdict = {
     'rec.sr': 44100,
     'rec.ksmps': 64,
     'rec.numChannels': 2,
-'rec.path': '',
+    'rec.path': '',
     'rec.verbose': False,
     '.rec.compressionBitrate': 224,
     'rec.extratime': 0.,
 
     'htmlTheme': 'light',
 
-    'quant.syncopMinFraction': 0.334,
-    'quant.syncopMaxAsymmetry': 2,
+    'quant.syncopMinFraction': 1/6,
+    'quant.syncopPartMinFraction': 1/10,
+    'quant.syncopMaxAsymmetry': 3,
+    'quant.syncopExcludeSymDurs': (5, 7, 15),
     'quant.nestedTuplets': None,
     'quant.nestedTupletsMusicxml': False,
     'quant.breakBeats': 'weak',
     'quant.complexity': 'high',
+    'quant.beatWeightTempoThreshold': 52,
+    'quant.subdivisionTempoThreshold': 96,
+    'quant.gridWeight': None,
+
     '.quant.divisionWeight': None,
-    '.quant.gridWeight': None,
     '.quant.complexityWeight': None,
     '.quant.gridErrorExp': None,
     '.quant.debug': False,
     '.quant.debugShowNumRows': 50,
+    '.quant.mergeTupletsOfDifferentDuration': False,
 
     'dynamicCurveShape': 'expon(0.3)',
     'dynamicCurveMindb': -60,
@@ -127,69 +137,126 @@ defaultdict = {
 
 
 validator = {
-    'lilypondpath': lambda cfg, key, val: val == '' or os.path.exists(val),
-    'A4::type': int,
-    'A4::range': (10, 10000),
-    'play.backend::choices': {'default', 'jack', 'pulse', 'alsa', 'pa_cb',
-                              'auhal', 'portaudio'},
-    'semitoneDivisions::choices': {1, 2, 4},
-    'show.backend::choices': {'musicxml', 'lilypond'},
-    'show.format::choices': {'png', 'pdf', 'repr'},
-    'show.staffSize::type': float,
-    'show.pngResolution::choices': {100, 200, 300, 600, 1200},
-    'show.pageSize::choices': {'a3', 'a4', 'a2'},
-    'show.arpeggiateChord::choices': {'auto', True, False},
-    'play.gain::range': (0, 1),
-    'play.fadeShape::choices': {'linear', 'cos', 'scurve'},
-    'play.numChannels::type': int,
-    'play.numChannels::range': (1, 128),
-    'rec.numChannels::range': (1, 128),
-    'play.soundfontInterpol::choices': {'linear', 'cubic'},
-    'rec.sr::choices': {44100, 88200, 176400, 352800, 48000, 96000, 144000, 192000, 384000},
-    '.rec.compressionBitrate::coices': {64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 500},
-    'rec.ksmps::choices': {1, 16, 32, 64, 128, 256},
-    'rec.extratime::range': (0., math.inf),
-    'play.defaultAmplitude::range': (0, 1),
-    'play.pitchInterpol::choices': {'linear', 'cos'},
-    'play.generalMidiSoundfont': lambda cfg, key, val: val == '' or (os.path.exists(val) and os.path.splitext(val)[1] == '.sf2'),
-    'play.defaultDynamic::choices': {'pppp', 'ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'ffff'},
-    'play.gracenoteDuration::type': (int, float, str),
-    'htmlTheme::choices': {'light', 'dark'},
-    'quant.complexity::choices': {'lowest', 'low', 'medium', 'high', 'highest'},
-    'quant.syncopMinFraction::type': (float, Rational),
-    'quant.syncopMaxAsymmetry::type': (float, Rational),
-    'quant.nestedTuplets::choices': {True, False, None},
-    'show.pageOrientation::choices': {'portrait', 'landscape'},
-    'show.pageMarginMillim::range': (0, 1000),
-    'show.horizontalSpacing::choices': ('default', 'small', 'medium', 'large', 'xlarge'),
-    'show.glissLineThickness::choices': (1, 2, 3, 4),
-    'show.glissLineType::choices': ('solid', 'wavy'),
-    'show.jupyterMaxImageWidth::type': int,
-    'show.voiceMaxStaves::type': int,
-    'show.voiceMaxStaves::range': (1, 4),
-    'show.measureLabelStyle': lambda cfg, key, val: TextStyle.validate(val),
-    'show.centsTextStyle': lambda cfg, key, val: TextStyle.validate(val),
-    'show.centsTextSnap::range': (0, 50),
-    'show.centsTextSnap::type': int,
-    '.show.hideRedundantDynamicsResetAfter': (0, 999999999),
-    'show.rehearsalMarkStyle': lambda cfg, key, val: TextStyle.validate(val),
-    'show.clipNoteheadShape::choices': ('', 'square', 'normal', 'cross', 'harmonic', 'triangle',
-                                        'xcircle', 'rhombus', 'rectangle', 'slash', 'diamond',
-                                        'cluster'),
-    'show.proportionalDuration': lambda cfg, key, val: isValidFraction(val),
-    'show.spacing': ('normal', 'strict', 'uniform'),
-    'show.flagStyle::choices': ('normal', 'straight', 'flat'),
-    'show.clefSimplification::range': (0, 10000),
-    'dynamicCurveShape': lambda cfg, key, val: val.split("(")[0] in ('linear', 'expon', 'halfcos'),
-    'dynamicCurveMindb::range': (-160, 0),
-    'dynamicCurveMaxdb::range': (-160, 0),
-    'dynamicCurveDynamics': lambda cfg, key, val: set(val.split()).issubset(_dynamicsSet),
-    '.quant.divisionWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,
-    '.quant.gridWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,
-    '.quant.complexityWeight': lambda cfg, k, v: v is None or 0 <= v <= 1,
-    '.quant.complexityWeight::type': (type(None), float),
-    'quant.breakBeats::choices': ('none', 'all', 'weak', 'strong'),
-    'reprUnicodeAccidentals::choices': (False, True, 'full', 'simple')
+    "lilypondpath": lambda cfg, key, val: val == "" or os.path.exists(val),
+    "A4::type": int,
+    "A4::range": (10, 10000),
+    "play.backend::choices": {
+        "default",
+        "jack",
+        "pulse",
+        "alsa",
+        "pa_cb",
+        "auhal",
+        "portaudio",
+    },
+    "semitoneDivisions::choices": {1, 2, 4},
+    "show.backend::choices": {"musicxml", "lilypond"},
+    "show.format::choices": {"png", "pdf", "repr"},
+    "show.staffSize::type": float,
+    "show.pngResolution::choices": {100, 200, 300, 600, 1200},
+    "show.pageSize::choices": {"a3", "a4", "a2"},
+    "show.arpeggiateChord::choices": {"auto", True, False},
+    "play.gain::range": (0, 1),
+    "play.fadeShape::choices": {"linear", "cos", "scurve"},
+    "play.numChannels::type": int,
+    "play.numChannels::range": (1, 128),
+    "rec.numChannels::range": (1, 128),
+    "play.soundfontInterpol::choices": {"linear", "cubic"},
+    "rec.sr::choices": {
+        44100,
+        48000,
+        88200,
+        96000,
+        192000,
+    },
+    ".rec.compressionBitrate::coices": {
+        64,
+        80,
+        96,
+        112,
+        128,
+        160,
+        192,
+        224,
+        256,
+        320,
+    },
+    "rec.ksmps::choices": {1, 16, 32, 64, 128, 256},
+    "rec.extratime::range": (0.0, math.inf),
+    "play.defaultAmplitude::range": (0, 1),
+    "play.pitchInterpol::choices": {"linear", "cos"},
+    "play.generalMidiSoundfont": lambda cfg, key, val: val == ""
+    or (os.path.exists(val) and os.path.splitext(val)[1] == ".sf2"),
+    "play.defaultDynamic::choices": {
+        "pppp",
+        "ppp",
+        "pp",
+        "p",
+        "mp",
+        "mf",
+        "f",
+        "ff",
+        "fff",
+        "ffff",
+    },
+    "play.gracenoteDuration::type": (int, float, str),
+    "htmlTheme::choices": {"light", "dark"},
+    "quant.complexity::choices": {"lowest", "low", "medium", "high", "highest"},
+    "quant.syncopMinFraction::type": (float, Rational),
+    "quant.syncopMaxAsymmetry::type": (float, Rational),
+    "quant.syncopMaxAsymmetry::range": (1, 99),
+    "quant.syncopExcludeSymDurs": lambda c, k, v: isinstance(v, tuple) and all(isinstance(x, int) for x in v),
+    "quant.nestedTuplets::choices": {True, False, None},
+    # "quant.gridWeight::type": (float, None),
+    # "quant.gridWeight::range": (0, 10),
+    "show.pageOrientation::choices": {"portrait", "landscape"},
+    "show.pageMarginMillim::range": (0, 1000),
+    "show.horizontalSpacing::choices": (
+        "default",
+        "small",
+        "medium",
+        "large",
+        "xlarge",
+    ),
+    "show.glissLineThickness::choices": (1, 2, 3, 4),
+    "show.glissLineType::choices": ("solid", "wavy"),
+    "show.jupyterMaxImageWidth::type": int,
+    "show.voiceMaxStaves::type": int,
+    "show.voiceMaxStaves::range": (1, 4),
+    "show.measureLabelStyle": lambda cfg, key, val: TextStyle.validate(val),
+    "show.centsTextStyle": lambda cfg, key, val: TextStyle.validate(val),
+    "show.centsTextSnap::range": (0, 50),
+    "show.centsTextSnap::type": int,
+    ".show.redundantDynamicsResetTime::range": (0, 999999999),
+    "show.rehearsalMarkStyle": lambda cfg, key, val: TextStyle.validate(val),
+    "show.clipNoteheadShape::choices": (
+        "square",
+        "normal",
+        "cross",
+        "triangle",
+        "rhombus",
+        "rectangle",
+        "slash",
+        "cluster",
+    ),
+    "show.proportionalDuration": lambda cfg, key, val: isValidFraction(val),
+    "show.spacing": ("normal", "strict", "uniform"),
+    "show.flagStyle::choices": ("normal", "straight", "flat"),
+    "show.clefSimplification::range": (0, 10000),
+    "dynamicCurveShape": lambda cfg, key, val: val.split("(")[0]
+    in ("linear", "expon", "halfcos"),
+    "dynamicCurveMindb::range": (-160, 0),
+    "dynamicCurveMaxdb::range": (-160, 0),
+    "dynamicCurveDynamics": lambda cfg, key, val: set(val.split()).issubset(
+        _dynamicsSet
+    ),
+    ".quant.divisionWeight": lambda cfg, k, v: v is None or 0 <= v <= 1,
+    "quant.gridWeight::range": (0, 10),
+    "quant.gridWeight": lambda c, k, v: v is None or 0 <= v <= 10,
+    ".quant.complexityWeight": lambda cfg, k, v: v is None or 0 <= v <= 10,
+    ".quant.complexityWeight::range": (0, 10    ),
+    "quant.breakBeats::choices": ("none", "all", "weak", "strong"),
+    "reprUnicodeAccidentals::choices": (False, True, "full", "simple"),
 }
 
 docs = {
@@ -197,51 +264,56 @@ docs = {
         "Freq. of A4. Normal values are between 440-443, but any value can be used",
 
     'fixStringNotenames':
-        "If True, pitches given as string notenames are fixed at the spelling given. "
-        "Otherwise pitches are respelled for better readability within their context. "
+        "True: pitches given as notenames are fixed at the spelling given. "
+        "False: they are respelled for better readability within the context. "
         "Pitches given as midi notes or frequencies are always respelled",
 
-    "jupyterHtmlRepr":
-        "If True, output html inside jupyter as part of the _repr_html_ hook. In "
-        "certain cases (for example, when generating documentation from a notebook) "
-        "this html might result in style conflicts. False forces plain text "
-        "as repr output",
+    "jupyterReprShow":
+        "Render notation within the html repr within jupyter. If False, .show needs "
+        "to be called explicitely to render notation",
 
     'openImagesInExternalApp':
         "Force opening images with an external tool, even when inside a Jupyter "
         "notebook",
 
     'dynamicCurveShape':
-        "The shape used to create the default dynamics curve. The most convenient shape is some"
-        " variation of an exponential, given as expon(exp), where exp is the exponential used. "
-        "exp < 1 will result in more resolution for soft dynamics",
+        "Shape used for the converting dynamics to amplitudes. Normally an"
+        " exponential curve, given as 'expon(exp)', where exp is the exponent used. "
+        "exp < 1 results in more resolution for soft dynamics",
 
     'dynamicCurveMindb':
-        "The amplitude (in dB) corresponding to the softest dynamic",
+        "Amplitude in dB corresponding to the softest dynamic",
 
     'dynamicCurveMaxdb':
-        "The amplitude (in dB) corresponding to the loudest dynamic",
+        "Amplitude in dB corresponding to the loudest dynamic",
 
     'dynamicCurveDynamics':
-        "Possible dynamic steps. A string with all dynamic steps, sorted from softest to loudest",
+        "Possible dynamic steps. A str with all dynamic steps, sorted from soft to loud",
 
     'semitoneDivisions':
-        "The number of divisions per semitone used for notation (2=quarter-tones, 4=eighth-tones)",
+        "Number of divisions/semitone used for notation (2=quarter-tones, 4=eighth-tones)",
 
     'reprShowFreq':
         "Show frequency when printing a Note in the console",
-
+    
+    'reprUnicodeFractions':
+        "Show fractions (for durations/offsets) as unicode glyphs. Not all fonts have support "
+        "for this",
+    
+    'reprDurationAsFraction':
+        "Show durations as fractions instead of floats",
+    
     'reprUnicodeAccidentals':
         "Use unicode accidentals for representation of notes",
 
     'show.arpeggiateChord':
-        "Arpeggiate notes of a chord when showing. In auto mode, only arpeggiate"
+        "Display chords as an arpeggio. In auto mode, only arpeggiate"
         " when needed",
 
     'chordAdjustGain':
-        "Adjust the gain of a chord according to the number of notes, to prevent "
-        "clipping. This is only applied if the notes of the chord do not have an "
-        "individual amplitude set",
+        "Limit the gain of a chord according to the number of notes, to prevent "
+        "clipping. Only applied if the notes don't have an "
+        "individual amplitude",
 
     'show.scaleFactor':
         "Affects the size of the generated image when using png format",
@@ -250,7 +322,7 @@ docs = {
         "Apply a scaling factor to images rendered via musicxml",
 
     'show.staffSize':
-        "The size of a staff, in points",
+        "Size of a staff, in points",
 
     'show.format':
         "Used when no explicit format is passed to .show",
@@ -263,12 +335,12 @@ docs = {
         " startPlayEngine",
 
     'play.defaultAmplitude':
-        "The amplitude of a Note/Chord when an amplitude is needed and the object "
-        "has an undefined amplitude. This is only used if play.useDynamics if False",
+        "Amplitude of a Note/Chord when an amplitude is needed and the object "
+        "has an undefined amplitude, only used if play.useDynamics if False",
 
     'play.defaultDynamic':
-        'Dynamic of a Note/Chord when a dynamic is needed. This is only used if '
-        'play.useDynamics is True. Any event with an amplitude will use that amplitude instead',
+        'Dynamic of a Note/Chord when a dynamic is needed, only used if '
+        'play.useDynamics is True. Any event with an amplitude will use that value instead',
 
     'rec.blocking':
         "Should recording be blocking or should be done async?",
@@ -280,39 +352,38 @@ docs = {
         'Duration assigned to a gracenote for playback (in quarternotes)',
 
     'play.soundfontFindPeakAOT':
-        'If True, find the peak of a soundfont to adjust its normalization at'
+        'True: find the peak of a soundfont to adjust its normalization at'
         ' the moment an soundfont preset is defined',
 
     'show.labelStyle':
         'Text size used for labels'
-        'The format is a list of <key>=<value> pairs, '
-        'separated by semicolons. Possible keys are: fontsize, box (choices: '
-        'rectangle, square, circle), placement (choices: above, below), italic (flag), '
-        'bold (flag). Flag keys do not need any values. Example: '
+        'A list of key=value pairs, '
+        'separated by ;. Keys: fontsize, box '
+        '(rectangle, square, circle), placement (above, below), italic, '
+        'bold. Flags don´t need a value. Example: '
         '"fontsize=12; italic; box=rectangle"',
 
     'show.centsTextStyle':
         'Style used for cents annotations. '
-        'The format is a list of <key>=<value> pairs, '
-        'separated by semicolons. Possible keys are: fontsize, box (choices: '
-        'rectangle, square, circle), placement (choices: above, below), italic (flag), '
-        'bold (flag). Flag keys do not need any values. Example: '
+        'A list of key=value pairs, '
+        'separated by ;. Keys: fontsize, box '
+        '(rectangle, square, circle), placement (above, below), italic, '
+        'bold. Flags don´t need a value. Example: '
         '"fontsize=12; italic; box=rectangle"',
 
     'show.measureLabelStyle':
         'Style for measure annotations. '
-        'The format is a list of <key>=<value> pairs, '
-        'separated by semicolons. Possible keys are: fontsize, box (choices: '
-        'rectangle, square, circle), placement (choices: above, below), italic (flag), '
-        'bold (flag). Flag keys do not need any values. Example: '
+        'A list of key=value pairs separated by ;. Keys: fontsize, box '
+        '(rectangle, square, circle), placement (above, below), italic, '
+        'bold. Flags don´t need a value. Example: '
         '"fontsize=12; italic; box=rectangle"',
 
     'show.rehearsalMarkStyle':
         'Style for rehearsal marks. '
-        'The format is a list of <key>=<value> pairs, '
-        'separated by semicolons. Possible keys are: fontsize, box (choices: '
-        'rectangle, square, circle), placement (choices: above, below), italic (flag), '
-        'bold (flag). Flag keys do not need any values. Example: '
+        'A list of key=value pairs, '
+        'separated by ;. Keys: fontsize, box '
+        '(rectangle, square, circle), placement (above, below), italic, '
+        'bold. Flags don´t need a value. Example: '
         '"fontsize=12; italic; box=rectangle"',
 
     'show.glissLineThickness':
@@ -326,7 +397,7 @@ docs = {
         'Default line type for glissandi',
 
     'show.dynamicFromAmplitude':
-        'If True, when rendering notation, if an object has an amplitude '
+        'True: when rendering notation, if an object has an amplitude '
         'and does not have an explicit dynamic, add a dynamic according to the amplitude',
 
     'show.absOffsetWhenDetached':
@@ -334,12 +405,12 @@ docs = {
         'the absolute offset be used?',
 
     'show.respellPitches':
-        "If True, try to find a suitable enharmonic representation for pitches without"
-        "an explicit spelling. Otherwise the canonical form of each"
+        "True: find a suitable enharmonic representation for pitches within their context. "
+        "False: the canonical form of each"
         "pitch is used, independent of the context",
 
     'show.voiceMaxStaves':
-        "The maximum number of staves per voice when showing a Voice as notation. Even though"
+        "Max. number of staves per voice when showing a Voice as notation. Even though"
         "a voice is a sequence of non-simultaneous events (notes, chords, etc.), these can"
         "be exploded over multiple staves",
 
@@ -352,23 +423,23 @@ docs = {
         "independent of the backend",
 
     'show.musicxmlFontScaling':
-        "A scaling factor applied to font sizes when rendering to musicxml",
+        "Scaling factor applied to font sizes when rendering to musicxml",
 
     'show.flagStyle':
-        "The flag style. At the moment only valid in lilypond",
+        "Flag style, at the moment only valid in lilypond",
 
     'show.warnIfEmpty':
-        "If True, warn if an object did not produce any scoring parts",
+        "True: warn if an object did not produce any scoring parts",
 
     '.enharmonic.debug':
-        "If True, print debug information while calculating automatic enharmonic spelling",
+        "True: print debug information while calculating automatic enharmonic spelling",
 
     'enharmonic.horizontalWeight':
-        "The weight of the horizontal dimension (note sequences) when evaluating an "
+        "Weight of the horizontal dimension (note sequences) when evaluating an "
         "enharmonic variant",
 
     'enharmonic.verticalWeight':
-        "The weight of the vertical dimension (chords within a voice) when evaluating "
+        "Weight of the vertical dimension (chords within a voice) when evaluating "
         "an enharmonic variant",
 
     'splitAcceptableDeviation':
@@ -376,7 +447,7 @@ docs = {
         'split point will be grouped together if they all fit',
 
     'play.schedLatency':
-        'Added latency when scheduling events to ensure time precission',
+        'Latency when scheduling events to ensure time precission',
 
     'rec.verbose':
         'Show debug output when calling csound as a subprocess',
@@ -388,7 +459,7 @@ docs = {
         'default bitrate to use when encoding to ogg or mp3',
 
     'rec.numChannels':
-        'The default number of channels when rendering to disk',
+        'Number of channels when rendering to disk',
 
     'rec.extratime':
         'Default extratime added when recording',
@@ -403,7 +474,7 @@ docs = {
         'Interpolation used when reading sample data from a soundfont.',
 
     'play.verbose':
-        'If True, outputs extra debugging information regarding playback',
+        'True: outputs extra debugging information regarding playback',
 
     'show.backend':
         'Method used when rendering notation',
@@ -413,7 +484,7 @@ docs = {
 
     'show.centsTextSnap':
         'Pitches which deviate less than this cents from a quantized pitch'
-        'do not need a text annotation (see `show.centsAsText`)',
+        'don´t need a text annotation (see `show.centsAsText`)',
 
     '.show.centsTextPlusSign':
         'Show a plus sign for possitive cents deviations',
@@ -422,21 +493,21 @@ docs = {
         'Page orientation when rendering to pdf',
 
     'show.pageSize':
-        'The page size when rendering to pdf',
+        'Page size when rendering to pdf',
 
     'show.glissEndStemless':
         'When the end pitch of a gliss. is shown as gracenote, make this stemless',
 
     'show.pageMarginMillim':
-        'The page margin in mm',
+        'Page margin in mm',
 
     'show.lilypondPngStaffsizeScale':
-        'A factor applied to the staffsize when rendering to png via lilypond. Useful '
+        'Factor applied to the staffsize when rendering to png via lilypond. Useful '
         'if rendered images appear too small in a jupyter notebook',
 
     'show.lilypondGlissMinLength':
         'Min. length of a glissando in points. Increase this value if gliss. lines'
-        'are not shown or are too short. This can be the case when a gliss. collides '
+        'are not shown or are too short if a gliss. collides '
         'with dots or accidentals',
 
     'show.pngResolution':
@@ -447,27 +518,27 @@ docs = {
         'on the backend and the format used.',
 
     'show.jupyterMaxImageWidth':
-        'A max. width in pixels for images displayed in a jupyter notebook',
+        'Max. width in pixels for images displayed in a jupyter notebook',
 
     'show.hideRedundantDynamics':
         'Hide redundant dynamics within a voice',
     
-    '.show.hideRedundantDynamicsResetAfter': 
+    '.show.redundantDynamicsResetTime': 
         'When removing redundant dynamics, reset after this number of quarters',
 
     'play.backend':
         'backend used for playback',
 
     'play.useDynamics':
-        'If True, any note/chord with a set dynamic will use dynamics to modify its playback '
+        'True: any note/chord with a set dynamic will use dynamics to modify its playback '
         'amplitude if no explicit amplitude is set',
 
     'rec.path':
-        'path used to save output files when rendering offline. If '
+        'Path used to save output files when rendering offline. If '
         'not given the default can be queried via `recordPath`',
 
     'show.cacheImages':
-        'If True, cache rendered images. Set it to False for debugging. '
+        'True: cache rendered images. Set it to False for debugging. '
         'call `resetImageCache()` to reset manually',
 
     'show.arpeggioDuration':
@@ -499,93 +570,93 @@ docs = {
         'A divisor used to scale the amplitude of soundfonts to a range 0-1',
 
     'quant.complexity':
-        'Allowed complexity used for notation. The higher this value, '
-        'the more accurate the quantization, at the cost of a more complex notation. ',
+        'Complexity used for notation.',
 
     'quant.nestedTuplets':
         'True: allow nested tuplets when quantizing. If None, this flag is '
         'set by the complexity preset (quant.complexity). '
-        'NB: some backends (e.g musescore) can\'t parse nested tuplets from musicxml atm',
+        'Some backends (musescore) can\'t parse nested tuplets from musicxml atm',
 
     'quant.nestedTupletsMusicxml':
-        'If False, no nested tuplets are used for musicxml. '
-        'Some backends (e.g. MuseScore) don\'t render nested tuplets properly '
-        'from mxml. Nested tuplets are still used for other formats if '
+        'False: no nested tuplets are used for musicxml. '
+        'Some backends (MuseScore) don\'t render nested tuplets properly '
+        'from mxml. Nested tuplets are used for other formats if '
         '"quant.nestedTuplets" = True',
 
     'quant.breakBeats':
         'Level at which to break syncopations. "all": break all syncopations; '
         '"weak": break syncopations over weak beats; "strong": only break '
-        'syncopations at strong beats; "none": do not break syncopations',
+        'syncopations at strong beats; "none": don´t break syncopations',
 
     '.quant.divisionWeight':
-        'A weight between 0 - 1 applied to the penalty of the beat division'
-        'Higher values result in simpler subdivisions. None to derive this '
-        'from the complexity preset (quant.complexity)',
+        'Weight applied to the penalty of the beat division'
+        'Higher values result in simpler subdivisions. None to use the '
+        'value set by the complexity preset (quant.complexity)',
 
-    '.quant.gridWeight':
-        'A weight between 0 - 1 applied to the deviation of a quantization to the '
-        'actual attack times and durations. The higher this value, '
-        'the more accurate the quantization, possibly resulting in more complex '
-        'subdivisions of the beat. None to derive this value from the complexity '
-        'preset (quant.complexity)',
+    'quant.gridWeight':
+        'Weight applied to the time quantization error. '
+        'Higher values result in more accurate quantization, at the cost of complexity. '
+        'None sets this value from the complexity preset (quant.complexity)',
 
     '.quant.complexityWeight':
-        'A weight between 0 - 1 applied to the complexity of the rhythm during '
-        'quantization. A higher value results in simpler rhythms. None to derive '
+        'Weight applied to the complexity of the rhythm during '
+        'quantization. A higher value results in simpler rhythms. None sets '
         'this value from the complexity preset (quant.complexity)',
 
     '.quant.gridErrorExp':
-        'An exponent applied to the grid error. The grid error is a value between 0-1 '
-        'indicating how accurate the grid is for a given quantization '
-        '(0 = perfect timing). An exponent betwenn 0-1 makes grid errors weight more '
-        'as they diverge from the most accurate solution. None to derive this from '
-        'the complexity preset (quant.complexity)',
+        'Exponent applied to the grid error. The error is a value between 0-1 '
+        'showing the grid accuracy for a given quantization '
+        '(0=perfect timing). A value between 0-1 makes grid errors weight more. '
+        'None to use the value set by the complexity preset (quant.complexity)',
 
     'quant.syncopMinFraction':
-        'Min. fraction of the beat a syncopation can have. When merging notes across '
-        'beats, no part can be shorter than this, relative to the duration'
-        ' of the beat. This can prevent complex syncopations',
+        'Min. duration of a syncopation as a ratio of the beat. Any syncopation shorter '
+        'is broken and its parts tied, to prevent complex syncopations',
+
+    'quant.syncopPartMinFraction':
+        'Min. duration of any part of a syncopation, as a fraction of the beat. A syncopation '
+        'consistings of two parts, one left and one right to the beat boundary',
 
     'quant.syncopMaxAsymmetry':
-        'Max. asymmetry of a syncopation. For notes across beats, this indicates'
-        ' the max. allowed asymmetry of such notes in respect to the beat, '
-        'as the ratio between the longest and the shortest part'
-        'across the beat. A note placed exactly across the beat has a value of 1. '
-        'With quant.syncopMinFraction this can limit complex syncopations',
+        'Max. asymmetry of a syncopation. For notes across beats, this sets'
+        ' the max. allowed asymmetry across the beat, '
+        'as a ratio longest:shortest part across the beat. '
+        'A note exactly across the beat has an asymmetry of 1',
+
+    'quant.syncopExcludeSymDurs':
+        'Durations with a numerator in this list cannot be placed across a beat. '
+        'A value of (7, 15), for example, excludes double and trippled dotted notes',
 
     '.quant.debug':
         'Output extra debug info during quantization, showing how different '
-        'divisions are evaluated by the quantizer. This info can help '
-        'adjust the weights (quant.rhythmCompleityWeight, .quant.divisionWeight, '
-        'etc)',
+        'divisions are evaluated by the quantizer',
 
     '.quant.debugShowNumRows':
         'When quantization debugging is turned on this setting limits the number '
         'of different quantization possibilities shown',
 
     'musescorepath':
-        'The command to use when calling MuseScore. For macOS users: it must be an '
+        'Command to use when calling MuseScore. For macOS users: it must be an '
         'absolute path pointing to the actual binary inside the .app bundle',
 
     'lilypondpath':
-        'The path to the lilypond binary. If set, it must be an absolute, existing path. '
-        'NB: this needs to be set only if a specific lilypond installation is to be used'
-        '(lilypond is installed automatically if not found)',
+        'Path to the lilypond binary. If set, it must be an absolute, existing path. '
+        'This needs to be set only when using a specific lilypond installation '
+        '(lilypond is auto-installed if not found, see lilyponddist)',
 
     'show.autoClefChanges':
-        'If True, add clef changes to a quantized part if needed. Otherwise, one clef '
+        'True: add clef changes to a quantized part if needed. Otherwise, one clef '
         'is determined for each part and is not changed along the part.',
 
     'show.spacing':
         'Kind of spacing used. "normal": traditional spacing; "uniform": '
         ' proportional spacing with uniform stretching; "strict": proportional '
-        'spacing with strict placement (clef changes and bar lines do not add spacing and'
+        'spacing with strict placement (clef changes and bar lines don´t add spacing and'
         'might overlap)',
 
     'show.proportionalDuration':
-        'The lower this value, the longer the space taken by each note. At the moment, '
-        'this corresponds 1:1 to the value as used by lilypond. See also: '
+        'When using proportional spacing, the lower this value, the longer the space taken '
+        'by each note. This corresponds 1:1 to the value as used by lilypond. See also: '
         'https://lilypond.org/doc/v2.23/Documentation/notation/proportional-notation',
 
     'show.keepClefBias':

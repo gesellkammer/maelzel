@@ -4,9 +4,10 @@ import sys
 import textwrap
 import weakref
 
-from maelzel.common import F, asF
+from maelzel.common import F, asF, F0
 from maelzel.scoring.quantdefs import QuantizedBeatDef
 from .common import logger
+from maelzel._logutils import LazyStr
 from .core import Notation
 from . import attachment
 from itertools import pairwise
@@ -44,7 +45,7 @@ class TreeLocation:
     """The measure index this notation belongs to, if known"""
 
 
-class LogicalTie[TreeLocation](UserList):
+class LogicalTie(UserList[TreeLocation]):
 
     @property
     def locations(self) -> list[TreeLocation]:
@@ -54,6 +55,18 @@ class LogicalTie[TreeLocation](UserList):
         dur = sum((loc.notation.duration for loc in self.data), start=F(0))
         assert isinstance(dur, F)
         return dur
+
+    def notations(self) -> list[Notation]:
+        return [loc.notation for loc in self]
+
+    def __contains__(self, item: Notation) -> bool:
+        return any(loc.notation is item for loc in self)
+
+    def index(self, item: TreeLocation | Notation, start=0, stop=sys.maxsize, /) -> int:
+        if isinstance(item, Notation):
+            return self.notations().index(item, start, stop)
+        else:
+            raise TypeError(f"item of type {type(item)} not supported")
 
 
 def _mergeProperties(a: dict | None, b: dict | None) -> dict | None:
@@ -115,6 +128,7 @@ class Node:
         self.properties = properties
         self._measureReference: weakref.ReferenceType[quant.QuantizedMeasure] | None = weakref.ref(measure) if measure else None
         self._parent: weakref.ReferenceType[Node] | None = weakref.ref(parent) if parent else None
+        self._duration: F = F0
 
     def __hash__(self):
         itemshash = hash(tuple(self.items))
@@ -122,12 +136,10 @@ class Node:
 
     @property
     def parentMeasure(self) -> quant.QuantizedMeasure | None:
-        if self._measureReference:
-            return self._measureReference()
-        if self.parent and (measure := self.findRoot().parentMeasure):
-            self._measureReference = weakref.ref(measure)
-            return measure
-        return None
+        if self.parent:
+            return self.findRoot().parentMeasure
+        # We are root
+        return self._measureReference() if self._measureReference else None
 
     @parentMeasure.setter
     def parentMeasure(self, value: quant.QuantizedMeasure):
@@ -241,9 +253,10 @@ class Node:
         """
         The duration of the items in this tree, in quarter notes (recursively)
         """
-        dur = sum((item.duration if isinstance(item, Notation) else item.totalDuration()
-                   for item in self.items), F(0))
-        return dur  # type: ignore
+        if not self._duration:
+            self._duration = sum((item.duration if isinstance(item, Notation) else item.totalDuration()
+                                 for item in self.items), F(0))
+        return self._duration
 
     def fusedDurRatio(self) -> F:
         num, den = self.durRatio
@@ -279,8 +292,15 @@ class Node:
         if dur == 0:
             raise ValueError(f"Node with 0 duration: {self}")
 
-    def dump(self, numindents=0, indent='  ', stream=None):
-        """Dump this node, recursively"""
+    def dump(self, numindents=0, indent='  ', stream=None) -> None:
+        """
+        Dump this node, recursively
+
+        Args:
+            numindents: the number of indents to use for this node
+            indent: indentation string
+            stream: the stream to dumo to
+        """
         stream = stream or sys.stdout
         MAXWIDTH = 90
         print(f"{indent * numindents}Node ratio: {self.durRatio[0]}/{self.durRatio[1]}, "
@@ -323,6 +343,19 @@ class Node:
 
     def _setitems(self, items: list[Notation | Node]) -> None:
         self.items = items
+
+    def _repairDurRatios(self, durRatios: list[tuple[int, int]] | None = None):
+        if durRatios is None:
+            durRatios = [self.durRatio]
+        else:
+            durRatios.append(self.durRatio)
+        notationDurRatio = tuple(F(num, den) for num, den in durRatios)
+        for item in self.items:
+            if isinstance(item, Node):
+                item._repairDurRatios(durRatios)
+            else:
+                item.durRatios = notationDurRatio
+        durRatios.pop()
 
     def _flattenUnnecessaryChildren(self) -> None:
         """
@@ -373,30 +406,51 @@ class Node:
         """
         if flatten:
             self._flattenUnnecessaryChildren()
-        i0 = self.items[0]
-        out = [i0 if isinstance(i0, Notation) else i0.mergedNotations(flatten=False)]
-        for i1 in self.items[1:]:
-            i0 = out[-1]
-            if isinstance(i0, Notation) and isinstance(i1, Notation):
-                if i0.canMergeWith(i1):
-                    out[-1] = i0.mergeWith(i1)
+
+        def mergeonce(items: list[Notation | Node]) -> tuple[list[Notation | None], bool]:
+            modified = False
+            # out = [i0 if isinstance(i0, Notation) else i0.mergedNotations(flatten=False)]
+            out = [items[0]]
+            for i1 in items[1:]:
+                i0 = out[-1]
+                if isinstance(i0, Notation) and isinstance(i1, Notation):
+                    if i0.canMergeWith(i1):
+                        modified = True
+                        out[-1] = i0.mergeWith(i1)
+                    else:
+                        out.append(i1)
                 else:
+                    # n+G, G+n or G+G
                     out.append(i1)
-            else:
-                # n+G, G+n or G+G
-                out.append(i1 if isinstance(i1, Notation) else i1.mergedNotations(flatten=False))
-        if len(out) == 1 and isinstance(out[0], Notation):
-            n = out[0].copy()
+                    # out.append(i1 if isinstance(i1, Notation) else i1.mergedNotations(flatten=False))
+            #if modified:
+            #    assert sum(it.duration if isinstance(it, Notation) else it.totalDuration() for it in items) == sum(it.duration if isinstance(it, Notation) else it.totalDuration() for it in out), f"before: {items}, after: {out}"
+            return out, modified
+
+        items = [item if isinstance(item, Notation) else item.mergedNotations() for item in self.items]
+
+        for i in range(10):
+            items, modified = mergeonce(items)
+            if not modified:
+                if i > 1:
+                    logger.debug("Merged notations in %d iterations", i)
+                break
+        else:
+            logger.debug("Merging didn't converge, before: %s, after: %s", LazyStr.str(self.items), LazyStr.str(items))
+
+        if len(items) == 1 and isinstance(items[0], Notation):
+            n = items[0].copy()
+            n.spanners = items[0].spanners
             if n.durRatios and n.durRatios[-1] != 1:
                 n.durRatios = n.durRatios[:-1]
-            out = Node(ratio=(1, 1), items=[n])
+            node = Node(ratio=(1, 1), items=[n])
         else:
-            out = Node(ratio=self.durRatio,
-                       items=out,
-                       parent=self.parent,
-                       properties=self.properties.copy() if self.properties else None)
-            out.setParentRecursively()
-        return out
+            node = Node(ratio=self.durRatio,
+                        items=items,
+                        parent=self.parent,
+                        properties=self.properties.copy() if self.properties else None)
+            node.setParentRecursively()
+        return node
 
     def lastNotation(self) -> Notation:
         """
@@ -606,6 +660,12 @@ class Node:
                     if n2.tiedNext:
                         break
 
+    def _repairGracenotesAtBeginning(self) -> None:
+        """
+        A gracenote or group thereof should not start a tuplet
+        Returns:
+
+        """
     def removeUnnecessaryGracenotes(self) -> int:
         """
         Removes unnecessary gracenotes
@@ -639,7 +699,7 @@ class Node:
                 if n0.isGracenote and n1.isRealnote:
                     n0.copyAttachmentsTo(n1)
                     n0.copyFixedSpellingTo(n1)
-                    logger.debug(f"Removing gracenote {n0} from node {node0}")
+                    logger.debug("Removing gracenote %s from node %s", LazyStr.str(n0), LazyStr.str(node0))
                     node0.items.remove(n0)
                     count += 1
                     if n0.spanners:
@@ -651,7 +711,7 @@ class Node:
                     n0.gliss = n1.gliss
                     n0.tiedNext = n1.tiedNext
                     n1.copyAttachmentsTo(n0)
-                    logger.debug(f"Removing gracenote {n1} from node {node1}")
+                    logger.debug("Removing gracenote %s from node %s", LazyStr.str(n1), LazyStr.str(node1))
                     node1.items.remove(n1)
                     count += 1
                     skip = True
@@ -663,6 +723,7 @@ class Node:
     def repair(self):
         self._flattenUnnecessaryChildren()
         self._removeUnnecessaryNodesInPlace()
+        self._remerge()
         self.repairLinks()
         self.removeUnnecessaryGracenotes()
         self.setParentRecursively()
@@ -693,7 +754,7 @@ class Node:
             if last.tiedNext and last.pitches == n0.pitches:
                 spellings = last.resolveNotenames()
                 for i, spelling in enumerate(spellings):
-                    n0.fixNotename(spelling, idx=i)
+                    n0.fixNotename(spelling, index=i)
 
         from . import enharmonics
         enharmonics.fixEnharmonicsInPlace(notations, options=options)
@@ -738,7 +799,7 @@ class Node:
                         if sub2.offset == breakOffset:
                             if (isinstance(sub1, Notation) and isinstance(sub2, Notation) and
                                     sub1.durRatios == sub2.durRatios):
-                                logger.debug(f"Found unnecessary node at {breakOffset}, splitting")
+                                logger.debug("Found unnecessary node at %d/%d, splitting", breakOffset.numerator, breakOffset.denominator)
                                 left, right = item._splitAtBoundary(breakOffset)
                                 items.append(left)
                                 items.append(right)
@@ -782,13 +843,15 @@ class Node:
                     for sub1, sub2 in pairwise(item.recurse()):
                         if sub2.offset == splitoffset and sub1.durRatios == sub2.durRatios:
                             assert item.offset < splitoffset < item.end, f"{item=}, {splitoffset=}"
-                            logger.debug(f"Splitting node {self} at {splitoffset}")
+                            logger.debug("Splitting node %s at %s", LazyStr.str(self), str(splitoffset))
+                            # logger.debug(f"Splitting node {self} at {splitoffset}")
                             left, right = item._splitAtBoundary(splitoffset)
                             items.append(left)
                             items.append(right)
                             break
                     else:
-                        logger.debug(f"Did not split node {self} at {splitoffset}")
+                        logger.debug("Did not split node %s at %s", LazyStr.str(self), str(splitoffset))
+                        # logger.debug(f"Did not split node {self} at {splitoffset}")
                         items.append(item)
                 else:
                     items.append(item)
@@ -841,7 +904,7 @@ class Node:
         """
         offset = asF(offset)
         if not self.offset <= offset < self.end:
-            raise ValueError(f"offset not within this node: {offset=}, node={self}")
+            raise ValueError(f"Offset not within this node: {offset=}, node={self}")
         for i, item in enumerate(self.items):
             if item.qoffset >= offset:
                 break
@@ -863,11 +926,9 @@ class Node:
         """
         Merge notations recursively **in place**
         """
-        itemsorig = self.items
+        self._repairDurRatios()
         self._setitems(self.mergedNotations(flatten=True).items)
         self.setParentRecursively()
-        if self.items != itemsorig:
-            logger.debug(f"Remerged {itemsorig} to {self.items}")
 
     def splitNotationAtBeat(self,
                             beats: Sequence[QuantizedBeatDef],
@@ -894,14 +955,13 @@ class Node:
 
         parts = self._splitNotationAtBeat(beats=beats, beatIndex=beatIndex, callback=callback)
         if parts is not None and repair:
-
             _ = self._splitUnnecessaryNodesAt(beats[beatIndex].offset, minDuration=2)
         return parts
-
+    
     def _splitNotationAtBeat(self,
                              beats: Sequence[quantdefs.QuantizedBeatDef],
                              beatIndex: int,
-                             callback: Callable[[Notation, F], bool] | None = None
+                             callback: Callable[[Notation, Node, F], bool] | None = None
                              ) -> list[Notation] | None:
         """
         Split any notation which crosses the given offset, inplace
@@ -918,57 +978,65 @@ class Node:
 
         Returns:
             the parts resulting of the split operation, or None if no notation was broken
-            The notation right to the split offset, or None if no notation was broken
+            The notation right to the split offset, or None if no notation was broken. The returned
+            notations are part of this Node
         """
         beat = beats[beatIndex]
         offset = beat.offset
         if not (self.offset <= offset < self.end):
             return None
 
+        measidx = self.parentMeasure.measureIndex()
         for i, item in enumerate(self.items):
             if item.qoffset >= offset:
+                # Past the last item
                 return None
-            elif offset < item.end:
-                assert item.qoffset < offset < item.end
-                if isinstance(item, Node):
-                    return item._splitNotationAtBeat(beats=beats, beatIndex=beatIndex, callback=callback)
-                if not item.hasRegularDuration():
-                    raise SplitError(f"Item does not have a regular duration: {item=}, "
-                                     f"symbolic duration={item.symbolicDuration()}")
-                if callback and not callback(item, offset):
-                    logger.debug(f"Found a syncopation but the callback was negative, so "
-                                 f"{item} will not be split")
+            elif item.end <= offset:
+                # Still no intersection, continue looking
+                continue
+
+            assert item.qoffset < offset < item.end
+            if isinstance(item, Node):
+                return item._splitNotationAtBeat(beats=beats, beatIndex=beatIndex, callback=callback)
+
+            assert item.isQuantized(), f"Item not quantized: {item}"
+            if not item.hasRegularDuration():
+                raise SplitError(f"Item does not have a regular duration: {item=}, "
+                                 f"symbolic duration={item.symbolicDuration()}")
+            if callback:
+                if not callback(item, self, offset):
+                    logger.debug("Syncopation at %d:%s, %s negative, %s will NOT be split", measidx, str(offset), str(callback), LazyStr.str(item))
+                    #logger.debug(f"Syncopation at {measidx}:{offset}, {callback} negative, "
+                    #              f"{item} will NOT be split")
                     break
-                logger.debug(f"Splitting item {item} at {offset=}")
-                assert item.isQuantized(), f"Item not quantized: {item}"
-                parts = item.splitAtOffsets([offset])
-                if not len(parts) == 2:
-                    raise SplitError(f"Expected two parts as a result of the split "
-                                     f"operation, got {parts} ({item=})")
-                parts[1].mergeablePrev = False
-                regularParts = []
-                for part in parts:
-                    if part.hasRegularDuration():
-                        regularParts.append(part)
-                    else:
-                        # part might belong to the previous beat
-                        contextBeat = next((b for b in beats if b.end == part.end), None)
-                        assert contextBeat is not None
-                        assert contextBeat.offset <= part.qoffset and part.end <= contextBeat.end
-                        assert contextBeat.division
-                        parts = part.breakIrregularDuration(beatDur=contextBeat.duration, beatDivision=contextBeat.division, beatOffset=contextBeat.offset)
-                        assert parts is not None
-                        regularParts.extend(parts)
-                if any(not part.hasRegularDuration() for part in regularParts):
-                    raise SplitError(f"Cannot split {item} at {offset} (parts: {parts}, "
-                                     f"symbolic durations: {[p.symbolicDuration() for p in parts]}), "
-                                     f"durRatios: {[p.durRatios for p in parts]}")
-                newitems = self.items[:i] + regularParts + self.items[i+1:]
-                if len(newitems) > 1:
-                    assert all(a.end == b.offset for a, b in pairwise(newitems)), f"{i=}, {item=}, {offset=}\n{newitems=}\n{self.items=}\n{regularParts=}"
-                self._setitems(newitems)
-                self._remerge()
-                return regularParts
+                logger.debug("Syncopation at %d:%s - %s was positive, splitting", measidx, str(offset), str(callback))
+
+            parts = item.splitAtOffsets([offset])
+            if not len(parts) == 2:
+                raise SplitError(f"Expected two parts as a result of the split "
+                                 f"operation, got {parts} ({item=})")
+            parts[1].mergeablePrev = False
+            regularParts = []
+            left, right = parts
+            if left.hasRegularDuration():
+                regularParts.append(left)
+            else:
+                leftparts = Node.breakIrregularDurationInNode(left, beats)
+                regularParts.extend(leftparts)
+            if right.hasRegularDuration():
+                regularParts.append(right)
+            else:
+                rightparts = Node.breakIrregularDurationInNode(right, beats)
+                regularParts.extend(rightparts)
+            if any(not part.hasRegularDuration() for part in regularParts):
+                raise SplitError(f"Cannot split {item} at {offset} (parts: {parts}, "
+                                 f"symbolic durations: {[p.symbolicDuration() for p in parts]}), "
+                                 f"durRatios: {[p.durRatios for p in parts]}")
+            newitems = self.items[:i] + regularParts + self.items[i+1:]
+            assert all(a.end == b.offset for a, b in pairwise(newitems)), f"{i=}, {item=}, {offset=}\n{newitems=}\n{self.items=}\n{regularParts=}"
+            self._setitems(newitems)
+            self._remerge()
+            return regularParts
         return None
 
     @staticmethod
@@ -1004,3 +1072,46 @@ class Node:
             return
         self._setitems(root.items)
         self.durRatio = root.durRatio
+
+    @staticmethod
+    def breakIrregularDurationInNode(n: Notation, beatstruct: Sequence[QuantizedBeatDef]) -> list[Notation]:
+        # this is called on each part of a notation when split at a beat boundary
+        assert n.duration > 0
+        assert n.isQuantized() and not n.hasRegularDuration()
+        from maelzel.scoring import util
+        beatoffsets = [b.offset for b in beatstruct]
+        fragments = util.splitInterval(n.qoffset, n.end, beatoffsets)
+        N = len(fragments)
+        assert N > 0,  f"??? {n=}, {beatoffsets=}"
+        if N == 1:
+            # does not cross any beats
+            beat = next((b for b in beatstruct if b.offset <= n.qoffset and n.end <= b.end), None)
+            assert beat is not None, f"Could not find beat for {n}, beats={beatstruct}"
+            parts = n._breakIrregularDurationInBeat(beatDur=beat.duration, beatDivision=beat.division, beatOffset=beat.offset)
+            assert parts is not None
+            return parts
+        elif N == 2:
+            n0, n1 = n.splitAtOffset(fragments[1][0])
+            parts = []
+            for part in (n0, n1):
+                if part.hasRegularDuration():
+                    parts.append(part)
+                else:
+                    parts.extend(Node.breakIrregularDurationInNode(part, beatstruct=beatstruct))
+            Notation.tieNotations(parts)
+            return parts
+        else:
+            parts = []
+            offset0, end0 = fragments[0]
+            offset1, end1 = fragments[1][0], fragments[-2][1]
+            offset2, end2 = fragments[-1]
+            n0 = n.clone(offset=offset0, duration=end0-offset0)
+            n1 = n.clone(offset=offset1, duration=end1-offset1)
+            n2 = n.clone(offset=offset2, duration=end2-offset2)
+            for part in (n0, n1, n2):
+                if part.hasRegularDuration():
+                    parts.append(part)
+                else:
+                    parts.extend(breakIrregularNotationInNode(part, beatstruct=beatstruct))
+            Notation.tieNotations(parts)
+            return parts

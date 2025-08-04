@@ -11,6 +11,7 @@ from math import sqrt
 from .common import logger
 
 from emlib import iterlib
+import itertools
 import pitchtools as pt
 
 from .notation import Notation
@@ -635,18 +636,6 @@ def pitchSpellings(n: Notation) -> tuple[str, ...]:
     return spelling
 
 
-# def _notationNotename(n: Notation, idx=0) -> str:
-#     if not n.pitches:
-#         raise ValueError(f"No pitches found for {n}")
-#     assert idx < len(n.pitches), f"Invalid index {idx} for {n}"
-#     if fixed := n.getFixedNotename(idx):
-#         return fixed
-#     elif len(n.pitches) == 1:
-#         return pt.m2n(n.pitches[0])
-#     bestspelling = bestChordSpelling(n.resolveNotenames())
-#     return bestspelling[idx]
-
-
 def fixEnharmonicsInPlace(notations: list[Notation],
                           eraseFixedNotes=False,
                           options: EnharmonicOptions = _defaultEnharmonicOptions,
@@ -791,7 +780,7 @@ def fixEnharmonicsInPlace(notations: list[Notation],
                     print(f"       fixed slots: {_reprslots(fixedslots, semitoneDivs=2)}")
                     print(f"       variants: {chordVariants}")
                 for i, notename in enumerate(chordSolution):
-                    n.fixNotename(notename, idx=i)
+                    n.fixNotename(notename, index=i)
                 spellingHistory.addNotation(n)
 
     # Fix wrong accidentals
@@ -850,6 +839,30 @@ def fixEnharmonicsInPlace(notations: list[Notation],
                             print(f"Fixing tied pitch from {pitch1.fullname} to {pitch0.fullname}")
                     fixedNotenames.append(pitch1.fullname)
                 n1.setPitches(fixedNotenames, fixNotenames=True)
+
+    # Fix glissandi
+    _fixGliss(notations)
+
+
+def _fixGliss(notations: list[Notation]) -> None:
+    for n0, n1 in itertools.pairwise(notations):
+        if n0.gliss and n1.isGracenote and len(n0.pitches) == 1:
+            notated0 = n0.notename(0)
+            notated1 = n1.notename(0)
+            pos0 = pt.vertical_position(notated0)
+            pos1 = pt.vertical_position(notated1)
+            n0.pitches[0] - n1.pitches[0]
+            if n0.pitches[0] > n1.pitches[0]:
+                # gliss down
+                if pos0 <= pos1:
+                    enh = pt.enharmonic(notated1)
+                    n1.fixNotename(enh, 0)
+            elif n0.pitches[0] < n1.pitches[0]:
+                # gliss up
+                if pos0 >= pos1:
+                    enh = pt.enharmonic(notated1)
+                    n1.fixNotename(enh, 0)
+
 
 
 def _verifyVariants(variants: list[tuple[str, ...]], slots):

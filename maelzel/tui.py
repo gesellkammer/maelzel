@@ -21,7 +21,7 @@ def insideInteractiveTerminal() -> bool:
 
 
 def panel(text: str, title='', subtitle='',
-          width: int = None, padding=(0, 1), titlealign='center',
+          width: int = 0, padding=(0, 1), titlealign='center',
           bordercolor='', margin=(0, 0), dedent=True
     ) -> None:
     """
@@ -58,7 +58,7 @@ def panel(text: str, title='', subtitle='',
     style = bordercolor or "none"
     if dedent:
         text = textwrap.dedent(text)
-    p = rich.panel.Panel.fit(text, title=title, width=width, border_style=style,
+    p = rich.panel.Panel.fit(text, title=title, width=width or None, border_style=style,
                              padding=padding, subtitle=subtitle,
                              title_align=titlealign)
     margintop, marginbottom = (margin, margin) if isinstance(margin, int) else margin
@@ -86,6 +86,7 @@ def menu(options: list[str]) -> int | None:
         raise RuntimeError("Not inside an interactive terminal")
 
     from simple_term_menu import TerminalMenu
-    terminalMenu = TerminalMenu(options)
+    terminalMenu = TerminalMenu(options, multi_select=False)
     menuindex = terminalMenu.show()
+    assert menuindex is None or isinstance(menuindex, int)
     return menuindex

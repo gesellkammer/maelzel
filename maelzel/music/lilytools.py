@@ -357,6 +357,12 @@ def renderLily(lilyfile: str,
             logger.debug("stderr: ")
             logger.debug(textwrap.indent(result.stderr, " "))
 
+    if not os.path.exists(outfile):
+        lilysource = open(lilyfile).read()
+        lilysource = "\n".join(_addLineNumbers(lilysource))
+        logger.info("Failed to render lilypond file: \n{lilysource}")
+        raise RuntimeError(f"lilypond output file not found (source: {lilyfile}, outfile: {outfile})")
+
     if openWhenFinished:
         from emlib import misc
         misc.open_with_app(outfile)

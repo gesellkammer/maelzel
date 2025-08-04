@@ -60,12 +60,17 @@ class RenderOptions:
     pngResolution: int = 200
     """DPI resolution of generated png images"""
 
-    removeSuperfluousDynamics: bool = True
+    removeRedundantDynamics: bool = True
     """If True, remove superfluous dynamics"""
-
-    restsResetDynamics: bool = True
-    """A rest resets the dynamic context so that a dynamic which is the same as the current
-    dynamic will still be rendered after a rest"""
+    
+    redundantDynamicsResetTime: int = 0
+    """Reset dynamics after this number of quarternotes"""
+    
+    redundantDynamicsResetAfterEmptyMeasure: bool = True
+    """Reset dynamics after empty measures"""
+    
+    redundantDynamicsResetAfterRest: int = 1
+    """Reset dynamics after a rest of duration greater than this value"""
 
     respellPitches: bool = True
     """Find the best enharmonic representation"""
@@ -197,6 +202,12 @@ class RenderOptions:
 
     flagStyle: str = 'normal'
     """Flag style, one of 'normal', 'straight', 'flat'"""
+
+    useStemlets: bool = True
+    """If the backend allows, extend stems over rests when beaming over rests"""
+
+    stemletLength: float = 0.75
+    """Stemlet length when rendering, as a fraction of the normal stem length"""
 
     @classmethod
     def keys(cls) -> set[str]:

@@ -28,6 +28,7 @@
       <excludeFolder url="file://$MODULE_DIR$/maelzel/data" />
       <excludeFolder url="file://$MODULE_DIR$/test/musicxml" />
       <excludeFolder url="file://$MODULE_DIR$/test/musicxmlsamples" />
+      <excludeFolder url="file://$MODULE_DIR$/.ipynb_checkpoints" />
       <excludePattern pattern="*.html" />
       <excludePattern pattern=" *.png" />
       <excludePattern pattern=" *.pyc" />

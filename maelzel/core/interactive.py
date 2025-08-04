@@ -1,7 +1,12 @@
 from __future__ import annotations
-from maelzel.core import Note
+from maelzel.core import *
 from maelzel.core import _tools
 import pitchtools as pt
+
+
+N = Note
+Ch = Chord
+V = Voice
 
 
 def generateNotes(start=12, end=127) -> dict[str, Note]:
@@ -12,8 +17,8 @@ def generateNotes(start=12, end=127) -> dict[str, Note]:
 
     .. code-block:: python
 
-        >>> from maelzel.core import *
-        >>> locals().update(generateNotes())
+        >>> from maelzel.core.interactive import *
+        >>> globals().update(generateNotes())
     """
     notes = {}
     for i in range(start, end):

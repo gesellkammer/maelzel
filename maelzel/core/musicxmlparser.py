@@ -430,7 +430,7 @@ def _parseNote(root: ET.Element, context: _ParseContext) -> Note:
                     else:
                         assert kind == 'stop'
                         startspanner = context.spanners.pop(key)
-                        startspanner.makeEndSpanner(note)
+                        startspanner.makePartnerSpanner(note)
                 elif notation.value == 'tremolo':
                     tremtype = notation.properties.get('tremtype', 'single')
                     nummarks = notation.properties.get('nummarks', 2)
@@ -478,7 +478,7 @@ def _parseNote(root: ET.Element, context: _ParseContext) -> Note:
                     if not startspanner:
                         logger.error(f"No start spanner found for key {key}")
                     else:
-                        startspanner.makeEndSpanner(note)
+                        startspanner.makePartnerSpanner(note)
 
             elif notation.kind == 'bend':
                 note.addSymbol(symbols.Bend(notation.properties['alter']))
@@ -720,7 +720,7 @@ def _handleDirection(note: Note, direction: Direction, context: _ParseContext):
             context.spanners[key] = spanner
         elif direction.value == 'stop':
             spanner = context.spanners.pop(key)
-            spanner.makeEndSpanner(note)
+            spanner.makePartnerSpanner(note)
 
     elif direction.kind == 'octaveshift':
         assert direction.properties is not None
@@ -754,7 +754,7 @@ def _handleDirection(note: Note, direction: Direction, context: _ParseContext):
             if not startspanner:
                 logger.error(f"No start spanner found for key {key}")
             else:
-                startspanner.makeEndSpanner(note)
+                startspanner.makePartnerSpanner(note)
 
     else:
         logger.warning(f"Direction not supported: {direction}")

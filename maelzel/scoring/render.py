@@ -46,9 +46,11 @@ def renderQuantizedScore(score: quant.QuantizedScore,
 
     backend = options.backend
 
-    if options.removeSuperfluousDynamics:
+    if options.removeRedundantDynamics:
         for part in score:
-            part.removeUnnecessaryDynamics()
+            part.removeRedundantDynamics(resetTime=options.redundantDynamicsResetTime,
+                                         resetAfterEmptyMeasure=options.redundantDynamicsResetAfterEmptyMeasure,
+                                         resetAfterRest=options.redundantDynamicsResetAfterRest)
 
     for i, part in enumerate(score.parts):
         if part.autoClefChanges or (options.autoClefChanges and part.autoClefChanges is None):
@@ -97,7 +99,7 @@ def _groupNotationsByMeasure(part: core.UnquantizedPart,
 def quantizeAndRender(parts: list[core.UnquantizedPart],
                       struct: ScoreStruct,
                       options: RenderOptions,
-                      quantizationProfile: quant.QuantizationProfile | None = None,
+                      quantizationProfile: quant.QuantizationProfile,
                       ) -> Renderer:
     """
     Quantize and render unquantized events organized into parts
@@ -114,10 +116,10 @@ def quantizeAndRender(parts: list[core.UnquantizedPart],
         the Renderer object
     """
     enharmonicOptions = options.makeEnharmonicOptions() if options.respellPitches else None
-    qscore = quant.quantize(parts,
-                            struct=struct,
-                            quantizationProfile=quantizationProfile,
-                            enharmonicOptions=enharmonicOptions)
+    qscore = quant.quantizeParts(parts,
+                                 quantizationProfile=quantizationProfile,
+                                 struct=struct,
+                                 enharmonicOptions=enharmonicOptions)
     return renderQuantizedScore(score=qscore, options=options)
 
 
@@ -142,7 +144,7 @@ def render(obj: core.UnquantizedPart | core.Notation | list[core.UnquantizedPart
            struct: ScoreStruct | None = None,
            options: RenderOptions | None = None,
            backend='',
-           quantizationProfile: quant.QuantizationProfile | None = None
+           quantizationProfile: quant.QuantizationProfile | str = 'high'
            ) -> Renderer:
     """
     Quantize and render the given object `obj` to generate musical notation
@@ -163,10 +165,9 @@ def render(obj: core.UnquantizedPart | core.Notation | list[core.UnquantizedPart
             which divisions of the beat are possible, how the best division
             is weighted and selected, etc. Not all options in a preset
             are supported by all backends (for example, the musicxml backend
-            does not support nested tuples).
-            See quant.presetQuantizationProfiles, which is a dict with
-            some predefined profiles
-
+            does not support nested tuples). A preset can also be given
+            (see ``maelzel.scoring.quantdata.presets``)
+            
     Returns:
         a Renderer. To produce a pdf or a png call :method:`Renderer.write` on
         the returned Renderer, like `renderer.write('outfile.pdf')`
@@ -178,7 +179,13 @@ def render(obj: core.UnquantizedPart | core.Notation | list[core.UnquantizedPart
         options = RenderOptions()
     if backend and options.backend != backend:
         options = options.clone(backend=backend)
-    return quantizeAndRender(parts, struct=struct, options=options,
+    if isinstance(quantizationProfile, str):
+        from maelzel.scoring.quantprofile import QuantizationProfile
+        quantizationProfile = QuantizationProfile.fromPreset(quantizationProfile)
+        
+    return quantizeAndRender(parts, 
+                             struct=struct, 
+                             options=options,
                              quantizationProfile=quantizationProfile)
 
 

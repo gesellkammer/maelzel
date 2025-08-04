@@ -10,7 +10,7 @@ from .common import logger
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Iterable
+    from typing import Iterable, Sequence 
     from typing_extensions import Self
     from maelzel.scoring import Notation
 
@@ -28,26 +28,33 @@ class Spanner:
     endingAtTie = 'last'
     basePriority = 0
     lilyPlacementPost = True
+    defaultLinetype = 'solid'
 
     """Should the spanner end at the first or at the last note of a tie"""
 
-    def __init__(self, kind: str = 'start', uuid: str = '', linetype='solid', placement='',
+    def __init__(self, kind: str = 'start', uuid: str = '', linetype='', placement='',
                  color=''):
         assert kind in {'start', 'end'}
         if kind != 'start':
             assert uuid, "A uuid is needed when continuing or closing a spanner"
         self.kind = kind
         """One of start or end"""
-        self.uuid = uuid or util.makeuuid(8)
+
+        self.uuid: str = uuid or util.makeuuid(8)
         """A uuid for this spanner. uuid is shared with the partner spanner"""
+
         self.linetype = linetype
-        """One of solid, dashed, dotted"""
+        """One of solid, dashed, dotted or empty string"""
+
         self.placement = placement
         """above or below"""
+
         self.color = color
         """A valid css color"""
+
         self.parent: Notation | None = None
         """If given, the Notation to which this spanner is attached. Not always present"""
+
         self.nestingLevel = 1
         """The nesting level of this spanner. """
 
@@ -60,7 +67,12 @@ class Spanner:
         return type(self).__name__
 
     def __repr__(self) -> str:
-        return reprObj(self, hideFalsy=True)
+        def parent(p: Notation | None):
+            if p is None:
+                return ''
+            return p._namerepr()
+
+        return reprObj(self, hideFalsy=True, convert={'parent': parent})
 
     def priority(self) -> int:
         if self.kind == 'end':
@@ -91,8 +103,33 @@ class Spanner:
         assert out.uuid == self.uuid
         return out
 
+    def resolveLinetype(self) -> str:
+        return self.linetype or self.defaultLinetype
+
 
 def markNestingLevels(notations: Iterable[Notation]) -> None:
+    openSpanners: dict[str, Spanner] = {}
+    clsNesting: dict[type, int] = {}
+    for n in notations:
+        if not n.spanners:
+            continue
+        for spanner in n.spanners:
+            if spanner.kind == 'start':
+                openSpanners[spanner.uuid] = spanner
+                clsNesting[type(spanner)] = level = clsNesting.get(type(spanner), 0) + 1
+                spanner.nestingLevel = level
+            else:
+                assert spanner.kind == 'end', f"Invalid spanner: {spanner}"
+                startspanner = openSpanners.pop(spanner.uuid, None)
+                if startspanner is None:
+                    logger.error(f"No start spanner found for {spanner}")
+                else:
+                    spanner.nestingLevel = startspanner.nestingLevel
+    for spanner in openSpanners.items():
+        logger.error(f"No end spanner found for {spanner}")
+
+
+def _markNestingLevels(notations: Iterable[Notation]) -> None:
     """
     Mark the nesting level of each spanner in the given notations.
 
@@ -114,11 +151,14 @@ def markNestingLevels(notations: Iterable[Notation]) -> None:
                 for i, spanner2 in enumerate(openspanners):
                     spanner2.nestingLevel = len(openspanners) - i
                     uuidToLevel[spanner2.uuid] = spanner2.nestingLevel
-            elif spanner.kind == 'end':
+            else:
+                assert spanner.kind == 'end', f"Invalid spanner: {spanner}"
                 openspanners = openSpannersByClass.get(type(spanner))
                 if openspanners:
                     startspanner = next((s for s in openspanners if s.uuid == spanner.uuid), None)
-                    if startspanner is not None:
+                    if startspanner is None:
+                        logger.error(f"Unmatched end spanner: {spanner}")
+                    else:
                         openspanners.remove(startspanner)
                         level = uuidToLevel.get(startspanner.uuid)
                         if level is not None:
@@ -172,34 +212,42 @@ def collectUnmatchedSpanners(notations: Iterable[Notation],
         and notation is the notation this spanner is attached to
 
     """
-    registry: dict[tuple[str, str], tuple[Spanner, Notation]] = {}
-    unmatched: list[tuple[Spanner, Notation]] = []
-    toberemoved = []
+    seen: set[tuple[str, str]] = set()
+    duplicates: set[tuple[str, str]] = set()
+
     for n in notations:
         if n.spanners:
             for spanner in n.spanners:
-                key = (spanner.uuid, spanner.kind)
-                if key in registry:
-                    logger.warning(f"Duplicate spanner in {n}: {spanner}\n"
-                                   f"   already seen in {registry[key][1]}  -- removing it")
-                    toberemoved.append((n, spanner))
+                if (spanner.uuid, spanner.kind) in seen:
+                    duplicates.add((spanner.uuid, spanner.kind))
                 else:
-                    registry[key] = (spanner, n)
+                    seen.add((spanner.uuid, spanner.kind))
 
-    if toberemoved:
-        for n, spanner in toberemoved:
-            n.spanners.remove(spanner)
+    if duplicates:
+        for uuid, kind in duplicates:
+            parts = [n for n in notations if n.spanners and any(sp.uuid == uuid and sp.kind == kind for sp in n.spanners)]
+            if kind == 'start':
+                for part in parts[1:]:
+                    part.spanners = [_ for _ in part.spanners if _.uuid != uuid]
+            else:
+                for part in parts[:-1]:
+                    part.spanners = [_ for _ in part.spanners if _.uuid != uuid]
+    
+    if not seen:
+        return []
 
-    for (uuid, kind), spannerpair in registry.items():
-        other = 'start' if kind == 'end' else 'end'
-        if not registry.get((uuid, other)):
-            unmatched.append(spannerpair)
-    return unmatched
-
+    out: list[tuple[Spanner, Notation]] = []
+    for n in notations:
+        if n.spanners:
+            for sp in n.spanners:
+                other = 'end' if sp.kind == 'start' else 'start'
+                if (sp.uuid, other) not in seen:
+                    out.append((sp, n))
+    return out
+    
 
 def spannersIndex(notations: Iterable[Notation]) -> dict[tuple[str, str], Spanner]:
-    return {(s.uuid, s.kind): s
-            for n in notations
+    return {(s.uuid, s.kind): s for n in notations
             if n.spanners
             for s in n.spanners}
 
@@ -214,12 +262,13 @@ def removeUnmatchedSpanners(notations: Iterable[Notation]) -> int:
 class Slur(Spanner):
     endingAtTie = 'last'
     basePriority = 1
-
+    
 
 class Beam(Spanner):
     """A forced beam"""
     endingAtTie = 'last'
     basePriority = 1
+    defaultLinetype = 'solid'
 
 
 class Bracket(Spanner):
@@ -317,7 +366,13 @@ class LineSpan(Spanner):
         self.endhook = endhook
 
 
-def solveHairpins(notations: Iterable[Notation], startDynamic='mf') -> None:
+class QuantHint(Spanner):
+    def __init__(self, ratio: tuple[int, int], kind='start', uuid=''):
+        super().__init__(kind=kind, uuid=uuid)
+        self.ratio = ratio
+        
+
+def solveHairpins(notations: Sequence[Notation], startDynamic='mf') -> None:
     """
     Resolve end spanners for hairpins
 

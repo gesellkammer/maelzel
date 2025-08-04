@@ -2,17 +2,18 @@ from string import Template
 
 
 prelude = r"""
-
 glissandoSkipOn = {
   \override NoteColumn.glissando-skip = ##t
-  \hide NoteHead
+  \override Voice.NoteHead.transparent = ##t
   \override NoteHead.no-ledgers = ##t
+  \omit Accidental
 }
 
 glissandoSkipOff = {
   \revert NoteColumn.glissando-skip
-  \undo \hide NoteHead
+  \revert Voice.NoteHead.transparent 
   \revert NoteHead.no-ledgers
+  \undo \omit Accidental
 }
 
 beamBreak =  \tweak stencil ##f \breathe
@@ -276,6 +277,14 @@ _glissandoMinLengthTemplate = Template(r"""
 }""")
 
 
+def stemletLength(length: float, context='Score') -> str:
+    return rf"""
+\layout {{
+    \override {context}.Stem.stemlet-length = #{length}
+}}
+"""
+
+
 def glissandoMinimumLength(length: int) -> str:
     return _glissandoMinLengthTemplate.substitute(length=length)
 
@@ -298,21 +307,21 @@ def proportionalSpacing(num=1, den=20, strict=True, uniform=True
     """
     spacings = []
     if strict:
-        spacings.append(r"        \override SpacingSpanner.strict-note-spacing = ##t")
+        spacings.append(r"    \override SpacingSpanner.strict-note-spacing = ##t")
 
     if uniform:
-        spacings.append(r"        \override SpacingSpanner.uniform-stretching = ##t")
+        spacings.append(r"    \override SpacingSpanner.uniform-stretching = ##t")
 
     spacing = "\n".join(spacings) if spacings else '        '
 
     return fr"""
-    \layout {{
-      \context {{
-        \Score
-        proportionalNotationDuration = #(ly:make-moment {num}/{den})
+\layout {{
+  \context {{
+    \Score
+    proportionalNotationDuration = #(ly:make-moment {num}/{den})
 {spacing}
-      }}
-    }}
+  }}
+}}
     """
 
 
@@ -320,10 +329,10 @@ def flagStyleLayout(style: str, context='Score') -> str:
     assert style in ('normal', 'modern-straight-flag', 'old-straight-flag', "flat-flag")
     assert context in ('Score',)
     return fr"""
-    \layout {{
-      \context {{
-        \{context}
-         \override Flag.stencil = #{style}
-      }}
-    }}
-    """
+\layout {{
+  \context {{
+    \{context}
+    \override Flag.stencil = #{style}
+  }}
+}}"""
+

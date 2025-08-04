@@ -493,7 +493,7 @@ def _renderPitch(doc: md.Document,
                  idx: int,
                  state: _RenderState,
                  ) -> None:
-    accidentalTraits = notation.findAttachment(cls=_attachment.AccidentalTraits, anchor=idx)
+    accidentalTraits = notation.findAttachment(cls=_attachment.AccidentalTraits, pitchanchor=idx)
     if accidentalTraits:
         assert isinstance(accidentalTraits, _attachment.AccidentalTraits)
     pitch = None if notation.isRest else pt.notated_pitch(notename)
@@ -780,7 +780,7 @@ def _renderNode(node: Node,
 
             if item.dynamic:
                 dynamic = item.dynamic
-                if (options.removeSuperfluousDynamics and
+                if (options.removeRedundantDynamics and
                         not item.dynamic.endswith('!') and
                         item.dynamic == state.dynamic and
                         item.dynamic in definitions.dynamicLevels):
@@ -928,7 +928,7 @@ def _renderPart(part: quant.QuantizedPart,
     assert isinstance(root, md.Element)
     lastDivisions = 0
     lastTimesig = (0, 0)
-    firstclef = part.firstclef or part.bestClef()
+    firstclef = part.firstClef or part.bestClef()
     lastTempo = 0
     scorestruct = part.struct
 

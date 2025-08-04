@@ -109,7 +109,7 @@ def reprObj(obj,
             True.
         sort: if True, sort the keys
         properties: properties to include in the repr
-        hideKeys: show the value without the key name
+        hideKeys: show the value without the key name. Makes the given key a priority
         quoteChar: char used to quote strings
         exclude: a seq. of attributes to exclude
         priorityargs: a list of attributes which are shown first.
@@ -136,6 +136,13 @@ def reprObj(obj,
             if p not in attrs:
                 attrs.append(p)
     info = []
+    if hideKeys:
+        if priorityargs:
+            for key in hideKeys:
+                if key not in priorityargs:
+                    priorityargs += (key,)
+        else:
+            priorityargs = hideKeys
     if sort:
         attrs.sort()
     if priorityargs:
@@ -239,7 +246,7 @@ def normalizeFilename(path: str) -> str:
     return os.path.expanduser(path)
 
 
-def showF(f: F, maxdenom=1000) -> str:
+def showF(f: F, maxdenom=1000, approxAsFloat=False, unicode=False) -> str:
     """
     Show a fraction, limit den to *maxdenom*
 
@@ -250,10 +257,17 @@ def showF(f: F, maxdenom=1000) -> str:
     Returns:
         a readable string representation
     """
+    if f.denominator == 1:
+        return str(f.numerator)
     if f.denominator > maxdenom:
-        from . import mathutils
-        num, den = mathutils.limitDenominator(f.numerator, f.denominator, maxden=maxdenom, assumeCoprime=True)
-        return f"~{num}/{den}"
+        if approxAsFloat:
+            from . import mathutils
+            num, den = mathutils.limitDenominator(f.numerator, f.denominator, maxden=maxdenom, assumeCoprime=True)
+            return f"~{num}/{den}"
+        else:
+            return f"{f:.3f}".rstrip('0').rstrip('.')
+    if unicode:
+        return unicodeFraction(f.numerator, f.denominator, multi=True)
     return "%d/%d" % (f.numerator, f.denominator)
 
 
@@ -495,6 +509,99 @@ def unicodeNotename(notename: str, full=True) -> str:
         the replacement
     """
     return _unicodeReplacer(full=full)(notename)
+
+
+def unicodeFraction(numerator: int, denominator: int, multi=False) -> str:
+    """
+    Convert a fraction to its Unicode representation.
+
+    Args:
+        numerator (int): The numerator of the fraction
+        denominator (int): The denominator of the fraction
+        multi: if True, force multigliph output, even for known fractions for which
+            a gliph exists
+
+    Returns:
+        str: Unicode representation of the fraction
+
+    Examples:
+        >>> fraction_to_unicode(1, 2)
+        '½'
+        >>> fraction_to_unicode(3, 4)
+        '¾'
+        >>> fraction_to_unicode(22, 7)
+        '²²⁄₇'
+    """
+    # Handle zero numerator
+    if numerator == 0:
+        return "0"
+
+    # Handle negative fractions
+    negative = (numerator < 0) ^ (denominator < 0)
+    numerator = abs(numerator)
+    denominator = abs(denominator)
+
+    # Common Unicode fractions
+    if not multi:
+        commonFractions = {
+            (1, 2): "½",
+            (1, 3): "⅓",
+            (2, 3): "⅔",
+            (1, 4): "¼",
+            (3, 4): "¾",
+            (1, 5): "⅕",
+            (2, 5): "⅖",
+            (3, 5): "⅗",
+            (4, 5): "⅘",
+            (1, 6): "⅙",
+            (5, 6): "⅚",
+            (1, 7): "⅐",
+            (1, 8): "⅛",
+            (3, 8): "⅜",
+            (5, 8): "⅝",
+            (7, 8): "⅞",
+            (1, 9): "⅑",
+            (1, 10): "⅒",
+        }
+
+        # Check if it's a common fraction
+        if (numerator, denominator) in commonFractions:
+            result = commonFractions[(numerator, denominator)]
+            return f"−{result}" if negative else result
+
+    # Superscript digits for numerator
+    superscripts = {
+        "0": "⁰",
+        "1": "¹",
+        "2": "²",
+        "3": "³",
+        "4": "⁴",
+        "5": "⁵",
+        "6": "⁶",
+        "7": "⁷",
+        "8": "⁸",
+        "9": "⁹",
+    }
+
+    # Subscript digits for denominator
+    subscripts = {
+        "0": "₀",
+        "1": "₁",
+        "2": "₂",
+        "3": "₃",
+        "4": "₄",
+        "5": "₅",
+        "6": "₆",
+        "7": "₇",
+        "8": "₈",
+        "9": "₉",
+    }
+
+    superscript = "".join(superscripts[digit] for digit in str(numerator))
+    subscript = "".join(subscripts[digit] for digit in str(denominator))
+    # Combine with fraction slash
+    result = f"{superscript}⁄{subscript}"
+    return f"−{result}" if negative else result
 
 
 def fileIsLocked(filepath: str) -> bool:

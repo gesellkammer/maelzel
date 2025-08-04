@@ -92,7 +92,11 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig | None = None,
         proportionalSpacing=cfg['show.spacing'] != "normal",
         proportionalNotationDuration=cfg['show.proportionalDuration'],
         proportionalSpacingKind=cfg['show.spacing'],
-        flagStyle=cfg['show.flagStyle']
+        flagStyle=cfg['show.flagStyle'],
+        removeRedundantDynamics=cfg['show.hideRedundantDynamics'],
+        redundantDynamicsResetTime=cfg['.show.redundantDynamicsResetTime'],
+        redundantDynamicsResetAfterEmptyMeasure=cfg['.show.redundantDynamicsResetAfterEmptyMeasure'],
+        redundantDynamicsResetAfterRest=cfg['.show.redundantDynamicsResetAfterRest'],
     )
     return renderOptions
 
@@ -117,8 +121,9 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig
             nestedTuplets = True
 
     kws = {}
-    if (gridWeight := cfg['.quant.gridWeight']) is not None:
+    if (gridWeight := cfg['quant.gridWeight']) is not None:
         kws['gridErrorWeight'] = gridWeight
+    
     if (divisionWeight := cfg['.quant.divisionWeight']) is not None:
         kws['divisionErrorWeight'] = divisionWeight
     if (rhythmWeight := cfg['.quant.complexityWeight']) is not None:
@@ -133,9 +138,14 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig
         debug=cfg['.quant.debug'],
         debugMaxDivisions = cfg['.quant.debugShowNumRows'],
         syncopMinFraction = asF(cfg['quant.syncopMinFraction']),
+        syncopPartMinFraction = asF(cfg['quant.syncopPartMinFraction']),
         syncopMaxAsymmetry = cfg['quant.syncopMaxAsymmetry'],
+        syncopExcludeSymDurs = cfg['quant.syncopExcludeSymDurs'],
         breakSyncopationsLevel = cfg['quant.breakBeats'],
         breakLongGlissandi = cfg['show.glissHideTiedNotes'],
+        beatWeightTempoThreshold = cfg['quant.beatWeightTempoThreshold'],
+        subdivisionTempoThreshold = cfg['quant.subdivisionTempoThreshold'],
+        mergeTupletsOfDifferentDuration = cfg['.quant.mergeTupletsOfDifferentDuration'],
         **kws
     )
 
@@ -176,9 +186,6 @@ def renderWithActiveWorkspace(parts: list[scoring.core.UnquantizedPart],
         scorestruct = workspace.scorestruct
     from maelzel import scoring
     from maelzel.scoring import render
-    if config['show.hideRedundantDynamics']:
-        for part in parts:
-            scoring.core.removeRedundantDynamics(part.notations, resetAfterQuarters=config['.show.hideRedundantDynamicsResetAfter'])
     return render.quantizeAndRender(parts,
                                     struct=scorestruct,
                                     options=renderoptions,

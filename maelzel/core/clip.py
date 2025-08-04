@@ -254,7 +254,7 @@ class Clip(event.MEvent):
         source = self.source if isinstance(self.source, str) else id(self.source)
         parts = (source, self.selectionStartSecs, self.selectionEndSecs, self.speed, self.sr,
                  self.numChannels, self.sourceDurSecs, self.amp,
-                 self.dynamic, self.noteheadShape)
+                 self.dynamic, self.noteheadShape, self.pitch)
         return hash(parts)
 
     def __getitem__(self, item):
@@ -555,7 +555,7 @@ class Clip(event.MEvent):
         if self.label:
             notation.addText(self._scoringAnnotation(config=config))
 
-        shape = self.noteheadShape if self.noteheadShape is not None else config['show.clipNoteheadShape']
+        shape = self.noteheadShape if self.noteheadShape else config['show.clipNoteheadShape']
         if shape:
             notation.setNotehead(shape)
         if self.symbols:

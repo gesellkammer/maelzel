@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 __all__ = (
     'LilypondRenderer',
-    'quantizedPartToLily',
+    'renderPart',
     'makeScore'
 )
 
@@ -172,6 +172,7 @@ def markConsecutiveGracenotes(root: Node) -> None:
         if n0.isRest or not n0.isGracenote:
             assert not graceGroupOpen
             continue
+        assert n0.isGracenote
         if n1.isGracenote:
             if not graceGroupOpen:
                 n0.setProperty(".graceGroup", "start")
@@ -340,14 +341,15 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
                     _(_fermataToLily.get(attach.kind, r'\fermata'))
                 elif isinstance(attach, attachment.Clef):
                     _(lilytools.makeClef(attach.kind))
-                elif isinstance(attach, attachment.Breath) and attach.horizontalPlacement == 'post':
-                    if attach.visible:
-                        if attach.kind:
-                            logger.info("Setting breath type is not supported yet")
-                            # _(fr"\once \set breathMarkType = #'{attach.kind}")
-                        _(r"\breathe")
-                    else:
-                        _(r'\beamBreak')
+                elif isinstance(attach, attachment.Breath):
+                    if attach.horizontalPlacement == 'post':
+                        if attach.visible:
+                            if attach.kind:
+                                logger.info("Setting breath type is not supported yet")
+                                # _(fr"\once \set breathMarkType = #'{attach.kind}")
+                            _(r"\breathe")
+                        else:
+                            _(r'\beamBreak')
                 else:
                     logger.warning(f"Attachment {attach} not supported for rests")
         return ' '.join(parts).strip()
@@ -373,19 +375,25 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
                     _(rf'\once \override Stem.color = "{attach.color}" ')
 
     if n.isGracenote:
-        base, dots = 8, 0
+        dots = 0
+        if n.attachments and (props:=n.findAttachment(attachment.GracenoteProperties)is not None):
+            base = 4 / props.value
+            slashed = props.slash
+        else:
+            base = 8
+            slashed = False
+        lilytoken = r"\grace" if not slashed else r"\slashedGrace"
         graceGroupProp = n.getProperty('.graceGroup')
+        if not graceGroupProp:
+            assert not state.insideGraceGroup
+            _(lilytoken)
         if graceGroupProp == 'start':
             assert not state.insideGraceGroup
-            _(r"\grace {")
+            _(lilytoken + "{" )
             state.insideGraceGroup = True
         elif graceGroupProp == 'continue' or graceGroupProp == 'stop':
-
             assert state.insideGraceGroup, f"{n=}"
             pass
-        else:
-            assert not graceGroupProp and not state.insideGraceGroup
-            _(r"\grace")
 
     # Attachments PRE pitch
     if n.attachments:
@@ -400,7 +408,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
                     _(r"\breathe")
                 else:
                     _(r'\beamBreak')
-            elif isinstance(attach, attachment.Property) and attach.key == 'hidden':
+            elif isinstance(attach, attachment.Hidden):
                 _(r"\single \hideNotes")
 
     if len(n.pitches) == 1:
@@ -446,7 +454,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         _("<")
         notenames = n.resolveNotenames(removeFixedAnnotation=True)
         notatedpitches = [pt.notated_pitch(notename) for notename in notenames]
-        chordAccidentalTraits = n.findAttachment(cls=attachment.AccidentalTraits, anchor=None) or attachment.AccidentalTraits.default()
+        chordAccidentalTraits = n.findAttachment(cls=attachment.AccidentalTraits, pitchanchor=None) or attachment.AccidentalTraits.default()
         backties = n.tieHints('backward') if n.tiedPrev else None
         for i, pitch in enumerate(n.pitches):
             if noteheads and (notehead := noteheads.get(i)) is not None:
@@ -454,7 +462,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
             notename = notenames[i]
             notatedpitch = notatedpitches[i]
 
-            accidentalTraits = n.findAttachment(cls=attachment.AccidentalTraits, anchor=i) or chordAccidentalTraits
+            accidentalTraits = n.findAttachment(cls=attachment.AccidentalTraits, pitchanchor=i) or chordAccidentalTraits
 
             if accidentalTraits.hidden:
                 _(r"\once\omit Accidental")
@@ -554,7 +562,7 @@ def _handleSpannerPre(spanner: _spanner.Spanner, state: RenderState) -> str | No
     """
     out = []
     _ = out.append
-    if isinstance(spanner, _spanner.Slur):
+    if isinstance(spanner, _spanner.Slur) and spanner.linetype != 'solid':
         if spanner.kind == 'start':
             if spanner.nestingLevel == 1:
                 _(fr' \slur{spanner.linetype.capitalize()} ')
@@ -604,6 +612,9 @@ def _handleSpannerPre(spanner: _spanner.Spanner, state: RenderState) -> str | No
         if spanner.kind == 'start':
             if spanner.linetype != 'solid':
                 _(rf"\once \override Glissando.style = #'{_linetypeToLily[spanner.linetype]} ")
+            if spanner.color:
+                _(rf'\once \override Glissando.color = "{spanner.color}"')
+            # TODO: support the .text attribute of .Slide
         else:
             if state.insideSlide and not state.glissando:
                 _(r"\glissandoSkipOff ")
@@ -620,15 +631,18 @@ def _handleSpannerPost(spanner: _spanner.Spanner, state: RenderState) -> str | N
         _(_placementToLily.get(spanner.placement))
 
     if isinstance(spanner, _spanner.Slur):
-        if spanner.nestingLevel == 1:
-            _("(" if spanner.kind == 'start' else ")")
-        elif spanner.nestingLevel == 2:
-            _(r"\(" if spanner.kind == 'start' else r"\)")
+        if spanner.kind == 'start':
+            t = "_(" if spanner.placement == 'below' else "("
         else:
-            logger.error(f"Two many nested slurs: {spanner}, skipping")
+            t = ")"
+        _(f"\\={spanner.nestingLevel}{t}")
 
     elif isinstance(spanner, _spanner.Beam):
-        _("[" if spanner.kind == 'start' else "]")
+        if spanner.kind == 'start':
+            t = "_[" if spanner.placement == 'below' else "["
+        else:
+            t = "]"
+        _(t)
 
     elif isinstance(spanner, _spanner.Hairpin):
         if spanner.kind == 'start':
@@ -706,6 +720,21 @@ def renderNode(node: Node,
     w = IndentedWriter(indentsize=indentSize, indents=numIndents)
 
     if node.durRatio != (1, 1):
+        # A new tuplet. Check if the node has any leading gracenotes, which need to
+        # be rendered before the tuplet
+        n0 = node.items[0]
+        if isinstance(n0, Notation) and n0.isGracenote:
+            gracenotes = [n0]
+            for item in node.items[1:]:
+                if isinstance(item, Notation) and item.isGracenote:
+                    gracenotes.append(item)
+                else:
+                    break
+            tempnode = Node(gracenotes, ratio=(1, 1)        )
+            txt = renderNode(tempnode, durRatios=durRatios.copy(), options=options, state=state,
+                             numIndents=numIndents, indentSize=indentSize)
+            w.add(txt)
+            node.items = node.items[len(gracenotes):]
         durRatios.append(F(*node.durRatio))
         tupletStarted = True
         num, den = node.durRatio
@@ -736,7 +765,7 @@ def renderNode(node: Node,
 
             if item.dynamic:
                 dynamic = item.dynamic
-                if (options.removeSuperfluousDynamics and
+                if (options.removeRedundantDynamics and
                         not item.dynamic.endswith('!') and
                         item.dynamic == state.dynamic and
                         item.dynamic in definitions.dynamicLevels):
@@ -813,16 +842,16 @@ def _isSmallDenominator(den: int, quarterTempo: F, eighthNoteThreshold=50) -> bo
     return quarterTempo > mintempo
 
 
-def quantizedPartToLily(part: quant.QuantizedPart,
-                        options: RenderOptions,
-                        addMeasureMarks=True,
-                        clef='',
-                        addTempoMarks=True,
-                        indents=0,
-                        indentSize=2,
-                        ) -> str:
+def renderPart(part: quant.QuantizedPart,
+               options: RenderOptions,
+               addMeasureMarks=True,
+               clef='',
+               addTempoMarks=True,
+               indents=0,
+               indentSize=2,
+               ) -> str:
     """
-    Convert a QuantizedPart to lilypond code
+    Render a QuantizedPart as lilypond code
 
     Args:
         part: the QuantizedPart
@@ -847,8 +876,8 @@ def quantizedPartToLily(part: quant.QuantizedPart,
     if part.name and part.showName:
         w.line(r"\new Staff \with {")
         w.line(f'    instrumentName = #"{part.name}"')
-        if part.shortname:
-            w.line(f'    shortInstrumentName = "{part.shortname}"')
+        if part.shortName:
+            w.line(f'    shortInstrumentName = "{part.shortName}"')
         w.line("}")
         w.line("{")
     else:
@@ -878,11 +907,6 @@ def quantizedPartToLily(part: quant.QuantizedPart,
         if addTempoMarks and measureDef.timesig != timesig:
             timesig = measureDef.timesig
             if len(timesig.parts) == 1:
-                # if options.forceSubdivisions(measureDef):
-                #     den, subdivs = measureDef.subdivisionStructure()
-                #     num, den2 = measureDef.timesig.fusedSignature[0]
-                #     assert den == den2
-                #     w.line(fr"\time {subdivs} {num}/{den}")
                 if not timesig.subdivisionStruct:
                     num, den = timesig.fusedSignature
                     if options.addSubdivisionsForSmallDenominators and _isSmallDenominator(den, quarterTempo):
@@ -912,17 +936,6 @@ def quantizedPartToLily(part: quant.QuantizedPart,
                     subdivs = ",".join(map(str, multiples))
                     w.line(fr"\time {subdivs} {num}/{den}")
 
-            # if measureDef.properties and (symbol := measureDef.properties.get('symbol')):
-            #     if symbol == 'single-number':
-            #         line(r"\once \override Staff.TimeSignature.style = #'single-digit")
-            # if measureDef.subdivisionStructure:
-            #     # compound meter, like 3+2 / 8
-            #     # \compoundMeter #'((2 2 2 8))
-            #     parts = ' '.join(str(part) for part in measureDef.subdivisionStructure)
-            #     line(fr"\compoundMeter #'(({parts} {den}))")
-            # else:
-            #     line(fr"\time {num}/{den}", indents)
-
         if addTempoMarks and measure.quarterTempo != quarterTempo:
             quarterTempo = measure.quarterTempo
             # lilypond only support integer tempi
@@ -942,7 +955,7 @@ def quantizedPartToLily(part: quant.QuantizedPart,
                                               fontsize=relfontsize,
                                               fontrelative=True,
                                               box=style.box))
-            if measureDef.rehearsalMark:
+            if measureDef.rehearsalMark and measureDef.rehearsalMark.text:
                 style = options.parsedRehearsalMarkStyle
                 relfontsize = style.fontsize - options.staffSize if style.fontsize else 0
                 box = measureDef.rehearsalMark.box or style.box
@@ -991,7 +1004,7 @@ def makeScore(score: quant.QuantizedScore,
               midi=False
               ) -> str:
     r"""
-    Convert a list of QuantizedParts to a lilypond score (as str)
+    Render a QuantizedScore as a lilypond score (as str)
 
     Args:
         score: the list of QuantizedParts to convert
@@ -1015,8 +1028,7 @@ def makeScore(score: quant.QuantizedScore,
     def _(s, dedent=False, indent=0):
         if dedent:
             s = textwrap.dedent(s)
-        elif indent:
-            s = textwrap.dedent(s)
+        if indent:
             s = textwrap.indent(s, prefix=IND * indent)
         strs.append(s)
 
@@ -1027,13 +1039,14 @@ def makeScore(score: quant.QuantizedScore,
     _(f'\\version "{lilypondVersion}"\n')
 
     if options.title or options.composer:
-        _(textwrap.dedent(fr'''
-        \header {{
-            title = "{options.title}"
-            composer = "{options.composer}"
-            tagline = ##f
-        }}
-        '''))
+        _(
+fr'''
+\header {{
+    title = "{options.title}"
+    composer = "{options.composer}"
+    tagline = ##f
+}}
+''')
     else:
         _(r"\header { tagline = ##f }")
 
@@ -1083,27 +1096,31 @@ def makeScore(score: quant.QuantizedScore,
     if options.lilypondGlissMinLength:
         _(lilypondsnippets.glissandoMinimumLength(options.lilypondGlissMinLength))
 
+    if options.useStemlets:
+        _(lilypondsnippets.stemletLength(length=options.stemletLength, context='Score'))
+
     _(r"\score {")
+
     _(r"<<")
     indents = 1
     groups = score.groupParts()
     partindex = 0
     for group in groups:
         if len(group) > 1:
-            if group[0].groupname is not None:
-                name, shortname = group[0].groupname
+            if group[0].groupName is not None:
+                name, shortname = group[0].groupName
             else:
                 name, shortname = '', ''
             _(fr'\new StaffGroup \with {{ instrumentName = "{name}" shortInstrumentName = "{shortname}" }} <<', indent=1)
             indents += 1
         for part in group:
-            partstr = quantizedPartToLily(part,
-                                          addMeasureMarks=partindex == 0,
-                                          addTempoMarks=partindex == 0,
-                                          options=options,
-                                          indents=indents,
-                                          indentSize=indentSize,
-                                          clef=part.firstclef)
+            partstr = renderPart(part,
+                                 addMeasureMarks=partindex == 0,
+                                 addTempoMarks=partindex == 0,
+                                 options=options,
+                                 indents=indents,
+                                 indentSize=indentSize,
+                                 clef=part.firstClef)
             _(partstr)
             partindex += 1
         if len(group) > 1:
@@ -1182,10 +1199,13 @@ class LilypondRenderer(Renderer):
             tempout = f"{tempbase}.{fmt}"
             open(lilyfile, "w").write(lilytxt)
             logger.debug(f"Rendering lilypond '{lilyfile}' to '{tempout}'")
-            lilytools.renderLily(lilyfile=lilyfile,
-                                 outfile=tempout,
-                                 imageResolution=options.pngResolution,
-                                 lilypondBinary=lilypondBinary)
+            out = lilytools.renderLily(lilyfile=lilyfile,
+                                       outfile=tempout,
+                                       imageResolution=options.pngResolution,
+                                       lilypondBinary=lilypondBinary)
+            if not out or not os.path.exists(out):
+                raise RuntimeError(f"No output file generated while rendering via lilypond, "
+                                   f"{lilyfile=}")
             if options.preview:
                 previewfile = f"{tempbase}.preview.{fmt}"
                 if os.path.exists(previewfile):
@@ -1198,7 +1218,7 @@ class LilypondRenderer(Renderer):
                     tempout = cropfile
                 else:
                     logger.debug(f"Asked to generate a crop file, but the file '{cropfile}' "
-                                 f"was not found. Outfile: {outfile}")
+                                 f"was not found. Image file: {tempout}")
                     if fmt == 'png':
                         logger.debug("Trying to generate cropped file via pillow")
                         _imgtools.imagefileAutocrop(tempout, cropfile, bgcolor="#ffffff")

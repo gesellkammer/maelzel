@@ -23,15 +23,15 @@ Property
 # This module cannot import from maelzel.core
 
 from __future__ import annotations
-from abc import abstractmethod
+from abc import abstractmethod, ABC
 import random
 import copy
 from functools import cache
 
 from maelzel import _util
 from maelzel import colortheory
-from maelzel.common import F
 from maelzel import scoring
+from maelzel.common import F
 
 from ._common import logger
 import pitchtools as pt
@@ -42,8 +42,7 @@ if TYPE_CHECKING:
     from typing_extensions import Self
     from typing import Sequence, Any
     from maelzel.core import mobj
-    from maelzel.core import event
-    from maelzel.scoring import quant
+    from maelzel.core import mevent
 
 _uuid_alphabet = '0123456789abcdefghijklmnopqrstuvwxyz'
 
@@ -52,15 +51,18 @@ def _makeuuid(size=8) -> str:
     return ''.join(random.choices(_uuid_alphabet, k=size))
 
 
-class Symbol:
+class Symbol(ABC):
     """Base class for all symbols"""
+
     exclusive = False
+    """Only one of a given class"""
+
     applyToTieStrategy = 'first'
-    modifiesScoringContext = False
+    """One of 'first', or 'all'"""
 
     def __init__(self):
         self.properties: dict[str, Any] | None = None
-        
+
     def __repr__(self) -> str:
         return _util.reprObj(self, hideFalsy=True)
 
@@ -128,32 +130,64 @@ class Spanner(Symbol):
                  linetype='solid',
                  placement='',
                  color='',
-                 anchor: event.MEvent | None = None):
+                 anchor: mevent.MEvent | None = None):
         super().__init__()
-        assert kind == 'start' or kind == 'end', f"got kind={kind}"
-        if anchor:
-            assert isinstance(anchor, event.MEvent)
+        assert not kind or kind == 'start' or kind == 'end', f"got kind={kind}"
         assert linetype in {'', 'solid', 'dashed', 'dotted', 'wavy', 'trill', 'zigzag'}, f"got {linetype}"
         if placement:
             assert placement == 'above' or placement == 'below'
         self.kind = kind
+        """The kind of spanner. Either unset or 'start' or 'end'"""
+
         self.uuid = uuid or _makeuuid(8)
+        """An id identifying this spanner"""
+
         self.linetype = linetype
+        """Linetype, one of solid, dahsed, dotted, wavy, trill, zigzag"""
+
         self.placement = placement
+        """If given, one of above or below"""
+
         self.color = color
-        self._anchor: event.MEvent | None = anchor
-        """The event to which this spanner is anchored to"""
+        """Color, any hex or css color"""
+
+        self._anchor: mevent.MEvent | None = anchor
+        """The event to which this spanner is anchored to, if known"""
 
         self._partner: Spanner | None = None
         """The partner spanner"""
 
     @property
-    def anchor(self) -> event.MEvent | None:
+    def anchor(self) -> mevent.MEvent | None:
         return self._anchor
 
     @property
     def partner(self) -> Spanner | None:
         return self._partner
+
+    def scoringSpanner(self) -> scoring.spanner.Spanner:
+        raise NotImplementedError
+
+    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
+        spanner = self.scoringSpanner()
+        n.addSpanner(spanner)
+
+    def applyToPair(self, start: scoring.Notation, end: scoring.Notation) -> None:
+        assert isinstance(start, scoring.Notation) and isinstance(end, scoring.Notation)
+        partner = self.makePartnerSpanner()
+        self.applyToNotation(start, parent=None)
+        partner.applyToNotation(end, parent=None)
+
+    def applyToTiedGroup(self, notations: Sequence[scoring.Notation], parent: mobj.MObj | None
+                         ) -> None:
+        if self.kind == 'start':
+            self.applyToNotation(notations[0], parent=parent)
+        elif self.kind == 'end':
+            self.applyToNotation(notations[-1], parent=parent)
+        else:
+            logger.warning("Unknown kind '%s' for spanner %s", self.kind, str(self))
+
+
 
     def __repr__(self) -> str:
         return _util.reprObj(self,
@@ -168,7 +202,7 @@ class Spanner(Symbol):
         return {k: v for k in keys
                 if (v := getattr(self, k))}
 
-    def setAnchor(self, obj: event.MEvent) -> None:
+    def setAnchor(self, obj: mevent.MEvent) -> None:
         """
         Set the anchor for this spanner.
 
@@ -180,7 +214,7 @@ class Spanner(Symbol):
         """
         self._anchor = obj
 
-    def bind(self, startobj: event.MEvent, endobj: event.MEvent) -> None:
+    def bind(self, startobj: mevent.MEvent, endobj: mevent.MEvent) -> None:
         """
         Bind a Spanner to two notes/chords
 
@@ -205,12 +239,12 @@ class Spanner(Symbol):
         startobj.addSymbol(self)
         if self.anchor is None:
             self.setAnchor(startobj)
-        self.makeEndSpanner(anchor=endobj)
+        self.makePartnerSpanner(anchor=endobj)
         assert self.partner is not None
 
-    def makeEndSpanner(self, anchor: event.MEvent | None = None) -> Self:
+    def makePartnerSpanner(self, anchor: mevent.MEvent | None = None) -> Self:
         """
-        Creates the end spanner for an already existing start spanner
+        Creates the partner spanner for an already existing spanner
 
         start and end spanner share the same uuid and have a ref to
         each other, allowing each of the spanners to access their
@@ -227,8 +261,9 @@ class Spanner(Symbol):
         """
         if anchor and self.anchor is anchor:
             raise ValueError("Start anchor and end anchor cannot be the same object")
+        if not self.kind:
+            raise ValueError("This spanner is not a start or end spanner")
         endSpanner = copy.copy(self)
-        # endSpanner.kind = 'end'    # This is set by setPartner
         self.setPartner(endSpanner)
         if anchor:
             anchor.addSymbol(endSpanner)
@@ -264,8 +299,6 @@ class TrillLine(Spanner):
             trillpitch
         placement: 'above' | 'below'
 
-
-
     """
 
     def __init__(self,
@@ -293,6 +326,9 @@ class TrillLine(Spanner):
 class NoteheadLine(Spanner):
     """
     A line conecting two noteheads
+
+    This results in a glissando only when rendered
+    as notation
 
     Args:
         kind: one of 'start', 'end'
@@ -324,7 +360,6 @@ class OctaveShift(Spanner):
         octaves: number of octave to shift. Can be negative
         uuid: used to match start and end spanner
     """
-    modifiesScoringContext = True
 
     def __init__(self, kind='start', octaves=1, uuid=''):
         assert octaves != 0 and abs(octaves) <= 3
@@ -342,20 +377,20 @@ class Slur(Spanner):
     A slur spanner between two notes
     """
 
-    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        slur = scoring.spanner.Slur(kind=self.kind, uuid=self.uuid, linetype=self.linetype)
-        n.addSpanner(slur)
+    def scoringSpanner(self) -> scoring.spanner.Spanner:
+        return scoring.spanner.Slur(kind=self.kind, uuid=self.uuid, linetype=self.linetype,
+                                    placement=self.placement, color=self.color)
+
 
 
 class Beam(Spanner):
     """
     Notes within a Beam spanner are beamed together
     """
-    appliesToRests = False
+    appliesToRests = True
 
-    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        spanner = scoring.spanner.Beam(kind=self.kind, uuid=self.uuid)
-        n.addSpanner(spanner)
+    def scoringSpanner(self) -> scoring.spanner.Spanner:
+        return scoring.spanner.Beam(kind=self.kind, uuid=self.uuid)
 
 
 class Hairpin(Spanner):
@@ -377,12 +412,11 @@ class Hairpin(Spanner):
         attrs.update(super()._attrs())
         return attrs
 
-    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        hairpin = scoring.spanner.Hairpin(kind=self.kind, uuid=self.uuid,
-                                          direction=self.direction,
-                                          niente=self.niente,
-                                          placement=self.placement)
-        n.addSpanner(hairpin)
+    def scoringSpanner(self) -> scoring.spanner.Spanner:
+        return scoring.spanner.Hairpin(kind=self.kind, uuid=self.uuid,
+                                       direction=self.direction,
+                                       niente=self.niente,
+                                       placement=self.placement)
 
 
 class Bracket(Spanner):
@@ -439,6 +473,17 @@ class LineSpan(Spanner):
                                            starthook=self.starthook,
                                            endhook=self.endhook)
         n.addSpanner(spanner)
+
+
+class QuantHint(Spanner):
+    def __init__(self, ratio: tuple[int, int], kind='start', uuid=''):
+        super().__init__(kind=kind, uuid=uuid)
+        self.ratio = ratio
+
+    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
+        n.addSpanner(scoring.spanner.QuantHint(ratio=self.ratio, kind=self.kind, uuid=self.uuid))
+
+
 
 
 _spannerNameToConstructor: dict[str, Any] = {
@@ -528,49 +573,6 @@ def makeSpanner(descr: str, kind='start', linetype='', placement='', color=''
 # --------------------------------
 
 
-class Property(Symbol):
-    """
-    A property is a modifier of an object itself (like a color or a size)
-    """
-    exclusive = True
-
-    def __repr__(self):
-        return _util.reprObj(self)
-
-
-class SizeFactor(Property):
-    """Sets the size of an object (as a factor of default size)"""
-    applyToTieStrategy = 'all'
-
-    def __init__(self, size: float):
-        super().__init__()
-        self.size = size
-
-    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        n.addAttachment(scoring.attachment.SizeFactor(size=self.size))
-        
-
-class Color(Property):
-    """Customizes the color of an object"""
-
-    def __init__(self, color: str):
-        super().__init__()
-        self.color = color
-
-    def __repr__(self):
-        return f"Color:{self.color}"
-
-    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        n.addAttachment(scoring.attachment.Color(self.color))
-        # n.color = self.color
-
-
-class Hidden(Property):
-    """A hidden property can be attached to note to hide it"""
-
-    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        n.addAttachment(scoring.attachment.Property('hidden', value=True))
-
 
 class EventSymbol(Symbol):
     """
@@ -584,31 +586,72 @@ class EventSymbol(Symbol):
         color (str): The color of the symbol.
         placement (str): The placement of the symbol. One of 'above', 'below' or ''
             to use the default placement
+        preventMerge: if True, do not allow an event with this symbol to be merged
+            with another event
     """
     appliesToRests = True
 
-    def __init__(self, color='', placement='', mergenext=True):
+    def __init__(self, color='', placement='', preventMerge=False):
         super().__init__()
         assert not placement or placement in ('above', 'below')
         self.placement = placement
-        self.mergenext = mergenext
+        self.preventMerge = preventMerge
         self.color = color
 
-    def checkAnchor(self, anchor: event.MEvent) -> str:
+    def checkAnchor(self, anchor: mevent.MEvent) -> str:
         """Returns an error message if the event cannot add this symbol"""
         return ''
 
-    @abstractmethod
     def scoringAttachment(self) -> scoring.attachment.Attachment:
-        pass
+        raise NotImplementedError("Class should implement this method or "
+                                  "override applyToNotation")
 
     def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        if not self.mergenext:
+        if self.preventMerge:
             n.mergeableNext = False
         attachment = self.scoringAttachment()
-        if attachment is None:
-            raise RuntimeError(f"No scoring attachment for {self}")
         n.addAttachment(attachment)
+
+
+class Hidden(EventSymbol):
+    """A hidden property can be attached to note to hide it"""
+    exclusive = True
+    applyToTieStrategy = 'all'
+
+    def scoringAttachment(self) -> scoring.attachment.Attachment:
+        return scoring.attachment.Hidden()
+
+
+class SizeFactor(EventSymbol):
+    """Sets the size of an object (as a factor of default size)"""
+    applyToTieStrategy = 'all'
+    exclusive = True
+
+    def __init__(self, size: float):
+        super().__init__()
+        self.size = size
+
+    def __repr__(self):
+        return f"SizeFactor({self.size})"
+
+    def scoringAttachment(self) -> scoring.attachment.Attachment:
+        return scoring.attachment.SizeFactor(size=self.size)
+
+
+class Color(EventSymbol):
+    """Customizes the color of an object"""
+    exclusive = True
+    applyToTieStrategy = 'all'
+
+    def __init__(self, color: str):
+        super().__init__()
+        self.color = color
+
+    def __repr__(self):
+        return f"Color({self.color})"
+
+    def scoringAttachment(self) -> scoring.attachment.Attachment:
+        return scoring.attachment.Color(self.color)
 
 
 class NoteheadSymbol(Symbol):
@@ -625,7 +668,7 @@ class NoteheadSymbol(Symbol):
             self.applyToPitch(n, idx=idx, parent=parent)
 
 
-class VoiceSymbol(Symbol):
+class PartMixin:
     """Symbols which can be attached to a voice"""
 
     applyToAllParts = True
@@ -695,7 +738,7 @@ class Ornament(EventSymbol):
     def scoringAttachment(self) -> scoring.attachment.Attachment:
         return scoring.attachment.Ornament(self.kind, color=self.color)
 
-    
+
 class Tremolo(EventSymbol):
     """
     A stem-attached tremolo sign
@@ -742,12 +785,11 @@ class Fermata(EventSymbol):
             mergenext: whether an event with a fermata can be merged with
                 its right neighbour (if tied or two rests)
         """
-        super().__init__(color=color, mergenext=mergenext)
+        super().__init__(color=color, preventMerge=not mergenext)
         self.kind = kind
-        
+
     def scoringAttachment(self) -> scoring.attachment.Attachment:
         return scoring.attachment.Fermata(kind=self.kind, color=self.color)
-
 
 
 class Breath(EventSymbol):
@@ -817,18 +859,18 @@ class Text(EventSymbol):
                              filter={'italic': lambda val: val,
                                      'weight': lambda val: val != 'normal'})
 
-    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        if not n.tiedPrev or self.force:
-            n.addText(self.text, placement=self.placement, fontsize=self.fontsize,
-                      italic=self.italic, weight=self.weight, box=self.box,
-                      fontfamily=self.fontfamily)
+    def scoringAttachment(self) -> scoring.attachment.Attachment:
+        return scoring.attachment.Text(text=self.text, placement=self.placement,
+                                       fontsize=self.fontsize, italic=self.italic,
+                                       weight=self.weight, box=self.box,
+                                       fontfamily=self.fontfamily)
 
     def __hash__(self):
         return hash((type(self).__name__, self.text, self.placement, self.fontsize, self.italic,
                      self.weight, self.fontfamily))
 
 
-class Transpose(EventSymbol, VoiceSymbol):
+class Transpose(EventSymbol, PartMixin):
     """
     Apply a transposition for notation only
 
@@ -871,7 +913,7 @@ class Transpose(EventSymbol, VoiceSymbol):
         n.setPitches(pitches)
         if fixed:
             for i, pitch in fixed.items():
-                n.fixNotename(pt.transpose(pitch, self.interval), idx=i)
+                n.fixNotename(pt.transpose(pitch, self.interval), index=i)
 
     def applyToPart(self, part: scoring.core.UnquantizedPart) -> None:
         for notation in part.notations:
@@ -915,7 +957,7 @@ class NotatedPitch(NoteheadSymbol):
             pitch = parent.pitch
             idx = min(range(len(n.pitches)), key=lambda idx: abs(pitch - n.pitches[idx]))
 
-        n.fixNotename(notename=self.pitch, idx=idx)
+        n.fixNotename(notename=self.pitch, index=idx)
 
 
 _intervalToSemitones = {
@@ -1015,12 +1057,11 @@ class Harmonic(EventSymbol):
         self.kind: str = kind
         self.interval: int = semitone
 
-    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
+    def scoringAttachment(self) -> scoring.attachment.Attachment:
         if self.kind == 'natural':
-            if not n.tiedPrev:
-                n.addArticulation('flageolet')
+            return scoring.attachment.Articulation('flageolet')
         else:
-            n.addAttachment(scoring.attachment.Harmonic(self.interval))
+            return scoring.attachment.Harmonic(self.interval)
 
     def applyToTiedGroup(self, notations: Sequence[scoring.Notation], parent: mobj.MObj | None
                          ) -> None:
@@ -1089,7 +1130,11 @@ class Notehead(NoteheadSymbol):
                      ) -> None:
         # if idx is None, apply to all noteheads
         scoringNotehead = self.asScoringNotehead()
-        n.setNotehead(scoringNotehead, idx=idx, merge=True)
+        n.setNotehead(scoringNotehead, index=idx, merge=True)
+
+
+def iscolor(s: str) -> bool:
+    return re.match(r"^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$", s) or s in colortheory.cssColors()
 
 
 def makeKnownSymbol(name: str) -> Symbol | None:
@@ -1126,11 +1171,14 @@ def makeKnownSymbol(name: str) -> Symbol | None:
     if name == 'tremolo':
         return Tremolo()
 
-    if re.match(r"^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$", name) or name in colortheory.cssColors():
+    if iscolor(name):
         return Color(name)
 
     if name == 'fermata':
         return Fermata()
+
+    if name == 'nomerge':
+        return NoMerge()
 
     return None
 
@@ -1148,22 +1196,25 @@ class Dynamic(EventSymbol):
     """
     A notation only dynamic
 
-    This should only be used for the seldom case where a note should
+    This should only be used for the case where a note should
     have a dynamic only for display
     """
     exclusive = True
     appliesToRests = False
 
     def __init__(self, kind: str, force=False, placement=''):
-        if kind not in scoring.definitions.dynamicLevels:
+        if kind not in scoring.definitions.validDynamics():
             raise ValueError(f"Invalid dynamic '{kind}', "
-                             f"possible dynamics: {scoring.definitions.dynamicLevels}")
+                             f"possible dynamics: {scoring.definitions.validDynamics()}")
         super().__init__(placement=placement)
         self.kind = kind
         self.force = force
 
     def __hash__(self):
         return hash((type(self).__name__, self.kind, self.placement))
+    
+    def __repr__(self):
+        return _util.reprObj(self, hideKeys=('kind',), hideFalsy=True)
 
     def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
         n.dynamic = self.kind
@@ -1190,11 +1241,18 @@ class Articulation(EventSymbol):
         return hash((type(self).__name__, self.kind, self.color, self.placement))
 
     def __repr__(self):
-        return _util.reprObj(self, priorityargs=('kind',), hideFalsy=True)
+        return _util.reprObj(self, hideKeys=('kind',), hideFalsy=True)
+
+    def scoringAttachment(self) -> scoring.attachment.Attachment:
+        return scoring.attachment.Articulation(kind=self.kind, color=self.color, placement=self.placement)
 
     def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        if not n.tiedPrev and not n.isRest:
-            n.addArticulation(scoring.attachment.Articulation(kind=self.kind, color=self.color, placement=self.placement))
+        if n.isRest:
+            logger.warning(f"Cannot apply {self} to a rest: {n}")
+        else:
+            if n.tiedPrev:
+                logger.debug(f"Applying articulation {self} to {n}, even if it is tied to prev")
+            super().applyToNotation(n=n, parent=parent)
 
 
 class Fingering(EventSymbol):
@@ -1209,8 +1267,8 @@ class Fingering(EventSymbol):
 
         self.finger = finger
 
-    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        n.addAttachment(scoring.attachment.Fingering(self.finger))
+    def scoringAttachment(self) -> scoring.attachment.Attachment:
+        return scoring.attachment.Fingering(self.finger)
 
 
 class Bend(EventSymbol):
@@ -1228,11 +1286,10 @@ class Bend(EventSymbol):
 
     def __init__(self, alter: float):
         super().__init__()
-
         self.alter = alter
 
-    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        n.addAttachment(scoring.attachment.Bend(self.alter))
+    def scoringAttachment(self) -> scoring.attachment.Attachment:
+        return scoring.attachment.Bend(self.alter)
 
 
 class NoMerge(EventSymbol):
@@ -1280,14 +1337,15 @@ class Gracenote(EventSymbol):
     Customizes properties of a gracenote
     """
 
-    def __init__(self, slash=False):
+    def __init__(self, slash=False, value=F(1, 2)):
         super().__init__()
         self.slash = slash
+        self.value = value
 
-    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        n.addAttachment(scoring.attachment.GracenoteProperties(slash=self.slash))
+    def scoringAttachment(self) -> scoring.attachment.Attachment:
+        return scoring.attachment.GracenoteProperties(slash=self.slash, value=self.value)
 
-    def checkAnchor(self, anchor: event.MEvent) -> str:
+    def checkAnchor(self, anchor: mevent.MEvent) -> str:
         if anchor.dur != 0:
             return f'A Gracenote symbol can only be added to a gracenote, got {anchor}'
         return ''
@@ -1300,7 +1358,7 @@ class GlissProperties(EventSymbol):
     It can only be attached to an event which starts a glissando
 
     Args:
-        linetype: the linetype to use, one of 'solid', 'dashed', 'dotted'
+        linetype: the linetype to use, one of 'solid', 'dashed', 'dotted', 'trill'
         color: the color of the line
         hidden: if True the glissando is not represented as notation. When
             applied to a Notation, the .gliss attribute of the Notation is
@@ -1327,7 +1385,7 @@ class GlissProperties(EventSymbol):
                            f"(destination: {n}")
         n.addAttachment(scoring.attachment.GlissProperties(linetype=self.linetype, color=self.color))
 
-    def checkAnchor(self, anchor: event.MEvent) -> str:
+    def checkAnchor(self, anchor: mevent.MEvent) -> str:
         if not anchor.gliss:
             return f'This event ({self}) has no glissando'
         return ''
@@ -1381,12 +1439,12 @@ class Accidental(NoteheadSymbol):
                                                          parenthesis=self.parenthesis,
                                                          force=self.force,
                                                          size=self.size)
-        n.addAttachment(attachment, anchor=idx)
+        n.addAttachment(attachment, pitchanchor=idx)
 
 
 # -------------------------------------------------------------------
 
-class BeamBreak(EventSymbol, VoiceSymbol):
+class BeamBreak(EventSymbol):
     """
     Symbolizes a syncopation (beam) break at the given location or at the given note
 
@@ -1403,27 +1461,8 @@ class BeamBreak(EventSymbol, VoiceSymbol):
         The resulting Notation present at the given location is broken at that
         point (adding a tie if needed)
     """
-
-    def __init__(self, location: F | tuple[int, F] | None = None):
-        self.location = location
-        super().__init__()
-
-    def callback(self, qpart: quant.QuantizedPart) -> None:
-        if not self.location:
-            raise ValueError("A BeamBreak can only be applied to a part if its location"
-                             " is set.")
-        notation = qpart.breakSyncopationAt(location=self.location)
-        if notation:
-            qpart.breakBeam(location=self.location)
-
     def scoringAttachment(self) -> scoring.attachment.Attachment:
         return scoring.attachment.Breath(visible=False)
-
-    def applyToPart(self, part: scoring.core.UnquantizedPart) -> None:
-        if self.location is None:
-            raise ValueError("A BeamBreak can only be applied to a part if its location"
-                             " is set.")
-        part.hooks.append(scoring.attachment.PostPartQuantHook(self.callback))
 
 
 def parseAddSymbol(args: tuple, kws: dict) -> Symbol:
@@ -1443,15 +1482,21 @@ def parseAddSymbol(args: tuple, kws: dict) -> Symbol:
     if len(args) == 2 and all(isinstance(arg, str) for arg in args) and not kws:
         symbolclass, kind = args
         symboldef = makeSymbol(symbolclass, kind)
-    elif len(args) == 1 and isinstance(args[0], str):
-        if not kws:
-            symboldef = makeKnownSymbol(args[0])
+    elif len(args) == 1:
+        arg = args[0]
+        if isinstance(arg, str):
+            if not kws:
+                symboldef = makeKnownSymbol(arg)
+            else:
+                symboldef = makeSymbol(arg, **kws)
+            if not symboldef:
+                raise ValueError(f"{arg} is not a known symbol. Known symbols are: {knownSymbols()}")
+        elif not kws and isinstance(arg, Symbol):
+            symboldef = arg
+        elif isinstance(arg, type) and issubclass(arg, Symbol):
+            symboldef = arg()
         else:
-            symboldef = makeSymbol(args[0], **kws)
-        if not symboldef:
-            raise ValueError(f"{args[0]} is not a known symbol. Known symbols are: {knownSymbols()}")
-    elif not kws and len(args) == 1 and isinstance(args[0], Symbol):
-        symboldef = args[0]
+            raise ValueError(f"Could not add a symbol with {args=}, {kws=}")
     elif kws:
         symboldef = next(makeSymbol(key, value) for key, value in kws.items())
     else:
@@ -1483,7 +1528,12 @@ _symbolClasses = (
     BeamBreak,
     Stem,
     GlissProperties,
-    Gracenote
+    Gracenote,
+    Transpose
+)
+
+_voiceSymbols = (
+    Transpose
 )
 
 

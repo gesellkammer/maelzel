@@ -201,19 +201,21 @@ class TimeSignature:
         parts = [f"{num}/{den}" for num, den in self.parts]
         return "+".join(parts)
 
-    def __repr__(self):
+    def _reprInfo(self) -> str:
         if len(self.parts) == 1:
             num, den = self.parts[0]
             if self.subdivisionStruct:
                 subdiv = '-'.join(map(str, self.subdivisionStruct))
-                return f"TimeSignature({num}/{den}({subdiv}))"
-            return f"TimeSignature({num}/{den})"
+                return f"{num}/{den}({subdiv})"
+            return f"{num}/{den}"
         elif all(den == self.parts[0][1] for num, den in self.parts):
             nums = "+".join(str(p[0]) for p in self.parts)
-            return f"TimeSignature({nums}/{self.parts[0][1]})"
+            return f"{nums}/{self.parts[0][1]}"
         else:
-            parts = '+'.join(f"{n}/{d}" for n, d in self.parts)
-            return f"TimeSignature({parts})"
+            return '+'.join(f"{n}/{d}" for n, d in self.parts)
+
+    def __repr__(self):
+        return f"TimeSignature({self._reprInfo()})"
 
     @classmethod
     def parse(cls, timesig: str | tuple, subdivisionStruct: Sequence[int] = ()
@@ -310,7 +312,7 @@ def _parseTimesigPart(s: str) -> tuple[tuple[int, int], tuple[int, ...]]:
     For 5/8, returns ((5, 8), ())
     """
     if "(" in s:
-        assert s.count("(") == 1 and s[-1] == ")"
+        assert s.count("(") == 1 and s[-1] == ")", f"Invalid time signature part: {s}"
         p1, p2 = s[:-1].split("(")
         nums, dens = p1.split("/")
         num, den = int(nums), int(dens)
@@ -374,11 +376,101 @@ class RehearsalMark:
     text: str
     box: str = ''
 
+    def __post_init__(self):
+        assert self.text
+
+
+@dataclass
+class TempoDef:
+    tempo: F
+    refvalue: int = 4
+    numdots: int = 0
+
+    @property
+    def quartertempo(self) -> F:
+        return asQuarterTempo(self.tempo, refvalue=self.refvalue, numdots=self.numdots)
+
 
 class KeySignature:
     def __init__(self, fifths: int, mode='major'):
         self.fifths = fifths
         self.mode = mode if mode else 'major'
+
+
+@functools.cache
+def asQuarterTempo(tempo: F, refvalue: int, numdots: int = 0) -> F:
+    refdur = F(4, refvalue)
+    if numdots > 0:
+        den = 2 ** numdots
+        num = (2 ** (numdots + 1)) - 1
+        refdur = refdur * num / den
+    qtempo = tempo * refdur
+    return qtempo
+
+
+def _parseTempoRefvalue(ref: str) -> tuple[int, int]:
+    if "." not in ref:
+        refvaluestr = ref
+        numdots = 0
+    else:
+        try:
+            refvaluestr, dots = ref.split(".", maxsplit=1)
+            numdots = len(dots) + 1
+        except ValueError as e:
+            raise ValueError(f"Could not parse tempo: '{s}'") from e
+
+    try:
+        refvalue = int(refvaluestr)
+    except ValueError as e:
+        raise ValueError(f"Could not parse tempo '{s}', invalid reference value '{refvaluestr}'") from e
+
+    if refvalue not in (1, 2, 4, 8, 16, 32, 64):
+        raise ValueError(f"Could not parse tempo: '{s}', reference value {refvalue} should be a power of 2")
+    return refvalue, numdots
+
+
+def _parseTempo(s: str) -> TempoDef:
+    """
+    Parse a tempo
+
+    =======    ===== ========== ======= ==============
+    Value      tempo  refvalue  numdots quartertempo
+    =======    ===== ========== ======= ==============
+    60         60      4         0       60
+    4=60       60      4         0       60
+    8=60       60      8         0       120
+    4.=60      60      4         1       90
+    4..=60     60      4         2       112.5
+    =======    ===== ========== ======= ==============
+
+
+    Args:
+        s: the string to parse
+
+    Returns:
+        A TempoDef
+
+    .. code-block:: python
+
+        >>> _parseTempo('8=60').quartertempo
+        120
+        >>> _parseTempo('4.=60').quartertempo
+        90
+    """
+    if "=" not in s:
+        try:
+            tempo = F(s)
+            return TempoDef(tempo, 4, 0)
+        except ValueError as e:
+            raise ValueError(f"Could not parse tempo: {s}") from e
+
+    parts = [_.strip() for _ in s.split("=")]
+    if len(parts) != 2:
+        raise ValueError(f"Could not parse tempo: {s}")
+    ref, tempostr = parts
+    tempo = float(tempostr)
+    refvalue, numdots = _parseTempoRefvalue(ref)
+    return TempoDef(F(tempo), refvalue, numdots)
 
 
 def _parseScoreStructLine(line: str) -> _ScoreLine:
@@ -387,13 +479,13 @@ def _parseScoreStructLine(line: str) -> _ScoreLine:
 
     The line has the format ``[measureIndex, ] timesig [, tempo] [keywords]
 
-    Where timesig has the format ``num/den`` and keywords have the format
-    ``keyword=value``, where keyword can be one of ``rehearsalmark``, ``label``
-    and ``barline``. *rehearsalmark* will add a rehearsal mark to the measure,
-    *label* will add a text label to the measure and *barline* will customize
-    the right barline. Possible values for *barline* are single, double, solid,
-    dotted or dashed
+    * timesig has the format ``num/den``
+    * keywords have the format ``keyword=value``, where keyword can be one of
+        ``rehearsalmark``, ``label`` and ``barline`` (case is not important).
 
+    *rehearsalmark* adds a rehearsal mark, *label* adds a text label and
+    *barline* customizes the right barline (possible values: 'single', 'double', 'solid',
+    'dotted' or 'dashed'
 
     Args:
         line: a line of the format [measureIndex, ] timesig [, tempo]
@@ -405,30 +497,47 @@ def _parseScoreStructLine(line: str) -> _ScoreLine:
     line = line.strip()
     args = []
     keywords = {}
+    tempodef: TempoDef | None = None
     for part in [_.strip() for _ in line.split(",")]:
-        if '=' in part:
+        if '=' not in part:
+            args.append(part)
+        else:
             key, value = part.split('=', maxsplit=1)
             key = key.strip()
-            value = value.strip()
-            if value[0] == value[-1] in "'\"":
-                value = value[1:-1]
-            keywords[key] = value
-        else:
-            args.append(part)
+            if re.match(r"(1|2|4|8|16|32|64)\.*", key):
+                refvalue, numdots = _parseTempoRefvalue(key)
+                tempodef = TempoDef(tempo=F(value), refvalue=refvalue, numdots=numdots)
+            else:
+                value = value.strip()
+                if value[0] == value[-1] in "'\"":
+                    value = value[1:-1]
+                keywords[key] = value
     numargs = len(args)
     label = ''
     barline = ''
     rehearsalmark = ''
+    measure: int | None = None
     if numargs == 1:
-        timesigS = args[0]
-        measure = None
-        tempo = None
+        arg = args[0]
+        if "/" in arg:
+            timesigS = arg
+        elif tempodef is None:
+            try:
+                tempodef = _parseTempo(arg)
+                timesigS = ''
+            except ValueError:
+                raise ValueError(f"Could not parse line argument: '{arg}'")
+        else:
+            raise ValueError(f"Could not parse line argument: '{arg}'")
     elif numargs == 2:
         if "/" in args[0]:
             timesigS, tempoS = args
             measure = None
             try:
-                tempo = float(tempoS)
+                _tempodef = _parseTempo(tempoS)
+                if tempodef is not None:
+                    raise ValueError(f"Multiple tempos: {tempoS} and {tempodef}")
+                tempodef = _tempodef
             except ValueError:
                 raise ValueError(f"Could not parse the tempo ({tempoS}) as a number (line: {line})")
         else:
@@ -437,7 +546,6 @@ def _parseScoreStructLine(line: str) -> _ScoreLine:
                 measure = int(measureIndexS)
             except ValueError:
                 raise ValueError(f"Could not parse the measure index '{measureIndexS}' while parsing line: '{line}'")
-            tempo = None
     elif numargs == 3:
         if "/" not in args[0]:
             measureIndexS, timesigS, tempoS = [_.strip() for _ in args]
@@ -445,13 +553,18 @@ def _parseScoreStructLine(line: str) -> _ScoreLine:
         else:
             measure = None
             timesigS, tempoS, label = [_.strip() for _ in args]
-        tempo = float(tempoS) if tempoS else None
+        if tempoS:
+            if tempodef is not None:
+                raise ValueError(f"Multiple tempos: {tempoS} and {tempodef}")
+            tempodef = _parseTempo(tempoS)
     elif numargs == 4:
         measureIndexS, timesigS, tempoS, label = [_.strip() for _ in args]
         measure = int(measureIndexS) if measureIndexS else None
-        tempo = float(tempoS) if tempoS else None
+        if tempoS:
+            tempodef = _parseTempo(tempoS)
     else:
         raise ValueError(f"Parsing error at line {line}")
+
     timesig = TimeSignature.parse(timesigS) if timesigS else None
 
     for k, v in keywords.items():
@@ -467,8 +580,12 @@ def _parseScoreStructLine(line: str) -> _ScoreLine:
             raise ValueError(f"Key {k} unknown (value: {v}) while reading score line {line}")
     if label:
         label = label.replace('"', '')
-    return _ScoreLine(measureIndex=measure, timesig=timesig, tempo=tempo,
-                      label=label, barline=barline, rehearsalMark=rehearsalmark)
+    return _ScoreLine(measureIndex=measure,
+                      timesig=timesig,
+                      tempo=tempodef.quartertempo if tempodef else None,
+                      label=label,
+                      barline=barline,
+                      rehearsalMark=rehearsalmark)
 
 
 _barstyles = {'single', 'final', 'double', 'solid', 'dotted', 'dashed', 'tick', 'short',
@@ -537,7 +654,6 @@ class MeasureDef:
         self.properties = properties
         """User defined properties can be placed here. None by default"""
 
-
         self.parent = parent
         """The parent ScoreStruct of this measure, if any"""
 
@@ -599,12 +715,22 @@ class MeasureDef:
         if linestyle not in _barstyles:
             raise ValueError(f'Unknown barstyle: {linestyle}, possible values: {_barstyles}')
         self._barline = linestyle
-
+        
     def subdivisionTempoThreshold(self, fallback=96) -> int:
-        return self._subdivisionTempoThreshold or (self.parent.subdivisionTempoThreshold if self.parent else fallback)
+        if self._subdivisionTempoThreshold:
+            return self._subdivisionTempoThreshold
+        elif self.parent and self.parent.subdivisionTempoThreshold:
+            return self.parent.subdivisionTempoThreshold
+        assert isinstance(fallback, int)
+        return fallback
 
     def beatWeightTempoThreshold(self, fallback=52) -> int:
-        return self._beatWeightTempoThreshold or (self.parent.beatWeightTempoThreshold if self.parent else fallback)
+        assert isinstance(fallback, (int, float, F))
+        if self._beatWeightTempoThreshold:
+            return self._beatWeightTempoThreshold
+        if self.parent:
+            return self.parent.beatWeightTempoThreshold or fallback
+        return fallback
 
     def beatStructure(self) -> list[BeatDef]:
         """
@@ -720,12 +846,21 @@ class MeasureDef:
             a string representation of this measure's time-signature
 
         """
-        parts = [f"{num}/{den}" for num, den in self.timesig.parts]
-        partstr = "+".join(parts)
-        if self.timesig.subdivisionStruct:
-            subdivs = self.subdivisions()
-            partstr += f"({subdivs})"
-        return partstr
+        return self.timesig._reprInfo()
+        #
+        # parts = [f"{num}/{den}" for num, den in self.timesig.parts]
+        # partstr = "+".join(parts)
+        # if self.timesig.subdivisionStruct:
+        #     subdivs = "+".join(_subdivRepr(f, self.timesig.denominator) for f in self.subdivisions())
+        #     partstr += f"({subdivs})"
+        # return partstr
+
+
+def _subdivRepr(f: F, timesigDen: int) -> str:
+    f = f * (timesigDen // 4)
+    if f.denominator == 1:
+        return str(f.numerator)
+    return f"{f.numerator}/{f.denominator}"
 
 
 def inferSubdivisions(num: int, den: int, quarterTempo
@@ -820,6 +955,7 @@ def beatDurations(timesig: timesig_t,
         5/16 -> [0.5, 0.5, 0.25]
 
     """
+    assert isinstance(subdivisionTempoThreshold, (int, float, F)), f"Invalid {subdivisionTempoThreshold=}"
     quarterTempo = asF(quarterTempo)
     quarters = measureQuarterDuration(timesig)
     num, den = timesig
@@ -895,6 +1031,9 @@ def measureBeatStructure(timesig: TimeSignature | tuple[int, int],
     Returns:
         a list of (beat offset: F, beat duration: F, beat weight: int)
     """
+    assert isinstance(beatWeightTempoThreshold, (int, float, F))
+    assert isinstance(subdivisionTempoThreshold, (int, float, F))
+
     if isinstance(timesig, tuple):
         timesig = TimeSignature(timesig)
     durations = measureSubdivisions(timesig=timesig,
@@ -1026,15 +1165,16 @@ class ScoreStruct:
 
     A definitions are divided by new line or by ;. Each line has the form::
 
-        measureIndex, timeSig, tempo
+        [measureindex,] timesig [, tempo]
 
-
-    * Tempo refers always to a quarter note
-    * Any value can be left out: , 5/8,
+    * Tempo refers by default to a quarter note (e.g. 60 indicates 60 bpm), can also be given
+      as 4=60 or 8=60, in which case the resulting tempo is 30.
+    * A tempo change without a timesignature change can be given as ``,<tempo>`` (e.g. ``,84``)
     * measure numbers start at 0
     * comments start with `#` and last until the end of the line
     * A line with a single "." repeats the last defined measure
-    * A score ending with the line ... is an endless score
+    * A score ending with the line ... is an endless score, which extends the last timesignature
+      and tempo
 
     The measure number and/or the tempo can both be left out. The following definitions are
     all the same::
@@ -1046,9 +1186,10 @@ class ScoreStruct:
     **Example**::
 
         0, 4/4, 60, "mark A"
-        ,3/4,80     # Assumes measureIndex=1
+        3/4, 80     # Assumes measureIndex=1
         10, 5/8, 120
-        30,,
+
+        30
         .
         .      # last measure (inclusive, the score will have 33 measures)
 
@@ -1060,8 +1201,8 @@ class ScoreStruct:
                  title='',
                  composer='',
                  readonly=False,
-                 beatWeightTempoThreshold: int = 52,
-                 subdivisionTempoThreshold: int = 96):
+                 weightTempoThreshold: int | None = None,
+                 subdivTempoThreshold: int | None = None):
 
         # holds the time offset (in seconds) of each measure
         self._timeOffsets: list[F] = []
@@ -1092,11 +1233,11 @@ class ScoreStruct:
 
         self.readonly = readonly
         """Is this ScoreStruct read-only?"""
-
-        self.beatWeightTempoThreshold: int = beatWeightTempoThreshold
+        
+        self.beatWeightTempoThreshold: int | None = weightTempoThreshold
         """Tempo at which a beat is considered strong, influences how syncopations and beams are broken"""
 
-        self.subdivisionTempoThreshold: int = subdivisionTempoThreshold
+        self.subdivisionTempoThreshold: int | None = subdivTempoThreshold
         """In an irregular measure, a beat resulting in a tempo slower than this is considered an independent beat"""
 
         self._hash: int | None = None
@@ -1393,19 +1534,19 @@ class ScoreStruct:
         if self.readonly:
             raise RuntimeError("This ScoreStruct is read-only")
 
-        if timesig is None:
+        if not timesig:
             timesigInherited = True
             timesig = self.measuredefs[-1].timesig if self.measuredefs else (4, 4)
         else:
             timesigInherited = False
-        if quarterTempo is None:
+        if not quarterTempo:
             tempoInherited = True
             quarterTempo = self.measuredefs[-1].quarterTempo if self.measuredefs else F(60)
         else:
             tempoInherited = False
 
         if isinstance(rehearsalMark, str):
-            rehearsalMark = RehearsalMark(rehearsalMark)
+            rehearsalMark = RehearsalMark(rehearsalMark) if rehearsalMark else None
 
         if isinstance(keySignature, tuple):
             fifths, mode = keySignature
@@ -1427,8 +1568,6 @@ class ScoreStruct:
             keySignature=keySignature,
             barline=barline,
             parent=self,
-            subdivisionTempoThreshold=self.subdivisionTempoThreshold,
-            beatWeightTempoThreshold=self.beatWeightTempoThreshold,
             readonly=self.readonly)
 
         if index:
@@ -2171,7 +2310,7 @@ class ScoreStruct:
         else:
             emlib.misc.open_with_app(outfile, app=app)
 
-    def dump(self, showIndex=True) -> None:
+    def dump(self, index=True, beatstruct=True) -> None:
         """
         Dump this ScoreStruct to stdout
         """
@@ -2185,7 +2324,7 @@ class ScoreStruct:
             tempo = -1
             for i, m in enumerate(self.measuredefs):
                 parts = []
-                if showIndex:
+                if index:
                     parts.append(f"{i}: {m.timesig}")
                 else:
                     parts.append(str(m.timesig))
@@ -2200,6 +2339,10 @@ class ScoreStruct:
                     parts.append(f", barline={m.barline}")
                 if m.keySignature:
                     parts.append(f", keySignature={m.keySignature.fifths}")
+                if beatstruct:
+                    beatstruct = m.beatStructure()
+                    s = "+".join(f"{beat.duration.numerator}/{beat.duration.denominator}" for beat in beatstruct)
+                    parts.append(f", beatstruct={s}")
                 print("".join(parts))
 
     def hasUniqueTempo(self) -> bool:
@@ -2250,7 +2393,7 @@ class ScoreStruct:
     def _repr_html_(self) -> str:
         self._update()
         import emlib.misc
-        colnames = ['Meas. Index', 'Timesig', 'Tempo (quarter note)', 'Label', 'Rehearsal', 'Barline']
+        colnames = ['Meas. Index', 'Timesig', 'Tempo (quarter note)', 'Label', 'Rehearsal', 'Barline', 'Beats']
 
         if any(m.keySignature is not None for m in self.measuredefs):
             colnames.append('Key')
@@ -2258,7 +2401,7 @@ class ScoreStruct:
         else:
             haskey = False
 
-        parts = ['<p><strong>ScoreStruct</strong></p>']
+        allparts = ['<p><strong>ScoreStruct</strong></p>']
         tempo = -1
         rows = []
         for i, m in enumerate(self.measuredefs):
@@ -2272,7 +2415,15 @@ class ScoreStruct:
             timesig = m.timesigRepr()
             if m.timesigInherited:
                 timesig = f'({timesig})'
-            row = [str(i), timesig, tempostr, m.annotation or "", rehearsal, m.barline]
+            beatstruct = m.beatStructure()
+            parts = []
+            for beat in beatstruct:
+                if beat.duration.denominator == 1:
+                    parts.append(str(beat.duration.numerator))
+                else:
+                    parts.append(f"{beat.duration.numerator}/{beat.duration.denominator}")
+            s = "+".join(parts)
+            row = [str(i), timesig, tempostr, m.annotation or "", rehearsal, m.barline, s]
             if haskey:
                 row.append(str(m.keySignature.fifths) if m.keySignature else '-')
             rows.append(row)
@@ -2280,8 +2431,8 @@ class ScoreStruct:
             rows.append(("...", "", "", "", "", ""))
         rowstyle = 'font-size: small;'
         htmltable = emlib.misc.html_table(rows, colnames, rowstyles=[rowstyle]*len(colnames))
-        parts.append(htmltable)
-        return "".join(parts)
+        allparts.append(htmltable)
+        return "".join(allparts)
 
     def _render(self, backend='', renderoptions: RenderOptions | None = None
                 ) -> Renderer:
@@ -2291,7 +2442,7 @@ class ScoreStruct:
         quantprofile = quant.QuantizationProfile()
         measures = [quant.QuantizedMeasure(timesig=m.timesig, quarterTempo=m.quarterTempo, quantprofile=quantprofile, beats=[])
                     for m in self.measuredefs]
-        part = quant.QuantizedPart(struct=self, measures=measures, quantprofile=quantprofile)
+        part = quant.QuantizedPart(struct=self, measures=measures, quantProfile=quantprofile)
         qscore = quant.QuantizedScore([part], title=self.title, composer=self.composer)
         if not renderoptions:
             renderoptions = render.RenderOptions()

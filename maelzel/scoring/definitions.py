@@ -211,6 +211,13 @@ alterations = {
 }
 
 
+@cache
+def validDynamics() -> set[str]:
+    out = dynamicLevels.copy()
+    out.update(dynamicExpressions)
+    return out
+
+
 def normalizeDynamic(dynamic: str, default='') -> str:
     """
     Normalize a dynamic, returns *default* if the dynamic is invalid

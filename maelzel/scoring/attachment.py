@@ -3,6 +3,7 @@ import copy
 
 from maelzel import _util
 from . import definitions
+from maelzel.common import F
 
 from typing import TYPE_CHECKING
 
@@ -26,10 +27,16 @@ class Attachment:
             anchors the attachment to the whole note/chord
     """
     exclusive = False
+    """If True, allow only one attachment of a given class to be added to a Notation"""
+    
     priority = 100
+    """???"""
+    
     copyToSplitNotation = False
+    """Should an attachment of this class be copied to parts of a notation if it is split?"""
 
-    def __init__(self, color='',
+    def __init__(self, 
+                 color='',
                  instancePriority=0,
                  anchor: int | None = None,
                  horizontalPlacement=''):
@@ -57,17 +64,9 @@ class Attachment:
         return _util.reprObj(self, hideFalsy=True)
 
 
-class Property(Attachment):
-
-    def __init__(self, key: str, value=True, anchor: int | None = None):
-        super().__init__(anchor=anchor)
-        self.key = key
-        self.value = value
-
-
 class GlissProperties(Attachment):
     copyToSplitNotation = True
-    linetypes = ('solid', 'wavy', 'dotted', 'dashed')
+    linetypes = ('solid', 'zigzag', 'dotted', 'dashed', 'trill')
 
     def __init__(self, linetype='solid', color=''):
         super().__init__(color=color)
@@ -78,13 +77,20 @@ class GlissProperties(Attachment):
 
 class Color(Attachment):
     exclusive = True
-
+    copyToSplitNotation = True
+    
     def __init__(self, color: str):
         super().__init__(color=color)
+        
+
+class Hidden(Attachment):
+    exclusive = True
+    copyToSplitNotation = True
 
 
 class SizeFactor(Attachment):
     exclusive = True
+    copyToSplitNotation = True
 
     def __init__(self, size: float):
         """
@@ -99,13 +105,15 @@ class SizeFactor(Attachment):
 
 class GracenoteProperties(Attachment):
 
-    def __init__(self, slash: bool):
+    def __init__(self, slash: bool, value=F(1, 2)):
         super().__init__()
         self.slash = slash
+        self.value = value
 
 
 class StemTraits(Attachment):
     exclusive = True
+    copyToSplitNotation = True
 
     def __init__(self, color='', hidden=False):
         super().__init__(color=color)
@@ -192,6 +200,7 @@ class Articulation(Attachment):
 
 class Tremolo(Attachment):
     copyToSplitNotation = True
+    exclusive = True
 
     def __init__(self, tremtype='single', nummarks=2, relative=True, **kws):
         assert tremtype in {'single', 'start', 'end'}
@@ -339,6 +348,7 @@ class Text(Attachment):
 
 
 class Clef(Attachment):
+    exclusive = True
 
     def __init__(self, kind: str, color=''):
         super().__init__(color=color)
@@ -353,8 +363,15 @@ class Clef(Attachment):
 class Hook:
     """
     A Hook is a wrapper around a function, triggered at different situations
+
     """
-    def __init__(self, func: Callable):
+    def __init__(self, func: Callable[[quant.QuantizedPart], None]):
+        """
+        
+        Args:
+            func: a callable of the form ``(part: QuantizedPart) -> None``
+
+        """
         self._func = func
 
     def __call__(self, obj):
@@ -368,10 +385,6 @@ class PostPartQuantHook(Hook):
     The function will be called with a QuantizedPart after it has been
     quantized. This can be used to apply beam breaking strategies,
     etc. For an example usage see :class:`maelzel.core.symbols.BeamBreak`
-
-
-    Args:
-        func: a callable of the form ``(part: QuantizedPart) -> None``
 
 
     """

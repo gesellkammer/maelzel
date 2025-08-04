@@ -42,7 +42,7 @@ def f2m(freqs: np.ndarray, out: np.ndarray | None = None, a4: float = 0.) -> np.
     return x
 
 
-def m2f(midinotes: np.ndarray, out: np.ndarray | None = None, a4: float = None) -> np.ndarray:
+def m2f(midinotes: np.ndarray, out: np.ndarray | None = None, a4: float = 0.) -> np.ndarray:
     """
     Vectorized version of pitchtools.m2f
 

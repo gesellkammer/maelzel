@@ -8,9 +8,7 @@ import re
 import sys
 from functools import cache
 from dataclasses import dataclass
-import bpf4 as bpf
 import pitchtools as pt
-from emlib import misc
 
 from maelzel import _util
 from maelzel.scoring import definitions
@@ -131,17 +129,6 @@ _enharmonic_flat_to_sharp = {
 }
 
 
-dbToAmpCurve: bpf.BpfInterface = bpf.expon(
-    -120, 0,
-    -60, 0.0,
-    -40, 0.1,
-    -30, 0.4,
-    -18, 0.9,
-    -6, 1,
-    0, 1,
-    exp=0.333)
-
-
 def enharmonic(n: str) -> str:
     n = n.capitalize()
     if "#" in n:
@@ -221,7 +208,7 @@ def parseDuration(s: str, limitEvalDenominator=9999999) -> F:
     Parse a duration given a str
 
     Possible expressions include '3/4', '1+3/4', '(4+1/3+2/5)*5/7' or any valid
-    math expression. 
+    math expression.
     Raises ValueError if the expression cannot be parsed
 
     Args:
@@ -280,12 +267,14 @@ def _evalArgs(args: list[str]) -> dict[str, Any]:
     def evalArg(arg: str) -> tuple[str, Any]:
         if "=" in arg:
             k, v = [_.strip() for _ in arg.split("=")]
-            if (n := misc.asnumber(v)) is not None:
-                return (k, n)
-            elif v in ("True", "False", "None"):
-                return (k, eval(v))
-            else:
+            v = v.strip()
+            if v[0].isalpha():
                 return k, v
+            else:
+                try:
+                    return (k, eval(v))
+                except NameError:
+                    return (k, v)
         else:
             # a flag
             return (arg, True)
@@ -431,22 +420,31 @@ def parseNote(s: str, check=True) -> NoteProperties:
                 properties['dynamic'] = part
             elif part[-1] == '!' and part[:-1] in _knownDynamics:
                 properties['dynamic'] = part
-            elif part in _knownArticulations:
-                symbols.append(_symbols.Articulation(part))
             elif part in ('gliss', 'tied'):
                 properties[part] = True
-            elif part == 'stemless':
+            elif part == "stemless":
                 symbols.append(_symbols.Stem(hidden=True))
-            elif part == '()':
-                symbols.append(_symbols.Notehead(parenthesis=True))
+            elif part == 'slash' or part == 'slashed':
+                # Only applies to gracenotes
+                if dur != 0:
+                    raise ValueError(f"{part} can only be applied to a grace note/chord")
+                symbols.append(_symbols.Gracenote(slash=True))
             elif part in definitions.allNoteheadShapes():
                 symbols.append(_symbols.Notehead(part))
-            elif part in _knownSpanners or (part[0] == "~" and part[1:] in _knownSpanners):
+            elif part in _knownSpanners or (part[0]=="~" and part[1:] in _knownSpanners):
                 spanners.append(_symbols.makeSpanner(part))
+            elif symb := _symbols.makeKnownSymbol(part):
+                symbols.append(symb)
+            elif part == '()':
+                symbols.append(_symbols.Notehead(parenthesis=True))
             else:
                 allkeys = _allkeys()
                 _util.checkChoice(s, part, allkeys)
     note = note.strip()
+    if note.startswith('(') and note.endswith(')'):
+        note = note[1:-1]
+        symbols.append(_symbols.Notehead(parenthesis=True))
+
     if "/" in note:
         note, symbolicdur = note.split("/")
         dur = _parseSymbolicDuration(symbolicdur)
@@ -479,17 +477,17 @@ def _allkeys():
     allkeys = []
     allkeys.extend(_knownSymbols)
     allkeys.extend(_knownDynamics)
-    allkeys.extend(_knownArticulations)
+    allkeys.extend(definitions.allArticulations())
     allkeys.extend(_knownSpanners)
     return allkeys
 
 
 _knownDynamics = {
-    'pppp', 'ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'ffff', 'n'
+    # Some are actual dynamics
+    'pppp', 'ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'ffff', 
+    # other are interpreted as dynamic expressions
+    'n', 'sf', 'sfz', 'fp'
 }
-
-
-_knownArticulations = definitions.allArticulations()
 
 
 _knownSymbols = {
