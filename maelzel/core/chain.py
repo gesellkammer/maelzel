@@ -221,7 +221,7 @@ class Chain(MContainer):
         """
         Stack events to the left **INPLACE**, making offsets explicit
 
-        This method modifies the items within this object
+        This method modifies the items within this object.
 
         Example
         ~~~~~~~
@@ -269,7 +269,7 @@ class Chain(MContainer):
                 items.append(r)
                 now += gapdur
             items.append(item)
-            if isinstance(item, Chain) and recurse:
+            if recurse and isinstance(item, Chain):
                 item.fillGaps(recurse=True)
             now += item.dur
         self.setItems(items)
@@ -381,26 +381,34 @@ class Chain(MContainer):
         """
         return all(isinstance(item, MEvent) for item in self.items)
 
-    def flatEvents(self) -> list[MEvent]:
+    def flatEvents(self, forcecopy=False) -> list[MEvent]:
         """
         A list of flat events, with explicit absolute offsets set
 
         The returned events are a clone of the events in this chain,
         not the actual events themselves
 
+        Args:
+            forcecopy: if True, all returned events are copy of events
+                within self, even if they have an explicit absolute offset
+
         Returns:
             a list of events (Notes, Chords, Clips, ...) with explicit
-            offset
+            absolute offset            offset
 
-        .. seealso:: :meth:`Chain.itemsWithOffset`
+        .. seealso:: :meth:`Chain.eventsWithOffset`
 
         """
 
         if not self.items:
             return []
         self._update()
-        flatitems = [ev.clone(offset=evoffset) if ev.offset != evoffset else ev
-                     for ev, evoffset in self.eventsWithOffset()]
+        if forcecopy:
+            flatitems = [ev.clone(offset=evoffset) if ev.offset != evoffset else ev.copy()
+                         for ev, evoffset in self.eventsWithOffset()]
+        else:
+            flatitems = [ev.clone(offset=evoffset) if ev.offset != evoffset else ev
+                         for ev, evoffset in self.eventsWithOffset()]
         _resolveGlissandi(flatitems)
         return flatitems
 
@@ -514,14 +522,14 @@ class Chain(MContainer):
         Returns:
             True if all items in self have explicit offsets
         """
-        if self.offset is None:
+        if self._parent and self.offset is None:
             return False
 
         return all(item.offset is not None if isinstance(item, MEvent) else item.hasOffsets()
                    for item in self.items)
 
     def dynamicAt(self, absoffset: F, fallback='') -> str:
-        if self.parent:
+        if self._parent:
             return self.root().dynamicAt(absoffset)
         dyn = ''
         for event, offset in self.eventsWithOffset():
@@ -531,6 +539,12 @@ class Chain(MContainer):
                 dyn = event.dynamic
         return dyn or fallback
 
+    def _recurse(self) -> Iterator[MEvent]:
+        for item in self.items:
+            if isinstance(item, MEvent):
+                yield item
+            else:
+                yield from item._recurse()
 
     def _resolveGlissandi(self, force=False) -> None:
         """
@@ -541,8 +555,7 @@ class Chain(MContainer):
             force: if True, calculate/update all glissando targets
 
         """
-        _resolveGlissandi(self.recurse(), force=force)
-        return
+        _resolveGlissandi(self._recurse(), force=force)
 
     def _synthEvents(self,
                      playargs: PlayArgs,
@@ -650,7 +663,12 @@ class Chain(MContainer):
 
     def convertGlissTargetsToGracenotes(self) -> list[MEvent]:
         """
-        Convert gliss. endnotes within events as actual events with dur=0, in place
+        Convert gliss. end pitches within events as gracenotes, in place
+
+        Returns:
+            the list of newly created gracenotes (an empty list if no changes
+            where performed). The returned gracenotes are part of self or
+            any corresponding subchain
         """
         items = []
         gracenotes = []
@@ -726,7 +744,7 @@ class Chain(MContainer):
 
     @dur.setter
     def dur(self, value):
-        raise AttributeError(f"Objects of class {type(self).__name__} cannot set their duration")
+        raise AttributeError(f"Duration is readonly for instances of {type(self)}")
 
     def append(self, item: MEvent) -> None:
         """
@@ -797,7 +815,8 @@ class Chain(MContainer):
         else:
             return self.items.__getitem__(idx)
 
-    def _dumpRows(self, indents=0, now=F0, forcetext=False) -> list[str]:
+    def _dumpRows(self, indents=0, now=F0, forcetext=False, struct: ScoreStruct|None = None
+                  ) -> list[str]:
         fontsize = '85%'
         IND = '  '
         selfstart = f"{float(self.offset):.3g}" if self.offset is not None else 'None'
@@ -819,7 +838,8 @@ class Chain(MContainer):
         }
         T = _util.showT
 
-        struct = self.scorestruct() or Workspace.active.scorestruct
+        if struct is None:
+            struct = self.scorestruct() or Workspace.active.scorestruct
 
         if environment.insideJupyter and not forcetext:
             r = type(self).__name__
@@ -829,8 +849,11 @@ class Chain(MContainer):
                       )
             if self.label:
                 header += f', label: {self.label}'
+            if self._postSymbols:
+                header += f', postsymbols: {self._postSymbols}'
             header += '</span></code>'
             rows = [header]
+
             columnparts = [IND*(indents+1)]
             for k, width in widths.items():
                 columnparts.append(k.ljust(width))
@@ -879,7 +902,7 @@ class Chain(MContainer):
                         rows.append(row)
 
                 elif isinstance(item, Chain):
-                    rows.extend(item._dumpRows(indents=indents+1, now=now+itemoffset, forcetext=forcetext))
+                    rows.extend(item._dumpRows(indents=indents+1, now=now+itemoffset, forcetext=forcetext, struct=struct))
             return rows
         else:
             rows = [f"{IND * indents}Chain -- beat: {T(self.absOffset())}, offset: {selfstart}, dur: {T(self.dur)}",
@@ -894,7 +917,7 @@ class Chain(MContainer):
                                 f'{T(itemdur).ljust(7)}'
                                 f'{item}')
                 elif isinstance(item, Chain):
-                    rows.extend(item._dumpRows(indents=indents+1, forcetext=forcetext, now=now+itemoffset))
+                    rows.extend(item._dumpRows(indents=indents+1, forcetext=forcetext, now=now+itemoffset, struct=struct))
                 else:
                     raise TypeError(f"Expected an MEvent or a Chain, got {item}")
             return rows
@@ -1198,14 +1221,12 @@ class Chain(MContainer):
     def scoringParts(self,
                      config: CoreConfig | None = None
                      ) -> list[scoring.core.UnquantizedPart]:
-        activeconfig = config or Workspace.active.config
-        ownconfig = self.getConfig(prototype=activeconfig)
-        config = ownconfig or activeconfig
+        config, iscustomized = self._resolveConfig(config)
         parts = self._scoringParts(
             config=config,
             maxstaves=config["show.voiceMaxStaves"],
             name=self.label,
-            addQuantizationProfile=ownconfig is not None)
+            addQuantizationProfile=iscustomized)
         return parts
 
     def quantizePitch(self, step=0.):
@@ -1487,7 +1508,8 @@ class Chain(MContainer):
     def addSpanner(self,
                    spanner: str | symbols.Spanner,
                    start: location_t | MEvent | None = None,
-                   end: location_t | MEvent | None = None
+                   end: location_t | MEvent | None = None,
+                   post=False
                    ) -> Self:
         """
         Adds a spanner symbol across this object
@@ -1530,7 +1552,7 @@ class Chain(MContainer):
             end = self.lastEvent(acceptRest=spanner.appliesToRests)
             if end is None:
                 raise RuntimeError(f"This {type(self)} has no event to apply {spanner} to")
-        if isinstance(start, MEvent) and isinstance(end, MEvent):
+        if not post and isinstance(start, MEvent) and isinstance(end, MEvent):
             start.addSpanner(spanner=spanner, endobj=end)
         else:
             startloc = start.absOffset() if isinstance(start, MEvent) else start
@@ -1539,7 +1561,11 @@ class Chain(MContainer):
 
         return self
 
-    def addSymbolAt(self, symbol: symbols.EventSymbol | str, location: time_t | tuple[int, time_t]
+    def addSymbolAt(self,
+                    symbol: symbols.EventSymbol | str,
+                    offset: beat_t,
+                    post=False,
+                    skipGracenotes=False
                     ) -> Self:
         """
         Adds a symbol at the given location
@@ -1551,8 +1577,15 @@ class Chain(MContainer):
         is added to the event directly.
 
         Args:
-            location: the location to add the symbol at
             symbol: the symbol to add
+            offset: the location to add the symbol as an absolute beat or a location (measureindex, measureoffset)
+            post: if True, add this symbol at quantization, not to the event itself. If there
+                is no event starting at the given offset, post is enforced even if false
+            skipGracenotes: accept adding the symbol if the note found at location
+                is a gracenote. If there are multiple notes found at the location (this
+                happens only if a note starts at the location, preceded
+                by one or many gracenotes), passing True would apply
+                the symbol to the "real" event, skipping the gracenotes
 
         Returns:
             self
@@ -1569,15 +1602,24 @@ class Chain(MContainer):
 
         .. seealso:: :meth:`Chain.addBreak`
         """
-        struct = self.scorestruct() or Workspace.active.scorestruct
-        offset = struct.asBeat(location)
-        event = self.eventAt(offset)
+        absoffset = self._locationToAbsOffset(offset)
+        events = self.eventsAt(absoffset)
+        if not events:
+            event = None
+            post = True
+        elif skipGracenotes:
+            event = next((ev for ev in events if not ev.isGrace()), None)
+        else:
+            event = events[0]
         if isinstance(symbol, str):
-            symbol = symbols.makeKnownSymbol(symbol)
-        if event and event.absOffset() == offset:
+            _symbol = symbols.makeKnownSymbol(symbol)
+            if _symbol is None:
+                raise ValueError(f"Could not create a symbol from {symbol}")
+            symbol = _symbol  # type: ignore
+        if not post and event and event.absOffset() == absoffset:
             event.addSymbol(symbol)
         else:
-            self._postSymbols.append((symbol, offset, None))
+            self._postSymbols.append((symbol, absoffset, None))
         return self
 
     def addSymbol(self, *args, **kws) -> Self:
@@ -1637,10 +1679,17 @@ class Chain(MContainer):
             return next(self.recurse(reverse=True))
         return next((ev for ev in self.recurse(reverse=True) if not ev.isRest()), None)
 
-    def eventAt(self, location: time_t | tuple[int, time_t], split=False, margin=F(1, 8)
+    def eventAt(self, location: beat_t, split=False, margin: F = F0, start=False
                 ) -> MEvent | None:
         """
         The event present at the given location
+
+        .. note::
+
+            If there are multiple events at the given location (gracenotes have a duration
+            if 0 and thus can share a location with other gracenotes and with an event
+            starting at that location) only the first event will be returned.
+            Use :meth:`Chain.eventsAt` to return all events at a given location
 
         Args:
             location: the beat or a tuple (measureindex, beatoffset). If a beat is given,
@@ -1650,30 +1699,66 @@ class Chain(MContainer):
                 a tied event. If the returned event is not modified (no symbol is added or
                 any other property is changed) it might be remerged when shown as notation.
                 To prevent merging without any other visible side-effects you can add
-                a NoMerge symbol (part.addSymbol(symbols.NoMerge))
-            margin: a time margin (in quarternotes) from the given location. This can
-                help in corner cases
+                a NoMerge symbol to the returned event
+            margin: if given, the first event within location and location+margin will be
+                returned
+            start: if True, an event will be returned only if it starts at the given offset
 
         Returns:
             the event present at the given location, or None if no event was found. An
-            explicit rest will be returned if found but empty space will return None.
+            explicit rest will be returned if found but empty space will return None. If there
+            are multiple events at the given location (due to gracenotes having 0 duration),
+            the first event will be returned.
+
+        .. seealso:: :meth:`Chain.eventsBetween`, :meth:`Chain.eventsAt`
         """
-        if isinstance(location, tuple):
-            struct = self.scorestruct() or Workspace.active.scorestruct
-            measidx, beat = location
-            start = struct.locationToBeat(measidx, beat)
-        else:
-            start = asF(location)  # type: ignore
-        end = start + margin
+        eps = margin if margin else F(1, 10000)
+        start = self._locationToAbsOffset(location)
+        end = start + eps
         events = self.eventsBetween(start, end)
         if not events:
             return None
-        event = events[0]
+        if not start:
+            event = events[0]
+        else:
+            event = next((ev for ev in events if ev.absOffset() == start), None)
+            if event is None:
+                return None
         if split:
             eventoffset = event.absOffset()
             if eventoffset < start < eventoffset + event.dur:
                 event = self.splitAt(start, beambreak=False, nomerge=False)
         return event
+
+    def _locationToAbsOffset(self, location: beat_t) -> F:
+        if isinstance(location, tuple):
+            struct = self.scorestruct() or Workspace.active.scorestruct
+            measidx, beat = location
+            offset = struct.locationToBeat(measidx, beat)
+        else:
+            offset = asF(location)  # type: ignore
+        return offset
+
+    def eventsAt(self, location: beat_t, start=False) -> list[MEvent]:
+        """
+        Returns all events present at the given location
+
+        Args:
+            location: the beat or a tuple (measureindex, beatoffset). If a beat is given,
+                it is interpreted as an absoute offset
+            start: if True, only events **starting** at the given location are returned
+
+        Returns:
+            the events present or starting at the given location
+        """
+        offset = self._locationToAbsOffset(location)
+        EPS = F(1, 100000)
+        if start:
+            events = [ev for ev, offset in self.eventsWithOffset(start=offset, end=offset+EPS)
+                      if offset == start]
+        else:
+            events = [ev for ev, _ in self.eventsWithOffset(start=offset, end=offset + EPS)]
+        return events
 
     def eventsBetween(self,
                       start: beat_t,
@@ -1715,7 +1800,7 @@ class Chain(MContainer):
         """
         First event starting at or after offset
 
-        If you want strictly events after offset, add an epsilon to offset
+        If you want events strictly after offset, add an epsilon to offset
 
         Args:
             offset: absolute start location (a beat or score location)
@@ -2085,7 +2170,7 @@ class Chain(MContainer):
             location: the absolute location to break the beam (a beat or a tuple (measureidx, beat))
 
         """
-        self.addSymbolAt(location=location, symbol=symbols.BeamBreak())
+        self.addSymbolAt(offset=location, symbol=symbols.BeamBreak(), post=True)
 
     def cropped(self, start: beat_t, end: beat_t) -> Self | None:
         """
@@ -2107,7 +2192,8 @@ class Chain(MContainer):
         cropped = self._cropped(startbeat=startbeat, endbeat=endbeat)
         if not cropped.items:
             return None
-        cropped.removeRedundantOffsets()
+        if any(item.offset is None for item in self.items):
+            cropped.removeRedundantOffsets()
         return cropped
 
 
@@ -2341,15 +2427,13 @@ class Voice(Chain):
 
     def scoringParts(self, config: CoreConfig | None = None
                      ) -> list[scoring.core.UnquantizedPart]:
-        activeconfig = config or Workspace.active.config
-        ownconfig = self.getConfig(prototype=activeconfig)
-        config = ownconfig or activeconfig
+        config, iscustomized = self._resolveConfig(config)
         parts = self._scoringParts(config=config,
                                    maxstaves=config['show.voiceMaxStaves'],
                                    name=self.name or self.label,
                                    shortname=self.shortname,
                                    groupParts=self._group is None,
-                                   addQuantizationProfile=ownconfig is not None)
+                                   addQuantizationProfile=iscustomized)
         if self.symbols:
             for symbol in self.symbols:
                 if isinstance(symbol, symbols.PartMixin):
@@ -2565,6 +2649,7 @@ def _eventPairsBetween(eventpairs: list[tuple[MEvent, F]],
                 # A gracenote
                 out.append((event, offset))
     else:
+
         for event, offset in eventpairs:
             if offset > end:
                 break

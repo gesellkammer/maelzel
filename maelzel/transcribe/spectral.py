@@ -14,6 +14,13 @@ if TYPE_CHECKING:
     from maelzel.partialtracking.partialtrack import PartialTrack
     import maelzel.core as mc
     from maelzel.scorestruct import ScoreStruct
+    
+
+__all__ = (
+    'transcribeTracks',
+    'transcribe',
+    'TranscriptionOptions'
+)
 
 
 def partialToBreakpoints(partial: Partial,
@@ -96,6 +103,8 @@ def transcribeTracks(tracks: list[PartialTrack],
         A score object representing the transcribed tracks.
     """
     import maelzel.core
+    if options is None:
+        options = TranscriptionOptions()
 
     voices = [trackToVoice(track.partials, scorestruct=scorestruct, options=options)
               for track in tracks]

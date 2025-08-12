@@ -182,7 +182,7 @@ class Score(MContainer):
                 pitch = obj.meanPitch()
                 if pitch is None:
                     pitch = items[-1].step if items else 60
-                item = packing.Item(obj, offset=obj.absOffset(), dur=obj.dur, step=pitch)
+                item = packing.Item(obj, offset=float(obj.absOffset()), dur=float(obj.dur), step=pitch)
                 items.append(item)
             else:
                 raise TypeError(f"Cannot pack {obj}")
@@ -296,10 +296,10 @@ class Score(MContainer):
                      ) -> list[scoring.core.UnquantizedPart]:
         self._update()
         parts = []
-        activeconfig = config or Workspace.active.config
-        ownconfig = self.getConfig(prototype=activeconfig)
+        config, iscustomized = self._resolveConfig(config)
+        config['show.voiceMaxStaves'] = 1
         for voice in self.voices:
-            voiceparts = voice.scoringParts(config=ownconfig or activeconfig)
+            voiceparts = voice.scoringParts(config=config)
             parts.extend(voiceparts)
         return parts
 

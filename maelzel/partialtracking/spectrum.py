@@ -990,13 +990,15 @@ class Spectrum:
                       maxrange: int = 36,
                       relerror=0.05,
                       distribution: float | Callable[[float], float] | list[float] | None = 2.,
-                      numbands: int = None,
+                      numbands: int = 4,
                       mingap=0.1,
                       audibilityCurveWeight=1.,
                       noisebw=0.001,
                       noisefreq=3500,
                       minbreakpoints=1,
-                      debug=False
+                      debug=False,
+                      _method='insert',
+                      _indexPeriod=0.
                       ) -> pack.SplitResult:
         """
         Split this spectrum into tracks
@@ -1068,13 +1070,15 @@ class Spectrum:
                 maxnoisetracks=noisetracks,
                 noisefreq=noisefreq,
                 noisebw=noisebw,
+                method=_method,
+                indexPeriod=_indexPeriod,
                 debug=debug)
             return pack.SplitResult(distribution=distribution,
                                     tracks=tracks,
                                     noisetracks=residualtracks,
                                     residual=unfittedpartials)
         else:
-            assert isinstance(distribution, (list, tuple))
+            assert distribution is None or isinstance(distribution, (list, tuple))
             return pack.optimizeSplit(self.partials,
                                       maxtracks=maxtracks,
                                       maxrange=maxrange,

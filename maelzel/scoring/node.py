@@ -176,7 +176,7 @@ class Node:
         items = []
         for item in self.items:
             if isinstance(item, Notation):
-                items.append(item)
+                items.append(item.copy(spanners=True))
             else:
                 items.append(item.copy())
         return Node(items=items, ratio=self.durRatio, parent=self.parent,
@@ -1105,13 +1105,14 @@ class Node:
             offset0, end0 = fragments[0]
             offset1, end1 = fragments[1][0], fragments[-2][1]
             offset2, end2 = fragments[-1]
-            n0 = n.clone(offset=offset0, duration=end0-offset0)
-            n1 = n.clone(offset=offset1, duration=end1-offset1)
-            n2 = n.clone(offset=offset2, duration=end2-offset2)
+            n0 = n.clone(offset=offset0, duration=end0-offset0, spanners=False)
+            n1 = n.clone(offset=offset1, duration=end1-offset1, spanners=False)
+            n2 = n.clone(offset=offset2, duration=end2-offset2, spanners=False)
             for part in (n0, n1, n2):
                 if part.hasRegularDuration():
                     parts.append(part)
                 else:
-                    parts.extend(breakIrregularNotationInNode(part, beatstruct=beatstruct))
+                    parts.extend(Node.breakIrregularDurationInNode(part, beatstruct=beatstruct))
             Notation.tieNotations(parts)
+            n._copySpannersToSplitNotation(parts)
             return parts

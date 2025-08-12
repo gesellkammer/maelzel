@@ -187,7 +187,7 @@ class QuantizationProfile:
     allowedTupletsAcrossBeat: tuple[int, ...] = (1, 2, 3, 4, 5, 8)
     """Which tuplets are allowed to cross the beat"""
 
-    allowedNestedTupletsAcrossBeat: tuple[tuple[int, int], ...] = ((3, 3),)
+    allowedNestedTupletsAcrossBeat: tuple[tuple[int, int], ...] = ((3, 3), (3, 5), (5, 3))
     """Which nested tuplets are allowed to cross the beat?
 
     Nested tuplets are those which are non-binary at more than one level, like
@@ -223,7 +223,7 @@ class QuantizationProfile:
     'strong': only strong beats, 'weak': ??)
     """
 
-    tiedSnappedGracenoteMinRealDuration: F = F(1, 1000000)
+    tiedSnappedGracenoteMinRealDuration: F = F(1, 1000)
     """
     The min. real duration of a tied snapped gracenote in order for it NOT
     to be removed
@@ -233,7 +233,6 @@ class QuantizationProfile:
 
     subdivisionTempoThreshold: int = 96
 
-
     _cachedDivisionsByTempo: dict[tuple[num_t, bool], list[division_t]] = _field(default_factory=dict)
     _cachedDivisionPenalty: dict[tuple[int, ...], tuple[float, str]] = _field(default_factory=dict)
 
@@ -241,6 +240,9 @@ class QuantizationProfile:
         assert self.breakSyncopationsLevel in ('strong', 'none', 'all', 'weak'), f"{self.breakSyncopationsLevel=}"
         for attr, value in self.__dataclass_fields__.items():  # type: ignore
             assert not isinstance(value, (list, dict)), f"Unhashable {attr=}{value}"
+
+    def copy(self) -> QuantizationProfile:
+        return copy.copy(self)
 
     def modified(self):
         """
@@ -369,6 +371,12 @@ class QuantizationProfile:
     def default() -> QuantizationProfile:
         return QuantizationProfile()
 
+    @cache
+    @staticmethod
+    def keys() -> set[str]:
+        return set(field.name for field in _fields(QuantizationProfile)
+                   if not field.name.startswith('_'))
+
     @staticmethod
     def fromPreset(complexity='high',
                    nestedTuplets: bool | None = None,
@@ -388,35 +396,27 @@ class QuantizationProfile:
             the quantization preset
 
         """
-        def cascade(key: str, kws: dict, preset: quantdata.QuantPreset, default: QuantizationProfile):
-            if (val := kws.get(key, None)) is not None:
-                return val
-            if hasattr(preset, key) and ((val := getattr(preset, key)) is not None):
-                return val
-            if (val := getattr(default, key)) is not None:
-                return val
-            raise ValueError(f"All values are None for key '{key}'")
 
         presets = quantdata.getPresets()
         preset = presets.get(complexity)
         if preset is None:
             raise ValueError(f"complexity preset {complexity} unknown. Possible values: {presets.keys()}")
 
-        keys = [field.name for field in _fields(QuantizationProfile)
-                if not field.name.startswith('_')]
-        defaultProfile = QuantizationProfile.default()
-        for key in keys:
-            if key.startswith('_'):
-                continue
-            value = cascade(key, kws, preset, defaultProfile)
-            kws[key] = value
+        profilekeys = QuantizationProfile.keys()
+        presetkeys = set([field.name for field in _fields(quantdata.QuantPreset)])
+        presetkws = {key: value for key in presetkeys.intersection(profilekeys)
+                     if (value:=getattr(preset, key)) is not None}
         if nestedTuplets is not None:
             kws['nestedTuplets'] = nestedTuplets
         if not kws.get('name'):
             kws['name'] = complexity
         if blacklist is not None:
             kws['blacklist'] = blacklist if isinstance(blacklist, tuple) else tuple(blacklist)
-        return QuantizationProfile(**kws)
+
+        if kws:
+            presetkws.update(kws)
+
+        return QuantizationProfile(**presetkws)
 
 
 @cache

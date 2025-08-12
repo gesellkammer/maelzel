@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from .config import CoreConfig
     from matplotlib.axes import Axes
     from maelzel.scorestruct import ScoreStruct
-    breakpoint_t: TypeAlias = list[float]
+    breakpoint_t: TypeAlias = tuple[float, ...]
     from maelzel.core import presetdef
     from typing import TypeVar, ClassVar
     _T = TypeVar('_T')
@@ -634,8 +634,7 @@ class SynthEvent:
         if self.sustain > 0:
             last = self.bps[-1]
             assert isinstance(last, list)
-            bp = last.copy()
-            bp[0] = last[0] + self.sustain
+            bp = (last[0] + self.sustain, *last[1:])
             self.bps.append(bp)
         elif self.sustain < 0:
             self.crop(0., self.dur + self.sustain)
@@ -674,7 +673,7 @@ class SynthEvent:
         return out
 
     def copy(self) -> SynthEvent:
-        return SynthEvent(bps=[bp.copy() for bp in self.bps],
+        return SynthEvent(bps=self.bps.copy(),
                           delay=self.delay,
                           chan=self.chan,
                           fade=self.fade,
@@ -1210,8 +1209,7 @@ def mergeEvents(events: Sequence[SynthEvent], checkStaticAttributes=True
         now = event.bps[-1][0] + event.delay
 
         for bp in event.bps[:-1]:
-            bp = bp.copy()
-            bp[0] += event.delay - firstdelay
+            bp = (bp[0]+ event.delay - firstdelay, *bp[1:])
             bps.append(bp)
 
     # Add the last breakpoint of the last event

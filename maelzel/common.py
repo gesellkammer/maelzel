@@ -35,7 +35,7 @@ time_t: _t.TypeAlias = _t.Union[int, float, F]
 pitch_t: _t.TypeAlias = _t.Union[int, float, str]
 timesig_t: _t.TypeAlias = tuple[int, int]
 location_t: _t.TypeAlias = tuple[int, time_t]
-beat_t: _t.TypeAlias = _t.Union[F, float, location_t]
+beat_t: _t.TypeAlias = _t.Union[time_t, location_t]
 
 
 F0: F = F(0)

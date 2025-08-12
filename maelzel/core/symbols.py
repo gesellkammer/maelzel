@@ -475,16 +475,6 @@ class LineSpan(Spanner):
         n.addSpanner(spanner)
 
 
-class QuantHint(Spanner):
-    def __init__(self, ratio: tuple[int, int], kind='start', uuid=''):
-        super().__init__(kind=kind, uuid=uuid)
-        self.ratio = ratio
-
-    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        n.addSpanner(scoring.spanner.QuantHint(ratio=self.ratio, kind=self.kind, uuid=self.uuid))
-
-
-
 
 _spannerNameToConstructor: dict[str, Any] = {
     'slur': Slur,
@@ -586,16 +576,16 @@ class EventSymbol(Symbol):
         color (str): The color of the symbol.
         placement (str): The placement of the symbol. One of 'above', 'below' or ''
             to use the default placement
-        preventMerge: if True, do not allow an event with this symbol to be merged
+        noMergeNext: if True, do not allow an event with this symbol to be merged
             with another event
     """
     appliesToRests = True
 
-    def __init__(self, color='', placement='', preventMerge=False):
+    def __init__(self, color='', placement='', noMergeNext=False):
         super().__init__()
         assert not placement or placement in ('above', 'below')
         self.placement = placement
-        self.preventMerge = preventMerge
+        self.noMergeNext = noMergeNext
         self.color = color
 
     def checkAnchor(self, anchor: mevent.MEvent) -> str:
@@ -607,7 +597,7 @@ class EventSymbol(Symbol):
                                   "override applyToNotation")
 
     def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
-        if self.preventMerge:
+        if self.noMergeNext:
             n.mergeableNext = False
         attachment = self.scoringAttachment()
         n.addAttachment(attachment)
@@ -681,6 +671,37 @@ class PartMixin:
 
 # ----------------------------------------------------------
 
+class BeamSubdivision(EventSymbol):
+    """
+    Customize beam subdivision
+    
+    The customization is applied to the beat starting at this event
+
+    The beams of consecutive 16th (or shorter) notes are, by default, not subdivided.
+    That is, the beams of more than two stems stretch unbroken over entire groups of notes.
+    This behavior can be modified to subdivide the beams into sub-groups. Beams will be
+    subdivided at intervals to match the metric value of the subdivision.
+
+    .. note:: At the moment this is only supported by the lilypond backend
+
+    Args:
+        minimum: minimum limit of beam subdivision. A fraction or simply the denominator.
+            1/8 indicates an eighth note, 16 indicates a 16th note
+        maximum: maximum limit of beam subdivision. Similar to minimum
+        
+    """
+    exclusive = True
+    appliesToRests = True
+    
+    def __init__(self, minimum: int | F = 0, maximum: int | F = 0):
+        super().__init__()
+        self.minimum = minimum
+        self.maximum = maximum
+        
+    def scoringAttachment(self) -> scoring.attachment.Attachment:
+        return scoring.attachment.BeamSubdivisionHint(minimum=self.minimum, maximum=self.maximum)
+    
+        
 class Clef(EventSymbol):
     """
     An explicit clef sign, applied prior to the event attached
@@ -785,7 +806,7 @@ class Fermata(EventSymbol):
             mergenext: whether an event with a fermata can be merged with
                 its right neighbour (if tied or two rests)
         """
-        super().__init__(color=color, preventMerge=not mergenext)
+        super().__init__(color=color, noMergeNext=not mergenext)
         self.kind = kind
 
     def scoringAttachment(self) -> scoring.attachment.Attachment:
@@ -1134,7 +1155,7 @@ class Notehead(NoteheadSymbol):
 
 
 def iscolor(s: str) -> bool:
-    return re.match(r"^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$", s) or s in colortheory.cssColors()
+    return (re.match(r"^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$", s)) is not None or s in colortheory.cssColors()
 
 
 def makeKnownSymbol(name: str) -> Symbol | None:
@@ -1264,7 +1285,6 @@ class Fingering(EventSymbol):
 
     def __init__(self, finger: str):
         super().__init__()
-
         self.finger = finger
 
     def scoringAttachment(self) -> scoring.attachment.Attachment:
@@ -1299,6 +1319,10 @@ class NoMerge(EventSymbol):
     This is true even if the note is tied to the previous and the
     symbolic durations, after quantization, are compatible to be
     merged into a longer duration
+    
+    Args:
+        prev: if True, this cannot be merged to the previous note
+        next: if True, this cannot be merged to the next note
     """
     appliesToRests = True
 
@@ -1347,7 +1371,7 @@ class Gracenote(EventSymbol):
 
     def checkAnchor(self, anchor: mevent.MEvent) -> str:
         if anchor.dur != 0:
-            return f'A Gracenote symbol can only be added to a gracenote, got {anchor}'
+            return f'A {type(self)} can only be added to a gracenote, got {anchor}'
         return ''
 
 
@@ -1379,16 +1403,13 @@ class GlissProperties(EventSymbol):
         if self.hidden:
             n.gliss = False
             return
-
-        if not n.gliss and not (n.tiedPrev and n.tiedNext):
-            logger.warning("Applying GlissProperties to a Notation without glissando,"
-                           f"(destination: {n}")
+        elif not n.gliss and not (n.tiedPrev and n.tiedNext):
+            raise ValueError("Cannot apply GlissProperties to a Notation without glissando,"
+                             f"(destination: {n})")
         n.addAttachment(scoring.attachment.GlissProperties(linetype=self.linetype, color=self.color))
 
     def checkAnchor(self, anchor: mevent.MEvent) -> str:
-        if not anchor.gliss:
-            return f'This event ({self}) has no glissando'
-        return ''
+        return f'This event ({self}) has no glissando' if not anchor.gliss else ''
 
 
 class Accidental(NoteheadSymbol):
@@ -1444,20 +1465,27 @@ class Accidental(NoteheadSymbol):
 
 # -------------------------------------------------------------------
 
+
+class QuantHint(EventSymbol):
+    def __init__(self, division: tuple[int, ...], strength=100.):
+        super().__init__()
+        self.division = division
+        self.strength = strength
+
+    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
+        n.addAttachment(scoring.attachment.QuantHint(division=self.division, strength=self.strength))
+
+
 class BeamBreak(EventSymbol):
     """
-    Symbolizes a syncopation (beam) break at the given location or at the given note
+    Symbolizes a beam break at the given location 
 
-    A BeamBreak can be added both to a Note/Chord or to a Voice. If it is added to
-    a note, the location needs to be left unset since the location will be determined
-    by the note itself. If it is added to a Voice, the location indicates the
-    absolute offset at which a beam/syncopation will be broken.
-
+    A BeamBreak can be added both to a Note/Chord or to a Voice via ``.addSymbolAt``. 
+    
     .. note::
 
         When a BeamBreak is added to a Part this does not modify in any way the
-        contents of the Voice. The modification takes place further down the line
-        when the voice is quantized. It is the quantized part which is modified.
+        contents of the Voice. The modification takes place at quantization. 
         The resulting Notation present at the given location is broken at that
         point (adding a tie if needed)
     """
@@ -1533,7 +1561,8 @@ _symbolClasses = (
 )
 
 _voiceSymbols = (
-    Transpose
+    Transpose,
+    
 )
 
 

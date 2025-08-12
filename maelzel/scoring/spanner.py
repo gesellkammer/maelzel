@@ -55,10 +55,31 @@ class Spanner:
         self.parent: Notation | None = None
         """If given, the Notation to which this spanner is attached. Not always present"""
 
-        self.nestingLevel = 1
+        self.nestingLevel = 0
         """The nesting level of this spanner. """
 
         assert self.uuid
+
+    @staticmethod
+    def make(cls: str, kind='start', linetype='', placement='', color='') -> Spanner:
+        spannercls = Spanner._strToClass(cls)
+        spanner = spannercls(kind=kind, linetype=linetype, placement=placement, color=color)
+        return spanner
+
+    @staticmethod
+    def _strToClass(s: str) -> type(Spanner):
+        cls = {
+            'slur': Slur,
+            'beam': Beam
+        }.get(s.lower())
+        if cls is None:
+            raise ValueError(f"Unknown spanner class: {s}")
+        return cls
+
+    @staticmethod
+    def fromStr(s: str) -> Spanner:
+        cls = Spanner._strToClass(s)
+        return cls()
 
     def __hash__(self):
         return hash((self.uuid, self.kind))
@@ -107,16 +128,30 @@ class Spanner:
         return self.linetype or self.defaultLinetype
 
 
-def markNestingLevels(notations: Iterable[Notation]) -> None:
+def markSpannerNestingLevel(notations: Iterable[Notation]) -> list[Spanner]:
+    """
+    Marks the nesting levels on these notations, returns a list of open spanners
+    Args:
+        notations: 
+
+    Returns:
+
+    """
     openSpanners: dict[str, Spanner] = {}
-    clsNesting: dict[type, int] = {}
+    openSpannersByClass: dict[type, list[str]] = {}
     for n in notations:
         if not n.spanners:
             continue
         for spanner in n.spanners:
             if spanner.kind == 'start':
                 openSpanners[spanner.uuid] = spanner
-                clsNesting[type(spanner)] = level = clsNesting.get(type(spanner), 0) + 1
+                cls = type(spanner)
+                if (uuids := openSpannersByClass.get(cls)) is not None:
+                    uuids.append(spanner.uuid)
+                    level = len(uuids)
+                else:
+                    openSpannersByClass[cls] = [spanner.uuid]
+                    level= 1
                 spanner.nestingLevel = level
             else:
                 assert spanner.kind == 'end', f"Invalid spanner: {spanner}"
@@ -125,44 +160,13 @@ def markNestingLevels(notations: Iterable[Notation]) -> None:
                     logger.error(f"No start spanner found for {spanner}")
                 else:
                     spanner.nestingLevel = startspanner.nestingLevel
-    for spanner in openSpanners.items():
-        logger.error(f"No end spanner found for {spanner}")
-
-
-def _markNestingLevels(notations: Iterable[Notation]) -> None:
-    """
-    Mark the nesting level of each spanner in the given notations.
-
-    Args:
-        notations: An iterable of notations to mark.
-
-    Returns:
-        None
-    """
-    openSpannersByClass: dict[type, list[Spanner]] = {}
-    uuidToLevel: dict[str, int] = {}
-    for n in notations:
-        if not n.spanners:
-            continue
-        for spanner in n.spanners:
-            if spanner.kind == 'start':
-                openspanners = openSpannersByClass.setdefault(type(spanner), [])
-                openspanners.append(spanner)
-                for i, spanner2 in enumerate(openspanners):
-                    spanner2.nestingLevel = len(openspanners) - i
-                    uuidToLevel[spanner2.uuid] = spanner2.nestingLevel
-            else:
-                assert spanner.kind == 'end', f"Invalid spanner: {spanner}"
-                openspanners = openSpannersByClass.get(type(spanner))
-                if openspanners:
-                    startspanner = next((s for s in openspanners if s.uuid == spanner.uuid), None)
-                    if startspanner is None:
-                        logger.error(f"Unmatched end spanner: {spanner}")
-                    else:
-                        openspanners.remove(startspanner)
-                        level = uuidToLevel.get(startspanner.uuid)
-                        if level is not None:
-                            spanner.nestingLevel = level
+                    uuids = openSpannersByClass[type(spanner)]
+                    uuids.remove(startspanner.uuid)
+    if openSpanners:
+        for uuid, spanner in openSpanners.items():
+            logger.error(f"No end spanner found for {spanner}, {openSpannersByClass=}")
+        return list(openSpanners.values())
+    return []
 
 
 def matchOrfanSpanners(notations: Iterable[Notation], removeUnmatched=False) -> None:
@@ -365,12 +369,6 @@ class LineSpan(Spanner):
         self.starthook = starthook
         self.endhook = endhook
 
-
-class QuantHint(Spanner):
-    def __init__(self, ratio: tuple[int, int], kind='start', uuid=''):
-        super().__init__(kind=kind, uuid=uuid)
-        self.ratio = ratio
-        
 
 def solveHairpins(notations: Sequence[Notation], startDynamic='mf') -> None:
     """

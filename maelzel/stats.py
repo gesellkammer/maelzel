@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 from typing import TYPE_CHECKING
+import itertools
 
 
 if TYPE_CHECKING:
@@ -16,6 +17,11 @@ class Quantile1d:
 
     Args:
         data: The data to calculate the quantile for
+
+    Examples
+    ~~~~~~~~
+
+    TODO
     """
     def __init__(self, data: npt.ArrayLike):
         arr = np.asarray(data)
@@ -36,6 +42,8 @@ class Quantile1d:
 
         Returns:
             The quantile corresponding to the given value (a value between 0 and 1)
+            The returned value indicates the relative position of the given value
+            within the data. A value corresponding to the median returns 0.5
         """
         if value < self.data[0]:
             return 0.
@@ -83,92 +91,22 @@ class Quantile1d:
         else:
             raise ValueError(f"Invalid method {method}")
 
-    def plot(self, axes=None, show=True) -> Axes:
+    def plot(self, feature="value", n=200, axes=None, show=True) -> Axes:
         import matplotlib.pyplot as plt
         if axes is None:
             fig, axes = plt.subplots()
-        quantiles = np.linspace(0, 1, 100)
-        values = [self.value(q) for q in quantiles]
-        axes.plot(quantiles, values)
+        if feature == "value":
+            quantiles = np.linspace(0, 1, n)
+            values = [self.value(q) for q in quantiles]
+            axes.plot(quantiles, values)
+        elif feature == 'quantile':
+            values = np.linspace(self.data[0], self.data[-1], n)
+            quantiles = [self.quantile(v) for v in values]
+            axes.plot(values, quantiles)
+        else:
+            raise ValueError(f"One of 'value' or 'quantile', got {feature}")
         if show:
             plt.show()
-        return axes
-
-
-class Histogram:
-    """
-    A class representing a Histogram and mapping between percentile and values
-
-    .. note:: Deprecated!
-
-    Args:
-        values: the values to evaluate
-        numbins: the number of bins
-    """
-    def __init__(self, values: Sequence[int | float] | np.ndarray, numbins: int = 20):
-        import warnings
-        warnings.warn("This class is deprecated and will be removed in a future version.")
-
-        valuearray = np.asarray(values)
-        counts, edges = np.histogram(valuearray, bins=numbins)
-        self.counts = counts
-        """How many values lie within each bin"""
-
-        self.edges = edges
-        """The edges of the bins. len(edges) == numbins + 1. edges[0] == min(values), edges[-1] == max(values)"""
-
-        self.numbins = numbins
-        """The number of bins"""
-
-        self.values = values
-        """The values passed to this Histogram"""
-
-        self._percentiles = np.linspace(0, 1, len(edges))
-
-    def valueToPercentile(self, value: float) -> float:
-        """
-        Convert a value to its percentile within the distribution
-
-        Args:
-            the value to convert
-
-        Returns:
-            the percentile, a number between 0 and 1
-        """
-        return float(np.interp(value, self.edges, self._percentiles))
-
-    def percentileToValue(self, percentile: float) -> float:
-        """
-        Interpolate a value corresponding to the given percentile
-
-        Args:
-            percentile: a percentile in the range [0, 1]
-
-        Returns:
-            the corresponding value. The accuracy will depend on the number
-            of bins within the histogram
-
-        """
-        return float(np.interp(percentile, self._percentiles, self.edges))
-
-    def __repr__(self):
-        return f"Histogram(numbins={self.numbins}, edges={self.edges})"
-
-    def plot(self, axes=None) -> Axes:
-        """
-        Plot this histogram
-
-        Args:
-            axes: the matplotlib axes to use
-
-        Returns:
-            the Axes used. It will be the value passed, if given, or the
-            created Axes if None
-        """
-        import matplotlib.pyplot as plt
-        if axes is None:
-            fig, axes = plt.subplots()
-        plt.stairs(self.counts, self.edges)
         return axes
 
 
@@ -186,8 +124,8 @@ def weightedHistogram(values: npt.ArrayLike,
     meaning a linear distribution).
 
     Args:
-        weights: list of weights
-        values: codependent dimension, same size as weights
+        values: list of values
+        weights: list of weights, same size as values
         numbins: number of bins
         distribution: either an exponent or a bpf between (0, 0) and (1, 1). When an exponent is given,
             a value of 1.0 will result in a linear distribution (all bins contain the same total weight),
@@ -212,17 +150,20 @@ def weightedHistogram(values: npt.ArrayLike,
     sortedvalues = valuesarr[sortedindexes]
     sortedweights = weightsarr[sortedindexes]
 
-    binweight = 0
+    accumweight = 0.
     edges = [float(sortedvalues[0])]
-    binindex = 0
-    threshold = relthresholds[binindex]
+    binindex = 1
+    absthresholds = [float(thresh * totalweight) for thresh in relthresholds]
+    absthresholds[-1] *= 100
+    threshold = absthresholds[binindex]
     for weight, value in zip(sortedweights, sortedvalues):
-        binweight += weight
-        if binweight / totalweight > threshold:
-            edges.append(float(value))
+        accumweight += float(weight)
+        if accumweight > threshold:
             binindex += 1
-            if binindex < numbins:
-                threshold = relthresholds[binindex]
+            edges.append(float(value))
+            threshold = absthresholds[binindex]
     if edges[-1] < sortedvalues[-1]:
         edges.append(float(sortedvalues[-1]))
+    assert len(edges) == numbins + 1, f"{numbins=}, {len(edges)=}, {edges=}, {relthresholds=}"
+    assert all(e0 < e1 for e0, e1 in itertools.pairwise(edges)), f"Edges should be sorted: {edges}"
     return edges

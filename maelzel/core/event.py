@@ -167,6 +167,7 @@ class Note(MEvent):
                     pitch = parsednote.notename
                     dur = parsednote.dur
 
+                assert isinstance(pitch, str)
                 pitch = pitch.lower()
 
                 if pitch == 'rest' or pitch == 'r':
@@ -622,10 +623,11 @@ class Note(MEvent):
         return notes
 
     def _asTableRow(self, config: CoreConfig | None = None) -> list[str]:
+        config = config or Workspace.active.config
+
         if self.isRest():
             elements = ["REST"]
         else:
-            config = config or Workspace.active.config
             notename = self.name
             if (unicodeaccidentals := config['reprUnicodeAccidentals']):
                 full = unicodeaccidentals == 'full'
@@ -802,12 +804,12 @@ class Note(MEvent):
         startpitch = self.pitch + transp
         if glissdur > 0.:
             glissstart = float(struct.beatToTime(max(startbeat, endbeat - glissdur)))
-            bps = [[startsecs,  startpitch,        amp],
-                   [glissstart, startpitch,        amp],
-                   [endsecs,    endpitch + transp, amp]]
+            bps = [(startsecs,  startpitch,        amp),
+                   (glissstart, startpitch,        amp),
+                   (endsecs,    endpitch + transp, amp)]
         else:
-            bps = [[startsecs, self.pitch + transp, amp],
-                   [endsecs,   endpitch + transp,   amp]]
+            bps = [(startsecs, self.pitch + transp, amp),
+                   (endsecs,   endpitch + transp,   amp)]
 
         event = synthevent.SynthEvent.fromPlayArgs(bps=bps, playargs=playargs)
         if playargs.automations:
@@ -1170,7 +1172,10 @@ class Chord(MEvent):
             the grace chord
         """
         chord = cls(notes=notes, dur=0, **kws)
-        _customizeGracenote(chord, stemless=stemless, slash=slash, value=value,
+        _customizeGracenote(chord,
+                            stemless=stemless,
+                            slash=slash,
+                            value=value,
                             parenthesis=parenthesis, hidden=hidden)
         return chord
 
@@ -1839,7 +1844,7 @@ def Grace(pitch: pitch_t | Sequence[pitch_t],
 def _customizeGracenote(grace: Note | Chord,
                         slash=False,
                         stemless=False,
-                        value: F | None = None,
+                        value: F | str | int | float | None = None,
                         hidden=False,
                         parenthesis=False,
                         ) -> None:
@@ -1854,8 +1859,8 @@ def _customizeGracenote(grace: Note | Chord,
         if stemless:
             grace.addSymbol(_symbols.Stem(hidden=True))
         elif slash or value:
-            value = F(1, 2) if not value else asF(value)
-            grace.addSymbol(_symbols.Gracenote(slash=True, value=value))
+            grace.addSymbol(_symbols.Gracenote(slash=True,
+                                               value=F(1, 2) if not value else asF(value)))
         if parenthesis:
             grace.addSymbol(_symbols.Notehead(parenthesis=True))
 

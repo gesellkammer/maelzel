@@ -202,6 +202,7 @@ def makeSoundfontAudiogen(sf2path: str,
         valuestr = ', '.join(map(str, velocityCurve))
         ivelstr = f'ivel = bpf(dbamp(iamp0_), {valuestr})'
     else:
+        assert isinstance(velocityCurve, presetdef.GainToVelocityCurve)
         ivelstr = f'ivel _linexp dbamp(iamp0_), {velocityCurve.exponent}, {velocityCurve.mindb}, {velocityCurve.maxdb}, {velocityCurve.minvel}, {velocityCurve.maxvel}'
 
     # ivel is a parameter of the preset, will be -1 by default,

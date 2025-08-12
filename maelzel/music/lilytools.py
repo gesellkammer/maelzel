@@ -338,7 +338,8 @@ def renderLily(lilyfile: str,
         ...
 
     if (not hasMidiBlock and not os.path.exists(outfile)) or result.returnCode != 0:
-        logger.error(f"Error while running lilypond, failed to produce a {fmt} file: {outfile}")
+        logger.error(f"Error while running lilypond (path={lilyfile}), "
+                     f"failed to produce a {fmt} file: {outfile}")
         logger.error(f"Return code: {result.returnCode}")
         logger.error(f"Outfile: '{outfile}', exists: {os.path.exists(outfile)}")
         logger.error("stdout: \n" + textwrap.indent(result.stdout, "!! "))

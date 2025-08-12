@@ -35,7 +35,6 @@ import math
 import re
 import html as _html
 from dataclasses import dataclass
-from functools import cache
 
 from maelzel.common import asmidi, F, asF, F0
 
@@ -87,6 +86,17 @@ class _TimeScale:
     def __call__(self, t: num_t):
         r = asF(t)
         return r*self.factor + self.offset
+
+@dataclass
+class _PostSymbol:
+    symbol: _symbols.Symbol
+    """A symbol or spanner"""
+
+    offset: F
+    """location to apply the symbol"""
+
+    end: F | None = None
+    """Only needed for spanners, end location"""
 
 
 class MObj(ABC):
@@ -2018,6 +2028,32 @@ class MContainer(MObj):
             return None if not self._config else prototype.clone(self._config)
         else:
             return parentconfig if not self._config else parentconfig.clone(self._config)
+
+    def _resolveConfig(self, config: CoreConfig | dict | None = None
+                       ) -> tuple[CoreConfig, bool]:
+        """
+        Returns a tuple (resolvedConfig, iscustomized)
+
+        where resolvedConfig is the config for this object, given any customizations,
+        and iscustomized is True if self has own customizations
+
+        Args:
+            config: a config to use as the active config. Any customizations made
+                will have priority over this
+
+        Returns:
+            a tuple (resolvedConfig: CoreConfig, iscustomized: bool)
+        """
+        if config is None:
+            activeconfig = Workspace.active.config
+        elif not isinstance(config, CoreConfig):
+            assert isinstance(config, dict)
+            activeconfig = CoreConfig(updates=config)
+        else:
+            activeconfig = config
+        ownconfig = self.getConfig(prototype=activeconfig)
+        config = ownconfig or activeconfig
+        return config, ownconfig is not None
 
     def nextEvent(self, event: MObj) -> _event.MEvent | None:
         """

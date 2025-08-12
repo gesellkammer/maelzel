@@ -110,8 +110,8 @@ defaultdict = {
 
     'htmlTheme': 'light',
 
-    'quant.syncopMinFraction': 1/6,
-    'quant.syncopPartMinFraction': 1/10,
+    'quant.syncopMinFraction': '1/6',
+    'quant.syncopPartMinFraction': '1/10',
     'quant.syncopMaxAsymmetry': 3,
     'quant.syncopExcludeSymDurs': (5, 7, 15),
     'quant.nestedTuplets': None,

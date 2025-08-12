@@ -836,7 +836,7 @@ def fixEnharmonicsInPlace(notations: list[Notation],
                         pitch0 = pt.notated_pitch(notename0)
                         if pitch1.midinote == pitch0.midinote and pitch1.vertical_position != pitch0.vertical_position:
                             pitch1 = pitch0
-                            print(f"Fixing tied pitch from {pitch1.fullname} to {pitch0.fullname}")
+                            logger.debug(f"Fixing tied pitch from {pitch1.fullname} to {pitch0.fullname}, {pitch0=}, {pitch1=}")
                     fixedNotenames.append(pitch1.fullname)
                 n1.setPitches(fixedNotenames, fixNotenames=True)
 

@@ -40,6 +40,7 @@ from emlib.result import Result
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
+    from maelzel.common import beat_t
     from .common import division_t
     from typing import Iterator, Sequence
     import maelzel.core
@@ -119,7 +120,7 @@ def snapEventsToGrid(notations: list[Notation],
     if fgrid is None:
         fgrid = [float(tick) for tick in grid]
     assignedSlots = _fitToGrid2(offsets, fgrid)
-    snapped = []
+    snapped: list[SnappedNotation] = []
     lastidx = len(grid) - 1
     for idx in range(len(notations)-1):
         n = notations[idx]
@@ -127,13 +128,21 @@ def snapEventsToGrid(notations: list[Notation],
         offset0 = grid[slot0]
         # is it the last slot (as grace note?)
         if slot0 == lastidx:
-            snapped.append(SnappedNotation(n, offset0, F0))
+            if not n.isRest:
+                snapped.append(SnappedNotation(n, offset0, F0))
         else:
             offset1 = grid[assignedSlots[idx+1]]
-            snapped.append(SnappedNotation(n, offset0, offset1-offset0))
+            dur = offset1 - offset0
+            if dur == 0 and n.isRest:
+                continue
+            snapped.append(SnappedNotation(n, offset0, dur))
 
     lastoffset = grid[assignedSlots[-1]]
-    snapped.append(SnappedNotation(notations[-1], lastoffset, duration=beatdur-lastoffset))
+    last = notations[-1]
+    lastdur = beatdur - lastoffset
+    if not (lastdur == 0 and last.isRest):
+        snapped.append(SnappedNotation(last, lastoffset, duration=lastdur))
+    assert not any(s.duration == 0 and s.notation.isRest for s in snapped), snapped
     return assignedSlots, snapped
 
 
@@ -279,6 +288,9 @@ class QuantizedBeat:
                  quantizationError: float = 0.,
                  quantizationInfo: str = '',
                  weight: int = 0):
+
+        notations = [n for n in notations
+                     if not (n.isRest and n.isGracenote and not n.hasAttributes())]
 
         self.divisions: division_t = divisions
         "The division of this beat"
@@ -797,16 +809,25 @@ class QuantizedMeasure:
 
     def removeUnnecessaryGracenotes(self) -> None:
         self.tree.removeUnnecessaryGracenotes()
-        if self.quantprofile.tiedSnappedGracenoteMinRealDuration == 0:
+        tiedGraceMinDur = self.quantprofile.tiedSnappedGracenoteMinRealDuration
+        if tiedGraceMinDur == 0:
             return
         for n, node in self.tree.recurseWithNode():
-            if (n.isGracenote and n.tiedNext and not n.tiedPrev and
+            if (n.isGracenote and (n.tiedNext or n.tiedPrev) and
                     not n.hasAttributes() and n.getProperty('.snappedGracenote') and
-                    n.getProperty('.originalDuration', F0) < self.quantprofile.tiedSnappedGracenoteMinRealDuration):
+                    n.getProperty('.originalDuration', F0) < tiedGraceMinDur):
                 nidx = node.items.index(n)
-                if len(node.items) > nidx + 1:
-                    nextnote = node.items[nidx + 1]
-                    assert isinstance(nextnote, Notation)
+                if nidx < len(node.items) - 2:
+                    # not the last of the node, so get next notation in node
+                    nextnote = node.findNextNotation(n)
+                elif node.parent:
+                    # last note in node, next could be in parent or we could be at
+                    # the end of the tree
+                    nextnote = node.parent.findNextNotation(n)
+                else:
+                    # last note, so no next note in this measure
+                    nextnote = None
+                if nextnote:
                     nextnote.tiedPrev = False
                     if n.hasAttributes():
                         n.copyAttributesTo(nextnote)
@@ -826,6 +847,63 @@ class QuantizedMeasure:
             raise ValueError(f"Measure #{n} has a duration mismatch between the duration "
                              f"according to the time signature ({measuredur}) and the "
                              f"duration of its tree, {treedur}.")
+
+    def setBeamSubdivisions(self,
+                            beat: F | float | int,
+                            minimum: F | int = F0, maximum: F | int = F0,
+                            once=True
+                            ) -> None:
+        """
+        Customize beam subdivision
+
+        The beams of consecutive 16th (or shorter) notes are, by default, not subdivided.
+        That is, the beams of more than two stems stretch unbroken over entire groups of notes.
+        This behavior can be modified to subdivide the beams into sub-groups. Beams will be
+        subdivided at intervals to match the metric value of the subdivision.
+
+        .. note:: At the moment this is only supported by the lilypond backend
+
+        Args:
+            beat: the beat to customize
+            minimum: minimum limit of beam subdivision. A fraction or simply the denominator.
+                1/8 indicates an eighth note, 16 indicates a 16th note
+            maximum: maximum limit of beam subdivision. Similar to minimum
+            once: if True, only apply this customization to the beat starting at ``beat``
+
+        Example
+        ~~~~~~~
+
+            >>> measure = part.measureAt(...)
+            # Split any beam shorter than 1/8. This will break a group of 4 16th notes
+            # into two groups of 2 16th notes
+            >>> measure.setBeamSubdivisions(0, F(1, 8))
+        """
+        if not (minimum > 0 or maximum > 0):
+            raise ValueError(f"Either 'minimum' or 'maximum' must be positive, got {minimum=}, {maximum=}.")
+        if isinstance(minimum, int):
+            minimum = F(1, minimum)
+        if isinstance(maximum, int):
+            maximum = F(1, maximum)
+        if n := self.notationAt(beat):
+            n.addAttachment(attachment.BeamSubdivisionHint(minimum=minimum, maximum=maximum, once=once))
+
+    def notationAt(self, beat: F | float | int) -> Notation | None:
+        """
+        Returns the notation present at the given beat location relative to this measure
+
+        Args:
+            beat: the relative location
+
+        Returns:
+            the Notation at the given beat location, or None if no Notation found
+        """
+        if beat >= self.duration():
+            return None
+        for n in self.tree.recurse():
+            assert n.offset is not None
+            if n.offset <= beat < n.end:
+                return n
+        return None
 
     def _checkBeats(self):
         if not self.beats:
@@ -962,7 +1040,7 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
                        profile: QuantizationProfile,
                        beatDuration: F,
                        beatOffset: F,
-                       divisionHint: division_t | None = None,
+                       divisionHint: tuple[division_t, float] | None = None,
                        minTieDur=F(1, 10000),
                        prevDivision: division_t | None = None
                        ) -> QuantizedBeat:
@@ -980,7 +1058,7 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
         minTieDur: min. value of a tied note. Tied notes shorter than this
             are absorved by the previous note. In general these are the result
             of quantization errors
-        divisionHint: if given, a division to prioritize.
+        divisionHint: if given, a tuple (division to prioritize, strength).
         profile: the subdivision preset used
 
     Returns:
@@ -1021,7 +1099,10 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
     tempo = asF(quarterTempo) / beatDuration
     possibleDivisions = profile.possibleBeatDivisionsForTempo(tempo)
     if divisionHint is not None:
-        possibleDivisions = [divisionHint] + possibleDivisions
+        prioritizedDiv, prioritizedDivStrength = divisionHint
+        possibleDivisions = [prioritizedDiv] + possibleDivisions
+    else:
+        prioritizedDiv, prioritizedDivStrength = None, 0.
 
     # (totalError, div, snappedEvents, assignedSlots, debuginfo)
     rows: list[tuple[float, division_t, list[SnappedNotation], list[int], str]] = []
@@ -1132,8 +1213,8 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
             (rhythmComplexity, profile.rhythmComplexityWeight)   # XXX
         ])
 
-        if div is divisionHint:
-            totalError *= 0.1  # TODO: do not hardcode this
+        if div is prioritizedDiv:
+            totalError /= prioritizedDivStrength
 
         if totalError > minError:
             if profile.debug and totalError / minError < 2:
@@ -1263,7 +1344,7 @@ def quantizeBeatTernary(eventsInBeat: list[Notation],
     results = []
     for offsets in possibleDistributions:
         eventsInSubbeats = quantutils.breakNotationsByBeat(eventsInBeat, offsets)
-        beats = [quantizeBeatBinary([ev.copy() for ev in events], quarterTempo=quarterTempo, profile=profile,
+        beats = [quantizeBeatBinary([ev.copy(spanners=True) for ev in events], quarterTempo=quarterTempo, profile=profile,
                                     beatDuration=end-start, beatOffset=start)
                  for start, end, events in eventsInSubbeats]
         totalerror = sum(beat.quantizationError * beat.duration for beat in beats)
@@ -1383,8 +1464,8 @@ def quantizeMeasure(events: list[Notation],
 
     """
     measureDur = timesig.quarternoteDuration
-    assert all(ev0.end == ev1.offset for ev0, ev1 in itertools.pairwise(events)), f"Events not stacked"
-    assert sum(ev.duration for ev in events) == measureDur, f"Measure not filled"
+    assert all(ev0.end == ev1.offset for ev0, ev1 in itertools.pairwise(events)), "Events not stacked"
+    assert sum(ev.duration for ev in events) == measureDur, "Measure not filled"
 
     quantizedBeats: list[QuantizedBeat] = []
     beatOffsets = [beat.offset for beat in beatStructure]
@@ -1394,12 +1475,15 @@ def quantizeMeasure(events: list[Notation],
     for spanstart, spanend, eventsInBeat in quantutils.breakNotationsByBeat(events, beatOffsets=beatOffsets):
         beatWeight = beatStructure[idx].weight
         beatdur = spanend - spanstart
+        ev0 = eventsInBeat[0]
+        quanthint = ev0.findAttachment(attachment.QuantHint)
         if beatdur.numerator in (1, 2, 4):
             quantizedBeat = quantizeBeatBinary(eventsInBeat=eventsInBeat,
                                                quarterTempo=quarterTempo,
                                                beatDuration=spanend - spanstart,
                                                beatOffset=spanstart,
                                                profile=profile,
+                                               divisionHint=None if not quanthint else (quanthint.division, quanthint.strength),
                                                prevDivision=quantizedBeats[-1].divisions if quantizedBeats else None)
             quantizedBeat.weight = beatWeight
             quantizedBeats.append(quantizedBeat)
@@ -1822,6 +1906,10 @@ class QuantizedPart:
 
     def repair(self):
         # self._repairGracenotesInBeats()
+        firstnote = next(self.measures[0].tree.recurse())
+        if (clef := firstnote.findAttachment(attachment.Clef)):
+            self.firstClef = clef.kind
+
         self.removeUnnecessaryGracenotes()
         self.repairLinks(tieSpelling=True)
         self.repairSpanners()
@@ -2000,6 +2088,8 @@ class QuantizedPart:
                                 biasFactor=biasFactor,
                                 key=propertyKey,
                                 firstClef=self.firstClef)
+        if (clef := notations[0].findAttachment(attachment.Clef)):
+            self.firstClef = clef.kind
 
     def resolveEnharmonics(self, options: enharmonics.EnharmonicOptions) -> None:
         """
@@ -2061,12 +2151,11 @@ class QuantizedPart:
                                 lastChange = now
             now += meas.duration()
 
-
     def removeUnnecessaryGracenotes(self) -> None:
         """
         Removes unnecessary gracenotes, in place
 
-        An unnecessary gracenote ffulfillsulfills one of the following conditions
+        An unnecessary gracenote fullfills one of the following conditions:
 
         * has the same pitch as the next real note and starts a glissando.
           Such gracenotes might be created during quantization.
@@ -2081,11 +2170,11 @@ class QuantizedPart:
             measure.removeUnnecessaryGracenotes()
             if i > 0 and (n1 := measure.tree.firstNotation()).isGracenote:
                 n0 = self.measures[i-1].tree.lastNotation()
-                if n0.tiedNext and n0.pitches == n1.pitches and not (n1.attachments):
+                if n0.tiedNext and n0.pitches == n1.pitches and not (n1.attachments) and not (n1.spanners):
                     # n1 is an unnecessary gracenote
                     logger.debug("Found unnecessary grace note: %s at measure %d. "
                                  "It is tied to %s from the previous measure but adds"
-                                 "nothing to it", LazyStr.str(n1), i, LazyStr.str(n0))
+                                 "nothing to it", n1, i, n0)
                     node = measure.tree.findNodeForNotation(n1)
                     assert node is not None
                     node.items.remove(n1)
@@ -2099,7 +2188,15 @@ class QuantizedPart:
         notations = list(self.flatNotations())
         _spanner.solveHairpins(notations)
         _spanner.matchOrfanSpanners(notations=notations, removeUnmatched=False)
-        _spanner.markNestingLevels(notations)
+        openspanners = _spanner.markSpannerNestingLevel(notations)
+        if openspanners:
+            for n in notations:
+                if not n.spanners:
+                    continue
+                for sp in openspanners:
+                    if sp in n.spanners:
+                        n.spanners.remove(sp)
+                        
         for n in notations:
             if n.spanners:
                 uuids: list[str] = [spanner.uuid for spanner in n.spanners]
@@ -2145,23 +2242,6 @@ class QuantizedPart:
                                             parent=self)
                 self.measures.append(qmeasure)
         return self.measures[idx]
-
-    # def setTieHints(self) -> None:
-    #     """
-    #     Sets ties for all notations in this part
-    #     """
-    #     for n0, n1 in itertools.pairwise(self.flatNotations()):
-    #         if n0.isRest or n1.isRest or not n0.tiedNext:
-    #             continue
-    #         hints0 = n0.tieHints('forward')
-    #         hints1 = n1.tieHints('backward')
-    #         hints0.clear()
-    #         hints1.clear()
-    #         for idx0, pitch0 in enumerate(n0.pitches):
-    #             idx1 = next((idx for idx, pitch in enumerate(n1.pitches) if pitch == pitch0), None)
-    #             if idx1 is not None:
-    #                 hints0.add(idx0)
-    #                 hints1.add(idx1)
 
     def repairLinks(self, tieSpelling=True) -> None:
         """
@@ -2236,12 +2316,35 @@ class QuantizedPart:
                 for i, spelling in enumerate(spellings):
                     n.fixNotename(spelling, i)
 
-    def notationAt(self, beat: F | tuple[int, F]) -> tuple[Notation, QuantizedMeasure]:
+    def addSpanner(self, spanner: _spanner.Spanner | str, start: beat_t, end: beat_t
+                   ) -> None:
+        """
+        Adds a spanner between two notations at the given locations
+
+        Args:
+            spanner: the spanner to add. A Spanner or the name of the spanner class
+                ('slur', 'beam', etc.)
+            start: the start location.
+            end: the end location. Notice that to match a notation it must
+                be present at this location. If the notation ends exactly at this
+                location it will not be matched. For example, if a slur is needed
+                across all notes within beat 0 and 1, one would call this method
+                as ``part.addSpanner('slur', 0, 1-F(1, 100000))
+
+        Returns:
+
+        """
+        n0, _ = self.notationAt(start)
+        n1, _ = self.notationAt(end)
+        n0.addSpanner(spanner, n1)
+
+    def notationAt(self, beat: beat_t) -> tuple[Notation, QuantizedMeasure]:
         """
         Returns the event at the given beat / location
 
         If the beat/location given is within the boundaries of this part,
         this method should always return a notation.
+
 
         Args:
             beat: the beat as absolute offset or location (measureindex, beatinmeasure)
@@ -2257,11 +2360,11 @@ class QuantizedPart:
         tree = measure.tree
         for n in tree.recurse():
             assert n.offset is not None
-            if n.offset <= relbeat <= n.end:
+            if n.offset <= relbeat < n.end:
                 return n, measure
         raise ValueError(f"No event at beat {beat}")
 
-    def measureAt(self, beat: F | tuple[int, F]) -> tuple[QuantizedMeasure, F]:
+    def measureAt(self, beat: beat_t) -> tuple[QuantizedMeasure, F]:
         """
         Returns the measure at the given location
 
@@ -2285,7 +2388,26 @@ class QuantizedPart:
             raise ValueError(f"The relative beat {relbeat} exceeds the duration of the measure ({measure})")
         return measure, relbeat
 
-    def breakBeam(self, location: F | tuple[int, F]) -> Notation | None:
+    def splitNotationAt(self, offset: beat_t, tie=True, mergeable=False) -> list[Notation] | None:
+        """
+        Split any notation present at offset in place, returns the resulting parts
+
+        Args:
+            offset: the beat offset
+            tie: if True, tie the resulting parts
+            mergeable: if False, mark the marks as unmergeable
+
+        Returns:
+            the resulting parts or None if no notations present at the given offset.
+            Raises ValueError if the given offset is not within the span of this
+            measure
+
+        """
+
+        measure, relbeat = self.measureAt(offset)
+        return measure.splitNotationAt(relbeat, tie=tie, mergeable=mergeable)
+
+    def breakBeam(self, location: beat_t) -> Notation | None:
         """
         Break beams at a given location
 
@@ -2334,6 +2456,11 @@ class QuantizedPart:
         """
         measure, relbeat = self.measureAt(location)
         return measure.splitNotationAt(relbeat, tie=True, mergeable=False)
+
+    def coreVoice(self) -> maelzel.core.Voice:
+        qs = QuantizedScore([self])
+        corescore = qs.coreScore()
+        return corescore.voices[0]
 
 
 def quantizePart(part: core.UnquantizedPart,
@@ -2650,7 +2777,7 @@ class QuantizedScore:
             options = options.clone(backend=backend)
         return render.renderQuantizedScore(self, options=options)
 
-    def toCoreScore(self) -> maelzel.core.Score:
+    def coreScore(self) -> maelzel.core.Score:
         """
         Convert this QuantizedScore to a :class:`~maelzel.core.score.Score`
 
@@ -2672,8 +2799,31 @@ class QuantizedScore:
                 notations = list(measure.tree.recurse())
                 events.extend(notationsToCoreEvents(notations))
             voice = maelzel.core.Voice(events)
+            if part.name:
+                voice.name = part.name
+            if part.shortName:
+                voice.shortname = part.shortName
             voices.append(voice)
         return maelzel.core.Score(voices=voices, scorestruct=self.scorestruct, title=self.title)
+
+    def toCoreScore(self) -> maelzel.core.Score:
+        """
+        DEPRECATED. Convert this QuantizedScore to a :class:`~maelzel.core.score.Score`
+
+        Use .coreScore instead
+
+        Returns:
+            the corresponding maelzel.core.Score
+
+        Example
+        -------
+
+            >>> from maelzel.core import *
+            >>> chain = Chain([...
+        """
+        import warnings
+        warnings.warn("Deprecated, use .coreScore()")
+        return self.coreScore()
 
 
 def quantizeParts(parts: list[core.UnquantizedPart],
@@ -2785,10 +2935,14 @@ def quantizeParts(parts: list[core.UnquantizedPart],
     if struct is None:
         struct = st.ScoreStruct((4, 4), tempo=60)
     qparts = []
-    for part in parts:
+    for i, part in enumerate(parts):
         profile = part.quantProfile or quantizationProfile
-        qpart = quantizePart(part, struct=struct, quantprofile=profile)
-        qparts.append(qpart)
+        try:
+            qpart = quantizePart(part, struct=struct, quantprofile=profile)
+            qparts.append(qpart)
+        except Exception as e:
+            e.add_note(f"Error while quantizing part {i}")
+            raise e
     qscore = QuantizedScore(qparts)
     if enharmonicOptions:
         qscore.resolveEnharmonics(enharmonicOptions)

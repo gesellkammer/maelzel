@@ -15,7 +15,9 @@ from maelzel.common import F, F0
 from emlib.iterlib import pairwise
 import operator
 import bisect
-from math import sqrt, inf
+from math import sqrt, inf, ceil
+import numpy as np
+
 
 import typing as _t
 
@@ -42,8 +44,8 @@ class Item[T]:
 
     def __init__(self,
                  obj: T,
-                 offset: F | float,
-                 dur: F | float,
+                 offset: float,
+                 dur: float,
                  step: float,
                  weight: float = 1.0):
         """
@@ -59,8 +61,10 @@ class Item[T]:
 
         """
         self.obj: T = obj
-        self.offset = asF(offset)
-        self.dur = asF(dur)
+        # self.offset = asF(offset)
+        self.offset = float(offset)
+        # self.dur = asF(dur)
+        self.dur = float(dur)
         self.end = self.offset + self.dur
         self.step = step
         self.weight = weight
@@ -98,17 +102,28 @@ class Track[T]:
         self.items: list[Item] = items if items else []
         self._sortkey = operator.attrgetter('offset')
         self._modified = True
-        self._minstep: float = 0.
-        self._maxstep: float = 0.
+        self._minstep: float | None = None
+        self._maxstep: float | None = None
+        self._offsets: list[float] | None = None
+        self._index: np.ndarray | None = None
+        self._indexstart = 0.
+        self._indexperiod = 0.
 
     def __iter__(self) -> _t.Iterator[Item[T]]:
         return iter(self.items)
 
+    def buildIndex(self, end: float, period: float, start=0.):
+        n = int((end - start) / period)
+        self._index = np.ones((n,), dtype=int)
+        self._index *= -1  # -1 indicates unused, otherwise indicates the index of the item
+        self._indexperiod = period
+        self._indexstart = start
+
     def _update(self) -> None:
-        if not self.items:
+        if not self._modified or not self.items:
             return
-        self._minstep = min(item.step for item in self.items)
-        self._maxstep = max(item.step for item in self.items)
+        self._minstep = None
+        self._maxstep = None
         self._modified = False
 
     def minstep(self) -> float:
@@ -116,6 +131,8 @@ class Track[T]:
             raise ValueError("No items")
         if self._modified:
             self._update()
+        if self._minstep is None:
+            self._minstep = min(item.step for item in self.items)
         return self._minstep
 
     def maxstep(self) -> float:
@@ -123,7 +140,29 @@ class Track[T]:
             raise ValueError("No items")
         if self._modified:
             self._update()
+        if self._maxstep is None:
+            self._maxstep = max(item.step for item in self.items)
         return self._maxstep
+
+    def offsets(self) -> list[float]:
+        if self._modified:
+            self._update()
+        if self._offsets is None:
+            self._offsets = [item.offset for item in self.items]
+        return self._offsets
+
+    def insert(self, item: Item[T], idx: int | None = None) -> None:
+        if idx is None:
+            idx = bisect.bisect(self.offsets(), item.offset)
+        self.items.insert(idx, item)
+        if self._minstep is not None:
+            self._minstep = min(self._minstep, item.step)
+        if self._maxstep is not None:
+            self._maxstep = max(self._maxstep, item.step)
+        if self._offsets is not None:
+            self._offsets.insert(idx, item.offset)
+        if self._index is not None:
+            self._addItemToIndex(item, idx)
 
     def append(self, item: Item[T]) -> None:
         """
@@ -136,11 +175,26 @@ class Track[T]:
             Does not explicitely check if item fits in track. This check should
             be done before appending
         """
-        if not self.items or self.items[-1].end <= item.offset:
-            self.items.append(item)
-        else:
-            bisect.insort(self.items, item)
-        self._modified = True
+        if self.items and self.items[-1].end > item.offset:
+            raise ValueError(f"item {item} has an offset lower than the end "
+                             f"of the last item (last={self.items[-1]})")
+        self.items.append(item)
+        if self._minstep is not None:
+            self._minstep = min(self._minstep, item.step)
+        if self._maxstep is not None:
+            self._maxstep = max(self._maxstep, item.step)
+        if self._offsets is not None:
+            self._offsets.append(item.offset)
+        if self._index is not None:
+            self._addItemToIndex(item, len(self.items))
+
+    def _addItemToIndex(self, item: Item[T], idx: int):
+        assert self._index is not None
+        slot0 = ceil((item.offset - self._indexstart) / self._indexperiod)
+        slot1 = int((item.end - self._indexstart) / self._indexperiod)
+        if slot1 >= len(self._index):
+            self._index.resize(slot1*2)
+        self._index[slot0:slot1] = idx
 
     def sort(self, *, key=None, reverse=False) -> None:
         """Sort this Track"""
@@ -151,6 +205,7 @@ class Track[T]:
         assert all(isinstance(item, Item) for item in items)
         self.items.extend(items)
         self.sort()
+        self._modified = True
 
     def __len__(self) -> int:
         return len(self.items)
@@ -165,19 +220,24 @@ class Track[T]:
         """
         Returns a tuple (min. step, max. step) for this track.
         """
-        return self.minstep(), self.maxstep()
+        if self._modified:
+            self._update()
+        if self._minstep is None:
+            self._minstep = min(item.step for item in self.items)
+            self._maxstep = max(item.step for item in self.items)
+        return self._minstep, self._maxstep
 
-    def start(self) -> F:
+    def start(self) -> float:
         """
         The offset of the first item
         """
-        return self.items[0].offset if self.items else F0
+        return self.items[0].offset if self.items else 0
 
-    def end(self) -> F:
+    def end(self) -> float:
         """
         The end value of the last item
         """
-        return self.items[-1].end if self.items else F0
+        return self.items[-1].end if self.items else 0
 
     def unwrap(self) -> list[T]:
         return [item.obj for item in self.items]
@@ -190,13 +250,58 @@ class Track[T]:
                 return True
         return False
 
+    def emptyBetween(self, start: float, end: float) -> tuple[int, float] | None:
+        """
+        Checks if the time range (start, end) is empty
+
+        Args:
+            start: start time
+            end: duration
+
+        Returns:
+            a tuple (index, gap) or None
+
+        Example
+        ~~~~~~~
+
+        if fit := track.fits(start, dur):
+            idx, gap = fit
+
+        """
+        endgap = start - self.end()
+        if endgap >= 0:
+            return len(self.items), endgap
+
+        if self._index is not None:
+            slot0 = int((start - self._indexstart) / self._indexperiod)
+            slot1 = ceil((end - self._indexstart) / self._indexperiod)
+            if slot1 < len(self._index) and np.any(self._index[slot0:slot1+1] >= 0):
+                # not empty
+                return None
+
+        items = self.items
+        idx = bisect.bisect(self.offsets(), start)
+        if idx == 0:
+            gap = items[0].offset - end
+        elif idx == len(items):
+            gap = start - items[-1].end
+        else:
+            itemR = items[idx]
+            itemL = items[idx - 1]
+            gapR = itemR.offset - end
+            gapL = start - itemL.end
+            gap = -1 if gapR < 0 or gapL < 0 else min(gapR, gapL)
+        return None if gap < 0 else (idx, gap)
+
+
 
 def packInTracks[T](items: list[Item[T]],
                     maxrange: float = inf,
                     maxjump: float = inf,
-                    method='append',
+                    method='insert',
                     maxtracks: int | None = None,
                     mingap=F0,
+                    indexperiod: float = 0.
                     ) -> list[Track[T]] | None:
     """
     Pack the items into tracks, minimizing the amount of tracks needed
@@ -225,21 +330,36 @@ def packInTracks[T](items: list[Item[T]],
         a list of the packed Tracks, or None if the number of tracks exceeded the maximum given
     """
     tracks: list[Track] = []
-    items2: list[Item] = sorted(items, key=operator.attrgetter('offset'))
+    if method == 'insert':
+        items2: list[Item] = sorted(items, key=lambda item: item.obj.audibility(), reverse=True)
+    else:
+        items2: list[Item] = sorted(items, key=operator.attrgetter('offset'))
+
+    start = items2[0].offset
+    end = items2[-1].end
+    assert method in ('insert', 'append')
     for item in items2:
         if method == 'insert':
-            track = _bestTrackInsert(tracks, item, maxrange=maxrange, maxjump=maxjump)
-        elif method == 'append':
+            result = _bestTrackInsert(tracks, item, maxrange=maxrange, maxjump=maxjump)
+            if result:
+                track, idx = result
+                track.insert(item, idx)
+            else:
+                newtrack = Track([item])
+                if indexperiod:
+                    newtrack.buildIndex(end=end, period=indexperiod, start=start)
+                tracks.append(newtrack)
+        else:
             track = _bestTrackAppend(tracks, item, maxrange=maxrange, maxjump=maxjump,
                                      mingap=mingap)
-        else:
-            raise ValueError(f"Expected 'insert' or 'append', got {method=}")
-        if track is None:
-            if maxtracks and tracks and len(tracks) >= maxtracks:
-                return None
-            track = Track()
-            tracks.append(track)
-        track.append(item)
+            if track:
+                track.append(item)
+            else:
+                tracks.append(Track([item]))
+
+        if maxtracks and tracks and len(tracks) >= maxtracks:
+            return None
+
     assert all(not track.hasoverlap() for track in tracks)
     return tracks
 
@@ -251,18 +371,6 @@ def dumpTracks(tracks: list[Track]) -> None:
 
 
 # ------------------------------------------------------------------------
-
-def _fits(track: Track, itemoffset: F, maxjump: float, step: float, maxrange: float) -> bool:
-    assert track.items
-    lastitem = track.items[-1]
-    if lastitem.end > itemoffset:
-        return False
-    minstep = min(track.minstep(), step)
-    maxstep = max(track.maxstep(), step)
-    if maxstep - minstep > maxrange or abs(lastitem.step - step) > maxjump:
-        return False
-    return True
-
 
 def _rateFitAppend(track: Track, item: Item) -> float:
     if not track.items:
@@ -320,9 +428,9 @@ def _bestTrackAppend(tracks: list[Track], item: Item, maxrange=inf,
 
 def _bestTrackInsert(tracks: list[Track], item: Item, maxrange: float,
                      maxjump=inf, mingap=0
-                     ) -> Track | None:
+                     ) -> tuple[Track, int] | None:
     """
-    Returns the best track in tracks to _packold item into
+    Returns the best track in tracks to pack item into
 
     Args:
         tracks: list of tracks
@@ -334,14 +442,21 @@ def _bestTrackInsert(tracks: list[Track], item: Item, maxrange: float,
     Returns:
         the best trackto place item, or None if item does not fit
     """
-    possibletracks = [track for track in tracks
-                      if _fitsInTrack(track, item, maxrange=maxrange, maxjump=maxjump, mingap=mingap)]
-    if not possibletracks:
+    results: list[tuple[float, float, Track, int]] = []
+    step = item.step
+    for track in tracks:
+        step0, step1 = track.ambitus()
+        if step - step0 > maxrange or step1 - step > maxrange:
+            continue
+        fits = track.emptyBetween(item.offset, item.end)
+        if fits:
+            idx, gap = fits
+            results.append((gap, abs((step0 + step1) * 0.5 - step), track, idx))
+    if not results:
         return None
-    results = [(_rateFit(track, item), track) for track in possibletracks]
-    results.sort()
-    _, track = results[0]
-    return track
+    best = min(results, key=lambda row: (row[0], row[1]))
+    gap, stepdiff, track, insertidx = best
+    return track, insertidx
 
 
 def _fitsInTrack(track: Track,
@@ -349,9 +464,9 @@ def _fitsInTrack(track: Track,
                  maxrange: float,
                  maxjump: float = 0.,
                  mingap=0.
-                 ) -> bool:
+                 ) -> float:
     """
-    Returns True if item can be added to track, False otherwise
+    Returns the distance to the next item (negative if item does not fit)
 
     Args:
         track: the track to evaluate
@@ -364,59 +479,39 @@ def _fitsInTrack(track: Track,
         True if the item can be added to the track
     """
     if not track.items:
-        return True
-
-    itemoffset = item.offset - mingap
-    itemend = item.end + mingap
-    if track.end() > itemoffset:
-        for packeditem in track.items:
-            if packeditem.offset > itemend:
-                break
-            if packeditem.end > itemoffset:
-                return False
+        return 0.
 
     step = item.step
     step0, step1 = track.ambitus()
     if max(step, step1) - min(step, step0) > maxrange:
-        return False
+        return -1
 
-    if maxjump is not None:
-        idx = bisect.bisect(track.items, item.offset)
-        if idx < len(track.items):
-            if idx == 0:
-                # no item to the left
-                if abs(step - track.items[0].step) > maxjump:
-                    return False
-            else:
-                left = track.items[idx - 1]
-                right = track.items[idx]
-                if abs(left.step-step) > maxjump or abs(right.step - step) > maxjump:
-                    return False
+    maxjump = 0
 
-    return True
-
-
-def _rateFit(track: Track, item: Item) -> float:
-    """
-    Return a value representing how good this item fits in track
-
-    Assumes that it fits both horizontally and vertically.
-    The lower the value, the best the fit
-
-    Args:
-        track: the track to rate
-        item: the item which should be placed in track
-
-    Returns:
-        a penalte. The lower the penalty, the better the fit
-    """
-    if not track:
-        time1 = 0
+    itemoffset = item.offset - mingap
+    endgap = itemoffset - track.end()
+    if endgap >= 0:
+        gap = endgap
     else:
-        time1 = track.items[-1].end
-    assert time1 <= item.offset
-    penalty = item.offset - time1
-    return float(penalty)
+        idxright = bisect.bisect(track.items, item)
+        if idxright == 0:
+            gap = track.items[0].offset - item.end
+        elif idxright == len(track.items):
+            gap = item.offset - track.items[-1].end
+        else:
+
+            itemR = track.items[idxright]
+            itemL = track.items[idxright - 1]
+            gapR = itemR.offset - item.end
+            gapL = item.offset - itemL.end
+            gap = -1 if gapR < 0 or gapL < 0 else min(gapR, gapL)
+
+    if maxjump:
+        raise ValueError("maxjump not supported")
+
+    #if gap >= 0:
+    #    assert all(it.end <= item.offset or it.offset >= item.end for it in track.items)
+    return float(gap)
 
 
 def _checkTrack(track: Track) -> bool:

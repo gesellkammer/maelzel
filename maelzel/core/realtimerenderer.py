@@ -223,8 +223,8 @@ class RealtimeRenderer(_renderer.Renderer):
 
         if whenfinished and self.isRealtime():
             lastevent = max(coreevents, key=lambda ev: ev.end if ev.end > 0 else float('inf'))
-            lastevent.whenfinished = lambda id: whenfinished() if not lastevent.whenfinished else lambda id, ev=lastevent: ev.whenfinished(
-                id) or whenfinished()
+            lastevent.whenfinished = (lambda id: whenfinished() if not lastevent.whenfinished else 
+                lambda id, ev=lastevent: ev.whenfinished(id) or whenfinished())
 
         if needssync:
             self.sync()

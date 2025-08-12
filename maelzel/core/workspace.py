@@ -549,8 +549,8 @@ def setConfig(config: CoreConfig) -> None:
         config: the new config
     """
     import warnings
-    warnings.deprecated("setConfig is deprecated, call `config.activate()` on the config itself "
-                        "or `Workspace.active.config = config`")
+    warnings.warn("setConfig is deprecated, call `config.activate()` on the config itself "
+                  "or `Workspace.active.config = config`")
     active = Workspace.active
     assert active is not None
     active.config = config

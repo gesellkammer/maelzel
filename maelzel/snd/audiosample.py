@@ -922,6 +922,24 @@ class Sample:
         frame0 = int(start*self.sr)
         frame1 = int(stop*self.sr)
         return self.__class__(self.samples[frame0:frame1], self.sr)
+    
+    def splice(self, start: int = 0, end: int = 0) -> Self:
+        """
+        Splice this Sample between the given frames
+        
+        Args:
+            start: start frame (in samples) 
+            end: end frame (in samples, 0=end)
+
+        Returns:
+            a copy of self spliced between start and end frame
+        """
+        if start == end == 0:
+            return self
+        if end == 0:
+            end = len(self.samples)
+        return self.__class__(self.samples[start:end], sr=self.sr, 
+                              readonly=self.readonly, engine=self.engine)
 
     def fade(self, fadetime: float | tuple[float, float], shape='linear'
              ) -> Self:

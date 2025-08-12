@@ -374,9 +374,25 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
                 elif attach.color:
                     _(rf'\once \override Stem.color = "{attach.color}" ')
 
+    # Attachments PRE pitch
+    if n.attachments:
+        for attach in n.attachments:
+            if isinstance(attach, attachment.Harmonic):
+                n = n.resolveHarmonic()
+            elif isinstance(attach, attachment.Breath) and attach.horizontalPlacement == 'pre':
+                if attach.visible:
+                    if attach.kind:
+                        logger.info("Setting breath type is not supported yet")
+                        # _(fr"\once \set breathMarkType = #'{attach.kind}")
+                    _(r"\breathe")
+                else:
+                    _(r'\beamBreak')
+            elif isinstance(attach, attachment.Hidden):
+                _(r"\single \hideNotes")
+
     if n.isGracenote:
         dots = 0
-        if n.attachments and (props:=n.findAttachment(attachment.GracenoteProperties)is not None):
+        if n.attachments and (props:=n.findAttachment(attachment.GracenoteProperties) is not None):
             base = 4 / props.value
             slashed = props.slash
         else:
@@ -395,21 +411,6 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
             assert state.insideGraceGroup, f"{n=}"
             pass
 
-    # Attachments PRE pitch
-    if n.attachments:
-        for attach in n.attachments:
-            if isinstance(attach, attachment.Harmonic):
-                n = n.resolveHarmonic()
-            elif isinstance(attach, attachment.Breath) and attach.horizontalPlacement == 'pre':
-                if attach.visible:
-                    if attach.kind:
-                        logger.info("Setting breath type is not supported yet")
-                        # _(fr"\once \set breathMarkType = #'{attach.kind}")
-                    _(r"\breathe")
-                else:
-                    _(r'\beamBreak')
-            elif isinstance(attach, attachment.Hidden):
-                _(r"\single \hideNotes")
 
     if len(n.pitches) == 1:
         # ***************************
@@ -562,6 +563,7 @@ def _handleSpannerPre(spanner: _spanner.Spanner, state: RenderState) -> str | No
     """
     out = []
     _ = out.append
+    # This handles only the linetype
     if isinstance(spanner, _spanner.Slur) and spanner.linetype != 'solid':
         if spanner.kind == 'start':
             if spanner.nestingLevel == 1:
@@ -631,6 +633,7 @@ def _handleSpannerPost(spanner: _spanner.Spanner, state: RenderState) -> str | N
         _(_placementToLily.get(spanner.placement))
 
     if isinstance(spanner, _spanner.Slur):
+        assert spanner.nestingLevel < 4
         if spanner.kind == 'start':
             t = "_(" if spanner.placement == 'below' else "("
         else:
@@ -722,19 +725,21 @@ def renderNode(node: Node,
     if node.durRatio != (1, 1):
         # A new tuplet. Check if the node has any leading gracenotes, which need to
         # be rendered before the tuplet
-        n0 = node.items[0]
-        if isinstance(n0, Notation) and n0.isGracenote:
-            gracenotes = [n0]
-            for item in node.items[1:]:
-                if isinstance(item, Notation) and item.isGracenote:
-                    gracenotes.append(item)
-                else:
-                    break
-            tempnode = Node(gracenotes, ratio=(1, 1)        )
-            txt = renderNode(tempnode, durRatios=durRatios.copy(), options=options, state=state,
+
+        gracenotes: list[tuple[Notation, Node]] = []
+        for n, parent in node.recurseWithNode():
+            if n.isGracenote:
+                gracenotes.append((n, parent))
+            else:
+                break
+        if gracenotes:
+            for n, parent in gracenotes:
+                parent.items.remove(n)
+        tempnode = Node([n for n, parent in gracenotes], ratio=(1, 1))
+        txt = renderNode(tempnode, durRatios=durRatios.copy(), options=options, state=state,
                              numIndents=numIndents, indentSize=indentSize)
-            w.add(txt)
-            node.items = node.items[len(gracenotes):]
+        w.add(txt)
+
         durRatios.append(F(*node.durRatio))
         tupletStarted = True
         num, den = node.durRatio
@@ -746,86 +751,95 @@ def renderNode(node: Node,
 
     else:
         tupletStarted = False
-    # w.block()
+
     for i, item in enumerate(node.items):
         if isinstance(item, Node):
             nodetxt = renderNode(item, durRatios, options=options, numIndents=0,
                                  state=state, indentSize=w.indentsize)
             w.line(nodetxt)
-        else:
-            assert isinstance(item, Notation)
-            item.checkIntegrity(fix=True)
+            continue
 
-            if not item.gliss and state.glissando:
-                w.add(r"\glissandoSkipOff ")
-                state.glissando = False
+        assert isinstance(item, Notation)
+        item.checkIntegrity(fix=True)
 
-            if item.isRest:
-                state.dynamic = ''
+        if att := item.findAttachment(attachment.BeamSubdivisionHint):
+            # TODO: implement once=False
+            w.line(r"\once \set subdivideBeams = ##t")
+            if att.minimum:
+                num, den = att.minimum.numerator, att.minimum.denominator
+                w.line(rf"\once \set beamMinimumSubdivision = #{num}/{den}")
+            if att.maximum:
+                num, den = att.maximum.numerator, att.maximum.denominator
+                w.line(rf"\once \set beamMaximumSubdivision = #{num}/{den}")
 
-            if item.dynamic:
-                dynamic = item.dynamic
-                if (options.removeRedundantDynamics and
-                        not item.dynamic.endswith('!') and
-                        item.dynamic == state.dynamic and
-                        item.dynamic in definitions.dynamicLevels):
-                    item.dynamic = ''
-                state.dynamic = dynamic
+        if not item.gliss and state.glissando:
+            w.add(r"\glissandoSkipOff ")
+            state.glissando = False
 
-            # Slur modifiers (line type, etc.) need to go before the start of
-            # the first note of the spanner :-(
-            # Some spanners have customizations which need to be declared
-            # before the note to which the spanner is attached to
-            if item.spanners:
-                item.spanners.sort(key=lambda spanner: spanner.priority())
+        if item.isRest:
+            state.dynamic = ''
 
-                for spanner in item.spanners:
-                    if lilytext := _handleSpannerPre(spanner, state=state):
-                        w.add(lilytext)
+        if item.dynamic:
+            dynamic = item.dynamic
+            if (options.removeRedundantDynamics and
+                    not item.dynamic.endswith('!') and
+                    item.dynamic == state.dynamic and
+                    item.dynamic in definitions.dynamicLevels):
+                item.dynamic = ''
+            state.dynamic = dynamic
 
-            w.add(notationToLily(item, options=options, state=state))
+        # Slur modifiers (line type, etc.) need to go before the start of
+        # the first note of the spanner :-(
+        # Some spanners have customizations which need to be declared
+        # before the note to which the spanner is attached to
+        if item.spanners:
+            item.spanners.sort(key=lambda spanner: spanner.priority())
 
-            if item.isGracenote:
-                if state.insideGraceGroup and item.getProperty('.graceGroup') == 'stop':
-                    w.add("}")
-                    state.insideGraceGroup = False
-            else:
-                state.insideGraceGroup = False
+            for spanner in item.spanners:
+                if lilytext := _handleSpannerPre(spanner, state=state):
+                    w.add(lilytext)
 
-            # * If the item has a glissando, add \glissando
-            #   * If it is tied, add glissandoSkipOn IF not already on
-            #   * If not tied, turn off skip if already on
-            # * else (no gliss): turn off skip if on
+        w.add(notationToLily(item, options=options, state=state))
 
-            if item.spanners:
-                for spanner in item.spanners:
-                    if lilytext := _handleSpannerPost(spanner, state=state):
-                        w.add(lilytext)
+        if item.gliss:
+            if not state.glissando:
+                if props := item.findAttachment(attachment.GlissProperties):
+                    assert isinstance(props, attachment.GlissProperties)
+                    if props.linetype != 'solid':
+                        w.line(rf"\tweak Glissando.style #'{_linetypeToLily[props.linetype]}")
+                    if props.color:
+                        w.add(rf'\tweak Glissando.color "{props.color}"')
 
-            if item.gliss:
+                w.add(r"\glissando ")
+            if item.tiedNext:
                 if not state.glissando:
-                    if props := item.findAttachment(attachment.GlissProperties):
-                        assert isinstance(props, attachment.GlissProperties)
-                        if props.linetype != 'solid':
-                            w.line(rf"\tweak Glissando.style #'{_linetypeToLily[props.linetype]}")
-                        if props.color:
-                            w.add(rf'\tweak Glissando.color "{props.color}"')
-
-                    w.add(r"\glissando ")
-                if item.tiedNext:
-                    if not state.glissando:
-                        state.glissando = True
-                        w.add(r"\glissandoSkipOn")
-                else:
-                    if state.glissando:
-                        state.glissando = False
-                        w.add(r"\glissandoSkipOff")
+                    state.glissando = True
+                    w.add(r"\glissandoSkipOn")
             else:
                 if state.glissando:
-                    w.add(r"\glissandoSkipOff")
                     state.glissando = False
+                    w.add(r"\glissandoSkipOff")
+        else:
+            if state.glissando:
+                w.add(r"\glissandoSkipOff")
+                state.glissando = False
 
-            # w.add(" ")
+        if item.isGracenote:
+            if state.insideGraceGroup and item.getProperty('.graceGroup') == 'stop':
+                w.add("}")
+                state.insideGraceGroup = False
+        else:
+            state.insideGraceGroup = False
+
+        # * If the item has a glissando, add \glissando
+        #   * If it is tied, add glissandoSkipOn IF not already on
+        #   * If not tied, turn off skip if already on
+        # * else (no gliss): turn off skip if on
+
+        if item.spanners:
+            for spanner in item.spanners:
+                if lilytext := _handleSpannerPost(spanner, state=state):
+                    w.add(lilytext)
 
     w.block()
     if tupletStarted:
@@ -878,6 +892,9 @@ def renderPart(part: quant.QuantizedPart,
         w.line(f'    instrumentName = #"{part.name}"')
         if part.shortName:
             w.line(f'    shortInstrumentName = "{part.shortName}"')
+        if clef or part.firstClef:
+            w.line('    ' + lilytools.makeClef(part.firstClef))
+
         w.line("}")
         w.line("{")
     else:
@@ -887,7 +904,7 @@ def renderPart(part: quant.QuantizedPart,
     w.line(r"\numericTimeSignature")
 
     if not clef:
-        clef = part.bestClef()
+        clef = part.firstClef or part.bestClef()
     w.line(lilytools.makeClef(clef))
 
     timesig = None

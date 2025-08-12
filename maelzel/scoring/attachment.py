@@ -3,7 +3,7 @@ import copy
 
 from maelzel import _util
 from . import definitions
-from maelzel.common import F
+from maelzel.common import F, F0
 
 from typing import TYPE_CHECKING
 
@@ -358,6 +358,25 @@ class Clef(Attachment):
 
     def __hash__(self):
         return hash(('Clef', self.kind))
+
+
+class BeamSubdivisionHint(Attachment):
+    exclusive = True
+
+    def __init__(self, minimum: F = F0, maximum: F = F0, once=True):
+        super().__init__()
+        self.minimum = minimum
+        self.maximum = maximum
+        self.once = once
+
+
+class QuantHint(Attachment):
+    exclusive = True
+
+    def __init__(self, division: tuple[int, ...], strength: float):
+        super().__init__()
+        self.division = division
+        self.strength = strength
 
 
 class Hook:

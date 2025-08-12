@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, replace as _replace
+from functools import cache
 
 from typing_extensions import Self
 
@@ -75,3 +76,8 @@ class TranscriptionOptions:
 
     def copy(self) -> Self:
         return _replace(self)
+    
+    @cache
+    @staticmethod
+    def default() -> TranscriptionOptions:
+        return TranscriptionOptions()

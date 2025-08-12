@@ -147,6 +147,7 @@ class Partial:
         amps = self.amps
         return numpyx.weightedavg(amps, self.times, np.ones_like(amps))
 
+    @cache
     def audibility(self, ampcurve: Callable[[float], float] = None, curvefactor=1.0) -> float:
         """
         The audibility is the Partial's energy scaled by its frequency dependent audibility
@@ -190,9 +191,7 @@ class Partial:
         amps = self.amps
         times = self.times
         return numpyx.trapz(amps, times)
-        # ampbpf = self.ampbpf()
-        # return ampbpf.integrate_between(self.start, self.end)
-
+        
     def meanbw(self, weighted=True) -> float:
         """
         The average bandwidth of this partial

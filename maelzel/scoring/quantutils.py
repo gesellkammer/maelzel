@@ -307,15 +307,17 @@ def applyDurationRatio(notations: list[Notation],
                 else:
                     n.durRatios += (durRatio,)
 
-    def notationsBetween(notation: list[Notation], start: F, end: F) -> list[Notation]:
+    def notationsBetween(notations: list[Notation], start: F, end: F) -> list[Notation]:
+        # gracenote policy: if a gracenote is at the start, we keep it,
+        # at the end we don't
+        # No partial notations: a notation needs to fit between start and end
         out = []
-        for n in notation:
-            nstart = n.offset
-            if nstart > end:
+        for n in notations:
+            noffset = n.offset
+            if noffset >= end:
                 break
-            if nstart >= start and (nend := n.end) <= end:
-                if n.duration > 0 or nend < end:
-                    out.append(n)
+            if noffset >= start and n.end <= end:
+                out.append(n)
         return out
 
     if isinstance(division, int) or len(division) == 1:
@@ -329,14 +331,25 @@ def applyDurationRatio(notations: list[Notation],
         durRatio = F(*quantdata.durationRatios[numSubBeats])
         _apply(durRatio, notations)
         numNotations = 0
-        for subdiv in division:
+        for i, subdiv in enumerate(division):
             subdivEnd = now + dt
             subdivNotations = notationsBetween(notations, now, subdivEnd)
+            if i == len(division) - 1 and notations[-1].isGracenote and notations[-1].offset == subdivEnd:
+                endgraces = []
+                for n in reversed(notations):
+                    if not n.isGracenote or n.offset < subdivEnd:
+                        break
+                    endgraces.append(n)
+                if endgraces:
+                    subdivNotations.extend(reversed(endgraces))
             applyDurationRatio(notations=subdivNotations, division=subdiv,
                                beatOffset=now, beatDur=dt)
             now += dt
             numNotations += len(subdivNotations)
-        assert numNotations == len(notations), f"{numNotations=}, {notations=}"
+        if numNotations != len(notations):
+            for i, n in enumerate(notations):
+                print(i, n)
+            raise RuntimeError(f"Failed to apply durations, len mismatch, {numNotations=} != {len(notations)=}, {beatOffset=}, {beatDur=}")
 
 
 def beatToTree(notations: list[Notation], division: int | division_t,

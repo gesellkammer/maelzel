@@ -388,14 +388,10 @@ class CoreConfig(ConfigDict):
         """
         Create a QuantizationProfile from this config
 
-        This quantization profile can be passed to
-
-        Returns:
-
         """
         from maelzel.core import notation
         return notation.makeQuantizationProfileFromConfig(self)
-
+        
     def makeEnharmonicOptions(self) -> enharmonics.EnharmonicOptions:
         """
         Create EnharmonicOptions from this config

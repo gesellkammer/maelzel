@@ -626,7 +626,7 @@ class Notation:
             return next((s for s in self.spanners if s.uuid == uuid and s.kind == kind), None)
         return next((s for s in self.spanners if s.uuid == uuid), None)
 
-    def addSpanner(self, spanner: _spanner.Spanner, end: Notation | None = None
+    def addSpanner(self, spanner: _spanner.Spanner | str, end: Notation | None = None
                    ) -> Notation:
         """
         Add a Spanner to this Notation
@@ -645,6 +645,10 @@ class Notation:
         """
         if self.spanners is None:
             self.spanners = []
+            
+        if isinstance(spanner, str):
+            from . import spanner as _spanner
+            spanner = _spanner.Spanner.fromStr(spanner)
 
         if self.findSpanner(uuid=spanner.uuid, kind=spanner.kind):
             raise ValueError(f"Spanner {spanner} was already added to this Notation ({self})")
@@ -980,7 +984,7 @@ class Notation:
             if pt.n2m(notename) in other.pitches:
                 other.fixNotename(notename, index=None)
 
-    def clone(self, copyFixedNotenames=True, **kws) -> Notation:
+    def clone(self, copyFixedNotenames=True, spanners=True, **kws) -> Notation:
         """
         Clone this Notation, overriding any value.
 
@@ -994,9 +998,9 @@ class Notation:
         if noteheads := kws.get('noteheads'):
             assert isinstance(noteheads, dict), f'{self=}, {noteheads=}'
 
-        out = self.copy()
+        out = self.copy(spanners=spanners)
         if (pitches := kws.pop('pitches', None)) is not None:
-            out._setPitches(pitches)
+            out._setPitches(pitches)  # type: ignore
             if self.fixedNotenames and copyFixedNotenames:
                 self.copyFixedSpellingTo(out)
         if kws:
@@ -1075,7 +1079,7 @@ class Notation:
     def __deepcopy__(self, memo=None):
         return self.copy()
 
-    def copy(self, spanners=False) -> Notation:
+    def copy(self, spanners=True) -> Notation:
         """Copy this Notation"""
         properties = None if self.properties is None else copy.deepcopy(self.properties)
         out = Notation(duration=self.duration,
@@ -1635,7 +1639,7 @@ class Notation:
             return hints
         else:
             return hints.get(index)
-        
+
     def _namerepr(self) -> str:
         if self.isRest:
             return 'r'
@@ -1654,7 +1658,7 @@ class Notation:
         if self.gliss:
             s += ":gliss"
         return s
-    
+
     def __repr__(self):
         info = []
         info.append(self._namerepr())
@@ -1970,32 +1974,30 @@ def notationsToCoreEvents(notations: list[Notation]
     for n in notations:
         assert isinstance(n, Notation), f"Expected a Notation, got {n}\n{notations=}"
         if n.isRest:
-            out.append(Rest(dur=n.duration, dynamic=n.dynamic))
+            event = Rest(dur=n.duration, dynamic=n.dynamic)
+        elif len(n.pitches) == 1:
+            # note
+            pitch = n.getFixedNotename(0) or n.pitches[0]
+            event = Note(pitch=pitch,
+                         dur=n.duration,
+                         dynamic=n.dynamic,
+                         tied=n.tiedNext,
+                         fixed=isinstance(pitch, str),
+                         gliss=n.gliss,
+                         properties=n.properties,
+                         )
         else:
-            if len(n.pitches) == 1:
-                # note
-                pitch = n.getFixedNotename(0) or n.pitches[0]
-                event = Note(pitch=pitch,
-                             dur=n.duration,
-                             dynamic=n.dynamic,
-                             tied=n.tiedNext,
-                             fixed=isinstance(pitch, str),
-                             gliss=n.gliss,
-                             properties=n.properties,
-                             )
-                # TODO: add attachments, etc.
-            else:
-                # chord
-                notenames = [n.getFixedNotename(i) or n.pitches[i]
-                             for i in range(len(n))]
-                event = Chord(notes=notenames,
-                              dur=n.duration,
-                              dynamic=n.dynamic,
-                              tied=n.tiedNext,
-                              gliss=n.gliss,
-                              properties=n.properties)
-            _transferAttachments(n, event)
-            out.append(event)
+            # chord
+            notenames = [n.getFixedNotename(i) or n.pitches[i]
+                         for i in range(len(n))]
+            event = Chord(notes=notenames,
+                          dur=n.duration,
+                          dynamic=n.dynamic,
+                          tied=n.tiedNext,
+                          gliss=n.gliss,
+                          properties=n.properties)
+        _transferAttachments(n, event)
+        out.append(event)
     return out
 
 
@@ -2011,6 +2013,8 @@ def _transferAttachments(source: Notation, dest: maelzel.core.mevent.MEvent) -> 
         None
     """
     from maelzel.core import symbols
+    from . import spanner as _spanner
+    
     if source.attachments:
         for attach in source.attachments:
             if isinstance(attach, att.Articulation):
@@ -2026,10 +2030,9 @@ def _transferAttachments(source: Notation, dest: maelzel.core.mevent.MEvent) -> 
 
     if source.spanners:
         for spanner in source.spanners:
-            cls = type(spanner).__name__
-            if cls == 'Slur':
-                dest.addSpanner(symbols.Slur(kind=spanner.kind, uuid=spanner.uuid))
-            elif cls == 'Hairpin':
+            if isinstance(spanner, _spanner.Slur):
+                dest.addSpanner(symbols.Slur(kind=spanner.kind, uuid=spanner.uuid, linetype=spanner.linetype, color=spanner.color))
+            elif isinstance(spanner, _spanner.Hairpin):
                 dest.addSpanner(symbols.Hairpin(direction=spanner.direction, uuid=spanner.uuid,
                                                 kind=spanner.kind))
             else:
@@ -2147,12 +2150,14 @@ class SnappedNotation:
         notation = self.notation.clone(offset=offset, duration=self.duration)
         notation.spanners = self.notation.spanners
         if self.duration == 0 and self.notation.duration > 0:
+            if notation.isRest and not notation.hasAttributes():
+                raise ValueError(f"A rest should not be snapped to a gracenote: {self=}, {self.notation=}")
             notation.setProperty('.snappedGracenote', True)
             notation.setProperty('.originalDuration', self.notation.duration)
         return notation
 
     def __repr__(self):
-        return repr(self.applySnap())
+        return f"SnappedNotation(notation={self.notation}, offset={self.offset}, duration={self.duration})"
 
 
 def _breakIrregularDurationInBeat(n: Notation,

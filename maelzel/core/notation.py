@@ -101,7 +101,6 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig | None = None,
     return renderOptions
 
 
-@cache
 def makeQuantizationProfileFromConfig(cfg: CoreConfig
                                       ) -> quant.QuantizationProfile:
     """
@@ -114,11 +113,8 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig
         a scoring.quant.QuantizationProfile
     """
     nestedTuplets = cfg['quant.nestedTuplets']
-    if nestedTuplets is None:
-        if cfg['show.backend'] == 'musicxml':
-            nestedTuplets = cfg['quant.nestedTupletsMusicxml']
-        else:
-            nestedTuplets = True
+    if nestedTuplets is None and cfg['show.backend'] == 'musicxml':
+        nestedTuplets = cfg['quant.nestedTupletsMusicxml']
 
     kws = {}
     if (gridWeight := cfg['quant.gridWeight']) is not None:
@@ -184,7 +180,6 @@ def renderWithActiveWorkspace(parts: list[scoring.core.UnquantizedPart],
         assert renderoptions.backend == backend
     if scorestruct is None:
         scorestruct = workspace.scorestruct
-    from maelzel import scoring
     from maelzel.scoring import render
     return render.quantizeAndRender(parts,
                                     struct=scorestruct,

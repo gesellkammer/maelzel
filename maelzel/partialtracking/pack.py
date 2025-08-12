@@ -18,7 +18,6 @@ if TYPE_CHECKING:
     from .partial import Partial
     from . import spectrum as sp
 
-
 def _estimateMinFreq(spectrum: sp.Spectrum) -> float:
     f0, voicedness = spectrum.fundamental()
     return float(f0.map(1000).min())
@@ -85,57 +84,6 @@ def bestTrack(tracks: list[PartialTrack], partial: Partial, mingap=0.1) -> Parti
     return besttrack
 
 
-def _pack_old(spectrum: sp.Spectrum,
-              numtracks: int,
-              maxrange: int,
-              mingap: float,
-              chanexp: float,
-              method: str,
-              numchannels: int | None = None,
-              minfreq=50.,
-              maxfreq=12000.) -> tuple[list[PartialTrack], list[Partial]]:
-
-    from maelzel import distribute
-    from .packchannel import Channel
-
-    if numchannels is None:
-        numchannels = int(numtracks / 2 + 0.5)
-    numchannels = min(numtracks, numchannels)
-    chanFreqCurve = bpf4.Expon.fromseq(0, pt.f2m(minfreq*0.9), 1, pt.f2m(maxfreq), exp=chanexp)
-    splitpoints = list(chanFreqCurve.map(numchannels+1))
-    channels: list[Channel] = [Channel(f0, f1) for f0, f1 in iterlib.pairwise(splitpoints)]
-    for partial in spectrum.partials:
-        for ch in channels:
-            if ch.minfreq <= partial.meanfreq() < ch.maxfreq:
-                ch.partials.append(partial)
-                break
-    # TODO: partial assignment can be optimized via searchsorted
-
-    chanWeights = [ch.weight() for ch in channels]
-    numtracksPerChan = [numtracks+1 for numtracks in distribute.dohndt(numtracks-numchannels, chanWeights)]
-    tracks: list[PartialTrack] = []
-    rejected0: list[Partial] = []
-    for ch, tracksPerChan in zip(channels, numtracksPerChan):
-        ch.pack(tracksPerChan, maxrange=maxrange, mingap=mingap, method=method)
-        tracks.extend(ch.tracks)
-        rejected0.extend(ch.rejected)
-
-    # Try to fit rejected partials
-    rejected = rejected0
-    rejected1 = []
-    for partial in rejected:
-        track = bestTrack(tracks, partial)
-        if track is not None:
-            track.append(partial)
-        else:
-            rejected1.append(partial)
-    rejected.extend(rejected1)
-    tracks = [track for track in tracks if len(track.partials) > 0]
-
-    tracks.sort(key=lambda track: sum(p.audibility() for p in track.partials))
-    return tracks, rejected
-
-
 @dataclass
 class SplitResult:
     tracks: list[PartialTrack]
@@ -153,8 +101,16 @@ class SplitResult:
     def voicedPartials(self) -> list[Partial]:
         return sum((tr.partials for tr in self.tracks), [])
 
+    def voicedSpectrum(self) -> sp.Spectrum:
+        from maelzel.partialtracking import spectrum
+        return spectrum.Spectrum(self.voicedPartials())
+
     def noisePartials(self) -> list[Partial]:
         return sum((tr.partials for tr in self.noisetracks), [])
+
+    def noiseSpectrum(self) -> sp.Spectrum:
+        from maelzel.partialtracking import spectrum
+        return spectrum.Spectrum(self.noisePartials())
 
     def partials(self) -> list[Partial]:
         partials = self.voicedPartials()
@@ -248,12 +204,14 @@ def splitInTracks(partials: list[Partial],
                   maxrange: int = 36,
                   relerror=0.1,
                   distribution: float | Callable[[float], float] = 0.8,
-                  numbands: int | None = None,
+                  numbands: int = 4,
                   mingap=0.1,
                   audibilityCurveWeight=1.,
                   maxnoisetracks: int = 0,
                   noisefreq=4000,
                   noisebw=0.05,
+                  method='append',
+                  indexPeriod=0.,
                   debug=False
                   ) -> tuple[list[PartialTrack], list[PartialTrack], list[Partial]]:
     """
@@ -283,7 +241,9 @@ def splitInTracks(partials: list[Partial],
     items = [packing.Item(obj=partial, offset=partial.start, dur=partial.duration, step=pt.f2m(partial.meanfreq()))
              for partial in partials]
 
-    packingtracks = packing.packInTracks(items, maxrange=maxrange, maxtracks=maxtracks, method='append', mingap=asF(mingap))
+    packingtracks = packing.packInTracks(items, maxrange=maxrange, maxtracks=maxtracks, 
+                                         method=method, mingap=asF(mingap),
+                                         indexperiod=indexPeriod)
     if packingtracks is not None:
         assert len(packingtracks) <= maxtracks
         return [PartialTrack(partials=track.unwrap()) for track in packingtracks], [], []
@@ -293,25 +253,21 @@ def splitInTracks(partials: list[Partial],
         p.label = i
 
     # We need to reduce the spectrum
-    if numbands is None:
-        numbands = max(4, maxtracks // 3)
-    else:
-        numbands = max(1, numbands)
 
     bands = splitInBands(partials, numbands=numbands, distribution=distribution)
     if debug:
+        print("Split in bands. Number of bands: ", len(bands))
         for band in bands:
-            print(f"len={len(band.partials)}, {band.minfreq=:.0f}, {band.maxfreq=:.0f}, {min(p.meanfreq() for p in band.partials):.0f}, "
-                  f"{max(p.meanfreq() for p in band.partials):.0f}")
+            print(f"len={len(band.partials)}, {band.minfreq=:.0f}, {band.maxfreq=:.0f}")
 
     quantiles = [stats.Quantile1d([p.audibility(curvefactor=audibilityCurveWeight) for p in band.partials])
                  for band in bands]
 
-    if debug:
+    if debug and numbands > 1:
         import matplotlib.pyplot as plt
         fig, axes = plt.subplots(len(quantiles), 1, figsize=(8, 6 * len(quantiles)))
         for i, quantile in enumerate(quantiles):
-            quantile.plot(axes=axes[i], show=False)
+            quantile.plot(feature='value', axes=axes[i], show=False)
         plt.show()
 
     percentileToTracks: dict[float, list[PartialTrack]] = {}
@@ -329,12 +285,13 @@ def splitInTracks(partials: list[Partial],
 
         """
         percentile = float(percentile)
-        if debug:
-            print("Testing percentile", percentile)
         if percentile <= 0:
             return 0., []
         elif percentile > 1:
             percentile = 1
+
+        if debug:
+            print("Testing percentile", percentile)
 
         selected = []
         for band, bandquantile in zip(bands, quantiles):
@@ -342,13 +299,13 @@ def splitInTracks(partials: list[Partial],
             bandselection = [p for p in band.partials
                              if p.audibility(curvefactor=audibilityCurveWeight) >= threshold]
             if debug:
-                print(f"... Partials from band {band.minfreq:.1f}:{band.maxfreq:.1f}: {len(bandselection)}, audibility threshold={threshold:.5f}")
+                print(f"... Partials from band {band.minfreq:.1f}:{band.maxfreq:.1f}: {len(bandselection)}, audibility threshold={threshold:.5g}")
             selected.extend(bandselection)
 
         selecteditems = [items[p.label] for p in selected]
         if debug:
-            print(f"... Selected items: {len(selecteditems)}")
-        tracks = packing.packInTracks(selecteditems, maxrange=maxrange, method='append', mingap=asF(mingap))
+            print(f"... Selected partials: {len(selecteditems)}")
+        tracks = packing.packInTracks(selecteditems, maxrange=maxrange, method=method, mingap=asF(mingap))
         if tracks is None:
             return 0., []
         elif len(tracks) > maxtracks:
@@ -381,15 +338,18 @@ def splitInTracks(partials: list[Partial],
         percentileToTracks[percentile] = tracks
         return relenergy
 
-    minimizedPercentile = optimize.minimize_scalar(lambda percentile: 1 - _packeval(percentile), bracket=(0.001, 0.99), tol=relerror)
-    assert isinstance(minimizedPercentile, optimize.OptimizeResult)
-    percentile = float(minimizedPercentile['x'])
-    if debug:
-        print("Solution percentile: ", percentile)
-    if percentile in percentileToTracks:
-        partialtracks = percentileToTracks[percentile]
+    if method == 'append':
+        minimizedPercentile = optimize.minimize_scalar(lambda percentile: 1 - _packeval(percentile), bracket=(0.05, 0.95), options=dict(xtol=relerror))
+        assert isinstance(minimizedPercentile, optimize.OptimizeResult)
+        percentile = float(minimizedPercentile['x'])
+        if percentile in percentileToTracks:
+            partialtracks = percentileToTracks[percentile]
+        else:
+            _, partialtracks = _pack(percentile)
     else:
-        _, partialtracks = _pack(percentile)
+        percentile = 0.4
+        relenergy, partialtracks = _pack(0.4)
+
     selectedindexes = []
     for track in partialtracks:
         selectedindexes.extend(p.label for p in track.partials)
@@ -397,24 +357,26 @@ def splitInTracks(partials: list[Partial],
     selectedset = set(selectedindexes)
     unfitted = [p for p in partials if p.label not in selectedset]
     unfitted = fitPartialsInTracks(partialtracks, unfitted)
-    if debug:
-        print("Unfitted partials before noise:", len(unfitted), ", Selected:", len(selectedset))
     noisetracks: list[PartialTrack]
     if maxnoisetracks == 0 or len(unfitted) == 0:
         noisetracks = []
     else:
         noisepartials = [p for p in unfitted
                          if p.meanfreq() > noisefreq and p.meanbw() > noisebw]
-        if debug:
-            print("Unfitted partials:", len(unfitted), "Noise partials:", len(noisepartials))
         noisetracks, _, unfittednoise = splitInTracks(noisepartials, maxtracks=maxnoisetracks, maxnoisetracks=0,
-                                                      numbands=2, mingap=0.05, maxrange=60,
+                                                      numbands=3, mingap=0.05, maxrange=60, method=method,
                                                       relerror=0.2)
+
         for track in noisetracks:
             for partial in track.partials:
                 selectedset.add(partial.label)
         unfitted = [p for p in unfitted if p.label not in selectedset]
+
     partialtracks.sort(key=lambda track: track.minnote)
+    if debug:
+        totalfitted = sum(len(t.partials) for t in partialtracks)
+        noisepartialsfitted = sum(len(t.partials) for t in noisetracks)
+        print(f"Fitted {totalfitted} partials in {len(partialtracks)} tracks, fitted {noisepartialsfitted} noise partials in {len(noisetracks)} noise tracks. Unfitted partials: {len(unfitted)}")
     return partialtracks, noisetracks, unfitted
 
 
@@ -464,7 +426,7 @@ def splitInBands(partials: list[Partial],
     freqedges = stats.weightedHistogram(freqs, energies, numbins=numbands, distribution=distribution)
     bands = [SpectralBand(minfreq=minfreq, maxfreq=maxfreq, partials=[])
              for minfreq, maxfreq in iterlib.pairwise(freqedges)]
-    assert len(bands) > 0, f"#freqs: {len(freqs)}, #energies: {energies}, numbads: {numbands}, distribution: {distribution}"
+    assert 0 < len(bands) <= numbands, f"#freqs: {len(freqs)}, #energies: {energies}, numbads: {numbands}, distribution: {distribution}"
 
     bandindexes = np.searchsorted(freqedges, freqs) - 1
     bandindexes.clip(0, len(bands)-1, out=bandindexes)

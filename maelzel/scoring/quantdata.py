@@ -1,6 +1,7 @@
 from __future__ import annotations
 from functools import cache
 from dataclasses import dataclass, replace as _dataclass_replace
+
 from maelzel.scoring.common import division_t
 from maelzel.common import F
 import itertools
@@ -156,10 +157,10 @@ class QuantPreset:
     maxDivPenalty: float | None = None
     cardinalityPenaltyWeight: float | None = None
     numSubdivisionsPenaltyWeight: float | None = None
+    _cachedDivsByTempo: dict[int, tuple[division_t, ...]] | None = None
 
     def clone(self, **kws) -> QuantPreset:
         return _dataclass_replace(self, **kws)
-
 
 
 @cache
@@ -325,7 +326,7 @@ def getPresets() -> dict[str, QuantPreset]:
             gridErrorWeight=1.0,
             divisionErrorWeight=0.5,
             rhythmComplexityWeight=0.1,
-            gridErrorExp=1.)
+            gridErrorExp=1.),
     }
     return presets
 
