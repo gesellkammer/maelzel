@@ -148,7 +148,7 @@ class Partial:
         return numpyx.weightedavg(amps, self.times, np.ones_like(amps))
 
     @cache
-    def audibility(self, ampcurve: Callable[[float], float] = None, curvefactor=1.0) -> float:
+    def audibility(self, ampcurve: Callable[[float], float] | None = None, curvefactor=1.0) -> float:
         """
         The audibility is the Partial's energy scaled by its frequency dependent audibility
 
@@ -247,7 +247,7 @@ class Partial:
 
     def clone(self, *,
               data: np.ndarray | None = None,
-              label: int = None
+              label: int | None = None
               ) -> Self:
         return self.__class__(data=data if data is not None else self.data,
                               label=label if label is not None else self.label)

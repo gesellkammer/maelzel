@@ -240,7 +240,7 @@ validator = {
         "cluster",
     ),
     "show.proportionalDuration": lambda cfg, key, val: isValidFraction(val),
-    "show.spacing": ("normal", "strict", "uniform"),
+    "show.spacing::choices": ("normal", "strict", "uniform"),
     "show.flagStyle::choices": ("normal", "straight", "flat"),
     "show.clefSimplification::range": (0, 10000),
     "dynamicCurveShape": lambda cfg, key, val: val.split("(")[0]

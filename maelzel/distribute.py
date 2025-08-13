@@ -708,8 +708,8 @@ _defaultPalette = [
 ]
 
 
-def plotFrames(xs, ids: list = None, top=1., bottom=0., durs: list[float] = None,
-               palette: list[str] = None, edgecolor='black', ax=None, show=True
+def plotFrames(xs, ids: list[str] | None = None, top=1., bottom=0., durs: list[float] | None = None,
+               palette: list[str] | None = None, edgecolor='black', ax=None, show=True
                ) -> matplotlib.pyplot.Axes:
     """
     Plot a seq. of stacked frames

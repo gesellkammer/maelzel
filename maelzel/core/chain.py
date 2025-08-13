@@ -1144,7 +1144,8 @@ class Chain(MContainer):
                     endobj = next((n for n in allns if n.end == end), None)
                     if endobj is None:
                         endobj = quantutils.insertRestEndingAt(end, allns)
-                        allns.append(endobj)
+                        if endobj:
+                            allns.append(endobj)
                     symbol.applyToPair(startobj, endobj)
 
                 elif isinstance(symbol, symbols.EventSymbol):

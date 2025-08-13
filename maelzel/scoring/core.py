@@ -524,7 +524,7 @@ def packInParts(notations: list[Notation],
     to the same group are kept in the same track.
 
     Args:
-        notations: the Notations to _packold
+        notations: the Notations to pack
         maxrange: the max. distance between the highest and lowest Notation
         keepGroupsTogether: if True, items belonging to a same group are
             kept in a same track
@@ -542,8 +542,8 @@ def packInParts(notations: list[Notation],
             if n.isRest and not n.attachments and not n.dynamic:
                 continue
             assert n.offset is not None and n.duration is not None
-            items.append(packing.Item(obj=n, offset=n.offset,
-                                      dur=n.duration, step=n.meanPitch()))
+            items.append(packing.Item(obj=n, offset=float(n.offset),
+                                      dur=float(n.duration), step=n.meanPitch()))
         else:
             assert isinstance(group, list)
             if keepGroupsTogether:

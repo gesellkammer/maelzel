@@ -466,6 +466,7 @@ def parseNote(s: str, check=True) -> NoteProperties:
                     raise ValueError(f"Invalid notename '{n}' while parsing '{s}'")
         else:
             n = notename if notename[-1] != '!' else notename[:-1]
+            assert isinstance(n, str)
             if not pt.is_valid_notename(n):
                 raise ValueError(f"Invalid notename '{n}' while parsing '{s}'")
     return NoteProperties(notename=notename, dur=dur, keywords=properties,

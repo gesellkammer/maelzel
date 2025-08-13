@@ -392,7 +392,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
 
     if n.isGracenote:
         dots = 0
-        if n.attachments and (props:=n.findAttachment(attachment.GracenoteProperties) is not None):
+        if n.attachments and (props:=n.findAttachment(attachment.GracenoteProperties)) is not None:
             base = 4 / props.value
             slashed = props.slash
         else:

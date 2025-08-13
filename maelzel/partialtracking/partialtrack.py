@@ -25,7 +25,7 @@ class PartialTrack:
     """
     __slots__ = ('partials', 'maxrange', 'minnote', 'maxnote', 'start', 'end', '_starts')
 
-    def __init__(self, partials: list[Partial] = None, maxrange=36):
+    def __init__(self, partials: list[Partial] | None = None, maxrange=36):
         assert isinstance(maxrange, (int, float))
         self.partials: list[Partial] = partials or []
         self.maxrange: int = int(maxrange)

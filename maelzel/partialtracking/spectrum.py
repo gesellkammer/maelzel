@@ -26,9 +26,10 @@ from . import pack
 from typing_extensions import Self
 from typing import TYPE_CHECKING, Callable
 if TYPE_CHECKING:
-    import csoundengine
     from matplotlib.axes import Axes
+    import csoundengine
     import csoundengine.synth
+    import csoundengine.session
     from maelzel.snd import audiosample
     from maelzel import stats
     import bpf4
@@ -369,7 +370,7 @@ class Spectrum:
         return self.__class__(partials)
 
     def clone(self, *,
-              partials: list[Partial] = None,
+              partials: list[Partial] | None = None,
               indexTimeResolution=0.) -> Self:
         return self.__class__(partials or self.partials,
                               indexTimeResolution=indexTimeResolution or self._indexTimeResolution)

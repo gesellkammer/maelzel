@@ -67,7 +67,7 @@ class Spanner:
         return spanner
 
     @staticmethod
-    def _strToClass(s: str) -> type(Spanner):
+    def _strToClass(s: str) -> type[Spanner]:
         cls = {
             'slur': Slur,
             'beam': Beam
