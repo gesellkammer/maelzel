@@ -119,6 +119,7 @@ def plotPowerSpectrum(samples: np.ndarray,
         the axes used
 
     """
+    import matplotlib.pyplot as plt
     if axes is None:
         f: Figure = plt.figure(figsize=figsize)
         axes = f.add_subplot(1, 1, 1)
@@ -150,6 +151,7 @@ def _plot_matplotlib(samples: np.ndarray, samplerate: int, timelabels: bool,
                      ) -> Figure:
     numch = numChannels(samples)
     numsamples = samples.shape[0]
+    import matplotlib.pyplot as plt
     if tight:
         fig = plt.figure(figsize=figsize, layout='constrained')
     else:
@@ -313,6 +315,7 @@ def plotWaveform(samples,
 
 
     """
+    import matplotlib.pyplot as plt
     dur = len(samples) / samplerate
 
     if profile == 'auto' or not profile:
@@ -436,6 +439,7 @@ def plotSpectrogram(samples: np.ndarray,
                                       axes=axes, cmap=cmap, figsize=figsize,
                                       yaxis=yaxis, maxfreq=maxfreq, minfreq=minfreq)
 
+    import matplotlib.pyplot as plt
     if axes is None:
         f: Figure = plt.figure(figsize=figsize)
         axes = f.add_subplot(1, 1, 1)
@@ -497,6 +501,7 @@ def plotMelSpectrogram(samples: np.ndarray,
         the axes used
 
     """
+    import matplotlib.pyplot as plt
     if len(samples.shape) > 1:
         samples = samples[:, 0]
     if not winsize:
@@ -533,6 +538,7 @@ def _plotSpectrogramRosita(samples: np.ndarray,
                            minfreq=40
                            ) -> Axes:
     from maelzel.snd import rosita
+    import matplotlib.pyplot as plt
     if not winsize:
         winsize = fftsize
 
