@@ -106,9 +106,6 @@ def readImageAsBase64(imgpath: str) -> tuple[bytes, int, int]:
     """
     Read an image as base64
 
-    This is used in order to solve errors in pillow, were
-    a greyscale image with a color profile raises an error
-
     Args:
         imgpath: the path to the image
 
