@@ -517,16 +517,17 @@ class MObj(ABC):
         position       float  Dynamic argument. Panning position (0=left, 1=right).
                               **Dynamic argument** (*kpos*)
         skip           float  Skip time of playback; allows to play a fragment of the object.
+                              Time in beats relative to the start of the object
                               **NB**: set the delay to the -skip to start playback at the
                               original time but from the timepoint specified by the skip param
-        end            float  End time of playback; counterpart of `skip`, allow to
-                              trim playback of the object
-        sustain        float  An extra sustain time. This is useful for sample based
-                              instruments
+        end            float  End time of playback, in beats, relative to the start of the
+                              object; counterpart of `skip`, allow to trim playback of the object
+        sustain        float  An extra sustain time, in seconds. This is useful for sample
+                              based instruments
         transpose      float  Transpose the pitch of this object **only for playback**
         glisstime      float  The duration (in beats) of the glissando for events with
                               glissando. A short glisstime can be used for legato playback
-                              in non-percusive instruments
+                              in non-percusive instruments. Implies gliss. to the next event.
         priority       int    The order of evaluation. Events scheduled with a higher
                               priority are evaluated later in the chain
         args           dict   Named arguments passed to the playback instrument
@@ -549,7 +550,6 @@ class MObj(ABC):
         playargs = self.playargs
         if playargs is None:
             self.playargs = playargs = PlayArgs()
-        # extrakeys = set(kws.keys()).difference(PlayArgs.playkeys)
         extrakeys = kws.keys() - PlayArgs.playkeys
 
         # set extrakeys as args, without checking the instrument
@@ -599,7 +599,7 @@ class MObj(ABC):
     def remap(self, deststruct: ScoreStruct, sourcestruct: ScoreStruct | None = None
               ) -> Self:
         """
-        Remap times (offset, dur) from source scorestruct to destination scorestruct
+        Creates a clone, remapping times from source scorestruct to destination scorestruct
 
         The absolute time remains the same
 
@@ -717,7 +717,11 @@ class MObj(ABC):
              backend='',
              scorestruct: ScoreStruct | None = None,
              resolution: int = 0,
-             **kws
+             pageSize='',
+             staffSize: float | None = None,
+             cents: bool | None = None,
+             voiceMaxStaves: int | None = None,
+             ** kws
              ) -> None:
         """
         Show this as notation.
@@ -734,19 +738,63 @@ class MObj(ABC):
             scorestruct: if given overrides the current/default score structure
             resolution: dpi resolution when rendering to an image, overrides the
                 :ref:`config key 'show.pngResolution' <config_show_pngresolution>`
-            kws: any keyword is used to override the config
+            pageSize: if given, overrides config 'show.pageSize'. One of 'a3', 'a4', ...
+            staffSize: if given, overrides config 'show.staffSize'. A value in points
+                (default = 10.)
+            cents: overrides config 'show.cents'. False to hide cents deviations
+                as text annotation
+            voiceMaxStaves: overrides config 'show.voiceMaxStaves'. Max. number of
+                staves used when expanding a voice to multiple staves
+            kws: any keyword is used to override the config. All options starting with
+                the 'show.' prefix can be used directly (see below)
+
+        Useful keywords
+        ~~~~~~~~~~~~~~~
+
+        ================ ===================== ===============================
+        kws              Config Option         Description
+        ================ ===================== ===============================
+        staffSize        show.staffSize        Size of a staff, in points
+        spacing          show.spacing          One of normal (traditional spacing),
+                                               strict (proportional), uniform (proportional)
+        voiceMaxStaves   show.voiceMaxStaves   Expands any voice to at most
+                                               this number of staves
+        autoClefChanges  show.autoClefChanges  Adds automatic clef changes when rendering
+        clefSimplify     show.clefSimplify     Simplifies automatic clef changes
+        cents            show.cents            set to False to avoid showing cents
+                                               deviations as text annotation
+        glissStemless    show.glissStemless    remove stems from the end note of a gliss
+        horizontalSpace  show.horizontalSpace  configure proportional spacing (one of
+                                               "default", "small", "medium", "large")
+        pageOrientation  show.pageOrientation  one of "landscape", "portrait"
+        pageSize         show.pageSize         one of "a4", "a3", ...
+        ================ ===================== ===============================
+
         """
         cfg = self.getConfig() or Workspace.active.config
+        cfg = cfg.copy()
 
         if resolution or kws:
             cfg = cfg.copy()
             if resolution:
                 cfg['show.pngResolution'] = resolution
             for kw, value in kws.items():
-                try:
+                if kw in cfg:
                     cfg[kw] = value
-                except KeyError:
-                    logger.error(f'Invalid keyword {kw}, no such key found in config, skipping')
+                elif (showkw := f"show.{kw}") in cfg:
+                    cfg[showkw] = value
+                else:
+                    matches = cfg._bestMatches(kw, limit=8)
+                    logger.error(f'Invalid config keyword {kw} or {showkw} (possible matches: {matches})')
+
+        if staffSize is not None:
+            cfg['show.staffSize'] = staffSize
+        if cents is not None:
+            cfg['show.cents'] = cents
+        if voiceMaxStaves is not None:
+            cfg['show.voiceMaxStaves'] = voiceMaxStaves
+        if pageSize:
+            cfg['show.pageSize'] = pageSize
 
         if external is None:
             external = cfg['openImagesInExternalApp']
@@ -1127,13 +1175,17 @@ class MObj(ABC):
               outfile: str,
               backend='',
               resolution: int = 0,
-              format=''
+              format='',
               ) -> None:
         """
         Export to multiple formats
 
         Formats supported: pdf, png, musicxml (extension: .xml or .musicxml),
         lilypond (.ly), midi (.mid or .midi) and pickle
+
+        To configure any options either modify the active config or use
+        :meth:`.setConfig` for self. You can also use a config
+        as context manager to temporary change the active config
 
         Args:
             outfile: the path of the output file. The extension determines
@@ -1161,6 +1213,16 @@ class MObj(ABC):
             complex rhythms will not be translated correctly
         * pickle: the object is serialized using the pickle module. This allows to load it
             via ``pickle.load``: ``myobj = pickle.load(open('myobj.pickle'))``
+
+        Example
+        ~~~~~~~
+
+        .. code-block:: python
+
+            chain = Chain(...)
+            with CoreConfig({'show.voiceMaxStaves': 2, 'show.staffSize': 12}):
+                chain.write('chain.pdf')
+
         """
         if outfile == '?':
             from . import _dialogs
@@ -1975,20 +2037,18 @@ class MContainer(MObj):
         if self._scorestruct:
             other.setScoreStruct(self._scorestruct)
 
-    def setConfig(self, key: str, value: _t.Any) -> None:
+    def setConfig(self, *args) -> None:
         """
-        Set a configuration key for this object.
+        Configure this object
 
         Possible keys are any CoreConfig keys with the prefixes 'quant.' and 'show.'
-        and also secondary keys starting with '.quant' and '.show', but any subclass
-        can set the keys accepted by its instances by overloading :meth:`MContainer._configKeys`
+        and also secondary keys starting with '.quant' and '.show'
+
+        Internal note: any subclass can set the keys accepted by its instances by
+        overloading :meth:`MContainer._configKeys`
 
         Args:
-            key: the key to set
-            value: the value. It will be validated via CoreConfig
-
-        Returns:
-            self. This allows multiple calls to be chained
+            args: an even number of args of the form key1, value1, key2, value2, ...
 
         Example
         ~~~~~~~
@@ -2011,12 +2071,17 @@ class MContainer(MObj):
             >>> quantizedscore.render()
         """
         keys = self._classConfigKeys()
-        if key not in keys:
-            raise KeyError(f"Invalid key '{key}' for a {self.__class__}. "
-                           f"Valid keys are {keys}")
-        if errmsg := CoreConfig.root().checkValue(key, value):
-            raise ValueError(f"Invalid value {value} for key '{key}': {errmsg}")
-        self._config[key] = value
+        root = CoreConfig.root()
+        assert len(args) % 2 == 0
+        kws = args[::2]
+        values = args[1::2]
+        for key, value in zip(kws, values):
+            if key not in keys:
+                raise KeyError(f"Invalid key '{key}' for a {self.__class__}. "
+                               f"Valid keys are {keys}")
+            if errmsg := root.checkValue(key, value):
+                raise ValueError(f"Invalid value {value} for key '{key}': {errmsg}")
+            self._config[key] = value
 
     def getConfig(self, prototype: CoreConfig | None = None) -> CoreConfig | None:
         if prototype is None:
@@ -2100,7 +2165,7 @@ class MContainer(MObj):
 
     def previousEvent(self, event: _event.MEvent) -> _event.MEvent | None:
         return None
-
+    
     def __contains__(self, item: MObj) -> bool:
         raise NotImplementedError
 
@@ -2233,7 +2298,7 @@ def _renderObject(obj: MObj,
     """
     assert scorestruct and config
     assert isinstance(backend, str) and backend in ('musicxml', 'lilypond')
-    parts = obj.scoringParts()
+    parts = obj.scoringParts(config=config)
     if not parts:
         if config['show.warnIfEmpty']:
             logger.warning(f"The object {obj} did not produce any scoring parts")

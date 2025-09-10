@@ -260,9 +260,10 @@ def getSession(numchannels: int | None = None,
     .. seealso:: :class:`csoundengine.Session <https://csoundengine.readthedocs.io/en/latest/api/csoundengine.session.Session.html>`
     """
     if not isSessionActive():
-        session = _playEngine(numchannels=numchannels, backend=backend, outdev=outdev,
-                              verbose=verbose, buffersize=buffersize, latency=latency,
-                              numbuffers=numbuffers).session()
+        engine = _playEngine(numchannels=numchannels, backend=backend, outdev=outdev,
+                             verbose=verbose, buffersize=buffersize, latency=latency,
+                             numbuffers=numbuffers)
+        session = engine.session()
         for instr in _builtinInstrs():
             session.registerInstr(instr)
         return session
@@ -755,7 +756,7 @@ class _SynchronizedContext(_renderer.Renderer):
                    gain=1.,
                    speed=1.,
                    loop=False,
-                   pos=0.5,
+                   pan=0.5,
                    skip=0.,
                    fade: float | tuple[float, float] | None = None,
                    crossfade=0.02,
@@ -771,7 +772,7 @@ class _SynchronizedContext(_renderer.Renderer):
             gain: a gain applied
             speed: playback speed
             loop: should the sample be looped?
-            pos: the panning position
+            position: the panning position
             skip: time to skip from the audio sample
             fade: a fade applied to the playback
             crossfade: a crossfade time when looping
@@ -780,13 +781,14 @@ class _SynchronizedContext(_renderer.Renderer):
             a :class:`_FutureSynth`
         """
         # TODO: make a FutureSynth event instead
+        from maelzel.snd import audiosample
         if isinstance(source, tuple):
             data, sr = source
             source = self.session.makeTable(data=data, sr=sr)
         elif isinstance(source, audiosample.Sample):
             source = self.session.makeTable(data=source.samples, sr=source.sr)
         event = self.session.makeSampleEvent(source=source, delay=delay, dur=dur, chan=chan, gain=gain,
-                                             speed=speed, loop=loop, pan=pos, skip=skip, fade=fade,
+                                             speed=speed, loop=loop, pan=pan, skip=skip, fade=fade,
                                              crossfade=crossfade)
         return self._schedSessionEvent(event=event)
 

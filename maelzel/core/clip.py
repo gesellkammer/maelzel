@@ -1,4 +1,7 @@
 from __future__ import annotations
+
+import itertools
+
 import pitchtools as pt
 
 import numpy as np
@@ -449,7 +452,7 @@ class Clip(event.MEvent):
                  resolution: float = 50,
                  windowsize=0.,
                  mindb=-90,
-                 dur: time_t = None,
+                 durs: list[time_t] | time_t | None = None,
                  maxcount=0,
                  ampfactor=1.,
                  maxfreq=2000,
@@ -459,13 +462,21 @@ class Clip(event.MEvent):
         margin = 1/resolution * 8
         start = max(0., times[0] - margin)
         end = times[-1] + margin
+        if durs is None:
+            durations = [t1 - t0 for t0, t1 in itertools.pairwise(times)]
+            durations.append(durations[-1])
+        elif isinstance(durs, (list, tuple)):
+            durations = durs
+        else:
+            durations = [durs] * len(times)
         spectrum = self.spectrum(resolution=resolution, mindb=mindb, windowsize=windowsize, start=start, end=end)
         chords = []
         minamp = pt.db2amp(mindb)
         minfreq = max(minfreq, resolution * 0.8)
         for i, time in enumerate(times):
+            eventdur = durations[i]
             partials = spectrum.partialsBetween(start=time, end=time)
-            eventdur = dur or (times[i+1] - time if i < len(times) - 1 else F(1))
+            # eventdur = dur or (times[i+1] - time if i < len(times) - 1 else F(1))
             if not partials:
                 chords.append(event.Rest(dur=eventdur))
             else:
@@ -485,7 +496,7 @@ class Clip(event.MEvent):
                         chordamp = sum(bp[1] for bp in bps) / len(bps)
                     else:
                         chordamp = 1.
-                    chord = event.Chord(components, dur=dur, amp=chordamp, properties={'time': time})
+                    chord = event.Chord(components, dur=eventdur, amp=chordamp, properties={'time': time})
                     chords.append(chord)
         return chords
 

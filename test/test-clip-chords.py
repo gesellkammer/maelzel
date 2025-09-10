@@ -16,7 +16,7 @@ def systemid():
 
 cfg = CoreConfig()
 cfg['show.respellPitches'] = False
-cfg['show.centsAsText'] = False
+cfg['show.cents'] = False
 cfg['chordAdjustGain'] = False
 cfg['show.voiceMaxStaves'] = 3
 cfg.activate()

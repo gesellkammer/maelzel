@@ -608,7 +608,7 @@ class Note(MEvent):
                                                    duration=0,
                                                    offset=offset,
                                                    group=groupid))
-            if config['show.glissEndStemless']:
+            if config['show.glissStemless']:
                 notes[-1].addAttachment(scoring.attachment.StemTraits(hidden=True))
 
         if self.label:
@@ -793,13 +793,14 @@ class Note(MEvent):
         glissdur = playargs.get('glisstime', 0.)
         linkednext = glissdur or self.gliss
         endpitch = self.resolveGliss() if linkednext else self.pitch
-        startbeat = max(self.relOffset() + parentOffset, playargs.get('skip', 0))
-        endbeat = min(startbeat + self.dur, playargs.get('end', float('inf')))
+        absoffset = self.relOffset() + parentOffset
+        startbeat = absoffset + playargs.get('skip', 0)
+        endbeat = absoffset + playargs.get('end', self.dur)
         startsecs = float(struct.beatToTime(startbeat))
         endsecs = float(struct.beatToTime(endbeat))
         if startsecs >= endsecs:
             raise ValueError(f"Trying to play an event with 0 or negative duration: {endsecs-startsecs}. "
-                             f"Object: {self}")
+                             f"Object: {self}, {startbeat=}, {endbeat=}, {playargs=}")
         transp = playargs.get('transpose', 0.)
         startpitch = self.pitch + transp
         if glissdur > 0.:
@@ -1281,7 +1282,7 @@ class Chord(MEvent):
                 notation.groupid = groupid
                 endEvent = scoring.Notation.makeChord(pitches=self.gliss, duration=0,
                                                       offset=self.end, group=groupid)
-                if config['show.glissEndStemless']:
+                if config['show.glissStemless']:
                     endEvent.addAttachment(scoring.attachment.StemTraits(hidden=True))
                     # endEvent.stem = 'hidden'
                 notations.append(endEvent)
@@ -1481,11 +1482,11 @@ class Chord(MEvent):
         for note, endpitch, amp in zip(self.notes, endpitches, amps):
             startpitch = note.pitch + transpose
             amp *= globalgain
-            bps = [[float(startsecs), startpitch, amp]]
+            bps = [(float(startsecs), startpitch, amp)]
             if glissdur:
                 glissabstime = float(struct.beatToTime(endbeat - glissdur))
-                bps.append([glissabstime, startpitch, amp])
-            bps.append([float(endsecs),   endpitch+transpose,   amp])
+                bps.append((glissabstime, startpitch, amp))
+            bps.append((float(endsecs), endpitch+transpose, amp))
             event = synthevent.SynthEvent.fromPlayArgs(bps=bps, playargs=playargs)
             if playargs.automations:
                 event.addAutomationsFromPlayArgs(playargs, scorestruct=struct)

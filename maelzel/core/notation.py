@@ -4,7 +4,6 @@ Functionality to interface with `maelzel.scoring`
 """
 from __future__ import annotations
 
-from functools import cache
 from maelzel.common import asF
 from .workspace import Workspace
 
@@ -66,7 +65,7 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig | None = None,
         glissLineThickness=cfg['show.glissLineThickness'],
         glissHideTiedNotes=cfg['show.glissHideTiedNotes'],
         glissLineType=cfg['show.glissLineType'],
-        horizontalSpacing=cfg['show.horizontalSpacing'],
+        horizontalSpace=cfg['show.horizontalSpace'],
         lilypondBinary=cfg['lilypondpath'],
         lilypondGlissMinLength=cfg['show.lilypondGlissMinLength'],
         lilypondPngStaffsizeScale=cfg['show.lilypondPngStaffsizeScale'],
@@ -80,13 +79,13 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig | None = None,
         rehearsalMarkStyle=cfg['show.rehearsalMarkStyle'],
         renderFormat=cfg['show.format'],
         respellPitches=cfg['show.respellPitches'],
-        showCents=cfg['show.centsAsText'],
+        showCents=cfg['show.cents'],
         staffSize=cfg['show.staffSize'],
         referenceStaffsize=cfg['show.referenceStaffsize'],
         autoClefChanges=cfg['show.autoClefChanges'],
         keepClefBiasFactor=cfg['show.keepClefBias'],
         autoClefChangesWindow=cfg['show.clefChangesWindow'],
-        clefSimplificationThreshold=cfg['show.clefSimplification'],
+        clefSimplifyThreshold=cfg['show.clefSimplify'],
         musicxmlFontScaling=cfg['show.musicxmlFontScaling'],
         centsTextSnap=cfg['show.centsTextSnap'],
         proportionalSpacing=cfg['show.spacing'] != "normal",

@@ -8,7 +8,8 @@ from .common import logger
 from . import attachment
 from . import definitions
 from .notation import Notation
-    
+from dataclasses import dataclass
+
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Sequence
@@ -16,12 +17,24 @@ if TYPE_CHECKING:
     from maelzel.scoring import spanner as _spanner
 
 
-@cache
-def clefFitnessCurves() -> dict[str, bpf4.BpfInterface]:
-    """
-    A dict {clef: bpf} where bpf maps midipitch to fitness
+@dataclass
+class _ClefDefinition:
+    name: str
+    """Name of the clef"""
+    
+    center: float
+    """Center of gravity of the clef, used for sorting"""
+    
+    fitness: bpf4.BpfInterface
+    """Maps pitch to fitness within this clef"""
 
-    Fitness indicates how good a fit this pitch is for this clef,
+    
+@cache
+def clefDefinitions() -> dict[str, _ClefDefinition]:
+    """
+    A dict {clef: clefdef}
+
+    Fitness indicates how good a fit a pitch is for the given clef,
     based purely on the pitch
 
     Returns:
@@ -29,49 +42,50 @@ def clefFitnessCurves() -> dict[str, bpf4.BpfInterface]:
     """
     import bpf4
     return {
-        'treble15': bpf4.linear(
+        'treble15': _ClefDefinition('treble15', center=n2m("7F"), fitness=bpf4.linear(
+            (n2m("4C"), -100),
             (n2m("5C"), -2),
             (n2m("6C"), 0),
             (n2m("6A"), 1),
-            (n2m("10C"), 1)),
-        'treble8': bpf4.linear(
+            (n2m("10C"), 1))),
+        'treble8': _ClefDefinition('treble8', center=n2m("6D"), fitness=bpf4.linear(
+            (n2m("3C"), -100),
             (n2m("4G"), -2),
             (n2m("5C"), 0),
             (n2m("5F"), 1),
             (n2m("7C"), 1),
-            (n2m("7E"), 0)),
-        'treble': bpf4.linear(
-            (n2m("1C"), -20),
-            (n2m("2A"), -2),
+            (n2m("7E"), 0))),
+        'treble': _ClefDefinition('treble', center=n2m("4B"), fitness=bpf4.linear(
+            (0, -100),
+            (n2m("2A"), -10),
             (n2m("3F"), 0),
             (n2m("3B"), 1),
             (n2m("6E"), 1),
             (n2m("6G"), 0.8),
             (n2m("6B"), 0),
-            (n2m("7A"), -2),
-        ),
-        'bass': bpf4.linear(
+            (n2m("7A"), -2))),
+        'bass': _ClefDefinition('bass', center=n2m("3E"), fitness=bpf4.linear(
             (n2m("1A"), 0),
             (n2m("2C"), 1),
             (n2m("4D"), 1),
             (n2m("4G"), 0),
-            (n2m("5D"), -2)
-        ),
-        'bass8': bpf4.linear(
+            (n2m("5D"), -10),
+            (n2m("5G"), -100) )),
+
+        'bass8': _ClefDefinition('bass8', center=n2m("2D"), fitness=bpf4.linear(
             (n2m("-1A"), -2),
             (n2m("0C"), 0),
             (n2m("0E"), 1),
             (n2m("3D"), 1),
             (n2m("3A"), 0),
-            (n2m("4E"), -2)
-        ),
-        'bass15': bpf4.linear(
+            (n2m("4E"), -2),
+            (n2m("5C"), -100))),
+        'bass15': _ClefDefinition('bass15', center=n2m("1F"), fitness=bpf4.linear(
             (n2m("-1D"), 1),
             (n2m("1C"), 1),
             (n2m("1G"), 0),
-            (n2m("2C"), -2)
-        ),
-
+            (n2m("2C"), -2),
+            (n2m("3C"), -100)))
     }
 
 
@@ -93,23 +107,16 @@ class ClefChangesEvaluator:
     # We never autoevaluate to alto clef, but alto can still be set manually
     clefs = ['treble15', 'treble8', 'treble', 'bass', 'bass8', 'bass15']
 
+    # Pairs need to be sorted alphabetically ('bass' < 'treble')
     clefChangeFactor = {
-        ('treble', 'treble8'): 0.5,
-        ('treble8', 'treble15'): 0.2,
+        ('treble', 'treble8'): 0.2,   # discourage octave changes in preference of double octaves
+        ('treble15', 'treble8'): 0.0, # do not allow 8va to 15a and viceversa
         ('treble', 'treble15'): 0.9,
-        ('bass', 'treble15'): 0.9,
-        ('bass', 'bass8'): 0.5,
+        ('bass', 'bass8'): 0.2,
         ('bass', 'bass15'): 0.9,
-        ('bass8', 'bass15'): 0.2,
-    }
-
-    clefPriorityFactors = {
-        'treble': 1.0,
-        'bass': 1.0,
-        'treble15': 0.9,
-        'bass15': 0.9,
-        'treble8': 0.7,
-        'bass8': 0.7,
+        ('bass15', 'bass8'): 0.0,  # do not allow 8va to 15a and viceversa
+        # ('bass8', 'treble8'): 0.5,
+        ('bass8', 'treble15'): 0.2,
     }
 
     defaultDistanceFactor = {
@@ -122,9 +129,9 @@ class ClefChangesEvaluator:
                  biasFactor: float = 1.5,
                  clefChangeBetweenTiedNotes: bool = False,
                  changeDistanceFactor: dict[int, float] | None = None,
-                 possibleClefs: list[str] | None = None,
+                 possibleClefs: Sequence[str] | None = None,
                  firstClef=''):
-        clefCurves = clefFitnessCurves()
+        clefCurves = clefDefinitions()
         if possibleClefs is not None:
             clefCurves = {clef: curve for clef, curve in clefCurves.items()
                           if clef in possibleClefs}
@@ -148,7 +155,7 @@ class ClefChangesEvaluator:
                 return self.currentClef, 0
 
             for clef, curve in self.clefCurves.items():
-                points = sum(curve(p) for p in n.pitches)
+                points = sum(curve.fitness(p) for p in n.pitches)
                 if clef != self.currentClef:
                     if self.history:
                         lastChange = next((idx0 for idx0, clef0, pts in reversed(self.history) if clef0 != clef), 0)
@@ -159,7 +166,10 @@ class ClefChangesEvaluator:
                     a, b = clef, self.currentClef
                     pair = (a, b) if a < b else (b, a)
                     changeFactor = self.clefChangeFactor.get(pair, 1.0)
-                    points *= changeFactor * distanceFactor
+                    if points > 0:
+                        # changeFactor should attenuate only possitive points, not
+                        # penalties
+                        points *= changeFactor * distanceFactor
                 else:
                     points *= self.biasFactor
                 pointsPerClef[clef] = pointsPerClef.get(clef, 0) + points
@@ -220,7 +230,9 @@ def findBestClefs(notations: list[Notation],
                   addClefs=True,
                   key='',
                   breakTies=False,
-                  possibleClefs: list[str] | None = None,
+                  possibleClefs: Sequence[str] | None = None,
+                  maxClef='',
+                  minClef=''
                   ) -> list[tuple[int, str]]:
     """
     Given a list of notations, find the clef changes
@@ -243,6 +255,8 @@ def findBestClefs(notations: list[Notation],
              result in a clef change in the notation (see `addClefs`)
         breakTies: if True, a clef change is acceptable between tied notations
         possibleClefs: if given, a list of possible clefs
+        minClef: if given, only use clefs equal or higher to minClef
+        maxClef: if given, only use clefs equal or lower to maxClef
 
 
     Returns:
@@ -253,6 +267,16 @@ def findBestClefs(notations: list[Notation],
         to the given notations. If key is given, a property with the given
         key is set to the name of the clef to set at that notation
     """
+    clefdefs = clefDefinitions()
+    if not possibleClefs:
+        possibleClefs = list(clefdefs.keys())
+    if minClef:
+        center = clefdefs[minClef].center
+        possibleClefs = [clef for clef in possibleClefs if clefdefs[clef].center >= center]
+    if maxClef:
+        center = clefdefs[maxClef].center
+        possibleClefs = [clef for clef in possibleClefs if clefdefs[clef].center <= center]
+        
     points = []
     clefbyindex = ['treble15', 'treble8', 'treble', 'bass', 'bass8', 'bass15']
     notations = [n for n in notations if not n.isRest]
@@ -301,21 +325,25 @@ class SimpleClefEvaluator:
     """
     _cache: dict[None | tuple[str, ...], SimpleClefEvaluator] = {}
 
-    def __new__(cls, clefs: tuple[str, ...] | None = None):
+    def __new__(cls, clefs: Sequence[str] | None = None):
+        if clefs is not None and not isinstance(clefs, tuple):
+            clefs = tuple(sorted(clefs))
         if clefs in cls._cache:
             return cls._cache[clefs]
         return super().__new__(cls)
 
-    def __init__(self, clefs: tuple[str, ...] | None = None):
-        clefcurves = clefFitnessCurves()
+    def __init__(self, clefs: Sequence[str] | None = None):
+        clefcurves = clefDefinitions()
         if clefs is not None:
+            if not isinstance(clefs, tuple):
+                clefs = tuple(sorted(clefs))
             clefcurves = {clef: curve for clef, curve in clefcurves.items() if clef in clefs}
         self.curves = clefcurves
         self.clefs = list(clefcurves.keys())
         self._cache[clefs] = self
 
     def __call__(self, pitch: float) -> tuple[str, float]:
-        points, clef = max((curve(pitch), clef) for clef, curve in self.curves.items())
+        points, clef = max((curve.fitness(pitch), clef) for clef, curve in self.curves.items())
         return clef, points
     
     def process(self, pitches: list[float]) -> tuple[str, float]:
@@ -382,6 +410,7 @@ def _groupNotations(ns: list[Notation], groupingSpanners: tuple[_spanner.Spanner
 
 def explodeNotations(notations: list[Notation],
                      maxstaves=3,
+                     pitchRangeThreshold=12
                      ) -> list[tuple[str, list[Notation]]]:
     """
     Distribute notations across different clefs
@@ -394,10 +423,15 @@ def explodeNotations(notations: list[Notation],
         a list of pairs (clefname: str, notations: list[Notation])
     """
 
-    if all(n.isRest for n in notations):
+    pitchedNotations = [n for n in notations if not n.isRest]
+
+    if not pitchedNotations:
         return [('treble', notations)]
 
-    if maxstaves == 1:
+    minpitch = min(n.pitchRange()[0] for n in pitchedNotations)
+    maxpitch = max(n.pitchRange()[1] for n in pitchedNotations)
+
+    if maxstaves == 1 or maxpitch - minpitch <= pitchRangeThreshold:
         clef = bestClefForNotations(notations)
         return [(clef, notations)]
     elif maxstaves == 2:
@@ -444,6 +478,39 @@ def explodeNotations(notations: list[Notation],
     return splitNotationsByClef(notations, clefs=bestClefCombination)
 
 
+@cache
+def clefsBetween(minclef='',
+                 maxclef='',
+                 includemin=True,
+                 includemax=True,
+                 possibleClefs: tuple[str, ...] = ()
+                 ) -> tuple[str, ...]:
+    assert minclef or maxclef
+    if not possibleClefs:
+        possibleClefs = definitions.clefsByOrder
+    if not minclef:
+        minclef = definitions.clefsByOrder[-1]
+    if not maxclef:
+        maxclef = definitions.clefsByOrder[0]
+
+    minorder = definitions.clefSortOrder[minclef]
+    maxorder = definitions.clefSortOrder[maxclef]
+
+    if includemin and includemax:
+        clefs = [clef for clef in possibleClefs
+                 if minorder <= definitions.clefSortOrder[clef] <= maxorder]
+    elif includemin:
+        clefs = [clef for clef in possibleClefs
+                 if minorder <= definitions.clefSortOrder[clef] < maxorder]
+    elif includemax:
+        clefs = [clef for clef in possibleClefs
+                 if minorder < definitions.clefSortOrder[clef] <= maxorder]
+    else:
+        clefs = [clef for clef in possibleClefs
+                 if minorder < definitions.clefSortOrder[clef] < maxorder]
+    return tuple(clefs)
+
+
 def splitNotationsByClef(notations: list[Notation],
                          clefs: Sequence[str],
                          groupNotationsInSpanners=True
@@ -473,15 +540,22 @@ def splitNotationsByClef(notations: list[Notation],
     if not isinstance(clefs, tuple):
         clefs = tuple(clefs)
     clefeval = SimpleClefEvaluator(clefs=clefs)
-    
+
     def handleNotation(n: Notation, nidx: int) -> None:
+        """
+        Handle the given notation
+
+        Args:
+            n: the notation
+            nidx: the index of the notation (used to access other notations)
+        """
         if n.isRest:
             for part in parts.values():
                 # should it be a copy?
                 part.append(n)
         else:
-            pitchindexToClef = [n._getClefHint(i) or clefeval(p)[0]
-                                for i, p in enumerate(n.pitches)]
+            pitchindexToClef: list[str] = [n._getClefHint(i) or clefeval(p)[0]
+                                           for i, p in enumerate(n.pitches)]
             clef0 = pitchindexToClef[0]
             if len(n.pitches) == 1 or all(clef == clef0 for clef in pitchindexToClef):
                 parts[clef0].append(n)
@@ -520,7 +594,9 @@ def splitNotationsByClef(notations: list[Notation],
                             part.append(n.asRest())
     else:
         for nidx, n in enumerate(notations):
-            handleNotation(n, nidx)           
-                            
-    return [(clef, part) for clef, part in parts.items()
-            if part and not all(item.isRest for item in part)]
+            handleNotation(n, nidx)
+
+    pairs = [(clef, part) for clef, part in parts.items()
+             if part and not all(item.isRest for item in part)]
+    pairs.sort(key=lambda pair: definitions.clefSortOrder[pair[0]])
+    return pairs

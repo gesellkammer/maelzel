@@ -1883,6 +1883,9 @@ class QuantizedPart:
 
     firstClef: str = ''
     """The first clef of this part"""
+    
+    possibleClefs: tuple[str, ...] = ()
+    """Clefs to use when auto clef changes is used"""
 
     autoClefChanges: bool | None = None
     """If True, add clef changes when rendering this Part; None=use default.
@@ -2051,7 +2054,10 @@ class QuantizedPart:
                         window=1,
                         simplificationThreshold=0.,
                         biasFactor=1.5,
-                        propertyKey=''
+                        propertyKey='',
+                        minClef='',
+                        maxClef='',
+                        possibleClefs: Sequence[str] = ()
                         ) -> None:
         """
         Determines the most appropriate clef changes for this part
@@ -2069,6 +2075,9 @@ class QuantizedPart:
             biasFactor: The higher this value, the more weight is given to the
                 previous clef, thus making it more difficult to change clef
                 for minor jumps
+            minClef: if given, only clefs equal or higher to this can be used
+            maxClef: if given, only clefs equal or lower to this can be used
+            possibleClefs: if given, a seq. of allowed clefs
             propertyKey: the property key to add to the notation to mark
                 a clef change. Setting this property alone will not
                 result in a clef change in the notation (see `addClefs`)
@@ -2079,6 +2088,8 @@ class QuantizedPart:
             for n in notations:
                 if n.attachments:
                     n.removeAttachmentsByClass(attachment.Clef)
+        if not possibleClefs:
+            possibleClefs = self.possibleClefs
         # This adds the clef changes as attachment to the notation prior to which
         # the clef change has effect.
         clefutils.findBestClefs(notations,
@@ -2087,7 +2098,10 @@ class QuantizedPart:
                                 simplificationThreshold=simplificationThreshold,
                                 biasFactor=biasFactor,
                                 key=propertyKey,
-                                firstClef=self.firstClef)
+                                firstClef=self.firstClef,
+                                possibleClefs=possibleClefs,
+                                minClef=minClef,
+                                maxClef=maxClef)
         if (clef := notations[0].findAttachment(attachment.Clef)):
             self.firstClef = clef.kind
 
@@ -2530,10 +2544,16 @@ def quantizePart(part: core.UnquantizedPart,
                                         beats=[],
                                         quantprofile=quantprofile)
             qmeasures.append(qmeasure)
-    qpart = QuantizedPart(struct, qmeasures, name=part.name, shortName=part.shortName,
-                          groupid=part.groupid, quantProfile=quantprofile,
+    qpart = QuantizedPart(struct, 
+                          qmeasures, 
+                          name=part.name, 
+                          shortName=part.shortName,
+                          groupid=part.groupid, 
+                          quantProfile=quantprofile,
                           groupName=part.groupName,
-                          showName=part.showName, firstClef=part.firstClef)
+                          showName=part.showName, 
+                          firstClef=part.firstClef,
+                          possibleClefs=part.possibleClefs)
     if quantprofile.breakSyncopationsLevel != 'none':
         for measure in qpart:
             measure.breakSyncopations(level=quantprofile.breakSyncopationsLevel)

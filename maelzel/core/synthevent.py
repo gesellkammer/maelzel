@@ -629,11 +629,10 @@ class SynthEvent:
 
     def _applySustain(self) -> None:
         if self.linkednext and self.sustain:
-            logger.warning(f"A linked event cannot have sustain ({self=}")
+            logger.debug(f"A linked event cannot have sustain ({self=}")
             return
         if self.sustain > 0:
             last = self.bps[-1]
-            assert isinstance(last, list)
             bp = (last[0] + self.sustain, *last[1:])
             self.bps.append(bp)
         elif self.sustain < 0:
@@ -754,10 +753,10 @@ class SynthEvent:
 
     def _consolidateDelay(self) -> None:
         delay0 = self.bps[0][0]
+        assert all(isinstance(bp, tuple) for bp in self.bps)
         if delay0 > 0:
             self.delay += delay0
-            for bp in self.bps:
-                bp[0] -= delay0
+            self.bps = [(bp[0] - delay0,) + bp[1:] for bp in self.bps]
         assert self.bps[0][0] == 0
 
     def _applyTimeFactor(self, timefactor: float) -> None:
@@ -1209,13 +1208,13 @@ def mergeEvents(events: Sequence[SynthEvent], checkStaticAttributes=True
         now = event.bps[-1][0] + event.delay
 
         for bp in event.bps[:-1]:
-            bp = (bp[0]+ event.delay - firstdelay, *bp[1:])
+            bp = (bp[0] + event.delay - firstdelay, *bp[1:])
             bps.append(bp)
 
     # Add the last breakpoint of the last event
     lastevent = events[-1]
     lastbp = lastevent.bps[-1]
-    lastbp[0] += lastevent.delay - firstdelay
+    lastbp = (lastbp[0] + lastevent.delay - firstdelay, *lastbp[1:])
     bps.append(lastbp)
 
     # Fades are only relevant for the first and the last event

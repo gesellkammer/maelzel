@@ -110,14 +110,11 @@ clefs = {
     'bass15': 'bass15',
 }
 
-clefSortOrder = {
-    'treble15': 0,
-    'treble8': 1,
-    'treble': 2,
-    'bass': 3,
-    'bass8': 4,
-    'bass15': 5
-}
+
+clefsByOrder = ("treble15", "treble8", "treble", "alto", "bass", "bass8", "bass15")
+
+clefSortOrder = {clef: i for i, clef in enumerate(clefsByOrder)}
+
 
 noteheadShapes = {
     'normal',

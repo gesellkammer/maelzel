@@ -16,7 +16,7 @@ config.addKey('noteAnnotationFontSize', 10, int,
               doc="Font size (in points) for note annotations")
 config.addKey('showCents', False, type=bool,
               doc="Show cents deviations as note annotations")
-config.addKey('horizontalSpacing', 'large', choices=('small', 'medium', 'large', 'xlarge'))
+config.addKey('horizontalSpace', 'large', choices=('small', 'medium', 'large', 'xlarge'))
 config.addKey('glissLineThickness', 1,
               choices=(1, 2, 3, 4))
 config.addKey('measureAnnotationBoxed', True,

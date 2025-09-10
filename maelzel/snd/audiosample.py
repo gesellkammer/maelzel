@@ -570,12 +570,14 @@ class Sample:
                       f"numchannels=<code>{self.numchannels}</code>)<br>")
         else:
             header = ''
-        html  = plotSamplesAsHtml(samples=self.samples, sr=self.sr,
-                                  customHeader=header,
-                                  withAudiotag=withAudiotag,
-                                  profile=profile, path=self.path, figsize=figsize,
-                                  embedAudiotag=self.duration < 8,
-                                  audiotagMaxDuration=config['reprhtml_audiotag_embed_maxduration_seconds'])
+        audiotagMaxDur = config['reprhtml_audiotag_embed_maxduration_seconds']
+        embed = self.duration <= audiotagMaxDur
+        html = plotSamplesAsHtml(samples=self.samples, sr=self.sr,
+                                 customHeader=header,
+                                 withAudiotag=withAudiotag,
+                                 profile=profile, path=self.path, figsize=figsize,
+                                 embedAudiotag=embed,
+                                 audiotagMaxDuration=audiotagMaxDur if embed else 9999999)
 
         self._reprHtml = html
         return html
@@ -708,8 +710,10 @@ class Sample:
         """
         assert fmt in {'wav', 'aiff', 'aif', 'flac', 'mp3', 'ogg'}
         import tempfile
-        sndfile = tempfile.mktemp(suffix="." + fmt)
+        tmpfile = tempfile.NamedTemporaryFile(suffix="."+fmt, delete=False)
+        sndfile = tmpfile.name
         self.write(sndfile)
+        # sndfile = tempfile.mktemp(suffix="." + fmt)
         _openInEditor(sndfile, wait=wait, app=app)
         if wait:
             return self.__class__(sndfile)

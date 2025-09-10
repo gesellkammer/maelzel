@@ -61,7 +61,7 @@ def renderQuantizedScore(score: quant.QuantizedScore,
                 part.findClefChanges(apply=True,
                                      biasFactor=options.keepClefBiasFactor,
                                      window=options.autoClefChangesWindow,
-                                     simplificationThreshold=options.clefSimplificationThreshold,
+                                     simplificationThreshold=options.clefSimplifyThreshold,
                                      propertyKey='')
         part.repairLinks()
 

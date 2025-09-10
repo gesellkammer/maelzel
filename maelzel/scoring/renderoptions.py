@@ -54,7 +54,7 @@ class RenderOptions:
     glissHideTiedNotes: bool = True
     """Hide the notehead of intermediate notes within a glissando"""
 
-    horizontalSpacing: str = 'large'
+    horizontalSpace: str = 'large'
     """The horizontal spacing (large | medium | small). Only used by lilypond backend"""
 
     pngResolution: int = 200
@@ -173,7 +173,7 @@ class RenderOptions:
     keepClefBiasFactor: float = 2.0
     """The higher this value, the more priority is given to keeping the previous clef"""
 
-    clefSimplificationThreshold: float = 0.
+    clefSimplifyThreshold: float = 0.
     """Threshold used to simplify automatic clef changes"""
 
     compoundMeterSubdivision: str = 'all'
@@ -282,7 +282,7 @@ class RenderOptions:
         checkChoice('pageSize', ('a1', 'a2', 'a3', 'a4', 'a5'))
         checkChoice('divsPerSemitone', (1, 2, 4))
         checkChoice('centsAnnotationPlacement', ('above', 'below'))
-        checkChoice('horizontalSpacing', ('small', 'medium', 'large', 'xlarge', 'default'))
+        checkChoice('horizontalSpace', ('small', 'medium', 'large', 'xlarge', 'default'))
         checkChoice('backend', ('lilypond', 'musicxml'))
 
         if not (isinstance(self.staffSize, (int, float)) and 2 < self.staffSize < 40):

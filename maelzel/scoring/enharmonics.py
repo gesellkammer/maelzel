@@ -760,7 +760,11 @@ def fixEnharmonicsInPlace(notations: list[Notation],
 
             else:
                 # A Chord
-                n.fixNotename(solution[idx])
+                try:
+                    n.fixNotename(solution[idx])
+                except ValueError as err:
+                    logger.debug(f"Could not fix enharmonic spelling for {n} with {solution[idx]}, "
+                                 f"{idx=}, {solution=}. Error: {err}")
                 fixedslots = spellingHistory.slots
 
                 if nslots := n.fixedSlots():

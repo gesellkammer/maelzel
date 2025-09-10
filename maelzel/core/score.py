@@ -153,10 +153,29 @@ class Score(MContainer):
         from maelzel.core import musicxmlparser as mxml
         return mxml.parseMusicxml(musicxml, enforceParsedSpelling=enforceParsedSpelling)
 
-    def remap(self, deststruct: ScoreStruct, sourcestruct: ScoreStruct | None = None
+    def remap(self, deststruct: ScoreStruct, sourcestruct: ScoreStruct | None = None,
+              setStruct=True
               ) -> Score:
+        """
+        Creates a clone, remapping times from source scorestruct to destination scorestruct
+
+        The absolute time remains the same
+
+        Args:
+            deststruct: the destination scorestruct
+            sourcestruct: the source scorestructure, or None to use the resolved scoresturct
+            setStruct: if True, explicitely sets deststruct as the score structure for
+                this chain/voice
+
+        Returns:
+            a clone of self remapped to the destination scorestruct
+
+        """
         voices = [v.remap(deststruct, sourcestruct) for v in self.voices]
-        return self.clone(voices=voices, scorestruct=deststruct)
+        out = self.clone(voices=voices, scorestruct=deststruct)
+        if setStruct:
+            out.setScoreStruct(deststruct)
+        return out
 
     @staticmethod
     def pack(objects: list[MEvent | Chain | Voice], maxrange=36, mingap=0.) -> Score:

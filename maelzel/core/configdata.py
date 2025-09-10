@@ -33,7 +33,7 @@ defaultdict = {
 
     'show.arpeggiateChord': 'auto',
     'show.centsTextStyle': 'fontsize=6; placement=below',
-    'show.centsAsText': True,
+    'show.cents': True,
     'show.centsTextSnap': 2,
     '.show.centsTextPlusSign': True,
     'show.centSep': ',',
@@ -48,7 +48,7 @@ defaultdict = {
     'show.pageOrientation': 'portrait',
     'show.pageSize': 'a4',
     'show.pageMarginMillim': 4,
-    'show.glissEndStemless': False,
+    'show.glissStemless': False,
     'show.glissHideTiedNotes': True,
     'show.glissLineThickness': 2,
     'show.glissLineType': 'solid',
@@ -58,7 +58,7 @@ defaultdict = {
     'show.measureLabelStyle': 'box=rectangle; fontsize=12',
     'show.rehearsalMarkStyle': 'box=rectangle; fontsize=13; bold',
     'show.respellPitches': True,
-    'show.horizontalSpacing': 'medium',
+    'show.horizontalSpace': 'medium',
     'show.dynamicFromAmplitude': False,
     'show.jupyterMaxImageWidth': 1000,
     'show.hideRedundantDynamics': True,
@@ -72,7 +72,7 @@ defaultdict = {
     'show.musicxmlFontScaling': 1.0,
     'show.flagStyle': 'straight',
     'show.autoClefChanges': True,
-    'show.clefSimplification': 0.,
+    'show.clefSimplify': 0.,
     'show.spacing': 'normal',
     'show.proportionalDuration': '1/24',
     'show.warnIfEmpty': True,
@@ -211,7 +211,7 @@ validator = {
     # "quant.gridWeight::range": (0, 10),
     "show.pageOrientation::choices": {"portrait", "landscape"},
     "show.pageMarginMillim::range": (0, 1000),
-    "show.horizontalSpacing::choices": (
+    "show.horizontalSpace::choices": (
         "default",
         "small",
         "medium",
@@ -242,7 +242,7 @@ validator = {
     "show.proportionalDuration": lambda cfg, key, val: isValidFraction(val),
     "show.spacing::choices": ("normal", "strict", "uniform"),
     "show.flagStyle::choices": ("normal", "straight", "flat"),
-    "show.clefSimplification::range": (0, 10000),
+    "show.clefSimplify::range": (0, 10000),
     "dynamicCurveShape": lambda cfg, key, val: val.split("(")[0]
     in ("linear", "expon", "halfcos"),
     "dynamicCurveMindb::range": (-160, 0),
@@ -421,6 +421,9 @@ docs = {
         "Staff size used as a reference to convert between staff size and scaling factor. "
         "This allows to use staff size as a general way to indicate the scale of a score, "
         "independent of the backend",
+    
+    'show.clefSimplify':
+        "Simplifies automatic clef changes. Use higher values to limit clef changes",
 
     'show.musicxmlFontScaling':
         "Scaling factor applied to font sizes when rendering to musicxml",
@@ -479,12 +482,12 @@ docs = {
     'show.backend':
         'Method used when rendering notation',
 
-    'show.centsAsText':
+    'show.cents':
         'Show cents deviation as text when rendering notation',
 
     'show.centsTextSnap':
         'Pitches which deviate less than this cents from a quantized pitch'
-        'don´t need a text annotation (see `show.centsAsText`)',
+        'don´t need a text annotation (see `show.cents`)',
 
     '.show.centsTextPlusSign':
         'Show a plus sign for possitive cents deviations',
@@ -495,7 +498,7 @@ docs = {
     'show.pageSize':
         'Page size when rendering to pdf',
 
-    'show.glissEndStemless':
+    'show.glissStemless':
         'When the end pitch of a gliss. is shown as gracenote, make this stemless',
 
     'show.pageMarginMillim':
@@ -513,7 +516,7 @@ docs = {
     'show.pngResolution':
         'DPI used when rendering to png',
 
-    'show.horizontalSpacing':
+    'show.horizontalSpace':
         'Hint to adjust horizontal spacing. The actual result depends '
         'on the backend and the format used.',
 

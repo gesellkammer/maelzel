@@ -130,6 +130,7 @@ class Notation:
                 tiedPrev = False
                 midinotes = ()
             else:
+                pitches = sorted(pitches, key=asmidi)
                 midinotes = tuple(asmidi(p) for p in pitches)
 
         else:
@@ -318,6 +319,9 @@ class Notation:
         if annotation:
             out.addText(annotation)
         return out
+
+    def pitchRange(self) -> tuple[float, float]:
+        return self.pitches[0], self.pitches[-1]
 
     def isQuantized(self) -> bool:
         """Is this Notation quantized?"""
@@ -836,8 +840,8 @@ class Notation:
                 index = next((idx for idx in range(len(self.pitches))
                               if abs(spellingPitch - self.pitches[idx]) < tolerance), None)
                 if index is None:
-                    raise ValueError(f"No pitch in this notation matches the given notename {notename}"
-                                     f" (pitches: {self.resolveNotenames()})")
+                    raise ValueError(f"No pitch in this notation matches the given notename {notename}={pt.n2m(notename)}"
+                                     f" (pitches: {self.pitches=}, {index=}, {[pt.m2n(p) for p in self.pitches]})")
 
         self.fixedNotenames[index] = notename
 
@@ -1950,9 +1954,8 @@ def mergeSpanners(a: Notation, b: Notation
     Returns:
         a list of merged spanners, or None if both a and b have no spanners
     """
-    aspanners, bspanners = bool(a.spanners), bool(b.spanners)
-    if aspanners == bspanners:
-        return a.spanners + b.spanners if aspanners else None
+    if a.spanners and b.spanners:
+        return a.spanners + b.spanners
     else:
         return a.spanners or b.spanners
 

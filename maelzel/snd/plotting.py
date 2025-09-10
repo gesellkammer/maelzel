@@ -243,7 +243,7 @@ class _TimeLocator(matplotlib.ticker.LinearLocator):
             secmin, secmax = valmin, valmax
         diff = secmax-secmin
         step = self.difftostep(diff)
-        firstelem = emlib.mathlib.next_in_grid(secmin, step)
+        firstelem = emlib.mathlib.next_in_grid(secmin, step, offset=0)
         numticks = int((secmax+step - firstelem) / step)
         if numticks <= 3:
             step = step/2

@@ -102,9 +102,9 @@ show.centsTextStyle:
     | Default: **fontsize=6; placement=below**  -- ``str``
     | *Style used for cents annotations. The format is a list of <key>=<value> pairs, separated by semicolons. Possible keys are: fontsize, box (choices: rectangle, square, circle), placement (choices: above, below), italic (flag), bold (flag). Flag keys do not need any values. Example: "fontsize=12; italic; box=rectangle"*
 
-.. _config_show_centsAsText:
+.. _config_show_cents:
 
-show.centsAsText:
+show.cents:
     | Default: **True**  -- ``bool``
     | *show cents deviation as text when rendering notation*
 
@@ -191,9 +191,9 @@ show.pageMarginMillim:
     | Between 0 - 1000
     | *The page margin in mm*
 
-.. _config_show_glissendstemless:
+.. _config_show_glissStemless:
 
-show.glissEndStemless:
+show.glissStemless:
     | Default: **False**  -- ``bool``
     | *When the end pitch of a gliss. is shown as gracenote, make this stemless*
 
@@ -254,9 +254,9 @@ show.respellPitches:
     | Default: **True**  -- ``bool``
     | *If True, try to find a suitable enharmonic representation of pitches whichhave not been fixed already by the user. Otherwise the canonical form of eachpitch is used, independent of the context*
 
-.. _config_show_horizontalspacing:
+.. _config_show_horizontalSpace:
 
-show.horizontalSpacing:
+show.horizontalSpace:
     | Default: **medium**  -- ``str``
     | Choices: ``default, large, medium, small, xlarge``
     | *Hint for the renderer to adjust horizontal spacing. The actual result depends on the backend and the format used.*

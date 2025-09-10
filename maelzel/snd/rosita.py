@@ -2931,7 +2931,7 @@ def pyin(
     # differs from the method described in the paper.
     # 1. Define the prior over the thresholds.
     thresholds = np.linspace(0, 1, n_thresholds + 1)
-    import scipy.stats.beta
+    import scipy.stats
     beta_cdf = scipy.stats.beta.cdf(thresholds, beta_parameters[0], beta_parameters[1])
     beta_probs = np.diff(beta_cdf)
 

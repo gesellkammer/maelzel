@@ -216,7 +216,7 @@ pitchnames = \arrowedPitchNames
 }
 """
 
-_horizontalSpacingNormal = r"""
+_horizontalSpaceNormal = r"""
 \layout {
   \context {
     \Score
@@ -226,7 +226,7 @@ _horizontalSpacingNormal = r"""
 }
 """
 
-_horizontalSpacingMedium = r"""
+_horizontalSpaceMedium = r"""
 \layout {
   \context {
     \Score
@@ -236,7 +236,7 @@ _horizontalSpacingMedium = r"""
 }
 """
 
-_horizontalSpacingLarge = r"""
+_horizontalSpaceLarge = r"""
 \layout {
   \context {
     \Score
@@ -246,7 +246,7 @@ _horizontalSpacingLarge = r"""
 }
 """
 
-_horizontalSpacingXL = r"""
+_horizontalSpaceXL = r"""
 \layout {
   \context {
     \Score
@@ -257,13 +257,13 @@ _horizontalSpacingXL = r"""
 """
 
 
-horizontalSpacingPresets = {
+horizontalSpacePresets = {
     'default': None,
-    'small': _horizontalSpacingNormal,
-    'medium': _horizontalSpacingMedium,
-    'large': _horizontalSpacingLarge,
-    'xl': _horizontalSpacingXL,
-    'xlarge': _horizontalSpacingXL
+    'small': _horizontalSpaceNormal,
+    'medium': _horizontalSpaceMedium,
+    'large': _horizontalSpaceLarge,
+    'xl': _horizontalSpaceXL,
+    'xlarge': _horizontalSpaceXL
 }
 
 

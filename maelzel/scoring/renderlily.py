@@ -1105,8 +1105,8 @@ fr'''
                          'old-straight': 'old-straight-flag'}[options.flagStyle]
         _(lilypondsnippets.flagStyleLayout(lilyFlagStyle))
 
-    if options.horizontalSpacing:
-        spacingPreset = lilypondsnippets.horizontalSpacingPresets[options.horizontalSpacing]
+    if options.horizontalSpace:
+        spacingPreset = lilypondsnippets.horizontalSpacePresets[options.horizontalSpace]
         if spacingPreset:
             _(spacingPreset)
 
@@ -1181,6 +1181,7 @@ class LilypondRenderer(Renderer):
         return ['pdf', 'ly', 'png']
 
     def write(self, outfile: str, fmt='', removeTemporaryFiles=False) -> None:
+        # for png files, renders only the first page 
         outfile = emlib.filetools.normalizePath(outfile)
         tempbase, ext = os.path.splitext(outfile)
         options = self.options.copy()
@@ -1216,13 +1217,10 @@ class LilypondRenderer(Renderer):
             tempout = f"{tempbase}.{fmt}"
             open(lilyfile, "w").write(lilytxt)
             logger.debug(f"Rendering lilypond '{lilyfile}' to '{tempout}'")
-            out = lilytools.renderLily(lilyfile=lilyfile,
-                                       outfile=tempout,
-                                       imageResolution=options.pngResolution,
-                                       lilypondBinary=lilypondBinary)
-            if not out or not os.path.exists(out):
-                raise RuntimeError(f"No output file generated while rendering via lilypond, "
-                                   f"{lilyfile=}")
+            outfiles = lilytools.renderLily(lilyfile=lilyfile,
+                                            outfile=tempout,
+                                            imageResolution=options.pngResolution,
+                                            lilypondBinary=lilypondBinary)
             if options.preview:
                 previewfile = f"{tempbase}.preview.{fmt}"
                 if os.path.exists(previewfile):
@@ -1237,10 +1235,13 @@ class LilypondRenderer(Renderer):
                     logger.debug(f"Asked to generate a crop file, but the file '{cropfile}' "
                                  f"was not found. Image file: {tempout}")
                     if fmt == 'png':
+                        tempout = outfiles[0]
                         logger.debug("Trying to generate cropped file via pillow")
                         _imgtools.imagefileAutocrop(tempout, cropfile, bgcolor="#ffffff")
                         if not os.path.exists(cropfile):
                             logger.debug("Failed to generate crop file, aborting cropping")
+                        else:
+                            tempout = cropfile
             logger.debug(f"Moving {tempout} to {outfile}")
             shutil.move(tempout, outfile)
             tempfiles.append(lilyfile)

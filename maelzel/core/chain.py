@@ -447,7 +447,7 @@ class Chain(MContainer):
         out = self.clone(items=events)
         if postsymbols:
             out._postSymbols.extend(postsymbols)
-            out._postSymbols.sort(key=lambda pair: pair[0])
+            out._postSymbols.sort(key=lambda entry: entry[1])
         return out
 
     def pitchRange(self) -> tuple[float, float] | None:
@@ -529,8 +529,8 @@ class Chain(MContainer):
                    for item in self.items)
 
     def dynamicAt(self, absoffset: F, fallback='') -> str:
-        if self._parent:
-            return self.root().dynamicAt(absoffset)
+        if self._parent and isinstance(self._parent, Chain):
+            return self._parent.dynamicAt(absoffset, fallback=fallback)
         dyn = ''
         for event, offset in self.eventsWithOffset():
             if offset > absoffset:
@@ -1120,10 +1120,9 @@ class Chain(MContainer):
             symbolsMaxBeat = max(end if end is not None else offset for _, offset, end in postsymbols)
 
             if symbolsMaxBeat > allns[-1].end:
-                allns.append(symbolsMaxBeat - scoring.Notation.makeRest(allns[-1].end))
+                allns.append(scoring.Notation.makeRest(symbolsMaxBeat - allns[-1].end))
 
             allns = quantutils.fillSpan(allns, allns[0].offset, allns[-1].end)
-
             splitpoints = []
             for _, offset, end in postsymbols:
                 splitpoints.append(offset)
@@ -1144,8 +1143,8 @@ class Chain(MContainer):
                     endobj = next((n for n in allns if n.end == end), None)
                     if endobj is None:
                         endobj = quantutils.insertRestEndingAt(end, allns)
-                        if endobj:
-                            allns.append(endobj)
+                        assert endobj is not None
+                        allns.append(endobj)
                     symbol.applyToPair(startobj, endobj)
 
                 elif isinstance(symbol, symbols.EventSymbol):
@@ -1201,7 +1200,7 @@ class Chain(MContainer):
         # across multiple staffs is prone to confussion.
         if any(n.spanners for n in notations):
             if maxstaves > 1:
-                logger.debug("Limiting to 1 staf since there are spanners within the "
+                logger.info("Limiting to 1 staf since there are spanners within the "
                              "contents of this %s", self.__class__.__name__)
             maxstaves = 1
 
@@ -2072,11 +2071,30 @@ class Chain(MContainer):
                             obj.symbols.remove(spanner)
                             spanner._anchor = None
 
-    def remap(self, deststruct: ScoreStruct, sourcestruct: ScoreStruct | None = None
+    def remap(self, deststruct: ScoreStruct, sourcestruct: ScoreStruct | None = None,
+              setStruct=True
               ) -> Self:
+        """
+        Creates a clone, remapping times from source scorestruct to destination scorestruct
+
+        The absolute time remains the same
+
+        Args:
+            deststruct: the destination scorestruct
+            sourcestruct: the source scorestructure, or None to use the resolved scoresturct
+            setStruct: if True, explicitely sets deststruct as the score structure for
+                this chain/voice
+
+        Returns:
+            a clone of self remapped to the destination scorestruct
+
+        """
         remappedEvents = [ev.remap(deststruct, sourcestruct=sourcestruct or self.activeScorestruct())
                           for ev in self]
-        return self.clone(items=remappedEvents)
+        out = self.clone(items=remappedEvents)
+        if setStruct:
+            out.setScoreStruct(deststruct)
+        return out
 
     def automate(self,
                  param: str,

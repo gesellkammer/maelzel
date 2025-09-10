@@ -56,6 +56,7 @@ class UnquantizedPart:
                  showName=True,
                  quantProfile: quant.QuantizationProfile | None = None,
                  firstClef='',
+                 possibleClefs: tuple[str, ...] = (),
                  resolve=True
                  ):
         """
@@ -98,6 +99,10 @@ class UnquantizedPart:
         """A list of Attachments for the part itself"""
 
         self.firstClef: str = firstClef
+        """Initial clef for this part"""
+
+        self.possibleClefs = possibleClefs
+        """Clefs to choose from for automatic clef changes during quantization"""
 
         self.check()
 
@@ -168,10 +173,11 @@ class UnquantizedPart:
     def __repr__(self) -> str:
         return reprObj(self, priorityargs=('notations',), hideFalsy=True)
 
-    def dump(self) -> None:
+    def dump(self, indents=0, file=None) -> None:
         """Dump this to stdout"""
+        indentstr = "  " * indents
         for n in self.notations:
-            print(n)
+            print(indentstr, n, file=file)
 
     @staticmethod
     def groupParts(parts: list[UnquantizedPart],
@@ -295,9 +301,10 @@ class UnquantizedScore:
     def append(self, part: UnquantizedPart):
         self.parts.append(part)
 
-    def dump(self):
-        for part in self.parts:
-            part.dump()
+    def dump(self, indents=0, file=None):
+        for i, part in enumerate(self.parts):
+            print(f"Part #{i}")
+            part.dump(indents=1, file=file)
 
 
 def _repairGracenoteAsTargetGliss(notations: list[Notation]) -> bool:
@@ -495,6 +502,12 @@ def distributeNotationsByClef(notations: list[Notation],
     from . import clefutils
     partpairs = clefutils.explodeNotations(notations, maxstaves=maxstaves)
     parts = [UnquantizedPart(notations, firstClef=clef) for clef, notations in partpairs]
+    if len(parts) > 1:
+        parts[0].possibleClefs = clefutils.clefsBetween(minclef=parts[1].firstClef)
+        parts[-1].possibleClefs = clefutils.clefsBetween(maxclef=parts[-2].firstClef)
+    if len(parts) > 2:
+        for i in range(len(parts)-2):
+            parts[i+1].possibleClefs = clefutils.clefsBetween(maxclef=parts[i].firstClef, minclef=parts[i+2].firstClef)
 
     if groupid:
         for p in parts:
