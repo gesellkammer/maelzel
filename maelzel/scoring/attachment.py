@@ -364,6 +364,14 @@ class BeamSubdivisionHint(Attachment):
     exclusive = True
 
     def __init__(self, minimum: F = F0, maximum: F = F0, once=True):
+        """
+        
+        Args:
+            minimum: beam minimum subdivision 
+            maximum: beam maximum subdivision 
+            once: if True, the hint is applied only once. Otherwise, it is applied at
+                the event attached and stays active
+        """
         super().__init__()
         self.minimum = minimum
         self.maximum = maximum

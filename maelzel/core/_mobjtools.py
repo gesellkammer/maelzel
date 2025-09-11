@@ -131,14 +131,14 @@ def addDurationToGracenotes(events: list[MEvent], dur: F) -> None:
     for realnoteIndex, gracenotesIndexes in d.items():
         realnote = events[realnoteIndex]
         assert realnote.dur is not None and realnote.dur > 0
-        maxGracenoteDur = realnote.dur / (len(gracenotesIndexes) + 1)
-        gracenoteDur = min(dur, maxGracenoteDur)
-        realnote.dur -= gracenoteDur * len(gracenotesIndexes)
+        maxGraceDur = realnote.dur / (len(gracenotesIndexes) + 1)
+        graceDur = min(dur, maxGraceDur)
+        realnote.dur -= graceDur * len(gracenotesIndexes)
         assert realnote.dur > 0, f"{realnote=}"
         for i, gracenoteIndex in enumerate(gracenotesIndexes):
             gracenote = events[gracenoteIndex]
-            gracenote.dur = gracenoteDur
-            deltapos = (len(gracenotesIndexes) - i) * gracenoteDur
+            gracenote.dur = graceDur
+            deltapos = (len(gracenotesIndexes) - i) * graceDur
             gracenote.offset -= deltapos
 
 

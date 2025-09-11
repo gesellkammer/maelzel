@@ -93,9 +93,9 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig | None = None,
         proportionalSpacingKind=cfg['show.spacing'],
         flagStyle=cfg['show.flagStyle'],
         removeRedundantDynamics=cfg['show.hideRedundantDynamics'],
-        redundantDynamicsResetTime=cfg['.show.redundantDynamicsResetTime'],
-        redundantDynamicsResetAfterEmptyMeasure=cfg['.show.redundantDynamicsResetAfterEmptyMeasure'],
-        redundantDynamicsResetAfterRest=cfg['.show.redundantDynamicsResetAfterRest'],
+        dynamicsResetTime=cfg['.show.dynamicsResetTime'],
+        dynamicsResetAfterEmptyMeasure=cfg['.show.dynamicsResetAfterEmptyMeasure'],
+        dynamicsResetAfterRest=cfg['.show.dynamicsResetAfterRest'],
     )
     return renderOptions
 
@@ -138,9 +138,9 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig
         syncopExcludeSymDurs = cfg['quant.syncopExcludeSymDurs'],
         breakSyncopationsLevel = cfg['quant.breakBeats'],
         breakLongGlissandi = cfg['show.glissHideTiedNotes'],
-        beatWeightTempoThreshold = cfg['quant.beatWeightTempoThreshold'],
-        subdivisionTempoThreshold = cfg['quant.subdivisionTempoThreshold'],
-        mergeTupletsOfDifferentDuration = cfg['.quant.mergeTupletsOfDifferentDuration'],
+        beatWeightTempoThresh = cfg['quant.beatWeightTempoThresh'],
+        subdivTempoThresh = cfg['quant.subdivTempoThresh'],
+        mergeTupletsDifferentDur = cfg['.quant.mergeTupletsDifferentDur'],
         **kws
     )
 

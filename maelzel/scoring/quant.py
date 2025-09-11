@@ -228,7 +228,7 @@ def _evalGridError(profile: QuantizationProfile,
     assert isinstance(beatDuration, F)
     offsetErrorWeight = profile.offsetErrorWeight
     restOffsetErrorWeight = profile.restOffsetErrorWeight
-    graceNoteDuration = profile.gracenoteDuration
+    graceDuration = profile.graceDuration
     graceNoteOffsetErrorFactor = 0.5
     beatdurf = float(beatDuration)
     numGracenotes = 0
@@ -241,7 +241,7 @@ def _evalGridError(profile: QuantizationProfile,
         if snapped.duration == 0:
             numGracenotes += 1
             offsetError *= graceNoteOffsetErrorFactor
-            durationError = abs(n.duration - graceNoteDuration) / beatdurf
+            durationError = abs(n.duration - graceDuration) / beatdurf
         else:
             if n.isRest:
                 offsetError *= restOffsetErrorWeight / offsetErrorWeight
@@ -253,7 +253,7 @@ def _evalGridError(profile: QuantizationProfile,
     gracenoteError = numGracenotes / len(snappedEvents)
     error = mathlib.euclidian_distance(
         (totalOffsetError, totalDurationError, gracenoteError),
-        (offsetErrorWeight, profile.durationErrorWeight, profile.gracenoteErrorWeight))
+        (offsetErrorWeight, profile.durationErrorWeight, profile.graceErrorWeight))
     error = error ** profile.gridErrorExp
     return error
 
@@ -358,8 +358,8 @@ class QuantizedBeat:
             a Node which is the root of a tree representing the notations in
             this beat (grouped by their duration ratio)
         """
-        return quantutils.beatToTree(self.notations, division=self.divisions,
-                                     beatOffset=self.offset, beatDur=self.duration)
+        return Node.beatToTree(self.notations, division=self.divisions,
+                               beatOffset=self.offset, beatDur=self.duration)
 
     def __hash__(self):
         notationHashes = [hash(n) for n in self.notations]
@@ -1645,6 +1645,8 @@ def _nodesCanMerge(g1: Node,
 
     g1last = g1.lastNotation()
     g2first = g2.firstNotation()
+    if not g1last.tiedNext and g1.durRatio != (1, 1):
+        return Result.Fail("Nodes do not need to merge")
 
     if g1.durRatio == (1, 1) and len(g1) == len(g2) == 1:
         if g1last.gliss and g1last.tiedPrev and g1.symbolicDuration() + g2.symbolicDuration() > 1:
@@ -1666,7 +1668,7 @@ def _nodesCanMerge(g1: Node,
             return Result.Fail("tuplet not allowed to merge across beat")
         elif g1dur + g2dur > profile.mergedTupletsMaxDuration:
             return Result.Fail("incompatible duration")
-        elif not profile.mergeTupletsOfDifferentDuration and acrossBeat and g1dur != g2dur:
+        elif not profile.mergeTupletsDifferentDur and acrossBeat and g1dur != g2dur:
             return Result.Fail("Tuplet nodes of different duration cannot merge across beats")
 
     item1, item2 = g1.items[-1], g2.items[0]

@@ -63,13 +63,13 @@ class RenderOptions:
     removeRedundantDynamics: bool = True
     """If True, remove superfluous dynamics"""
     
-    redundantDynamicsResetTime: int = 0
+    dynamicsResetTime: int = 0
     """Reset dynamics after this number of quarternotes"""
     
-    redundantDynamicsResetAfterEmptyMeasure: bool = True
+    dynamicsResetAfterEmptyMeasure: bool = True
     """Reset dynamics after empty measures"""
     
-    redundantDynamicsResetAfterRest: int = 1
+    dynamicsResetAfterRest: int = 1
     """Reset dynamics after a rest of duration greater than this value"""
 
     respellPitches: bool = True

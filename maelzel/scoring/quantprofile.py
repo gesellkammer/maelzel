@@ -57,7 +57,7 @@ class QuantizationProfile:
       the case of rests
     - durationErrorWeight: relevance of duration error when selecting the
       best subdivision
-    - graceNoteDuration: if a note is considered a grace note (which have
+    - graceDuration: if a note is considered a grace note (which have
       no duration per se), should we still account for this duration?
     - syncopMinFraction: when merging durations across beats, a merged
       duration can't be smaller than this duration. This is to prevent joining
@@ -121,10 +121,10 @@ class QuantizationProfile:
     durationErrorWeight: float = 0.2
     """Weight of the difference in duration resulting from quantization"""
 
-    gracenoteDuration: F = F(1, 32)
+    graceDuration: F = F(1, 32)
     """A duration to assume for grace notes"""
 
-    gracenoteErrorWeight: float = 0
+    graceErrorWeight: float = 0
 
     divisionDefs: tuple[quantdata.DivisionDef, ...] = _field(default_factory=lambda: quantdata.getPresets()['high'].divisionDefs)
 
@@ -178,7 +178,7 @@ class QuantizationProfile:
     mergedTupletsMaxDuration: F = F(2)
     """How long can a tuplet over the beat be"""
 
-    mergeTupletsOfDifferentDuration: bool = False
+    mergeTupletsDifferentDur: bool = False
     """Allow merging tuplets which have different total durations?"""
 
     allowNestedTupletsAcrossBeat: bool = False
@@ -229,9 +229,9 @@ class QuantizationProfile:
     to be removed
     """
 
-    beatWeightTempoThreshold: int = 52
+    beatWeightTempoThresh: int = 52
 
-    subdivisionTempoThreshold: int = 96
+    subdivTempoThresh: int = 96
 
     _cachedDivisionsByTempo: dict[tuple[num_t, bool], list[division_t]] = _field(default_factory=dict)
     _cachedDivisionPenalty: dict[tuple[int, ...], tuple[float, str]] = _field(default_factory=dict)
@@ -268,8 +268,8 @@ class QuantizationProfile:
             self.offsetErrorWeight,
             self.restOffsetErrorWeight,
             self.durationErrorWeight,
-            self.gracenoteDuration,
-            self.gracenoteErrorWeight,
+            self.graceDuration,
+            self.graceErrorWeight,
             self.divisionDefs,
             self.divisionPenaltyMap.values(),
             self.divisionCardinalityPenaltyMap.values(),
@@ -283,7 +283,7 @@ class QuantizationProfile:
             self.syncopMinFraction,
             self.syncopMaxAsymmetry,
             self.mergedTupletsMaxDuration,
-            self.mergeTupletsOfDifferentDuration,
+            self.mergeTupletsDifferentDur,
             self.allowNestedTupletsAcrossBeat,
             self.allowedTupletsAcrossBeat,
             self.allowedNestedTupletsAcrossBeat,

@@ -62,9 +62,9 @@ defaultdict = {
     'show.dynamicFromAmplitude': False,
     'show.jupyterMaxImageWidth': 1000,
     'show.hideRedundantDynamics': True,
-    '.show.redundantDynamicsResetTime': 32,
-    '.show.redundantDynamicsResetAfterEmptyMeasure': True,
-    '.show.redundantDynamicsResetAfterRest': 1,
+    '.show.dynamicsResetTime': 32,
+    '.show.dynamicsResetAfterEmptyMeasure': True,
+    '.show.dynamicsResetAfterRest': 1,
     'show.absOffsetWhenDetached': False,
     'show.voiceMaxStaves': 2,
     'show.clipNoteheadShape': 'square',
@@ -96,7 +96,7 @@ defaultdict = {
     'play.schedLatency': 0.05,
     'play.verbose': False,
     'play.useDynamics': True,
-    'play.gracenoteDuration': '1/14',
+    'play.graceDuration': '1/14',
     'play.soundfontFindPeakAOT': False,
 
     'rec.blocking': True,
@@ -118,8 +118,8 @@ defaultdict = {
     'quant.nestedTupletsMusicxml': False,
     'quant.breakBeats': 'weak',
     'quant.complexity': 'high',
-    'quant.beatWeightTempoThreshold': 52,
-    'quant.subdivisionTempoThreshold': 96,
+    'quant.beatWeightTempoThresh': 52,
+    'quant.subdivTempoThresh': 96,
     'quant.gridWeight': None,
 
     '.quant.divisionWeight': None,
@@ -127,7 +127,7 @@ defaultdict = {
     '.quant.gridErrorExp': None,
     '.quant.debug': False,
     '.quant.debugShowNumRows': 50,
-    '.quant.mergeTupletsOfDifferentDuration': False,
+    '.quant.mergeTupletsDifferentDur': False,
 
     'dynamicCurveShape': 'expon(0.3)',
     'dynamicCurveMindb': -60,
@@ -199,7 +199,7 @@ validator = {
         "fff",
         "ffff",
     },
-    "play.gracenoteDuration::type": (int, float, str),
+    "play.graceDuration::type": (int, float, str),
     "htmlTheme::choices": {"light", "dark"},
     "quant.complexity::choices": {"lowest", "low", "medium", "high", "highest"},
     "quant.syncopMinFraction::type": (str, float, Rational),
@@ -227,7 +227,7 @@ validator = {
     "show.centsTextStyle": lambda cfg, key, val: TextStyle.validate(val),
     "show.centsTextSnap::range": (0, 50),
     "show.centsTextSnap::type": int,
-    ".show.redundantDynamicsResetTime::range": (0, 999999999),
+    ".show.dynamicsResetTime::range": (0, 999999999),
     "show.rehearsalMarkStyle": lambda cfg, key, val: TextStyle.validate(val),
     "show.clipNoteheadShape::choices": (
         "square",
@@ -348,7 +348,7 @@ docs = {
     'play.engineName':
         "Name of the play engine used",
 
-    'play.gracenoteDuration':
+    'play.graceDuration':
         'Duration assigned to a gracenote for playback (in quarternotes)',
 
     'play.soundfontFindPeakAOT':
@@ -526,7 +526,7 @@ docs = {
     'show.hideRedundantDynamics':
         'Hide redundant dynamics within a voice',
     
-    '.show.redundantDynamicsResetTime': 
+    '.show.dynamicsResetTime': 
         'When removing redundant dynamics, reset after this number of quarters',
 
     'play.backend':

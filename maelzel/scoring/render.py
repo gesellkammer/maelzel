@@ -48,9 +48,9 @@ def renderQuantizedScore(score: quant.QuantizedScore,
 
     if options.removeRedundantDynamics:
         for part in score:
-            part.removeRedundantDynamics(resetTime=options.redundantDynamicsResetTime,
-                                         resetAfterEmptyMeasure=options.redundantDynamicsResetAfterEmptyMeasure,
-                                         resetAfterRest=options.redundantDynamicsResetAfterRest)
+            part.removeRedundantDynamics(resetTime=options.dynamicsResetTime,
+                                         resetAfterEmptyMeasure=options.dynamicsResetAfterEmptyMeasure,
+                                         resetAfterRest=options.dynamicsResetAfterRest)
 
     for i, part in enumerate(score.parts):
         if part.autoClefChanges or (options.autoClefChanges and part.autoClefChanges is None):

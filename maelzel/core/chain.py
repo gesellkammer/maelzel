@@ -459,12 +459,12 @@ class Chain(MContainer):
 
     def meanPitch(self) -> float:
         items = [item for item in self.items if not item.isRest()]
-        gracenoteDur = F(1, 16)
+        graceDur = F(1, 16)
         sumpitch, sumdur = 0., 0.
         for item in items:
             pitch = item.meanPitch()
             if pitch:
-                dur = item.dur if item.dur > 0 else gracenoteDur
+                dur = item.dur if item.dur > 0 else graceDur
                 sumpitch += pitch * dur
                 sumdur += float(dur)
         if sumdur == 0:
@@ -573,8 +573,8 @@ class Chain(MContainer):
         assert all(item.offset is not None and item.dur >= 0 for item in flatitems)
 
         if any(n.isGrace() for n in flatitems):
-            gracenoteDur = F(conf['play.gracenoteDuration'])
-            _mobjtools.addDurationToGracenotes(flatitems, gracenoteDur)
+            graceDur = F(conf['play.graceDuration'])
+            _mobjtools.addDurationToGracenotes(flatitems, graceDur)
 
         if conf['play.useDynamics']:
             _mobjtools.fillTempDynamics(flatitems, initialDynamic=conf['play.defaultDynamic'])
@@ -1565,7 +1565,7 @@ class Chain(MContainer):
                     symbol: symbols.EventSymbol | str,
                     offset: beat_t,
                     post=False,
-                    skipGracenotes=False
+                    skipGrace=False
                     ) -> Self:
         """
         Adds a symbol at the given location
@@ -1581,10 +1581,9 @@ class Chain(MContainer):
             offset: the location to add the symbol as an absolute beat or a location (measureindex, measureoffset)
             post: if True, add this symbol at quantization, not to the event itself. If there
                 is no event starting at the given offset, post is enforced even if false
-            skipGracenotes: accept adding the symbol if the note found at location
-                is a gracenote. If there are multiple notes found at the location (this
+            skipGrace: If there are multiple notes found at the location (this
                 happens only if a note starts at the location, preceded
-                by one or many gracenotes), passing True would apply
+                by one or many gracenotes), a True value would apply
                 the symbol to the "real" event, skipping the gracenotes
 
         Returns:
@@ -1607,7 +1606,7 @@ class Chain(MContainer):
         if not events:
             event = None
             post = True
-        elif skipGracenotes:
+        elif skipGrace:
             event = next((ev for ev in events if not ev.isGrace()), None)
         else:
             event = events[0]

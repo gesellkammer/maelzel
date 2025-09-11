@@ -445,9 +445,9 @@ play.waitAfterStart:
     | Default: **0.5**  -- ``float``
     | *How much to wait for the sound engine to be operational after starting it*
 
-.. _config_play_gracenoteduration:
+.. _config_play_graceDuration:
 
-play.gracenoteDuration:
+play.graceDuration:
     | Default: **1/14**  -- ``(int, float, str)``
     | *Duration assigned to a gracenote for playback (in quarternotes)*
 

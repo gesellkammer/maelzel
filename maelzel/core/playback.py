@@ -185,15 +185,6 @@ def stopSynths():
     getSession().unschedAll(future=True)
 
 
-def playSession(*args, **kws):
-    import warnings
-    warnings.warn("Deprecated, use getSession")
-    return getSession(*args, **kws)
-
-
-class SessionParametersMismatchError(Exception): ...
-
-
 @cache
 def _builtinInstrs() -> list[csoundengine.instr.Instr]:
     from csoundengine.instr import Instr
@@ -219,7 +210,7 @@ def getSession(numchannels: int | None = None,
                ensure: bool = False
                ) -> csoundengine.session.Session:
     """
-    Returns the csoundengine Session / inits the main session
+    Returns / creates the audio Session 
 
     If no Session has been created already, a Session is initialized
     with the given parameters and returned. Otherwise the active
@@ -270,20 +261,16 @@ def getSession(numchannels: int | None = None,
 
     # Session is already active, check params
     engine = _playEngine()
-    if not ensure:
-        return engine.session()
-    msgs = []
-    def check(paramname, value):
-        if value is not None and (old := getattr(engine, paramname)) != value:
-            msgs.append(f'{paramname} differs: engine.{paramname}={old} != {value}')
-    check('nchnls', numchannels)
-    check('backend', backend)
-    check('outdev', outdev)
-    check('extraLatency', latency)
-    check('numBuffers', numbuffers)
-    check('bufferSize', buffersize)
-    if msgs:
-        raise SessionParametersMismatchError(f"A Session already exists with different parameters: {msgs}")
+    if ensure:
+        for paramname, value in [('nchnls', numchannels), 
+                                 ('backend', backend), 
+                                 ('outdev', outdev), 
+                                 ('extraLatency', latency),
+                                 ('numBuffers', numbuffers),
+                                 ('bufferSize', buffersize)]:
+            if value is not None and (old := getattr(engine, paramname)) != value:
+                raise ValueError(f"A Session already exists with {paramname}={old}, user asked {value}")
+            
     return engine.session()
 
 

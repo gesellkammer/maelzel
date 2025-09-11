@@ -9,9 +9,7 @@ from itertools import pairwise, accumulate
 
 from maelzel.common import F, F0, F1
 from .notation import Notation
-from . import node as _node
 from . import quantdata
-from maelzel._logutils import LazyFmt
 
 import typing as _t
 if _t.TYPE_CHECKING:
@@ -352,31 +350,31 @@ def applyDurationRatio(notations: list[Notation],
             raise RuntimeError(f"Failed to apply durations, len mismatch, {numNotations=} != {len(notations)=}, {beatOffset=}, {beatDur=}")
 
 
-def beatToTree(notations: list[Notation], division: int | division_t,
-               beatOffset: F, beatDur: F
-               ) -> _node.Node:
-    if isinstance(division, tuple) and len(division) == 1:
-        division = division[0]
-
-    if isinstance(division, int):
-        durRatio = quantdata.durationRatios[division]
-        return _node.Node(notations, ratio=durRatio)  # type: ignore
-
-    # assert isinstance(division, tuple) and len(division) >= 2
-    numSubBeats = len(division)
-    now = beatOffset
-    dt = beatDur/numSubBeats
-    durRatio = quantdata.durationRatios[numSubBeats]
-    items = []
-    for subdiv in division:
-        subdivEnd = now + dt
-        subdivNotations = [n for n in notations if now <= n.qoffset < subdivEnd and n.end <= subdivEnd]
-        if subdiv == 1:
-            items.extend(subdivNotations)
-        else:
-            items.append(beatToTree(notations=subdivNotations, division=subdiv, beatOffset=now, beatDur=dt))
-        now += dt
-    return _node.Node(items, ratio=durRatio)
+# def beatToTree(notations: list[Notation], division: int | division_t,
+#                beatOffset: F, beatDur: F
+#                ) -> _node.Node:
+#     if isinstance(division, tuple) and len(division) == 1:
+#         division = division[0]
+#
+#     if isinstance(division, int):
+#         durRatio = quantdata.durationRatios[division]
+#         return _node.Node(notations, ratio=durRatio)  # type: ignore
+#
+#     # assert isinstance(division, tuple) and len(division) >= 2
+#     numSubBeats = len(division)
+#     now = beatOffset
+#     dt = beatDur/numSubBeats
+#     durRatio = quantdata.durationRatios[numSubBeats]
+#     items = []
+#     for subdiv in division:
+#         subdivEnd = now + dt
+#         subdivNotations = [n for n in notations if now <= n.qoffset < subdivEnd and n.end <= subdivEnd]
+#         if subdiv == 1:
+#             items.extend(subdivNotations)
+#         else:
+#             items.append(beatToTree(notations=subdivNotations, division=subdiv, beatOffset=now, beatDur=dt))
+#         now += dt
+#     return _node.Node(items, ratio=durRatio)
 
 
 def breakNotationsByBeat(notations: list[Notation],
@@ -510,6 +508,21 @@ def insertRestEndingAt(end: F, seq: list[Notation]) -> Notation | None:
                 assert last.end == end, f"{last=}, {end=}, {seq=}"
                 return None
     return rest
+
+
+def isRegularDuration(symdur: F) -> bool:
+    """
+    True if symdur is a regular duration
+
+    Args:
+        symdur: the symbolic duration of an event / node
+
+    Returns:
+        True if this duration is regular - can be notated with only one figure,
+        using dots or not
+
+    """
+    return symdur.denominator in (1, 2, 4, 8, 16, 32) and symdur.numerator in (1, 2, 3, 4, 7)
 
 
 def splitDots(dur: F | tuple[int, int]) -> tuple[F, int]:

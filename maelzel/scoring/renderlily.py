@@ -763,14 +763,14 @@ def renderNode(node: Node,
         item.checkIntegrity(fix=True)
 
         if att := item.findAttachment(attachment.BeamSubdivisionHint):
-            # TODO: implement once=False
-            w.line(r"\once \set subdivideBeams = ##t")
+            s = r"\once " if att.once else ''
+            w.line(fr"{s}\set subdivideBeams = ##t")
             if att.minimum:
                 num, den = att.minimum.numerator, att.minimum.denominator
-                w.line(rf"\once \set beamMinimumSubdivision = #{num}/{den}")
+                w.line(rf"{s}\set beamMinimumSubdivision = #{num}/{den}")
             if att.maximum:
                 num, den = att.maximum.numerator, att.maximum.denominator
-                w.line(rf"\once \set beamMaximumSubdivision = #{num}/{den}")
+                w.line(rf"{s}\set beamMaximumSubdivision = #{num}/{den}")
 
         if not item.gliss and state.glissando:
             w.add(r"\glissandoSkipOff ")

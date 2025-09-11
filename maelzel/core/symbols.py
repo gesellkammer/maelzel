@@ -695,8 +695,8 @@ class BeamSubdivision(EventSymbol):
     
     def __init__(self, minimum: int | F = 0, maximum: int | F = 0):
         super().__init__()
-        self.minimum = minimum if isinstance(minimum, F) else F(1, minimum)
-        self.maximum = maximum if isinstance(maximum, F) else F(1, maximum)
+        self.minimum: F = minimum if isinstance(minimum, F) else F(1, minimum) if minimum > 0 else F(0)
+        self.maximum: F = maximum if isinstance(maximum, F) else F(1, maximum) if maximum > 0 else F(0)
         
     def scoringAttachment(self) -> scoring.attachment.Attachment:
         return scoring.attachment.BeamSubdivisionHint(minimum=self.minimum, maximum=self.maximum)

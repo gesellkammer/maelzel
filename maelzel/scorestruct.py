@@ -623,8 +623,8 @@ class MeasureDef:
                  rehearsalMark: RehearsalMark | None = None,
                  keySignature: KeySignature | None = None,
                  properties: dict | None = None,
-                 subdivisionTempoThreshold: int | None = None,
-                 beatWeightTempoThreshold: int | None = None,
+                 subdivTempoThresh: int | None = None,
+                 beatWeightTempoThresh: int | None = None,
                  readonly=True
                  ):
         if barline and barline not in _barstyles:
@@ -660,10 +660,10 @@ class MeasureDef:
         self.readonly = readonly
         """Is this measure definition read only?"""
 
-        self._subdivisionTempoThreshold: int | None = subdivisionTempoThreshold
+        self._subdivisionTempoThreshold: int | None = subdivTempoThresh
         """The max. tempo at which an eighth note can be a beat of its own"""
 
-        self._beatWeightTempoThreshold: int | None = beatWeightTempoThreshold
+        self._beatWeightTempoThreshold: int | None = beatWeightTempoThresh
 
     @property
     def durationQuarters(self) -> F:
@@ -716,20 +716,20 @@ class MeasureDef:
             raise ValueError(f'Unknown barstyle: {linestyle}, possible values: {_barstyles}')
         self._barline = linestyle
         
-    def subdivisionTempoThreshold(self, fallback=96) -> int:
+    def subdivTempoThresh(self, fallback=96) -> int:
         if self._subdivisionTempoThreshold:
             return self._subdivisionTempoThreshold
-        elif self.parent and self.parent.subdivisionTempoThreshold:
-            return self.parent.subdivisionTempoThreshold
+        elif self.parent and self.parent.subdivTempoThresh:
+            return self.parent.subdivTempoThresh
         assert isinstance(fallback, int)
         return fallback
 
-    def beatWeightTempoThreshold(self, fallback=52) -> int:
+    def beatWeightTempoThresh(self, fallback=52) -> int:
         assert isinstance(fallback, (int, float, F))
         if self._beatWeightTempoThreshold:
             return self._beatWeightTempoThreshold
         if self.parent:
-            return self.parent.beatWeightTempoThreshold or fallback
+            return self.parent.beatWeightTempoThresh or fallback
         return fallback
 
     def beatStructure(self) -> list[BeatDef]:
@@ -743,8 +743,8 @@ class MeasureDef:
         return measureBeatStructure(self.timesig,
                                     quarterTempo=self.quarterTempo,
                                     subdivisionStructure=self.subdivisionStructure(),
-                                    subdivisionTempoThreshold=self.subdivisionTempoThreshold(),
-                                    beatWeightTempoThreshold=self.beatWeightTempoThreshold())
+                                    subdivTempoThresh=self.subdivTempoThresh(),
+                                    beatWeightTempoThresh=self.beatWeightTempoThresh())
 
     def asScoreLine(self) -> str:
         """
@@ -768,8 +768,8 @@ class MeasureDef:
                           barline=self.barline,
                           readonly=self.readonly,
                           parent=self.parent,
-                          beatWeightTempoThreshold=self._beatWeightTempoThreshold,
-                          subdivisionTempoThreshold=self._subdivisionTempoThreshold)
+                          beatWeightTempoThresh=self._beatWeightTempoThreshold,
+                          subdivTempoThresh=self._subdivisionTempoThreshold)
 
     def copy(self) -> MeasureDef:
         return self.__copy__()
@@ -835,7 +835,7 @@ class MeasureDef:
         """
         return measureSubdivisions(timesig=self.timesig,
                                    quarterTempo=self.quarterTempo,
-                                   subdivisionTempoThreshold=self.subdivisionTempoThreshold(),
+                                   subdivTempoThresh=self.subdivTempoThresh(),
                                    )
 
     def timesigRepr(self) -> str:
@@ -909,26 +909,26 @@ def _checkSubdivisionStructure(s: tuple[int, tuple[int, ...]]) -> None:
 def measureSubdivisions(timesig: TimeSignature,
                         quarterTempo: F,
                         subdivisionStructure: tuple[int, tuple[int, ...]] | None = None,
-                        subdivisionTempoThreshold: int = 96
+                        subdivTempoThresh: int = 96
                         ) -> list[F]:
     if len(timesig.parts) == 1:
         if subdivisionStructure and timesig.subdivisionStruct:
             subdivisionStructure = timesig.qualifiedSubdivisionStruct()
         return beatDurations(timesig=timesig.parts[0], quarterTempo=quarterTempo,
                              subdivisionStructure=subdivisionStructure,
-                             subdivisionTempoThreshold=subdivisionTempoThreshold)
+                             subdivTempoThresh=subdivTempoThresh)
     subdivs = []
     for part in timesig.parts:
         # TODO: use the subdivision structure in the timesig, if present
         beatdurs = beatDurations(timesig=part, quarterTempo=quarterTempo,
-                                 subdivisionTempoThreshold=subdivisionTempoThreshold)
+                                 subdivTempoThresh=subdivTempoThresh)
         subdivs.extend(beatdurs)
     return subdivs
 
 
 def beatDurations(timesig: timesig_t,
                   quarterTempo: F,
-                  subdivisionTempoThreshold: int = 96,
+                  subdivTempoThresh: int = 96,
                   subdivisionStructure: tuple[int, tuple[int, ...]] = ()
                   ) -> list[F]:
     """
@@ -937,7 +937,7 @@ def beatDurations(timesig: timesig_t,
     Args:
         timesig: the timesignature of the measure or of the part of the measure
         quarterTempo: the tempo for a quarter note
-        subdivisionTempoThreshold: max quarter tempo to divide a measure like 5/8 in all
+        subdivTempoThresh: max quarter tempo to divide a measure like 5/8 in all
             eighth notes instead of, for example, 2+2+1
         subdivisionStructure: if given, a tuple (denominator, list of subdivision lengths)
             For example, a 5/8 measure could have a subdivision structure of (8, (2, 3)) or
@@ -955,7 +955,7 @@ def beatDurations(timesig: timesig_t,
         5/16 -> [0.5, 0.5, 0.25]
 
     """
-    assert isinstance(subdivisionTempoThreshold, (int, float, F)), f"Invalid {subdivisionTempoThreshold=}"
+    assert isinstance(subdivTempoThresh, (int, float, F)), f"Invalid {subdivTempoThresh=}"
     quarterTempo = asF(quarterTempo)
     quarters = measureQuarterDuration(timesig)
     num, den = timesig
@@ -972,7 +972,7 @@ def beatDurations(timesig: timesig_t,
     elif den == 4 or den == 2:
         return [F(1)] * quarters.numerator
     elif den == 8:
-        if quarterTempo <= subdivisionTempoThreshold/2:
+        if quarterTempo <= subdivTempoThresh/2:
             # render all beats as 1/8 notes
             return [F(1, 2)]*num
         subdivstruct = inferSubdivisions(num=num, den=den, quarterTempo=quarterTempo)
@@ -1005,8 +1005,8 @@ class BeatDef:
 def measureBeatStructure(timesig: TimeSignature | tuple[int, int],
                          quarterTempo: F,
                          subdivisionStructure: tuple[int, tuple[int, ...]] = (),
-                         beatWeightTempoThreshold = 52,
-                         subdivisionTempoThreshold = 96
+                         beatWeightTempoThresh = 52,
+                         subdivTempoThresh = 96
                          ) -> list[BeatDef]:
     """
     Returns the beat structure for this measure
@@ -1018,11 +1018,11 @@ def measureBeatStructure(timesig: TimeSignature | tuple[int, int],
             form (denominator: int, subdivisions). For example a 7/8 bar divided
             in 3+2+2 would have a subdivision strucutre of (8, (3, 2, 2)). A
             4/4 measure divided in 3/8+3/8+2/8+2/8 would be (8, (3, 3, 2, 2))
-        beatWeightTempoThreshold: a beat resulting in a tempo higher than this
+        beatWeightTempoThresh: a beat resulting in a tempo higher than this
             is by default assigned a weak weight. This means that beats with
             a tempo slower than this are always considered strong beats, indicating
             that beams and syncopations across these beats should be broken
-        subdivisionTempoThreshold: a regular subdivision of a beat resulting in a
+        subdivTempoThresh: a regular subdivision of a beat resulting in a
             tempo lower than this can be promoted to a beat of its own. For example,
             with a quarterTempo of 44, a 5/8 measure would be seen as 5 beats, each
             of 1/8 note length. For a faster tempo, this would result in a beat
@@ -1031,15 +1031,15 @@ def measureBeatStructure(timesig: TimeSignature | tuple[int, int],
     Returns:
         a list of (beat offset: F, beat duration: F, beat weight: int)
     """
-    assert isinstance(beatWeightTempoThreshold, (int, float, F))
-    assert isinstance(subdivisionTempoThreshold, (int, float, F))
+    assert isinstance(beatWeightTempoThresh, (int, float, F))
+    assert isinstance(subdivTempoThresh, (int, float, F))
 
     if isinstance(timesig, tuple):
         timesig = TimeSignature(timesig)
     durations = measureSubdivisions(timesig=timesig,
                                     quarterTempo=quarterTempo,
                                     subdivisionStructure=subdivisionStructure,
-                                    subdivisionTempoThreshold=subdivisionTempoThreshold)
+                                    subdivTempoThresh=subdivTempoThresh)
 
     N = len(durations)
     if N == 1:
@@ -1055,7 +1055,7 @@ def measureBeatStructure(timesig: TimeSignature | tuple[int, int],
 
     now = F(0)
     beatOffsets = []
-    weakBeatDurThreshold = F(60) / beatWeightTempoThreshold
+    weakBeatDurThreshold = F(60) / beatWeightTempoThresh
     for i, dur in enumerate(durations):
         beatOffsets.append(now)
         now += dur
@@ -1234,10 +1234,10 @@ class ScoreStruct:
         self.readonly = readonly
         """Is this ScoreStruct read-only?"""
         
-        self.beatWeightTempoThreshold: int | None = weightTempoThreshold
+        self.beatWeightTempoThresh: int | None = weightTempoThreshold
         """Tempo at which a beat is considered strong, influences how syncopations and beams are broken"""
 
-        self.subdivisionTempoThreshold: int | None = subdivTempoThreshold
+        self.subdivTempoThresh: int | None = subdivTempoThreshold
         """In an irregular measure, a beat resulting in a tempo slower than this is considered an independent beat"""
 
         self._hash: int | None = None

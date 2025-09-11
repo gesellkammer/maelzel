@@ -220,10 +220,10 @@ class Workspace:
 
     @scorestruct.setter
     def scorestruct(self, s: ScoreStruct):
-        if s.beatWeightTempoThreshold is None:
-            s.beatWeightTempoThreshold = self.config['quant.beatWeightTempoThreshold']
-        if s.subdivisionTempoThreshold is None:
-            s.subdivisionTempoThreshold = self.config['quant.subdivisionTempoThreshold']
+        if s.beatWeightTempoThresh is None:
+            s.beatWeightTempoThresh = self.config['quant.beatWeightTempoThresh']
+        if s.subdivTempoThresh is None:
+            s.subdivTempoThresh = self.config['quant.subdivTempoThresh']
         self._scorestruct = s
         self.clearCache()
 

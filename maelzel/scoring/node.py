@@ -12,6 +12,7 @@ from .core import Notation
 from . import attachment
 from itertools import pairwise
 from collections import UserList
+from . import quantdata
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
     from . import enharmonics
     from maelzel.scoring import quantdefs
     from maelzel.scoring import quant
+    from .common import division_t
 
 
 __all__ = (
@@ -727,7 +729,7 @@ class Node:
         self.repairLinks()
         self.removeUnnecessaryGracenotes()
         self.setParentRecursively()
-
+        # self._unmergeUnnecessaryNodes(minDur=F(1, 4))
 
     def fixEnharmonics(self,
                        options: enharmonics.EnharmonicOptions,
@@ -820,11 +822,61 @@ class Node:
         self.setParentRecursively()
         return didsplit
 
+    def isFlat(self) -> bool:
+        """
+        True if self has no Nodes as children
+        """
+        return all(isinstance(item, Notation) for item in self.items)
+
+    def notationAt(self, offset: F) -> Notation:
+        if not (self.offset <= offset < self.end):
+            raise ValueError(f"Offset {offset} outside of node ({self.offset=}, {self.end=}")
+        return next(n for n in self.recurse() if n.offset <= offset < n.end)
+
+    def _unmergeUnnecessaryNodes(self, minDur: F = F(1, 4)) -> bool:
+        """
+
+        Returns:
+            True if changes were performed
+        """
+        from . import quantutils
+        items = []
+        changes = False
+        for item in self.items:
+            if isinstance(item, Notation):
+                items.append(item)
+            else:
+                assert isinstance(item, Node)
+                if item.durRatio == (1, 1) or item.isFlat():
+                    changes |= item._unmergeUnnecessaryNodes(minDur=minDur)
+                    items.append(item)
+                else:
+                    assert item.durRatio != (1, 1) and not item.isFlat()
+                    symdur = item.symbolicDuration()
+                    partdur = symdur / 2
+                    if partdur < minDur or not quantutils.isRegularDuration(partdur):
+                        items.append(item)
+                    else:
+                        splitoffset = item.offset + item.totalDuration()/2
+                        n = item.notationAt(splitoffset)
+                        if n.offset == splitoffset:
+                            # Note starts at split point, so no syncopation
+                            left, right = item._splitAtBoundary(splitoffset)
+                            changes = True
+                            items.append(left)
+                            items.append(right)
+        if changes:
+            self.items = items
+        return changes
+
     def _splitUnnecessaryNodes(self, duration: F | int) -> None:
         """
         Split any nodes which are unnecessarily joined
 
-        For a node to be split it needs to match the given duration
+        * For a node to be unnecessary it needs to be divisible in two
+          and not have a syncopation
+        * For a node to be split it needs to match the given duration
+        * 1/1 nodes are never split
 
         Args:
             duration: the duration of the node to split. Only nodes with this exact
@@ -1116,3 +1168,49 @@ class Node:
             Notation.tieNotations(parts)
             n._copySpannersToSplitNotation(parts)
             return parts
+
+    @staticmethod
+    def beatToTree(notations: list[Notation], division: int | division_t,
+                   beatOffset: F, beatDur: F) -> Node:
+        """
+        Create a tree from a quantized beat
+
+        Args:
+            notations: the notations in this beat
+            division: the division for this beat
+            beatOffset: the offset within the measure
+            beatDur: the duration of the beat
+
+        Returns:
+            a Node representing the tree structure of this beat
+
+        """
+        return beatToTree(notations=notations, division=division,
+                          beatOffset=beatOffset, beatDur=beatDur)
+
+
+def beatToTree(notations: list[Notation], division: int | division_t,
+               beatOffset: F, beatDur: F
+               ) -> Node:
+    if isinstance(division, tuple) and len(division) == 1:
+        division = division[0]
+
+    if isinstance(division, int):
+        durRatio = quantdata.durationRatios[division]
+        return Node(notations, ratio=durRatio)  # type: ignore
+
+    # assert isinstance(division, tuple) and len(division) >= 2
+    numSubBeats = len(division)
+    now = beatOffset
+    dt = beatDur/numSubBeats
+    durRatio = quantdata.durationRatios[numSubBeats]
+    items = []
+    for subdiv in division:
+        subdivEnd = now + dt
+        subdivNotations = [n for n in notations if now <= n.qoffset < subdivEnd and n.end <= subdivEnd]
+        if subdiv == 1:
+            items.extend(subdivNotations)
+        else:
+            items.append(beatToTree(notations=subdivNotations, division=subdiv, beatOffset=now, beatDur=dt))
+        now += dt
+    return Node(items, ratio=durRatio)
