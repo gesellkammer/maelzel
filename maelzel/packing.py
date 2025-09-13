@@ -11,15 +11,15 @@ must be wrapped inside an Item, defining an offset, duration and step
 """
 
 from __future__ import annotations
-from maelzel.common import F, F0
-from emlib.iterlib import pairwise
-import operator
 import bisect
+import operator
 from math import sqrt, inf, ceil
-import numpy as np
+from maelzel.common import F, F0
 
 
 import typing as _t
+if _t.TYPE_CHECKING:
+    import numpy as np
 
 
 def asF(x) -> F:
@@ -113,6 +113,7 @@ class Track[T]:
         return iter(self.items)
 
     def buildIndex(self, end: float, period: float, start=0.):
+        import numpy as np
         n = int((end - start) / period)
         self._index = np.ones((n,), dtype=int)
         self._index *= -1  # -1 indicates unused, otherwise indicates the index of the item
@@ -245,9 +246,11 @@ class Track[T]:
     def hasoverlap(self) -> bool:
         if not self.items:
             return False
-        for item0, item1 in pairwise(self.items):
+        item0 = self.items[0]
+        for item1 in self.items[1:]:
             if item0.end > item1.offset:
                 return True
+            item0 = item1
         return False
 
     def emptyBetween(self, start: float, end: float) -> tuple[int, float] | None:
@@ -275,7 +278,7 @@ class Track[T]:
         if self._index is not None:
             slot0 = int((start - self._indexstart) / self._indexperiod)
             slot1 = ceil((end - self._indexstart) / self._indexperiod)
-            if slot1 < len(self._index) and np.any(self._index[slot0:slot1+1] >= 0):
+            if slot1 < len(self._index) and (self._index[slot0:slot1+1] >= 0).any():
                 # not empty
                 return None
 
@@ -517,7 +520,9 @@ def _fitsInTrack(track: Track,
 def _checkTrack(track: Track) -> bool:
     if not track:
         return True
-    for item0, item1 in pairwise(track.items):
+    item0 = track.items[0]
+    for item1 in track.items[1:]:
         if item0.end > item1.offset:
             return False
+        item0 = item1
     return True

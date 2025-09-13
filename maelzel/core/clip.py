@@ -1,18 +1,15 @@
 from __future__ import annotations
 
-import itertools
-
-import pitchtools as pt
-
-import numpy as np
 import os
+import itertools
+import pitchtools as pt
+import numpy as np
 
 from maelzel.common import F, asF, F0, F1, asmidi
 from maelzel.core import event
 from maelzel.core.synthevent import SynthEvent
 from maelzel.core.workspace import Workspace
 from maelzel import _util
-from maelzel.snd import audiosample
 
 
 from typing import TYPE_CHECKING
@@ -25,6 +22,7 @@ if TYPE_CHECKING:
     from maelzel.scorestruct import ScoreStruct
     from maelzel.core.config import CoreConfig
     from maelzel.core.renderer import Renderer
+    from maelzel.snd import audiosample
 
 
 __all__ = (
@@ -152,11 +150,6 @@ class Clip(event.MEvent):
 
         self._cache = {}
 
-        if isinstance(source, tuple) and len(source) == 2 and isinstance(source[0], np.ndarray):
-            data, sr = source
-            assert isinstance(data, np.ndarray)
-            source = audiosample.Sample(data, sr=sr)
-
         if isinstance(source, str):
             if not os.path.exists(source):
                 raise FileNotFoundError(f"Soundfile not found: '{source}'")
@@ -167,17 +160,16 @@ class Clip(event.MEvent):
             self.sourceDurSecs = F(info.duration)
             self.numChannels = info.channels if self.channel is None else 1
             self._playbackMethod = 'diskin'
-
-        elif isinstance(source, audiosample.Sample):
-            self._sr = source.sr
-            self.sourceDurSecs = F(source.duration)
-            self.numChannels = source.numchannels
+        elif isinstance(source, tuple):
+            assert len(source) == 2 and isinstance(source[0], np.ndarray)
+            samples = source[0]
+            self.source = samples
+            self._sr = source[1]
+            self.sourceDurSecs = F(len(samples) / self._sr)
+            self.numChannels = 1 if len(samples.shape) == 1 else samples.shape[-1]
             self._playbackMethod = 'table'
-
-        else:
-            raise TypeError(f"Expected a soundfile path, a Sample or a tuple (samples, sr), got {source}")
-
-        self.source: str | audiosample.Sample = source
+        
+        self.source: str | np.ndarray = source
         """The source of this clip"""
 
         self.amp: float = amp
@@ -238,7 +230,8 @@ class Clip(event.MEvent):
 
     def copy(self) -> Self:
         # We do not copy the parent attr
-        out = self.__class__(source=self.source,
+        source = self.source if isinstance(self.source, str) else (self.source, self._sr)
+        out = self.__class__(source=source, 
                              pitch=self.pitch,
                              amp=self.amp,
                              offset=self.offset,
@@ -265,7 +258,8 @@ class Clip(event.MEvent):
             start = slice.start if slice.start is None else self.selectionStartSecs
             end = slice.stop if slice.stop is None else self.selectionEndSecs
             assert slice.step is None
-            return Clip(self.source, startsecs=start, endsecs=end,
+            source = self.source if isinstance(self.source, str) else (self.source, self._sr)
+            return Clip(source, startsecs=start, endsecs=end,
                         speed=self.speed, amp=self.amp, dynamic=self.dynamic)
         else:
             raise ValueError("Only a slice of the form clip[start:end] is supported")
@@ -285,8 +279,12 @@ class Clip(event.MEvent):
         if self._sample is not None:
             return self._sample
 
-        if isinstance(self.source, audiosample.Sample):
-            return self.source
+        from maelzel.snd import audiosample    
+        if isinstance(self.source, np.ndarray):
+            return audiosample.Sample(self.source, sr=int(self.sr), 
+                                      start=float(self.selectionStartSecs), 
+                                      end=float(self.selectionEndSecs), 
+                                      readonly=True)
         else:
             assert isinstance(self.source, str)
             sample = audiosample.Sample(self.source,
@@ -352,8 +350,8 @@ class Clip(event.MEvent):
         starttime = float(scorestruct.beatToTime(offset))
         endtime = float(scorestruct.beatToTime(offset + self.dur))
         amp = self.amp if self.amp is not None else 1.0
-        bps = [[starttime, self.pitch, amp],
-               [endtime, self.pitch, amp]]
+        bps = [(starttime, self.pitch, amp),
+               (endtime, self.pitch, amp)]
 
         if self.playargs:
             playargs = playargs.updated(self.playargs)
@@ -389,8 +387,8 @@ class Clip(event.MEvent):
     def _initEvent(self, event: SynthEvent, renderer: Renderer) -> None:
         if self._playbackMethod == 'table':
             if not self._csoundTable:
-                if isinstance(self.source, audiosample.Sample):
-                    self._csoundTable = renderer.makeTable(self.source.samples, sr=int(self.sr)).tabnum
+                if isinstance(self.source, np.ndarray):
+                    self._csoundTable = renderer.makeTable(self.source, sr=int(self.sr)).tabnum
                 else:
                     assert os.path.exists(self.soundfile)
                     self._csoundTable = renderer.readSoundfile(self.soundfile)

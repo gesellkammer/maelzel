@@ -25,15 +25,12 @@ def _clearCache() -> None:
 
 __all__ = (
     'Workspace',
+    
     'getWorkspace',
-
     'getConfig',
-    'setConfig',
-
     'getScoreStruct',
-    'setScoreStruct',
-
     'setTempo',
+    
     'logger'
 )
 
@@ -349,7 +346,7 @@ class Workspace:
                          active=active)
 
     @staticmethod
-    def getScoreStruct() -> ScoreStruct:
+    def activeScoreStruct() -> ScoreStruct:
         """
         Returns the active score structure
 
@@ -394,7 +391,7 @@ class Workspace:
              'voiceclick.yaml']
 
         """
-        return presetsPath()
+        return _presetsPath()
 
     def recordPath(self) -> str:
         """
@@ -438,14 +435,54 @@ class Workspace:
     def amp2dyn(self, amp: float) -> str:
         return self.dynamicCurve.amp2dyn(amp)
 
-    def playSession(self) -> csoundengine.session.Session:
+    def playSession(self, 
+                    outdev='',
+                    backend='',
+                    numchannels: int | None = None,
+                    buffersize: int = 0,
+                    numbuffers: int = 0,
+                    **kws) -> csoundengine.session.Session:
+        """
+        Get the audio Session used for playback
+        
+        Arguments are ignored if a session is already active
+        
+        Args:
+            outdev: output device used. Depends on the backend used. List all devices
+                via maelzel.core.playback.getAudioDevices, use '?' to select from a list of devices.
+            backend: backend, depends on your platform. Use '?' to interactively select one
+            numchannels: number of channels used. Defaults to the number of channels
+                of the audio device used
+            buffersize: buffer size to use, depends on the backend and device used
+            numbuffers: number of buffers, determines the blocksize depending on the backend
+            **kws: any keyword argument is passed to maelzel.core.playback.getSession
+            
+        Returns:
+            the csoundengine.Session active for this workspace. If not already created,
+            a new session is started
+            
+        
+        """
         from maelzel.core import playback
-        return playback.getSession()
+        return playback.getSession(name=self.config['play.engineName'], 
+                                   outdev=outdev,
+                                   backend=backend,
+                                   numchannels=numchannels,
+                                   buffersize=buffersize,
+                                   numbuffers=numbuffers,
+                                   **kws)
+        
+    def isPlaySessionActive(self) -> bool:
+        """
+        Returns True if the sound engine is active
+        """
+        name = self.config['play.engineName']
+        return name in csoundengine.Engine.activeEngines
 
     def presetManager(self) -> presetmanager.PresetManager:
         from . import presetmanager
         return presetmanager.presetManager
-
+    
 
 def getWorkspace() -> Workspace:
     """
@@ -533,44 +570,27 @@ def setTempo(tempo: float, reference=1, measureIndex=0) -> None:
 def getConfig() -> CoreConfig:
     """
     Return the active config.
+    
+    This function is here for visibility. The preferred way to access the active
+    config is via ``Workspace.active.config``
+
     """
     active = Workspace.active
     assert active is not None
     return active.config
 
 
-def setConfig(config: CoreConfig) -> None:
-    """
-    Activate this config
-
-    This is the same as ``getWorkspace().config = config``.
-
-    Args:
-        config: the new config
-    """
-    import warnings
-    warnings.warn("setConfig is deprecated, call `config.activate()` on the config itself "
-                  "or `Workspace.active.config = config`")
-    active = Workspace.active
-    assert active is not None
-    active.config = config
-
-
 def getScoreStruct() -> ScoreStruct:
     """
     Returns the active ScoreStruct (which defines tempo and time signatures)
 
-    If no ScoreStruct has been set explicitely, a default struct is always active
+    If no ScoreStruct has been set explicitely, a default struct is always active.
+    To create a new scorestruct and set it as active use ``ScoreStruct(...).activate()``
 
-
-    .. note::
-        The active scorestruct can be set via ``setScoreStruct(newscore)`` (:func:`setScoreStruct`)
-
-        If the current score structure has no multiple tempos,
-        the tempo can be modified via :func:`setTempo`.
+    This function is here for visibility. The preferred way to access the active
+    scorestruct is via ``Workspace.active.scorestruct``
 
     .. seealso::
-        * :func:`~maelzel.core.workpsace.setScoreStruct`
         * :func:`~maelzel.core.workpsace.setTempo`
         * :class:`~maelzel.scorestruct.ScoreStruct`
     """
@@ -579,59 +599,8 @@ def getScoreStruct() -> ScoreStruct:
     return active.scorestruct
 
 
-def setScoreStruct(score: str | ScoreStruct | tuple[int, int] = (4, 4),
-                   tempo: int | float = 60) -> ScoreStruct:
-    """
-    Sets the current score structure
-
-    If given a ScoreStruct, it sets it as the active score structure.
-    As an alternative a score structure as string can be given, or simply
-    a time signature and/or tempo, in which case it will create the ScoreStruct
-    and set it as active
-
-    Args:
-        score: the scorestruct as a ScoreStruct, a string score (see ScoreStruct for more
-            information about the format) or a time signature as a (num, den) tuple
-        tempo: the quarter-note tempo. Used as the initial tempo for the score, or
-            when score just contains a time signature
-
-    Returns:
-        the now active ScoreStruct. It will be the same as the given struct if
-        one was passed, or the newly created struct if a string struct,
-        time signature or just tempo were given
-
-    .. seealso::
-        * :func:`~maelzel.core.workpsace.getScoreStruct`
-        * :func:`~maelzel.core.workpsace.setTempo` (modifies the tempo of the active scorestruct)
-        * :class:`~maelzel.scorestruct.ScoreStruct`
-        * :func:`~maelzel.core.workpsace.getWorkspace`
-
-    Example
-    ~~~~~~~
-
-        >>> from maelzel.core import *
-        >>> setScoreStruct(ScoreStruct(tempo=72))
-        >>> setScoreStruct(r'''
-        ... 4/4, 72
-        ... 3/8
-        ... 5/4
-        ... .         # Same time-signature and tempo
-        ... , 112     # Same time-signature, faster tempo
-        ... 20, 3/4, 60   # At measure index 20, set the time-signature to 3/4 and tempo to 60
-        ... ...       # Endless score
-        ... ''')
-        # Simple score structures can also be given succinctly: 3/4, tempo=96
-        >>> setScoreStruct((3, 4), tempo=96)
-        # More complex time signatures are also accepted
-        >>> setScoreStruct("3/8+2/8", 108)
-
-    """
-    s = score if isinstance(score, ScoreStruct) else ScoreStruct(score=score, tempo=tempo)
-    Workspace.active.scorestruct = s
-    return s
-
 @cache
-def presetsPath() -> str:
+def _presetsPath() -> str:
     datadirbase = _appdirs.user_data_dir("maelzel")
     path = os.path.join(datadirbase, "core", "presets")
     return path

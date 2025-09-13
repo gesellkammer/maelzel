@@ -17,9 +17,7 @@ from maelzel.core import environment
 from maelzel.core import _playbacktools
 from maelzel.core.synthevent import SynthEvent
 import maelzel.core.renderer as _renderer
-import maelzel.core.automation as _automation
 import maelzel.core.realtimerenderer as _realtimerenderer
-
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -36,6 +34,7 @@ if TYPE_CHECKING:
     from typing import Sequence, Callable
     from .mobj import MObj
     from maelzel.snd import audiosample
+    from maelzel.core.config import CoreConfig
 
 
 __all__ = (
@@ -81,7 +80,8 @@ def getAudioDevices(backend=''
 
     Args:
         backend: specify a backend supported by your installation of csound.
-            None to use a default for you OS
+            None to use a default for you OS. Use '?' to interactively select
+            a backend from a list of available options
 
     Returns:
         a tuple of (input devices, output devices)
@@ -105,6 +105,8 @@ def getAudioDevices(backend=''
     .. seealso:: :func:`playEngine`
     """
     import csoundengine.csoundlib
+    if backend == '?':
+        backend = _selectBackend()
     return csoundengine.csoundlib.getAudioDevices(backend=backend)
 
 
@@ -114,7 +116,9 @@ def _playEngine(numchannels: int | None = None,
                 verbose: bool | None = None,
                 buffersize=0,
                 latency: float | None = None,
-                numbuffers=0
+                numbuffers=0,
+                config: CoreConfig | None = None,
+                name=''
                 ) -> csoundengine.Engine:
     """
     Get the play engine; start it if needed
@@ -128,7 +132,8 @@ def _playEngine(numchannels: int | None = None,
 
     Args:
         numchannels: the number of output channels, overrides config 'play.numChannels'
-        backend: the audio backend used, overrides config 'play.backend'
+        backend: the audio backend used, overrides config 'play.backend'. Use '?' to
+            interactively select a backend from a list of available options
         outdev: leave as None to use the backend's default, use '?' to select
             from a list of available devices. To list all available devices
             see :func:`getAudioDevices`
@@ -143,18 +148,16 @@ def _playEngine(numchannels: int | None = None,
 
     .. seealso:: :func:`getAudioDevices`
     """
-    config = Workspace.active.config
-    engineName = config['play.engineName']
+    if config is None:
+        config = Workspace.active.config
+    engineName = name or config['play.engineName']
     if engine := csoundengine.Engine.activeEngines.get(engineName):
         return engine
     numchannels = numchannels or config['play.numChannels']
     if backend == "?":
-        backends = [b.name for b in csoundengine.csoundlib.audioBackends()]
-        from maelzel.core import _dialogs
-        selectedbackend = _dialogs.selectFromList(backends, title="Select Backend")
-        if selectedbackend is None:
+        backend = _selectBackend()
+        if not backend:
             raise KeyboardInterrupt
-        backend = selectedbackend
     elif not backend:
         backend = config['play.backend']
     verbose = verbose if verbose is not None else config['play.verbose']
@@ -174,6 +177,21 @@ def _playEngine(numchannels: int | None = None,
     # the session's reserved instrument ranges / tables
     _ = engine.session()
     return engine
+
+
+def _selectBackend() -> str:
+    """
+    Select a backend to use
+
+    Returns:
+        the name of the backend, or an empty string if no selection was made
+    """
+    import csoundengine.csoundlib
+    backends = list(set(b.name for b in csoundengine.csoundlib.audioBackends()))
+    backends.sort()
+    from maelzel.core import _dialogs
+    selectedbackend = _dialogs.selectFromList(backends, title="Select Backend")
+    return selectedbackend or ''
 
 
 def stopSynths():
@@ -207,7 +225,8 @@ def getSession(numchannels: int | None = None,
                buffersize: int = 0,
                latency: float | None = None,
                numbuffers: int = 0,
-               ensure: bool = False
+               ensure: bool = False,
+               name=''
                ) -> csoundengine.session.Session:
     """
     Returns / creates the audio Session 
@@ -250,9 +269,14 @@ def getSession(numchannels: int | None = None,
 
     .. seealso:: :class:`csoundengine.Session <https://csoundengine.readthedocs.io/en/latest/api/csoundengine.session.Session.html>`
     """
-    if not isSessionActive():
-        engine = _playEngine(numchannels=numchannels, backend=backend, outdev=outdev,
-                             verbose=verbose, buffersize=buffersize, latency=latency,
+    if not isSessionActive(name=name):
+        engine = _playEngine(name=name,
+                             numchannels=numchannels,
+                             backend=backend,
+                             outdev=outdev,
+                             verbose=verbose,
+                             buffersize=buffersize,
+                             latency=latency,
                              numbuffers=numbuffers)
         session = engine.session()
         for instr in _builtinInstrs():
@@ -260,7 +284,7 @@ def getSession(numchannels: int | None = None,
         return session
 
     # Session is already active, check params
-    engine = _playEngine()
+    engine = _playEngine(name=name)
     if ensure:
         for paramname, value in [('nchnls', numchannels), 
                                  ('backend', backend), 
@@ -274,11 +298,12 @@ def getSession(numchannels: int | None = None,
     return engine.session()
 
 
-def isSessionActive() -> bool:
+def isSessionActive(name='') -> bool:
     """
     Returns True if the sound engine is active
     """
-    name = getConfig()['play.engineName']
+    if not name:
+        name = getConfig()['play.engineName']
     return name in csoundengine.Engine.activeEngines
 
 
@@ -295,24 +320,17 @@ def play(*sources: MObj | Sequence[SynthEvent] | csoundengine.event.Event,
          **eventparams
          ) -> csoundengine.synth.SynthGroup | _SynchronizedContext:
     """
-    Play a sequence of objects / events
+    Play a sequence of objects / events in sync.  Can be used as a context manager
 
     When playing multiple objects via their respective .play method, initialization
     (loading soundfiles, soundfonts, etc.) might result in events getting out of sync
-    with each other.
+    with each other. This function first collects all events; any initialization is 
+    done beforehand as to ensure that events keep in sync. After initialization all 
+    events are scheduled and their synths are gathered in a SynthGroup
 
-    .. note::
-
-        This function can also be used as context manager if not given any sources (see
-        example below)
-
-
-    This function first collects all events; any initialization is done beforehand
-    as to ensure that events keep in sync. After initialization all events are scheduled
-    and their synths are gathered in a SynthGroup
-
-    To customize playback use the ``.events`` method, which works exactly like
-    ``.play`` but returns the data so that it can be played later.
+    To customize playback, use this function as a context manager or call ``.synthEvents`` 
+    method on each object instead of ``.play``. ``.synthEvents`` has the same signature
+    but returns the data so that it can be played later.
 
     Args:
         sources: a possibly nested sequence of MObjs or events as returned from
@@ -354,15 +372,19 @@ def play(*sources: MObj | Sequence[SynthEvent] | csoundengine.event.Event,
 
     As context manager:
 
-        >>> note = Note(...)
+        >>> note = Note("4C#", 6, offset=1.5)
+        >>> chord = Chord("4C 4E", 7, start=1)
         >>> clip = Clip(...)
-        >>> with play() as p:
-        ...     note.play(...)
-        ...     clip.play(...)
+        >>> with play() as s:  # returns the audio Session used
+        ...     note.play(instr='.piano')
+        ...     chord.play(position=0.5)
+        ...     clip.play(speed=0.5, delay=1)
+        ...     s.sched('reverb, priority=2')
+        ...     s.sched('sin', ...)
 
     .. seealso::
 
-        :class:`Synched`, :func:`render`, :meth:`MObj.play() <maelzel.core.mobj.MObj.play>`,
+        :func:`render`, :meth:`MObj.play() <maelzel.core.mobj.MObj.play>`,
         :meth:`MObj.synthEvents() <maelzel.core.mobj.MObj.synthEvents>`
 
     """
@@ -639,9 +661,6 @@ class _SynchronizedContext(_renderer.Renderer):
         if not future:
             return None
         event = future.event
-        if not isinstance(event, SynthEvent):
-            raise ValueError("The token {token} corresponds to event {event}, which is not"
-                             "a maelzel.core")
         presetdef = self.presetManager.getPreset(event.instr)
         return presetdef
 
@@ -759,7 +778,7 @@ class _SynchronizedContext(_renderer.Renderer):
             gain: a gain applied
             speed: playback speed
             loop: should the sample be looped?
-            position: the panning position
+            pan: the panning position
             skip: time to skip from the audio sample
             fade: a fade applied to the playback
             crossfade: a crossfade time when looping
@@ -857,7 +876,7 @@ class _FutureSynth(csoundengine.baseschedevent.BaseSchedEvent, csoundengine.synt
         event: the event this synth is wrapping
         token: an integer to map this synth to the real Synth when it is
             scheduled
-        kind:
+        kind: ??
     """
 
     def __init__(self,
@@ -1006,7 +1025,7 @@ class _FutureSynth(csoundengine.baseschedevent.BaseSchedEvent, csoundengine.synt
             raise ValueError(f"Parameter {param} unknown for instr {self.instr}. "
                              f"Possible parameters: {params}")
         if isinstance(self.event, SynthEvent):
-            self.event.addAutomation(_automation.SynthAutomation(param=param, data=pairs, delay=delay, interpolation=mode, overtake=overtake))  # type: ignore
+            self.event.automate(param=param, pairs=pairs, delay=delay, interpolation=mode, overtake=overtake)
         else:
             # A Session event
             self.event.automate(param=param, pairs=pairs, delay=delay, interpolation=mode, overtake=overtake)  # type: ignore

@@ -484,7 +484,7 @@ def transcribeVoice(groups: list[list[Breakpoint]] | list[BreakpointGroup],
     from maelzel.core import symbols
 
     if scorestruct is None:
-        scorestruct = Workspace.getScoreStruct()
+        scorestruct = Workspace.activeScoreStruct()
 
     if options is None:
         options = TranscriptionOptions()

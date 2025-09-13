@@ -26,13 +26,13 @@ if TYPE_CHECKING:
     from .common import division_t
     from . import spanner as _spanner
     AttachmentT = TypeVar('AttachmentT', bound=att.Attachment)
+    from .quantdefs import QuantizedBeatDef
 
 
 __all__ = (
     'Notation',
     'notationsToCoreEvents',
     'durationsCanMerge',
-    'mergeNotationsIfPossible',
 )
 
 
@@ -1186,6 +1186,49 @@ class Notation:
         Notation.tieNotations(allparts)
         return allparts
 
+    def breakIrregularDurationInNode(self: Notation, beatstruct: Sequence[QuantizedBeatDef]) -> list[Notation]:
+        # this is called on each part of a notation when split at a beat boundary
+        assert self.duration > 0
+        assert self.isQuantized() and not self.hasRegularDuration()
+        from maelzel.scoring import util
+        beatoffsets = [b.offset for b in beatstruct]
+        fragments = util.splitInterval(self.qoffset, self.end, beatoffsets)
+        N = len(fragments)
+        assert N > 0,  f"??? {self=}, {beatoffsets=}"
+        if N == 1:
+            # does not cross any beats
+            beat = next((b for b in beatstruct if b.offset <= self.qoffset and self.end <= b.end), None)
+            assert beat is not None, f"Could not find beat for {self}, beats={beatstruct}"
+            parts = self._breakIrregularDurationInBeat(beatDur=beat.duration, beatDivision=beat.division, beatOffset=beat.offset)
+            assert parts is not None
+            return parts
+        elif N == 2:
+            n0, n1 = self.splitAtOffset(fragments[1][0])
+            parts = []
+            for part in (n0, n1):
+                if part.hasRegularDuration():
+                    parts.append(part)
+                else:
+                    parts.extend(Node.breakIrregularDurationInNode(part, beatstruct=beatstruct))
+            Notation.tieNotations(parts)
+            return parts
+        else:
+            parts = []
+            offset0, end0 = fragments[0]
+            offset1, end1 = fragments[1][0], fragments[-2][1]
+            offset2, end2 = fragments[-1]
+            n0 = self.clone(offset=offset0, duration=end0 - offset0, spanners=False)
+            n1 = self.clone(offset=offset1, duration=end1 - offset1, spanners=False)
+            n2 = self.clone(offset=offset2, duration=end2 - offset2, spanners=False)
+            for part in (n0, n1, n2):
+                if part.hasRegularDuration():
+                    parts.append(part)
+                else:
+                    parts.extend(Node.breakIrregularDurationInNode(part, beatstruct=beatstruct))
+            Notation.tieNotations(parts)
+            self._copySpannersToSplitNotation(parts)
+            return parts
+        
     @staticmethod
     def splitNotationsAtOffsets(notations: list[Notation],
                                 offsets: Sequence[F],
@@ -1763,6 +1806,30 @@ class Notation:
         n = self.notename(index=index)
         notated = pt.notated_pitch(n)
         return notated.alteration_direction(min_alteration=minAlteration)
+    
+    @staticmethod
+    def mergeNotationsIfPossible(notations: list[Notation]) -> list[Notation]:
+        """
+        Merge the given notations into one, if possible.
+    
+        Notations which cannot be merged are added to the returned list
+    
+        If two consecutive notations have same .durRatio and merging them
+        would result in a regular note, merge them::
+    
+            8 + 8 = q
+            q + 8 = q·
+            q + q = h
+            16 + 16 = 8
+    
+        In general::
+    
+            1/x + 1/x     2/x
+            2/x + 1/x     3/x  (and viceversa)
+            3/x + 1/x     4/x  (and viceversa)
+            6/x + 1/x     7/x  (and viceversa)
+        """
+        return _mergeNotationsIfPossible(notations)
 
     def canMergeWith(self, n1: Notation) -> bool:
         """
@@ -2074,7 +2141,7 @@ def durationsCanMerge(symbolicdur1: F, symbolicdur2: F) -> bool:
     return True
 
 
-def mergeNotationsIfPossible(notations: list[Notation]) -> list[Notation]:
+def _mergeNotationsIfPossible(notations: list[Notation]) -> list[Notation]:
     """
     Merge the given notations into one, if possible.
 

@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import typing as _t
 if _t.TYPE_CHECKING:
+    from maelzel.core.mobj import MObj
     from maelzel.core import synthevent
     from maelzel.core.offline import OfflineRenderer
     import csoundengine.event
     from maelzel.core import mobj
     from maelzel.core.workspace import Workspace
+    import csoundengine.synth
+    from maelzel.core.synthevent import SynthEvent
+    from maelzel.core.playback import _SynchronizedContext
 
 
 def render(outfile='',
@@ -95,3 +99,146 @@ def render(outfile='',
     return offline.render(outfile=outfile, events=events, sr=sr, wait=wait, ksmps=ksmps, nchnls=nchnls,
                           workspace=workspace, verbose=verbose, tail=tail,
                           run=run, endtime=endtime, show=show, **kws)
+
+
+def play(*sources: MObj | _t.Sequence[SynthEvent] | csoundengine.event.Event,
+         whenfinished: _t.Callable | None = None,
+         display=False,
+         **eventparams
+         ) -> csoundengine.synth.SynthGroup | _SynchronizedContext:
+    """
+    Play a sequence of objects / events in sync.  Can be used as a context manager
+
+    When playing multiple objects via their respective .play method, initialization
+    (loading soundfiles, soundfonts, etc.) might result in events getting out of sync
+    with each other. This function first collects all events; any initialization is 
+    done beforehand as to ensure that events keep in sync. After initialization all 
+    events are scheduled and their synths are gathered in a SynthGroup
+
+    To customize playback, use this function as a context manager or call ``.synthEvents`` 
+    method on each object instead of ``.play``. ``.synthEvents`` has the same signature
+    but returns the data so that it can be played later.
+
+    Args:
+        sources: a possibly nested sequence of MObjs or events as returned from
+            :meth:`MObj.events`. Empty when used as a context manager.
+        whenfinished: a callback taking no arguments and returning None. It will be called
+            when the last event is finished
+        display: if called as a context manager, the result of playback is displayed
+        eventparams: any keyword arguments will be passed to :meth:`MObj.events` if
+            events need to be generated
+
+    Returns:
+        A SynthGroup holding all scheduled synths
+
+    Example
+    ~~~~~~~
+
+        >>> from maelzel.core import *
+        >>> from csoundengine.session import SessionEvent
+        >>> import csoundengine as ce
+        >>> session = getSession()
+        >>> session.defInstr('reverb', r'''
+        >>> |kfeedback=0.85|
+        ... a1, a2 monitor
+        ... aL, aR  reverbsc a1, a2, kfeedback, 12000, sr, 0.5, 1
+        ... outch 1, aL - a1, 2, aR - a2
+        ... ''')
+        >>> session.defInstr('sin', r'''
+        ... |imidi=60, iamp=0.01|
+        ... a1 oscili iamp, mtof(imidi)
+        ... a1 *= linsegr(0, 0.5, 1, 2, 0)
+        ... outch 1, a1
+        ... ''')
+        >>> play(
+        >>>     Chord("4C 4E", 7, start=1).synthEvents(position=0.5),
+        >>>     Note("4C#", 6, offset=1.5),  # No customization,
+        >>>     SessionEvent('reverb', dur=10, args={'kfeedback': 0.8}, priority=2),
+        >>>     SessionEvent('sin', delay=0.1, dur=3, args={'imidi': 61.33, 'iamp':0.02})
+        >>> )
+
+    As context manager:
+
+        >>> note = Note("4C#", 6, offset=1.5)
+        >>> chord = Chord("4C 4E", 7, start=1)
+        >>> clip = Clip(...)
+        >>> with play() as s:  # returns the audio Session used
+        ...     note.play(instr='.piano')
+        ...     chord.play(position=0.5)
+        ...     clip.play(speed=0.5, delay=1)
+        ...     s.sched('reverb, priority=2')
+        ...     s.sched('sin', ...)
+
+    .. seealso::
+
+        :func:`render`, :meth:`MObj.play() <maelzel.core.mobj.MObj.play>`,
+        :meth:`MObj.synthEvents() <maelzel.core.mobj.MObj.synthEvents>`
+
+    """
+    from maelzel.core import playback
+    return playback.play(sources=sources, whenfinished=whenfinished, display=display, eventparams=eventparams)
+    
+    
+def getSession(numchannels: int | None = None,
+               backend='',
+               outdev='',
+               verbose: bool | None = None,
+               buffersize: int = 0,
+               latency: float | None = None,
+               numbuffers: int = 0,
+               ensure: bool = False,
+               name=''
+               ) -> csoundengine.session.Session:
+    """
+    Returns / creates the audio Session 
+
+    If no Session has been created already, a Session is initialized
+    with the given parameters and returned. Otherwise the active
+    Session is returned and any parameters passed are ignored
+
+    .. note::
+        There is one audio session, shared by all workspaces. Only the
+        first call to this function will initialize the session to
+        specific parameters. If you need to initialize the session
+        to specific values, call this function before any playback
+        related functionality is used. If any playback related
+        function/method is called before, the session is created
+        from default values. To configure these default values see
+        the configuration
+
+
+    Args:
+        numchannels: the number of output channels, overrides config 'play.numChannels'
+        backend: the audio backend used, overrides config 'play.backend'
+        outdev: leave as None to use the backend's default, use '?' to select
+            from a list of available devices. To list all available devices
+            see :func:`getAudioDevices`
+        verbose: if True, output debugging information
+        buffersize: if given, use this as the buffer size. None to use a sensible
+            default for the backend
+        latency: an added latency
+        numbuffers: the number of buffers used by the csound engine
+        ensure: if True, an exception is raised if a Session already existed
+            with parameters differing from the given
+
+    Returns:
+        the active Session
+
+    Raises:
+        SessionParametersMismatchError: if ensure was True and the given parameters
+            do not match the existing session
+
+    .. seealso:: :class:`csoundengine.Session <https://csoundengine.readthedocs.io/en/latest/api/csoundengine.session.Session.html>`
+    """
+    from maelzel.core import playback
+    return playback.getSession(numchannels=numchannels,
+                               backend=backend,
+                               outdev=outdev,
+                               verbose=verbose,
+                               buffersize=buffersize,
+                               latency=latency,
+                               numbuffers=numbuffers,
+                               ensure=ensure,
+                               name=name)
+    
+    

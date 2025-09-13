@@ -22,22 +22,22 @@ from __future__ import annotations
 import math
 import functools
 
-from emlib import iterlib
-
 import pitchtools as pt
+
+from maelzel import scoring
 
 from maelzel.core import mobj
 from maelzel.common import F, asF, F0, F1, asmidi
-from maelzel import scoring
-from maelzel import _util
 from maelzel.common import UNSET
 from maelzel.core.workspace import Workspace
 from maelzel.core.mevent import MEvent
 from maelzel.core._common import MAXDUR, logger
 from maelzel.core import synthevent
 from maelzel.core import _tools
-
 from . import symbols as _symbols
+
+from maelzel import _util
+
 
 from typing import TYPE_CHECKING, overload as _overload, cast as _cast
 
@@ -47,8 +47,6 @@ if TYPE_CHECKING:
     from typing_extensions import Self
     from maelzel.common import time_t, pitch_t, num_t, UnsetType
     from maelzel.dynamiccurve import DynamicCurve
-
-
 
 
 __all__ = (
@@ -556,7 +554,8 @@ class Note(MEvent):
             n = notations[0]
             n.mergeableNext = False
             n.mergeablePrev = False
-            n.addAttachment(scoring.attachment.Breath(visible=False, horizontalPlacement='post'))
+            from maelzel.scoring import attachment
+            n.addAttachment(attachment.Breath(visible=False, horizontalPlacement='post'))
             return [scoring.core.UnquantizedPart(notations)]
         else:
             return super().scoringParts(config)
@@ -609,7 +608,8 @@ class Note(MEvent):
                                                    offset=offset,
                                                    group=groupid))
             if config['show.glissStemless']:
-                notes[-1].addAttachment(scoring.attachment.StemTraits(hidden=True))
+                from maelzel.scoring import attachment
+                notes[-1].addAttachment(attachment.StemTraits(hidden=True))
 
         if self.label:
             notes[0].addText(self._scoringAnnotation(config=config))
@@ -1283,7 +1283,8 @@ class Chord(MEvent):
                 endEvent = scoring.Notation.makeChord(pitches=self.gliss, duration=0,
                                                       offset=self.end, group=groupid)
                 if config['show.glissStemless']:
-                    endEvent.addAttachment(scoring.attachment.StemTraits(hidden=True))
+                    from maelzel.scoring import attachment
+                    endEvent.addAttachment(attachment.StemTraits(hidden=True))
                     # endEvent.stem = 'hidden'
                 notations.append(endEvent)
 
@@ -1715,8 +1716,14 @@ class Chord(MEvent):
         """
         Is this chord two dense that it needs to be arpeggiated when shown?
         """
-        return any(abs(n0.pitch - n1.pitch) <= 1 and abs(n1.pitch - n2.pitch) <= 1
-                   for n0, n1, n2 in iterlib.window(self, 3))
+        if len(self.notes) < 3:
+            return False
+        n0, n1 = self.notes[0], self.notes[1]
+        for n2 in self.notes[2:]:
+            if abs(n0.pitch - n1.pitch) <= 1 and abs(n1.pitch - n2.pitch) <= 1:
+                return True
+            n0, n1 = n1, n2
+        return False
 
     def pitchTransform(self, pitchmap: Callable[[float], float]) -> Chord:
         transpositions = [pitchmap(note.pitch) - note.pitch for note in self.notes]

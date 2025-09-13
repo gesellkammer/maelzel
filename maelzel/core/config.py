@@ -1,7 +1,7 @@
 """
 
 CoreConfig: Configuration for maelzel.core
-==========================================
+============================w==============
 
 At any given moment there is one active configuration (an instance of :class:`CoreConfig`,
 itself a subclass of `dict`).

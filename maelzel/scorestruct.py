@@ -13,6 +13,7 @@ from maelzel.common import F, asF, F0
 from typing import TYPE_CHECKING, overload as _overload
 if TYPE_CHECKING:
     from typing import Iterator, Sequence, Iterable
+    from typing_extensions import Self
     import maelzel.core
     from maelzel.common import num_t, timesig_t, beat_t
     from maelzel.scoring.renderoptions import RenderOptions
@@ -1117,6 +1118,13 @@ class ScoreStruct:
 
     The ScoreStruct class is used extensively within :py:mod:`maelzel.core` (see
     `scorestruct-and-maelzel-core`)
+    
+    .. note::
+    
+        Within the context of maelzel.core, a ScoreStruct needs to be 
+        activated to be used implicitely in the current Workspace. To
+        activate a ScoreStruct call its :meth:`~ScoreStruct.activate` 
+        method: ``struct = ScoreStruct(...).activate()``
 
     Args:
         score: if given, a score definition as a string (see below for the format), or a
@@ -1369,7 +1377,7 @@ class ScoreStruct:
         s.modified()
         return s
 
-    def activate(self) -> None:
+    def activate(self) -> Self:
         """
         Set this scorestruct as active for the current workspace within maelzel.core
 
@@ -1377,6 +1385,7 @@ class ScoreStruct:
         """
         from maelzel.core import Workspace
         Workspace.active.scorestruct = self
+        return self
 
     def numMeasures(self) -> int:
         """

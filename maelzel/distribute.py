@@ -12,20 +12,17 @@ bpf4_, which allows to define and compute break-point-functions
 .. _bpf4: https://bpf4.readthedocs.io/en/latest/
 """
 from __future__ import annotations
+import numpy as np
+import bpf4
+
+import warnings
+import logging
+
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import TypeVar, Callable, Sequence
     import matplotlib.pyplot
     T = TypeVar('T')
-
-import numpy as np
-
-import bpf4
-
-from emlib import mathlib, combinatorics, iterlib
-
-import warnings
-import logging
 
 
 PHI = 1.61803398874989484820458683436563811772030917
@@ -105,7 +102,8 @@ def roundSeqPreservingSum(seq: list[float], maxdelta=1, maxsolutions=1,
                 p.addConstraint(constraint.FunctionConstraint(lambda a, b: a >= b), (idx, idx + 1))
 
     if maxsolutions > 0:
-        solutions = iterlib.take(p.getSolutionIter(), maxsolutions)
+        from itertools import islice
+        solutions = list(islice(p.getSolutionIter(), maxsolutions))
     else:
         solutions = p.getSolutions()
     if not solutions:
@@ -161,6 +159,7 @@ def partitionFib(n: int, numpart: int) -> list[float]:
         In order to partition into integer values, use :func:`roundSeqPreservingSum`
 
     """
+    from emlib import mathlib
     platonic = [mathlib.fib(i) for i in range(50, 50+numpart)]
     ratio = n / float(sum(platonic))
     seq = [x * ratio for x in platonic]
@@ -478,6 +477,7 @@ def onepulse(x: float, resolution: int, entropy=0.) -> list[int]:
     z2 = [0] * zeros
     bins = interleave(o2, z2)
     if entropy > 0:
+        from emlib import combinatorics
         bins = combinatorics.unsort(bins, entropy)
     return bins
 

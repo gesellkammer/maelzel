@@ -9,17 +9,15 @@ from emlib import iterlib
 from maelzel._util import reprObj
 from maelzel.common import F, F0
 
-from . import attachment, util
+from . import util
 from .common import NotatedDuration, logger
-from .notation import (
-    Notation,
-    mergeNotationsIfPossible,
-)
+from .notation import Notation
 
 if TYPE_CHECKING:
     from typing import Iterator
     from maelzel.scoring import quant
     from maelzel.common import time_t
+    from . import attachment
 
 
 __all__ = (
@@ -30,7 +28,6 @@ __all__ = (
     'fillSilences',
     'resolveOffsets',
     'packInParts',
-    'mergeNotationsIfPossible',
     'removeSmallOverlaps',
     'distributeNotationsByClef',
 )

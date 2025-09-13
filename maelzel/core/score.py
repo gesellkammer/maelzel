@@ -6,7 +6,6 @@ from .event import MEvent
 from .config import CoreConfig
 from .chain import Voice, Chain, PartGroup
 from .workspace import Workspace
-from maelzel import scoring
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -14,7 +13,7 @@ if TYPE_CHECKING:
     from typing_extensions import Self
     from maelzel.scorestruct import ScoreStruct
     from .synthevent import PlayArgs, SynthEvent
-
+    from maelzel import scoring
 
 
 __all__ = (
@@ -97,7 +96,7 @@ class Score(MContainer):
     @staticmethod
     def read(path: str) -> Score:
         """
-        Read a Score from musicxml, MIDI, ...
+        Read a Score from musicxml, ...
 
         Args:
             path: the path to the file
@@ -105,7 +104,7 @@ class Score(MContainer):
         Returns:
             a Score
 
-        .. seealso:: :meth:`Score.fromMusicxml`, :meth:`Score.fromMIDI`, :meth:`Score.write`
+        .. seealso:: :meth:`Score.fromMusicxml`, :meth:`Score.write`
 
         """
         import os
@@ -113,27 +112,9 @@ class Score(MContainer):
         if ext == '.xml' or ext == '.musicxml':
             xmltext = open(path).read()
             return Score.fromMusicxml(xmltext)
-        elif ext == '.mid' or ext == '.midi':
-            return Score.fromMIDI(path)
         else:
             raise ValueError(f"Format '{ext}' is not supported. At the moment only"
                              f" musicxml and MIDI are supported ")
-
-    @staticmethod
-    def fromMIDI(midifile: str) -> Score:
-        """
-        Parse a MIDI file, returns a :class:`Score`
-
-        Args:
-            midifile: the midi file to parse
-
-        Returns:
-            the correponding Score.
-
-        .. seealso:: :meth:`Score.fromMusicxml`, :meth:`Score.read`, :meth:`Score.write`
-        """
-        # TODO
-        return Score()
 
     @staticmethod
     def fromMusicxml(musicxml: str, enforceParsedSpelling=True) -> Score:
@@ -269,9 +250,9 @@ class Score(MContainer):
     def __hash__(self):
         items = [type(self).__name__, self.label, self.offset, len(self.voices)]
         if self.symbols:
-            items.extend(self.symbols)
+            items.append(hash(tuple(self.symbols)))
         if self.voices:
-            items.extend(self.voices)
+            items.append(hash(tuple(self.voices)))
         out = hash(tuple(items))
         return out
 

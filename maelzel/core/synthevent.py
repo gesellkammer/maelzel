@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 
-import emlib.misc
 import pitchtools as pt
 from dataclasses import dataclass
 
@@ -25,6 +24,7 @@ if TYPE_CHECKING:
     breakpoint_t: TypeAlias = tuple[float, ...]
     from maelzel.core import presetdef
     from typing import TypeVar, ClassVar
+    import numpy as np
     _T = TypeVar('_T')
 
 
@@ -702,6 +702,17 @@ class SynthEvent:
             self.automations = []
         self.automations.append(automation)
 
+    def automate(self,
+                 param: int | str,
+                 pairs: Sequence[float] | np.ndarray,
+                 interpolation="linear",
+                 delay=0.,
+                 overtake=False,
+                 ) -> None:
+        automation = _automation.SynthAutomation(param=param, data=pairs, delay=delay,
+                                                 interpolation=interpolation, overtake=overtake)
+        self.addAutomation(automation)
+
     def set(self, param: str, value: float, delay=0.) -> None:
         automation = _automation.SynthAutomation(param=param, data=[0, value], delay=delay)
         self.addAutomation(automation)
@@ -873,8 +884,8 @@ class SynthEvent:
                 post = "; ".join(bprepr(bp) for bp in event.bps[-2:])
                 row.append(f"{pre}…{post}")
             rows.append(row)
-        from emlib.misc import print_table
-        print_table(rows, headers=("delay", "dur", "instr", "chan", "bps"))
+        import emlib.misc
+        emlib.misc.print_table(rows, headers=("delay", "dur", "instr", "chan", "bps"))
 
     def _repr_html_(self) -> str:
         rows = [[f"{bp[0] + self.delay:.3f}", f"{bp[0]:.3f}"] + ["%.6g" % x for x in bp[1:]] for bp in self.bps]
@@ -882,6 +893,7 @@ class SynthEvent:
         bplen = len(self.bps[0])
         if bplen > 3:
             headers += [str(i) for i in range(4, bplen+1)]
+        import emlib.misc
         htmltab = emlib.misc.html_table(rows, headers=headers)
         return f"SynthEvent({self._reprInfo()})<br>" + htmltab
 
