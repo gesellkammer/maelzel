@@ -168,7 +168,7 @@ def _playEngine(numchannels: int | None = None,
                                  backend=backend,
                                  outdev=outdev,
                                  globalcode=presetmanager.presetManager.csoundPrelude,
-                                 quiet=not verbose,
+                                 verbose=verbose,
                                  latency=latency,
                                  buffersize=buffersize,
                                  a4=config['A4'],
@@ -244,7 +244,6 @@ def getSession(numchannels: int | None = None,
         function/method is called before, the session is created
         from default values. To configure these default values see
         the configuration
-
 
     Args:
         numchannels: the number of output channels, overrides config 'play.numChannels'
