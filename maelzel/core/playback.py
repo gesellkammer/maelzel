@@ -175,7 +175,9 @@ def _playEngine(numchannels: int | None = None,
                                  numbuffers=numbuffers)
     # We create the session as soon as possible, to configure the engine for
     # the session's reserved instrument ranges / tables
-    _ = engine.session()
+    session = engine.session()
+    for instr in _builtinInstrs():
+        session.registerInstr(instr)
     return engine
 
 
@@ -211,9 +213,9 @@ def _builtinInstrs() -> list[csoundengine.instr.Instr]:
             |kfeedback=0.85, kwet=0.8, ichan=1, kcutoff=12000|
             a1, a2 monitor
             aL, aR  reverbsc a1, a2, kfeedback, kcutoff, sr, 0.5, 1
-            aL = aL * kwet - a1 * (1 - kwet)
+            aL = aL * kwet - a1 * (1 - kwet) 
             aR = aR * kwet - a2 * (1 - kwet)
-            outch ichan, aL, ichan+1, aR
+            outch ichan, aL - a1, ichan+1, aR - a2
             ''')
     ]
 
@@ -277,10 +279,7 @@ def getSession(numchannels: int | None = None,
                              buffersize=buffersize,
                              latency=latency,
                              numbuffers=numbuffers)
-        session = engine.session()
-        for instr in _builtinInstrs():
-            session.registerInstr(instr)
-        return session
+        return engine.session()
 
     # Session is already active, check params
     engine = _playEngine(name=name)

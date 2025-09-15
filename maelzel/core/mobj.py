@@ -46,7 +46,7 @@ from . import environment
 from . import realtimerenderer
 from . import notation
 from . import _tools
-from .synthevent import PlayArgs
+from .synthevent import PlayArgs, SynthEvent
 
 from maelzel import _util
 from maelzel import scoring
@@ -55,7 +55,6 @@ import typing as _t
 if _t.TYPE_CHECKING:
     from typing_extensions import Self
     from matplotlib.axes import Axes
-    from .synthevent import SynthEvent
     from . import symbols as _symbols
     from maelzel.common import pitch_t, location_t, beat_t, time_t, num_t
     from maelzel.core import chain

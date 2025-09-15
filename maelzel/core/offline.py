@@ -194,6 +194,8 @@ class OfflineRenderer(renderer.Renderer):
             engine = session.engine
             for s, idx in engine.definedStrings().items():
                 renderer.strSet(s, idx)
+        for instr in playback._builtinInstrs():
+            renderer.registerInstr(instr)
         return renderer
 
     def prepareInstr(self, instr: csoundengine.instr.Instr, priority: int
@@ -682,13 +684,13 @@ class OfflineRenderer(renderer.Renderer):
         if verbose is None:
             verbose = self._verbose if self._verbose is not None else cfg['rec.verbose']
         job = self.session.render(outfile=outfile,
-                                         ksmps=ksmps or self.ksmps,
-                                         wait=wait if wait is not None else cfg['rec.blocking'],
-                                         verbose=verbose,
-                                         openWhenDone=openWhenDone,
-                                         compressionBitrate=compressionBitrate or cfg['.rec.compressionBitrate'],
-                                         endtime=endtime if endtime is not None else self.endtime,
-                                         tail=tail if tail is not None else self.tail)
+                                  ksmps=ksmps or self.ksmps,
+                                  wait=wait if wait is not None else cfg['rec.blocking'],
+                                  verbose=verbose,
+                                  openWhenDone=openWhenDone,
+                                  compressionBitrate=compressionBitrate or cfg['.rec.compressionBitrate'],
+                                  endtime=endtime if endtime is not None else self.endtime,
+                                  tail=tail if tail is not None else self.tail)
         self.renderedSoundfiles.append(outfile)
         self._renderProc = job.process
         return outfile

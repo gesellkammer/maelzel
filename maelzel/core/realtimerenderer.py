@@ -3,7 +3,6 @@ from __future__ import annotations
 import numpy as np
 import maelzel.core.renderer as _renderer
 from maelzel.core import synthevent
-from maelzel.core.config import CoreConfig
 from maelzel.core.workspace import Workspace
 from maelzel.core.presetdef import PresetDef
 
@@ -19,26 +18,6 @@ if typing.TYPE_CHECKING:
     import csoundengine.synth
     import csoundengine.session
     from maelzel.core import presetmanager
-
-
-def startEngineWithConfig(config: CoreConfig) -> csoundengine.Engine:
-    engineName = config['play.engineName']
-    if engine := csoundengine.Engine.activeEngines.get(engineName):
-        return engine
-    backend = config['play.backend']
-    from maelzel.core import presetmanager
-    engine = csoundengine.Engine(name=engineName,
-                                 nchnls=None,
-                                 backend=backend,
-                                 outdev='',
-                                 globalcode=presetmanager.presetManager.csoundPrelude,
-                                 quiet=not config['play.verbose'],
-                                 latency=config['play.schedLatency'],
-                                 buffersize=0,
-                                 a4=config['A4'],
-                                 numbuffers=0)
-    _ = engine.session()
-    return engine
 
 
 class RealtimeRenderer(_renderer.Renderer):
@@ -68,7 +47,8 @@ class RealtimeRenderer(_renderer.Renderer):
             presetManager = presetmanager.presetManager
         super().__init__(presetManager=presetManager)
         if engine is None:
-            engine = startEngineWithConfig(Workspace.active.config)
+            from maelzel.core import playback
+            engine = playback._playEngine(config=Workspace.active.config)
         self.engine: csoundengine.Engine = engine
         self.session: csoundengine.session.Session = engine.session()
 
