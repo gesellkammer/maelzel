@@ -135,7 +135,10 @@ def optimizeSplit(partials: list[Partial],
                   noisetracks: int = 0,
                   noisefreq=4000,
                   noisebw=0.05,
-                  debug=False
+                  method='insert',
+                  debug=False,
+                  mindistr=0.1,
+                  maxdistr=6
                   ) -> SplitResult:
     if distributions is not None:
         # Pick best distribution from the given distributions
@@ -169,7 +172,7 @@ def optimizeSplit(partials: list[Partial],
         from scipy import optimize
         distrToResult: dict[float, tuple[float, list[PartialTrack], list[PartialTrack], list[Partial]]] = {}
         totalEnergy = sum(p.audibility() for p in partials)
-        curve = bpf4.Linear.fromseq(0, 0.2, 0.5, 1, 1, 6)
+        curve = bpf4.Linear.fromseq(0, mindistr, 0.5, mindistr*0.68+maxdistr*0.32, 1, maxdistr)
 
         def func(distr0: float) -> float:
             distr = curve(distr0)
@@ -187,11 +190,13 @@ def optimizeSplit(partials: list[Partial],
                 maxnoisetracks=noisetracks,
                 noisefreq=noisefreq,
                 noisebw=noisebw,
+                method=method,
                 debug=debug)
             distrToResult[distr0] = (distr, tracks, residualtracks, unfitted)
             packedEnergy = sum(sum(p.audibility() for p in track) for track in tracks)
             return 1 - (packedEnergy - totalEnergy)
 
+        # r = optimize.minimize_scalar(func, bounds=(0, 1), tol=0.01)
         r = optimize.minimize_scalar(func, bounds=(0, 1), tol=0.01)
         assert isinstance(r, optimize.OptimizeResult)
         bestdistr = r['x']
@@ -210,7 +215,7 @@ def splitInTracks(partials: list[Partial],
                   maxnoisetracks: int = 0,
                   noisefreq=4000,
                   noisebw=0.05,
-                  method='append',
+                  method='insert',
                   indexPeriod=0.,
                   debug=False
                   ) -> tuple[list[PartialTrack], list[PartialTrack], list[Partial]]:
@@ -221,29 +226,34 @@ def splitInTracks(partials: list[Partial],
         partials: the partials
         maxtracks: max. number of tracks
         maxrange: max. range pro track
-        relerror: ??
+        relerror: relative error passed to the optimization routine
         distribution: frequency distribution. A callable mapping
-        numbands:
-        mingap:
-        audibilityCurveWeight:
-        maxnoisetracks:
-        noisefreq:
-        noisebw:
-        debug:
+        numbands: number of bands to divide the spectrum
+        mingap: min. time gap between two partials within a track
+        audibilityCurveWeight: the weight of the frequency dependent audibility curve
+        maxnoisetracks: max. number of tracks to allocate for noise
+        noisefreq: only partials with an avg. freq higher than this will be considered as
+            noise
+        noisebw: only partials with an avg. bandwidth higher than this will be
+            considered as noise
+        debug: print debug information
+        method: one of 'append' or 'insert'
 
     Returns:
+        a tuple (partialTracks, noiseTracks, unfittedPartials)
 
     """
     from maelzel import packing
     from scipy import optimize
 
     # First, try to fit self without reduction
-    items = [packing.Item(obj=partial, offset=partial.start, dur=partial.duration, step=pt.f2m(partial.meanfreq()))
+    items = [packing.Item(obj=partial, offset=partial.start, dur=partial.duration, step=pt.f2m(partial.meanfreq()), weightfunc=lambda p: p.audibility())
              for partial in partials]
 
-    packingtracks = packing.packInTracks(items, maxrange=maxrange, maxtracks=maxtracks, 
+    packingtracks = packing.packInTracks(items, maxrange=maxrange, maxtracks=maxtracks,
                                          method=method, mingap=asF(mingap),
                                          indexperiod=indexPeriod)
+
     if packingtracks is not None:
         assert len(packingtracks) <= maxtracks
         return [PartialTrack(partials=track.unwrap()) for track in packingtracks], [], []
@@ -347,8 +357,8 @@ def splitInTracks(partials: list[Partial],
         else:
             _, partialtracks = _pack(percentile)
     else:
-        percentile = 0.4
-        relenergy, partialtracks = _pack(0.4)
+        # percentile = 0.4
+        relenergy, partialtracks = _pack(percentile=0.4)
 
     selectedindexes = []
     for track in partialtracks:

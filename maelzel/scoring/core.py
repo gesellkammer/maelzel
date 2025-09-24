@@ -7,7 +7,7 @@ from itertools import pairwise
 from emlib import iterlib
 
 from maelzel._util import reprObj
-from maelzel.common import F, F0
+from maelzel.common import F, F0, F1
 
 from . import util
 from .common import NotatedDuration, logger
@@ -214,7 +214,7 @@ class UnquantizedPart:
         """
         True if the notations in this Part extend over the range of one clef
         """
-        midinotes: list[float] = sum((n.pitches for n in self), [])
+        midinotes: list[float] = sum((n.pitches for n in self), [])  # type: ignore
         return util.midinotesNeedMultipleClefs(midinotes)
 
     def stack(self) -> None:
@@ -265,7 +265,7 @@ class UnquantizedPart:
         """
         if not self.hasGaps():
             return
-        self.notations = fillSilences(self.notations, mingap=mingap, offset=0)
+        self.notations = fillSilences(self.notations, mingap=mingap, offset=F0)
         assert not self.hasGaps()
 
     def hasGaps(self) -> bool:
@@ -429,7 +429,7 @@ def fillSilences(notations: list[Notation],
         a list of new Notations
     """
     assert notations and all(n.offset is not None and n.offset >= offset for n in notations)
-    
+
     out: list[Notation] = []
     n0 = notations[0]
     if n0.offset is not None and n0.offset > offset:
@@ -453,7 +453,7 @@ def fillSilences(notations: list[Notation],
             # gap <= mingap: adjust the dur of n0 to match start of n1
             logger.debug(f"Small gap ({gap}), absorve the gap in the first note")
             out.append(ev0.clone(duration=ev1.qoffset - ev0.qoffset))
-            
+
     out.append(notations[-1])
     assert all(n0.end == n1.offset for n0, n1 in pairwise(out)), f"failed to fill gaps: {out}"
     return out
@@ -494,17 +494,21 @@ def distributeNotationsByClef(notations: list[Notation],
         shortname: an abbreviation for the name of the group
 
     Returns:
-        a list of UnquantizedParts
+        a list of UnquantizedParts, sorted from low to high
     """
     from . import clefutils
-    partpairs = clefutils.explodeNotations(notations, maxstaves=maxstaves)
+    partpairs = clefutils.explodeNotations(notations, maxStaves=maxstaves)
+    # parts are sorted from low to high
     parts = [UnquantizedPart(notations, firstClef=clef) for clef, notations in partpairs]
     if len(parts) > 1:
-        parts[0].possibleClefs = clefutils.clefsBetween(minclef=parts[1].firstClef)
-        parts[-1].possibleClefs = clefutils.clefsBetween(maxclef=parts[-2].firstClef)
+        # lowest part
+        parts[0].possibleClefs = clefutils.clefsBetween(maxclef=parts[1].firstClef)
+        # highest part
+        parts[-1].possibleClefs = clefutils.clefsBetween(minclef=parts[-2].firstClef)
+
     if len(parts) > 2:
         for i in range(len(parts)-2):
-            parts[i+1].possibleClefs = clefutils.clefsBetween(maxclef=parts[i].firstClef, minclef=parts[i+2].firstClef)
+            parts[i+1].possibleClefs = clefutils.clefsBetween(minclef=parts[i].firstClef, maxclef=parts[i+2].firstClef)
 
     if groupid:
         for p in parts:
@@ -530,7 +534,7 @@ def packInParts(notations: list[Notation],
     """
     Pack a list of possibly simultaneous notations into tracks
 
-    The notations within one track are NOT simulatenous. Notations belonging
+    The notations within one track are NOT simultaneous. Notations belonging
     to the same group are kept in the same track.
 
     Args:
@@ -560,10 +564,11 @@ def packInParts(notations: list[Notation],
                 dur = (max(n.end for n in group if n.end is not None) -
                        min(n.offset for n in group if n.offset is not None))
                 step = sum(n.meanPitch() for n in group)/len(group)
-                item = packing.Item(obj=group, offset=group[0].offset or 0, dur=dur, step=step)
+                offset = group[0].offset
+                item = packing.Item(obj=group, offset=float(offset) if offset else 0., dur=float(dur), step=step)
                 items.append(item)
             else:
-                items.extend(packing.Item(obj=n, offset=n.offset or 0, dur=n.duration or 1,
+                items.extend(packing.Item(obj=n, offset=float(n.offset) if n.offset else 0., dur=float(n.duration),
                                           step=n.meanPitch())
                              for n in group)
 

@@ -19,7 +19,10 @@ if TYPE_CHECKING:
 
 class MEvent(MObj):
     """
-    A discrete event in time (a Note, Chord, etc)
+    Abstract class representing a discrete event in time (a Note, Chord, etc)
+
+    .. note:: an MEvent cannot be created on its own, it is the base class
+        for all notes, chord, clips, etc.
 
     Args:
         dur: the duration of the object, in beats
@@ -63,7 +66,7 @@ class MEvent(MObj):
                     self.addSymbol(_symbols.Dynamic(dynamic))
                 else:
                     raise ValueError(f"Unknown dynamic: {dynamic}")
-                
+
         self.dynamic: str = dynamic
         """A musical dynamic (*pppp, ppp, ..., mp, mf, f, ..., ffff*)"""
 
@@ -71,6 +74,9 @@ class MEvent(MObj):
 
     @property
     def parent(self) -> chain.Chain | None:
+        if self._parent is None:
+            return None
+        # assert isinstance(self._parent, chain.Chain)
         return self._parent
 
     @parent.setter
@@ -92,7 +98,7 @@ class MEvent(MObj):
             return self.parent.dynamicAt(self.absOffset())
         return ''
 
-        
+
     def __hash__(self):
         raise NotImplementedError
 
@@ -278,7 +284,7 @@ class MEvent(MObj):
     def name(self) -> str:
         """A string representing this event"""
         raise NotImplementedError('Subclass should implement this')
-    
+
     def asGrace(self, slash=False, stemless=False, value: F|str|float|None = None) -> Self:
         raise NotImplementedError('Subclass should implement this')
 

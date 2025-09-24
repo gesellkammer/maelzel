@@ -56,11 +56,13 @@ from .notation import Notation
 from . import core
 from .common import logger
 from . import definitions
+from . import attachment
 
 
 __all__ = [
     'Notation',
     'core',
     'logger',
-    'definitions'
+    'definitions',
+    'attachment'
 ]

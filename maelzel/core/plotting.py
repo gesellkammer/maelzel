@@ -28,6 +28,10 @@ from maelzel.core import Voice, Note, Chord
 from maelzel.core import logger
 from maelzel.scorestruct import ScoreStruct
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from maelzel.core.mobj import MObj
+
 
 def _verticalPosToClefPos(pos: int) -> int:
     """
@@ -238,6 +242,21 @@ def makeAxes(tightlayout=True, hideyaxis=False, figsize: tuple[int, int] | None 
     # if tightlayout:
     #     fig.tight_layout()
     return fig, axes
+
+
+def _collectVoices(*objs: MObj | list[MObj]) -> list[Voice]:
+    voices = []
+    for obj in objs:
+        if isinstance(obj, (list, tuple)):
+            voices.extend(_collectVoices(*obj))
+        else:
+            voices.extend(obj._asVoices())
+    return voices
+
+
+def plot(*objs: MObj | list[MObj], **kws):
+    voices = _collectVoices(*objs)
+    return plotVoices(voices=voices, **kws)
 
 
 def plotVoices(voices: list[Voice],

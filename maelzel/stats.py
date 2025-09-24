@@ -7,7 +7,7 @@ import itertools
 
 if TYPE_CHECKING:
     import numpy.typing as npt
-    from typing import Sequence, Callable
+    from typing import Callable
     from matplotlib.axes import Axes
 
 
@@ -165,5 +165,5 @@ def weightedHistogram(values: npt.ArrayLike,
     if edges[-1] < sortedvalues[-1]:
         edges.append(float(sortedvalues[-1]))
     assert len(edges) == numbins + 1, f"{numbins=}, {len(edges)=}, {edges=}, {relthresholds=}"
-    assert all(e0 < e1 for e0, e1 in itertools.pairwise(edges)), f"Edges should be sorted: {edges}"
+    assert all(e0 <= e1 for e0, e1 in itertools.pairwise(edges)), f"Edges should be sorted: {edges}, {distribution=}"
     return edges

@@ -1,4 +1,4 @@
-.. _mevent:
+resolved.. _mevent:
 
 Musical Events
 ==============
@@ -30,15 +30,12 @@ in which case it is resolved based on the context of the event
 The resolved relative offset can be queried via :meth:`~maelzel.core.mobj.MObj.relOffset`,
 the absolute offset via :meth:`~maelzel.core.mobj.MObj.absOffset`. These values are always
 in quarternote beats. To query the position of an event within a score structure or to
-know its absolute position in time (in seconds), see :meth:`~maelzel.core.mobj.MObj.
-
-start, end = note.location()
-note.timeRange
+know its absolute position in time (in seconds), see :meth:`~maelzel.core.mobj.MObj.location`
 
 **Example**
 
 In the following example the 2nd note (``4D``), which has an unset offset (offset is ``None``),
-has a *resolved offset* of **0.5** since it is placed after the first note (``4C``), which
+has a *relative offset* of **0.5** since it is placed after the first note (``4C``), which
 has a duration of **0.5**. Since the chain itself has an offset of **1**, the resulting
 *absolute offset* of the 2nd note is ``1 + 0.5 = 2.5``
 
@@ -54,9 +51,9 @@ has a duration of **0.5**. Since the chain itself has an offset of **1**, the re
       1.5    0.5     1      4D:1♩
     >>> chain[1].offset is None
     True
-    >>> chain[1].resolvedOffset()
+    >>> chain[1].relOffset()
     0.5
-    >>> chain[1].absoluteOffset()
+    >>> chain[1].absOffset()
     1.5
 
 .. image:: assets/relative-offset-vs-absolute-offset.png

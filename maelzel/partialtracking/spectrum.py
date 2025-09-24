@@ -195,7 +195,6 @@ class Spectrum:
 
         self._index: _PartialIndex | None = None
         self._packedMatrix: np.ndarray | None = None
-        self._csoundSession: csoundengine.session.Session | None = None
 
         if self.partials:
             self.partials.sort(key=lambda p: p.start)
@@ -614,6 +613,13 @@ class Spectrum:
         sample.write(outfile=outfile)
         return sample
 
+    @staticmethod
+    def playbackSession() -> csoundengine.session.Session:
+        """
+        Returns the default playback session
+        """
+        return _csoundEngine().session()
+
     def play(self,
              speed=1.,
              freqscale=1.,
@@ -674,8 +680,7 @@ class Spectrum:
         if self._packedMatrix is None:
             self._packedMatrix = self.packMatrix()
         if not session:
-            session = _csoundEngine().session()
-        self._csoundSession = session
+            session = self.playbackSession()
         position = chan - int(chan)
         return session.playPartials(source=self._packedMatrix,
                                     speed=speed,
@@ -990,7 +995,7 @@ class Spectrum:
                       noisetracks: int = 0,
                       maxrange: int = 36,
                       relerror=0.05,
-                      distribution: float | Callable[[float], float] | list[float] | None = 2.,
+                      distribution: float | Callable[[float], float] | list[float] | None = 0.7,
                       numbands: int = 4,
                       mingap=0.1,
                       audibilityCurveWeight=1.,
@@ -999,7 +1004,9 @@ class Spectrum:
                       minbreakpoints=1,
                       debug=False,
                       _method='insert',
-                      _indexPeriod=0.
+                      _indexPeriod=0.,
+                      _mindistr=0.1,
+                      _maxdistr=5
                       ) -> pack.SplitResult:
         """
         Split this spectrum into tracks
@@ -1026,7 +1033,8 @@ class Spectrum:
                 distribution is 1, all bands will have the same energy. The splitting frequencies of the bands depend on
                 the actual energy distribution within the spectrum
             mingap: the min. silence between two partials within a track
-            noisebw:
+            noisebw: ??
+            noisefreq: ??
             audibilityCurveWeight: the weight of the frequency dependent amplitude curve when determining the importance
                 of a partial. A value of 1 will give full weight to this curve, a value of 0 will only use the amplitude
                 and duration of the partial to calculate its energy. Values in between are possible.
@@ -1090,6 +1098,9 @@ class Spectrum:
                                       noisetracks=noisetracks,
                                       noisefreq=noisefreq,
                                       noisebw=noisebw,
+                                      method=_method,
+                                      mindistr=_mindistr,
+                                      maxdistr=_maxdistr,
                                       debug=debug)
 
 

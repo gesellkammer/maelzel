@@ -410,8 +410,8 @@ class OfflineRenderer(renderer.Renderer):
                           delay=event.delay,
                           dur=event.dur,
                           priority=event.priority,
-                          args=event.args,
-                          **kws)  # type: ignore
+                          args=event.args,  # type: ignore
+                          **kws)            # type: ignore
 
     def schedEvent(self, event: synthevent.SynthEvent | csoundengine.event.Event
                    ) -> csoundengine.schedevent.SchedEvent:
@@ -902,7 +902,7 @@ class _OfflineSessionHandler(csoundengine.sessionhandler.SessionHandler):
 
 def render(outfile='',
            events: Sequence[synthevent.SynthEvent | mobj.MObj | csoundengine.event.Event | Sequence[mobj.MObj | synthevent.SynthEvent]] = (),
-           sr=0,
+           sr: int = 0,
            wait: bool | None = None,
            ksmps=0,
            verbose: bool | None = None,
@@ -991,13 +991,11 @@ def render(outfile='',
         # called as a context manager
         offlinerenderer = OfflineRenderer(outfile=outfile,
                                           sr=sr,
-                                          numchannels=nchnls,
+                                          numchannels=nchnls or 0,
                                           verbose=verbose,
                                           ksmps=ksmps,
                                           tail=tail,
                                           endtime=endtime)
-        if show:
-            offlinerenderer.showAtExit = True
         return offlinerenderer
     if workspace is None:
         workspace = Workspace.active

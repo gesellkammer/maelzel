@@ -162,6 +162,8 @@ class Note(MEvent):
                             self.addSpanner(spanner)
                 elif "/" in pitch:
                     parsednote = _tools.parseNote(pitch)
+                    if not isinstance(parsednote.notename, str):
+                        raise ValueError(f"A Note can only have one pitch, got {parsednote.notename}")
                     pitch = parsednote.notename
                     dur = parsednote.dur
 
@@ -1097,7 +1099,7 @@ class Chord(MEvent):
                              _init=False)
         self._copyAttributesTo(out)
         return out
-    
+
     def __len__(self) -> int:
         return len(self.notes)
 
@@ -1332,6 +1334,13 @@ class Chord(MEvent):
         self._changed()
 
     def insert(self, index: int, note: pitch_t) -> None:
+        """
+        Insert a note in this chord, in place
+
+        Args:
+            index: where to insert it
+            note: a Note or a pitch
+        """
         self.notes.insert(index, note if isinstance(note, Note) else Note(note))
         self._changed()
 
@@ -1374,7 +1383,7 @@ class Chord(MEvent):
             else:
                 notes[note2.pitch] = note2
         return self.clone(notes=notes.values())
-        
+
     def __setitem__(self, i: int, note: pitch_t) -> None:
         self.notes.__setitem__(i, note if isinstance(note, Note) else Note(note))
         self._changed()
@@ -1407,6 +1416,7 @@ class Chord(MEvent):
         Sort **INPLACE**.
 
         If inplace sorting is undesired, use ``x = chord.copy(); x.sort()``
+        By default, chords are sorted by pitch, from low to high
 
         Args:
             key: either 'pitch' or 'amp'
@@ -1465,7 +1475,7 @@ class Chord(MEvent):
             globalgain = 1/math.sqrt(len(self.notes))
         else:
             globalgain = 1.
-            
+
         startbeat = self.relOffset() + parentOffset
         startbeat = max(startbeat, playargs.get('skip', F0))
         endbeat = min(startbeat + self.dur, playargs.get('end', float('inf')))
@@ -1833,11 +1843,11 @@ def Grace(pitch: pitch_t | Sequence[pitch_t],
     Example
     ~~~~~~~
 
-        >>> grace = Gracenote('4F')
+        >>> grace = Grace('4F')
         >>> grace2 = Note('4F', dur=0)
         >>> grace == grace2
         True
-        >>> gracechord = Gracenote('4F 4A')
+        >>> gracechord = Grace('4F 4A')
         >>> gracechord2 = Chord('4F 4A', dur=0)
         >>> gracechord == gracechord2
         True

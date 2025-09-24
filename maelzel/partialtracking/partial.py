@@ -1,17 +1,13 @@
 from __future__ import annotations
+from functools import cache
 import numpy as np
 import pitchtools as pt
 import numpyx
-from functools import cache
 import bpf4
-from maelzel.snd import amplitudesensitivity
-import visvalingamwyatt
 
-from typing import Callable, TYPE_CHECKING
-from typing_extensions import Self
-
-if TYPE_CHECKING:
-    pass
+import typing as _t
+if _t.TYPE_CHECKING:
+    from typing_extensions import Self
 
 
 class Partial:
@@ -49,6 +45,8 @@ class Partial:
         self.label = label
         """A Partial can have an optional integer id called a label"""
 
+        self._energy = -1.
+
     def __repr__(self):
         ampdb = pt.amp2db(self.meanamp())
         return f"Partial(start={self.start:.4f}, end={self.end:.4f}, numbreakpoints={len(self.data)}, " \
@@ -83,6 +81,31 @@ class Partial:
         if time < self.start or time > self.end:
             raise ValueError(f"This partial is not defined at time {time} (start={self.start}, end={self.end})")
         return numpyx.table_interpol_linear(self.data, np.array([time], dtype=float))[0].tolist()
+
+    def sampleAt(self, times: _t.Sequence[float] | np.ndarray) -> np.ndarray:
+        """
+        Sample this partial at the given times
+
+        Args:
+            times: a list or array of times
+
+        Returns:
+            the sampled data, as a 2D matrix with columns ``time, freq, amp, phase, bandwidth``
+        """
+        return _sampleAt(self.data, np.asarray(times))
+
+    def sampledAt(self, times: _t.Sequence[float] | np.ndarray) -> Self:
+        """
+        Create a copy of this partial, sampled at the given times
+
+        Args:
+            times: a list or array of times
+
+        Returns:
+            a Partial representing this Partial sampled at the given times
+        """
+        newdata = self.sampleAt(times)
+        return self.__class__(data=newdata, label=self.label)
 
     @cache
     def freqbpf(self) -> bpf4.Linear:
@@ -128,7 +151,6 @@ class Partial:
     def maxfreq(self) -> float:
         return float(self.freqs.max())
 
-    @cache
     def meanpitch(self) -> float:
         freq = self.meanfreq()
         return pt.f2m(freq)
@@ -148,7 +170,7 @@ class Partial:
         return numpyx.weightedavg(amps, self.times, np.ones_like(amps))
 
     @cache
-    def audibility(self, ampcurve: Callable[[float], float] | None = None, curvefactor=1.0) -> float:
+    def audibility(self, ampcurve: _t.Callable[[float], float] | None = None, curvefactor=1.0) -> float:
         """
         The audibility is the Partial's energy scaled by its frequency dependent audibility
 
@@ -167,12 +189,13 @@ class Partial:
 
         """
         energy = self.energy()
-        ampcurve = ampcurve or amplitudesensitivity.defaultCurve
+        if ampcurve is None:
+            from maelzel.snd import amplitudesensitivity
+            ampcurve = amplitudesensitivity.defaultCurve
         factor = ampcurve(self.meanfreq())
         factor2 = curvefactor * factor + (1 - curvefactor)
         return energy * factor2
 
-    @cache
     def energy(self, mindur=0.002) -> float:
         """
         Integrates the amplitude over time to obtain a measurement of this partial's enery
@@ -185,13 +208,19 @@ class Partial:
 
         .. seealso:: :meth:`Partial.audibility`
         """
+        if self._energy >= 0:
+            return self._energy
+
         if self.numbreakpoints == 1:
             return float(self.data[0, 2]) * mindur
 
         amps = self.amps
         times = self.times
-        return numpyx.trapz(amps, times)
-        
+        self._energy = energy = numpyx.trapz(amps, times)
+        if energy < 0:
+            raise ValueError(f"A partial should not have negative energy, got {energy} ({self=})")
+        return energy
+
     def meanbw(self, weighted=True) -> float:
         """
         The average bandwidth of this partial
@@ -252,7 +281,7 @@ class Partial:
         return self.__class__(data=data if data is not None else self.data,
                               label=label if label is not None else self.label)
 
-    def freqTransform(self, transform: Callable[[np.ndarray], np.ndarray]) -> Self:
+    def freqTransform(self, transform: _t.Callable[[np.ndarray], np.ndarray]) -> Self:
         """
         Apply a frequency transformation to this Partial
 
@@ -348,7 +377,7 @@ class Partial:
         data[:, 1] = freqs
         return self.clone(data=data)
 
-    def timeTransform(self, transform: Callable[[np.ndarray], np.ndarray]) -> Partial:
+    def timeTransform(self, transform: _t.Callable[[np.ndarray], np.ndarray]) -> Partial:
         """
         Apply a time transformation to this Partial
 
@@ -373,18 +402,25 @@ class Partial:
         data[:, 0] = transform(self.times)
         return Partial(data, label=self.label)
 
-    def simplified(self,
-                   freqthreshold: float | None = None,
-                   ratio: float | None = None) -> Partial:
+    def simplified(self, /,
+                   ratio: float | None = None,
+                   threshold: float | None = None,
+                   ) -> Partial:
         """
         Simplify the breakpoints of this partial
 
-        Any returned partial will at least contain 2 breakpoints
+        Any returned partial will at least contain 2 breakpoints. Either a threshold
+        or a ratio can be given, not both (giving both results in a ValueError
+        exception). If unsure, use ratio.
+
+        Partials are simplified based on both their frequency and their
+        amplitude
 
         Args:
-            freqthreshold: the frequency threshold. The higher, the simpler the returned partial
             ratio: the ratio (between 0-1) of the points to simplify. A ratio of 0.1 will simplify
-                the shape to contain only 10% of the original points.
+                the shape to contain only 10% of the original points, a ratio of 0.9 will keep
+                90% of the original points.
+            threshold: the simplification threshold. The higher, the simpler the returned partial
 
         Returns:
             the simplified Partial
@@ -395,13 +431,14 @@ class Partial:
 
         # points = [(t, f) for t, f in self.data[:, 0:2]]
         points = self.data[:, 0:2]
+        import visvalingamwyatt
         simplifier = visvalingamwyatt.Simplifier(points)
-        if freqthreshold is not None:
-            simplifiedpoints = simplifier.simplify(threshold=freqthreshold)
+        if threshold is not None:
+            simplifiedpoints = simplifier.simplify(threshold=threshold)
         elif ratio is not None:
             simplifiedpoints = simplifier.simplify(ratio=ratio)
         else:
-            raise ValueError("Either freqthreshold or ratio must be given")
+            raise ValueError("Either threshold or ratio must be given")
 
         if len(simplifiedpoints) < 2:
             indexes = [0, len(self.data) - 1]

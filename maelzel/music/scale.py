@@ -11,6 +11,7 @@ from functools import cache
 
 knownscales = {
     'major': (2, 2, 1, 2, 2, 2, 1),
+    'aeolic': (2, 1, 2, 2, 2, 1, 2),
     'minor-harmonic': (2, 1, 2, 2, 2, 2, 1),
     'octotonic1': (2, 1, 2, 1, 2, 1, 2, 1),
     'octotonic2': (1, 2, 1, 2, 1, 2, 1, 2),
@@ -88,7 +89,9 @@ def pitchscale(startpitch: float | str,
         if scale is None:
             raise ValueError(f"steps should be either a sequence of intervals or the name of"
                              f"a known interval sequence. Known sequences: {knownscales.keys()}")
-    elif not isinstance(steps, tuple):
+    elif isinstance(steps, tuple):
+        scale = steps
+    else:
         scale = tuple(steps)
 
     return _pitchscale(startpitch=startpitch, steps=scale, endpitch=endpitch)

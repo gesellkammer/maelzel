@@ -40,14 +40,15 @@ class Item[T]:
         weight: an arbitrary weight for the object. It might be used to give
             this item a higher priority over other items when packing
     """
-    __slots__ = ("obj", "offset", "dur", "step", "weight", "end")
+    __slots__ = ("obj", "offset", "dur", "step", "_weight", "end", "weightfunc")
 
     def __init__(self,
                  obj: T,
                  offset: float,
                  dur: float,
                  step: float,
-                 weight: float = 1.0):
+                 weight: float | None = None,
+                 weightfunc: _t.Callable[[T], float] | None = None):
         """
         Args:
             obj (Any): the object to _packold
@@ -57,7 +58,9 @@ class Item[T]:
                 the item into a track
             weight: an item can be assigned a weight and this weight can be
                 used for packing to give priority to certain items.
-                Currently unused
+            weightfunc: as an alternative to precalculating a weight, a
+                weight function of the form `(obj: T) -> weight: float`
+                can be passed, to calculate a weight as needed
 
         """
         self.obj: T = obj
@@ -67,7 +70,8 @@ class Item[T]:
         self.dur = float(dur)
         self.end = self.offset + self.dur
         self.step = step
-        self.weight = weight
+        self._weight = weight
+        self.weightfunc = weightfunc
 
     def __repr__(self):
         objrepr = repr(self.obj)
@@ -89,6 +93,27 @@ class Item[T]:
 
     def __gt__(self, other: Item) -> bool:
         return self.offset > other.offset
+
+    def hasWeight(self) -> bool:
+        return self._weight is not None or self.weightfunc is not None
+
+    def weight(self, default=1.0) -> float:
+        """
+        Weight of this Item
+
+        Args:
+            default: value used if this item has no weight
+                and no weight function was given
+
+        Returns:
+            the weight of this item, normally a value between 0 and 1
+        """
+        if self._weight is not None:
+            return self._weight
+        elif self.weightfunc:
+            self._weight = w = self.weightfunc(self.obj)
+            return w
+        return default
 
 
 class Track[T]:
@@ -225,6 +250,7 @@ class Track[T]:
             self._update()
         if self._minstep is None:
             self._minstep = min(item.step for item in self.items)
+        if self._maxstep is None:
             self._maxstep = max(item.step for item in self.items)
         return self._minstep, self._maxstep
 
@@ -297,7 +323,6 @@ class Track[T]:
         return None if gap < 0 else (idx, gap)
 
 
-
 def packInTracks[T](items: list[Item[T]],
                     maxrange: float = inf,
                     maxjump: float = inf,
@@ -333,10 +358,12 @@ def packInTracks[T](items: list[Item[T]],
         a list of the packed Tracks, or None if the number of tracks exceeded the maximum given
     """
     tracks: list[Track] = []
-    if method == 'insert':
-        items2: list[Item] = sorted(items, key=lambda item: item.obj.audibility(), reverse=True)
-    else:
-        items2: list[Item] = sorted(items, key=operator.attrgetter('offset'))
+    # presort by offset
+    items2: list[Item] = sorted(items, key=operator.attrgetter('offset'))
+    if method == 'insert' and all(item.hasWeight() for item in items2):
+        # We sort again by weight. If all weights are the same, the previous
+        # sort order is kept
+        items2.sort(key=lambda item: item.weight(), reverse=True)
 
     start = items2[0].offset
     end = items2[-1].end
@@ -407,15 +434,13 @@ def _bestTrackAppend(tracks: list[Track], item: Item, maxrange=inf,
 
     """
     itemoffset = item.offset - mingap
-    step = item.step
-
     possibletracks = []
     for track in tracks:
         if track.items:
             if track.end() > itemoffset:
                 break
             possibletracks.append(track)
-        elif _fits(track, itemoffset=itemoffset, maxjump=maxjump, step=step, maxrange=maxrange):
+        elif _fitsInTrack(track, item=item, maxjump=maxjump, maxrange=maxrange):
             possibletracks.append(track)
 
     if not possibletracks:

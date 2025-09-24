@@ -393,7 +393,8 @@ class QuantizedMeasure:
                  beats: list[QuantizedBeat],
                  quantprofile: QuantizationProfile,
                  subdivisions: tuple[int, ...] | None = None,
-                 parent: QuantizedPart | None = None):
+                 parent: QuantizedPart | None = None,
+                 readonly=False):
         assert subdivisions is None or isinstance(subdivisions, tuple)
 
         self.timesig: st.TimeSignature = timesig
@@ -424,6 +425,13 @@ class QuantizedMeasure:
 
         self.tree = self._makeTree()
         """The root of the tree representation"""
+
+        if readonly:
+            self.tree.setReadOnly(True, recurse=True)
+
+    def setReadOnly(self, value: bool):
+        self.tree.setReadOnly(True, recurse=True)
+
 
     def __repr__(self):
         parts = [f"timesig={self.timesig}, quarterTempo={self.quarterTempo}, tree={self.tree}"]
@@ -659,24 +667,8 @@ class QuantizedMeasure:
         if offset > self.duration():
             raise ValueError(f"The given offset {offset} is not within the span "
                              f"of this measure ({self.duration()=}")
-        notations = self.tree.splitNotationAtOffset(offset=offset, tie=tie, mergeable=mergeable)
-        if not notations:
-            return None
-        regularNotations = []
-        for n in notations:
-            if n.hasRegularDuration():
-                regularNotations.append(n)
-            else:
-                parts = Node.breakIrregularDurationInNode(n, beatstruct=self.beatStructure())
-                regularNotations.extend(parts)
-            # else:
-            #     beat, beatindex = self.beatAtOffset(offset)
-            #     regularParts = n.breakIrregularDuration(beatDur=beat.duration, beatOffset=beat.offset, beatDivision=beat.division)
-            #     # We know that n needs to be broken, so regularParts should not be None
-            #     assert regularParts is not None
-            #     regularNotations.extend(regularParts)
-            #
-        return regularNotations
+        return self.tree.splitNotationAtOffset(offset=offset, tie=tie, mergeable=mergeable, 
+                                               beatstruct=self.beatStructure())
 
     def findLogicalTie(self, n: Notation) -> LogicalTie | None:
         if not n.tiedPrev and not n.tiedNext:
@@ -847,6 +839,38 @@ class QuantizedMeasure:
             raise ValueError(f"Measure #{n} has a duration mismatch between the duration "
                              f"according to the time signature ({measuredur}) and the "
                              f"duration of its tree, {treedur}.")
+        for n0, n1 in itertools.pairwise(self.tree.recurse()):
+            if n0.tiedNext:
+                assert n1.tiedPrev
+                tiedpitches = n0.tiedPitches()
+                if tiedpitches is None:
+                    assert all(p in n1.pitches for p in n0.pitches)
+                else:
+                    assert all(p in n1.pitches for p in tiedpitches), f"{n0=}, {n1=}"
+
+    def _checkBeats(self):
+        if not self.beats:
+            return
+        # check that the measure is filled
+        for i, beat in enumerate(self.beats):
+            for n in beat.notations:
+                assert n.duration is not None, n
+                assert n.durRatios is not None, n
+
+                if n.duration > 0:
+                    assert n.isQuantized(), n
+                if n.isRest:
+                    assert n.duration > 0, n
+                else:
+                    assert n.duration >= 0, n
+            durNotations = sum(n.duration for n in beat.notations)
+            if durNotations != beat.duration:
+                measnum = self.measureIndex()
+                logger.error(f"Duration mismatch, loc: ({measnum}, {i}). Beat dur: {beat.duration}, Notations dur: {durNotations}")
+                logger.error(beat.notations)
+                self.dump(tree=False)
+                self.dump(tree=True)
+                raise ValueError(f"Duration mismatch in beat {i}")
 
     def setBeamSubdivisions(self,
                             beat: F | float | int,
@@ -904,30 +928,6 @@ class QuantizedMeasure:
             if n.offset <= beat < n.end:
                 return n
         return None
-
-    def _checkBeats(self):
-        if not self.beats:
-            return
-        # check that the measure is filled
-        for i, beat in enumerate(self.beats):
-            for n in beat.notations:
-                assert n.duration is not None, n
-                assert n.durRatios is not None, n
-
-                if n.duration > 0:
-                    assert n.isQuantized(), n
-                if n.isRest:
-                    assert n.duration > 0, n
-                else:
-                    assert n.duration >= 0, n
-            durNotations = sum(n.duration for n in beat.notations)
-            if durNotations != beat.duration:
-                measnum = self.measureIndex()
-                logger.error(f"Duration mismatch, loc: ({measnum}, {i}). Beat dur: {beat.duration}, Notations dur: {durNotations}")
-                logger.error(beat.notations)
-                self.dump(tree=False)
-                self.dump(tree=True)
-                raise ValueError(f"Duration mismatch in beat {i}")
 
 
 def _crossesSubdivisions(slotStart: int, slotEnd: int, slotsAtSubdivs: list[int]) -> bool:
@@ -1673,6 +1673,8 @@ def _nodesCanMerge(g1: Node,
 
     item1, item2 = g1.items[-1], g2.items[0]
     syncopated = g1last.tiedNext or (g1last.isRest and g2first.isRest and g1last.durRatios == g2first.durRatios)
+    if not g1last.mergeableNext:
+        syncopated = False
 
     if acrossBeat:
         if not syncopated:
@@ -1898,16 +1900,25 @@ class QuantizedPart:
     showName: bool = True
     """If True, show part name when rendered"""
 
+    readonly: bool = False
+
     def __post_init__(self):
         for measure in self.measures:
             measure.parent = self
         self.repair()
+        if self.readonly:
+            for measure in self.measures:
+                measure.setReadOnly(True)
 
     def __getitem__(self, index: int) -> QuantizedMeasure:
         return self.measures[index]
 
     def __len__(self) -> int:
         return len(self.measures)
+
+    def setReadOnly(self, value: bool) -> None:
+        for m in self.measures:
+            m.setReadOnly(value)
 
     def repair(self):
         # self._repairGracenotesInBeats()
@@ -2610,6 +2621,10 @@ class QuantizedScore:
         for pidx, part in enumerate(self.parts):
             part.check()
 
+    def setReadOnly(self, value: bool) -> None:
+        for part in self.parts:
+            part.setReadOnly(value)
+
     def resolveEnharmonics(self, enharmonicOptions: enharmonics.EnharmonicOptions) -> None:
         """
         Finds the best spelling for each part in this score, inplace
@@ -2961,6 +2976,7 @@ def quantizeParts(parts: list[core.UnquantizedPart],
         profile = part.quantProfile or quantizationProfile
         try:
             qpart = quantizePart(part, struct=struct, quantprofile=profile)
+            qpart.check()
             qparts.append(qpart)
         except Exception as e:
             e.add_note(f"Error while quantizing part {i}")
@@ -2971,5 +2987,4 @@ def quantizeParts(parts: list[core.UnquantizedPart],
     else:
         qscore.resolveChordEnharmonics()
 
-    qscore.check()
     return qscore

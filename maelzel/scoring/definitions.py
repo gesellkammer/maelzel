@@ -73,7 +73,6 @@ articulationMappings = {
 }
 
 
-
 @cache
 def allArticulations() -> set[str]:
     """Returns all possible articulations including alternatives
@@ -81,7 +80,6 @@ def allArticulations() -> set[str]:
     This will return both 'accent' and '>', staccato and '.'
     """
     return articulations | articulationMappings.keys()
-
 
 
 def normalizeArticulation(articulation: str, default='') -> str:
@@ -111,7 +109,7 @@ clefs = {
 }
 
 
-clefsByOrder = ("treble15", "treble8", "treble", "alto", "bass", "bass8", "bass15")
+clefsByOrder = ("bass15", "bass8", "bass", "alto", "treble", "treble8", "treble15")
 
 clefSortOrder = {clef: i for i, clef in enumerate(clefsByOrder)}
 

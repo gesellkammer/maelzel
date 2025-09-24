@@ -1198,17 +1198,15 @@ class Chain(MContainer):
 
         # Until we support cross staffs, a chain/voice with spanners spanning
         # across multiple staffs is prone to confussion.
-        if any(n.spanners for n in notations):
-            if maxstaves > 1:
-                logger.info("Limiting to 1 staf since there are spanners within the "
-                             "contents of this %s", self.__class__.__name__)
-            maxstaves = 1
+        if maxstaves > 1 and any(n.spanners for n in notations):
+            logger.info("Spanners across multiple staves are not supported")
 
         if maxstaves == 1:
             parts = [scoring.core.UnquantizedPart(notations, name=name, shortname=shortname)]
         else:
             parts = scoring.core.distributeNotationsByClef(notations, name=name, shortname=shortname,
                                                            maxstaves=maxstaves)
+            parts.reverse()
             if len(parts) > 1 and groupParts:
                 scoring.core.UnquantizedPart.groupParts(parts, name=name, shortname=shortname)
 
@@ -2285,6 +2283,7 @@ class Voice(Chain):
                  name='',
                  shortname='',
                  maxstaves=0,
+                 minstaves=1
                  ):
         if isinstance(items, Chain):
             chain = items

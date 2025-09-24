@@ -657,13 +657,14 @@ class Notation:
         if self.findSpanner(uuid=spanner.uuid, kind=spanner.kind):
             raise ValueError(f"Spanner {spanner} was already added to this Notation ({self})")
         elif partner := self.findSpanner(uuid=spanner.uuid, kind='start' if spanner.kind == 'end' else 'end'):
-            logger.info(f"A Notation cannot be assigned both start and end of a spanner. Removing "
+            logger.warning(f"A Notation cannot be assigned both start and end of a spanner. Removing "
                            f"the partner spanner"
                            f"{self=}, {spanner=}, {partner=}, {end=}")
             self.removeSpanner(partner)
         else:
             self.spanners.append(spanner)
             if end:
+                assert spanner.kind == 'start'
                 end.addSpanner(spanner.makeEndSpanner())
             self.spanners.sort(key=lambda spanner: spanner.priority())
         return self
@@ -888,6 +889,30 @@ class Notation:
                 hints.clear()
         return hints
 
+    def tiedPitches(self, direction='forward') -> tuple[float, ...] | None:
+        """
+        The list of tied pitches or None if not tied or ties not set
+
+        Args:
+            direction:
+
+        Returns:
+
+        """
+        if direction == 'forward':
+            if not self.tiedNext:
+                return None
+        else:
+            if not self.tiedPrev:
+                return None
+        if len(self.pitches) == 1:
+            return self.pitches
+        else:
+            hints = self.tieHints(direction=direction)
+            if not hints:
+                return None
+            return tuple(self.pitches[idx] for idx in hints)
+
     def setTieHint(self, idx: int, direction="forward") -> None:
         """
         Set a tie hint for a specific pitch in this notation
@@ -902,7 +927,7 @@ class Notation:
             raise ValueError(f"This Notation is not tied backward: {self}")
         self.tieHints(direction).add(idx)
 
-    def getTieHint(self, idx: int, direction="fotward") -> bool:
+    def getTieHint(self, idx: int, direction="forward") -> bool:
         """
         True if the pitch with the given idx has a tie hint set
 
@@ -1018,9 +1043,12 @@ class Notation:
         """
         return self.copy()
 
-    def asRest(self) -> Notation:
+    def asRest(self, dynamic=False) -> Notation:
         """
         Clone this Notations as a rest
+
+        Args:
+            dynamic: if True, add a dynamic to the rest if self has a dynamic
 
         Returns:
             a notation representing a rest with the same offset, duration and
@@ -1030,7 +1058,7 @@ class Notation:
         return self.__class__(isRest=True,
                               duration=self.duration,
                               offset=self.offset,
-                              dynamic=self.dynamic,
+                              dynamic=self.dynamic if dynamic else '',
                               pitches=())
 
     def cloneAsTie(self,
@@ -1269,6 +1297,9 @@ class Notation:
         """
         Split this notations at the given offset
 
+        Here we do not check if the resulting parts have a correct quantization
+        or a regular duration
+
         Args:
             offset: the offset to split this notation at
             tie: if True, tie the returned notations
@@ -1297,9 +1328,9 @@ class Notation:
             left.tiedNext = True
             right.tiedPrev = True
 
-        if self.spanners:
-            right.spanners = [sp for sp in right.spanners if sp.kind != 'start']
-            left.spanners = [sp for sp in left.spanners if sp.kind != 'end']
+        if self.spanners is not None:
+            right.spanners = [sp for sp in self.spanners if sp.kind != 'start']
+            left.spanners = [sp for sp in self.spanners if sp.kind != 'end']
             assert {_.uuid for _ in left.spanners}.isdisjoint({_.uuid for _ in right.spanners})
 
         return left, right
@@ -1906,12 +1937,13 @@ class Notation:
         for p in parts[1:-1]:
             p.spanners = None
 
-    def extractPartialNotation(self, indexes: list[int]) -> Notation:
+    def extractPartialNotation(self, indexes: list[int], spanners=True) -> Notation:
         """
         Extract part of a chord with any attachments corresponding to the given pitches
 
         Args:
             indexes: the indexes of the pitches to extract
+            spanners: add any spanners in self to the extracted notation
 
         Returns:
             a new Notation with the given pitches
@@ -1934,17 +1966,18 @@ class Notation:
 
         attachments = []
         if self.attachments:
-            for a in self.attachments:
-                if a.anchor is not None and a.anchor in indexes:
-                    anchor = mappedIndexes[a.anchor]
-                    a = copy.copy(a)
-                    a.anchor = anchor
-                    attachments.append(a)
-                elif a.anchor is None:
-                    attachments.append(a)
+            for att in self.attachments:
+                if att.anchor is not None and att.anchor in indexes:
+                    anchor = mappedIndexes[att.anchor]
+                    att = copy.copy(att)
+                    att.anchor = anchor
+                    attachments.append(att)
+                elif att.anchor is None:
+                    attachments.append(att)
 
         out = self.clone(pitches=pitches,
-                         noteheads=noteheads)
+                         noteheads=noteheads,
+                         spanners=spanners)
         out.fixedNotenames = fixedNotenames
         out.attachments = attachments
         # self.copyFixedSpellingTo(out)

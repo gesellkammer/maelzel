@@ -7,6 +7,7 @@ import pitchtools
 from ._common import logger
 from .config import CoreConfig
 
+from maelzel.common import F
 from maelzel.dynamiccurve import DynamicCurve
 from maelzel.scorestruct import ScoreStruct
 
@@ -25,12 +26,12 @@ def _clearCache() -> None:
 
 __all__ = (
     'Workspace',
-    
+
     'getWorkspace',
     'getConfig',
     'getScoreStruct',
     'setTempo',
-    
+
     'logger'
 )
 
@@ -226,7 +227,7 @@ class Workspace:
 
     @staticmethod
     def setScoreStruct(score: str | ScoreStruct | tuple[int, int] = (4, 4),
-                       tempo=60) -> None:
+                       tempo: F | int | float = 60) -> None:
         """
         Sets the current score structure
 
@@ -435,7 +436,7 @@ class Workspace:
     def amp2dyn(self, amp: float) -> str:
         return self.dynamicCurve.amp2dyn(amp)
 
-    def playSession(self, 
+    def playSession(self,
                     outdev='',
                     backend='',
                     numchannels: int | None = None,
@@ -444,9 +445,9 @@ class Workspace:
                     **kws) -> csoundengine.session.Session:
         """
         Get the audio Session used for playback
-        
+
         Arguments are ignored if a session is already active
-        
+
         Args:
             outdev: output device used. Depends on the backend used. List all devices
                 via maelzel.core.playback.getAudioDevices, use '?' to select from a list of devices.
@@ -456,22 +457,22 @@ class Workspace:
             buffersize: buffer size to use, depends on the backend and device used
             numbuffers: number of buffers, determines the blocksize depending on the backend
             **kws: any keyword argument is passed to maelzel.core.playback.getSession
-            
+
         Returns:
             the csoundengine.Session active for this workspace. If not already created,
             a new session is started
-            
-        
+
+
         """
         from maelzel.core import playback
-        return playback.getSession(name=self.config['play.engineName'], 
+        return playback.getSession(name=self.config['play.engineName'],
                                    outdev=outdev,
                                    backend=backend,
                                    numchannels=numchannels,
                                    buffersize=buffersize,
                                    numbuffers=numbuffers,
                                    **kws)
-        
+
     def isPlaySessionActive(self) -> bool:
         """
         Returns True if the sound engine is active
@@ -482,7 +483,7 @@ class Workspace:
     def presetManager(self) -> presetmanager.PresetManager:
         from . import presetmanager
         return presetmanager.presetManager
-    
+
 
 def getWorkspace() -> Workspace:
     """
@@ -570,7 +571,7 @@ def setTempo(tempo: float, reference=1, measureIndex=0) -> None:
 def getConfig() -> CoreConfig:
     """
     Return the active config.
-    
+
     This function is here for visibility. The preferred way to access the active
     config is via ``Workspace.active.config``
 

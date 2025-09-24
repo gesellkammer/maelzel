@@ -393,7 +393,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
     if n.isGracenote:
         dots = 0
         if n.attachments and (props:=n.findAttachment(attachment.GracenoteProperties)) is not None:
-            base = 4 / props.value
+            base = 4 // props.value
             slashed = props.slash
         else:
             base = 8
@@ -1181,7 +1181,7 @@ class LilypondRenderer(Renderer):
         return ['pdf', 'ly', 'png']
 
     def write(self, outfile: str, fmt='', removeTemporaryFiles=False) -> None:
-        # for png files, renders only the first page 
+        # for png files, renders only the first page
         outfile = emlib.filetools.normalizePath(outfile)
         tempbase, ext = os.path.splitext(outfile)
         options = self.options.copy()

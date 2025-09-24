@@ -63,7 +63,7 @@ def renderQuantizedScore(score: quant.QuantizedScore,
                                      window=options.autoClefChangesWindow,
                                      simplificationThreshold=options.clefSimplifyThreshold,
                                      propertyKey='')
-        part.repairLinks()
+        # part.repairLinks()
 
     if backend == 'musicxml':
         from . import rendermusicxml

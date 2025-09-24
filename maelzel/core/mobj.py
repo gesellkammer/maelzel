@@ -56,7 +56,7 @@ if _t.TYPE_CHECKING:
     from typing_extensions import Self
     from matplotlib.axes import Axes
     from . import symbols as _symbols
-    from maelzel.common import pitch_t, location_t, beat_t, time_t, num_t
+    from maelzel.common import location_t, beat_t, time_t, num_t
     from maelzel.core import chain
     import maelzel.core.event as _event
     from maelzel.scoring.renderoptions import RenderOptions
@@ -485,7 +485,28 @@ class MObj(ABC):
     def _asVoices(self) -> list[chain.Voice]:
         raise NotImplementedError
 
-    def plot(self, **kws) -> Axes:
+    def plot(self,
+             axes: Axes | None = None,
+             figsize: tuple[int, int] = (15, 5),
+             timeSignatures=True,
+             grid=True,
+             **kws) -> Axes:
+        """
+        Plot this object
+
+        To see all supported options, see :func:`maelzel.core.plotting.plotVoices`
+
+        Args:
+            axes: use this Axes, if given
+            figsize: figure size of the plot, if not axes is given (otherwise
+                uses the figure corresponding to the given axes)
+            timeSignatures: draw time signatures
+            grid: draw a grid
+            kws: passed to maelzel.core.plotting.plotVoices
+
+        Returns:
+            the axes used
+        """
         voices = self._asVoices()
         from maelzel.core import plotting
         return plotting.plotVoices(voices, **kws)
@@ -1601,7 +1622,7 @@ class MObj(ABC):
 
     def rec(self,
             outfile='',
-            sr: int | None = None,
+            sr: int = 0,
             verbose: bool | None = None,
             wait: bool | None = None,
             nchnls: int | None = None,
@@ -1908,7 +1929,7 @@ class MObj(ABC):
         transform = _TimeScale(asF(factor), offset=asF(offset))
         return self.timeTransform(transform)
 
-    def invertPitch(self, pivot: pitch_t) -> Self:
+    def invertPitch(self, pivot: str | float | int) -> Self:
         """
         Invert the pitch of this object
 
@@ -2001,10 +2022,7 @@ class MContainer(MObj):
         Set the ScoreStruct for this object and its children
 
         This ScoreStruct will be used for any object embedded
-        downstream. For a chain/voice to set its scorestruct
-        it must be itself parentless, since a scorestruct can
-        be propagated downstream but not upstream (a voice cannot
-        set the scorestruct of a score)
+        downstream.
 
         Args:
             scorestruct: the ScoreStruct, or None to remove any scorestruct
@@ -2083,6 +2101,7 @@ class MContainer(MObj):
             self._config[key] = value
 
     def getConfig(self, prototype: CoreConfig | None = None) -> CoreConfig | None:
+        # most common first
         if prototype is None:
             prototype = Workspace.active.config
         if not self.parent:
@@ -2164,7 +2183,7 @@ class MContainer(MObj):
 
     def previousEvent(self, event: _event.MEvent) -> _event.MEvent | None:
         return None
-    
+
     def __contains__(self, item: MObj) -> bool:
         raise NotImplementedError
 
