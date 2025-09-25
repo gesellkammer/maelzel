@@ -34,3 +34,4 @@ Untitled*.ipynb
 .virtual_documents
 test/output
 *.kate-swp
+.idea
