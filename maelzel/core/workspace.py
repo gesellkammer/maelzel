@@ -26,12 +26,9 @@ def _clearCache() -> None:
 
 __all__ = (
     'Workspace',
-
     'getWorkspace',
     'getConfig',
     'getScoreStruct',
-    'setTempo',
-
     'logger'
 )
 
@@ -225,11 +222,10 @@ class Workspace:
         self._scorestruct = s
         self.clearCache()
 
-    @staticmethod
-    def setScoreStruct(score: str | ScoreStruct | tuple[int, int] = (4, 4),
+    def setScoreStruct(self, score: str | ScoreStruct | tuple[int, int] = (4, 4),
                        tempo: F | int | float = 60) -> None:
         """
-        Sets the current score structure
+        Sets the score structure for the current Workspace
 
         This is the same as `ScoreStruct(...).activate()`
 
@@ -253,8 +249,9 @@ class Workspace:
         ~~~~~~~
 
             >>> from maelzel.core import *
-            >>> Workspace.setScoreStruct(ScoreStruct(tempo=72))
-            >>> Workspace.setScoreStruct(r'''
+            >>> w = getWorkspace()
+            >>> w.scorestruct = ScoreStruct(tempo=72)
+            >>> w.setScoreStruct(r'''
             ... 4/4, 72
             ... 3/8
             ... 5/4
@@ -264,7 +261,10 @@ class Workspace:
             ... ...       # Endless score
             ... ''')
         """
-        setScoreStruct(score=score, tempo=tempo)
+        if isinstance(score, ScoreStruct):
+            self.scorestruct = score
+        else:
+            self.scorestruct = ScoreStruct(score=score, tempo=tempo)
 
     @property
     def a4(self) -> float:
@@ -347,27 +347,6 @@ class Workspace:
                          active=active)
 
     @staticmethod
-    def activeScoreStruct() -> ScoreStruct:
-        """
-        Returns the active score structure
-
-        Returns:
-            ScoreStruct: The active score structure
-
-        Example
-        ~~~~~~~
-
-        Running in linux
-
-        .. code-block:: python
-
-            >>> from maelzel.core import *
-            >>> scorestruct = getWorkspace().activeScoreStruct()
-
-        """
-        return Workspace.active.scorestruct
-
-    @staticmethod
     def presetsPath() -> str:
         """
         Returns the path where instrument presets are read/written
@@ -435,6 +414,61 @@ class Workspace:
 
     def amp2dyn(self, amp: float) -> str:
         return self.dynamicCurve.amp2dyn(amp)
+
+    def setTempo(self, tempo: float, reference=1, measureIndex=0) -> None:
+        """
+        Set the current tempo.
+
+        Args:
+            tempo: the new tempo.
+            reference: the reference value (1=quarternote, 2=halfnote, 0.5: 8th note)
+            measureIndex: the measure number to modify. The scorestruct's tempo is modified
+                until the next tempo
+
+        See Also
+        ~~~~~~~~
+
+        * :meth:`ScoreStruct.setTempo <maelzel.scorestruct.ScoreStruct.setTempo>`
+        * :ref:`setTempo notebook <setTempo_notebook>`
+
+
+        Example
+        ~~~~~~~
+
+        .. code-block:: python
+
+            from maelzel.core import *
+            # A chromatic scale of eighth notes
+            scale = Chain(Note(m, dur=0.5)
+                          for m in range(60, 72))
+
+            # Will play 8th notes at 60
+            scale.play()
+
+            w = getWorkspace()
+            w.setTempo(120)
+            # Will play at twice the speed
+            scale.play()
+
+            # setTempo is a shortcut to ScoreStruct's setTempo method
+            w.setTempo(40)
+
+        .. code-block:: python
+
+            >>> setScoreStruct(ScoreStruct(r'''
+            ... 3/4, 120
+            ... 4/4, 66
+            ... 5/8, 132
+            ... '''))
+            >>> w = getWorkspace()
+            >>> w.setTempo(40)
+            >>> w.scorestruct.dump()
+            0, 3/4, 40
+            1, 4/4, 66
+            2, 5/8, 132
+
+        """
+        self.scorestruct.setTempo(tempo, reference=reference, measureIndex=measureIndex)
 
     def playSession(self,
                     outdev='',
@@ -509,63 +543,6 @@ def getWorkspace() -> Workspace:
     """
     assert Workspace.active is not None
     return Workspace.active
-
-
-def setTempo(tempo: float, reference=1, measureIndex=0) -> None:
-    """
-    Set the current tempo.
-
-    Args:
-        tempo: the new tempo.
-        reference: the reference value (1=quarternote, 2=halfnote, 0.5: 8th note)
-        measureIndex: the measure number to modify. The scorestruct's tempo is modified
-            until the next tempo
-
-    See Also
-    ~~~~~~~~
-
-    * :meth:`ScoreStruct.setTempo <maelzel.scorestruct.ScoreStruct.setTempo>`
-    * :ref:`setTempo notebook <setTempo_notebook>`
-
-
-    Example
-    ~~~~~~~
-
-    .. code-block:: python
-
-        from maelzel.core import *
-        # A chromatic scale of eighth notes
-        scale = Chain(Note(m, dur=0.5)
-                      for m in range(60, 72))
-
-        # Will play 8th notes at 60
-        scale.play()
-
-        setTempo(120)
-        # Will play at twice the speed
-        scale.play()
-
-        # setTempo is a shortcut to ScoreStruct's setTempo method
-        struct = getScoreStruct()
-        struct.setTempo(40)
-
-    .. code-block:: python
-
-        >>> setScoreStruct(ScoreStruct(r'''
-        ... 3/4, 120
-        ... 4/4, 66
-        ... 5/8, 132
-        ... '''))
-        >>> setTempo(40)
-        >>> getScoreStruct().dump()
-        0, 3/4, 40
-        1, 4/4, 66
-        2, 5/8, 132
-
-    """
-    active = Workspace.active
-    assert active is not None
-    active.scorestruct.setTempo(tempo, reference=reference, measureIndex=measureIndex)
 
 
 def getConfig() -> CoreConfig:

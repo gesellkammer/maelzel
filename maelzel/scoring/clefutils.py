@@ -19,6 +19,9 @@ if TYPE_CHECKING:
 
 @dataclass
 class _ClefDefinition:
+    """
+    Defines a clef to evaluate clef changes
+    """
     name: str
     """Name of the clef"""
     
@@ -144,10 +147,11 @@ class ClefChangesEvaluator:
         self.changeDistanceFactor = changeDistanceFactor or ClefChangesEvaluator.defaultDistanceFactor
 
     def _bestClef(self, notations: Sequence[Notation]) -> tuple[str, float]:
-        pointsPerClef: dict[str, float] = {}
         if all(n.isRest for n in notations):
             return self.currentClef, 0  # can be ''
 
+        pointsPerClef: dict[str, float] = {}
+        
         for i, n in enumerate(notations):
             if n.isRest:
                 continue
@@ -177,7 +181,21 @@ class ClefChangesEvaluator:
         clef, points = max(pointsPerClef.items(), key=lambda pair: pair[1])
         return clef, points
 
-    def process(self, notations: Sequence[Notation]) -> tuple[str, float]:
+    def process(self, notations: Sequence[Notation], advance: int = 0) -> tuple[str, float]:
+        """
+        Process the given notations, return the best clef
+        
+        Args:
+            notations: the notations to evaluate
+            advance: how many steps to advance the clef. This is relevant to 
+                count the distance between clef changes. If not given, we advance
+                by the number of notations passed. It can be less than that
+                if using a windowed approach with overlap between notations
+
+        Returns:
+            a tuple (clef, points), where clef is the best clef for the
+            given notations, based on both the notations and the history
+        """
         clef, points = self._bestClef(notations=notations)
         if not clef:
             assert not self.currentClef
@@ -190,14 +208,15 @@ class ClefChangesEvaluator:
                 self.history[0] = (idx, clef, points + points0 )
 
         self.history.append((self.currentIndex, clef, points))
-        self.currentIndex += len(notations)
+        self.currentIndex += advance or len(notations) 
         self.currentClef = clef
         return clef, points
 
 
 def bestClefForNotations(notations: Sequence[Notation],
                          possibleClefs: list[str] | None = None,
-                         windowSize=4
+                         windowSize=4,
+                         hopSize=0
                          ) -> str:
     """
     Find the best clef to apply to all notations without changes
@@ -213,10 +232,18 @@ def bestClefForNotations(notations: Sequence[Notation],
         string if no pitched notations are given
 
     """
+    if all(n.isRest for n in notations):
+        return ''
+    
     clefeval = ClefChangesEvaluator(possibleClefs=possibleClefs)
     clefhistory = {}
+    if hopSize == 0:
+        hopSize = windowSize
+    else:
+        assert hopSize <= windowSize
+        
     for group in itertools.batched(notations, windowSize):
-        clef, points = clefeval.process(group)
+        clef, points = clefeval.process(group, advance=hopSize)
         clefhistory[clef] = clefhistory.setdefault(clef, 0) + points
     bestclef, points = max(clefhistory.items(), key=lambda pair: pair[1])
     return bestclef
@@ -440,12 +467,13 @@ def explodeNotations(notations: list[Notation],
 
     Args:
         notations: the notations to distribute
-        maxStaves: max. number of staves
+        maxStaves: max. number of staves, 1 <= maxStaves <= 4
         singleStaffRange: if notations fit within this range,
             only one staff is used
 
     Returns:
-        a list of pairs (clefname: str, notations: list[Notation])
+        a list of pairs (clefname: str, notations: list[Notation]). It can be 
+        less than the number of staves given, but not more.
     """
 
     pitchedNotations = [n for n in notations if not n.isRest]
@@ -482,7 +510,6 @@ def explodeNotations(notations: list[Notation],
         possibleCombinations = [
             ('treble15', 'treble', 'bass', 'bass8'),
             ('treble15', 'treble', 'bass', 'bass15'),
-
         ]
     else:
         raise ValueError(f"The max. number of staves must be between between 1 and 4, "
@@ -529,9 +556,12 @@ def clefsBetween(minclef='',
     Returns:
 
     """
-    assert minclef or maxclef
+    if not (minclef or maxclef):
+        raise ValueError("At least minclef or maxclef should be given")
+
     if not possibleClefs:
         possibleClefs = definitions.clefsByOrder
+
     if excludeClefs:
         possibleClefs = tuple(clef for clef in possibleClefs if clef not in excludeClefs)
 
@@ -556,13 +586,6 @@ def clefsBetween(minclef='',
         clefs = [clef for clef in possibleClefs
                  if minorder < definitions.clefSortOrder[clef] < maxorder]
     return tuple(clefs)
-
-
-def _allequal(seq: Sequence) -> bool:
-    if len(seq) <= 2:
-        return True
-    item0 = seq[0]
-    return all(item == item0 for item in seq)
 
 
 def splitNotationsByClef(notations: list[Notation],
@@ -630,20 +653,18 @@ def splitNotationsByClef(notations: list[Notation],
                     parts[clef].append(n.asRest())
 
     prefix = "_spanner_"
-
+    notationsBySpanner = None
     if distributeSpanners:
         notationsBySpanner = _groupNotationsBySpanner(notations)
         for spanner, notationsInSpanner in notationsBySpanner.items():
             for n in notationsInSpanner:
                 n.setProperty(f"{prefix}{spanner.uuid}", True)
-    else:
-        notationsBySpanner = None
-
+    
     if groupNotationsInSpanners:
         nidx = 0
         for item in _groupNotations(notations):
             if isinstance(item, Notation):
-                _distrNotation(item, nidx, parts)
+                _distrNotation(item, nidx, parts, notations)
                 nidx += 1
             else:
                 pitches = []
@@ -663,23 +684,17 @@ def splitNotationsByClef(notations: list[Notation],
     parts = {clef: part for clef, part in parts.items()
              if part and not all(n.isRest for n in part)}
 
-    for part in parts.values():
-        assert all(n.spanners is None for n in part)
-    assert all(n0.offset < n1.offset for n0, n1 in itertools.pairwise(notations)), f"{notations=}"
-    assert len(notations) == len(set(notations))
-
     if distributeSpanners:
         assert isinstance(notationsBySpanner, dict)
         uuidToSpanner = {spanner.uuid: spanner for spanner in notationsBySpanner}
         for part in parts.values():
             spannergroups: dict[str, list[Notation]] = {}
             for n in part:
-                if not n.properties:
-                    continue
-                for prop in n.properties:
-                    if prop.startswith(prefix):
-                        uuid = prop[len(prefix):]
-                        spannergroups.setdefault(uuid, []).append(n)
+                if n.properties:
+                    for prop in n.properties:
+                        if prop.startswith(prefix):
+                            uuid = prop[len(prefix):]
+                            spannergroups.setdefault(uuid, []).append(n)
             for uuid, notations in spannergroups.items():
                 if len(notations) > 1:
                     spanner = uuidToSpanner[uuid]

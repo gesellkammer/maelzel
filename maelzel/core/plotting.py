@@ -137,59 +137,68 @@ class LineStyle:
 @dataclass
 class ClefDef:
     name: str
-    shortname: str
-    pitchrange: tuple[int, int]
+    """Name of the clef"""
+    shortName: str
+    """Abbreviation of the clef"""
+    pitchRange: tuple[int, int]
+    """Pitch range (minpitch, maxpitch)"""
     lines: tuple[str, str, str, str, str]
-    ledgerlines: list[str]
+    """The notes where to put lines"""
+    ledgerLines: list[str]
+    """The notes where to place ledger lines"""
     color: tuple[float, float, float] | tuple[float, float, float, float]
-    refline: int
-    linestyle: str = '-'
-    linewidth: int = 2
+    """Color of the clef, as (r, g, b) or (r, g, b, a)"""
+    refLine: int
+    """The pitch for the reference line"""
+    lineStyle: str = '-'
+    """Line style"""
+    lineWidth: int = 2
+    """Line width"""
 
     def verticalRange(self) -> tuple[int, int]:
         return (pt.vertical_position(self.lines[0]), pt.vertical_position(self.lines[-1]))
 
     def referenceNote(self) -> str:
-        return self.lines[self.refline]
+        return self.lines[self.refLine]
 
 
 @cache
 def _clefDefinitions() -> list[ClefDef]:
     return [
         ClefDef(name='15a',
-                shortname='G6:',
-                pitchrange=(84, 108),
+                shortName='G6:',
+                pitchRange=(84, 108),
                 lines=("6E", "6G", "6B", "7D", "7F"),
-                refline=1,
-                ledgerlines=["7A", "7C"],
+                refLine=1,
+                ledgerLines=["7A", "7C"],
                 color=(0., 0., 0.4, 0.7),
-                linestyle='--',
-                linewidth=1),
+                lineStyle='--',
+                lineWidth=1),
         ClefDef(name='treble',
-                shortname='G:',
-                pitchrange=(60, 84),
+                shortName='G:',
+                pitchRange=(60, 84),
                 lines=("4E", "4G", "4B", "5D", "5F"),
-                refline=1,
-                ledgerlines=['4C', '5A', '6C'],
+                refLine=1,
+                ledgerLines=['4C', '5A', '6C'],
                 color=(0., 0., 0.3),
-                linewidth=1),
+                lineWidth=1),
         ClefDef(name='bass',
-                shortname='F:',
-                pitchrange=(36, 60),
+                shortName='F:',
+                pitchRange=(36, 60),
                 lines=("2G", "2B", "3D", "3F", "3A"),
-                refline=3,
-                ledgerlines=['2C', '2E', '4C'],
+                refLine=3,
+                ledgerLines=['2C', '2E', '4C'],
                 color=(0.3, 0.0, 0.0),
-                linewidth=1),
+                lineWidth=1),
         ClefDef(name='15b',
-                shortname='F2:',
-                pitchrange=(12, 36),
+                shortName='F1:',
+                pitchRange=(12, 36),
                 lines=("0G", "0B", "1D", "1F", "1A"),
-                refline=3,
-                ledgerlines=['0C', '0E', '2C', '2E'],
+                refLine=3,
+                ledgerLines=['0C', '0E', '2C', '2E'],
                 color=(0.4, 0.0, 0.0, 0.7),
-                linestyle='--',
-                linewidth=1),
+                lineStyle='--',
+                lineWidth=1),
     ]
 
 
@@ -234,7 +243,7 @@ def makeAxes(tightlayout=True, hideyaxis=False, figsize: tuple[int, int] | None 
 
     """
     if tightlayout:
-        fig, axes = plt.subplots(1, 1, figsize=figsize, layout="constrianed")
+        fig, axes = plt.subplots(1, 1, figsize=figsize, layout="constrained")
     else:
         fig, axes = plt.subplots(1, 1, figsize=figsize)
     if hideyaxis:
@@ -544,7 +553,7 @@ def drawStaffs(axes: Axes, minpitch: int, maxpitch: int,
     drawnlines = set()
     defaultLedgetLineStyle = LineStyle(color=ledgerLineColor, width=1)
     for clefdef in _clefDefinitions():
-        clefmin, clefmax = clefdef.pitchrange
+        clefmin, clefmax = clefdef.pitchRange
         intersect0, intersect1 = emlib.mathlib.intersection(minpitch, maxpitch, clefmin, clefmax)
         if intersect0 is not None:
             for pitch in clefdef.lines:
@@ -552,11 +561,11 @@ def drawStaffs(axes: Axes, minpitch: int, maxpitch: int,
                 # npitch = pt.notated_pitch(pitch)
                 # clefpos = _verticalPosToClefPos(npitch.vertical_position)
                 axes.axhline(clefpos, xmin=0, color=clefdef.color,
-                             linewidth=linewidth or clefdef.linewidth, linestyle=clefdef.linestyle,
+                             linewidth=linewidth or clefdef.lineWidth, linestyle=clefdef.lineStyle,
                              zorder=z0)
             drawn.append(clefdef)
 
-        for ledgerlinePitch in clefdef.ledgerlines:
+        for ledgerlinePitch in clefdef.ledgerLines:
             if minpitch <= pt.n2m(ledgerlinePitch) <= maxpitch and ledgerlinePitch not in drawnlines:
                 linestyle = linestyles.get(ledgerlinePitch, defaultLedgetLineStyle)
                 clefpos = _pitchToPosition(ledgerlinePitch)
@@ -567,7 +576,7 @@ def drawStaffs(axes: Axes, minpitch: int, maxpitch: int,
                              zorder=z0)
                 drawnlines.add(ledgerlinePitch)
 
-    yticks = [_pitchToPosition(clefdef.lines[clefdef.refline])
+    yticks = [_pitchToPosition(clefdef.lines[clefdef.refLine])
               for clefdef in drawn]
     ylabels = [clefdef.shortName for clefdef in drawn]
     # ylabels = [clefdef.referenceNote() for clefdef in drawn]

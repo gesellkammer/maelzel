@@ -1710,9 +1710,9 @@ class Chain(MContainer):
         .. seealso:: :meth:`Chain.eventsBetween`, :meth:`Chain.eventsAt`
         """
         eps = margin if margin else F(1, 10000)
-        start = self._locationToAbsOffset(location)
-        end = start + eps
-        events = self.eventsBetween(start, end)
+        absoffset = self._locationToAbsOffset(location)
+        end = absoffset + eps
+        events = self.eventsBetween(absoffset, end)
         if not events:
             return None
         if not start:
@@ -1723,8 +1723,8 @@ class Chain(MContainer):
                 return None
         if split:
             eventoffset = event.absOffset()
-            if eventoffset < start < eventoffset + event.dur:
-                event = self.splitAt(start, beambreak=False, nomerge=False)
+            if eventoffset < absoffset < eventoffset + event.dur:
+                event = self.splitAt(absoffset, beambreak=False, nomerge=False)
         return event
 
     def _locationToAbsOffset(self, location: beat_t) -> F:
