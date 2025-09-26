@@ -242,6 +242,7 @@ class CoreConfig(ConfigDict):
                          validator=configdata.validator,
                          docs=configdata.docs,
                          load=load,
+                         hiddenPrefix='.',
                          strict=False)
 
         if not load:

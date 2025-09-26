@@ -220,7 +220,7 @@ def groupPenalty(notes: list[str], options: EnharmonicOptions
 
     # Penalize successive microtones going in different directions
     # as the intervals are difficult to read
-    for n0, n1 in iterlib.window(notated, 2):
+    for n0, n1 in itertools.pairwise(notated):
         if n1.vertical_position - n0.vertical_position > 1 and n1.diatonic_alteration == -1.5:
             # C Eb-
             penaltysources.append("confusingInterval C Eb-")
@@ -234,15 +234,18 @@ def groupPenalty(notes: list[str], options: EnharmonicOptions
             elif abs(n0.diatonic_alteration) == 0.5 and abs(n1.diatonic_alteration) == 1.5:
                 # Penalize things like E+ D#+, prefer F- E-
                 total += options.confusingIntervalPenalty * 2
-    for n0, n1, n2 in iterlib.window(notated, 3):
-        dpos0, dpitch0 = pt.notated_interval(n0.fullname, n1.fullname)
-        dpos1, dpitch1 = pt.notated_interval(n1.fullname, n2.fullname)
-        dpitch0rounded = round(dpitch0*2)/2
-        drpitch1rounded = round(dpitch1*2)/2
-        if dpos0 == 3 and dpitch0rounded == 4.5 and dpos1 == 0 and drpitch1rounded == 0.5:
-            # 4D 4G-
-            penaltysources.append(f"confusingInterval {n0.fullname}/{n1.fullname}")
-            total += options.confusingIntervalPenalty * 2
+    if len(notated) >= 3:
+        n0, n1 = notated[0], notated[1]
+        for n2 in notated[2:]:
+            dpos0, dpitch0 = pt.notated_interval(n0.fullname, n1.fullname)
+            dpos1, dpitch1 = pt.notated_interval(n1.fullname, n2.fullname)
+            dpitch0rounded = round(dpitch0*2)/2
+            drpitch1rounded = round(dpitch1*2)/2
+            if dpos0 == 3 and dpitch0rounded == 4.5 and dpos1 == 0 and drpitch1rounded == 0.5:
+                # 4D 4G-
+                penaltysources.append(f"confusingInterval {n0.fullname}/{n1.fullname}")
+                total += options.confusingIntervalPenalty * 2
+            n0, n1 = n1, n2
     return total, ", ".join(penaltysources)
 
 
@@ -252,7 +255,7 @@ def intervalsPenalty(notes: list[str],
                      ) -> tuple[float, str]:
     total = 0
     sources = []
-    for n0, n1 in iterlib.window(notes, 2):
+    for n0, n1 in itertools.pairwise(notes):
         penalty, source = intervalPenalty(n0, n1, chord=chord, options=options)
         total += penalty
         sources.append(source)
@@ -570,7 +573,7 @@ class SpellingHistory:
 def _rateChordSpelling(notes: Sequence[str], options: EnharmonicOptions) -> tuple[float, str]:
     totalpenalty = 0.
     sources = []
-    for a, b in iterlib.combinations(notes, 2):
+    for a, b in itertools.combinations(notes, 2):
         penalty, source = intervalPenalty(a, b, chord=True, options=options)
         totalpenalty += penalty
         sources.append(source)
@@ -791,7 +794,7 @@ def fixEnharmonicsInPlace(notations: list[Notation],
     # In pairs, we check glissandi and notes with inverted vertical position / pitch
     # (things like 4C# 4Db-)
     tiestart = None
-    for n0, n1 in iterlib.window(notations, 2):
+    for n0, n1 in itertools.pairwise(notations):
         if not n0.tiedPrev and n0.tiedNext:
             tiestart = n0
         elif n0.isRest or n0.isGracenote:
@@ -822,7 +825,7 @@ def fixEnharmonicsInPlace(notations: list[Notation],
             else:
                 n0.fixNotename(n0fixed)
     # Fix tied notes
-    for n0, n1 in iterlib.window(notations, 2):
+    for n0, n1 in itertools.pairwise(notations):
         if n0.isRest or n1.isRest:
             continue
         if n1.tiedPrev:

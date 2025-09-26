@@ -1380,6 +1380,7 @@ class MObj(ABC):
                     sustain: float | None = None,
                     workspace: Workspace | None = None,
                     transpose: float = 0.,
+                    glisstime: float = 0.,
                     **kwargs
                     ) -> list[SynthEvent]:
         """
@@ -1472,6 +1473,9 @@ class MObj(ABC):
             db['sustain'] = sustain
         if transpose:
             db['transpose'] = transpose
+        if glisstime:
+            db['glisstime'] = glisstime
+
 
         parentOffset = self.parent.absOffset() if self.parent else F(0)
         events = self._synthEvents(playargs=playargs,
@@ -1505,9 +1509,10 @@ class MObj(ABC):
              whenfinished: _t.Callable | None = None,
              sustain: float | None = None,
              workspace: Workspace | None = None,
-             transpose: float = 0,
+             transpose: float = 0.,
              config: CoreConfig | None = None,
              display=False,
+             glisstime: float = 0.,
              **kwargs
              ) -> csoundengine.synth.SynthGroup:
 
@@ -1544,6 +1549,8 @@ class MObj(ABC):
             workspace: a Workspace. If given, overrides the current workspace. It's scorestruct
                 is used to to determine the mapping between beat-time and real-time.
             transpose: add a transposition interval to the pitch of this object
+            glisstime: slide time to next event (in seconds). This allows to add glissando lines for events
+                even if their gliss attr is not set, or to generate legato lines
             config: if given, overrides the current config
             whenfinished: function to be called when the playback is finished. Only applies to
                 realtime rendering
@@ -1607,6 +1614,7 @@ class MObj(ABC):
                                   skip=skip,
                                   end=end,
                                   transpose=transpose,
+                                  glisstime=glisstime,
                                   **kwargs)
 
         if not events:

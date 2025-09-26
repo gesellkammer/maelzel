@@ -264,9 +264,9 @@ docs = {
         "Freq. of A4. Normal values are between 440-443, but any value can be used",
 
     'fixStringNotenames':
-        "True: pitches given as notenames are fixed at the spelling given. "
-        "False: they are respelled for better readability within the context. "
-        "Pitches given as midi notes or frequencies are always respelled",
+        "Pitches given as notenames are fixed at the spelling given. "
+        "Otherwise they are respelled for better readability within the context. "
+        "Pitches given as midi or frequency are always respelled",
 
     "jupyterReprShow":
         "Render notation within the html repr within jupyter. If False, .show needs "
@@ -277,8 +277,8 @@ docs = {
         "notebook",
 
     'dynamicCurveShape':
-        "Shape used for the converting dynamics to amplitudes. Normally an"
-        " exponential curve, given as 'expon(exp)', where exp is the exponent used. "
+        "Shape used to convert dynamics to amplitudes. Normally an"
+        " exponential curve, given as 'expon(exp)'. "
         "exp < 1 results in more resolution for soft dynamics",
 
     'dynamicCurveMindb':
@@ -331,12 +331,10 @@ docs = {
         "Default gain used when playing/recording",
 
     'play.numChannels':
-        "Default number of channels (channels can be set explicitely when calling"
-        " startPlayEngine",
+        "Default number of playback channels",
 
     'play.defaultAmplitude':
-        "Amplitude of a Note/Chord when an amplitude is needed and the object "
-        "has an undefined amplitude, only used if play.useDynamics if False",
+        "Default amplitude for a Note/Chord, only used if play.useDynamics is False",
 
     'play.defaultDynamic':
         'Dynamic of a Note/Chord when a dynamic is needed, only used if '
@@ -360,30 +358,28 @@ docs = {
         'A list of key=value pairs, '
         'separated by ;. Keys: fontsize, box '
         '(rectangle, square, circle), placement (above, below), italic, '
-        'bold. Flags don´t need a value. Example: '
-        '"fontsize=12; italic; box=rectangle"',
+        'bold. Example: "fontsize=12; italic; box=rectangle"',
 
     'show.centsTextStyle':
         'Style used for cents annotations. '
         'A list of key=value pairs, '
         'separated by ;. Keys: fontsize, box '
         '(rectangle, square, circle), placement (above, below), italic, '
-        'bold. Flags don´t need a value. Example: '
-        '"fontsize=12; italic; box=rectangle"',
+        'bold. Example: "fontsize=12; italic; box=rectangle"',
 
     'show.measureLabelStyle':
         'Style for measure annotations. '
         'A list of key=value pairs separated by ;. Keys: fontsize, box '
         '(rectangle, square, circle), placement (above, below), italic, '
-        'bold. Flags don´t need a value. Example: '
+        'bold. Example: '
         '"fontsize=12; italic; box=rectangle"',
 
     'show.rehearsalMarkStyle':
         'Style for rehearsal marks. '
         'A list of key=value pairs, '
-        'separated by ;. Keys: fontsize, box '
+        'separated by ";". Keys: fontsize, box '
         '(rectangle, square, circle), placement (above, below), italic, '
-        'bold. Flags don´t need a value. Example: '
+        'bold. Example: '
         '"fontsize=12; italic; box=rectangle"',
 
     'show.glissLineThickness':
@@ -405,21 +401,18 @@ docs = {
         'the absolute offset be used?',
 
     'show.respellPitches':
-        "True: find a suitable enharmonic representation for pitches within their context. "
-        "False: the canonical form of each"
-        "pitch is used, independent of the context",
+        "True: find a suitable enharmonic spelling within the context. "
+        "False: the canonical form of each pitch is used, independent of context",
 
     'show.voiceMaxStaves':
-        "Max. number of staves per voice when showing a Voice as notation. Even though"
-        "a voice is a sequence of non-simultaneous events (notes, chords, etc.), these can"
-        "be exploded over multiple staves",
+        "Max. number of staves per voice when showing a Voice as notation",
 
     'show.clipNoteheadShape':
         "Notehead shape to use for clips",
 
     'show.referenceStaffsize':
-        "Staff size used as a reference to convert between staff size and scaling factor. "
-        "This allows to use staff size as a general way to indicate the scale of a score, "
+        "Staff size used as reference to convert to scaling factor. "
+        "This allows to use staff size as a generic indicator for score scale, "
         "independent of the backend",
     
     'show.clefSimplify':
@@ -576,13 +569,13 @@ docs = {
         'Complexity used for notation.',
 
     'quant.nestedTuplets':
-        'True: allow nested tuplets when quantizing. If None, this flag is '
-        'set by the complexity preset (quant.complexity). '
-        'Some backends (musescore) can\'t parse nested tuplets from musicxml atm',
+        'Allow nested tuplets when quantizing. None: follow '
+        'the complexity preset (quant.complexity). '
+        'The musescore backend cannot parse nested tuplets from musicxml atm',
 
     'quant.nestedTupletsMusicxml':
         'False: no nested tuplets are used for musicxml. '
-        'Some backends (MuseScore) don\'t render nested tuplets properly '
+        'The musescore backend cannot parse nested tuplets properly '
         'from mxml. Nested tuplets are used for other formats if '
         '"quant.nestedTuplets" = True',
 
@@ -644,22 +637,22 @@ docs = {
 
     'lilypondpath':
         'Path to the lilypond binary. If set, it must be an absolute, existing path. '
-        'This needs to be set only when using a specific lilypond installation '
-        '(lilypond is auto-installed if not found, see lilyponddist)',
+        'Only needed if using a specific lilypond installation '
+        '(lilypond is auto-installed if not found)',
 
     'show.autoClefChanges':
-        'True: add clef changes to a quantized part if needed. Otherwise, one clef '
+        'Add clef changes if needed. Otherwise, one clef '
         'is determined for each part and is not changed along the part.',
 
     'show.spacing':
-        'Kind of spacing used. "normal": traditional spacing; "uniform": '
+        'Horizontal spacing used. "normal": traditional spacing; "uniform": '
         ' proportional spacing with uniform stretching; "strict": proportional '
         'spacing with strict placement (clef changes and bar lines don´t add spacing and'
         'might overlap)',
 
     'show.proportionalDuration':
         'When using proportional spacing, the lower this value, the longer the space taken '
-        'by each note. This corresponds 1:1 to the value as used by lilypond. See also: '
+        'by each note. This corresponds to the value as used by lilypond. See also: '
         'https://lilypond.org/doc/v2.23/Documentation/notation/proportional-notation',
 
     'show.keepClefBias':

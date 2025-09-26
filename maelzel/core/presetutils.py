@@ -336,6 +336,31 @@ def getSoundfontProgram(sf2path: str, presetname: str) -> tuple[int, int]:
     return idx.nameToPreset[presetname]
 
 
+def soundfontPrograms(sf2path: str) -> dict[str, tuple[int, int]]:
+    import csoundengine.sftools
+    idx = csoundengine.sftools.soundfontIndex(sf2path)
+    return idx.nameToPreset
+
+
+def soundfontDefaultProgram(sf2path: str) -> tuple[str, int, int]:
+    """
+    The default program for a soundfont
+
+    THis is actually the first program present, there is no such thing as
+    a default program
+
+    Args:
+        sf2path: path to the soundfont
+
+    Returns:
+        a tuple (name: str, bank: int, presetnum: int)
+    """
+    import csoundengine.sftools
+    idx = csoundengine.sftools.soundfontIndex(sf2path)
+    name, preset = next(idx.nameToPreset.items())
+    return name, preset[0], preset[1]
+
+
 def soundfontSelectProgram(sf2path: str) -> tuple[str, int, int] | None:
     """
     Select a soundfont program using a gui

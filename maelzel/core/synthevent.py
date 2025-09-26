@@ -87,7 +87,7 @@ class PlayArgs:
         sample based instruments (soundfont) to extend the playback. It can be used to implement
         one-shot sample playback
     * transpose: add an extra transposition to all breakpoints
-    * glisstime: slide time to next event. This allows to add glissando lines for events
+    * glisstime: slide time to next event (in seconds). This allows to add glissando lines for events
       even if their gliss attr is not set, or to generate legato lines
     """
     playkeys: ClassVar[set[str]] = {

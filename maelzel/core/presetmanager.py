@@ -348,7 +348,7 @@ class PresetManager:
     def defPresetSoundfont(self,
                            name='',
                            sf2path='',
-                           preset: tuple[int, int] | str = (0, 0),
+                           preset: tuple[int, int] | str = '',
                            init='',
                            postproc='',
                            reverb=False,
@@ -436,7 +436,7 @@ class PresetManager:
             sf2path = presetutils.resolveSoundfontPath() or '?'
         if sf2path == "?":
             from . import _dialogs
-            sf2path = _dialogs.selectFileForOpen('soundfontLastDirectory',
+            sf2path = _dialogs.selectFileForOpen('soundfontLastDir',
                                                  filter="*.sf2", prompt="Select Soundfont")
             if sf2path is None:
                 raise ValueError("No soundfont selected")
@@ -446,23 +446,27 @@ class PresetManager:
             interpolation = cfg['play.soundfontInterpol']
         assert interpolation in ('linear', 'cubic')
 
+        from csoundengine import sftools
+        idx = sftools.soundfontIndex(sf2path)
+
         if isinstance(preset, str):
             if preset == "?":
                 result = presetutils.soundfontSelectProgram(sf2path)
                 if not result:
                     raise ValueError("No preset selected, aborting")
                 progname, bank, presetnum = result
+            elif not preset:
+                # Preset not given, use first preset found
+                name, (bank, presetnum) = next(iter(idx.nameToPreset.items()))
             else:
                 bank, presetnum = presetutils.getSoundfontProgram(sf2path, preset)
         else:
             bank, presetnum = preset
-        from csoundengine import sftools
-        idx = sftools.soundfontIndex(sf2path)
-        if not name:
-            name = idx.presetToName[(bank, presetnum)]
         if (bank, presetnum) not in idx.presetToName:
             raise ValueError(f"Preset ({bank}:{presetnum}) not found. Possible presets: "
-                             f"{idx.presetToName.keys()}")
+                             f"{idx.presetToName.keys()}, preset names: {idx.nameToIndex.keys()}")
+        if not name:
+            name = idx.presetToName[(bank, presetnum)]
         if normalize and not ampDivisor and cfg['play.soundfontFindPeakAOT']:
             sfpeak = sftools.soundfontPeak(sfpath=sf2path, preset=(bank, presetnum))
             if sfpeak > 0:
