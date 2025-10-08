@@ -418,15 +418,15 @@ def _parseTempoRefvalue(ref: str) -> tuple[int, int]:
             refvaluestr, dots = ref.split(".", maxsplit=1)
             numdots = len(dots) + 1
         except ValueError as e:
-            raise ValueError(f"Could not parse tempo: '{s}'") from e
+            raise ValueError(f"Could not parse tempo: '{ref}'") from e
 
     try:
         refvalue = int(refvaluestr)
     except ValueError as e:
-        raise ValueError(f"Could not parse tempo '{s}', invalid reference value '{refvaluestr}'") from e
+        raise ValueError(f"Could not parse tempo '{ref}', invalid reference value '{refvaluestr}'") from e
 
     if refvalue not in (1, 2, 4, 8, 16, 32, 64):
-        raise ValueError(f"Could not parse tempo: '{s}', reference value {refvalue} should be a power of 2")
+        raise ValueError(f"Could not parse tempo: '{ref}', reference value {refvalue} should be a power of 2")
     return refvalue, numdots
 
 
@@ -864,7 +864,7 @@ def _subdivRepr(f: F, timesigDen: int) -> str:
     return f"{f.numerator}/{f.denominator}"
 
 
-def inferSubdivisions(num: int, den: int, quarterTempo
+def inferSubdivisions(num: int, den: int, quarterTempo: F
                       ) -> tuple[int, ...]:
     if (den == 8 or den == 16) and num % 3 == 0:
         return tuple([3] * (num // 3))

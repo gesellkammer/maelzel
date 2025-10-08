@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import re
 import textwrap
+import logging
 
 import pitchtools as pt
 from dataclasses import dataclass
@@ -339,44 +340,53 @@ def renderLily(lilyfile: str,
         # TODO: add
         ...
 
+    
     if result.returnCode != 0:
         logger.error("stdout: \n" + textwrap.indent(result.stdout, "!! "))
         logger.error("stderr: \n" + textwrap.indent(result.stderr, "!! "))
         raise RuntimeError(f"Could not render {args}. Lilypond returned error code {result.returnCode}")
-    elif fmt == 'png' and not os.path.exists(outfile):
-        # maybe multiple pages?
-        import glob
-        pages = glob.glob(f"{basefile}-page*.png")
-        if pages:
-            outfiles = pages
-        else:
-            # Ok, so no files found
+
+    if hasMidiBlock:
+        midifile = basefile + '.midi'
+        if not os.path.exists(midifile):
+            raise RuntimeError(f"Failed to produce a .midi file from {lilyfile}")
+        return [midifile]
+    
+    outfiles = []
+    if not os.path.exists(outfile):
+        if fmt == 'png':        
+            # maybe multiple pages?
+            import glob
+            pages = glob.glob(f"{basefile}-page*.png")
+            if not pages:
+                # no files found...
+                logger.error("stderr: \n" + textwrap.indent(result.stderr, "!! "))
+                raise RuntimeError(f"Error while rendering {args}: file {outfile} not found")
+            logger.debug("lilypond png rendering ok, found %d pages: %s", len(pages), pages)
+            outfiles.extend(pages)
+        else:        
+            logger.error(f"Error while running lilypond (path={lilyfile}), "
+                         f"failed to produce a {fmt} file: {outfile}")
+            logger.error(f"Called lilypond with args: {args}")
+            logger.error(f"Return code: {result.returnCode}, Outfile: '{outfile}', exists: {os.path.exists(outfile)}")
             logger.error("stdout: \n" + textwrap.indent(result.stdout, "!! "))
             logger.error("stderr: \n" + textwrap.indent(result.stderr, "!! "))
+            logger.info("Contents of the lilypond file: ")
+            lilysource = open(lilyfile).read()
+            lilysource = "\n".join(_addLineNumbers(lilysource))
+            logger.info(textwrap.indent(lilysource, " "))
             raise RuntimeError(f"Error while rendering {args}: file {outfile} not found")
-    elif not os.path.exists(outfile):
-        logger.error(f"Error while running lilypond (path={lilyfile}), "
-                     f"failed to produce a {fmt} file: {outfile}")
-        logger.error(f"Called lilypond with args: {args}")
-        logger.error(f"Return code: {result.returnCode}")
-        logger.error(f"Outfile: '{outfile}', exists: {os.path.exists(outfile)}")
-        logger.error("stdout: \n" + textwrap.indent(result.stdout, "!! "))
-        logger.error("stderr: \n" + textwrap.indent(result.stderr, "!! "))
-        logger.info("Contents of the lilypond file: ")
-        lilysource = open(lilyfile).read()
-        lilysource = "\n".join(_addLineNumbers(lilysource))
-        logger.info(textwrap.indent(lilysource, " "))
-        raise RuntimeError(f"Error while rendering {args}: file {outfile} not found")
     else:
         logger.debug("lilypond executed OK")
-        if result.stdout.strip():
-            logger.debug("stdout: ")
-            logger.debug(textwrap.indent(result.stdout, " "))
-        elif result.stderr:
-            logger.debug("stderr: ")
-            logger.debug(textwrap.indent(result.stderr, " "))
+        if logger.isEnabledFor(logging.DEBUG):
+            if result.stdout.strip():
+                logger.debug("stdout: ")
+                logger.debug(textwrap.indent(result.stdout, " "))
+            elif result.stderr:
+                logger.debug("stderr: ")
+                logger.debug(textwrap.indent(result.stderr, " "))
         outfiles = [outfile]
-    
+
     if openWhenFinished:
         from emlib import misc
         misc.open_with_app(outfile[0])

@@ -1,12 +1,12 @@
 # API
 from .config import CoreConfig
-from .workspace import Workspace, getConfig, getScoreStruct, getWorkspace
+from .workspace import Workspace, getWorkspace
 from .event import Note, Chord, Rest
 from .chain import Chain, Voice
 from .clip import Clip
 from .score import Score
 from . import symbols
-from .presetmanager import presetManager, defPreset
+from .presetmanager import presetManager, defPreset, defSoundfont
 from ._common import logger
 from . import _appstate
 
@@ -14,7 +14,7 @@ from maelzel.scorestruct import ScoreStruct
 from maelzel.common import F
 
 
-from ._lazyapi import render, play, getSession
+from ._lazyapi import render, play, audioSession
 
 
 __all__ = [
@@ -29,14 +29,13 @@ __all__ = [
     'Score',
     'Clip',
     'play',
-    'getSession',
+    'audioSession',
     'render',
     'presetManager',
     'defPreset',
+    'defSoundfont',
     'ScoreStruct',
-    'getScoreStruct',
     'F',
-    'getConfig',
     'logger',
     'symbols'
 ]

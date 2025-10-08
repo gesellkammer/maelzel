@@ -227,7 +227,7 @@ class Score(MContainer):
     def makeGroup(self,
                   parts: list[Voice],
                   name: str = '',
-                  shortname: str = '',
+                  abbrev: str = '',
                   showPartNames=False) -> None:
         """
         Create a group from a list of voices
@@ -237,14 +237,14 @@ class Score(MContainer):
 
         Args:
             name: the name of the group. It will be used when rendering as notation
-            shortname: a short name to use for all systems after the first one
+            abbrev: a short name to use for all systems after the first one
             showPartNames: do not hide the names of the parts which form this group
         """
         for part in parts:
             if part.parent and part.parent is not self:
                 raise RuntimeError(f"Cannot make a group with a part which belongs to another"
                                    f" score (part={part}, parent={part.parent})")
-        group = PartGroup(parts=parts, name=name, shortname=shortname, showPartNames=showPartNames)
+        group = PartGroup(parts=parts, name=name, abbrev=abbrev, showPartNames=showPartNames)
         self.groups.add(group)
 
     def __hash__(self):

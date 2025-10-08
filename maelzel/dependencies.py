@@ -149,7 +149,8 @@ def checkCsoundPlugins(fix=True) -> str:
         'dict_get': 'klib',
         'presetinterp': 'else',
         'weightedsum': 'else',
-        'poly': 'poly'
+        'poly': 'poly',
+        'zitarev': 'poodle'
     }
     errors = []
     installedopcodes = {opcode.name for opcode in rissetindex.defined_opcodes()

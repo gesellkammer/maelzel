@@ -1,6 +1,8 @@
 from __future__ import annotations
 from functools import cache
 
+from maelzel.core._common import logger
+
 import typing
 if typing.TYPE_CHECKING:
     from .presetdef import PresetDef
@@ -315,6 +317,8 @@ def builtinSoundfonts() -> dict[str, dict]:
     for presetname, info in _builtinSoundfontPresets.items():
         abspath = datadir / info['relpath']
         if abspath.exists():
-            info['sf2path'] = abspath.as_posix()
+            info['path'] = abspath.as_posix()
             out[presetname] = info
+        else:
+            logger.debug("Soundfont %s not found, path: %s", presetname, abspath)
     return out

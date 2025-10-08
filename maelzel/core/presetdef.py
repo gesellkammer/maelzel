@@ -20,6 +20,7 @@ if _t.TYPE_CHECKING:
     import csoundengine.abstractrenderer
     import csoundengine.instr
     import csoundengine.session
+    import csoundengine.synth
 
 _INSTR_INDENT = "  "
 
@@ -325,6 +326,7 @@ class PresetDef:
                  _builtin=False,
                  ):
         assert isinstance(code, str)
+        assert isinstance(includes, (tuple, list))
 
         code = _textwrap.dedent(code)
         parsedAudiogen = _parseAudiogen(code)
@@ -401,6 +403,14 @@ class PresetDef:
                 if arg in self._builtinVariables:
                     raise ValueError(f"Cannot use builtin variables as arguments "
                                      f"({arg} is a builtin variable)")
+
+    def __hash__(self):
+        if self.args is not None:
+            argshash = hash((tuple(self.args.keys()), tuple(self.args.values())))
+        else:
+            argshash = 0
+        return hash((self.name, self.init, self.body, self.epilogue,
+                     argshash, self.description, self.routing, self.initHook))
 
     @cache
     def _argsToAliases(self) -> dict[str, str]:
@@ -584,15 +594,15 @@ class PresetDef:
         if self.aliases:
             aliases |= self.aliases
         from csoundengine.instr import Instr
-        instr = Instr(name=self.instrname,
-                      body=self.body,
-                      init=self.init,
-                      includes=self.includes,
-                      args=self.args,   # type: ignore
-                      numchans=self.numouts,
-                      aliases=aliases)
-        self._instr = instr
-        return instr
+        self._instr = Instr(name=self.instrname,
+                            body=self.body,
+                            init=self.init,
+                            includes=self.includes,
+                            args=self.args,   # type: ignore
+                            numchans=self.numouts,
+                            aliases=aliases,
+                            initCallback=self.initHook)
+        return self._instr
 
     def save(self) -> str:
         """
@@ -609,6 +619,22 @@ class PresetDef:
         from . import presetmanager
         savedpath = presetmanager.presetManager.savePreset(self.name)
         return savedpath
+    
+    def reverbSynth(self) -> csoundengine.synth.Synth | None:
+        """
+        Returns the reverb synth used for this instr preset, if any
+
+        """
+        instrName = self.properties.get('reverbInstr')
+        if not instrName:
+            return None
+        # We assume that this refers to the current audio session
+        from .workspace import Workspace
+        w = Workspace.active
+        if not w.isAudioSessionActive():
+            return None
+        session = w.audioSession()
+        return session.namedEvents.get(instrName)
 
 
 def _consolidateInitCode(init: str, includes: list[str]) -> str:

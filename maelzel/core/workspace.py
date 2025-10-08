@@ -16,6 +16,7 @@ if _t.TYPE_CHECKING:
     from maelzel.core.renderer import Renderer
     from typing import Any
     import csoundengine.session
+    import csoundengine.synth
     from . import presetmanager
 
 
@@ -27,8 +28,6 @@ def _clearCache() -> None:
 __all__ = (
     'Workspace',
     'getWorkspace',
-    'getConfig',
-    'getScoreStruct',
     'logger'
 )
 
@@ -38,12 +37,12 @@ class Workspace:
     Create a new Workspace
 
     Args:
-        scorestruct: the ScoreStruct. If None, a default scorestruct (4/4, q=60) is used
+        scorestruct: the ScoreStruct. If not given, a default scorestruct (4/4, q=60) is used
         config: the active config for this workspace. If None, a copy of the root config
             is used
-        updates: if given, these are applied to the config
+        updates: updates the config
         dynamicCurve: a DynamicCurve used to map amplitude to dynamic expressions
-        active: if True, make this Workpsace active
+        active: make this Workpsace active
 
     A Workspace can also be used as a context manager, in which case it will be
     activated when entering the context and deactivated at exit
@@ -59,8 +58,8 @@ class Workspace:
         ''')
         notes = Chain([Note(m, start=i) for i, m in enumerate(range(60, 72))])
         # Create a temporary Workspace with the given scorestruct and a clone
-        # of the active config
-        with Workspace(scorestruct=scorestruct, config=getConfig()) as w:
+        # of the root config
+        with Workspace(scorestruct=scorestruct, updates={'quant.complexity': 'low'}):
             notes.show()
 
     """
@@ -132,15 +131,6 @@ class Workspace:
         config = self._config
         pitchtools.set_reference_freq(config['A4'])
         _clearCache()
-
-    @staticmethod
-    def getConfig() -> CoreConfig:
-        """
-        Get the active config
-        """
-        wspace = Workspace.active
-        assert wspace is not None
-        return wspace.config
 
     @staticmethod
     def clearCache() -> None:
@@ -256,7 +246,7 @@ class Workspace:
             ... 3/8
             ... 5/4
             ... .         # Same time-signature and tempo
-            ... , 112     # Same time-signature, faster tempo
+            ... , 112     # presetSame time-signature, faster tempo
             ... 20, 3/4, 60   # At measure index 20, set the time-signature to 3/4 and tempo to 60
             ... ...       # Endless score
             ... ''')
@@ -349,7 +339,7 @@ class Workspace:
     @staticmethod
     def presetsPath() -> str:
         """
-        Returns the path where instrument presets are read/written
+        The path where instrument presets are read/written
 
         Example
         ~~~~~~~
@@ -377,6 +367,7 @@ class Workspace:
         """
         The path where temporary recordings are saved
 
+
         We do not use the temporary folder because it is wiped regularly
         and the user might want to access a recording after rebooting.
         The returned folder is guaranteed to exist
@@ -384,6 +375,7 @@ class Workspace:
         The default record path can be customized by modifying the config
         'rec.path'
 
+        .. seealso:: :meth:`Workspace.setRecordPath`
         """
         userpath = self.config['rec.path']
         if userpath:
@@ -395,29 +387,35 @@ class Workspace:
         return path
 
     def setRecordPath(self, path: str) -> None:
+        """
+        Set the path where temporary recordings are saved
+        
+        Args:
+            path: the new path. It must be an existing path 
+
+        """
+        if not os.path.exists(path):
+            raise OSError(f"Path {path} does not exist. Create it first: `os.makedirs('{path}')`")
         self.config['rec.path'] = path
 
-    def setDynamicsCurve(self, shape='expon(0.5)', mindb=-80, maxdb=0) -> Workspace:
+    def setDynamicCurve(self, shape='expon(0.5)', mindb=-80, maxdb=0) -> None:
         """
-        Set a new dynamics curve for this Workspace
+        Set a new dynamic curve for this Workspace
 
         Args:
             shape: the shape of the curve
             mindb: the db value mapped to the softest dynamic
             maxdb: the db value mapped to the loudest dynamic
 
-        Returns:
-            self
         """
         self.dynamicCurve = DynamicCurve.fromdescr(shape=shape, mindb=mindb, maxdb=maxdb)
-        return self
-
+        
     def amp2dyn(self, amp: float) -> str:
         return self.dynamicCurve.amp2dyn(amp)
 
     def setTempo(self, tempo: float, reference=1, measureIndex=0) -> None:
         """
-        Set the current tempo.
+        Set the current tempo for the active scorestruct
 
         Args:
             tempo: the new tempo.
@@ -470,13 +468,13 @@ class Workspace:
         """
         self.scorestruct.setTempo(tempo, reference=reference, measureIndex=measureIndex)
 
-    def playSession(self,
-                    outdev='',
-                    backend='',
-                    numchannels: int | None = None,
-                    buffersize: int = 0,
-                    numbuffers: int = 0,
-                    **kws) -> csoundengine.session.Session:
+    def audioSession(self,
+                     outdev='',
+                     backend='',
+                     numchannels: int | None = None,
+                     buffersize: int = 0,
+                     numbuffers: int = 0,
+                     **kws) -> csoundengine.session.Session:
         """
         Get the audio Session used for playback
 
@@ -499,22 +497,68 @@ class Workspace:
 
         """
         from maelzel.core import playback
-        return playback.getSession(name=self.config['play.engineName'],
-                                   outdev=outdev,
-                                   backend=backend,
-                                   numchannels=numchannels,
-                                   buffersize=buffersize,
-                                   numbuffers=numbuffers,
-                                   **kws)
+        return playback.audioSession(name=self.config['play.engineName'],
+                                     outdev=outdev,
+                                     backend=backend,
+                                     numchannels=numchannels,
+                                     buffersize=buffersize,
+                                     numbuffers=numbuffers,
+                                     **kws)
 
-    def isPlaySessionActive(self) -> bool:
+    def reverbSynth(self) -> csoundengine.synth.Synth | None:
+        """
+        The reverb synth used for playback
+
+        Returns:
+            the reverb synth or None if no synth has been started
+        """
+        if not self.isAudioSessionActive():
+            return None
+        return _reverbEvent(session=self.audioSession())
+
+    def initReverb(self, instr='', wet=1., gaindb=-12, delayms=60, decay=3., damp=0.2,
+                   ) -> csoundengine.synth.Synth:
+        """
+        Initialize the reverb synth
+
+        Args:
+            instr: the name of the instr to use. Leave unset to use the default defined in the config
+            wet: amount of wet signal
+            gaindb: the gain of the reverb, in dB
+            delayms: pre delay of the reverb
+            decay: decay time of the low band
+            damp: high freq. damping factor, between 0 (no damping) and 1 (max. damping)
+
+        Returns:
+            the reverb synth, used whenever an instr preset is declared to use reverb
+        """
+        if not instr:
+            instr = self.config['play.reverbInstr']
+        session = self.audioSession()
+        if prevsynth := _reverbEvent(session=session, instrname=instr):
+            return prevsynth
+        return session.sched(instr, name=instr, priority=-1, kwet=wet, kgaindb=gaindb,
+                             kdelayms=delayms, kdecay=decay, kdamp=damp)
+
+
+    def isAudioSessionActive(self) -> bool:
         """
         Returns True if the sound engine is active
         """
         name = self.config['play.engineName']
+        import csoundengine
         return name in csoundengine.Engine.activeEngines
 
+    @property
     def presetManager(self) -> presetmanager.PresetManager:
+        """
+        Returns the preset manager for this Workspace
+        
+        At the time there is one preset manager shared by all workspaces
+        
+        Returns:
+            The preset manager
+        """
         from . import presetmanager
         return presetmanager.presetManager
 
@@ -525,7 +569,7 @@ def getWorkspace() -> Workspace:
 
     The active Workspace can be accessed via ``Workspace.active``. This function
     is simply a shortcut, placed here for visibility
-
+    
     Example
     ~~~~~~~
 
@@ -545,36 +589,13 @@ def getWorkspace() -> Workspace:
     return Workspace.active
 
 
-def getConfig() -> CoreConfig:
-    """
-    Return the active config.
-
-    This function is here for visibility. The preferred way to access the active
-    config is via ``Workspace.active.config``
-
-    """
-    active = Workspace.active
-    assert active is not None
-    return active.config
-
-
-def getScoreStruct() -> ScoreStruct:
-    """
-    Returns the active ScoreStruct (which defines tempo and time signatures)
-
-    If no ScoreStruct has been set explicitely, a default struct is always active.
-    To create a new scorestruct and set it as active use ``ScoreStruct(...).activate()``
-
-    This function is here for visibility. The preferred way to access the active
-    scorestruct is via ``Workspace.active.scorestruct``
-
-    .. seealso::
-        * :func:`~maelzel.core.workpsace.setTempo`
-        * :class:`~maelzel.scorestruct.ScoreStruct`
-    """
-    active = Workspace.active
-    assert active is not None
-    return active.scorestruct
+def _reverbEvent(session: csoundengine.session.Session, instrname='', kind='mainreverb') -> csoundengine.synth.Synth | None:
+    for event in session.namedEvents.values():
+        instr = session.getInstr(event.instrname)
+        if instr and instr.properties.get('kind') == kind:
+            if not instrname or instrname == instr.name:
+                return event
+    return None
 
 
 @cache

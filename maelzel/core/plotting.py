@@ -578,7 +578,7 @@ def drawStaffs(axes: Axes, minpitch: int, maxpitch: int,
 
     yticks = [_pitchToPosition(clefdef.lines[clefdef.refLine])
               for clefdef in drawn]
-    ylabels = [clefdef.shortName for clefdef in drawn]
+    ylabels = [clefdef.abbrev for clefdef in drawn]
     # ylabels = [clefdef.referenceNote() for clefdef in drawn]
     if ledgerLinesLabels:
         for line in drawnlines:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 from maelzel.core.workspace import Workspace
-from maelzel.core import F, Note, asEvent
+from maelzel.core import (F, Note)
+from maelzel.core.event import asEvent
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:

@@ -29,28 +29,26 @@ articulations = {
     'laissezvibrer',
 }
 
-"""
-musicxml articulations
-(https://www.w3.org/2021/06/musicxml40/musicxml-reference/elements/articulations/)
-
-    <accent>
-    <strong-accent>
-    <staccato>
-    <tenuto>
-    <detached-legato>
-    <staccatissimo>
-    <spiccato>
-    <scoop>
-    <plop>
-    <doit>
-    <falloff>
-    <breath-mark>
-    <caesura>
-    <stress>
-    <unstress>
-    <soft-accent>
-    <other-articulation>
-"""
+# musicxml articulations
+# (https://www.w3.org/2021/06/musicxml40/musicxml-reference/elements/articulations/)
+#
+#     <accent>
+#     <strong-accent>
+#     <staccato>
+#     <tenuto>
+#     <detached-legato>
+#     <staccatissimo>
+#     <spiccato>
+#     <scoop>
+#     <plop>
+#     <doit>
+#     <falloff>
+#     <breath-mark>
+#     <caesura>
+#     <stress>
+#     <unstress>
+#     <soft-accent>
+#     <other-articulation>
 
 
 articulationMappings = {

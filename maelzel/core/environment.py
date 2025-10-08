@@ -50,7 +50,7 @@ def findMusescore() -> str | None:
     If musescore is not found, set the correct path via::
 
         from maelzel.core import *
-        conf = getConfig()
+        conf = getWorkspace().config
         conf['musescorepath'] = '/path/to/musescore'
         conf.save()
 
@@ -59,9 +59,9 @@ def findMusescore() -> str | None:
         On macOS the path to the binary should be used, not the path to the .app
         (which is actually a directory).
     """
-    from maelzel.core import workspace
+    from maelzel.core.workspace import Workspace
     import logging
-    cfg = workspace.getConfig()
+    cfg = Workspace.active.config
     musescorepath = cfg.get('musescorepath')
     _logger = logging.getLogger(__file__)
     if musescorepath:
@@ -80,7 +80,7 @@ def findMusescore() -> str | None:
                     "without success. To fix this issue, make sure MuseScore is installed. "
                     "Then set the path: \n"
                     ">>> from maelzel.core import *\n"
-                    ">>> conf = getConfig()\n"
+                    ">>> conf = getWorkspace().config\n"
                     ">>> conf['musescorepath'] = '/path/to/musescore'\n"
                     ">>> conf.save()  # Save the config for future sessions")
     return None

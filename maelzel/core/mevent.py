@@ -589,3 +589,5 @@ class MEvent(MObj):
             self.playargs = synthevent.PlayArgs()
         self.playargs.addAutomation(param=param, breakpoints=breakpoints,
                                     interpolation=interpolation, relative=relative)
+
+

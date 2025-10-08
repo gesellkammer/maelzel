@@ -816,22 +816,23 @@ class Notation:
         if self.fixedNotenames:
             self.fixedNotenames.clear()
 
-    def fixNotename(self, notename: str, index: int | None = None) -> None:
+    def fixNotename(self, notename: str, index: int | None = None, tolerance=0.01
+                    ) -> None:
         """
         Fix the spelling for the pitch at index **inplace**
 
         Args:
-            notename: if given, it will be fixed to the given notename.
-                If nothing is given, it will be fixed to n2m(self.pitches[idx])
-            index: the index of the note to modify. If None, a matching pitch in this notation
+            notename: the notename to use for this pitch
+            index: the index of the pitch to modify. If None, a matching pitch in this notation
                 is searched. ValueError is raised if no pitch is found
+            tolerance: tolerance (in semitones) to match a pitch when no index is given
 
         .. seealso:: :meth:`Notation.notenames`
         """
+        assert notename
+
         if self.fixedNotenames is None:
             self.fixedNotenames = {}
-
-        tolerance = 0.04
 
         if index is None:
             if len(self.pitches) == 1:
@@ -846,7 +847,7 @@ class Notation:
 
         self.fixedNotenames[index] = notename
 
-    def getFixedNotename(self, idx: int = 0) -> str | None:
+    def fixedNotename(self, idx: int = 0) -> str | None:
         """
         Returns the fixed notename of this notation, if any
 
@@ -883,34 +884,34 @@ class Notation:
         if hints is None:
             hints = set()
             self.setProperty(key, hints)
-        else:
-            assert isinstance(hints, set)
-            if clear:
-                hints.clear()
+        assert isinstance(hints, set)
+        if clear:
+            hints.clear()
         return hints
 
-    def tiedPitches(self, direction='forward') -> tuple[float, ...] | None:
+    def tiedPitches(self, direction='forward') -> tuple[float, ...]:
         """
-        The list of tied pitches or None if not tied or ties not set
+        The tied pitches in the given direction
 
         Args:
-            direction:
+            direction: the direction of the tie
 
         Returns:
+            a tuple with the pitches tied in the given direction
 
         """
         if direction == 'forward':
             if not self.tiedNext:
-                return None
+                return ()
         else:
             if not self.tiedPrev:
-                return None
+                return ()
         if len(self.pitches) == 1:
             return self.pitches
         else:
             hints = self.tieHints(direction=direction)
             if not hints:
-                return None
+                return tuple(self.pitches)
             return tuple(self.pitches[idx] for idx in hints)
 
     def setTieHint(self, idx: int, direction="forward") -> None:
@@ -1237,7 +1238,7 @@ class Notation:
                 if part.hasRegularDuration():
                     parts.append(part)
                 else:
-                    parts.extend(Node.breakIrregularDurationInNode(part, beatstruct=beatstruct))
+                    parts.extend(part.breakIrregularDurationInNode(beatstruct=beatstruct))
             Notation.tieNotations(parts)
             return parts
         else:
@@ -1252,7 +1253,7 @@ class Notation:
                 if part.hasRegularDuration():
                     parts.append(part)
                 else:
-                    parts.extend(Node.breakIrregularDurationInNode(part, beatstruct=beatstruct))
+                    parts.extend(part.breakIrregularDurationInNode(beatstruct=beatstruct))
             Notation.tieNotations(parts)
             self._copySpannersToSplitNotation(parts)
             return parts
@@ -1464,7 +1465,7 @@ class Notation:
         if index < 0:
             index = len(self.pitches) + index
         assert 0 <= index < len(self.pitches), f"Invalid index {index}, num. pitches={len(self.pitches)}"
-        if fixed := self.getFixedNotename(index):
+        if fixed := self.fixedNotename(index):
             return fixed if not addExplicitMark else fixed + '!'
         return pt.m2n(self.pitches[index])
 
@@ -1492,15 +1493,13 @@ class Notation:
         notename = self.notename(index=index)
         return pt.pitchclass(notename, semitone_divisions=semitoneDivs)
 
-    def resolveNotenames(self, addFixedAnnotation=False, removeFixedAnnotation=False
+    def resolveNotenames(self,
+                         keepFixedAnnotation=False,
                          ) -> list[str]:
         """Resolve the enharmonic spellings for this Notation
 
         Args:
-            addFixedAnnotation: if True, enforce the returned spelling by adding
-                a '!' suffix.
-            removeFixedAnnotation: if True, remove any fixed annotation marks ('!')
-                from the notenames
+            keepFixedAnnotation: add a ! for any pitch which has been fixed
 
         Returns:
             the notenames of each pitch in this Notation
@@ -1510,13 +1509,10 @@ class Notation:
 
         out = []
         for i, p in enumerate(self.pitches):
-            notename = self.getFixedNotename(i)
+            notename = self.fixedNotename(i)
             if not notename:
                 notename = pt.m2n(p)
-            if notename.endswith('!'):
-                if removeFixedAnnotation:
-                    notename = notename[:-1]
-            elif addFixedAnnotation:
+            elif keepFixedAnnotation:
                 notename += '!'
             out.append(notename)
         return out
@@ -1721,10 +1717,11 @@ class Notation:
     def _namerepr(self) -> str:
         if self.isRest:
             return 'r'
+        notenames = self.resolveNotenames(keepFixedAnnotation=True)
         if len(self.pitches) > 1:
-            s = "[" + " ".join(self.resolveNotenames()) + "]"
+            s = "[" + " ".join(notenames) + "]"
         else:
-            s = self.resolveNotenames()[0]
+            s = notenames[0]
         if self.tiedPrev:
             s = f"~{s}"
         if not self.mergeablePrev:
@@ -1737,20 +1734,20 @@ class Notation:
             s += ":gliss"
         return s
 
-    def __repr__(self):
-        info = []
-        info.append(self._namerepr())
-        if self.offset is None:
-            info.append(f"None, dur={showT(self.duration)}")
-        elif self.duration == 0:
-            info.append(f"{showT(self.offset)}:grace")
-        else:
-            info.append(f"{showT(self.offset)}:{showT(self.end)}")
-            if int(self.duration) == self.duration or self.duration.denominator >= 100:
-                info.append(showT(self.duration) + '♩')
+    def _repr(self, offset=True):
+        info = [self._namerepr()]
+        if offset:
+            if self.duration == 0:
+                info.append(showT(self.offset))
             else:
-                info.append(f"{self.duration.numerator}/{self.duration.denominator}♩")
-
+                info.append(f"{showT(self.offset)}:{showT(self.end)}")
+        if self.duration == 0:
+            info.append("𝆔")
+        elif int(self.duration) == self.duration or self.duration.denominator >= 100:
+            info.append(showT(self.duration) + '♩')
+        else:
+            info.append(f"{self.duration.numerator}/{self.duration.denominator}♩")
+        
         if self.durRatios and self.durRatios != (F(1),):
             info.append(",".join(showF(r) for r in self.durRatios))
 
@@ -1769,6 +1766,11 @@ class Notation:
         if self.isQuantized():
             return f"«{infostr}»"
         return f"‹{infostr}›"
+
+
+    def __repr__(self):
+        offset = not self.isQuantized()
+        return self._repr(offset=offset)
 
     def copyAttributesTo(self: Notation, dest: Notation, spelling=True) -> None:
         """
@@ -2080,7 +2082,7 @@ def notationsToCoreEvents(notations: list[Notation]
             event = Rest(dur=n.duration, dynamic=n.dynamic)
         elif len(n.pitches) == 1:
             # note
-            pitch = n.getFixedNotename(0) or n.pitches[0]
+            pitch = n.fixedNotename(0) or n.pitches[0]
             event = Note(pitch=pitch,
                          dur=n.duration,
                          dynamic=n.dynamic,
@@ -2091,7 +2093,7 @@ def notationsToCoreEvents(notations: list[Notation]
                          )
         else:
             # chord
-            notenames = [n.getFixedNotename(i) or n.pitches[i]
+            notenames = [n.fixedNotename(i) or n.pitches[i]
                          for i in range(len(n))]
             event = Chord(notes=notenames,
                           dur=n.duration,

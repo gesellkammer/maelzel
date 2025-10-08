@@ -31,6 +31,11 @@ class _ClefDefinition:
     fitness: bpf4.BpfInterface
     """Maps pitch to fitness within this clef"""
 
+    @property
+    def transposing(self) -> 8:
+        last = self.name[-1]
+        return last == "8" or last == "5"
+        
     
 @cache
 def clefDefinitions() -> dict[str, _ClefDefinition]:
@@ -58,37 +63,42 @@ def clefDefinitions() -> dict[str, _ClefDefinition]:
             (n2m("5F"), 1),
             (n2m("7C"), 1),
             (n2m("7E"), 0))),
+
         'treble': _ClefDefinition('treble', center=n2m("4B"), fitness=bpf4.linear(
             (0, -100),
-            (n2m("2A"), -10),
+            (n2m("3C"), -10),
             (n2m("3F"), 0),
+            (n2m("3G"), 0.5),
             (n2m("3B"), 1),
             (n2m("6E"), 1),
             (n2m("6G"), 0.8),
             (n2m("6B"), 0),
             (n2m("7A"), -2))),
+
         'bass': _ClefDefinition('bass', center=n2m("3E"), fitness=bpf4.linear(
-            (n2m("1A"), 0),
-            (n2m("2C"), 1),
+            (n2m("0A"), -10),
+            (n2m("1E"), 0),
+            (n2m("1B"), 1),
             (n2m("4D"), 1),
-            (n2m("4A"), 0),
-            (n2m("5D"), -10),
+            (n2m("4F"), 0),
+            (n2m("4B"), -10),
             (n2m("5G"), -100) )),
 
         'bass8': _ClefDefinition('bass8', center=n2m("2D"), fitness=bpf4.linear(
             (n2m("-1A"), -2),
             (n2m("0C"), 0),
             (n2m("0E"), 1),
-            (n2m("3C"), 1),
-            (n2m("3F"), 0),
-            (n2m("3A"), -2),
-            (n2m("4G"), -100))),
+            (n2m("2A"), 1),
+            (n2m("3C"), 0),
+            (n2m("3F"), -10),
+            (n2m("3A"), -100))),
+
         'bass15': _ClefDefinition('bass15', center=n2m("1F"), fitness=bpf4.linear(
             (n2m("-1D"), 1),
             (n2m("1C"), 1),
             (n2m("1G"), 0),
             (n2m("2C"), -2),
-            (n2m("3C"), -100)))
+            (n2m("2A"), -100)))
     }
 
 
@@ -254,7 +264,7 @@ def findBestClefs(notations: list[Notation],
                   windowSize=1,
                   simplificationThreshold=0.,
                   biasFactor=1.5,
-                  addClefs=True,
+                  apply=True,
                   key='',
                   breakTies=False,
                   possibleClefs: Sequence[str] | None = None,
@@ -275,11 +285,11 @@ def findBestClefs(notations: list[Notation],
         biasFactor: The higher this value, the more weight is given to the
             previous clef, thus making it more difficult to change clef
             more minor jumps
-        addClefs: if True, add a Clef change (an attachment.Clef) to the
+        apply: if True, add a Clef change (an attachment.Clef) to the
             notation where a clef change should happen.
         key: the property key to add to the notation to mark
              a clef change. Setting this property alone will not
-             result in a clef change in the notation (see `addClefs`)
+             result in a clef change in the notation (see `apply`)
         breakTies: if True, a clef change is acceptable between tied notations
         possibleClefs: if given, a list of possible clefs
         minClef: if given, only use clefs equal or higher to minClef
@@ -287,7 +297,7 @@ def findBestClefs(notations: list[Notation],
 
 
     Returns:
-        a list of tuples (notationsindex, clef) where notationsindex is a
+        a list of tuples (notationsindex: int, clef: str) where notationsindex is a
         list of indexes into the notations passed, indicating where a given
         clef should be applied, and clef is the clef to be applied to that
         notation. If addClefs=True, then these clefs are actually applied
@@ -338,7 +348,7 @@ def findBestClefs(notations: list[Notation],
         n = notations[idx]
         if key:
             n.setProperty(key, clef)
-        if addClefs:
+        if apply:
             n.addAttachment(attachment.Clef(clef))
     return clefs
 
@@ -456,8 +466,108 @@ def _groupNotationsBySpanner(ns: Sequence[Notation]) -> dict[_spanner.Spanner, l
     return {uuidToSpanner[uuid]: notations for uuid, notations in groups.items()}
 
 
+@cache
+def _clefCombinations(minStaves: int, maxStaves: int, exclude: tuple[str, ...] = ()) -> list[tuple[str, ...]]:
+    allcombinations = []
+    for num in range(minStaves, maxStaves+1):
+        combinations = _possibleCombinations(numStaves=num, exclude=exclude)
+        allcombinations.extend(combinations)
+    return allcombinations
+
+
+@cache
+def _possibleCombinations(numStaves: int, exclude: tuple[str, ...] = ()
+                          ) -> list[tuple[str, ...]]:
+    """
+    Possible combinations of clefs, given the number of staves
+    
+    Args:
+        numStaves: number of different staves 
+        exclude: tuple with clefs which should be excluded
+
+    Returns:
+        a list of combinations, where each item is a tuple of different clefs
+    """
+    if numStaves == 1:
+        combinations = [('treble15',), ('treble8',), ('treble',), ('bass',), ('bass8',), ('bass15',)]
+    elif numStaves == 2:
+        combinations = [
+            ('treble15', 'treble'),
+            ('treble15', 'bass'),
+            ('treble8', 'bass'),
+            ('treble8', 'bass8'),
+            ('treble', 'bass'),
+            ('treble', 'bass8')]
+    elif numStaves == 3:
+        combinations = [
+            ('treble15', 'treble', 'bass'),
+            ('treble15', 'treble', 'bass8'),
+            ('treble15', 'treble', 'bass15'),
+            ('treble15', 'bass', 'bass8'),
+            ('treble', 'bass', 'bass8'),
+            ('treble', 'bass', 'bass15')]
+    elif numStaves == 4:
+        combinations = [
+            ('treble15', 'treble', 'bass', 'bass8'),
+            ('treble15', 'treble', 'bass', 'bass15')]
+    else:
+        raise ValueError(f"Invalid numstaves: {numStaves}")
+    if exclude:
+        combinations = [comb for comb in combinations if all(clef not in comb for clef in exclude)]
+    return combinations
+    
+
+def bestClefCombination(notations: list[Notation],
+                        maxStaves: int,
+                        minStaves: int = 1,
+                        singleStaffRange=12,
+                        groupNotationsWithinSpanner=False,
+                        staffPenalty=1.2,
+                        transposingPenalty=1.3
+                        ) -> tuple[str, ...]:
+    pitchedNotations = [n for n in notations if not n.isRest]
+
+    if not pitchedNotations:
+        return ('treble',)
+
+    minpitch = min(n.pitchRange()[0] for n in pitchedNotations)
+    maxpitch = max(n.pitchRange()[1] for n in pitchedNotations)
+
+    if maxStaves == 1 or maxpitch - minpitch <= singleStaffRange:
+        return (bestClefForNotations(notations),)
+
+    possibleCombinations = _clefCombinations(maxStaves=maxStaves, minStaves=minStaves)
+    results: dict[tuple[str, ...], float] = {}
+    if groupNotationsWithinSpanner:
+        groups = _groupNotations(notations)
+        for clefs in possibleCombinations:
+            clefeval = SimpleClefEvaluator(clefs=clefs)
+            fitness = 0.
+            for group in groups:
+                if isinstance(group, list):
+                    pitches = sum((n.pitches for n in group), [])
+                    fitness += clefeval.process(pitches)[1]
+                else:
+                    fitness += sum(clefeval(pitch)[1] for pitch in group.pitches)
+            results[clefs] = fitness
+    else:
+        for clefs in possibleCombinations:
+            clefeval = SimpleClefEvaluator(clefs=clefs)
+            fitness = sum(clefeval(pitch)[1] for n in notations for pitch in n.pitches)
+            results[clefs] = fitness
+    for clefs, fitness in results.items():
+        fitness *= 1/(len(clefs) * staffPenalty)
+        for clef in clefs:
+            last = clef[-1]
+            if last == "8" or last == "5":
+                fitness *= 1/transposingPenalty
+        results[clefs] = fitness
+    return max(results.items(), key=lambda pair: pair[1])[0]
+
+
 def explodeNotations(notations: list[Notation],
-                     maxStaves=3,
+                     maxStaves: int,
+                     minStaves=0,
                      singleStaffRange=12,
                      distributeSpanners=True,
                      groupNotationsWithinSpanner=False
@@ -475,61 +585,19 @@ def explodeNotations(notations: list[Notation],
         a list of pairs (clefname: str, notations: list[Notation]). It can be 
         less than the number of staves given, but not more.
     """
+    if not minStaves:
+        minStaves = maxStaves
+        
+    bestClefs = bestClefCombination(notations=notations,
+                                    maxStaves=maxStaves,
+                                    minStaves=minStaves,
+                                    singleStaffRange=singleStaffRange,
+                                    groupNotationsWithinSpanner=groupNotationsWithinSpanner)
+    if len(bestClefs) == 1:
+        return [(bestClefs[0], notations)]
 
-    pitchedNotations = [n for n in notations if not n.isRest]
-
-    if not pitchedNotations:
-        return [('treble', notations)]
-
-    minpitch = min(n.pitchRange()[0] for n in pitchedNotations)
-    maxpitch = max(n.pitchRange()[1] for n in pitchedNotations)
-
-    if maxStaves == 1 or maxpitch - minpitch <= singleStaffRange:
-        clef = bestClefForNotations(notations)
-        return [(clef, notations)]
-    elif maxStaves == 2:
-        possibleCombinations = [
-            ('treble15', 'treble'),
-            ('treble15', 'bass'),
-            ('treble8', 'bass'),
-            ('treble8', 'bass8'),
-            ('treble', 'bass'),
-            ('treble', 'bass8'),
-        ]
-    elif maxStaves == 3:
-        possibleCombinations = [
-            ('treble15', 'treble', 'bass'),
-            ('treble15', 'treble', 'bass8'),
-            ('treble15', 'treble', 'bass15'),
-            ('treble15', 'bass', 'bass8'),
-
-            ('treble', 'bass', 'bass8'),
-            ('treble', 'bass', 'bass15')
-        ]
-    elif maxStaves == 4:
-        possibleCombinations = [
-            ('treble15', 'treble', 'bass', 'bass8'),
-            ('treble15', 'treble', 'bass', 'bass15'),
-        ]
-    else:
-        raise ValueError(f"The max. number of staves must be between between 1 and 4, "
-                         f"got {maxStaves}")
-
-    results = {}
-    groups = _groupNotations(notations) if groupNotationsWithinSpanner else notations
-    for clefs in possibleCombinations:
-        clefeval = ClefChangesEvaluator(possibleClefs=list(clefs))
-        totalFitness = 0
-        # for n in notations:
-        for group in groups:
-            # clef, points = clefeval.process([n])
-            clef, points = clefeval.process(group if isinstance(group, list) else [group])
-            totalFitness += points
-        results[clefs] = totalFitness
-
-    bestClefCombination = max(results.items(), key=lambda pair: pair[1])[0]
     return splitNotationsByClef(notations,
-                                clefs=bestClefCombination,
+                                clefs=bestClefs,
                                 groupNotationsInSpanners=False,
                                 distributeSpanners=distributeSpanners)
 

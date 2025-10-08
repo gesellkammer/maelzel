@@ -12,7 +12,7 @@ from .workspace import Workspace
 from .synthevent import PlayArgs, SynthEvent
 from . import symbols
 from . import environment
-from . import _mobjtools
+from . import _eventutils
 from . import _tools
 from ._common import logger
 
@@ -92,7 +92,7 @@ class Chain(MContainer):
     """
 
     __slots__ = ('items', '_modified', '_cachedEventsWithOffset', '_postSymbols',
-                 '_absOffset', '_hasRedundantOffsets')
+                 '_hasRedundantOffsets')
 
     def __init__(self,
                  items: Sequence[MEvent | Chain | str] | str = (),
@@ -108,9 +108,6 @@ class Chain(MContainer):
 
         self._postSymbols: list[tuple[symbols.Symbol, time_t, time_t | None]] = []
         """Symbols to apply a posteriory, a tuple (symbol, abs. offset, end=None)"""
-
-        self._absOffset: F | None = None
-        """Cached absolute offset"""
 
         self._hasRedundantOffsets = True
         """Assume redundant offsets at creation"""
@@ -574,14 +571,14 @@ class Chain(MContainer):
 
         if any(n.isGrace() for n in flatitems):
             graceDur = F(conf['play.graceDuration'])
-            _mobjtools.addDurationToGracenotes(flatitems, graceDur)
+            _eventutils.addDurationToGracenotes(flatitems, graceDur)
 
         if conf['play.useDynamics']:
-            _mobjtools.fillTempDynamics(flatitems, initialDynamic=conf['play.defaultDynamic'])
+            _eventutils.fillTempDynamics(flatitems, initialDynamic=conf['play.defaultDynamic'])
 
         synthevents = []
         offset = parentOffset + self.relOffset()
-        groups = _mobjtools.groupLinkedEvents(flatitems)
+        groups = _eventutils.groupLinkedEvents(flatitems)
         for item in groups:
             if isinstance(item, MEvent):
                 # item has absolute timing so parent offset is 0
@@ -775,12 +772,11 @@ class Chain(MContainer):
         self._changed()
 
     def _update(self):
-        if not self._modified and self._dur > 0:
+        if not self._modified:
             return
         self._dur = _stackEvents(self.items, explicitOffsets=False)
         self._resolveGlissandi()
         self._modified = False
-        self._absOffset = None
         self._hasRedundantOffsets = True
 
     def _changed(self) -> None:
@@ -789,7 +785,6 @@ class Chain(MContainer):
         self._modified = True
         self._dur = F0
         self._cachedEventsWithOffset = None
-        self._absOffset = None
         if self.parent:
             self.parent._childChanged(self)
 
@@ -1044,17 +1039,30 @@ class Chain(MContainer):
         from maelzel.textstyle import TextStyle
         labelstyle = TextStyle.parse(config['show.labelStyle'])
         return symbols.Text(text=label, fontsize=labelstyle.fontsize, italic=labelstyle.italic, weight="bold" if labelstyle.bold else "normal", color=labelstyle.color)
-
-    def _applyChainSymbols(self):
-        for item in self.items:
-            if isinstance(item, Chain):
-                item._applyChainSymbols()
-            elif self.symbols:
-                for symbol in self.symbols:
-                    if isinstance(symbol, symbols.EventSymbol):
-                        if item.properties is None:
-                            item.properties = {}
-                        item.properties.setdefault('.tempsymbols', []).append(symbol)
+    #
+    # def _applyChainSymbols(self):
+    #     for item in self.items:
+    #         if isinstance(item, Chain):
+    #             item._applyChainSymbols()
+    #     if not self.symbols:
+    #         return
+    #     for symbol in self.symbols:
+    #         if isinstance(symbol, symbols.EventSymbol):
+    #             if symbol.applyToFragmentStrategy == 'first':
+    #                 if (ev := self.firstEvent(acceptRest=symbol.appliesToRests)):
+    #                     ev.setProperty
+    #
+    #     else:
+    #         for symbol in self.symbols:
+    #     for item in self.items:
+    #         if isinstance(item, Chain):
+    #             item._applyChainSymbols()
+    #         elif self.symbols:
+    #             for symbol in self.symbols:
+    #                 if isinstance(symbol, symbols.EventSymbol):
+    #                     if item.properties is None:
+    #                         item.properties = {}
+    #                     item.properties.setdefault('.tempsymbols', []).append(symbol)
 
     def _collectSubLabels(self, config: CoreConfig) -> Iterator[tuple[F, str]]:
         for item in self.items:
@@ -1096,11 +1104,10 @@ class Chain(MContainer):
             config = Workspace.active.config
 
         config = self.getConfig(prototype=config) or config
-        self._applyChainSymbols()
 
         allns: list[scoring.Notation] = []
-        for event, offset in self.eventsWithOffset():
-            allns.extend(event.scoringEvents(groupid=groupid, config=config))
+        for item in self.items:
+            allns.extend(item.scoringEvents(groupid=groupid, config=config))
 
         if len(allns) > 1:
             n0 = allns[0]
@@ -1108,6 +1115,18 @@ class Chain(MContainer):
                 if n0.tiedNext and not n1.isRest:
                     n1.tiedPrev = True
                 n0 = n1
+
+        absOffset = self.absOffset()
+        scoring.core.resolveOffsets(allns, start=absOffset)
+        allns = scoring.core.fillSilences(allns, offset=absOffset)
+        assert all(n.offset is not None and n.end is not None for n in allns)
+
+        if self.symbols:
+            for symbol in self.symbols:
+                if isinstance(symbol, (symbols.EventSymbol, symbols.NoteheadSymbol)):
+                    symbol.applyToMany(allns)
+
+        scoring.spanner.matchOrfanSpanners(allns, apply=True)
 
         if postsymbols := self._flatPostSymbols(config):
             from maelzel.scoring import quantutils
@@ -1120,7 +1139,9 @@ class Chain(MContainer):
             symbolsMaxBeat = max(end if end is not None else offset for _, offset, end in postsymbols)
 
             if symbolsMaxBeat > allns[-1].end:
-                allns.append(scoring.Notation.makeRest(symbolsMaxBeat - allns[-1].end))
+                end = allns[-1].end
+                rest = scoring.Notation.makeRest(duration=symbolsMaxBeat-end, offset=end)
+                allns.append(rest)
 
             allns = quantutils.fillSpan(allns, allns[0].offset, allns[-1].end)
             splitpoints = []
@@ -1183,9 +1204,10 @@ class Chain(MContainer):
 
     def _scoringParts(self,
                       config: CoreConfig,
-                      maxstaves=0,
+                      maxStaves=0,
+                      minStaves=1,
                       name='',
-                      shortname='',
+                      abbrev='',
                       groupParts=False,
                       addQuantizationProfile=False) -> list[scoring.core.UnquantizedPart]:
         self._update()
@@ -1194,21 +1216,24 @@ class Chain(MContainer):
             return []
         scoring.core.resolveOffsets(notations)
         config = self.getConfig(config) or config
-        maxstaves = maxstaves or config['show.voiceMaxStaves']
+        maxStaves = maxStaves or config['show.voiceMaxStaves']
 
         # Until we support cross staffs, a chain/voice with spanners spanning
         # across multiple staffs is prone to confussion.
-        if maxstaves > 1 and any(n.spanners for n in notations):
+        if maxStaves > 1 and any(n.spanners for n in notations):
             logger.info("Spanners across multiple staves are not supported")
 
-        if maxstaves == 1:
-            parts = [scoring.core.UnquantizedPart(notations, name=name, shortname=shortname)]
+        if maxStaves == 1:
+            parts = [scoring.core.UnquantizedPart(notations, name=name, abbrev=abbrev)]
         else:
-            parts = scoring.core.distributeNotationsByClef(notations, name=name, shortname=shortname,
-                                                           maxstaves=maxstaves)
+            parts = scoring.core.distributeNotationsByClef(notations,
+                                                           name=name,
+                                                           abbrev=abbrev,
+                                                           maxStaves=maxStaves,
+                                                           minStaves=minStaves)
             parts.reverse()
             if len(parts) > 1 and groupParts:
-                scoring.core.UnquantizedPart.groupParts(parts, name=name, shortname=shortname)
+                scoring.core.UnquantizedPart.groupParts(parts, name=name, abbrev=abbrev)
 
         if addQuantizationProfile:
             quantProfile = config.makeQuantizationProfile()
@@ -1222,12 +1247,12 @@ class Chain(MContainer):
         config, iscustomized = self._resolveConfig(config)
         parts = self._scoringParts(
             config=config,
-            maxstaves=config["show.voiceMaxStaves"],
+            maxStaves=config["show.voiceMaxStaves"],
             name=self.label,
             addQuantizationProfile=iscustomized)
         return parts
 
-    def quantizePitch(self, step=0.):
+    def quantizePitch(self, step=1.) -> Self:
         if step < 0:
             raise ValueError(f"Step should be possitive, got {step}")
         items = [i.quantizePitch(step) for i in self.items]
@@ -1429,9 +1454,9 @@ class Chain(MContainer):
         .. seealso:: :meth:`Chain.eventsWithOffset`
         """
         self._update()
-        parentOffset = self.absOffset()
+        absoffset = self.absOffset()
         for item in self.items:
-            yield item, item.relOffset() + parentOffset
+            yield item, item.relOffset() + absoffset
 
     def _eventsWithOffset(self,
                           frame: F
@@ -1487,8 +1512,6 @@ class Chain(MContainer):
                 dur = item.dur
                 out.append((item, now, dur))
                 item._resolvedOffset = now - frame
-                # if i == 0 and self.label:
-                #     item.setProperty('.chainlabel', self.label)
                 now += dur
             else:
                 # a Chain
@@ -1508,7 +1531,7 @@ class Chain(MContainer):
                    start: location_t | MEvent | None = None,
                    end: location_t | MEvent | None = None,
                    post=False
-                   ) -> Self:
+                   ) -> None:
         """
         Adds a spanner symbol across this object
 
@@ -1521,9 +1544,6 @@ class Chain(MContainer):
                 When passing a string description, prepend it with '~' to create an end spanner
             start: start location or event
             end: end location or event
-
-        Returns:
-            self (allows to chain calls)
 
         Example
         ~~~~~~~
@@ -1557,14 +1577,12 @@ class Chain(MContainer):
             endloc = end.absOffset() if isinstance(end, MEvent) else end
             self._postSymbols.append((spanner, startloc, endloc))
 
-        return self
-
     def addSymbolAt(self,
                     symbol: symbols.EventSymbol | str,
                     offset: beat_t,
                     post=False,
                     skipGrace=False
-                    ) -> Self:
+                    ) -> None:
         """
         Adds a symbol at the given location
 
@@ -1583,9 +1601,6 @@ class Chain(MContainer):
                 happens only if a note starts at the location, preceded
                 by one or many gracenotes), a True value would apply
                 the symbol to the "real" event, skipping the gracenotes
-
-        Returns:
-            self
 
         Example
         -------
@@ -1616,17 +1631,12 @@ class Chain(MContainer):
         if not post and event and event.absOffset() == absoffset:
             event.addSymbol(symbol)
         else:
+            assert isinstance(symbol, symbols.Symbol)
             self._postSymbols.append((symbol, absoffset, None))
-        return self
 
-    def addSymbol(self, *args, **kws) -> Self:
+    def addSymbol(self, *args, **kws) -> None:
         symbol = symbols.parseAddSymbol(args, kws)
-        if not isinstance(symbol, symbols.PartMixin):
-            partsymbols = [cls.__name__ for cls in symbols._voiceSymbols]
-            raise TypeError(f"Cannot add {symbol} to a {type(self)}. Possible symbols: {partsymbols}")
-        assert isinstance(symbol, symbols.Symbol)
         self._addSymbol(symbol)
-        return self
 
     def firstEvent(self, acceptRest=True) -> MEvent | None:
         """
@@ -1824,11 +1834,19 @@ class Chain(MContainer):
             the last event ending before or at the offset, if exists, None otherwise
 
         """
-        # first(ev for ev in self.recurse(reverse=True) if ev.end <= offset)
-        pairs = self.eventsWithOffset(end=offset+F(1, 100))
-        for ev, evoffset in reversed(pairs):
-            if evoffset + ev.dur <= offset:
-                return ev
+        if isinstance(offset, F):
+            absoffset = offset
+        elif isinstance(offset, tuple):
+            struct = self.activeScorestruct()
+            meas, beat = offset
+            absoffset = struct.locationToBeat(meas, beat)
+        else:
+            raise ValueError(f"Invalid offset: {offset}")
+        lastev = None
+        for ev, evoffset in self.eventsWithOffset(end=absoffset+F(1, 100)):
+            if evoffset + ev.dur > absoffset:
+                return lastev
+            lastev = ev
         return None
 
     def itemsBetween(self,
@@ -2212,6 +2230,34 @@ class Chain(MContainer):
             cropped.removeRedundantOffsets()
         return cropped
 
+    def configNotation(self,
+                       autoClefChanges: bool = None,
+                       staffSize: float | None = None,
+                       maxStaves: int | None = None
+                       ) -> None:
+        """
+        Customize options for rendering as notation
+
+        Each of these options corresponds to a setting in the config
+
+        Args:
+            autoClefChanges: add clef changes to a quantized part if needed.
+                Otherwise one clef is determined for each part
+                (see config key `show.autoClefChanges <config_show_autoclefchanges>`).
+                **NB**: clef changes can be added manually via ``Voice.eventAt(...).addSymbol(symbols.Clef(...))``
+            staffSize: the size of a staff, in points (see config key `show.staffSize` <config_show_staffsize>`)
+            maxStaves: the max. number of staves per voice when showing a
+                Voice as notation (see config `show.voiceMaxStaves <config_show_voicemaxstaves>`)
+
+        .. seealso:: :meth:`~Voice.configQuantization`
+        """
+        if staffSize is not None:
+            self.setConfig('show.staffSize', staffSize)
+        if autoClefChanges is not None:
+            self.setConfig('show.autoClefChanges', autoClefChanges)
+        if maxStaves is not None:
+            self.setConfig('show.voiceMaxStaves', maxStaves)
+
 
 class PartGroup:
     """
@@ -2226,11 +2272,11 @@ class PartGroup:
     Args:
         parts: the parts inside this group
         name: the name of the group
-        shortname: a shortname to use in systems other than the first
+        abbrev: a shortname to use in systems other than the first
         showPartNames: if True, the name of each part will still be shown in notation.
             Otherwise, it is hidden and only the group name appears
     """
-    def __init__(self, parts: list[Voice], name='', shortname='', showPartNames=False):
+    def __init__(self, parts: list[Voice], name='', abbrev='', showPartNames=False):
         for part in parts:
             part._group = self
 
@@ -2240,7 +2286,7 @@ class PartGroup:
         self.name = name
         """The name of the group"""
 
-        self.shortname = shortname
+        self.abbrev = abbrev
         """A short name for the group"""
 
         self.groupid = scoring.core.makeGroupId()
@@ -2272,18 +2318,22 @@ class Voice(Chain):
         items: the items in this voice. Items can also be added later via :meth:`Voice.append`
         name: the name of this voice. This will be interpreted as the staff name
             when shown as notation
-        shortname: optionally a shortname can be given, it will be used for subsequent
+        abbrev: an optional shortname, will be used for subsequent
             systems when shown as notation
-        maxstaves: if given, a max. number of staves to explode this voice when shown
-            as notation. If not given the config key 'show.voiceMaxStaves' is used
+        maxStaves: max. number of staves to use for this voice when shown
+            as notation. If not given the config key 'show.voiceMaxStaves' is used.
+            This is a maximum value, the actual number of staves is determined based
+            on the actual contents of the voice
+        minStaves: a min. number of staves to use for this voice when shown
+            as notation.
     """
 
     def __init__(self,
                  items: Sequence[MEvent | str | Chain] | Chain | str = (),
                  name='',
-                 shortname='',
-                 maxstaves=0,
-                 minstaves=1
+                 abbrev='',
+                 maxStaves=0,
+                 minStaves=1
                  ):
         if isinstance(items, Chain):
             chain = items
@@ -2298,7 +2348,7 @@ class Voice(Chain):
         self.name = name
         """The name of this voice/staff"""
 
-        self.shortname = shortname
+        self.abbrev = abbrev
         """A shortname to display as abbreviation after the first system"""
 
         self._config: dict[str, Any] = {}
@@ -2308,9 +2358,12 @@ class Voice(Chain):
         self._group: PartGroup | None = None
         """A part group is created via Score.makeGroup"""
 
-        if maxstaves:
-            self.configNotation(maxStaves=maxstaves)
+        if maxStaves:
+            self.configNotation(maxStaves=maxStaves)
 
+        self._minStaves = minStaves
+            
+        
     def __repr__(self):
         if len(self.items) < 10:
             itemstr = ", ".join(repr(_) for _ in self.items)
@@ -2326,7 +2379,7 @@ class Voice(Chain):
 
     def __hash__(self):
         superhash = super().__hash__()
-        return hash((superhash, self.name, self.shortname, id(self._group)))
+        return hash((superhash, self.name, self.abbrev, id(self._group)))
 
     def _copyAttributesTo(self, other: Self) -> None:
         super()._copyAttributesTo(other)
@@ -2339,7 +2392,7 @@ class Voice(Chain):
     def __copy__(self) -> Self:
         # always a deep copy
         voice = self.__class__(name=self.name,
-                               shortname=self.shortname)
+                               abbrev=self.abbrev)
         voice.items = [item.copy() for item in self.items]
         self._copyAttributesTo(voice)
         return voice
@@ -2353,34 +2406,6 @@ class Voice(Chain):
 
     def parentAbsOffset(self) -> F:
         return F0
-
-    def configNotation(self,
-                       autoClefChanges=True,
-                       staffSize=0.,
-                       maxStaves=0
-                       ) -> None:
-        """
-        Customize options for rendering this voice as notation
-
-        Each of these options corresponds to a setting in the config
-
-        Args:
-            autoClefChanges: add clef changes to a quantized part if needed.
-                Otherwise one clef is determined for each part
-                (see config key `show.autoClefChanges <config_show_autoclefchanges>`).
-                **NB**: clef changes can be added manually via ``Voice.eventAt(...).addSymbol(symbols.Clef(...))``
-            staffSize: the size of a staff, in points (see config key `show.staffSize` <config_show_staffsize>`)
-            maxStaves: the max. number of staves per voice when showing a
-                Voice as notation (see config `show.voiceMaxStaves <config_show_voicemaxstaves>`)
-
-        .. seealso:: :meth:`~Voice.configQuantization`
-        """
-        if staffSize is not None:
-            self.setConfig('show.staffSize', staffSize)
-        if autoClefChanges is not None:
-            self.setConfig('show.autoClefChanges', autoClefChanges)
-        if maxStaves:
-            self.setConfig('show.voiceMaxStaves', maxStaves)
 
     def configQuantization(self,
                            breakSyncopationsLevel='',
@@ -2421,8 +2446,8 @@ class Voice(Chain):
     def clone(self, **kws) -> Self:
         if 'items' not in kws:
             kws['items'] = self.items.copy()
-        if 'shortname' not in kws:
-            kws['shortname'] = self.shortname
+        if 'abbrev' not in kws:
+            kws['abbrev'] = self.abbrev
         if 'name' not in kws:
             kws['name'] = self.name
 
@@ -2446,14 +2471,15 @@ class Voice(Chain):
                      ) -> list[scoring.core.UnquantizedPart]:
         config, iscustomized = self._resolveConfig(config)
         parts = self._scoringParts(config=config,
-                                   maxstaves=config['show.voiceMaxStaves'],
+                                   maxStaves=config['show.voiceMaxStaves'],
+                                   minStaves=self._minStaves,
                                    name=self.name or self.label,
-                                   shortname=self.shortname,
+                                   abbrev=self.abbrev,
                                    groupParts=self._group is None,
                                    addQuantizationProfile=iscustomized)
         if self.symbols:
             for symbol in self.symbols:
-                if isinstance(symbol, symbols.PartMixin):
+                if isinstance(symbol, symbols.EventSymbol):
                     if symbol.applyToAllParts:
                         for part in parts:
                             symbol.applyToPart(part)
@@ -2464,7 +2490,7 @@ class Voice(Chain):
             parts[0].groupParts(parts,
                                 groupid=self._group.groupid,
                                 name=self._group.name,
-                                shortname=self._group.shortname,
+                                abbrev=self._group.abbrev,
                                 showPartNames=self._group.showPartNames)
         return parts
 

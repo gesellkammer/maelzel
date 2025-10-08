@@ -667,7 +667,7 @@ class QuantizedMeasure:
         if offset > self.duration():
             raise ValueError(f"The given offset {offset} is not within the span "
                              f"of this measure ({self.duration()=}")
-        return self.tree.splitNotationAtOffset(offset=offset, tie=tie, mergeable=mergeable, 
+        return self.tree.splitNotationAtOffset(offset=offset, tie=tie, mergeable=mergeable,
                                                beatstruct=self.beatStructure())
 
     def findLogicalTie(self, n: Notation) -> LogicalTie | None:
@@ -683,10 +683,20 @@ class QuantizedMeasure:
         else:
             return tie
 
-    def _splitStrongBeat(self, n: Notation, node: Node, offset: F):
+    def _splitStrongBeat(self, n: Notation, node: Node, offset: F) -> bool:
         """Returns True if n should be split at offset"""
+        logger.debug("split strong: %s, offset: %s", n, offset)
         if self._splitWeakBeat(n, node, offset):
             return True
+
+        leftbeat, idx = self.beatAtOffset(offset - F(1, 10000))
+        rightbeat = self.beatStructure()[idx+1]
+        beatdur = (leftbeat.duration + rightbeat.duration) / 2
+
+        if node.fusedDurRatio() == 1:
+            if n.duration / beatdur <= F(1, 2):
+                return True
+
         beatoffsets = self.beatOffsets()
         noffset = n.qoffset
         nend = noffset + n.duration
@@ -715,11 +725,14 @@ class QuantizedMeasure:
             return True
         return False
 
-    def _splitWeakBeat(self, n: Notation, node: Node, offset: F):
+    def _splitWeakBeat(self, n: Notation, node: Node, offset: F) -> bool:
         """True if n should be split at offset"""
+        logger.debug("------------ weak: %s, %s", n, offset)
 
         if n.duration == self.duration():
             return False
+
+        binary = node.fusedDurRatio() == 1
 
         noffset: F = n.qoffset
         nend: F = noffset + n.duration
@@ -732,10 +745,11 @@ class QuantizedMeasure:
         qprofile = self.quantprofile
 
         if noffset in beatoffsets or nend in beatoffsets:
+            logger.debug("No need to split since notation %s is aligned to the beat, beatoffsets=%s", n, beatoffsets)
             return False
 
         if quantutils.asymettry(leftdur, rightdur) >= qprofile.syncopMaxAsymmetry:
-            logger.debug(f"Too much assymetry, splitting {n} at {offset}, {beatoffsets=}")
+            logger.debug("Too much assymetry, splitting %s at %s", n, offset)
             return True
 
         EPS = F(1, 10000)
@@ -743,22 +757,43 @@ class QuantizedMeasure:
         rightbeat = self.beatStructure()[idx+1]
 
         partdur, beat = (leftdur, leftbeat) if leftdur < rightdur else (rightdur, rightbeat)
-        if n.duration < qprofile.syncopMinFraction * beat.duration:
-            logger.debug(f"Duration {n.duration} < {(qprofile.syncopMinFraction*beat.duration)=}")
+        minsyncopdur = qprofile.syncopMinFraction * beat.duration
+        if n.duration < minsyncopdur:
+            logger.debug("Duration %s < min. syncopation duration %s", n.duration, minsyncopdur)
             return True
 
-        if partdur/beat.duration <= qprofile.syncopPartMinFraction:
-            logger.debug(f"Part of {n}, {partdur=} too short in relation to the beat, {qprofile.syncopPartMinFraction=}")
+        durprop = n.duration / beat.duration
+        partprop = partdur / beat.duration
+        if binary:
+            if durprop <= F(1, 2):
+                logger.debug("Too short syncopation: dur/beatdur = %s", durprop)
+                return True
+
+            if durprop <= F(3, 4) and durprop.numerator % 2 == 1:
+                logger.debug("Dotted syncopation two short")
+                return True
+
+            if partdur/beat.duration <= F(1, 8):
+                logger.debug("Too short syncopation on one side")
+                return True
+
+            if leftdur == rightdur and partdur.numerator in (3, 7, 15):
+                logger.debug("Too complex syncopation")
+                return True
+
+        if partprop <= qprofile.syncopPartMinFraction:
+            logger.debug("Part of %s, %s too short in relation to the beat, min fraction: %s", n, partprop, qprofile.syncopPartMinFraction)
             return True
 
         if n.tiedPrev and n.tiedNext and n.symbolicDuration().numerator in (3, 7, 15):
-            logger.debug(f"Too complex for a syncopation, {n.symbolicDuration()=}")
+            logger.debug("Too complex for a syncopation, symbolic dur: %s", n.symbolicDuration())
             return True
 
         ratio = n.fusedDurRatio()
         if qprofile.syncopExcludeSymDurs:
             for d in (leftdur, rightdur):
                 if (ratio*d).numerator in qprofile.syncopExcludeSymDurs:
+                    logger.debug("Exclude symdur: %s", ratio * d)
                     return True
         return False
 
@@ -792,7 +827,7 @@ class QuantizedMeasure:
         for i, beat in ((i, beat) for i, beat in enumerate(self.beats[1:-1], start=1) if beat.weight >= minWeight):
             if tree._splitNotationAtBeat(beatstruct, beatIndex=i, callback=self._splitStrongBeat):
                 needsRepair = True
-        for i, beat in ((i, beat) for i, beat in enumerate(self.beats[1:-1], start=1) if beat.weight < minWeight):
+        for i, beat in ((i, beat) for i, beat in enumerate(self.beats[1:], start=1) if beat.weight < minWeight):
             if tree._splitNotationAtBeat(beatstruct, beatIndex=i, callback=self._splitWeakBeat):
                 needsRepair = True
 
@@ -841,12 +876,15 @@ class QuantizedMeasure:
                              f"duration of its tree, {treedur}.")
         for n0, n1 in itertools.pairwise(self.tree.recurse()):
             if n0.tiedNext:
-                assert n1.tiedPrev
-                tiedpitches = n0.tiedPitches()
-                if tiedpitches is None:
-                    assert all(p in n1.pitches for p in n0.pitches)
+                if n1.isRest:
+                    logger.debug("Found superfluous tie (tied to a rest??): n0=%s, n1=%s", n0, n1)
+                    n0.tiedNext = False
+                    n1.tiedPrev = False
                 else:
-                    assert all(p in n1.pitches for p in tiedpitches), f"{n0=}, {n1=}"
+                    assert n1.tiedPrev
+                    tiedpitches = n0.tiedPitches()
+                    if not all(p in n1.pitches for p in tiedpitches):
+                        raise ValueError(f"Mismatch in tie: {n0=}, {n1=}")
 
     def _checkBeats(self):
         if not self.beats:
@@ -1181,7 +1219,6 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
         if prevDivision and prevOuterRatio != 1:
             outerRatio = F(*quantutils.outerTuplet(div))
             if prevOuterRatio == outerRatio:
-                # logger.debug(f"{div=}, {prevDivision=}, {outerRatio=}, Outer tuplet match, pre. {divPenalty=}, post, {divPenalty*profile.outerTupletMatchFactor}, {divPenaltyInfo=}")
                 divPenalty *= profile.outerTupletMatchFactor
 
         if (divError := divPenalty * sqrt(profile.divisionErrorWeight)) > minError * 1.05:
@@ -1684,8 +1721,7 @@ def _nodesCanMerge(g1: Node,
             return Result.Fail(f'Joining these nodes would result in a syncopation'
                                f' across a beat with a weight of {beatWeight}, but '
                                f'the current quantization profile sets a min. level of {beatWeight}')
-        # logger.debug(f"{acrossBeat=}, {syncopated=}, {beatWeight=}, {profile.breakSyncopationsMinWeight()=}")
-
+        
     if type(item1) is not type(item2):
         return Result.Fail("A Node cannot merge with a single item")
 
@@ -1837,7 +1873,6 @@ def _mergeSiblings0(root: Node,
                 else:
                     if profile.debug:
                         logger.debug("Nodes cannot merge: %s\n%s\n%s", r.info, LazyStr.str(item1), LazyStr.str(item2))
-                        # logger.debug(f'Nodes cannot merge ({r.info}): \n{item1}\n{item2}')
                     items.append(item2)
         elif isinstance(item1, Notation) and isinstance(item2, Notation) and item1.canMergeWith(item2):
             items[-1] = item1.mergeWith(item2)
@@ -1877,7 +1912,7 @@ class QuantizedPart:
     name: str = ''
     """The name of this part, used as staff name"""
 
-    shortName: str = ''
+    abbrev: str = ''
     """The abbreviated staff name"""
 
     groupid: str = ''
@@ -1922,13 +1957,13 @@ class QuantizedPart:
 
     def repair(self):
         # self._repairGracenotesInBeats()
-        firstnote = next(self.measures[0].tree.recurse())
-        if (clef := firstnote.findAttachment(attachment.Clef)):
+        firstnote = next((n for n in self.flatNotations() if not n.isRest), None)
+        if firstnote and (clef := firstnote.findAttachment(attachment.Clef)):
             self.firstClef = clef.kind
-
         self.removeUnnecessaryGracenotes()
         self.repairLinks(tieSpelling=True)
         self.repairSpanners()
+        self._repairClefs()
 
     def check(self):
         for measure in self.measures:
@@ -2061,22 +2096,22 @@ class QuantizedPart:
             return "treble"
         return clefutils.bestClefForNotations(notations)
 
-    def findClefChanges(self,
-                        apply=True,
-                        removeManualClefs=False,
-                        window=1,
-                        simplificationThreshold=0.,
-                        biasFactor=1.5,
-                        propertyKey='',
-                        minClef='',
-                        maxClef='',
-                        possibleClefs: Sequence[str] = ()
-                        ) -> None:
+    def findBestClefChanges(self,
+                            apply=True,
+                            removeManualClefs=False,
+                            window=1,
+                            simplificationThreshold=0.,
+                            biasFactor=1.5,
+                            propertyKey='',
+                            minClef='',
+                            maxClef='',
+                            possibleClefs: Sequence[str] = ()
+                            ) -> None:
         """
         Determines the most appropriate clef changes for this part
 
         The clef changes are added as properties to the notations at which
-        the changes are to be made. If called with ``addClefs=True``,
+        the changes are to be made. If called with ``apply=True``,
         these clef changes are materialized as clef attachments
 
         Args:
@@ -2093,7 +2128,7 @@ class QuantizedPart:
             possibleClefs: if given, a seq. of allowed clefs
             propertyKey: the property key to add to the notation to mark
                 a clef change. Setting this property alone will not
-                result in a clef change in the notation (see `addClefs`)
+                result in a clef change in the notation
 
         """
         notations = list(self.flatNotations())
@@ -2106,7 +2141,7 @@ class QuantizedPart:
         # This adds the clef changes as attachment to the notation prior to which
         # the clef change has effect.
         clefutils.findBestClefs(notations,
-                                addClefs=apply,
+                                apply=apply,
                                 windowSize=window,
                                 simplificationThreshold=simplificationThreshold,
                                 biasFactor=biasFactor,
@@ -2115,8 +2150,10 @@ class QuantizedPart:
                                 possibleClefs=possibleClefs,
                                 minClef=minClef,
                                 maxClef=maxClef)
-        if (clef := notations[0].findAttachment(attachment.Clef)):
+        firstn = next((n for n in notations if not n.isRest), None)
+        if firstn and (clef := notations[0].findAttachment(attachment.Clef)):
             self.firstClef = clef.kind
+        self._repairClefs()
 
     def resolveEnharmonics(self, options: enharmonics.EnharmonicOptions) -> None:
         """
@@ -2171,7 +2208,7 @@ class QuantizedPart:
                             # Only dynamic levels are ever superfluous (f, ff, mp), other 'dynamics'
                             # like sf should not be removed
                             if n.dynamic == dynamic:
-                                logger.debug(f"Removing dynamic for {n} at measure {i} ({now=})")
+                                logger.debug("Removing dynamic for %s at measure %d, now=%s", n, i, now)
                                 n.dynamic = ''
                             else:
                                 dynamic = n.dynamic
@@ -2205,7 +2242,41 @@ class QuantizedPart:
                     node = measure.tree.findNodeForNotation(n1)
                     assert node is not None
                     node.items.remove(n1)
+                    
+    def recurse(self) -> Iterator[tuple[Notation, Node, QuantizedMeasure]]:
+        for measure in self.measures:
+            for n, node in measure.recurseNotationsWithParent():
+                yield n, node, measure
+                
+    def _clefChanges(self) -> Iterator[tuple[attachment.Clef, Notation, Node, QuantizedMeasure]]:
+        for n, node, meas in self.recurse():
+            if n.attachments and (clef := n.findAttachment(attachment.Clef)) is not None:
+                yield clef, n, node, meas
 
+    def _repairClefs(self) -> None:
+        clefnow = self.firstClef
+        notesBetween = False
+        clefstack: list[Notation] = []
+        for n in self.flatNotations():
+            if n.attachments and (clef := n.findAttachment(attachment.Clef)) is not None:
+                if clef.kind == clefnow:
+                    n.attachments.remove(clef)
+                else:
+                    if not notesBetween:
+                        # a clef change but no notes between the last and this clef
+                        # remove last clef
+                        if clefstack:
+                            lastn = clefstack.pop()
+                            lastn.removeAttachmentsByClass(attachment.Clef)
+                        else:
+                            self.firstClef = clef.kind
+                    clefnow = clef.kind
+                    notesBetween = not n.isRest
+                    clefstack.append(n)
+            else:
+                if not n.isRest:
+                    notesBetween = True
+            
     def repairSpanners(self) -> None:
         """
         Match orfan spanners, optionally removing unmatched spanners (in place)
@@ -2338,7 +2409,7 @@ class QuantizedPart:
             for n in measure.notations():
                 if n.isRest or len(n.pitches) <= 1:
                     continue
-                notenames = n.resolveNotenames(addFixedAnnotation=True)
+                notenames = n.resolveNotenames(keepFixedAnnotation=True)
                 spellings = enharmonics.bestChordSpelling(notenames, options=enharmonicOptions)
                 for i, spelling in enumerate(spellings):
                     n.fixNotename(spelling, i)
@@ -2557,14 +2628,14 @@ def quantizePart(part: core.UnquantizedPart,
                                         beats=[],
                                         quantprofile=quantprofile)
             qmeasures.append(qmeasure)
-    qpart = QuantizedPart(struct, 
-                          qmeasures, 
-                          name=part.name, 
-                          shortName=part.shortName,
-                          groupid=part.groupid, 
+    qpart = QuantizedPart(struct,
+                          qmeasures,
+                          name=part.name,
+                          abbrev=part.abbrev,
+                          groupid=part.groupid,
                           quantProfile=quantprofile,
                           groupName=part.groupName,
-                          showName=part.showName, 
+                          showName=part.showName,
                           firstClef=part.firstClef,
                           possibleClefs=part.possibleClefs)
     if quantprofile.breakSyncopationsLevel != 'none':
@@ -2806,7 +2877,7 @@ class QuantizedScore:
         from . import render
         if options is None:
             from maelzel.core import workspace
-            cfg = workspace.getConfig()
+            cfg = workspace.getWorkspace().config
             options = cfg.makeRenderOptions()
             if backend:
                 options.backend = backend
@@ -2835,11 +2906,7 @@ class QuantizedScore:
             for measure in part:
                 notations = list(measure.tree.recurse())
                 events.extend(notationsToCoreEvents(notations))
-            voice = maelzel.core.Voice(events)
-            if part.name:
-                voice.name = part.name
-            if part.shortName:
-                voice.shortname = part.shortName
+            voice = maelzel.core.Voice(events, name=part.name, abbrev=part.abbrev)
             voices.append(voice)
         return maelzel.core.Score(voices=voices, scorestruct=self.scorestruct, title=self.title)
 

@@ -98,6 +98,7 @@ defaultdict = {
     'play.useDynamics': True,
     'play.graceDuration': '1/14',
     'play.soundfontFindPeakAOT': False,
+    'play.reverbInstr': '.zitarev',
 
     'rec.blocking': True,
     'rec.sr': 44100,
@@ -153,6 +154,7 @@ validator = {
     "show.backend::choices": {"musicxml", "lilypond"},
     "show.format::choices": {"png", "pdf", "repr"},
     "show.staffSize::type": float,
+    "show.staffSize::range": (0.001, 100),
     "show.pngResolution::choices": {100, 200, 300, 600, 1200},
     "show.pageSize::choices": {"a3", "a4", "a2"},
     "show.arpeggiateChord::choices": {"auto", True, False},
@@ -162,6 +164,7 @@ validator = {
     "play.numChannels::range": (1, 128),
     "rec.numChannels::range": (1, 128),
     "play.soundfontInterpol::choices": {"linear", "cubic"},
+    "play.reverbInstr::choices": {'.zitarev'},
     "rec.sr::choices": {
         44100,
         48000,
@@ -264,12 +267,12 @@ docs = {
         "Freq. of A4. Normal values are between 440-443, but any value can be used",
 
     'fixStringNotenames':
-        "Pitches given as notenames are fixed at the spelling given. "
-        "Otherwise they are respelled for better readability within the context. "
-        "Pitches given as midi or frequency are always respelled",
+        "Fix pitches given as notenames at the spelling given. "
+        "False: respell for better readability within the context. "
+        "Pitches as midi or frequency are always respelled",
 
     "jupyterReprShow":
-        "Render notation within the html repr within jupyter. If False, .show needs "
+        "Use html as repr within jupyter. If False, .show needs "
         "to be called explicitely to render notation",
 
     'openImagesInExternalApp':
@@ -312,8 +315,7 @@ docs = {
 
     'chordAdjustGain':
         "Limit the gain of a chord according to the number of notes, to prevent "
-        "clipping. Only applied if the notes don't have an "
-        "individual amplitude",
+        "clipping. Only used if notes don't have an explicit amplitude",
 
     'show.scaleFactor':
         "Affects the size of the generated image when using png format",
@@ -337,8 +339,8 @@ docs = {
         "Default amplitude for a Note/Chord, only used if play.useDynamics is False",
 
     'play.defaultDynamic':
-        'Dynamic of a Note/Chord when a dynamic is needed, only used if '
-        'play.useDynamics is True. Any event with an amplitude will use that value instead',
+        'Dynamic of a Note/Chord, only used if play.useDynamics is True. Any event '
+        'with an amplitude uses that value instead',
 
     'rec.blocking':
         "Should recording be blocking or should be done async?",
@@ -354,25 +356,25 @@ docs = {
         ' the moment an soundfont preset is defined',
 
     'show.labelStyle':
-        'Text size used for labels'
+        'Style used for labels'
         'A list of key=value pairs, '
         'separated by ;. Keys: fontsize, box '
         '(rectangle, square, circle), placement (above, below), italic, '
-        'bold. Example: "fontsize=12; italic; box=rectangle"',
+        'bold. Example: "fontsize=12; italic; box=square"',
 
     'show.centsTextStyle':
         'Style used for cents annotations. '
         'A list of key=value pairs, '
         'separated by ;. Keys: fontsize, box '
         '(rectangle, square, circle), placement (above, below), italic, '
-        'bold. Example: "fontsize=12; italic; box=rectangle"',
+        'bold. Example: "fontsize=12; italic; box=square"',
 
     'show.measureLabelStyle':
         'Style for measure annotations. '
         'A list of key=value pairs separated by ;. Keys: fontsize, box '
         '(rectangle, square, circle), placement (above, below), italic, '
         'bold. Example: '
-        '"fontsize=12; italic; box=rectangle"',
+        '"fontsize=12; italic; box=square"',
 
     'show.rehearsalMarkStyle':
         'Style for rehearsal marks. '
@@ -383,27 +385,25 @@ docs = {
         '"fontsize=12; italic; box=rectangle"',
 
     'show.glissLineThickness':
-        'Line thikness when rendering glissandi. The value is abstract and it is'
+        'Line thikness for glissandi. The value is abstract, it is'
         'up to the renderer to interpret it',
 
     'show.glissHideTiedNotes':
-        'Hide tied notes which are part of a glissando',
+        'Hide tied notes when part of a gliss.',
 
     'show.glissLineType':
         'Default line type for glissandi',
 
     'show.dynamicFromAmplitude':
-        'True: when rendering notation, if an object has an amplitude '
-        'and does not have an explicit dynamic, add a dynamic according to the amplitude',
+        'If an object has an amplitude but no explicit dynamic, add a dynamic '
+        'according to the amplitude',
 
     'show.absOffsetWhenDetached':
-        'When showing an object which has a parent but is shown detached from it, should'
-        'the absolute offset be used?',
+        'Use the abs. offset of an object, even when shown detached from its parent',
 
     'show.respellPitches':
-        "True: find a suitable enharmonic spelling within the context. "
-        "False: the canonical form of each pitch is used, independent of context",
-
+        "Find best enharmonic spelling within the context. ",
+      
     'show.voiceMaxStaves':
         "Max. number of staves per voice when showing a Voice as notation",
 
@@ -411,12 +411,11 @@ docs = {
         "Notehead shape to use for clips",
 
     'show.referenceStaffsize':
-        "Staff size used as reference to convert to scaling factor. "
-        "This allows to use staff size as a generic indicator for score scale, "
-        "independent of the backend",
+        "Staff size used as reference. This allows to use staff size as a generic "
+        "indicator for score scale across backends",
     
     'show.clefSimplify':
-        "Simplifies automatic clef changes. Use higher values to limit clef changes",
+        "Simplifie automatic clef changes. Use higher values to limit clef changes",
 
     'show.musicxmlFontScaling':
         "Scaling factor applied to font sizes when rendering to musicxml",
@@ -435,8 +434,7 @@ docs = {
         "enharmonic variant",
 
     'enharmonic.verticalWeight':
-        "Weight of the vertical dimension (chords within a voice) when evaluating "
-        "an enharmonic variant",
+        "Weight of the vertical dimension (notes within a chord) for enharmonic spelling",
 
     'splitAcceptableDeviation':
         'When splitting notes between staves, notes within this range of the '
@@ -479,7 +477,7 @@ docs = {
         'Show cents deviation as text when rendering notation',
 
     'show.centsTextSnap':
-        'Pitches which deviate less than this cents from a quantized pitch'
+        'Notes within this number of cents from a quantized pitch'
         'don´t need a text annotation (see `show.cents`)',
 
     '.show.centsTextPlusSign':
@@ -499,22 +497,21 @@ docs = {
 
     'show.lilypondPngStaffsizeScale':
         'Factor applied to the staffsize when rendering to png via lilypond. Useful '
-        'if rendered images appear too small in a jupyter notebook',
+        'if images are too small within jupyter',
 
     'show.lilypondGlissMinLength':
         'Min. length of a glissando in points. Increase this value if gliss. lines'
-        'are not shown or are too short if a gliss. collides '
-        'with dots or accidentals',
+        'are hidden or too short',
 
     'show.pngResolution':
         'DPI used when rendering to png',
 
     'show.horizontalSpace':
-        'Hint to adjust horizontal spacing. The actual result depends '
-        'on the backend and the format used.',
+        'Hint to adjust horizontal spacing, the result depends '
+        'on format and backend',
 
     'show.jupyterMaxImageWidth':
-        'Max. width in pixels for images displayed in a jupyter notebook',
+        'Max. width in pixels for images in a jupyter notebook',
 
     'show.hideRedundantDynamics':
         'Hide redundant dynamics within a voice',
@@ -526,12 +523,12 @@ docs = {
         'backend used for playback',
 
     'play.useDynamics':
-        'True: any note/chord with a set dynamic will use dynamics to modify its playback '
-        'amplitude if no explicit amplitude is set',
+        'Any note/chord with a set dynamic will use dynamics for playback '
+        'if no explicit amplitude is set',
 
     'rec.path':
-        'Path used to save output files when rendering offline. If '
-        'not given the default can be queried via `recordPath`',
+        'Path used to save soundfiles when rendering offline. Otherwise '
+        'the value returned by `recordPath` is used',
 
     'show.cacheImages':
         'True: cache rendered images. Set it to False for debugging. '
@@ -558,6 +555,9 @@ docs = {
 
     'play.generalMidiSoundfont':
         'Path to a soundfont (sf2 file) with a general midi mapping',
+
+    'play.reverbInstr':
+        'Default instrument used for reverb',
 
     'htmlTheme':
         'Theme used when displaying html inside jupyter',

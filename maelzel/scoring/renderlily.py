@@ -453,7 +453,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         else:
             noteheads = n.noteheads
         _("<")
-        notenames = n.resolveNotenames(removeFixedAnnotation=True)
+        notenames = n.resolveNotenames()
         notatedpitches = [pt.notated_pitch(notename) for notename in notenames]
         chordAccidentalTraits = n.findAttachment(cls=attachment.AccidentalTraits, pitchanchor=None) or attachment.AccidentalTraits.default()
         backties = n.tieHints('backward') if n.tiedPrev else None
@@ -890,8 +890,8 @@ def renderPart(part: quant.QuantizedPart,
     if part.name and part.showName:
         w.line(r"\new Staff \with {")
         w.line(f'    instrumentName = #"{part.name}"')
-        if part.shortName:
-            w.line(f'    shortInstrumentName = "{part.shortName}"')
+        if part.abbrev:
+            w.line(f'    shortInstrumentName = "{part.abbrev}"')
         if clef or part.firstClef:
             w.line('    ' + lilytools.makeClef(part.firstClef))
 
@@ -1216,7 +1216,7 @@ class LilypondRenderer(Renderer):
             tempbase = os.path.splitext(lilyfile)[0]
             tempout = f"{tempbase}.{fmt}"
             open(lilyfile, "w").write(lilytxt)
-            logger.debug(f"Rendering lilypond '{lilyfile}' to '{tempout}'")
+            logger.debug("Rendering lilypond '%s' to '%s'", lilyfile, tempout)
             outfiles = lilytools.renderLily(lilyfile=lilyfile,
                                             outfile=tempout,
                                             imageResolution=options.pngResolution,
@@ -1224,16 +1224,16 @@ class LilypondRenderer(Renderer):
             if options.preview:
                 previewfile = f"{tempbase}.preview.{fmt}"
                 if os.path.exists(previewfile):
-                    logger.debug(f"Found preview file {previewfile}, using that as output")
+                    logger.debug("Found preview file %s, using that as output", previewfile)
                     tempout = previewfile
             elif options.cropToContent:
                 cropfile = f"{tempbase}.cropped.{fmt}"
                 if os.path.exists(cropfile):
-                    logger.debug(f"Found crop file '{cropfile}', using that as output")
+                    logger.debug("Found crop file '%s', using that as output", cropfile)
                     tempout = cropfile
                 else:
-                    logger.debug(f"Asked to generate a crop file, but the file '{cropfile}' "
-                                 f"was not found. Image file: {tempout}")
+                    logger.debug("Asked to generate a crop file, but the file '%s' "
+                                 "was not found. Image file: %s", cropfile, tempout)
                     if fmt == 'png':
                         tempout = outfiles[0]
                         logger.debug("Trying to generate cropped file via pillow")
@@ -1242,7 +1242,7 @@ class LilypondRenderer(Renderer):
                             logger.debug("Failed to generate crop file, aborting cropping")
                         else:
                             tempout = cropfile
-            logger.debug(f"Moving {tempout} to {outfile}")
+            logger.debug("Moving %s to %s", tempout, outfile)
             shutil.move(tempout, outfile)
             tempfiles.append(lilyfile)
             # Cascade: if preview: base.preview.fmt, if crop: base.crop.fmt else base.fmt

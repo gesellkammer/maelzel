@@ -7,7 +7,7 @@ from itertools import pairwise
 from emlib import iterlib
 
 from maelzel._util import reprObj
-from maelzel.common import F, F0, F1
+from maelzel.common import F, F0
 
 from . import util
 from .common import NotatedDuration, logger
@@ -47,9 +47,9 @@ class UnquantizedPart:
     def __init__(self,
                  notations: list[Notation],
                  name='',
-                 shortname='',
+                 abbrev='',
                  groupid: str = '',
-                 groupname='',
+                 groupName='',
                  showName=True,
                  quantProfile: quant.QuantizationProfile | None = None,
                  firstClef='',
@@ -61,9 +61,9 @@ class UnquantizedPart:
         Args:
             notations: the notations in this part
             name: the name of the part
-            shortname: an abbreviated name for this part
+            abbrev: an abbreviated name for this part
             groupid: parts with the same groupid will be grouped
-            groupname: the name of the group, if necessary
+            groupName: the name of the group, if necessary
             showName: show/hide the name of this part
             quantProfile: a profile can be attached for later quantization
             resolve: resolve all missing offsets explicitely
@@ -73,14 +73,14 @@ class UnquantizedPart:
         self.groupid: str = groupid
         """A UUID identifying this Part (can be left unset)"""
 
-        self.groupName: tuple[str, str] | None = _parseGroupname(groupname) if groupname else None
+        self.groupName: tuple[str, str] | None = _parseGroupname(groupName) if groupName else None
         """Used as staff group name for parts grouped together. It can include a shortname as
         <name>::<shortname>"""
 
         self.name: str = name
         """The name of the part"""
 
-        self.shortName: str = shortname
+        self.abbrev: str = abbrev
         """A shortname to use as abbreviation"""
 
         self.quantProfile = quantProfile
@@ -112,7 +112,42 @@ class UnquantizedPart:
         wasmodified = _repairGracenoteAsTargetGliss(self.notations)
         if wasmodified:
             resolvedOffsets(self.notations)
+            
+    def notationAfter(self, offset: F, end: F = F0) -> Notation | None:
+        """
+        The first notation at or after offset
+        
+        Args:
+            offset: the time offset to start searching 
+            end: if given, notation should start before end
 
+        Returns:
+
+        """
+        if offset == F0:
+            return self.notations[0]
+        
+        for n, noffset in self.iterWithOffset():
+            if noffset >= offset and (end == 0 or noffset < end):
+                return n
+        return None
+    
+    def notationsBetween(self, start: F, end: F = F0, strict=True) -> list[Notation]:
+        out: list[Notation] = []
+        if strict:
+            for n, offset in self.iterWithOffset():
+                if end and offset >= end:
+                    break
+                if start <= offset and (end == F0 or n.duration + offset <= end):
+                    out.append(n)
+        else:
+            for n, offset in self.iterWithOffset():
+                if end and offset >= end:
+                    break
+                if start < n.duration + offset and (end == F0 or offset < end):
+                    out.append(n)
+        return out
+                    
     def check(self) -> None:
         """
         Check that this part is valid
@@ -145,7 +180,7 @@ class UnquantizedPart:
             idx += 1
         return None
 
-    def setGroup(self, groupid: str, name='', shortname='', showPartName=False) -> None:
+    def setGroup(self, groupid: str, name='', abbrev='', showPartName=False) -> None:
         """
         Set group attributes for this part
 
@@ -153,12 +188,12 @@ class UnquantizedPart:
             groupid: the groupid this part belongs to. All parts with the same groupid
                 are grouped together
             name: name of the group
-            shortname: abbreviation for the group name
+            abbrev: abbreviation for the group name
             showPartName: if True, show the name of each part, even if they are
                 within a group
         """
         self.groupid = groupid
-        self.groupName = (name, shortname)
+        self.groupName = (name, abbrev)
         self.showName = showPartName
 
     def __getitem__(self, item) -> Notation:
@@ -173,13 +208,24 @@ class UnquantizedPart:
     def dump(self, indents=0, file=None) -> None:
         """Dump this to stdout"""
         indentstr = "  " * indents
+        info = []
+        if self.name:
+            info.append(f"name: {self.name}")
+        if self.firstClef:
+            info.append(f"firstClef: {self.firstClef}")
+        if self.groupName is not None and self.groupName[0]:
+            info.append(f"groupName: {self.groupName[0]} ({self.groupName[1]})")
+        if self.groupid:
+            info.append(f"groupid: {self.groupid}")
+        print(indentstr[:-1], ", ".join(info))
+        
         for n in self.notations:
             print(indentstr, n, file=file)
 
     @staticmethod
     def groupParts(parts: list[UnquantizedPart],
                    name='',
-                   shortname='',
+                   abbrev='',
                    groupid='',
                    showPartNames=False
                    ) -> str:
@@ -189,7 +235,7 @@ class UnquantizedPart:
         Args:
             parts: the parts to group
             name: a name for the group
-            shortname: short name used for all systems after the first
+            abbrev: short name used for all systems after the first
             groupid: an explicit group id to use. If not given, a group id is created
             showPartNames: if True, the names for each part are shown (if present).
                 Otherwise part names are hidden and only the group name is shown
@@ -201,7 +247,7 @@ class UnquantizedPart:
         if not groupid:
             groupid = makeGroupId()
         for part in parts:
-            part.setGroup(groupid=groupid, name=name, shortname=shortname, showPartName=showPartNames)
+            part.setGroup(groupid=groupid, name=name, abbrev=abbrev, showPartName=showPartNames)
         return groupid
 
     def distributeByClef(self) -> list[UnquantizedPart]:
@@ -478,26 +524,27 @@ def _groupById(notations: list[Notation]) -> list[Notation | list[Notation]]:
 
 
 def distributeNotationsByClef(notations: list[Notation],
-                              maxstaves=3,
+                              maxStaves: int,
+                              minStaves=1,
                               groupid: str = '',
                               name='',
-                              shortname='',
+                              abbrev='',
                               ) -> list[UnquantizedPart]:
     """
     Distribute the given notations amongst parts with different clefs
 
     Args:
         notations: the notations to distribute
-        maxstaves: max. number of staves
+        maxStaves: max. number of staves
         groupid: a groupid to use for all created parts
         name: a name to use for the resulting group
-        shortname: an abbreviation for the name of the group
+        abbrev: an abbreviation for the name of the group
 
     Returns:
         a list of UnquantizedParts, sorted from low to high
     """
     from . import clefutils
-    partpairs = clefutils.explodeNotations(notations, maxStaves=maxstaves)
+    partpairs = clefutils.explodeNotations(notations, maxStaves=maxStaves, minStaves=minStaves)
     # parts are sorted from low to high
     parts = [UnquantizedPart(notations, firstClef=clef) for clef, notations in partpairs]
     if len(parts) > 1:
@@ -517,12 +564,12 @@ def distributeNotationsByClef(notations: list[Notation],
     if name:
         if len(parts) == 1:
             parts[0].name = name
-            parts[0].shortName = shortname
+            parts[0].abbrev = abbrev
         else:
             for i, part in enumerate(parts):
                 part.name = f'{name}-{i + 1}'
-                if shortname:
-                    part.shortName = f'{shortname}{i + 1}'
+                if abbrev:
+                    part.abbrev = f'{abbrev}{i + 1}'
 
     return parts
 

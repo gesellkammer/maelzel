@@ -57,6 +57,7 @@ from . import core
 from .common import logger
 from . import definitions
 from . import attachment
+from . import spanner
 
 
 __all__ = [
@@ -64,5 +65,6 @@ __all__ = [
     'core',
     'logger',
     'definitions',
-    'attachment'
+    'attachment',
+    'spanner'
 ]

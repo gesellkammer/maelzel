@@ -179,16 +179,16 @@ def play(*sources: MObj | _t.Sequence[SynthEvent] | csoundengine.event.Event,
     return playback.play(sources=sources, whenfinished=whenfinished, display=display, eventparams=eventparams)
     
     
-def getSession(numchannels: int | None = None,
-               backend='',
-               outdev='',
-               verbose: bool | None = None,
-               buffersize: int = 0,
-               latency: float | None = None,
-               numbuffers: int = 0,
-               ensure: bool = False,
-               name=''
-               ) -> csoundengine.session.Session:
+def audioSession(numchannels: int | None = None,
+                 backend='',
+                 outdev='',
+                 verbose: bool | None = None,
+                 buffersize: int = 0,
+                 latency: float | None = None,
+                 numbuffers: int = 0,
+                 ensure: bool = False,
+                 name=''
+                 ) -> csoundengine.session.Session:
     """
     Returns / creates the audio Session 
 
@@ -231,14 +231,14 @@ def getSession(numchannels: int | None = None,
     .. seealso:: :class:`csoundengine.Session <https://csoundengine.readthedocs.io/en/latest/api/csoundengine.session.Session.html>`
     """
     from maelzel.core import playback
-    return playback.getSession(numchannels=numchannels,
-                               backend=backend,
-                               outdev=outdev,
-                               verbose=verbose,
-                               buffersize=buffersize,
-                               latency=latency,
-                               numbuffers=numbuffers,
-                               ensure=ensure,
-                               name=name)
+    return playback.audioSession(numchannels=numchannels,
+                                 backend=backend,
+                                 outdev=outdev,
+                                 verbose=verbose,
+                                 buffersize=buffersize,
+                                 latency=latency,
+                                 numbuffers=numbuffers,
+                                 ensure=ensure,
+                                 name=name)
     
     

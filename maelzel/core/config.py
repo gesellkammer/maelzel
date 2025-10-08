@@ -18,7 +18,7 @@ Settings can be modified by simply changing the values of the active config dict
 
     # Get the active config
     >>> from maelzel.core import *
-    >>> config = getConfig()
+    >>> config = Workspace.active.config
     >>> config['show.pageSize'] = 'A3'
 
 A config has a :ref:`set of valid keys <coreconfigkeys>`. An attempt to set an unknown key will
@@ -47,7 +47,7 @@ Modifications to a configuration can be made persistent by saving the config.
 
     >>> from maelzel.core import *
     # Set the reference frequency to 443
-    >>> conf = getConfig()
+    >>> conf = getWorkspace().config
     >>> conf['A4'] = 443
     # Set lilypond as default rendering backend
     >>> conf['show.backend'] = 'lilypond'
@@ -56,7 +56,7 @@ Modifications to a configuration can be made persistent by saving the config.
 In a future session these changes will be picked up as default:
 
     >>> from maelzel.core import *
-    >>> conf = getConfig()
+    >>> conf = getWorkspace().config
     >>> conf['A4']
     443
 
@@ -81,7 +81,7 @@ Example
 ~~~~~~~
 
     >>> from maelzel.core import *
-    >>> config = getConfig()
+    >>> config = getWorkspace().config
     >>> config['rec.sr']
     44100
     >>> rootConfig['rec.sr'] = 48000
@@ -137,6 +137,8 @@ import configdict
 from configdict import ConfigDict
 from maelzel.core._common import logger
 from maelzel.core import configdata
+from functools import cache
+
 
 import typing as _t
 if _t.TYPE_CHECKING:
@@ -162,7 +164,7 @@ def _syncCsoundengineTheme(theme: str):
 
 def _resetImageCacheCallback(config: CoreConfig, force=False):
     from . import workspace
-    if force or config is workspace.getConfig():
+    if force or config is workspace.getWorkspace().config:
         from . import mobj
         mobj.clearImageCache()
 
@@ -352,7 +354,7 @@ class CoreConfig(ConfigDict):
         .. code-block:: python
 
             >>> from maelzel.core import *
-            >>> cfg = getConfig()
+            >>> cfg = getWorkspace().config
             >>> with cfg.clone(quantNestedTuples=False):
             ...     Chain(...).show()
 
@@ -375,6 +377,7 @@ class CoreConfig(ConfigDict):
         self._hash = super().__hash__()
         return self._hash
 
+    @cache
     def makeRenderOptions(self) -> RenderOptions:
         """
         Create RenderOptions based on this config
@@ -385,6 +388,7 @@ class CoreConfig(ConfigDict):
         from maelzel.core import notation
         return notation.makeRenderOptionsFromConfig(self)
 
+    @cache
     def makeQuantizationProfile(self) -> QuantizationProfile:
         """
         Create a QuantizationProfile from this config
@@ -393,6 +397,7 @@ class CoreConfig(ConfigDict):
         from maelzel.core import notation
         return notation.makeQuantizationProfileFromConfig(self)
         
+    @cache
     def makeEnharmonicOptions(self) -> enharmonics.EnharmonicOptions:
         """
         Create EnharmonicOptions from this config

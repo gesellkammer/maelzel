@@ -12,7 +12,7 @@ from csoundengine.sessionhandler import SessionHandler
 from maelzel.core._common import logger
 from maelzel.core.presetdef import PresetDef
 from maelzel.core import presetmanager
-from maelzel.core.workspace import getConfig, Workspace
+from maelzel.core.workspace import Workspace
 from maelzel.core import environment
 from maelzel.core import _playbacktools
 from maelzel.core.synthevent import SynthEvent
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 __all__ = (
     'play',
     'testAudio',
-    'getSession',
+    'audioSession',
 )
 
 
@@ -202,34 +202,51 @@ def stopSynths():
 
     If stopengine is True, the play engine itself is stopped
     """
-    getSession().unschedAll(future=True)
+    audioSession().unschedAll(future=True)
 
 
 @cache
 def _builtinInstrs() -> list[csoundengine.instr.Instr]:
     from csoundengine.instr import Instr
     return [
-        Instr('.reverbstereo', r'''\
-            |kfeedback=0.85, kwet=0.8, ichan=1, kcutoff=12000|
-            a1, a2 monitor
-            aL, aR  reverbsc a1, a2, kfeedback, kcutoff, sr, 0.5, 1
-            aL = aL * kwet - a1 * (1 - kwet) 
-            aR = aR * kwet - a2 * (1 - kwet)
-            outch ichan, aL - a1, ichan+1, aR - a2
-            ''')
+        Instr('.mainreverb', r'''\
+            |kfeedback=0.85, kwet=0.8, kcutoff=12000|
+            if kwet > 0 then
+                a1, a2 monitor
+                aL, aR  reverbsc a1, a2, kfeedback, kcutoff, sr, 0.5, 1
+                aL = aL * kwet - a1 * (1 - kwet) 
+                aR = aR * kwet - a2 * (1 - kwet)
+                outch 1, aL - a1, 2, aR - a2
+            endif
+            ''',
+              doc="Monitor stereo reverb, affects everything"),
+        Instr('.zitarev', r'''\
+            |kchan=1, kwet=1, kgaindb=-12, kdelayms=60, khfdamp=6000, kdecay=3, kdamp=0.2|
+            Schan1 = ".zitarev.1"
+            Schan2 = ".zitarev.2"
+            a1 chnget Schan1
+            a2 chnget Schan2
+            kdrywet = 1 - kwet
+            kdecaymid = kdecay * (1 - kdamp)
+            arev1, arev2 zitarev a1, a2, "drywet", kdrywet, "level", kgaindb, "delayms", kdelayms, "hfdamp", khfdamp, "decaylow", kdecay, "decaymid", kdecaymid
+            outch kchan, arev1, kchan+1, arev2
+            chnclear Schan1, Schan2
+        ''',
+              doc="Side channel stereo reverb, applies to channels .zitarev.1 and .zitarev.2",
+              properties={'kind': 'mainreverb'}),
     ]
 
 
-def getSession(numchannels: int | None = None,
-               backend='',
-               outdev='',
-               verbose: bool | None = None,
-               buffersize: int = 0,
-               latency: float | None = None,
-               numbuffers: int = 0,
-               ensure: bool = False,
-               name=''
-               ) -> csoundengine.session.Session:
+def audioSession(numchannels: int | None = None,
+                 backend='',
+                 outdev='',
+                 verbose: bool | None = None,
+                 buffersize: int = 0,
+                 latency: float | None = None,
+                 numbuffers: int = 0,
+                 ensure: bool = False,
+                 name=''
+                 ) -> csoundengine.session.Session:
     """
     Returns / creates the audio Session 
 
@@ -298,10 +315,10 @@ def getSession(numchannels: int | None = None,
 
 def isSessionActive(name='') -> bool:
     """
-    Returns True if the sound engine is active
+    Returns True if the audio session is active
     """
     if not name:
-        name = getConfig()['play.engineName']
+        name = Workspace.active.config['play.engineName']
     return name in csoundengine.Engine.activeEngines
 
 
@@ -466,7 +483,7 @@ class _SynchronizedContext(_renderer.Renderer):
 
         super().__init__(presetManager=presetmanager.presetManager)
 
-        self.session: csoundengine.session.Session = getSession()
+        self.session: csoundengine.session.Session = audioSession()
         """The corresponding Session, can be used to access the session during the context"""
 
         self.engine: csoundengine.engine.Engine = self.session.engine

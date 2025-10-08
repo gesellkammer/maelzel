@@ -7,6 +7,7 @@ from __future__ import annotations
 from maelzel.common import asF
 from .workspace import Workspace
 
+
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from maelzel import scoring

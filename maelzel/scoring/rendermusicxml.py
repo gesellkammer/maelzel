@@ -1090,7 +1090,7 @@ class MusicxmlRenderer(Renderer):
                 msg = ("Could not find MuseScore. To solve this you can either make"
                        " sure that a binary 'musescore' is found in the PATH, or"
                        " you can customize the path within maelzel.core via"
-                       " `getConfig()['musescorepath'] = '/path/to/musescore'`. To"
+                       " `w = getWorkspace(); w.config['musescorepath'] = '/path/to/musescore'`. To"
                        " install MuseScore follow the instructions here: "
                        "https://musescore.org/en/download")
                 raise RuntimeError(msg)

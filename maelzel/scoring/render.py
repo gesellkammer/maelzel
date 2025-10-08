@@ -58,11 +58,11 @@ def renderQuantizedScore(score: quant.QuantizedScore,
             if any(n.findAttachment(attachment.Clef) for n in part.flatNotations()):
                 logger.debug(f"Part #{i} (name={part.name}) already has manual clefs set, skipping automatic clefs")
             else:
-                part.findClefChanges(apply=True,
-                                     biasFactor=options.keepClefBiasFactor,
-                                     window=options.autoClefChangesWindow,
-                                     simplificationThreshold=options.clefSimplifyThreshold,
-                                     propertyKey='')
+                part.findBestClefChanges(apply=True,
+                                         biasFactor=options.keepClefBiasFactor,
+                                         window=options.autoClefChangesWindow,
+                                         simplificationThreshold=options.clefSimplifyThreshold,
+                                         propertyKey='')
         # part.repairLinks()
 
     if backend == 'musicxml':

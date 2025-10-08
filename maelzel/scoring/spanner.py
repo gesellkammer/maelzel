@@ -169,7 +169,8 @@ def markSpannerNestingLevel(notations: Iterable[Notation]) -> list[Spanner]:
     return []
 
 
-def matchOrfanSpanners(notations: Iterable[Notation], removeUnmatched=False) -> None:
+def matchOrfanSpanners(notations: Iterable[Notation], removeUnmatched=False, apply=True
+                       ) -> None:
     """Match orphan spanners with their partners.
 
     Args:
@@ -177,7 +178,8 @@ def matchOrfanSpanners(notations: Iterable[Notation], removeUnmatched=False) -> 
         removeUnmatched: Whether to remove unmatched spanners.
 
     Returns:
-        None
+        the uuids of the matched spanners.
+
     """
     unmatched = collectUnmatchedSpanners(notations)
     byclass: dict[type, list[Spanner]] = {}
@@ -192,12 +194,14 @@ def matchOrfanSpanners(notations: Iterable[Notation], removeUnmatched=False) -> 
             elif spanner.kind == 'end':
                 if stack:
                     startspanner = stack.pop()
-                    spanner.uuid = startspanner.uuid
+                    spanner._matchedUuid = startspanner.uuid
+                    if apply:
+                        spanner.uuid = startspanner.uuid
                 elif removeUnmatched:
                     assert spanner.parent is not None
                     n = spanner.parent
                     n.removeSpanner(spanner)
-
+    
 
 def collectUnmatchedSpanners(notations: Iterable[Notation],
                              ) -> list[tuple[Spanner, Notation]]:

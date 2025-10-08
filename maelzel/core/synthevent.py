@@ -14,6 +14,7 @@ import functools
 
 from typing import TYPE_CHECKING, cast as _cast
 if TYPE_CHECKING:
+    from typing_extensions import Self
     import csoundengine.instr
     from maelzel.common import time_t, location_t, num_t
     from maelzel.core import renderer
@@ -314,7 +315,10 @@ class PlayArgs:
                 for automation in self.automations]
 
 
-def cropBreakpoints(bps: list[breakpoint_t], start: float, end: float
+def cropBreakpoints(bps: list[breakpoint_t],
+                    start: float,
+                    end: float,
+                    consolidate=False
                     ) -> list[breakpoint_t]:
     """
     Crop the breakpoints at time t
@@ -322,35 +326,51 @@ def cropBreakpoints(bps: list[breakpoint_t], start: float, end: float
     Args:
         bps: the breakpoints
         start: the time to start cropping
-        end: the time to end cropping
+        end: the time to end cropping (a breakpoint at that time is included)
 
     Returns:
         the cropped breakpoints
     """
     if not 0 <= start <= end:
         raise ValueError(f"Invalid crop times: {start=}, {end=}")
-    time0 = bps[0][0]
-    assert time0 == 0
-    if start <= time0 and (end == 0 or end > bps[-1][0]):
-        return bps
-    if end < start:
-        raise ValueError(f"Invalid crop range, {start=}, {end=} (end < start)")
-    newbps = []
-    for i, bp in enumerate(bps):
-        bptime = bp[0]
-        if bptime < start:
-            continue
-        elif bptime > start and i > 0:
-            # there is part of a breakpoint before, need to interpolate
-            bp2 = _interpolateBreakpoints(start, bps[i-1], bp)
-            newbps.append(bp2)
+    
+    if start >= bps[-1][0]:
+        return []
 
-        if bptime <= end:
-            newbps.append(bp)
-        else:
-            bp2 = _interpolateBreakpoints(end, bps[i - 1], bp)
-            newbps.append(bp2)
+    newbps: list[tuple] = []
+    for i, bp in enumerate(bps):
+        t0 = bp[0]
+        if t0 < start:
+            continue
+        elif t0 >= end:
+            if t0 == end:
+                newbps.append(bp)
+            else:
+                # Past the end, we need to interpolate at end
+                lastt = newbps[-1][0]
+                assert newbps and lastt < end
+                bp2 = _interpolateBreakpoints(end, bps[i-1], bp)
+                newbps.append(tuple(bp2))
             break
+        else:
+            assert start <= t0 < end
+            if start == t0:
+                newbps.append(bp)
+            elif newbps:
+                # start < t0, we started collecting, so no need to interpolate
+                newbps.append(bp)
+            else:
+                # Yes, we need to interpolate
+                bp2 = _interpolateBreakpoints(start, bps[i-1], bp)
+                newbps.append(tuple(bp2))
+
+    if consolidate and start > 0:
+        if len(newbps[0]) == 3:
+            # Most common case, faster than the loop below
+            newbps = [(bp[0] - start, bp[1], bp[2]) for bp in newbps]
+        else:
+            # general case
+            newbps = [(bp[0] - start, *bp[1:]) for bp in newbps]
     return newbps
 
 
@@ -513,7 +533,9 @@ class SynthEvent:
         self.bps: list[breakpoint_t] = bps
         """breakpoints, where each breakpoint is a list of [timeoffset, midi, amp, [...]]"""
 
-        dur = self.bps[-1][0] - self.bps[0][0]
+        t0 = self.bps[0][0]
+
+        dur = self.bps[-1][0] - t0
 
         self.delay: float = delay
         """time delay - The effective time of bp[n] will be delay + bp[n][0]"""
@@ -595,7 +617,8 @@ class SynthEvent:
 
         self._initdone = False
 
-        self._consolidateDelay()
+        if t0 > 0:
+            self._consolidateDelay()
 
         if self.dur <= 0:
             raise ValueError(f"Duration of a synth event must be possitive: {self}")
@@ -629,7 +652,7 @@ class SynthEvent:
 
     def _applySustain(self) -> None:
         if self.linkednext and self.sustain:
-            logger.debug(f"A linked event cannot have sustain ({self=}")
+            logger.debug("A linked event cannot have sustain, self=%s", self)
             return
         if self.sustain > 0:
             last = self.bps[-1]
@@ -672,7 +695,7 @@ class SynthEvent:
         return out
 
     def copy(self) -> SynthEvent:
-        return SynthEvent(bps=self.bps.copy(),
+        return SynthEvent(bps=self.bps.copy(), # shallow copy, since breakpoints are tuples
                           delay=self.delay,
                           chan=self.chan,
                           fade=self.fade,
@@ -686,6 +709,7 @@ class SynthEvent:
                           numchans=self.numchans,
                           linkednext=self.linkednext,
                           whenfinished=self.whenfinished,
+                          sustain=self.sustain,
                           properties=self.properties.copy() if self.properties else None)
 
     @property
@@ -764,18 +788,16 @@ class SynthEvent:
 
     def _consolidateDelay(self) -> None:
         delay0 = self.bps[0][0]
-        assert all(isinstance(bp, tuple) for bp in self.bps)
+        # assert all(isinstance(bp, tuple) for bp in self.bps)
         if delay0 > 0:
             self.delay += delay0
             self.bps = [(bp[0] - delay0,) + bp[1:] for bp in self.bps]
-        assert self.bps[0][0] == 0
-
+        
     def _applyTimeFactor(self, timefactor: float) -> None:
         if timefactor == 1:
             return
         self.delay *= timefactor
-        for bp in self.bps:
-            bp[0] *= timefactor
+        self.bps = [(bp[0] * timefactor, *bp[1:]) for bp in self.bps]
 
     def shiftInPlace(self, offset: float, crop=True) -> None:
         """
@@ -823,43 +845,21 @@ class SynthEvent:
             end: end time, in seconds
         """
         assert self.bps[0][0] == 0
-        start = max(0., start - self.delay)
-        end = max(start, end - self.delay)
-        bps = cropBreakpoints(self.bps, start, end)
+        relstart = max(0., start - self.delay)
+        relend = max(start, end - self.delay)
+        bps = cropBreakpoints(self.bps, relstart, relend, consolidate=relstart > 0)
         self.bps = bps
-        self._consolidateDelay()
+        self.delay = delay = max(self.delay, start)
+        assert delay >= 0 and self.bps[0][0] == 0
 
-    def cropped(self, start: float, end: float) -> SynthEvent:
+    def cropped(self, start: float, end: float) -> Self:
         """
         Return a cropped version of this SynthEvent
         """
         out = self.copy()
         out.crop(start, end)
         return out
-
-        # ------ TODO: remove this code
-        start = max(start - self.delay, 0)
-        end -= self.delay
-        if end - start <= 0:
-            raise ValueError(f"Invalid crop: the end time ({end}) should lie before "
-                             f"the start time ({start})")
-        out = []
-        for i in range(len(self.bps)):
-            bp: list[float] = self.bps[i]
-            t = bp[0]
-            if t < start:
-                if i < len(self.bps)-1 and start < self.bps[i + 1][0]:
-                    bpi = _interpolateBreakpoints(start, bp, self.bps[i + 1])
-                    out.append(bpi)
-            elif start <= t < end:
-                out.append(bp.copy())
-                if i < len(self.bps) - 1 and end <= self.bps[i+1][0]:
-                    bp2 = _interpolateBreakpoints(end, bp, self.bps[i+1])
-                    out.append(bp2)
-            elif t > end:
-                break
-        return self.clone(bps=out)
-
+        
     def breakpointSize(self) -> int:
         """ Returns the number of breakpoints in this SynthEvent """
         return len(self.bps[0])

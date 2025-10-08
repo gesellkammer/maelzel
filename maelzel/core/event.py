@@ -27,7 +27,7 @@ import pitchtools as pt
 from maelzel import scoring
 
 from maelzel.core import mobj
-from maelzel.common import F, asF, F0, F1, asmidi
+from maelzel.common import F, asF, F1, asmidi
 from maelzel.common import UNSET
 from maelzel.core.workspace import Workspace
 from maelzel.core.mevent import MEvent
@@ -615,9 +615,7 @@ class Note(MEvent):
 
         if self.label:
             notes[0].addText(self._scoringAnnotation(config=config))
-        elif chainlabel := self.getProperty('.chainlabel'):
-            notes[0].addText(self._scoringAnnotation(text=chainlabel, config=config))
-
+        
         tempsymbols = self.properties.pop('.tempsymbols', None) if self.properties else None
         if (symbols := _mergeOptLists(tempsymbols, self.symbols)) is not None:
             for symbol in symbols:
@@ -712,15 +710,12 @@ class Note(MEvent):
     def __sub__(self, other: num_t) -> Self:
         return self + (-other)
 
-    def quantizePitch(self, step=0.) -> Self:
+    def quantizePitch(self, step=1.) -> Self:
         """
         Returns a new Note, rounded to step.
 
-        If step is 0, the default quantization value is used (this can be
-        configured via ``getConfig()['semitoneDivisions']``)
-
         .. note::
-            - If this note has a gliss, the target pitch is also quantized
+            - If this note has an explicit gliss, the target pitch is also quantized
             - Any set pitch spelling is deleted
         """
         if self.isRest():
@@ -731,11 +726,10 @@ class Note(MEvent):
             # a newly constructed chain
             return self.copy() if self.parent else self
 
-        if step == 0:
-            step = 1 / Workspace.active.config['semitoneDivisions']
         out = self.clone(pitch=round(self.pitch / step) * step)
-        if isinstance(self._gliss, (int, float)):
-            out._gliss = round(out._gliss / step) * step
+        if isinstance(self._gliss, (int, float)) and self._gliss != 0.:
+            gliss = round(out._gliss / step) * step
+            out._gliss = gliss if gliss != self.pitch else None
         out.pitchSpelling = ''
         return out
 
@@ -1182,7 +1176,7 @@ class Chord(MEvent):
                             parenthesis=parenthesis, hidden=hidden)
         return chord
 
-    def mergeWith(self, other: Chord) -> Chord | None:
+    def mergeWith(self, other: Chord) -> Self | None:
         if not isinstance(other, Chord):
             return None
 
@@ -1267,8 +1261,6 @@ class Chord(MEvent):
                                               group=groupid,
                                               dynamic=self.dynamic,
                                               tiedNext=self.tied)
-        if chainlabel := self.getProperty('.chainlabel'):
-            notation.addText(self._scoringAnnotation(chainlabel, config=config))
 
         # Transfer any pitch spelling
         for i, note in enumerate(self.notes):
@@ -1304,6 +1296,21 @@ class Chord(MEvent):
                         logger.debug(f"Cannot apply symbol {symbol} to a pitch inside chord {self}")
 
         return notations
+
+    def scoringParts(self,
+                     config: CoreConfig | None = None
+                     ) -> list[scoring.core.UnquantizedPart]:
+        # The only reason we need to overload this is that when showing a chord
+        # which is split across multiple parts we want to lock the spelling
+        from maelzel.scoring import enharmonics
+        config = config or Workspace.active.config
+        notations = self.scoringEvents(config=config)
+        n0 = notations[0]
+        notenames = n0.resolveNotenames(keepFixedAnnotation=True)
+        spelling0 = enharmonics.bestChordSpelling(notenames, options=config.makeEnharmonicOptions())
+        for name in spelling0:
+            n0.fixNotename(name)
+        return self._scoringPartsFromNotations(notations, config=config)
 
     def __hash__(self):
         if isinstance(self.gliss, bool):
@@ -1344,7 +1351,7 @@ class Chord(MEvent):
         self.notes.insert(index, note if isinstance(note, Note) else Note(note))
         self._changed()
 
-    def transposeTo(self, fundamental: pitch_t) -> Chord:
+    def transposeTo(self, fundamental: pitch_t) -> Self:
         """
         Return a copy of self, transposed to the new fundamental
 
@@ -1357,24 +1364,25 @@ class Chord(MEvent):
         Returns:
             A Chord transposed to the new fundamental
         """
-        step = asmidi(fundamental) - self[0].pitch
+        base = min(n.pitch for n in self.notes)
+        step = asmidi(fundamental) - base
         return self.transpose(step)
 
-    def freqShift(self, freq: float) -> Chord:
+    def freqShift(self, freq: float) -> Self:
         """
         Return a copy of this chord shifted in frequency
         """
-        return Chord([note.freqShift(freq) for note in self])
+        return self.clone(notes=[note.freqShift(freq) for note in self])
 
-    def quantizePitch(self, step=0.) -> Chord:
+    def quantizePitch(self, step=1.) -> Self:
         """
         Returns a copy of this chord, with the pitches quantized.
 
         Two notes with the same pitch are considered equal if they quantize to the same
         pitch, independently of their amplitude. Amplitudes of equal notes are accumulated
+
         """
-        if step == 0:
-            step = 1 / Workspace.active.config['semitoneDivisions']
+        assert step > 0
         notes = {}
         for note in self:
             note2 = note.quantizePitch(step)
@@ -1388,22 +1396,22 @@ class Chord(MEvent):
         self.notes.__setitem__(i, note if isinstance(note, Note) else Note(note))
         self._changed()
 
-    def __add__(self, other: pitch_t) -> Chord:
+    def __add__(self, other: pitch_t) -> Self:
         if isinstance(other, Note):
             # append the note
-            s = self.copy()
-            s.append(other)
-            return s
+            notes = self.notes.copy()
+            notes.append(other)
+            return self.clone(notes=notes)
         elif isinstance(other, (int, float)):
             # transpose
-            s = [n + other for n in self]
-            return Chord(s)
+            notes = [n + other for n in self]
+            return self.clone(notes=notes)
         elif isinstance(other, (Chord, str)):
             # join chords together
-            return Chord(self.notes + _asChord(other).notes)
+            return self.clone(notes = self.notes+_asChord(other).notes)
         raise TypeError(f"Can't add a Chord to a {other.__class__.__name__}")
 
-    def loudest(self, n: int) -> Chord:
+    def loudest(self, n: int) -> Self:
         """
         Return a new Chord with the loudest `n` notes from this chord
         """
@@ -1476,11 +1484,13 @@ class Chord(MEvent):
         else:
             globalgain = 1.
 
-        startbeat = self.relOffset() + parentOffset
-        startbeat = max(startbeat, playargs.get('skip', F0))
-        endbeat = min(startbeat + self.dur, playargs.get('end', float('inf')))
+        absoffset = self.relOffset() + parentOffset
+
+        startbeat = absoffset + playargs.get('skip', 0)
+        endbeat = absoffset + playargs.get('end', self.dur)
         startsecs = float(struct.beatToTime(startbeat))
         endsecs = float(struct.beatToTime(endbeat))
+
         endpitches = self.pitches if not self.gliss else self.resolveGliss()
         amps = self.resolveAmps(config=conf, dyncurve=workspace.dynamicCurve)
         transpose = playargs.get('transpose', 0.)
@@ -1617,7 +1627,7 @@ class Chord(MEvent):
         for n in reversed(self.notes):
             print("  "*(indents+2), repr(n))
 
-    def mappedAmplitudes(self, curve, db=False) -> Chord:
+    def mappedAmplitudes(self, curve, db=False) -> Self:
         """
         Return new Chord with the amps of the notes modified according to curve
 
@@ -1646,7 +1656,7 @@ class Chord(MEvent):
             for note in self:
                 amp2 = curve(note.amp if note.amp is not None else 1.0)
                 notes.append(note.clone(amp=amp2))
-        return Chord(notes)
+        return self.clone(notes=notes)
 
     def setAmplitudes(self, amp: float) -> None:
         """
@@ -1735,7 +1745,7 @@ class Chord(MEvent):
             n0, n1 = n1, n2
         return False
 
-    def pitchTransform(self, pitchmap: Callable[[float], float]) -> Chord:
+    def pitchTransform(self, pitchmap: Callable[[float], float]) -> Self:
         transpositions = [pitchmap(note.pitch) - note.pitch for note in self.notes]
         newnotes = [n.transpose(interval) for n, interval in zip(self.notes, transpositions)]
         return self.clone(notes=newnotes,

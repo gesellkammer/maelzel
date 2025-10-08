@@ -30,7 +30,7 @@ from functools import cache
 
 from maelzel import _util
 from maelzel import colortheory
-from maelzel.common import F
+from maelzel.common import F, F0
 
 from maelzel import scoring
 import maelzel.scoring.spanner as _spanner
@@ -139,10 +139,10 @@ class Spanner(Symbol):
         assert linetype in {'', 'solid', 'dashed', 'dotted', 'wavy', 'trill', 'zigzag'}, f"got {linetype}"
         if placement:
             assert placement == 'above' or placement == 'below'
-        self.kind = kind
+        self.kind: str = kind
         """The kind of spanner. Either unset or 'start' or 'end'"""
 
-        self.uuid = uuid or _makeuuid(8)
+        self.uuid: str = uuid or _makeuuid(8)
         """An id identifying this spanner"""
 
         self.linetype = linetype
@@ -159,6 +159,9 @@ class Spanner(Symbol):
 
         self._partner: Spanner | None = None
         """The partner spanner"""
+
+        self._matchedUuid: str = ''
+        """Used when matching orfan spanners"""
 
     @property
     def anchor(self) -> mevent.MEvent | None:
@@ -238,7 +241,7 @@ class Spanner(Symbol):
         """
         if startobj is endobj:
             raise ValueError("Cannot bind a spanner to the same object as start and end anchor")
-
+        
         startobj.addSymbol(self)
         if self.anchor is None:
             self.setAnchor(startobj)
@@ -583,6 +586,8 @@ class EventSymbol(Symbol):
             with another event
     """
     appliesToRests = True
+    applyToFragmentStrategy = 'all'
+    applyToAllParts = True
 
     def __init__(self, color='', placement='', noMergeNext=False):
         super().__init__()
@@ -604,6 +609,27 @@ class EventSymbol(Symbol):
             n.mergeableNext = False
         attachment = self.scoringAttachment()
         n.addAttachment(attachment)
+
+    def applyToMany(self, notations: list[scoring.Notation]) -> None:
+        if self.applyToFragmentStrategy == 'all':
+            for n in notations:
+                if not n.isRest or self.appliesToRests:
+                    self.applyToNotation(n, parent=None)
+        elif self.applyToFragmentStrategy == 'first':
+            if self.appliesToRests:
+                self.applyToNotation(notations[0], parent=None)
+            else:
+                first = next((n for n in notations if not n.isRest), None)
+                if first:
+                    self.applyToNotation(first, parent=None)
+
+    def applyToFragment(self, part: scoring.core.UnquantizedPart, start=F0, end=F0) -> None:
+        notations = part.notationsBetween(start, end)
+        self.applyToMany(notations)
+
+    def applyToPart(self, part: scoring.core.UnquantizedPart) -> None:
+        self.applyToFragment(part)
+
 
 
 class Hidden(EventSymbol):
@@ -660,21 +686,14 @@ class NoteheadSymbol(Symbol):
         for idx in range(len(n.pitches)):
             self.applyToPitch(n, idx=idx, parent=parent)
 
-
-class PartMixin:
-    """Symbols which can be attached to a voice"""
-
-    applyToAllParts = True
-    """Within a multipart voice, apply this symbol to all parts"""
-
-    @abstractmethod
-    def applyToPart(self, part: scoring.core.UnquantizedPart) -> None:
-        raise NotImplementedError
+    def applyToMany(self, notations: list[scoring.Notation]) -> None:
+        for n in notations:
+            self.applyToNotation(n, parent=None)
 
 
 # ----------------------------------------------------------
 
-class BeamSubdivision(EventSymbol, PartMixin):
+class BeamSubdivision(EventSymbol):
     """
     Customize beam subdivision
     
@@ -695,6 +714,7 @@ class BeamSubdivision(EventSymbol, PartMixin):
     """
     exclusive = True
     appliesToRests = True
+    applyToAllParts = True
     
     def __init__(self, minimum: int | F = 0, maximum: int | F = 0):
         super().__init__()
@@ -703,12 +723,17 @@ class BeamSubdivision(EventSymbol, PartMixin):
         
     def scoringAttachment(self) -> _attachment.Attachment:
         return _attachment.BeamSubdivisionHint(minimum=self.minimum, maximum=self.maximum)
-    
-    def applyToPart(self, part: scoring.core.UnquantizedPart) -> None:
-        att = _attachment.BeamSubdivisionHint(minimum=self.minimum, 
-                                                     maximum=self.maximum, 
-                                                     once=False) 
-        part.notations[0].addAttachment(att)
+
+    def applyToFragment(self, part: scoring.core.UnquantizedPart, start=F0, end=F0) -> None:
+        notation = part.notationAfter(start)
+        if notation is None:
+            logger.warning("No notation to apply this symbol to, symbol=%s, part=%s, "
+                           "start=%s, end=%s", self, part, start, end)
+            return
+        att = _attachment.BeamSubdivisionHint(minimum=self.minimum,
+                                              maximum=self.maximum,
+                                              once=False)
+        notation.addAttachment(att)
         
         
 class Clef(EventSymbol):
@@ -866,6 +891,8 @@ class Text(EventSymbol):
     """
     exclusive = False
     appliesToRests = True
+    applyToFragmentStrategy = 'first'
+    applyToAllParts = False
 
     def __init__(self, text: str, placement='above', fontsize: float | None = None,
                  italic=False, weight='normal', box='',
@@ -891,16 +918,16 @@ class Text(EventSymbol):
 
     def scoringAttachment(self) -> _attachment.Attachment:
         return _attachment.Text(text=self.text, placement=self.placement,
-                                       fontsize=self.fontsize, italic=self.italic,
-                                       weight=self.weight, box=self.box,
-                                       fontfamily=self.fontfamily)
+                                fontsize=self.fontsize, italic=self.italic,
+                                weight=self.weight, box=self.box,
+                                fontfamily=self.fontfamily)
 
     def __hash__(self):
         return hash((type(self).__name__, self.text, self.placement, self.fontsize, self.italic,
                      self.weight, self.fontfamily))
 
 
-class Transpose(EventSymbol, PartMixin):
+class Transpose(EventSymbol):
     """
     Apply a transposition for notation only
 
@@ -913,6 +940,7 @@ class Transpose(EventSymbol, PartMixin):
     exclusive = True
     applyToTieStrategy = 'all'
     appliesToRests = False
+    applyToAllParts = True
 
     def __init__(self, interval: str | float):
         super().__init__()
@@ -946,9 +974,14 @@ class Transpose(EventSymbol, PartMixin):
                 n.fixNotename(pt.transpose(pitch, self.interval), index=i)
 
     def applyToPart(self, part: scoring.core.UnquantizedPart) -> None:
-        for notation in part.notations:
-            if not notation.isRest:
-                self.applyToNotation(notation, parent=None)
+        for n in part.notations:
+            if not n.isRest:
+                self.applyToNotation(n, parent=None)
+
+    def applyToFragment(self, part: scoring.core.UnquantizedPart, start=F0, end=F0) -> None:
+        for n in part.notationsBetween(start, end):
+            if not n.isRest:
+                self.applyToNotation(n, parent=None)
 
 
 class NotatedPitch(NoteheadSymbol):
@@ -1150,7 +1183,7 @@ class Notehead(NoteheadSymbol):
         return hash((type(self).__name__, self.shape, self.color, self.parenthesis, self.size))
 
     def __repr__(self):
-        return _util.reprObj(self, priorityargs=('shape,'), hideFalsy=True)
+        return _util.reprObj(self, priorityargs=('shape,'), hideFalsy=True, convert={'size': lambda size: f"{size:.4g}"})
 
     def asScoringNotehead(self) -> scoring.definitions.Notehead:
         return scoring.definitions.Notehead(shape=self.shape, color=self.color, size=self.size,
@@ -1278,10 +1311,10 @@ class Articulation(EventSymbol):
 
     def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None) -> None:
         if n.isRest:
-            logger.warning(f"Cannot apply {self} to a rest: {n}")
+            logger.warning("Cannot apply %s to a rest: %s", self, n)
         else:
             if n.tiedPrev:
-                logger.debug(f"Applying articulation {self} to {n}, even if it is tied to prev")
+                logger.debug("Applying articulation %s to %s, even if tied to prev", self, n)
             super().applyToNotation(n=n, parent=parent)
 
 
@@ -1465,10 +1498,10 @@ class Accidental(NoteheadSymbol):
         if n.isRest:
             return
         attachment = _attachment.AccidentalTraits(color=self.color,
-                                                         hidden=self.hidden,
-                                                         parenthesis=self.parenthesis,
-                                                         force=self.force,
-                                                         size=self.size)
+                                                  hidden=self.hidden,
+                                                  parenthesis=self.parenthesis,
+                                                  force=self.force,
+                                                  size=self.size)
         n.addAttachment(attachment, pitchanchor=idx)
 
 
@@ -1571,7 +1604,9 @@ _symbolClasses = (
 
 _voiceSymbols = (
     Transpose,
-    
+    Color,
+    Text,
+    SizeFactor
 )
 
 

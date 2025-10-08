@@ -31,7 +31,7 @@ __all__ = (
     'presetManager',
     'showPresets',
     'defPreset',
-    'defPresetSoundfont',
+    'defSoundfont',
     'getPreset'
 )
 
@@ -190,13 +190,13 @@ class PresetManager:
         #                                     _builtin=True, description=descr)
 
         for name, info in builtinpresets.builtinSoundfonts().items():
-            self.defPresetSoundfont(name,
-                                    sf2path=info['sf2path'],
-                                    preset=info['preset'],
-                                    description=info.get('description', ''),
-                                    ampDivisor=info.get('ampDivisor'),
-                                    _builtin=True,
-                                    )
+            self.defSoundfont(path=info['path'],
+                              name=name,
+                              preset=info['preset'],
+                              description=info.get('description', ''),
+                              sf2AmpDivisor=info.get('ampDivisor'),
+                              _builtin=True,
+                              )
 
     def defPreset(self,
                   name: str,
@@ -208,7 +208,8 @@ class PresetManager:
                   description='',
                   envelope=True,
                   output=True,
-                  aliases: dict[str, str] | None = None
+                  aliases: dict[str, str] | None = None,
+                  inithook: _t.Callable[[csoundengine.session.Session], None] | None = None
                   ) -> _presetdef.PresetDef:
         """
         Define a new instrument preset.
@@ -254,6 +255,11 @@ class PresetManager:
                 (``aout1``, ``aout2``, ...)
             aliases: if given, a dict mapping alias to real parameter name. This mechanism
                 allows to use any name for a parameter, instead of a csound variable
+            inithook: if given, a function ``(AbstractRenderer) -> None`` to be called
+                the first time an instance of this preset is instanciated (at any priority).
+                This can be used to allocate any resources that this preset might need, define
+                instruments, schedule events, etc. It is given access to the renderer being used
+                (either the csoundengine Session or its offline counterpart, OfflineSession).
 
         Returns:
             a PresetDef
@@ -337,7 +343,8 @@ class PresetManager:
                               description=description,
                               envelope=envelope,
                               routing=output,
-                              aliases=aliases)
+                              aliases=aliases,
+                              inithook=inithook)
         self.registerPreset(presetdef)
         # NB: before, we would register the preset to the session
         # via playback.getSession().registerInstr(presetdef.getInstr())
@@ -345,24 +352,24 @@ class PresetManager:
         # the instrument is used
         return presetdef
 
-    def defPresetSoundfont(self,
-                           name='',
-                           sf2path='',
-                           preset: tuple[int, int] | str = '',
-                           init='',
-                           postproc='',
-                           reverb=False,
-                           includes: _t.Sequence[str] = (),
-                           args: dict[str, float] | None = None,
-                           interpolation='',
-                           mono=False,
-                           ampDivisor: int | float = 0,
-                           turnoffWhenSilent=True,
-                           description='',
-                           normalize=False,
-                           velocityCurve: _t.Sequence[float] | _presetdef.GainToVelocityCurve = (),
-                           reverbChanPrefix='',
-                           _builtin=False) -> _presetdef.PresetDef:
+    def defSoundfont(self,
+                     path: str,
+                     name='',
+                     preset: tuple[int, int] | str = '',
+                     init='',
+                     postproc='',
+                     reverb=False,
+                     includes: _t.Sequence[str] = (),
+                     args: dict[str, float] | None = None,
+                     interpolation='',
+                     mono=False,
+                     sf2AmpDivisor: int | float = 0,
+                     turnoffWhenSilent=True,
+                     description='',
+                     normalize=False,
+                     velocityCurve: _t.Sequence[float] | _presetdef.GainToVelocityCurve = (),
+                     reverbInstr='',
+                     _builtin=False) -> _presetdef.PresetDef:
         """
         Define a new instrument preset based on a soundfont
 
@@ -386,8 +393,8 @@ class PresetManager:
         Args:
             name: the name of the preset. If not given, the name of the preset
                 is used.
-            sf2path: the path to the soundfont. Use "?" open a dialog to select a .sf2 file
-                or None to use the default soundfont
+            path: the path to the soundfont. Use "?" open a dialog to select a soundfont file
+                or None to use the default soundfont. At the moment only .sf2 format is supported
             preset: the preset to use. Either a tuple (bank: int, presetnum: int) or the
                 name of the preset as string. **Use "?" to select from all available presets
                 in the soundfont**.
@@ -400,7 +407,7 @@ class PresetManager:
             mono: if True, only the left channel of the soundfont is read
             velocityCurve: either a flat list of pairs of the form [db0, vel0, db1, vel1, ...],
                 mapping dB values to velocities, or an instance of GainToVelocityCurve
-            ampDivisor: most soundfonts are PCM 16bit files and need to be scaled down
+            sf2AmpDivisor: most sf2 soundfonts are PCM 16bit files and need to be scaled down
                 to use them in the range of -1:1. This value is used to scale amp down.
                 The default is 16384 (it can be changed in the config
                 (:ref:`key 'play.soundfontAmpDiv' <config_play_soundfontampdiv>`), but
@@ -413,17 +420,17 @@ class PresetManager:
             description: a short string describing this preset
             normalize: if True, queries the amplitude divisor of the soundfont at runtime
                 and uses that to scale amplitudes to 0dbfs
-            reverbChanPrefix: ???
+            reverb: if True, use reverb for this preset
             _builtin: if True, marks this preset as built-in
 
         Example
         ~~~~~~~
 
             >>> from maelzel.core import *
-            >>> defPresetSoundfont('yamahagrand', '/path/to/yamahapiano.sf2',
-            ...                    preset='Yamaha C5 Grand')
+            >>> defSoundfont('/path/to/yamahapiano.sf2',
+                             name='yamahapiano',
+            ...              preset='Yamaha C5 Grand')
             >>> Note("C4", dur=5).play(instr='yamahagrand')
-
 
         See Also
         ~~~~~~~~
@@ -432,26 +439,29 @@ class PresetManager:
         """
         if name in self.presetdefs:
             logger.info(f"PresetDef {name} already exists, overwriting")
-        if not sf2path:
-            sf2path = presetutils.resolveSoundfontPath() or '?'
-        if sf2path == "?":
-            from . import _dialogs
-            sf2path = _dialogs.selectFileForOpen('soundfontLastDir',
-                                                 filter="*.sf2", prompt="Select Soundfont")
-            if sf2path is None:
-                raise ValueError("No soundfont selected")
 
-        cfg = Workspace.active.config
+        if path == "?":
+            from . import _dialogs
+            path = _dialogs.selectFileForOpen('soundfontLastDir',
+                                              filter="*.sf2", prompt="Select Soundfont")
+            if path is None:
+                raise ValueError("No soundfont selected")
+        
+        if not os.path.exists(path):
+            raise OSError(f"path {path} does not exist")
+
+        wspace = Workspace.active
+        cfg = wspace.config
         if not interpolation:
             interpolation = cfg['play.soundfontInterpol']
         assert interpolation in ('linear', 'cubic')
 
         from csoundengine import sftools
-        idx = sftools.soundfontIndex(sf2path)
+        idx = sftools.soundfontIndex(path)
 
         if isinstance(preset, str):
             if preset == "?":
-                result = presetutils.soundfontSelectProgram(sf2path)
+                result = presetutils.soundfontSelectProgram(path)
                 if not result:
                     raise ValueError("No preset selected, aborting")
                 progname, bank, presetnum = result
@@ -459,7 +469,7 @@ class PresetManager:
                 # Preset not given, use first preset found
                 name, (bank, presetnum) = next(iter(idx.nameToPreset.items()))
             else:
-                bank, presetnum = presetutils.getSoundfontProgram(sf2path, preset)
+                bank, presetnum = presetutils.getSoundfontProgram(path, preset)
         else:
             bank, presetnum = preset
         if (bank, presetnum) not in idx.presetToName:
@@ -467,25 +477,34 @@ class PresetManager:
                              f"{idx.presetToName.keys()}, preset names: {idx.nameToIndex.keys()}")
         if not name:
             name = idx.presetToName[(bank, presetnum)]
-        if normalize and not ampDivisor and cfg['play.soundfontFindPeakAOT']:
-            sfpeak = sftools.soundfontPeak(sfpath=sf2path, preset=(bank, presetnum))
+        if normalize and not sf2AmpDivisor and cfg['play.soundfontFindPeakAOT']:
+            sfpeak = sftools.soundfontPeak(sfpath=path, preset=(bank, presetnum))
             if sfpeak > 0:
-                ampDivisor = sfpeak
+                sf2AmpDivisor = sfpeak
                 normalize = False
 
-        code = presetutils.makeSoundfontAudiogen(sf2path=sf2path,
+        if reverb and not reverbInstr:
+            reverbInstr = cfg['play.reverbInstr']
+
+        code = presetutils.makeSoundfontAudiogen(sf2path=path,
                                                  preset=(bank, presetnum),
                                                  interpolation=interpolation,
-                                                 ampDivisor=ampDivisor,
+                                                 ampDivisor=sf2AmpDivisor,
                                                  mono=mono,
                                                  normalize=normalize,
-                                                 reverb=reverb,
-                                                 reverbChanPrefix=reverbChanPrefix,
+                                                 reverbChanPrefix=reverbInstr,
                                                  velocityCurve=velocityCurve)
+
+        def inithook(session: csoundengine.session.AbstractRenderer):
+
+            synthname = reverbInstr
+            reverbsynth = session.namedEvents.get(synthname)
+            if reverbsynth is None:
+                _ = session.sched(reverbInstr, name=synthname, priority=-1)
 
         # We don't actually need the global variable because sfloadonce
         # saves the table number into a channel
-        init0 = f'''i__SfTable__ sfloadonce "{sf2path}"'''
+        init0 = f'''i__SfTable__ sfloadonce "{path}"'''
         if init:
             init = "\n".join((init0, init))
         else:
@@ -503,10 +522,13 @@ class PresetManager:
                                    args=args,
                                    description=description,
                                    output=not reverb,
+                                   inithook=inithook if reverb else None,
                                    aliases={'transpose': 'ktransp'})
         presetdef.userDefined = not _builtin
-        presetdef.properties = {'sfpath': sf2path,
-                                'ampDivisor': ampDivisor}
+        presetdef.properties = {'sfpath': path,
+                                'ampDivisor': sf2AmpDivisor}
+        if reverb:
+            presetdef.properties['reverbInstr'] = reverbInstr
         return presetdef
 
     def registerPreset(self, presetdef: _presetdef.PresetDef) -> None:
@@ -832,6 +854,6 @@ class PresetManager:
 presetManager = PresetManager.instance()
 
 defPreset = presetManager.defPreset
-defPresetSoundfont = presetManager.defPresetSoundfont
+defSoundfont = presetManager.defSoundfont
 getPreset = presetManager.getPreset
 showPresets = presetManager.showPresets

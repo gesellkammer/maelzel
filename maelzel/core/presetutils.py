@@ -82,11 +82,12 @@ def loadYamlPreset(path: str) -> presetdef.PresetDef:
     if not code:
         raise ValueError("A preset should define an audiogen")
     from . import presetdef
-    return presetdef.PresetDef(name=d.get('name'),
+    
+    return presetdef.PresetDef(name=presetName,
                                code=code,
-                               includes=d.get('includes'),
-                               init=d.get('init'),
-                               epilogue=d.get('epilogue'),
+                               includes=d.get('includes', ()),
+                               init=d.get('init', ''),
+                               epilogue=d.get('epilogue', ''),
                                args=d.get('args'),
                                properties=d.get('properties'))
 
@@ -97,11 +98,9 @@ def makeSoundfontAudiogen(sf2path: str,
                           ampDivisor: int | float = 0,
                           normalize=False,
                           velocityCurve: presetdef.GainToVelocityCurve | _t.Sequence[float] = (),
-                          # velocityToCutoffMapping: dict[int, int] = None,
                           referencePeakPitch: int = 0,
                           mono=False,
-                          reverb=False,
-                          reverbChanPrefix='.maelzelreverb'
+                          reverbChanPrefix=''
                           ) -> str:
     """
     Generate audiogen code for a soundfont.
@@ -215,30 +214,33 @@ def makeSoundfontAudiogen(sf2path: str,
         {ivelstr}
     endif
     """)
-    if not mono:
-        opcode = 'sfplay' if interpolation == 'linear' else 'sfplay3'
-        parts.append(f'''\
-        aout1, aout2 {opcode} ivel, inote0_, kamp/iampdiv_, mtof:k(kpitch2), ipresetidx, 1
-        ''')
-
-    else:
+    if mono:
         opcode = 'sfplaym' if interpolation == 'linear' else 'sfplay3m'
         parts.append(fr'''
         aout1 {opcode} ivel, inote0_, kamp/iampdiv_, mtof:k(kpitch2), ipresetidx, 1
         ''')
-
-    if reverb:
-        # TODO: add reverb code
+    else:
+        opcode = 'sfplay' if interpolation == 'linear' else 'sfplay3'
+        parts.append(f'''\
+        aout1, aout2 {opcode} ivel, inote0_, kamp/iampdiv_, mtof:k(kpitch2), ipresetidx, 1
+        ''')
+    if reverbChanPrefix:
+        # When using reverb normal output routing is not included so we need
+        # to do that here. That includes panning
         if mono:
             parts.append("kpos = kpos == -1 ? 0 : kpos")
             parts.append("a_outL, a_outR = pan2(aout1, kpos)")
         else:
             parts.append("kpos = kpos == -1 ? 0.5 : kpos")
             parts.append("a_outL, a_outR = panstereo(aout1, aout2, kpos)")
+
         parts.append(f'''\
         chnmix a_outL * kwet, "{reverbChanPrefix}.1"
         chnmix a_outR * kwet, "{reverbChanPrefix}.2"
-        outch ichan, a_outL * (1 - kwet), ichan + 1, a_outR * (1 - kwet)
+        kdry = 1 - kwet
+        a_outL *= kdry
+        a_outR *= kdry
+        outch ichan, a_outL, ichan + 1, a_outR
         ''')
     parts = [emlib.textlib.stripLines(part) for part in parts]
     audiogen = emlib.textlib.joinPreservingIndentation(parts)

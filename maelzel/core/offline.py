@@ -176,7 +176,7 @@ class OfflineRenderer(renderer.Renderer):
         if self._liveSession is not None:
             return self._liveSession
         elif playback.isSessionActive():
-            self._liveSession = playback.getSession()
+            self._liveSession = playback.audioSession()
             return self._liveSession
         return None
 
@@ -233,7 +233,7 @@ class OfflineRenderer(renderer.Renderer):
         """
         instr = self.session.getInstr(instrname)
         if instr is None:
-            session = playback.getSession()
+            session = playback.audioSession()
             instr = session.getInstr(instrname)
             if instr is None:
                 return None
@@ -297,7 +297,7 @@ class OfflineRenderer(renderer.Renderer):
         sndfile = self.lastOutfile()
         if not sndfile:
             return f'<strong>OfflineRenderer</strong>(sr={self.sr})'
-        config = Workspace.getConfig()
+        config = Workspace.active.config
 
         from maelzel import colortheory
         blue = colortheory.safeColors['blue1']
@@ -495,7 +495,7 @@ class OfflineRenderer(renderer.Renderer):
         from maelzel.core import playback
         instrs = {}
         instrs.update(self.session.registeredInstrs())
-        instrs.update(playback.getSession().registeredInstrs())
+        instrs.update(playback.audioSession().registeredInstrs())
         return instrs
 
     def playSample(self,
@@ -604,7 +604,7 @@ class OfflineRenderer(renderer.Renderer):
         """
         if self.session.getInstr(instrname) is None and playback.isSessionActive():
             # Instrument not defined, try to get it from the current session
-            session = playback.getSession()
+            session = playback.audioSession()
             instr = session.getInstr(instrname)
             if not instr:
                 logger.error(f"Unknown instrument {instrname}. "

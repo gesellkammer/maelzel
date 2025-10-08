@@ -298,6 +298,16 @@ class Node:
         return self._duration
 
     def fusedDurRatio(self) -> F:
+        """
+        The duration ratio of this and any parent nodes, fused
+        
+        Given a triplet inside a triplet, the resulting dur ratio
+        would be 3/2 * 3/2 = 9/4 (9 notes in the place of 4)
+        
+        Returns:
+            the fraction needed to multiply the duration of this
+            node to get the representation as notation
+        """
         num, den = self.durRatio
         ratio = F(num, den)
         if self.parent:
@@ -369,6 +379,7 @@ class Node:
             startidx = 0
         for item in self.items[startidx:]:
             if isinstance(item, Notation):
+
                 parts.append(indentstr + str(item))
             else:
                 s = item._treeRepr(len(indentstr))
@@ -800,7 +811,7 @@ class Node:
             # get previous note's spelling and fix n0 with it
             last = prevTree.lastNotation()
             if last.tiedNext and last.pitches == n0.pitches:
-                spellings = last.resolveNotenames()
+                spellings = last.resolveNotenames(keepFixedAnnotation=False)
                 for i, spelling in enumerate(spellings):
                     n0.fixNotename(spelling, index=i)
 

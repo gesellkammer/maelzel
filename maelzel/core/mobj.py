@@ -681,9 +681,7 @@ class MObj(ABC):
         """ Returns a new object, with pitch rounded to step
 
         Args:
-            step: quantization step, in semitones. A value of 0 used the
-                default semitone division in the active config (can be
-                configured via ``getConfig()['semitoneDivisions']``
+            step: quantization step, in semitones.
 
         Returns:
             a copy of self with the pitch quantized
@@ -740,7 +738,7 @@ class MObj(ABC):
              pageSize='',
              staffSize: float | None = None,
              cents: bool | None = None,
-             voiceMaxStaves: int | None = None,
+             autoClefChanges: bool | None = None,
              ** kws
              ) -> None:
         """
@@ -763,8 +761,6 @@ class MObj(ABC):
                 (default = 10.)
             cents: overrides config 'show.cents'. False to hide cents deviations
                 as text annotation
-            voiceMaxStaves: overrides config 'show.voiceMaxStaves'. Max. number of
-                staves used when expanding a voice to multiple staves
             kws: any keyword is used to override the config. All options starting with
                 the 'show.' prefix can be used directly (see below)
 
@@ -795,7 +791,6 @@ class MObj(ABC):
         cfg = cfg.copy()
 
         if resolution or kws:
-            cfg = cfg.copy()
             if resolution:
                 cfg['show.pngResolution'] = resolution
             for kw, value in kws.items():
@@ -811,10 +806,10 @@ class MObj(ABC):
             cfg['show.staffSize'] = staffSize
         if cents is not None:
             cfg['show.cents'] = cents
-        if voiceMaxStaves is not None:
-            cfg['show.voiceMaxStaves'] = voiceMaxStaves
         if pageSize:
             cfg['show.pageSize'] = pageSize
+        if autoClefChanges is not None:
+            cfg['show.autoClefChanges'] = autoClefChanges
 
         if external is None:
             external = cfg['openImagesInExternalApp']
@@ -879,7 +874,7 @@ class MObj(ABC):
             nestedTuplets: if given, overloads the config value 'quant.nestedTuplets'. This is used
                 to disallow nested tuplets, mainly for rendering musicxml since there are some music
                 editors (MuseScore, for example) which fail to import nested tuplets. This can be set
-                at the config level as ``getConfig()['quant.nestedTuplets'] = False``
+                at the config level as ``getWorkspace().config['quant.nestedTuplets'] = False``
 
         Returns:
             a quantized score. To render such a quantized score as notation call
@@ -967,7 +962,7 @@ class MObj(ABC):
         if not backend:
             backend = config['show.backend']
         if not renderoptions:
-            renderoptions = notation.makeRenderOptionsFromConfig(config)
+            renderoptions = config.makeRenderOptions()
         if not scorestruct:
             scorestruct = self.scorestruct() or w.scorestruct
 
@@ -996,7 +991,7 @@ class MObj(ABC):
         Args:
             backend: the rendering backend. One of 'musicxml', 'lilypond'
                 None uses the default method
-                (see :ref:`getConfig()['show.backend'] <config_show_backend>`)
+                (see :ref:`getWorkspace().config['show.backend'] <config_show_backend>`)
             outfile: the path of the generated file. Use None to generate
                 a temporary file.
             fmt: if outfile is None, fmt will determine the format of the
@@ -1078,7 +1073,7 @@ class MObj(ABC):
                 be used
 
         Returns:
-            a list of unquantized parts
+            a list of unquantized parts, sorted from high (on the score) to low.
 
         This method is used internally to generate the parts which
         constitute a given MObj prior to rendering,
@@ -1088,12 +1083,21 @@ class MObj(ABC):
         package to represent notated events. It represents a list of non-simultaneous Notations,
         unquantized and independent of any score structure
         """
-        notations = self.scoringEvents(config=config or Workspace.getConfig())
+        cfg = config or Workspace.active.config
+        notations = self.scoringEvents(config=cfg)
+        return self._scoringPartsFromNotations(notations, config=cfg)
+
+    def _scoringPartsFromNotations(self, 
+                                   notations: list[scoring.Notation], 
+                                   config: CoreConfig
+                                   ) -> list[scoring.score.UnquantizedPart]:
         if not notations:
             return []
         scoring.core.resolveOffsets(notations)
-        parts = scoring.core.distributeNotationsByClef(notations)
+        parts = scoring.core.distributeNotationsByClef(notations, maxStaves=config['show.voiceMaxStaves'])
+        parts.reverse()
         return parts
+        
 
     def unquantizedScore(self, title='') -> scoring.core.UnquantizedScore:
         """
@@ -1254,7 +1258,7 @@ class MObj(ABC):
                 return
             outfile = selected
         ext = os.path.splitext(outfile)[1]
-        cfg = Workspace.getConfig()
+        cfg = Workspace.active.config
         if not format:
             format = {
                 '.ly': 'lilypond',
@@ -1305,7 +1309,7 @@ class MObj(ABC):
         from maelzel import _imgtools
         img64, width, height = _imgtools.readImageAsBase64(imgpath)
         if scaleFactor == 0.:
-            scaleFactor = Workspace.getConfig().get('show.scaleFactor', 1.0)
+            scaleFactor = Workspace.active.config.get('show.scaleFactor', 1.0)
         return img64, _util.htmlImage64(img64=img64, imwidth=width, width=f'{int(width * scaleFactor)}px')
 
     def _repr_html_header(self):
