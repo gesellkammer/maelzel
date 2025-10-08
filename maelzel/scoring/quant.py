@@ -25,7 +25,7 @@ from . import clefutils
 from . import spanner as _spanner
 from . import attachment
 from .quantprofile import QuantizationProfile
-from .common import logger
+from .common import getLogger
 from .quantdefs import QuantizedBeatDef
 from maelzel._logutils import LazyStr
 
@@ -63,6 +63,9 @@ __all__ = (
 )
 
 _INDENT = "  "
+
+
+logger = getLogger("maelzel.scoring.quant")
 
 
 def _fitToGrid(offsets: list[float], grid: list[float]) -> list[int]:
@@ -732,7 +735,8 @@ class QuantizedMeasure:
         if n.duration == self.duration():
             return False
 
-        binary = node.fusedDurRatio() == 1
+        nodeDurRatio = node.fusedDurRatio()
+        binary = nodeDurRatio == 1
 
         noffset: F = n.qoffset
         nend: F = noffset + n.duration
@@ -795,6 +799,7 @@ class QuantizedMeasure:
                 if (ratio*d).numerator in qprofile.syncopExcludeSymDurs:
                     logger.debug("Exclude symdur: %s", ratio * d)
                     return True
+        logger.debug("------------ no need to split")
         return False
 
     def breakSyncopations(self, level: str = '') -> None:
@@ -1667,7 +1672,10 @@ def _nodesCanMerge(g1: Node,
     if g1.durRatio != g2.durRatio:
         return Result.Fail("not same durRatio")
 
-    if g1.durRatio != (1, 1) and g1.parent.durRatio != (1, 1) and g1.totalDuration() + g2.totalDuration() == g1.parent.totalDuration():
+    g1dur = g1.totalDuration()
+    g2dur = g2.totalDuration()
+
+    if g1.durRatio != (1, 1) and g1.parent.durRatio != (1, 1) and g1dur + g2dur == g1.parent.totalDuration():
         return Result.Fail("A parent cannot hold a group of the same size of itself")
 
     for i, offset in enumerate(beatOffsets):
@@ -1695,8 +1703,13 @@ def _nodesCanMerge(g1: Node,
         return Result.Ok()
 
     mergedSymbolicDur = g1last.symbolicDuration() + g2first.symbolicDuration()
-    if g1.durRatio == (3, 2) and mergedSymbolicDur == F(3, 2):
-        return Result.Fail("Don't merge 3/2 when the merged Notation results in dotted quarter")
+    if acrossBeat and g1dur / beat1Dur == 1 and g1.durRatio != (1, 1) and mergedSymbolicDur.numerator in (3, 7, 15):
+        return Result.Fail("Don't merge big tuplets when the merged Notation results in a dot")
+
+    if acrossBeat and mergedSymbolicDur.numerator in (7, 15):
+        return Result.Fail("Don't merge any syncopated nodes resulting in a double dotted note")
+    #if (g1.durRatio == (3, 2) or g1.durRatio == (5, 4)) and mergedSymbolicDur.numerator in (3, 7, 15):
+    #    return Result.Fail("Don't merge 3/2 when the merged Notation in a dot")
 
     if g1.durRatio != (1, 1):
         g1dur = g1.totalDuration()
@@ -1795,7 +1808,7 @@ def _nodesCanMerge(g1: Node,
 
         if g1.durRatio == (3, 2) and item1.symbolicDuration() == item2.symbolicDuration() == 1 and item1.tiedNext:
             return Result.Fail('Not needed')
-
+        logger.debug("Merging %s and %s", g1, g2)
         return Result.Ok()
 
 

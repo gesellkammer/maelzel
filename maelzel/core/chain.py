@@ -460,10 +460,10 @@ class Chain(MContainer):
         sumpitch, sumdur = 0., 0.
         for item in items:
             pitch = item.meanPitch()
-            if pitch:
-                dur = item.dur if item.dur > 0 else graceDur
+            if pitch is not None:
+                dur = float(item.dur if item.dur > 0 else graceDur)
                 sumpitch += pitch * dur
-                sumdur += float(dur)
+                sumdur += dur
         if sumdur == 0:
             return 0.0
         return sumpitch / sumdur
@@ -2231,7 +2231,7 @@ class Chain(MContainer):
         return cropped
 
     def configNotation(self,
-                       autoClefChanges: bool = None,
+                       autoClefChanges: bool | None = None,
                        staffSize: float | None = None,
                        maxStaves: int | None = None
                        ) -> None:

@@ -272,18 +272,18 @@ def plotVoices(voices: list[Voice],
                axes: Axes | None = None,
                realtime=False,
                colors: list[tuple[float, float, float]] | None = None,
-               eventHeadAlpha=0.3,
-               eventLineAlpha=0.8,
-               eventStartAlpha=1.0,
-               eventStartLuminosityFactor=0.8,
-               eventHeight=1.3,
-               eventLineHeight=0.3,
-               maxwidth=0.1,
+               eventHeadAlpha: float = 0.3,
+               eventLineAlpha: float = 0.8,
+               eventStartAlpha: float = 1.0,
+               eventStartLuminosityFactor: float = 0.8,
+               eventHeight: float  = 1.3,
+               eventLineHeight: float = 0.3,
+               maxwidth: float = 0.1,
                accidentalColor=(0., 0., 0., 1.0),
                accidentalScale=(0.5, 1),
-               linkedEventDesaturation=1.0,
-               accidentalSize=22,
-               eventStartLineWidth=2,
+               linkedEventDesaturation: float = 1.0,
+               accidentalSize: int = 22,
+               eventStartLineWidth: int = 2,
                accidentalFixedScale=True,
                staffLineWidth=1,
                drawHeadForTiedEvents=False,
@@ -296,8 +296,8 @@ def plotVoices(voices: list[Voice],
                timeSignatures=True,
                chordLink=False,
                setLimits=True,
-               timesigSize=18,
-               dynamicSize=20,
+               timesigSize: int = 18,
+               dynamicSize: int = 20,
                dynamicColor=(0.6, 0.6, 0.6),
                figsize: tuple[int, int] = (15, 5),
                grid=True) -> Axes:
@@ -440,7 +440,7 @@ def plotVoices(voices: list[Voice],
                 x1 = x0 + float(event.dur)
             else:
                 x0 = float(scorestruct.beatToTime(offset))
-                x1 = x0 + scorestruct.timeDelta(offset, offset + event.dur)
+                x1 = float(scorestruct.beatToTime(offset+event.dur))
 
             _chordLinkColor = eventStartColor[:3] + (eventHeadAlpha,)
             if not linked:
@@ -463,11 +463,6 @@ def plotVoices(voices: list[Voice],
                                          zorder=z0+10
                                          ))
 
-                    # chordHead = Rectangle((x0, minpos - eventHeight / 2),
-                    #                       width=min(float(event.dur), maxwidth / 4),
-                    #                       height=maxpos - minpos + eventHeight,
-                    #                       color=_eventcolor, edgecolor=None, linewidth=0)
-                    # axes.add_patch(chordHead)
             if event.dynamic:
                 dynamicCode = _SMUFL_DYNAMICS.get(event.dynamic, '')
                 if dynamicCode:
@@ -558,8 +553,6 @@ def drawStaffs(axes: Axes, minpitch: int, maxpitch: int,
         if intersect0 is not None:
             for pitch in clefdef.lines:
                 clefpos = _pitchToPosition(pitch)
-                # npitch = pt.notated_pitch(pitch)
-                # clefpos = _verticalPosToClefPos(npitch.vertical_position)
                 axes.axhline(clefpos, xmin=0, color=clefdef.color,
                              linewidth=linewidth or clefdef.lineWidth, linestyle=clefdef.lineStyle,
                              zorder=z0)
@@ -569,8 +562,6 @@ def drawStaffs(axes: Axes, minpitch: int, maxpitch: int,
             if minpitch <= pt.n2m(ledgerlinePitch) <= maxpitch and ledgerlinePitch not in drawnlines:
                 linestyle = linestyles.get(ledgerlinePitch, defaultLedgetLineStyle)
                 clefpos = _pitchToPosition(ledgerlinePitch)
-                # npitch = pt.notated_pitch(ledgerlinePitch)
-                # clefpos = _verticalPosToClefPos(npitch.vertical_position)
                 axes.axhline(clefpos, xmin=0, color=linestyle.color,
                              linewidth=linestyle.width, linestyle=linestyle.style,
                              zorder=z0)
