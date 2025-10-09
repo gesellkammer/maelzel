@@ -172,7 +172,7 @@ class QuantizationProfile:
     """The max. ratio between the longer and the shorter parts to be mergeable
     as a syncopation"""
     
-    syncopExcludeSymDurs: tuple[int, ...] = (5, 7, 15)
+    syncopExcludeSymDurs: tuple[int, ...] = (7, 15)
     """Symbolic numerators excluded from being syncopated (3=dotted, 7=double dotted, etc.)"""
 
     mergedTupletsMaxDuration: F = F(2)

@@ -157,6 +157,7 @@ class QuantPreset:
     maxDivPenalty: float | None = None
     cardinalityPenaltyWeight: float | None = None
     numSubdivisionsPenaltyWeight: float | None = None
+    syncopExcludeSymDurs: tuple[int, ...] | None = None
     _cachedDivsByTempo: dict[int, tuple[division_t, ...]] | None = None
 
     def clone(self, **kws) -> QuantPreset:
@@ -326,6 +327,7 @@ def getPresets() -> dict[str, QuantPreset]:
             gridErrorWeight=1.0,
             divisionErrorWeight=0.5,
             rhythmComplexityWeight=0.1,
+            syncopExcludeSymDurs=(3, 7, 15),
             gridErrorExp=1.),
     }
     return presets

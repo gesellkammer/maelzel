@@ -209,7 +209,7 @@ def stopSynths():
 def _builtinInstrs() -> list[csoundengine.instr.Instr]:
     from csoundengine.instr import Instr
     return [
-        Instr('.mainreverb', r'''\
+        Instr('.globalreverb', r'''\
             |kfeedback=0.85, kwet=0.8, kcutoff=12000|
             if kwet > 0 then
                 a1, a2 monitor

@@ -131,6 +131,7 @@ def _makePresetBody(audiogen: str,
                     numsignals: int,
                     withEnvelope=True,
                     withOutput=True,
+                    reverbChan='',
                     epilogue='') -> str:
     """
     Generate the presets body

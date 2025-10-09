@@ -82,15 +82,19 @@ def loadYamlPreset(path: str) -> presetdef.PresetDef:
     if not code:
         raise ValueError("A preset should define an audiogen")
     from . import presetdef
-    
-    return presetdef.PresetDef(name=presetName,
-                               code=code,
-                               includes=d.get('includes', ()),
-                               init=d.get('init', ''),
-                               epilogue=d.get('epilogue', ''),
-                               args=d.get('args'),
-                               properties=d.get('properties'))
-
+    try:
+        pdef = presetdef.PresetDef(name=presetName,
+                                   code=code,
+                                   includes=d.get('includes', ()),
+                                   init=d.get('init', ''),
+                                   epilogue=d.get('epilogue', ''),
+                                   args=d.get('args'),
+                                   properties=d.get('properties'))
+        return pdef
+    except Exception as e:
+        logger.error("Failed to load presetdef %s", path, exc_info=e)
+        logger.error(f"Preset text: \n%s", open(path).read())
+        raise e
 
 def makeSoundfontAudiogen(sf2path: str,
                           preset: tuple[int, int] | None = None,

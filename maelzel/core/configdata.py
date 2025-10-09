@@ -114,7 +114,6 @@ defaultdict = {
     'quant.syncopMinFraction': '1/6',
     'quant.syncopPartMinFraction': '1/10',
     'quant.syncopMaxAsymmetry': 3,
-    'quant.syncopExcludeSymDurs': (5, 7, 15),
     'quant.nestedTuplets': None,
     'quant.nestedTupletsMusicxml': False,
     'quant.breakBeats': 'weak',
@@ -208,7 +207,6 @@ validator = {
     "quant.syncopMinFraction::type": (str, float, Rational),
     "quant.syncopMaxAsymmetry::type": (str, float, Rational),
     "quant.syncopMaxAsymmetry::range": (1, 99),
-    "quant.syncopExcludeSymDurs": lambda c, k, v: isinstance(v, tuple) and all(isinstance(x, int) for x in v),
     "quant.nestedTuplets::choices": {True, False, None},
     # "quant.gridWeight::type": (float, None),
     # "quant.gridWeight::range": (0, 10),
@@ -618,10 +616,6 @@ docs = {
         ' the max. allowed asymmetry across the beat, '
         'as a ratio longest:shortest part across the beat. '
         'A note exactly across the beat has an asymmetry of 1',
-
-    'quant.syncopExcludeSymDurs':
-        'Durations with a numerator in this list cannot be placed across a beat. '
-        'A value of (7, 15), for example, excludes double and trippled dotted notes',
 
     '.quant.debug':
         'Output extra debug info during quantization, showing how different '

@@ -176,19 +176,6 @@ class PresetManager:
         for presetdef in builtinpresets.makeBuiltinPresets():
             self.registerPreset(presetdef)
 
-        # sf2 = presetutils.resolveSoundfontPath(path=sf2path)
-        # if not sf2:
-        #     logger.info("No soundfont defined, builtin instruments using soundfonts will "
-        #                 "not be available. Set config['play.generalMidiSoundfont'] to "
-        #                 "the path of an existing soundfont")
-        # else:
-        #     for instr, preset in builtinpresets.soundfontGeneralMidiPresets.items():
-        #         if sf2 and sf2 != "?":
-        #             presetname = 'gm-' + instr
-        #             descr = f'General MIDI {instr}'
-        #             self.defPresetSoundfont(presetname, sf2path=sf2, preset=preset,
-        #                                     _builtin=True, description=descr)
-
         for name, info in builtinpresets.builtinSoundfonts().items():
             self.defSoundfont(path=info['path'],
                               name=name,
@@ -335,16 +322,16 @@ class PresetManager:
 
         """
         presetdef = _presetdef.PresetDef(name=name,
-                              code=code,
-                              init=init,
-                              epilogue=post,
-                              includes=includes,
-                              args=args,
-                              description=description,
-                              envelope=envelope,
-                              routing=output,
-                              aliases=aliases,
-                              inithook=inithook)
+                                         code=code,
+                                         init=init,
+                                         epilogue=post,
+                                         includes=includes,
+                                         args=args,
+                                         description=description,
+                                         envelope=envelope,
+                                         routing=output,
+                                         aliases=aliases,
+                                         inithook=inithook)
         self.registerPreset(presetdef)
         # NB: before, we would register the preset to the session
         # via playback.getSession().registerInstr(presetdef.getInstr())
