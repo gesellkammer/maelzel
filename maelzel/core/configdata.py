@@ -97,9 +97,9 @@ defaultdict = {
     'play.useDynamics': True,
     'play.graceDuration': '1/14',
     'play.soundfontFindPeakAOT': False,
-    'play.reverbInstr': '.zitarev',
+    
+    'reverbInstr': '.zitarev',
     'reverbGaindb': -6,
-    'reverbPriority': -1,
     'reverbDelayms': 60,
     'reverbDecay': 3,
     'reverbDamp': 0.2,
@@ -167,7 +167,7 @@ validator = {
     "play.numChannels::range": (1, 128),
     "rec.numChannels::range": (1, 128),
     "play.soundfontInterpol::choices": {"linear", "cubic"},
-    "play.reverbInstr::choices": {'.zitarev'},
+    "reverbInstr::choices": {'.zitarev'},
     "rec.sr::choices": {
         44100,
         48000,
@@ -556,7 +556,7 @@ docs = {
     'play.generalMidiSoundfont':
         'Path to a soundfont (sf2 file) with a general midi mapping',
 
-    'play.reverbInstr':
+    'reverbInstr':
         'Default instrument used for reverb',
 
     'htmlTheme':

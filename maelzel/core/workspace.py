@@ -516,7 +516,7 @@ class Workspace:
         """
         if not self.isAudioSessionActive():
             return None
-        return _reverbEvent(session=self.audioSession(), instrname=self.config['play.reverbInstr'])
+        return _reverbEvent(session=self.audioSession(), instrname=self.config['reverbInstr'])
 
     def setReverb(self,
                   gaindb: float = None,
@@ -524,7 +524,7 @@ class Workspace:
                   decay: float = None,
                   damp: float = None,
                   ) -> None:
-        instr = self.config['play.reverbInstr']
+        instr = self.config['reverbInstr']
         if self.isAudioSessionActive():
             session = self.audioSession()
             revsynth = _reverbEvent(session=session, instrname=instr)
@@ -548,7 +548,8 @@ class Workspace:
 
     def _schedReverb(self, session: csoundengine.session.AbstractRenderer | None = None
                      ) -> csoundengine.synth.Synth:
-        instr = self.config['play.reverbInstr']
+        config = self.config
+        instr = config['reverbInstr']
         if session is None:
             session = self.audioSession()
         if prevsynth := _reverbEvent(session=session, instrname=instr):
@@ -557,10 +558,10 @@ class Workspace:
                              name=instr,
                              priority=-1,
                              kwet=1,
-                             kgaindb=self._reverbSettings.get('gaindb', -6),
-                             kdelayms=self._reverbSettings.get('delayms', 60),
-                             kdecay=self._reverbSettings.get('decay', 3.),
-                             kdamp=self._reverbSettings.get('damp', 0.2),)
+                             kgaindb=self._reverbSettings.get('gaindb', config['reverbGaindb']),
+                             kdelayms=self._reverbSettings.get('delayms', config['reverbDelayms']),
+                             kdecay=self._reverbSettings.get('decay', config['reverbDecay']),
+                             kdamp=self._reverbSettings.get('damp', config['reverbDamp']))
 
     def isAudioSessionActive(self) -> bool:
         """

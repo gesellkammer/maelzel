@@ -470,7 +470,7 @@ class PresetManager:
                 sf2AmpDivisor = sfpeak
                 normalize = False
 
-        reverbInstr = cfg['play.reverbInstr']
+        reverbInstr = cfg['reverbInstr']
         code = presetutils.makeSoundfontAudiogen(sf2path=path,
                                                  preset=(bank, presetnum),
                                                  interpolation=interpolation,

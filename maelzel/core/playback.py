@@ -226,11 +226,14 @@ def _builtinInstrs() -> list[csoundengine.instr.Instr]:
             Schan2 = ".zitarev.2"
             a1 chnget Schan1
             a2 chnget Schan2
+            kinactive = detectsilence:k(a1, 0.0001, kdecay*2)
+            if kinactive == 1 kgoto exit
             kdrywet = 1 - kwet
             kdecaymid = kdecay * (1 - kdamp)
             arev1, arev2 zitarev a1, a2, "drywet", kdrywet, "level", kgaindb, "delayms", kdelayms, "hfdamp", khfdamp, "decaylow", kdecay, "decaymid", kdecaymid
             outch kchan, arev1, kchan+1, arev2
             chnclear Schan1, Schan2
+            exit:
         ''',
               doc="Side channel stereo reverb, applies to channels .zitarev.1 and .zitarev.2",
               properties={'kind': 'mainreverb'}),
