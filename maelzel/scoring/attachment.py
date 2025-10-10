@@ -307,10 +307,10 @@ class Text(Attachment):
                  text: str,
                  placement='',
                  fontsize: int | float | None = None,
-                 italic=False,
+                 italic: bool = False,
                  weight='',
                  fontfamily='',
-                 box: str | bool = '',
+                 box='',
                  color='',
                  role='',
                  relativeSize=False):

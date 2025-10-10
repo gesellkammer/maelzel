@@ -1,5 +1,6 @@
 from __future__ import annotations
 from functools import cache
+import re
 
 # Colors which can work with light and dark backgrounds
 # 1 is lighter, 2 is darker
@@ -66,7 +67,8 @@ def lightenColor(color: tuple[float, float, float], amount: float
     return colorsys.hls_to_rgb(c[0], 1 - amount * (1 - c[1]), c[2])
 
 
-def asrgb(color) -> tuple[float, float, float]:
+def asrgb(color: str | tuple[float, float, float] | tuple[int, int, int]
+          ) -> tuple[float, float, float]:
     """
     Convert color to RGB if needed
 
@@ -297,3 +299,47 @@ def cssColors() -> dict[str, str]:
         "yellowgreen": "#9acd32",
     }
 
+
+def hexToRgb(color: str) -> tuple[int, int, int]:
+    """
+    Convert a hex color to an RGB tuple.
+
+    Args:
+        color: String like '#FF5733', 'FF5733', '#f00', or 'f00'
+
+    Returns:
+        Tuple of (red, green, blue) values from 0-255
+    """
+    # Remove '#' if present
+    color = color.lstrip('#')
+
+    # Expand shorthand notation (e.g., 'f00' -> 'ff0000')
+    lencolor = len(color)
+    if lencolor == 3:
+        r, g, b = [int(ch, 16) for ch in color]
+    elif lencolor == 6:
+        r, g, b = int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16)
+    else:
+        raise ValueError(f"Invalid color: '{color}'")
+    return (r, g, b)
+
+
+def isValidHexColor(color: str) -> bool:
+    return re.match(r'#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})', color) is not None
+
+
+@cache
+def isValidCssColor(color: str) -> bool:
+    """
+    Is this a valid CSS color?
+
+    Args:
+        color: either a hex color like '#12ab0c' or a css named color
+
+    Returns:
+        True if *color* is a valid CSS color
+    """
+    if color[0] == "#":
+        return isValidHexColor(color)
+    else:
+        return color in cssColors()

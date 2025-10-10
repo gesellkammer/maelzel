@@ -279,16 +279,18 @@ def _renderTextAttachment(attach: attachment.Text,
                                   placement=attach.placement or 'above',
                                   italic=attach.italic,
                                   bold=attach.weight=='bold',
-                                  box=attach.box)
+                                  box=attach.box,
+                                  family=attach.fontfamily)
     elif attach.role == 'label':
         style = TextStyle.parse(options.noteLabelStyle)
         return lilytools.makeText(text=attach.text,
                                   fontrelative=attach.relativeSize,
-                                  fontsize=attach.fontsize or   style.fontsize or None,
+                                  fontsize=attach.fontsize or style.fontsize or None,
                                   placement=attach.placement or style.placement or 'above',
                                   italic=attach.italic or style.italic,
                                   bold=attach.weight=='bold' or style.bold,
-                                  box=attach.box or style.box)
+                                  box=attach.box or style.box,
+                                  family=attach.fontfamily)
     else:
         raise ValueError(f"Text role {attach.role} not implemented")
 

@@ -298,6 +298,7 @@ _builtinSoundfontPresets = {
                'preset': (0, 0),
                'description': 'Default piano sound',
                'ampDivisor': 16000,
+               'reverb': True
                }
 }
 

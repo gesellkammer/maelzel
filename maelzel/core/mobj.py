@@ -46,6 +46,9 @@ from . import environment
 from . import realtimerenderer
 from . import notation
 from . import _tools
+from maelzel.textstyle import TextStyle
+from . import symbols as _symbols
+
 from .synthevent import PlayArgs, SynthEvent
 
 from maelzel import _util
@@ -55,7 +58,7 @@ import typing as _t
 if _t.TYPE_CHECKING:
     from typing_extensions import Self
     from matplotlib.axes import Axes
-    from . import symbols as _symbols
+    # from . import symbols as _symbols
     from maelzel.common import location_t, beat_t, time_t, num_t
     from maelzel.core import chain
     import maelzel.core.event as _event
@@ -1126,22 +1129,19 @@ class MObj(ABC):
         parts = self.scoringParts()
         return scoring.core.UnquantizedScore(parts, title=title)
 
-    def _scoringAnnotation(self, text='', config: CoreConfig | None = None
-                           ) -> scoring.attachment.Text:
-        """ Returns owns annotations as a scoring Annotation """
+    @classmethod
+    def _labelSymbol(cls, label: str, config: CoreConfig | None = None) -> _symbols.Text:
         if config is None:
             config = Workspace.active.config
-        if not text:
-            if not self.label:
-                raise ValueError("This object has no label")
-            text = self.label
-        from maelzel.textstyle import TextStyle
         labelstyle = TextStyle.parse(config['show.labelStyle'])
-        return scoring.attachment.Text(text,
-                                       fontsize=labelstyle.fontsize,
-                                       italic=labelstyle.italic,
-                                       weight='bold' if labelstyle.bold else '',
-                                       color=labelstyle.color)
+        return _symbols.Text(text=label,
+                             fontsize=labelstyle.fontsize,
+                             italic=labelstyle.italic,
+                             weight="bold" if labelstyle.bold else '',
+                             color=labelstyle.color,
+                             box=labelstyle.box,
+                             placement=labelstyle.placement,
+                             fontfamily=labelstyle.family)
 
     def activeScorestruct(self) -> ScoreStruct:
         """
@@ -1498,7 +1498,7 @@ class MObj(ABC):
 
         return events
 
-    def play(self,
+    def play(self, /,
              instr='',
              delay: float | None = None,
              args: dict[str, float] | None = None,
@@ -1632,19 +1632,21 @@ class MObj(ABC):
                 display(group)
         return group
 
-    def rec(self,
+    def rec(self, /,
             outfile='',
+            delay: float | None = None,
             sr: int = 0,
             verbose: bool | None = None,
             wait: bool | None = None,
             nchnls: int | None = None,
             instr='',
-            delay: float | None = None,
             args: dict[str, float] | None = None,
             gain: float | None = None,
             position: float | None = None,
             extratime: float | None = None,
             workspace: Workspace | None = None,
+            skip: float | None = None,
+            end: float | None = None,
             **kws
             ) -> offline.OfflineRenderer:
         """
@@ -1669,6 +1671,8 @@ class MObj(ABC):
             position: the panning position (0=left, 1=right)
             workspace: if given it overrides the active workspace
             extratime: extratime added to the recording (:ref:`config key: 'rec.extratime' <config_rec_extratime>`)
+            skip: start beat of recording. Use ``scorestruct.time(beat)`` to indicate a skip time in seconds
+            end: end beat of recording. Use ``scorestruct.time(beat)`` to indicate an end time in seconds
             verbose: if True, display synthesis output
 
             **kws: any keyword passed to .play
@@ -1693,6 +1697,8 @@ class MObj(ABC):
         events = self.synthEvents(instr=instr, position=position,
                                   delay=delay, args=args, gain=gain,
                                   workspace=workspace,
+                                  skip=skip,
+                                  end=end,
                                   **kws)
 
         from maelzel.core import offline

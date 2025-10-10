@@ -1214,7 +1214,8 @@ def makeText(text: str,
              placement='above',
              italic=False, 
              bold=False,
-             box=''
+             box='',
+             family=''
              ) -> str:
     """
     Creates a lilypond text annotation to be attached to a note/rest
@@ -1229,6 +1230,7 @@ def makeText(text: str,
         italic: if True, the text should be italic
         bold: if True, the text should be bold
         box: one of 'square', 'circle', 'rectangle', 'rounded' or '' for no box
+        family: the font family to use. Either a single font or a comma separated list.
 
     Returns:
         the lilypond markup to generate the given annotation
@@ -1248,7 +1250,14 @@ def makeText(text: str,
         if (markup := _boxMarkup.get(box)) is None:
             raise KeyError(f"Box shape {box} not supported, possible shapes are {_boxMarkup.keys()}")
         markups.append(markup)
+    if family:
+        #\override #'(font-name .
+        #       "Bitstream Vera Sans, sans-serif, Oblique Bold")
+        # https://lilypond.org/doc/v2.24/Documentation/notation/fonts#font-families
+        markups.append(f"\\override #'(font-name . \"{family}\")")
     if markups:
         markupstr = " ".join(markups)
-        return fr'{placementchr}\markup {{ {markupstr} "{text}" }}'
-    return fr'{placementchr}\markup "{text}"'
+        out = fr'{placementchr}\markup {{ {markupstr} "{text}" }}'
+    else:
+        out = fr'{placementchr}\markup "{text}"'
+    return out

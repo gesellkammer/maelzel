@@ -239,11 +239,13 @@ def makeSoundfontAudiogen(sf2path: str,
             parts.append("a_outL, a_outR = panstereo(aout1, aout2, kpos)")
 
         parts.append(f'''\
-        chnmix a_outL * kwet, "{reverbChanPrefix}.1"
-        chnmix a_outR * kwet, "{reverbChanPrefix}.2"
-        kdry = 1 - kwet
-        a_outL *= kdry
-        a_outR *= kdry
+        if kwet > 0 then
+            chnmix a_outL * kwet, "{reverbChanPrefix}.1"
+            chnmix a_outR * kwet, "{reverbChanPrefix}.2"
+            kdry = 1 - kwet
+            a_outL *= kdry
+            a_outR *= kdry
+        endif
         outch ichan, a_outL, ichan + 1, a_outR
         ''')
     parts = [emlib.textlib.stripLines(part) for part in parts]

@@ -2078,15 +2078,16 @@ class ScoreStruct:
         .. seealso:: :meth:`~ScoreSctruct.beat`
 
         """
-        if isinstance(a, tuple):
-            assert b is None
-            measure, beat = a
-            return self.locationToTime(measure, beat)
-        elif b is not None:
+        if b is None:
+            # a is a beat or a location
+            if isinstance(a, tuple):
+                measure, beat = a
+                return self.locationToTime(measure, beat)
+            else:
+                return self.beatToTime(a)
+        else:
             assert isinstance(a, int)
             return self.locationToTime(a, b)
-        else:
-            return self.beatToTime(a)
 
     def ltob(self, measure: int, beat: num_t) -> F:
         """
@@ -2385,19 +2386,16 @@ class ScoreStruct:
             return f"ScoreStruct([{s}])"
 
     def __enter__(self):
-        if 'maelzel.core.workspace' in sys.modules:
-            from maelzel.core import workspace
-            w = workspace.getWorkspace()
-            self._prevScoreStruct = w.scorestruct
-            w.scorestruct = self
-        else:
-            raise RuntimeError("No active maelzel.core Workspace. A ScoreStruct can only be "
-                               "called when maelzel.core has been importated")
+        from maelzel.core import getWorkspace
+        w = getWorkspace()
+        self._prevScoreStruct = w.scorestruct
+        w.scorestruct = self
+        return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         assert self._prevScoreStruct is not None
-        from maelzel.core import workspace
-        workspace.getWorkspace().scorestruct = self._prevScoreStruct
+        from maelzel.core import getWorkspace
+        getWorkspace().scorestruct = self._prevScoreStruct
 
     def _repr_html_(self) -> str:
         self._update()

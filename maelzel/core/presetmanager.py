@@ -182,6 +182,7 @@ class PresetManager:
                               preset=info['preset'],
                               description=info.get('description', ''),
                               sf2AmpDivisor=info.get('ampDivisor'),
+                              reverb=info.get('reverb', False),
                               _builtin=True,
                               )
 
@@ -355,7 +356,6 @@ class PresetManager:
                      description='',
                      normalize=False,
                      velocityCurve: _t.Sequence[float] | _presetdef.GainToVelocityCurve = (),
-                     reverbInstr='',
                      _builtin=False) -> _presetdef.PresetDef:
         """
         Define a new instrument preset based on a soundfont
@@ -470,9 +470,7 @@ class PresetManager:
                 sf2AmpDivisor = sfpeak
                 normalize = False
 
-        if reverb and not reverbInstr:
-            reverbInstr = cfg['play.reverbInstr']
-
+        reverbInstr = cfg['play.reverbInstr']
         code = presetutils.makeSoundfontAudiogen(sf2path=path,
                                                  preset=(bank, presetnum),
                                                  interpolation=interpolation,
@@ -482,12 +480,9 @@ class PresetManager:
                                                  reverbChanPrefix=reverbInstr,
                                                  velocityCurve=velocityCurve)
 
-        def inithook(session: csoundengine.session.AbstractRenderer):
+        def inithook(session: csoundengine.session.AbstractRenderer, workspace=wspace):
+            workspace._schedReverb(session=session)
 
-            synthname = reverbInstr
-            reverbsynth = session.namedEvents.get(synthname)
-            if reverbsynth is None:
-                _ = session.sched(reverbInstr, name=synthname, priority=-1)
 
         # We don't actually need the global variable because sfloadonce
         # saves the table number into a channel

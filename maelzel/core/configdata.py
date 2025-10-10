@@ -1,8 +1,7 @@
 import os
 import math
-from maelzel.textstyle import TextStyle
 from numbers import Rational
-from ._configtools import isValidFraction
+from ._configtools import isValidFraction, isValidStyle
 
 
 _dynamicSteps = ('pppp', 'ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'ffff')
@@ -99,6 +98,11 @@ defaultdict = {
     'play.graceDuration': '1/14',
     'play.soundfontFindPeakAOT': False,
     'play.reverbInstr': '.zitarev',
+    'reverbGaindb': -6,
+    'reverbPriority': -1,
+    'reverbDelayms': 60,
+    'reverbDecay': 3,
+    'reverbDamp': 0.2,
 
     'rec.blocking': True,
     'rec.sr': 44100,
@@ -224,12 +228,13 @@ validator = {
     "show.jupyterMaxImageWidth::type": int,
     "show.voiceMaxStaves::type": int,
     "show.voiceMaxStaves::range": (1, 4),
-    "show.measureLabelStyle": lambda cfg, key, val: TextStyle.validate(val),
-    "show.centsTextStyle": lambda cfg, key, val: TextStyle.validate(val),
+    "show.labelStyle": isValidStyle,
+    "show.measureLabelStyle": isValidStyle,
+    "show.centsTextStyle": isValidStyle,
+    "show.rehearsalMarkStyle": isValidStyle,
     "show.centsTextSnap::range": (0, 50),
     "show.centsTextSnap::type": int,
     ".show.dynamicsResetTime::range": (0, 999999999),
-    "show.rehearsalMarkStyle": lambda cfg, key, val: TextStyle.validate(val),
     "show.clipNoteheadShape::choices": (
         "square",
         "normal",
@@ -240,17 +245,14 @@ validator = {
         "slash",
         "cluster",
     ),
-    "show.proportionalDuration": lambda cfg, key, val: isValidFraction(val),
+    "show.proportionalDuration": isValidFraction,
     "show.spacing::choices": ("normal", "strict", "uniform"),
     "show.flagStyle::choices": ("normal", "straight", "flat"),
     "show.clefSimplify::range": (0, 10000),
-    "dynamicCurveShape": lambda cfg, key, val: val.split("(")[0]
-    in ("linear", "expon", "halfcos"),
+    "dynamicCurveShape": lambda cfg, key, val: val.split("(")[0] in ("linear", "expon", "halfcos"),
     "dynamicCurveMindb::range": (-160, 0),
     "dynamicCurveMaxdb::range": (-160, 0),
-    "dynamicCurveDynamics": lambda cfg, key, val: set(val.split()).issubset(
-        _dynamicsSet
-    ),
+    "dynamicCurveDynamics": lambda cfg, key, val: set(val.split()).issubset(_dynamicsSet),
     ".quant.divisionWeight": lambda cfg, k, v: v is None or 0 <= v <= 1,
     "quant.gridWeight::range": (0, 10),
     "quant.gridWeight": lambda c, k, v: v is None or 0 <= v <= 10,

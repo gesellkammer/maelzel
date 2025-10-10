@@ -3,14 +3,19 @@ Utils used by coreconfig. Cannot import from anything within maelzel.core
 """
 
 from maelzel.common import F
+from maelzel.textstyle import TextStyle
 
 
-def isValidFraction(obj) -> bool:
+def isValidFraction(cfg, key, val) -> bool:
     """
-    True if obj can be interpreted as Fraction
+    True if val can be interpreted as Fraction
     """
     try:
-        _ = F(obj)
+        _ = F(val)
         return True
     except Exception:
         return False
+
+
+def isValidStyle(cfg, key: str, val) -> bool:
+    return TextStyle.validate(val)

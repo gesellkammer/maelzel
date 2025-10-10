@@ -562,7 +562,8 @@ class Clip(event.MEvent):
             notation.tiedNext = True
 
         if self.label:
-            notation.addText(self._scoringAnnotation(config=config))
+            labelsymbol = self._labelSymbol(self.label, config=config)
+            labelsymbol.applyToNotation(notation)
 
         shape = self.noteheadShape if self.noteheadShape else config['show.clipNoteheadShape']
         if shape:

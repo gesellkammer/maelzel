@@ -614,8 +614,9 @@ class Note(MEvent):
                 notes[-1].addAttachment(attachment.StemTraits(hidden=True))
 
         if self.label:
-            notes[0].addText(self._scoringAnnotation(config=config))
-        
+            labelsymbol = self._labelSymbol(self.label, config=config)
+            labelsymbol.applyToNotation(notes[0])
+
         tempsymbols = self.properties.pop('.tempsymbols', None) if self.properties else None
         if (symbols := _mergeOptLists(tempsymbols, self.symbols)) is not None:
             for symbol in symbols:

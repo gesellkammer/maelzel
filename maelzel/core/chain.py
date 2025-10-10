@@ -1032,38 +1032,6 @@ class Chain(MContainer):
             items.append(item.timeTransform(timemap, inplace=inplace))
         return self if inplace else self.clone(items=items)
 
-    @classmethod
-    def _labelSymbol(cls, label: str, config: CoreConfig | None = None):
-        if config is None:
-            config = Workspace.active.config
-        from maelzel.textstyle import TextStyle
-        labelstyle = TextStyle.parse(config['show.labelStyle'])
-        return symbols.Text(text=label, fontsize=labelstyle.fontsize, italic=labelstyle.italic, weight="bold" if labelstyle.bold else "normal", color=labelstyle.color)
-    #
-    # def _applyChainSymbols(self):
-    #     for item in self.items:
-    #         if isinstance(item, Chain):
-    #             item._applyChainSymbols()
-    #     if not self.symbols:
-    #         return
-    #     for symbol in self.symbols:
-    #         if isinstance(symbol, symbols.EventSymbol):
-    #             if symbol.applyToFragmentStrategy == 'first':
-    #                 if (ev := self.firstEvent(acceptRest=symbol.appliesToRests)):
-    #                     ev.setProperty
-    #
-    #     else:
-    #         for symbol in self.symbols:
-    #     for item in self.items:
-    #         if isinstance(item, Chain):
-    #             item._applyChainSymbols()
-    #         elif self.symbols:
-    #             for symbol in self.symbols:
-    #                 if isinstance(symbol, symbols.EventSymbol):
-    #                     if item.properties is None:
-    #                         item.properties = {}
-    #                     item.properties.setdefault('.tempsymbols', []).append(symbol)
-
     def _collectSubLabels(self, config: CoreConfig) -> Iterator[tuple[F, str]]:
         for item in self.items:
             if isinstance(item, Chain):

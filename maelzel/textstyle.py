@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from functools import cache
+from maelzel import colortheory
 
 
 @dataclass
@@ -22,8 +23,12 @@ class TextStyle:
     """Is the text italic"""
 
     placement: str = ''
+    """One of 'above' or 'below'"""
 
     color: str = ''
+
+    family: str = ''
+    """One or multiple font families, separated by a comma"""
 
     def __post_init__(self):
         if self.box:
@@ -31,6 +36,9 @@ class TextStyle:
 
         if self.placement:
             assert self.placement in ('above', 'below')
+
+        if self.color:
+            assert colortheory.isValidCssColor(self.color)
 
     @staticmethod
     def validate(style: str) -> bool | str:
@@ -67,19 +75,13 @@ def parseStyle(style: str, separator=';') -> TextStyle:
     Key        Possible Values             Example
     =========  ==========================  ====================
     fontsize   The size in some unit       fontsize=8; italic
-    bold       **flag**                    bold; color=#ff0000
-    italic     **flag**                    bold; italic
     box        rectangle, circle, square   bold; box=square
     color      A CSS color                 italic;color=blue
     placement  above, below                bold; placement=above
+    family     Any font name               fontsize=10; family=Helvetica,sans-serif
+    bold       **flag**                    bold; color=#ff0000
+    italic     **flag**                    bold; italic
     =========  ==========================  ====================
-
-
-    More examples::
-
-        'box=square; bold; italic'
-        'bold=true; italic=true'
-
 
     Args:
         style: the style to parse; a set of key-value pairs or flags, separated
@@ -90,12 +92,19 @@ def parseStyle(style: str, separator=';') -> TextStyle:
         a TextStyle
 
     """
-    validkeys = ('fontsize', 'bold', 'italic', 'box', 'color', 'placement')
+    # Keys need a value
+    validkeys = ('fontsize', 'box', 'color', 'placement', 'family')
+
+    # Flags don't
+    validflags = ('italic', 'bold')
 
     convertions = {
         'fontsize': float,
-        'bold': lambda value: value.lower() == 'true',
-        'italic': lambda value: value.lower() == 'true',
+    }
+
+    key2choices = {
+        'box': ('rectangle', 'circle', 'square'),
+        'placement': ('above', 'below')
     }
 
     parts = style.split(separator)
@@ -104,12 +113,31 @@ def parseStyle(style: str, separator=';') -> TextStyle:
         if '=' in part:
             key, value = part.split('=')
             key = key.strip()
+            if key in attrs:
+                raise ValueError(f"Duplicate attribute '{key}'")
+
             value = value.strip()
+            if key not in validkeys:
+                raise ValueError(f"Invalid key '{key}' in style '{style}'. Valid keys are {validkeys}")
             if (convertfunc := convertions.get(key)) is not None:
                 value = convertfunc(value)
+            if (choices := key2choices.get(key)) is not None:
+                if value not in choices:
+                    raise ValueError(f"Invalid value '{value}' for key {key}. Valid values are {choices}")
+            elif key == 'color':
+                if not colortheory.isValidCssColor(value):
+                    raise ValueError(f"Invalid color '{value}'")
+            attrs[key] = value
         else:
-            key, value = part.strip(), True
-        if key not in validkeys:
-            raise ValueError(f"Invalid key '{key}' in style '{style}'. Valid keys are {'validkeys'}")
-        attrs[key] = value
+            flag = part.strip()
+            if flag in attrs:
+                raise ValueError(f"Duplicate key '{flag}'")
+            if flag not in validflags:
+                if flag in validkeys:
+                    msg = f"Key '{flag}' needs a value in the form {flag}=<value>"
+                    if (choices := key2choices.get(flag)) is not None:
+                        msg += f". Possible values: {choices}"
+                    raise ValueError(msg)
+                raise ValueError(f"Invalid flag '{flag}' in style '{style}'. Valid flags are {validflags}")
+            attrs[flag] = True
     return TextStyle(**attrs)

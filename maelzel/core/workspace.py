@@ -113,6 +113,8 @@ class Workspace:
         self._previousWorkspace: Workspace | None = None
         """The previous workspace. Will be activated when this one is desactivated"""
 
+        self._reverbSettings: dict[str, float] = {}
+
         if active:
             self.activate()
 
@@ -507,39 +509,58 @@ class Workspace:
 
     def reverbSynth(self) -> csoundengine.synth.Synth | None:
         """
-        The reverb synth used for playback
+        The reverb synth used for live playback
 
         Returns:
             the reverb synth or None if no synth has been started
         """
         if not self.isAudioSessionActive():
             return None
-        return _reverbEvent(session=self.audioSession())
+        return _reverbEvent(session=self.audioSession(), instrname=self.config['play.reverbInstr'])
 
-    def initReverb(self, instr='', wet=1., gaindb=-12, delayms=60, decay=3., damp=0.2,
-                   ) -> csoundengine.synth.Synth:
-        """
-        Initialize the reverb synth
+    def setReverb(self,
+                  gaindb: float = None,
+                  delayms: int = None,
+                  decay: float = None,
+                  damp: float = None,
+                  ) -> None:
+        instr = self.config['play.reverbInstr']
+        if self.isAudioSessionActive():
+            session = self.audioSession()
+            revsynth = _reverbEvent(session=session, instrname=instr)
+            if revsynth:
+                if gaindb is not None:
+                    revsynth.set(kgaindb=gaindb)
+                if delayms is not None:
+                    revsynth.set(kdelayms=delayms)
+                if decay is not None:
+                    revsynth.set(kdecay=decay)
+                if damp is not None:
+                    revsynth.set(kdamp=damp)
+        if gaindb is not None:
+            self._reverbSettings['gaindb'] = gaindb
+        if delayms is not None:
+            self._reverbSettings['delayms'] = delayms
+        if decay is not None:
+            self._reverbSettings['decay'] = decay
+        if damp is not None:
+            self._reverbSettings['damp'] = damp
 
-        Args:
-            instr: the name of the instr to use. Leave unset to use the default defined in the config
-            wet: amount of wet signal
-            gaindb: the gain of the reverb, in dB
-            delayms: pre delay of the reverb
-            decay: decay time of the low band
-            damp: high freq. damping factor, between 0 (no damping) and 1 (max. damping)
-
-        Returns:
-            the reverb synth, used whenever an instr preset is declared to use reverb
-        """
-        if not instr:
-            instr = self.config['play.reverbInstr']
-        session = self.audioSession()
+    def _schedReverb(self, session: csoundengine.session.AbstractRenderer | None = None
+                     ) -> csoundengine.synth.Synth:
+        instr = self.config['play.reverbInstr']
+        if session is None:
+            session = self.audioSession()
         if prevsynth := _reverbEvent(session=session, instrname=instr):
             return prevsynth
-        return session.sched(instr, name=instr, priority=-1, kwet=wet, kgaindb=gaindb,
-                             kdelayms=delayms, kdecay=decay, kdamp=damp)
-
+        return session.sched(instr,
+                             name=instr,
+                             priority=-1,
+                             kwet=1,
+                             kgaindb=self._reverbSettings.get('gaindb', -6),
+                             kdelayms=self._reverbSettings.get('delayms', 60),
+                             kdecay=self._reverbSettings.get('decay', 3.),
+                             kdamp=self._reverbSettings.get('damp', 0.2),)
 
     def isAudioSessionActive(self) -> bool:
         """
