@@ -1002,7 +1002,11 @@ def render(outfile='',
     coreEvents, sessionEvents = _playbacktools.collectEvents(events, eventparams=kws, workspace=workspace)
     if not nchnls:
         nchnls = max(int(ceil(ev.resolvedPosition() + ev.chan)) for ev in coreEvents)
-    renderer = OfflineRenderer(sr=sr, ksmps=ksmps, numchannels=nchnls, tail=tail)
+    renderer = OfflineRenderer(sr=sr,
+                               ksmps=ksmps,
+                               numchannels=nchnls,
+                               tail=tail,
+                               endtime=endtime)
     if coreEvents:
         renderer.schedEvents(coreEvents)
 
@@ -1011,5 +1015,7 @@ def render(outfile='',
             renderer._schedSessionEvent(sessionevent)
 
     if run:
-        renderer.render(outfile=outfile, wait=wait, verbose=verbose)
+        renderer.render(outfile=outfile,
+                        wait=wait,
+                        verbose=verbose)
     return renderer

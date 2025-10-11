@@ -1702,8 +1702,10 @@ class MObj(ABC):
                                   **kws)
 
         from maelzel.core import offline
+        endtime = max(ev.end for ev in events if ev.dur > 0)
         return offline.render(outfile=outfile, events=events, sr=sr, wait=wait,
-                              verbose=verbose, nchnls=nchnls, tail=extratime)
+                              verbose=verbose, nchnls=nchnls, tail=extratime,
+                              endtime=endtime)
 
     def isRest(self) -> bool:
         """
