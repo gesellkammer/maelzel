@@ -11,7 +11,6 @@ from . import presetutils
 from . import environment
 from ._common import logger
 
-from csoundengine import csoundparse
 from csoundengine import instrtools
 
 import typing as _t
@@ -516,6 +515,8 @@ class PresetDef:
         fontsize = normalfont
 
         from maelzel import colortheory
+        from csoundengine import csoundparse
+
         strcolor = colortheory.safeColors['green2']
         numbercolor = colortheory.safeColors['blue2']
         argcolor = colortheory.safeColors['yellow2']
@@ -536,6 +537,7 @@ class PresetDef:
 
         if self.init:
             init = _textwrap.indent(_textwrap.dedent(self.init), _INSTR_INDENT)
+
             inithtml = csoundparse.highlightCsoundOrc(init, theme=theme)
             ps.append(_header('init'))
             ps.append(span(inithtml, fontsize=codefont))
@@ -644,6 +646,10 @@ def _consolidateInitCode(init: str, includes: list[str]) -> str:
         init = emlib.textlib.joinPreservingIndentation((includesCode, init))
     return init
 
+def _makeCsoundIncludeLine(include: str) -> str:
+    s = emlib.textlib.quoteIfNeeded(include.strip())
+    return f'#include {s}'
+
 
 def _genIncludes(includes: list[str]) -> str:
-    return "\n".join(csoundparse.makeIncludeLine(inc) for inc in includes)
+    return "\n".join(_makeCsoundIncludeLine(inc) for inc in includes)

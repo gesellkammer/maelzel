@@ -62,7 +62,8 @@ def renderQuantizedScore(score: quant.QuantizedScore,
                                          biasFactor=options.keepClefBiasFactor,
                                          window=options.autoClefChangesWindow,
                                          simplificationThreshold=options.clefSimplifyThreshold,
-                                         propertyKey='')
+                                         propertyKey='',
+                                         transposingFactor=options.clefTransposingFactor)
         # part.repairLinks()
 
     if backend == 'musicxml':

@@ -133,7 +133,7 @@ class MObj(ABC):
     _isDurationRelative = True
 
     __slots__ = ('_parent', '_dur', 'offset', 'label', 'playargs', 'symbols',
-                 '_scorestruct', 'properties', '_resolvedOffset',
+                 'properties', '_resolvedOffset',
                  '__weakref__')
 
     def __init__(self,
@@ -180,7 +180,6 @@ class MObj(ABC):
         User-defined properties as a dict (None by default). Set them via :meth:`~maelzel.core.mobj.MObj.setProperty`
         """
 
-        self._scorestruct: ScoreStruct | None = None
         self._resolvedOffset: F | None = None
 
     @abstractmethod
@@ -736,7 +735,6 @@ class MObj(ABC):
              fmt='',
              external: bool | None = None,
              backend='',
-             scorestruct: ScoreStruct | None = None,
              resolution: int = 0,
              pageSize='',
              staffSize: float | None = None,
@@ -756,7 +754,6 @@ class MObj(ABC):
                 One of 'lilypond', 'musicxml'. If not given, use default
                 (see :ref:`config['show.backend'] <config_show_backend>`)
             fmt: one of 'png', 'pdf', 'ly'. None to use default.
-            scorestruct: if given overrides the current/default score structure
             resolution: dpi resolution when rendering to an image, overrides the
                 :ref:`config key 'show.pngResolution' <config_show_pngresolution>`
             pageSize: if given, overrides config 'show.pageSize'. One of 'a3', 'a4', ...
@@ -825,7 +822,7 @@ class MObj(ABC):
             fmt = 'png' if not external and environment.insideJupyter else cfg['show.format']
 
         if fmt == 'ly':
-            renderer = self.render(backend='lilypond', scorestruct=scorestruct, config=cfg)
+            renderer = self.render(backend='lilypond', config=cfg)
             if external:
                 lyfile = _util.mktemp(suffix='.ly')
                 renderer.write(lyfile)
@@ -834,8 +831,7 @@ class MObj(ABC):
             else:
                 _tools.showLilypondScore(renderer.render())
         else:
-            img = self._renderImage(backend=backend, fmt=fmt, scorestruct=scorestruct,
-                                    config=cfg)
+            img = self._renderImage(backend=backend, fmt=fmt, config=cfg)
             if fmt == 'png':
                 scalefactor = cfg['show.scaleFactor']
                 if backend == 'musicxml':
@@ -917,7 +913,6 @@ class MObj(ABC):
     def render(self,
                backend='',
                renderoptions: RenderOptions | None = None,
-               scorestruct: ScoreStruct | None = None,
                config: CoreConfig | None = None,
                quantizationProfile: str | quant.QuantizationProfile = ''
                ) -> Renderer:
@@ -966,9 +961,8 @@ class MObj(ABC):
             backend = config['show.backend']
         if not renderoptions:
             renderoptions = config.makeRenderOptions()
-        if not scorestruct:
-            scorestruct = self.scorestruct() or w.scorestruct
 
+        scorestruct = self.scorestruct() or w.scorestruct
         from maelzel.scoring import quant
         if not quantizationProfile:
             quantizationProfile = config.makeQuantizationProfile()
@@ -985,7 +979,6 @@ class MObj(ABC):
                      backend='',
                      outfile='',
                      fmt="png",
-                     scorestruct: ScoreStruct | None = None,
                      config: CoreConfig | None = None
                      ) -> str:
         """
@@ -999,7 +992,6 @@ class MObj(ABC):
                 a temporary file.
             fmt: if outfile is None, fmt will determine the format of the
                 generated file. Possible values: 'png', 'pdf'.
-            scorestruct: if given will override the active ScoreStruct
 
         Returns:
             the path of the generated file. If outfile was given, the returned
@@ -1017,12 +1009,9 @@ class MObj(ABC):
         if not outfile:
             assert fmt in ('png', 'pdf')
             outfile = _util.mktemp(suffix='.' + fmt)
-        if scorestruct is None:
-            scorestruct = self.scorestruct() or w.scorestruct
-
 
         _renderImage(obj=self, outfile=outfile, backend=backend,
-                     scorestruct=scorestruct, config=config)
+                     config=config)
 
         if not os.path.exists(outfile):
             # cached image does not exist?
@@ -1032,8 +1021,7 @@ class MObj(ABC):
                          f"trying again...")
             clearImageCache()
             # Try again, uncached
-            _renderImage(self, outfile, backend=backend, scorestruct=scorestruct,
-                         config=config)
+            _renderImage(self, outfile, backend=backend, config=config)
             if not os.path.exists(outfile):
                 raise FileNotFoundError(f"Could not generate image, returned image file '{outfile}' "
                                         f"does not exist")
@@ -1191,9 +1179,7 @@ class MObj(ABC):
 
         .. seealso:: :meth:`activeScorestruct() <maelzel.core.mobj.MObj.activeScorestruct>`
         """
-        if self._scorestruct is not None:
-            return self._scorestruct
-        return self.parent.scorestruct() if self.parent else None
+        return None if not self.parent else self.parent.scorestruct()
 
     def write(self,
               outfile: str,
@@ -2037,37 +2023,7 @@ class MContainer(MObj):
         cls._configKeysRegistry[clsname] = configkeys
         return configkeys
 
-    def setScoreStruct(self, scorestruct: ScoreStruct | None) -> None:
-        """
-        Set the ScoreStruct for this object and its children
 
-        This ScoreStruct will be used for any object embedded
-        downstream.
-
-        Args:
-            scorestruct: the ScoreStruct, or None to remove any scorestruct
-                previously set
-
-        """
-        if scorestruct is None:
-            self._scorestruct = None
-            for item in self:
-                if isinstance(item, MContainer):
-                    item.setScoreStruct(None)
-            return
-
-        if self.parent:
-            parentstruct = self.parent.scorestruct()
-            if parentstruct is None:
-                raise ValueError(f"An object cannot promote a scorestruct up in the tree structure. Set the score"
-                                 f" structure at the root: ({self.root()})")
-            elif scorestruct is not parentstruct:
-                raise ValueError(f"This {self.__class__} has a parent with a scorestruct "
-                                    f"different than the given one."
-                                    f"\nParent struct: {parentstruct}"
-                                    f"\nNew struct: {scorestruct}")
-        self._scorestruct = scorestruct
-        self._changed()
 
     def _copyAttributesTo(self, other: Self) -> None:
         super()._copyAttributesTo(other)
@@ -2252,21 +2208,26 @@ def _renderImage(obj: MObj,
                  outfile: str,
                  config: CoreConfig,
                  backend: str,
-                 scorestruct: ScoreStruct,
                  ) -> Renderer:
-    assert outfile and config and backend and scorestruct
+    assert outfile and config and backend
     ext = os.path.splitext(outfile)[1].lower()
     if ext not in ('.png', '.pdf'):
         raise ValueError(f"Unknown format '{ext}', possible formats are pdf and png")
     fmt = ext[1:]
     renderoptions = config.makeRenderOptions()
-    tmpfile, renderer = _renderImageCached(obj=obj, fmt=fmt, config=config, backend=backend,
-                                           scorestruct=scorestruct, renderoptions=renderoptions)
+    tmpfile, renderer = _renderImageCached(obj=obj,
+                                           fmt=fmt,
+                                           config=config,
+                                           backend=backend,
+                                           renderoptions=renderoptions)
     if not os.path.exists(tmpfile):
         logger.debug(f"Cached file '{tmpfile}' not found, resetting cache, trying again")
         clearImageCache()
-        tmpfile, renderer = _renderImageCached(obj=obj, fmt=fmt, config=config, backend=backend,
-                                               scorestruct=scorestruct, renderoptions=renderoptions)
+        tmpfile, renderer = _renderImageCached(obj=obj,
+                                               fmt=fmt,
+                                               config=config,
+                                               backend=backend,
+                                               renderoptions=renderoptions)
         if not os.path.exists(tmpfile):
             raise RuntimeError(f"Could not render {obj} to file '{tmpfile}'")
 
@@ -2281,12 +2242,10 @@ def _renderImageCached(obj: MObj,
                        fmt: str,
                        config: CoreConfig,
                        backend: str,
-                       scorestruct: ScoreStruct,
                        renderoptions: RenderOptions
                        ) -> tuple[str, Renderer]:
     assert fmt in ('pdf', 'png')
-    renderer = obj.render(backend=backend, renderoptions=renderoptions, scorestruct=scorestruct,
-                          config=config)
+    renderer = obj.render(backend=backend, renderoptions=renderoptions, config=config)
     outfile = _util.mktemp(suffix="." + fmt)
     renderer.write(outfile)
     if not os.path.exists(outfile):

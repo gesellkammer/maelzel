@@ -1,7 +1,8 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from math import sqrt, ceil
-from pitchtools import n2m, f2n, n2f, m2n, f2m, m2f, interval2ratio
+
+from pitchtools import n2m, f2n, n2f, m2n, f2m, m2f, interval2ratio, quantize_midinote
 from emlib.containers import RecordList
 from emlib import misc
 from emlib.mathlib import frange
@@ -51,7 +52,10 @@ def _parsePitches(*pitches) -> list[float]:
     return midis
 
 
-def ringmodWithAmps(pitches: Sequence[pitch_t], amps: Sequence[float], unique=True
+def ringmodWithAmps(pitches: Sequence[pitch_t],
+                    amps: Sequence[float],
+                    merge: str | bool = 'sum',
+                    mergeThreshold=0.05
                    ) -> list[tuple[float, float]]:
     """
     Ringmodulation between pitches with amps
@@ -59,7 +63,12 @@ def ringmodWithAmps(pitches: Sequence[pitch_t], amps: Sequence[float], unique=Tr
     Args:
         pitches: a midinote or notename
         amps: the amps corresponding to each pitch
-        unique: if True, repeated sidebands are removed
+        merge: the method used to merge repeated sidebands. One of
+            'sum', 'max' or False to indicate no merge. With 'sum', the
+            amplitudes of all repeated sidebands are added together. With 'max',
+            only the max. amplitude is used. If False, no merging takes place.
+        mergeThreshold: when merging sidebands, any sideband within this
+            distance in semitones will merged according to the merge method
 
     Returns:
         a list of tuples (midinote, amp), where each tuple represents
@@ -78,9 +87,27 @@ def ringmodWithAmps(pitches: Sequence[pitch_t], amps: Sequence[float], unique=Tr
         amp = amp1 * amp2
         allamps.extend((amp, amp))
     sidebands = zip(allbands, allamps)
-    pairs = list(set(sidebands)) if unique else list(sidebands)
-    pairs.sort()
-    return pairs
+    if merge:
+        assert merge in 'sum', 'max'
+        mergedbands = {}
+        semitoneDivisions = round(1 / mergeThreshold)
+        for pitch, amp in sidebands:
+            roundedpitch = quantize_midinote(pitch, semitoneDivisions)
+            if roundedpitch not in mergedbands:
+                mergedbands[roundedpitch] = (pitch, amp)
+            else:
+                pitch0, amp0 = mergedbands[roundedpitch]
+                if merge == 'sum':
+                    mergedbands[roundedpitch] = (pitch0, amp0 + amp)
+                else:
+                    mergedbands[roundedpitch] = (pitch0, max(amp, amp0))
+        sidebands = list(mergedbands.values())
+        sidebands.sort()
+        return sidebands
+    else:
+        pairs = list(sidebands)
+        pairs.sort()
+        return pairs
 
 
 def ringmod(pitches: Sequence[pitch_t]) -> list[float]:

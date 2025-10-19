@@ -176,6 +176,9 @@ class RenderOptions:
     clefSimplifyThreshold: float = 0.
     """Threshold used to simplify automatic clef changes"""
 
+    clefTransposingFactor: float = 1.0
+    """Factor applied to a clef fitness if it is a transposing clef"""
+
     compoundMeterSubdivision: str = 'all'
     """Sets the subdivision policy for compound meters. One of 'all', 'none', 'heterogeneous'
 
@@ -208,6 +211,9 @@ class RenderOptions:
 
     stemletLength: float = 0.75
     """Stemlet length when rendering, as a fraction of the normal stem length"""
+
+    pedalStyle: str = 'mixed'
+    """Style used for piano pedals, one of '', 'mixed', 'bracket' or 'text'"""
 
     @classmethod
     def keys(cls) -> set[str]:
@@ -271,12 +277,10 @@ class RenderOptions:
 
         raises ValueError if an error is found
         """
-        def checkChoice(key, choices):
-            value = getattr(self, key)
-            if value not in choices:
-                if isinstance(value, str):
-                    value = f"'{value}'"
-                raise ValueError(f'Invalid {key}, it should be one of {choices}, got {value}')
+        def checkChoice(key: str, choices) -> None:
+            if (value := getattr(self, key)) not in choices:
+                raise ValueError(f'Invalid value for "{key}", expected one of {choices}, '
+                                 f'got {value!r}')
 
         checkChoice('orientation', ('portrait', 'landscape'))
         checkChoice('pageSize', ('a1', 'a2', 'a3', 'a4', 'a5'))
@@ -284,6 +288,7 @@ class RenderOptions:
         checkChoice('centsAnnotationPlacement', ('above', 'below'))
         checkChoice('horizontalSpace', ('small', 'medium', 'large', 'xlarge', 'default'))
         checkChoice('backend', ('lilypond', 'musicxml'))
+        checkChoice('pedalStyle', ('', 'mixed', 'bracket', 'text'))
 
         if not (isinstance(self.staffSize, (int, float)) and 2 < self.staffSize < 40):
             raise ValueError(f"Invalid staffSize: {self.staffSize}")

@@ -289,6 +289,18 @@ class Bracket(Spanner):
         self.lineend = lineend
 
 
+class Pedal(Spanner):
+    """
+    Sustain Pedal indication
+    """
+    endingAtTie = 'first'
+
+    def __init__(self, kind: str, style='', uuid=''):
+        super().__init__(kind=kind, uuid=uuid)
+        assert style in ('mixed', 'bracket', 'text', '')
+        self.style = style
+
+
 class Slide(Spanner):
     """
     A line between two noteheads

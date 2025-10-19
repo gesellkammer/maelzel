@@ -27,6 +27,7 @@ articulations = {
     'openstring',
     'snappizz',
     'laissezvibrer',
+    'caesura'
 }
 
 # musicxml articulations
@@ -58,8 +59,9 @@ articulationMappings = {
     '^': 'marcato',
     "'": 'staccatissimo',
     '<>': 'espressivo',
+    'stress': 'accent',
     'harmonic': 'flageolet',
-
+    'breath-mark': 'breath',
     'strong-accent': 'marcato',
     'soft-accent': 'espressivo',
     'detached-legato': 'portato',
@@ -277,11 +279,14 @@ boxMappings = {
 
 
 def normalizeEnclosure(enclosure: str | bool) -> str:
-    if isinstance(enclosure, bool):
+    if enclosure is None:
+        return ''
+    elif isinstance(enclosure, bool):
         return 'square' if enclosure else ''
     if enclosure in enclosureBoxes:
         return enclosure
-    if (mapped := boxMappings.get(enclosure)) is not None:
+    assert isinstance(enclosure, str), f"Enclosure: {enclosure}"
+    if (mapped := boxMappings.get(enclosure.lower())) is not None:
         return mapped
     raise ValueError(f"Enclosure '{enclosure}' not known, possible values are {enclosureBoxes} or"
                      f" {boxMappings.keys()}")

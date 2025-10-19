@@ -20,6 +20,19 @@ class IndentedWriter:
         self.indents = indents
         self._blocks: list[list[str]] = []
         self._indentsPerBlock: list[int] = []
+        self._stack: list[int] = []
+
+    def indent(self, num=1):
+        self._stack.append(num)
+        self.indents += num
+        return self
+
+    def __enter__(self):
+        return
+
+    def __exit__(self, *args, **kws):
+        num = self._stack.pop()
+        self.indents -= num
 
     def block(self, relativeindent=0) -> list[str]:
         """

@@ -77,7 +77,8 @@ defaultdict = {
     'show.warnIfEmpty': True,
     'show.clefChangesWindow': 1,
     'show.keepClefBias': 2.0,
-
+    'show.clefTransposingFactor': 0.85,
+    'show.pedalStyle': '',
     'play.gain': 1.0,
     'play.engineName': 'maelzel.core',
     'play.instr': 'sin',
@@ -249,6 +250,7 @@ validator = {
     "show.spacing::choices": ("normal", "strict", "uniform"),
     "show.flagStyle::choices": ("normal", "straight", "flat"),
     "show.clefSimplify::range": (0, 10000),
+    "show.clefTransposingFactor::range": (0, 1),
     "dynamicCurveShape": lambda cfg, key, val: val.split("(")[0] in ("linear", "expon", "halfcos"),
     "dynamicCurveMindb::range": (-160, 0),
     "dynamicCurveMaxdb::range": (-160, 0),
@@ -658,6 +660,10 @@ docs = {
     'show.clefChangesWindow':
         'When adding automatic clef changes, use this window size (number of elements '
         'per evaluation)',
+
+    'show.clefTransposingFactor':
+        'Factor applied to a clef fitness when it is a transposing clef. A value lower '
+        'than one will favor non-transposing clefs.',
 
     'soundfilePlotHeight':
         'Height used for plotting soundfiles. This is used, for example, to set the'

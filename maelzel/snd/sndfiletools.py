@@ -317,9 +317,11 @@ def maxPeak(filename: str, start: float = 0, end: float = 0, resolution=0.01
     return max_pos / info.samplerate, maximum_peak
 
 
-def findFirstSound(sndfile: str, threshold=-120,
-                   resolution=0.01, start=0.
-                   ) -> float | None:
+def firstSound(sndfile: str,
+               threshold=-120,
+               resolution=0.01,
+               start=0.
+               ) -> float | None:
     """
     Find the time of the first sound in the soundfile
 

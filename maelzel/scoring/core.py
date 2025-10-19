@@ -12,6 +12,7 @@ from maelzel.common import F, F0
 from . import util
 from .common import NotatedDuration, logger
 from .notation import Notation
+from maelzel.scorestruct import ScoreStruct
 
 if TYPE_CHECKING:
     from typing import Iterator
@@ -54,7 +55,8 @@ class UnquantizedPart:
                  quantProfile: quant.QuantizationProfile | None = None,
                  firstClef='',
                  possibleClefs: tuple[str, ...] = (),
-                 resolve=True
+                 resolve=True,
+                 scorestruct: ScoreStruct | None = None,
                  ):
         """
 
@@ -100,6 +102,9 @@ class UnquantizedPart:
 
         self.possibleClefs = possibleClefs
         """Clefs to choose from for automatic clef changes during quantization"""
+
+        self.scorestruct = scorestruct
+        """The scorestruct for this part, or None if not specified"""
 
         self.check()
 

@@ -382,8 +382,9 @@ class Chain(MContainer):
         """
         A list of flat events, with explicit absolute offsets set
 
-        The returned events are a clone of the events in this chain,
-        not the actual events themselves
+        If an event already has an explicit offset, then the actual
+        event is returned. Use ``forcecopy`` to ensure that the
+        returned events are actually a copy
 
         Args:
             forcecopy: if True, all returned events are copy of events
@@ -566,15 +567,18 @@ class Chain(MContainer):
             # later, after events have been merged.
             playargs = playargs.updated(self.playargs, automations=False)
 
-        flatitems = self.flatEvents()
+        flatitems = self.flatEvents(forcecopy=False)
         assert all(item.offset is not None and item.dur >= 0 for item in flatitems)
 
         if any(n.isGrace() for n in flatitems):
             graceDur = F(conf['play.graceDuration'])
+            flatitems = [item.copy() for item in flatitems]
             _eventutils.addDurationToGracenotes(flatitems, graceDur)
 
         if conf['play.useDynamics']:
-            _eventutils.fillTempDynamics(flatitems, initialDynamic=conf['play.defaultDynamic'])
+            _eventutils.fillTempDynamics(flatitems,
+                                         initialDynamic=conf['play.defaultDynamic'],
+                                         apply=False)
 
         synthevents = []
         offset = parentOffset + self.relOffset()
@@ -608,7 +612,7 @@ class Chain(MContainer):
             for automation in self.playargs.automations:
 
                 startsecs, endsecs = automation.absTimeRange(parentOffset=offset, scorestruct=scorestruct)
-                presetman = Workspace.active.presetManager()
+                presetman = Workspace.active.presetManager
                 for ev in synthevents:
                     preset = presetman.getPreset(ev.instr)
                     if automation.param not in preset.dynamicParams(aliases=True, aliased=True):
@@ -2301,7 +2305,8 @@ class Voice(Chain):
                  name='',
                  abbrev='',
                  maxStaves=0,
-                 minStaves=1
+                 minStaves=1,
+                 scorestruct: ScoreStruct | None = None
                  ):
         if isinstance(items, Chain):
             chain = items
@@ -2330,8 +2335,53 @@ class Voice(Chain):
             self.configNotation(maxStaves=maxStaves)
 
         self._minStaves = minStaves
-            
-        
+        self._scorestruct = scorestruct
+
+    def scorestruct(self) -> ScoreStruct | None:
+        """
+        Returns the ScoreStruct active for this obj or its parent (recursively)
+
+        If this object has no parent ``None`` is returned. Use
+        :meth:`activeScorestruct() <maelzel.core.mobj.MObj.activeScorestruct>`
+        to always resolve the active struct for this object
+
+        Returns:
+            the associated scorestruct, if set (either directly or through its parent)
+
+        Example
+        ~~~~~~~
+
+        .. code-block:: python
+
+            >>> from maelzel.core import *
+            >>> n = Note("4C", 1)
+            >>> voice = Voice([n])
+            >>> score = Score([voice])
+            >>> score.setScoreStruct(ScoreStruct(timesig=(3, 4), tempo=72))
+            >>> n.scorestruct()
+            ScoreStruct(timesig=(3, 4), tempo=72)
+
+        .. seealso:: :meth:`activeScorestruct() <maelzel.core.mobj.MObj.activeScorestruct>`
+        """
+        return self._scorestruct or (None if not self.parent else self.parent.scorestruct())
+
+    def setScoreStruct(self, scorestruct: ScoreStruct | None) -> None:
+        """
+        Set the ScoreStruct for this object and its children
+
+        This ScoreStruct will be used for any object embedded
+        downstream.
+
+        Args:
+            scorestruct: the ScoreStruct, or None to remove any scorestruct
+                previously set
+
+        """
+        if scorestruct is None and self._scorestruct:
+            1/0
+        self._scorestruct = scorestruct
+        self._changed()
+
     def __repr__(self):
         if len(self.items) < 10:
             itemstr = ", ".join(repr(_) for _ in self.items)
@@ -2460,6 +2510,9 @@ class Voice(Chain):
                                 name=self._group.name,
                                 abbrev=self._group.abbrev,
                                 showPartNames=self._group.showPartNames)
+        if ownstruct := self._scorestruct:
+            for part in parts:
+                part.scorestruct = ownstruct
         return parts
 
     def relOffset(self) -> F:

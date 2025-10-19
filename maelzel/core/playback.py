@@ -208,6 +208,7 @@ def stopSynths():
 @cache
 def _builtinInstrs() -> list[csoundengine.instr.Instr]:
     from csoundengine.instr import Instr
+    from csoundengine.interact import ParamSpec
     return [
         Instr('.globalreverb', r'''\
             |kfeedback=0.85, kwet=0.8, kcutoff=12000|
@@ -236,7 +237,13 @@ def _builtinInstrs() -> list[csoundengine.instr.Instr]:
             exit:
         ''',
               doc="Side channel stereo reverb, applies to channels .zitarev.1 and .zitarev.2",
-              properties={'kind': 'mainreverb'}),
+              properties={'kind': 'mainreverb'},
+              specs=[ParamSpec('kgaindb', minvalue=-120, maxvalue=6, startvalue=-6, valuescale='log'),
+                     ParamSpec('kdelayms', minvalue=0, maxvalue=400, startvalue=60),
+                     ParamSpec('khfdamp', minvalue=50, maxvalue=22000, startvalue=6000, valuescale='log'),
+                     ParamSpec('kdamp', minvalue=0.001, maxvalue=0.999, startvalue=0.2),
+                     ParamSpec('kchan', minvalue=1, maxvalue=64, startvalue=1),
+                     ParamSpec('kwet', minvalue=0, maxvalue=1, startvalue=1)]),
     ]
 
 

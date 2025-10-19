@@ -7,9 +7,6 @@ of managing playback presets for a maelzel.core session.
 from __future__ import annotations
 import os
 import emlib.textlib
-import emlib.misc
-import fnmatch
-import glob
 
 from . import presetdef as _presetdef
 from .workspace import Workspace
@@ -632,6 +629,7 @@ class PresetManager:
                 is show. Otherwise, only the audio code is shown
 
         """
+        import fnmatch
         matchingPresets = [p for name, p in self.presetdefs.items()
                            if fnmatch.fnmatch(name, pattern)]
 
@@ -779,6 +777,7 @@ class PresetManager:
         Open a file manager at presetsPath
         """
         path = self.presetsPath
+        import emlib.misc
         emlib.misc.open_with_app(path)
 
     def removeUserPreset(self, presetName: str) -> bool:
@@ -819,6 +818,7 @@ class PresetManager:
 
         .. seealso:: :func:`presetsPath`
         """
+        import glob
         presets = glob.glob(os.path.join(self.presetsPath, "*.yaml"))
         return [os.path.splitext(os.path.split(p)[1])[0] for p in presets]
 

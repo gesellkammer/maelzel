@@ -1600,8 +1600,11 @@ def splitNotationAtMeasures(n: Notation, struct: st.ScoreStruct
     if beat1 > F0:
         notation = n.cloneAsTie(offset=F0, duration=beat1, tiedPrev=True, tiedNext=n.tiedNext)
         pairs.append((measureindex1, notation))
-        
+
+
     parts = [part for measidx, part in pairs]
+    assert sum(part.duration for part in parts) == n.duration, f"{n=}, {parts=}"
+
     n._copySpannersToSplitNotation(parts)
 
     for idx, part in pairs[:-1]:
@@ -2118,7 +2121,8 @@ class QuantizedPart:
                             propertyKey='',
                             minClef='',
                             maxClef='',
-                            possibleClefs: Sequence[str] = ()
+                            possibleClefs: Sequence[str] = (),
+                            transposingFactor=1.0
                             ) -> None:
         """
         Determines the most appropriate clef changes for this part
@@ -2162,7 +2166,8 @@ class QuantizedPart:
                                 firstClef=self.firstClef,
                                 possibleClefs=possibleClefs,
                                 minClef=minClef,
-                                maxClef=maxClef)
+                                maxClef=maxClef,
+                                transposingFactor=transposingFactor)
         firstn = next((n for n in notations if not n.isRest), None)
         if firstn and (clef := notations[0].findAttachment(attachment.Clef)):
             self.firstClef = clef.kind
@@ -2586,9 +2591,9 @@ def quantizePart(part: core.UnquantizedPart,
     defined in `preset`
 
     Args:
-        struct: the ScoreStruct to use
         part: the events to quantize. Event within a part
             should not overlap
+        struct: the ScoreStruct to use
         fillStructure: if True and struct is not endless, the
             generated UnquantizedPart will have as many measures as are defined
             in the struct. Otherwisem only as many measures as needed
@@ -2600,6 +2605,7 @@ def quantizePart(part: core.UnquantizedPart,
 
     """
     assert isinstance(part, core.UnquantizedPart)
+    struct = part.scorestruct or struct
     part.fillGaps()
     notations = part.notations
     core.resolveOffsets(notations)
@@ -2641,8 +2647,8 @@ def quantizePart(part: core.UnquantizedPart,
                                         beats=[],
                                         quantprofile=quantprofile)
             qmeasures.append(qmeasure)
-    qpart = QuantizedPart(struct,
-                          qmeasures,
+    qpart = QuantizedPart(struct=struct,
+                          measures=qmeasures,
                           name=part.name,
                           abbrev=part.abbrev,
                           groupid=part.groupid,
@@ -2781,8 +2787,12 @@ class QuantizedScore:
     @scorestruct.setter
     def scorestruct(self, struct: st.ScoreStruct) -> None:
         if self.parts:
-            for part in self.parts:
-                part.struct = struct
+            for i, part in enumerate(self.parts):
+                if part.struct is None:
+                    part.struct = struct
+                elif part.struct != struct:
+                    logger.info(f"Part {i} has already got a scorestruct different than"
+                                f"the global struct")
 
     def numMeasures(self) -> int:
         """Returns the number of measures in this score"""

@@ -159,7 +159,7 @@ class OfflineRenderer(renderer.Renderer):
         """The workspace at the moment of __enter__. Its renderer attr is modified
         and needs to be restored at __exit__"""
 
-        self.showAtExit = False
+        self._showAtExit = False
         """Display the results at exit if running in jupyter"""
 
         self.session: csoundengine.offline.OfflineSession = self._makeCsoundRenderer()
@@ -795,21 +795,18 @@ class OfflineRenderer(renderer.Renderer):
             # There was an exception since entering
             logger.warning("Offline rendering aborted")
             return
-        self._workspace.renderer = self._oldRenderer
-        self._workspace = Workspace.active
-        self._oldRenderer = None
 
         session = self.liveSession()
         if session:
             session.setHandler(None)
-            # self._session.setSchedCallback(self._oldSessionSchedCallback)
-            # self._oldSessionSchedCallback = None
-            # self._session = None
 
         outfile = self._outfile or _playbacktools.makeRecordingFilename()
         logger.info(f"Rendering to {outfile}")
         self.render(outfile=outfile, wait=True)
-        if self.showAtExit:
+        self._workspace.renderer = self._oldRenderer
+        self._workspace = Workspace.active
+        self._oldRenderer = None
+        if self._showAtExit:
             self.show()
 
     def renderedSample(self) -> audiosample.Sample:
@@ -996,6 +993,7 @@ def render(outfile='',
                                           ksmps=ksmps,
                                           tail=tail,
                                           endtime=endtime)
+        offlinerenderer._showAtExit = show
         return offlinerenderer
     if workspace is None:
         workspace = Workspace.active
@@ -1006,7 +1004,8 @@ def render(outfile='',
                                ksmps=ksmps,
                                numchannels=nchnls,
                                tail=tail,
-                               endtime=endtime)
+                               endtime=endtime,
+                               )
     if coreEvents:
         renderer.schedEvents(coreEvents)
 

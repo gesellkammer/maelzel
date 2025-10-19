@@ -12,7 +12,7 @@ from maelzel.common import F, asF, F0
 
 from typing import TYPE_CHECKING, overload as _overload
 if TYPE_CHECKING:
-    from typing import Iterator, Sequence, Iterable
+    from typing import Iterator, Sequence, Iterable, Any
     from typing_extensions import Self
     import maelzel.core
     from maelzel.common import num_t, timesig_t, beat_t
@@ -123,6 +123,9 @@ class TimeSignature:
     def __init__(self,
                  *parts: tuple[int, int],
                  subdivisions: Sequence[int] = ()):
+        if not all(isinstance(part, tuple) and len(part) == 2 for part in parts):
+            raise ValueError(f"Invalid parts: {parts}")
+
         self.parts: tuple[tuple[int, int], ...] = parts
         """
         The parts of this timesig, as originally passed at creation
@@ -392,10 +395,14 @@ class TempoDef:
         return asQuarterTempo(self.tempo, refvalue=self.refvalue, numdots=self.numdots)
 
 
+@dataclass
 class KeySignature:
-    def __init__(self, fifths: int, mode='major'):
-        self.fifths = fifths
-        self.mode = mode if mode else 'major'
+    fifths: int
+    mode: str = 'major'
+
+    def __post_init__(self):
+        assert isinstance(self.fifths, int) and -7 <= self.fifths <= 7
+        assert self.mode in ('', 'major', 'minor'), f"Invalid mode: {self.mode}"
 
 
 @functools.cache
@@ -808,7 +815,11 @@ class MeasureDef:
         """
         subdivs = self.subdivisions()
         denom = self.timesig.fusedSignature[1]
+        if denom == 2:
+            denom = max(subdiv.denominator for subdiv in subdivs) * 4
         multiples = tuple((subdiv * denom // 4) for subdiv in subdivs)
+        assert denom in (1, 2, 4, 8, 16, 32, 64, 128, 256)
+        assert all(n >= 1 for n in multiples), f"Invalid subdivision structure: {denom=}, {multiples=}, {subdivs=} in {self}"
         return denom, multiples
 
     def subdivisions(self) -> list[F]:
@@ -912,6 +923,9 @@ def measureSubdivisions(timesig: TimeSignature,
                         subdivisionStructure: tuple[int, tuple[int, ...]] | None = None,
                         subdivTempoThresh: int = 96
                         ) -> list[F]:
+    if subdivisionStructure:
+        div, nums = subdivisionStructure
+        assert all(n >= 1 for n in nums), f"Invalud {subdivisionStructure=}"
     if len(timesig.parts) == 1:
         if subdivisionStructure and timesig.subdivisionStruct:
             subdivisionStructure = timesig.qualifiedSubdivisionStruct()
@@ -963,7 +977,17 @@ def beatDurations(timesig: timesig_t,
     if subdivisionStructure:
         _checkSubdivisionStructure(subdivisionStructure)
         subdivden, subdivnums = subdivisionStructure
-        subdivisions = [F(num, subdivden // 4) for num in subdivnums]
+        assert subdivden in (1, 2, 4, 8, 16, 32, 64, 128), f"Invalid {subdivisionStructure=}"
+        assert all(num >= 1 for num in subdivnums), f"Invalid {subdivisionStructure=}"
+        quarterden = subdivden / 4
+        if quarterden < 1:
+            numfactor = 1/quarterden
+            quarterden = 1
+        else:
+            numfactor = 1
+            quarterden = int(quarterden)
+
+        subdivisions = [F(num*numfactor, quarterden) for num in subdivnums]
         if sum(subdivisions) != quarters:
             raise ValueError(f"The sum of the subdivisions ({sum(subdivisions)}) does not"
                              f"match the number of quarters ({quarters}) in this time "
@@ -1507,7 +1531,7 @@ class ScoreStruct:
                    rehearsalMark: str | RehearsalMark = '',
                    keySignature: tuple[int, str] | KeySignature | None = None,
                    barline='',
-                   **kws
+                   properties: dict[str, Any] | None = None,
                    ) -> None:
         """
         Add a measure definition to this score structure
@@ -1532,7 +1556,6 @@ class ScoreStruct:
             barline: if needed, the right barline of the measure can be set to one of
                 'single', 'final', 'double', 'solid', 'dotted', 'dashed', 'tick', 'short',
                 'double-thin' or 'none'
-            **kws: any extra keyword argument will be saved as a property of the MeasureDef
 
         Example::
 
@@ -1573,7 +1596,7 @@ class ScoreStruct:
             timesigInherited=timesigInherited,
             tempoInherited=tempoInherited,
             rehearsalMark=rehearsalMark,
-            properties=kws,
+            properties=properties,
             keySignature=keySignature,
             barline=barline,
             parent=self,
@@ -2369,7 +2392,11 @@ class ScoreStruct:
 
         if self.hasUniqueTempo() and self.hasUniqueTimesig():
             m0 = self.measuredefs[0]
-            return f'ScoreStruct({m0.timesig}, tempo={m0.quarterTempo})'
+            info = [str(m0.timesig), f"tempo={m0.quarterTempo}"]
+            if m0.keySignature:
+                info.append(f"keySignature={m0.keySignature}")
+            infostr = ", ".join(info)
+            return f'ScoreStruct({infostr})'
         else:
             tempo = -1
             parts = []

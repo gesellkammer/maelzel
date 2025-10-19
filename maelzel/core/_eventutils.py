@@ -6,7 +6,7 @@ from . import event
 
 
 def fillTempDynamics(items: list[MEvent], initialDynamic='mf', key='.tempdynamic',
-                     resetMinGap=1
+                     resetMinGap=1, apply=False
                      ) -> None:
     """
     Fill notes/chords with context dynamic as temporary (inplace)
@@ -32,8 +32,9 @@ def fillTempDynamics(items: list[MEvent], initialDynamic='mf', key='.tempdynamic
     elif len(items) == 1:
         item = items[0]
         if not item.dynamic:
-            item.dynamic = initialDynamic
-            item.setProperty(key, True)
+            if apply:
+                item.dynamic = initialDynamic
+            item.setProperty(key, initialDynamic)
     else:
         lastDynamic = initialDynamic
         lastEnd = F0
@@ -42,8 +43,9 @@ def fillTempDynamics(items: list[MEvent], initialDynamic='mf', key='.tempdynamic
             if resetMinGap > 0 and itemOffset - lastEnd > resetMinGap:
                 lastDynamic = initialDynamic
             if not item.dynamic:
-                item.dynamic = lastDynamic
-                item.setProperty('.tempdynamic', True)
+                if apply:
+                    item.dynamic = lastDynamic
+                item.setProperty(key, lastDynamic)
             else:
                 lastDynamic = item.dynamic
             lastEnd = itemOffset + item.dur

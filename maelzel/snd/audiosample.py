@@ -45,16 +45,10 @@ from __future__ import annotations
 import abc
 import numpy as np
 import os
-import math
-from pathlib import Path
 
 import pitchtools as pt
-import emlib.misc
-
 from maelzel import _util
-from maelzel.snd import _common
 from maelzel.snd import numpysnd as _npsnd
-import maelzel.common
 
 from typing import TYPE_CHECKING
 
@@ -82,7 +76,7 @@ config = {
     'reprhtml_audiotag_maxwidth': '1200px',
     'reprhtml_audiotag_embed_maxduration_seconds': 8,
     'reprhtml_audio_format': 'mp3',
-    'csoundengine': _common.CSOUNDENGINE,
+    'csoundengine': 'maelzel.snd',
 }
 
 
@@ -154,10 +148,11 @@ def _openInEditor(soundfile: str, wait=False, app=None) -> None:
 
     """
     soundfile = _normalizePath(soundfile)
+    import emlib.misc
     emlib.misc.open_with_app(soundfile, app, wait=wait, min_wait=5)
 
 
-def readSoundfile(sndfile: str | Path, start: float = 0., end: float = 0.
+def readSoundfile(sndfile: str, start: float = 0., end: float = 0.
                   ) -> tuple[np.ndarray, int]:
     """
     Read a soundfile, returns a tuple ``(samples:np.ndarray, sr:int)``
@@ -181,7 +176,7 @@ def readSoundfile(sndfile: str | Path, start: float = 0., end: float = 0.
     """
     if sndfile == "?":
         import emlib.dialogs
-        sndfile = emlib.dialogs.selectFile(directory=Path.cwd().as_posix(),
+        sndfile = emlib.dialogs.selectFile(directory=os.getcwd(),
                                            filter=emlib.dialogs.filters['Sound'],
                                            title='Select soundfile')
         if not sndfile:
@@ -225,14 +220,12 @@ def _playSamples(samples: np.ndarray, sr: int, mapping: list[int], gain=1., spee
     return _PortaudioPlayback(stream=ctx.stream)
 
 
-
 class Sample:
     """
     A class representing audio data
 
     Args:
-        sound: str, a Path or a numpy array
-            either sample data or a path to a soundfile
+        sound: either the path to a soundfile or a numpy array with the samples
         sr: only needed if passed an array
         start: the start time (only valid when reading from a soundfile). Can be
             negative, in which case the frame is sought from the end.
@@ -246,7 +239,7 @@ class Sample:
     _csoundEngine: csoundengine.Engine | None = None
 
     def __init__(self,
-                 sound: str | Path | np.ndarray,
+                 sound: str | np.ndarray,
                  sr: int = 0,
                  start=0.,
                  end=0.,
@@ -271,7 +264,7 @@ class Sample:
 
         self.readonly = readonly
 
-        if isinstance(sound, (str, Path)):
+        if isinstance(sound, str):
             samples, sr = readSoundfile(sound, start=start, end=end)
             self.path = str(sound)
             self.originalpath = self.path
@@ -363,6 +356,7 @@ class Sample:
             if usedengine == engine.name:
                 return table
             else:
+                import maelzel.common
                 maelzel.common.getLogger(__file__).warning(f"Engine changed, was {usedengine}, now {engine.name}")
         tabproxy = engine.session().makeTable(self.samples, sr=self.sr, block=True)
         tabnum = tabproxy.tabnum
@@ -456,12 +450,10 @@ class Sample:
                 backend = 'csound'
 
         if backend == 'portaudio':
-            maelzel.common.getLogger(__file__).debug("Playback using portaudio (sounddevice)")
             return self._playPortaudio(loop=loop, chan=chan, gain=gain,
                                        speed=speed, skip=skip, dur=dur, block=block)
         elif backend == 'csound':
             # Use csoundengine
-            maelzel.common.getLogger(__file__).debug("Playback using csoundengine")
             if not engine:
                 engine = Sample.getEngine()
 
@@ -1123,7 +1115,7 @@ class Sample:
             https://bpf4.readthedocs.io/en/latest/
 
         """
-        return _npsnd.peaksBpf(self.samples, self.sr, res=framedur, overlap=overlap)
+        return _npsnd.peaksBpf(self.samples, self.sr, dt=framedur, overlap=overlap)
 
     def reverse(self) -> Self:
         """ reverse the sample **in-place**, returns self """
@@ -1546,7 +1538,6 @@ class Sample:
         else:
             minfreq = self.sr / fftsize * 2
             avgfreq = float(scipy.stats.trim_mean(freqs[freqs > minfreq], proportiontocut=0.1))
-        assert not math.isnan(avgfreq)
         return avgfreq
 
     def fundamental(self, fftsize=2048, overlap=4, unvoiced='negative', minAmpDb=-60, sensitivity=0.7
@@ -1676,7 +1667,7 @@ class Sample:
         firstidx = _npsnd.firstSound(samples, threshold=threshold)
         lastidx = _npsnd.lastSound(samples, threshold=threshold)
         if firstidx is None or lastidx is None:
-            return (0, 0)
+            return (0., 0.)
 
         from maelzel.snd import freqestimate
         chunksize = int(chunkdur * self.sr)
@@ -1691,8 +1682,8 @@ class Sample:
             selfreqs = freqs[mask]
             seltimes = times[mask]
             idx = min(len(selfreqs)-1, 3)
-            return seltimes[idx] + idx / self.sr, selfreqs[idx]
-        return 0, 0
+            return float(seltimes[idx] + idx / self.sr), float(selfreqs[idx])
+        return 0., 0.
 
     def firstSound(self, threshold=-120.0, period=0.04, overlap=2, start=0.,
                    ) -> float | None:

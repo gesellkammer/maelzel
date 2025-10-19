@@ -29,7 +29,11 @@ from maelzel.music import lilytools
 from maelzel.scoring.common import logger
 from maelzel.textstyle import TextStyle
 
-from . import attachment, definitions, lilypondsnippets, quant, util
+from . import attachment
+from . import definitions
+from . import lilypondsnippets
+from . import quant
+from . import util
 from . import spanner as _spanner
 from .core import Notation
 from .node import Node
@@ -37,12 +41,13 @@ from .render import Renderer, RenderOptions
 
 if TYPE_CHECKING:
     from maelzel.common import pitch_t
+    from maelzel.scorestruct import MeasureDef
 
 
 __all__ = (
     'LilypondRenderer',
     'renderPart',
-    'makeScore'
+    'renderScore'
 )
 
 
@@ -261,12 +266,14 @@ def lyNotehead(notehead: definitions.Notehead, insideChord=False) -> str:
 
 @dataclass
 class RenderState:
+    options: RenderOptions
     measure: quant.QuantizedMeasure | None = None
     insideSlide: bool = False
     glissando: bool = False
     dynamic: str = ''
     insideGraceGroup: bool = False
     openSpanners: dict[str, _spanner.Spanner] = field(default_factory=dict)
+    pedalStyle: str = ''
 
 
 def _renderTextAttachment(attach: attachment.Text,
@@ -496,7 +503,6 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
                 _(f":{trem.singleDuration()}")
             else:
                 nummarksbase = int(math.log(base, 2) - 2)
-                assert nummarksbase > 0
                 # 8: 1, 16: 2, 32: 3, 64: 4, ...
                 tremdur = 2 ** (2 + nummarksbase + trem.nummarks)
                 _(f":{tremdur}")
@@ -624,6 +630,12 @@ def _handleSpannerPre(spanner: _spanner.Spanner, state: RenderState) -> str | No
                 _(r"\glissandoSkipOff ")
                 state.insideSlide = False
 
+    elif isinstance(spanner, _spanner.Pedal):
+        if spanner.kind == 'start':
+            if spanner.style and spanner.style != state.pedalStyle:
+                _(rf"\set Staff.pedalSustainStyle = #'{spanner.style} ")
+                state.pedalStyle = spanner.style
+
     return ''.join(out)
 
 
@@ -664,6 +676,13 @@ def _handleSpannerPost(spanner: _spanner.Spanner, state: RenderState) -> str | N
             _(r"\startGroup ")
         else:
             _(r"\stopGroup ")
+
+    elif isinstance(spanner, _spanner.Pedal):
+        if spanner.kind == 'start':
+            # _(r"\set Staff.pedalSustainStyle = #'mixed ")
+            _(r"\sustainOn ")
+        else:
+            _(r"\sustainOff ")
 
     elif isinstance(spanner, _spanner.TrillLine):
         # If it has a start mark we use a trill line, otherwise we use a textspan
@@ -858,6 +877,49 @@ def _isSmallDenominator(den: int, quarterTempo: F, eighthNoteThreshold=50) -> bo
     return quarterTempo > mintempo
 
 
+def _numStartGracenotes(part: quant.QuantizedPart) -> int:
+    gracenotes = 0
+    for n in part.flatNotations():
+        if not n.isGracenote:
+            break
+        gracenotes += 1
+    return gracenotes
+
+
+def addTimeSignature(w: IndentedWriter, measuredef: MeasureDef, options: RenderOptions):
+    timesig = measuredef.timesig
+    if len(timesig.parts) == 1:
+        if not timesig.subdivisionStruct:
+            num, den = timesig.fusedSignature
+            if options.addSubdivisionsForSmallDenominators and _isSmallDenominator(den, measuredef.quarterTempo):
+                den, subdivs = measuredef.subdivisionStructure()
+                num, den2 = measuredef.timesig.fusedSignature
+                assert den == den2
+                w.line(fr"\time {','.join(map(str, subdivs))} {num}/{den}")
+            else:
+                # common case, simple timesig num/den
+                w.line(fr"\time {timesig.numerator}/{timesig.denominator}")
+        else:
+            subdivs = ",".join(map(str, timesig.subdivisionStruct))
+            # \time 2,2,3 7/8
+            num, den = timesig.fusedSignature
+            w.line(fr"\time {subdivs} {num}/{den}")
+    else:
+        # 3/8 -> (3 8)
+        pairs = ' '.join(f"({num} {den})" for num, den in timesig.parts)
+        w.line(fr"\compoundMeter #'({pairs})")
+        # Add subdivisions if needed.
+        if (options.compoundMeterSubdivision == 'all' or
+                (options.compoundMeterSubdivision == 'heterogeneous' and
+                 measuredef.timesig.isHeterogeneous()) or
+                any(denom == 4 for num, denom in measuredef.timesig.parts)):
+            den, multiples = measuredef.subdivisionStructure()
+            num = measuredef.timesig.fusedSignature[0]
+            subdivs = ",".join(map(str, multiples))
+            w.line(fr"\time {subdivs} {num}/{den}")
+
+
+
 def renderPart(part: quant.QuantizedPart,
                options: RenderOptions,
                addMeasureMarks=True,
@@ -865,6 +927,7 @@ def renderPart(part: quant.QuantizedPart,
                addTempoMarks=True,
                indents=0,
                indentSize=2,
+               startGracenotes=0
                ) -> str:
     """
     Render a QuantizedPart as lilypond code
@@ -889,29 +952,34 @@ def renderPart(part: quant.QuantizedPart,
     scorestruct = part.struct
     w = IndentedWriter(indentsize=indentSize, indents=indents)
 
-    if part.name and part.showName:
-        w.line(r"\new Staff \with {")
-        w.line(f'    instrumentName = #"{part.name}"')
-        if part.abbrev:
-            w.line(f'    shortInstrumentName = "{part.abbrev}"')
+    w.line(r"\new Staff \with {")
+    with w.indent():
+        if part.name and part.showName:
+            w.line(f'instrumentName = #"{part.name}"')
+            if part.abbrev:
+                w.line(f'shortInstrumentName = "{part.abbrev}"')
         if clef or part.firstClef:
-            w.line('    ' + lilytools.makeClef(part.firstClef))
-
-        w.line("}")
-        w.line("{")
-    else:
-        w.line(r"\new Staff {")
+            w.line(lilytools.makeClef(part.firstClef))
+        measuredef0 = scorestruct[0]
+    w.line("}")
+    w.line("{")
 
     w.indents += 1
     w.line(r"\numericTimeSignature")
+
+    addTimeSignature(w, measuredef0, options=options)
 
     if not clef:
         clef = part.firstClef or part.bestClef()
     w.line(lilytools.makeClef(clef))
 
-    timesig = None
+    timesig = measuredef0.timesig
 
-    state = RenderState()
+    pedalStyle = options.pedalStyle or 'mixed'
+    state = RenderState(options=options, pedalStyle=pedalStyle)
+    w.line(fr"\set Staff.pedalSustainStyle = #'{pedalStyle}")
+
+    partGracenotes = _numStartGracenotes(part)
 
     for i, measure in enumerate(part.measures):
         assert isinstance(measure, quant.QuantizedMeasure)
@@ -922,49 +990,23 @@ def renderPart(part: quant.QuantizedPart,
         w.line(f"% measure {i+1}")
         w.indents += 1
         measureDef = scorestruct.getMeasureDef(i)
-
-        if addTempoMarks and measureDef.timesig != timesig:
+        if i > 0 and measureDef.timesig != timesig:
+            addTimeSignature(w, measuredef=measureDef, options=options)
             timesig = measureDef.timesig
-            if len(timesig.parts) == 1:
-                if not timesig.subdivisionStruct:
-                    num, den = timesig.fusedSignature
-                    if options.addSubdivisionsForSmallDenominators and _isSmallDenominator(den, quarterTempo):
-                        den, subdivs = measureDef.subdivisionStructure()
-                        num, den2 = measureDef.timesig.fusedSignature
-                        assert den == den2
-                        w.line(fr"\time {','.join(map(str, subdivs))} {num}/{den}")
-                    else:
-                        # common case, simple timesig num/den
-                        w.line(fr"\time {timesig.numerator}/{timesig.denominator}")
-                else:
-                    subdivs = ",".join(map(str, timesig.subdivisionStruct))
-                    # \time 2,2,3 7/8
-                    num, den = timesig.fusedSignature
-                    w.line(fr"\time {subdivs} {num}/{den}")
-            else:
-                # 3/8 -> (3 8)
-                pairs = ' '.join(f"({num} {den})" for num, den in timesig.parts)
-                w.line(fr"\compoundMeter #'({pairs})")
-                # Add subdivisions if needed.
-                if (options.compoundMeterSubdivision == 'all' or
-                        (options.compoundMeterSubdivision == 'heterogeneous' and
-                         measureDef.timesig.isHeterogeneous()) or
-                        any(denom == 4 for num, denom in measureDef.timesig.parts)):
-                    den, multiples = measureDef.subdivisionStructure()
-                    num = measureDef.timesig.fusedSignature[0]
-                    subdivs = ",".join(map(str, multiples))
-                    w.line(fr"\time {subdivs} {num}/{den}")
 
-        if addTempoMarks and measure.quarterTempo != quarterTempo:
-            quarterTempo = measure.quarterTempo
-            # lilypond only support integer tempi
-            # TODO: convert to a different base if the tempo is too slow/fast for
-            #       the quarter, or convert according to the time signature
-            w.line(fr"\tempo 4 = {int(quarterTempo)}")
+        if addTempoMarks:
+            if measure.quarterTempo != quarterTempo:
+                w.line(fr"\tempo 4 = {int(quarterTempo)}")
+                quarterTempo = measure.quarterTempo
 
         if measureDef.keySignature:
             w.line(lilytools.keySignature(fifths=measureDef.keySignature.fifths,
                                           mode=measureDef.keySignature.mode))
+
+        if i == 0 and partGracenotes < startGracenotes:
+            s = "s8 " * (startGracenotes - partGracenotes)
+            w.line(r"\grace{ " + s + "}")
+
 
         if addMeasureMarks:
             if measureDef.annotation:
@@ -1018,10 +1060,10 @@ def renderPart(part: quant.QuantizedPart,
 
 # --------------------------------------------------------------
 
-def makeScore(score: quant.QuantizedScore,
-              options: RenderOptions,
-              midi=False
-              ) -> str:
+def renderScore(score: quant.QuantizedScore,
+                options: RenderOptions,
+                midi=False
+                ) -> str:
     r"""
     Render a QuantizedScore as a lilypond score (as str)
 
@@ -1057,17 +1099,13 @@ def makeScore(score: quant.QuantizedScore,
 
     _(f'\\version "{lilypondVersion}"\n')
 
-    if options.title or options.composer:
-        _(
-fr'''
-\header {{
-    title = "{options.title}"
-    composer = "{options.composer}"
-    tagline = ##f
-}}
-''')
-    else:
-        _(r"\header { tagline = ##f }")
+    _(r"\header {")
+    if options.title:
+        _(f'{IND}title = "{options.title}"')
+    if options.composer:
+        _(f'{IND}composer = "{options.composer}"')
+    _(f'{IND}tagline = ##f')
+    _("}")
 
     # Global settings
     # staffSizePoints = lilytools.millimetersToPoints(options.staffSize)
@@ -1118,13 +1156,18 @@ fr'''
     if options.useStemlets:
         _(lilypondsnippets.stemletLength(length=options.stemletLength, context='Score'))
 
+    # There is a "bug" in lilypond where, if a part has gracenotes at the beginning
+    # of the part, parts without gracenotes end up unaligned. For this, any part
+    # without gracenotes needs to have "silent" gracenotes.
+    maxStartGracenotes = max(_numStartGracenotes(part) for part in score.parts)
+
     _(r"\score {")
 
     _(r"<<")
     indents = 1
     groups = score.groupParts()
     partindex = 0
-    for group in groups:
+    for i, group in enumerate(groups):
         if len(group) > 1:
             if group[0].groupName is not None:
                 name, shortname = group[0].groupName
@@ -1132,14 +1175,15 @@ fr'''
                 name, shortname = '', ''
             _(fr'\new StaffGroup \with {{ instrumentName = "{name}" shortInstrumentName = "{shortname}" }} <<', indent=1)
             indents += 1
-        for part in group:
+        for j, part in enumerate(group):
             partstr = renderPart(part,
                                  addMeasureMarks=partindex == 0,
                                  addTempoMarks=partindex == 0,
                                  options=options,
                                  indents=indents,
                                  indentSize=indentSize,
-                                 clef=part.firstClef)
+                                 clef=part.firstClef,
+                                 startGracenotes=maxStartGracenotes)
             _(partstr)
             partindex += 1
         if len(group) > 1:
@@ -1177,7 +1221,7 @@ class LilypondRenderer(Renderer):
     @cache
     def _render(self, options: RenderOptions) -> str:
         assert isinstance(options, RenderOptions)
-        return makeScore(self.quantizedScore, options=options, midi=self._withMidi)
+        return renderScore(self.quantizedScore, options=options, midi=self._withMidi)
 
     def writeFormats(self) -> list[str]:
         return ['pdf', 'ly', 'png']

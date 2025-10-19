@@ -130,6 +130,8 @@ class Note(MEvent):
                  _init=True
                  ):
         pitchSpelling = ''
+        spanners: list[_symbols.Spanner] | None = None
+
         if not _init:
             midinote = _cast(float, pitch)
             assert offset is None or isinstance(offset, F)
@@ -158,8 +160,7 @@ class Note(MEvent):
                         else:
                             symbols.extend(props.symbols)
                     if props.spanners:
-                        for spanner in props.spanners:
-                            self.addSpanner(spanner)
+                        spanners = props.spanners
                 elif "/" in pitch:
                     parsednote = _tools.parseNote(pitch)
                     if not isinstance(parsednote.notename, str):
@@ -201,6 +202,10 @@ class Note(MEvent):
         dur = asF(dur) if dur is not None else F1
         super().__init__(dur=dur, offset=offset, label=label, properties=properties,
                          symbols=symbols, tied=tied, amp=amp, dynamic=dynamic)
+
+        if spanners is not None:
+            for sp in spanners:
+                self.addSpanner(sp)
 
         self.pitch: float = midinote
         "The pitch of this note"
@@ -755,7 +760,7 @@ class Note(MEvent):
             return self.amp
         else:
             if config['play.useDynamics']:
-                dyn = self.dynamic or config['play.defaultDynamic']
+                dyn = self.dynamic or (self.properties and self.properties.get('.tempdynamic')) or config['play.defaultDynamic']
                 return dyncurve.dyn2amp(dyn)
             return config['play.defaultAmplitude']
 
@@ -999,10 +1004,11 @@ class Chord(MEvent):
             dur = asF(dur)
 
         if not notes:
-            super().__init__(dur=dur if dur is not None else F1, offset=None, label=label)
+            super().__init__(dur=dur if dur is not None else F1, offset=offset, label=label)
             return
 
         symbols = None
+        spanners = None
         # notes might be: Chord([n1, n2, ...]) or Chord("4c 4e 4g", ...)
         if isinstance(notes, str):
             if ':' in notes:
@@ -1020,13 +1026,17 @@ class Chord(MEvent):
                 if props.symbols:
                     symbols = props.symbols
                 if props.spanners:
-                    for spanner in props.spanners:
-                        self.addSpanner(spanner)
+                    spanners = props.spanners
                 notes = [Note(pitch, amp=amp, fixed=fixed) for pitch in pitches]
             elif ',' in notes:
                 notes = [Note(n.strip(), amp=amp, fixed=fixed) for n in notes.split(',')]
             else:
                 notes = [Note(n.strip(), amp=amp, fixed=fixed) for n in notes.split()]
+
+        assert offset is None or isinstance(offset, F)
+        super().__init__(dur=dur if dur is not None else F1,
+                         offset=offset, label=label, properties=properties,
+                         tied=tied, amp=amp, dynamic=dynamic)
 
         if not _init:
             notes2 = _cast(list[Note], notes)
@@ -1044,7 +1054,7 @@ class Chord(MEvent):
                     raise TypeError(f"Expected a Note or a pitch, got {n}")
             notes2.sort(key=lambda n: n.pitch)
             if any(n.tied for n in notes2):
-                tied = True
+                self.tied = True
 
             if not isinstance(gliss, bool):
                 gliss = pt.as_midinotes(gliss)
@@ -1052,10 +1062,7 @@ class Chord(MEvent):
                     raise ValueError(f"The destination chord of the gliss should have "
                                      f"the same length as the chord itself, {notes=}, {gliss=}")
 
-        assert offset is None or isinstance(offset, F)
-        super().__init__(dur=dur if dur is not None else F1,
-                         offset=offset, label=label, properties=properties,
-                         tied=tied, amp=amp, dynamic=dynamic)
+
         self.notes: list[Note] = notes2
         """The notes in this chord, each an instance of Note"""
 
@@ -1064,6 +1071,10 @@ class Chord(MEvent):
         if symbols:
             for symbol in symbols:
                 self.addSymbol(symbol)
+        if spanners:
+            for sp in spanners:
+                self.addSpanner(sp)
+
 
     @property
     def gliss(self) -> list[float] | bool:

@@ -6,6 +6,7 @@ from .event import MEvent
 from .config import CoreConfig
 from .chain import Voice, Chain, PartGroup
 from .workspace import Workspace
+from maelzel.core._common import logger
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -44,7 +45,7 @@ class Score(MContainer):
     """
     _acceptsNoteAttachedSymbols = False
 
-    __slots__ = ('voices', 'groups', '_modified')
+    __slots__ = ('voices', 'groups', '_modified', '_scorestruct')
 
     def __init__(self,
                  voices: Sequence[Voice | Chain | MEvent] = (),
@@ -68,15 +69,28 @@ class Score(MContainer):
         self._modified = True
         self._config: dict[str, Any] = {}
         self._dur = self._calculateDuration()
-        self.setScoreStruct(scorestruct)
+        if scorestruct:
+            self.setScoreStruct(scorestruct)
 
-    # def setConfig(self, key: str, value):
-    #     configkeys = self.__class__._configKeys()
-    #     if key not in configkeys:
-    #         raise KeyError(f"Invalid key '{key}' for a Score. Valid keys are {configkeys}")
-    #     if errmsg := CoreConfig.root().checkValue(key, value):
-    #         raise ValueError(f"Invalid value {value} for key '{key}': {errmsg}")
-    #     self._config[key] = value
+    def setScoreStruct(self, scorestruct: ScoreStruct | None) -> None:
+        """
+        Set the ScoreStruct for this score and its children
+
+        This ScoreStruct will be used for any object embedded
+        downstream.
+
+        Args:
+            scorestruct: the ScoreStruct, or None to remove any scorestruct
+                previously set
+
+        """
+        self._scorestruct = scorestruct
+        if scorestruct:
+            for i, v in enumerate(self.voices):
+                voicestruct = v.scorestruct()
+                if voicestruct is not None and voicestruct != scorestruct:
+                    logger.info(f"Voice #{i}, name={v.name} has a different scorestruct than the score")
+        self._changed()
 
     def getConfig(self, prototype: CoreConfig | None = None) -> CoreConfig | None:
         if not self._config:
@@ -205,24 +219,6 @@ class Score(MContainer):
 
     def __contains__(self, item) -> bool:
         return item in self.voices
-
-    def setScoreStruct(self, scorestruct: ScoreStruct | None) -> None:
-        """
-        Set the ScoreStruct for this Score
-
-        This ScoreStruct will be used for any object embedded downstream
-
-        Args:
-            scorestruct: the ScoreStruct or None to remove any previously
-                set struct in this object and any child
-
-        """
-        self._scorestruct = scorestruct
-        for voice in self.voices:
-            voicestruct = voice.scorestruct()
-            if voicestruct is not None:
-                voice.setScoreStruct(None)
-        self._changed()
 
     def makeGroup(self,
                   parts: list[Voice],

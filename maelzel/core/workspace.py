@@ -113,6 +113,8 @@ class Workspace:
         self._previousWorkspace: Workspace | None = None
         """The previous workspace. Will be activated when this one is desactivated"""
 
+        self._presetManager: presetmanager.PresetManager | None = None
+
         self._reverbSettings: dict[str, float] = {}
 
         if active:
@@ -206,12 +208,13 @@ class Workspace:
         return self._scorestruct
 
     @scorestruct.setter
-    def scorestruct(self, s: ScoreStruct):
-        if s.beatWeightTempoThresh is None:
-            s.beatWeightTempoThresh = self.config['quant.beatWeightTempoThresh']
-        if s.subdivTempoThresh is None:
-            s.subdivTempoThresh = self.config['quant.subdivTempoThresh']
-        self._scorestruct = s
+    def scorestruct(self, s: ScoreStruct | str):
+        struct = ScoreStruct(s) if isinstance(s, str) else s
+        if struct.beatWeightTempoThresh is None:
+            struct.beatWeightTempoThresh = self.config['quant.beatWeightTempoThresh']
+        if struct.subdivTempoThresh is None:
+            struct.subdivTempoThresh = self.config['quant.subdivTempoThresh']
+        self._scorestruct = struct
         self.clearCache()
 
     def setScoreStruct(self, score: str | ScoreStruct | tuple[int, int] = (4, 4),
@@ -581,8 +584,10 @@ class Workspace:
         Returns:
             The preset manager
         """
-        from . import presetmanager
-        return presetmanager.presetManager
+        if self._presetManager is None:
+            from . import presetmanager
+            self._presetManager = presetmanager.presetManager
+        return self._presetManager
 
 
 def getWorkspace() -> Workspace:

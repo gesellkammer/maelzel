@@ -4,6 +4,7 @@ import os
 import itertools
 import pitchtools as pt
 import numpy as np
+from maelzel.snd import audiosample
 
 from maelzel.common import F, asF, F0, F1, asmidi
 from maelzel.core import event
@@ -22,7 +23,6 @@ if TYPE_CHECKING:
     from maelzel.scorestruct import ScoreStruct
     from maelzel.core.config import CoreConfig
     from maelzel.core.renderer import Renderer
-    from maelzel.snd import audiosample
 
 
 __all__ = (
@@ -76,7 +76,7 @@ class Clip(event.MEvent):
                  'sourceDurSecs',
                  'loop',
                  'noteheadShape',
-                 '_sr',
+                 'sr',
                  '_speed',
                  '_playbackMethod',
                  '_engine',
@@ -119,7 +119,7 @@ class Clip(event.MEvent):
         self.numChannels = 0
         """The number of channels of this Clip"""
 
-        self._sr = 0
+        self.sr = 0
         """The samplerate of this Clip"""
 
         self.sourceDurSecs: F = F0
@@ -150,24 +150,31 @@ class Clip(event.MEvent):
 
         self._cache = {}
 
+        if isinstance(source, audiosample.Sample):
+            source = (source.samples, source.sr)
+
         if isinstance(source, str):
             if not os.path.exists(source):
                 raise FileNotFoundError(f"Soundfile not found: '{source}'")
             self.soundfile = source
             import sndfileio
             info = sndfileio.sndinfo(source)
-            self._sr = info.samplerate
+            self.sr = info.samplerate
             self.sourceDurSecs = F(info.duration)
             self.numChannels = info.channels if self.channel is None else 1
             self._playbackMethod = 'diskin'
         elif isinstance(source, tuple):
             assert len(source) == 2 and isinstance(source[0], np.ndarray)
-            samples = source[0]
-            self.source = samples
-            self._sr = source[1]
-            self.sourceDurSecs = F(len(samples) / self._sr)
+            samples, sr = source
+            source = samples
+            self.sr = sr
+            self.sourceDurSecs = F(len(samples) / self.sr)
             self.numChannels = 1 if len(samples.shape) == 1 else samples.shape[-1]
             self._playbackMethod = 'table'
+        else:
+            raise TypeError(f"source should be either a str, a tuple (samples: np.ndarray, sr: int) "
+                            f"or an audiosample.Sample, got {type(source)}")
+
         
         self.source: str | np.ndarray = source
         """The source of this clip"""
@@ -190,15 +197,10 @@ class Clip(event.MEvent):
         self._sample: audiosample.Sample | None = None
         self._durContext: tuple[ScoreStruct, F] | None = None
 
-        if pitch is None:
-            s = self.asSample()
-            freq = s.fundamentalFreq()
-            if freq:
-                pitchrepr = pt.f2m(freq)
-            else:
-                pitchrepr = 60.
-        else:
+        if pitch:
             pitchrepr = asmidi(pitch)
+        else:
+            pitchrepr = 0.
 
         self.pitch: float = pitchrepr
         """The pitch representation of this clip.
@@ -211,9 +213,50 @@ class Clip(event.MEvent):
         super().__init__(offset=offset, dur=F0, label=label)
         self._calculateDuration()
 
-    @property
-    def sr(self) -> float:
-        return self._sr
+    def _readSamples(self) -> None:
+        if isinstance(self.source, np.ndarray):
+            pass
+
+        assert isinstance(self.source, str)
+        import sndfileio
+        samples, sr = sndfileio.sndread(self.source)
+        self.source = samples
+
+    def samplesBetween(self, start: float, end: float) -> np.ndarray:
+        """
+        Return the samples between start and end time
+
+        Args:
+            start: start time in seconds
+            end: end time in seconds
+
+        Returns:
+            the samples as a numpy array
+
+        """
+        if isinstance(self.source, str):
+            import sndfileio
+            return sndfileio.sndread(self.source, start=start, end=end)[0]
+        else:
+            assert isinstance(self.source, np.ndarray)
+            return self.source[int(start * self.sr):int(end * self.sr)]
+
+    def firstSound(self, threshold=-120) -> float | None:
+        if isinstance(self.source, str):
+            from maelzel.snd import sndfiletools
+            return sndfiletools.firstSound(self.source, threshold=threshold)
+        else:
+            from maelzel.snd import numpysnd
+            assert isinstance(self.source, np.ndarray)
+            samplenum = numpysnd.firstSound(self.source, threshold=threshold)
+            return None if samplenum is None else samplenum * self.sr
+
+    def fundamentalPitch(self, dur=0.2, start=0.) -> float:
+        if start == 0:
+            start = self.firstSound()
+        samples = self.samplesBetween(start, start+dur*2)
+        f0 = audiosample.Sample(samples, sr=self.sr).fundamentalFreq(dur=dur)
+        return pt.f2m(f0)
 
     @property
     def speed(self) -> F:
@@ -279,14 +322,12 @@ class Clip(event.MEvent):
         if self._sample is not None:
             return self._sample
 
-        from maelzel.snd import audiosample    
         if isinstance(self.source, np.ndarray):
-            return audiosample.Sample(self.source, sr=int(self.sr), 
+            return audiosample.Sample(self.source, sr=int(self.sr),
                                       start=float(self.selectionStartSecs), 
                                       end=float(self.selectionEndSecs), 
                                       readonly=True)
-        else:
-            assert isinstance(self.source, str)
+        elif isinstance(self.source, str):
             sample = audiosample.Sample(self.source,
                                         readonly=True,
                                         engine=self._engine,
@@ -294,6 +335,8 @@ class Clip(event.MEvent):
                                         end=float(self.selectionEndSecs))
             self._sample = sample
             return sample
+        else:
+            raise TypeError(f"Wrong type for source!, got {type(self.source)}")
 
     def isRest(self) -> bool:
         return False
@@ -302,6 +345,8 @@ class Clip(event.MEvent):
         return (self.selectionEndSecs - self.selectionStartSecs) / self.speed
 
     def pitchRange(self) -> tuple[float, float]:
+        if not self.pitch:
+            self.pitch = self.fundamentalPitch()
         return (self.pitch, self.pitch)
 
     @property
@@ -553,6 +598,8 @@ class Clip(event.MEvent):
         offset = self.absOffset()
         dur = self.dur
         from maelzel import scoring
+        if not self.pitch:
+            self.pitch = self.fundamentalPitch()
         notation = scoring.Notation.makeNote(pitch=self.pitch,
                                              duration=dur,
                                              offset=offset,

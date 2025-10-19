@@ -32,7 +32,7 @@ class _ClefDefinition:
     """Maps pitch to fitness within this clef"""
 
     @property
-    def transposing(self) -> 8:
+    def transposing(self) -> bool:
         last = self.name[-1]
         return last == "8" or last == "5"
         
@@ -67,10 +67,10 @@ def clefDefinitions() -> dict[str, _ClefDefinition]:
         'treble': _ClefDefinition('treble', center=n2m("4B"), fitness=bpf4.linear(
             (0, -100),
             (n2m("3C"), -10),
-            (n2m("3F"), 0),
-            (n2m("3G"), 0.5),
+            (n2m("3E"), 0),
+            (n2m("3G"), 0.8),
             (n2m("3B"), 1),
-            (n2m("6E"), 1),
+            (n2m("6F"), 1),
             (n2m("6G"), 0.8),
             (n2m("6B"), 0),
             (n2m("7A"), -2))),
@@ -116,6 +116,8 @@ class ClefChangesEvaluator:
             used in order to prevent very frequent clef changes
         firstClef: if given, use this clef as initial clef
         possibleClefs: if given, a selection of possible clefs
+        transposingFactor: factor applied to the fitness score of a clef
+            if it is a transposing clef
     """
     # We never autoevaluate to alto clef, but alto can still be set manually
     clefs = ['treble15', 'treble8', 'treble', 'bass', 'bass8', 'bass15']
@@ -143,17 +145,19 @@ class ClefChangesEvaluator:
                  clefChangeBetweenTiedNotes: bool = False,
                  changeDistanceFactor: dict[int, float] | None = None,
                  possibleClefs: Sequence[str] | None = None,
+                 transposingFactor: float = 1.0,
                  firstClef=''):
-        clefCurves = clefDefinitions()
+        clefdefs = clefDefinitions()
         if possibleClefs is not None:
-            clefCurves = {clef: curve for clef, curve in clefCurves.items()
+            clefdefs = {clef: curve for clef, curve in clefdefs.items()
                           if clef in possibleClefs}
         self.biasFactor = biasFactor
         self.clefChangeBetweenTiedNotes = clefChangeBetweenTiedNotes
-        self.clefCurves = clefCurves
+        self.clefDefinitions: dict[str, _ClefDefinition] = clefdefs
         self.history: list[tuple[int, str, float]] = []
         self.currentClef = firstClef
         self.currentIndex = 0
+        self.transposingFactor = transposingFactor
         self.changeDistanceFactor = changeDistanceFactor or ClefChangesEvaluator.defaultDistanceFactor
 
     def _bestClef(self, notations: Sequence[Notation]) -> tuple[str, float]:
@@ -168,8 +172,8 @@ class ClefChangesEvaluator:
             if n.tiedPrev and self.currentClef and not self.clefChangeBetweenTiedNotes:
                 return self.currentClef, 0
 
-            for clef, curve in self.clefCurves.items():
-                points = sum(curve.fitness(p) for p in n.pitches)
+            for clef, clefdef in self.clefDefinitions.items():
+                points = sum(clefdef.fitness(p) for p in n.pitches)
                 if clef != self.currentClef:
                     if self.history:
                         lastChange = next((idx0 for idx0, clef0, pts in reversed(self.history) if clef0 != clef), 0)
@@ -186,6 +190,8 @@ class ClefChangesEvaluator:
                         points *= changeFactor * distanceFactor
                 else:
                     points *= self.biasFactor
+                if clefdef.transposing:
+                    points *= self.transposingFactor
                 pointsPerClef[clef] = pointsPerClef.get(clef, 0) + points
 
         clef, points = max(pointsPerClef.items(), key=lambda pair: pair[1])
@@ -269,7 +275,8 @@ def findBestClefs(notations: list[Notation],
                   breakTies=False,
                   possibleClefs: Sequence[str] | None = None,
                   maxClef='',
-                  minClef=''
+                  minClef='',
+                  transposingFactor=0.75,
                   ) -> list[tuple[int, str]]:
     """
     Given a list of notations, find the clef changes
@@ -325,7 +332,8 @@ def findBestClefs(notations: list[Notation],
                                      biasFactor=biasFactor,
                                      changeDistanceFactor=None,
                                      firstClef=firstClef,
-                                     possibleClefs=possibleClefs)
+                                     possibleClefs=possibleClefs,
+                                     transposingFactor=transposingFactor)
 
     for i, group in enumerate(iterlib.window(notations, size=windowSize)):
         currentclef, _ = evaluator.process(group)
@@ -562,8 +570,8 @@ def bestClefCombination(notations: list[Notation],
             if last == "8" or last == "5":
                 fitness *= 1/transposingPenalty
         results[clefs] = fitness
-    return max(results.items(), key=lambda pair: pair[1])[0]
-
+    out = max(results.items(), key=lambda pair: pair[1])[0]
+    return out
 
 def explodeNotations(notations: list[Notation],
                      maxStaves: int,

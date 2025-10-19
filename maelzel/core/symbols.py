@@ -437,6 +437,22 @@ class Bracket(Spanner):
         n.addSpanner(bracket)
 
 
+class Pedal(Spanner):
+    """
+    A pedal spanner
+
+    Style must be one of 'mixed', 'bracket' or 'text', or '' to use a default
+    defined during rendering
+    """
+    def __init__(self, kind='start', uuid='', style=''):
+        super().__init__(kind=kind, uuid=uuid)
+        self.style = style
+
+    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None = None) -> None:
+        pedal = _spanner.Pedal(kind=self.kind, uuid=self.uuid, style=self.style)
+        n.addSpanner(pedal)
+
+
 class LineSpan(Spanner):
     """
     A line spanner
@@ -816,8 +832,8 @@ class Tremolo(EventSymbol):
                 always determine the number of beams
         """
         super().__init__(color=color)
-        assert tremtype in {'single', 'start', 'end'}, f'Unknown tremolo type: {tremtype}'
-        self.tremtype = tremtype
+        assert tremtype in {'', 'single', 'start', 'end'}, f'Unknown tremolo type: {tremtype}'
+        self.tremtype = tremtype or 'single'
         self.nummarks = nummarks
         self.relative = relative
 

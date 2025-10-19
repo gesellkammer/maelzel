@@ -101,16 +101,15 @@ def peak(samples: np.ndarray) -> float:
     return amp2db(np.abs(samples).max())
 
 
-def peaksBpf(samples:np.ndarray, sr:int, res=0.01, overlap=2, channel=0
+def peaksBpf(samples: np.ndarray, sr: int, dt=0.01, overlap=2, channel=0
              ) -> bpf4.Sampled:
     """
-    Return a BPF representing the peaks envelope of the source with the
-    resolution given
+    Return a BPF representing the peaks envelope of the source
 
     Args:
         samples: the sound samples
         sr: sample rate
-        res: resolution in seconds
+        dt: resolution in seconds
         overlap: how much do windows overlap
         channel: which channel to analyze
 
@@ -118,7 +117,7 @@ def peaksBpf(samples:np.ndarray, sr:int, res=0.01, overlap=2, channel=0
         a samples bpf
     """
     samples = getChannel(samples, channel)
-    period = int(sr*res+0.5)
+    period = int(sr * dt + 0.5)
     # dt = period/sr
     hopsamps = period//overlap
     numperiods = int(len(samples)/hopsamps)
@@ -139,7 +138,7 @@ def ampBpf(samples: np.ndarray, sr: int, attack=0.01, release=0.01, chunktime=0.
         samples: the sound samples
         sr: sample rate
         attack: attack time in seconds
-        decay: decay time in seconds
+        release: decay time in seconds
         chunktime: chunk time in seconds
         overlap: how much do windows overlap
 
@@ -327,16 +326,12 @@ def firstSound(samples: np.ndarray, threshold=-120.0, periodsamps=256, overlap=2
     """
     threshold_amp = db2amp(threshold)
     hopsamples = periodsamps//overlap
-    i0 = skip
-    while True:
-        i1 = i0+periodsamps
-        if i1>len(samples):
-            break
-        if rms(samples[i0:i1])>threshold_amp:
-            return i0
-        i0 += hopsamples
+    for i in range(skip, len(samples), hopsamples):
+        frag = samples[i: i+periodsamps]
+        if rms(frag) > threshold_amp:
+            return i
     return None
-
+    
 
 def firstSilence(samples: np.ndarray, threshold=-100, period=256,
                  overlap=2, soundthreshold=-60, startidx=0

@@ -162,7 +162,6 @@ class Automation:
             assert len(breakpoints) % 2 == 0, "A flat list of breakpoints needs to be even"
             assert all(isinstance(x, (int, float, F)) for x in breakpoints)
             breakpoints = [(breakpoints[i], breakpoints[i+1]) for i in range(0, len(breakpoints), 2)]
-            # breakpoints = list(iterlib.window(breakpoints, 2, 2))
 
         normalized: list[tuple[F | location_t, float, str]] = []
         for bp in breakpoints:

@@ -1010,6 +1010,8 @@ def keySignature(fifths: int, mode='major') -> str:
         ('flat', 'minor'): ('a', 'd', 'g', 'c', 'f', 'bes', 'ees')
     }
     direction = 'sharp' if fifths >= 0 else 'flat'
+    if not mode:
+        mode = 'major'
     key = keys[(direction, mode)][abs(fifths)]
     return fr'\key {key} \{mode}'
 

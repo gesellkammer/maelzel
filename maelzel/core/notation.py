@@ -97,6 +97,8 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig | None = None,
         dynamicsResetTime=cfg['.show.dynamicsResetTime'],
         dynamicsResetAfterEmptyMeasure=cfg['.show.dynamicsResetAfterEmptyMeasure'],
         dynamicsResetAfterRest=cfg['.show.dynamicsResetAfterRest'],
+        clefTransposingFactor=cfg['show.clefTransposingFactor'],
+        pedalStyle=cfg['show.pedalStyle'],
     )
     return renderOptions
 

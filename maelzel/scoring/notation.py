@@ -1933,7 +1933,7 @@ class Notation:
     def _copySpannersToSplitNotation(self, parts: list[Notation]) -> None:
         if not self.spanners:
             return
-        assert self.offset == parts[0].offset and self.duration == sum(p.duration for p in parts)
+
         parts[0].spanners = [_ for _ in self.spanners if _.kind == 'start']
         parts[-1].spanners = [_ for _ in self.spanners if _.kind == 'end']
         for p in parts[1:-1]:
