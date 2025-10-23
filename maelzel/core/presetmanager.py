@@ -404,7 +404,7 @@ class PresetManager:
             description: a short string describing this preset
             normalize: if True, queries the amplitude divisor of the soundfont at runtime
                 and uses that to scale amplitudes to 0dbfs
-            reverb: if True, use reverb for this preset
+            reverb: if True, enable reverb for this preset
             _builtin: if True, marks this preset as built-in
 
         Example
@@ -474,7 +474,7 @@ class PresetManager:
                                                  ampDivisor=sf2AmpDivisor,
                                                  mono=mono,
                                                  normalize=normalize,
-                                                 reverbChanPrefix=reverbInstr,
+                                                 reverbChanPrefix=reverbInstr if reverb else '',
                                                  velocityCurve=velocityCurve)
 
         def inithook(session: csoundengine.session.AbstractRenderer, workspace=wspace):

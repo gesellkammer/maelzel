@@ -11,6 +11,7 @@ from maelzel.common import F
 from maelzel.dynamiccurve import DynamicCurve
 from maelzel.scorestruct import ScoreStruct
 
+from maelzel._defaultarg import Default
 import typing as _t
 if _t.TYPE_CHECKING:
     from maelzel.core.renderer import Renderer
@@ -116,6 +117,9 @@ class Workspace:
         self._presetManager: presetmanager.PresetManager | None = None
 
         self._reverbSettings: dict[str, float] = {}
+        self._reverbKeys: tuple[str, ...] = ('gaindb', 'delayms', 'decay', 'damp')
+
+        self._reverbSynth: csoundengine.synth.Synth | None = None
 
         if active:
             self.activate()
@@ -515,31 +519,63 @@ class Workspace:
         The reverb synth used for live playback
 
         Returns:
-            the reverb synth or None if no synth has been started
+            the reverb synth or None if no synth using reverb has been scheduled
         """
         if not self.isAudioSessionActive():
             return None
-        return _reverbEvent(session=self.audioSession(), instrname=self.config['reverbInstr'])
+        return self._reverbSynth
+        # return _reverbEvent(session=self.audioSession(), instrname=self.config['reverbInstr'])
+
+    def reverbInfo(self) -> dict[str, _t.Any]:
+        """
+        Returns information about this workspace's reverb
+
+        Returns:
+            a dict with reverb settings corresponding to the values which
+            can be set via :meth:`~Workspace.setReverb`. Modifications
+            to this dictionary have no side effects.
+        """
+        d: dict[str, _t.Any] = self._reverbSettings.copy()
+        config = self.config
+        for key in self._reverbKeys:
+            if key not in d:
+                d[key] = config[f'reverb{key.capitalize()}']
+        synth = self.reverbSynth()
+        if synth:
+            d['synth'] = synth
+            d['active'] = True
+        else:
+            d['active'] = False
+        return d
 
     def setReverb(self,
                   gaindb: float = None,
                   delayms: int = None,
                   decay: float = None,
                   damp: float = None,
+                  init=False
                   ) -> None:
-        instr = self.config['reverbInstr']
-        if self.isAudioSessionActive():
-            session = self.audioSession()
-            revsynth = _reverbEvent(session=session, instrname=instr)
-            if revsynth:
-                if gaindb is not None:
-                    revsynth.set(kgaindb=gaindb)
-                if delayms is not None:
-                    revsynth.set(kdelayms=delayms)
-                if decay is not None:
-                    revsynth.set(kdecay=decay)
-                if damp is not None:
-                    revsynth.set(kdamp=damp)
+        """
+        Set parameters for reverb synth
+
+        This modifies the running reverb and/or sets any values
+        for reverb if used in the future or used for offline rendering.
+        Only values passed are modified, None indicates to use the
+        current value/default value. Default values can be modified
+        via the config (ie. ``getWorkspace().config['reverbGaindb'] = -3``).
+        To check the current values, see ???
+
+        Args:
+            gaindb: gain of reverb, in dB. Default: -6 (config: ``reverbGaindb``)
+            delayms: predelay, in milliseconds. Default: 60 (config: ``reverbDelayms``)
+            decay: decay time in seconds. Default: 3 (config: ``reverbDecay``)
+            damp: damping factor between 0-1 (lower=less damping).
+                Default: 0.2 (config: ``reverbDamp``)
+            init: if True, start the reverb synth if not started already. This will
+                start the audio session if needed
+
+        """
+        # Default(-6.), Default(60), Default(3), Default(0.2)
         if gaindb is not None:
             self._reverbSettings['gaindb'] = gaindb
         if delayms is not None:
@@ -549,22 +585,62 @@ class Workspace:
         if damp is not None:
             self._reverbSettings['damp'] = damp
 
-    def _schedReverb(self, session: csoundengine.session.AbstractRenderer | None = None
+        if init and (not self._reverbSynth or not self._reverbSynth.playing()):
+            self._schedReverb()
+        elif self._reverbSynth:
+            # session = self.audioSession()
+            # revsynth = _reverbEvent(session=session, instrname=instr)
+            revsynth = self._reverbSynth
+            if revsynth:
+                if gaindb is not None:
+                    revsynth.set(kgaindb=gaindb)
+                if delayms is not None:
+                    revsynth.set(kdelayms=delayms)
+                if decay is not None:
+                    revsynth.set(kdecay=decay)
+                if damp is not None:
+                    revsynth.set(kdamp=damp)
+
+    def _schedReverb(self,
+                     session: csoundengine.session.AbstractRenderer | None = None,
+                     delay=0.
                      ) -> csoundengine.synth.Synth:
+        if self._reverbSynth is not None and self._reverbSynth.playing():
+            assert self.isAudioSessionActive()
+            return self._reverbSynth
         config = self.config
         instr = config['reverbInstr']
         if session is None:
             session = self.audioSession()
-        if prevsynth := _reverbEvent(session=session, instrname=instr):
-            return prevsynth
-        return session.sched(instr,
-                             name=instr,
-                             priority=-1,
-                             kwet=1,
-                             kgaindb=self._reverbSettings.get('gaindb', config['reverbGaindb']),
-                             kdelayms=self._reverbSettings.get('delayms', config['reverbDelayms']),
-                             kdecay=self._reverbSettings.get('decay', config['reverbDecay']),
-                             kdamp=self._reverbSettings.get('damp', config['reverbDamp']))
+        # if prevsynth := _reverbEvent(session=session, instrname=instr):
+        #    return prevsynth
+        def whenfinished(*args):
+            logger.warning(f"Reverb synth stopped, args: %s", args)
+            oldsynth = self._reverbSynth
+            self._reverbSynth = None
+            if self.config['reverbRestart'] and session.engine.elapsedTime() - oldsynth.start > 0.5:
+                logger.warning("... restarting reverb")
+                self._schedReverb(session=session, delay=0.5)
+
+        def setfunc(synth, key: str, value: float, delay: float) -> bool:
+            key2 = key[1:]
+            if key2 in self._reverbKeys:
+                self._reverbSettings[key2] = value
+            return True
+
+        synth = session.sched(instr,
+                              name=instr,
+                              delay=delay,
+                              priority=-1,
+                              kwet=1,
+                              kgaindb=self._reverbSettings.get('gaindb', config['reverbGaindb']),
+                              kdelayms=self._reverbSettings.get('delayms', config['reverbDelayms']),
+                              kdecay=self._reverbSettings.get('decay', config['reverbDecay']),
+                              kdamp=self._reverbSettings.get('damp', config['reverbDamp']),
+                              whenfinished=whenfinished)
+        synth._setCallback = setfunc
+        self._reverbSynth = synth
+        return synth
 
     def isAudioSessionActive(self) -> bool:
         """

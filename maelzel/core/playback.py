@@ -238,12 +238,14 @@ def _builtinInstrs() -> list[csoundengine.instr.Instr]:
         ''',
               doc="Side channel stereo reverb, applies to channels .zitarev.1 and .zitarev.2",
               properties={'kind': 'mainreverb'},
-              specs=[ParamSpec('kgaindb', minvalue=-120, maxvalue=6, startvalue=-6, valuescale='log'),
+              specs=[ParamSpec('kgaindb', minvalue=-90, maxvalue=18, startvalue=-6, valuescale='log'),
                      ParamSpec('kdelayms', minvalue=0, maxvalue=400, startvalue=60),
+                     ParamSpec('kdecay', minvalue=0.01, maxvalue=60, startvalue=3),
                      ParamSpec('khfdamp', minvalue=50, maxvalue=22000, startvalue=6000, valuescale='log'),
                      ParamSpec('kdamp', minvalue=0.001, maxvalue=0.999, startvalue=0.2),
                      ParamSpec('kchan', minvalue=1, maxvalue=64, startvalue=1),
-                     ParamSpec('kwet', minvalue=0, maxvalue=1, startvalue=1)]),
+                     ParamSpec('kwet', minvalue=0, maxvalue=1, startvalue=1)]
+              ),
     ]
 
 
@@ -901,7 +903,6 @@ class _FutureSynth(csoundengine.baseschedevent.BaseSchedEvent, csoundengine.synt
         event: the event this synth is wrapping
         token: an integer to map this synth to the real Synth when it is
             scheduled
-        kind: ??
     """
 
     def __init__(self,

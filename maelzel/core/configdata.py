@@ -104,6 +104,7 @@ defaultdict = {
     'reverbDelayms': 60,
     'reverbDecay': 3,
     'reverbDamp': 0.2,
+    'reverbRestart': True,
 
     'rec.blocking': True,
     'rec.sr': 44100,
@@ -169,6 +170,10 @@ validator = {
     "rec.numChannels::range": (1, 128),
     "play.soundfontInterpol::choices": {"linear", "cubic"},
     "reverbInstr::choices": {'.zitarev'},
+    "reverbDelayms::type": int,
+    "reverbDelayms::range": (1, 500),
+    "reverbDecay::range": (0.01, 120),
+    "reverbDamp::range": (0, 1),
     "rec.sr::choices": {
         44100,
         48000,
@@ -560,6 +565,21 @@ docs = {
 
     'reverbInstr':
         'Default instrument used for reverb',
+
+    'reverbGaindb':
+        'Gain of the main reverb, in dB',
+
+    'reverbDelayms':
+        'Pre delay (in milliseconds) of the main reverb',
+
+    'reverbDecay':
+        'Decay time (in seconds) of the main reverb',
+
+    'reverbDamp':
+        'Damping of the main reverb, in the range 0-1',
+
+    'reverbRestart':
+        'Restart a previously scheduled reverb if it is stopped',
 
     'htmlTheme':
         'Theme used when displaying html inside jupyter',
