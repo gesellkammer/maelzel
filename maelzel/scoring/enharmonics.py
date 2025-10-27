@@ -8,6 +8,7 @@ import functools
 from dataclasses import dataclass, astuple as _astuple
 from collections import deque
 from math import sqrt
+import logging
 from .common import logger
 
 from emlib import iterlib
@@ -530,8 +531,8 @@ class SpellingHistory:
             direction = n.alteration_direction()
             previousDirection = self.slots[idx]
             if previousDirection and previousDirection != direction:
-                logger.info(f"Spelling error with {item}, spelling already fixed "
-                            f"(previous direction: {previousDirection}")
+                logger.info("Spelling error with %s, spelling already fixed "
+                            "(previous direction: %s", item, previousDirection)
             self.slots[idx] = direction
             self.refcount[idx] += 1
 
@@ -779,8 +780,9 @@ def fixEnharmonicsInPlace(notations: list[Notation],
                 try:
                     n.fixNotename(solution[idx])
                 except ValueError as err:
-                    logger.debug(f"Could not fix enharmonic spelling for {n} with {solution[idx]}, "
-                                 f"{idx=}, {solution=}. Error: {err}")
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(f"Could not fix enharmonic spelling for {n} with {solution[idx]}, "
+                                     f"{idx=}, {solution=}. Error: {err}")
                 fixedslots = spellingHistory.slots
 
                 if nslots := n.fixedSlots():
@@ -844,8 +846,8 @@ def fixEnharmonicsInPlace(notations: list[Notation],
             continue
         if n1.tiedPrev:
             if not n0.tiedNext:
-                logger.debug(f"Inconsistent ties: {n1=} is tied to previous event, "
-                             f"but {n0=} is not tied to it")
+                logger.debug("Inconsistent ties: n1=%s is tied to previous event, "
+                             "but n0=%s is not tied to it", n1, n0)
                 n1.tiedPrev = False
             else:
                 notenames1 = n1.resolveNotenames(keepFixedAnnotation=False)
@@ -857,7 +859,8 @@ def fixEnharmonicsInPlace(notations: list[Notation],
                         pitch0 = pt.notated_pitch(notename0)
                         if pitch1.midinote == pitch0.midinote and pitch1.vertical_position != pitch0.vertical_position:
                             pitch1 = pitch0
-                            logger.debug(f"Fixing tied pitch from {pitch1.fullname} to {pitch0.fullname}, {pitch0=}, {pitch1=}")
+                            logger.debug("Fixing tied pitch from pitch1.fullname=%s to pitch0.fullname=s, "
+                                         "pitch0=%s, pitch1=%s", pitch1.fullname, pitch0.fullname, pitch0, pitch1)
                     fixedNotenames.append(pitch1.fullname)
                 n1.setPitches(fixedNotenames, fixNotenames=True)
 

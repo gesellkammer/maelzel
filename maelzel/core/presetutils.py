@@ -158,8 +158,8 @@ def makeSoundfontAudiogen(sf2path: str,
 
     if preset is None:
         bank, presetnum, presetname = presets[0]
-        logger.debug(f"No preset was given. Using first preset found: '{presetname}', "
-                     f"bank: {bank}, preset number: {presetnum}")
+        logger.debug("No preset was given. Using first preset found: '%s', "
+                     "bank: %d, preset number: %d", presetname, bank, presetnum)
     else:
         bank, presetnum = preset
         for availablepreset in presets:
@@ -281,7 +281,7 @@ def loadPresets(skipErrors=True) -> list[presetdef.PresetDef]:
     basepath = Workspace.active.presetsPath()
     presetdefs = []
     if not os.path.exists(basepath):
-        logger.debug(f"Presets path does not exist: {basepath}")
+        logger.debug("Presets path does not exist: '%s'", basepath)
         return presetdefs
     patterns = ["*.yaml", "*.ini"]
     foundpaths = []
@@ -291,12 +291,12 @@ def loadPresets(skipErrors=True) -> list[presetdef.PresetDef]:
             foundpaths.extend(paths)
     for path in foundpaths:
         try:
-            logger.debug(f"Loading preset from '{path}'")
+            logger.debug("Loading preset from '%s'", path)
             presetDef = loadPreset(path)
             presetdefs.append(presetDef)
         except ValueError as e:
             if skipErrors:
-                logger.warning(f"Could not load preset {path}:\n{e}")
+                logger.warning("Could not load preset '%s':\n%s", path, e)
             else:
                 raise e
     return presetdefs

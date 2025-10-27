@@ -132,7 +132,7 @@ class MObj(ABC):
     _acceptsNoteAttachedSymbols = True
     _isDurationRelative = True
 
-    __slots__ = ('_parent', '_dur', 'offset', 'label', 'playargs', 'symbols',
+    __slots__ = ('parent', '_dur', 'offset', 'label', 'playargs', 'symbols',
                  'properties', '_resolvedOffset',
                  '__weakref__')
 
@@ -150,7 +150,7 @@ class MObj(ABC):
         if dur is None or dur < F0:
             raise ValueError(f"Invalid duration: {dur}")
 
-        self._parent: MContainer | None = parent
+        self.parent: MContainer | None = parent
         "The parent of this object (or None if it has no parent)"
 
         self.label: str = label
@@ -195,24 +195,6 @@ class MObj(ABC):
         self._dur = asF(dur)
         self._changed()
 
-    @property
-    def parent(self) -> MContainer | None:
-        """The parent of this object.
-
-        This attribute is set by the parent when an object is added to it. For
-        example, when adding a Note to a Chain, the Chain is set as the parent
-        of the Note. This enables the Note to query information about the parent,
-        like its absolute position or if a score structure has been set upstream"""
-        return self._parent
-
-    @parent.setter
-    def parent(self, parent: MContainer):
-        if self._parent is not None and parent is not self._parent:
-            if self in self._parent:
-                raise ValueError(f"Cannot set the parent for {self}, since "
-                                 f"it already is a part of {self._parent}")
-        self._parent = parent
-
     def _copyAttributesTo(self, other: Self) -> None:
         """
         Copy symbols, playargs and properties to other
@@ -224,11 +206,11 @@ class MObj(ABC):
         if type(other) is not type(self):
             logger.warning(f"Copying attributes to an object of different class, "
                            f"{self=}, {type(self)=}, {other=}, {type(other)=}")
-        if self.symbols:
+        if self.symbols is not None:
             other.symbols = self.symbols.copy()
-        if self.playargs:
+        if self.playargs is not None:
             other.playargs = self.playargs.copy()
-        if self.properties:
+        if self.properties is not None:
             other.properties = self.properties.copy()
 
     def setProperty(self, key: str, value) -> Self:
@@ -511,7 +493,9 @@ class MObj(ABC):
         """
         voices = self._asVoices()
         from maelzel.core import plotting
-        return plotting.plotVoices(voices, **kws)
+        return plotting.plotVoices(voices, axes=axes, figsize=figsize, grid=grid,
+                                   timeSignatures=timeSignatures,
+                                   **kws)
 
     def setPlay(self, /, **kws) -> Self:
         """
@@ -1015,10 +999,10 @@ class MObj(ABC):
 
         if not os.path.exists(outfile):
             # cached image does not exist?
-            logger.debug(f"Error rendering {self}, the rendering process did not generate "
-                         f"the expected output file '{outfile}'. This might be a cached "
-                         f"path and the cache might be invalid. Resetting the cache and "
-                         f"trying again...")
+            logger.debug("Error rendering %s, the rendering process did not generate "
+                         "the expected output file '%s'. This might be a cached "
+                         "path and the cache might be invalid. Resetting the cache and "
+                         "trying again...", self, outfile)
             clearImageCache()
             # Try again, uncached
             _renderImage(self, outfile, backend=backend, config=config)
@@ -1026,8 +1010,8 @@ class MObj(ABC):
                 raise FileNotFoundError(f"Could not generate image, returned image file '{outfile}' "
                                         f"does not exist")
             else:
-                logger.debug(f"... resetting the cache worked, an image file '{outfile}' "
-                             f"was generated")
+                logger.debug("... resetting the cache worked, an image file '%s' "
+                             "was generated", outfile)
         return outfile
 
     def scoringEvents(self,
@@ -1081,7 +1065,7 @@ class MObj(ABC):
     def _scoringPartsFromNotations(self, 
                                    notations: list[scoring.Notation], 
                                    config: CoreConfig
-                                   ) -> list[scoring.score.UnquantizedPart]:
+                                   ) -> list[scoring.core.UnquantizedPart]:
         if not notations:
             return []
         scoring.core.resolveOffsets(notations)
@@ -1977,6 +1961,9 @@ class MObj(ABC):
 
 # --------------------------------------------------------------------
 
+class MNode:
+    pass
+
 
 class MContainer(MObj):
     """
@@ -2005,6 +1992,14 @@ class MContainer(MObj):
     def __iter__(self) -> _t.Iterator[MObj | MContainer]:
         raise NotImplementedError
 
+    @property
+    def dur(self) -> F:
+        """The duration of this object"""
+        return self._dur
+
+    def _copyAttributesTo(self, other: Self) -> None:
+        super()._copyAttributesTo(other)
+
     @classmethod
     def _classConfigKeys(cls) -> set[str]:
         # This method can be overloaded to return keys specific to a subclass
@@ -2022,13 +2017,6 @@ class MContainer(MObj):
         configkeys = cls._classConfigKeys()
         cls._configKeysRegistry[clsname] = configkeys
         return configkeys
-
-
-
-    def _copyAttributesTo(self, other: Self) -> None:
-        super()._copyAttributesTo(other)
-        if self._scorestruct:
-            other.setScoreStruct(self._scorestruct)
 
     def setConfig(self, *args) -> None:
         """
@@ -2114,16 +2102,6 @@ class MContainer(MObj):
         config = ownconfig or activeconfig
         return config, ownconfig is not None
 
-    def nextEvent(self, event: MObj) -> _event.MEvent | None:
-        """
-        Returns the next event after *event*
-
-        This method only makes sense when the container is an horizontal
-        container (Chain, Voice). *event* and the returned event are
-        always some MEvent (see maelzel.core.event)
-        """
-        return None
-
     @abstractmethod
     def _childOffset(self, child: MObj) -> F:
         """The offset of child relative to this parent"""
@@ -2146,19 +2124,19 @@ class MContainer(MObj):
     def _update(self) -> None:
         raise NotImplementedError
 
-    @abstractmethod
-    def _resolveGlissandi(self, force=False) -> None:
-        raise NotImplementedError
+    # @abstractmethod
+    # def _resolveGlissandi(self, force=False) -> None:
+    #     raise NotImplementedError
 
-    def nextItem(self, item: MObj) -> MObj | None:
-        """Returns the item after *item*, if any (None otherwise)"""
-        return None
-
-    def previousItem(self, item: MObj) -> MObj | None:
-        return None
-
-    def previousEvent(self, event: _event.MEvent) -> _event.MEvent | None:
-        return None
+    # def nextItem(self, item: MObj) -> MObj | None:
+    #     """Returns the item after *item*, if any (None otherwise)"""
+    #     return None
+    #
+    # def previousItem(self, item: MObj) -> MObj | None:
+    #     return None
+    #
+    # def previousEvent(self, event: _event.MEvent) -> _event.MEvent | None:
+    #     return None
 
     def __contains__(self, item: MObj) -> bool:
         raise NotImplementedError
@@ -2221,7 +2199,7 @@ def _renderImage(obj: MObj,
                                            backend=backend,
                                            renderoptions=renderoptions)
     if not os.path.exists(tmpfile):
-        logger.debug(f"Cached file '{tmpfile}' not found, resetting cache, trying again")
+        logger.debug("Cached file '%s' not found, resetting cache, trying again", tmpfile)
         clearImageCache()
         tmpfile, renderer = _renderImageCached(obj=obj,
                                                fmt=fmt,
@@ -2298,7 +2276,7 @@ def _renderObject(obj: MObj,
     parts = obj.scoringParts(config=config)
     if not parts:
         if config['show.warnIfEmpty']:
-            logger.warning(f"The object {obj} did not produce any scoring parts")
+            logger.warning("The object %s did not produce any scoring parts", obj)
         measure0 = scorestruct.measuredefs[0]
         part = scoring.core.UnquantizedPart(notations=[scoring.Notation.makeRest(measure0.beatStructure()[0].duration)])
         parts = [part]

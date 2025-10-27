@@ -172,7 +172,7 @@ def _makeSpannerId(prefix: str, d: dict | None, key='number', defaultid='1'):
     if d:
         spannerid = d.get(key)
         if spannerid is None:
-            logger.debug(f"Did not find key '{key}' in {d}")
+            logger.debug("Did not find key '%s' in %s", key, d)
             spannerid = defaultid
     else:
         spannerid = defaultid
@@ -191,6 +191,11 @@ class XmlNotation:
             self.properties = {key: value}
         else:
             self.properties[key] = value
+
+    def getProperty(self, key: str, default: _T | None = None) -> _T | None:
+        if self.properties is None:
+            return None
+        return self.properties.get(key, default)
 
 
 def _makeSpannerNotation(kind: str, class_: type, node: ET.Element):
@@ -259,8 +264,8 @@ def _parseNotations(root: ET.Element) -> list[XmlNotation]:
                 n1.setProperty('startmark', 'trill')
             elif (n0.kind == 'ornament' and n1.kind == 'ornament' and
                   n0.value == 'wavy-line' and n1.value == 'wavy-line' and
-                  n0.properties and n0.properties['type'] == 'start' and
-                  n1.properties and n1.properties['type'] == 'stop'):
+                  n0.getProperty('type') == 'start' and
+                  n1.getProperty('type') == 'stop'):
                 n1.value = 'inverted-mordent'
             else:
                 out.append(n0)
@@ -426,7 +431,7 @@ def _parseNote(root: ET.Element, context: _ParseContext) -> Note:
                     note.setProperty('mxml/articulation', notation.value)
             elif notation.kind == 'ornament':
                 if notation.value == 'wavy-line':
-                    assert notation.properties
+                    assert notation.properties is not None
                     kind = notation.properties['type']
                     key = _makeSpannerId('trilline', notation.properties, 'number')
                     if kind == 'start':
@@ -440,8 +445,9 @@ def _parseNote(root: ET.Element, context: _ParseContext) -> Note:
                         startspanner = context.spanners.pop(key)
                         startspanner.makePartnerSpanner(note)
                 elif notation.value == 'tremolo':
-                    tremtype = notation.properties.get('tremtype', 'single')
-                    nummarks = notation.properties.get('nummarks', 2)
+                    tremtype = notation.getProperty('tremtype', 'single')
+                    nummarks = notation.getProperty('nummarks', 2)
+                    assert isinstance(nummarks, int)
                     note.addSymbol(symbols.Tremolo(tremtype=tremtype, nummarks=nummarks))
                 else:
                     if ornament := scoring.definitions.normalizeOrnament(notation.value):
@@ -465,14 +471,16 @@ def _parseNote(root: ET.Element, context: _ParseContext) -> Note:
                 note.addSymbol(symbols.Notehead(shape=notation.value))
             elif notation.kind == 'text':
                 note.addSymbol(symbols.Text(notation.value,
-                                            placement=notation.properties.get('placement', 'above'),
-                                            italic=notation.properties.get('font-style', 'normal')=='italic',
-                                            weight=notation.properties.get('font-weight', 'normal')))
+                                            placement=notation.getProperty('placement', 'above'),
+                                            italic=notation.getProperty('font-style', 'normal')=='italic',
+                                            weight=notation.getProperty('font-weight', 'normal')))
             elif notation.kind == 'spanner':
+                assert notation.properties is not None
                 spannertype = notation.properties['type']
                 key = _makeSpannerId(notation.value, notation.properties)
                 if spannertype == 'start':
                     cls = notation.properties.get('class')
+                    assert cls is not None
                     spanner = cls(kind='start',
                                   linetype=notation.properties.get('line-type', 'solid'),
                                   color=notation.properties.get('color', ''))
@@ -489,7 +497,7 @@ def _parseNote(root: ET.Element, context: _ParseContext) -> Note:
                         startspanner.makePartnerSpanner(note)
 
             elif notation.kind == 'bend':
-                note.addSymbol(symbols.Bend(notation.properties['alter']))
+                note.addSymbol(symbols.Bend(notation.getProperty['alter']))
     for symbol in notesymbols:
         note.addSymbol(symbol)
 
@@ -1087,7 +1095,7 @@ def parseMusicxmlFile(path: str, enforceParsedSpelling=False) -> Score:
 
     """
     encoding = _guessEncoding(path)
-    logger.debug(f"Opening musicxml file '{path}' with encoding: {encoding}")
+    logger.debug("Opening musicxml file '%s' with encoding: %s", path, encoding)
     xmltext = open(path, "r", encoding=encoding).read()
     return parseMusicxml(xmltext, enforceParsedSpelling=enforceParsedSpelling)
 
@@ -1177,7 +1185,7 @@ def parseMusicxml(xml: str, enforceParsedSpelling=False) -> Score:
             for voicenum, voice in voicesdict.items():
                 voice.label = f'{voicename}/{voicenum}'
                 if shortname:
-                    voice.shortname = f'{shortname}/{voicenum}'
+                    voice.abbrev = f'{shortname}/{voicenum}'
 
         for voice in voicesdict.values():
             props = {

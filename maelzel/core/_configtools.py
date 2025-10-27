@@ -13,9 +13,9 @@ def isValidFraction(cfg, key, val) -> bool:
     try:
         _ = F(val)
         return True
-    except Exception:
+    except ValueError:
         return False
 
 
 def isValidStyle(cfg, key: str, val) -> bool:
-    return TextStyle.validate(val)
+    return TextStyle.validate(val) == ''

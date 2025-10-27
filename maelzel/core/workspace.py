@@ -11,7 +11,6 @@ from maelzel.common import F
 from maelzel.dynamiccurve import DynamicCurve
 from maelzel.scorestruct import ScoreStruct
 
-from maelzel._defaultarg import Default
 import typing as _t
 if _t.TYPE_CHECKING:
     from maelzel.core.renderer import Renderer
@@ -549,10 +548,10 @@ class Workspace:
         return d
 
     def setReverb(self,
-                  gaindb: float = None,
-                  delayms: int = None,
-                  decay: float = None,
-                  damp: float = None,
+                  gaindb: float | None = None,
+                  delayms: int | None = None,
+                  decay: float | None = None,
+                  damp: float | None = None,
                   init=False
                   ) -> None:
         """
@@ -615,9 +614,12 @@ class Workspace:
         # if prevsynth := _reverbEvent(session=session, instrname=instr):
         #    return prevsynth
         def whenfinished(*args):
+            assert isinstance(session, csoundengine.session.Session)
             logger.warning(f"Reverb synth stopped, args: %s", args)
             oldsynth = self._reverbSynth
+            assert oldsynth is not None
             self._reverbSynth = None
+
             if self.config['reverbRestart'] and session.engine.elapsedTime() - oldsynth.start > 0.5:
                 logger.warning("... restarting reverb")
                 self._schedReverb(session=session, delay=0.5)

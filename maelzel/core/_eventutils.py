@@ -24,8 +24,6 @@ def fillTempDynamics(items: list[MEvent], initialDynamic='mf', key='.tempdynamic
         resetMinGap: if a distance between two events is longer than this the dynamic
             is reset to the initial dynamic. Set it to 0 to never reset
 
-    Returns:
-
     """
     if not items:
         return
@@ -64,8 +62,8 @@ def addDurationToGracenotes(events: list[MEvent], dur: F) -> None:
         dur: the duration of a single gracenote
 
     """
-    lastRealNote = None
-    d = {}
+    lastRealNote = -1
+    d: dict[int, list[int]] = {}
     # first we build a registry mapping real notes to their grace notes
     now = events[0].offset
     assert now is not None
@@ -73,7 +71,7 @@ def addDurationToGracenotes(events: list[MEvent], dur: F) -> None:
         if not n.isGrace():
             lastRealNote = i
         else:
-            if lastRealNote is None:
+            if lastRealNote < 0:
                 # First in the sequence is a gracenote. Diminish the dur of the next real note,
                 # make the gracenote "on the beat"
                 nextrealidx = next((j for j, n in enumerate(events[i+1:])
@@ -82,8 +80,7 @@ def addDurationToGracenotes(events: list[MEvent], dur: F) -> None:
                     raise ValueError(f"No real notes in {events=}")
                 nextreal = events[nextrealidx+i+1]
                 dur = min(dur, nextreal.dur / (nextrealidx + 1))
-                assert dur > 0
-                assert nextreal.dur > dur, f"{nextreal=}, {dur=}, {i=}, {nextrealidx=}"
+                assert dur > 0 and nextreal.dur > dur, f"{nextreal=}, {dur=}, {i=}, {nextrealidx=}"
                 nextreal.dur -= dur
                 assert nextreal.offset is not None
                 nextreal.offset += dur
@@ -99,11 +96,9 @@ def addDurationToGracenotes(events: list[MEvent], dur: F) -> None:
 
     for realnoteIndex, gracenotesIndexes in d.items():
         realnote = events[realnoteIndex]
-        assert realnote.dur is not None and realnote.dur > 0
         maxGraceDur = realnote.dur / (len(gracenotesIndexes) + 1)
         graceDur = min(dur, maxGraceDur)
         realnote.dur -= graceDur * len(gracenotesIndexes)
-        assert realnote.dur > 0, f"{realnote=}"
         for i, gracenoteIndex in enumerate(gracenotesIndexes):
             gracenote = events[gracenoteIndex]
             gracenote.dur = graceDur

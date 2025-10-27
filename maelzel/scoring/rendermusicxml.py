@@ -760,7 +760,6 @@ def _renderNode(node: Node,
     # A tuplet follows the first note
     if node.durRatio != (1, 1):
         durRatios.append(F(*node.durRatio))
-        logger.debug(f"Starting tuplet {node.durRatio} at {node.firstNotation()}")
         node.firstNotation().getProperty('__starttuplets__', setdefault=[]).append(node.durRatio)
         state.tupletStack.append(node.durRatio)
         lastNotation = node.lastNotation()
@@ -1144,7 +1143,7 @@ def callMuseScore(musicxmlfile: str,
     if fmt == 'png' and trim:
         args.extend(['--trim-image', str(trimmargin)])
     args.append(musicxmlfile)
-    logger.debug(f"Rendering musicxml via MuseScore. Args: {args}")
+    logger.debug("Rendering musicxml via MuseScore. Args: %s", args)
     if os.path.exists(outfile):
         os.remove(outfile)
     subprocess.call(args, stderr=subprocess.PIPE if captureStderr else None)
@@ -1166,7 +1165,7 @@ def callMuseScore(musicxmlfile: str,
             try:
                 img.cropToBoundingBox(outfile, margin=10)
             except Exception as e:
-                logger.error(f"Failed to crop image: {e}")
+                logger.error("Failed to crop image: %s", e)
     elif fmt == 'pdf' or fmt == 'svg':
         if not os.path.exists(outfile):
             logger.error(f"callMusescore: output files not found: '{outfile}'.\n"

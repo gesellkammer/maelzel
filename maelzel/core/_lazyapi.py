@@ -5,12 +5,13 @@ if _t.TYPE_CHECKING:
     from maelzel.core.mobj import MObj
     from maelzel.core import synthevent
     from maelzel.core.offline import OfflineRenderer
-    import csoundengine.event
     from maelzel.core import mobj
     from maelzel.core.workspace import Workspace
-    import csoundengine.synth
     from maelzel.core.synthevent import SynthEvent
     from maelzel.core.playback import _SynchronizedContext
+    import csoundengine.event
+    import csoundengine.synth
+    import csoundengine.session
 
 
 def render(outfile='',

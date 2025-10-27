@@ -255,11 +255,11 @@ class UnquantizedPart:
             part.setGroup(groupid=groupid, name=name, abbrev=abbrev, showPartName=showPartNames)
         return groupid
 
-    def distributeByClef(self) -> list[UnquantizedPart]:
+    def distributeByClef(self, maxStaves: int) -> list[UnquantizedPart]:
         """
         Distribute the notations in this Part into multiple parts, based on pitch
         """
-        return distributeNotationsByClef(self.notations, groupid=self.groupid)
+        return distributeNotationsByClef(self.notations, groupid=self.groupid, maxStaves=maxStaves)
 
     def needsMultipleClefs(self) -> bool:
         """
@@ -308,7 +308,7 @@ class UnquantizedPart:
             dur = n.duration or 1.
             pitch += n.meanPitch() * dur
             dur += dur
-        return pitch / dur
+        return pitch / float(dur)
 
     def fillGaps(self, mingap=F(1, 64)) -> None:
         """
@@ -496,13 +496,13 @@ def fillSilences(notations: list[Notation],
         elif gap < 0:
             if abs(gap) < 1e-14 and ev0.duration > 1e-13:
                 n = ev0.clone(duration=ev1.qoffset - ev0.qoffset)
-                logger.debug("Small negative gap", n)
+                logger.debug("Small negative gap in notation %s", n)
                 out.append(n)
             else:
                 raise ValueError(f"Items overlap, {gap=}, {ev0=}, {ev1=}")
         else:
             # gap <= mingap: adjust the dur of n0 to match start of n1
-            logger.debug(f"Small gap ({gap}), absorve the gap in the first note")
+            logger.debug("Small gap (%s), absorve the gap in the first note", gap)
             out.append(ev0.clone(duration=ev1.qoffset - ev0.qoffset))
 
     out.append(notations[-1])

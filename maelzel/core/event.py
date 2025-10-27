@@ -389,10 +389,8 @@ class Note(MEvent):
         out = self.__class__(self.pitch, dur=self.dur, amp=self.amp, gliss=self._gliss, tied=self.tied,
                              dynamic=self.dynamic, offset=self.offset, label=self.label,
                              _init=False)
-        out.pitchSpelling = self.pitchSpelling
-        out._scorestruct = self._scorestruct
         self._copyAttributesTo(out)
-        assert out._parent is None
+        out.pitchSpelling = self.pitchSpelling
         return out
 
     def clone(self,
@@ -1147,12 +1145,12 @@ class Chord(MEvent):
             if self.tied and any(p == other.pitch for p in self.pitches):
                 return True
             else:
-                logger.debug(f"Chord {self} is tied, but {other} has no pitches in common")
+                logger.debug("Chord %s is tied, but %s has no pitches in common with it", self, other)
         elif isinstance(other, Chord):
             if self.tied and any(p in other.pitches for p in self.pitches):
                 return True
             else:
-                logger.debug(f"Chord {self} is tied, but {other} has no pitches in common")
+                logger.debug("Chord %s is tied, but %s has no pitches in common", self, other)
         return False
 
     @classmethod
@@ -1263,13 +1261,11 @@ class Chord(MEvent):
         if not config:
             config = Workspace.active.config
         notenames = [note.name for note in self.notes]
-        annot = '' if not self.label else self._scoringAnnotation(config=config)
         dur = self.dur
         offset = self.absOffset() if parentOffset is None else self.relOffset() + parentOffset
         notation = scoring.Notation.makeChord(pitches=notenames,
                                               duration=dur,
                                               offset=offset,
-                                              annotation=annot,
                                               group=groupid,
                                               dynamic=self.dynamic,
                                               tiedNext=self.tied)
@@ -1278,6 +1274,10 @@ class Chord(MEvent):
         for i, note in enumerate(self.notes):
             if note.pitchSpelling:
                 notation.fixNotename(note.pitchSpelling, i)
+
+        if self.label:
+            labelsymbol = self._labelSymbol(self.label, config=config)
+            labelsymbol.applyToNotation(notation)
 
         # Add gliss.
         notations = [notation]
@@ -1291,7 +1291,6 @@ class Chord(MEvent):
                 if config['show.glissStemless']:
                     from maelzel.scoring import attachment
                     endEvent.addAttachment(attachment.StemTraits(hidden=True))
-                    # endEvent.stem = 'hidden'
                 notations.append(endEvent)
 
         if self.symbols:
@@ -1305,7 +1304,8 @@ class Chord(MEvent):
                     if isinstance(symbol, _symbols.NoteheadSymbol):
                         symbol.applyToPitch(notation, idx=i, parent=n)
                     else:
-                        logger.debug(f"Cannot apply symbol {symbol} to a pitch inside chord {self}")
+                        logger.debug("Cannot apply symbol %s to a pitch inside "
+                                     "chord %s", symbol, self)
 
         return notations
 
@@ -1342,7 +1342,7 @@ class Chord(MEvent):
         """ append a note to this Chord """
         note = note if isinstance(note, Note) else Note(note)
         if note.freq < 17:
-            logger.debug(f"appending a note with very low freq: {note.freq}")
+            logger.debug("appending a note with very low freq: %s", note.freq)
         self.notes.append(note)
         self._changed()
 

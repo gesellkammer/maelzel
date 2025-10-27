@@ -69,7 +69,7 @@ def _parseAudiogen(code: str, check=False) -> ParsedAudiogen:
             numOutchs = len(args) // 2
 
     if not audiovarsList:
-        logger.debug(f"Invalid audiogen: no output audio signals (aoutx): {code}")
+        logger.debug("Invalid audiogen: no output audio signals (aoutx): %s", code)
         needsRouting = False
         audiovars = set()
     else:

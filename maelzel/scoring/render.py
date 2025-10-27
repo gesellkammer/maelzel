@@ -56,7 +56,8 @@ def renderQuantizedScore(score: quant.QuantizedScore,
         if part.autoClefChanges or (options.autoClefChanges and part.autoClefChanges is None):
             # Do not add if there are manual clefs
             if any(n.findAttachment(attachment.Clef) for n in part.flatNotations()):
-                logger.debug(f"Part #{i} (name={part.name}) already has manual clefs set, skipping automatic clefs")
+                logger.debug("Part #%d (name='%s') already has manual clefs set, "
+                             "skipping automatic clefs", i, part.name)
             else:
                 part.findBestClefChanges(apply=True,
                                          biasFactor=options.keepClefBiasFactor,

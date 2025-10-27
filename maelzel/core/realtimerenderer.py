@@ -237,11 +237,13 @@ class RealtimeRenderer(_renderer.Renderer):
                         synth.set(segment.param, segment.value, delay=segment.time)
                     else:
                         # a segment
-                        if (prevalue := segment.prevalue) is None:
+                        prevalue = segment.prevalue
+                        if prevalue is None:
                             prevalue = instr.dynamicParams().get(segment.param)
                             if prevalue is None:
                                 raise ValueError(f"Default value for {segment.param} not known, "
                                                  f"default values: {instr.dynamicParams()} (instr={instr})")
+                        assert isinstance(prevalue, float)
                         pairs = [0, prevalue,
                                  segment.time - segment.pretime, segment.value]
                         synth.automate(param=segment.param, pairs=pairs, delay=segment.pretime)

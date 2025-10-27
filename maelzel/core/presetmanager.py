@@ -194,7 +194,7 @@ class PresetManager:
                   envelope=True,
                   output=True,
                   aliases: dict[str, str] | None = None,
-                  inithook: _t.Callable[[csoundengine.session.Session], None] | None = None
+                  inithook: _t.Callable[[csoundengine.session.AbstractRenderer], None] | None = None
                   ) -> _presetdef.PresetDef:
         """
         Define a new instrument preset.
@@ -422,7 +422,7 @@ class PresetManager:
         :func:`defPreset`
         """
         if name in self.presetdefs:
-            logger.info(f"PresetDef {name} already exists, overwriting")
+            logger.info("PresetDef '%s' already exists, overwriting", name)
 
         if path == "?":
             from . import _dialogs
@@ -728,7 +728,7 @@ class PresetManager:
                 self.registerPreset(presetdef)
             else:
                 if presetdef is not self.presetdefs[presetdef.name]:
-                    logger.info(f"Updating preset {presetdef.name}")
+                    logger.info("Updating preset %s", presetdef.name)
                     self.registerPreset(presetdef)
         else:
             presetdef = self.getPreset(preset)

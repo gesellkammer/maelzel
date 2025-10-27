@@ -99,7 +99,7 @@ class Chain(MContainer):
                  offset: time_t | None = None,
                  label: str = '',
                  properties: dict[str, Any] | None = None,
-                 parent: MContainer | None = None,
+                 parent: Chain | None = None,
                  _init=True):
         self._modified = bool(items)
         """True if this object was modified and needs to be updated"""
@@ -148,8 +148,7 @@ class Chain(MContainer):
 
         super().__init__(offset=offset,
                          label=label,
-                         properties=properties,
-                         parent=parent)
+                         properties=properties)
 
         if items is None:
             items = []
@@ -159,6 +158,7 @@ class Chain(MContainer):
         self.items: list[MEvent | Chain] = items  # type: ignore
         """The items in this chain, a list of events of other chains"""
 
+        self.parent = parent
 
     def _check(self):
         for item in self.items:
@@ -378,6 +378,17 @@ class Chain(MContainer):
         """
         return all(isinstance(item, MEvent) for item in self.items)
 
+    def _flatEventsWithResolvedOffset(self, key: str):
+        if not self.items:
+            return []
+        self._update()
+        pairs = self.eventsWithOffset()
+        events, offsets = zip(*pairs)
+        for ev, offset in pairs:
+            ev.setProperty(key, offset)
+        _resolveGlissandi(events)
+        return events
+
     def flatEvents(self, forcecopy=False) -> list[MEvent]:
         """
         A list of flat events, with explicit absolute offsets set
@@ -520,15 +531,15 @@ class Chain(MContainer):
         Returns:
             True if all items in self have explicit offsets
         """
-        if self._parent and self.offset is None:
+        if self.parent and self.offset is None:
             return False
 
         return all(item.offset is not None if isinstance(item, MEvent) else item.hasOffsets()
                    for item in self.items)
 
     def dynamicAt(self, absoffset: F, fallback='') -> str:
-        if self._parent and isinstance(self._parent, Chain):
-            return self._parent.dynamicAt(absoffset, fallback=fallback)
+        if self.parent and isinstance(self.parent, Chain):
+            return self.parent.dynamicAt(absoffset, fallback=fallback)
         dyn = ''
         for event, offset in self.eventsWithOffset():
             if offset > absoffset:
@@ -1019,8 +1030,6 @@ class Chain(MContainer):
                 voice.addSymbol(symbol)
         if self.playargs:
             voice.playargs = self.playargs.copy()
-        if self._scorestruct:
-            voice.setScoreStruct(self._scorestruct)
         if self._config:
             for k, v in self._config.items():
                 voice.setConfig(k, v)
@@ -1115,7 +1124,11 @@ class Chain(MContainer):
                 rest = scoring.Notation.makeRest(duration=symbolsMaxBeat-end, offset=end)
                 allns.append(rest)
 
-            allns = quantutils.fillSpan(allns, allns[0].offset, allns[-1].end)
+            firstoffset = allns[0].offset
+            lastend = allns[-1].end
+            assert firstoffset is not None
+            assert lastend is not None
+            allns = quantutils.fillSpan(allns, firstoffset, lastend)
             splitpoints = []
             for _, offset, end in postsymbols:
                 splitpoints.append(offset)
@@ -1129,7 +1142,8 @@ class Chain(MContainer):
                     startobj = next((n for n in allns if n.offset == offset), None)
                     endobj = next((n for n in allns if n.end == end), None)
                     if not symbol.appliesToRests and (startobj is None or startobj.isRest or endobj is None or endobj.isRest):
-                        logger.info(f"{symbol} can't be applied, no notations found for {offset} or {end}, notations={allns}")
+                        logger.info("%s can't be applied, no notations found for "
+                                    "%s or %s, notations=%s", symbol, offset, end, allns)
                         continue
                     if startobj is None:
                         startobj = quantutils.insertRestAt(offset, allns)
@@ -1431,7 +1445,7 @@ class Chain(MContainer):
             yield item, item.relOffset() + absoffset
 
     def _eventsWithOffset(self,
-                          frame: F
+                          frame: F,
                           ) -> tuple[list[tuple[MEvent, F]], F]:
         events = []
         now = frame
@@ -1895,9 +1909,9 @@ class Chain(MContainer):
         else:
             if self.scorestruct():
                 clsname = type(self).__name__
-                logger.warning(f"This {clsname} has already an active ScoreStruct "
-                               f"via its parent. "
-                               f"Passing an ad-hoc scorestruct might cause problems...")
+                logger.warning("This %s has already an active ScoreStruct "
+                               "via its parent. Passing an ad-hoc scorestruct "
+                               "might cause problems...", clsname)
         offsets = scorestruct.measureOffsets(startIndex=startindex, stopIndex=stopindex)
         self.splitEventsAtOffsets(offsets, tie=True)
 
@@ -2054,7 +2068,7 @@ class Chain(MContainer):
                         elif obj.symbols is None:
                             logger.error(f"Invalid spanner anchor, {spanner=}, anchor={obj}")
                         else:
-                            logger.debug(f"Removing spanner {spanner} from {obj}")
+                            logger.debug("Removing spanner %s from %s", spanner, obj)
                             obj.symbols.remove(spanner)
                             spanner._anchor = None
 

@@ -4,16 +4,16 @@ from datetime import datetime
 import os
 import math
 
+from maelzel.core import mobj
+
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import csoundengine.event
     from typing import Sequence
-    from maelzel.core import mobj
-    from maelzel.core import synthevent
     from maelzel.core import workspace
 
 
-def collectEvents(events: Sequence[synthevent.SynthEvent | mobj.MObj | csoundengine.event.Event | Sequence[mobj.MObj | synthevent.SynthEvent]],
+def collectEvents(events: Sequence[SynthEvent | mobj.MObj | csoundengine.event.Event | Sequence[mobj.MObj | SynthEvent]],
                   eventparams: dict,
                   workspace: workspace.Workspace
                   ) -> tuple[list[SynthEvent], list[csoundengine.event.Event]]:
@@ -31,8 +31,8 @@ def collectEvents(events: Sequence[synthevent.SynthEvent | mobj.MObj | csoundeng
         of pure csoundengine events which should be scheduled to run concurrently
         to these maelzel events
     """
-    synthevents = []
-    sessionevents = []
+    synthevents: list[SynthEvent] = []
+    sessionevents: list[csoundengine.event.Event] = []
     import csoundengine.event
     for ev in events:
         if isinstance(ev, (list, tuple)):
@@ -47,6 +47,7 @@ def collectEvents(events: Sequence[synthevent.SynthEvent | mobj.MObj | csoundeng
         elif isinstance(ev, csoundengine.event.Event):
             sessionevents.append(ev)
         else:
+            assert isinstance(ev, mobj.MObj)
             synthevents.extend(ev.synthEvents(workspace=workspace, **eventparams))
     return synthevents, sessionevents
 

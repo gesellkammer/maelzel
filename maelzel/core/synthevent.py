@@ -754,7 +754,8 @@ class SynthEvent:
                      bps: list[breakpoint_t],
                      playargs: PlayArgs,
                      properties: dict[str, Any] | None = None,
-                     **kws
+                     numchans: int = 2,
+                     initfunc: Callable[[SynthEvent, renderer.Renderer], None] | None = None,
                      ) -> SynthEvent:
         """
         Construct a SynthEvent from breakpoints and playargs
@@ -769,21 +770,20 @@ class SynthEvent:
             bps: the breakpoints
             playargs: playargs
             properties: any properties passed to the constructor
-            kws: any keyword accepted by SynthEvent
 
         Returns:
             a new SynthEvent
         """
-        assert playargs.db is not None
-        db = playargs.db | kws if kws else playargs.db.copy()
-        linkednext = db.pop('linkednext', False) or db.get('glisstime') is not None
-        for k in ('transpose', 'glisstime', 'end'):
+        db = playargs.db.copy()
+        if 'glisstime' in db:
+            db['linkednext'] = True
+            del db['glisstime']
+        for k in ('transpose', 'end'):
             db.pop(k, None)
-        instr = db.pop('instr')
         return SynthEvent(bps=bps,
-                          instr=instr,
                           properties=properties,
-                          linkednext=linkednext,
+                          numchans=numchans,
+                          initfunc=initfunc,
                           **db)
 
     def _consolidateDelay(self) -> None:

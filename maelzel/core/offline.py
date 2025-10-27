@@ -801,7 +801,7 @@ class OfflineRenderer(renderer.Renderer):
             session.setHandler(None)
 
         outfile = self._outfile or _playbacktools.makeRecordingFilename()
-        logger.info(f"Rendering to {outfile}")
+        logger.debug("Rendering to '%s'", outfile)
         self.render(outfile=outfile, wait=True)
         self._workspace.renderer = self._oldRenderer
         self._workspace = Workspace.active

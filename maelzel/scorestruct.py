@@ -616,8 +616,10 @@ class MeasureDef:
         'properties',
         'parent',
         'readonly',
+        'durationQuarters',
         '_subdivisionTempoThreshold',
         '_beatWeightTempoThreshold',
+        '_durationSecs'
     )
 
     def __init__(self,
@@ -673,15 +675,16 @@ class MeasureDef:
 
         self._beatWeightTempoThreshold: int | None = beatWeightTempoThresh
 
-    @property
-    def durationQuarters(self) -> F:
-        """The duration of this measure in quarter-notes"""
-        return self.timesig.quarternoteDuration
+        self.durationQuarters: F = self.timesig.quarternoteDuration
+
+        self._durationSecs: F = F0
 
     @property
     def durationSecs(self) -> F:
         """The duration of this measure in seconds"""
-        return self.durationQuarters * (F(60) / self._quarterTempo)
+        if not (dur := self._durationSecs):
+            self._durationSecs = dur = self.durationQuarters * (F(60) / self._quarterTempo)
+        return dur
 
     @property
     def timesig(self) -> TimeSignature:
@@ -1768,7 +1771,7 @@ class ScoreStruct:
             now = self._timeOffsets[measure]
             mdef = self.measuredefs[measure]
             measureBeats = self._quarternoteDurations[measure]
-            assert beat <= measureBeats, f"Beat outside measure, measure={mdef}"
+            assert beat <= measureBeats, "Beat outside measure"
             qtempo = mdef.quarterTempo
             return now + F(60 * qtempo.denominator, qtempo.numerator) * beat
 
@@ -1875,17 +1878,19 @@ class ScoreStruct:
         if not isinstance(beat, F):
             beat = asF(beat)
 
-        if beat > self._beatOffsets[-1]:
+        lastBeatOffset = self._beatOffsets[-1]
+        if beat > lastBeatOffset:
             # past the end
-            rest = beat - self._beatOffsets[-1]
+            rest = beat - lastBeatOffset
             if not self.endless:
                 if rest > 0:
                     raise ValueError(f"The given beat ({beat}) is outside the score")
                 return (numdefs, F0)
             beatsPerMeasure = self.measuredefs[-1].durationQuarters
-            idx = numdefs - 1
-            idx += int(rest / beatsPerMeasure)
-            restBeats = rest % beatsPerMeasure
+            numExtraMeasures = int(rest / beatsPerMeasure)
+            idx = numdefs - 1 + numExtraMeasures
+            restBeats = rest - numExtraMeasures*beatsPerMeasure
+            # restBeats = rest % beatsPerMeasure
             return idx, restBeats
         else:
             lastIndex = self._lastIndex

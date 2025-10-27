@@ -535,8 +535,8 @@ class QuantizedMeasure:
         if not first.isRest and first.tiedPrev:
             assert prevMeasure is not None
             if prevMeasure.empty():
-                logger.info(f"The first note ({first}) of measure {self.measureIndex()} is tied to "
-                            f"the previous note, but the previous measure is empty")
+                logger.info("The first note (%s) of measure %d is tied to "
+                            f"the previous note, but the previous measure is empty", first, self.measureIndex())
                 prevTree = None
             else:
                 prevTree = prevMeasure.tree
@@ -682,6 +682,7 @@ class QuantizedMeasure:
             return None
         # This tie might be part of a bigger tie at the part level
         if tie[0].notation.tiedPrev or tie[-1].notation.tiedNext:
+            assert self.parent is not None
             return self.parent.findLogicalTie(n)
         else:
             return tie
@@ -2791,8 +2792,8 @@ class QuantizedScore:
                 if part.struct is None:
                     part.struct = struct
                 elif part.struct != struct:
-                    logger.info(f"Part {i} has already got a scorestruct different than"
-                                f"the global struct")
+                    logger.info("Part %d has already got a scorestruct different than"
+                                "the global struct", i)
 
     def numMeasures(self) -> int:
         """Returns the number of measures in this score"""

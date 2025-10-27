@@ -194,7 +194,6 @@ def matchOrfanSpanners(notations: Iterable[Notation], removeUnmatched=False, app
             elif spanner.kind == 'end':
                 if stack:
                     startspanner = stack.pop()
-                    spanner._matchedUuid = startspanner.uuid
                     if apply:
                         spanner.uuid = startspanner.uuid
                 elif removeUnmatched:

@@ -41,7 +41,7 @@ class TextStyle:
             assert colortheory.isValidCssColor(self.color)
 
     @staticmethod
-    def validate(style: str) -> bool | str:
+    def validate(style: str) -> str:
         return validateStyle(style)
 
     @staticmethod
@@ -49,7 +49,7 @@ class TextStyle:
         return parseStyle(style, separator=separator)
 
 
-def validateStyle(style: str) -> bool | str:
+def validateStyle(style: str) -> str:
     """
     Check that the style is ok
 
@@ -61,7 +61,7 @@ def validateStyle(style: str) -> bool | str:
     """
     try:
         _ = parseStyle(style)
-        return True
+        return ''
     except ValueError as e:
         return f"Could not validate style: '{style}', error: '{e}'"
 

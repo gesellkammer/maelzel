@@ -998,8 +998,11 @@ class Node:
         rnode = Node(right, ratio=self.durRatio, parent=self.parent, readonly=self.readonly)
         return lnode, rnode
 
-    def splitNotationAtOffset(self, offset: F, tie=True, mergeable=True,
-                              beatstruct: Sequence[QuantizedBeatDef]=None
+    def splitNotationAtOffset(self,
+                              offset: F,
+                              tie=True,
+                              mergeable=True,
+                              beatstruct: Sequence[QuantizedBeatDef] | None = None
                               ) -> list[Notation] | None:
         """
         Splits a notation present at the given offset, returns a list of parts
@@ -1127,6 +1130,7 @@ class Node:
         if not (self.offset <= offset < self.end):
             return None
 
+        assert self.parentMeasure is not None
         measidx = self.parentMeasure.measureIndex()
         for i, item in enumerate(self.items):
             if item.qoffset >= offset:
@@ -1146,9 +1150,7 @@ class Node:
                                  f"symbolic duration={item.symbolicDuration()}")
             if callback:
                 if not callback(item, self, offset):
-                    logger.debug("Syncopation at %d:%s, %s negative, %s will NOT be split", measidx, str(offset), str(callback), LazyStr.str(item))
-                    #logger.debug(f"Syncopation at {measidx}:{offset}, {callback} negative, "
-                    #              f"{item} will NOT be split")
+                    logger.debug("Syncopation at meas=%d, offset=%s, callback %s negative, %s will NOT be split", measidx, str(offset), str(callback), LazyStr.str(item))
                     break
                 logger.debug("Syncopation at %d:%s - %s was positive, splitting", measidx, str(offset), str(callback))
 

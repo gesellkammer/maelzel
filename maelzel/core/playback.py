@@ -68,7 +68,7 @@ def testAudio(duration=4, period=0.5, numChannels: int | None = None, delay=0.5,
     engine = _playEngine(numchannels=numChannels, backend=backend)
     if not engine:
         engine = _playEngine(numchannels=numChannels, backend=backend)
-        logger.info(f"Started engine, backend={engine.backend}...")
+        logger.info("Started engine, backend=%sw", engine.backend)
     engine.testAudio(dur=duration, period=period, delay=delay)
 
 
@@ -161,7 +161,7 @@ def _playEngine(numchannels: int | None = None,
     elif not backend:
         backend = config['play.backend']
     verbose = verbose if verbose is not None else config['play.verbose']
-    logger.debug(f"Starting engine {engineName} (nchnls={numchannels})")
+    logger.debug("Starting engine '%s' (nchnls=%d)", engineName, numchannels)
     latency = latency if latency is not None else config['play.schedLatency']
     engine = csoundengine.Engine(name=engineName,
                                  nchnls=numchannels,
@@ -817,6 +817,7 @@ class _SynchronizedContext(_renderer.Renderer):
         from maelzel.snd import audiosample
         if isinstance(source, tuple):
             data, sr = source
+            assert isinstance(sr, int)
             source = self.session.makeTable(data=data, sr=sr)
         elif isinstance(source, audiosample.Sample):
             source = self.session.makeTable(data=source.samples, sr=source.sr)

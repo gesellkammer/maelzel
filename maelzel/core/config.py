@@ -464,7 +464,7 @@ class CoreConfig(ConfigDict):
         """Remove the saved default config"""
         path = configdict.configPathFromName(cls._defaultName)
         if os.path.exists(path):
-            logger.debug(f"Removing default config at '{path}'")
+            logger.debug("Removing default config at '%s'", path)
             os.remove(path)
 
     def _makeDefaultPlayArgsDict(self, copy=True) -> dict:

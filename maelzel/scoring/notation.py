@@ -470,8 +470,8 @@ class Notation:
             # An exclusive attachment is exclusive at the class level (like a Harmonic or an ornament)
             cls = type(attachment)
             if any(isinstance(a, cls) for a in self.attachments):
-                logger.debug(f"An attachment of class {cls} already present in this notation, "
-                             f"replacing the old one by the new one ({attachment})")
+                logger.debug("An exclusive attachment of class %s already present in this notation, "
+                             "replacing it with new one (%s)", cls, attachment)
                 self.attachments = [a for a in self.attachments
                                     if not isinstance(a, cls)]
         else:

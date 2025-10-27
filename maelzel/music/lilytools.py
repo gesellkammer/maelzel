@@ -159,7 +159,7 @@ def findLilypond(install=True) -> str | None:
     logger.debug("findLilypond: searching via shutil.which")
     lilypond = shutil.which('lilypond')
     if lilypond:
-        logger.debug(f"... found! lilypond path: {lilypond}")
+        logger.debug("... found! lilypond path: '%s'", lilypond)
         _cache['lilypath'] = lilypond
         return lilypond
 
@@ -307,7 +307,7 @@ def renderLily(lilyfile: str,
     fmt = os.path.splitext(outfile)[1][1:]
     assert fmt in ('pdf', 'png', 'ps')
     logger = getLogger(__file__)
-    logger.debug(f"Rendering lilypond '{lilyfile}' to '{outfile}'")
+    logger.debug("Rendering lilypond '%s' to '%s'", lilyfile, outfile)
 
     if removeHeader or book:
         tmply = tempfile.mktemp(suffix=".ly")
@@ -326,10 +326,10 @@ def renderLily(lilyfile: str,
     args.append(lilyfile)
     if shell:
         cmd = " ".join(args)
-        logger.debug(f"Calling lilypond with shell: {cmd}")
+        logger.debug("Calling lilypond with shell: '%s'", cmd)
         result = callWithCapturedOutput(cmd, shell)
     else:
-        logger.debug(f"Calling lilypond subprocess: {args}")
+        logger.debug("Calling lilypond subprocess, args=%s", args)
         result = callWithCapturedOutput(args, shell)
 
     txt = open(lilyfile).read()

@@ -89,7 +89,8 @@ class Score(MContainer):
             for i, v in enumerate(self.voices):
                 voicestruct = v.scorestruct()
                 if voicestruct is not None and voicestruct != scorestruct:
-                    logger.info(f"Voice #{i}, name={v.name} has a different scorestruct than the score")
+                    logger.info(f"Voice #%d, name='%s' has a different scorestruct "
+                                f"than the score", i, v.name)
         self._changed()
 
     def getConfig(self, prototype: CoreConfig | None = None) -> CoreConfig | None:

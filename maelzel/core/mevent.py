@@ -41,7 +41,7 @@ class MEvent(MObj):
                  dur: F,
                  offset: F | None = None,
                  amp: float | None = None,
-                 parent: MContainer | None = None,
+                 parent: chain.Chain | None = None,
                  properties: dict[str, Any] | None = None,
                  symbols: list[_symbols.Symbol] | None = None,
                  label='',
@@ -49,7 +49,7 @@ class MEvent(MObj):
                  tied=False):
         if not isinstance(dur, F):
             raise ValueError(f"Invalid (None) duration for {self}")
-        super().__init__(dur=dur, offset=offset, label=label, parent=parent,
+        super().__init__(dur=dur, offset=offset, label=label,
                          properties=properties, symbols=symbols)
         self.tied: bool = tied
         """Is this event tied?"""
@@ -72,16 +72,7 @@ class MEvent(MObj):
 
         self._glissTarget: float = 0.
 
-    @property
-    def parent(self) -> chain.Chain | None:
-        if self._parent is None:
-            return None
-        # assert isinstance(self._parent, chain.Chain)
-        return self._parent
-
-    @parent.setter
-    def parent(self, value: chain.Chain):
-        self._parent = value
+        self.parent: chain.Chain = parent
 
     def resolveDynamic(self) -> str:
         """

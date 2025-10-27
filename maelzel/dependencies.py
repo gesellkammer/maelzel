@@ -115,7 +115,7 @@ def checkLilypond() -> str:
     lilybin = lilytools.findLilypond()
     if not lilybin:
         return "Could not find lilypond"
-    logger.debug(f"lilypond ok. lilypond binary: {lilybin}")
+    logger.debug("lilypond ok. lilypond binary: '%s'", lilybin)
     return ""
 
 

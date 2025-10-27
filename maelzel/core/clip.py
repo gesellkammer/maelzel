@@ -251,12 +251,12 @@ class Clip(event.MEvent):
             samplenum = numpysnd.firstSound(self.source, threshold=threshold)
             return None if samplenum is None else samplenum * self.sr
 
-    def fundamentalPitch(self, dur=0.2, start=0.) -> float:
+    def fundamentalPitch(self, dur=0.2, start=0., default=60.) -> float:
         if start == 0:
             start = self.firstSound()
         samples = self.samplesBetween(start, start+dur*2)
         f0 = audiosample.Sample(samples, sr=self.sr).fundamentalFreq(dur=dur)
-        return pt.f2m(f0)
+        return pt.f2m(f0) if f0 is not None else default
 
     @property
     def speed(self) -> F:
@@ -346,7 +346,7 @@ class Clip(event.MEvent):
 
     def pitchRange(self) -> tuple[float, float]:
         if not self.pitch:
-            self.pitch = self.fundamentalPitch()
+            self.pitch = self.fundamentalPitch(default=60)
         return (self.pitch, self.pitch)
 
     @property
@@ -599,7 +599,7 @@ class Clip(event.MEvent):
         dur = self.dur
         from maelzel import scoring
         if not self.pitch:
-            self.pitch = self.fundamentalPitch()
+            self.pitch = self.fundamentalPitch(default=60)
         notation = scoring.Notation.makeNote(pitch=self.pitch,
                                              duration=dur,
                                              offset=offset,
