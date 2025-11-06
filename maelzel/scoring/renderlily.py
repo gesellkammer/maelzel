@@ -1046,7 +1046,8 @@ def renderPart(part: quant.QuantizedPart,
         if not measureDef.barline or measureDef.barline == 'single':
             w.line(f"|   % end measure {i+1}")
         else:
-            if (barstyle := _lilyBarlines.get(measureDef.barline)) is None:
+            barstyle = _lilyBarlines.get(measureDef.barline)
+            if barstyle is None:
                 logger.error(f"Barstile '{measureDef.barline}' unknown. "
                              f"Supported styles: {_lilyBarlines.keys()}")
                 barstyle = '|'

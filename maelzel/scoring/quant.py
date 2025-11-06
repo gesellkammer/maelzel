@@ -1151,14 +1151,12 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
     # (totalError, div, snappedEvents, assignedSlots, debuginfo)
     rows: list[tuple[float, division_t, list[SnappedNotation], list[int], str]] = []
     seen = set()
-    events0 = [ev.clone(offset=ev.qoffset - beatOffset, spanners=ev.spanners) for ev in eventsInBeat]
+    events0 = [ev.clone(offset=ev.qoffset - beatOffset) for ev in eventsInBeat]
     minError = 999.
 
     firstOffset = eventsInBeat[0].duration
     lastOffsetMargin = beatDuration - (eventsInBeat[-1].qoffset - beatOffset)
-
     optimizeMargins = True
-
     prevOuterRatio = F(*quantutils.outerTuplet(prevDivision)) if prevDivision else F0
 
     for div in possibleDivisions:
@@ -1316,7 +1314,7 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
             div = (1,)
         elif n0.isRest and (n0.end == beatEnd or n0.mergeableNext) and (n0.offset == beatOffset or n0.mergeablePrev):
             div = (1,)
-            beatNotations = [n0.clone(duration=beatDuration, spanners=n0.spanners)]
+            beatNotations = [n0.clone(duration=beatDuration)]
             assignedSlots = [0]
 
     if sum(n.duration for n in beatNotations) != beatDuration:
@@ -1381,7 +1379,7 @@ def quantizeBeatTernary(eventsInBeat: list[Notation],
     possibleDistributions = [
         (beatOffset, beatOffset+subdiv*2, beatOffset+subdiv*3),  # 2 + 1
         (beatOffset, beatOffset+subdiv, beatOffset+subdiv*3),    # 1 + 2
-        # (beatOffset, beatOffset+subdiv, beatOffset+subdiv*2, beatOffset+subdiv*3)  # 1+1+1
+        (beatOffset, beatOffset+subdiv, beatOffset+subdiv*2, beatOffset+subdiv*3)  # 1+1+1
     ]
 
     results = []
@@ -1578,7 +1576,7 @@ def splitNotationAtMeasures(n: Notation, struct: st.ScoreStruct
 
     if numMeasures == 1:
         # The note fits within one measure. Make the offset relative to the measure
-        event = n.clone(offset=beat0, duration=beat1 - beat0, spanners=n.spanners)
+        event = n.clone(offset=beat0, duration=beat1 - beat0)
         return [(measureindex0, event)]
 
     measuredef = struct.getMeasureDef(measureindex0)

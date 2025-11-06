@@ -61,7 +61,6 @@ if _t.TYPE_CHECKING:
     # from . import symbols as _symbols
     from maelzel.common import location_t, beat_t, time_t, num_t
     from maelzel.core import chain
-    import maelzel.core.event as _event
     from maelzel.scoring.renderoptions import RenderOptions
     from maelzel.scoring.render import  Renderer
     from maelzel.scoring import quant
@@ -801,6 +800,8 @@ class MObj(ABC):
 
         if not backend:
             backend = cfg['show.backend']
+        elif backend != cfg['show.backend']:
+            cfg['show.backend'] = backend
 
         if not fmt:
             fmt = 'png' if not external and environment.insideJupyter else cfg['show.format']
@@ -815,7 +816,7 @@ class MObj(ABC):
             else:
                 _tools.showLilypondScore(renderer.render())
         else:
-            img = self._renderImage(backend=backend, fmt=fmt, config=cfg)
+            img = self._renderImage(fmt=fmt, config=cfg)
             if fmt == 'png':
                 scalefactor = cfg['show.scaleFactor']
                 if backend == 'musicxml':
@@ -912,8 +913,6 @@ class MObj(ABC):
                 defaults to the :ref:`config key 'show.backend' <config_show_backend>`
             renderoptions: the render options to use. If not given, these are generated from
                 the active config
-            scorestruct: if given, overrides the scorestruct set within the active Workspace
-                and any scorestruct attached to this object
             config: if given, overrides the active config
             quantizationProfile: if given, it is used to customize the quantization process
                 and will override any config option related to quantization.
@@ -941,8 +940,8 @@ class MObj(ABC):
         w = Workspace.active
         if not config:
             config = w.config
-        if not backend:
-            backend = config['show.backend']
+        if backend and backend != config['show.backend']:
+            config = config.clone({'show.backend': backend})
         if not renderoptions:
             renderoptions = config.makeRenderOptions()
 
@@ -955,12 +954,11 @@ class MObj(ABC):
         else:
             assert isinstance(quantizationProfile, quant.QuantizationProfile)
 
-        return _renderObject(self, backend=backend, renderoptions=renderoptions,
+        return _renderObject(self, renderoptions=renderoptions,
                              scorestruct=scorestruct, config=config,
                              quantizationProfile=quantizationProfile)
 
     def _renderImage(self,
-                     backend='',
                      outfile='',
                      fmt="png",
                      config: CoreConfig | None = None
@@ -969,9 +967,6 @@ class MObj(ABC):
         Creates an image representation, returns the path to the image
 
         Args:
-            backend: the rendering backend. One of 'musicxml', 'lilypond'
-                None uses the default method
-                (see :ref:`getWorkspace().config['show.backend'] <config_show_backend>`)
             outfile: the path of the generated file. Use None to generate
                 a temporary file.
             fmt: if outfile is None, fmt will determine the format of the
@@ -986,16 +981,13 @@ class MObj(ABC):
         w = Workspace.active
         if not config:
             config = w.config
-        if not backend:
-            backend = config['show.backend']
-        if fmt == 'ly':
-            backend = 'lilypond'
+        if fmt == 'ly' and config['show.backend'] != 'lilypond':
+            config = config.clone(updates={'show.backend': 'lilypond'})
         if not outfile:
             assert fmt in ('png', 'pdf')
             outfile = _util.mktemp(suffix='.' + fmt)
 
-        _renderImage(obj=self, outfile=outfile, backend=backend,
-                     config=config)
+        _renderImage(obj=self, outfile=outfile, config=config)
 
         if not os.path.exists(outfile):
             # cached image does not exist?
@@ -1005,7 +997,7 @@ class MObj(ABC):
                          "trying again...", self, outfile)
             clearImageCache()
             # Try again, uncached
-            _renderImage(self, outfile, backend=backend, config=config)
+            _renderImage(obj=self, outfile=outfile, config=config)
             if not os.path.exists(outfile):
                 raise FileNotFoundError(f"Could not generate image, returned image file '{outfile}' "
                                         f"does not exist")
@@ -1256,10 +1248,13 @@ class MObj(ABC):
             backend = cfg['show.backend']
         elif format not in ('pdf', 'png'):
             raise ValueError(f"Unsupported format: {format}")
-        if resolution:
-            cfg = cfg.clone(updates={'show.pngResolution': resolution})
-        r = notation.renderWithActiveWorkspace(self.scoringParts(config=cfg),
-                                               backend=backend,
+
+        if resolution or backend != cfg['show.backend']:
+            updates = {'show.backend': backend}
+            if resolution:
+                updates['show.pngResolution'] = resolution
+            cfg = cfg.clone(updates=updates)
+        r = notation.renderWithActiveWorkspace(parts=self.scoringParts(config=cfg),
                                                scorestruct=self.scorestruct(),
                                                config=cfg)
         r.write(outfile)
@@ -2185,9 +2180,7 @@ class MContainer(MObj):
 def _renderImage(obj: MObj,
                  outfile: str,
                  config: CoreConfig,
-                 backend: str,
                  ) -> Renderer:
-    assert outfile and config and backend
     ext = os.path.splitext(outfile)[1].lower()
     if ext not in ('.png', '.pdf'):
         raise ValueError(f"Unknown format '{ext}', possible formats are pdf and png")
@@ -2196,7 +2189,6 @@ def _renderImage(obj: MObj,
     tmpfile, renderer = _renderImageCached(obj=obj,
                                            fmt=fmt,
                                            config=config,
-                                           backend=backend,
                                            renderoptions=renderoptions)
     if not os.path.exists(tmpfile):
         logger.debug("Cached file '%s' not found, resetting cache, trying again", tmpfile)
@@ -2204,7 +2196,6 @@ def _renderImage(obj: MObj,
         tmpfile, renderer = _renderImageCached(obj=obj,
                                                fmt=fmt,
                                                config=config,
-                                               backend=backend,
                                                renderoptions=renderoptions)
         if not os.path.exists(tmpfile):
             raise RuntimeError(f"Could not render {obj} to file '{tmpfile}'")
@@ -2219,11 +2210,10 @@ def _renderImage(obj: MObj,
 def _renderImageCached(obj: MObj,
                        fmt: str,
                        config: CoreConfig,
-                       backend: str,
                        renderoptions: RenderOptions
                        ) -> tuple[str, Renderer]:
     assert fmt in ('pdf', 'png')
-    renderer = obj.render(backend=backend, renderoptions=renderoptions, config=config)
+    renderer = obj.render(renderoptions=renderoptions, config=config)
     outfile = _util.mktemp(suffix="." + fmt)
     renderer.write(outfile)
     if not os.path.exists(outfile):
@@ -2233,7 +2223,6 @@ def _renderImageCached(obj: MObj,
 
 @functools.cache
 def _renderObject(obj: MObj,
-                  backend: str,
                   scorestruct: ScoreStruct,
                   config: CoreConfig,
                   renderoptions: RenderOptions,
@@ -2249,7 +2238,6 @@ def _renderObject(obj: MObj,
 
     Args:
         obj: the object to make the image from (a Note, Chord, etc.)
-        backend : one of 'musicxml', 'lilypond'
         scorestruct: if given, this ScoreStruct will be used for rendering. Otherwise
             the scorestruct within the active Workspace is used
         config: if given, this config is used for rendering. Otherwise the config
@@ -2272,7 +2260,6 @@ def _renderObject(obj: MObj,
                 renderObject(myobj, "outfile.pdf")
     """
     assert scorestruct and config
-    assert isinstance(backend, str) and backend in ('musicxml', 'lilypond')
     parts = obj.scoringParts(config=config)
     if not parts:
         if config['show.warnIfEmpty']:
@@ -2284,8 +2271,7 @@ def _renderObject(obj: MObj,
         for part in parts:
             part.check()
     renderer = notation.renderWithActiveWorkspace(parts,
-                                                  backend=backend,
-                                                  renderoptions=renderoptions,
+                                                  renderOptions=renderoptions,
                                                   scorestruct=scorestruct,
                                                   config=config,
                                                   quantizationProfile=quantizationProfile)

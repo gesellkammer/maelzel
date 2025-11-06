@@ -7,7 +7,6 @@ from __future__ import annotations
 from maelzel.common import asF
 from .workspace import Workspace
 
-
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from maelzel import scoring
@@ -55,6 +54,7 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig | None = None,
 
     from maelzel.scoring import render
     renderOptions = render.RenderOptions(
+        backend=cfg['show.backend'],
         centsAnnotationFontsize=centsTextStyle.fontsize or 8,
         centsAnnotationPlacement=centsTextStyle.placement or 'above',
         centsTextPlusSign=cfg['.show.centsTextPlusSign'],
@@ -148,10 +148,9 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig
 
 
 def renderWithActiveWorkspace(parts: list[scoring.core.UnquantizedPart],
-                              backend='',
-                              renderoptions: render.RenderOptions | None = None,
                               scorestruct: ScoreStruct | None = None,
                               config: CoreConfig | None = None,
+                              renderOptions: render.RenderOptions | None = None,
                               quantizationProfile: quant.QuantizationProfile | None = None
                               ) -> render.Renderer:
     """
@@ -159,8 +158,7 @@ def renderWithActiveWorkspace(parts: list[scoring.core.UnquantizedPart],
 
     Args:
         parts: the parts to render
-        backend: the backend used (see currentConfig/'show.backend')
-        renderoptions: if given, will override any option set in the currentConfig
+        renderOptions: if given, will override any option set in the currentConfig
         scorestruct: if given, override the active ScoreStruct
         config: if given, override the ative config
         quantizationProfile: if given, use this for quantization
@@ -171,18 +169,14 @@ def renderWithActiveWorkspace(parts: list[scoring.core.UnquantizedPart],
     workspace = Workspace.active
     if not config:
         config = workspace.config
-    if backend and backend != config['show.backend']:
-        config = config.clone({'show.backend': backend})
-    if not renderoptions:
-        renderoptions = config.makeRenderOptions()
+    if not renderOptions:
+        renderOptions = config.makeRenderOptions()
     if not quantizationProfile:
         quantizationProfile = config.makeQuantizationProfile()
-    if backend:
-        assert renderoptions.backend == backend
     if scorestruct is None:
         scorestruct = workspace.scorestruct
     from maelzel.scoring import render
     return render.quantizeAndRender(parts,
                                     struct=scorestruct,
-                                    options=renderoptions,
+                                    options=renderOptions,
                                     quantizationProfile=quantizationProfile)

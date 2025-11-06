@@ -100,7 +100,8 @@ def makeBuiltinPresets() -> list[PresetDef]:
             aout1 = oscili:a(aclickenv, mtof:k(kpitch+itransp))
             """,
             description="Default preset used when rendering a click-track",
-            _builtin=True
+            _builtin=True,
+            _hidden=True,
         ),
 
         PresetDef(
@@ -147,7 +148,9 @@ def makeBuiltinPresets() -> list[PresetDef]:
             ''',
             routing=False,
             envelope=False,
-            aliases={'speed': 'kspeed'}
+            aliases={'speed': 'kspeed'},
+            _builtin=True,
+            _hidden=True
         ),
 
         PresetDef(
@@ -204,7 +207,8 @@ def makeBuiltinPresets() -> list[PresetDef]:
             """,
             envelope=False,
             routing=False,
-            _builtin=True
+            _builtin=True,
+            _hidden=True
         ),
 
         PresetDef(

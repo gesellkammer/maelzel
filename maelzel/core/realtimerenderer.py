@@ -96,13 +96,13 @@ class RealtimeRenderer(_renderer.Renderer):
 
         """
         instrname = instr if isinstance(instr, str) else instr.name
-        reifiedinstr, needssync = self.session.prepareSched(instrname, priority=priority)
+        reifiedinstr, needssync = self.session.prepareInstr(instrname, priority=priority)
         return needssync
 
     def prepareSessionEvent(self, event: csoundengine.event.Event
                             ) -> bool:
 
-        _, needssync = self.session.prepareSched(instr=event.instrname,
+        _, needssync = self.session.prepareInstr(instr=event.instrname,
                                                  priority=event.priority)
         return needssync
 

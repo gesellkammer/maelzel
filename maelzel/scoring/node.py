@@ -462,7 +462,7 @@ class Node:
         if flatten:
             self._flattenUnnecessaryChildren()
 
-        def mergeonce(items: list[Notation | Node]) -> tuple[list[Notation | None], bool]:
+        def mergeonce(items: list[Notation | Node]) -> tuple[list[Notation | Node], bool]:
             modified = False
             # out = [i0 if isinstance(i0, Notation) else i0.mergedNotations(flatten=False)]
             out = [items[0]]
@@ -498,8 +498,8 @@ class Node:
                 n.durRatios = n.durRatios[:-1]
             node = Node(ratio=(1, 1), items=[n], readonly=self.readonly)
         else:
-            node = Node(ratio=self.durRatio,
-                        items=items,
+            node = Node(items=items,
+                        ratio=self.durRatio,
                         parent=self.parent,
                         properties=self._properties.copy() if self._properties else None,
                         readonly=self.readonly)

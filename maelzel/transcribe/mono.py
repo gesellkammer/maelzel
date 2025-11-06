@@ -11,7 +11,7 @@ from maelzel.snd import audiosample
 from maelzel.snd.numpysnd import rmsBpf
 from pitchtools import PitchConverter, db2amp
 from math import isnan
-from emlib import iterlib
+import itertools
 
 from maelzel.scorestruct import ScoreStruct
 from maelzel import stats
@@ -319,7 +319,7 @@ class FundamentalAnalysisMonophonic:
 
         self._pitchconv = pitchconv
 
-        for bp1, bp2 in iterlib.pairwise(self.flatBreakpoints()):
+        for bp1, bp2 in itertools.pairwise(self.flatBreakpoints()):
             bp1.duration = bp2.time - bp1.time
 
     def flatBreakpoints(self) -> Iterator[Breakpoint]:
@@ -358,7 +358,7 @@ class FundamentalAnalysisMonophonic:
         ''')
         notes = []
         struct = ScoreStruct(tempo=60)
-        for b0, b1 in iterlib.pairwise(self.flatBreakpoints()):
+        for b0, b1 in itertools.pairwise(self.flatBreakpoints()):
             assert b0.time + b0.duration <= b1.time, f"{b0=}, {b1=}"
             if b0.voiced:
                 n = Note(self._pitchconv.f2m(b0.freq), offset=struct.t2b(b0.time), dur=b0.duration,
@@ -484,7 +484,7 @@ def transcribeVoice(groups: list[list[Breakpoint]] | list[BreakpointGroup],
     from maelzel.core import symbols
 
     if scorestruct is None:
-        scorestruct = Workspace.activeScoreStruct()
+        scorestruct = Workspace.active.scorestruct
 
     if options is None:
         options = TranscriptionOptions()
@@ -513,7 +513,7 @@ def transcribeVoice(groups: list[list[Breakpoint]] | list[BreakpointGroup],
                               offset=scorestruct.timeToBeat(bp.time), dur=bp.duration))
             continue
 
-        for bp1, bp2 in iterlib.pairwise(group):
+        for bp1, bp2 in itertools.pairwise(group):
             pitch = pitchconv.f2m(bp1.freq) or unvoicedPitch
             offset = scorestruct.timeToBeat(bp1.time)
             end = scorestruct.timeToBeat(bp2.time)
@@ -549,7 +549,7 @@ def transcribeVoice(groups: list[list[Breakpoint]] | list[BreakpointGroup],
 
         notes.extend(fragment)
 
-    for n1, n2 in iterlib.pairwise(notes):
+    for n1, n2 in itertools.pairwise(notes):
         if n2.properties and n2.properties.get('unvoicedGroup'):
             n1.gliss = False
             n2.gliss = False
@@ -557,7 +557,7 @@ def transcribeVoice(groups: list[list[Breakpoint]] | list[BreakpointGroup],
     # Filter unvoiced groups which are too faint
     unvoicedMinAmp = db2amp(options.unvoicedMinAmpDb)
     notes = [n for n in notes
-             if not n.getProperty('unvoicedGroup') or n.amp > unvoicedMinAmp]
+             if not n.getProperty('unvoicedGroup') or (n.amp and n.amp > unvoicedMinAmp)]
 
     return Voice(notes)
 

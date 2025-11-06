@@ -1014,7 +1014,10 @@ class Notation:
             if pt.n2m(notename) in other.pitches:
                 other.fixNotename(notename, index=None)
 
-    def clone(self, copyFixedNotenames=True, spanners=True, **kws) -> Notation:
+    def clone(self,
+              copyFixedNotenames=True,
+              spanners: bool | list[_spanner.Spanner] = True,
+              **kws) -> Notation:
         """
         Clone this Notation, overriding any value.
 
@@ -1028,7 +1031,14 @@ class Notation:
         if noteheads := kws.get('noteheads'):
             assert isinstance(noteheads, dict), f'{self=}, {noteheads=}'
 
-        out = self.copy(spanners=spanners)
+        withSpanners = True
+        if spanners is not None:
+            if isinstance(spanners, bool):
+                withSpanners = spanners
+            else:
+                assert isinstance(spanners, (list, tuple))
+                withSpanners = False
+        out = self.copy(spanners=withSpanners)
         if (pitches := kws.pop('pitches', None)) is not None:
             out._setPitches(pitches)  # type: ignore
             if self.fixedNotenames and copyFixedNotenames:

@@ -222,8 +222,8 @@ class RenderOptions:
     #def __hash__(self) -> int:
     #    return hash(str(self))
 
-    def __eq__(self, other: RenderOptions) -> bool:
-        return isinstance(other, RenderOptions) and hash(self) == hash(other)
+    def __eq__(self, value, /) -> bool:
+        return isinstance(value, RenderOptions) and hash(self) == hash(value)
 
     def __post_init__(self):
         self.pageSize = self.pageSize.lower()

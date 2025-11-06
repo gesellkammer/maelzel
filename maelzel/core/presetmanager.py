@@ -592,7 +592,8 @@ class PresetManager:
         """
         return list(k for k in self.presetdefs.keys() if not k.startswith('_'))
 
-    def showPresets(self, pattern="*", full=False, showGeneratedCode=False) -> None:
+    def showPresets(self, pattern="*", full=False, generatedCode=False, hidden=False
+                    ) -> None:
         """
         Show the selected presets
 
@@ -602,7 +603,8 @@ class PresetManager:
         Args:
             pattern: a glob pattern to select which presets are shown
             full: show all attributes of a Preset
-            showGeneratedCode: if True, all generated code is shown. Assumes *full*
+            generatedCode: if True, all generated code is shown. Assumes *full*
+            hidden: if True, show hidden (internal) presets
 
         Example
         ~~~~~~~
@@ -625,25 +627,28 @@ class PresetManager:
 
         Args:
             pattern: a glob pattern to select which presets are shown
-            showGeneratedCode: if True, all actual code of an instrument
+            generatedCode: if True, all actual code of an instrument
                 is show. Otherwise, only the audio code is shown
 
         """
         import fnmatch
         matchingPresets = [p for name, p in self.presetdefs.items()
-                           if fnmatch.fnmatch(name, pattern)]
+                           if fnmatch.fnmatch(name, pattern) and not p.hidden]
+        if hidden:
+            matchingPresets.extend(p for p in self.presetdefs.values() if p.hidden)
+            # matchingPresets = [p for p in matchingPresets if not p.hidden]
 
         def key(p: _presetdef.PresetDef):
             return 1 - int(p.userDefined), 1 - int(p.isSoundFont()), p.name
 
         matchingPresets.sort(key=key)
 
-        if showGeneratedCode:
+        if generatedCode:
             full = True
         if not environment.insideJupyter:
             for preset in matchingPresets:
                 print("")
-                if not showGeneratedCode:
+                if not generatedCode:
                     print(preset)
                 else:
                     instr = preset.getInstr()
@@ -654,7 +659,7 @@ class PresetManager:
             htmls = []
             if full:
                 for preset in matchingPresets:
-                    html = preset._repr_html_(theme, showGeneratedCode=showGeneratedCode)
+                    html = preset._repr_html_(theme, showGeneratedCode=generatedCode)
                     htmls.append(html)
                     htmls.append("<hr>")
             else:

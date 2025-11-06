@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from dataclasses import dataclass
 from bisect import bisect
-import sys
 import functools
 import re
 
@@ -630,7 +629,7 @@ class MeasureDef:
                  timesigInherited=False,
                  tempoInherited=False,
                  barline='',
-                 rehearsalMark: RehearsalMark | None = None,
+                 rehearsalMark: RehearsalMark | str = '',
                  keySignature: KeySignature | None = None,
                  properties: dict | None = None,
                  subdivTempoThresh: int | None = None,
@@ -639,6 +638,9 @@ class MeasureDef:
                  ):
         if barline and barline not in _barstyles:
             raise ValueError(f"Unknown barline style: '{barline}', possible values: {_barstyles}")
+
+        if isinstance(rehearsalMark, str):
+            rehearsalMark = RehearsalMark(rehearsalMark)
 
         assert isinstance(timesig, TimeSignature), f"Expected a TimeSignature, got {timesig}"
         self._timesig: TimeSignature = timesig
@@ -655,7 +657,7 @@ class MeasureDef:
         self._barline = barline
         """The barline style, or '' to use default"""
 
-        self.rehearsalMark = rehearsalMark
+        self.rehearsalMark: RehearsalMark | None = rehearsalMark or None
         """If given, a RehearsalMark for this measure"""
 
         self.keySignature = keySignature
@@ -923,7 +925,7 @@ def _checkSubdivisionStructure(s: tuple[int, tuple[int, ...]]) -> None:
 
 def measureSubdivisions(timesig: TimeSignature,
                         quarterTempo: F,
-                        subdivisionStructure: tuple[int, tuple[int, ...]] | None = None,
+                        subdivisionStructure: tuple[int, tuple[int, ...]] = (),
                         subdivTempoThresh: int = 96
                         ) -> list[F]:
     if subdivisionStructure:
@@ -932,7 +934,8 @@ def measureSubdivisions(timesig: TimeSignature,
     if len(timesig.parts) == 1:
         if subdivisionStructure and timesig.subdivisionStruct:
             subdivisionStructure = timesig.qualifiedSubdivisionStruct()
-        return beatDurations(timesig=timesig.parts[0], quarterTempo=quarterTempo,
+        return beatDurations(timesig=timesig.parts[0],
+                             quarterTempo=quarterTempo,
                              subdivisionStructure=subdivisionStructure,
                              subdivTempoThresh=subdivTempoThresh)
     subdivs = []
@@ -982,7 +985,7 @@ def beatDurations(timesig: timesig_t,
         subdivden, subdivnums = subdivisionStructure
         assert subdivden in (1, 2, 4, 8, 16, 32, 64, 128), f"Invalid {subdivisionStructure=}"
         assert all(num >= 1 for num in subdivnums), f"Invalid {subdivisionStructure=}"
-        quarterden = subdivden / 4
+        quarterden = F(subdivden, 4)
         if quarterden < 1:
             numfactor = 1/quarterden
             quarterden = 1
@@ -1385,7 +1388,7 @@ class ScoreStruct:
                     self.addMeasure(numMeasures=mdef.measureIndex - measureIndex - 1)
 
             self.addMeasure(
-                timesig=mdef.timesig,
+                timesig=mdef.timesig or '',
                 quarterTempo=mdef.tempo,
                 annotation=mdef.label,
                 rehearsalMark=RehearsalMark(mdef.rehearsalMark) if mdef.rehearsalMark else None,
@@ -1531,7 +1534,7 @@ class ScoreStruct:
                    index: int | None = None,
                    annotation='',
                    numMeasures=1,
-                   rehearsalMark: str | RehearsalMark = '',
+                   rehearsalMark: str | RehearsalMark | None = None,
                    keySignature: tuple[int, str] | KeySignature | None = None,
                    barline='',
                    properties: dict[str, Any] | None = None,
@@ -1581,10 +1584,11 @@ class ScoreStruct:
             tempoInherited = False
 
         if isinstance(rehearsalMark, str):
-            rehearsalMark = RehearsalMark(rehearsalMark) if rehearsalMark else None
+            rehearsalMark = RehearsalMark(rehearsalMark)
 
         if isinstance(keySignature, tuple):
             fifths, mode = keySignature
+            assert isinstance(fifths, int) and isinstance(mode, str)
             keySignature = KeySignature(fifths=fifths, mode=mode)
 
         if not isinstance(timesig, TimeSignature):
@@ -2658,7 +2662,6 @@ class ScoreStruct:
 
             self.addMeasure(timesig=last.timesig,
                             quarterTempo=last.quarterTempo,
-                            subdivisions=last.subdivisionStructure,
                             keySignature=last.keySignature,
                             numMeasures=numMeasures - len(self.measuredefs))
 

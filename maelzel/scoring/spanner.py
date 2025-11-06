@@ -61,8 +61,8 @@ class Spanner:
         assert self.uuid
 
     @staticmethod
-    def make(cls: str, kind='start', linetype='', placement='', color='') -> Spanner:
-        spannercls = Spanner._strToClass(cls)
+    def make(clsname: str, kind='start', linetype='', placement='', color='') -> Spanner:
+        spannercls = Spanner._strToClass(clsname)
         spanner = spannercls(kind=kind, linetype=linetype, placement=placement, color=color)
         return spanner
 
@@ -235,9 +235,11 @@ def collectUnmatchedSpanners(notations: Iterable[Notation],
             parts = [n for n in notations if n.spanners and any(sp.uuid == uuid and sp.kind == kind for sp in n.spanners)]
             if kind == 'start':
                 for part in parts[1:]:
+                    assert part.spanners is not None
                     part.spanners = [_ for _ in part.spanners if _.uuid != uuid]
             else:
                 for part in parts[:-1]:
+                    assert part.spanners is not None
                     part.spanners = [_ for _ in part.spanners if _.uuid != uuid]
     
     if not seen:

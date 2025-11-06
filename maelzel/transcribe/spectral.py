@@ -2,7 +2,7 @@
 Transcribe a partial-tracking spectrum
 """
 from __future__ import annotations
-from emlib import iterlib
+import itertools
 from maelzel.partialtracking.partial import Partial
 from maelzel.partialtracking import spectrum as sp
 
@@ -53,7 +53,7 @@ def partialToBreakpoints(partial: Partial,
     if simplify:
         breakpoints = simplifyBreakpoints(breakpoints, param=simplify)
 
-    for bp1, bp2 in iterlib.pairwise(breakpoints):
+    for bp1, bp2 in itertools.pairwise(breakpoints):
         bp1.duration = bp2.time - bp1.time
 
     return breakpoints

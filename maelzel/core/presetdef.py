@@ -148,7 +148,7 @@ def _makePresetBody(audiogen: str,
         the presets body
     """
     # TODO: generate user pargs
-    prologue = r'''\
+    prologue = r'''
 |kpos, kgain, idataidx_, inumbps, ibplen, ichan, ifadein, ifadeout, ipchintrp_, ifadekind|
 
 ; common case (2 breakpoints is the minimum for a simple note)
@@ -200,7 +200,7 @@ ifadeout = max:i(ifadeout, 1/kr)
 
     '''
     # makePresetEnvelope is defined in the preset system's prelude (presetmanager.py)
-    envelope1 = r'''\
+    envelope1 = '''\
     aenv_ = makePresetEnvelope(ifadein, ifadeout, ifadekind)
     aenv_ *= kgain
     '''
@@ -324,6 +324,7 @@ class PresetDef:
                  aliases: dict[str, str] | None = None,
                  inithook: Callable[[csoundengine.abstractrenderer.AbstractRenderer], None] | None = None,
                  _builtin=False,
+                 _hidden=False
                  ):
         assert isinstance(code, str)
         assert isinstance(includes, (tuple, list))
@@ -394,6 +395,9 @@ class PresetDef:
 
         self.initHook = inithook
         """Function to be called the first time this preset is instanciated"""
+
+        self.hidden = _hidden
+        """Is this an internal preset?"""
 
         self._consolidatedInit: str = ''
         self._instr: csoundengine.instr.Instr | None = None
@@ -565,7 +569,8 @@ class PresetDef:
         # TODO: solve how to generate body at this stage
         if showGeneratedCode:
             instr = self.getInstr()
-            body = csoundengine.session.Session.defaultInstrBody(instr)
+            body = instr.generateBody()
+            # body = csoundengine.session.Session.defaultInstrBody(instr)
         else:
             body = self.code
         body = _textwrap.indent(body, _INSTR_INDENT)

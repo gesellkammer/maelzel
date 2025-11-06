@@ -312,6 +312,7 @@ def applyDurationRatio(notations: list[Notation],
         out = []
         for n in notations:
             noffset = n.offset
+            assert noffset is not None
             if noffset >= end:
                 break
             if noffset >= start and n.end <= end:
@@ -335,7 +336,7 @@ def applyDurationRatio(notations: list[Notation],
             if i == len(division) - 1 and notations[-1].isGracenote and notations[-1].offset == subdivEnd:
                 endgraces = []
                 for n in reversed(notations):
-                    if not n.isGracenote or n.offset < subdivEnd:
+                    if not n.isGracenote or (n.offset is not None and n.offset < subdivEnd):
                         break
                     endgraces.append(n)
                 if endgraces:
