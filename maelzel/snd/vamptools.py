@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from math import isnan
+import itertools
 from typing import TYPE_CHECKING
 
 import bpf4
@@ -25,8 +26,6 @@ import pitchtools as pt
 import vamp
 import vamp.frames
 import vamp.load
-import vamp.process
-from emlib import iterlib
 
 from maelzel import stats
 from maelzel._util import getPlatform
@@ -228,7 +227,7 @@ def pyinNotes(samples: np.ndarray,
 
 @dataclass
 class PyinResult:
-    voicedProbabilityCurve: bpf4.core.Linear
+    voicedProbabilityCurve: bpf4.Linear
     f0candidates: list[tuple[float, list[float], list[float]]]
     """A list of tuples (timestamp, f0candidates, f0candidateprobability)"""
 
@@ -277,7 +276,6 @@ def pyin(samples: np.ndarray,
          fftSize=2048,
          overlap=8,
          lowAmpSuppressionDb=-60,
-         lowAmpSuppressionPercentile=0.01,
          threshDistr='beta15',
          onsetSensitivity=0.7,
          pruneThresh=0.1,
@@ -356,11 +354,9 @@ def pyin(samples: np.ndarray,
 
     smoothpitchtimes = [frame['timestamp'].to_float() for frame in pts]
 
-    for t0, t1 in iterlib.pairwise(smoothpitchtimes):
+    for t0, t1 in itertools.pairwise(smoothpitchtimes):
         if t1 < t0:
             raise RuntimeError(f"times not sorted, {t0=}, {t1=}")
-        # elif t0 == t1:
-            # raise RuntimeError(f"Duplicate times: {t0=}, {t1=}")
 
     smoothpitchfreqs = [float(frame['values'][0]) for frame in pts]
     smoothpitch = bpf4.core.Linear(smoothpitchtimes, smoothpitchfreqs)
@@ -400,9 +396,6 @@ def pyin(samples: np.ndarray,
     times = [t for t, _, _ in f0candidates]
     lencandidates = [float(len(candidates)) if candidates is not None else 0 for _, candidates, _ in f0candidates]
     numCandidatesInTime = bpf4.core.NoInterpol(times, lencandidates)
-    # numCandidates = bpf4.core.NoInterpol(*zip(*[(t, len(candidates) if candidates is not None else 0)
-      #                                           for t, candidates, probs in f0candidates]))  # type: ignore
-
     f0pairs: list[tuple[float, float]] = []
     for t, candidates, probabilities in f0candidates:
         if candidates is not None:
@@ -416,7 +409,7 @@ def pyin(samples: np.ndarray,
                 # Only add a nan if the last breakpoint was not a nan
                 f0pairs.append((t, float('nan')))
     xs, ys = zip(*f0pairs)
-    f0bestcurve = bpf4.core.Linear(np.array(xs), np.array(ys))
+    f0bestcurve = bpf4.Linear(np.array(xs), np.array(ys))
 
     return PyinResult(voicedProbabilityCurve=vpcurve,
                       f0candidates=f0candidates,

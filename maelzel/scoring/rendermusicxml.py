@@ -940,7 +940,7 @@ def _renderPart(part: quant.QuantizedPart,
     for measureidx, measure in enumerate(part.measures):
         state.measure = measure
 
-        measuredef = scorestruct.getMeasureDef(measureidx)
+        measuredef = scorestruct.measure(measureidx)
         measure_ = _elem(doc, root, 'measure', {'number': measureidx + 1})
         attributes_ = _elem(doc, measure_, 'attributes')
         divisions = _measureMaxDivisions(measure)

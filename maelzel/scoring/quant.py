@@ -1570,7 +1570,7 @@ def splitNotationAtMeasures(n: Notation, struct: st.ScoreStruct
     if beat1 == F0 and n.duration > 0:
         # Note ends at the barline
         measureindex1 -= 1
-        beat1 = struct.getMeasureDef(measureindex1).durationQuarters
+        beat1 = struct.measure(measureindex1).durationQuarters
 
     numMeasures = measureindex1 - measureindex0 + 1
 
@@ -1579,7 +1579,7 @@ def splitNotationAtMeasures(n: Notation, struct: st.ScoreStruct
         event = n.clone(offset=beat0, duration=beat1 - beat0)
         return [(measureindex0, event)]
 
-    measuredef = struct.getMeasureDef(measureindex0)
+    measuredef = struct.measure(measureindex0)
     dur = measuredef.durationQuarters - beat0
     # First part
     notation = n.clone(offset=beat0, duration=dur, tiedNext=True)
@@ -1588,7 +1588,7 @@ def splitNotationAtMeasures(n: Notation, struct: st.ScoreStruct
     # add intermediate measure, if any
     if numMeasures > 2:
         for m in range(measureindex0 + 1, measureindex1):
-            measuredef = struct.getMeasureDef(m)
+            measuredef = struct.measure(m)
             notation = n.cloneAsTie(duration=measuredef.durationQuarters,
                                     tiedPrev=True,
                                     tiedNext=True,
@@ -2204,7 +2204,7 @@ class QuantizedPart:
         struct = self.struct
         customBarlines = ('double', 'double-thin', 'final', 'solid')
         for i, meas in enumerate(self.measures):
-            if resetAfterCustomBarline and i > 0 and struct.getMeasureDef(i - 1).barline in customBarlines:
+            if resetAfterCustomBarline and i > 0 and struct.measure(i - 1).barline in customBarlines:
                 dynamic = ''
 
             if meas.empty():
@@ -2349,7 +2349,7 @@ class QuantizedPart:
                 return None
             for i in range(numMeasures - 1, idx+1):
                 # We create empty measures as needed
-                mdef = self.struct.getMeasureDef(i)
+                mdef = self.struct.measure(i)
                 qmeasure = QuantizedMeasure(timesig=mdef.timesig,
                                             quarterTempo=mdef.quarterTempo,
                                             beats=[],
@@ -2404,7 +2404,7 @@ class QuantizedPart:
             return
         N = len(self.measures)
         for measureIndex in range(N - 1, N - 1 + numMeasures):
-            measuredef = self.struct.getMeasureDef(measureIndex)
+            measuredef = self.struct.measure(measureIndex)
             empty = QuantizedMeasure(timesig=measuredef.timesig,
                                      quarterTempo=measuredef.quarterTempo,
                                      beats=[],
@@ -2617,7 +2617,7 @@ def quantizePart(part: core.UnquantizedPart,
             notationsPerMeasure[measureIdx].append(notation)
     qmeasures = []
     for idx, notations in enumerate(notationsPerMeasure):
-        measureDef = struct.getMeasureDef(idx)
+        measureDef = struct.measure(idx)
         beatStruct = measureDef.beatStructure()
         if not notations:
             qmeasures.append(QuantizedMeasure(timesig=measureDef.timesig,
@@ -2640,7 +2640,7 @@ def quantizePart(part: core.UnquantizedPart,
         if struct.endless:
             raise ValueError("Cannot fill an endless ScoreStructure")
         for i in range(maxMeasure+1, struct.numMeasures()):
-            measureDef = struct.getMeasureDef(i)
+            measureDef = struct.measure(i)
             qmeasure = QuantizedMeasure(timesig=measureDef.timesig,
                                         quarterTempo=measureDef.quarterTempo,
                                         beats=[],

@@ -69,7 +69,7 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
     events = []
     if minMeasures and minMeasures > struct.numMeasures():
         struct = struct.copy()
-        struct.addMeasure(numMeasures=minMeasures - struct.numMeasures())
+        struct.addMeasure(count=minMeasures - struct.numMeasures())
 
     def _processPart(num: int,
                      den: int,

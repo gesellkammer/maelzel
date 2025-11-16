@@ -375,7 +375,7 @@ def plotVoices(voices: list[Voice],
         clefpos = _pitchToPosition(highestline) + 0.8
         timesig = None
         for i, measureOffset in enumerate(measureOffsets):
-            measuredef = scorestruct.getMeasureDef(i)
+            measuredef = scorestruct.measure(i)
             if measuredef.timesig != timesig:
                 timesig = measuredef.timesig
                 smufltimesig = (f"{_SMUFL_TIMESIG_DIGITS[str(timesig.numerator)]}\n"

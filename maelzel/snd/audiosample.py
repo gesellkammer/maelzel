@@ -363,12 +363,12 @@ class Sample:
         self._csoundTable = (engine.name, tabnum)
         return tabnum
 
-    def preparePlay(self, engine=None):
-        """Send audio data to the audio engine (blocking)"""
-        if engine is None:
-            engine = Sample.getEngine()
-        self._makeCsoundTable(engine)
-        engine.session().prepareSched('.playSample')
+    # def preparePlay(self, engine=None):
+    #     """Send audio data to the audio engine (blocking)"""
+    #     if engine is None:
+    #         engine = Sample.getEngine()
+    #     self._makeCsoundTable(engine)
+    #     engine.session().prepareInstr('.playSample')
 
     def _playPortaudio(self,
                        loop=False,
@@ -1846,6 +1846,7 @@ def asSample(source: str | Sample | tuple[np.ndarray, int]) -> Sample:
         return Sample(source)
     if isinstance(source, tuple) and isinstance(source[0], np.ndarray):
         samples, sr = source
+        assert isinstance(sr, int)
         return Sample(samples, sr)
     else:
         raise TypeError("can't convert source to Sample")

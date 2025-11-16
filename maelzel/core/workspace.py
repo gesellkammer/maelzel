@@ -279,7 +279,7 @@ class Workspace:
 
     def getTempo(self, measureNum=0) -> float:
         """Get the quarternote tempo at the given measure"""
-        return float(self.scorestruct.getMeasureDef(measureNum).quarterTempo)
+        return float(self.scorestruct.measure(measureNum).quarterTempo)
 
     def activate(self) -> Workspace:
         """Make this the active Workspace

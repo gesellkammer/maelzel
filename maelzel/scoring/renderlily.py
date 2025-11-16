@@ -989,15 +989,17 @@ def renderPart(part: quant.QuantizedPart,
 
         w.line(f"% measure {i+1}")
         w.indents += 1
-        measureDef = scorestruct.getMeasureDef(i)
+        measureDef = scorestruct.measure(i)
         if i > 0 and measureDef.timesig != timesig:
             addTimeSignature(w, measuredef=measureDef, options=options)
             timesig = measureDef.timesig
 
-        if addTempoMarks:
-            if measure.quarterTempo != quarterTempo:
-                w.line(fr"\tempo 4 = {int(quarterTempo)}")
-                quarterTempo = measure.quarterTempo
+        if addTempoMarks and measure.quarterTempo != quarterTempo:
+            quarterTempo = measure.quarterTempo
+            refvalue, numdots = measureDef.tempoRefFigure
+            reflily = str(refvalue) + "." * numdots
+            reftempo = measureDef.referenceTempo()
+            w.line(fr"\tempo {reflily} = {int(reftempo)}")
 
         if measureDef.keySignature:
             w.line(lilytools.keySignature(fifths=measureDef.keySignature.fifths,

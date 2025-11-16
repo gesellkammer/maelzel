@@ -144,7 +144,7 @@ def removeSustain(samples: np.ndarray,
 
     from csoundengine.offline import OfflineSession
     nchnls = numpysnd.numChannels(samples)
-    renderer = OfflineSession(sr=sr, nchnls=nchnls, ksmps=csoundKsmps, withBusSupport=False)
+    renderer = OfflineSession(sr=sr, nchnls=nchnls, ksmps=csoundKsmps)
     channelTables = []
     for n in range(nchnls):
         chan = numpysnd.getChannel(samples, n)
@@ -187,4 +187,7 @@ def removeSustain(samples: np.ndarray,
         if outfile:
             # We were asked to save to a file, so save the realigned audio
             sndfileio.sndwrite(outfile, outsamples, sr=sr)
+    if not outfile:
+
+        job.outfile
     return outsamples

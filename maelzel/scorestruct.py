@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from bisect import bisect
 import functools
 import re
+import copy as _copy
 
 import emlib.textlib
 from maelzel.common import F, asF, F0
@@ -24,8 +25,12 @@ __all__ = (
     'ScoreStruct',
     'MeasureDef',
     'measureBeatStructure',
-    'TimeSignature'
+    'TimeSignature',
+    'convertTempo'
 )
+
+
+_powersof2 = (1, 2, 4, 8, 16, 32, 64, 128)
 
 
 def _partialsum(seq: Iterable[F], start=F0) -> list[F]:
@@ -113,7 +118,8 @@ class TimeSignature:
     represented as TimeSignature((4, 4))
 
     Args:
-        parts: the parts of this time signature, a seq. of tuples (numerator, denominator)
+        parts: the parts of this time signature, a seq. of tuples (numerator, denominator).
+            Use TimeSignature.parse to parse a signature given as string
         subdivisions: subdivisions as multiples of the denominator. Only valid for
             non-compound signatures. It is used to structure subdivisions for a single
             part. For example, 7/8 subdivided as 2+3+2 can be expressed as
@@ -122,12 +128,10 @@ class TimeSignature:
     def __init__(self,
                  *parts: tuple[int, int],
                  subdivisions: Sequence[int] = ()):
-        if not all(isinstance(part, tuple) and len(part) == 2 for part in parts):
-            raise ValueError(f"Invalid parts: {parts}")
 
         self.parts: tuple[tuple[int, int], ...] = parts
         """
-        The parts of this timesig, as originally passed at creation
+        The parts of this timesig, a seq. of tuples (num, den)
         """
 
         minden = max(den for num, den in parts)
@@ -252,8 +256,8 @@ class TimeSignature:
             else:
                 raise ValueError(f"Cannot parse timesignature: {timesig}")
         elif isinstance(timesig, str):
-            # Possible signatures: 3/4, 3/8+3/8+2/8, 5/8(3-2), 5/8(3-2)+3/16
-            parts = timesig.split("+")
+            # Possible signatures: 3/4, 3/8+3/8+2/8, 5/8(3-2), 5/8(3+2)+3/16
+            parts = re.split(r"\+(?![^(]*\))", timesig)
             parsedParts = [_parseTimesigPart(part) for part in parts]
             if len(parsedParts) == 1:
                 signature, subdivs = parsedParts[0]
@@ -312,6 +316,8 @@ def _parseTimesigPart(s: str) -> tuple[tuple[int, int], tuple[int, ...]]:
     """
     Given a string in the form 5/8(3-2), returns ((5, 8), (3, 2))
 
+    Possible parts: 5/8, 5/8(3-2), 5/8(3+2),
+
     For 5/8, returns ((5, 8), ())
     """
     if "(" in s:
@@ -319,7 +325,8 @@ def _parseTimesigPart(s: str) -> tuple[tuple[int, int], tuple[int, ...]]:
         p1, p2 = s[:-1].split("(")
         nums, dens = p1.split("/")
         num, den = int(nums), int(dens)
-        subdivs = tuple(int(subdiv) for subdiv in p2.split("-"))
+        subdivparts = re.split(r"[+\-]", p2)
+        subdivs = tuple(int(subdiv) for subdiv in subdivparts)
         return ((num, den), subdivs)
     else:
         fracparts = s.split("/")
@@ -327,19 +334,6 @@ def _parseTimesigPart(s: str) -> tuple[tuple[int, int], tuple[int, ...]]:
             raise ValueError(f"Invalid time signature: {s}")
         nums, dens = fracparts
         return ((int(nums), int(dens)), ())
-
-
-def _parseTimesig(s: str) -> tuple[int, int]:
-    try:
-        num, den = s.split("/")
-    except ValueError:
-        raise ValueError(f"Could not parse timesig: {s}")
-    if "+" in num:
-        parts = num.split("+")
-        # Compound timesigs are not supported, we just add
-        num = sum(int(p) for p in parts)
-        return num, int(den)
-    return int(num), int(den)
 
 
 def _asTimeSignature(timesig: str | timesig_t | TimeSignature
@@ -366,32 +360,41 @@ def _asTimeSignature(timesig: str | timesig_t | TimeSignature
 
 @dataclass
 class _ScoreLine:
-    measureIndex: int | None
+    measureidx: int | None
     timesig: TimeSignature | None
-    tempo: float | None
+    tempodef: TempoDef | None
     label: str = ''
     barline: str = ''
-    rehearsalMark: str = ''
+    mark: str = ''
 
 
 @dataclass
-class RehearsalMark:
+class Mark:
     text: str
     box: str = ''
 
     def __post_init__(self):
         assert self.text
 
+    def __repr__(self):
+        parts = ['"' + self.text + '"']
+        if self.box:
+            parts.append(f"box={self.box}")
+        return f"Mark({", ".join(parts)})"
+
 
 @dataclass
 class TempoDef:
     tempo: F
-    refvalue: int = 4
-    numdots: int = 0
+    base: int = 4
+    dots: int = 0
 
     @property
-    def quartertempo(self) -> F:
-        return asQuarterTempo(self.tempo, refvalue=self.refvalue, numdots=self.numdots)
+    def quarterTempo(self) -> F:
+        return asQuarterTempo(self.tempo, base=self.base, dots=self.dots)
+
+    def __iter__(self):
+        return iter((self.tempo, self.base, self.dots))
 
 
 @dataclass
@@ -405,14 +408,42 @@ class KeySignature:
 
 
 @functools.cache
-def asQuarterTempo(tempo: F, refvalue: int, numdots: int = 0) -> F:
-    refdur = F(4, refvalue)
-    if numdots > 0:
-        den = 2 ** numdots
-        num = (2 ** (numdots + 1)) - 1
-        refdur = refdur * num / den
-    qtempo = tempo * refdur
-    return qtempo
+def asQuarterTempo(tempo: F, base: int, dots: int = 0) -> F:
+    """
+    Convert a generic tempo to a quarternote tempo
+
+    Args:
+        tempo: tempo value
+        base: base duration, where 4=quarternote, 8=8th note, etc.
+        dots: number of dots
+
+    Returns:
+        The tempo corresponding to a quarter note
+    """
+    return convertTempo(tempo, source=(base, dots), dest=(4, 0))
+
+
+def convertTempo(tempo: F | int | float, source: tuple[int, int], dest: tuple[int, int]) -> F:
+    """
+    Convert a tempo from a source reference (base, dots) to a destination reference
+
+    Args:
+        tempo: the source tempo
+        source: source reference, a tuple (base, dots)
+        dest: destination reference
+
+    Returns:
+        the tempo corresponding to the new reference
+
+    Example
+    -------
+
+        >>> convertTempo(60, (4, 0), (8, 0))
+        120
+    """
+    sourcedur = figureDuration(*source)
+    destdur = figureDuration(*dest)
+    return tempo * sourcedur / destdur
 
 
 def _parseTempoRefvalue(ref: str) -> tuple[int, int]:
@@ -431,7 +462,7 @@ def _parseTempoRefvalue(ref: str) -> tuple[int, int]:
     except ValueError as e:
         raise ValueError(f"Could not parse tempo '{ref}', invalid reference value '{refvaluestr}'") from e
 
-    if refvalue not in (1, 2, 4, 8, 16, 32, 64):
+    if refvalue not in _powersof2:
         raise ValueError(f"Could not parse tempo: '{ref}', reference value {refvalue} should be a power of 2")
     return refvalue, numdots
 
@@ -480,119 +511,74 @@ def _parseTempo(s: str) -> TempoDef:
     return TempoDef(F(tempo), refvalue, numdots)
 
 
-def _parseScoreStructLine(line: str) -> _ScoreLine:
+def _parseLine(line: str) -> _ScoreLine:
     """
     parse a line of a ScoreStruct definition
 
-    The line has the format ``[measureIndex, ] timesig [, tempo] [keywords]
+    The line has the format ``[measureidx, ] timesig [, tempo] [keywords]
 
     * timesig has the format ``num/den``
     * keywords have the format ``keyword=value``, where keyword can be one of
-        ``rehearsalmark``, ``label`` and ``barline`` (case is not important).
+        ``rehearsalmark`` or ``mark``, ``label`` and ``barline`` (case is not important).
 
-    *rehearsalmark* adds a rehearsal mark, *label* adds a text label and
-    *barline* customizes the right barline (possible values: 'single', 'double', 'solid',
-    'dotted' or 'dashed'
+    * *rehearsalmark* / *mark* adds a rehearsal mark
+    * *label* adds a text label and
+    * *barline* customizes the right barline
+      (possible values: 'single', 'double', 'solid', 'dotted' or 'dashed')
 
     Args:
-        line: a line of the format [measureIndex, ] timesig [, tempo]
+        line: a line of the format [measureidx, ] timesig [, tempo]
 
     Returns:
-        a tuple (measureIndex, timesig, tempo), where only timesig
+        a tuple (measureidx, timesig, tempo), where only timesig
         is required
     """
     line = line.strip()
-    args = []
-    keywords = {}
     tempodef: TempoDef | None = None
-    for part in [_.strip() for _ in line.split(",")]:
-        if '=' not in part:
-            args.append(part)
-        else:
-            key, value = part.split('=', maxsplit=1)
-            key = key.strip()
+    parts = [_.strip() for _ in line.split(",")]
+    # The first argument is special, because it is the only one
+    # which can be an index
+    measureidx: int | None = None
+    timesig = ''
+    kwargs = {}
+    keywords = ('rehearsalmark', 'mark', 'label', 'barline')
+
+    for i, part in enumerate(parts):
+        if i == 0 and part.isdecimal():
+            measureidx = int(part)
+        elif '/' in part:
+            # A time signature
+            timesig = part
+        elif i > 0 and part.isdecimal():
+            # A tempo without reference figure
+            # TODO: allow tempos with a fractional part
+            tempodef = TempoDef(F(int(part), 1))
+        elif "=" in part:
+            # Either a tempo or a keyword=value pair
+            key, val = part.split('=', maxsplit=1)
+            key = key.strip().lower()
             if re.match(r"(1|2|4|8|16|32|64)\.*", key):
                 refvalue, numdots = _parseTempoRefvalue(key)
-                tempodef = TempoDef(tempo=F(value), refvalue=refvalue, numdots=numdots)
+                tempodef = TempoDef(tempo=F(val), base=refvalue, dots=numdots)
             else:
-                value = value.strip()
-                if value[0] == value[-1] in "'\"":
-                    value = value[1:-1]
-                keywords[key] = value
-    numargs = len(args)
-    label = ''
-    barline = ''
-    rehearsalmark = ''
-    measure: int | None = None
-    if numargs == 1:
-        arg = args[0]
-        if "/" in arg:
-            timesigS = arg
-        elif tempodef is None:
-            try:
-                tempodef = _parseTempo(arg)
-                timesigS = ''
-            except ValueError:
-                raise ValueError(f"Could not parse line argument: '{arg}'")
-        else:
-            raise ValueError(f"Could not parse line argument: '{arg}'")
-    elif numargs == 2:
-        if "/" in args[0]:
-            timesigS, tempoS = args
-            measure = None
-            try:
-                _tempodef = _parseTempo(tempoS)
-                if tempodef is not None:
-                    raise ValueError(f"Multiple tempos: {tempoS} and {tempodef}")
-                tempodef = _tempodef
-            except ValueError:
-                raise ValueError(f"Could not parse the tempo ({tempoS}) as a number (line: {line})")
-        else:
-            measureIndexS, timesigS = args
-            try:
-                measure = int(measureIndexS)
-            except ValueError:
-                raise ValueError(f"Could not parse the measure index '{measureIndexS}' while parsing line: '{line}'")
-    elif numargs == 3:
-        if "/" not in args[0]:
-            measureIndexS, timesigS, tempoS = [_.strip() for _ in args]
-            measure = int(measureIndexS) if measureIndexS else None
-        else:
-            measure = None
-            timesigS, tempoS, label = [_.strip() for _ in args]
-        if tempoS:
-            if tempodef is not None:
-                raise ValueError(f"Multiple tempos: {tempoS} and {tempodef}")
-            tempodef = _parseTempo(tempoS)
-    elif numargs == 4:
-        measureIndexS, timesigS, tempoS, label = [_.strip() for _ in args]
-        measure = int(measureIndexS) if measureIndexS else None
-        if tempoS:
-            tempodef = _parseTempo(tempoS)
-    else:
-        raise ValueError(f"Parsing error at line {line}")
+                val = val.strip()
+                if val[0] == val[-1] in "'\"":
+                    val = val[1:-1]
 
-    timesig = TimeSignature.parse(timesigS) if timesigS else None
-
-    for k, v in keywords.items():
-        k = k.lower()
-        if k == 'label':
-            label = v
-        elif k == 'barline':
-            assert v in _barstyles, f"Expected a barline style ({_barstyles}), got {v}"
-            barline = v
-        elif k == 'rehearsalmark':
-            rehearsalmark = v
+                if key not in keywords:
+                    raise ValueError(f"Key '{key}' not recognized, possible keys: {keywords}")
+                val = val.replace('"', '')
+                if key == 'rehearsalmark' or key == 'mark':
+                    kwargs['mark'] = val
+                else:
+                    kwargs[key] = val
         else:
-            raise ValueError(f"Key {k} unknown (value: {v}) while reading score line {line}")
-    if label:
-        label = label.replace('"', '')
-    return _ScoreLine(measureIndex=measure,
-                      timesig=timesig,
-                      tempo=tempodef.quartertempo if tempodef else None,
-                      label=label,
-                      barline=barline,
-                      rehearsalMark=rehearsalmark)
+            raise ValueError(f"Could not parse {part!r} in line '{line}'")
+
+    return _ScoreLine(measureidx=measureidx,
+                      timesig=TimeSignature.parse(timesig) if timesig else None,
+                      tempodef=tempodef,
+                      **kwargs)
 
 
 _barstyles = {'single', 'final', 'double', 'solid', 'dotted', 'dashed', 'tick', 'short',
@@ -602,20 +588,41 @@ _barstyles = {'single', 'final', 'double', 'solid', 'dotted', 'dashed', 'tick', 
 class MeasureDef:
     """
     A MeasureDef defines one Measure within a ScoreStruct (time signature, tempo, etc.)
+
+    Args:
+        timesig, the TimeSignature
+        tempo: tempo value for this measure.
+        parent: the parent ScoreStruct, if applicable
+        annotation: a text annotation for this measure
+        timesigInherited: is the time signature inherited from previous measures?
+        tempoInherited: is the tempo inherited?
+        barline: a barline for this measure, one of 'single', 'final', 'double', 'solid', 'dotted' or 'dashed'
+        mark: rehearsal mark
+        keySignature: the key signature for this measure
+        properties: user defined properties, any key: value pair is allowed
+        readonly: make this measure read-only, any modification raises an error
+        temporef: the figure corresponding to the given tempo. A tuplet (base, dots),
+            where base is 4=quarter, 8=8th note, etc., and dots indicates the number of dots
+        subdivTempoThresh: max. tempo at which a subdivision can be a beat of its own
+        beatWeightTempoThresh: tempo threshold at which a beat acquires more weight
+            and could break a syncopation
     """
     __slots__ = (
         '_timesig',
         '_quarterTempo',
         '_barline',
+        '_tempo',
+        '_quarterTempo',
         'annotation',
         'timesigInherited',
         'tempoInherited',
-        'rehearsalMark',
+        'mark',
         'keySignature',
         'properties',
         'parent',
         'readonly',
         'durationQuarters',
+        'temporef',
         '_subdivisionTempoThreshold',
         '_beatWeightTempoThreshold',
         '_durationSecs'
@@ -623,28 +630,30 @@ class MeasureDef:
 
     def __init__(self,
                  timesig: TimeSignature,
-                 quarterTempo: F | int | float,
-                 parent: ScoreStruct | None = None,
+                 tempo: F | int | float,
                  annotation='',
+                 barline='',
+                 mark: Mark | str = '',
+                 temporef: tuple[int, int] = (4, 0),
+                 keySignature: KeySignature | None = None,
+                 parent: ScoreStruct | None = None,
                  timesigInherited=False,
                  tempoInherited=False,
-                 barline='',
-                 rehearsalMark: RehearsalMark | str = '',
-                 keySignature: KeySignature | None = None,
                  properties: dict | None = None,
                  subdivTempoThresh: int | None = None,
                  beatWeightTempoThresh: int | None = None,
-                 readonly=True
+                 readonly=True,
                  ):
         if barline and barline not in _barstyles:
             raise ValueError(f"Unknown barline style: '{barline}', possible values: {_barstyles}")
 
-        if isinstance(rehearsalMark, str):
-            rehearsalMark = RehearsalMark(rehearsalMark)
+        if mark and isinstance(mark, str):
+            mark = Mark(mark)
 
         assert isinstance(timesig, TimeSignature), f"Expected a TimeSignature, got {timesig}"
         self._timesig: TimeSignature = timesig
-        self._quarterTempo = asF(quarterTempo)
+        self._tempo = asF(tempo)
+        self._quarterTempo = asQuarterTempo(self._tempo, temporef[0], temporef[1])
         self.annotation = annotation
         """Any text annotation for this measure"""
 
@@ -657,7 +666,7 @@ class MeasureDef:
         self._barline = barline
         """The barline style, or '' to use default"""
 
-        self.rehearsalMark: RehearsalMark | None = rehearsalMark or None
+        self.mark: Mark | None = mark or None
         """If given, a RehearsalMark for this measure"""
 
         self.keySignature = keySignature
@@ -678,8 +687,12 @@ class MeasureDef:
         self._beatWeightTempoThreshold: int | None = beatWeightTempoThresh
 
         self.durationQuarters: F = self.timesig.quarternoteDuration
+        """Measure duration in quarters"""
 
         self._durationSecs: F = F0
+
+        self.temporef: tuple[int, int] = temporef
+        """Reference figure for the tempo, as a tuple (base, numdots), where base 4=quarternote"""
 
     @property
     def durationSecs(self) -> F:
@@ -709,10 +722,50 @@ class MeasureDef:
 
     @quarterTempo.setter
     def quarterTempo(self, tempo: F | int):
+        """Set the tempo in relation to a quarter note"""
+        ratio = asF(tempo) / self._quarterTempo
+        self.setTempo(tempo=self._tempo * ratio)
+
+    @property
+    def tempo(self) -> F:
+        """The tempo of this measure, corresponding to the rhythmic figure in .temporef"""
+        return self._tempo
+
+    @tempo.setter
+    def tempo(self, tempo: F | int):
+        """Modify the tempo of this measure (leaves the tempo reference unmodified)"""
+        self.setTempo(tempo=tempo)
+
+    def tempoDef(self) -> TempoDef:
+        """Tempo definition for this measure (.tempo, base., .dots)"""
+        refvalue, numdots = self.temporef
+        return TempoDef(tempo=self._tempo, base=refvalue, dots=numdots)
+
+    def _setTempo(self, tempo: F, reference: tuple[int, int], inherited: bool) -> None:
+        self.temporef = reference
+        base, dots = self.temporef
+        self._tempo = tempo
+        self._quarterTempo = asQuarterTempo(tempo, base, dots)
+        self.tempoInherited = inherited
+
+    def setTempo(self, tempo: F | int | float, reference: tuple[int, int] | F | None = None
+                 ) -> None:
+        """Set the tempo of this measure
+
+        Args:
+            tempo: tempo value corresponding to the rhythmic figure in reference
+            reference: rhythmic figure as base for the tempo value. A quarterntote is
+                given as (4, 0), a dotted 8th note as (8, 1). A Fraction can be
+                given instead with the duration of the rhythmic value as a fraction
+                of the quarter note (quarter=F(1), dotted 8th note=F(3, 4))
+        """
         if self.readonly:
             raise ValueError("This MeasureDef is readonly")
-        self._quarterTempo = asF(tempo)
-        self.tempoInherited = False
+        if not reference:
+            reference = self.temporef
+        elif isinstance(reference, F):
+            reference = durationToFigure(reference)
+        self._setTempo(asF(tempo), reference, inherited=False)
         if self.parent:
             self.parent.modified()
 
@@ -730,19 +783,48 @@ class MeasureDef:
         self._barline = linestyle
         
     def subdivTempoThresh(self, fallback=96) -> int:
+        """
+        Resolves the subdivision tempo threshold
+
+        This is the tempo at which a subdivision of the tempo figure
+        becomes a beat of its own. First the value specified for this
+        measure is used, if given; then the value specified for the score;
+        if none of them specify a value, a fallback is used.
+
+        Args:
+            fallback: tempo used if no specification was given, either for this
+                measure or for the score itself
+
+        Returns:
+            the tempo threshold
+
+        """
         if self._subdivisionTempoThreshold:
             return self._subdivisionTempoThreshold
         elif self.parent and self.parent.subdivTempoThresh:
             return self.parent.subdivTempoThresh
-        assert isinstance(fallback, int)
         return fallback
 
     def beatWeightTempoThresh(self, fallback=52) -> int:
+        """
+        Resolves the beat-weight tempo threshold
+
+        This is the tempo at which the weight acquires extra weight.
+        This is used in the context of notation
+
+        Args:
+            fallback: tempo used if no specification was given, either for this
+                measure or for the score itself
+
+        Returns:
+            the tempo threshold at which a beat has a higher weight
+
+        """
         assert isinstance(fallback, (int, float, F))
         if self._beatWeightTempoThreshold:
             return self._beatWeightTempoThreshold
-        if self.parent:
-            return self.parent.beatWeightTempoThresh or fallback
+        if self.parent and self.parent.beatWeightTempoThresh:
+            return self.parent.beatWeightTempoThresh
         return fallback
 
     def beatStructure(self) -> list[BeatDef]:
@@ -754,8 +836,9 @@ class MeasureDef:
             for each beat of this measure
         """
         return measureBeatStructure(self.timesig,
-                                    quarterTempo=self.quarterTempo,
-                                    subdivisionStructure=self.subdivisionStructure(),
+                                    tempo=self.tempo,
+                                    temporef=self.temporef,
+                                    subdivisions=self.subdivisionStructure(),
                                     subdivTempoThresh=self.subdivTempoThresh(),
                                     beatWeightTempoThresh=self.beatWeightTempoThresh())
 
@@ -765,30 +848,32 @@ class MeasureDef:
         """
         num = self.timesig.numerator
         den = self.timesig.denominator
-        parts = [f'{num}/{den}, {self.quarterTempo}']
+        base, dots = self.temporef
+        if base == 4 and dots == 0:
+            parts = [f'{num}/{den}, {self.tempo}']
+        else:
+            fig = str(base)
+            if dots:
+                fig += "." * dots
+            parts = [f'{num}/{den}, {fig}={self.tempo}']
         if self.annotation:
             parts.append(self.annotation)
         return ', '.join(parts)
 
     def __copy__(self):
-        return MeasureDef(timesig=self._timesig,
-                          quarterTempo=self._quarterTempo,
-                          annotation=self.annotation,
-                          timesigInherited=self.timesigInherited,
-                          tempoInherited=self.tempoInherited,
-                          keySignature=self.keySignature,
-                          rehearsalMark=self.rehearsalMark,
-                          barline=self.barline,
-                          readonly=self.readonly,
-                          parent=self.parent,
-                          beatWeightTempoThresh=self._beatWeightTempoThreshold,
-                          subdivTempoThresh=self._subdivisionTempoThreshold)
+        return _copy.deepcopy(self)
 
     def copy(self) -> MeasureDef:
         return self.__copy__()
 
     def __repr__(self):
-        parts = [f'timesig={self._timesig}, quarterTempo={self._quarterTempo}']
+        parts = []
+        timesig = str(self._timesig)
+        parts.append(timesig)
+        fig = unicodeDuration(self.temporef)
+        parts.append(f"{fig}={self._tempo}")
+        if self.temporef != (4, 0):
+            parts.append(f'quarterTempo={self._quarterTempo}')
         if self.annotation:
             parts.append(f'annotation="{self.annotation}"')
         if self.timesigInherited:
@@ -799,14 +884,14 @@ class MeasureDef:
             parts.append(f'barline={self.barline}')
         if self.keySignature:
             parts.append(f'keySignature={self.keySignature}')
-        if self.rehearsalMark:
-            parts.append(f'rehearsalMark={self.rehearsalMark}')
+        if self.mark:
+            parts.append(f'mark={self.mark}')
         if self.readonly:
             parts.append('readonly=True')
         return f'MeasureDef({", ".join(parts)})'
 
     def __hash__(self) -> int:
-        return hash((self.timesig, self.quarterTempo, self.annotation))
+        return hash((self.timesig, self._tempo, self.temporef, self.annotation))
 
     def subdivisionStructure(self) -> tuple[int, tuple[int, ...]]:
         """
@@ -818,14 +903,22 @@ class MeasureDef:
             a tuple (max. common denominator, subdivisions as multiples of common denominator)
 
         """
-        subdivs = self.subdivisions()
-        denom = self.timesig.fusedSignature[1]
-        if denom == 2:
-            denom = max(subdiv.denominator for subdiv in subdivs) * 4
-        multiples = tuple((subdiv * denom // 4) for subdiv in subdivs)
-        assert denom in (1, 2, 4, 8, 16, 32, 64, 128, 256)
-        assert all(n >= 1 for n in multiples), f"Invalid subdivision structure: {denom=}, {multiples=}, {subdivs=} in {self}"
-        return denom, multiples
+        subdivdurs = self.subdivisions()
+        #fusedsig = self.timesig.fusedSignature
+        #denom = fusedsig[1]
+        #if denom == 2:
+        #    denom = max(subdiv.denominator for subdiv in subdivdurs) * 4
+        maxdenom = max(dur.denominator for dur in subdivdurs)
+        commondur = F(1, maxdenom)
+        nums = [dur / commondur for dur in subdivdurs]
+        assert all(num.denominator == 1 for num in nums)
+        multiples = tuple(num.numerator for num in nums)
+        # nums = [dur * 4 / maxdenom for dur in subdivdurs]
+        # multiples = tuple((subdiv * denom // 4) for subdiv in subdivdurs)
+        # assert denom in _powersof2
+        assert all(n >= 1 for n in multiples), f"Invalid subdivision structure: {maxdenom=}, {multiples=}, {subdivdurs=}, in {self}"
+        # return denom, multiples
+        return (commondur/4).denominator, multiples
 
     def subdivisions(self) -> list[F]:
         """
@@ -864,13 +957,63 @@ class MeasureDef:
 
         """
         return self.timesig._reprInfo()
-        #
-        # parts = [f"{num}/{den}" for num, den in self.timesig.parts]
-        # partstr = "+".join(parts)
-        # if self.timesig.subdivisionStruct:
-        #     subdivs = "+".join(_subdivRepr(f, self.timesig.denominator) for f in self.subdivisions())
-        #     partstr += f"({subdivs})"
-        # return partstr
+
+
+def quarterTempoToReferenceTempo(quarterTempo: F, refValue: int, numDots: int) -> F:
+    """
+    Convert a quarter tempo to reference tempo
+
+    For example, given a quarter tempo of 60, the reference value for a dotted eighth
+    would be 80
+
+    Args:
+        quarterTempo: tempo for a quarter note
+        refValue: the reference value, where 4=quarter note, 8=eighth note, etc
+        numDots: number of dots
+
+    Returns:
+        the equivalent tempo when using the figure given as reference
+
+    """
+    if refValue == 4 and numDots == 0:
+        return quarterTempo
+    figdur = figureDuration(refValue, numDots)
+    # 4. = 3/2, quarter tempo = 60, ref tempo = 45
+    reftempo = quarterTempo / figdur
+    return reftempo
+
+
+def figureDuration(base: int, dots: int) -> F:
+    """
+    Convert a notated figure to a duration in quarter notes
+
+    Args:
+        base: the base duration, where 4=quarter note, 8=eighth note, etc
+        dots: number of dots
+
+    Returns:
+        the duration in quarter notes
+
+
+    =====  =====  =========
+    base   dots   duration
+    =====  =====  =========
+    4      0      1
+    4      1      3/2
+    4      2      7/4
+    4      3      15/8
+    8      0      1/2
+    8      1      1/2 * 3/2
+    =====  =====  =========
+
+
+    """
+    refdur = F(4, base)
+    if dots > 0:
+        den = 2 ** dots
+        num = (2 ** (dots + 1)) - 1
+        refdur = refdur * num / den
+    return refdur
 
 
 def _subdivRepr(f: F, timesigDen: int) -> str:
@@ -880,17 +1023,43 @@ def _subdivRepr(f: F, timesigDen: int) -> str:
     return f"{f.numerator}/{f.denominator}"
 
 
-def inferSubdivisions(num: int, den: int, quarterTempo: F
+def inferSubdivisions(num: int, den: int, quarterTempo: F,
+                      minBinaryTempo=48, minTernaryTempo=40, maxTempo=120
                       ) -> tuple[int, ...]:
-    if (den == 8 or den == 16) and num % 3 == 0:
+    # TODO: make this more clever...
+    pulsetempo = convertTempo(quarterTempo, (4, 0), (den, 0))
+    if minBinaryTempo <= pulsetempo <= maxTempo:
+        return tuple([1] * num)
+    if num % 3 == 0 and pulsetempo / 3 >= minTernaryTempo:
         return tuple([3] * (num // 3))
+    if num % 2 == 0 and pulsetempo / 2 >= minBinaryTempo:
+        return tuple([2] * (num // 2))
     subdivs = []
     while num > 3:
         subdivs.append(2)
         num -= 2
     if num:
-        subdivs.append(num)
+        assert num == 1 or num == 3
+        if num == 3 and pulsetempo / 3 >= minTernaryTempo:
+            subdivs.append(3)
+        else:
+            subdivs.extend([1] * num)
+    print(f"--- infer, {num=}, {den=}, {subdivs=}, {minBinaryTempo=}, {maxTempo=}")
     return tuple(subdivs)
+
+
+
+
+
+    # if (den == 8 or den == 16) and num % 3 == 0:
+    #     return tuple([3] * (num // 3))
+    # subdivs = []
+    # while num > 3:
+    #     subdivs.append(2)
+    #     num -= 2
+    # if num:
+    #     subdivs.append(num)
+    # return tuple(subdivs)
 
 
 def measureQuarterDuration(timesig: timesig_t) -> F:
@@ -930,7 +1099,7 @@ def measureSubdivisions(timesig: TimeSignature,
                         ) -> list[F]:
     if subdivisionStructure:
         div, nums = subdivisionStructure
-        assert all(n >= 1 for n in nums), f"Invalud {subdivisionStructure=}"
+        assert all(n >= 1 for n in nums), f"Invalid {subdivisionStructure=}"
     if len(timesig.parts) == 1:
         if subdivisionStructure and timesig.subdivisionStruct:
             subdivisionStructure = timesig.qualifiedSubdivisionStruct()
@@ -958,8 +1127,11 @@ def beatDurations(timesig: timesig_t,
     Args:
         timesig: the timesignature of the measure or of the part of the measure
         quarterTempo: the tempo for a quarter note
-        subdivTempoThresh: max quarter tempo to divide a measure like 5/8 in all
-            eighth notes instead of, for example, 2+2+1
+        subdivTempoThresh: tempo threshold for a subdivision. A slower tempo
+            will divide beats into subdivisions. For example, a 5/8 measure
+            with a quarterTempo of 40 and a subdivTempoThresh of 96 will
+            subdivide the measure into 5 beats of 1 8th note each. A faster
+            tempo (in this case faster than 48) will result in 2+2+1
         subdivisionStructure: if given, a tuple (denominator, list of subdivision lengths)
             For example, a 5/8 measure could have a subdivision structure of (8, (2, 3)) or
             (8, (3, 2)).
@@ -980,72 +1152,77 @@ def beatDurations(timesig: timesig_t,
     quarterTempo = asF(quarterTempo)
     quarters = measureQuarterDuration(timesig)
     num, den = timesig
+    print("---------------- 1", timesig)
     if subdivisionStructure:
         _checkSubdivisionStructure(subdivisionStructure)
         subdivden, subdivnums = subdivisionStructure
-        assert subdivden in (1, 2, 4, 8, 16, 32, 64, 128), f"Invalid {subdivisionStructure=}"
+        assert subdivden in _powersof2, f"Invalid {subdivisionStructure=}, {subdivden} should be a power of 2"
         assert all(num >= 1 for num in subdivnums), f"Invalid {subdivisionStructure=}"
         quarterden = F(subdivden, 4)
         if quarterden < 1:
-            numfactor = 1/quarterden
-            quarterden = 1
+            numfactor, quarterden = 1/quarterden, 1
         else:
-            numfactor = 1
-            quarterden = int(quarterden)
-
+            numfactor, quarterden = 1, int(quarterden)
         subdivisions = [F(num*numfactor, quarterden) for num in subdivnums]
         if sum(subdivisions) != quarters:
             raise ValueError(f"The sum of the subdivisions ({sum(subdivisions)}) does not"
                              f"match the number of quarters ({quarters}) in this time "
                              f"signature ({timesig[0]}/{timesig[1]}). Subdivision structure: "
                              f"{subdivisionStructure}")
+        print("---------- 3", subdivisionStructure)
         return subdivisions
-    elif den == 4 or den == 2:
-        return [F(1)] * quarters.numerator
+    if den == 4:
+        if quarterTempo < subdivTempoThresh/2:
+            return [F(1, 2)] * (2 * quarters.numerator)
+        else:
+            return [F(1)] * quarters.numerator
     elif den == 8:
         if quarterTempo <= subdivTempoThresh/2:
             # render all beats as 1/8 notes
+            print(f"--------------------- den=8, {subdivTempoThresh=}, {quarterTempo=}")
             return [F(1, 2)]*num
         subdivstruct = inferSubdivisions(num=num, den=den, quarterTempo=quarterTempo)
         return [F(num, den // 4) for num in subdivstruct]
-    elif den == 16:
-        beatdurs = beatDurations((num, 8), quarterTempo=quarterTempo*2)
-        return [dur/2 for dur in beatdurs]
-    elif den == 32:
-        beatdurs = beatDurations((num, 8), quarterTempo=quarterTempo * 4)
-        return [dur/4 for dur in beatdurs]
     else:
-        raise ValueError(f"Invalid time signature: {timesig}")
+        factor = den / 2
+        beatdurs = beatDurations((num, 8), quarterTempo=quarterTempo * factor)
+        return [dur/factor for dur in beatdurs]
 
 
 @dataclass
 class BeatDef:
+    """A Beat definition"""
     offset: F
+    "The offset within the measure"
     duration: F
+    "Duration of the beat in quarter notes"
     weight: int = 0
+    "Weight of the beat, used for breaking syncopations"
 
     def isBinary(self) -> bool:
-        return self.duration.numerator != 3
+        return self.duration.numerator % 2 == 0
 
     @property
     def end(self) -> F:
+        "End time of the beat"
         return self.offset + self.duration
 
 
 @functools.cache
 def measureBeatStructure(timesig: TimeSignature | tuple[int, int],
-                         quarterTempo: F,
-                         subdivisionStructure: tuple[int, tuple[int, ...]] = (),
+                         tempo: F | int | float,
+                         temporef: tuple[int, int] = (4, 0),
+                         subdivisions: tuple[int, tuple[int, ...]] = (),
                          beatWeightTempoThresh = 52,
                          subdivTempoThresh = 96
                          ) -> list[BeatDef]:
     """
-    Returns the beat structure for this measure
+    Beat structure for this measure (a list of beat definitions)
 
     Args:
         timesig: the time signature
-        quarterTempo: the tempo of the quarter note
-        subdivisionStructure: the subdivision structure in the
+        tempo: tempo in reference to the figure defined in temporef
+        subdivisions: the subdivision structure in the
             form (denominator: int, subdivisions). For example a 7/8 bar divided
             in 3+2+2 would have a subdivision strucutre of (8, (3, 2, 2)). A
             4/4 measure divided in 3/8+3/8+2/8+2/8 would be (8, (3, 3, 2, 2))
@@ -1060,19 +1237,21 @@ def measureBeatStructure(timesig: TimeSignature | tuple[int, int],
             of 2/8 and a ternary beat of 5/8
 
     Returns:
-        a list of (beat offset: F, beat duration: F, beat weight: int)
+        a list of BeatDefs
     """
     assert isinstance(beatWeightTempoThresh, (int, float, F))
     assert isinstance(subdivTempoThresh, (int, float, F))
 
+    qtempo = asQuarterTempo(tempo, temporef[0], temporef[1])
+
     if isinstance(timesig, tuple):
         timesig = TimeSignature(timesig)
-    durations = measureSubdivisions(timesig=timesig,
-                                    quarterTempo=quarterTempo,
-                                    subdivisionStructure=subdivisionStructure,
-                                    subdivTempoThresh=subdivTempoThresh)
+    subdivDurs = measureSubdivisions(timesig=timesig,
+                                     quarterTempo=qtempo,
+                                     subdivisionStructure=subdivisions,
+                                     subdivTempoThresh=subdivTempoThresh)
 
-    N = len(durations)
+    N = len(subdivDurs)
     if N == 1:
         weights = [1]
     elif N % 2 == 0:
@@ -1087,20 +1266,20 @@ def measureBeatStructure(timesig: TimeSignature | tuple[int, int],
     now = F(0)
     beatOffsets = []
     weakBeatDurThreshold = F(60) / beatWeightTempoThresh
-    for i, dur in enumerate(durations):
+    for i, dur in enumerate(subdivDurs):
         beatOffsets.append(now)
         now += dur
         if dur.numerator == 3:
             weights[i] = 1
         else:
-            beatRealDur = dur * (F(60)/quarterTempo)
+            beatRealDur = dur * (F(60)/qtempo)
             if beatRealDur > weakBeatDurThreshold:
                 weights[i] += 1
 
     # weights[0] = max(weights) + 1
-    assert len(beatOffsets) == len(durations) == len(weights)
+    assert len(beatOffsets) == len(subdivDurs) == len(weights)
     return [BeatDef(offset, duration, weight)
-            for offset, duration, weight in zip(beatOffsets, durations, weights)]
+            for offset, duration, weight in zip(beatOffsets, subdivDurs, weights)]
 
 
 def measureBeatOffsets(timesig: timesig_t,
@@ -1139,12 +1318,13 @@ def measureBeatOffsets(timesig: timesig_t,
 
 class ScoreStruct:
     """
-    A ScoreStruct holds the structure of a score but no content
+    Holds the structure of a score (but no content, only measure definitions)
 
-    A ScoreStruct consists of some metadata and a list of :class:`MeasureDefs`,
+    A ScoreStruct consists of some metadata and a list of :class:`MeasureDef`,
     where each :class:`MeasureDef` defines the properties of the measure at the given
-    index. If a ScoreStruct is marked as *endless*, it is possible to query
-    it (convert beats to time, etc.) outside the defined measures.
+    index (time signature, tempo, etc.). If a ScoreStruct is marked as *endless*, its
+    last measure definition extends to infinity, allowing to query it (convert beats
+    to time, etc.) outside the defined measures).
 
     The ScoreStruct class is used extensively within :py:mod:`maelzel.core` (see
     `scorestruct-and-maelzel-core`)
@@ -1173,10 +1353,10 @@ class ScoreStruct:
 
         # create an endless score with a given time signature
         s = ScoreStruct(endless=True)
-        s.addMeasure((4, 4), quarterTempo=72)
+        s.addMeasure((4, 4), tempo=72)
 
         # this is the same as:
-        s = ScoreStruct.fromTimesig((4, 4), 72)
+        s = ScoreStruct((4, 4), 72)
 
         # Create the beginning of Sacre
         s = ScoreStruct()
@@ -1224,7 +1404,7 @@ class ScoreStruct:
     **Example**::
 
         0, 4/4, 60, "mark A"
-        3/4, 80     # Assumes measureIndex=1
+        3/4, 80     # Assumes measureidx=1
         10, 5/8, 120
 
         30
@@ -1239,8 +1419,8 @@ class ScoreStruct:
                  title='',
                  composer='',
                  readonly=False,
-                 weightTempoThreshold: int | None = None,
-                 subdivTempoThreshold: int | None = None):
+                 weightTempoThreshold: int = 52,
+                 subdivTempoThreshold: int = 96):
 
         # holds the time offset (in seconds) of each measure
         self._timeOffsets: list[F] = []
@@ -1263,7 +1443,7 @@ class ScoreStruct:
         self.composer = composer
         """The composer metadata"""
 
-        self.measuredefs: list[MeasureDef] = []
+        self.measures: list[MeasureDef] = []
         """The measure definitions"""
 
         self.endless = endless
@@ -1283,17 +1463,17 @@ class ScoreStruct:
 
         if score:
             if isinstance(score, tuple):
-                self.addMeasure(score, quarterTempo=tempo or 60)
+                self.addMeasure(score, tempo=tempo or 60)
             else:
                 self._parseScore(score, initialTempo=tempo or 60)
         elif tempo:
-            self.addMeasure((4, 4), quarterTempo=tempo)
+            self.addMeasure((4, 4), tempo=tempo)
 
 
     def __hash__(self) -> int:
         if self._hash is None:
             hashes = [hash(x) for x in (self.title, self.endless)]
-            hashes.extend(hash(mdef) for mdef in self.measuredefs)
+            hashes.extend(hash(mdef) for mdef in self.measures)
             self._hash = hash(tuple(hashes))
         return self._hash
 
@@ -1315,7 +1495,7 @@ class ScoreStruct:
 
         A definitions are divided by new line or by ;. Each line has the form::
 
-            measureIndex, timeSig, tempo
+            measureidx, timeSig, tempo
 
 
         * Tempo refers always to a quarter note
@@ -1335,10 +1515,10 @@ class ScoreStruct:
         **Example**::
 
             0, 4/4, 60, "mark A"
-            ,3/4,80     # Assumes measureIndex=1
-            4/4         # Assumes measureIndex=2, inherits tempo 80
+            ,3/4,80     # Assumes measureidx=1
+            4/4         # Assumes measureidx=2, inherits tempo 80
             10, 5/8, 120
-            12,,96      # At measureIndex 12, change tempo to 96
+            12,,96      # At measureidx 12, change tempo to 96
             30,,
             .
             .      # last measure (inclusive, the score will have 33 measures)
@@ -1347,8 +1527,8 @@ class ScoreStruct:
         20, q=60 label='foo'
 
         """
-        assert not self.measuredefs
-        measureIndex = -1
+        assert not self.measures
+        measureidx = -1
         lines = re.split(r'[\n;]', s)
         lines = emlib.textlib.linesStrip(lines)
         if lines[-1].strip() == '...':
@@ -1366,43 +1546,44 @@ class ScoreStruct:
                 continue
 
             if line == ".":
-                if not self.measuredefs:
+                if not self.measures:
                     raise ValueError("Cannot repeat last measure definition since there are "
                                      "no measures defined yet")
                 self.addMeasure()
-                measureIndex += 1
+                measureidx += 1
                 continue
 
-            mdef = _parseScoreStructLine(line)
+            mdef = _parseLine(line)
             if i == 0:
                 if mdef.timesig is None:
                     mdef.timesig = TimeSignature(initialTimeSignature)
-                if mdef.tempo is None:
-                    mdef.tempo = initialTempo
+                if mdef.tempodef is None:
+                    mdef.tempodef = TempoDef(tempo=F(initialTempo))
 
-            if mdef.measureIndex is None:
-                mdef.measureIndex = measureIndex + 1
+            if mdef.measureidx is None:
+                mdef.measureidx = measureidx + 1
             else:
-                assert mdef.measureIndex > measureIndex
-                if mdef.measureIndex - measureIndex > 1:
-                    self.addMeasure(numMeasures=mdef.measureIndex - measureIndex - 1)
+                assert mdef.measureidx > measureidx
+                if mdef.measureidx - measureidx > 1:
+                    self.addMeasure(count=mdef.measureidx - measureidx - 1)
 
             self.addMeasure(
                 timesig=mdef.timesig or '',
-                quarterTempo=mdef.tempo,
+                tempo=mdef.tempodef.tempo if mdef.tempodef else None,
+                temporef=(mdef.tempodef.base, mdef.tempodef.dots) if mdef.tempodef else (4, 0),
                 annotation=mdef.label,
-                rehearsalMark=RehearsalMark(mdef.rehearsalMark) if mdef.rehearsalMark else None,
+                mark=Mark(mdef.mark) if mdef.mark else None,
                 barline=mdef.barline
             )
-            measureIndex = mdef.measureIndex
+            measureidx = mdef.measureidx
 
     def copy(self) -> ScoreStruct:
         """
-        Create a copy of this ScoreStruct
+        Create a deep copy of this ScoreStruct
         """
         s = ScoreStruct(endless=self.endless, title=self.title, composer=self.composer)
-        s.measuredefs = [m.copy() for m in self.measuredefs]
-        for m in s.measuredefs:
+        s.measures = [m.copy() for m in self.measures]
+        for m in s.measures:
             m.parent = s
         s.modified()
         return s
@@ -1441,7 +1622,7 @@ class ScoreStruct:
             10
 
         """
-        return len(self.measuredefs)
+        return len(self.measures)
 
     def __len__(self):
         """
@@ -1451,7 +1632,7 @@ class ScoreStruct:
         """
         return self.numMeasures()
 
-    def getMeasureDef(self, idx: int, extend: bool | None = None) -> MeasureDef:
+    def measure(self, idx: int, extend: bool | None = None) -> MeasureDef:
         """
         Returns the MeasureDef at the given index.
 
@@ -1487,8 +1668,8 @@ class ScoreStruct:
         """
         self._update()
 
-        if idx < len(self.measuredefs):
-            measuredef = self.measuredefs[idx]
+        if idx < len(self.measures):
+            measuredef = self.measures[idx]
             assert measuredef.parent is self
             return measuredef
 
@@ -1499,20 +1680,20 @@ class ScoreStruct:
         if not extend:
             if not self.endless:
                 raise IndexError(f"index {idx} out of range. The score has "
-                                 f"{len(self.measuredefs)} measures defined")
+                                 f"{len(self.measures)} measures defined")
 
             # "outside" of the defined score: return a copy of the last
             # measure so that any modification will not have any effect
             # Make the parent None so that it does not get notified if tempo or timesig
             # change
-            out = self.measuredefs[-1].copy()
+            out = self.measures[-1].copy()
             out.readonly = True
             return out
 
-        for n in range(len(self.measuredefs)-1, idx):
+        for n in range(len(self.measures)-1, idx):
             self.addMeasure()
 
-        mdef = self.measuredefs[-1]
+        mdef = self.measures[-1]
         assert mdef.parent is self
         return mdef
 
@@ -1524,20 +1705,28 @@ class ScoreStruct:
 
     def __getitem__(self, item):
         if isinstance(item, int):
-            return self.getMeasureDef(item)
+            return self.measure(item)
         assert isinstance(item, slice)
-        return [self.getMeasureDef(idx) for idx in range(item.start, item.stop, item.step)]
+        return [self.measure(idx) for idx in range(item.start, item.stop, item.step)]
+
+    def _extend(self, num: int):
+        mdef = self.measures[-1].copy()
+        mdef.tempoInherited = True
+        mdef.timesigInherited = True
+        for _ in range(num):
+            self.measures.append(mdef.copy())
 
     def addMeasure(self,
                    timesig: tuple[int, int] | str | TimeSignature = '',
-                   quarterTempo: num_t | None = None,
+                   tempo: num_t | None = None,
                    index: int | None = None,
                    annotation='',
-                   numMeasures=1,
-                   rehearsalMark: str | RehearsalMark | None = None,
+                   mark: str | Mark | None = None,
                    keySignature: tuple[int, str] | KeySignature | None = None,
                    barline='',
                    properties: dict[str, Any] | None = None,
+                   temporef: tuple[int, int] | str = (4, 0),
+                   count=1,
                    ) -> None:
         """
         Add a measure definition to this score structure
@@ -1548,13 +1737,12 @@ class ScoreStruct:
                 form "num/den". For a compound time signature use "3/8+2/8". To
                 specify the internal subdivision use a TimeSignature object or a
                 string in the form "5/8(3-2)"
-            quarterTempo: the tempo of a quarter note. If not given, the last tempo
+            tempo: the tempo of a quarter note. If not given, the last tempo
                 will be used
             annotation: each measure can have a text annotation
             index: if given, add measure at the given index
-            numMeasures: if this is > 1, multiple measures of the same kind can be
-                added
-            rehearsalMark: if given, add a rehearsal mark to the new measure definition.
+            count: number of measures of the same kind to add
+            mark: add a rehearsal mark to the new measure definition.
                 A rehearsal mark can be a text or a RehearsalMark, which enables you
                 to customize the rehearsal mark further
             keySignature: either a KeySignature object or a tuple (fifths, mode); for example
@@ -1562,6 +1750,11 @@ class ScoreStruct:
             barline: if needed, the right barline of the measure can be set to one of
                 'single', 'final', 'double', 'solid', 'dotted', 'dashed', 'tick', 'short',
                 'double-thin' or 'none'
+            temporef: reference rhythmic figure for the given tempo. Only used if
+                a tempo is given. If given as a tuplet, a tuplet (figurevale: int, numdots: int),
+                where 4=quarter note, 8=1/8th note, etc., and numdots represents the number of dots.
+                If given as a string, a string of the form "4", "8.", etc., as above described.
+            properties: user defined properties for the measure, can be anything.
 
         Example::
 
@@ -1574,17 +1767,22 @@ class ScoreStruct:
 
         if not timesig:
             timesigInherited = True
-            timesig = self.measuredefs[-1].timesig if self.measuredefs else (4, 4)
+            timesig = self.measures[-1].timesig if self.measures else (4, 4)
         else:
             timesigInherited = False
-        if not quarterTempo:
+        if not tempo:
             tempoInherited = True
-            quarterTempo = self.measuredefs[-1].quarterTempo if self.measuredefs else F(60)
+            if self.measures:
+                last = self.measures[-1]
+                tempo = last.tempo
+                temporef = last.temporef
+            else:
+                tempo, temporef = F(60), (4, 0)
         else:
             tempoInherited = False
 
-        if isinstance(rehearsalMark, str):
-            rehearsalMark = RehearsalMark(rehearsalMark)
+        if isinstance(mark, str):
+            mark = Mark(mark)
 
         if isinstance(keySignature, tuple):
             fifths, mode = keySignature
@@ -1594,49 +1792,45 @@ class ScoreStruct:
         if not isinstance(timesig, TimeSignature):
             timesig = TimeSignature.parse(timesig)
 
+        if isinstance(temporef, str):
+            parts = temporef.split(".")
+            refvalue = int(parts[0])
+            numdots = len(parts) - 1
+            temporef = (refvalue, numdots)
+
         assert keySignature is None or isinstance(keySignature, KeySignature)
 
         measure = MeasureDef(
             timesig=timesig,
-            quarterTempo=quarterTempo,
+            tempo=tempo,
             annotation=annotation,
             timesigInherited=timesigInherited,
             tempoInherited=tempoInherited,
-            rehearsalMark=rehearsalMark,
+            mark=mark,
             properties=properties,
             keySignature=keySignature,
             barline=barline,
             parent=self,
+            temporef=temporef,
             readonly=self.readonly)
 
         if index:
-            if index < len(self.measuredefs):
-                if numMeasures > 1:
+            if index < len(self.measures):
+                if count > 1:
                     raise ValueError(f"Setting an already existing measure ({index}), multiple measures are not supported")
-                self.measuredefs[index] = measure
+                self.measures[index] = measure
             else:
-                lastmeasure = self.measuredefs[-1].copy()
-                lastmeasure.timesigInherited = True
-                lastmeasure.tempoInherited = True
-                for i in range(index - len(self.measuredefs)):
-                    self.measuredefs.append(lastmeasure.copy())
-                self.measuredefs.append(measure)
+                self._extend(index - len(self.measures))
         else:
-            self.measuredefs.append(measure)
+            self.measures.append(measure)
 
-        if numMeasures > 1:
-            for _ in range(numMeasures - 1):
-                self.measuredefs.append(MeasureDef(
-                    timesig=timesig,
-                    quarterTempo=quarterTempo,
-                    timesigInherited=True,
-                    tempoInherited=True,
-                    parent=self,
-                    readonly=self.readonly))
+        if count > 1:
+            self._extend(count - 1)
+
         self.modified()
 
-    def addRehearsalMark(self, idx: int, mark: RehearsalMark | str, box: str = 'square'
-                         ) -> None:
+    def addMark(self, idx: int, mark: Mark | str, box: str = 'square'
+                ) -> None:
         """
         Add a rehearsal mark to this scorestruct
 
@@ -1651,17 +1845,17 @@ class ScoreStruct:
         if self.readonly:
             raise RuntimeError("This ScoreStruct is read-only")
 
-        if idx >= len(self.measuredefs) and not self.endless:
+        if idx >= len(self.measures) and not self.endless:
             raise IndexError(f"Measure index {idx} out of range. "
-                             f"This score has {len(self.measuredefs)} measures")
-        mdef = self.getMeasureDef(idx, extend=True)
+                             f"This score has {len(self.measures)} measures")
+        mdef = self.measure(idx, extend=True)
         if isinstance(mark, str):
-            mark = RehearsalMark(mark, box=box)
-        mdef.rehearsalMark = mark
+            mark = Mark(mark, box=box)
+        mdef.mark = mark
 
-    def ensureDurationInMeasures(self, numMeasures: int) -> None:
+    def ensureLength(self, numMeasures: int) -> None:
         """
-        Extends this score to have at least the given number of measures
+        Extends this score to have at least the given number of measures, if needed
 
         If the scorestruct already has reached the given length this operation
         does nothing
@@ -1669,11 +1863,10 @@ class ScoreStruct:
         Args:
             numMeasures: the minimum number of measures this score should have
         """
-        measureDiff = numMeasures - self.numMeasures()
-        if measureDiff > 0:
-            self.addMeasure(numMeasures=measureDiff)
+        if (count := numMeasures - self.numMeasures()) > 0:
+            self._extend(count)
 
-    def ensureDurationInSeconds(self, duration: F) -> None:
+    def ensureDuration(self, duration: F) -> None:
         """
         Ensure that this scorestruct is long enough to include the given time
 
@@ -1692,7 +1885,7 @@ class ScoreStruct:
             assert not self.endless
 
             raise ValueError(f"duration {duration} outside score")
-        self.ensureDurationInMeasures(mindex + 1)
+        self.ensureLength(mindex + 1)
 
     def durationQuarters(self) -> F:
         """
@@ -1702,7 +1895,7 @@ class ScoreStruct:
         """
         if self.endless:
             raise ValueError("An endless score does not have a duration in beats")
-        return asF(sum(m.durationQuarters for m in self.measuredefs))
+        return asF(sum(m.durationQuarters for m in self.measures))
 
     def durationSecs(self) -> F:
         """
@@ -1712,7 +1905,7 @@ class ScoreStruct:
         """
         if self.endless:
             raise ValueError("An endless score does not have a duration in seconds")
-        return asF(sum(m.durationSecs for m in self.measuredefs))
+        return asF(sum(m.durationSecs for m in self.measures))
 
     def _update(self) -> None:
         if not self._needsUpdate:
@@ -1729,7 +1922,7 @@ class ScoreStruct:
         quarterDurs = []
         beatOffsets = []
 
-        for mdef in self.measuredefs:
+        for mdef in self.measures:
             starts.append(accumTime)
             beatOffsets.append(accumBeats)
             durBeats = mdef.durationQuarters
@@ -1756,10 +1949,10 @@ class ScoreStruct:
         if self._needsUpdate:
             self._update()
 
-        numdefs = len(self.measuredefs)
+        numdefs = len(self.measures)
         if measure > numdefs - 1:
             if measure == numdefs and beat == 0:
-                mdef = self.measuredefs[-1]
+                mdef = self.measures[-1]
                 return self._timeOffsets[-1] + mdef.durationSecs
 
             if not self.endless:
@@ -1767,13 +1960,13 @@ class ScoreStruct:
 
             last = numdefs - 1
             lastTime = self._timeOffsets[last]
-            mdef = self.measuredefs[last]
+            mdef = self.measures[last]
             mdur = mdef.durationSecs
             fractionalDur = beat * 60 / mdef.quarterTempo
             return lastTime + (measure - last) * mdur + fractionalDur
         else:
             now = self._timeOffsets[measure]
-            mdef = self.measuredefs[measure]
+            mdef = self.measures[measure]
             measureBeats = self._quarternoteDurations[measure]
             assert beat <= measureBeats, "Beat outside measure"
             qtempo = mdef.quarterTempo
@@ -1793,7 +1986,7 @@ class ScoreStruct:
         measureindex, measurebeat = self.timeToLocation(time)
         if measureindex is None:
             raise ValueError(f"time {time} outside of score")
-        measuredef = self.getMeasureDef(measureindex)
+        measuredef = self.measure(measureindex)
         return measuredef.quarterTempo
 
     def timeToLocation(self, time: num_t) -> tuple[int | None, F]:
@@ -1812,20 +2005,20 @@ class ScoreStruct:
         if self._needsUpdate:
             self._update()
 
-        if not self.measuredefs:
+        if not self.measures:
             raise IndexError("This ScoreStruct is empty")
 
         time = asF(time)
         idx = bisect(self._timeOffsets, time)
-        if idx < len(self.measuredefs):
-            m = self.measuredefs[idx-1]
+        if idx < len(self.measures):
+            m = self.measures[idx-1]
             assert self._timeOffsets[idx - 1] <= time < self._timeOffsets[idx]
             dt = time-self._timeOffsets[idx-1]
             beat = dt*m.quarterTempo/F(60)
             return idx-1, beat
 
         # is it within the last measure?
-        m = self.measuredefs[idx-1]
+        m = self.measures[idx-1]
         dt = time - self._timeOffsets[idx-1]
         if dt < m.durationSecs:
             beat = dt*m.quarterTempo/F(60)
@@ -1833,11 +2026,11 @@ class ScoreStruct:
         # outside score
         if not self.endless:
             return None, F0
-        lastMeas = self.measuredefs[-1]
+        lastMeas = self.measures[-1]
         measDur = lastMeas.durationSecs
         numMeasures = dt / measDur
         beat = (numMeasures - int(numMeasures)) * lastMeas.durationQuarters
-        return len(self.measuredefs)-1 + int(numMeasures), beat
+        return len(self.measures)-1 + int(numMeasures), beat
 
     def beatToLocation(self, beat: num_t) -> tuple[int, F]:
         """
@@ -1876,7 +2069,7 @@ class ScoreStruct:
         if self._needsUpdate:
             self._update()
 
-        numdefs = len(self.measuredefs)
+        numdefs = len(self.measures)
         assert numdefs >= 1, "This scorestruct is empty"
 
         if not isinstance(beat, F):
@@ -1890,7 +2083,7 @@ class ScoreStruct:
                 if rest > 0:
                     raise ValueError(f"The given beat ({beat}) is outside the score")
                 return (numdefs, F0)
-            beatsPerMeasure = self.measuredefs[-1].durationQuarters
+            beatsPerMeasure = self.measures[-1].durationQuarters
             numExtraMeasures = int(rest / beatsPerMeasure)
             idx = numdefs - 1 + numExtraMeasures
             restBeats = rest - numExtraMeasures*beatsPerMeasure
@@ -2032,11 +2225,11 @@ class ScoreStruct:
         If it is marked as `endless`, then the last defined measure
         will be returned indefinitely.
         """
-        for mdef in self.measuredefs:
+        for mdef in self.measures:
             yield mdef
         if not self.endless:
             raise StopIteration
-        lastmdef = self.measuredefs[-1]
+        lastmdef = self.measures[-1]
         while True:
             yield lastmdef
 
@@ -2245,7 +2438,7 @@ class ScoreStruct:
         idx0 = startloc[0]
         endloc = self.beatToLocation(end)
         idx1 = endloc[0] + 1
-        return [self.getMeasureDef(idx=i) for i in range(idx0, idx1)]
+        return [self.measure(idx=i) for i in range(idx0, idx1)]
 
     def timeDelta(self,
                   start: beat_t,
@@ -2255,8 +2448,8 @@ class ScoreStruct:
         Returns the elapsed time between two beats or score locations.
 
         Args:
-            start: the start location, as a beat or as a tuple (measureIndex, beatOffset)
-            end: the end location, as a beat or as a tuple (measureIndex, beatOffset)
+            start: the start location, as a beat or as a tuple (measureidx, beatOffset)
+            end: the end location, as a beat or as a tuple (measureidx, beatOffset)
 
         Returns:
             the elapsed time, as a Fraction
@@ -2285,9 +2478,9 @@ class ScoreStruct:
         Difference in beats between the two score locations or two times
 
         Args:
-            start: the start moment as a location (a tuple (measureIndex, beatOffset) or as
+            start: the start moment as a location (a tuple (measureidx, beatOffset) or as
                 a time
-            end: the end location, a tuple (measureIndex, beatOffset)
+            end: the end location, a tuple (measureidx, beatOffset)
 
         Returns:
             the distance between the two locations, in beats
@@ -2364,7 +2557,7 @@ class ScoreStruct:
             display(HTML(self._repr_html_()))
         else:
             tempo = -1
-            for i, m in enumerate(self.measuredefs):
+            for i, m in enumerate(self.measures):
                 parts = []
                 if index:
                     parts.append(f"{i}: {m.timesig}")
@@ -2375,8 +2568,8 @@ class ScoreStruct:
                     tempo = m.quarterTempo
                 if m.annotation:
                     parts.append(f", annotation={m.annotation}")
-                if m.rehearsalMark:
-                    parts.append(f", rehearsal={m.rehearsalMark.text}")
+                if m.mark:
+                    parts.append(f", rehearsal={m.mark.text}")
                 if m.barline:
                     parts.append(f", barline={m.barline}")
                 if m.keySignature:
@@ -2393,14 +2586,14 @@ class ScoreStruct:
         """
         self._update()
 
-        t = self.measuredefs[0].quarterTempo
-        return all(m.quarterTempo == t for m in self.measuredefs)
+        t = self.measures[0].quarterTempo
+        return all(m.quarterTempo == t for m in self.measures)
 
     def __repr__(self) -> str:
         self._update()
 
         if self.hasUniqueTempo() and self.hasUniqueTimesig():
-            m0 = self.measuredefs[0]
+            m0 = self.measures[0]
             info = [str(m0.timesig), f"tempo={m0.quarterTempo}"]
             if m0.keySignature:
                 info.append(f"keySignature={m0.keySignature}")
@@ -2410,14 +2603,14 @@ class ScoreStruct:
             tempo = -1
             parts = []
             maxdefs = 10
-            for m in self.measuredefs[:maxdefs]:
+            for m in self.measures[:maxdefs]:
                 if m.quarterTempo != tempo:
                     tempo = m.quarterTempo
                     parts.append(f"{m.timesig}@{tempo}")
                 else:
                     parts.append(f"{m.timesig}")
             s = ", ".join(parts)
-            if len(self.measuredefs) > maxdefs:
+            if len(self.measures) > maxdefs:
                 s += " …"
             return f"ScoreStruct([{s}])"
 
@@ -2436,42 +2629,50 @@ class ScoreStruct:
     def _repr_html_(self) -> str:
         self._update()
         import emlib.misc
-        colnames = ['Meas. Index', 'Timesig', 'Tempo (quarter note)', 'Label', 'Rehearsal', 'Barline', 'Beats']
+        colnames = ['Meas. Index', 'Timesig', 'Tempo', 'Label', 'Rehearsal', 'Barline', 'Beats']
 
-        if any(m.keySignature is not None for m in self.measuredefs):
+        if any(m.keySignature is not None for m in self.measures):
             colnames.append('Key')
             haskey = True
         else:
             haskey = False
 
         allparts = ['<p><strong>ScoreStruct</strong></p>']
-        tempo = -1
+        tempodef = TempoDef(F0, 0, 0)
         rows = []
-        for i, m in enumerate(self.measuredefs):
+        for i, m in enumerate(self.measures):
             # num, den = m.timesig
-            if m.quarterTempo != tempo:
-                tempo = m.quarterTempo
-                tempostr = ("%.3f" % tempo).rstrip("0").rstrip(".")
+            if (newtempodef := m.tempoDef()) != tempodef:
+                reffigure, numdots = m.temporef
+                refstr = unicodeDuration((reffigure, numdots))
+                tempovaluestr = ("%.3f" % m.tempo).rstrip("0").rstrip(".")
+                tempostr = f"{refstr}={tempovaluestr}"
+                tempodef = newtempodef
             else:
                 tempostr = ""
-            rehearsal = m.rehearsalMark.text if m.rehearsalMark is not None else ''
+            rehearsal = m.mark.text if m.mark is not None else ''
             timesig = m.timesigRepr()
             if m.timesigInherited:
                 timesig = f'({timesig})'
             beatstruct = m.beatStructure()
             parts = []
             for beat in beatstruct:
-                if beat.duration.denominator == 1:
-                    parts.append(str(beat.duration.numerator))
-                else:
-                    parts.append(f"{beat.duration.numerator}/{beat.duration.denominator}")
-            s = "+".join(parts)
-            row = [str(i), timesig, tempostr, m.annotation or "", rehearsal, m.barline, s]
+                fig = unicodeDuration(beat.duration)
+                parts.append(fig)
+                # if beat.duration.denominator == 1:
+                #     parts.append(str(beat.duration.numerator))
+                # else:
+                #     parts.append(f"{beat.duration.numerator}/{beat.duration.denominator}")
+            if all(part==parts[0] for part in parts):
+                beatstruct = f"{len(parts)}×{parts[0]}"
+            else:
+                beatstruct = "+".join(parts)
+            row = [str(i), timesig, tempostr, m.annotation or "", rehearsal, m.barline, beatstruct]
             if haskey:
                 row.append(str(m.keySignature.fifths) if m.keySignature else '-')
             rows.append(row)
         if self.endless:
-            rows.append(("...", "", "", "", "", ""))
+            rows.append(("...",) + ("",) * (len(rows[-1]) - 1))
         rowstyle = 'font-size: small;'
         htmltable = emlib.misc.html_table(rows, colnames, rowstyles=[rowstyle]*len(colnames))
         allparts.append(htmltable)
@@ -2484,7 +2685,7 @@ class ScoreStruct:
         from maelzel.scoring import render
         quantprofile = quant.QuantizationProfile()
         measures = [quant.QuantizedMeasure(timesig=m.timesig, quarterTempo=m.quarterTempo, quantprofile=quantprofile, beats=[])
-                    for m in self.measuredefs]
+                    for m in self.measures]
         part = quant.QuantizedPart(struct=self, measures=measures, quantProfile=quantprofile)
         qscore = quant.QuantizedScore([part], title=self.title, composer=self.composer)
         if not renderoptions:
@@ -2493,45 +2694,47 @@ class ScoreStruct:
             renderoptions.backend = backend
         return render.renderQuantizedScore(qscore, options=renderoptions)
 
-    def setTempo(self, tempo: float, reference=1, measureIndex: int = 0) -> None:
+    def setTempo(self, measureidx: int, tempo: F | int | float, reference: F | tuple[int, int] = (4, 0)) -> None:
         """
         Set the tempo of the given measure, until the next tempo change
 
         Args:
+            measureidx: first measure to modify
             tempo: the new tempo
             reference: the reference duration (1=quarternote, 2=halfnote, 0.5: 8th note, etc)
-            measureIndex: the first measure to modify
 
         """
         if self.readonly:
             raise RuntimeError("This ScoreStruct is read-only")
 
-        if measureIndex > len(self) and not self.endless:
-            raise IndexError(f"Index {measureIndex} out of rage; this ScoreStruct has only "
+        if measureidx > len(self) and not self.endless:
+            raise IndexError(f"Index {measureidx} out of rage; this ScoreStruct has only "
                              f"{len(self)} measures defined")
-        quarterTempo = asF(tempo) / asF(reference)
-        mdef = self.getMeasureDef(measureIndex, extend=True)
-        mdef.quarterTempo = quarterTempo
-        mdef.tempoInherited = False
-        for m in self.measuredefs[measureIndex+1:]:
+        meas = self.measure(measureidx)
+        tempo = asF(tempo)
+        if isinstance(reference, F):
+            reference = durationToFigure(reference)
+        meas._setTempo(tempo=tempo, reference=reference, inherited=False)
+        for m in self.measures[measureidx+1:]:
             if m.tempoInherited:
-                m.quarterTempo = quarterTempo
+                m._setTempo(tempo=tempo, reference=reference, inherited=True)
             else:
                 break
+        self.modified()
 
-    def setTimeSignature(self, measureIndex, timesig: tuple[int, int] | str | TimeSignature
+    def setTimeSignature(self, measureidx, timesig: tuple[int, int] | str | TimeSignature
                          ) -> None:
         if self.readonly:
             raise RuntimeError("This ScoreStruct is read-only")
 
-        if measureIndex > len(self) and not self.endless:
-            raise IndexError(f"Index {measureIndex} out of rage; this ScoreStruct has only "
+        if measureidx > len(self) and not self.endless:
+            raise IndexError(f"Index {measureidx} out of rage; this ScoreStruct has only "
                              f"{len(self)} measures defined")
         timesig = _asTimeSignature(timesig)
-        mdef = self.getMeasureDef(measureIndex, extend=True)
+        mdef = self.measure(measureidx, extend=True)
         mdef.timesig = timesig
         mdef.timesigInherited = False
-        for m in self.measuredefs[measureIndex + 1:]:
+        for m in self.measures[measureidx + 1:]:
             if m.timesigInherited:
                 m.timesig = timesig
             else:
@@ -2561,14 +2764,14 @@ class ScoreStruct:
         self._hash = None
 
     def _fixInheritedAttributes(self):
-        m0 = self.measuredefs[0]
+        m0 = self.measures[0]
         timesig = m0.timesig
         tempo = m0.quarterTempo
-        for m in self.measuredefs[1:]:
+        for m in self.measures[1:]:
             if m.tempoInherited:
-                m._quarterTempo = tempo
+                m._tempo = tempo
             else:
-                tempo = m._quarterTempo
+                tempo = m._tempo
             if m.timesigInherited:
                 m._timesig = timesig
             else:
@@ -2579,8 +2782,8 @@ class ScoreStruct:
         Returns True if this ScoreStruct does not have any time-signature change
         """
         self._update()
-        lastTimesig = self.measuredefs[0].timesig
-        for m in self.measuredefs:
+        lastTimesig = self.measures[0].timesig
+        for m in self.measures:
             if m.timesig != lastTimesig:
                 return False
         return True
@@ -2655,29 +2858,29 @@ class ScoreStruct:
 
         """
         self.endless = False
-        if numMeasures < len(self.measuredefs):
-            self.measuredefs = self.measuredefs[:numMeasures]
+        if numMeasures < len(self.measures):
+            self.measures = self.measures[:numMeasures]
         else:
-            last = self.measuredefs[-1]
+            last = self.measures[-1]
 
             self.addMeasure(timesig=last.timesig,
-                            quarterTempo=last.quarterTempo,
+                            tempo=last.quarterTempo,
                             keySignature=last.keySignature,
-                            numMeasures=numMeasures - len(self.measuredefs))
+                            count=numMeasures - len(self.measures))
 
-    def setBarline(self, measureIndex: int, linetype: str) -> None:
+    def setBarline(self, measureidx: int, linetype: str) -> None:
         """
         Set the right barline type
 
         Args:
-            measureIndex: the measure index to modify
+            measureidx: the measure index to modify
             linetype: one of 'single', 'double', 'final', 'solid', 'dashed'
 
         """
         if self.readonly:
             raise RuntimeError("This ScoreStruct is read-only")
         assert linetype in _barstyles, f"Unknown style '{linetype}', possible styles: {_barstyles}"
-        self.getMeasureDef(measureIndex, extend=True).barline = linetype
+        self.measure(measureidx, extend=True).barline = linetype
 
     def asText(self) -> str:
         """
@@ -2687,7 +2890,7 @@ class ScoreStruct:
             this score as text
         """
         lines = []
-        for i, measuredef in enumerate(self.measuredefs):
+        for i, measuredef in enumerate(self.measures):
             line = measuredef.asScoreLine()
             lines.append(f'{i}, {line}')
         if self.endless:
@@ -2742,7 +2945,7 @@ class ScoreStruct:
             struct = self
         else:
             struct = self.copy()
-            struct.ensureDurationInMeasures(minMeasures)
+            struct.ensureLength(minMeasures)
         score = makeClickTrack(struct,
                                clickdur=clickdur,
                                strongBeatPitch=strongBeatPitch,
@@ -2771,10 +2974,87 @@ def _filledScoreFromStruct(struct: ScoreStruct, pitch='4C') -> maelzel.core.Scor
         midinote = float(pitch)
     else:
         midinote = pitchtools.n2m(pitch)
-    for i, measuredef in enumerate(struct.measuredefs):
+    for i, measuredef in enumerate(struct.measures):
         dur = measuredef.durationQuarters
-        if i == len(struct.measuredefs) - 1:
+        if i == len(struct.measures) - 1:
             events.append(Note(pitch=midinote, offset=now, dur=dur))
         now += dur
     voice = Voice(events)
     return Score([voice], scorestruct=struct)
+
+
+def unicodeDuration(dur: tuple[int, int] | F) -> str:
+    """
+    Returns the given notated duration as a unicode str
+
+    Args:
+        dur: either a duration as a Fraction or a figure as tuple (base: int, dots: int),
+            where base represents the notated figure (4=quarter note, 8=eigth note, etc)
+            and dots is the number of dots
+
+    Returns:
+        the unicode representation
+    """
+    if isinstance(dur, F):
+        base, dots = durationToFigure(dur)
+    else:
+        base, dots = dur
+
+    figures = {
+        1: "𝅝",
+        2: "𝅗𝅥",
+        4: "𝅘𝅥",
+        8: "𝅘𝅥𝅮",
+        16: "𝅘𝅥𝅯",
+        32: "𝅘𝅥𝅰",
+        64: "𝅘𝅥𝅱",
+    }
+    base = figures.get(base)
+    if not base:
+        raise ValueError(f"Invalid figure, expected a power of 2 between 1 and 64, got {base}")
+    return base + '𝅭' * dots
+
+
+def durationToFigure(dur: F, maxdots=5) -> tuple[int, int]:
+    """
+    Convert a duration in quarter notes (as a fraction) to a notated duration
+
+    Args:
+        dur: duration as a fraction
+        maxdots: max. number of dots allowed
+
+    Returns:
+        a tuple (basedur: int, numdots: int) where basedur represents the
+        base duration (4=quarter note, 8=8th note, etc.) and numdots represents
+        the number of dots
+
+
+    .. note::
+
+        A dotted note has duration = base * (2^(dots+1) - 1) / 2^dots
+        Relative to quarter note: (4/base) * (2^(dots+1) - 1) / 2^dots = num/denom
+    """
+    # Simplify: 4 * denom * (2^(dots+1) - 1) = base * num * 2^dots
+
+    # Count trailing zeros in numerator (these become dots)
+    # numerator must be odd times a power of 2 minus that power
+
+    # Try to express as: numerator/denominator = (4/base) * (2^(n+1) - 1) / 2^n
+    # This means: numerator * 2^n = denominator * 4 * (2^(n+1) - 1) / base
+    num, den = dur.numerator, dur.denominator
+
+    for numdots in range(maxdots+1):
+        # (2^(dots+1) - 1) is the pattern for dots
+        dotsFactor = (2 ** (numdots + 1)) - 1
+
+        # Check if numerator * 2^dots / dots_factor gives us an integer
+        if (num * (2 ** numdots)) % dotsFactor == 0:
+            k = (num * (2 ** numdots)) // dotsFactor
+            base = (4 * den) // k
+
+            # Verify and check base is valid
+            if k * base == 4 * den and base in _powersof2:
+                return (base, numdots)
+
+    raise ValueError(f"Cannot represent {num}/{den} as a standard "
+                     f"duration with dots")

@@ -921,7 +921,7 @@ def _parsePart(part: ET.Element, context: _ParseContext, setstruct=True
             keysig = (fifths, modetext)
 
         sco.addMeasure(timesig=timesig,
-                       quarterTempo=quarterTempo,
+                       tempo=quarterTempo,
                        keySignature=keysig,
                        properties=measureProperties)
 
@@ -954,7 +954,7 @@ def _parsePart(part: ET.Element, context: _ParseContext, setstruct=True
                         box = direction.getProperty('enclosure', '')  # or 'square'
                         box = scoring.definitions.normalizeEnclosure(box)
                         if cursorWithinMeasure == 0:
-                            sco.addRehearsalMark(measureidx, direction.value, box=box)
+                            sco.addMark(measureidx, direction.value, box=box)
                         else:
                             # A rehearsal mark in the middle of the measure?? This
                             # can be added as a text annotation
@@ -982,7 +982,7 @@ def _parsePart(part: ET.Element, context: _ParseContext, setstruct=True
                         logger.warning(f"Bartyle {barstylenode.text} unknown")
                         barstyle2 = 'single'
                     if location == 'right':
-                        mdef = sco.getMeasureDef(measureidx)
+                        mdef = sco.measure(measureidx)
                         mdef.barline = barstyle2
 
         # end items measure
@@ -1003,7 +1003,7 @@ def _parsePart(part: ET.Element, context: _ParseContext, setstruct=True
         measureCursor += measureDur
 
     if len(sco) == 0:
-        sco.addMeasure((4, 4), quarterTempo=60)
+        sco.addMeasure((4, 4), tempo=60)
 
     activeVoices = {voicenum: Voice(_joinChords(notes))
                     for voicenum, notes in voices.items() if notes}
