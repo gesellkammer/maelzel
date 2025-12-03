@@ -28,7 +28,8 @@ def _clearCache() -> None:
 __all__ = (
     'Workspace',
     'getWorkspace',
-    'logger'
+    'logger',
+    'ws'
 )
 
 
@@ -212,16 +213,12 @@ class Workspace:
 
     @scorestruct.setter
     def scorestruct(self, s: ScoreStruct | str):
-        struct = ScoreStruct(s) if isinstance(s, str) else s
-        if struct.beatWeightTempoThresh is None:
-            struct.beatWeightTempoThresh = self.config['quant.beatWeightTempoThresh']
-        if struct.subdivTempoThresh is None:
-            struct.subdivTempoThresh = self.config['quant.subdivTempoThresh']
-        self._scorestruct = struct
-        self.clearCache()
+        self.setScoreStruct(s)
 
-    def setScoreStruct(self, score: str | ScoreStruct | tuple[int, int] = (4, 4),
-                       tempo: F | int | float = 60) -> None:
+    def setScoreStruct(self,
+                       score: str | ScoreStruct | tuple[int, int] = (4, 4),
+                       tempo: F | int | float = 60
+                       ) -> None:
         """
         Sets the score structure for the current Workspace
 
@@ -260,9 +257,15 @@ class Workspace:
             ... ''')
         """
         if isinstance(score, ScoreStruct):
-            self.scorestruct = score
+            self._scorestruct = score
         else:
-            self.scorestruct = ScoreStruct(score=score, tempo=tempo)
+            config = self.config
+            struct = ScoreStruct(score,
+                                 tempo=tempo,
+                                 breakTempo=config['quant.beatWeightTempoThresh'],
+                                 subdivTempo=config['quant.subdivTempoThresh'])
+            self._scorestruct = struct
+        self.clearCache()
 
     @property
     def a4(self) -> float:
@@ -375,7 +378,6 @@ class Workspace:
         """
         The path where temporary recordings are saved
 
-
         We do not use the temporary folder because it is wiped regularly
         and the user might want to access a recording after rebooting.
         The returned folder is guaranteed to exist
@@ -421,15 +423,18 @@ class Workspace:
     def amp2dyn(self, amp: float) -> str:
         return self.dynamicCurve.amp2dyn(amp)
 
-    def setTempo(self, tempo: float, reference=1, measureIndex=0) -> None:
+    def setTempo(self,
+                 tempo: float,
+                 reference: tuple[int, int] | F | float = (4, 0),
+                 measure=0) -> None:
         """
         Set the current tempo for the active scorestruct
 
         Args:
             tempo: the new tempo.
             reference: the reference value (1=quarternote, 2=halfnote, 0.5: 8th note)
-            measureIndex: the measure number to modify. The scorestruct's tempo is modified
-                until the next tempo
+            measure: the measure index  to modify. The scorestruct's tempo is modified
+                until the next tempo. Measures start at 0
 
         See Also
         ~~~~~~~~
@@ -474,7 +479,7 @@ class Workspace:
             2, 5/8, 132
 
         """
-        self.scorestruct.setTempo(tempo, reference=reference, measureIndex=measureIndex)
+        self.scorestruct.setTempo(measureidx=measure, tempo=tempo, reference=reference)
 
     def audioSession(self,
                      outdev='',
@@ -672,22 +677,34 @@ def getWorkspace() -> Workspace:
     """
     Get the active workspace
 
-    The active Workspace can be accessed via ``Workspace.active``. This function
-    is simply a shortcut, placed here for visibility
+    The active Workspace can also be accessed via ``Workspace.active``
+    (a class variable)
     
     Example
     ~~~~~~~
 
-    Create a new Workspace based on the active Workspace and activate it
+    Modify the currect scorestructure
 
         >>> from maelzel.core import *
-        >>> w = getWorkspace().clone(active=True)
+        >>> w = getWorkspace()
+        >>> w.scorestruct = '''3/4, 4=72'''
 
     The active workspace can always be accessed directly:
 
         >>> w = Workspace.active
         >>> w is getWorkspace()
         True
+
+    This function is so often needed that there is a shorthand: ``ws``
+
+        >>> w = ws()
+        >>> w is Workspace.active
+        True
+
+    Create a clone of the current workspace and set it as active:
+
+        >>> w = getWorkspace().clone(active=True)
+        >>> w.config = CoreConfig(...)
 
     """
     assert Workspace.active is not None
@@ -711,3 +728,4 @@ def _presetsPath() -> str:
 
 
 Workspace._initclass()
+ws = getWorkspace

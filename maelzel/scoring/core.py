@@ -30,7 +30,7 @@ __all__ = (
     'resolveOffsets',
     'packInParts',
     'removeSmallOverlaps',
-    'distributeNotationsByClef',
+    'distributeByClef',
 )
 
 
@@ -259,7 +259,7 @@ class UnquantizedPart:
         """
         Distribute the notations in this Part into multiple parts, based on pitch
         """
-        return distributeNotationsByClef(self.notations, groupid=self.groupid, maxStaves=maxStaves)
+        return distributeByClef(self.notations, groupid=self.groupid, maxStaves=maxStaves)
 
     def needsMultipleClefs(self) -> bool:
         """
@@ -354,6 +354,12 @@ class UnquantizedScore:
             print(f"Part #{i}")
             part.dump(indents=1, file=file)
 
+    def __repr__(self):
+        parts = [f"parts={self.parts}"]
+        if self.title:
+            parts.append(f"title={self.title}")
+        return f"UnquantizedScore({', '.join(parts)}"
+
 
 def _repairGracenoteAsTargetGliss(notations: list[Notation]) -> bool:
     """
@@ -371,7 +377,7 @@ def _repairGracenoteAsTargetGliss(notations: list[Notation]) -> bool:
         if skip:
             skip = False
             continue
-        if n0.gliss and n1.isGracenote and n1.pitches == n2.pitches:
+        if n0.gliss and n1.isGracenote and all (p in n2.pitches for p in n1.pitches):
             # check if the gracenote is empty
             if not n1.hasAttributes():
                 toBeRemoved.append(n1)
@@ -528,13 +534,15 @@ def _groupById(notations: list[Notation]) -> list[Notation | list[Notation]]:
     return out
 
 
-def distributeNotationsByClef(notations: list[Notation],
-                              maxStaves: int,
-                              minStaves=1,
-                              groupid: str = '',
-                              name='',
-                              abbrev='',
-                              ) -> list[UnquantizedPart]:
+def distributeByClef(notations: list[Notation],
+                     maxStaves: int,
+                     minStaves=1,
+                     groupid: str = '',
+                     name='',
+                     abbrev='',
+                     singleStaffRange=12,
+                     staffPenalty=1.2
+                     ) -> list[UnquantizedPart]:
     """
     Distribute the given notations amongst parts with different clefs
 
@@ -544,12 +552,18 @@ def distributeNotationsByClef(notations: list[Notation],
         groupid: a groupid to use for all created parts
         name: a name to use for the resulting group
         abbrev: an abbreviation for the name of the group
+        singleStaffRange: if notations fit within this range only one staff
+            is used.
 
     Returns:
         a list of UnquantizedParts, sorted from low to high
     """
     from . import clefutils
-    partpairs = clefutils.explodeNotations(notations, maxStaves=maxStaves, minStaves=minStaves)
+    partpairs = clefutils.explodeNotations(notations,
+                                           maxStaves=maxStaves,
+                                           minStaves=minStaves,
+                                           singleStaffRange=singleStaffRange,
+                                           staffPenalty=staffPenalty)
     # parts are sorted from low to high
     parts = [UnquantizedPart(notations, firstClef=clef) for clef, notations in partpairs]
     if len(parts) > 1:

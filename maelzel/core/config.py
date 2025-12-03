@@ -451,7 +451,7 @@ class CoreConfig(ConfigDict):
         """
         super().reset()
         from maelzel.core.presetmanager import presetManager
-        if '.piano' in presetManager.presetdefs:
+        if '.piano' in presetManager.presets:
             self['play.instr'] = '.piano'
 
         if removesaved:

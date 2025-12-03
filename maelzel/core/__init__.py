@@ -1,6 +1,6 @@
 # API
 from .config import CoreConfig
-from .workspace import Workspace, getWorkspace
+from .workspace import Workspace, getWorkspace, ws
 from .event import Note, Chord, Rest
 from .chain import Chain, Voice
 from .clip import Clip
@@ -37,7 +37,8 @@ __all__ = [
     'ScoreStruct',
     'F',
     'logger',
-    'symbols'
+    'symbols',
+    'ws'
 ]
 
 
@@ -49,7 +50,7 @@ def _onFirstRun():
 
     print("*** maelzel.core: first run")
     from maelzel.core.presetmanager import presetManager
-    if '.piano' in presetManager.presetdefs:
+    if '.piano' in presetManager.presets:
         print("*** maelzel.core: found builtin piano soundfont; setting default instrument to '.piano'")
         rootconfig = CoreConfig.root()
         rootconfig['play.instr'] = '.piano'

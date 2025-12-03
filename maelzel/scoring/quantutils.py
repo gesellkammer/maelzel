@@ -351,33 +351,6 @@ def applyDurationRatio(notations: list[Notation],
             raise RuntimeError(f"Failed to apply durations, len mismatch, {numNotations=} != {len(notations)=}, {beatOffset=}, {beatDur=}")
 
 
-# def beatToTree(notations: list[Notation], division: int | division_t,
-#                beatOffset: F, beatDur: F
-#                ) -> _node.Node:
-#     if isinstance(division, tuple) and len(division) == 1:
-#         division = division[0]
-#
-#     if isinstance(division, int):
-#         durRatio = quantdata.durationRatios[division]
-#         return _node.Node(notations, ratio=durRatio)  # type: ignore
-#
-#     # assert isinstance(division, tuple) and len(division) >= 2
-#     numSubBeats = len(division)
-#     now = beatOffset
-#     dt = beatDur/numSubBeats
-#     durRatio = quantdata.durationRatios[numSubBeats]
-#     items = []
-#     for subdiv in division:
-#         subdivEnd = now + dt
-#         subdivNotations = [n for n in notations if now <= n.qoffset < subdivEnd and n.end <= subdivEnd]
-#         if subdiv == 1:
-#             items.extend(subdivNotations)
-#         else:
-#             items.append(beatToTree(notations=subdivNotations, division=subdiv, beatOffset=now, beatDur=dt))
-#         now += dt
-#     return _node.Node(items, ratio=durRatio)
-
-
 def breakNotationsByBeat(notations: list[Notation],
                          beatOffsets: _t.Sequence[F]
                          ) -> list[tuple[F, F, list[Notation]]]:
@@ -396,8 +369,8 @@ def breakNotationsByBeat(notations: list[Notation],
 
     """
     assert all (not ev.durRatios for ev in notations), f"{notations=}, {[n.durRatios for n in notations]}"
-    assert beatOffsets[0] == notations[0].offset
-    assert beatOffsets[-1] == notations[-1].end
+    assert beatOffsets[0] == notations[0].offset, f"{beatOffsets=}, {notations=}"
+    assert beatOffsets[-1] == notations[-1].end, f"{beatOffsets=}, {notations=}, {beatOffsets[-1]=}, {notations[-1].end=}"
 
     timespans = [(beat0, beat1) for beat0, beat1 in pairwise(beatOffsets)]
     splitEvents = []

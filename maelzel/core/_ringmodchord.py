@@ -26,7 +26,7 @@ class RingmodChord(Chord):
         if not self.gliss:
             rmpairs2 = rmpairs1
         else:
-            endpitches = self.pitches if not self.gliss else self.resolveGliss()
+            endpitches = self.pitches if not self.gliss else self.glissTargetPitches()
             rmpairs2 = combtones.ringmodWithAmps(endpitches, amps, merge='sum')
             assert len(rmpairs1) == len(rmpairs2)
         if conf['chordAdjustGain']:
@@ -57,7 +57,7 @@ class RingmodChord(Chord):
         notes = [Note(pitch, amp=amp) for pitch, amp in pairs]
         if not self.gliss:
             return Chord(notes=notes, dur=self.dur)
-        gliss = self.resolveGliss()
+        gliss = self.glissTargetPitches()
         glisspitches = combtones.ringmod(gliss)
         return Chord(notes, dur=self.dur, gliss=glisspitches)
 

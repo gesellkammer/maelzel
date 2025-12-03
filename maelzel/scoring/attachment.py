@@ -8,9 +8,10 @@ from maelzel.common import F, F0
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import Callable
+    from typing import Callable, Sequence
     from typing_extensions import Self
     import maelzel.scoring.quant as quant
+    from maelzel.scoring.core import Notation
 
 
 class Attachment:
@@ -63,16 +64,51 @@ class Attachment:
     def __repr__(self):
         return _util.reprObj(self, hideFalsy=True)
 
+    def validate(self, parent: Notation) -> None:
+        """
+        Validate this attachment can be attached to the parent
+
+        Args:
+            parent: the parent of this attachment
+
+        """
+        pass
+
 
 class GlissProperties(Attachment):
     copyToSplitNotation = True
     linetypes = ('solid', 'zigzag', 'dotted', 'dashed', 'trill')
 
-    def __init__(self, linetype='solid', color=''):
+    def __init__(self, linetype='solid', color='', index=-1):
         super().__init__(color=color)
         _util.checkChoice('linetype', linetype, GlissProperties.linetypes)
         self.linetype = linetype
         """The line type, one of 'solid', 'wavy', 'dotted', 'dashed'"""
+
+        self.index: int = index
+        """The pitch index to which this applies, -1 indicates all pitches"""
+
+    def validate(self, parent: Notation) -> None:
+        if not parent.gliss:
+            raise ValueError(f'Parent {parent} has no glissando, cannot add a gliss. map')
+
+
+class GlissMap(Attachment):
+    """
+    Maps glissandi from one chord to the next
+
+    Args:
+        pairs: a seq. of tuples (sourcepitch: float, destpitch: float)
+    """
+    copyToSplitNotation = False
+
+    def __init__(self, pairs: Sequence[tuple[float, float]] = ()):
+        super().__init__()
+        self.pairs = pairs
+
+    def validate(self, parent: Notation) -> None:
+        if not parent.gliss:
+            raise ValueError( f'Parent {parent} has no glissando, cannot add a gliss. map')
 
 
 class Color(Attachment):

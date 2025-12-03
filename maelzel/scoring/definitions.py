@@ -351,6 +351,9 @@ class Notehead:
             if self.shape[-1] == '?':
                 self.shape = self.shape[:-1]
                 self.parenthesis = True
+            elif self.shape[0] == "(" and self.shape[-1] == ")":
+                self.shape = self.shape[1:-1]
+                self.parenthesis = True
             if self.shape == 'hidden':
                 self.shape = ''
                 self.hidden = True
@@ -392,13 +395,13 @@ class Notehead:
         return ';'.join(parts)
 
     @staticmethod
-    def parseDescription(descr: str):
+    def parse(descr: str) -> Notehead:
         parts = descr.split(';')
         shape = ''
         color = ''
         size = None
         parenthesis = False
-        for part in parts:
+        for i, part in enumerate(parts):
             if '=' in part:
                 key, value = part.split('=')
                 if key == 'color':
@@ -409,9 +412,14 @@ class Notehead:
                         size = int(size)
                 else:
                     raise ValueError(f"Key not known {key}")
-            else:
+            elif i == 0:
                 shape = part
                 if shape[-1] == '?':
                     shape = shape[:-1]
                     parenthesis = True
+                elif shape[0] == "(" and shape[-1] == ")":
+                    shape = shape[1:-1]
+                    parenthesis = True
+            else:
+                raise ValueError(f"Could not parse notehead definition from '{descr}'")
         return Notehead(shape=shape, color=color, size=size, parenthesis=parenthesis)

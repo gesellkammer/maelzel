@@ -141,12 +141,17 @@ class PresetManager:
     def __init__(self):
         if self._instance is not None:
             raise RuntimeError("Only one PresetManager should be active")
-        self.presetdefs: dict[str, _presetdef.PresetDef] = {}
+        self.presets: dict[str, _presetdef.PresetDef] = {}
         self.presetsPath = Workspace.presetsPath()
         self._prepareEnvironment()
         self._makeBuiltinPresets()
         self.loadPresets()
         self._instance = self
+
+    def __repr__(self):
+        presets = [p for p in self.presets if not p.startswith("_")]
+        presets.sort()
+        return f"PresetManager(presets={presets})"
 
     @staticmethod
     def instance():
@@ -421,7 +426,7 @@ class PresetManager:
 
         :func:`defPreset`
         """
-        if name in self.presetdefs:
+        if name in self.presets:
             logger.info("PresetDef '%s' already exists, overwriting", name)
 
         if path == "?":
@@ -518,7 +523,7 @@ class PresetManager:
             presetdef: the PresetDef to register
 
         """
-        self.presetdefs[presetdef.name] = presetdef
+        self.presets[presetdef.name] = presetdef
 
     def getPreset(self, name: str = '?') -> _presetdef.PresetDef:
         """
@@ -537,7 +542,7 @@ class PresetManager:
             name = Workspace.active.config['play.instr']
         elif name == "?":
             # Presets starting with _ are private, presets starting with . are builtin
-            presets = [name for name in self.presetdefs.keys()
+            presets = [name for name in self.presets.keys()
                        if not name.startswith('_')]
             from . import _dialogs
             selected = _dialogs.selectFromList(options=presets,
@@ -546,7 +551,7 @@ class PresetManager:
             if selected is None:
                 raise ValueError("No preset selected")
             name = selected
-        preset = self.presetdefs.get(name)
+        preset = self.presets.get(name)
         if not preset:
             raise KeyError(f"Preset '{name}' not known. Available presets: {self.definedPresets()}")
         return preset
@@ -562,7 +567,7 @@ class PresetManager:
             the actual :class:`csoundengine.instr.Instr`
 
         """
-        return self.presetdefs[presetname].getInstr()
+        return self.presets[presetname].getInstr()
 
     def definedPresets(self) -> list[str]:
         """Returns a list with the names of all defined presets
@@ -590,7 +595,7 @@ class PresetManager:
             :func:`~maelzel.core.presetman.showPresets`. You can also access all
             presets via :attr:`PresetManager.presetdefs`
         """
-        return list(k for k in self.presetdefs.keys() if not k.startswith('_'))
+        return list(k for k in self.presets.keys() if not k.startswith('_'))
 
     def showPresets(self, pattern="*", full=False, generatedCode=False, hidden=False
                     ) -> None:
@@ -632,11 +637,10 @@ class PresetManager:
 
         """
         import fnmatch
-        matchingPresets = [p for name, p in self.presetdefs.items()
+        matchingPresets = [p for name, p in self.presets.items()
                            if fnmatch.fnmatch(name, pattern) and not p.hidden]
         if hidden:
-            matchingPresets.extend(p for p in self.presetdefs.values() if p.hidden)
-            # matchingPresets = [p for p in matchingPresets if not p.hidden]
+            matchingPresets.extend(p for p in self.presets.values() if p.hidden)
 
         def key(p: _presetdef.PresetDef):
             return 1 - int(p.userDefined), 1 - int(p.isSoundFont()), p.name
@@ -645,15 +649,18 @@ class PresetManager:
 
         if generatedCode:
             full = True
+
         if not environment.insideJupyter:
+            import csoundengine.csoundparse
             for preset in matchingPresets:
                 print("")
                 if not generatedCode:
-                    print(preset)
+                    text = preset._repr_ansy(color=True)
                 else:
                     instr = preset.getInstr()
-                    import csoundengine.session
-                    print(csoundengine.session.Session.defaultInstrBody(instr))
+                    body = instr.generateBody()
+                    text = csoundengine.csoundparse.highlightCsoundOrc(body, format="ansi")
+                print(text)
         else:
             theme = Workspace.active.config['htmlTheme']
             htmls = []
@@ -712,7 +719,7 @@ class PresetManager:
         """
         Saves all presets matching the pattern. Builtin presets are never saved
         """
-        for name, instrdef in self.presetdefs.items():
+        for name, instrdef in self.presets.items():
             if instrdef.userDefined and fnmatch.fnmatch(name, pattern):
                 self.savePreset(name)
 
@@ -729,10 +736,10 @@ class PresetManager:
         fmt = "yaml"
         if isinstance(preset, _presetdef.PresetDef):
             presetdef = preset
-            if presetdef.name not in self.presetdefs:
+            if presetdef.name not in self.presets:
                 self.registerPreset(presetdef)
             else:
-                if presetdef is not self.presetdefs[presetdef.name]:
+                if presetdef is not self.presets[presetdef.name]:
                     logger.info("Updating preset %s", presetdef.name)
                     self.registerPreset(presetdef)
         else:

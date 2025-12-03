@@ -9,7 +9,7 @@ from itertools import pairwise
 from emlib import mathlib
 
 from maelzel.common import UNSET, UnsetType, F, F0, asF, asmidi
-from maelzel._util import showF, showT, hasoverlap
+from maelzel._util import showF, showT, hasOverlap
 from .common import (logger, NotatedDuration)
 from . import attachment as att
 from . import util
@@ -70,7 +70,7 @@ class Notation:
         '.snappedGracenote',   # Is this a note which has been snapped to 0 duration?
         '.originalDuration',    # For snapped notes, it is useful to keep track of the original duration
         '.forwardTies',
-        '.backwardTies'
+        '.backwardTies',
     }
 
     __slots__ = ("duration",
@@ -173,6 +173,9 @@ class Notation:
 
         self.gliss: bool = gliss
         "Is this Notation part of a glissando?"
+        # Complex gliss. mappings, where some pitches of a notation have a
+        # specific gliss target while others might not have a gliss. at all
+        # need to be set via an attachment.GlissMap
 
         self.noteheads: dict[int, definitions.Notehead] | None = None
         "A dict mapping pitch index to notehead definition"
@@ -479,6 +482,8 @@ class Notation:
                 logger.warning(f"Attachment {attachment} already present in this notation ({self})")
                 return self
 
+        attachment.validate(self)
+
         if attachment.anchor is not None:
             assert 0 <= attachment.anchor < len(self.pitches)
         if pitchanchor is not None:
@@ -509,7 +514,11 @@ class Notation:
         Args:
             notehead: a Notehead or the notehead shape, as string (one of 'normal',
                 'hidden', 'cross', 'harmonic', 'rhombus', 'square', etc.). See
-                maelzel.scoring.definitions.noteheadShapes for a complete list
+                maelzel.scoring.definitions.noteheadShapes for a complete list. The
+                notehead string can also include other modifiers, like parenthesis
+                "()" or "(square)", which can also be given as a question mark "square?"
+                or "?" to leave the shape unmodified.
+                See :meth:`maelzel.scoring.definitions.Notehead.parse`
             index: the index, corresponding to the pitch at the same index,
                 or None to set all noteheads
             merge: if True and there is already a Notehead set for the given index,
@@ -521,7 +530,7 @@ class Notation:
             self.noteheads = {}
 
         if isinstance(notehead, str):
-            notehead = definitions.Notehead(shape=notehead)
+            notehead = definitions.Notehead.parse(notehead)
 
         if index is not None:
             if not(0 <= index < len(self.pitches)):
@@ -599,17 +608,12 @@ class Notation:
             self.attachments[:] = [a for a in self.attachments
                                    if not(predicate(a))]
 
-    def removeAttachmentsByClass(self, cls: str | type) -> None:
+    def removeAttachmentsByClass(self, cls: type) -> None:
         """Remove attachments which match the given class"""
         if not self.attachments:
             return
-        if isinstance(cls, str):
-            cls = cls.lower()
-            self.attachments[:] = [a for a in self.attachments
-                                   if not(type(a).__name__.lower() == cls)]
-        else:
-            self.attachments[:] = [a for a in self.attachments
-                                   if not(isinstance(a, cls))]
+        self.attachments[:] = [a for a in self.attachments
+                               if not(isinstance(a, cls))]
 
     def hasSpanner(self, uuid: str, kind='') -> bool:
         """Returns true if a spanner with the given uuid is found"""
@@ -721,7 +725,6 @@ class Notation:
         assert self.spanners and spanner in self.spanners
         assert other is not self, f"Cannot transfer a spanner to self ({self=}, {spanner=}"
 
-        print(f"transferring spanner {spanner} form {self} to {other}")
         other.addSpanner(spanner)
         self.spanners.remove(spanner)
         return True
@@ -757,7 +760,7 @@ class Notation:
         Checks the integrity of self
 
         Args:
-            fix: if True, attempts to fix the probelms found, if possible
+            fix: if True, attempts to fix the problems found, if possible
 
         Returns:
             a list of error messages
@@ -1212,7 +1215,7 @@ class Notation:
         for subn in subns:
             # find the subdivision
             for timespan, numslots in subdivisions:
-                if hasoverlap(timespan[0], timespan[1], subn.qoffset, subn.end):
+                if hasOverlap(timespan[0], timespan[1], subn.qoffset, subn.end):
                     if self.duration == 0 or (self.isQuantized() and self.hasRegularDuration()):
                         allparts.append(self)
                     else:
@@ -1304,7 +1307,8 @@ class Notation:
     def tieNotations(notations: list[Notation]) -> None:
         _tieNotations(notations)
 
-    def splitAtOffset(self, offset: F, tie=True, nomerge=False) -> tuple[Notation, Notation]:
+    def splitAtOffset(self, offset: F, tie=True, nomerge=False
+                      ) -> tuple[Notation, Notation]:
         """
         Split this notations at the given offset
 
@@ -1432,7 +1436,8 @@ class Notation:
         self._symbolicDuration = dur = self.duration * self.fusedDurRatio()
         return dur
 
-    def setPitches(self, pitches: Sequence[float | str], fixNotenames=False) -> None:
+    def setPitches(self, pitches: Sequence[float | str], fixNotenames=False
+                   ) -> None:
         """
         Set the pitches of this notation, in place
 
@@ -1457,6 +1462,12 @@ class Notation:
                 if isinstance(pitch, str) and pitch[-1] == '!':
                     self.fixNotename(pitch[:-1], index=i)
 
+    def index(self, pitch: float, tolerance=0.) -> int | None:
+        if not tolerance:
+            return next((i for i, p in enumerate(self.pitches) if p == pitch), None)
+        else:
+            return next((i for i, p in enumerate(self.pitches) if abs(p - pitch) <= tolerance), None)
+
     def notename(self, index=0, addExplicitMark=False) -> str:
         """
         Returns the notename corresponding to the given pitch index
@@ -1478,30 +1489,6 @@ class Notation:
         if fixed := self.fixedNotename(index):
             return fixed if not addExplicitMark else fixed + '!'
         return pt.m2n(self.pitches[index])
-
-    def pitchclassIndex(self, semitoneDivs=2, index=0) -> int:
-        """
-        The index of the nearest pitch/microtone
-
-        Args:
-            semitoneDivs: the number of divisions per semitone (1=chromatic, 2=quartertones, ...)
-            index: the index of the pitch within this Notation
-
-        For example, if divs_per_semitone is 2, then
-
-        ====   ================
-        note   microtone index
-        ====   ================
-        4C     0
-        5C     0
-        4C+    1
-        4C#    2
-        4Db    2
-        …      …
-        ====   ================
-        """
-        notename = self.notename(index=index)
-        return pt.pitchclass(notename, semitone_divisions=semitoneDivs)
 
     def resolveNotenames(self,
                          keepFixedAnnotation=False,
@@ -1729,7 +1716,8 @@ class Notation:
             return 'r'
         notenames = self.resolveNotenames(keepFixedAnnotation=True)
         if len(self.pitches) > 1:
-            s = "[" + " ".join(notenames) + "]"
+            s = ",".join(notenames)
+            # s = "[" + " ".join(notenames) + "]"
         else:
             s = notenames[0]
         if self.tiedPrev:
@@ -1744,20 +1732,15 @@ class Notation:
             s += ":gliss"
         return s
 
-    def _repr(self, offset=True):
-        info = [self._namerepr()]
-        if offset:
+    def _repr(self, offset=True) -> str:
+        durstr =  util.durRepr(self.duration)
+        info = [f"{self._namerepr()}:{durstr}"]
+        if offset and self.offset:
             if self.duration == 0:
                 info.append(showT(self.offset))
             else:
                 info.append(f"{showT(self.offset)}:{showT(self.end)}")
-        if self.duration == 0:
-            info.append("𝆔")
-        elif int(self.duration) == self.duration or self.duration.denominator >= 100:
-            info.append(showT(self.duration) + '♩')
-        else:
-            info.append(f"{self.duration.numerator}/{self.duration.denominator}♩")
-        
+
         if self.durRatios and self.durRatios != (F(1),):
             info.append(",".join(showF(r) for r in self.durRatios))
 
@@ -1779,7 +1762,7 @@ class Notation:
 
 
     def __repr__(self):
-        offset = not self.isQuantized()
+        offset = not self.isQuantized() and not self.isGracenote
         return self._repr(offset=offset)
 
     def copyAttributesTo(self: Notation, dest: Notation, spelling=True) -> None:
@@ -2336,7 +2319,7 @@ def _breakIrregularDurationInBeat(n: Notation,
     for subn in subns:
         # find the subdivision
         for timespan, numslots in subdivisions:
-            if hasoverlap(timespan[0], timespan[1], subn.qoffset, subn.end):
+            if hasOverlap(timespan[0], timespan[1], subn.qoffset, subn.end):
                 if n.duration == 0 or (n.isQuantized() and n.hasRegularDuration()):
                     allparts.append(n)
                 else:

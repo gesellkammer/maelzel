@@ -820,11 +820,28 @@ def renderNode(node: Node,
                 if lilytext := _handleSpannerPre(spanner, state=state):
                     w.add(lilytext)
 
+        if item.gliss:
+            if glissmap := item.findAttachment(attachment.GlissMap):
+                if (nextev := node.nextNotation(item)) is not None:
+                    sourceindexes = [item.index(pair[0]) for pair in glissmap.pairs]
+                    destindexes = [nextev.index(pair[1]) for pair in glissmap.pairs]
+                    if (any(idx is None for idx in sourceindexes) or
+                            any(idx is None for idx in destindexes)):
+                        logger.warning(f"Invalid pitches in gliss mapping: {glissmap.pairs}, {item=}, {nextev=}")
+                    else:
+                        pairstrs = [f"({source} . {dest})"
+                                    for source, dest in zip(sourceindexes, destindexes)]
+                        pairstr = " ".join(pairstrs)
+                        w.line(rf"\once \set glissandoMap = #'({pairstr})")
+
+        # <<<<<<<<<<<<<< The pitches of the event >>>>>>>>>>>>>>
         w.add(notationToLily(item, options=options, state=state))
 
+        # <<<<<<<<<<<<<< Post pitch >>>>>>>>>>>>>>
         if item.gliss:
             if not state.glissando:
                 if props := item.findAttachment(attachment.GlissProperties):
+                    # TODO: implement GlissProperties.index
                     assert isinstance(props, attachment.GlissProperties)
                     if props.linetype != 'solid':
                         w.line(rf"\tweak Glissando.style #'{_linetypeToLily[props.linetype]}")
@@ -989,21 +1006,21 @@ def renderPart(part: quant.QuantizedPart,
 
         w.line(f"% measure {i+1}")
         w.indents += 1
-        measureDef = scorestruct.measure(i)
-        if i > 0 and measureDef.timesig != timesig:
-            addTimeSignature(w, measuredef=measureDef, options=options)
-            timesig = measureDef.timesig
+        measuredef = scorestruct.measure(i)
+        if i > 0 and measuredef.timesig != timesig:
+            addTimeSignature(w, measuredef=measuredef, options=options)
+            timesig = measuredef.timesig
 
         if addTempoMarks and measure.quarterTempo != quarterTempo:
             quarterTempo = measure.quarterTempo
-            refvalue, numdots = measureDef.tempoRefFigure
+            refvalue, numdots = measuredef.tempoRef
             reflily = str(refvalue) + "." * numdots
-            reftempo = measureDef.referenceTempo()
+            reftempo = measuredef.tempo
             w.line(fr"\tempo {reflily} = {int(reftempo)}")
 
-        if measureDef.keySignature:
-            w.line(lilytools.keySignature(fifths=measureDef.keySignature.fifths,
-                                          mode=measureDef.keySignature.mode))
+        if measuredef.key:
+            w.line(lilytools.keySignature(fifths=measuredef.key.fifths,
+                                          mode=measuredef.key.mode))
 
         if i == 0 and partGracenotes < startGracenotes:
             s = "s8 " * (startGracenotes - partGracenotes)
@@ -1011,18 +1028,18 @@ def renderPart(part: quant.QuantizedPart,
 
 
         if addMeasureMarks:
-            if measureDef.annotation:
+            if measuredef.annotation:
                 style = options.parsedmeasureLabelStyle
                 relfontsize = style.fontsize - options.staffSize if style.fontsize else 0
-                w.line(lilytools.makeTextMark(measureDef.annotation,
+                w.line(lilytools.makeTextMark(measuredef.annotation,
                                               fontsize=relfontsize,
                                               fontrelative=True,
                                               box=style.box))
-            if measureDef.rehearsalMark and measureDef.rehearsalMark.text:
+            if measuredef.mark and measuredef.mark.text:
                 style = options.parsedRehearsalMarkStyle
                 relfontsize = style.fontsize - options.staffSize if style.fontsize else 0
-                box = measureDef.rehearsalMark.box or style.box
-                w.line(lilytools.makeTextMark(measureDef.rehearsalMark.text,
+                box = measuredef.mark.box or style.box
+                w.line(lilytools.makeTextMark(measuredef.mark.text,
                                               fontsize=relfontsize, fontrelative=True,
                                               box=box))
 
@@ -1045,12 +1062,12 @@ def renderPart(part: quant.QuantizedPart,
             w.line(lilytext)
         w.indents -= 1
 
-        if not measureDef.barline or measureDef.barline == 'single':
+        if not measuredef.barline or measuredef.barline == 'single':
             w.line(f"|   % end measure {i+1}")
         else:
-            barstyle = _lilyBarlines.get(measureDef.barline)
+            barstyle = _lilyBarlines.get(measuredef.barline)
             if barstyle is None:
-                logger.error(f"Barstile '{measureDef.barline}' unknown. "
+                logger.error(f"Barstile '{measuredef.barline}' unknown. "
                              f"Supported styles: {_lilyBarlines.keys()}")
                 barstyle = '|'
             w.line(rf'\bar "{barstyle}"    |  % end measure {i+1}')

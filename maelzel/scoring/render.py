@@ -19,7 +19,6 @@ if TYPE_CHECKING:
 
 __all__ = (
     'renderQuantizedScore',
-    'quantizeAndRender',
     'render',
     'renderMusicxml',
     'Renderer',
@@ -98,11 +97,11 @@ def _groupNotationsByMeasure(part: core.UnquantizedPart,
     return groups
 
 
-def quantizeAndRender(parts: list[core.UnquantizedPart],
-                      struct: ScoreStruct,
-                      options: RenderOptions,
-                      quantizationProfile: quant.QuantizationProfile,
-                      ) -> Renderer:
+def _quantizeAndRender(parts: list[core.UnquantizedPart],
+                       struct: ScoreStruct,
+                       options: RenderOptions,
+                       quantizationProfile: quant.QuantizationProfile,
+                       ) -> Renderer:
     """
     Quantize and render unquantized events organized into parts
 
@@ -185,10 +184,10 @@ def render(obj: core.UnquantizedPart | core.Notation | list[core.UnquantizedPart
         from maelzel.scoring.quantprofile import QuantizationProfile
         quantizationProfile = QuantizationProfile.fromPreset(quantizationProfile)
         
-    return quantizeAndRender(parts, 
-                             struct=struct, 
-                             options=options,
-                             quantizationProfile=quantizationProfile)
+    return _quantizeAndRender(parts,
+                              struct=struct,
+                              options=options,
+                              quantizationProfile=quantizationProfile)
 
 
 def renderMusicxml(xmlfile: str, outfile: str, method='musescore', crop: bool | None = None,

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from ._common import logger
 from maelzel.common import F
-from maelzel._util import hasoverlap
+from maelzel._util import hasOverlap, showT, showFlt
 from maelzel.core import automation as _automation
 from maelzel.core import presetmanager
 import functools
@@ -898,16 +898,16 @@ class SynthEvent:
         return f"SynthEvent({self._reprInfo()})<br>" + htmltab
 
     def _reprInfo(self) -> str:
-        info = [f"delay={float(self.delay):.3g}, dur={self.dur:.3g}, "
+        info = [f"delay={showT(self.delay)}, dur={showT(self.dur)}, "
                 f"instr={self.instr}, "
-                f"gain={self.gain:.4g}, chan={self.chan}"
-                f", fade=({self.fadein:.5g}, {self.fadeout:.5g})"]
+                f"gain={showFlt(self.gain, 4)}, chan={self.chan}"
+                f", fade=({showT(self.fadein)}, {showT(self.fadeout)})"]
         if self.linkednext:
-            info.append('linkednext=True')
+            info.append('linkednext✓')
         if self.args:
             info.append(f"args={self.args}")
         if self.sustain:
-            info.append(f"sustain={self.sustain}")
+            info.append(f"sustain={showT(self.sustain)}")
         if self.position is not None and self.position >= 0:
             info.append(f"position={self.position}")
         if self.automationSegments:
@@ -921,10 +921,10 @@ class SynthEvent:
         info = self._reprInfo()
         if len(self.bps) <= 3:
             def bprepr3(bp):
-                parts = [f"{bp[0]:2.6}s"] + [f"{b:.6g}" for b in bp[1:]]
+                parts = [f"{showT(bp[0])} {showFlt(bp[1])}"] + [showFlt(b, 5) for b in bp[2:]]
                 return " ".join(parts)
-            bps = "; ".join([bprepr3(bp) for bp in self.bps])
-            return f"SynthEvent({info}, bps=‹{bps}›)"
+            bps = "￨".join([bprepr3(bp) for bp in self.bps])
+            return f"SynthEvent({info}, bps=｢{bps}｣)"
         else:
             lines = [f"SynthEvent({info})"]
 
@@ -964,7 +964,7 @@ class SynthEvent:
         for event in events:
             if start <= event.delay and end >= event.end:
                 out.append(event)
-            elif hasoverlap(start, end, event.delay, event.end):
+            elif hasOverlap(start, end, event.delay, event.end):
                 out.append(event.cropped(start, end))
         return out
 

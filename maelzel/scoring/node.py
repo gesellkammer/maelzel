@@ -540,13 +540,14 @@ class Node:
             else:
                 yield from item.recurse(reverse=reverse)
 
-    def findNextNotation(self, notation: Notation) -> Notation | None:
+    def nextNotation(self, notation: Notation) -> Notation | None:
         """
-        Find the notation next to the given notation
+        Find the notation next to the given notation (recursively)
 
         Args:
-            notation: the notation to query. The returned notation, if found, will
-                be the notation next to this
+            notation: the notation to query. It must be part of this node.
+                The returned notation, if found, will be the notation next to this
+                (in this or in an adjacent node)
 
         Returns:
             the notation next to the given notation, or None if no notation found.
@@ -625,9 +626,6 @@ class Node:
             if skip:
                 skip = False
                 continue
-
-            if n0.tiedNext and len(n0.pitches) == len(n1.pitches):
-                assert n0.pitches == n1.pitches, f"{n0=}, {n1=}"
 
             if not n0.tiedNext:
                 n1.tiedPrev = False

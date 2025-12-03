@@ -35,7 +35,7 @@ class MEvent(MObj):
         dynamic: a dynamic as string, if applicable
         tied: is this event tied to the next event?
     """
-    __slots__ = ('tied', 'amp', 'dynamic', '_glissTarget')
+    __slots__ = ('tied', 'amp', 'dynamic')
 
     def __init__(self,
                  dur: F,
@@ -69,8 +69,6 @@ class MEvent(MObj):
 
         self.dynamic: str = dynamic
         """A musical dynamic (*pppp, ppp, ..., mp, mf, f, ..., ffff*)"""
-
-        self._glissTarget: float = 0.
 
         self.parent: chain.Chain = parent
 
@@ -242,6 +240,17 @@ class MEvent(MObj):
             if errormsg := symbol.checkAnchor(self):
                 raise ValueError(f"Cannot add this symbol to {self}: {errormsg}")
         return self
+
+    def hasExplicitGliss(self) -> bool:
+        """
+        True if this event's gliss does not depend on the next event
+
+        Returns:
+            True if this event's gliss is defined within the event itself
+
+        """
+        gliss = self.gliss
+        return gliss and not isinstance(gliss, bool)
 
     def _canBeLinkedTo(self, other: MEvent) -> bool:
         """

@@ -594,3 +594,12 @@ def fractionRange(start: F, stop: F, step: F = F(1)
     while start < stop:
         yield start
         start += step
+
+
+def durRepr(dur: F, maxdenom=100) -> str:
+    if dur == 0:
+        return "𝆔"
+    elif int(dur) == dur or dur.denominator >= maxdenom:
+        return f"{dur:.3f}".rstrip('0').rstrip('.') + '♩'
+    else:
+        return f"{dur.numerator}/{dur.denominator}♩"

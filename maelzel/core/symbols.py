@@ -1443,17 +1443,19 @@ class GlissProperties(EventSymbol):
         hidden: if True the glissando is not represented as notation. When
             applied to a Notation, the .gliss attribute of the Notation is
             set to false.
+        origin: if given, this properties apply for the given pitch alone
 
     """
-    exclusive = True
+    exclusive = False   # origin makes it non-exclusive
     appliesToRests = False
 
-    def __init__(self, linetype='solid', color='', hidden=False):
+    def __init__(self, linetype='solid', color='', hidden=False, origin: float = 0.):
         super().__init__()
         _util.checkChoice('linetype', linetype, _attachment.GlissProperties.linetypes)
         self.linetype = linetype
         self.color = color
         self.hidden = hidden
+        self.origin = origin
 
     def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None = None) -> None:
         if self.hidden:
@@ -1462,7 +1464,12 @@ class GlissProperties(EventSymbol):
         elif not n.gliss and not (n.tiedPrev and n.tiedNext):
             raise ValueError("Cannot apply GlissProperties to a Notation without glissando,"
                              f"(destination: {n})")
-        n.addAttachment(_attachment.GlissProperties(linetype=self.linetype, color=self.color))
+        if not self.origin:
+            index = -1
+        else:
+            pitch = min(n.pitches, key=lambda pitch: abs(pitch - self.origin))
+            index = n.pitches.index(pitch)
+        n.addAttachment(_attachment.GlissProperties(linetype=self.linetype, color=self.color, index=index2))
 
     def checkAnchor(self, anchor: mevent.MEvent) -> str:
         return f'This event ({self}) has no glissando' if not anchor.gliss else ''

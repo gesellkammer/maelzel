@@ -202,9 +202,7 @@ class MObj(ABC):
             other: destination object
 
         """
-        if type(other) is not type(self):
-            logger.warning(f"Copying attributes to an object of different class, "
-                           f"{self=}, {type(self)=}, {other=}, {type(other)=}")
+        assert type(other) is type(self)
         if self.symbols is not None:
             other.symbols = self.symbols.copy()
         if self.playargs is not None:
@@ -301,9 +299,22 @@ class MObj(ABC):
             return default
         return self.properties.get(key, default)
 
+    def representativePitch(self, default=60.) -> float:
+        """
+        The representative pitch of this object
+
+        This is a fallback method for mobjs who do not define a clear
+        pitch, but need one for certain purposes.
+
+        Returns:
+            representative pitch of this object, defaults to
+        """
+        pitch = self.meanPitch()
+        return pitch if pitch is not None else default
+
     def meanPitch(self) -> float | None:
         """
-        The mean pitch of this object
+        Mean pitch of this object
 
         Returns:
             The mean pitch of this object
@@ -342,7 +353,7 @@ class MObj(ABC):
 
     def relEnd(self) -> F:
         """
-        Resolved end of this object, relative to its parent
+        End beat of this object, relative to its parent
 
         An object's offset can be explicit (set in the ``.offset`` attributes)
         or implicit, as calculated from the context of the parent. For example,
@@ -404,7 +415,8 @@ class MObj(ABC):
 
         """
         offset = self.relOffset()
-        return offset if not self.parent else offset + self.parent.absOffset()
+        parent = self.parent
+        return offset if not parent else offset + parent.absOffset()
 
     def absEnd(self) -> F:
         """
@@ -428,7 +440,8 @@ class MObj(ABC):
         Returns:
             the absolute offset of the parent if this object has a parent, else 0
         """
-        return self.parent.absOffset() if self.parent else F0
+        parent = self.parent
+        return parent.absOffset() if parent else F0
 
     def withExplicitOffset(self, forcecopy=False) -> Self:
         """
@@ -597,8 +610,7 @@ class MObj(ABC):
                 out.offset = asF(v)
             else:
                 setattr(out, k, v)
-
-        self._copyAttributesTo(out)
+        # self._copyAttributesTo(out)   # <-- attributes are already copied in .copy
         return out
 
     def remap(self, deststruct: ScoreStruct, sourcestruct: ScoreStruct | None = None
@@ -1061,7 +1073,10 @@ class MObj(ABC):
         if not notations:
             return []
         scoring.core.resolveOffsets(notations)
-        parts = scoring.core.distributeNotationsByClef(notations, maxStaves=config['show.voiceMaxStaves'])
+        parts = scoring.core.distributeByClef(notations,
+                                              maxStaves=config['show.voiceMaxStaves'],
+                                              singleStaffRange=config['show.singleStaffRange'],
+                                              staffPenalty=config['show.explodeStaffPenalty'])
         parts.reverse()
         return parts
         

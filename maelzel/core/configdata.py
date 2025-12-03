@@ -10,7 +10,6 @@ _dynamicsSet = set(_dynamicSteps)
 
 defaultdict = {
     'A4': 442,
-    'splitAcceptableDeviation': 4,
     'chordAdjustGain': True,
     'reprShowFreq': False,
     'reprUnicodeAccidentals': True,
@@ -47,7 +46,8 @@ defaultdict = {
     'show.pageOrientation': 'portrait',
     'show.pageSize': 'a4',
     'show.pageMarginMillim': 4,
-    'show.glissStemless': False,
+    'show.glissStemless': True,
+    'show.glissParenthesis': False,
     'show.glissHideTiedNotes': True,
     'show.glissLineThickness': 2,
     'show.glissLineType': 'solid',
@@ -79,6 +79,8 @@ defaultdict = {
     'show.keepClefBias': 2.0,
     'show.clefTransposingFactor': 0.85,
     'show.pedalStyle': '',
+    'show.singleStaffRange': 12,
+    'show.explodeStaffPenalty': 1.2,
     'play.gain': 1.0,
     'play.engineName': 'maelzel.core',
     'play.instr': 'sin',
@@ -271,7 +273,7 @@ validator = {
 
 docs = {
     'A4':
-        "Freq. of A4. Normal values are between 440-443, but any value can be used",
+        "Freq of A4. Normal values are between 440-443, but any value can be used",
 
     'fixStringNotenames':
         "Fix pitches given as notenames at the spelling given. "
@@ -283,12 +285,11 @@ docs = {
         "to be called explicitely to render notation",
 
     'openImagesInExternalApp':
-        "Force opening images with an external tool, even when inside a Jupyter "
-        "notebook",
+        "Force opening images with an external tool, even within Jupyter",
 
     'dynamicCurveShape':
-        "Shape used to convert dynamics to amplitudes. Normally an"
-        " exponential curve, given as 'expon(exp)'. "
+        "Shape used to convert dynamics to amplitudes. "
+        "Normally an exponential curve, given as 'expon(exp)'. "
         "exp < 1 results in more resolution for soft dynamics",
 
     'dynamicCurveMindb':
@@ -298,17 +299,18 @@ docs = {
         "Amplitude in dB corresponding to the loudest dynamic",
 
     'dynamicCurveDynamics':
-        "Possible dynamic steps. A str with all dynamic steps, sorted from soft to loud",
+        "Possible dynamic steps. "
+        "A str with all dynamic steps, sorted from soft to loud",
 
     'semitoneDivisions':
-        "Number of divisions/semitone used for notation (2=quarter-tones, 4=eighth-tones)",
+        "Number of steps per semitone for notation (2=quarter-tones, 4=eighth-tones)",
 
     'reprShowFreq':
-        "Show frequency when printing a Note in the console",
+        "Show freq when printing events",
     
     'reprUnicodeFractions':
-        "Show fractions (for durations/offsets) as unicode glyphs. Not all fonts have support "
-        "for this",
+        "Show fractions (for durations/offsets) as unicode glyphs. "
+        "Not all fonts have support for this",
     
     'reprDurationAsFraction':
         "Show durations as fractions instead of floats",
@@ -317,12 +319,12 @@ docs = {
         "Use unicode accidentals for representation of notes",
 
     'show.arpeggiateChord':
-        "Display chords as an arpeggio. In auto mode, only arpeggiate"
-        " when needed",
+        "Display chords as an arpeggio. "
+        "In auto mode, only arpeggiate when needed",
 
     'chordAdjustGain':
-        "Limit the gain of a chord according to the number of notes, to prevent "
-        "clipping. Only used if notes don't have an explicit amplitude",
+        "Scale the gain of a chord by the number of notes. "
+        "This prevents clipping (used only if notes don't have an explicit amplitude)",
 
     'show.scaleFactor':
         "Affects the size of the generated image when using png format",
@@ -334,20 +336,20 @@ docs = {
         "Size of a staff, in points",
 
     'show.format':
-        "Used when no explicit format is passed to .show",
+        "Format used for rendering an obj as an image",
 
     'play.gain':
-        "Default gain used when playing/recording",
+        "Default gain for playback",
 
     'play.numChannels':
-        "Default number of playback channels",
+        "Number of playback channels",
 
     'play.defaultAmplitude':
-        "Default amplitude for a Note/Chord, only used if play.useDynamics is False",
+        "Default amplitude for a Note/Chord, used if play.useDynamics is False",
 
     'play.defaultDynamic':
-        'Dynamic of a Note/Chord, only used if play.useDynamics is True. Any event '
-        'with an amplitude uses that value instead',
+        'Dynamic of a Note/Chord, only used if play.useDynamics is True. '
+        'Any event with an amplitude uses that value instead',
 
     'rec.blocking':
         "Should recording be blocking or should be done async?",
@@ -359,11 +361,10 @@ docs = {
         'Duration assigned to a gracenote for playback (in quarternotes)',
 
     'play.soundfontFindPeakAOT':
-        'True: find the peak of a soundfont to adjust its normalization at'
-        ' the moment an soundfont preset is defined',
+        'Find the peak of a soundfont to adjust its gain, ahead of time',
 
     'show.labelStyle':
-        'Style used for labels'
+        'Style used for labels. '
         'A list of key=value pairs, '
         'separated by ;. Keys: fontsize, box '
         '(rectangle, square, circle), placement (above, below), italic, '
@@ -392,8 +393,8 @@ docs = {
         '"fontsize=12; italic; box=rectangle"',
 
     'show.glissLineThickness':
-        'Line thikness for glissandi. The value is abstract, it is'
-        'up to the renderer to interpret it',
+        'Line thikness for glissandi. '
+        'The value is abstract, it is up to the renderer to interpret it',
 
     'show.glissHideTiedNotes':
         'Hide tied notes when part of a gliss.',
@@ -402,27 +403,26 @@ docs = {
         'Default line type for glissandi',
 
     'show.dynamicFromAmplitude':
-        'If an object has an amplitude but no explicit dynamic, add a dynamic '
-        'according to the amplitude',
+        'Add dynamics according to the amplitude of events when rendering notation',
 
     'show.absOffsetWhenDetached':
-        'Use the abs. offset of an object, even when shown detached from its parent',
+        'Always use the absolute offset of events, even when shown detached from parent',
 
     'show.respellPitches':
-        "Find best enharmonic spelling within the context. ",
+        "Find best enharmonic spelling within the context",
       
     'show.voiceMaxStaves':
-        "Max. number of staves per voice when showing a Voice as notation",
+        "Max number of staves per voice",
 
     'show.clipNoteheadShape':
         "Notehead shape to use for clips",
 
     'show.referenceStaffsize':
-        "Staff size used as reference. This allows to use staff size as a generic "
+        "Staff size used as reference. Allows to use staff size as a generic "
         "indicator for score scale across backends",
     
     'show.clefSimplify':
-        "Simplifie automatic clef changes. Use higher values to limit clef changes",
+        "Simplify automatic clef changes. Use higher values to limit clef changes",
 
     'show.musicxmlFontScaling':
         "Scaling factor applied to font sizes when rendering to musicxml",
@@ -431,27 +431,29 @@ docs = {
         "Flag style, at the moment only valid in lilypond",
 
     'show.warnIfEmpty':
-        "True: warn if an object did not produce any scoring parts",
+        "Warn if an object did not produce any scoring parts",
+
+    'show.singleStaffRange':
+        "A voice/chord which fits within this range is notated as one staff",
+
+    'show.explodeStaffPenalty':
+        "Penalty applied when exploding a voice to multiple staves. "
+        "A higher value reduces the number of staves",
 
     '.enharmonic.debug':
-        "True: print debug information while calculating automatic enharmonic spelling",
+        "Print debug info while applying automatic enharmonic spelling",
 
     'enharmonic.horizontalWeight':
-        "Weight of the horizontal dimension (note sequences) when evaluating an "
-        "enharmonic variant",
+        "Weight of the horizontal dimension (note sequences) for enharmonic spellign",
 
     'enharmonic.verticalWeight':
         "Weight of the vertical dimension (notes within a chord) for enharmonic spelling",
-
-    'splitAcceptableDeviation':
-        'When splitting notes between staves, notes within this range of the '
-        'split point will be grouped together if they all fit',
 
     'play.schedLatency':
         'Latency when scheduling events to ensure time precission',
 
     'rec.verbose':
-        'Show debug output when calling csound as a subprocess',
+        'Output debug info when rendering offline',
 
     'rec.ksmps':
         'Samples per cycle when rendering offline (passed as ksmps to csound)',
@@ -460,10 +462,10 @@ docs = {
         'default bitrate to use when encoding to ogg or mp3',
 
     'rec.numChannels':
-        'Number of channels when rendering to disk',
+        'Number of channels when rendering offline',
 
     'rec.extratime':
-        'Default extratime added when recording',
+        'Extratime added for things like reverb tails',
 
     'play.fade':
         'Default fade time',
@@ -472,10 +474,10 @@ docs = {
         'Fade out when stopping a note',
 
     'play.soundfontInterpol':
-        'Interpolation used when reading sample data from a soundfont.',
+        'Interpolation used when reading sample data from a soundfont',
 
     'play.verbose':
-        'True: outputs extra debugging information regarding playback',
+        'Output extra debugging information regarding playback',
 
     'show.backend':
         'Method used when rendering notation',
@@ -491,34 +493,36 @@ docs = {
         'Show a plus sign for possitive cents deviations',
 
     'show.pageOrientation':
-        'Page orientation when rendering to pdf',
+        'Page orientation when rendering',
 
     'show.pageSize':
-        'Page size when rendering to pdf',
+        'Page size when rendering',
 
     'show.glissStemless':
-        'When the end pitch of a gliss. is shown as gracenote, make this stemless',
+        'Make the end note of a gliss stemless when shown as gracenote',
+
+    'show.glissParenthesis':
+        'Parenthesize the destination note of a gliss. when shown as gracenote',
 
     'show.pageMarginMillim':
         'Page margin in mm',
 
     'show.lilypondPngStaffsizeScale':
-        'Factor applied to the staffsize when rendering to png via lilypond. Useful '
-        'if images are too small within jupyter',
+        'Scale staffsize when rendering to png via lilypond',
 
     'show.lilypondGlissMinLength':
-        'Min. length of a glissando in points. Increase this value if gliss. lines'
+        'Minimum length of a glissando in points. Increase it if gliss lines'
         'are hidden or too short',
 
     'show.pngResolution':
         'DPI used when rendering to png',
 
     'show.horizontalSpace':
-        'Hint to adjust horizontal spacing, the result depends '
-        'on format and backend',
+        'Horizontal spacing hint. It depends on format and backend how this'
+        ' value is interpreted',
 
     'show.jupyterMaxImageWidth':
-        'Max. width in pixels for images in a jupyter notebook',
+        'Max width in pixels for images in jupyter',
 
     'show.hideRedundantDynamics':
         'Hide redundant dynamics within a voice',
@@ -527,31 +531,29 @@ docs = {
         'When removing redundant dynamics, reset after this number of quarters',
 
     'play.backend':
-        'backend used for playback',
+        'Backend used for playback',
 
     'play.useDynamics':
-        'Any note/chord with a set dynamic will use dynamics for playback '
-        'if no explicit amplitude is set',
+        'Use the dynamic of an event for playback if no explicit amplitude is set',
 
     'rec.path':
-        'Path used to save soundfiles when rendering offline. Otherwise '
-        'the value returned by `recordPath` is used',
+        'Path used to save soundfiles when rendering offline.',
 
     'show.cacheImages':
-        'True: cache rendered images. Set it to False for debugging. '
+        'Cache rendered images. Set it to False for debugging or '
         'call `resetImageCache()` to reset manually',
 
     'show.arpeggioDuration':
-        'Duration used for individual notes when rendering a chord as arpeggio',
+        'Duration for individual notes when showing a chord as arpeggio',
 
     'rec.sr':
-        'Sample rate used when rendering offline',
+        'Sample rate for offline rendering',
 
     'play.fadeShape':
         'Curve-shape used for fading in/out',
 
     'show.centSep':
-        'Separator used when displaying multiple cents deviation (in a chord)',
+        'Separator used when displaying multiple cents deviations (in a chord)',
 
     'play.instr':
         'Default instrument used for playback. A list of available instruments '
@@ -567,19 +569,19 @@ docs = {
         'Default instrument used for reverb',
 
     'reverbGaindb':
-        'Gain of the main reverb, in dB',
+        'Main reverb: gain (dB)',
 
     'reverbDelayms':
-        'Pre delay (in milliseconds) of the main reverb',
+        'Main reverb: pre delay (in milliseconds)',
 
     'reverbDecay':
-        'Decay time (in seconds) of the main reverb',
+        'Main reverb: decay time (in seconds)',
 
     'reverbDamp':
-        'Damping of the main reverb, in the range 0-1',
+        'Main reverb: damping (range 0-1)',
 
     'reverbRestart':
-        'Restart a previously scheduled reverb if it is stopped',
+        'Restart main reverb',
 
     'htmlTheme':
         'Theme used when displaying html inside jupyter',
@@ -588,7 +590,7 @@ docs = {
         'A divisor used to scale the amplitude of soundfonts to a range 0-1',
 
     'quant.complexity':
-        'Complexity used for notation.',
+        'Complexity used for notation',
 
     'quant.nestedTuplets':
         'Allow nested tuplets when quantizing. None: follow '
@@ -596,9 +598,9 @@ docs = {
         'The musescore backend cannot parse nested tuplets from musicxml atm',
 
     'quant.nestedTupletsMusicxml':
-        'False: no nested tuplets are used for musicxml. '
+        'Allow nested tuplets for musicxml. '
         'The musescore backend cannot parse nested tuplets properly '
-        'from mxml. Nested tuplets are used for other formats if '
+        'from mxml at the moment. Nested tuplets are used for other formats if '
         '"quant.nestedTuplets" = True',
 
     'quant.breakBeats':
@@ -612,12 +614,12 @@ docs = {
         'value set by the complexity preset (quant.complexity)',
 
     'quant.gridWeight':
-        'Weight applied to the time quantization error. '
+        'Weight applied to time deviations during quantization. '
         'Higher values result in more accurate quantization, at the cost of complexity. '
         'None sets this value from the complexity preset (quant.complexity)',
 
     '.quant.complexityWeight':
-        'Weight applied to the complexity of the rhythm during '
+        'Weight applied to rhythm complexity during '
         'quantization. A higher value results in simpler rhythms. None sets '
         'this value from the complexity preset (quant.complexity)',
 
@@ -628,15 +630,15 @@ docs = {
         'None to use the value set by the complexity preset (quant.complexity)',
 
     'quant.syncopMinFraction':
-        'Min. duration of a syncopation as a ratio of the beat. Any syncopation shorter '
+        'Min duration of a syncopation as a ratio of the beat. Any syncopation shorter '
         'is broken and its parts tied, to prevent complex syncopations',
 
     'quant.syncopPartMinFraction':
-        'Min. duration of any part of a syncopation, as a fraction of the beat. A syncopation '
+        'Min duration of any part of a syncopation, as a fraction of the beat. A syncopation '
         'consistings of two parts, one left and one right to the beat boundary',
 
     'quant.syncopMaxAsymmetry':
-        'Max. asymmetry of a syncopation. For notes across beats, this sets'
+        'Max asymmetry of a syncopation. For notes across beats, this sets'
         ' the max. allowed asymmetry across the beat, '
         'as a ratio longest:shortest part across the beat. '
         'A note exactly across the beat has an asymmetry of 1',
@@ -646,47 +648,50 @@ docs = {
         'divisions are evaluated by the quantizer',
 
     '.quant.debugShowNumRows':
-        'When quantization debugging is turned on this setting limits the number '
-        'of different quantization possibilities shown',
+        'Limit the number of possibilities shown during quantization debugging '
+        'is turned',
 
     'musescorepath':
-        'Command to use when calling MuseScore. For macOS users: it must be an '
+        'Command to use when calling MuseScore. '
+        'For macOS users: it must be an '
         'absolute path pointing to the actual binary inside the .app bundle',
 
     'lilypondpath':
-        'Path to the lilypond binary. If set, it must be an absolute, existing path. '
+        'Path to the lilypond binary. '
+        'If set, it must be an absolute, existing path. '
         'Only needed if using a specific lilypond installation '
         '(lilypond is auto-installed if not found)',
 
     'show.autoClefChanges':
-        'Add clef changes if needed. Otherwise, one clef '
-        'is determined for each part and is not changed along the part.',
+        'Add clef changes if needed. '
+        'Otherwise, one clef is determined for each part and is not changed along the part.',
 
     'show.spacing':
-        'Horizontal spacing used. "normal": traditional spacing; "uniform": '
+        'Horizontal spacing used. '
+        '"normal": traditional spacing; "uniform": '
         ' proportional spacing with uniform stretching; "strict": proportional '
         'spacing with strict placement (clef changes and bar lines don´t add spacing and'
         'might overlap)',
 
     'show.proportionalDuration':
-        'When using proportional spacing, the lower this value, the longer the space taken '
-        'by each note. This corresponds to the value as used by lilypond. See also: '
+        'Space reolution for proportional duration. The lower this value, the longer '
+        'the space taken by each note. This mirrors the value used by lilypond. See also: '
         'https://lilypond.org/doc/v2.23/Documentation/notation/proportional-notation',
 
     'show.keepClefBias':
-        'The higher this value, the more likely it is to keep the previous clef during '
-        'automatic clef changes',
+        'Bias to keep the current clef. A higher value makes it more likely '
+        'to keep the previous clef during automatic clef changes',
 
     'show.clefChangesWindow':
-        'When adding automatic clef changes, use this window size (number of elements '
+        'Window size for automatic clef changes (number of elements '
         'per evaluation)',
 
     'show.clefTransposingFactor':
-        'Factor applied to a clef fitness when it is a transposing clef. A value lower '
-        'than one will favor non-transposing clefs.',
+        'Factor applied to a clef fitness if it is a transposing clef. A value < 1'
+        'favors non-transposing clefs.',
 
     'soundfilePlotHeight':
-        'Height used for plotting soundfiles. This is used, for example, to set the'
-        ' figsize in matplotlib plots used inline within Jupyter.',
+        'Plot height for soundfiles. Used to set the'
+        ' figsize in inline plots within Jupyter.',
 
 }

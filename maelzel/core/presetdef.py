@@ -443,31 +443,64 @@ class PresetDef:
     def presetNameToInstrName(presetname: str) -> str:
         return f'preset:{presetname}'
 
-    def __repr__(self):
-        lines = []
+    def _repr_ansy(self, color=True, theme='dark'):
+        from csoundengine import csoundparse
         descr = f"({self.description})" if self.description else ""
-        lines.append(f"Preset: {self.name}  {descr}")
+        initcode = self.init.strip() if self.init else ''
+        audiogen = _textwrap.indent(self.code, _INSTR_INDENT)
+        if color:
+            audiogen = csoundparse.highlightCsoundOrc(audiogen, format='ansi')
+
         info = [f"routing={self.routing}"]
         if self.properties:
             info.append(f"properties={self.properties}")
-        lines.append(_textwrap.indent(', '.join(info), "    "))
-
-        if self.includes:
-            includesline = ", ".join(self.includes)
-            lines.append(f"  includes: {includesline}")
-        if self.init:
-            lines.append(f"  init: {self.init.strip()}")
+        infostr = _textwrap.indent(', '.join(info), "    ")
         if self.args:
             def _quote(obj):
                 return f'"{obj}"' if isinstance(obj, str) else obj
             argstr = ", ".join(f"{key}={_quote(value)}" for key, value in self.args.items())
-            lines.append(f"  |{argstr}|")
-        audiogen = _textwrap.indent(self.code, _INSTR_INDENT)
-        lines.append(audiogen)
-        if self.epilogue:
-            lines.append("  epilogue:")
-            lines.append(_textwrap.indent(self.epilogue, "    "))
-        return "\n".join(lines)
+        else:
+            argstr = ''
+
+        if color:
+            from rich.console import Console
+            c = Console(record=True, highlight=False)
+            with c.capture() as capture:
+                c.print(f"[bold]Preset[/bold]: {self.name}  [grey50]{descr}[/grey50]")
+                c.print(f"[green]{infostr}[/green]")
+                if self.includes:
+                    includesline = ", ".join(self.includes)
+                    c.print(f"  includes: [blue]{includesline}[/blue]")
+                if initcode:
+                    init2 = csoundparse.highlightCsoundOrc(initcode, format='ansi')
+                    c.out(f"  init: {init2}")
+                if argstr:
+                    c.print(f"  [blue]|[/blue]{argstr}[blue]|[/blue]")
+                c.out(audiogen)
+                if self.epilogue:
+                    epilogue = csoundparse.highlightCsoundOrc(self.epilogue, format='ansi')
+                    c.print("  epilogue:")
+                    c.out(_textwrap.indent(epilogue, "    "))
+            return capture.get()
+        else:
+            lines = []
+            lines.append(f"Preset: {self.name}  {descr}")
+            lines.append(infostr)
+            if self.includes:
+                includesline = ", ".join(self.includes)
+                lines.append(f"  includes: {includesline}")
+            if self.init:
+                lines.append(f"  init: {initcode}")
+            if argstr:
+                lines.append(f"  |{argstr}|")
+            lines.append(audiogen)
+            if self.epilogue:
+                lines.append("  epilogue:")
+                lines.append(_textwrap.indent(self.epilogue, "    "))
+            return "\n".join(lines)
+
+    def __repr__(self):
+        return self._repr_ansy(color=True)
 
     def isSoundFont(self) -> bool:
         """

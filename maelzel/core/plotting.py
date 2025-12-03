@@ -210,24 +210,27 @@ _voiceColors = [
 ]
 
 
-def _measureOffsetsIncluding(scorestruct: ScoreStruct, end: F, realtime: bool) -> list[float]:
+def _measureOffsetsIncluding(scorestruct: ScoreStruct, end: F, realtime: bool
+                             ) -> list[float]:
     """
     Returns all measure offsets including the given `end`
     """
     offsets = []
     offset = 0
-    for mdef in scorestruct.iterMeasureDefs():
+    for measure in scorestruct:
         offsets.append(offset)
         if offset > end:
             break
-        offset += mdef.durationQuarters
+        offset += measure.duration
 
     if realtime:
         offsets = [scorestruct.beatToTime(offset) for offset in offsets]
     return [float(offset) for offset in offsets]
 
 
-def makeAxes(tightlayout=True, hideyaxis=False, figsize: tuple[int, int] | None = None
+def makeAxes(tightlayout=True,
+             hideyaxis=False,
+             figsize: tuple[int, int] | None = None
              ) -> tuple[Figure, Axes]:
     """
     Shortcut to construct a pyplot Axes object within a new figure
@@ -427,10 +430,10 @@ def plotVoices(voices: list[Voice],
                 continue
             if isinstance(event, Note):
                 pitches = [event.name]
-                targets = [''] if not event.gliss else [event.glissTarget()]
+                targets = [''] if not event.gliss else [event.glissTargetNote()]
             elif isinstance(event, Chord):
                 pitches = [note.name for note in event]
-                targets = [''] * len(event) if not event.gliss else event.glissTarget()
+                targets = [''] * len(event) if not event.gliss else event.glissTargetNotes()
             else:
                 logger.warning(f"{type(event)} not supported yet: {event}")
                 continue

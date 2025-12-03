@@ -265,21 +265,21 @@ def bestClefForNotations(notations: Sequence[Notation],
     return bestclef
 
 
-def findBestClefs(notations: list[Notation],
-                  firstClef='',
-                  windowSize=1,
-                  simplificationThreshold=0.,
-                  biasFactor=1.5,
-                  apply=True,
-                  key='',
-                  breakTies=False,
-                  possibleClefs: Sequence[str] | None = None,
-                  maxClef='',
-                  minClef='',
-                  transposingFactor=0.75,
-                  ) -> list[tuple[int, str]]:
+def clefChanges(notations: list[Notation],
+                firstClef='',
+                windowSize=1,
+                simplificationThreshold=0.,
+                biasFactor=1.5,
+                apply=True,
+                key='',
+                breakTies=False,
+                possibleClefs: Sequence[str] | None = None,
+                maxClef='',
+                minClef='',
+                transposingFactor=0.75,
+                ) -> list[tuple[int, str]]:
     """
-    Given a list of notations, find the clef changes
+    Find the most adequate clef changes for the given notations
 
     Args:
         notations: the notations.
@@ -304,12 +304,12 @@ def findBestClefs(notations: list[Notation],
 
 
     Returns:
-        a list of tuples (notationsindex: int, clef: str) where notationsindex is a
-        list of indexes into the notations passed, indicating where a given
-        clef should be applied, and clef is the clef to be applied to that
-        notation. If addClefs=True, then these clefs are actually applied
-        to the given notations. If key is given, a property with the given
-        key is set to the name of the clef to set at that notation
+        a list of tuples (notationsindex: int, clef: str) where notationsindex
+        is the index of the notation where a given clef should be applied,
+        and clef is the clef to be applied to that notation. If addClefs=True,
+        then these clefs are actually applied to the given notations. If key
+        is given, a property with the given key is set to the name of the clef
+        to set at that notation
     """
     clefdefs = clefDefinitions()
     if not possibleClefs:
@@ -352,12 +352,13 @@ def findBestClefs(notations: list[Notation],
             out.append(point)
             lastidx = clefidx
     clefs = [(idx, clefbyindex[clefindex]) for idx, clefindex in out]
-    for idx, clef in clefs:
-        n = notations[idx]
-        if key:
-            n.setProperty(key, clef)
-        if apply:
-            n.addAttachment(attachment.Clef(clef))
+    if key or apply:
+        for idx, clef in clefs:
+            n = notations[idx]
+            if key:
+                n.setProperty(key, clef)
+            if apply:
+                n.addAttachment(attachment.Clef(clef))
     return clefs
 
 
@@ -533,6 +534,22 @@ def bestClefCombination(notations: list[Notation],
                         staffPenalty=1.2,
                         transposingPenalty=1.3
                         ) -> tuple[str, ...]:
+    """
+    Find the best combination of clefs for the given notations
+
+    Args:
+        notations: the notations to distribute among staves with different clefs
+        maxStaves: max. number of staves
+        minStaves: min. number of staves
+        singleStaffRange: if notations can be fit within this range no new
+            staves are created
+        groupNotationsWithinSpanner: assign the same staff to notations within a spanner
+        staffPenalty: penalty applied to the creation of a staff
+        transposingPenalty: penalty applied when choosing a transposing clef
+
+    Returns:
+        a tuple of clefs
+    """
     pitchedNotations = [n for n in notations if not n.isRest]
 
     if not pitchedNotations:
@@ -564,7 +581,8 @@ def bestClefCombination(notations: list[Notation],
             fitness = sum(clefeval(pitch)[1] for n in notations for pitch in n.pitches)
             results[clefs] = fitness
     for clefs, fitness in results.items():
-        fitness *= 1/(len(clefs) * staffPenalty)
+        if len(clefs) > 1:
+            fitness *= 1/((len(clefs) - 1) * staffPenalty)
         for clef in clefs:
             last = clef[-1]
             if last == "8" or last == "5":
@@ -578,6 +596,7 @@ def explodeNotations(notations: list[Notation],
                      minStaves=0,
                      singleStaffRange=12,
                      distributeSpanners=True,
+                     staffPenalty=1.2,
                      groupNotationsWithinSpanner=False
                      ) -> list[tuple[str, list[Notation]]]:
     """
@@ -600,6 +619,7 @@ def explodeNotations(notations: list[Notation],
                                     maxStaves=maxStaves,
                                     minStaves=minStaves,
                                     singleStaffRange=singleStaffRange,
+                                    staffPenalty=staffPenalty,
                                     groupNotationsWithinSpanner=groupNotationsWithinSpanner)
     if len(bestClefs) == 1:
         return [(bestClefs[0], notations)]

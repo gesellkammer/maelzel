@@ -176,7 +176,7 @@ def renderWithActiveWorkspace(parts: list[scoring.core.UnquantizedPart],
     if scorestruct is None:
         scorestruct = workspace.scorestruct
     from maelzel.scoring import render
-    return render.quantizeAndRender(parts,
-                                    struct=scorestruct,
-                                    options=renderOptions,
-                                    quantizationProfile=quantizationProfile)
+    return render._quantizeAndRender(parts,
+                                     struct=scorestruct,
+                                     options=renderOptions,
+                                     quantizationProfile=quantizationProfile)

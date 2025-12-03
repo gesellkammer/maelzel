@@ -182,7 +182,6 @@ class Chain(MContainer):
               items: Sequence[MEvent | Chain] | None = None,
               offset: time_t | None = -1,
               label: str | None = None,
-              properties: dict | None = None
               ) -> Self:
         offset = None if offset is None else asF(offset) if offset >= 0 else self.offset
         if items is None:
@@ -378,7 +377,7 @@ class Chain(MContainer):
         """
         return all(isinstance(item, MEvent) for item in self.items)
 
-    def _flatEventsWithResolvedOffset(self, key: str):
+    def _flatEventsWithResolvedOffset(self, key: str) -> list[MEvent]:
         if not self.items:
             return []
         self._update()
@@ -557,7 +556,7 @@ class Chain(MContainer):
 
     def _resolveGlissandi(self, force=False) -> None:
         """
-        Set the _glissTarget attribute with the pitch of the gliss target
+        Set the _glissTarget/_glissLines attribute with the pitch of the gliss target
         if a note or chord has an unset gliss target
 
         Args:
@@ -579,60 +578,58 @@ class Chain(MContainer):
             playargs = playargs.updated(self.playargs, automations=False)
 
         flatitems = self.flatEvents(forcecopy=False)
-        assert all(item.offset is not None and item.dur >= 0 for item in flatitems)
 
         if any(n.isGrace() for n in flatitems):
             graceDur = F(conf['play.graceDuration'])
-            flatitems = [item.copy() for item in flatitems]
+            # flatitems = [item.copy() for item in flatitems]
+            flatitems = _eventutils.copyEventsModifiedByGracenotes(flatitems)
             _eventutils.addDurationToGracenotes(flatitems, graceDur)
 
-        if conf['play.useDynamics']:
-            _eventutils.fillTempDynamics(flatitems,
-                                         initialDynamic=conf['play.defaultDynamic'],
-                                         apply=False)
+        if conf['play.useDynamics'] and any(item.dynamic for item in flatitems):
+            _eventutils.fillTempDynamics(flatitems, dynamic=conf['play.defaultDynamic'], apply=False)
 
-        synthevents = []
         offset = parentOffset + self.relOffset()
-        groups = _eventutils.groupLinkedEvents(flatitems)
-        for item in groups:
-            if isinstance(item, MEvent):
-                # item has absolute timing so parent offset is 0
-                events = item._synthEvents(playargs, parentOffset=F0, workspace=workspace)
-                synthevents.extend(events)
-            elif isinstance(item, list):
-                synthgroups = [event._synthEvents(playargs, parentOffset=F0, workspace=workspace)
-                               for event in item]
-                synthlines = _splitSynthGroupsIntoLines(synthgroups)
-                for synthline in synthlines:
-                    if isinstance(synthline, SynthEvent):
-                        synthevent = synthline
-                    elif isinstance(synthline, list):
-                        if len(synthline) == 1:
-                            synthevent = synthline[0]
-                        else:
-                            synthevent = SynthEvent.mergeEvents(synthline)
-                    else:
-                        raise TypeError(f"Expected a SynthEvent or a list thereof, got {synthline}")
-                    synthevents.append(synthevent)
-                    # TODO: fix / add playargs
+        synthevents = []
+        for group in _eventutils.groupLinkedEvents(flatitems):
+            if isinstance(group, MEvent):
+                # group has absolute timing so parent offset is 0
+                synthevents.extend(group._synthEvents(playargs, parentOffset=F0, workspace=workspace))
             else:
-                raise TypeError(f"Did not expect {item}")
+                assert isinstance(group, list)
+                synthgroups = []
+                for item in group:
+                    synths = item._synthEvents(playargs, parentOffset=F0, workspace=workspace)
+                    if not synths:
+                        logger.warning("Item %s returned no synthevents", item)
+                    else:
+                        synthgroups.append(synths)
+                if len(synthgroups) > 1:
+                    lines = _makeLines(synthgroups)
+                else:
+                    lines = synthgroups
+                for line in lines:
+                    if isinstance(line, SynthEvent):
+                        synthevents.append(line)
+                    else:
+                        assert isinstance(line, list)
+                        if len(line) == 1:
+                            synthevents.append(line[0])
+                        else:
+                            synthevents.append(SynthEvent.mergeEvents(line))
+                    # TODO: fix / add playargs
 
         if self.playargs and self.playargs.automations:
-            scorestruct = self.scorestruct() or workspace.scorestruct
-            for automation in self.playargs.automations:
-
-                startsecs, endsecs = automation.absTimeRange(parentOffset=offset, scorestruct=scorestruct)
-                presetman = Workspace.active.presetManager
+            struct = self.scorestruct() or workspace.scorestruct
+            presetman = Workspace.active.presetManager
+            for autom in self.playargs.automations:
+                startsecs, endsecs = autom.absTimeRange(parentOffset=offset, scorestruct=struct)
                 for ev in synthevents:
                     preset = presetman.getPreset(ev.instr)
-                    if automation.param not in preset.dynamicParams(aliases=True, aliased=True):
-                        continue
-                    overlap0, overlap1 = _util.overlap(float(startsecs), float(endsecs), ev.delay, ev.end)
-                    if overlap0 > overlap1:
-                        continue
-                    synthautom = automation.makeSynthAutomation(scorestruct=scorestruct, parentOffset=offset)
-                    ev.addAutomation(synthautom.cropped(float(overlap0), float(overlap1)))
+                    if autom.param in preset.dynamicParams(aliases=True, aliased=True):
+                        t0, t1 = _util.overlap(float(startsecs), float(endsecs), ev.delay, ev.end)
+                        if t0 <= t1:
+                            synthautom = autom.makeSynthAutomation(scorestruct=struct, parentOffset=offset)
+                            ev.addAutomation(synthautom.cropped(float(t0), float(t1)))
 
         return synthevents
 
@@ -890,8 +887,10 @@ class Chain(MContainer):
                     measureidx, measurebeat = struct.beatToLocation(now + itemoffset)
                     locationstr = f'{measureidx}:{T(measurebeat)}'.ljust(widths['location'])
                     playargs = 'None' if not item.playargs else ', '.join(f'{k}={v}' for k, v in item.playargs.db.items())
-                    if isinstance(item, (Note, Chord)):
-                        glissstr = 'F' if not item.gliss else f'T ({item.resolveGliss()})' if isinstance(item.gliss, bool) else str(item.gliss)
+                    if isinstance(item, Note):
+                        glissstr = 'F' if not item.gliss else f'T ({item.glissTargetPitch()})' if isinstance(item.gliss, bool) else str(item.gliss)
+                    elif isinstance(item, Chord):
+                        glissstr = 'F' if not item.gliss else f'T ({item.glissTargetPitches()})' if isinstance(item.gliss, bool) else str(item.gliss)
                     else:
                         glissstr = '-'
                     rowparts = [IND*(indents+1),
@@ -1212,11 +1211,11 @@ class Chain(MContainer):
         if maxStaves == 1:
             parts = [scoring.core.UnquantizedPart(notations, name=name, abbrev=abbrev)]
         else:
-            parts = scoring.core.distributeNotationsByClef(notations,
-                                                           name=name,
-                                                           abbrev=abbrev,
-                                                           maxStaves=maxStaves,
-                                                           minStaves=minStaves)
+            parts = scoring.core.distributeByClef(notations,
+                                                  name=name,
+                                                  abbrev=abbrev,
+                                                  maxStaves=maxStaves,
+                                                  minStaves=minStaves)
             parts.reverse()
             if len(parts) > 1 and groupParts:
                 scoring.core.UnquantizedPart.groupParts(parts, name=name, abbrev=abbrev)
@@ -2568,11 +2567,37 @@ class Voice(Chain):
             item.timeShiftInPlace(offset)
         self._changed()
 
+def _makeLine(event: SynthEvent, groupidx: int, groups: list[list[SynthEvent]], groupIndexes: list[set[int]]
+              ) -> list[SynthEvent]:
+    out = [event]
+    if not event.linkednext or groupidx == len(groups) - 1:
+        print("=============== 1")
+        return out
+    nextIndexes = groupIndexes[groupidx + 1]
+    if not nextIndexes:
+        print("=============== 2")
 
-def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
-                               ) -> list[SynthEvent | list[SynthEvent]]:
+        return out
+    nextGroup = groups[groupidx + 1]
+    eventPitch = event.bps[-1][1]
+    nextidx = next((i for i in nextIndexes if abs(eventPitch - nextGroup[i].bps[0][1]) < 1e-6), None)
+    if nextidx is None:
+        print("=============== 3", event, eventPitch, nextGroup, nextIndexes)
+
+        return out
+    nextIndexes.discard(nextidx)
+    nextev = nextGroup[nextidx]
+    if nextev.linkednext:
+        out.extend(_makeLine(nextev, groupidx + 1, groups=groups, groupIndexes=groupIndexes))
+    else:
+        out.append(nextev)
+    return out
+
+
+def _makeLines(groups: list[list[SynthEvent]]
+               ) -> list[SynthEvent | list[SynthEvent]]:
     """
-    Split synthevent groups into individual lines
+    Distribute synthevent groups into individual lines
 
     When resolving the synthevents of a chain, each item in the chain is asked to
     deliver its synthevents. For an individual item which is neither tied to a
@@ -2600,53 +2625,39 @@ def _splitSynthGroupsIntoLines(groups: list[list[SynthEvent]]
 
     TODO
     """
-    def matchNext(event: SynthEvent, group: list[SynthEvent], availableNodes: set[int]) -> int | None:
-        pitch = event.bps[-1][1]
-        for idx in availableNodes:
-            candidate = group[idx]
-            if abs(pitch - candidate.bps[0][1]) < 1e-6:
-                return idx
-        return None
-
-    def makeLine(nodeindex: int, groupindex: int, availableNodesPerGroup: list[set[int]]
-                 ) -> list[SynthEvent]:
-        event = groups[groupindex][nodeindex]
-        out = [event]
-        if not event.linkednext or groupindex == len(groups) - 1:
-            return out
-        availableNodes = availableNodesPerGroup[groupindex + 1]
-        if not availableNodes:
-            return out
-        nextEventIndex = matchNext(event, group=groups[groupindex+1], availableNodes=availableNodes)
-        if nextEventIndex is None:
-            return out
-        availableNodes.discard(nextEventIndex)
-        continuationLine = makeLine(nextEventIndex, groupindex + 1,
-                                    availableNodesPerGroup=availableNodesPerGroup)
-        out.extend(continuationLine)
-        return out
-
-    out: list[SynthEvent | list[SynthEvent]] = []
-    availableNodesPerGroup: list[set[int]] = [set(range(len(group))) for group in groups]
+    assert len(groups) > 1 and all(len(group) > 0 for group in groups)
+    lines: list[SynthEvent | list[SynthEvent]] = []
+    unusedIndexesPerGroup: list[set[int]] = [set(range(len(group))) for group in groups]
     # Iterate over each group. A group is just the list of events generated by a given chord
-    # Within a group, iterate over the _beatNodes of each group
-    for groupindex in range(len(groups)):
-        for nodeindex in availableNodesPerGroup[groupindex]:
-            line = makeLine(nodeindex, groupindex=groupindex,
-                            availableNodesPerGroup=availableNodesPerGroup)
-            line[-1].linkednext = False
-            assert isinstance(line, list) and len(line) >= 1, f"{nodeindex=}, event={groups[groupindex][nodeindex]}"
+    # Within a group, iterate over the nodes of each group
+    for groupidx, group in enumerate(groups):
+        unusedIndexes = unusedIndexesPerGroup[groupidx]
+        while unusedIndexes:
+            eventidx = unusedIndexes.pop()
+            event = group[eventidx]
+            print(f"Matching {event=}, {groupidx=}, {unusedIndexesPerGroup=}")
+            line = _makeLine(event,
+                             groupidx=groupidx,
+                             groups=groups,
+                             groupIndexes=unusedIndexesPerGroup)
             if len(line) == 1:
-                out.append(line[0])
-            else:
-                out.append(line)
+                print("... No match")
+            line[-1].linkednext = False
+            lines.append(line)
 
     # last group
-    if len(groups) > 1 and (lastGroupIndexes := availableNodesPerGroup[-1]):
+    if len(groups) > 1 and (lastGroupIndexes := unusedIndexesPerGroup[-1]):
         lastGroup = groups[-1]
-        out.extend(lastGroup[idx] for idx in lastGroupIndexes)
+        lines.extend(lastGroup[idx] for idx in lastGroupIndexes)
 
-    return out
+    assert all(isinstance(item, SynthEvent) or (isinstance(item, list) and len(item) > 0)
+               for item in lines)
+
+    energy0 = sum(sum(ev.dur for ev in group) for group in groups)
+    energy1 = sum(line.dur if isinstance(line, SynthEvent) else sum(part.dur for part in line)
+                  for line in lines)
+    assert energy0 == energy1
+    return lines
 
 
 def _resolveGlissandi(flatevents: Iterable[MEvent], force=False) -> None:
@@ -2659,38 +2670,35 @@ def _resolveGlissandi(flatevents: Iterable[MEvent], force=False) -> None:
         force: if True, calculate/update all glissando targets
 
     """
-    ev2 = None
     for ev1, ev2 in itertools.pairwise(flatevents):
-        if ev1.isRest() or ev2.isRest():
+        if (ev1.isRest() or
+            ev2.isRest() or
+            not ev1.gliss or
+                (ev1.playargs and 'glisstime' in ev1.playargs)
+        ):
             continue
-        if ev1.gliss or (ev1.playargs and ev1.playargs.get('glisstime', 0.) > 0):
-            # Only calculate glissTarget if gliss is True
+
+        if isinstance(ev1, Note):
             if not force and ev1._glissTarget:
                 continue
-            if isinstance(ev1, Note):
-                if isinstance(ev2, Note):
-                    ev1._glissTarget = ev2.pitch
-                elif isinstance(ev2, Chord):
-                    ev1._glissTarget = max(n.pitch for n in ev2.notes)
-                else:
-                    ev1._glissTarget = ev1.pitch
-            elif isinstance(ev1, Chord):
-                if isinstance(ev2, Chord):
-                    ev2pitches = ev2.pitches
-                    if len(ev2pitches) > len(ev1.notes):
-                        ev2pitches = ev2pitches[-len(ev1.notes):]
-                    ev1._glissTarget = ev2pitches
-                elif isinstance(ev2, Note):
-                    ev1._glissTarget = [ev2.pitch] * len(ev1.notes)
-                else:
-                    ev1._glissTarget = ev1.pitches
+            if isinstance(ev2, Note):
+                ev1._glissTarget = ev2.pitch
+            elif isinstance(ev2, Chord):
+                ev1._glissTarget = max(n.pitch for n in ev2.notes)
+            else:
+                ev1._glissTarget = ev1.pitch
+        elif isinstance(ev1, Chord):
+            if not force and ev1._glissLines is not None:
+                continue
+            # TODO: Do ._glissPairs here
+            pairs = ev1._glissPairs(ev2)
+            assert pairs, f"{ev1=}, {ev2=}"
+            ev1._glissLines = pairs
+            for n in ev1.notes:
+                if n.gliss is True:
+                    target = next(pair[1] for pair in pairs if pair[0] == n.pitch)
+                    n._glissTarget = target
 
-    # last event
-    if ev2 and ev2.gliss:
-        if isinstance(ev2, Chord):
-            ev2._glissTarget = ev2.pitches
-        elif isinstance(ev2, Note):
-            ev2._glissTarget = ev2.pitch
 
 
 def _eventPairsBetween(eventpairs: list[tuple[MEvent, F]],

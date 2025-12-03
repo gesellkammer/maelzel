@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from maelzel._util import hasoverlap
+from maelzel._util import hasOverlap
 from emlib import iterlib
 import pitchtools as pt
 import bisect
@@ -59,7 +59,7 @@ class PartialTrack:
             for p in self.partials:
                 if p.start > end:
                     break
-                if hasoverlap(p.start, p.end, start, end):
+                if hasOverlap(p.start, p.end, start, end):
                     raise ValueError(f"Partial {partial} does not fit, partials in track: {self.partials}")
             idx = bisect.bisect(self._starts, partial.start)
             self.partials.insert(idx, partial)
@@ -86,7 +86,7 @@ class PartialTrack:
             return True
         p0index = bisect.bisect_left(self._starts, end) - 1
         p0 = self.partials[p0index]
-        return not hasoverlap(p0.start, p0.end, start, end)
+        return not hasOverlap(p0.start, p0.end, start, end)
 
     def partialBefore(self, t: float) -> int | None:
         """

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 _cache = {}
 
 
-def createTempdir(check=True) -> tempfile.TemporaryDirectory:
+def makeTempDir(check=True) -> tempfile.TemporaryDirectory:
     """
     Creates a temporary directory within the user space, ensures that it is writable
 
@@ -57,7 +57,7 @@ def sessionTempdir() -> tempfile.TemporaryDirectory:
     """
     if (tempdir := _cache.get('tempdir')) is not None:
         return tempdir
-    _cache['tempdir'] = tempdir = createTempdir()
+    _cache['tempdir'] = tempdir = makeTempDir()
     return tempdir
 
 
@@ -279,8 +279,13 @@ def showT(f: F | float | None) -> str:
         f = float(f)
     return f"{f:.3f}".rstrip('0').rstrip('.')
 
+def showFlt(num: float, decimals=3) -> str:
+    """Show num with the given decimals, without trailing 0s or periods"""
+    fmt = f".{decimals}f"
+    return format(num, fmt).rstrip("0").rstrip(".")
 
-def hasoverlap(x0: num_t, x1: num_t, y0: num_t, y1: num_t) -> bool:
+
+def hasOverlap(x0: num_t, x1: num_t, y0: num_t, y1: num_t) -> bool:
     """ do (x0, x1) and (y0, y1) overlap? """
     return x1 > y0 if x0 < y0 else y1 > x0
 

@@ -380,7 +380,10 @@ class QuantizedMeasure:
 
     Args:
         timesig: the time signature
-        quarterTempo: the tempo of the quarter note
+        tempo: tempo value corresponding to the tempo reference figure
+        tempoRef: reference figure for the tempo. Either a tuple (base, dots) where base
+            4=quarternote, 8=eighthnote, etc. and dots indicates the number of dots, or a
+            fraction indicating the duration in quarter notes
         beats: a list of QuantizedBeats
         quantprofile: the quantization profile used to generate this quantized measure.
             This is necessary to create a tree structure
@@ -392,9 +395,10 @@ class QuantizedMeasure:
     """
     def __init__(self,
                  timesig: st.TimeSignature,
-                 quarterTempo: F,
+                 tempo: F,
                  beats: list[QuantizedBeat],
                  quantprofile: QuantizationProfile,
+                 tempoRef=(4, 0),
                  subdivisions: tuple[int, ...] | None = None,
                  parent: QuantizedPart | None = None,
                  readonly=False):
@@ -403,7 +407,11 @@ class QuantizedMeasure:
         self.timesig: st.TimeSignature = timesig
         "The time signature"
 
-        self.quarterTempo = quarterTempo
+        self.tempo = tempo,
+
+        self.tempoRef = tempoRef
+
+        self.quarterTempo = tempo if tempoRef == (4, 0) else st.convertTempo(tempo, tempoRef, (4, 0))
         "The tempo for the quarter note"
 
         self.beats = beats
@@ -433,8 +441,7 @@ class QuantizedMeasure:
             self.tree.setReadOnly(True, recurse=True)
 
     def setReadOnly(self, value: bool):
-        self.tree.setReadOnly(True, recurse=True)
-
+        self.tree.setReadOnly(value, recurse=True)
 
     def __repr__(self):
         parts = [f"timesig={self.timesig}, quarterTempo={self.quarterTempo}, tree={self.tree}"]
@@ -480,7 +487,7 @@ class QuantizedMeasure:
         Returns:
             the duration of the measure in quarter notes
         """
-        return self.timesig.quarternoteDuration
+        return self.timesig.duration
 
     def beatBoundaries(self) -> list[F]:
         """
@@ -852,11 +859,11 @@ class QuantizedMeasure:
                 nidx = node.items.index(n)
                 if nidx < len(node.items) - 2:
                     # not the last of the node, so get next notation in node
-                    nextnote = node.findNextNotation(n)
+                    nextnote = node.nextNotation(n)
                 elif node.parent:
                     # last note in node, next could be in parent or we could be at
                     # the end of the tree
-                    nextnote = node.parent.findNextNotation(n)
+                    nextnote = node.parent.nextNotation(n)
                 else:
                     # last note, so no next note in this measure
                     nextnote = None
@@ -1045,17 +1052,18 @@ def _evalRhythmComplexity(profile: QuantizationProfile,
         # duration in terms of number of slots
         durs = [b - a for a, b in itertools.pairwise(slots)]
         numTies = sum(dur not in quantdata.regularDurations for dur in durs)
+        numSyncop = 0
         if div0 % 2 == 0:
-            numSyncop = sum(dur > 1 and s % 2 == 1 for dur, s in zip(durs, assignedSlots))
+            numSyncop += sum(dur > 1 and s % 2 == 1 for dur, s in zip(durs, assignedSlots))
         elif div0 == 3:
-            numSyncop = 0
+            pass
         else:
             for mod in (3, 5, 7, 11, 13, 17, 19):
                 if div0 % mod == 0:
-                    numSyncop = sum(dur > 1 and slot % mod > 0 for dur, slot in zip(durs, assignedSlots))
+                    numSyncop += sum(dur > 1 and slot % mod > 0 for dur, slot in zip(durs, assignedSlots))
                     break
             else:
-                numSyncop = len(assignedSlots)
+                numSyncop += len(assignedSlots)
                 if 0 in assignedSlots:
                     numSyncop -= 1
     else:
@@ -1482,9 +1490,10 @@ def isRegularDuration(dur: F, beatDur: F) -> bool:
 
 def quantizeMeasure(events: list[Notation],
                     timesig: st.TimeSignature,
-                    quarterTempo: F,
+                    tempo: F,
                     profile: QuantizationProfile,
                     beatStructure: list[st.BeatDef],
+                    tempoRef: tuple[int, int] = (4, 0),
                     ) -> QuantizedMeasure:
     """
     Quantize notes in a given measure
@@ -1495,7 +1504,9 @@ def quantizeMeasure(events: list[Notation],
             quarterLengths, i.e. they are not dependent on tempo. The tempo
             is used as a hint to find a suitable quantization
         timesig: the time signature of the measure: a tuple (num, den)
-        quarterTempo: the tempo of the measure using a quarter note as refernce
+        tempo: tempo value
+        tempoRef: tempo reference figure, a tuple (base, dots), where base
+            represents the duration as 4=quarter, 8=8th, etc.
         profile: the quantization preset. Leave it unset to use the default
             preset.
 
@@ -1504,14 +1515,17 @@ def quantizeMeasure(events: list[Notation],
         a QuantizedMeasure
 
     """
-    measureDur = timesig.quarternoteDuration
+    quarterTempo = st.convertTempo(tempo, tempoRef, (4, 0))
+    measureDur = timesig.duration
     assert all(ev0.end == ev1.offset for ev0, ev1 in itertools.pairwise(events)), "Events not stacked"
     assert sum(ev.duration for ev in events) == measureDur, "Measure not filled"
 
-    quantizedBeats: list[QuantizedBeat] = []
     beatOffsets = [beat.offset for beat in beatStructure]
     beatOffsets.append(beatStructure[-1].end)
+    assert beatOffsets[0] == 0
+    assert beatOffsets[-1] == measureDur, f"Invalid beat structure: {beatStructure}, measure duration: {measureDur}"
 
+    quantizedBeats: list[QuantizedBeat] = []
     idx = 0
     for spanstart, spanend, eventsInBeat in quantutils.breakNotationsByBeat(events, beatOffsets=beatOffsets):
         beatWeight = beatStructure[idx].weight
@@ -1541,7 +1555,10 @@ def quantizeMeasure(events: list[Notation],
         idx += 1
 
     quantizedBeats[0].weight = 2
-    return QuantizedMeasure(timesig=timesig, quarterTempo=asF(quarterTempo), beats=quantizedBeats,
+    return QuantizedMeasure(timesig=timesig,
+                            tempo=tempo,
+                            tempoRef=tempoRef,
+                            beats=quantizedBeats,
                             quantprofile=profile)
 
 
@@ -1570,7 +1587,7 @@ def splitNotationAtMeasures(n: Notation, struct: st.ScoreStruct
     if beat1 == F0 and n.duration > 0:
         # Note ends at the barline
         measureindex1 -= 1
-        beat1 = struct.measure(measureindex1).durationQuarters
+        beat1 = struct.measure(measureindex1).duration
 
     numMeasures = measureindex1 - measureindex0 + 1
 
@@ -1580,7 +1597,7 @@ def splitNotationAtMeasures(n: Notation, struct: st.ScoreStruct
         return [(measureindex0, event)]
 
     measuredef = struct.measure(measureindex0)
-    dur = measuredef.durationQuarters - beat0
+    dur = measuredef.duration - beat0
     # First part
     notation = n.clone(offset=beat0, duration=dur, tiedNext=True)
     pairs = [(measureindex0, notation)]
@@ -1589,7 +1606,7 @@ def splitNotationAtMeasures(n: Notation, struct: st.ScoreStruct
     if numMeasures > 2:
         for m in range(measureindex0 + 1, measureindex1):
             measuredef = struct.measure(m)
-            notation = n.cloneAsTie(duration=measuredef.durationQuarters,
+            notation = n.cloneAsTie(duration=measuredef.duration,
                                     tiedPrev=True,
                                     tiedNext=True,
                                     offset=F0)
@@ -1971,12 +1988,11 @@ class QuantizedPart:
             m.setReadOnly(value)
 
     def repair(self):
-        # self._repairGracenotesInBeats()
         firstnote = next((n for n in self.flatNotations() if not n.isRest), None)
         if firstnote and (clef := firstnote.findAttachment(attachment.Clef)):
             self.firstClef = clef.kind
         self.removeUnnecessaryGracenotes()
-        self.repairLinks(tieSpelling=True)
+        self.repairLinks()
         self.repairSpanners()
         self._repairClefs()
 
@@ -2156,7 +2172,7 @@ class QuantizedPart:
             possibleClefs = self.possibleClefs
         # This adds the clef changes as attachment to the notation prior to which
         # the clef change has effect.
-        clefutils.findBestClefs(notations,
+        clefutils.clefChanges(notations,
                                 apply=apply,
                                 windowSize=window,
                                 simplificationThreshold=simplificationThreshold,
@@ -2350,20 +2366,19 @@ class QuantizedPart:
             for i in range(numMeasures - 1, idx+1):
                 # We create empty measures as needed
                 mdef = self.struct.measure(i)
-                qmeasure = QuantizedMeasure(timesig=mdef.timesig,
-                                            quarterTempo=mdef.quarterTempo,
-                                            beats=[],
-                                            quantprofile=self.quantProfile,
-                                            parent=self)
-                self.measures.append(qmeasure)
+                meas = QuantizedMeasure(timesig=mdef.timesig,
+                                        tempo=mdef.tempo,
+                                        tempoRef=mdef.tempoRef,
+                                        beats=[],
+                                        quantprofile=self.quantProfile,
+                                        parent=self)
+                self.measures.append(meas)
         return self.measures[idx]
 
-    def repairLinks(self, tieSpelling=True) -> None:
+    def repairLinks(self) -> None:
         """
         Repairs ties and glissandi (in place)
 
-        Args:
-            tieSpelling: if True, ensures that tied notes share the same spelling
         """
         ties = self.logicalTies()
 
@@ -2381,7 +2396,7 @@ class QuantizedPart:
                         if idx1 is not None:
                             note0 = n0.notename(idx0)
                             note1 = n1.notename(idx1)
-                            if tieSpelling and note1 != note0:
+                            if note1 != note0:
                                 n1.fixNotename(note0, index=idx1)
                             hints0.add(idx0)
                             hints1.add(idx1)
@@ -2406,7 +2421,8 @@ class QuantizedPart:
         for measureIndex in range(N - 1, N - 1 + numMeasures):
             measuredef = self.struct.measure(measureIndex)
             empty = QuantizedMeasure(timesig=measuredef.timesig,
-                                     quarterTempo=measuredef.quarterTempo,
+                                     tempo=measuredef.tempo,
+                                     tempoRef=measuredef.tempoRef,
                                      beats=[],
                                      quantprofile=self.quantProfile,
                                      parent=self)
@@ -2617,32 +2633,35 @@ def quantizePart(part: core.UnquantizedPart,
             notationsPerMeasure[measureIdx].append(notation)
     qmeasures = []
     for idx, notations in enumerate(notationsPerMeasure):
-        measureDef = struct.measure(idx)
-        beatStruct = measureDef.beatStructure()
+        measuredef = struct.measure(idx)
+        beatstruct = measuredef.beatStructure()
         if not notations:
-            qmeasures.append(QuantizedMeasure(timesig=measureDef.timesig,
-                                              quarterTempo=measureDef.quarterTempo,
+            qmeasures.append(QuantizedMeasure(timesig=measuredef.timesig,
+                                              tempo=measuredef.tempo,
+                                              tempoRef=measuredef.tempoRef,
                                               beats=[],
                                               quantprofile=quantprofile))
         else:
             if not misc.issorted(notations, key=lambda n: n.offset):
                 raise ValueError(f"Notations are not sorted: {notations}")
             core.removeSmallOverlaps(notations)
-            if sum(n.duration for n in notations) != measureDef.durationQuarters:
-                notations = quantutils.fillSpan(notations, F0, measureDef.durationQuarters)
+            if sum(n.duration for n in notations) != measuredef.duration:
+                notations = quantutils.fillSpan(notations, F0, measuredef.duration)
             qmeasure = quantizeMeasure(notations,
-                                       timesig=measureDef.timesig,
-                                       quarterTempo=measureDef.quarterTempo,
+                                       timesig=measuredef.timesig,
+                                       tempo=measuredef.tempo,
+                                       tempoRef=measuredef.tempoRef,
                                        profile=quantprofile,
-                                       beatStructure=beatStruct)
+                                       beatStructure=beatstruct)
             qmeasures.append(qmeasure)
     if fillStructure:
         if struct.endless:
             raise ValueError("Cannot fill an endless ScoreStructure")
         for i in range(maxMeasure+1, struct.numMeasures()):
-            measureDef = struct.measure(i)
-            qmeasure = QuantizedMeasure(timesig=measureDef.timesig,
-                                        quarterTempo=measureDef.quarterTempo,
+            measuredef = struct.measure(i)
+            qmeasure = QuantizedMeasure(timesig=measuredef.timesig,
+                                        tempo=measuredef.tempo,
+                                        tempoRef=measuredef.tempoRef,
                                         beats=[],
                                         quantprofile=quantprofile)
             qmeasures.append(qmeasure)
