@@ -112,7 +112,8 @@ class Note(MEvent):
     __slots__ = ('pitch',
                  'pitchSpelling',
                  '_gliss',
-                 '_glissTarget'
+                 '_glissTarget',
+                 '_parent'
                  )
 
     def __init__(self,
@@ -216,6 +217,7 @@ class Note(MEvent):
 
         self._gliss: float | bool = gliss  # type: ignore
         self._glissTarget: float | None = None
+        self._parent: Chord | None = None
 
     @staticmethod
     def makeRest(dur: time_t | str, offset: time_t = None, label='', dynamic='') -> Note:
@@ -372,6 +374,11 @@ class Note(MEvent):
         Set the gliss attribute of this Note, inplace
         """
         self._gliss = gliss if isinstance(gliss, bool) else asmidi(gliss)
+        if self._parent and isinstance(self._parent, Chord) and isinstance(self.gliss, (int, float)):
+            if self._parent.gliss and self._parent.gliss is not True:
+                logger.info("Setting the gliss attribute of a note within a Chord erases the "
+                            "gliss value of the chord")
+            self._parent._gliss = True
 
     def __eq__(self, other: Note | str | float) -> bool:
         if isinstance(other, (int, float)):
@@ -388,10 +395,19 @@ class Note(MEvent):
             return False
 
     def copy(self) -> Self:
+        return self._copy(attributes=True)
+
+    def _copy(self, attributes=True) -> Self:
         out = self.__class__(self.pitch, dur=self.dur, amp=self.amp, gliss=self._gliss, tied=self.tied,
                              dynamic=self.dynamic, offset=self.offset, label=self.label,
                              _init=False)
-        self._copyAttributesTo(out)
+        if attributes:
+            self._copyAttributesTo(out)
+        else:
+            out.symbols = self.symbols
+            out.playargs = self.playargs
+            out.properties = self.properties
+
         out._glissTarget = self._glissTarget
         out.pitchSpelling = self.pitchSpelling
         return out
@@ -404,7 +420,8 @@ class Note(MEvent):
               gliss: pitch_t | bool | None = None,
               label='',
               tied: bool | None = None,
-              dynamic='') -> Self:
+              dynamic='',
+              _sharedAttributes=True) -> Self:
         """
         Clone this note with overridden attributes
 
@@ -425,7 +442,13 @@ class Note(MEvent):
                 out.pitchSpelling = pt.transpose(self.pitchSpelling, out.pitch - self.pitch)
         else:
             out.pitchSpelling = self.pitchSpelling
-        self._copyAttributesTo(out)
+        if not _sharedAttributes:
+            self._copyAttributesTo(out)
+        else:
+            out.symbols = self.symbols
+            out.playargs = self.playargs
+            out.properties = self.properties
+
         return out
 
     def __hash__(self) -> int:
@@ -1009,6 +1032,8 @@ class Chord(MEvent):
         if not notes:
             raise ValueError(f"A Chord should have at least one note")
 
+        assert dur is not None, f"Invalid duration: {notes}"
+
         symbols = None
         spanners = None
         # notes might be: Chord([n1, n2, ...]) or Chord("4c 4e 4g", ...)
@@ -1063,7 +1088,11 @@ class Chord(MEvent):
                     else:
                         gliss = True
             elif not isinstance(gliss, bool):
-                gliss = pt.as_midinotes(gliss)
+                gliss = tuple(pt.as_midinotes(gliss))
+                if any(n.gliss for n in notes):
+                    raise ValueError(f"Cannot set a gliss target for individual notes if the "
+                                     f"chord itself sets a global gliss target. Got {gliss} but"
+                                     f"also some notes have a glissando: {notes}")
 
             if symbols:
                 for symbol in symbols:
@@ -1072,14 +1101,16 @@ class Chord(MEvent):
                 for sp in spanners:
                     self.addSpanner(sp)
 
+        for n in notes:
+            n._parent = self
         self.notes: list[Note] = notes  # type: ignore
         """The notes in this chord, each an instance of Note"""
 
-        self._gliss: bool | list[float] = gliss  # type: ignore
+        self._gliss: bool | tuple[float, ...] = gliss  # type: ignore
         self._glissLines: list[tuple[float, float]] | None = None
 
     @property
-    def gliss(self) -> list[float] | bool:
+    def gliss(self) -> tuple[float, ...] | bool:
         if self._gliss:
             return self._gliss
         elif any(n.gliss for n in self.notes):
@@ -1088,7 +1119,7 @@ class Chord(MEvent):
         return False
 
     @gliss.setter
-    def gliss(self, gliss: bool | list[pitch_t]):
+    def gliss(self, gliss: bool | Sequence[pitch_t]):
         """
         Set the gliss attribute of this Note, inplace
         """
@@ -1101,16 +1132,21 @@ class Chord(MEvent):
             raise ValueError(f"The number of pitches for the target of the glissando "
                              f"should not exceed the number of pitches in this chord, "
                              f"{gliss=}, {self=}")
-        self._gliss = [asmidi(pitch) for pitch in gliss]
+        self._gliss = tuple(asmidi(pitch) for pitch in gliss)
         self._glissLines = None
 
-    def copy(self):
-        notes = [n.copy() for n in self.notes]
+    def _copy(self, attributes=True) -> Self:
+        notes = [n._copy(attributes=attributes) for n in self.notes]
         out = self.__class__(notes=notes, dur=self.dur, amp=self.amp, offset=self.offset,
                              gliss=self.gliss, label=self.label, tied=self.tied,
                              dynamic=self.dynamic,
                              _init=False)
-        self._copyAttributesTo(out)
+        if attributes:
+            self._copyAttributesTo(out)
+        else:
+            out.symbols = self.symbols
+            out.playargs = self.playargs
+            out.properties = self.properties
         return out
 
     def __len__(self) -> int:
@@ -1225,6 +1261,10 @@ class Chord(MEvent):
             raise ValueError(f"This chord does not have .gliss set: {self}")
 
         if not isinstance(gliss, bool):
+            if any(not isinstance(n.gliss, bool) for n in self.notes):
+                raise ValueError(f"A gliss target cannot be set at both the chord level and for each"
+                                 f" individual note of a chord, {self.gliss=}, {self.notes}")
+
             if any(n.gliss for n in self.notes):
                 pairs = [(n.pitch, target) for n, target in zip(self.notes, gliss) if n.gliss]
             else:
@@ -1232,16 +1272,12 @@ class Chord(MEvent):
                     pairs = [(n.pitch, target) for n, target in zip(self.notes, gliss)
                              if target]
                 else:
-                    pairs = []
-                    for n in self.notes:
-                        target = min(gliss, key=lambda p: abs(n.pitch - p))
-                        pairs.append((n.pitch, target))
+                    pairs = [(n.pitch, min(gliss, key=lambda p: abs(n.pitch - p)))
+                              for n in self.notes]
         else:
-            # Does any note in the chord have an explicit gliss pitch?
-            # Then only take explicit pitches
-            if any(not isinstance(n.gliss, bool) for n in self.notes):
-                pairs = [(n.pitch, n.gliss) for n in self.notes
-                         if not isinstance(n.gliss, bool)]
+            # self.gliss is True
+            if any(n.gliss and isinstance(n.gliss, (int, float)) for n in self.notes):
+                pairs = [(n.pitch, n.gliss) for n in self.notes if n.gliss]
             else:
                 if nextevent is None:
                     # No next event and no explicit gliss pitches, so no glissando
@@ -1342,7 +1378,7 @@ class Chord(MEvent):
 
         # Add gliss.
         notations = [notation]
-        if (gliss := self.gliss):
+        if self.gliss:
             from maelzel.scoring import attachment
             notation.gliss = True
             # we need a gliss mapping ONLY if gliss is True and explicit is True
@@ -1400,8 +1436,6 @@ class Chord(MEvent):
     def __hash__(self):
         if isinstance(self.gliss, bool):
             glisshash = int(self.gliss)
-        elif isinstance(self.gliss, list):
-            glisshash = hash(tuple(self.gliss))
         else:
             glisshash = hash(self.gliss)
         symbolshash = hash(tuple(self.symbols)) if self.symbols else 0
@@ -1605,7 +1639,7 @@ class Chord(MEvent):
             event = synthevent.SynthEvent.fromPlayArgs(bps=bps, playargs=playargs)
             if playargs.automations:
                 event.addAutomationsFromPlayArgs(playargs, scorestruct=struct)
-            if linkednext or (self.tied and (note.tied) or self._isNoteTied(note)):
+            if linkednext or note.tied or (self.tied and self._isNoteTied(note)):
                 event.linkednext = True
             synthevents.append(event)
         assert len(synthevents) == len(self.notes)
@@ -1615,7 +1649,7 @@ class Chord(MEvent):
         """
         Marks the given notes as tied, in place
 
-        Raises ValueError if any note/pitch is not present in the given chord a
+        Raises ValueError if any note/pitch is not present in the given chord
         """
         changed = False
         for n in notes:
@@ -1625,7 +1659,7 @@ class Chord(MEvent):
                 changed = True
             else:
                 raise ValueError(f"Pitch {n} not present in this chord: {self}")
-        if changed:
+        if changed and not self.tied:
             self.tied = True
             self._changed()
 
@@ -1648,7 +1682,7 @@ class Chord(MEvent):
             if any(abs(n.pitch - p) <= tolerance for p in otherpitches)]
         return common
 
-    def _isNoteTied(self, note: Note) -> bool:
+    def _isNoteTied(self, note: Note, nextev: MEvent | None = None, tol=0.001) -> bool:
         """
         Query if the given note within this chord is tied to the following note/chord
 
@@ -1662,24 +1696,23 @@ class Chord(MEvent):
             True if this note is tied to the next chord/note
 
         """
-        if not self.tied:
-            return False
-
-        if not self.parent:
+        if not self.parent and self.tied:
             return True
 
-        nextitem = self.parent.nextItem(self)
-        if not nextitem:
-            return False
-        elif isinstance(nextitem, Chord):
-            istied = next((candidate.pitch == note.pitch for candidate in nextitem), None) is not None
-        elif isinstance(nextitem, Note):
-            istied = nextitem.pitch == note.pitch
+        if nextev is None:
+            nextev = self.nextEvent()
+            if not nextev:
+                return False
+
+        if isinstance(nextev, Chord):
+            if not tol:
+                istied = any(candidate.pitch == note.pitch for candidate in nextev)
+            else:
+                istied = any(abs(candidate.pitch - note.pitch) <= tol for candidate in nextev.notes)
+        elif isinstance(nextev, Note):
+            istied = abs(nextev.pitch - note.pitch) <= tol
         else:
             return False
-        if istied and not self.tied:
-            logger.warning(f"A note ({note}) in this chord is tied, but the chord itself is "
-                           f"not tied (chord={self})")
         return istied
 
     def _bestSpelling(self) -> tuple[str, ...]:
@@ -1690,27 +1723,32 @@ class Chord(MEvent):
 
     def __repr__(self):
         # «4C+14,4A 0.1q -50dB»
-        elements = [",".join(self._bestSpelling())]
-        if self.dur:
+        names = ",".join(self._bestSpelling())
+        if self.tied:
+            names += "~"
+        elements = [names]
+        if self.dur > 0:
             if self.dur >= MAXDUR:
-                elements.append("dur=inf")
+                elements.append(":inf")
             else:
-                elements.append(f"{float(self.dur):.3g}♩")
+                elements.append(f":{float(self.dur):.3g}♩")
+        else:
+            elements.append("𝆔")
         if self.offset is not None:
-            elements.append(f'offset={float(self.offset):.3g}')
+            elements.append(f':offset={float(self.offset):.3g}')
         if self.gliss:
             if isinstance(self.gliss, bool):
-                elements.append("gliss")
+                elements.append(":gliss")
             else:
                 endpitches = ','.join([pt.m2n(_) for _ in self.gliss])
-                elements.append(f"gliss={endpitches}")
+                elements.append(f":gliss={endpitches}")
         if self.dynamic:
-            elements.append(self.dynamic)
+            elements.append(f":{self.dynamic}")
 
         if len(elements) == 1:
             return f'‹{elements[0]}›'
         else:
-            return f'‹{elements[0].ljust(3)} {" ".join(elements[1:])}›'
+            return f'‹{"".join(elements)}›'
 
     def dump(self, indents=0, forcetext=False):
         elements = f'offset={self.offset}, dur={self.dur}, gliss={self.gliss}'
@@ -2047,8 +2085,9 @@ def asEvent(obj, **kws) -> MEvent:
             return Chord(obj.split(), **kws)
         elif ":" or "," in obj:
             notedef = _tools.parseNote(obj)
-            dur = kws.pop('dur', None) or notedef.dur
-
+            dur = kws.pop("dur", None)
+            if dur is None:
+                dur = notedef.dur if notedef.dur is not None else F1
             if notedef.keywords:
                 kws = notedef.keywords | kws
             if isinstance(notedef.notename, list):

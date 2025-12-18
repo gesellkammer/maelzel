@@ -188,7 +188,7 @@ class RenderOptions:
         like 3/4+3/8
     """
 
-    addSubdivisionsForSmallDenominators: bool = True
+    addSubdivisionsForSmallDenominators: bool = False
     """
     Add subdivisions for measures with a time signature with a small denominator
 

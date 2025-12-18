@@ -12,7 +12,7 @@ import sys
 import os
 from math import sqrt
 import itertools
-from bisect import bisect
+import numpy as np
 
 from maelzel.common import F, F0, asF
 
@@ -29,10 +29,10 @@ from .common import getLogger
 from .quantdefs import QuantizedBeatDef
 from maelzel._logutils import LazyStr
 
-from .notation import Notation, SnappedNotation
+from .notation import Notation, Snapped
 from .node import Node
 import maelzel.scorestruct as st
-
+from maelzel import _util
 
 from emlib import misc
 from emlib import mathlib
@@ -68,85 +68,6 @@ _INDENT = "  "
 logger = getLogger("maelzel.scoring.quant")
 
 
-def _fitToGrid(offsets: list[float], grid: list[float]) -> list[int]:
-    out = []
-    idx = 0
-    for offset in offsets:
-        relidx = misc.nearest_index(offset, grid[idx:])
-        absidx = idx + relidx
-        out.append(absidx)
-        idx = absidx - 1 if absidx > 0 else 0
-    return out
-
-
-def _fitToGrid2(offsets: list[float], grid: list[float]) -> list[int]:
-    out = []
-    idx = 0
-    gridlen = len(grid)
-    for offset in offsets:
-        idx = bisect(grid, offset, lo=idx)
-        if idx == gridlen:
-            idx = gridlen - 1
-        elif idx != 0:
-            idxleft = idx - 1
-            idx = idx if grid[idx] - offset < offset - grid[idxleft] else idxleft
-        out.append(idx)
-    return out
-
-
-def _fitEventsToGridNearest(events: list[Notation], grid: list[F]) -> list[int]:
-    # We use floats to make this faster. Rounding errors should not pose a problem
-    # in this context
-    fgrid = [float(g) for g in grid]
-    offsets = [event.qoffset for event in events]
-    return [misc.nearest_index(float(offset), fgrid) for offset in offsets]
-
-
-def snapEventsToGrid(notations: list[Notation],
-                     grid: list[F],
-                     fgrid: list[float] | None = None
-                     ) -> tuple[list[int], list[SnappedNotation]]:
-    """
-    Snap unquantized events to a given grid
-
-    Args:
-        notations: a list of unquantized Notation's
-        grid: the grid to snap the events to, as returned by generateBeatGrid
-        fgrid: the same grid, but as floats.
-
-    Returns:
-        tuple (assigned slots, quantized events)
-    """
-    beatdur = grid[-1]
-    # assignedSlots = _fitEventsToGridNearest(events=notations, grid=grid)
-    offsets = [float(n.offset) for n in notations]
-    if fgrid is None:
-        fgrid = [float(tick) for tick in grid]
-    assignedSlots = _fitToGrid2(offsets, fgrid)
-    snapped: list[SnappedNotation] = []
-    lastidx = len(grid) - 1
-    for idx in range(len(notations)-1):
-        n = notations[idx]
-        slot0 = assignedSlots[idx]
-        offset0 = grid[slot0]
-        # is it the last slot (as grace note?)
-        if slot0 == lastidx:
-            if not n.isRest:
-                snapped.append(SnappedNotation(n, offset0, F0))
-        else:
-            offset1 = grid[assignedSlots[idx+1]]
-            dur = offset1 - offset0
-            if dur == 0 and n.isRest:
-                continue
-            snapped.append(SnappedNotation(n, offset0, dur))
-
-    lastoffset = grid[assignedSlots[-1]]
-    last = notations[-1]
-    lastdur = beatdur - lastoffset
-    if not (lastdur == 0 and last.isRest):
-        snapped.append(SnappedNotation(last, lastoffset, duration=lastdur))
-    assert not any(s.duration == 0 and s.notation.isRest for s in snapped), snapped
-    return assignedSlots, snapped
 
 
 def _isBeatFilled(events: list[Notation], beatDuration: F, beatOffset: F = F0
@@ -172,14 +93,13 @@ def _isBeatFilled(events: list[Notation], beatDuration: F, beatOffset: F = F0
 
 
 def _eventsShow(events: list[Notation]) -> str:
-    from maelzel._util import showF
     lines = [""]
     for ev in events:
         back = "←" if ev.tiedPrev else ""
         forth = "→" if ev.tiedNext else ""
         tiedStr = f"tied: {back}{forth}"
-        lines.append(f"  {showF(ev.qoffset)} – {showF(ev.end)} "
-                     f"dur={showF(ev.duration)} {tiedStr}")
+        lines.append(f"  {_util.showF(ev.qoffset)} – {_util.showF(ev.end)} "
+                     f"dur={_util.showF(ev.duration)} {tiedStr}")
     return "\n".join(lines)
 
 
@@ -206,11 +126,8 @@ def _checkQuantizedNotations(notations: list[Notation],
     return ''
 
 
-
-
-
 def _evalGridError(profile: QuantizationProfile,
-                   snappedEvents: list[SnappedNotation],
+                   snappedEvents: list[Snapped],
                    beatDuration: F) -> float:
     """
     Evaluate the error regarding the deviation of the makeSnappedNotation events from the original offset/duration
@@ -228,7 +145,6 @@ def _evalGridError(profile: QuantizationProfile,
         a value indicative of how much the quantization diverges from
         the unquantized version. Lower is better
     """
-    assert isinstance(beatDuration, F)
     offsetErrorWeight = profile.offsetErrorWeight
     restOffsetErrorWeight = profile.restOffsetErrorWeight
     graceDuration = profile.graceDuration
@@ -239,16 +155,17 @@ def _evalGridError(profile: QuantizationProfile,
     totalDurationError = 0
     for snapped in snappedEvents:
         n = snapped.notation
-        offsetError = abs(n.qoffset - snapped.offset) / beatdurf
+        origdur = n.duration
+        offsetError = abs(n.offset - snapped.offset) / beatdurf
 
-        if snapped.duration == 0:
+        if snapped.duration == 0 and origdur > 0:
             numGracenotes += 1
             offsetError *= graceNoteOffsetErrorFactor
-            durationError = abs(n.duration - graceDuration) / beatdurf
+            durationError = abs(origdur - graceDuration) / beatdurf
         else:
             if n.isRest:
                 offsetError *= restOffsetErrorWeight / offsetErrorWeight
-            durationError = abs(n.duration - snapped.duration) / beatdurf
+            durationError = abs(origdur - snapped.duration) / beatdurf
 
         totalOffsetError += offsetError
         totalDurationError += durationError
@@ -407,12 +324,15 @@ class QuantizedMeasure:
         self.timesig: st.TimeSignature = timesig
         "The time signature"
 
-        self.tempo = tempo,
+        self.tempo = tempo
 
         self.tempoRef = tempoRef
 
         self.quarterTempo = tempo if tempoRef == (4, 0) else st.convertTempo(tempo, tempoRef, (4, 0))
         "The tempo for the quarter note"
+
+        if not beats:
+            beats = _makeEmptyBeats(timesig, tempo=tempo, tempoRef=tempoRef)
 
         self.beats = beats
         "A list of QuantizedBeats"
@@ -450,7 +370,7 @@ class QuantizedMeasure:
         return f"QuantizedMeasure({', '.join(parts)})"
 
     def __hash__(self):
-        if self.empty():
+        if self.isEmpty():
             return hash((self.timesig, self.quarterTempo))
         else:
             return hash((self.tree, self.timesig, self.quarterTempo, self.subdivisions))
@@ -535,13 +455,13 @@ class QuantizedMeasure:
             options: the EnharmonicOptions to use
 
         """
-        if self.empty():
+        if self.isEmpty():
             return
         tree = self.tree
         first = tree.firstNotation()
         if not first.isRest and first.tiedPrev:
             assert prevMeasure is not None
-            if prevMeasure.empty():
+            if prevMeasure.isEmpty():
                 logger.info("The first note (%s) of measure %d is tied to "
                             f"the previous note, but the previous measure is empty", first, self.measureIndex())
                 prevTree = None
@@ -551,7 +471,7 @@ class QuantizedMeasure:
             prevTree = None
         tree.fixEnharmonics(options=options, prevTree=prevTree)
 
-    def empty(self) -> bool:
+    def isEmpty(self) -> bool:
         """
         Is this measure empty?
 
@@ -567,13 +487,15 @@ class QuantizedMeasure:
             return True
         return False
 
-    def dump(self, numindents=0, indent=_INDENT, tree=True, stream=None) -> None:
+    def dump(self, numindents=0, indent=_INDENT, tree=True, stream=None, tempo=True
+             ) -> None:
         ind = _INDENT * numindents
         stream = stream or sys.stdout
-        print(f"{ind}Timesig: {self.timesig}"
-              f"(quarter={self.quarterTempo})", file=stream)
-        # if self.empty():
-        #    print(f"{ind}EMPTY", file=stream)
+        tempofig = st.unicodeDuration(self.tempoRef)
+        s = f"{ind}Timesig: {self.timesig}"
+        if tempo:
+            s += f" ({tempofig}={_util.showFlt(float(self.tempo))})"
+        print(s, file=stream)
         if tree:
             self.tree.dump(numindents, indent=indent, stream=stream)
         elif self.beats:
@@ -590,7 +512,7 @@ class QuantizedMeasure:
         Returns:
             a list of Notations in this measure
         """
-        if self.empty():
+        if self.isEmpty():
             return []
 
         return list(self.tree.recurse())
@@ -608,7 +530,7 @@ class QuantizedMeasure:
         Returns:
             an iterator over the Notations in this measure
         """
-        if self.empty():
+        if self.isEmpty():
             return iter(())
         return self.tree.recurseWithNode(reverse=reverse)
 
@@ -620,7 +542,7 @@ class QuantizedMeasure:
             raise ValueError("Cannot create tree without a QuantizationProfile")
 
         if not self.beats:
-            raise ValueError(f"This QuantizedMeasure is empty: {self}")
+            raise ValueError(f"This QuantizedMeasure is empty!")
 
         tree = _makeTreeFromQuantizedBeats(beats=self.beats,
                                            quantprofile=self.quantprofile,
@@ -698,6 +620,7 @@ class QuantizedMeasure:
         """Returns True if n should be split at offset"""
         logger.debug("split strong: %s, offset: %s", n, offset)
         if self._splitWeakBeat(n, node, offset):
+            logger.debug("splitWeakBeat returned possitive, so splitting")
             return True
 
         leftbeat, idx = self.beatAtOffset(offset - F(1, 10000))
@@ -706,6 +629,7 @@ class QuantizedMeasure:
 
         if node.fusedDurRatio() == 1:
             if n.duration / beatdur <= F(1, 2):
+                logger.debug(" ---- splitting here 1")
                 return True
 
         beatoffsets = self.beatOffsets()
@@ -718,8 +642,14 @@ class QuantizedMeasure:
         maindur, numdots = quantutils.splitDots(symdur)
 
         if symdur % 1 == 0:
-            return not centered
-        elif n.duration / beatdef.duration < 1:
+            aligned = noffset in beatoffsets
+            if symdur.numerator % 2 == 0 and (not aligned or not centered):
+                logger.debug("Half note multiple not aligned")
+                return True
+            logger.debug("No need to split quarter note")
+            return False
+
+        if n.duration / beatdef.duration < 1:
             if not centered or numdots > 0:
                 logger.debug("duration less than beat but not centered or dotted, splitting")
                 return True
@@ -728,6 +658,7 @@ class QuantizedMeasure:
             return True
         elif node.durRatio[0] in (3, 5, 7) and centered:
             # A tuplet centered across the beat
+            logger.debug("No need to split a tuplet centered across the beat")
             return False
         elif n.isRest:
             return True
@@ -826,7 +757,7 @@ class QuantizedMeasure:
                 in the quantization profile is used
 
         """
-        if self.empty() or len(self.beats) == 1:
+        if self.isEmpty() or len(self.beats) == 1:
             return
 
         minWeight = self.quantprofile.breakSyncopationsMinWeight(level)
@@ -853,8 +784,9 @@ class QuantizedMeasure:
         if tiedGraceMinDur == 0:
             return
         for n, node in self.tree.recurseWithNode():
-            if (n.isGracenote and (n.tiedNext or n.tiedPrev) and
-                    not n.hasAttributes() and n.getProperty('.snappedGracenote') and
+            if (n.isGracenote and
+                    (n.tiedNext or n.tiedPrev) and
+                    not n.hasAttributes() and
                     n.getProperty('.originalDuration', F0) < tiedGraceMinDur):
                 nidx = node.items.index(n)
                 if nidx < len(node.items) - 2:
@@ -897,7 +829,7 @@ class QuantizedMeasure:
                     assert n1.tiedPrev
                     tiedpitches = n0.tiedPitches()
                     if not all(p in n1.pitches for p in tiedpitches):
-                        raise ValueError(f"Mismatch in tie: {n0=}, {n1=}")
+                        raise ValueError(f"Mismatch in tie: {n0=}, {n1=}, {tiedpitches=}")
 
     def _checkBeats(self):
         if not self.beats:
@@ -1023,7 +955,7 @@ def _makeTreeFromQuantizedBeats(beats: list[QuantizedBeat],
 
 
 def _evalRhythmComplexity(profile: QuantizationProfile,
-                          snapped: list[SnappedNotation],
+                          snapped: list[Snapped],
                           div: division_t,
                           beatDur: F,
                           assignedSlots: list[int]
@@ -1124,9 +1056,11 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
     """
     # assert all(not ev.tiedNext for ev in eventsInBeat), eventsInBeat
     assert beatDuration > 0
-    beatDuration = asF(beatDuration)
-
     assert beatDuration in {F(1, 1), F(1, 2), F(1, 4), F(2, 1)}, f"{beatDuration=}"
+    if profile.debug:
+        import time
+        t0 = time.time()
+
 
     if len(eventsInBeat) > 2:
         last = eventsInBeat[-1]
@@ -1136,18 +1070,20 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
             eventsInBeat = eventsInBeat[:-1]
             eventsInBeat[-1].duration += last.duration
 
+    numEvents = len(eventsInBeat)
+
     # If only one event, bypass quantization
-    if len(eventsInBeat) == 1:
+    assert numEvents >= 1
+
+    if numEvents == 1:
         assert eventsInBeat[0].offset == beatOffset
         return QuantizedBeat((1,), assignedSlots=[0], notations=eventsInBeat,
                              beatDuration=beatDuration, beatOffset=beatOffset)
 
-    if not _isBeatFilled(eventsInBeat, beatDuration=beatDuration, beatOffset=beatOffset):
-        raise ValueError(f"Beat not filled, filling gaps: {eventsInBeat}")
+    # if not _isBeatFilled(eventsInBeat, beatDuration=beatDuration, beatOffset=beatOffset):
+    #     raise ValueError(f"Beat not filled: {eventsInBeat}")
 
-    if len(eventsInBeat) > 1:
-        eventsInBeat = _mergeUnquantizedNotations(eventsInBeat)
-
+    eventsInBeat = _mergeUnquantizedNotations(eventsInBeat)
     tempo = asF(quarterTempo) / beatDuration
     possibleDivisions = profile.possibleBeatDivisionsForTempo(tempo)
     if divisionHint is not None:
@@ -1157,75 +1093,64 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
         prioritizedDiv, prioritizedDivStrength = None, 0.
 
     # (totalError, div, snappedEvents, assignedSlots, debuginfo)
-    rows: list[tuple[float, division_t, list[SnappedNotation], list[int], str]] = []
+    rows: list[tuple[float, division_t, list[Snapped], list[int], str]] = []
     seen = set()
-    events0 = [ev.clone(offset=ev.qoffset - beatOffset) for ev in eventsInBeat]
+    if beatOffset > 0:
+        events0 = [ev.clone(offset=ev.qoffset - beatOffset) for ev in eventsInBeat]
+    else:
+        events0 = eventsInBeat
     minError = 999.
+    minGridError = 999.
 
     firstOffset = eventsInBeat[0].duration
     lastOffsetMargin = beatDuration - (eventsInBeat[-1].qoffset - beatOffset)
     optimizeMargins = True
     prevOuterRatio = F(*quantutils.outerTuplet(prevDivision)) if prevDivision else F0
+    events0offsets = np.array([float(ev.offset) for ev in events0])
+    gridErrorWeight = profile.gridErrorWeight
+    # events0offsets = [float(ev.offset) for ev in events0]
+
+    hasGracenotes = any(ev.duration == 0 for ev in eventsInBeat)
 
     for div in possibleDivisions:
         if div in seen or div in profile.blacklist:
             continue
+        seen.add(div)
+
+        if not hasGracenotes and (N:=len(eventsInBeat)) < 20 and N - sum(div) > 1:
+            continue
 
         # Exclude divisions which are not worth evaluating at full
-        # NB: simplifyDivision is efficient, but it is called a lot,
-        # so it is worth to find early if a division does not need to
-        # be analyzed in full
-        skip = False
-        if len(div) > 1:
-            if optimizeMargins:
-                # Rule out divs with superfluous subdivisions to the left
-                leftSkippedSubdivs = firstOffset // F(1, len(div))
-                if leftSkippedSubdivs > 0:
-                    div2 = (1,) * leftSkippedSubdivs + div[leftSkippedSubdivs:]
-                    if div2 in seen:
-                        # We don't continue here in order to allow for ruling out
-                        # the divisions with superfluous divisions to the right
-                        skip = True
-                    else:
-                        seen.add(div)
-                        div = div2
-
-                # Rule out divs with superfluous subdivisions to the right
-                rightSkippedSubdivs = lastOffsetMargin // F(1, len(div))
-                if rightSkippedSubdivs > 0:
-                    div2 = div[:-rightSkippedSubdivs] + (1,) * rightSkippedSubdivs
-                    if div2 in seen:
-                        continue
-                    else:
-                        seen.add(div)
-                        div = div2
-
-                if skip:
+        if optimizeMargins and len(div) > 1:
+            # Rule out divs with superfluous subdivisions to the left
+            if leftSkippedSubdivs := firstOffset // F(1, len(div)):
+                div2 = (1,) * leftSkippedSubdivs + div[leftSkippedSubdivs:]
+                if div2 in seen:
                     continue
+                div = div2
+            # Rule out divs with superfluous subdivisions to the right
+            if rightSkippedSubdivs := lastOffsetMargin // F(1, len(div)):
+                div2 = div[:-rightSkippedSubdivs] + (1,) * rightSkippedSubdivs
+                if div2 in seen:
+                    continue
+                seen.add(div2)
+                div = div2
 
         if profile.maxGridDensity and max(div)*len(div) > profile.maxGridDensity:
             continue
 
-        grid0, fgrid0 = quantutils.divisionGrid0Float(beatDuration=beatDuration, division=div)
-        assignedSlots, snappedEvents = snapEventsToGrid(events0, grid=grid0, fgrid=fgrid0)
-        simplifiedDiv = quantutils.simplifyDivision(div, assignedSlots, reduce=False)
-
-        if simplifiedDiv in seen or simplifiedDiv in profile.blacklist:
-            continue
-
-        if len(simplifiedDiv) > 1:
-            simplifiedDiv2 = quantutils.reduceDivision(div, newdiv=simplifiedDiv, assignedSlots=assignedSlots)
-            if simplifiedDiv2 in seen:
+        # grid0, fgrid0 = quantutils.divisionGrid0Float(beatDuration=beatDuration, division=div)
+        grid0, fgrid0 = quantutils.divisionGrid0Array(beatDuration=beatDuration, division=div)
+        assignedSlots = quantutils.assignSlots(offsets=events0offsets, fgrid=fgrid0)
+        simplifiedDiv, newSlots = quantutils.simplifyDivisionWithSlots(div, assignedSlots)
+        if simplifiedDiv is not None:
+            if (simplifiedDiv in seen) or (simplifiedDiv in profile.blacklist):
                 continue
-            elif simplifiedDiv2 != simplifiedDiv:
-                seen.add(simplifiedDiv)
-            simplifiedDiv = simplifiedDiv2
-
-        if simplifiedDiv != div:
+            assert simplifiedDiv != div
+            seen.add(simplifiedDiv)
+            assignedSlots = newSlots
             div = simplifiedDiv
-            newgrid = quantutils.divisionGrid0(beatDuration=beatDuration, division=simplifiedDiv)
-            assignedSlots = quantutils.resnap(assignedSlots, newgrid=newgrid, oldgrid=grid0)
-        seen.add(div)
+            grid0 = quantutils.divisionGrid0(beatDuration=beatDuration, division=simplifiedDiv)
 
         divPenalty, divPenaltyInfo = profile.divisionPenalty(div)
         if prevDivision and prevOuterRatio != 1:
@@ -1233,21 +1158,21 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
             if prevOuterRatio == outerRatio:
                 divPenalty *= profile.outerTupletMatchFactor
 
-        if (divError := divPenalty * sqrt(profile.divisionErrorWeight)) > minError * 1.05:
-            if profile.debug and divError / minError < 1.2:
-                # Only show near miss divisions, this might help tune the quantization
-                logger.debug("Skipping %s, divError: %g, minError: %g", str(div), divError, minError)
-            continue
-
+        snappedEvents = quantutils.makeSnapped(events0, slots=assignedSlots, grid=grid0)
         gridError = _evalGridError(profile=profile,
                                    snappedEvents=snappedEvents,
                                    beatDuration=beatDuration)
 
+        if gridError < minGridError:
+            minGridError = gridError
 
-        if (weightedGridError := gridError * sqrt(profile.gridErrorWeight)) > minError:
-            if profile.debug and weightedGridError / minError < 1.5:
-                logger.debug("Skipping %s, weightedGridError: %g, minError: %g", str(div), weightedGridError, minError)
-            continue
+        if gridError:
+            if minGridError == 0 and gridError > 0.1:
+                continue
+            if (weightedGridError := gridError * sqrt(gridErrorWeight)) > minError:
+                if profile.debug and weightedGridError / minError < 1.2:
+                    logger.info("Skipping %s, weightedGridError: %g, minError: %g", div, weightedGridError, minError)
+                continue
 
         rhythmComplexity, rhythmInfo = _evalRhythmComplexity(profile=profile,
                                                              snapped=snappedEvents,
@@ -1255,15 +1180,17 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
                                                              beatDur=beatDuration,
                                                              assignedSlots=assignedSlots)
 
-
         totalError = mathlib.weighted_euclidian_distance([
-            (gridError, profile.gridErrorWeight),
+            (gridError, gridErrorWeight),
             (divPenalty, profile.divisionErrorWeight),
             (rhythmComplexity, profile.rhythmComplexityWeight)   # XXX
         ])
 
         if div is prioritizedDiv:
             totalError /= prioritizedDivStrength
+
+        if gridError == 0.:
+            totalError *= profile.exactGridFactor
 
         if totalError > minError:
             if profile.debug and totalError / minError < 2:
@@ -1272,13 +1199,15 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
         else:
             minError = totalError
 
-        debuginfo = ''
         if profile.debug:
             debuginfo = (f"{gridError=:.3g}, {rhythmComplexity=:.3g} ({rhythmInfo}), "
                          f"{divPenalty=:.3g} ({divPenalty*sqrt(profile.divisionErrorWeight):.4g}, "
                          f"{divPenaltyInfo})")
+        else:
+            debuginfo = ''
 
         rows.append((totalError, div, snappedEvents, assignedSlots, debuginfo))
+        seen.add(div)
 
         if totalError == 0:
             break
@@ -1287,13 +1216,6 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
     # We make sure that (7,) is better than (7, 1) for the cases where the
     # assigned slots are actually the same
     rows.sort(key=lambda r: len(r[1]))
-
-    if profile.debug:
-        rows.sort(key=lambda row: row[0])
-        maxrows = min(profile.debugMaxDivisions, len(rows))
-        print(f"Beat: {beatOffset} - {beatOffset + beatDuration} (dur: {beatDuration})")
-        table = [(f"{r[0]:.5g}",) + r[1:] for r in rows[:maxrows]]
-        misc.print_table(table, headers="error div snapped slots info".split(), floatfmt='.4f', showindex=False)
 
     error, div, snappedEvents, assignedSlots, debuginfo = min(rows, key=lambda row: row[0])
     notations: list[Notation] = [snapped.applySnap(extraOffset=beatOffset)
@@ -1304,7 +1226,7 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
         if n.duration == 0:
             beatNotations.append(n)
         else:
-            assert beatOffset <= n.qoffset < n.qoffset + n.duration <= beatOffset + beatDuration, f"{n=}, {beatOffset=}, {beatDuration=}"
+            # assert beatOffset <= n.qoffset < n.qoffset + n.duration <= beatOffset + beatDuration, f"{n=}, {beatOffset=}, {beatDuration=}"
             eventParts = n._breakIrregularDurationInBeat(beatDivision=div, beatDur=beatDuration,
                                                          beatOffset=beatOffset)
             if eventParts:
@@ -1328,9 +1250,24 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
     if sum(n.duration for n in beatNotations) != beatDuration:
         raise AssertionError(f"{beatDuration=}, {beatNotations=}")
 
-    return QuantizedBeat(div, assignedSlots=assignedSlots, notations=beatNotations,
-                         beatDuration=beatDuration, beatOffset=beatOffset,
-                         quantizationError=error, quantizationInfo=debuginfo)
+    out = QuantizedBeat(div, assignedSlots=assignedSlots, notations=beatNotations,
+                        beatDuration=beatDuration, beatOffset=beatOffset,
+                        quantizationError=error, quantizationInfo=debuginfo)
+
+    if profile.debug:
+        import time
+        difftime = time.time() - t0
+        gridcache = quantutils.divisionGrid0.cache_info()
+        print(f"Possible divs: {len(possibleDivisions)}, solutions: {len(rows)}, best div: {div}, "
+              f"error: {error:.5f}, time: {difftime * 1000:.2f}ms, cache info: {gridcache.hits}/{gridcache.misses}")
+        print(f"Solutions in order of eval: {[row[1] for row in rows]}")
+        rows.sort(key=lambda row: row[0])
+        maxrows = min(profile.debugMaxDivisions, len(rows))
+        print(f"Beat: {beatOffset} - {beatOffset + beatDuration} (dur: {beatDuration})")
+        table = [(f"{r[0]:.5g}",) + r[1:] for r in rows[:maxrows]]
+        misc.print_table(table, headers="error div snapped slots info".split(), floatfmt='.4f', showindex=False)
+
+    return out
 
 
 def _mergeUnquantizedNotations(notations: list[Notation]) -> list[Notation]:
@@ -1385,17 +1322,20 @@ def quantizeBeatTernary(eventsInBeat: list[Notation],
     assert beatDuration.numerator == 3
     subdiv = beatDuration / 3
     possibleDistributions = [
-        (beatOffset, beatOffset+subdiv*2, beatOffset+subdiv*3),  # 2 + 1
-        (beatOffset, beatOffset+subdiv, beatOffset+subdiv*3),    # 1 + 2
-        (beatOffset, beatOffset+subdiv, beatOffset+subdiv*2, beatOffset+subdiv*3)  # 1+1+1
+        (beatOffset, beatOffset + subdiv*2, beatOffset + subdiv*3),  # 2 + 1
+        (beatOffset, beatOffset + subdiv, beatOffset + subdiv*3),    # 1 + 2
+        (beatOffset, beatOffset + subdiv, beatOffset + subdiv*2, beatOffset + subdiv*3)  # 1+1+1
     ]
 
     results = []
+
+    assert all(not ev.isQuantized() for ev in eventsInBeat)
     for offsets in possibleDistributions:
-        eventsInSubbeats = quantutils.breakNotationsByBeat(eventsInBeat, offsets)
-        beats = [quantizeBeatBinary([ev.copy(spanners=True) for ev in events], quarterTempo=quarterTempo, profile=profile,
+        eventsInSubbeats = quantutils.breakNotationsByBeat(eventsInBeat, offsets, forcecopy=True)
+        beats = [quantizeBeatBinary(events, quarterTempo=quarterTempo, profile=profile,
                                     beatDuration=end-start, beatOffset=start)
                  for start, end, events in eventsInSubbeats]
+
         totalerror = sum(beat.quantizationError * beat.duration for beat in beats)
         results.append((totalerror, beats))
     if profile.debug:
@@ -1423,9 +1363,6 @@ def _notationNeedsBreak(n: Notation, beatDur: F, beatDivision: division_t,
 
     """
     assert n.duration is not None and n.duration >= 0
-    assert isinstance(beatDivision, tuple), f"Expected a tuple, got {beatDivision}"
-    assert isinstance(beatDur, F), f"Expected a fraction, got {beatDur}"
-    assert isinstance(beatOffset, F), f"Expected a fraction, got {beatOffset}"
 
     if n.end > beatOffset + beatDur:
         raise ValueError(f"n extends over the beat. "
@@ -1441,7 +1378,6 @@ def _notationNeedsBreak(n: Notation, beatDur: F, beatDivision: division_t,
         nslots = n.duration / slotdur
         if nslots.denominator != 1:
             raise ValueError(f"n is not quantized with given division.\n  n={n}\n  division={beatDivision}")
-        assert isinstance(nslots, F), f"Expected nslots of type F, got {type(nslots).__name__} (nslots={nslots})"
         return nslots.numerator not in quantdata.regularDurations
     else:
         # check if n extends over subdivision
@@ -1517,8 +1453,9 @@ def quantizeMeasure(events: list[Notation],
     """
     quarterTempo = st.convertTempo(tempo, tempoRef, (4, 0))
     measureDur = timesig.duration
-    assert all(ev0.end == ev1.offset for ev0, ev1 in itertools.pairwise(events)), "Events not stacked"
-    assert sum(ev.duration for ev in events) == measureDur, "Measure not filled"
+    if profile.debug:
+        assert all(ev0.end == ev1.offset for ev0, ev1 in itertools.pairwise(events)), "Events not stacked"
+        assert sum(ev.duration for ev in events) == measureDur, "Measure not filled"
 
     beatOffsets = [beat.offset for beat in beatStructure]
     beatOffsets.append(beatStructure[-1].end)
@@ -1527,7 +1464,7 @@ def quantizeMeasure(events: list[Notation],
 
     quantizedBeats: list[QuantizedBeat] = []
     idx = 0
-    for spanstart, spanend, eventsInBeat in quantutils.breakNotationsByBeat(events, beatOffsets=beatOffsets):
+    for spanstart, spanend, eventsInBeat in quantutils.breakNotationsByBeat(events, offsets=beatOffsets):
         beatWeight = beatStructure[idx].weight
         beatdur = spanend - spanstart
         ev0 = eventsInBeat[0]
@@ -1616,7 +1553,6 @@ def splitNotationAtMeasures(n: Notation, struct: st.ScoreStruct
     if beat1 > F0:
         notation = n.cloneAsTie(offset=F0, duration=beat1, tiedPrev=True, tiedNext=n.tiedNext)
         pairs.append((measureindex1, notation))
-
 
     parts = [part for measidx, part in pairs]
     assert sum(part.duration for part in parts) == n.duration, f"{n=}, {parts=}"
@@ -2104,10 +2040,13 @@ class QuantizedPart:
 
     def dump(self, numindents=0, indent=_INDENT, tree=True, stream=None):
         """Dump this part to a stream or stdout"""
+        tempo: tuple[tuple[int, int], F] | None = None
         for i, m in enumerate(self.measures):
             ind = _INDENT * numindents
             print(f'{ind}Measure #{i}', file=stream or sys.stdout)
-            m.dump(numindents=numindents + 1, indent=indent, tree=tree, stream=stream)
+            m.dump(numindents=numindents + 1, indent=indent, tree=tree,
+                   stream=stream, tempo=tempo!=(m.tempoRef, m.tempo))
+            tempo = (m.tempoRef, m.tempo)
 
     def bestClef(self) -> str:
         """
@@ -2223,7 +2162,7 @@ class QuantizedPart:
             if resetAfterCustomBarline and i > 0 and struct.measure(i - 1).barline in customBarlines:
                 dynamic = ''
 
-            if meas.empty():
+            if meas.isEmpty():
                 if resetAfterEmptyMeasure:
                     dynamic = ''
             else:
@@ -2389,8 +2328,6 @@ class QuantizedPart:
                     n0.tiedNext = False
                     n1.tiedPrev = False
                 else:
-                    hints0 = n0.tieHints('forward')
-                    hints1 = n1.tieHints('backward')
                     for idx0, pitch0 in enumerate(n0.pitches):
                         idx1 = next((idx for idx, pitch in enumerate(n1.pitches) if pitch == pitch0), None)
                         if idx1 is not None:
@@ -2398,8 +2335,8 @@ class QuantizedPart:
                             note1 = n1.notename(idx1)
                             if note1 != note0:
                                 n1.fixNotename(note0, index=idx1)
-                            hints0.add(idx0)
-                            hints1.add(idx1)
+                            n0.setTieHint(idx0)
+                            n1.setTieHint(idx1, "backward")
 
             elif n0.gliss:
                 if n1.isRest or n0.pitches == n1.pitches:
@@ -2703,7 +2640,7 @@ class QuantizedScore:
         title: an optional title
         composer: an optional composer
     """
-    __slots__ = ('parts', 'title', 'composer')
+    __slots__ = ('parts', 'title', 'composer', 'quantProfile', 'struct')
 
     def __init__(self,
                  parts: list[QuantizedPart],
@@ -2722,6 +2659,15 @@ class QuantizedScore:
         self.composer: str = composer
         """Composer of the score, used for rendering"""
 
+        qprofile = self.parts[0].quantProfile
+        if not all(part.quantProfile is qprofile for part in self.parts):
+            logger.info("This quantized score includes multiple quantization profiles")
+
+        self.quantProfile = qprofile
+        """Quantization profile. A part might have a different profile"""
+
+        self.struct = self.parts[0].struct
+        "ScoreStruct for this score. A part might have a different scorestruct"
 
     def check(self):
         """Check this QuantizedScore"""
@@ -2757,7 +2703,7 @@ class QuantizedScore:
 
     def __hash__(self):
         partHashes = [hash(p) for p in self.parts]
-        return hash((self.scorestruct, self.title, self.composer) + tuple(partHashes))
+        return hash((self.struct, self.title, self.composer) + tuple(partHashes))
 
     def __getitem__(self, item: int) -> QuantizedPart:
         return self.parts[item]
@@ -2771,7 +2717,7 @@ class QuantizedScore:
     def __repr__(self):
         import io
         stream = io.StringIO()
-        self.dump(tree=False, stream=stream)
+        self.dump(tree=True, stream=stream)
         return stream.getvalue()
 
     def dump(self, tree=True, indent=_INDENT, stream=None, numindents: int = 0) -> None:
@@ -2788,29 +2734,6 @@ class QuantizedScore:
         for i, part in enumerate(self):
             print(f"{indent*numindents}Part #{i}:", file=stream)
             part.dump(tree=tree, numindents=numindents+1, indent=indent, stream=stream)
-
-    @property
-    def scorestruct(self) -> st.ScoreStruct:
-        """Returns the ScoreStruct of this score"""
-        if not self.parts:
-            raise IndexError("This QuantizedScore has no parts")
-        return self.parts[0].struct
-
-    @property
-    def quantprofile(self) -> QuantizationProfile:
-        if not self.parts:
-            raise IndexError("This QuantizedScore has no parts")
-        return self.parts[0].quantProfile
-
-    @scorestruct.setter
-    def scorestruct(self, struct: st.ScoreStruct) -> None:
-        if self.parts:
-            for i, part in enumerate(self.parts):
-                if part.struct is None:
-                    part.struct = struct
-                elif part.struct != struct:
-                    logger.info("Part %d has already got a scorestruct different than"
-                                "the global struct", i)
 
     def numMeasures(self) -> int:
         """Returns the number of measures in this score"""
@@ -2949,26 +2872,7 @@ class QuantizedScore:
                 events.extend(notationsToCoreEvents(notations))
             voice = maelzel.core.Voice(events, name=part.name, abbrev=part.abbrev)
             voices.append(voice)
-        return maelzel.core.Score(voices=voices, scorestruct=self.scorestruct, title=self.title)
-
-    def toCoreScore(self) -> maelzel.core.Score:
-        """
-        DEPRECATED. Convert this QuantizedScore to a :class:`~maelzel.core.score.Score`
-
-        Use .coreScore instead
-
-        Returns:
-            the corresponding maelzel.core.Score
-
-        Example
-        -------
-
-            >>> from maelzel.core import *
-            >>> chain = Chain([...
-        """
-        import warnings
-        warnings.warn("Deprecated, use .coreScore()")
-        return self.coreScore()
+        return maelzel.core.Score(voices=voices, scorestruct=self.struct, title=self.title)
 
 
 def quantizeParts(parts: list[core.UnquantizedPart],
@@ -3096,3 +3000,19 @@ def quantizeParts(parts: list[core.UnquantizedPart],
         qscore.resolveChordEnharmonics()
 
     return qscore
+
+
+def _makeEmptyBeats(timesig: st.TimeSignature,
+                    tempo: F,
+                    tempoRef: tuple[int, int]):
+    mdef = st.MeasureDef(timesig=timesig, tempo=tempo, tempoRef=tempoRef)
+    beats = []
+    for beatdef in mdef.beatStructure():
+        n = Notation.makeRest(beatdef.duration, offset=beatdef.offset)
+        beat = QuantizedBeat(divisions=(1, ),
+                             assignedSlots=[0],
+                             notations=[n],
+                             beatDuration=beatdef.duration)
+        beats.append(beat)
+    return beats
+

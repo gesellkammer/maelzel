@@ -390,7 +390,7 @@ def _repairGracenoteAsTargetGliss(notations: list[Notation]) -> bool:
 def resolvedOffsets(notations: list[Notation]
                     ) -> Iterator[tuple[Notation, F]]:
     """
-    Iterate over notations rendering each notation together with its resolved offset
+    Iterate over notations, yields each notation together with its resolved offset
 
     Notations are not modified
 
@@ -407,8 +407,8 @@ def resolvedOffsets(notations: list[Notation]
     for i, n in enumerate(notations):
         if n.offset is not None:
             if n.offset < now:
-                raise ValueError(f"Notations not sorted, {n} starts before "
-                                 f"the end of the previous event, {notations[i-1]}. "
+                raise ValueError(f"Notations not sorted, {i=}, {n.offset=}, {now=}, "
+                                 f"{n} starts before the end of the previous event, {notations[i-1]}. "
                                  f"Notations: {notations}")
             now = n.offset
         yield n, now

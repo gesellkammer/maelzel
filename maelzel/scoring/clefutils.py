@@ -17,6 +17,9 @@ if TYPE_CHECKING:
     from maelzel.scoring import spanner as _spanner
 
 
+_cache = {}
+
+
 @dataclass
 class _ClefDefinition:
     """
@@ -37,7 +40,6 @@ class _ClefDefinition:
         return last == "8" or last == "5"
         
     
-@cache
 def clefDefinitions() -> dict[str, _ClefDefinition]:
     """
     A dict {clef: clefdef}
@@ -48,14 +50,18 @@ def clefDefinitions() -> dict[str, _ClefDefinition]:
     Returns:
         a dict {clef(str): bpf}
     """
+    if (out := _cache.get('clefDefinitions')) is not None:
+        return out
+
     import bpf4
-    return {
+    out = {
         'treble15': _ClefDefinition('treble15', center=n2m("7F"), fitness=bpf4.linear(
             (n2m("4C"), -100),
             (n2m("5C"), -2),
             (n2m("6C"), 0),
             (n2m("6A"), 1),
             (n2m("10C"), 1))),
+
         'treble8': _ClefDefinition('treble8', center=n2m("6D"), fitness=bpf4.linear(
             (n2m("3C"), -100),
             (n2m("4G"), -2),
@@ -100,6 +106,9 @@ def clefDefinitions() -> dict[str, _ClefDefinition]:
             (n2m("2C"), -2),
             (n2m("2A"), -100)))
     }
+
+    _cache['clefDefinitions'] = out
+    return out
 
 
 class ClefChangesEvaluator:
@@ -389,6 +398,16 @@ class SimpleClefEvaluator:
         self._cache[clefs] = self
 
     def __call__(self, pitch: float) -> tuple[str, float]:
+        """
+        Evaluate the best clef for the given pitch
+
+        Args:
+            pitch: the pitch to evaluate
+
+        Returns:
+            a tuple (clef: str, points: float)
+
+        """
         points, clef = max((curve.fitness(pitch), clef) for clef, curve in self.curves.items())
         return clef, points
     
@@ -478,53 +497,37 @@ def _groupNotationsBySpanner(ns: Sequence[Notation]) -> dict[_spanner.Spanner, l
 @cache
 def _clefCombinations(minStaves: int, maxStaves: int, exclude: tuple[str, ...] = ()) -> list[tuple[str, ...]]:
     allcombinations = []
-    for num in range(minStaves, maxStaves+1):
-        combinations = _possibleCombinations(numStaves=num, exclude=exclude)
-        allcombinations.extend(combinations)
-    return allcombinations
 
-
-@cache
-def _possibleCombinations(numStaves: int, exclude: tuple[str, ...] = ()
-                          ) -> list[tuple[str, ...]]:
-    """
-    Possible combinations of clefs, given the number of staves
-    
-    Args:
-        numStaves: number of different staves 
-        exclude: tuple with clefs which should be excluded
-
-    Returns:
-        a list of combinations, where each item is a tuple of different clefs
-    """
-    if numStaves == 1:
-        combinations = [('treble15',), ('treble8',), ('treble',), ('bass',), ('bass8',), ('bass15',)]
-    elif numStaves == 2:
-        combinations = [
+    numStavesToCombinations = {
+        1: [('treble15',), ('treble8',), ('treble',), ('bass',), ('bass8',), ('bass15',)],
+        2: [
             ('treble15', 'treble'),
             ('treble15', 'bass'),
             ('treble8', 'bass'),
             ('treble8', 'bass8'),
             ('treble', 'bass'),
-            ('treble', 'bass8')]
-    elif numStaves == 3:
-        combinations = [
+            ('treble', 'bass8')],
+        3: [
             ('treble15', 'treble', 'bass'),
             ('treble15', 'treble', 'bass8'),
             ('treble15', 'treble', 'bass15'),
             ('treble15', 'bass', 'bass8'),
             ('treble', 'bass', 'bass8'),
-            ('treble', 'bass', 'bass15')]
-    elif numStaves == 4:
-        combinations = [
+            ('treble', 'bass', 'bass15')],
+        4: [
             ('treble15', 'treble', 'bass', 'bass8'),
             ('treble15', 'treble', 'bass', 'bass15')]
-    else:
-        raise ValueError(f"Invalid numstaves: {numStaves}")
-    if exclude:
-        combinations = [comb for comb in combinations if all(clef not in comb for clef in exclude)]
-    return combinations
-    
+    }
+    if not (1 <= minStaves <= maxStaves <= 4):
+        raise ValueError(f"Invalid staves numbers, number of staves should be between 1 and 4")
+
+    for num in range(minStaves, maxStaves+1):
+        combinations = numStavesToCombinations[num]
+        if exclude:
+            combinations = [comb for comb in combinations if all(clef not in comb for clef in exclude)]
+        allcombinations.extend(combinations)
+    return allcombinations
+
 
 def bestClefCombination(notations: list[Notation],
                         maxStaves: int,
@@ -591,6 +594,7 @@ def bestClefCombination(notations: list[Notation],
     out = max(results.items(), key=lambda pair: pair[1])[0]
     return out
 
+
 def explodeNotations(notations: list[Notation],
                      maxStaves: int,
                      minStaves=0,
@@ -625,7 +629,7 @@ def explodeNotations(notations: list[Notation],
         return [(bestClefs[0], notations)]
 
     return splitNotationsByClef(notations,
-                                clefs=bestClefs,
+                                possibleClefs=bestClefs,
                                 groupNotationsInSpanners=False,
                                 distributeSpanners=distributeSpanners)
 
@@ -685,7 +689,7 @@ def clefsBetween(minclef='',
 
 
 def splitNotationsByClef(notations: list[Notation],
-                         clefs: Sequence[str],
+                         possibleClefs: Sequence[str],
                          groupNotationsInSpanners=False,
                          distributeSpanners=True
                          ) -> list[tuple[str, list[Notation]]]:
@@ -697,7 +701,7 @@ def splitNotationsByClef(notations: list[Notation],
 
     Args:
         notations: notations to split
-        clefs: clefs for each part
+        possibleClefs: clefs for each part
         groupNotationsInSpanners: if True, force all parts of all notations within spanners
             to be on one voice
         distributeSpanners: if True and spanners extend over notations across multiple staves,
@@ -707,29 +711,44 @@ def splitNotationsByClef(notations: list[Notation],
     Returns:
         a list of pairs (clefname: str, notations: list[Notation])
     """
+    assert len(possibleClefs) > 1
 
-    if any(clef not in definitions.clefs for clef in clefs):
-        clef = next(clef for clef in clefs if clef not in definitions.clefs)
-        raise ValueError(f"Clef {clef} not known. Expected {definitions.clefs.keys()}")
+    if any(clef not in definitions.clefs for clef in possibleClefs):
+        unknown = [clef for clef in possibleClefs if clef not in definitions.clefs]
+        raise ValueError(f"Unknown clefs {unknown}, expected {definitions.clefs.keys()}")
 
     # Normalize clefs
-    clefs = [definitions.clefs[clef] for clef in clefs]
-    clefs = sorted(clefs, key=lambda clef: definitions.clefSortOrder[clef])
-    parts: dict[str, list[Notation]] = {clef: [] for clef in clefs}
+    possibleClefs = [definitions.clefs[clef] for clef in possibleClefs]
+    possibleClefs = sorted(possibleClefs, key=lambda clef: definitions.clefSortOrder[clef])
+    parts: dict[str, list[Notation]] = {clef: [] for clef in possibleClefs}
     lastn = len(notations) - 1
-    if not isinstance(clefs, tuple):
-        clefs = tuple(clefs)
-    clefeval = SimpleClefEvaluator(clefs=clefs)
+    if not isinstance(possibleClefs, tuple):
+        possibleClefs = tuple(possibleClefs)
+    clefeval = SimpleClefEvaluator(clefs=possibleClefs)
 
     def _distrNotation(n: Notation, nidx: int, parts: dict[str, list[Notation]], ns: Sequence[Notation]) -> None:
         if n.isRest:
             for part in parts.values():
                 part.append(n)  # should it be a copy?
             return
-        pitchindexToClef: list[str] = [n._getClefHint(i) or clefeval(p)[0]
-                                       for i, p in enumerate(n.pitches)]
-        clef0 = pitchindexToClef[0]
-        if len(n.pitches) == 1 or all(clef == clef0 for clef in pitchindexToClef):
+        clefs: list[str]
+        if not n.gliss or nidx == lastn:
+            clefs = [n._getClefHint(i) or clefeval(p)[0]
+                                for i, p in enumerate(n.pitches)]
+            glissmap = None
+        else:
+            assert n.gliss and nidx < lastn
+            glissmap = n.findAttachment(attachment.GlissMap)
+            clefs = []
+            nextn = ns[nidx + 1]
+            for i, p in enumerate(n.pitches):
+                glisstarget = n._glissTarget(i, nextev=nextn, glissmap=glissmap)
+                if glisstarget:
+                    p = (p + glisstarget) / 2
+                clefs.append(clefeval(p)[0])
+
+        clef0 = clefs[0]
+        if len(n.pitches) == 1 or all(clef == clef0 for clef in clefs):
             parts[clef0].append(n.copy(spanners=False))
             if n.duration > 0:
                 for otherclef in clefs:
@@ -737,14 +756,26 @@ def splitNotationsByClef(notations: list[Notation],
                         parts[otherclef].append(n.asRest())
         else:
             # A chord, distribute notes within parts
-            for clef in clefs:
-                indexes = [i for i, clef2 in enumerate(pitchindexToClef) if clef == clef2]
+            for clef in possibleClefs:
+                indexes = [i for i, clef2 in enumerate(clefs) if clef == clef2]
                 if indexes:
                     partialn = n.extractPartialNotation(indexes, spanners=False)
                     parts[clef].append(partialn)
-                    if n.gliss and nidx < lastn:
-                        for idx in indexes:
-                            ns[nidx+1]._setClefHint(clef, idx)
+                    if not n.gliss or nidx == lastn:
+                        continue
+                    nextn = ns[nidx+1]
+                    if glissmap:
+                        for pair in glissmap.pairs:
+                            sourceidx = partialn.index(pair[0], tolerance=0.001)
+                            destidx = nextn.index(pair[1], tolerance=0.001)
+                            if sourceidx is None or destidx is None:
+                                continue
+                            nextn._setClefHint(clef, destidx)
+                    else:
+                        targets = n._guessGlissTargets(nextn)
+                        for idx, target in enumerate(targets):
+                            if idx in indexes and target in nextn.pitches:
+                                nextn._setClefHint(clef, idx)
                 elif n.duration > 0:
                     parts[clef].append(n.asRest())
 

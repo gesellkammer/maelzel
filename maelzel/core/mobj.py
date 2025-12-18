@@ -132,7 +132,7 @@ class MObj(ABC):
     _isDurationRelative = True
 
     __slots__ = ('parent', '_dur', 'offset', 'label', 'playargs', 'symbols',
-                 'properties', '_resolvedOffset',
+                 'properties', '_relOffset',
                  '__weakref__')
 
     def __init__(self,
@@ -179,7 +179,7 @@ class MObj(ABC):
         User-defined properties as a dict (None by default). Set them via :meth:`~maelzel.core.mobj.MObj.setProperty`
         """
 
-        self._resolvedOffset: F | None = None
+        self._relOffset: F | None = None
 
     @abstractmethod
     def __hash__(self) -> int: ...
@@ -202,7 +202,6 @@ class MObj(ABC):
             other: destination object
 
         """
-        assert type(other) is type(self)
         if self.symbols is not None:
             other.symbols = self.symbols.copy()
         if self.playargs is not None:
@@ -349,7 +348,7 @@ class MObj(ABC):
         Returns:
              the explicit or implicit offset, or *default* otherwise
         """
-        return _ if (_:=self.offset) is not None else _ if (_:=self._resolvedOffset) is not None else default
+        return _ if (_:=self.offset) is not None else _ if (_:=self._relOffset) is not None else default
 
     def relEnd(self) -> F:
         """
@@ -393,10 +392,10 @@ class MObj(ABC):
 
         if (offset := self.offset) is not None:
             return offset
-        elif self._resolvedOffset is not None:
-            return self._resolvedOffset
+        elif self._relOffset is not None:
+            return self._relOffset
         elif self.parent:
-            self._resolvedOffset = offset = self.parent._childOffset(self)
+            self._relOffset = offset = self.parent._childOffset(self)
             return offset
         else:
             return F0
@@ -586,6 +585,7 @@ class MObj(ABC):
         return self
 
     def clone(self,
+              _sharedAttributes=False,
               **kws) -> Self:
         """
         Clone this object, changing parameters if needed
@@ -1232,7 +1232,7 @@ class MObj(ABC):
                                                          "*.ly, *.xml, *.mid)")
             if not selected:
                 logger.info("File selection cancelled")
-                return
+                return None
             outfile = selected
         ext = os.path.splitext(outfile)[1]
         cfg = Workspace.active.config

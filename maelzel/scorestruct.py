@@ -413,10 +413,20 @@ def _parseTempoRefvalue(ref: str) -> tuple[int, int]:
         except ValueError as e:
             raise ValueError(f"Could not parse tempo: '{ref}'") from e
 
-    try:
-        refvalue = int(refvaluestr)
-    except ValueError as e:
-        raise ValueError(f"Could not parse tempo '{ref}', invalid reference value '{refvaluestr}'") from e
+    if refvaluestr.isalpha():
+        refvalue = {"w": 1, "h": 2, "q": 4, "e": 8, "s": 16}.get(refvaluestr)
+        if refvalue is None:
+            raise ValueError(f"Could not parse tempo '{ref}', "
+                             f"invalid reference value '{refvaluestr}'. Examples of "
+                             f"valid tempos: 4=60, q=60, 8=72, e=72, 4.=90, ..., where"
+                             f"q=quarternote, e=eighthnote, etc.")
+    else:
+        try:
+            refvalue = int(refvaluestr)
+        except ValueError as e:
+            raise ValueError(f"Could not parse tempo '{ref}', invalid reference "
+                             f"value '{refvaluestr}'. Examples of valid tempos: 4=60, 8=72, "
+                             f"8.=96, etc.") from e
 
     if refvalue not in _powersof2:
         raise ValueError(f"Could not parse tempo: '{ref}', reference value {refvalue} should be a power of 2")
@@ -513,7 +523,7 @@ def _parseLine(line: str) -> _ScoreLine:
             # Either a tempo or a keyword=value pair
             key, val = part.split('=', maxsplit=1)
             key = key.strip().lower()
-            if re.match(r"(1|2|4|8|16|32|64)\.*", key):
+            if re.match(r"(1|2|4|8|16|32|64|q|e|h|w|s)\.*", key):
                 refvalue, numdots = _parseTempoRefvalue(key)
                 tempodef = TempoDef(tempo=F(val), base=refvalue, dots=numdots)
             else:
@@ -800,7 +810,7 @@ class MeasureDef:
         return measureBeatStructure(self.timesig,
                                     tempo=self.tempo,
                                     tempoRef=self.tempoRef,
-                                    subdivisions=self.subdivisionStructure(),
+                                     subdivisions=self.subdivisionStructure(),
                                     subdivTempo=self.subdivTempoThresh(),
                                     breakTempo=self.beatWeightTempoThresh())
 
@@ -1328,6 +1338,11 @@ class ScoreStruct:
         endless: mark this ScoreStruct as endless. Defaults to True
         title: title metadata for the score, used when rendering
         composer: composer metadata for this score, used when rendering
+        breakTempo: tempo at which a syncopation across the beat is broken
+            (during quantization). This value can be overridden for any measure, it is
+            used as a global fallback
+        subdivTempo: a subdivision slower than this becomes an independent beat
+            (during quantization).
 
     Example
     -------
@@ -1404,7 +1419,7 @@ class ScoreStruct:
                  title='',
                  composer='',
                  const=False,
-                 breakTempo: int = 52,
+                 breakTempo: int = 48,
                  subdivTempo: int = 92):
 
         # holds the time offset (in seconds) of each measure
@@ -1434,10 +1449,10 @@ class ScoreStruct:
         self.const = const
         """Is this ScoreStruct read-only?"""
         
-        self.breakTempo: int | None = breakTempo
+        self.breakTempo: int = breakTempo
         """Tempo at which a syncopation across the beat is broken (during quantization)"""
 
-        self.subdivTempo: int | None = subdivTempo
+        self.subdivTempo: int = min(breakTempo * 2, subdivTempo)
         """A subdivision slower than this becomes an independent beat (during quantization)"""
 
         self._hash: int | None = None
@@ -2057,10 +2072,18 @@ class ScoreStruct:
         if not isinstance(beat, F):
             beat = asF(beat)
 
-        lastBeatOffset = self._beatOffsets[-1]
-        if beat > lastBeatOffset:
+        # Special case: 1 MeasureDef, endless
+        if numdefs == 1 and self.endless:
+            measdur = self.measures[0].duration
+            idx0 = beat / measdur
+            idx = int(idx0)
+            rest = beat - idx * measdur
+            return idx, rest
+
+        lastBeat = self._beatOffsets[-1]
+        if beat > lastBeat:
             # past the end
-            rest = beat - lastBeatOffset
+            rest = beat - lastBeat
             if not self.endless:
                 if rest > 0:
                     raise ValueError(f"The given beat ({beat}) is outside the score")
@@ -2069,7 +2092,6 @@ class ScoreStruct:
             numExtraMeasures = int(rest / beatsPerMeasure)
             idx = numdefs - 1 + numExtraMeasures
             restBeats = rest - numExtraMeasures*beatsPerMeasure
-            # restBeats = rest % beatsPerMeasure
             return idx, restBeats
         else:
             lastIndex = self._lastIndex
@@ -2660,8 +2682,18 @@ class ScoreStruct:
         allparts.append(htmltable)
         return "".join(allparts)
 
-    def _render(self, backend='', renderoptions: RenderOptions | None = None
-                ) -> Renderer:
+    def render(self, backend='', renderoptions: RenderOptions | None = None
+               ) -> Renderer:
+        """
+        Render this ScoreStruct as notation
+
+        Args:
+            backend: the backend used
+            renderoptions: render options to override the current configuration
+
+        Returns:
+            a maelzel.scoring.Renderer
+        """
         self._update()
         from maelzel.scoring import quant
         from maelzel.scoring import render
@@ -2802,7 +2834,7 @@ class ScoreStruct:
         if path.suffix == ".xml":
             raise ValueError("musicxml output is not supported yet")
         elif path.suffix in (".pdf", '.png', '.ly'):
-            r = self._render(backend=backend, renderoptions=renderoptions)
+            r = self.render(backend=backend, renderoptions=renderoptions)
             r.write(str(path))
         elif path.suffix == '.mid' or path.suffix == '.midi':
             sco = _filledScoreFromStruct(self)
@@ -3044,3 +3076,5 @@ def durationToFigure(dur: F, maxdots=5) -> tuple[int, int]:
 
     raise ValueError(f"Cannot represent {num}/{den} as a standard "
                      f"duration with dots")
+
+

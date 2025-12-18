@@ -919,11 +919,9 @@ class SynthEvent:
 
     def __repr__(self) -> str:
         info = self._reprInfo()
-        if len(self.bps) <= 3:
-            def bprepr3(bp):
-                parts = [f"{showT(bp[0])} {showFlt(bp[1])}"] + [showFlt(b, 5) for b in bp[2:]]
-                return " ".join(parts)
-            bps = "￨".join([bprepr3(bp) for bp in self.bps])
+        if len(self.bps[0]) == 3:
+            bps = "; ".join(f"{showT(bp[0])} {showFlt(bp[1])} {showFlt(pt.amp2db(bp[2]), 1)}"
+                           for bp in self.bps)
             return f"SynthEvent({info}, bps=｢{bps}｣)"
         else:
             lines = [f"SynthEvent({info})"]
@@ -1015,7 +1013,7 @@ class SynthEvent:
         return axes
 
     @staticmethod
-    def mergeEvents(events: Sequence[SynthEvent]) -> SynthEvent:
+    def merge(events: Sequence[SynthEvent]) -> SynthEvent:
         """
         Static method to merge events which are linked (tied, gliss)
 
@@ -1026,7 +1024,7 @@ class SynthEvent:
             the merged event
 
         """
-        return mergeEvents(events)
+        return _mergeEvents(events)
 
     def _flatBreakpoints(self) -> list[float]:
         out = []
@@ -1174,8 +1172,8 @@ class SynthEvent:
         return axes
 
 
-def mergeEvents(events: Sequence[SynthEvent], checkStaticAttributes=True
-                ) -> SynthEvent:
+def _mergeEvents(events: Sequence[SynthEvent], checkStaticAttributes=True
+                 ) -> SynthEvent:
     """
     Merge linked events
 

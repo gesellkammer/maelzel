@@ -81,6 +81,9 @@ class QuantizationProfile:
     """An exponent applied to the grid error. Since this values is always between 0 and 1,
     an exponent less than 1 makes the effects of grid errors grow faster"""
 
+    exactGridFactor: float = 1.0
+    """A factor applied to the total error when the grid is exact"""
+
     divisionErrorWeight: float = 0.002
     """Weight of the division complexity"""
 
@@ -320,7 +323,7 @@ class QuantizationProfile:
 
         if not self.nestedTuplets:
             divs = [div for div in divs if isinstance(div, int) or not quantutils.isNestedTupletDivision(div)]
-        divs = sorted(divs, key=lambda div: len(div))
+        # Divisions are already sorted by number of attacks
         self._cachedDivisionsByTempo[(tempo, self.nestedTuplets)] = divs
         return divs
 
@@ -396,7 +399,6 @@ class QuantizationProfile:
             the quantization preset
 
         """
-
         presets = quantdata.getPresets()
         preset = presets.get(complexity)
         if preset is None:
@@ -404,8 +406,10 @@ class QuantizationProfile:
 
         profilekeys = QuantizationProfile.keys()
         presetkeys = set([field.name for field in _fields(quantdata.QuantPreset)])
+
         presetkws = {key: value for key in presetkeys.intersection(profilekeys)
                      if (value:=getattr(preset, key)) is not None}
+
         if nestedTuplets is not None:
             kws['nestedTuplets'] = nestedTuplets
         if not kws.get('name'):
@@ -414,7 +418,8 @@ class QuantizationProfile:
             kws['blacklist'] = blacklist if isinstance(blacklist, tuple) else tuple(blacklist)
 
         if kws:
-            presetkws.update(kws)
+            kws2 = {k: v for k, v in kws.items() if v is not None}
+            presetkws.update(kws2)
 
         return QuantizationProfile(**presetkws)
 
@@ -430,15 +435,12 @@ def _divisionCardinality(division: division_t, excludeBinary=False) -> int:
         allfactors.update(quantutils.primeFactors(subdiv, excludeBinary=excludeBinary))
 
     return sum(1 for fact in allfactors if fact not in (1, 3))
-    # return len(allfactors)
 
 
 @cache
 def _divisionDepth(division: division_t) -> int:
     # TODO: make general form for deeply nested tuplets
-    if isinstance(division, int):
-        return 1
-    if mathlib.ispowerof2(len(division)):
+    if isinstance(division, int) or mathlib.ispowerof2(len(division)):
         return 1
     if all(mathlib.ispowerof2(subdiv) for subdiv in division):
         return 1

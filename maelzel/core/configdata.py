@@ -126,9 +126,10 @@ defaultdict = {
     'quant.nestedTupletsMusicxml': False,
     'quant.breakBeats': 'weak',
     'quant.complexity': 'high',
-    'quant.beatWeightTempoThresh': 52,
-    'quant.subdivTempoThresh': 96,
+    'quant.beatWeightTempoThresh': 48,
+    'quant.subdivTempoThresh': 92,
     'quant.gridWeight': None,
+    'quant.exactFactor': None,
 
     '.quant.divisionWeight': None,
     '.quant.complexityWeight': None,
@@ -265,6 +266,8 @@ validator = {
     ".quant.divisionWeight": lambda cfg, k, v: v is None or 0 <= v <= 1,
     "quant.gridWeight::range": (0, 10),
     "quant.gridWeight": lambda c, k, v: v is None or 0 <= v <= 10,
+    "quant.exactFactor::range": (0, 1),
+    "quant.exactFactor": lambda c, k, v: v is None or 0 <= v <= 1,
     ".quant.complexityWeight": lambda cfg, k, v: v is None or 0 <= v <= 10,
     ".quant.complexityWeight::range": (0, 10),
     "quant.breakBeats::choices": ("none", "all", "weak", "strong"),
@@ -617,6 +620,12 @@ docs = {
         'Weight applied to time deviations during quantization. '
         'Higher values result in more accurate quantization, at the cost of complexity. '
         'None sets this value from the complexity preset (quant.complexity)',
+
+    'quant.exactFactor':
+        'Factor applied to the quantization error for an exact grid. '
+        'A value lower than 1 will prioritize quantizations '
+        'which represent the timing exactly. None to use the value set by the '
+        'complexity preset.',
 
     '.quant.complexityWeight':
         'Weight applied to rhythm complexity during '

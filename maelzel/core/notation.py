@@ -143,6 +143,7 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig
         beatWeightTempoThresh = cfg['quant.beatWeightTempoThresh'],
         subdivTempoThresh = cfg['quant.subdivTempoThresh'],
         mergeTupletsDifferentDur = cfg['.quant.mergeTupletsDifferentDur'],
+        exactGridFactor = cfg['quant.exactFactor'],
         **kws
     )
 

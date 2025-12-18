@@ -240,9 +240,10 @@ class Chain(MContainer):
               5      5       0.5    4E:0.5♩:offset=5
 
         """
-        dur = _stackEvents(self.items, explicitOffsets=True)
+        dur, redundant = _stackEvents(self.items, explicitOffsets=True)
         self._dur = dur
         self._cachedEventsWithOffset = None
+        self._hasRedundantOffsets = redundant
 
     def fillGaps(self, recurse=True) -> None:
         """
@@ -377,16 +378,16 @@ class Chain(MContainer):
         """
         return all(isinstance(item, MEvent) for item in self.items)
 
-    def _flatEventsWithResolvedOffset(self, key: str) -> list[MEvent]:
-        if not self.items:
-            return []
-        self._update()
-        pairs = self.eventsWithOffset()
-        events, offsets = zip(*pairs)
-        for ev, offset in pairs:
-            ev.setProperty(key, offset)
-        _resolveGlissandi(events)
-        return events
+    # def _flatEventsWithResolvedOffset(self, key: str) -> list[MEvent]:
+    #     if not self.items:
+    #         return []
+    #     self._update()
+    #     pairs = self.eventsWithOffset()
+    #     events, offsets = zip(*pairs)
+    #     for ev, offset in pairs:
+    #         ev.setProperty(key, offset)
+    #     _resolveGlissandi(events)
+    #     return events
 
     def flatEvents(self, forcecopy=False) -> list[MEvent]:
         """
@@ -415,7 +416,7 @@ class Chain(MContainer):
             flatitems = [ev.clone(offset=evoffset) if ev.offset != evoffset else ev.copy()
                          for ev, evoffset in self.eventsWithOffset()]
         else:
-            flatitems = [ev.clone(offset=evoffset) if ev.offset != evoffset else ev
+            flatitems = [ev.clone(offset=evoffset, _sharedAttributes=True) if ev.offset != evoffset else ev
                          for ev, evoffset in self.eventsWithOffset()]
         _resolveGlissandi(flatitems)
         return flatitems
@@ -430,13 +431,9 @@ class Chain(MContainer):
         If this Chain is already flat (it does not contain any
         Chains), self is returned unmodified (unless forcecopy=True).
 
-        .. note::
-
-            All items in the returned Chain will have an explicit ``.offset`` attribute.
-            To remove any redundant .offset call :meth:`Chain.removeRedundantOffsets`
-
         Args:
-            forcecopy: return a new chain, even if self is already flat
+            forcecopy: return a new chain, even if self is already flat. This copy
+                is deep, meaning that all items are copied also
 
         Returns:
             a flat chain
@@ -445,8 +442,8 @@ class Chain(MContainer):
         """
         self._update()
 
-        if not forcecopy and all(isinstance(item, MEvent) for item in self.items) and self.hasOffsets():
-            return self
+        if all(isinstance(item, MEvent) for item in self.items):
+            return self if not forcecopy else self.copy()
 
         ownoffset = self.absOffset()
         events = [ev.clone(offset=offset - ownoffset) for ev, offset in self.eventsWithOffset()]
@@ -570,60 +567,53 @@ class Chain(MContainer):
                      parentOffset: F,
                      workspace: Workspace
                      ) -> list[SynthEvent]:
-        # TODO: add playback for crescendi (hairpins)
+        # TODO: add playback for crescendi (hairpins), depending on config
         conf = workspace.config
         if self.playargs:
             # We don't include the chain's automations since these are added
             # later, after events have been merged.
             playargs = playargs.updated(self.playargs, automations=False)
 
-        flatitems = self.flatEvents(forcecopy=False)
+        if all(isinstance(item, MEvent) for item in self):
+            flatitems = self.items
+        else:
+            flatitems = self.flatEvents(forcecopy=False)
 
         if any(n.isGrace() for n in flatitems):
             graceDur = F(conf['play.graceDuration'])
-            # flatitems = [item.copy() for item in flatitems]
-            flatitems = _eventutils.copyEventsModifiedByGracenotes(flatitems)
-            _eventutils.addDurationToGracenotes(flatitems, graceDur)
+            flatitems = _eventutils.addDurationToGracenotes(flatitems, graceDur, inplace=False)
 
         if conf['play.useDynamics'] and any(item.dynamic for item in flatitems):
             _eventutils.fillTempDynamics(flatitems, dynamic=conf['play.defaultDynamic'], apply=False)
 
-        offset = parentOffset + self.relOffset()
-        synthevents = []
+        allevents = []
         for group in _eventutils.groupLinkedEvents(flatitems):
+            # A group is a seq of mevents which are isolated from any
+            # other group and linked to each other by at least one tie or gliss
             if isinstance(group, MEvent):
                 # group has absolute timing so parent offset is 0
-                synthevents.extend(group._synthEvents(playargs, parentOffset=F0, workspace=workspace))
+                allevents.extend(group._synthEvents(playargs, parentOffset=F0, workspace=workspace))
             else:
-                assert isinstance(group, list)
-                synthgroups = []
-                for item in group:
-                    synths = item._synthEvents(playargs, parentOffset=F0, workspace=workspace)
-                    if not synths:
-                        logger.warning("Item %s returned no synthevents", item)
-                    else:
-                        synthgroups.append(synths)
-                if len(synthgroups) > 1:
-                    lines = _makeLines(synthgroups)
-                else:
-                    lines = synthgroups
+                assert isinstance(group, list) and len(group) >= 2
+                evsPerItem = [evs for item in group
+                              if (evs:=item._synthEvents(playargs, parentOffset=F0, workspace=workspace))]
+                if not evsPerItem:
+                    continue
+                lines = _makeLines(evsPerItem) if len(evsPerItem) >= 2 else evsPerItem
                 for line in lines:
                     if isinstance(line, SynthEvent):
-                        synthevents.append(line)
+                        allevents.append(line)
                     else:
-                        assert isinstance(line, list)
-                        if len(line) == 1:
-                            synthevents.append(line[0])
-                        else:
-                            synthevents.append(SynthEvent.mergeEvents(line))
-                    # TODO: fix / add playargs
+                        assert len(line) >= 1
+                        allevents.append(line[0] if len(line) == 1 else SynthEvent.merge(line))
 
         if self.playargs and self.playargs.automations:
+            offset = parentOffset + self.relOffset()
             struct = self.scorestruct() or workspace.scorestruct
             presetman = Workspace.active.presetManager
             for autom in self.playargs.automations:
                 startsecs, endsecs = autom.absTimeRange(parentOffset=offset, scorestruct=struct)
-                for ev in synthevents:
+                for ev in allevents:
                     preset = presetman.getPreset(ev.instr)
                     if autom.param in preset.dynamicParams(aliases=True, aliased=True):
                         t0, t1 = _util.overlap(float(startsecs), float(endsecs), ev.delay, ev.end)
@@ -631,11 +621,12 @@ class Chain(MContainer):
                             synthautom = autom.makeSynthAutomation(scorestruct=struct, parentOffset=offset)
                             ev.addAutomation(synthautom.cropped(float(t0), float(t1)))
 
-        return synthevents
+        self.removeRedundantOffsets()
+        return allevents
 
     def mergeTiedEvents(self) -> None:
         """
-        Merge tied events **inplace**
+        Merge tied events **inplace**, recursively
 
         Two events can be merged if they are tied and the second
         event does not provide any extra information (does not have
@@ -709,11 +700,17 @@ class Chain(MContainer):
             self._changed()
         return gracenotes
 
-    def updateChildrenOffsets(self) -> None:
-        self._update()
+    # def updateChildrenOffsets(self) -> None:
+    #     self._update()
 
     def __contains__(self, item: MObj) -> bool:
         return item in self.items
+
+    def contains(self, event: MEvent) -> bool:
+        """
+        True if event is part of this chain, recursively
+        """
+        return any(item == event for item in self.recurse())
 
     def _childOffset(self, child: MObj) -> F:
         """
@@ -734,7 +731,7 @@ class Chain(MContainer):
             return child.offset
 
         self._update()
-        offset = child._resolvedOffset
+        offset = child._relOffset
         assert offset is not None
         return offset
 
@@ -753,7 +750,8 @@ class Chain(MContainer):
 
     @dur.setter
     def dur(self, value):
-        raise AttributeError(f"Duration is readonly for instances of {type(self)}")
+        raise AttributeError(f"Duration is readonly for instances of {type(self)}, "
+                             f"cannot set to {value}")
 
     def append(self, item: MEvent) -> None:
         """
@@ -786,10 +784,9 @@ class Chain(MContainer):
     def _update(self):
         if not self._modified:
             return
-        self._dur = _stackEvents(self.items, explicitOffsets=False)
+        self._dur, self._hasRedundantOffsets = _stackEvents(self.items, explicitOffsets=False)
         self._resolveGlissandi()
         self._modified = False
-        self._hasRedundantOffsets = True
 
     def _changed(self) -> None:
         if self._modified:
@@ -799,6 +796,10 @@ class Chain(MContainer):
         self._cachedEventsWithOffset = None
         if self.parent:
             self.parent._childChanged(self)
+
+    def _setNextEvents(self) -> None:
+        for ev0, ev1 in itertools.pairwise(self._recurse()):
+            ev0._nextEvent = ev1
 
     def _childChanged(self, child: MObj) -> None:
         if not self._modified:
@@ -822,21 +823,22 @@ class Chain(MContainer):
         else:
             return self.items.__getitem__(idx)
 
-    def _dumpRows(self, indents=0, now=F0, forcetext=False, struct: ScoreStruct|None = None
+    def _dumpRows(self,
+                  indents=0,
+                  now=F0,
+                  forcetext=False,
+                  struct: ScoreStruct|None = None
                   ) -> list[str]:
         fontsize = '85%'
         IND = '  '
         selfstart = f"{float(self.offset):.3g}" if self.offset is not None else 'None'
-        namew = max((sum(len(n.name) for n in event.notes) + len(event.notes)
-                     for event in self.recurse()
-                     if isinstance(event, Chord)),
-                    default=10)
+        namew = max(len(ev.name) for ev in self.recurse()) + 2
 
         widths = {
             'location': 10,
             'beat': 7,
-            'offset': 12,
-            'dur': 12,
+            'offset': 8,
+            'dur': 8,
             'name': namew,
             'gliss': 6,
             'dyn': 5,
@@ -881,26 +883,24 @@ class Chain(MContainer):
                     name = item.name
                     if isinstance(item, (Note, Chord)) and item.tied:
                         name += "~"
-                    offsetstr = T(item.offset) if item.offset is not None else f'({T(itemoffset)})'
-                    offsetstr = offsetstr.ljust(widths['dur'])
-                    durstr = T(item.dur).ljust(widths['dur'])
+                    # offsetstr = T(item.offset) if item.offset is not None else f'({T(itemoffset)})'
                     measureidx, measurebeat = struct.beatToLocation(now + itemoffset)
-                    locationstr = f'{measureidx}:{T(measurebeat)}'.ljust(widths['location'])
-                    playargs = 'None' if not item.playargs else ', '.join(f'{k}={v}' for k, v in item.playargs.db.items())
+                    locationstr = f'({measureidx},{T(measurebeat)})'.ljust(widths['location'])
+                    playargs = '-' if not item.playargs else ', '.join(f'{k}={v}' for k, v in item.playargs.db.items())
                     if isinstance(item, Note):
-                        glissstr = 'F' if not item.gliss else f'T ({item.glissTargetPitch()})' if isinstance(item.gliss, bool) else str(item.gliss)
+                        glissstr = '-' if not item.gliss else f'✓={item.glissTargetPitch()}' if isinstance(item.gliss, bool) else str(item.gliss)
                     elif isinstance(item, Chord):
-                        glissstr = 'F' if not item.gliss else f'T ({item.glissTargetPitches()})' if isinstance(item.gliss, bool) else str(item.gliss)
+                        glissstr = '-' if not item.gliss else f'✓={item.glissTargetPitches()}' if isinstance(item.gliss, bool) else str(item.gliss)
                     else:
                         glissstr = '-'
                     rowparts = [IND*(indents+1),
                                 locationstr,
                                 T(now + itemoffset).ljust(widths['beat']),
-                                offsetstr,
-                                durstr,
+                                ('✓' if item.offset is not None else '-').ljust(widths['offset']),
+                                T(item.dur).ljust(widths['dur']),
                                 name.ljust(widths['name']),
                                 glissstr.ljust(widths['gliss']),
-                                str(item.dynamic).ljust(widths['dyn']),
+                                (str(item.dynamic) or '-').ljust(widths['dyn']),
                                 playargs.ljust(widths['playargs']),
                                 ' '.join(infoparts) if infoparts else '-'
                                 ]
@@ -1016,7 +1016,7 @@ class Chain(MContainer):
         """
         self._update()
         items = [item.copy() for item in self.items]
-        _ = _stackEvents(items, explicitOffsets=True)
+        _stackEvents(items, explicitOffsets=True)
         if self.offset and self.offset > F0:
             for item in items:
                 assert item.offset is not None
@@ -1044,16 +1044,16 @@ class Chain(MContainer):
             items.append(item.timeTransform(timemap, inplace=inplace))
         return self if inplace else self.clone(items=items)
 
-    def _collectSubLabels(self, config: CoreConfig) -> Iterator[tuple[F, str]]:
+    def _iterLabels(self, config: CoreConfig) -> Iterator[tuple[F, str]]:
         for item in self.items:
             if isinstance(item, Chain):
                 if item.label:
                     yield (item.absOffset(), item.label)
-                yield from item._collectSubLabels(config)
+                yield from item._iterLabels(config)
 
     def _flatPostSymbols(self, config: CoreConfig) -> list[tuple[symbols.Symbol, time_t, time_t | None]]:
         postsymbols = self._postSymbols.copy() if self._postSymbols else []
-        sublabels = list(self._collectSubLabels(config))
+        sublabels = list(self._iterLabels(config))
         for offset, label in sublabels:
             postsymbols.append((Chain._labelSymbol(label, config), offset, None))
         postsymbols.sort(key=lambda x: x[1])
@@ -1125,8 +1125,7 @@ class Chain(MContainer):
 
             firstoffset = allns[0].offset
             lastend = allns[-1].end
-            assert firstoffset is not None
-            assert lastend is not None
+            assert firstoffset is not None and lastend is not None
             allns = quantutils.fillSpan(allns, firstoffset, lastend)
             splitpoints = []
             for _, offset, end in postsymbols:
@@ -1134,7 +1133,7 @@ class Chain(MContainer):
                 if end is not None:
                     splitpoints.append(end)
             splitpoints.sort()
-            allns = scoring.Notation.splitNotationsAtOffsets(allns, splitpoints, nomerge=True)
+            allns = scoring.Notation.splitNotationsAtOffsets(allns, splitpoints, mergeable=False)
             for symbol, offset, end in postsymbols:
                 if isinstance(symbol, symbols.Spanner):
                     assert end is not None
@@ -1377,7 +1376,9 @@ class Chain(MContainer):
     def eventsWithOffset(self,
                          start: beat_t | None = None,
                          end: beat_t | None = None,
-                         partial=True) -> list[tuple[MEvent, F]]:
+                         partial=True,
+                         reverse=False
+                         ) -> list[tuple[MEvent, F]]:
         """
         Recurse the events in self and resolves each event's offset
 
@@ -1411,6 +1412,7 @@ class Chain(MContainer):
 
         """
         self._update()
+
         if self._cachedEventsWithOffset is not None:
             eventpairs = self._cachedEventsWithOffset
         else:
@@ -1426,6 +1428,11 @@ class Chain(MContainer):
                                             start=start,
                                             end=end,
                                             partial=partial)
+        if reverse:
+            out = eventpairs.copy()
+            out.reverse()
+            return out
+
         return eventpairs
 
     def itemsWithOffset(self) -> Iterator[tuple[MEvent|Chain, F]]:
@@ -1496,14 +1503,14 @@ class Chain(MContainer):
             if isinstance(item, MEvent):
                 dur = item.dur
                 out.append((item, now, dur))
-                item._resolvedOffset = now - frame
+                item._relOffset = now - frame
                 now += dur
             else:
                 # a Chain
                 if recurse:
                     subitems, subdur = item._iterateWithTimes(frame=now, recurse=True)
                     item._dur = subdur
-                    item._resolvedOffset = now - frame
+                    item._relOffset = now - frame
                     out.append((subitems, now, subdur))
                 else:
                     subdur = item.dur
@@ -1819,7 +1826,7 @@ class Chain(MContainer):
             the last event ending before or at the offset, if exists, None otherwise
 
         """
-        if isinstance(offset, F):
+        if isinstance(offset, (int, float, F)):
             absoffset = offset
         elif isinstance(offset, tuple):
             struct = self.activeScorestruct()
@@ -1828,7 +1835,7 @@ class Chain(MContainer):
         else:
             raise ValueError(f"Invalid offset: {offset}")
         lastev = None
-        for ev, evoffset in self.eventsWithOffset(end=absoffset+F(1, 100)):
+        for ev, evoffset in self.eventsWithOffset(end=absoffset+F(1, 10000)):
             if evoffset + ev.dur > absoffset:
                 return lastev
             lastev = ev
@@ -2107,7 +2114,7 @@ class Chain(MContainer):
         self.playargs.addAutomation(param=param, breakpoints=breakpoints,
                                     interpolation=interpolation, relative=relative)
 
-    def absorbInitialOffset(self, removeRedundantOffsets=True):
+    def absorbFirstOffset(self, removeRedundantOffsets=True):
         """
         Moves the offset of the first event to the offset of the chain itself
 
@@ -2174,7 +2181,7 @@ class Chain(MContainer):
                         items.append(subchain.clone(offset=subchain.absOffset() - startbeat))
         out = self.clone(items=items, offset=startbeat)
         if absorbOffset:
-            out.absorbInitialOffset()
+            out.absorbFirstOffset()
         return out
 
     def addBreak(self, location: F | tuple[int, F]) -> None:
@@ -2391,6 +2398,7 @@ class Voice(Chain):
 
         """
         if scorestruct is None and self._scorestruct:
+            # TODO: decide what to do in this case
             1/0
         self._scorestruct = scorestruct
         self._changed()
@@ -2571,19 +2579,14 @@ def _makeLine(event: SynthEvent, groupidx: int, groups: list[list[SynthEvent]], 
               ) -> list[SynthEvent]:
     out = [event]
     if not event.linkednext or groupidx == len(groups) - 1:
-        print("=============== 1")
         return out
     nextIndexes = groupIndexes[groupidx + 1]
     if not nextIndexes:
-        print("=============== 2")
-
         return out
     nextGroup = groups[groupidx + 1]
     eventPitch = event.bps[-1][1]
     nextidx = next((i for i in nextIndexes if abs(eventPitch - nextGroup[i].bps[0][1]) < 1e-6), None)
     if nextidx is None:
-        print("=============== 3", event, eventPitch, nextGroup, nextIndexes)
-
         return out
     nextIndexes.discard(nextidx)
     nextev = nextGroup[nextidx]
@@ -2635,13 +2638,10 @@ def _makeLines(groups: list[list[SynthEvent]]
         while unusedIndexes:
             eventidx = unusedIndexes.pop()
             event = group[eventidx]
-            print(f"Matching {event=}, {groupidx=}, {unusedIndexesPerGroup=}")
             line = _makeLine(event,
                              groupidx=groupidx,
                              groups=groups,
                              groupIndexes=unusedIndexesPerGroup)
-            if len(line) == 1:
-                print("... No match")
             line[-1].linkednext = False
             lines.append(line)
 
@@ -2650,13 +2650,13 @@ def _makeLines(groups: list[list[SynthEvent]]
         lastGroup = groups[-1]
         lines.extend(lastGroup[idx] for idx in lastGroupIndexes)
 
-    assert all(isinstance(item, SynthEvent) or (isinstance(item, list) and len(item) > 0)
-               for item in lines)
-
-    energy0 = sum(sum(ev.dur for ev in group) for group in groups)
-    energy1 = sum(line.dur if isinstance(line, SynthEvent) else sum(part.dur for part in line)
-                  for line in lines)
-    assert energy0 == energy1
+    # assert all(isinstance(item, SynthEvent) or (isinstance(item, list) and len(item) > 0)
+    #            for item in lines)
+    #
+    # energy0 = sum(sum(ev.dur for ev in group) for group in groups)
+    # energy1 = sum(line.dur if isinstance(line, SynthEvent) else sum(part.dur for part in line)
+    #               for line in lines)
+    # assert energy0 == energy1
     return lines
 
 
@@ -2671,6 +2671,8 @@ def _resolveGlissandi(flatevents: Iterable[MEvent], force=False) -> None:
 
     """
     for ev1, ev2 in itertools.pairwise(flatevents):
+        ev1._nextEvent = ev2
+
         if (ev1.isRest() or
             ev2.isRest() or
             not ev1.gliss or
@@ -2690,15 +2692,11 @@ def _resolveGlissandi(flatevents: Iterable[MEvent], force=False) -> None:
         elif isinstance(ev1, Chord):
             if not force and ev1._glissLines is not None:
                 continue
-            # TODO: Do ._glissPairs here
-            pairs = ev1._glissPairs(ev2)
-            assert pairs, f"{ev1=}, {ev2=}"
-            ev1._glissLines = pairs
+            ev1._glissLines = pairs = ev1._glissPairs(ev2)
             for n in ev1.notes:
                 if n.gliss is True:
                     target = next(pair[1] for pair in pairs if pair[0] == n.pitch)
                     n._glissTarget = target
-
 
 
 def _eventPairsBetween(eventpairs: list[tuple[MEvent, F]],
@@ -2745,8 +2743,9 @@ def _eventPairsBetween(eventpairs: list[tuple[MEvent, F]],
 
 
 def _stackEvents(events: list[MEvent | Chain],
-                 explicitOffsets=True,
-                 ) -> F:
+                 explicitOffsets: bool,
+                 now=F0
+                 ) -> tuple[F, bool]:
     """
     Stack events to the left **inplace**, making any unset offset explicit
 
@@ -2755,22 +2754,28 @@ def _stackEvents(events: list[MEvent | Chain],
         explicitOffsets: if True, all offsets are made explicit, recursively
 
     Returns:
-        the accumulated duration of all events
+        tuple (dur: F, redundantOffsets: bool), where dur is the accumulated
+        duration of all events and redundantOffsets indicates if any
+        event has a redundant offset
 
     """
     # All offset times given in the events are relative to the start of the chain
-    now = F0
+    redundantOffsets = False
     for ev in events:
         if ev.offset is not None:
+            if ev.offset < now:
+                raise ValueError(f"Items not sorted: {events}")
+            if not redundantOffsets and ev.offset == now:
+                redundantOffsets = True
             now = ev.offset
         elif explicitOffsets:
             ev.offset = now
-        ev._resolvedOffset = now
-        if isinstance(ev, Chain):
-            stackeddur = _stackEvents(ev.items, explicitOffsets=explicitOffsets)
-            ev._dur = stackeddur
-            now = ev._resolvedOffset + stackeddur
-        else:
-            # An event
+        ev._relOffset = now
+        if isinstance(ev, MEvent):
             now += ev.dur
-    return now
+        else:
+            stackeddur, subchainRedundantOffsets = _stackEvents(ev.items, explicitOffsets=explicitOffsets)
+            redundantOffsets |= subchainRedundantOffsets
+            ev._dur = stackeddur
+            now = ev._relOffset + stackeddur
+    return now, redundantOffsets

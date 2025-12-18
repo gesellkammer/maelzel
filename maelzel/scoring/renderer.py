@@ -30,7 +30,7 @@ class Renderer(ABC):
         if score[0].struct is None:
             raise ValueError("The score has no associated ScoreStruct, cannot render")
 
-        self.quantizedScore: quant.QuantizedScore = score
+        self.score: quant.QuantizedScore = score
         """The quantized score used for rendering"""
 
         self.struct: ScoreStruct = score[0].struct
@@ -40,7 +40,7 @@ class Renderer(ABC):
         """The render options used"""
 
     def __hash__(self) -> int:
-        return hash((hash(self.quantizedScore), hash(self.struct), hash(self.options)))
+        return hash((hash(self.score), hash(self.struct), hash(self.options)))
 
     @abstractmethod
     def render(self, options: RenderOptions | None = None) -> str:
@@ -124,11 +124,11 @@ class Renderer(ABC):
         else:
             raise ValueError(f"fmt should be 'png' or 'pdf', got '{fmt}'")
 
-    def _repr_html_(self) -> str:
-        scale = config['pngScale']
-        pngfile = _util.mktemp(suffix=".png", prefix="render-")
-        self.write(pngfile)
-        img64, w, h = _imgtools.readImageAsBase64(pngfile)
-        html = _util.htmlImage64(img64, w, width=f'{int(w*scale)}px')
-        parts = "1 part" if len(self.quantizedScore) == 1 else f"{len(self.quantizedScore)} parts"
-        return f'<b>{type(self).__name__}</b> ({parts})<br>'+html
+    # def _repr_html_(self) -> str:
+    #     scale = config['pngScale']
+    #     pngfile = _util.mktemp(suffix=".png", prefix="render-")
+    #     self.write(pngfile)
+    #     img64, w, h = _imgtools.readImageAsBase64(pngfile)
+    #     html = _util.htmlImage64(img64, w, width=f'{int(w*scale)}px')
+    #     parts = "1 part" if len(self.quantizedScore) == 1 else f"{len(self.quantizedScore)} parts"
+    #     return f'<b>{type(self).__name__}</b> ({parts})<br>'+html

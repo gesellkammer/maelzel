@@ -157,7 +157,7 @@ def _measureMaxDivisions(measure: quant.QuantizedMeasure
 
     The minimum value is lcm(5, 6, 7, 8)
     """
-    if measure.empty():
+    if measure.isEmpty():
         return 1
     denominators = {n.duration.denominator
                     for n in measure.tree.recurse()}
@@ -998,7 +998,7 @@ def _renderPart(part: quant.QuantizedPart,
                        bold=style.bold,
                        italic=style.italic)
 
-        if measure.empty():
+        if measure.isEmpty():
             note_ = _elem(doc, measure_, "note")
             _elem(doc, note_, "rest", {'measure': 'yes'})
             _elemText(doc, note_, "duration", int(measure.duration() * divisions))
@@ -1056,7 +1056,7 @@ class MusicxmlRenderer(Renderer):
     @cache
     def _render(self, options: RenderOptions) -> str:
         assert isinstance(options, RenderOptions)
-        return renderMusicxml(self.quantizedScore, options=options, indent=options.musicxmlIndent)
+        return renderMusicxml(self.score, options=options, indent=options.musicxmlIndent)
 
     def musicxml(self) -> str | None:
         xmltext = self.render()

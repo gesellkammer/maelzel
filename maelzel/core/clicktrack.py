@@ -111,7 +111,7 @@ def makeClickTrack(struct: scorestruct.ScoreStruct,
             raise ValueError(f"Timesig {num}/{den} not supported")
         return events, now
 
-    for m in struct.measuredefs:
+    for m in struct.measures:
         measureSubdivisions = m.subdivisions()
         for i, part in enumerate(m.timesig.parts):
             num, den = part

@@ -461,39 +461,51 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
             noteheads = None
         else:
             noteheads = n.noteheads
-        _("<")
+
         notenames = n.resolveNotenames()
         notatedpitches = [pt.notated_pitch(notename) for notename in notenames]
         chordAccidentalTraits = n.findAttachment(cls=attachment.AccidentalTraits, pitchanchor=None) or attachment.AccidentalTraits.default()
-        backties = n.tieHints('backward') if n.tiedPrev else None
+        backTies = n.tieHints('backward') if n.tiedPrev else None
+        chordparts = []
+        if n.tiedNext:
+            forwardTies = n.tieHints('forward')
+            needsCustomTies = forwardTies and len(forwardTies) != len(n.pitches)
+        else:
+            forwardTies, needsCustomTies = None, False
+
         for i, pitch in enumerate(n.pitches):
             if noteheads and (notehead := noteheads.get(i)) is not None:
-                _(lyNotehead(notehead, insideChord=True))
+                chordparts.append(lyNotehead(notehead, insideChord=True))
             notename = notenames[i]
             notatedpitch = notatedpitches[i]
 
             accidentalTraits = n.findAttachment(cls=attachment.AccidentalTraits, pitchanchor=i) or chordAccidentalTraits
 
             if accidentalTraits.hidden:
-                _(r"\once\omit Accidental")
+                chordparts.append(r"\once\omit Accidental")
             if accidentalTraits.color:
-                _(fr'\tweak Accidental.color "{accidentalTraits.color}"')
+                chordparts.append(fr'\tweak Accidental.color "{accidentalTraits.color}"')
 
             forceAccidental = accidentalTraits.force
             if n.tiedPrev:
-                assert backties is not None
-                if i in backties:
+                if backTies and i in backTies:
                     forceAccidental = False
             elif any(otherpitch.chromatic_index == notatedpitch.chromatic_index and
                      otherpitch.diatonic_name != notatedpitch.diatonic_name
                      for otherpitch in notatedpitches):
                 forceAccidental = True
 
-            _(lilytools.makePitch(notename,
-                                  parenthesizeAccidental=accidentalTraits.parenthesis,
-                                  forceAccidental=forceAccidental))
+            lilypitch = lilytools.makePitch(notename,
+                                            parenthesizeAccidental=accidentalTraits.parenthesis,
+                                            forceAccidental=forceAccidental)
+            if n.tiedNext and needsCustomTies and i in forwardTies:
+                lilypitch += "~"
+            chordparts.append(lilypitch)
 
-        _(f">{base}{'.'*dots}{'~' if n.tiedNext else ''}")
+        endtag = f">{base}{'.'*dots}"
+        if n.tiedNext and not needsCustomTies:
+            endtag += "~"
+        _(f"<{' '.join(chordparts)}{endtag}")
 
     if trem := n.findAttachment(attachment.Tremolo):
         if trem.color:
@@ -823,14 +835,12 @@ def renderNode(node: Node,
         if item.gliss:
             if glissmap := item.findAttachment(attachment.GlissMap):
                 if (nextev := node.nextNotation(item)) is not None:
-                    sourceindexes = [item.index(pair[0]) for pair in glissmap.pairs]
-                    destindexes = [nextev.index(pair[1]) for pair in glissmap.pairs]
-                    if (any(idx is None for idx in sourceindexes) or
-                            any(idx is None for idx in destindexes)):
-                        logger.warning(f"Invalid pitches in gliss mapping: {glissmap.pairs}, {item=}, {nextev=}")
-                    else:
-                        pairstrs = [f"({source} . {dest})"
-                                    for source, dest in zip(sourceindexes, destindexes)]
+                    idxs0 = [item.index(pair[0], tolerance=0.01) for pair in glissmap.pairs]
+                    idxs1 = [nextev.index(pair[1], tolerance=0.01) for pair in glissmap.pairs]
+                    pairstrs = [f"({source} . {dest})"
+                                for source, dest in zip(idxs0, idxs1)
+                                if source is not None and dest is not None]
+                    if pairstrs:
                         pairstr = " ".join(pairstrs)
                         w.line(rf"\once \set glissandoMap = #'({pairstr})")
 
@@ -911,8 +921,10 @@ def addTimeSignature(w: IndentedWriter, measuredef: MeasureDef, options: RenderO
             if options.addSubdivisionsForSmallDenominators and _isSmallDenominator(den, measuredef.quarterTempo):
                 den, subdivs = measuredef.subdivisionStructure()
                 num, den2 = measuredef.timesig.fusedSignature
-                assert den == den2
-                w.line(fr"\time {','.join(map(str, subdivs))} {num}/{den}")
+                # assert den == den2
+                line = fr"\time {','.join(map(str, subdivs))} {num}/{den2}"
+                print(line)
+                w.line(line)
             else:
                 # common case, simple timesig num/den
                 w.line(fr"\time {timesig.numerator}/{timesig.denominator}")
@@ -1043,7 +1055,7 @@ def renderPart(part: quant.QuantizedPart,
                                               fontsize=relfontsize, fontrelative=True,
                                               box=box))
 
-        if measure.empty():
+        if measure.isEmpty():
             measureDur = measure.duration()
             if measureDur.denominator == 1 and measureDur.numerator in (1, 2, 3, 4, 6, 7, 8):
                 lilydur = lilytools.makeDuration(measureDur)
@@ -1100,9 +1112,9 @@ def renderScore(score: quant.QuantizedScore,
     IND = " " * indentSize
     numMeasures = max(len(part.measures)
                       for part in score.parts)
-    struct = score.scorestruct.copy()
+    struct = score.struct.copy()
     struct.setBarline(numMeasures - 1, 'final')
-    score.scorestruct = struct
+    score.struct = struct
 
     strs = []
 
@@ -1241,7 +1253,7 @@ class LilypondRenderer(Renderer):
     @cache
     def _render(self, options: RenderOptions) -> str:
         assert isinstance(options, RenderOptions)
-        return renderScore(self.quantizedScore, options=options, midi=self._withMidi)
+        return renderScore(self.score, options=options, midi=self._withMidi)
 
     def writeFormats(self) -> list[str]:
         return ['pdf', 'ly', 'png']

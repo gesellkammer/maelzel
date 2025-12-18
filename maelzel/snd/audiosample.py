@@ -1050,7 +1050,7 @@ class Sample:
         samples = _npsnd.panStereo(self.samples, pan)
         return self.__class__(samples, sr=self.sr)
 
-    def applyPanning(self, pan: float) -> Self:
+    def applyPan(self, pan: float) -> Self:
         """Apply panning to the sample in place
 
         .. note:: This method is only available for stereo samples.
@@ -1176,21 +1176,21 @@ class Sample:
         """
         return _npsnd.ampBpf(self.samples, self.sr, attack=attack, release=release, chunktime=chunktime, overlap=overlap)
 
-    def mixdown(self, enforceCopy=False) -> Sample:
+    def mono(self, forcecopy=False) -> Sample:
         """
         Return a new Sample with this sample downmixed to mono
 
         Args:
-            enforceCopy: always return a copy, even if self is already mono
+            forcecopy: always return a copy, even if self is already mono
 
         Returns:
             a mono version of self.
         """
         if self.numchannels == 1:
-            return self if not enforceCopy else self.copy()
+            return self if not forcecopy else self.copy()
         return Sample(_npsnd.asmono(self.samples), sr=self.sr)
 
-    def stripLeft(self, threshold=-120.0, margin=0.01, window=0.02) -> Self:
+    def lstrip(self, threshold=-120.0, margin=0.01, window=0.02) -> Self:
         """
         Remove silence from the left. Returns a new Sample
 
@@ -1210,7 +1210,7 @@ class Sample:
             return self[time:]
         return self
 
-    def stripRight(self, threshold=-120.0, margin=0.01, window=0.02) -> Self:
+    def rstrip(self, threshold=-120.0, margin=0.01, window=0.02) -> Self:
         """
         Remove silence from the right. Returns a new Sample
 
@@ -1243,8 +1243,8 @@ class Sample:
         Returns:
             a new Sample with silence at the sides removed
         """
-        out = self.stripLeft(threshold, margin, window)
-        out = out.stripRight(threshold, margin, window)
+        out = self.lstrip(threshold, margin, window)
+        out = out.rstrip(threshold, margin, window)
         return out
 
     def resample(self, sr: int) -> Sample:

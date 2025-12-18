@@ -29,7 +29,8 @@ __all__ = (
     'Workspace',
     'getWorkspace',
     'logger',
-    'ws'
+    'ws',
+    'getConfig'
 )
 
 
@@ -609,13 +610,14 @@ class Workspace:
                      session: csoundengine.session.AbstractRenderer | None = None,
                      delay=0.
                      ) -> csoundengine.synth.Synth:
-        if self._reverbSynth is not None and self._reverbSynth.playing():
-            assert self.isAudioSessionActive()
-            return self._reverbSynth
-        config = self.config
-        instr = config['reverbInstr']
         if session is None:
             session = self.audioSession()
+        if session.renderMode() == "online":
+            if self._reverbSynth is not None and self._reverbSynth.playing():
+                assert self.isAudioSessionActive()
+                return self._reverbSynth
+        config = self.config
+        instr = config['reverbInstr']
         # if prevsynth := _reverbEvent(session=session, instrname=instr):
         #    return prevsynth
         def whenfinished(*args):
@@ -645,7 +647,8 @@ class Workspace:
                               kdecay=self._reverbSettings.get('decay', config['reverbDecay']),
                               kdamp=self._reverbSettings.get('damp', config['reverbDamp']),
                               whenfinished=whenfinished)
-        synth._setCallback = setfunc
+        if session.renderMode() == 'online':
+            synth._setCallback = setfunc
         self._reverbSynth = synth
         return synth
 
@@ -709,6 +712,10 @@ def getWorkspace() -> Workspace:
     """
     assert Workspace.active is not None
     return Workspace.active
+
+
+def getConfig() -> CoreConfig:
+    return getWorkspace().config
 
 
 def _reverbEvent(session: csoundengine.session.Session, instrname='', kind='mainreverb') -> csoundengine.synth.Synth | None:

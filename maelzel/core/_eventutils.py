@@ -65,8 +65,8 @@ def copyEventsModifiedByGracenotes(events: list[MEvent]) -> list[MEvent]:
     return out
 
 
-def addDurationToGracenotes(events: list[MEvent], dur: F
-                            ) -> None:
+def addDurationToGracenotes(events: list[MEvent], dur: F, inplace=False
+                            ) -> list[MEvent]:
     """
     Adds real duration to gracenotes within chain (in place)
 
@@ -79,11 +79,12 @@ def addDurationToGracenotes(events: list[MEvent], dur: F
         dur: the duration of a single gracenote
 
     """
+    if not inplace:
+        events = copyEventsModifiedByGracenotes(events)
     lastRealNote = -1
     d: dict[int, list[int]] = {}
     # first we build a registry mapping real notes to their grace notes
     now = events[0].relOffset()
-    assert now is not None
     for i, n in enumerate(events):
         if not n.isGrace():
             lastRealNote = i
@@ -98,10 +99,15 @@ def addDurationToGracenotes(events: list[MEvent], dur: F
                 nextreal = events[nextrealidx+i+1]
                 dur = min(dur, nextreal.dur / (nextrealidx + 1))
                 assert dur > 0 and nextreal.dur > dur, f"{nextreal=}, {dur=}, {i=}, {nextrealidx=}"
-                nextreal.dur -= dur
-                nextreal.offset += dur
                 n.dur = dur
                 n.offset = now
+                offset = now+dur
+                if nextreal.offset is None:
+                    nextreal.offset = offset
+                    nextreal.dur -= dur
+                elif nextreal.offset < offset:
+                    nextreal.dur -= offset - nextreal.offset
+                    nextreal.offset = offset
                 now += dur
             else:
                 gracenotes = d.get(lastRealNote)
@@ -120,6 +126,8 @@ def addDurationToGracenotes(events: list[MEvent], dur: F
             gracenote.dur = graceDur
             deltapos = (len(gracenotesIndexes) - i) * graceDur
             gracenote.offset -= deltapos
+
+    return events
 
 
 def groupLinkedEvents(items: list[MEvent],
@@ -145,8 +153,9 @@ def groupLinkedEvents(items: list[MEvent],
     lastitem = items[0]
     groups: list[MEvent | list[MEvent]] = [lastitem]
     for item in items[1:]:
-        assert item.offset is not None and lastitem.end is not None
-        gap = item.offset - lastitem.end
+        # assert item.offset is not None and lastitem.end is not None
+        gap = item.relOffset() - lastitem.relEnd()
+        # gap = item.offset - lastitem.end
         if gap < 0:
             raise ValueError(f"Events supperpose: {lastitem=}, {item=}")
         if gap <= mingap and lastitem._canBeLinkedTo(item):

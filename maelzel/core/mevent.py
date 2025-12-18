@@ -35,7 +35,7 @@ class MEvent(MObj):
         dynamic: a dynamic as string, if applicable
         tied: is this event tied to the next event?
     """
-    __slots__ = ('tied', 'amp', 'dynamic')
+    __slots__ = ('tied', 'amp', 'dynamic', '_nextEvent')
 
     def __init__(self,
                  dur: F,
@@ -71,6 +71,8 @@ class MEvent(MObj):
         """A musical dynamic (*pppp, ppp, ..., mp, mf, f, ..., ffff*)"""
 
         self.parent: chain.Chain = parent
+
+        self._nextEvent: MEvent | None = None
 
     def resolveDynamic(self) -> str:
         """
@@ -136,9 +138,15 @@ class MEvent(MObj):
         Returns:
             the next event within the parent container, or None
         """
+        if self._nextEvent:
+            return self._nextEvent
         if not self.parent:
             return None
-        return self.parent.nextEvent(self)
+        self.parent._setNextEvents()
+        return self._nextEvent
+        #out = self.parent.nextEvent(self)
+        #out._nextEvent = out
+        #return out
 
     def root(self) -> MContainer | None:
         """
@@ -240,6 +248,22 @@ class MEvent(MObj):
             if errormsg := symbol.checkAnchor(self):
                 raise ValueError(f"Cannot add this symbol to {self}: {errormsg}")
         return self
+
+    def _copy(self, attributes=True) -> Self:
+        """
+        Copy this object
+
+        Args:
+            attributes: if True, copy attributes also; otherwise, attributes are shared
+
+        Returns:
+            the copy
+
+        """
+        return super().copy()
+
+    def copy(self):
+        return self._copy()
 
     def hasExplicitGliss(self) -> bool:
         """

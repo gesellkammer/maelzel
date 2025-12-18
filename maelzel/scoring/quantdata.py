@@ -7,119 +7,7 @@ from maelzel.common import F
 import itertools
 import math
 
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from typing import Sequence
-
-
-def subdivisions(numdivs: int,
-                 maxval: int,
-                 possiblevals: set[int] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14},
-                 ) -> list[tuple[int, ...]]:
-    """
-    Generate all possible subdivisions.
-
-    To obtain all possible grids these need to be permutated (the generated
-    divisions are always sorted from high to low)
-    
-    Args:
-        numdivs: number of divisions 
-        possiblevals: possible value for each division
-        maxval: the max. allowed value from possiblevals
-
-    Returns:
-        a list of divisions
-    """
-    minval = 1
-    used = set()
-    out = []
-    for i in range(maxval, minval-1, -1):
-        if i not in possiblevals or any(x % i == 0 for x in used):
-            continue
-        used.add(i)
-        if numdivs == 1:
-            out.append((i,))
-        else:
-            subdivs = subdivisions(numdivs - 1, possiblevals=possiblevals, maxval=i)
-            for subdiv in subdivs:
-                out.append((i,) + subdiv)
-    return out
-
-
-def permutateDivisions(divs: Sequence[division_t]) -> list[division_t]:
-    out = []
-    for p in divs:
-        if len(p) == 1:
-            out.append(p)
-        else:
-            out.extend(set(itertools.permutations(p)))
-    return out
-
-def isSuperfluousDivision(div: division_t, possiblevals: set[int]) -> bool:
-    lendiv = len(div)
-    if lendiv == 1:
-        return False
-    p0 = div[0]
-    sumdiv = sum(div)
-    if sumdiv % 2 == 0 and sumdiv in possiblevals and all(x == p0 for x in div):
-        # (4, 4) == (2, 2, 2, 2) == 8
-        # We exclude cases like (3, 3, 3) == 9 and (5, 5, 5) == 15, but include (3, 3) == 6
-        return True
-    if lendiv in (2, 4, 8) and all(x in (1, 2, 4, 8) for x in div) and max(div)*lendiv in possiblevals:
-        # (2, 4) == (4, 4) == 8, (2, 2, 2, 4) == 16, (4, 4) == 8
-        return True
-    return False
-
-
-def allSubdivisions(maxsubdivs=5,
-                    maxdensity=20,
-                    possiblevals: Sequence[int] = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14),
-                    blacklist: Sequence[division_t] = ()
-                    ) -> list[division_t]:
-
-    allsubdivs: list[division_t] = []
-    possibleValsSet = set(possiblevals)
-    for numsubdivs in range(maxsubdivs, 0, -1):
-        maxval = int(round(maxdensity / numsubdivs))
-        allsubdivs.extend(subdivisions(numdivs=numsubdivs, maxval=maxval, possiblevals=possibleValsSet))
-
-    allsubdivs = [s for s in allsubdivs if not isSuperfluousDivision(s, possibleValsSet)]
-    allsubdivs = permutateDivisions(allsubdivs)
-
-    if blacklist:
-        blacklist = permutateDivisions(blacklist)
-        blacklistset = set(blacklist)
-        allsubdivs = [div for div in allsubdivs if div not in blacklistset]
-
-    allsubdivs.sort(key=lambda p: sum(p))
-    return allsubdivs
-
-
-# A quantization preset consists of presetname.key, where needed keys are:
-# divisionsByTempo and divisionPenaltyMap
-
-
-regularDurations = {0, 1, 2, 3, 4, 6, 7, 8, 12, 16, 24, 32}
-
-
-defaultDivisionPenaltyMap = {
-    1:0.0,
-    2:0.0,
-    3:0.0,
-    4:0.01,
-    5:0.01,
-    6:0.01,
-    7:0.01,
-    8:0.01,
-    9:0.04,
-    10:0.04,
-    11:0.1,
-    12:0.1,
-    13:0.2,
-    14:0.1,
-    15:0.1,
-    16:0.4,
-}
+from typing import Sequence
 
 
 @dataclass
@@ -130,15 +18,15 @@ class DivisionDef:
     maxDensity: int
 
     @cache
-    def subdivisions(self, blacklist: tuple[division_t, ...] = ()) -> tuple[division_t, ...]:
-        subdivs = allSubdivisions(maxsubdivs=self.maxSubdivisions,
-                                  possiblevals=self.possibleValues,
-                                  maxdensity=self.maxDensity)
+    def subdivisions(self, blacklist: tuple[division_t, ...] = ()) -> list[division_t]:
+        subdivs = allSubdivisions(maxSubdivs=self.maxSubdivisions,
+                                  possibleValues=self.possibleValues,
+                                  maxDensity=self.maxDensity,
+                                  skipSubdivs=())
         if not blacklist:
-            return tuple(subdivs)
-        else:
-            blacklistset = set(blacklist)
-            return tuple(subdiv for subdiv in subdivs if subdiv not in blacklistset)
+            return subdivs
+        blacklistset = set(blacklist)
+        return [subdiv for subdiv in subdivs if subdiv not in blacklistset]
 
     def __hash__(self):
         return hash((self.maxTempo, self.maxSubdivisions, hash(self.possibleValues), self.maxDensity))
@@ -154,6 +42,7 @@ class QuantPreset:
     divisionErrorWeight: float
     rhythmComplexityWeight: float
     gridErrorExp: float
+    exactGridFactor: float = 1.
     maxDivPenalty: float | None = None
     cardinalityPenaltyWeight: float | None = None
     numSubdivisionsPenaltyWeight: float | None = None
@@ -163,12 +52,8 @@ class QuantPreset:
     def clone(self, **kws) -> QuantPreset:
         return _dataclass_replace(self, **kws)
 
-
-@cache
-def divisionsByTempo(divisionDefs: tuple[DivisionDef, ...], 
-                     blacklist: tuple[division_t, ...] = ()
-                     ) -> dict[int, tuple[division_t, ...]]:
-    return {d.maxTempo: d.subdivisions(blacklist=blacklist) for d in divisionDefs}
+    def __post_init__(self):
+        assert 0 <= self.exactGridFactor <= 1
 
 
 @cache
@@ -176,73 +61,96 @@ def getPresets() -> dict[str, QuantPreset]:
     presets = {
         'highest': QuantPreset(
             divisionDefs = (
+                DivisionDef(maxTempo=48,
+                    maxSubdivisions=9,
+                    possibleValues=(5, 6, 7, 8, 9, 11, 13, 17),
+                    maxDensity=42),
                 DivisionDef(maxTempo=62,
-                    maxSubdivisions=7,
-                    possibleValues=(3, 4, 5, 6, 7, 8, 9, 11),
-                    maxDensity=40),
+                    maxSubdivisions=8,
+                    possibleValues=(5, 6, 7, 8, 9, 11, 13, 17),
+                    maxDensity=32),
+                DivisionDef(maxTempo=88,
+                    maxSubdivisions=8,
+                    possibleValues=(5, 6, 7, 8, 9, 11, 13, 17),
+                    maxDensity=28),
                 DivisionDef(maxTempo=120,
-                    maxSubdivisions=7,
-                    possibleValues=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
+                    maxSubdivisions=8,
+                    possibleValues=(4, 5, 6, 7, 8, 9, 11, 13),
                     maxDensity=32),
                 DivisionDef(maxTempo=300,
                     maxSubdivisions=6,
-                    possibleValues=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
-                    maxDensity=50),
+                    possibleValues=(3, 4, 5, 6, 7, 8, 9, 11),
+                    maxDensity=32),
                 DivisionDef(maxTempo=800,
                     maxSubdivisions=3,
-                    possibleValues=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
-                    maxDensity=28)),
+                    possibleValues=(3, 4, 5, 6, 7, 8, 9, 11),
+                    maxDensity=20)),
             divisionsPenaltyMap={
-                1:0.0,  
-                2:0.0,  
-                3:0.0,  
-                4:0.01, 
+                1:0.0,
+                2:0.0,
+                3:0.0,
+                4:0.01,
                 5:0.01,
-                6:0.02, 7:0.01, 8:0.01, 9:0.04, 10:0.04,
-                11:0.1, 12:0.1, 13:0.2, 14:0.1, 15:0.2,
+                6:0.02,
+                7:0.01,
+                8:0.01,
+                9:0.04,
+                10:0.04,
+                11:0.1,
+                12:0.1,
+                13:0.2,
+                14:0.1,
+                15:0.2,
                 16:0.4,
             },
+            # divisionsPenaltyMap=defaultDivisionPenaltyMap,
             nestedTuplets=True,
             numNestedTupletsPenalty=(0., 0., 0., 0.1, 0.4, 0.8),
             gridErrorWeight=2.0,
-            divisionErrorWeight=0.0,
-            rhythmComplexityWeight=0.001,
-            numSubdivisionsPenaltyWeight=0.,
+            divisionErrorWeight=0.005,
+            rhythmComplexityWeight=0.005,
+            cardinalityPenaltyWeight=0.001,
+            numSubdivisionsPenaltyWeight=0.001,
             gridErrorExp=0.7,
-            maxDivPenalty=0.4),
+            maxDivPenalty=0.2,
+            exactGridFactor=0.25),
         'high': QuantPreset(
             divisionDefs = (
                 DivisionDef(maxTempo=48,
+                    maxSubdivisions=8,
+                    possibleValues=(3, 5, 6, 7, 8, 9, 11, 13),
+                    maxDensity=30),
+                DivisionDef(maxTempo=56,
+                    maxSubdivisions=8,
+                    possibleValues=(3, 5, 6, 7, 8, 9, 11),
+                    maxDensity=26),
+                DivisionDef(maxTempo=66,
                     maxSubdivisions=7,
-                    possibleValues=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13),
-                    maxDensity=32),
-                DivisionDef(maxTempo=63,
-                    maxSubdivisions=7,
-                    possibleValues=(3, 5, 6, 7, 8, 9, 10, 11, 13),
-                    maxDensity=28),
-                DivisionDef(maxTempo=80,
-                    maxSubdivisions=5,
-                    possibleValues=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
+                    possibleValues=(3, 4, 5, 6, 7, 8, 9, 11),
                     maxDensity=24),
+                DivisionDef(maxTempo=80,
+                    maxSubdivisions=6,
+                    possibleValues=(3, 4, 5, 6, 7, 8, 9, 11),
+                    maxDensity=22),
                 DivisionDef(maxTempo=100,
                     maxSubdivisions=4,
-                    possibleValues=(1, 2, 3, 4, 5, 6, 7, 8, 9),
-                    maxDensity=16),
+                    possibleValues=(3, 4, 5, 6, 7, 8, 9),
+                    maxDensity=20),
                 DivisionDef(maxTempo=132,
                     maxSubdivisions=4,
-                    possibleValues=(1, 2, 3, 4, 5, 6, 7, 8, 9),
-                    maxDensity=12),
+                    possibleValues=(3, 4, 5, 6, 7, 8, 9),
+                    maxDensity=16),
                 DivisionDef(maxTempo=180,
                     maxSubdivisions=3,
-                    possibleValues=(1, 2, 3, 4, 5, 6, 7, 8, 9),
+                    possibleValues=(3, 4, 5, 6, 7, 8, 9),
                     maxDensity=10),
                 DivisionDef(maxTempo=400,
                     maxSubdivisions=3,
-                    possibleValues=(1, 2, 3, 4, 5, 6),
+                    possibleValues=(2, 3, 4, 5, 6),
                     maxDensity=8),
                 DivisionDef(maxTempo=800,
                     maxSubdivisions=1,
-                    possibleValues=(1, 2, 3, 4, 5, 6),
+                    possibleValues=(2, 3, 4, 5, 6),
                     maxDensity=6)),
             divisionsPenaltyMap=defaultDivisionPenaltyMap,
             nestedTuplets=True,
@@ -252,7 +160,8 @@ def getPresets() -> dict[str, QuantPreset]:
             rhythmComplexityWeight=0.005,
             cardinalityPenaltyWeight=0,
             gridErrorExp=0.75,
-            maxDivPenalty=0.2),
+            maxDivPenalty=0.2,
+            exactGridFactor=0.5),
         'medium': QuantPreset(
             divisionDefs = (
                 DivisionDef(maxTempo=60,
@@ -331,6 +240,150 @@ def getPresets() -> dict[str, QuantPreset]:
             gridErrorExp=1.),
     }
     return presets
+
+
+def subdivisionsWithMaxDensity(numSubdivisions: int,
+                               maxDensity: int,
+                               possibleValues: Sequence[int]):
+    # C(n, r) where n=len(possibleValues) and r=numSubdivisions
+    # and the sum of possibleValues[indexes] is <= maxDensity
+    # Order is not important. Repetition is allowed
+    # so C(n+r-1, n-1). We use itertools, which is the same
+    maxLocalDensity = maxDensity * 2
+    minval = min(possibleValues)
+    maxval = int(round(maxLocalDensity / numSubdivisions))
+    maxval = min(maxval, maxDensity - (numSubdivisions - 1) * minval)
+    values = list(possibleValues)
+    if max(values) > maxval:
+        values = [_ for _ in possibleValues if _ <= maxval]
+    values.sort()
+    return [comb for comb in itertools.combinations_with_replacement(values, numSubdivisions)
+            if sum(comb) <= maxDensity]
+
+
+def subdivisions(numSubdivisions: int,
+                 maxValue: int,
+                 possibleValues: set[int] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14},
+                 ) -> list[tuple[int, ...]]:
+    """
+    Generate all possible subdivisions.
+
+    To obtain all possible grids these need to be permutated (the generated
+    divisions are always sorted from high to low)
+    
+    Args:
+        numSubdivisions: number of divisions
+        possibleValues: possible value for each division
+        maxValue: the max. allowed value from possiblevals
+
+    Returns:
+        a list of divisions
+    """
+    minValue = 1
+    used = set()
+    out = []
+    for i in range(maxValue, minValue - 1, -1):
+        if i not in possibleValues or any(x % i == 0 for x in used):
+            continue
+        used.add(i)
+        if numSubdivisions == 1:
+            out.append((i,))
+        else:
+            subdivs = subdivisions(numSubdivisions - 1, possibleValues=possibleValues, maxValue=i)
+            for subdiv in subdivs:
+                out.append((i,) + subdiv)
+    return out
+
+
+def permutateDivisions(divs: Sequence[division_t]) -> list[division_t]:
+    out = []
+    for p in divs:
+        if len(p) == 1:
+            out.append(p)
+        else:
+            out.extend(set(itertools.permutations(p)))
+    return out
+
+
+def isSuperfluousDivision(div: division_t, possiblevals: set[int]) -> bool:
+    lendiv = len(div)
+    if lendiv == 1:
+        return False
+    p0 = div[0]
+    sumdiv = sum(div)
+    if sumdiv % 2 == 0 and sumdiv in possiblevals and all(x == p0 for x in div):
+        # (4, 4) == (2, 2, 2, 2) == 8
+        # We exclude cases like (3, 3, 3) == 9 and (5, 5, 5) == 15, but include (3, 3) == 6
+        return True
+    if lendiv in (2, 4, 8) and all(x in (1, 2, 4, 8) for x in div) and max(div)*lendiv in possiblevals:
+        # (2, 4) == (4, 4) == 8, (2, 2, 2, 4) == 16, (4, 4) == 8
+        return True
+    return False
+
+
+def allSubdivisions(maxSubdivs: int,
+                    maxDensity: int,
+                    possibleValues: Sequence[int] = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14),
+                    blacklist: Sequence[division_t] = (),
+                    method='average',
+                    skipSubdivs=()
+                    ) -> list[division_t]:
+
+    allSubdivs: list[division_t] = []
+    possibleValsSet = set(possibleValues)
+    for numSubdivs in range(maxSubdivs, 0, -1):
+        if numSubdivs in skipSubdivs:
+            continue
+        if method == 'average':
+            allSubdivs.extend(subdivisionsWithMaxDensity(numSubdivisions=numSubdivs, maxDensity=maxDensity, possibleValues=possibleValues))
+        else:
+            maxval = int(round(maxDensity / numSubdivs))
+            allSubdivs.extend(subdivisions(numSubdivisions=numSubdivs, maxValue=maxval, possibleValues=possibleValsSet))
+
+    allSubdivs = [s for s in allSubdivs if not isSuperfluousDivision(s, possibleValsSet)]
+    allSubdivs = list(set(permutateDivisions(allSubdivs)))
+
+    if blacklist:
+        blacklist = permutateDivisions(blacklist)
+        blacklistset = set(blacklist)
+        allSubdivs = [div for div in allSubdivs if div not in blacklistset]
+
+    allSubdivs.sort()
+    allSubdivs.sort(key=lambda p: len(p))
+    # allSubdivs.sort(key=lambda p: sum(p))
+    return allSubdivs
+
+
+regularDurations = {0, 1, 2, 3, 4, 6, 7, 8, 12, 16, 24, 32}
+
+
+defaultDivisionPenaltyMap = {
+    1:0.0,
+    2:0.0,
+    3:0.0,
+    4:0.01,
+    5:0.01,
+    6:0.01,
+    7:0.01,
+    8:0.01,
+    9:0.04,
+    10:0.04,
+    11:0.1,
+    12:0.1,
+    13:0.2,
+    14:0.1,
+    15:0.1,
+    16:0.4,
+}
+
+
+@cache
+def divisionsByTempo(divisionDefs: tuple[DivisionDef, ...], 
+                     blacklist: tuple[division_t, ...] = ()
+                     ) -> dict[int, tuple[division_t, ...]]:
+    return {d.maxTempo: d.subdivisions(blacklist=blacklist) for d in divisionDefs}
+
+
 
 
 # how to divide an irregular duration into regular parts

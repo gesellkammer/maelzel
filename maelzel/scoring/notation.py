@@ -2,11 +2,11 @@
 A Notation represents a note/chord/rest
 """
 from __future__ import annotations
-from dataclasses import dataclass
 import copy
 import pitchtools as pt
 from itertools import pairwise
 from emlib import mathlib
+from functools import cache
 
 from maelzel.common import UNSET, UnsetType, F, F0, asF, asmidi
 from maelzel._util import showF, showT, hasOverlap
@@ -37,6 +37,7 @@ __all__ = (
 
 
 _EMPTYLIST = []
+_EMPTYSET = set()
 
 
 class Notation:
@@ -67,8 +68,7 @@ class Notation:
         '.clefHint',
         '.graceGroup',
         '.forceTupletBracket',
-        '.snappedGracenote',   # Is this a note which has been snapped to 0 duration?
-        '.originalDuration',    # For snapped notes, it is useful to keep track of the original duration
+        '.originalDuration',   # For snapped notes, it is useful to keep track of the original duration
         '.forwardTies',
         '.backwardTies',
     }
@@ -874,6 +874,11 @@ class Notation:
         Args:
             direction: one of "forward" or "backward"
             clear: if True, clear the set if applicable
+
+        Returns:
+            a set of indexes which indicates, which notes are tied in the given
+            direction. If no hints are set, an empty set is returned. The
+            returned set should not be modified. To set a hint use :meth:`Notation.setTieHint`
         """
         if direction == 'forward':
             key = '.forwardTies'
@@ -884,13 +889,9 @@ class Notation:
         else:
             raise KeyError(f"direction must be one of 'forward', 'backward', got {direction}")
         hints = self.getProperty(key)
-        if hints is None:
-            hints = set()
-            self.setProperty(key, hints)
-        assert isinstance(hints, set)
-        if clear:
-            hints.clear()
-        return hints
+        if clear and hints:
+            hints.clear
+        return hints or _EMPTYSET
 
     def tiedPitches(self, direction='forward') -> tuple[float, ...]:
         """
@@ -925,11 +926,17 @@ class Notation:
             idx: the index of the pitch
             direction: one of "forward" or "backward"
         """
+        assert direction == "forward" or direction == "backward"
         if direction == "forward" and not self.tiedNext:
             raise ValueError(f"This Notation is not tied forward: {self}")
         elif direction == "backward" and not self.tiedPrev:
             raise ValueError(f"This Notation is not tied backward: {self}")
-        self.tieHints(direction).add(idx)
+        key = f".{direction}Ties"
+        hints = self.getProperty(key)
+        if hints is None:
+            self.setProperty(key, {idx})
+        else:
+            hints.add(idx)
 
     def getTieHint(self, idx: int, direction="forward") -> bool:
         """
@@ -1034,14 +1041,7 @@ class Notation:
         if noteheads := kws.get('noteheads'):
             assert isinstance(noteheads, dict), f'{self=}, {noteheads=}'
 
-        withSpanners = True
-        if spanners is not None:
-            if isinstance(spanners, bool):
-                withSpanners = spanners
-            else:
-                assert isinstance(spanners, (list, tuple))
-                withSpanners = False
-        out = self.copy(spanners=withSpanners)
+        out = self.copy(spanners=spanners if isinstance(spanners, bool) else False)
         if (pitches := kws.pop('pitches', None)) is not None:
             out._setPitches(pitches)  # type: ignore
             if self.fixedNotenames and copyFixedNotenames:
@@ -1049,6 +1049,9 @@ class Notation:
         if kws:
             for key, value in kws.items():
                 setattr(out, key, value)
+        if isinstance(spanners, list):
+            assert out.spanners is None
+            out.spanners = spanners.copy()
         return out
 
     def __copy__(self) -> Notation:
@@ -1164,7 +1167,7 @@ class Notation:
         """
         Breaks a notation with irregular duration into its parts during quantization
 
-        - a Notations should not extend over a subdivision of the beat if the
+        - a Notation should not extend over a subdivision of the beat if the
           subdivisions in question are coprimes
         - within a subdivision, a Notation should not result in an irregular multiple of the
           subdivision. Irregular multiples are all numbers which have prime factors other than
@@ -1275,7 +1278,7 @@ class Notation:
     def splitNotationsAtOffsets(notations: list[Notation],
                                 offsets: Sequence[F],
                                 forcecopy=False,
-                                nomerge=False
+                                mergeable=True
                                 ) -> list[Notation]:
         """
         Split notations at the given offsets.
@@ -1285,8 +1288,8 @@ class Notation:
         Args:
             notations: the notations to split. Their offset must be set
             offsets: the offsets at which to split the notations. The offsets must be sorted in ascending order.
-            forcecopy: if True, all notations are copied even if they are not split
-            nomerge: if True, mark the split notations as not mergeable
+            forcecopy: if True, all returned notations are copied even if they are not split
+            mergeable: if False, mark the split notations as not mergeable
 
         Returns:
             A list of notations that do not extend over the offsets.
@@ -1298,7 +1301,7 @@ class Notation:
             else:
                 assert n.offset is not None, f"Notation.offset must be set for {n}"
                 if any(n.offset < offset < n.end for offset in offsets):
-                    out.extend(n.splitAtOffsets(offsets, nomerge=nomerge))
+                    out.extend(n.splitAtOffsets(offsets, mergeable=mergeable))
                 else:
                     out.append(n if not forcecopy else n.copy())
         return out
@@ -1307,18 +1310,19 @@ class Notation:
     def tieNotations(notations: list[Notation]) -> None:
         _tieNotations(notations)
 
-    def splitAtOffset(self, offset: F, tie=True, nomerge=False
+    def splitAtOffset(self, offset: F, tie=True, mergeable=True
                       ) -> tuple[Notation, Notation]:
         """
         Split this notations at the given offset
 
         Here we do not check if the resulting parts have a correct quantization
-        or a regular duration
+        or a regular duration. `offset` should be included within the notation.
+        Both returned parts are clones
 
         Args:
             offset: the offset to split this notation at
             tie: if True, tie the returned notations
-            nomerge: if True, mark the split notes as not mergeable between them
+            mergeable: if False, mark the split notes as not mergeable between them
 
         Returns:
             a tuple of two notations, the part left to the offset and
@@ -1335,9 +1339,9 @@ class Notation:
         right = self.clone(offset=offset, duration=self.end - offset)
 
         left.mergeablePrev = self.mergeablePrev
-        left.mergeableNext = not nomerge
+        left.mergeableNext = mergeable
         right.mergeableNext = self.mergeableNext
-        right.mergeablePrev = not nomerge
+        right.mergeablePrev = mergeable
 
         if tie:
             left.tiedNext = True
@@ -1350,14 +1354,14 @@ class Notation:
 
         return left, right
 
-    def splitAtOffsets(self: Notation, offsets: Sequence[F], nomerge=False
+    def splitAtOffsets(self: Notation, offsets: Sequence[F], mergeable=True, forcecopy=False
                        ) -> list[Notation]:
         """
         Splits a Notation at the given offsets
 
         Args:
             offsets: the offsets at which to split n. The offsets must be sorted in ascending order.
-            nomerge: if True, mark the parts as not-mergeable
+            mergeable: if False, mark the parts as not-mergeable
 
         Returns:
             the parts after splitting
@@ -1375,7 +1379,7 @@ class Notation:
         intervals = util.splitInterval(self.offset, self.end, offsets)
 
         if len(intervals) == 1:
-            return [self]
+            return [self.copy() if forcecopy else self]
 
         start0, end0 = intervals[0]
         parts: list[Notation] = [self.clone(offset=start0, duration=end0-start0)]
@@ -1393,7 +1397,7 @@ class Notation:
         last.tiedNext = self.tiedNext
         last.mergeableNext = self.mergeableNext
 
-        if nomerge:
+        if not mergeable:
             for part in parts[:-1]:
                 part.mergeableNext = False
             for part in parts[1:]:
@@ -1467,6 +1471,50 @@ class Notation:
             return next((i for i, p in enumerate(self.pitches) if p == pitch), None)
         else:
             return next((i for i, p in enumerate(self.pitches) if abs(p - pitch) <= tolerance), None)
+
+    @cache
+    def _guessGlissTargets(self, nextev: Notation) -> list[float]:
+        assert self.gliss
+        len0 = len(self)
+        len1 = len(nextev)
+        if len0 == len1:
+            return list(nextev.pitches)
+        elif len0 < len1:
+            lines = []
+            origins = list(self.pitches)
+            for p1 in nextev.pitches:
+                p0 = min(origins, key=lambda p0: abs(p1 - p0))
+                lines.append((p0, p1))
+                origins.remove(p0)
+            lines.sort()
+            return [p1 for _, p1 in lines]
+        else:
+            out = []
+            targets = list(nextev.pitches)
+            for p0 in self.pitches:
+                p1 = min(targets, key=lambda p1: abs(p1 - p0))
+                out.append(p1)
+                targets.remove(p1)
+            return out
+
+    def _glissTarget(self,
+                     idx: int,
+                     nextev: Notation | None = None,
+                     glissmap: att.GlissMap | None = None,
+                     tol=0.001
+                     ) -> float | None:
+        assert self.gliss
+        if not 0 <= idx < len(self.pitches):
+            raise IndexError(f"Invalid index, {self.pitches=}")
+        pitch = self.pitches[idx]
+        if glissmap is not None:
+            pair = next((pair for pair in glissmap.pairs if abs(pair[0] - pitch) < tol), None)
+            return None if pair is None else pair[1]
+        elif nextev is not None:
+            targets = self._guessGlissTargets(nextev)
+            return targets[idx]
+        else:
+            return None
 
     def notename(self, index=0, addExplicitMark=False) -> str:
         """
@@ -1961,20 +2009,28 @@ class Notation:
 
         attachments = []
         if self.attachments:
-            for att in self.attachments:
-                if att.anchor is not None and att.anchor in indexes:
-                    anchor = mappedIndexes[att.anchor]
-                    att = copy.copy(att)
-                    att.anchor = anchor
-                    attachments.append(att)
-                elif att.anchor is None:
-                    attachments.append(att)
+            for attachment in self.attachments:
+                if isinstance(attachment, att.GlissMap):
+                    pairs = [pair for pair in attachment.pairs
+                             if pair[0] in pitches]
+                    if pairs:
+                        attachments.append(att.GlissMap(pairs))
+                elif attachment.anchor is not None and attachment.anchor in indexes:
+                    anchor = mappedIndexes[attachment.anchor]
+                    attachment = copy.copy(attachment)
+                    attachment.anchor = anchor
+                    attachments.append(attachment)
+                elif attachment.anchor is None:
+                    attachments.append(attachment)
 
         out = self.clone(pitches=pitches,
                          noteheads=noteheads,
                          spanners=spanners)
         out.fixedNotenames = fixedNotenames
         out.attachments = attachments
+        for attachment in out.attachments:
+            attachment.validate(out)
+
         # self.copyFixedSpellingTo(out)
         out._clearClefHints()
         for idx in indexes:
@@ -2218,8 +2274,7 @@ def _tieNotations(notations: list[Notation]) -> None:
             n.gliss = True
 
 
-@dataclass
-class SnappedNotation:
+class Snapped:
     """
     Represents a notation that has been snapped to a specific offset and duration.
 
@@ -2229,9 +2284,12 @@ class SnappedNotation:
         duration: the duration of the snapped notation
 
     """
-    notation: Notation
-    offset: F
-    duration: F
+    __slots__ = ('notation', 'offset', 'duration')
+
+    def __init__(self, notation: Notation, offset: F, duration: F):
+        self.notation = notation
+        self.offset = offset
+        self.duration = duration
 
     def applySnap(self, extraOffset: F | None = None) -> Notation:
         """
@@ -2250,12 +2308,11 @@ class SnappedNotation:
         if self.duration == 0 and self.notation.duration > 0:
             if notation.isRest and not notation.hasAttributes():
                 raise ValueError(f"A rest should not be snapped to a gracenote: {self=}, {self.notation=}")
-            notation.setProperty('.snappedGracenote', True)
             notation.setProperty('.originalDuration', self.notation.duration)
         return notation
 
     def __repr__(self):
-        return f"SnappedNotation(notation={self.notation}, offset={self.offset}, duration={self.duration})"
+        return f"Snapped({self.notation}, offset={self.offset}, duration={self.duration})"
 
 
 def _breakIrregularDurationInBeat(n: Notation,

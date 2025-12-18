@@ -109,7 +109,9 @@ class GlissMap(Attachment):
     def validate(self, parent: Notation) -> None:
         if not parent.gliss:
             raise ValueError( f'Parent {parent} has no glissando, cannot add a gliss. map')
-
+        if any(p0 not in parent.pitches for p0, p1 in self.pairs):
+            raise ValueError(f"Mismatched gliss pairs, origin pitches not found in {parent}. "
+                             f"Pairs: {self.pairs} ")
 
 class Color(Attachment):
     exclusive = True

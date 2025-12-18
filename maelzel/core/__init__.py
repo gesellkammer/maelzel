@@ -1,6 +1,6 @@
 # API
 from .config import CoreConfig
-from .workspace import Workspace, getWorkspace, ws
+from .workspace import Workspace, getWorkspace, ws, getConfig
 from .event import Note, Chord, Rest
 from .chain import Chain, Voice
 from .clip import Clip
@@ -38,7 +38,8 @@ __all__ = [
     'F',
     'logger',
     'symbols',
-    'ws'
+    'ws',
+    'getConfig'
 ]
 
 
