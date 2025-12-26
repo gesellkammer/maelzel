@@ -35,3 +35,4 @@ Untitled*.ipynb
 test/output
 *.kate-swp
 .idea
+.idea/*.xml

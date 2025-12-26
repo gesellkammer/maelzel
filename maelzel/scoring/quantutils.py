@@ -2,7 +2,6 @@
 Utilities used during quantization
 """
 from __future__ import division, annotations
-import math
 import numpy as np
 from bisect import bisect
 import numpyx as npx
@@ -14,6 +13,7 @@ from itertools import pairwise, accumulate
 from maelzel.common import F, F0, F1
 from .notation import Notation, Snapped
 from . import quantdata
+from . import util
 
 import typing as _t
 if _t.TYPE_CHECKING:
@@ -28,11 +28,8 @@ def divisionNumSlots(div: division_t) -> int:
 
 
 def outerTuplet(div: division_t) -> tuple[int, int]:
-    from maelzel.scoring import util
-    if len(div) == 1:
-        outer = div[0]
-    else:
-        outer = len(div)
+    lendiv = len(div)
+    outer = div[0] if lendiv == 1 else lendiv
     if mathlib.ispowerof2(outer):
         return (1, 1)
     den = util.highestPowerLowerOrEqualTo(outer, base=2)
@@ -198,13 +195,8 @@ def simplifyDivisionWithSlots(division: division_t, assignedSlots: list[int]
     cs2 = 0
     assigned = set(assignedSlots)
     slotSizes = [s1 - s0 for s0, s1 in pairwise(assignedSlots)]
-    numslots = sum(division)
-    slotSizes.append(numslots - assignedSlots[-1])
-
-    # def assignedSlotsBetween(offset: int, start: int, end: int, offset2=0):
-    #     for i in range(start, end):
-    #         if offset + i in assigned:
-    #             yield i + offset2
+    numSlots = sum(division)
+    slotSizes.append(numSlots - assignedSlots[-1])
 
     for subdiv in division:
         if cs in assigned:
@@ -328,9 +320,15 @@ def simplifyDivisionWithSlots(division: division_t, assignedSlots: list[int]
 
     if len(slots) != len(assignedSlots):
         # grace notes share slots
+        numSlots2 = sum(subdiv for subdiv in newdiv)
         for i, size in enumerate(slotSizes):
             if size == 0:
-                slots.insert(i, slots[i])
+                if assignedSlots[i] == numSlots:
+                    # gracenote at the end of the beat, actually a gracenote to
+                    # the next beat
+                    slots.append(numSlots2)
+                else:
+                    slots.insert(i, slots[i])
 
     assert len(slots) == len(assignedSlots), f"{assignedSlots=}, {slots=}, {division=} -> {newdiv=}"
     return newdiv, slots

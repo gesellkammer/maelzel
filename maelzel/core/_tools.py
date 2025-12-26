@@ -62,8 +62,8 @@ def pngShow(pngpath: str, forceExternal=False, app='', scalefactor=1.0) -> None:
         scalefactor: used to scale the image when shown within jupyter
     """
     if environment.insideJupyter and not forceExternal:
-        from . import jupytertools
-        jupytertools.showPng(pngpath, scalefactor=scalefactor)
+        from . import _jupytertools
+        _jupytertools.showPng(pngpath, scalefactor=scalefactor)
     else:
         environment.openPngWithExternalApplication(pngpath, app=app)
 
@@ -516,20 +516,36 @@ _knownSpanners = {
 }
 
 
-def _highlightLilypond(s: str) -> str:
-    # TODO
-    return s
+def _highlightLilypondAsHtml(s: str, style='friendly') -> str:
+    import pygments
+    import pygments.lexers
+    import pygments.formatters
+    try:
+        lexer = pygments.lexers.find_lexer_class_by_name('lilypond')
+        fmt = pygments.formatters.HtmlFormatter(noclasses=True, wrapcode=False, style=style)
+        html = pygments.highlight(s, lexer=lexer(),
+                                  formatter=fmt)
+        return html
+    except Exception:
+        return ''
 
 
-def showLilypondScore(score: str) -> None:
+def showLilypondScore(score: str, htmlstyle='friendly') -> None:
     """
     Display a lilypond score, either at the terminal or within a notebook
 
     Args:
         score: the score as text
     """
-    # TODO: add highlighting, check if inside jupyter, etc.
-    print(score)
+    if environment.insideJupyter:
+        from IPython.display import display, HTML
+        html = _highlightLilypondAsHtml(score, style=htmlstyle)
+        if html:
+            display(HTML(html))
+        else:
+            print(score)
+    else:
+        print(score)
     return
 
 

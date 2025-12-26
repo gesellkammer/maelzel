@@ -855,7 +855,7 @@ class MeasureDef:
         if self.barline:
             parts.append(f'barline={self.barline}')
         if self.key:
-            parts.append(f'keySignature={self.key}')
+            parts.append(f'key={self.key}')
         if self.mark:
             parts.append(f'mark={self.mark}')
         if self.const:
@@ -1719,7 +1719,7 @@ class ScoreStruct:
                    index: int | None = None,
                    annotation='',
                    mark: str | Mark | None = None,
-                   keySignature: tuple[int, str] | KeySignature | None = None,
+                   key: tuple[int, str] | KeySignature | None = None,
                    barline='',
                    properties: dict[str, Any] | None = None,
                    temporef: tuple[int, int] | str = (4, 0),
@@ -1742,7 +1742,7 @@ class ScoreStruct:
             mark: add a rehearsal mark to the new measure definition.
                 A rehearsal mark can be a text or a RehearsalMark, which enables you
                 to customize the rehearsal mark further
-            keySignature: either a KeySignature object or a tuple (fifths, mode); for example
+            key: either a KeySignature object or a tuple (fifths, mode); for example
                 for A-Major, ``(3, 'major')``. Mode can also be left as an ampty string
             barline: if needed, the right barline of the measure can be set to one of
                 'single', 'final', 'double', 'solid', 'dotted', 'dashed', 'tick', 'short',
@@ -1781,10 +1781,10 @@ class ScoreStruct:
         if isinstance(mark, str):
             mark = Mark(mark)
 
-        if isinstance(keySignature, tuple):
-            fifths, mode = keySignature
+        if isinstance(key, tuple):
+            fifths, mode = key
             assert isinstance(fifths, int) and isinstance(mode, str)
-            keySignature = KeySignature(fifths=fifths, mode=mode)
+            key = KeySignature(fifths=fifths, mode=mode)
 
         if not isinstance(timesig, TimeSignature):
             timesig = TimeSignature.parse(timesig)
@@ -1795,7 +1795,7 @@ class ScoreStruct:
             numdots = len(parts) - 1
             temporef = (refvalue, numdots)
 
-        assert keySignature is None or isinstance(keySignature, KeySignature)
+        assert key is None or isinstance(key, KeySignature)
 
         measure = MeasureDef(
             timesig=timesig,
@@ -1805,7 +1805,7 @@ class ScoreStruct:
             tempoInherited=tempoInherited,
             mark=mark,
             properties=properties,
-            key=keySignature,
+            key=key,
             barline=barline,
             parent=self,
             tempoRef=temporef,
@@ -2347,7 +2347,6 @@ class ScoreStruct:
         else:
             return location if isinstance(location, F) else F(location)  # type: ignore
 
-
     def locationToBeat(self, measure: int, beat: num_t = F(0)) -> F:
         """
         Returns the number of quarter notes up to the given location
@@ -2411,21 +2410,21 @@ class ScoreStruct:
                 break
         return accum
 
-    def measureOffsets(self, startIndex=0, stopIndex=0) -> list[F]:
+    def measureOffsets(self, start=0, end=0) -> list[F]:
         """
         Returns a list with the time offsets of each measure
 
         Args:
-            startIndex: the measure index to start with. 0=last measure definition
-            stopIndex: the measure index to end with (not included)
+            start: the measure index to start with. 0=last measure definition
+            end: the measure index to end with (not included)
 
         Returns:
             a list of time offsets (start times), one for each measure in the
             interval selected
         """
-        if not stopIndex:
-            stopIndex = self.numMeasures()
-        return [self.locationToBeat(idx) for idx in range(startIndex, stopIndex)]
+        if not end:
+            end = self.numMeasures()
+        return [self.locationToBeat(idx) for idx in range(start, end)]
 
     def measuresBetween(self, start: F, end: F) -> list[MeasureDef]:
         """
@@ -2541,9 +2540,9 @@ class ScoreStruct:
         self.write(outfile, backend=backend, renderoptions=renderoptions)
 
         if fmt == 'png':
-            from maelzel.core import jupytertools
+            from maelzel.core import _jupytertools
             if environment.insideJupyter and not app:
-                jupytertools.jupyterShowImage(outfile, scalefactor=scalefactor, maxwidth=1200)
+                _jupytertools.jupyterShowImage(outfile, scalefactor=scalefactor, maxwidth=1200)
             else:
                 emlib.misc.open_with_app(outfile, app=app or None)
         else:
@@ -2577,7 +2576,7 @@ class ScoreStruct:
                 if m.barline:
                     parts.append(f", barline={m.barline}")
                 if m.key:
-                    parts.append(f", keySignature={m.key.fifths}")
+                    parts.append(f", key={m.key.fifths}")
                 if beatstruct:
                     beatstruct = m.beatStructure()
                     s = "+".join(f"{beat.duration.numerator}/{beat.duration.denominator}" for beat in beatstruct)
@@ -2600,7 +2599,7 @@ class ScoreStruct:
             m0 = self.measures[0]
             info = [str(m0.timesig), f"tempo={m0.quarterTempo}"]
             if m0.key:
-                info.append(f"keySignature={m0.key}")
+                info.append(f"key={m0.key}")
             infostr = ", ".join(info)
             return f'ScoreStruct({infostr})'
         else:
@@ -2883,7 +2882,7 @@ class ScoreStruct:
 
             self.addMeasure(timesig=last.timesig,
                             tempo=last.quarterTempo,
-                            keySignature=last.key,
+                            key=last.key,
                             count=numMeasures - len(self.measures))
 
     def setBarline(self, measureidx: int, linetype: str) -> None:
@@ -3050,7 +3049,7 @@ def durationToFigure(dur: F, maxdots=5) -> tuple[int, int]:
     .. note::
 
         A dotted note has duration = base * (2^(dots+1) - 1) / 2^dots
-        Relative to quarter note: (4/base) * (2^(dots+1) - 1) / 2^dots = num/denom
+2        Relative to quarter note: (4/base) * (2^(dots+1) - 1) / 2^dots = num/denom
     """
     # Simplify: 4 * denom * (2^(dots+1) - 1) = base * num * 2^dots
 

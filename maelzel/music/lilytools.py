@@ -256,9 +256,9 @@ def show(text: str, fmt='png', external=False, maxwidth=0, snippet: bool | None 
             for f in outfiles:
                 croppedok = imagefileAutocrop(f, f, bgcolor="#FFFFFF")
                 assert croppedok
-        from maelzel.core import jupytertools
         # TODO: show all pages if many pages were generated!!
-        jupytertools.showPng(pngpath=outfiles[0], forceExternal=external, maxwidth=maxwidth)
+        from maelzel.core import _jupytertools
+        _jupytertools.showPng(pngpath=outfiles[0], forceExternal=external, maxwidth=maxwidth)
     else:
         import emlib.misc
         emlib.misc.open_with_app(path=outfiles[0], wait=True, min_wait=0.1)

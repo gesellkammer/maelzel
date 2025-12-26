@@ -136,7 +136,7 @@ import os
 import configdict
 from configdict import ConfigDict
 from maelzel.core._common import logger
-from maelzel.core import configdata
+from maelzel.core import _configdata
 from functools import cache
 
 
@@ -239,10 +239,10 @@ class CoreConfig(ConfigDict):
         load = source == 'load' or (source == 'root' and CoreConfig._root is None)
 
         super().__init__(CoreConfig._defaultName,
-                         default=configdata.defaultdict,
+                         default=_configdata.defaultdict,
                          persistent=False,
-                         validator=configdata.validator,
-                         docs=configdata.docs,
+                         validator=_configdata.validator,
+                         docs=_configdata.docs,
                          load=load,
                          hiddenPrefix='.',
                          strict=False)
@@ -385,8 +385,8 @@ class CoreConfig(ConfigDict):
         Returns:
             a RenderOptions instance
         """
-        from maelzel.core import notation
-        return notation.makeRenderOptionsFromConfig(self)
+        from maelzel.core import _scoringutils
+        return _scoringutils.makeRenderOptionsFromConfig(self)
 
     @cache
     def makeQuantizationProfile(self) -> QuantizationProfile:
@@ -394,8 +394,8 @@ class CoreConfig(ConfigDict):
         Create a QuantizationProfile from this config
 
         """
-        from maelzel.core import notation
-        return notation.makeQuantizationProfileFromConfig(self)
+        from maelzel.core import _scoringutils
+        return _scoringutils.makeQuantizationProfileFromConfig(self)
         
     @cache
     def makeEnharmonicOptions(self) -> enharmonics.EnharmonicOptions:
@@ -409,8 +409,8 @@ class CoreConfig(ConfigDict):
         Returns:
             a :class:`maelzel.scoring.enharmonics.EnharmonicOptions`
         """
-        from maelzel.core import notation
-        return notation.makeEnharmonicOptionsFromConfig(self)
+        from maelzel.core import _scoringutils
+        return _scoringutils.makeEnharmonicOptionsFromConfig(self)
 
     def __enter__(self):
         from . import workspace

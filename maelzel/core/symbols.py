@@ -784,7 +784,7 @@ class Clef(EventSymbol):
         return _attachment.Clef(self.kind, color=self.color)
 
     def __repr__(self):
-        return _util.reprObj(self, priorityargs=('kind',), hideFalsy=True)
+        return _util.reprObj(self, first=('kind',), hideFalsy=True)
 
 
 class Ornament(EventSymbol):
@@ -928,7 +928,7 @@ class Text(EventSymbol):
         self.force = force
 
     def __repr__(self):
-        return _util.reprObj(self, priorityargs=('text',), hideFalsy=True,
+        return _util.reprObj(self, first=('text',), hideFalsy=True,
                              quoteStrings=True,
                              filter={'italic': lambda val: val,
                                      'weight': lambda val: val != 'normal'})
@@ -980,7 +980,7 @@ class Transpose(EventSymbol):
         self.interval: float = interval
 
     def __repr__(self):
-        return _util.reprObj(self, priorityargs=('interval',))
+        return _util.reprObj(self, first=('interval',))
 
     def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None = None) -> None:
         pitches = [pitch + self.interval for pitch in n.pitches]
@@ -1024,7 +1024,7 @@ class NotatedPitch(NoteheadSymbol):
         self.pitch = pitch
 
     def __repr__(self):
-        return _util.reprObj(self, priorityargs=('pitch',), hideEmptyStr=True)
+        return _util.reprObj(self, first=('pitch',), hideEmptyStr=True)
 
     def applyToPitch(self, n: scoring.Notation, idx: int | None, parent: mobj.MObj | None
                      ) -> None:
@@ -1200,7 +1200,7 @@ class Notehead(NoteheadSymbol):
         return hash((type(self).__name__, self.shape, self.color, self.parenthesis, self.size))
 
     def __repr__(self):
-        return _util.reprObj(self, priorityargs=('shape,'), hideFalsy=True, convert={'size': lambda size: f"{size:.4g}"})
+        return _util.reprObj(self, first=('shape,'), hideFalsy=True, convert={'size': lambda size: f"{size:.4g}"})
 
     def asScoringNotehead(self) -> scoring.definitions.Notehead:
         return scoring.definitions.Notehead(shape=self.shape, color=self.color, size=self.size,

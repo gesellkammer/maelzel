@@ -659,7 +659,8 @@ class Notation:
             spanner = _spanner.Spanner.fromStr(spanner)
 
         if self.findSpanner(uuid=spanner.uuid, kind=spanner.kind):
-            raise ValueError(f"Spanner {spanner} was already added to this Notation ({self})")
+            logger.error("Spanner %s was already added to this Notation (%s)", spanner, self)
+            return self
         elif partner := self.findSpanner(uuid=spanner.uuid, kind='start' if spanner.kind == 'end' else 'end'):
             logger.warning(f"A Notation cannot be assigned both start and end of a spanner. Removing "
                            f"the partner spanner"
@@ -1539,12 +1540,12 @@ class Notation:
         return pt.m2n(self.pitches[index])
 
     def resolveNotenames(self,
-                         keepFixedAnnotation=False,
+                         fixedAnnotation=False,
                          ) -> list[str]:
         """Resolve the enharmonic spellings for this Notation
 
         Args:
-            keepFixedAnnotation: add a ! for any pitch which has been fixed
+            fixedAnnotation: add a ! for any pitch which has been fixed
 
         Returns:
             the notenames of each pitch in this Notation
@@ -1557,7 +1558,7 @@ class Notation:
             notename = self.fixedNotename(i)
             if not notename:
                 notename = pt.m2n(p)
-            elif keepFixedAnnotation:
+            elif fixedAnnotation:
                 notename += '!'
             out.append(notename)
         return out
@@ -1759,13 +1760,12 @@ class Notation:
         else:
             return hints.get(index)
 
-    def _namerepr(self) -> str:
+    def _namerepr(self, fixedAnnotation=True) -> str:
         if self.isRest:
             return 'r'
-        notenames = self.resolveNotenames(keepFixedAnnotation=True)
+        notenames = self.resolveNotenames(fixedAnnotation=fixedAnnotation)
         if len(self.pitches) > 1:
             s = ",".join(notenames)
-            # s = "[" + " ".join(notenames) + "]"
         else:
             s = notenames[0]
         if self.tiedPrev:
@@ -1782,7 +1782,10 @@ class Notation:
 
     def _repr(self, offset=True) -> str:
         durstr =  util.durRepr(self.duration)
-        info = [f"{self._namerepr()}:{durstr}"]
+        # All quantized notations have a fixed spelling, so no need to show that
+        # in the repr
+        namerepr = self._namerepr(fixedAnnotation=not self.isQuantized())
+        info = [f"{namerepr}:{durstr}"]
         if offset and self.offset:
             if self.duration == 0:
                 info.append(showT(self.offset))
@@ -1939,7 +1942,6 @@ class Notation:
             return canmerge
 
         # Two notes/chords
-
         # TODO: decide what to do about spanners
         if (not self.tiedNext or
             not n1.tiedPrev or

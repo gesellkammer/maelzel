@@ -7,8 +7,8 @@ from emlib.containers import RecordList
 from emlib import misc
 from emlib.mathlib import frange
 import emlib.envir
-import emlib.iterlib
-from itertools import combinations
+
+import itertools
 
 import maelzel.core as mc
 from maelzel.common import asmidi
@@ -79,16 +79,16 @@ def ringmodWithAmps(pitches: Sequence[pitch_t],
     freqs = list(map(m2f, midinotes))
     allbands = []
     allamps = []
-    for f1, f2 in combinations(freqs, 2):
+    for f1, f2 in itertools.combinations(freqs, 2):
         lower, upper = _ringmod2f(f1, f2)
         midinotes = f2m(lower), f2m(upper)
         allbands.extend(midinotes)
-    for amp1, amp2 in combinations(amps, 2):
+    for amp1, amp2 in itertools.combinations(amps, 2):
         amp = amp1 * amp2
         allamps.extend((amp, amp))
     sidebands = zip(allbands, allamps)
     if merge:
-        assert merge in 'sum', 'max'
+        assert merge in ('sum', 'max')
         mergedbands = {}
         semitoneDivisions = round(1 / mergeThreshold)
         for pitch, amp in sidebands:
@@ -135,7 +135,7 @@ def ringmod(pitches: Sequence[pitch_t]) -> list[float]:
     midinotes = _parsePitches(*pitches)
     freqs = list(map(m2f, midinotes))
     allbands = []
-    for f1, f2 in combinations(freqs, 2):
+    for f1, f2 in itertools.combinations(freqs, 2):
         bands = _ringmod2f(f1, f2)
         allbands.extend(bands)
     freqs = list(set(allbands))
@@ -156,7 +156,7 @@ def sumtones(*pitches: pitch_t) -> list[float]:
     """
     midis = _parsePitches(pitches)
     freqs = list(map(m2f, midis))
-    return [f2m(f1+f2) for f1, f2 in combinations(freqs, 2)]
+    return [f2m(f1+f2) for f1, f2 in itertools.combinations(freqs, 2)]
 
 
 class Difftone:
@@ -245,7 +245,7 @@ def difftones(*pitches: pitch_t) -> list[float]:
     """
     midis = _parsePitches(*pitches)
     freqs = [m2f(m) for m in midis]
-    return [f2m(abs(f2 - f1)) for f1, f2 in combinations(freqs, 2)]
+    return [f2m(abs(f2 - f1)) for f1, f2 in itertools.combinations(freqs, 2)]
 
 
 def difftonesCubic(*pitches: pitch_t) -> list[float]:
@@ -262,7 +262,7 @@ def difftonesCubic(*pitches: pitch_t) -> list[float]:
     """
     freqs = [m2f(asmidi(note)) for note in pitches]
     out = []
-    for f1, f2 in combinations(freqs, 2):
+    for f1, f2 in itertools.combinations(freqs, 2):
         if f2 < f1:
             f1, f2 = f2, f1
         f0 = f1*2 - f2
@@ -401,7 +401,7 @@ def difftoneSourcesFromSet(difftone: pitch_t,
     f1 = m2f(difftone_pitch + maxdeviation)
     possible_sources = [source for source in sources if asmidi(source) >= difftone_pitch + gap]
     results = []
-    for s1, s2 in combinations(possible_sources, 2):
+    for s1, s2 in itertools.combinations(possible_sources, 2):
         p1 = asmidi(s1)
         p2 = asmidi(s2)
         if p1 > p2:
@@ -505,7 +505,7 @@ def _matchone(orig, new, maxdiff):
     """
     mindiffs = {}
     matches = {}
-    for o, n in emlib.iterlib.product(orig, new):
+    for o, n in itertools.product(orig, new):
         diff = abs(o-n)
         if diff < maxdiff and diff < mindiffs.get(o, float('inf')):
             mindiffs[o] = diff
@@ -566,7 +566,7 @@ def ringmodSource(sidebands: pitch_t,
         raise NotImplementedError("too many sidebands...")
     bestmatch = []
     sourcemidis = []
-    for m0, m1, m2 in combinations(range(int(midi0), int(ceil(midi1))), 3):
+    for m0, m1, m2 in itertools.combinations(range(int(midi0), int(ceil(midi1))), 3):
         newmidis = ringmod([m0, m1, m2])
         matching = _matchone(sidemidis, newmidis, maxdiff)
         if not matching:

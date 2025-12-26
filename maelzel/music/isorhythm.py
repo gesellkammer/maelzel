@@ -2,13 +2,9 @@
 Isorhythmic structures
 """
 from __future__ import annotations
-from emlib import iterlib
 import itertools
 
-try:
-    from quicktions import Fraction
-except ImportError:
-    from fractions import Fraction
+from maelzel.common import F
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -46,7 +42,7 @@ class Isorhythm(Generic[_T]):
         self.iterator = self._makeiter()
 
     def _makeiter(self) -> Iterable[tuple[_T, num_t]]:
-        return zip(iterlib.cycle(self.color), iterlib.cycle(self.talea))
+        return zip(itertools.cycle(self.color), itertools.cycle(self.talea))
 
     def __iter__(self) -> Iterable[tuple[_T, num_t]]:
         return iter(self.iterator)
@@ -89,7 +85,7 @@ class Isorhythm(Generic[_T]):
             [('A', 1), ('B', 2), ('A', 1)]
 
         """
-        partialdur = Fraction(0)
+        partialdur = F(0)
         pairs = []
         for color, talea in self.iterator:
             if partialdur + talea > maxdur:

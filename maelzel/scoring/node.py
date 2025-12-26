@@ -367,7 +367,7 @@ class Node:
 
     def _treeRepr(self, indent=0) -> str:
         indent0 = " " * indent
-        num, den= self.durRatio
+        num, den = self.durRatio
         header = f"{indent0}Node({num}/{den}, dur={self.totalDuration()} "
         if isinstance(self.items[0], Notation):
             parts = [header + str(self.items[0])]
@@ -379,7 +379,6 @@ class Node:
             startidx = 0
         for item in self.items[startidx:]:
             if isinstance(item, Notation):
-
                 parts.append(indentstr + str(item))
             else:
                 s = item._treeRepr(len(indentstr))
@@ -389,6 +388,19 @@ class Node:
         return "\n".join(parts)
 
     def __repr__(self):
+        num, den = self.durRatio
+        header = f"Node({num}/{den}, dur={self.totalDuration()} "
+        if isinstance(self.items[0], Notation):
+            parts = [header + str(self.items[0])]
+            startidx = 1
+        else:
+            parts = [header]
+            startidx = 0
+        for item in self.items[startidx:]:
+            parts.append(str(item))
+        parts[-1] += ")"
+        return ", ".join(parts)
+
         return self._treeRepr(indent=0)
 
     def _setitems(self, items: list[Notation | Node]) -> None:
@@ -809,7 +821,7 @@ class Node:
             # get previous note's spelling and fix n0 with it
             last = prevTree.lastNotation()
             if last.tiedNext and last.pitches == n0.pitches:
-                spellings = last.resolveNotenames(keepFixedAnnotation=False)
+                spellings = last.resolveNotenames(fixedAnnotation=False)
                 for i, spelling in enumerate(spellings):
                     n0.fixNotename(spelling, index=i)
 
@@ -1150,7 +1162,7 @@ class Node:
                 if not callback(item, self, offset):
                     logger.debug("Syncopation at meas=%d, offset=%s, callback %s negative, %s will NOT be split", measidx, str(offset), str(callback), LazyStr.str(item))
                     break
-                logger.debug("Syncopation at %d:%s - %s was positive, splitting", measidx, str(offset), str(callback))
+                # logger.debug("Syncopation at %d:%s - %s was positive, splitting", measidx, str(offset), str(callback))
 
             parts = item.splitAtOffsets([offset])
             if not len(parts) == 2:

@@ -79,7 +79,7 @@ defaultdict = {
     'show.keepClefBias': 2.0,
     'show.clefTransposingFactor': 0.85,
     'show.pedalStyle': '',
-    'show.singleStaffRange': 12,
+    'show.singleStaffRange': 14,
     'show.explodeStaffPenalty': 1.2,
     'play.gain': 1.0,
     'play.engineName': 'maelzel.core',

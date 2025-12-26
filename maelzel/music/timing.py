@@ -4,8 +4,8 @@ import warnings
 from maelzel import _util
 from maelzel.common import timesig_t, num_t, F
 
+import itertools
 from emlib import iterlib
-from emlib.misc import returns_tuple
 import bpf4 as bpf
 
 
@@ -52,7 +52,6 @@ def measureDuration(timesig: str | timesig_t, tempo: num_t) -> F:
     return quarters_in_measure * quarterdur
 
 
-@returns_tuple("linear2framed framed2linear")
 def framedTime(offsets: list[num_t], durations: list[num_t]
                ) -> tuple[bpf.BpfInterface, bpf.BpfInterface]:
     """
@@ -96,7 +95,7 @@ def framedTime(offsets: list[num_t], durations: list[num_t]
     """
     xs = [0] + list(iterlib.partialsum(dur for dur in durations))
     pairs = []
-    for (x0, x1), y in zip(iterlib.pairwise(xs), offsets):
+    for (x0, x1), y in zip(itertools.pairwise(xs), offsets):
         pairs.append((x0, y))
         pairs.append((x1, y + (x1 - x0)))
     xs, ys = zip(*pairs)
@@ -121,41 +120,6 @@ def _force_sorted(xs):
     return out
 
 
-# def findNearestDuration(dur, possibleDurations: list[num_t], direction="<>") -> num_t:
-#     """
-#     Args:
-#         dur: a Dur or a float (will be converted to Dur via .fromfloat)
-#         possibleDurations: a seq of Durs
-#         direction: "<" = find a dur from possibleDurations which is lower than dur; ">" = find a dur from
-#             possibleDurations which is higher than dur; "<>" = find the nearest dur in possibleDurations
-#
-#     Example
-#     ~~~~~~~
-#
-#     >>> possible_durations = [0.5, 0.75, 1]
-#     >>> findNearestDuration(0.61, possibleDurations, "<>")
-#     0.5
-#
-#     """
-#     possdurs = sorted(possibleDurations, key=lambda d: float(d))
-#     inf = float("inf")
-#     if dur < possibleDurations[0]:
-#         return possibleDurations[0] if direction != "<" else None
-#     elif dur > possibleDurations[-1]:
-#         return possibleDurations[-1] if direction != ">" else None
-#     if direction == "<":
-#         nearest = sorted(possdurs, key=lambda d:abs(dur - d) if d < dur else inf)[0]
-#         return nearest if nearest < inf else None
-#     elif direction == ">":
-#         nearest = sorted(possdurs, key=lambda d:abs(dur - d) if d > dur else inf)[0]
-#         return nearest if nearest < inf else None
-#     elif direction == "<>":
-#         nearest = sorted(possdurs, key=lambda d:abs(dur - d))[0]
-#         return nearest
-#     else:
-#         raise ValueError("direction should be one of '>', '<', or '<>'")
-
-
 DEFAULT_TEMPI = (
     60, 120, 90, 132, 48, 80, 96, 100, 72, 52,
     40, 112, 144, 45, 160, 108, 88, 76, 66, 69)
@@ -165,9 +129,10 @@ def tempo2beatdur(tempo):
     return 60 / tempo
 
 
-@returns_tuple("bestTempi resultingDurations numBeats")
-def bestTempo(duration, possibleTempi=DEFAULT_TEMPI,
-              numSolutions=5, verbose=True):
+def bestTempo(duration,
+              possibleTempi=DEFAULT_TEMPI,
+              numSolutions=5,
+              verbose=True):
     """
     Find best tempi that fit the given duration
     """

@@ -4,9 +4,10 @@ Create and work with musical scales
 """
 from __future__ import annotations
 import pitchtools as pt
-from emlib import iterlib
-from typing import Sequence
+import itertools
 from functools import cache
+
+from typing import Sequence
 
 
 knownscales = {
@@ -32,7 +33,7 @@ def _scale(startnote: str,
     note = startnote
     pitch = pt.n2m(note)
     notes = [note]
-    for step in iterlib.cycle(steps):
+    for step in itertools.cycle(steps):
         pitch += step
         if pitch > endpitch:
             break
@@ -47,7 +48,7 @@ def _pitchscale(startpitch: float,
                 endpitch: float
                 ) -> list[float]:
     midinotes = [startpitch]
-    for step in iterlib.cycle(steps):
+    for step in itertools.cycle(steps):
         if (midinote := midinotes[-1] + step) > endpitch:
             break
         midinotes.append(midinote)

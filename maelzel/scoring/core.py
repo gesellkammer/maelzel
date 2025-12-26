@@ -208,7 +208,7 @@ class UnquantizedPart:
         return iter(self.notations)
 
     def __repr__(self) -> str:
-        return reprObj(self, priorityargs=('notations',), hideFalsy=True)
+        return reprObj(self, first=('notations',), hideFalsy=True)
 
     def dump(self, indents=0, file=None) -> None:
         """Dump this to stdout"""
@@ -541,7 +541,8 @@ def distributeByClef(notations: list[Notation],
                      name='',
                      abbrev='',
                      singleStaffRange=12,
-                     staffPenalty=1.2
+                     staffPenalty=1.2,
+                     groupNotesInSpanners=True
                      ) -> list[UnquantizedPart]:
     """
     Distribute the given notations amongst parts with different clefs
@@ -554,6 +555,7 @@ def distributeByClef(notations: list[Notation],
         abbrev: an abbreviation for the name of the group
         singleStaffRange: if notations fit within this range only one staff
             is used.
+        groupNotesInSpanners: keep notations sharing a spanner together
 
     Returns:
         a list of UnquantizedParts, sorted from low to high
@@ -563,7 +565,8 @@ def distributeByClef(notations: list[Notation],
                                            maxStaves=maxStaves,
                                            minStaves=minStaves,
                                            singleStaffRange=singleStaffRange,
-                                           staffPenalty=staffPenalty)
+                                           staffPenalty=staffPenalty,
+                                           groupNotesInSpanners=groupNotesInSpanners)
     # parts are sorted from low to high
     parts = [UnquantizedPart(notations, firstClef=clef) for clef, notations in partpairs]
     if len(parts) > 1:

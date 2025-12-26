@@ -76,7 +76,6 @@ config = {
     'reprhtml_audiotag_maxwidth': '1200px',
     'reprhtml_audiotag_embed_maxduration_seconds': 8,
     'reprhtml_audio_format': 'mp3',
-    'csoundengine': 'maelzel.snd',
 }
 
 
@@ -99,8 +98,8 @@ class PlaybackStream(abc.ABC):
         raise NotImplementedError
 
     def _repr_html_(self) -> str:
-        from maelzel.core import jupytertools
-        jupytertools.displayButton("Stop", self.stop)
+        from maelzel.core import _jupytertools
+        _jupytertools.displayButton("Stop", self.stop)
         return repr(self)
 
 
@@ -318,18 +317,11 @@ class Sample:
         and will only take effect if this function is called before any
         playback has been performed.
 
-        An already existing Engine can be set as the playback engine via
-        :meth:`Sample.setEngine`
-
-        See Also
-        ~~~~~~~~
-
-        * :meth:`Sample.setEngine`
         """
         if Sample._csoundEngine:
             return Sample._csoundEngine
         import csoundengine as ce
-        name = config['csoundengine']
+        name = 'maelzel.snd'
         engine = ce.Engine.activeEngines.get(name) or ce.Engine(name=name, **kws)
         Sample._csoundEngine = engine
         return engine
@@ -440,8 +432,6 @@ class Sample:
         ~~~~~~~~
 
         * :meth:`Sample.getEngine`
-        * :meth:`Sample.setEngine`
-
         """
         if not backend:
             if engine is None and delay == 0 and speed <= 8:
@@ -2101,7 +2091,6 @@ def playSamples(samples: np.ndarray,
     ~~~~~~~~
 
     * :meth:`Sample.getEngine`
-    * :meth:`Sample.setEngine`
 
     """
     numchannels = _npsnd.numChannels(samples)

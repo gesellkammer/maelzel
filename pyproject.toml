@@ -45,6 +45,7 @@ dependencies = [
     "typing_extensions",
     "imagesize",
     "pypng",
+    "pygments",
 
     # Own libraries
     "emlib>=1.20.0",

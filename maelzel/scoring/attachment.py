@@ -373,7 +373,13 @@ class Text(Attachment):
         self.relativeSize = relativeSize
 
     def __repr__(self):
-        return _util.reprObj(self, hideFalsy=True, hideEmptyStr=True, priorityargs=('text',), quoteStrings=('text',), hideKeys=('text',))
+        # parts = ['"' + self.text + '"']
+        # for attr in ('placement', 'fontsize', 'box', 'italic', 'weight', 'fontfamily', 'role', 'relativeSize'):
+        #     val = getattr(self, attr)
+        #     if val:
+        #         parts.append(f"{attr}={val}")
+        # return f"Text({', '.join(parts)})"
+        return _util.reprObj(self, hideFalsy=True, hideEmptyStr=True, first=('text',), quoteStrings=('text',), hideKeys=('text',))
 
     def __hash__(self) -> int:
         return hash(('Text', self.text, self.placement, self.fontsize, self.box))

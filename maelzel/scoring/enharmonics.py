@@ -469,7 +469,7 @@ def _chordPenalty(notations: Sequence[Notation],
     """
     totalChordPenalty = 0
     for i, notation in enumerate(notations):
-        notes = notation.resolveNotenames(keepFixedAnnotation=False)
+        notes = notation.resolveNotenames(fixedAnnotation=False)
         anchor = anchors[i]
         notes[anchor] = spelling[i]
         chordrating, sources = _rateChordSpelling(notes, options=options)
@@ -567,7 +567,7 @@ class SpellingHistory:
         Args:
             notation: the notation to add
         """
-        notenames = notation.resolveNotenames(keepFixedAnnotation=False)
+        notenames = notation.resolveNotenames(fixedAnnotation=False)
         self.add(notenames)
 
 
@@ -794,7 +794,7 @@ def fixEnharmonicsInPlace(notations: list[Notation],
                     fixedslots = fixedslots.copy()
                     fixedslots.update(nslots)
 
-                chordVariants = pt.enharmonic_variations(n.resolveNotenames(keepFixedAnnotation=False),
+                chordVariants = pt.enharmonic_variations(n.resolveNotenames(fixedAnnotation=False),
                                                          fixedslots=fixedslots, force=True)
                 chordVariants.sort(key=lambda variant: _rateChordSpelling(variant, options)[0])
                 chordSolution = chordVariants[0]
@@ -850,8 +850,8 @@ def fixEnharmonicsInPlace(notations: list[Notation],
                              "but n0=%s is not tied to it", n1, n0)
                 n1.tiedPrev = False
             else:
-                notenames1 = n1.resolveNotenames(keepFixedAnnotation=False)
-                notenames0 = n0.resolveNotenames(keepFixedAnnotation=False)
+                notenames1 = n1.resolveNotenames(fixedAnnotation=False)
+                notenames0 = n0.resolveNotenames(fixedAnnotation=False)
                 fixedNotenames = []
                 for notename1 in notenames1:
                     pitch1 = pt.notated_pitch(notename1)

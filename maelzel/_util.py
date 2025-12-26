@@ -88,7 +88,7 @@ def reprObj(obj,
             exclude: Sequence[str] | None = None,
             properties: Sequence[str] | None = None,
             filter: dict[str, Callable] = {},
-            priorityargs: Sequence[str] | None = None,
+            first: Sequence[str] | None = None,
             hideFalse=False,
             hideEmptyStr=False,
             hideFalsy=False,
@@ -112,7 +112,7 @@ def reprObj(obj,
         hideKeys: show the value without the key name. Makes the given key a priority
         quoteChar: char used to quote strings
         exclude: a seq. of attributes to exclude
-        priorityargs: a list of attributes which are shown first.
+        first: a list of attributes which are shown first.
         hideFalsy: hide any attr which evaluates to False under bool(obj.attr)
         hideFalse: hide bool attributes which are False.
         hideEmptyStr: hide str attributes which are empty
@@ -137,16 +137,16 @@ def reprObj(obj,
                 attrs.append(p)
     info = []
     if hideKeys:
-        if priorityargs:
+        if first:
             for key in hideKeys:
-                if key not in priorityargs:
-                    priorityargs += (key,)
+                if key not in first:
+                    first += (key,)
         else:
-            priorityargs = hideKeys
+            first = hideKeys
     if sort:
         attrs.sort()
-    if priorityargs:
-        attrs.sort(key=lambda attr: 0 if attr in priorityargs else 1)
+    if first:
+        attrs.sort(key=lambda attr: 0 if attr in first else 1)
     for attr in attrs:
         value = getattr(obj, attr)
         if value is None or (hideFalsy and not value) or (hideEmptyStr and value == '') or (hideFalse and value is False):
@@ -279,6 +279,7 @@ def showT(f: F | float | None) -> str:
         f = float(f)
     return f"{f:.3f}".rstrip('0').rstrip('.')
 
+
 def showFlt(num: float, decimals=3) -> str:
     """Show num with the given decimals, without trailing 0s or periods"""
     fmt = f".{decimals}f"
@@ -341,14 +342,11 @@ def pngShow(pngpath: str, forceExternal=False, app: str = '',
         forceExternal = True
 
     if not forceExternal and pythonSessionType() == 'jupyter':
-        from maelzel.core import jupytertools
-        jupytertools.jupyterShowImage(path=pngpath, scalefactor=inlineScale)
+        from maelzel.core import _jupytertools
+        _jupytertools.jupyterShowImage(path=pngpath, scalefactor=inlineScale)
     else:
         import emlib.misc
-        if app:
-            emlib.misc.open_with_app(path=pngpath, app=app, wait=wait)
-        else:
-            emlib.misc.open_with_app(path=pngpath, wait=wait)
+        emlib.misc.open_with_app(path=pngpath, wait=wait, app=app)
 
 
 def pythonSessionType() -> str:
@@ -668,3 +666,16 @@ def htmlImage64(img64: bytes | str, imwidth: int, width: int | str = '', scale=1
     style = ";\n".join(attrs)
     return fr'''<img style="display:inline; {style}" src="data:image/png;base64,{s}"/>'''
 
+
+def normalizeWeights(*weights: float) -> list[float]:
+    """
+    Normalize weights prior to using these for euclidian distance
+
+    Args:
+        weights: a seq. of weights
+
+    Returns:
+        a list of normalized weights, they add to the number of weights
+    """
+    factor = len(weights)/sum(weights)
+    return [w*factor for w in weights]

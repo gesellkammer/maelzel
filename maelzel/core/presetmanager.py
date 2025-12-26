@@ -9,10 +9,10 @@ import os
 import emlib.textlib
 
 from . import presetdef as _presetdef
-from .workspace import Workspace
+from . import _builtinpresets
 from . import presetutils
-from . import builtinpresets
 from . import environment
+from .workspace import Workspace
 
 from ._common import logger
 
@@ -136,7 +136,7 @@ class PresetManager:
 
     """
     _instance: PresetManager | None = None
-    csoundPrelude = _csoundPrelude
+    csoundPrelude: str = _csoundPrelude
 
     def __init__(self):
         if self._instance is not None:
@@ -175,10 +175,10 @@ class PresetManager:
         """
         Defines all builtin presets
         """
-        for presetdef in builtinpresets.makeBuiltinPresets():
+        for presetdef in _builtinpresets.makeBuiltinPresets():
             self.registerPreset(presetdef)
 
-        for name, info in builtinpresets.builtinSoundfonts().items():
+        for name, info in _builtinpresets.builtinSoundfonts().items():
             self.defSoundfont(path=info['path'],
                               name=name,
                               preset=info['preset'],

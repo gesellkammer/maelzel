@@ -451,29 +451,62 @@ def bestClefForPitch(pitch: float,
     return SimpleClefEvaluator(clefs)(pitch)
 
 
-def _groupNotations(ns: list[Notation], groupingSpanners: tuple[_spanner.Spanner, ...] = ()) -> list[Notation | list[Notation]]:
+def _groupNotationsBySpanner(ns: list[Notation]
+                             ) -> list[Notation | list[Notation]]:
+    """
+    Groups notations belonging to a same spanner/spanners
+
+    The returned notations or groups share no spanners with any other
+    notation/group
+
+    Args:
+        ns: a seq. of notations
+
+    Returns:
+        a list of notations or list of notations, where each returned item
+        shares one or multiple spanners with the group and no spanners
+        with any other item
+    """
     group = []
-    groupid = ''
     out = []
+    stack = []
+    if not any(n.spanners for n in ns):
+        return ns
+
     for n in ns:
-        if groupid:
+        if n.spanners:
+            for sp in n.spanners:
+                if sp.kind == 'start':
+                    stack.append(sp.uuid)
+        if stack:
             group.append(n)
-            if n.spanners and any(sp.kind == 'end' and sp.uuid == groupid for sp in n.spanners):
-                out.append(group.copy())
-                groupid = ''
-                group.clear()
         else:
-            if n.spanners and (sp:=next((sp for sp in n.spanners
-                                        if sp.kind == 'start' and (not groupingSpanners or isinstance(sp, groupingSpanners))), None)):
-                groupid = sp.uuid
-                assert len(group) == 0
-                group.append(n)
-            else:
-                out.append(n)
+            out.append(n)
+        if n.spanners:
+            for sp in n.spanners:
+                if sp.kind == 'end':
+                    stack.remove(sp.uuid)
+                    if not stack:
+                        out.append(group.copy())
+                        group.clear()
+    if group:
+        out.append(group)
     return out
 
 
-def _groupNotationsBySpanner(ns: Sequence[Notation]) -> dict[_spanner.Spanner, list[Notation]]:
+def _mapNotationsToSpanners(ns: Sequence[Notation]
+                            ) -> dict[_spanner.Spanner, list[Notation]]:
+    """
+    Create a registry of spanners, collecting all notations under a given spanner
+
+    Args:
+        ns: a seq. of notations
+
+    Returns:
+        a dict {spanner: notations}, mapping spanners to the notations associated with it.
+        Notice that a notation can be present in multiple groups if it is under overlapping
+        spanners
+    """
     openspanners: set[str] = set()
     groups: dict[str, list[Notation]] = {}
     uuidToSpanner: dict[str, _spanner.Spanner] = {}
@@ -533,7 +566,7 @@ def bestClefCombination(notations: list[Notation],
                         maxStaves: int,
                         minStaves: int = 1,
                         singleStaffRange=12,
-                        groupNotationsWithinSpanner=False,
+                        groupNotesInSpanners=False,
                         staffPenalty=1.2,
                         transposingPenalty=1.3
                         ) -> tuple[str, ...]:
@@ -546,7 +579,7 @@ def bestClefCombination(notations: list[Notation],
         minStaves: min. number of staves
         singleStaffRange: if notations can be fit within this range no new
             staves are created
-        groupNotationsWithinSpanner: assign the same staff to notations within a spanner
+        groupNotesInSpanners: assign the same staff to notations within a spanner
         staffPenalty: penalty applied to the creation of a staff
         transposingPenalty: penalty applied when choosing a transposing clef
 
@@ -566,14 +599,21 @@ def bestClefCombination(notations: list[Notation],
 
     possibleCombinations = _clefCombinations(maxStaves=maxStaves, minStaves=minStaves)
     results: dict[tuple[str, ...], float] = {}
-    if groupNotationsWithinSpanner:
-        groups = _groupNotations(notations)
+
+    def collect(seqs: list[Sequence[T]]) -> list[T]:
+        out = []
+        for seq in seqs:
+            out.extend(seq)
+        return out
+
+    if groupNotesInSpanners:
+        groups = _groupNotationsBySpanner(notations)
         for clefs in possibleCombinations:
             clefeval = SimpleClefEvaluator(clefs=clefs)
             fitness = 0.
             for group in groups:
                 if isinstance(group, list):
-                    pitches = sum((n.pitches for n in group), [])
+                    pitches = sum((n.pitches for n in group), ())
                     fitness += clefeval.process(pitches)[1]
                 else:
                     fitness += sum(clefeval(pitch)[1] for pitch in group.pitches)
@@ -601,7 +641,7 @@ def explodeNotations(notations: list[Notation],
                      singleStaffRange=12,
                      distributeSpanners=True,
                      staffPenalty=1.2,
-                     groupNotationsWithinSpanner=False
+                     groupNotesInSpanners=False
                      ) -> list[tuple[str, list[Notation]]]:
     """
     Distribute notations across different clefs
@@ -624,13 +664,13 @@ def explodeNotations(notations: list[Notation],
                                     minStaves=minStaves,
                                     singleStaffRange=singleStaffRange,
                                     staffPenalty=staffPenalty,
-                                    groupNotationsWithinSpanner=groupNotationsWithinSpanner)
+                                    groupNotesInSpanners=groupNotesInSpanners)
     if len(bestClefs) == 1:
         return [(bestClefs[0], notations)]
 
     return splitNotationsByClef(notations,
                                 possibleClefs=bestClefs,
-                                groupNotationsInSpanners=False,
+                                groupNotesInSpanners=groupNotesInSpanners,
                                 distributeSpanners=distributeSpanners)
 
 
@@ -690,7 +730,7 @@ def clefsBetween(minclef='',
 
 def splitNotationsByClef(notations: list[Notation],
                          possibleClefs: Sequence[str],
-                         groupNotationsInSpanners=False,
+                         groupNotesInSpanners=False,
                          distributeSpanners=True
                          ) -> list[tuple[str, list[Notation]]]:
     """
@@ -702,7 +742,7 @@ def splitNotationsByClef(notations: list[Notation],
     Args:
         notations: notations to split
         possibleClefs: clefs for each part
-        groupNotationsInSpanners: if True, force all parts of all notations within spanners
+        groupNotesInSpanners: if True, force all parts of all notations within spanners
             to be on one voice
         distributeSpanners: if True and spanners extend over notations across multiple staves,
             assign those spanners to the first and last notation belonging to the spanner
@@ -712,6 +752,8 @@ def splitNotationsByClef(notations: list[Notation],
         a list of pairs (clefname: str, notations: list[Notation])
     """
     assert len(possibleClefs) > 1
+    if groupNotesInSpanners:
+        distributeSpanners = False
 
     if any(clef not in definitions.clefs for clef in possibleClefs):
         unknown = [clef for clef in possibleClefs if clef not in definitions.clefs]
@@ -782,14 +824,14 @@ def splitNotationsByClef(notations: list[Notation],
     prefix = "_spanner_"
     notationsBySpanner = None
     if distributeSpanners:
-        notationsBySpanner = _groupNotationsBySpanner(notations)
+        notationsBySpanner = _mapNotationsToSpanners(notations)
         for spanner, notationsInSpanner in notationsBySpanner.items():
             for n in notationsInSpanner:
                 n.setProperty(f"{prefix}{spanner.uuid}", True)
     
-    if groupNotationsInSpanners:
+    if groupNotesInSpanners:
         nidx = 0
-        for item in _groupNotations(notations):
+        for item in _groupNotationsBySpanner(notations):
             if isinstance(item, Notation):
                 _distrNotation(item, nidx, parts, notations)
                 nidx += 1

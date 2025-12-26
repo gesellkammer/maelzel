@@ -44,7 +44,7 @@ from .config import CoreConfig
 from .workspace import Workspace
 from . import environment
 from . import realtimerenderer
-from . import notation
+from . import _scoringutils
 from . import _tools
 from maelzel.textstyle import TextStyle
 from . import symbols as _symbols
@@ -735,6 +735,7 @@ class MObj(ABC):
              staffSize: float | None = None,
              cents: bool | None = None,
              autoClefChanges: bool | None = None,
+             complexity='',
              ** kws
              ) -> None:
         """
@@ -756,6 +757,8 @@ class MObj(ABC):
                 (default = 10.)
             cents: overrides config 'show.cents'. False to hide cents deviations
                 as text annotation
+            complexity: overrides config 'quant.complexity'. One of 'highest', 'high', 'medium',
+                'low', 'lowest'. See the config documentation for more details
             kws: any keyword is used to override the config. All options starting with
                 the 'show.' prefix can be used directly (see below)
 
@@ -805,6 +808,8 @@ class MObj(ABC):
             cfg['show.pageSize'] = pageSize
         if autoClefChanges is not None:
             cfg['show.autoClefChanges'] = autoClefChanges
+        if complexity:
+            cfg['quant.complexity'] = complexity
 
         if external is None:
             external = cfg['openImagesInExternalApp']
@@ -826,7 +831,11 @@ class MObj(ABC):
                 import emlib.misc
                 emlib.misc.open_with_app(lyfile)
             else:
-                _tools.showLilypondScore(renderer.render())
+                htmltheme = cfg['htmlTheme']
+                htmlstyle = {'dark': 'fruity',
+                             'light': 'friendly'
+                             }.get(htmltheme, 'friendly')
+                _tools.showLilypondScore(renderer.render(), htmlstyle=htmlstyle)
         else:
             img = self._renderImage(fmt=fmt, config=cfg)
             if fmt == 'png':
@@ -852,7 +861,8 @@ class MObj(ABC):
                        config: CoreConfig | None = None,
                        quantizationProfile: str | quant.QuantizationProfile | None = None,
                        enharmonicOptions: enharmonics.EnharmonicOptions | None = None,
-                       nestedTuplets: bool | None = None
+                       nestedTuplets: bool | None = None,
+                       debug: bool = None
                        ) -> quant.QuantizedScore:
         """
         Returns a QuantizedScore representing this object
@@ -901,6 +911,10 @@ class MObj(ABC):
         parts = self.scoringParts()
         if config['show.respellPitches'] and enharmonicOptions is None:
             enharmonicOptions = config.makeEnharmonicOptions()
+
+        if debug:
+            quantizationProfile.debug = True
+
         qscore = quant.quantizeParts(parts,
                                      quantizationProfile=quantizationProfile,
                                      struct=scorestruct,
@@ -1269,9 +1283,9 @@ class MObj(ABC):
             if resolution:
                 updates['show.pngResolution'] = resolution
             cfg = cfg.clone(updates=updates)
-        r = notation.renderWithActiveWorkspace(parts=self.scoringParts(config=cfg),
-                                               scorestruct=self.scorestruct(),
-                                               config=cfg)
+        r = _scoringutils.renderWithActiveWorkspace(parts=self.scoringParts(config=cfg),
+                                                    scorestruct=self.scorestruct(),
+                                                    config=cfg)
         r.write(outfile)
 
     def _htmlImage(self, scaleFactor: float = 0.) -> tuple[bytes, str]:
@@ -2285,11 +2299,11 @@ def _renderObject(obj: MObj,
     elif check:
         for part in parts:
             part.check()
-    renderer = notation.renderWithActiveWorkspace(parts,
-                                                  renderOptions=renderoptions,
-                                                  scorestruct=scorestruct,
-                                                  config=config,
-                                                  quantizationProfile=quantizationProfile)
+    renderer = _scoringutils.renderWithActiveWorkspace(parts,
+                                                       renderOptions=renderoptions,
+                                                       scorestruct=scorestruct,
+                                                       config=config,
+                                                       quantizationProfile=quantizationProfile)
     return renderer
 
 

@@ -1062,8 +1062,12 @@ class Chord(MEvent):
                 notes = [Note(n.strip(), amp=amp, fixed=fixed) for n in notes.split()]
 
         super().__init__(dur=asF(dur),
-                         offset=offset, label=label, properties=properties,
-                         tied=tied, amp=amp, dynamic=dynamic)
+                         offset=asF(offset) if offset is not None else None,
+                         label=label,
+                         properties=properties,
+                         tied=tied,
+                         amp=amp,
+                         dynamic=dynamic)
 
         if _init:
             notes2: list[Note] = []
@@ -1126,14 +1130,14 @@ class Chord(MEvent):
         if isinstance(gliss, bool):
             self._gliss = gliss
             self._glissLines = None
-        elif not isinstance(gliss, (list, tuple)):
-            raise TypeError(f"Expected a list/tuple of pitches, got {gliss}")
-        elif len(gliss) > len(self.notes):
-            raise ValueError(f"The number of pitches for the target of the glissando "
-                             f"should not exceed the number of pitches in this chord, "
-                             f"{gliss=}, {self=}")
-        self._gliss = tuple(asmidi(pitch) for pitch in gliss)
-        self._glissLines = None
+        else:
+            assert isinstance(gliss, (list, tuple))
+            if len(gliss) > len(self.notes):
+                raise ValueError(f"The number of pitches for the target of the glissando "
+                                 f"should not exceed the number of pitches in this chord, "
+                                 f"{gliss=}, {self=}")
+            self._gliss = tuple(asmidi(pitch) for pitch in gliss)
+            self._glissLines = None
 
     def _copy(self, attributes=True) -> Self:
         notes = [n._copy(attributes=attributes) for n in self.notes]
@@ -1427,7 +1431,7 @@ class Chord(MEvent):
         config = config or Workspace.active.config
         notations = self.scoringEvents(config=config)
         n0 = notations[0]
-        notenames = n0.resolveNotenames(keepFixedAnnotation=True)
+        notenames = n0.resolveNotenames(fixedAnnotation=True)
         spelling0 = enharmonics.bestChordSpelling(notenames, options=config.makeEnharmonicOptions())
         for name in spelling0:
             n0.fixNotename(name)

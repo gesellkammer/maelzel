@@ -988,13 +988,13 @@ def _renderPart(part: quant.QuantizedPart,
                        bold=style.bold,
                        italic=style.italic)
 
-            if measuredef.rehearsalMark:
+            if measuredef.mark:
                 style = renderOptions.parsedRehearsalMarkStyle
                 _words(doc, parent=measure_,
-                       text=measuredef.rehearsalMark.text,
+                       text=measuredef.mark.text,
                        placement='above',
                        fontsize=style.fontsize * renderOptions.musicxmlFontScaling if style.fontsize else 0.,
-                       enclosure=measuredef.rehearsalMark.box or style.box,
+                       enclosure=measuredef.mark.box or style.box,
                        bold=style.bold,
                        italic=style.italic)
 

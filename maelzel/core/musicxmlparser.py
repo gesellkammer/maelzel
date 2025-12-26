@@ -497,7 +497,7 @@ def _parseNote(root: ET.Element, context: _ParseContext) -> Note:
                         startspanner.makePartnerSpanner(note)
 
             elif notation.kind == 'bend':
-                note.addSymbol(symbols.Bend(notation.getProperty['alter']))
+                note.addSymbol(symbols.Bend(notation.getProperty('alter')))
     for symbol in notesymbols:
         note.addSymbol(symbol)
 
@@ -922,7 +922,7 @@ def _parsePart(part: ET.Element, context: _ParseContext, setstruct=True
 
         sco.addMeasure(timesig=timesig,
                        tempo=quarterTempo,
-                       keySignature=keysig,
+                       key=keysig,
                        properties=measureProperties)
 
         actions.clear()
@@ -986,7 +986,7 @@ def _parsePart(part: ET.Element, context: _ParseContext, setstruct=True
                         mdef.barline = barstyle2
 
         # end items measure
-        measureDur = sco.measuredefs[measureidx].durationQuarters
+        measureDur = sco.measures[measureidx].duration
         if measure.attrib.get('implicit') == 'yes':
             # A 'pickup' measure. Justified to the right
             # (Must not necessarilly be the first measure)

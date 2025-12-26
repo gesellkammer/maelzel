@@ -3,6 +3,7 @@ from math import sqrt
 from functools import cache
 from dataclasses import dataclass, field as _field, fields as _fields
 
+from maelzel import _util
 from maelzel.common import F
 from maelzel.scoring.common import logger
 from maelzel.scoring import quantdata
@@ -13,7 +14,7 @@ from emlib import mathlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import Sequence
+    from typing import Sequence, Any
     from maelzel.common import num_t
     from maelzel.scoring.common import division_t
 
@@ -238,6 +239,8 @@ class QuantizationProfile:
 
     _cachedDivisionsByTempo: dict[tuple[num_t, bool], list[division_t]] = _field(default_factory=dict)
     _cachedDivisionPenalty: dict[tuple[int, ...], tuple[float, str]] = _field(default_factory=dict)
+    _blocked: bool = False
+    _hash: int = 0
 
     def __post_init__(self):
         assert self.breakSyncopationsLevel in ('strong', 'none', 'all', 'weak'), f"{self.breakSyncopationsLevel=}"
@@ -257,8 +260,22 @@ class QuantizationProfile:
     def divisionsByTempo(self) -> dict[int, tuple[division_t, ...]]:
         return quantdata.divisionsByTempo(self.divisionDefs, blacklist=self.blacklist)
 
+    def normalizedGridWeights(self) -> list[float]:
+        return _util.normalizedWeights(self.offsetErrorWeight, self.durationErrorWeight, self.graceErrorWeight)
+
+    def block(self, val=True):
+        if self._blocked == val:
+            return
+        if val:
+            self._hash = hash(self)
+        else:
+            self._hash = 0
+        self._blocked = val
+
     def __hash__(self) -> int:
-        return hash((           
+        if self._blocked and self._hash != 0:
+            return self._hash
+        self._hash = h = hash((
             self.nestedTuplets,
             self.gridErrorWeight,
             self.gridErrorExp,
@@ -296,8 +313,9 @@ class QuantizationProfile:
             self.breakSyncopationsLevel,
             self.tiedSnappedGracenoteMinRealDuration,
         ))
+        return h
 
-    def possibleBeatDivisionsForTempo(self, tempo: num_t) -> list[division_t]:
+    def possibleDivisionsForTempo(self, tempo: num_t) -> list[division_t]:
         """
         The possible divisions of the pulse for the given tempo
 
