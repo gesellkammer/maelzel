@@ -328,8 +328,8 @@ def simplifyDivisionWithSlots(division: division_t, assignedSlots: list[int]
 
     if len(slots) != len(assignedSlots):
         # grace notes share slots
-        for i, slotsize in enumerate(slotSizes):
-            if slotsize == 0:
+        for i, size in enumerate(slotSizes):
+            if size == 0:
                 slots.insert(i, slots[i])
 
     assert len(slots) == len(assignedSlots), f"{assignedSlots=}, {slots=}, {division=} -> {newdiv=}"

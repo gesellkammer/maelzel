@@ -4,12 +4,16 @@ import os
 import itertools
 import pitchtools as pt
 import numpy as np
+from maelzel.snd import numpysnd
+
+from functools import cache
+
 from maelzel.snd import audiosample
 
 from maelzel.common import F, asF, F0, F1, asmidi
 from maelzel.core import event
 from maelzel.core.synthevent import SynthEvent
-from maelzel.core.workspace import Workspace
+from maelzel.core.workspace import Workspace, logger
 from maelzel import _util
 
 
@@ -214,6 +218,10 @@ class Clip(event.MEvent):
         self._calculateDuration()
 
     def _readSamples(self) -> None:
+        """
+        Read all samples and switch the source to the samples themselves
+        """
+        # TODO: deal with startsecs and endsecs
         if isinstance(self.source, np.ndarray):
             pass
 
@@ -235,22 +243,31 @@ class Clip(event.MEvent):
 
         """
         if isinstance(self.source, str):
-            import sndfileio
-            return sndfileio.sndread(self.source, start=start, end=end)[0]
+            # read samples if duration is short or asked to read a substantial
+            # part of the source
+            if self.sourceDurSecs < 10 or (end - start) / self.sourceDurSecs > 0.25:
+                logger.debug("Reading all samples")
+                self._readSamples()
+                assert isinstance(self.source, np.ndarray)
+                return self.source[int(start * self.sr):int(end*self.sr)]
+            else:
+                import sndfileio
+                return sndfileio.sndread(self.source, start=start, end=end)[0]
         else:
             assert isinstance(self.source, np.ndarray)
             return self.source[int(start * self.sr):int(end * self.sr)]
 
+    @cache
     def firstSound(self, threshold=-120) -> float | None:
         if isinstance(self.source, str):
             from maelzel.snd import sndfiletools
             return sndfiletools.firstSound(self.source, threshold=threshold)
         else:
-            from maelzel.snd import numpysnd
             assert isinstance(self.source, np.ndarray)
             samplenum = numpysnd.firstSound(self.source, threshold=threshold)
             return None if samplenum is None else samplenum * self.sr
 
+    @cache
     def fundamentalPitch(self, dur=0.2, start=0., default=60.) -> float:
         if start == 0:
             start = self.firstSound()

@@ -490,7 +490,7 @@ def fillSilences(notations: list[Notation],
     out: list[Notation] = []
     n0 = notations[0]
     if n0.offset is not None and n0.offset > offset:
-        out.append(Notation.makeRest(duration=n0.offset, offset=offset))
+        out.append(Notation.makeRest(duration=n0.offset - offset, offset=offset))
     for ev0, ev1 in pairwise(notations):
         gap = ev1.qoffset - (ev0.qoffset + ev0.duration)
         if gap == 0:

@@ -1381,6 +1381,7 @@ class NoMerge(EventSymbol):
         next: if True, this cannot be merged to the next note
     """
     appliesToRests = True
+    exclusive = True
 
     def __init__(self, prev=True, next=False):
         super().__init__()

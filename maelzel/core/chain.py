@@ -832,7 +832,7 @@ class Chain(MContainer):
         fontsize = '85%'
         IND = '  '
         selfstart = f"{float(self.offset):.3g}" if self.offset is not None else 'None'
-        namew = max(len(ev.name) for ev in self.recurse()) + 2
+        namew = max(4, max(len(ev.name) for ev in self.recurse())) + 1
 
         widths = {
             'location': 10,
@@ -1606,7 +1606,7 @@ class Chain(MContainer):
 
         .. seealso:: :meth:`Chain.addBreak`
         """
-        absoffset = self._locationToAbsOffset(offset)
+        absoffset = self._locToAbsOffset(offset)
         events = self.eventsAt(absoffset)
         if not events:
             event = None
@@ -1678,7 +1678,7 @@ class Chain(MContainer):
             return next(self.recurse(reverse=True))
         return next((ev for ev in self.recurse(reverse=True) if not ev.isRest()), None)
 
-    def eventAt(self, location: beat_t, split=False, margin: F = F0, start=False
+    def eventAt(self, location: beat_t, split=False, margin: F = F0, start=False, order=0
                 ) -> MEvent | None:
         """
         The event present at the given location
@@ -1686,20 +1686,23 @@ class Chain(MContainer):
         .. note::
 
             If there are multiple events at the given location (gracenotes have a duration
-            if 0 and thus can share a location with other gracenotes and with an event
-            starting at that location) only the first event will be returned.
-            Use :meth:`Chain.eventsAt` to return all events at a given location
+            if 0 and can share a location with other events) then the `order` argument
+            is used to determine which event is returned. Use :meth:`Chain.eventsAt` to
+            return all events at a given location
 
         Args:
             location: the beat or a tuple (measureindex, beatoffset). If a beat is given,
                 it is interpreted as an absoute offset
+            order: which event to return if multiple events are present (due to gracenotes).
+                0 indicates the first event, negative values are possible (-1 returns
+                the last event and will skip any gracenotes)
             split: if the offset lies within an event, splits the event at the given offset,
                 returns the right part of the event (the part starting at the offset), as
                 a tied event. If the returned event is not modified (no symbol is added or
                 any other property is changed) it might be remerged when shown as notation.
-                To prevent merging without any other visible side-effects you can add
-                a NoMerge symbol to the returned event
-            margin: if given, the first event within location and location+margin will be
+                To prevent merging without any other visible side-effects add
+                a :class:`NoMerge` symbol to the returned event
+            margin: if given, the first event in the range [location, location+margin) will be
                 returned
             start: if True, an event will be returned only if it starts at the given offset
 
@@ -1712,24 +1715,25 @@ class Chain(MContainer):
         .. seealso:: :meth:`Chain.eventsBetween`, :meth:`Chain.eventsAt`
         """
         eps = margin if margin else F(1, 10000)
-        absoffset = self._locationToAbsOffset(location)
+        absoffset = self._locToAbsOffset(location)
         end = absoffset + eps
         events = self.eventsBetween(absoffset, end)
         if not events:
             return None
         if not start:
-            event = events[0]
+            event = events[order]
         else:
-            event = next((ev for ev in events if ev.absOffset() == start), None)
-            if event is None:
+            events = [ev for ev in events if ev.absOffset() == start]
+            if not events:
                 return None
+            event = events[order]
         if split:
             eventoffset = event.absOffset()
             if eventoffset < absoffset < eventoffset + event.dur:
                 event = self.splitAt(absoffset, beambreak=False, nomerge=False)
         return event
 
-    def _locationToAbsOffset(self, location: beat_t) -> F:
+    def _locToAbsOffset(self, location: beat_t) -> F:
         if isinstance(location, tuple):
             struct = self.scorestruct() or Workspace.active.scorestruct
             measidx, beat = location
@@ -1750,7 +1754,7 @@ class Chain(MContainer):
         Returns:
             the events present or starting at the given location
         """
-        offset = self._locationToAbsOffset(location)
+        offset = self._locToAbsOffset(location)
         EPS = F(1, 100000)
         if start:
             events = [ev for ev, offset in self.eventsWithOffset(start=offset, end=offset+EPS)
@@ -1938,9 +1942,8 @@ class Chain(MContainer):
         Args:
             location: the absolute offset to split at, or a score location (measureindex, measureoffset)
             tie: tie the parts of an event together if the split intersects an event
-            beambreak: if True, add a BeamBreak symbol to the given event
-            nomerge: if True, enforce that the items splitted cannot be
-                merged at a later stage (they are marked with a NoMerge symbol)
+            beambreak: break any beams at the given location. Implies ``nomerge=True``
+            nomerge: enforce the splitted items to remain separete if ``tie=True``
 
         Returns:
             Returns the event starting at the given offset, or None if no event found at
@@ -2160,7 +2163,6 @@ class Chain(MContainer):
     def _cropped(self, startbeat: F, endbeat: F, absorbOffset=False
                  ) -> Self:
         items = []
-        # absoffset = self.absOffset()
         for item, offset in self.itemsWithOffset():
             if offset > endbeat or (offset == endbeat and item.dur > 0):
                 break
@@ -2179,7 +2181,9 @@ class Chain(MContainer):
                         # TODO: combine these two operations, if needed
                         subchain = item._cropped(startbeat, endbeat, absorbOffset=True)
                         items.append(subchain.clone(offset=subchain.absOffset() - startbeat))
-        out = self.clone(items=items, offset=startbeat)
+
+        newoffset = startbeat
+        out = self.clone(items=items, offset=newoffset)
         if absorbOffset:
             out.absorbFirstOffset()
         return out
@@ -2218,8 +2222,8 @@ class Chain(MContainer):
         cropped = self._cropped(startbeat=startbeat, endbeat=endbeat)
         if not cropped.items:
             return None
-        if any(item.offset is None for item in self.items):
-            cropped.removeRedundantOffsets()
+        #if any(item.offset is None for item in self.items):
+        #    cropped.removeRedundantOffsets()
         return cropped
 
     def configNotation(self,
