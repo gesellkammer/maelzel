@@ -3,7 +3,7 @@ requires = ["setuptools", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
-version = "1.10.0"
+version = "1.11.0"
 name = "maelzel"
 description = "Framework for computer music and composition"
 authors = [
@@ -54,7 +54,7 @@ dependencies = [
     "configdict>=2.13",
     "sndfileio>=1.9.1",
     "numpyx>=1.4.1",
-    "csoundengine>=2.21.7",
+    "csoundengine>=2.22.0",
     "pitchtools>=1.16.0",
     "risset>=3.2.0",
     "loristrck>=1.6.1",
