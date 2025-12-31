@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import itertools
+
 from maelzel.common import F, F0
 from .mevent import MEvent
 
@@ -51,17 +53,23 @@ def fillTempDynamics(items: list[MEvent],
             lastEnd = itemOffset + item.dur
 
 def copyEventsModifiedByGracenotes(events: list[MEvent]) -> list[MEvent]:
+    # all gracenotes are copied, and all real notes before a gracenote
     out = []
-    insideGraceGroup = False
-    for idx, ev in enumerate(events):
-        if ev.isGrace():
-            ev = ev.copy()
-            insideGraceGroup = True
+
+    def copy(ev: MEvent) -> MEvent:
+        out = ev.copy()
+        out._relOffset = ev._relOffset
+        return out
+
+    for ev0, ev1 in itertools.pairwise(events):
+        if ev0.isGrace() or ev1.isGrace():
+            out.append(copy(ev0))
         else:
-            if insideGraceGroup:
-                insideGraceGroup = False
-                ev = ev.copy()
-        out.append(ev)
+            out.append(ev0)
+
+    last = events[-1]
+    out.append(last if not last.isGrace() else copy(last))
+    # assert all(ev0.relEnd() <= ev1.relOffset() for ev0, ev1 in itertools.pairwise(events))
     return out
 
 
@@ -81,52 +89,63 @@ def addDurationToGracenotes(events: list[MEvent], dur: F, inplace=False
     """
     if not inplace:
         events = copyEventsModifiedByGracenotes(events)
+
     lastRealNote = -1
     d: dict[int, list[int]] = {}
-    # first we build a registry mapping real notes to their grace notes
+    # first we build a registry mapping real notes to their grace notes. Gracenotes
+    # come BEFORE the
     now = events[0].relOffset()
     for i, n in enumerate(events):
         if not n.isGrace():
             lastRealNote = i
-        else:
-            if lastRealNote < 0:
-                # First in the sequence is a gracenote. Diminish the dur of the next real note,
-                # make the gracenote "on the beat"
-                nextrealidx = next((j for j, n in enumerate(events[i+1:])
-                                    if not n.isGrace() and n.dur > 0), None)
-                if nextrealidx is None:
-                    raise ValueError(f"No real notes in {events=}")
-                nextreal = events[nextrealidx+i+1]
-                dur = min(dur, nextreal.dur / (nextrealidx + 1))
-                assert dur > 0 and nextreal.dur > dur, f"{nextreal=}, {dur=}, {i=}, {nextrealidx=}"
-                n.dur = dur
-                n.offset = now
-                offset = now+dur
-                if nextreal.offset is None:
-                    nextreal.offset = offset
-                    nextreal.dur -= dur
-                elif nextreal.offset < offset:
-                    nextreal.dur -= offset - nextreal.offset
-                    nextreal.offset = offset
-                now += dur
+            if n.offset is None:
+                # n._relOffset = now
+                now += n.dur
             else:
-                gracenotes = d.get(lastRealNote)
-                if gracenotes:
-                    gracenotes.append(i)
-                else:
-                    d[lastRealNote] = [i]
+                now = n.offset
+        elif lastRealNote >= 0:
+            d.setdefault(lastRealNote, []).append(i)
+        else:
+            # First in the sequence is a gracenote. Diminish the dur of the next real note,
+            # make the gracenote "on the beat"
+            nextrealidx = next((j for j, n in enumerate(events[i+1:])
+                                if not n.isGrace() and n.dur > 0), None)
+            if nextrealidx is None:
+                raise ValueError(f"No real notes in {events=}")
+            nextreal = events[nextrealidx+i+1]
+            dur = min(dur, nextreal.dur / (nextrealidx + 1))
+            assert dur > 0 and nextreal.dur > dur, f"{nextreal=}, {dur=}, {i=}, {nextrealidx=}"
+            n.dur = dur
+            n._relOffset = now
+            nextoffset = now + dur
+            if nextreal.offset is None:
+                nextreal._relOffset = nextoffset
+                nextreal.dur -= dur
+            elif nextreal.offset < nextoffset:
+                nextreal.dur -= nextoffset - nextreal.offset
+                nextreal.offset = nextoffset
+            now += dur
 
-    for realnoteIndex, gracenotesIndexes in d.items():
-        realnote = events[realnoteIndex]
-        maxGraceDur = realnote.dur / (len(gracenotesIndexes) + 1)
+    for realidx, graceidxs in d.items():
+        idx0 = graceidxs[0]
+        # if len(graceidxs) > 1:
+        #     assert all(idx < idx0 for idx in graceidxs[1:])
+        # assert realidx < idx0
+        realev = events[realidx]
+        maxGraceDur = realev.dur / (len(graceidxs) + 1)
         graceDur = min(dur, maxGraceDur)
-        realnote.dur -= graceDur * len(gracenotesIndexes)
-        for i, gracenoteIndex in enumerate(gracenotesIndexes):
-            gracenote = events[gracenoteIndex]
-            gracenote.dur = graceDur
-            deltapos = (len(gracenotesIndexes) - i) * graceDur
-            gracenote.offset -= deltapos
+        realend = realev.relEnd()
+        realev.dur -= graceDur * len(graceidxs)
+        for i, graceidx in enumerate(graceidxs):
+            grace = events[graceidx]
+            grace.dur = graceDur
+            deltapos = (len(graceidxs) - i) * graceDur
+            grace.offset = realend - deltapos
+            # grace._relOffset = realend - deltapos
 
+    for e0, e1 in itertools.pairwise(events):
+        if e0.relEnd() > e1.relOffset():
+            raise ValueError(f"Items supperpose: {e0}, end={e0.relOffset()}, {e1}, start={e1.relOffset()}")
     return events
 
 
@@ -149,7 +168,6 @@ def groupLinkedEvents(items: list[MEvent],
         in such list is linked by either a tie or a gliss
 
     """
-    # assert all(ev1.relOffset() < ev2.relOffset() for ev1, ev2 in itertools.pairwise(items))
     lastitem = items[0]
     groups: list[MEvent | list[MEvent]] = [lastitem]
     for item in items[1:]:
@@ -167,100 +185,3 @@ def groupLinkedEvents(items: list[MEvent],
             groups.append(item)
         lastitem = item
     return groups
-
-
-# def splitLinkedGroupIntoLines(objs: list[MEvent]
-#                               ) -> list[list[event.Note]]:
-#     """
-#     Given a group as a list of Notes/Chords, split it in subgroups matching
-#     each note with its continuation.
-#
-#     When one chords is followed by another chord and the first chord
-#     should do a glissando to the second, each note in the first chord is matched with
-#     a second note of the second chord (possibly duplicating the notes).
-#
-#     This is purely intended for playback, so the duplication is not important.
-#
-#     """
-#     if all(isinstance(obj, event.Note) for obj in objs):
-#         return [objs]  # type: ignore
-#
-#     finished: list[list[event.Note]] = []
-#     started: list[list[event.Note]] = []
-#     continuations: dict[event.Note, event.Note] = {}
-#     for obj in objs:
-#         if isinstance(obj, event.Chord):
-#             for i, note in enumerate(obj.notes):
-#                 note.offset = obj.offset
-#                 note.dur = obj.dur
-#                 note.gliss = obj.gliss if isinstance(obj.gliss, bool) else obj.gliss[i]
-#                 note.tied = obj.tied
-#                 if obj.playargs:
-#                     if not note.playargs:
-#                         note.playargs = obj.playargs.copy()
-#                     else:
-#                         note.playargs.fillWith(obj.playargs)
-#
-#     # gliss pass
-#     if len(objs) > 1:
-#         ev0 = objs[0]
-#         for ev1 in objs[1:]:
-#             if isinstance(ev0, event.Chord) and ev0.gliss is True:
-#                 if isinstance(ev1, event.Chord):
-#                     # Notes are matched in sort order (which is normally by pitch)
-#                     for n0, n1 in zip(ev0.notes, ev1.notes):
-#                         continuations[n0] = n1
-#                 elif isinstance(ev1, event.Note):
-#                     for n0 in ev0.notes:
-#                         continuations[n0] = ev1
-#             ev0 = ev1
-#
-#     for objidx, obj in enumerate(objs):
-#         if isinstance(obj, event.Chord):
-#             notes = obj.notes
-#         elif isinstance(obj, event.Note):
-#             notes = [obj]
-#         else:
-#             raise TypeError(f"Expected notes or chords, got {obj}")
-#         usednotes = set()
-#         assert all(n.offset is not None for n in notes)
-#         if not started:
-#             # No started group, so all notes here will start group
-#             for note in notes:
-#                 started.append([note])
-#         else:
-#             # there are started groups, so iterate through started groups and
-#             # find if there are matches.
-#             for groupidx, group in enumerate(started):
-#                 last = group[-1]
-#                 if last.tied:
-#                     matchidx = next((i for i, n in enumerate(notes) if n.pitch == last.pitch), None)
-#                     if matchidx is not None:
-#                         group.append(notes[matchidx])
-#                         # notes.pop(matchidx)
-#                         usednotes.add(notes[matchidx])
-#                 elif last.gliss is True:
-#                     if continuation := continuations.get(last):
-#                         group.append(continuation)
-#                         if continuation in notes:
-#                             usednotes.add(continuation)
-#                             # notes.remove(continuation)
-#                     else:
-#                         matchidx = min(range(len(notes)),
-#                                        key=lambda idx: abs(notes[idx].pitch - last.pitch))
-#                         group.append(notes[matchidx])
-#                         usednotes.add(notes[matchidx])
-#                 else:
-#                     # This group's last note is not tied and has no gliss: this is the
-#                     # end of this group, so add it to finished
-#                     finished.append(group)
-#                     started.pop(groupidx)
-#             # Are there notes left? If yes, this notes did not match any started group,
-#             # so they must start a group themselves
-#             for note in notes:
-#                 if note not in usednotes:
-#                     started.append([note])
-#
-#     # We finished iterating, are there any started groups? Finish them
-#     finished.extend(started)
-#     return finished

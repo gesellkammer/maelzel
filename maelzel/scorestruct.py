@@ -646,18 +646,18 @@ class MeasureDef:
         self.const = const
         """Is this measure read only?"""
 
+        self.tempoRef: tuple[int, int] = tempoRef
+        """Reference figure for the tempo, as a tuple (base, numdots), where base 4=quarternote"""
+
+        self.duration: F = self.timesig.duration
+        """Measure duration in quarters"""
+
         self._subdivTempo: int | None = subdivTempo
         """The max. tempo at which an eighth note can be a beat of its own"""
 
         self._breakTempo: int | None = breakTempo
 
-        self.duration: F = self.timesig.duration
-        """Measure duration in quarters"""
-
         self._durationSecs: F = F0
-
-        self.tempoRef: tuple[int, int] = tempoRef
-        """Reference figure for the tempo, as a tuple (base, numdots), where base 4=quarternote"""
 
     @property
     def durationSecs(self) -> F:
@@ -833,8 +833,21 @@ class MeasureDef:
         return ', '.join(parts)
 
     def __copy__(self):
-        return _copy.deepcopy(self)
-
+        return MeasureDef(timesig=self._timesig,
+                          tempo=self._tempo,
+                          annotation=self.annotation,
+                          barline=self.barline,
+                          mark=self.mark,
+                          tempoRef=self.tempoRef,
+                          key=self.key,
+                          parent=self.parent,
+                          timesigInherited=self.timesigInherited,
+                          tempoInherited=self.tempoInherited,
+                          properties=self.properties.copy() if self.properties else None,
+                          subdivTempo=self._subdivTempo,
+                          breakTempo=self._breakTempo,
+                          const=self.const)
+        2
     def copy(self) -> MeasureDef:
         return self.__copy__()
 
@@ -1667,7 +1680,7 @@ class ScoreStruct:
 
         if idx < len(self.measures):
             measuredef = self.measures[idx]
-            assert measuredef.parent is self
+            assert measuredef.parent is self, f"{measuredef=}"
             return measuredef
 
         if extend is None:
@@ -2968,6 +2981,7 @@ class ScoreStruct:
                                strongBeatPitch=strongBeatPitch,
                                weakBeatPitch=weakBeatPitch)
         score.setPlay(itransp=playTransposition)
+        score.setScoreStruct(self)
         return score
 
 

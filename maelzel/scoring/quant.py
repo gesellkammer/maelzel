@@ -801,7 +801,7 @@ class QuantizedMeasure:
 
     def removeUnnecessaryGracenotes(self) -> None:
         self.tree.removeUnnecessaryGracenotes()
-        tiedGraceMinDur = self.quantprofile.tiedSnappedGracenoteMinRealDuration
+        tiedGraceMinDur = self.quantprofile.tiedSnappedGraceMinRealDur
         if tiedGraceMinDur == 0:
             return
         for n, node in self.tree.recurseWithNode():
@@ -1153,15 +1153,16 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
     # TODO: remove this hardcoded threshold
 
     for div in possibleDivisions:
-        div0 = div
-
         if div in seen or div in profile.blacklist:
             continue
 
         seen.add(div)
 
         # More events than slots and no orig. gracenotes
-        if not numOriginalGracenotes > 0 and numEvents < 20 and numEvents - sum(div) > 1:
+        if (profile.maxGraceRatio and
+                (numOriginalGracenotes < 1) and
+                numEvents < 20 and
+                numEvents / sum(div) > profile.maxGraceRatio):
             continue
 
         # Exclude divisions which are not worth evaluating at full
@@ -1219,14 +1220,14 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
             grid0 = quantutils.divisionGrid0(beatDuration=beatDuration, division=simplifiedDiv)
 
         snappedEvents = quantutils.makeSnapped(events0, slots=assignedSlots, grid=grid0)
-        numSnappedGraces = sum(1 for s in snappedEvents if s.duration == 0)
-        if (r := (numSnappedGraces - numOriginalGracenotes)/numEvents) <= maxGraceRatio:
-            maxGraceRatio = r
-        elif minGridError < gridErrorThresh:
-            #if profile.debug:
-            #    print(f"Skipping {div}: too many gracenotes, {maxGraceRatio=}, {r=}")
-            seen.add(div)
-            continue
+        # numSnappedGraces = sum(1 for s in snappedEvents if s.duration == 0)
+        # if (r := (numSnappedGraces - numOriginalGracenotes)/numEvents) <= maxGraceRatio:
+        #     maxGraceRatio = r
+        # elif minGridError < gridErrorThresh:
+        #     if profile.debug:
+        #         print(f"Skipping {div}: too many gracenotes, {maxGraceRatio=:.4f}, grace ratio={r:.4f}")
+        #     seen.add(div)
+        #     continue
 
         gridError = _evalGridError(profile=profile,
                                    snappedEvents=snappedEvents,
@@ -1239,7 +1240,7 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
                 continue
             if (weightedGridError := gridError * sqrt(gridErrorWeight)) > minError:
                 if profile.debug and weightedGridError / minError < 1.2:
-                    logger.info("Skipping %s, weightedGridError: %g, minError: %g", div, weightedGridError, minError)
+                    print("Skipping %s, weightedGridError: %g, minError: %g" % (div, weightedGridError, minError))
                 continue
 
         divPenalty, divPenaltyInfo = profile.divisionPenalty(div)
@@ -1274,7 +1275,7 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
             debuginfo = ''
 
         if totalError > minError:
-            if profile.debug and totalError / minError < 2:
+            if profile.debug and totalError / minError < 1.3:
                 logger.debug("Skipping %s, totalError: %g, minError: %g", str(div), totalError, minError)
                 rows.append((totalError, div, snappedEvents, assignedSlots, debuginfo))
             continue
@@ -1286,6 +1287,9 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
 
         if totalError == 0:
             break
+
+    if not rows:
+        raise RuntimeError(f"Could not quantize {len(eventsInBeat)} events at {beatOffset=}, {len(possibleDivisions)=}, {minError=}, {eventsInBeat=}")
 
     # first sort by div length, then by error
     # We make sure that (7,) is better than (7, 1) for the cases where the

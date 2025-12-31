@@ -16,7 +16,7 @@ import loristrck
 import loristrck.util
 import pitchtools as pt
 from emlib.filetools import normalizePath
-from emlib import iterlib
+import itertools
 import emlib.mathlib
 
 
@@ -134,7 +134,7 @@ class _PartialIndex:
     @staticmethod
     def _findTimeDelta(partials: list[Partial], grouplen=200) -> float:
         grouplen = max(1, min(grouplen, len(partials) // 10))
-        dts = [p1.start - p0.start for p0, p1 in iterlib.pairwise(partials)]
+        dts = [p1.start - p0.start for p0, p1 in itertools.pairwise(partials)]
         avgdt = sum(dts) / len(dts)
         return avgdt * grouplen
 
@@ -870,16 +870,16 @@ class Spectrum:
         energyfunc = (lambda p: p.audibility()) if loudnessCompensation else (lambda p: p.energy())
 
         for partial in self.partials:
-            freq = partial.meanfreq()
-            if (partial.meanamp() >= minamp and
-                    minfreq <= freq <= maxfreq and
-                    partial.duration >= mindur and
-                    len(partial) >= minbreakpoints and
-                    minbw <= partial.meanbw() < maxbw and
-                    energyfunc(partial) >= minenergy):
-                selected.append(partial)
-            else:
+            if (partial.duration < mindur or
+                len(partial) < minbreakpoints or
+                    (minamp > 0 and partial.meanamp() < minamp) or
+                    (maxfreq < 24000 and not (minfreq <= partial.meanfreq() <= maxfreq)) or
+                    ((minbw > 0 or maxbw < 1) and not (minbw <= partial.meanbw() < maxbw)) or
+                energyfunc(partial) < minenergy
+            ):
                 residue.append(partial)
+            else:
+                selected.append(partial)
 
         return Spectrum(selected), Spectrum(residue)
 

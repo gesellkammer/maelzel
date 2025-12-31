@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from maelzel._util import hasOverlap
-from emlib import iterlib
+import itertools
 import pitchtools as pt
 import bisect
 
@@ -115,4 +115,4 @@ class PartialTrack:
         if not self.partials:
             return True
         return all(p0.end <= p1.start
-                   for p0, p1 in iterlib.pairwise(self.partials))
+                   for p0, p1 in itertools.pairwise(self.partials))

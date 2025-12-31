@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import bpf4
 import pitchtools as pt
-from emlib import iterlib
+import itertools
 
 # from maelzel import histogram
 from maelzel.common import asF
@@ -435,7 +435,7 @@ def splitInBands(partials: list[Partial],
     energies *= ampfactors
     freqedges = stats.weightedHistogram(freqs, energies, numbins=numbands, distribution=distribution)
     bands = [SpectralBand(minfreq=minfreq, maxfreq=maxfreq, partials=[])
-             for minfreq, maxfreq in iterlib.pairwise(freqedges)]
+             for minfreq, maxfreq in itertools.pairwise(freqedges)]
     assert 0 < len(bands) <= numbands, f"#freqs: {len(freqs)}, #energies: {energies}, numbads: {numbands}, distribution: {distribution}"
 
     bandindexes = np.searchsorted(freqedges, freqs) - 1

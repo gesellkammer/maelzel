@@ -261,7 +261,7 @@ class MEvent(MObj):
 
         """
         return super().copy()
-
+        
     def copy(self):
         return self._copy()
 

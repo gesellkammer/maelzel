@@ -199,7 +199,7 @@ class QuantizationProfile:
     that a big triplet with a triplet inside which both go across the beat
     (for example the rhythm 2/3, 2/9, 2/9, 2/9, 2/3) would be allowed"""
 
-    breakLongGlissandi: bool = True
+    breakLongGliss: bool = True
     """When a glissando extends over a quarternote, break it into quarter notes
 
     If the noteheads are hidden, a glissando over a half-note cannot be differentiated
@@ -227,7 +227,12 @@ class QuantizationProfile:
     'strong': only strong beats, 'weak': ??)
     """
 
-    tiedSnappedGracenoteMinRealDuration: F = F(1, 1000)
+    maxGraceRatio: float = 3.
+    """
+    Max ratio of quantization gracenotes to slots
+    """
+
+    tiedSnappedGraceMinRealDur: F = F(1, 1000)
     """
     The min. real duration of a tied snapped gracenote in order for it NOT
     to be removed
@@ -307,11 +312,11 @@ class QuantizationProfile:
             self.allowNestedTupletsAcrossBeat,
             self.allowedTupletsAcrossBeat,
             self.allowedNestedTupletsAcrossBeat,
-            self.breakLongGlissandi,
+            self.breakLongGliss,
             self.maxPenalty,
             self.blacklist,
             self.breakSyncopationsLevel,
-            self.tiedSnappedGracenoteMinRealDuration,
+            self.tiedSnappedGraceMinRealDur,
         ))
         return h
 
@@ -399,7 +404,7 @@ class QuantizationProfile:
                    if not field.name.startswith('_'))
 
     @staticmethod
-    def fromPreset(complexity='high',
+    def fromPreset(complexity: str,
                    nestedTuplets: bool | None = None,
                    blacklist: Sequence[division_t] = (),
                    **kws) -> QuantizationProfile:
@@ -423,7 +428,10 @@ class QuantizationProfile:
             raise ValueError(f"complexity preset {complexity} unknown. Possible values: {presets.keys()}")
 
         profilekeys = QuantizationProfile.keys()
-        presetkeys = set([field.name for field in _fields(quantdata.QuantPreset)])
+        presetkeys = quantdata.QuantPreset.keys()
+
+        if not presetkeys.issubset(profilekeys):
+            raise KeyError(f"Invalid preset keys: {presetkeys.difference(profilekeys)}")
 
         presetkws = {key: value for key in presetkeys.intersection(profilekeys)
                      if (value:=getattr(preset, key)) is not None}

@@ -138,7 +138,7 @@ class LineStyle:
 class ClefDef:
     name: str
     """Name of the clef"""
-    shortName: str
+    abbrev: str
     """Abbreviation of the clef"""
     pitchRange: tuple[int, int]
     """Pitch range (minpitch, maxpitch)"""
@@ -166,7 +166,7 @@ class ClefDef:
 def _clefDefinitions() -> list[ClefDef]:
     return [
         ClefDef(name='15a',
-                shortName='G6:',
+                abbrev='G6:',
                 pitchRange=(84, 108),
                 lines=("6E", "6G", "6B", "7D", "7F"),
                 refLine=1,
@@ -175,7 +175,7 @@ def _clefDefinitions() -> list[ClefDef]:
                 lineStyle='--',
                 lineWidth=1),
         ClefDef(name='treble',
-                shortName='G:',
+                abbrev='G:',
                 pitchRange=(60, 84),
                 lines=("4E", "4G", "4B", "5D", "5F"),
                 refLine=1,
@@ -183,7 +183,7 @@ def _clefDefinitions() -> list[ClefDef]:
                 color=(0., 0., 0.3),
                 lineWidth=1),
         ClefDef(name='bass',
-                shortName='F:',
+                abbrev='F:',
                 pitchRange=(36, 60),
                 lines=("2G", "2B", "3D", "3F", "3A"),
                 refLine=3,
@@ -191,7 +191,7 @@ def _clefDefinitions() -> list[ClefDef]:
                 color=(0.3, 0.0, 0.0),
                 lineWidth=1),
         ClefDef(name='15b',
-                shortName='F1:',
+                abbrev='F1:',
                 pitchRange=(12, 36),
                 lines=("0G", "0B", "1D", "1F", "1A"),
                 refLine=3,

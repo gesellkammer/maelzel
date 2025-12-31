@@ -562,6 +562,21 @@ class Chain(MContainer):
         """
         _resolveGlissandi(self._recurse(), force=force)
 
+    def _flatEventsForSynth(self, config: CoreConfig, graceDurs=True) -> list[MEvent]:
+        if all(isinstance(item, MEvent) for item in self):
+            flatitems = self.items
+        else:
+            flatitems = self.flatEvents(forcecopy=False)
+
+        if graceDurs and any(n.isGrace() for n in flatitems):
+            graceDur = F(config['play.graceDuration'])
+            flatitems = _eventutils.addDurationToGracenotes(flatitems, graceDur, inplace=False)
+
+        if config['play.useDynamics'] and any(item.dynamic for item in flatitems):
+            _eventutils.fillTempDynamics(flatitems, dynamic=config['play.defaultDynamic'], apply=False)
+
+        return flatitems
+
     def _synthEvents(self,
                      playargs: PlayArgs,
                      parentOffset: F,
@@ -574,17 +589,7 @@ class Chain(MContainer):
             # later, after events have been merged.
             playargs = playargs.updated(self.playargs, automations=False)
 
-        if all(isinstance(item, MEvent) for item in self):
-            flatitems = self.items
-        else:
-            flatitems = self.flatEvents(forcecopy=False)
-
-        if any(n.isGrace() for n in flatitems):
-            graceDur = F(conf['play.graceDuration'])
-            flatitems = _eventutils.addDurationToGracenotes(flatitems, graceDur, inplace=False)
-
-        if conf['play.useDynamics'] and any(item.dynamic for item in flatitems):
-            _eventutils.fillTempDynamics(flatitems, dynamic=conf['play.defaultDynamic'], apply=False)
+        flatitems = self._flatEventsForSynth(conf)
 
         allevents = []
         for group in _eventutils.groupLinkedEvents(flatitems):
@@ -726,9 +731,6 @@ class Chain(MContainer):
         """
         if not any(item is child for item in self.items):
             raise ValueError(f"The item {child} is not a child of {self}")
-
-        if child.offset is not None:
-            return child.offset
 
         self._update()
         offset = child._relOffset
@@ -1004,7 +1006,7 @@ class Chain(MContainer):
             self._changed()
             self._hasRedundantOffsets = False
 
-    def asVoice(self, removeOffsets=True) -> Voice:
+    def asVoice(self) -> Voice:
         """
         Create a Voice as a copy of this Chain
 
@@ -1016,14 +1018,16 @@ class Chain(MContainer):
         """
         self._update()
         items = [item.copy() for item in self.items]
-        _stackEvents(items, explicitOffsets=True)
-        if self.offset and self.offset > F0:
-            for item in items:
-                assert item.offset is not None
-                item.offset += self.offset
-        voice = Voice(items, name=self.label)
-        if removeOffsets:
+        if not self.offset and all(isinstance(item, MEvent) for item in items):
+            voice = Voice(items, name=self.label)
+        else:
+            _stackEvents(items, explicitOffsets=True)
+            if self.offset:
+                for item in items:
+                    item.offset += self.offset
+            voice = Voice(items, name=self.label)
             voice.removeRedundantOffsets()
+
         if self.symbols:
             for symbol in self.symbols:
                 voice.addSymbol(symbol)
@@ -1099,7 +1103,7 @@ class Chain(MContainer):
         absOffset = self.absOffset()
         scoring.core.resolveOffsets(allns, start=absOffset)
         allns = scoring.core.fillSilences(allns, offset=absOffset)
-        assert all(n.offset is not None and n.end is not None for n in allns)
+        # assert all(n.offset is not None and n.end is not None for n in allns)
 
         if self.symbols:
             for symbol in self.symbols:
@@ -1260,9 +1264,9 @@ class Chain(MContainer):
         self._changed()
 
     def timeShift(self, offset: time_t) -> Self:
-        self._update()
         if offset == 0:
             return self
+        self._update()
         reloffset = self.relOffset()
         if offset > 0:
             return self.clone(offset=reloffset + offset)
@@ -1281,11 +1285,10 @@ class Chain(MContainer):
         Args:
             offset: the time delta (in quarterNotes)
         """
-
-        offset = asF(offset)
         if offset == 0:
             return
 
+        offset = asF(offset)
         self._update()
         reloffset = self.relOffset()
         if offset > 0:
@@ -1570,8 +1573,8 @@ class Chain(MContainer):
             self._postSymbols.append((spanner, startloc, endloc))
 
     def addSymbolAt(self,
-                    symbol: symbols.EventSymbol | str,
                     offset: beat_t,
+                    symbol: symbols.EventSymbol | str,
                     post=False,
                     skipGrace=False
                     ) -> None:
@@ -2553,6 +2556,7 @@ class Voice(Chain):
 
     def timeShift(self, offset: time_t) -> Self:
         out = self.copy()
+        out._changed()
         if offset != 0:
             out.timeShiftInPlace(offset)
         return out

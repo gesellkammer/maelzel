@@ -171,6 +171,9 @@ class PlayArgs:
             raise KeyError(f"Unknown key {key}. Possible keys are: {self.playkeys}")
         return self.db.get(key, default)
 
+    def __contains__(self, item: str) -> bool:
+        return item in self.db
+
     def __getitem__(self, item: str):
         return self.db[item]
 

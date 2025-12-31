@@ -6,8 +6,7 @@ import os
 import math
 from maelzel.snd import audiosample
 import pitchtools as pt
-from emlib.iterlib import pairwise
-import collections
+from itertools import pairwise
 
 
 def regionFromFile(sndfile: str, key='auto', offset=0, relpath=True, a4=442, **kws) -> str:

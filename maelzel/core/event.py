@@ -16,7 +16,6 @@ via :meth:`~maelzel.core.mobj.MObj.relOffset`, the absolute offset via
 :meth:`~maelzel.core.mobj.MObj.absOffset`
 
 """
-
 from __future__ import annotations
 
 import math
@@ -54,7 +53,6 @@ __all__ = (
     'Note',
     'Chord',
     'Rest',
-
     'asEvent',
     'Grace'
 )
@@ -1107,6 +1105,7 @@ class Chord(MEvent):
 
         for n in notes:
             n._parent = self
+        assert isinstance(notes, list)
         self.notes: list[Note] = notes  # type: ignore
         """The notes in this chord, each an instance of Note"""
 
@@ -1513,7 +1512,7 @@ class Chord(MEvent):
                 accumnote.amp += note2.amp
             else:
                 notes[note2.pitch] = note2
-        return self.clone(notes=notes.values())
+        return self.clone(notes=list(notes.values()))
 
     def __setitem__(self, i: int, note: pitch_t) -> None:
         self.notes.__setitem__(i, note if isinstance(note, Note) else Note(note))
@@ -1538,9 +1537,9 @@ class Chord(MEvent):
         """
         Return a new Chord with the loudest `n` notes from this chord
         """
-        out = self.copy()
-        out.sort(key='amp', reverse=True)
-        return out[:n]
+        notes = self.notes.copy()
+        notes.sort(key=(lambda n: n.amp if n.amp is not None else 1.0), reverse=True)
+        return self.clone(notes=notes[:n])
 
     def sort(self, key='pitch', reverse=False) -> None:
         """

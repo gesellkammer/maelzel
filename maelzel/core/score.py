@@ -85,13 +85,16 @@ class Score(MContainer):
 
         """
         self._scorestruct = scorestruct
-        if scorestruct:
-            for i, v in enumerate(self.voices):
-                voicestruct = v.scorestruct()
-                if voicestruct is not None and voicestruct != scorestruct:
-                    logger.info(f"Voice #%d, name='%s' has a different scorestruct "
-                                f"than the score", i, v.name)
         self._changed()
+
+    def scorestruct(self) -> ScoreStruct | None:
+        """
+        Returns the ScoreStruct for this score, if set
+
+        .. seealso:: :meth:`activeScorestruct() <maelzel.core.mobj.MObj.activeScorestruct>`
+        """
+        return self._scorestruct
+
 
     def getConfig(self, prototype: CoreConfig | None = None) -> CoreConfig | None:
         if not self._config:

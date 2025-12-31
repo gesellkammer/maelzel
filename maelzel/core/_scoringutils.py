@@ -139,7 +139,7 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig
         syncopPartMinFraction = asF(cfg['quant.syncopPartMinFraction']),
         syncopMaxAsymmetry = cfg['quant.syncopMaxAsymmetry'],
         breakSyncopationsLevel = cfg['quant.breakBeats'],
-        breakLongGlissandi = cfg['show.glissHideTiedNotes'],
+        breakLongGliss = cfg['show.glissHideTiedNotes'],
         beatWeightTempoThresh = cfg['quant.beatWeightTempoThresh'],
         subdivTempoThresh = cfg['quant.subdivTempoThresh'],
         mergeTupletsDifferentDur = cfg['.quant.mergeTupletsDifferentDur'],

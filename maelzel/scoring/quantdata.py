@@ -1,6 +1,7 @@
 from __future__ import annotations
 from functools import cache
-from dataclasses import dataclass, replace as _dataclass_replace
+from dataclasses import dataclass, replace as _dataclass_replace, fields as _fields
+from emlib.common import runonce
 
 from maelzel.scoring.common import division_t
 from maelzel.common import F
@@ -47,6 +48,7 @@ class QuantPreset:
     cardinalityPenaltyWeight: float | None = None
     numSubdivisionsPenaltyWeight: float | None = None
     syncopExcludeSymDurs: tuple[int, ...] | None = None
+    maxGraceRatio: float | None = None
     _cachedDivsByTempo: dict[int, tuple[division_t, ...]] | None = None
 
     def clone(self, **kws) -> QuantPreset:
@@ -54,6 +56,14 @@ class QuantPreset:
 
     def __post_init__(self):
         assert 0 <= self.exactGridFactor <= 1
+
+    @classmethod
+    @runonce
+    def keys(cls) -> set[str]:
+        allkeys = set(field.name for field in _fields(QuantPreset)
+                      if not field.name.startswith("_"))
+        allkeys ^= {'divisionsPenaltyMap', 'divisionDefs'}
+        return allkeys
 
 
 @cache
@@ -63,15 +73,15 @@ def getPresets() -> dict[str, QuantPreset]:
             divisionDefs = (
                 DivisionDef(maxTempo=48,
                     maxSubdivisions=9,
-                    possibleValues=(5, 6, 7, 8, 9, 11, 13, 17),
+                    possibleValues=(5, 6, 7, 8, 9, 11, 13, 15, 17),
                     maxDensity=42),
                 DivisionDef(maxTempo=62,
                     maxSubdivisions=8,
-                    possibleValues=(5, 6, 7, 8, 9, 11, 13, 17),
-                    maxDensity=32),
+                    possibleValues=(5, 6, 7, 8, 9, 11, 13, 15, 17),
+                    maxDensity=36),
                 DivisionDef(maxTempo=88,
                     maxSubdivisions=8,
-                    possibleValues=(5, 6, 7, 8, 9, 11, 13, 17),
+                    possibleValues=(5, 6, 7, 8, 9, 11, 13),
                     maxDensity=28),
                 DivisionDef(maxTempo=120,
                     maxSubdivisions=8,
@@ -107,26 +117,28 @@ def getPresets() -> dict[str, QuantPreset]:
             nestedTuplets=True,
             numNestedTupletsPenalty=(0., 0., 0., 0.1, 0.4, 0.8),
             gridErrorWeight=2.0,
-            divisionErrorWeight=0.005,
+            divisionErrorWeight=0.001,
             rhythmComplexityWeight=0.005,
             cardinalityPenaltyWeight=0.001,
-            numSubdivisionsPenaltyWeight=0.001,
+            numSubdivisionsPenaltyWeight=0.00,
             gridErrorExp=0.7,
             maxDivPenalty=0.2,
-            exactGridFactor=0.25),
+            exactGridFactor=0.25,
+            maxGraceRatio=2.0,
+        ),
         'high': QuantPreset(
             divisionDefs = (
                 DivisionDef(maxTempo=48,
                     maxSubdivisions=8,
-                    possibleValues=(3, 5, 6, 7, 8, 9, 11, 13),
+                    possibleValues=(3, 5, 6, 7, 8, 9, 11, 13, 15),
                     maxDensity=30),
                 DivisionDef(maxTempo=56,
                     maxSubdivisions=8,
-                    possibleValues=(3, 5, 6, 7, 8, 9, 11),
+                    possibleValues=(3, 5, 6, 7, 8, 9, 11, 13, 15),
                     maxDensity=26),
                 DivisionDef(maxTempo=66,
                     maxSubdivisions=7,
-                    possibleValues=(3, 4, 5, 6, 7, 8, 9, 11),
+                    possibleValues=(3, 4, 5, 6, 7, 8, 9, 11, 15),
                     maxDensity=24),
                 DivisionDef(maxTempo=80,
                     maxSubdivisions=6,
@@ -156,22 +168,23 @@ def getPresets() -> dict[str, QuantPreset]:
             nestedTuplets=True,
             numNestedTupletsPenalty=(0., 0., 0.03, 0.4, 0.5, 0.8),
             gridErrorWeight=1.0,
-            divisionErrorWeight=0.005,
-            rhythmComplexityWeight=0.005,
+            divisionErrorWeight=0.0001,
+            rhythmComplexityWeight=0.1,
             cardinalityPenaltyWeight=0,
             gridErrorExp=0.75,
             maxDivPenalty=0.2,
-            exactGridFactor=0.5),
+            exactGridFactor=0.5,
+            maxGraceRatio=2.0),
         'medium': QuantPreset(
             divisionDefs = (
                 DivisionDef(maxTempo=60,
                     maxSubdivisions=4,
                     possibleValues=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
-                    maxDensity=20),
+                    maxDensity=24),
                 DivisionDef(maxTempo=80,
                     maxSubdivisions=4,
                     possibleValues=(1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
-                    maxDensity=16),
+                    maxDensity=18),
                 DivisionDef(maxTempo=100,
                     maxSubdivisions=3,
                     possibleValues=(1, 2, 3, 4, 5, 6, 7, 8, 9),
@@ -203,13 +216,13 @@ def getPresets() -> dict[str, QuantPreset]:
         'low': QuantPreset(
             divisionDefs = (
                 DivisionDef(maxTempo=60,
-                    maxSubdivisions=4,
+                    maxSubdivisions=3,
                     possibleValues=(1, 2, 3, 4, 5, 6, 8),
-                    maxDensity=16),
+                    maxDensity=20),
                 DivisionDef(maxTempo=80,
                     maxSubdivisions=3,
                     possibleValues=(1, 2, 3, 4, 5, 6, 8),
-                    maxDensity=14),
+                    maxDensity=16),
                 DivisionDef(maxTempo=100,
                     maxSubdivisions=2,
                     possibleValues=(1, 2, 3, 4, 5, 6, 8),
@@ -238,6 +251,45 @@ def getPresets() -> dict[str, QuantPreset]:
             rhythmComplexityWeight=0.1,
             syncopExcludeSymDurs=(3, 7, 15),
             gridErrorExp=1.),
+        'speech': QuantPreset(
+            divisionDefs = (
+                DivisionDef(maxTempo=60,
+                    maxSubdivisions=2,
+                    possibleValues=(2, 3, 4, 5, 6, 8),
+                    maxDensity=16),
+                DivisionDef(maxTempo=80,
+                    maxSubdivisions=1,
+                    possibleValues=(1, 2, 3, 4, 5, 6, 8),
+                    maxDensity=14),
+                DivisionDef(maxTempo=100,
+                    maxSubdivisions=1,
+                    possibleValues=(1, 2, 3, 4, 5, 6, 8),
+                    maxDensity=12),
+                DivisionDef(maxTempo=132,
+                    maxSubdivisions=1,
+                    possibleValues=(1, 2, 3, 4, 6, 8),
+                    maxDensity=8),
+                DivisionDef(maxTempo=180,
+                    maxSubdivisions=1,
+                    possibleValues=(1, 2, 3, 4, 6, 8),
+                    maxDensity=6),
+                DivisionDef(maxTempo=400,
+                    maxSubdivisions=1,
+                    possibleValues=(1, 2, 3, 4),
+                    maxDensity=4),
+                DivisionDef(800,
+                    maxSubdivisions=1,
+                    possibleValues=(1, 2, 4),
+                    maxDensity=4)),
+            divisionsPenaltyMap=defaultDivisionPenaltyMap,
+            nestedTuplets=False,
+            numNestedTupletsPenalty=(0, 0., 0.05, 0.4, 0.5, 0.8),
+            gridErrorWeight=1.0,
+            divisionErrorWeight=0.01,
+            rhythmComplexityWeight=0.4,
+            syncopExcludeSymDurs=(3, 7, 15),
+            gridErrorExp=1.,
+            maxGraceRatio=4.),
     }
     return presets
 

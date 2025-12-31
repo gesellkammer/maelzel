@@ -69,7 +69,7 @@ def roundSeqPreservingSum(seq: list[float], maxdelta=1, maxsolutions=1,
     ~~~~~~~
 
         >>> from maelzel import distribute
-        >>> from emlib.iterlib import pairwise
+        >>> from itertools import pairwise
         >>> import matplotlib.pyplot as plt
         >>> parts = distribute.partitionExpon(40, 5, exp=3)
         >>> parts
@@ -136,7 +136,7 @@ def partitionFib(n: int, numpart: int) -> list[float]:
     ~~~~~~~
 
         >>> from maelzel import distribute
-        >>> from emlib.iterlib import pairwise
+        >>> from itertools import pairwise
         >>> parts = distribute.partitionFib(40, 5)
         >>> parts
         [2.4500439227299493,

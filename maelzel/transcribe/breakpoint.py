@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, fields, astuple
 import pitchtools as pt
-from emlib import iterlib
+import itertools
 from typing import Iterator, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -206,7 +206,7 @@ class BreakpointGroup:
             return sum(b.freq for b in self.breakpoints) / len(self.breakpoints)
         else:
             weights, freqs = 0, 0
-            for b0, b1 in iterlib.pairwise(self.breakpoints):
+            for b0, b1 in itertools.pairwise(self.breakpoints):
                 dur = b1.time - b0.time
                 weight = (b0.amp + b1.amp) / 2 * dur
                 freqs += b0.freq * weight
@@ -227,7 +227,7 @@ class BreakpointGroup:
             return sum(b.amp for b in self.breakpoints)
         else:
             weights, amps = 0., 0.
-            for b0, b1 in iterlib.pairwise(self.breakpoints):
+            for b0, b1 in itertools.pairwise(self.breakpoints):
                 weight = b0.amp * (b1.time - b0.time)
                 amps += b0.amp * weight
                 weights += weight

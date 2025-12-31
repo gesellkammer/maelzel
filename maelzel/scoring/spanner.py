@@ -387,7 +387,7 @@ class LineSpan(Spanner):
         self.endhook = endhook
 
 
-def solveHairpins(notations: Sequence[Notation], startDynamic='mf') -> None:
+def solveHairpins(notations: Sequence[Notation], startDynamic='') -> None:
     """
     Resolve end spanners for hairpins
 
@@ -401,7 +401,6 @@ def solveHairpins(notations: Sequence[Notation], startDynamic='mf') -> None:
     """
     hairpins = {(s.uuid, s.kind) for n in notations if n.spanners
                 for s in n.spanners if isinstance(s, Hairpin)}
-
     currentDynamic = startDynamic
     lastHairpin: Hairpin | None = None
     for n in notations:
