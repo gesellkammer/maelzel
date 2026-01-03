@@ -149,7 +149,6 @@ def checkCsoundPlugins(fix=True) -> str:
         'dict_get': 'klib',
         'presetinterp': 'else',
         'weightedsum': 'else',
-        'poly': 'poly',
         'zitarev': 'poodle'
     }
     errors = []

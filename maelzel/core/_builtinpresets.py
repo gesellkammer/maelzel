@@ -276,11 +276,23 @@ def makeBuiltinPresets() -> list[PresetDef]:
             kformantFreqs[] weightedsum gi__formantFreqs__, kweights
             kformantBws[]   weightedsum gi__formantBws__, kweights
             kformantAmps[]  weightedsum gi__formantAmps__, kweights
-            kformantFreqs poly 5, "lag", kformantFreqs, ipitchlag
-            kformantAmps  poly 5, "lag", kformantAmps, ipitchlag
-            aformants[] poly 5, "resonx", asource, kformantFreqs, kformantBws, 2, 1
-            aformants *= kformantAmps
-            aout1 = sumarray(aformants) * 0.1
+            ; kformantFreqs poly 5, "lag", kformantFreqs, ipitchlag
+            ; kformantAmps  poly 5, "lag", kformantAmps, ipitchlag
+            aformants[] init 5
+            aformant0 resonx asource, kformantFreqs[0], kformantBws[0], 2, 1
+            aformant1 resonx asource, kformantFreqs[1], kformantBws[1], 2, 1
+            aformant2 resonx asource, kformantFreqs[2], kformantBws[2], 2, 1
+            aformant3 resonx asource, kformantFreqs[3], kformantBws[3], 2, 1
+            aformant4 resonx asource, kformantFreqs[4], kformantBws[4], 2, 1
+            ; aformants[] poly 5, "resonx", asource, kformantFreqs, kformantBws, 2, 1
+            aformant0 *= kformantAmps[0]
+            aformant1 *= kformantAmps[1]
+            aformant2 *= kformantAmps[2]
+            aformant3 *= kformantAmps[3]
+            aformant4 *= kformantAmps[4]
+            aout1 sum aformant0, aformant1, aformant2, aformant3, aformant4
+            aout1 *= 0.1
+            ; aout1 = sumarray(aformants) * 0.1
             """,
             _builtin=True
         )
