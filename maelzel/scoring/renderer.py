@@ -7,9 +7,7 @@ from abc import ABC, abstractmethod
 from maelzel.scorestruct import ScoreStruct
 from maelzel.scoring.renderoptions import RenderOptions
 from maelzel.scoring import quant
-from maelzel.scoring.config import config
 from maelzel import _util
-from maelzel import _imgtools
 
 import emlib.img
 import emlib.misc

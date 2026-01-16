@@ -160,8 +160,6 @@ class BreakpointGroup:
     """
     A list of breakpoints representing a note
 
-    Args:
-        breakpoint: a list of breakpoints
     """
     def __init__(self, breakpoints: list[Breakpoint]):
         self.breakpoints = breakpoints

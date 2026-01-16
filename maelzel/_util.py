@@ -383,8 +383,6 @@ def getPlatform() -> tuple[str, str]:
     """
     Return a string with current platform (system and machine architecture).
 
-    Args:
-        normalize: if True, architectures are normalized (see below)
     Returns:
         a tuple (osname: str, architecture: str)
 
@@ -609,6 +607,8 @@ def unicodeFraction(numerator: int, denominator: int, multi=False) -> str:
 
 def fileIsLocked(filepath: str) -> bool:
     assert os.path.exists(filepath)
+    locked = False
+    fileobj = None
     try:
         bufsize = 8
         # Opening file in append mode and read the first 8 characters.

@@ -3,7 +3,6 @@ from math import sqrt
 from functools import cache
 from dataclasses import dataclass, field as _field, fields as _fields
 
-from maelzel import _util
 from maelzel.common import F
 from maelzel.scoring.common import logger
 from maelzel.scoring import quantdata
@@ -14,7 +13,7 @@ from emlib import mathlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import Sequence, Any
+    from typing import Sequence
     from maelzel.common import num_t
     from maelzel.scoring.common import division_t
 
@@ -265,8 +264,8 @@ class QuantizationProfile:
     def divisionsByTempo(self) -> dict[int, tuple[division_t, ...]]:
         return quantdata.divisionsByTempo(self.divisionDefs, blacklist=self.blacklist)
 
-    def normalizedGridWeights(self) -> list[float]:
-        return _util.normalizedWeights(self.offsetErrorWeight, self.durationErrorWeight, self.graceErrorWeight)
+    # def normalizedGridWeights(self) -> list[float]:
+    #     return _util.normalizedWeights(self.offsetErrorWeight, self.durationErrorWeight, self.graceErrorWeight)
 
     def block(self, val=True):
         if self._blocked == val:

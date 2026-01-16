@@ -353,7 +353,7 @@ class Chain(MContainer):
         Returns the event before the given event
 
         Args:
-            event: the event to query
+            event: the event to query. It needs to be a part of this chain/voice
 
         Returns:
             the event before the given event, or None if no event is found. Raises
@@ -368,7 +368,7 @@ class Chain(MContainer):
             previtem = self.items[idx - 1]
             return previtem if isinstance(previtem, MEvent) else previtem.lastEvent()
         except ValueError as e:
-            raise ValueError(f"event {event} not part of {self}, exception: {e}")
+            raise ValueError(f"{event} not part of {self}, exception: {e}")
 
     def isFlat(self) -> bool:
         """
@@ -378,24 +378,13 @@ class Chain(MContainer):
         """
         return all(isinstance(item, MEvent) for item in self.items)
 
-    # def _flatEventsWithResolvedOffset(self, key: str) -> list[MEvent]:
-    #     if not self.items:
-    #         return []
-    #     self._update()
-    #     pairs = self.eventsWithOffset()
-    #     events, offsets = zip(*pairs)
-    #     for ev, offset in pairs:
-    #         ev.setProperty(key, offset)
-    #     _resolveGlissandi(events)
-    #     return events
-
     def flatEvents(self, forcecopy=False) -> list[MEvent]:
         """
         A list of flat events, with explicit absolute offsets set
 
         If an event already has an explicit offset, then the actual
         event is returned. Use ``forcecopy`` to ensure that the
-        returned events are actually a copy
+        returned events are always a copy
 
         Args:
             forcecopy: if True, all returned events are copy of events
@@ -476,50 +465,6 @@ class Chain(MContainer):
             return 0.0
         return sumpitch / sumdur
 
-    def withExplicitOffset(self, forcecopy=False) -> Self:
-        """
-        Copy of self with explicit offset
-
-        If self already has explicit offset, self itself
-        is returned.
-
-        Args:
-            forcecopy: if forcecopy, a copy of self will be returned even
-                if self already has explicit times
-
-        Returns:
-            a clone of self with explicit times
-
-        Example
-        ~~~~~~~
-
-        The offset and dur shown as the first two columns are the resolved
-        times. When an event has an explicit offset, these are
-        shown as part of the event repr. See for example the second note, 4C,
-        which in the first version does not have any explicit times and is shown
-        as "4C" and in the second version it appears as "4C:2.5♩:offset=0.5"
-
-            >>> from maelzel.core import *
-            >>> chain = Chain([Rest(0.5), Note("4C"), Chord("4D 4E", offset=3)])
-            >>> chain.dump()
-            Chain
-              offset: 0      dur: 0.5    | Rest:0.5♩
-              offset: 0.5    dur: 2.5    | 4C
-              offset: 3      dur: 1      | ‹4D 4E offset=3›
-            >>> chain.withExplicitTimes().dump()
-            Chain
-              offset: 0      dur: 0.5    | Rest:0.5♩:offset=0
-              offset: 0.5    dur: 2.5    | 4C:2.5♩:offset=0.5
-              offset: 3      dur: 1      | ‹4D 4E 1♩ offset=3›
-
-
-        """
-        if self.hasOffsets() and not forcecopy:
-            return self
-        out = self.copy()
-        out.stack()
-        return out
-
     def hasOffsets(self) -> bool:
         """
         True if self has an explicit offset and all items as well (recursively)
@@ -534,6 +479,16 @@ class Chain(MContainer):
                    for item in self.items)
 
     def dynamicAt(self, absoffset: F, fallback='') -> str:
+        """
+        The dynamic active at the given offset
+
+        Args:
+            absoffset: absolute offset
+            fallback: returned value if not dynamic is active at the given offset
+
+        Returns:
+
+        """
         if self.parent and isinstance(self.parent, Chain):
             return self.parent.dynamicAt(absoffset, fallback=fallback)
         dyn = ''
@@ -666,9 +621,15 @@ class Chain(MContainer):
         self.items = out
         self._changed()
 
-    def convertGlissTargetsToGracenotes(self) -> list[MEvent]:
+    def makeExplicitGlissTargets(self) -> list[MEvent]:
         """
-        Convert gliss. end pitches within events as gracenotes, in place
+        Convert gliss. end pitches within events to gracenotes, in place
+
+        For any event, a gliss. can be True (which makes the next event the
+        gliss. target) or it can be a pitch/set of pitches. In this case,
+        convert such a target to an explicit event by creating a gracenote
+        after the given event to become the gliss. target. The .gliss
+        attribute of the event is set to ``True``
 
         Returns:
             the list of newly created gracenotes (an empty list if no changes
@@ -681,7 +642,7 @@ class Chain(MContainer):
         for item in self.items:
             items.append(item)
             if isinstance(item, Chain):
-                gracenotes.extend(item.convertGlissTargetsToGracenotes())
+                gracenotes.extend(item.makeExplicitGlissTargets())
             else:
                 assert isinstance(item, MEvent)
                 if item.gliss and not isinstance(item.gliss, bool):
@@ -714,6 +675,9 @@ class Chain(MContainer):
     def contains(self, event: MEvent) -> bool:
         """
         True if event is part of this chain, recursively
+
+        This is different from ``event in self``, which is does
+        not recurse subchains
         """
         return any(item == event for item in self.recurse())
 
@@ -1010,9 +974,6 @@ class Chain(MContainer):
         """
         Create a Voice as a copy of this Chain
 
-        Args:
-            removeOffsets: if True, remove any redundant offsets in the returned voice
-
         Returns:
             this chain as a Voice
         """
@@ -1066,7 +1027,6 @@ class Chain(MContainer):
     def scoringEvents(self,
                       groupid='',
                       config: CoreConfig | None = None,
-                      parentOffset: F | None = None
                       ) -> list[scoring.Notation]:
         """
         Returns the scoring events corresponding to this object.
@@ -1076,7 +1036,6 @@ class Chain(MContainer):
         Args:
             groupid: if given, all events are given this groupid
             config: the configuration used (None to use the active config)
-            parentOffset: if given will override the parent's offset
 
         Returns:
             the scoring notations representing this object
@@ -1173,22 +1132,6 @@ class Chain(MContainer):
                 else:
                     raise TypeError(f"Symbol {symbol} not supported as postsymbol")
         return allns
-
-    def _solveOrfanHairpins(self, currentDynamic='mf'):
-        lastHairpin: symbols.Hairpin | None = None
-        for n in self.recurse():
-            if not isinstance(n, (Chord, Note)):
-                continue
-            if n.dynamic and n.dynamic != currentDynamic:
-                if lastHairpin:
-                    n.addSpanner(lastHairpin.makePartnerSpanner())
-                    lastHairpin = None
-                currentDynamic = n.dynamic
-
-            if n.symbols:
-                for s in n.symbols:
-                    if isinstance(s, symbols.Hairpin) and s.kind == 'start' and not s.partner:
-                        lastHairpin = s
 
     def _scoringParts(self,
                       config: CoreConfig,
@@ -1525,18 +1468,18 @@ class Chain(MContainer):
                    spanner: str | symbols.Spanner,
                    start: location_t | MEvent | None = None,
                    end: location_t | MEvent | None = None,
-                   post=False
                    ) -> None:
         """
         Adds a spanner symbol across this object
 
         A spanner is a slur, line or any other symbol attached to two or more
-        objects. A spanner always has a start and an end.
+        objects. A spanner always has a start and an end. Spanners added to
+        a Chain / Voice are always post symbols, meaning that they are not attached
+        to the events in the chain, they are only applied during rendering as notation
 
         Args:
-            spanner: a Spanner object or a spanner description (one of 'slur', '<', '>',
-                'trill', 'bracket', etc. - see :func:`maelzel.core.symbols.makeSpanner`
-                When passing a string description, prepend it with '~' to create an end spanner
+            spanner: a Spanner object or a spanner description, one of 'slur', '<', '>',
+                'trill', 'bracket', 'beam', ..., see :func:`maelzel.core.symbols.makeSpanner`
             start: start location or event
             end: end location or event
 
@@ -1565,7 +1508,7 @@ class Chain(MContainer):
             end = self.lastEvent(acceptRest=spanner.appliesToRests)
             if end is None:
                 raise RuntimeError(f"This {type(self)} has no event to apply {spanner} to")
-        if not post and isinstance(start, MEvent) and isinstance(end, MEvent):
+        if isinstance(start, MEvent) and isinstance(end, MEvent):
             start.addSpanner(spanner=spanner, endobj=end)
         else:
             startloc = start.absOffset() if isinstance(start, MEvent) else start
@@ -1925,7 +1868,7 @@ class Chain(MContainer):
                 logger.warning("This %s has already an active ScoreStruct "
                                "via its parent. Passing an ad-hoc scorestruct "
                                "might cause problems...", clsname)
-        offsets = scorestruct.measureOffsets(startIndex=startindex, stopIndex=stopindex)
+        offsets = scorestruct.measureOffsets(start=startindex, end=stopindex)
         self.splitEventsAtOffsets(offsets, tie=True)
 
     def splitAt(self,
@@ -1959,7 +1902,6 @@ class Chain(MContainer):
         ev = self.eventAt(absoffset)
         if not ev:
             return None
-        assert ev.absOffset() == absoffset, f"Failed to split correctly? {ev=}, event offset: {ev.absOffset()}, offset should be {absoffset}"
         if beambreak:
             ev.addSymbol(symbols.BeamBreak())
         if nomerge:
@@ -2324,7 +2266,8 @@ class Voice(Chain):
             This is a maximum value, the actual number of staves is determined based
             on the actual contents of the voice
         minStaves: a min. number of staves to use for this voice when shown
-            as notation.
+            as notation. Can be used to force the distribution of a voice across more
+            staves if the automatic clef distribution is not satisfactory
     """
 
     def __init__(self,
@@ -2433,13 +2376,14 @@ class Voice(Chain):
             other._config = self._config.copy()
         if self._scorestruct:
             other.setScoreStruct(self._scorestruct)
-            # other._scorestruct = self._scorestruct
 
     def __copy__(self) -> Self:
         # always a deep copy
-        voice = self.__class__(name=self.name,
-                               abbrev=self.abbrev)
-        voice.items = [item.copy() for item in self.items]
+        items = [item.copy() for item in self.items]
+        voice = self.__class__(items=items,
+                               name=self.name,
+                               abbrev=self.abbrev,
+                               minStaves=self._minStaves)
         self._copyAttributesTo(voice)
         return voice
 
@@ -2632,9 +2576,6 @@ def _makeLines(groups: list[list[SynthEvent]]
         these enclosed synthevents build together a line
 
 
-    **Algorithm**
-
-    TODO
     """
     assert len(groups) > 1 and all(len(group) > 0 for group in groups)
     lines: list[SynthEvent | list[SynthEvent]] = []
@@ -2658,9 +2599,6 @@ def _makeLines(groups: list[list[SynthEvent]]
         lastGroup = groups[-1]
         lines.extend(lastGroup[idx] for idx in lastGroupIndexes)
 
-    # assert all(isinstance(item, SynthEvent) or (isinstance(item, list) and len(item) > 0)
-    #            for item in lines)
-    #
     # energy0 = sum(sum(ev.dur for ev in group) for group in groups)
     # energy1 = sum(line.dur if isinstance(line, SynthEvent) else sum(part.dur for part in line)
     #               for line in lines)
@@ -2681,11 +2619,8 @@ def _resolveGlissandi(flatevents: Iterable[MEvent], force=False) -> None:
     for ev1, ev2 in itertools.pairwise(flatevents):
         ev1._nextEvent = ev2
 
-        if (ev1.isRest() or
-            ev2.isRest() or
-            not ev1.gliss or
-                (ev1.playargs and 'glisstime' in ev1.playargs)
-        ):
+        if (ev1.isRest() or ev2.isRest() or
+                not (ev1.gliss or (ev1.playargs and 'glisstime' in ev1.playargs))):
             continue
 
         if isinstance(ev1, Note):

@@ -437,6 +437,8 @@ def parseNote(s: str, check=True) -> NoteProperties:
                 symbols.append(symb)
             elif part == '()':
                 symbols.append(_symbols.Notehead(parenthesis=True))
+            elif part == '<':
+                spanners.append(_symbols.Hairpin('<'))
             else:
                 allkeys = _allkeys()
                 _util.checkChoice(s, part, allkeys)
@@ -512,7 +514,9 @@ _knownSpanners = {
     'tr',
     'bracket',
     'dim',
-    'beam'
+    'beam',
+    'hairpin<',
+    'hairpin>'
 }
 
 

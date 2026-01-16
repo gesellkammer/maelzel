@@ -88,9 +88,8 @@ def assignSlots(fgrid: list[float] | np.ndarray[float],
     Snap unquantized events to a given grid
 
     Args:
-        notations: a list of unquantized Notation's
-        grid: the grid to snap the events to, as returned by generateBeatGrid
-        fgrid: the same grid, but as floats.
+        fgrid: the grid as floats.
+        offsets: the offsets to fit
 
     Returns:
         tuple (assigned slots, quantized events)

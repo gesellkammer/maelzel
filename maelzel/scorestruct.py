@@ -847,7 +847,7 @@ class MeasureDef:
                           subdivTempo=self._subdivTempo,
                           breakTempo=self._breakTempo,
                           const=self.const)
-        2
+
     def copy(self) -> MeasureDef:
         return self.__copy__()
 

@@ -109,9 +109,6 @@ def regionsFromFiles(files: list[str],
     regions = []
     if not fillkeys:
         raise ValueError("XXX fix this")
-        # for sample, key, offset in samples_and_keys:
-        #     regions.append("<region> sample=%s key=%d offset=%d" %
-        #                    (sample, key, offset))
     else:
         samples, keys, offsets = list(zip(*rows))
         avgs = [int((key1 + key0) / 2. + 0.5) for key0, key1 in pairwise(keys)]

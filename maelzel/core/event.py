@@ -596,11 +596,10 @@ class Note(MEvent):
     def scoringEvents(self,
                       groupid='',
                       config: CoreConfig | None = None,
-                      parentOffset: F | None = None
                       ) -> list[scoring.Notation]:
         if not config:
             config = Workspace.active.config
-        offset = self.absOffset() if parentOffset is None else self.relOffset() + parentOffset
+        offset = self.absOffset()
         dur = self.dur
 
         def _mergeOptLists(a: list | None, b: list | None) -> list | None:
@@ -1356,13 +1355,12 @@ class Chord(MEvent):
     def scoringEvents(self,
                       groupid='',
                       config: CoreConfig | None = None,
-                      parentOffset: F | None = None
                       ) -> list[scoring.Notation]:
         if not config:
             config = Workspace.active.config
         notenames = [note.name for note in self.notes]
         dur = self.dur
-        offset = self.absOffset() if parentOffset is None else self.relOffset() + parentOffset
+        offset = self.absOffset()
         notation = scoring.Notation.makeChord(pitches=notenames,
                                               duration=dur,
                                               offset=offset,
@@ -1415,9 +1413,6 @@ class Chord(MEvent):
                 for symbol in n.symbols:
                     if isinstance(symbol, _symbols.NoteheadSymbol):
                         symbol.applyToPitch(notation, idx=i, parent=n)
-                    else:
-                        logger.debug("Cannot apply symbol %s to a pitch inside "
-                                     "chord %s", symbol, self)
 
         return notations
 
@@ -2046,7 +2041,7 @@ def _customizeGracenote(grace: Note | Chord,
             grace.addSymbol(_symbols.Notehead(parenthesis=True))
 
 
-def asEvent(obj, **kws) -> MEvent:
+def asEvent(obj: str | int | float | list | tuple, **kws) -> Note | Chord:
     """
     Convert obj to a Note or Chord, depending on the input itself
 
@@ -2081,12 +2076,10 @@ def asEvent(obj, **kws) -> MEvent:
         ‹4C 4E 0.5♩ mf›
 
     """
-    if isinstance(obj, MEvent):
-        return obj
-    elif isinstance(obj, str):
+    if isinstance(obj, str):
         if " " in obj:
             return Chord(obj.split(), **kws)
-        elif ":" or "," in obj:
+        elif (":" in obj) or ("," in obj):
             notedef = _tools.parseNote(obj)
             dur = kws.pop("dur", None)
             if dur is None:
@@ -2110,16 +2103,12 @@ def asEvent(obj, **kws) -> MEvent:
             if notedef.spanners:
                 for spanner in notedef.spanners:
                     out.addSpanner(spanner)
-
-        elif " " in obj:
-            out = Chord(obj.split(), **kws)
+            return out
         else:
-            out = Note(obj, **kws)
+            return Note(obj, **kws)
     elif isinstance(obj, (list, tuple)):
-        out = Chord(obj, **kws)
+        return Chord(obj, **kws)
     elif isinstance(obj, (int, float)):
-        out = Note(obj, **kws)
-    else:
-        raise TypeError(f"Cannot convert {obj} to a Note or Chord")
+        return Note(obj, **kws)
 
-    return out
+    raise TypeError(f"Cannot convert {obj} to a Note or Chord")

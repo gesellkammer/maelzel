@@ -442,41 +442,6 @@ class MObj(ABC):
         parent = self.parent
         return parent.absOffset() if parent else F0
 
-    def withExplicitOffset(self, forcecopy=False) -> Self:
-        """
-        Copy of self with explicit times
-
-        If self already has explicit offset and duration, self itself
-        is returned. If you relie on the fact that this method returns
-        a copy, use ``forcecopy=True``
-
-        Args:
-            forcecopy: if forcecopy, a copy of self will be returned even
-                if self already has explicit times
-
-        Returns:
-            a clone of self with explicit times
-
-        Example
-        ~~~~~~~
-
-            >>> n = None("4C", dur=0.5)
-            >>> n
-            4C:0.5♩
-            >>> n.offset is None
-            True
-            # An unset offset resolves to 0
-            >>> n.withExplicitTimes()
-            4C:0.5♩:offset=0
-            # An unset duration resolves to 1 quarternote beat
-            >>> Note("4C", offset=2.5).withExplicitTimes()
-            4C:1♩:offset=2.5
-
-        """
-        if self.offset is not None and not forcecopy:
-            return self
-        return self.clone(offset=self.relOffset())
-
     def _asVoices(self) -> list[chain.Voice]:
         raise NotImplementedError
 
@@ -1035,7 +1000,6 @@ class MObj(ABC):
     def scoringEvents(self,
                       groupid='',
                       config: CoreConfig | None = None,
-                      parentOffset: F | None = None
                       ) -> list[scoring.Notation]:
         """
         Returns its notated form as scoring.Notations
@@ -1047,7 +1011,6 @@ class MObj(ABC):
             groupid: passed by an object higher in the hierarchy to
                 mark this objects as belonging to a group
             config: a configuration to customize rendering
-            parentOffset: if given this should be the absolute offset of this object's parent
 
         Returns:
             A list of scoring.Notation which best represent this
@@ -2055,6 +2018,7 @@ class MContainer(MObj):
         Args:
             args: an even number of args of the form key1, value1, key2, value2, ...
 
+
         Example
         ~~~~~~~
 
@@ -2075,15 +2039,15 @@ class MContainer(MObj):
             >>> quantizedscore.parts[0].brakeSyncopations(level='all')
             >>> quantizedscore.render()
         """
-        keys = self._classConfigKeys()
+        validKeys = self._classConfigKeys()
         root = CoreConfig.root()
         assert len(args) % 2 == 0
         kws = args[::2]
         values = args[1::2]
         for key, value in zip(kws, values):
-            if key not in keys:
+            if key not in validKeys:
                 raise KeyError(f"Invalid key '{key}' for a {self.__class__}. "
-                               f"Valid keys are {keys}")
+                               f"Valid keys are {validKeys}")
             if errmsg := root.checkValue(key, value):
                 raise ValueError(f"Invalid value {value} for key '{key}': {errmsg}")
             self._config[key] = value

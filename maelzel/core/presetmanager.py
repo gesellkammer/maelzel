@@ -715,14 +715,6 @@ class PresetManager:
             maxNumChannels = instrdef.numouts + event.chan - 1
         return maxNumChannels
 
-    def savePresets(self, pattern="*") -> None:
-        """
-        Saves all presets matching the pattern. Builtin presets are never saved
-        """
-        for name, instrdef in self.presets.items():
-            if instrdef.userDefined and fnmatch.fnmatch(name, pattern):
-                self.savePreset(name)
-
     def savePreset(self, preset: str | _presetdef.PresetDef) -> str:
         """
         Saves the preset in the presets' folder, returns the path to the saved file

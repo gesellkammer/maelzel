@@ -12,7 +12,7 @@ from maelzel.core import automation as _automation
 from maelzel.core import presetmanager
 import functools
 
-from typing import TYPE_CHECKING, cast as _cast
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing_extensions import Self
     import csoundengine.instr
@@ -1255,7 +1255,7 @@ def _mergeEvents(events: Sequence[SynthEvent], checkStaticAttributes=True
                     automation = _AutomationSegment(param=k,
                                                     time=offset,
                                                     value=float(v),
-                                                    prevalue=_cast(float, argstate.get(k, dynparams[k])),
+                                                    prevalue=argstate.get(k, dynparams[k]),
                                                     pretime=lastoffset,
                                                     kind='arg')
                     automationPoints.append(automation)

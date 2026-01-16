@@ -612,8 +612,7 @@ class Notation:
         """Remove attachments which match the given class"""
         if not self.attachments:
             return
-        self.attachments[:] = [a for a in self.attachments
-                               if not(isinstance(a, cls))]
+        self.attachments = [a for a in self.attachments if not(isinstance(a, cls))]
 
     def hasSpanner(self, uuid: str, kind='') -> bool:
         """Returns true if a spanner with the given uuid is found"""

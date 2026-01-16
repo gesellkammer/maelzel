@@ -1139,7 +1139,6 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
         events0 = eventsInBeat
     minError = 999.
     minGridError = 999.
-    maxGraceRatio = 999.
 
     firstOffset = eventsInBeat[0].duration
     lastOffsetMargin = beatDuration - (eventsInBeat[-1].qoffset - beatOffset)

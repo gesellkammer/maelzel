@@ -127,10 +127,6 @@ def addDurationToGracenotes(events: list[MEvent], dur: F, inplace=False
             now += dur
 
     for realidx, graceidxs in d.items():
-        idx0 = graceidxs[0]
-        # if len(graceidxs) > 1:
-        #     assert all(idx < idx0 for idx in graceidxs[1:])
-        # assert realidx < idx0
         realev = events[realidx]
         maxGraceDur = realev.dur / (len(graceidxs) + 1)
         graceDur = min(dur, maxGraceDur)
@@ -141,7 +137,6 @@ def addDurationToGracenotes(events: list[MEvent], dur: F, inplace=False
             grace.dur = graceDur
             deltapos = (len(graceidxs) - i) * graceDur
             grace.offset = realend - deltapos
-            # grace._relOffset = realend - deltapos
 
     for e0, e1 in itertools.pairwise(events):
         if e0.relEnd() > e1.relOffset():
