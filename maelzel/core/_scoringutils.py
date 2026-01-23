@@ -141,7 +141,6 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig
         breakSyncopationsLevel = cfg['quant.breakBeats'],
         breakLongGliss = cfg['show.glissHideTiedNotes'],
         beatWeightTempoThresh = cfg['quant.beatWeightTempoThresh'],
-        subdivTempoThresh = cfg['quant.subdivTempoThresh'],
         mergeTupletsDifferentDur = cfg['.quant.mergeTupletsDifferentDur'],
         exactGridFactor = cfg['quant.exactFactor'],
         **kws

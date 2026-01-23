@@ -982,6 +982,7 @@ def renderPart(part: quant.QuantizedPart,
     w = IndentedWriter(indentsize=indentSize, indents=indents)
 
     w.line(r"\new Staff \with {")
+
     with w.indent():
         if part.name and part.showName:
             w.line(f'instrumentName = #"{part.name}"')
@@ -989,13 +990,14 @@ def renderPart(part: quant.QuantizedPart,
                 w.line(f'shortInstrumentName = "{part.abbrev}"')
         if clef or part.firstClef:
             w.line(lilytools.makeClef(part.firstClef))
-        measuredef0 = scorestruct[0]
+
     w.line("}")
     w.line("{")
 
     w.indents += 1
     w.line(r"\numericTimeSignature")
 
+    measuredef0 = scorestruct[0]
     addTimeSignature(w, measuredef0, options=options)
 
     if not clef:
@@ -1188,13 +1190,15 @@ def renderScore(score: quant.QuantizedScore,
     if options.useStemlets:
         _(lilypondsnippets.stemletLength(length=options.stemletLength, context='Score'))
 
+    if score.isPolymetric():
+        _(lilypondsnippets.polymetricScore)
+
     # There is a "bug" in lilypond where, if a part has gracenotes at the beginning
     # of the part, parts without gracenotes end up unaligned. For this, any part
     # without gracenotes needs to have "silent" gracenotes.
     maxStartGracenotes = max(_numStartGracenotes(part) for part in score.parts)
 
     _(r"\score {")
-
     _(r"<<")
     indents = 1
     groups = score.groupParts()

@@ -586,7 +586,6 @@ def makeSpanner(descr: str, kind='start', linetype='', placement='', color=''
 # --------------------------------
 
 
-
 class EventSymbol(Symbol):
     """
     Base-class for all event-attached symbols
@@ -645,9 +644,33 @@ class EventSymbol(Symbol):
         notations = part.notationsBetween(start, end)
         self.applyToMany(notations)
 
+    def applyToParts(self, parts: list[scoring.core.UnquantizedPart]) -> None:
+        if self.applyToAllParts:
+            for part in parts:
+                self.applyToPart(part)
+        else:
+            self.applyToPart(parts[0])
+
     def applyToPart(self, part: scoring.core.UnquantizedPart) -> None:
         self.applyToFragment(part)
 
+
+class NoteheadSymbol(Symbol):
+    """Symbols attached to a notehead (a pitch)"""
+    appliesToRests = False
+
+    @abstractmethod
+    def applyToPitch(self, n: scoring.Notation, idx: int | None, parent: mobj.MObj | None
+                     ) -> None:
+        raise NotImplementedError
+
+    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None = None) -> None:
+        for idx in range(len(n.pitches)):
+            self.applyToPitch(n, idx=idx, parent=parent)
+
+    def applyToMany(self, notations: list[scoring.Notation]) -> None:
+        for n in notations:
+            self.applyToNotation(n, parent=None)
 
 
 class Hidden(EventSymbol):
@@ -689,25 +712,6 @@ class Color(EventSymbol):
 
     def scoringAttachment(self) -> _attachment.Attachment:
         return _attachment.Color(self.color)
-
-
-class NoteheadSymbol(Symbol):
-    """Symbols attached to a notehead (a pitch)"""
-    appliesToRests = False
-
-    @abstractmethod
-    def applyToPitch(self, n: scoring.Notation, idx: int | None, parent: mobj.MObj | None
-                     ) -> None:
-        raise NotImplementedError
-
-    def applyToNotation(self, n: scoring.Notation, parent: mobj.MObj | None = None) -> None:
-        for idx in range(len(n.pitches)):
-            self.applyToPitch(n, idx=idx, parent=parent)
-
-    def applyToMany(self, notations: list[scoring.Notation]) -> None:
-        for n in notations:
-            self.applyToNotation(n, parent=None)
-
 
 # ----------------------------------------------------------
 

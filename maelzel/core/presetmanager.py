@@ -453,10 +453,10 @@ class PresetManager:
                 result = presetutils.soundfontSelectProgram(path)
                 if not result:
                     raise ValueError("No preset selected, aborting")
-                progname, bank, presetnum = result
+                preset, bank, presetnum = result
             elif not preset:
                 # Preset not given, use first preset found
-                name, (bank, presetnum) = next(iter(idx.nameToPreset.items()))
+                preset, (bank, presetnum) = next(iter(idx.nameToPreset.items()))
             else:
                 bank, presetnum = presetutils.getSoundfontProgram(path, preset)
         else:
@@ -472,7 +472,7 @@ class PresetManager:
                 sf2AmpDivisor = sfpeak
                 normalize = False
 
-        reverbInstr = cfg['reverbInstr']
+        reverbInstr = cfg['.reverbInstr']
         code = presetutils.makeSoundfontAudiogen(sf2path=path,
                                                  preset=(bank, presetnum),
                                                  interpolation=interpolation,
@@ -510,7 +510,10 @@ class PresetManager:
                                    aliases={'transpose': 'ktransp'})
         presetdef.userDefined = not _builtin
         presetdef.properties = {'sfpath': path,
-                                'ampDivisor': sf2AmpDivisor}
+                                'ampDivisor': sf2AmpDivisor,
+                                'sfbank': bank,
+                                'sfpresetnum': presetnum,
+                                'sfpreset': preset}
         if reverb:
             presetdef.properties['reverbInstr'] = reverbInstr
         return presetdef

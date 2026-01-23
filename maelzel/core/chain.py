@@ -545,6 +545,9 @@ class Chain(MContainer):
             playargs = playargs.updated(self.playargs, automations=False)
 
         flatitems = self._flatEventsForSynth(conf)
+        struct = self.scorestruct()
+        if struct is not None and struct != workspace.scorestruct:
+            workspace = workspace.clone(scorestruct=struct)
 
         allevents = []
         for group in _eventutils.groupLinkedEvents(flatitems):
@@ -569,7 +572,6 @@ class Chain(MContainer):
 
         if self.playargs and self.playargs.automations:
             offset = parentOffset + self.relOffset()
-            struct = self.scorestruct() or workspace.scorestruct
             presetman = Workspace.active.presetManager
             for autom in self.playargs.automations:
                 startsecs, endsecs = autom.absTimeRange(parentOffset=offset, scorestruct=struct)
@@ -1062,9 +1064,8 @@ class Chain(MContainer):
         absOffset = self.absOffset()
         scoring.core.resolveOffsets(allns, start=absOffset)
         allns = scoring.core.fillSilences(allns, offset=absOffset)
-        # assert all(n.offset is not None and n.end is not None for n in allns)
 
-        if self.symbols:
+        if self.symbols and self.isSubChain():
             for symbol in self.symbols:
                 if isinstance(symbol, (symbols.EventSymbol, symbols.NoteheadSymbol)):
                     symbol.applyToMany(allns)
@@ -1133,6 +1134,9 @@ class Chain(MContainer):
                     raise TypeError(f"Symbol {symbol} not supported as postsymbol")
         return allns
 
+    def isSubChain(self) -> bool:
+        return self.parent and isinstance(self.parent, Chain)
+
     def _scoringParts(self,
                       config: CoreConfig,
                       maxStaves=0,
@@ -1170,6 +1174,12 @@ class Chain(MContainer):
             quantProfile = config.makeQuantizationProfile()
             for part in parts:
                 part.quantProfile = quantProfile
+
+        if self.symbols:
+            for symbol in self.symbols:
+                if isinstance(symbol, (symbols.EventSymbol, symbols.NoteheadSymbol)):
+                    symbol.applyToParts(parts)
+
         return parts
 
     def scoringParts(self,
@@ -1762,6 +1772,12 @@ class Chain(MContainer):
                 return ev
         return None
 
+    def replaceEvent(self, old: MEvent, new: MEvent) -> None:
+        assert old in self
+        idx = self.items.index(old)
+        self.items[idx] = new
+        self._changed()
+
     def eventBefore(self, offset: beat_t) -> MEvent | None:
         """
         Last event ending before or at the offset
@@ -2028,7 +2044,7 @@ class Chain(MContainer):
 
     def remap(self, deststruct: ScoreStruct, sourcestruct: ScoreStruct | None = None,
               setStruct=True
-              ) -> Self:
+              ) -> Voice:
         """
         Creates a clone, remapping times from source scorestruct to destination scorestruct
 
@@ -2046,7 +2062,7 @@ class Chain(MContainer):
         """
         remappedEvents = [ev.remap(deststruct, sourcestruct=sourcestruct or self.activeScorestruct())
                           for ev in self]
-        out = self.clone(items=remappedEvents)
+        out = self.clone(items=remappedEvents).asVoice()
         if setStruct:
             out.setScoreStruct(deststruct)
         return out
@@ -2313,7 +2329,8 @@ class Voice(Chain):
 
         If this object has no parent ``None`` is returned. Use
         :meth:`activeScorestruct() <maelzel.core.mobj.MObj.activeScorestruct>`
-        to always resolve the active struct for this object
+        to always resolve the active struct for this object (falling back
+        to the scorestruct defined in the active workspace)
 
         Returns:
             the associated scorestruct, if set (either directly or through its parent)
@@ -2335,21 +2352,41 @@ class Voice(Chain):
         """
         return self._scorestruct or (None if not self.parent else self.parent.scorestruct())
 
-    def setScoreStruct(self, scorestruct: ScoreStruct | None) -> None:
+    def isSubChain(self) -> bool:
+        # A Voice cannot be a subchain
+        return False
+
+    def end(self) -> F:
+        # A Voice has always a definite end
+        return self.dur
+
+    def numMeasures(self) -> int:
         """
-        Set the ScoreStruct for this object and its children
+        Number of measures needed to encompass the items in this voice
+
+        Returns:
+            the number of measures in this voice
+        """
+        struct = self.activeScorestruct()
+        end = self.dur
+        endidx, endbeat = struct.beatToLocation(end)
+        return endidx + 1 if endbeat > 0 else endidx
+
+    def setScoreStruct(self, scorestruct: ScoreStruct | str | None) -> None:
+        """
+        Set the ScoreStruct for this voice and its children
 
         This ScoreStruct will be used for any object embedded
-        downstream.
+        downstream. Notice that Chains cannot have a scorestruct of
+        their own.
 
         Args:
             scorestruct: the ScoreStruct, or None to remove any scorestruct
                 previously set
 
         """
-        if scorestruct is None and self._scorestruct:
-            # TODO: decide what to do in this case
-            1/0
+        if isinstance(scorestruct, str):
+            scorestruct = ScoreStruct(scorestruct)
         self._scorestruct = scorestruct
         self._changed()
 
@@ -2467,14 +2504,6 @@ class Voice(Chain):
                                    abbrev=self.abbrev,
                                    groupParts=self._group is None,
                                    addQuantizationProfile=iscustomized)
-        if self.symbols:
-            for symbol in self.symbols:
-                if isinstance(symbol, symbols.EventSymbol):
-                    if symbol.applyToAllParts:
-                        for part in parts:
-                            symbol.applyToPart(part)
-                    else:
-                        symbol.applyToPart(parts[0])
 
         if self._group and parts:
             parts[0].groupParts(parts,
@@ -2494,6 +2523,9 @@ class Voice(Chain):
     def absOffset(self) -> F:
         # A voice always starts at 0
         return F0
+
+    def asVoice(self) -> Voice:
+        return self
 
     def _asVoices(self) -> list[Voice]:
         return [self]

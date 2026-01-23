@@ -18,6 +18,7 @@ if _t.TYPE_CHECKING:
     import csoundengine.session
     import csoundengine.synth
     from . import presetmanager
+    from maelzel.common import _Context
 
 
 def _clearCache() -> None:
@@ -100,7 +101,7 @@ class Workspace:
         if scorestruct is None:
             scorestruct = ScoreStruct((4, 4), tempo=60)
 
-        self._config: CoreConfig = config
+        self.config: CoreConfig = config
         """The CoreConfig attached to this Workspace"""
 
         self.renderer: Renderer | None = None
@@ -124,22 +125,6 @@ class Workspace:
 
         if active:
             self.activate()
-
-    @property
-    def config(self) -> CoreConfig:
-        """The CoreConfig for this workspace"""
-        return self._config
-
-    @config.setter
-    def config(self, config: CoreConfig) -> None:
-        self._config = config
-        if self.isActive():
-            self._activateConfig()
-
-    def _activateConfig(self) -> None:
-        config = self._config
-        pitchtools.set_reference_freq(config['A4'])
-        _clearCache()
 
     @staticmethod
     def clearCache() -> None:
@@ -425,17 +410,20 @@ class Workspace:
         return self.dynamicCurve.amp2dyn(amp)
 
     def setTempo(self,
-                 tempo: float,
+                 tempo: float | int,
                  reference: tuple[int, int] | F | float = (4, 0),
-                 measure=0) -> None:
+                 measure=0
+                 ) -> _Context:
         """
-        Set the current tempo for the active scorestruct
+        Set the tempo for the active scorestruct
 
         Args:
             tempo: the new tempo.
             reference: the reference value (1=quarternote, 2=halfnote, 0.5: 8th note)
             measure: the measure index  to modify. The scorestruct's tempo is modified
                 until the next tempo. Measures start at 0
+
+        Can also be used as a context manager (will reset the tempo at exit)
 
         See Also
         ~~~~~~~~
@@ -480,7 +468,7 @@ class Workspace:
             2, 5/8, 132
 
         """
-        self.scorestruct.setTempo(measureidx=measure, tempo=tempo, reference=reference)
+        return self.scorestruct.setTempo(tempo=tempo, measure=measure, reference=reference)
 
     def audioSession(self,
                      outdev='',
@@ -568,7 +556,7 @@ class Workspace:
         Only values passed are modified, None indicates to use the
         current value/default value. Default values can be modified
         via the config (ie. ``getWorkspace().config['reverbGaindb'] = -3``).
-        To check the current values, see ???
+        To check the current values, see :meth:`~Workspace.reverbInfo`
 
         Args:
             gaindb: gain of reverb, in dB. Default: -6 (config: ``reverbGaindb``)
@@ -617,18 +605,16 @@ class Workspace:
                 assert self.isAudioSessionActive()
                 return self._reverbSynth
         config = self.config
-        instr = config['reverbInstr']
-        # if prevsynth := _reverbEvent(session=session, instrname=instr):
-        #    return prevsynth
+        instr = config['.reverbInstr']
+
         def whenfinished(*args):
-            assert isinstance(session, csoundengine.session.Session)
             logger.warning(f"Reverb synth stopped, args: %s", args)
             oldsynth = self._reverbSynth
             assert oldsynth is not None
             self._reverbSynth = None
 
             if self.config['reverbRestart'] and session.engine.elapsedTime() - oldsynth.start > 0.5:
-                logger.warning("... restarting reverb")
+                logger.warning("Restarting reverb (set `config['reverbRestart'] = False` to prevent it)")
                 self._schedReverb(session=session, delay=0.5)
 
         def setfunc(synth, key: str, value: float, delay: float) -> bool:

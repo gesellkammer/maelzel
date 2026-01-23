@@ -6,13 +6,12 @@ from .event import MEvent
 from .config import CoreConfig
 from .chain import Voice, Chain, PartGroup
 from .workspace import Workspace
-from maelzel.core._common import logger
+from maelzel.scorestruct import ScoreStruct
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Any, Iterator, Sequence, Callable
     from typing_extensions import Self
-    from maelzel.scorestruct import ScoreStruct
     from .synthevent import PlayArgs, SynthEvent
     from maelzel import scoring
 
@@ -49,7 +48,7 @@ class Score(MContainer):
 
     def __init__(self,
                  voices: Sequence[Voice | Chain | MEvent] = (),
-                 scorestruct: ScoreStruct | None = None,
+                 scorestruct: ScoreStruct | str | None = None,
                  title=''):
 
         super().__init__(label=title, offset=F0)
@@ -72,7 +71,7 @@ class Score(MContainer):
         if scorestruct:
             self.setScoreStruct(scorestruct)
 
-    def setScoreStruct(self, scorestruct: ScoreStruct | None) -> None:
+    def setScoreStruct(self, scorestruct: ScoreStruct | str | None) -> None:
         """
         Set the ScoreStruct for this score and its children
 
@@ -84,6 +83,8 @@ class Score(MContainer):
                 previously set
 
         """
+        if isinstance(scorestruct, str):
+            scorestruct = ScoreStruct(scorestruct)
         self._scorestruct = scorestruct
         self._changed()
 
@@ -325,11 +326,10 @@ class Score(MContainer):
                      ) -> list[SynthEvent]:
         if self.playargs:
             playargs = playargs.updated(self.playargs)
-        parentOffset = self.parent.absOffset() if self.parent else F0
         out = []
         for voice in self.voices:
             events = voice._synthEvents(playargs=playargs, workspace=workspace,
-                                        parentOffset=parentOffset)
+                                        parentOffset=F0)
             out.extend(events)
         return out
 
@@ -363,6 +363,41 @@ class Score(MContainer):
     def pitchTransform(self, pitchmap: Callable[[float], float]) -> Self:
         voices = [voice.pitchTransform(pitchmap) for voice in self.voices]
         return self.clone(voices=voices)
+
+    def isPolymetric(self) -> bool:
+        """
+        True if this score has multiple meters (simultaneously) at any moment
+
+        Multiple simultaneous tempi are also considered to make a score polymetric
+        """
+        if len(self.voices) < 2:
+            return False
+
+        structs = [part.activeScorestruct() for part in self.voices]
+        uniquestructs = set(structs)
+        if len(uniquestructs) < 2:
+            return False
+
+        struct0 = uniquestructs.pop()
+        for i, mdef in enumerate(struct0.measures):
+            for struct in uniquestructs:
+                mdef2 = struct.measure(i)
+                if mdef.timesig != mdef2.timesig or mdef.quarterTempo != mdef.quarterTempo:
+                    return True
+        return False
+
+    def numMeasures(self) -> int:
+        """
+        Number of measures needed to encompass this score
+
+        Returns:
+            the number of measures in this voice
+        """
+        struct = self.activeScorestruct()
+        end = self.dur
+        endidx, endbeat = struct.beatToLocation(end)
+        return endidx + 1
+
 
 
 def show(*objs: MObj | list[MObj], **kws) -> Score:

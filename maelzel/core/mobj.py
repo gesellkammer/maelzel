@@ -1407,7 +1407,7 @@ class MObj(ABC):
             workspace = Workspace.active
 
         if (struct := self.scorestruct()) is not None:
-            workspace = workspace.clone(scorestruct=struct, config=workspace.config)
+            workspace = workspace.clone(scorestruct=struct)
 
         playargs = PlayArgs.makeDefault(workspace.config)
         db = playargs.db
@@ -2255,8 +2255,7 @@ def _renderObject(obj: MObj,
     assert scorestruct and config
     parts = obj.scoringParts(config=config)
     if not parts:
-        if config['show.warnIfEmpty']:
-            logger.warning("The object %s did not produce any scoring parts", obj)
+        logger.debug("The object %s did not produce any scoring parts", obj)
         measure0 = scorestruct.measuredefs[0]
         part = scoring.core.UnquantizedPart(notations=[scoring.Notation.makeRest(measure0.beatStructure()[0].duration)])
         parts = [part]

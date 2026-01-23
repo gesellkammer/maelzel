@@ -120,6 +120,19 @@ class _Singleton(type):
         return cls._instances[cls]
 
 
+class _Context:
+    def __init__(self, exit: _t.Callable, enter: _t.Callable | None = None):
+        self.exitfunc = exit
+        self.enterfunc = enter
+
+    def __enter__(self):
+        if self.enterfunc:
+            self.enterfunc()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.exitfunc()
+
+
 class UnsetType(metaclass=_Singleton):
     """
     A singleton representing an unset value.

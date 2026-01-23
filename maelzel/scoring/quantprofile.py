@@ -239,7 +239,7 @@ class QuantizationProfile:
 
     beatWeightTempoThresh: int = 52
 
-    subdivTempoThresh: int = 96
+    # subdivTempoThresh: int = 96
 
     _cachedDivisionsByTempo: dict[tuple[num_t, bool], list[division_t]] = _field(default_factory=dict)
     _cachedDivisionPenalty: dict[tuple[int, ...], tuple[float, str]] = _field(default_factory=dict)

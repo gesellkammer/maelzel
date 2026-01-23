@@ -204,7 +204,7 @@ def simplifyDivisionWithSlots(division: division_t, assignedSlots: list[int]
         if subdiv == 1:
             reduced.append(1)
         elif all(s not in assigned for s in range(cs+1, cs+subdiv)):
-        # elif not anyBetween(assignedSlots, cs+1, cs+subdiv):
+            # elif not anyBetween(assignedSlots, cs+1, cs+subdiv):
             # no subslots assigned
             reduced.append(1)
         elif subdiv % 2 == 0:
@@ -246,7 +246,7 @@ def simplifyDivisionWithSlots(division: division_t, assignedSlots: list[int]
             elif subdiv == 8:
                 # 1 0 1 0 1 0 1 0
                 if cs+1 not in assigned and cs+3 not in assigned and cs+5 not in assigned and cs+7 not in assigned:
-                # if {cs+1, cs+3, cs+5, cs+7}.isdisjoint(assigned):
+                    # if {cs+1, cs+3, cs+5, cs+7}.isdisjoint(assigned):
                     if cs+2 not in assigned and cs+6 not in assigned:
                         reduced.append(2)
                         assert cs+4 in assigned
@@ -268,7 +268,7 @@ def simplifyDivisionWithSlots(division: division_t, assignedSlots: list[int]
                 mid = cs+subdiv//2
                 if mid in assigned:
                     if all(i not in assigned for i in range(cs+1, cs+subdiv) if i != mid):
-                    # if _makeset(cs+1, cs+subdiv, (cs+subdiv//2,)).isdisjoint(assigned):
+                        # if _makeset(cs+1, cs+subdiv, (cs+subdiv//2,)).isdisjoint(assigned):
                         # 1 0 0 0 0 1 0 0 0 0 -> 2
                         reduced.append(2)
                         slots.append(cs2+1)
@@ -295,6 +295,26 @@ def simplifyDivisionWithSlots(division: division_t, assignedSlots: list[int]
                     slots.append(cs2+2)
             else:
                 reduced.append(9)
+                slots.extend(cs2+i for i in range(1, subdiv) if cs+i in assigned)
+        elif subdiv == 15:
+            if all(cs+x not in assigned for x in range(1, 15) if x % 5 != 0):
+                reduced.append(3)
+                if cs+5 in assigned:
+                    slots.append(cs2+1)
+                if cs+10 in assigned:
+                    slots.append(cs2+2)
+            elif all(cs+x not in assigned for x in range(1, 15) if x % 3 != 0):
+                reduced.append(5)
+                if cs+3 in assigned:
+                    slots.append(cs2+1)
+                if cs+6 in assigned:
+                    slots.append(cs2+2)
+                if cs+9 in assigned:
+                    slots.append(cs2+3)
+                if cs+12 in assigned:
+                    slots.append(cs2+4)
+            else:
+                reduced.append(subdiv)
                 slots.extend(cs2+i for i in range(1, subdiv) if cs+i in assigned)
         else:
             reduced.append(subdiv)

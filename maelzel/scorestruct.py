@@ -5,10 +5,9 @@ from dataclasses import dataclass
 from bisect import bisect
 import functools
 import re
-import copy as _copy
 
 import emlib.textlib
-from maelzel.common import F, asF, F0
+from maelzel.common import F, asF, F0, _Context
 
 from typing import TYPE_CHECKING, overload as _overload
 if TYPE_CHECKING:
@@ -1610,7 +1609,7 @@ class ScoreStruct:
 
     def numMeasures(self) -> int:
         """
-        Returns the number of measures in this score structure
+        Returns the number of defined measures in this score structure
 
         If self is endless, it returns the number of defined measures
 
@@ -2235,12 +2234,12 @@ class ScoreStruct:
         beat = self.locationToBeat(measureindex, measurebeat)
         return beat
 
-    def iterMeasureDefs(self) -> Iterator[MeasureDef]:
+    def iterMeasures(self) -> Iterator[MeasureDef]:
         """
         Iterate over all measure definitions in this ScoreStruct.
 
-        If it is marked as `endless`, then the last defined measure
-        will be returned indefinitely.
+        If it is marked as `endless`, the last defined measure
+        is returned indefinitely.
         """
         for mdef in self.measures:
             yield mdef
@@ -2251,7 +2250,7 @@ class ScoreStruct:
             yield lastmdef
 
     def __iter__(self) -> Iterator[MeasureDef]:
-        return self.iterMeasureDefs()
+        return self.iterMeasures()
 
     def beat(self, a: num_t | tuple[int, num_t], b: num_t | None = None
              ) -> F:
@@ -2601,9 +2600,9 @@ class ScoreStruct:
         Returns True if this ScoreStruct has no tempo changes
         """
         self._update()
-
-        t = self.measures[0].quarterTempo
-        return all(m.quarterTempo == t for m in self.measures)
+        m0 = self.measures[0]
+        tempo, ref = m0.tempo, m0.tempoRef
+        return all(m.tempo == tempo and m.tempoRef == ref for m in self.measures)
 
     def __repr__(self) -> str:
         self._update()
@@ -2675,10 +2674,6 @@ class ScoreStruct:
             for beat in beatstruct:
                 fig = unicodeDuration(beat.duration)
                 parts.append(fig)
-                # if beat.duration.denominator == 1:
-                #     parts.append(str(beat.duration.numerator))
-                # else:
-                #     parts.append(f"{beat.duration.numerator}/{beat.duration.denominator}")
             if all(part==parts[0] for part in parts):
                 beatstruct = f"{len(parts)}×{parts[0]}"
             else:
@@ -2721,47 +2716,74 @@ class ScoreStruct:
             renderoptions.backend = backend
         return render.renderQuantizedScore(qscore, options=renderoptions)
 
-    def setTempo(self, measureidx: int, tempo: F | int | float, reference: F | tuple[int, int] = (4, 0)) -> None:
+    def setTempo(self,
+                 tempo: F | int | float,
+                 measure: int = 0,
+                 reference: F | tuple[int, int] = (4, 0)
+                 ) -> _Context:
         """
         Set the tempo of the given measure, until the next tempo change
 
+        Can be used as a context manager, in which case the original tempo
+        is restored at exit
+
         Args:
-            measureidx: first measure to modify
+            measure: first measure to modify
             tempo: the new tempo
             reference: the reference duration (1=quarternote, 2=halfnote, 0.5: 8th note, etc)
+
+
+        Example
+        ~~~~~~~
+
+            >>> from maelzel.core import *
+            >>> w = getWorkspace()
+            >>> score = ...
+            >>> with w.setTempo(90):
+            ...     score.play()
 
         """
         if self.const:
             raise RuntimeError("This ScoreStruct is read-only")
 
-        if measureidx > len(self) and not self.endless:
-            raise IndexError(f"Index {measureidx} out of rage; this ScoreStruct has only "
+        if measure > len(self) and not self.endless:
+            raise IndexError(f"Index {measure} out of rage; this ScoreStruct has only "
                              f"{len(self)} measures defined")
-        meas = self.measure(measureidx)
+        meas = self.measure(measure)
+        oldtempo, oldref = meas.tempo, meas.tempoRef
         tempo = asF(tempo)
         if isinstance(reference, F):
             reference = durationToFigure(reference)
         meas._setTempo(tempo=tempo, reference=reference, inherited=False)
-        for m in self.measures[measureidx+1:]:
+        for m in self.measures[measure + 1:]:
             if m.tempoInherited:
                 m._setTempo(tempo=tempo, reference=reference, inherited=True)
             else:
                 break
         self.modified()
+        return _Context(lambda: self.setTempo(measure=measure, tempo=oldtempo, reference=oldref))
 
-    def setTimeSignature(self, measureidx, timesig: tuple[int, int] | str | TimeSignature
+    def setTimeSignature(self, measure: int, timesig: tuple[int, int] | str | TimeSignature
                          ) -> None:
+        """
+        Set the time timesignature for the given measure
+
+        Args:
+            measure: measure index
+            timesig: the time signature
+
+        """
         if self.const:
             raise RuntimeError("This ScoreStruct is read-only")
 
-        if measureidx > len(self) and not self.endless:
-            raise IndexError(f"Index {measureidx} out of rage; this ScoreStruct has only "
+        if measure > len(self) and not self.endless:
+            raise IndexError(f"Index {measure} out of rage; this ScoreStruct has only "
                              f"{len(self)} measures defined")
         timesig = _asTimeSignature(timesig)
-        mdef = self.measure(measureidx, extend=True)
+        mdef = self.measure(measure, extend=True)
         mdef.timesig = timesig
         mdef.timesigInherited = False
-        for m in self.measures[measureidx + 1:]:
+        for m in self.measures[measure + 1:]:
             if m.timesigInherited:
                 m.timesig = timesig
             else:
@@ -2898,19 +2920,19 @@ class ScoreStruct:
                             key=last.key,
                             count=numMeasures - len(self.measures))
 
-    def setBarline(self, measureidx: int, linetype: str) -> None:
+    def setBarline(self, measure: int, linetype: str) -> None:
         """
         Set the right barline type
 
         Args:
-            measureidx: the measure index to modify
+            measure: the measure index to modify
             linetype: one of 'single', 'double', 'final', 'solid', 'dashed'
 
         """
         if self.const:
             raise RuntimeError("This ScoreStruct is read-only")
         assert linetype in _barstyles, f"Unknown style '{linetype}', possible styles: {_barstyles}"
-        self.measure(measureidx, extend=True).barline = linetype
+        self.measure(measure, extend=True).barline = linetype
 
     def asText(self) -> str:
         """
@@ -2963,7 +2985,7 @@ class ScoreStruct:
         -------
 
             >>> from maelzel.core import *
-            >>> scorestruct = ScoreStruct(r"4/4,72; .; 5/8; 3/8; 2/4,96; .; 5/4; 3/4")
+            >>> scorestruct = ScoreStruct(r"4/4,4=72; .; 5/8; 3/8; 2/4,96; .; 5/4; 3/4")
             >>> clicktrack = scorestruct.makeClickTrack()
             >>> clicktrack.write('click.pdf')
             >>> clicktrack.play()
@@ -3014,6 +3036,7 @@ def _filledScoreFromStruct(struct: ScoreStruct, pitch='4C') -> maelzel.core.Scor
     return Score([voice], scorestruct=struct)
 
 
+@functools.cache
 def unicodeDuration(dur: tuple[int, int] | F) -> str:
     """
     Returns the given notated duration as a unicode str
@@ -3063,7 +3086,7 @@ def durationToFigure(dur: F, maxdots=5) -> tuple[int, int]:
     .. note::
 
         A dotted note has duration = base * (2^(dots+1) - 1) / 2^dots
-2        Relative to quarter note: (4/base) * (2^(dots+1) - 1) / 2^dots = num/denom
+        Relative to quarter note: (4/base) * (2^(dots+1) - 1) / 2^dots = num/denom
     """
     # Simplify: 4 * denom * (2^(dots+1) - 1) = base * num * 2^dots
 

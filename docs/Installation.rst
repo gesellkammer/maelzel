@@ -10,73 +10,44 @@ the same::
     pip install maelzel
 
 
-There are some **external dependencies** which need to be installed manually:
-
-* **csound** >= 6.17. (https://csound.com/download.html).
-* **lilypond** (https://lilypond.org/download.html).
-
 ----------------
 
 Dependencies
 ============
 
+**csound** needs to be installed manually if not already installed. Any version of csound >= 6.18
+is supported (csound 7 is explicitely supported and recommended)
+
 MacOS
 -----
 
-**Install Csound**
-    Download the ``.dmg`` package from https://csound.com/download.html (latest release:
-    https://github.com/csound/csound/releases/download/6.18.1/Csound-MacOS-universal-6.18.1.dmg)
-
-**Install Lilypond**
-    At the moment the recommended method to install *lilypond* is via *homebrew*:
-    ``brew install lilypond``. This will install the last version for your platform
-    (both intel and arm64 architectures are supported) and add it to your ``PATH``.
-    See also: https://formulae.brew.sh/formula/lilypond
-
-    For more information visit http://lilypond.org
+* **csound 7** (recommended): https://github.com/csound/csound/releases/download/7.0.0-beta.10/csound-macos-7.0.0-beta.10.zip
+* **csound 6**: https://github.com/csound/csound/releases/download/6.18.1/Csound-MacOS-universal-6.18.1.dmg
 
 --------------
 
 Windows
 -------
 
-**Install Csound**
-    Install csound from https://csound.com/download.html. Use the installer: this will take care
-    of setting up the ``PATH`` and setup csound so that it can be found by *maelzel*
-
-**Install lilypond**
-    **This is currently not needed**. Lilyond is installed automatically. These instructions are here only for reference
-
-    1. Download https://gitlab.com/lilypond/lilypond/-/releases/v2.24.1/downloads/lilypond-2.24.1-mingw-x86_64.zip.
-    2. Unzip it and place the folder ``lilypond-2.X.Y`` in ``C:\Program Files``.
-    3. Add the path ``C:\Program Files\lilypond-2.X.Y\bin`` to your ``PATH`` environmental
-       variable (as "System Variable")
+* **csound 7** (recommended): https://github.com/csound/csound/releases/download/7.0.0-beta.10/csound-windows-7.0.0-beta.10.zip
+* **csound 6**: download the installed from https://csound.com/download.html
 
 ----------------
 
 Linux
 -----
 
-Arch
-~~~~
+
+Csound 7
+~~~~~~~~
+
+At the moment there are no packages for csound 7 for linux.
 
 .. code-block:: bash
 
-    sudo pacman -S csound lilypond
-
-Debian / Ubuntu
-~~~~~~~~~~~~~~~
-
-It is possible to install *csound* via the package manager::
-
-    sudo apt install csound libcsnd-dev
-
-However it is highly recommended to install csound from sources (see also the
-`official instructions <https://github.com/csound/csound/blob/develop/BUILD.md#debian>`_)::
-
     sudo apt-get build-dep csound
     sudo apt-get install cmake
-    git clone -b csound6 https://github.com/csound/csound.git csound
+    git clone -b develop https://github.com/csound/csound.git csound
     cd csound
     mkdir build && cd build
     cmake ..
@@ -84,8 +55,21 @@ However it is highly recommended to install csound from sources (see also the
     sudo cmake --install .
     sudo ldconfig
 
+Csound 6
+~~~~~~~~
 
-**lilypond**: install from official repositories::
+Alternatively *maelzel* works also with csound 6.
 
-    sudo apt-get install lilypond
+.. tab-set::
 
+    .. tab-item:: Ubuntu / Debian
+
+        .. code-block:: bash
+
+            sudo apt install csound libcsnd-dev
+
+    .. tab-item:: Arch
+
+        .. code-block:: bash
+
+            sudo pacman -S csound

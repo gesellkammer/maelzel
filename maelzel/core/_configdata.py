@@ -10,7 +10,6 @@ _dynamicsSet = set(_dynamicSteps)
 
 defaultdict = {
     'A4': 442,
-    'chordAdjustGain': True,
     'reprShowFreq': False,
     'reprUnicodeAccidentals': True,
     'reprUnicodeFractions': False,
@@ -19,6 +18,7 @@ defaultdict = {
     'musescorepath': '',
     'lilypondpath': '',
     'jupyterReprShow': True,
+    'htmlTheme': 'light',
     'fixStringNotenames': False,
     'openImagesInExternalApp': False,
     'soundfilePlotHeight': 3,
@@ -26,6 +26,7 @@ defaultdict = {
 
     'enharmonic.horizontalWeight': 1,
     'enharmonic.verticalWeight': 0.5,
+
     '.enharmonic.debug': False,
     '.enharmonic.150centMicroPenalty': 20,
 
@@ -33,7 +34,6 @@ defaultdict = {
     'show.centsTextStyle': 'fontsize=6; placement=below',
     'show.cents': True,
     'show.centsTextSnap': 2,
-    '.show.centsTextPlusSign': True,
     'show.centSep': ',',
     'show.scaleFactor': 0.75,
     'show.scaleFactorMusicxml': 0.8,
@@ -59,11 +59,7 @@ defaultdict = {
     'show.respellPitches': True,
     'show.horizontalSpace': 'medium',
     'show.dynamicFromAmplitude': False,
-    'show.jupyterMaxImageWidth': 1000,
     'show.hideRedundantDynamics': True,
-    '.show.dynamicsResetTime': 32,
-    '.show.dynamicsResetAfterEmptyMeasure': True,
-    '.show.dynamicsResetAfterRest': 1,
     'show.absOffsetWhenDetached': False,
     'show.voiceMaxStaves': 2,
     'show.clipNoteheadShape': 'square',
@@ -74,22 +70,30 @@ defaultdict = {
     'show.clefSimplify': 0.,
     'show.spacing': 'normal',
     'show.proportionalDuration': '1/24',
-    'show.warnIfEmpty': True,
+    # 'show.warnIfEmpty': True,
     'show.clefChangesWindow': 1,
     'show.keepClefBias': 2.0,
     'show.clefTransposingFactor': 0.85,
     'show.pedalStyle': '',
     'show.singleStaffRange': 14,
     'show.explodeStaffPenalty': 1.2,
+
+    '.show.centsTextPlusSign': True,
+    '.show.dynamicsResetTime': 32,
+    '.show.dynamicsResetAfterEmptyMeasure': True,
+    '.show.dynamicsResetAfterRest': 1,
+
+    'play.backend': 'default',
+    'play.graceDuration': '1/14',
+    'play.chordAdjustGain': False,
     'play.gain': 1.0,
     'play.engineName': 'maelzel.core',
-    'play.instr': 'sin',
     'play.fade': 0.02,
     'play.fadeShape': 'cos',
-    'play.pitchInterpol': 'linear',
+    'play.instr': 'sin',
     'play.numChannels': 2,
+    'play.pitchInterpol': 'linear',
     'play.unschedFadeout': 0.05,
-    'play.backend': 'default',
     'play.defaultAmplitude': 1.0,
     'play.defaultDynamic': 'f',
     'play.generalMidiSoundfont': '',
@@ -98,10 +102,9 @@ defaultdict = {
     'play.schedLatency': 0.05,
     'play.verbose': False,
     'play.useDynamics': True,
-    'play.graceDuration': '1/14',
     'play.soundfontFindPeakAOT': False,
-    
-    'reverbInstr': '.zitarev',
+
+    '.reverbInstr': '.zitarev',
     'reverbGaindb': -6,
     'reverbDelayms': 60,
     'reverbDecay': 3,
@@ -114,10 +117,9 @@ defaultdict = {
     'rec.numChannels': 2,
     'rec.path': '',
     'rec.verbose': False,
-    '.rec.compressionBitrate': 224,
     'rec.extratime': 0.,
+    '.rec.compressionBitrate': 224,
 
-    'htmlTheme': 'light',
 
     'quant.syncopMinFraction': '1/6',
     'quant.syncopPartMinFraction': '1/10',
@@ -172,7 +174,7 @@ validator = {
     "play.numChannels::range": (1, 128),
     "rec.numChannels::range": (1, 128),
     "play.soundfontInterpol::choices": {"linear", "cubic"},
-    "reverbInstr::choices": {'.zitarev'},
+    ".reverbInstr::choices": {'.zitarev'},
     "reverbDelayms::type": int,
     "reverbDelayms::range": (1, 500),
     "reverbDecay::range": (0.01, 120),
@@ -234,7 +236,6 @@ validator = {
     ),
     "show.glissLineThickness::choices": (1, 2, 3, 4),
     "show.glissLineType::choices": ("solid", "wavy"),
-    "show.jupyterMaxImageWidth::type": int,
     "show.voiceMaxStaves::type": int,
     "show.voiceMaxStaves::range": (1, 4),
     "show.labelStyle": isValidStyle,
@@ -257,6 +258,7 @@ validator = {
     "show.proportionalDuration": isValidFraction,
     "show.spacing::choices": ("normal", "strict", "uniform"),
     "show.flagStyle::choices": ("normal", "straight", "flat"),
+    "show.pedalStyle::choices": ("", "mixed", "bracket", "text"),
     "show.clefSimplify::range": (0, 10000),
     "show.clefTransposingFactor::range": (0, 1),
     "dynamicCurveShape": lambda cfg, key, val: val.split("(")[0] in ("linear", "expon", "halfcos"),
@@ -279,9 +281,8 @@ docs = {
         "Freq of A4. Normal values are between 440-443, but any value can be used",
 
     'fixStringNotenames':
-        "Fix pitches given as notenames at the spelling given. "
-        "False: respell for better readability within the context. "
-        "Pitches as midi or frequency are always respelled",
+        "Use notenames as enharmonic spelling, otherwise respell if needed for better "
+        "readability. Pitches given as midi or frequency are always respelled",
 
     "jupyterReprShow":
         "Use html as repr within jupyter. If False, .show needs "
@@ -291,9 +292,8 @@ docs = {
         "Force opening images with an external tool, even within Jupyter",
 
     'dynamicCurveShape':
-        "Shape used to convert dynamics to amplitudes. "
-        "Normally an exponential curve, given as 'expon(exp)'. "
-        "exp < 1 results in more resolution for soft dynamics",
+        "Shape used to convert dynamics to amplitudes, given as 'expon(exp)', "
+        "where exp < 1 = more resolution for soft dynamics",
 
     'dynamicCurveMindb':
         "Amplitude in dB corresponding to the softest dynamic",
@@ -325,9 +325,9 @@ docs = {
         "Display chords as an arpeggio. "
         "In auto mode, only arpeggiate when needed",
 
-    'chordAdjustGain':
-        "Scale the gain of a chord by the number of notes. "
-        "This prevents clipping (used only if notes don't have an explicit amplitude)",
+    'play.chordAdjustGain':
+        "Scale the gain of a chord by the number of notes to "
+        "prevent clipping (only if notes don't have explicit amplitude)",
 
     'show.scaleFactor':
         "Affects the size of the generated image when using png format",
@@ -351,8 +351,8 @@ docs = {
         "Default amplitude for a Note/Chord, used if play.useDynamics is False",
 
     'play.defaultDynamic':
-        'Dynamic of a Note/Chord, only used if play.useDynamics is True. '
-        'Any event with an amplitude uses that value instead',
+        'Dynamic of a Note/Chord, only used if play.useDynamics is True and'
+        'the event has no explicit amplitude',
 
     'rec.blocking':
         "Should recording be blocking or should be done async?",
@@ -421,8 +421,8 @@ docs = {
         "Notehead shape to use for clips",
 
     'show.referenceStaffsize':
-        "Staff size used as reference. Allows to use staff size as a generic "
-        "indicator for score scale across backends",
+        "Staff size used as reference for musicxml. Allows to use staff size as a generic "
+        "indicator across backends",
     
     'show.clefSimplify':
         "Simplify automatic clef changes. Use higher values to limit clef changes",
@@ -433,14 +433,14 @@ docs = {
     'show.flagStyle':
         "Flag style, at the moment only valid in lilypond",
 
-    'show.warnIfEmpty':
-        "Warn if an object did not produce any scoring parts",
+    # 'show.warnIfEmpty':
+    #     "Warn if an object did not produce any scoring parts",
 
     'show.singleStaffRange':
         "A voice/chord which fits within this range is notated as one staff",
 
     'show.explodeStaffPenalty':
-        "Penalty applied when exploding a voice to multiple staves. "
+        "Penalty when exploding a voice to multiple staves. "
         "A higher value reduces the number of staves",
 
     '.enharmonic.debug':
@@ -524,9 +524,6 @@ docs = {
         'Horizontal spacing hint. It depends on format and backend how this'
         ' value is interpreted',
 
-    'show.jupyterMaxImageWidth':
-        'Max width in pixels for images in jupyter',
-
     'show.hideRedundantDynamics':
         'Hide redundant dynamics within a voice',
     
@@ -568,7 +565,7 @@ docs = {
     'play.generalMidiSoundfont':
         'Path to a soundfont (sf2 file) with a general midi mapping',
 
-    'reverbInstr':
+    '.reverbInstr':
         'Default instrument used for reverb',
 
     'reverbGaindb':
@@ -598,39 +595,42 @@ docs = {
     'quant.nestedTuplets':
         'Allow nested tuplets when quantizing. None: follow '
         'the complexity preset (quant.complexity). '
-        'The musescore backend cannot parse nested tuplets from musicxml atm',
+        'musescore cannot parse nested tuplets atm',
 
     'quant.nestedTupletsMusicxml':
         'Allow nested tuplets for musicxml. '
-        'The musescore backend cannot parse nested tuplets properly '
-        'from mxml at the moment. Nested tuplets are used for other formats if '
+        'Musescore cannot parse nested tuplets '
+        'from mxml atm. Nested tuplets are used for other formats if '
         '"quant.nestedTuplets" = True',
 
     'quant.breakBeats':
         'Level at which to break syncopations. "all": break all syncopations; '
-        '"weak": break syncopations over weak beats; "strong": only break '
-        'syncopations at strong beats; "none": don´t break syncopations',
+        '"weak": break at weak beats; "strong": only break '
+        'at strong beats; "none": don´t break syncopations',
+
+    'quant.subdivTempoThresh':
+        'a subdivision slower than this becomes an independent beat during quantization',
 
     '.quant.divisionWeight':
         'Weight applied to the penalty of the beat division'
-        'Higher values result in simpler subdivisions. None to use the '
+        'Higher values -> simpler subdivisions. None to use the '
         'value set by the complexity preset (quant.complexity)',
 
     'quant.gridWeight':
-        'Weight applied to time deviations during quantization. '
+        'Weight applied to time deviations. '
         'Higher values result in more accurate quantization, at the cost of complexity. '
-        'None sets this value from the complexity preset (quant.complexity)',
+        'None uses the value from the complexity preset (quant.complexity)',
 
     'quant.exactFactor':
         'Factor applied to the quantization error for an exact grid. '
-        'A value lower than 1 will prioritize quantizations '
-        'which represent the timing exactly. None to use the value set by the '
+        'A value < 1 prioritizes exact timing.  '
+        'None to use the value set by the '
         'complexity preset.',
 
     '.quant.complexityWeight':
-        'Weight applied to rhythm complexity during '
-        'quantization. A higher value results in simpler rhythms. None sets '
-        'this value from the complexity preset (quant.complexity)',
+        'Weight applied to rhythm complexity for '
+        'quantization. Higher values -> simpler rhythms. None sets '
+        'this from the complexity preset (quant.complexity)',
 
     '.quant.gridErrorExp':
         'Exponent applied to the grid error. The error is a value between 0-1 '
@@ -639,18 +639,19 @@ docs = {
         'None to use the value set by the complexity preset (quant.complexity)',
 
     'quant.syncopMinFraction':
-        'Min duration of a syncopation as a ratio of the beat. Any syncopation shorter '
-        'is broken and its parts tied, to prevent complex syncopations',
+        'Min duration of a syncopation as a ratio of the beat. Any syncop. shorter '
+        'is broken and its parts tied, to prevent complex rhythms',
 
     'quant.syncopPartMinFraction':
-        'Min duration of any part of a syncopation, as a fraction of the beat. A syncopation '
-        'consistings of two parts, one left and one right to the beat boundary',
+        'Min duration of any part of a syncopation, as a fraction of the beat. A syncop. '
+        'consists of two parts, one left and one right to the beat boundary',
 
     'quant.syncopMaxAsymmetry':
-        'Max asymmetry of a syncopation. For notes across beats, this sets'
-        ' the max. allowed asymmetry across the beat, '
-        'as a ratio longest:shortest part across the beat. '
+        'Max asymmetry of a syncopation as ratio longest:shortest part across the beat. '
         'A note exactly across the beat has an asymmetry of 1',
+
+    'quant.beatWeightTempoThresh':
+        'beats with slower tempo are strong beats, where syncopations should be broken',
 
     '.quant.debug':
         'Output extra debug info during quantization, showing how different '
@@ -661,9 +662,8 @@ docs = {
         'is turned',
 
     'musescorepath':
-        'Command to use when calling MuseScore. '
-        'For macOS users: it must be an '
-        'absolute path pointing to the actual binary inside the .app bundle',
+        'Command to use when calling MuseScore.'
+        '(macOS: an absolute path to the binary inside the .app bundle)',
 
     'lilypondpath':
         'Path to the lilypond binary. '
@@ -678,13 +678,13 @@ docs = {
     'show.spacing':
         'Horizontal spacing used. '
         '"normal": traditional spacing; "uniform": '
-        ' proportional spacing with uniform stretching; "strict": proportional '
-        'spacing with strict placement (clef changes and bar lines don´t add spacing and'
-        'might overlap)',
+        ' proportional spacing; "strict": strict proportional '
+        'spacing, clefs and bar lines don´t add spacing and'
+        'might overlap',
 
     'show.proportionalDuration':
-        'Space reolution for proportional duration. The lower this value, the longer '
-        'the space taken by each note. This mirrors the value used by lilypond. See also: '
+        'Space resolution for proportional duration. The lower this value, the longer '
+        'the space taken by each note. See also: '
         'https://lilypond.org/doc/v2.23/Documentation/notation/proportional-notation',
 
     'show.keepClefBias':
@@ -694,6 +694,9 @@ docs = {
     'show.clefChangesWindow':
         'Window size for automatic clef changes (number of elements '
         'per evaluation)',
+
+    'show.pedalStyle':
+        'Style used for pedal spanners.',
 
     'show.clefTransposingFactor':
         'Factor applied to a clef fitness if it is a transposing clef. A value < 1'

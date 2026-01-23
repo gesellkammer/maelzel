@@ -1596,7 +1596,7 @@ class Chord(MEvent):
         if self.playargs:
             playargs = playargs.updated(self.playargs)
 
-        if conf['chordAdjustGain'] and all(n.amp is None for n in self.notes):
+        if conf['play.chordAdjustGain'] and all(n.amp is None for n in self.notes):
             globalgain = 1/math.sqrt(len(self.notes))
         else:
             globalgain = 1.

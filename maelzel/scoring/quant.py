@@ -1029,7 +1029,7 @@ def _evalRhythmComplexity(profile: QuantizationProfile,
         numSyncop = 0
         if div0 % 2 == 0:
             numSyncop += sum(dur > 1 and s % 2 == 1 for dur, s in zip(durs, assignedSlots))
-        elif div0 == 3:
+        elif div0 == 3 or div0 == 5:
             pass
         else:
             for mod in (3, 5, 7, 11, 13, 17, 19):
@@ -2934,6 +2934,24 @@ class QuantizedScore:
             voice = maelzel.core.Voice(events, name=part.name, abbrev=part.abbrev)
             voices.append(voice)
         return maelzel.core.Score(voices=voices, scorestruct=self.struct, title=self.title)
+
+    def isPolymetric(self) -> bool:
+        """
+        True if this score has multiple meters (simultaneously) at any moment
+
+        Multiple simultaneous tempi are also considered to make a score polymetric
+        """
+        if len(self.parts) < 2:
+            return False
+        struct0 = self.parts[0].struct
+        if all(part.struct is None or part.struct == struct0 for part in self.parts):
+            return False
+        for i, mdef in enumerate(struct0.measures):
+            for part in self.parts[1:]:
+                mdef2 = part.struct.measure(i)
+                if mdef.timesig != mdef2.timesig or mdef.quarterTempo != mdef.quarterTempo:
+                    return True
+        return False
 
 
 def quantizeParts(parts: list[core.UnquantizedPart],

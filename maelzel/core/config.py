@@ -449,6 +449,7 @@ class CoreConfig(ConfigDict):
             removesaved: if True, remove any saved config
 
         """
+        self.resetKey
         super().reset()
         from maelzel.core.presetmanager import presetManager
         if '.piano' in presetManager.presets:

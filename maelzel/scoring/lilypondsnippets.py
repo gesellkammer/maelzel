@@ -277,6 +277,21 @@ _glissandoMinLengthTemplate = Template(r"""
 }""")
 
 
+polymetricScore = r"""
+\layout {
+  \context {
+    \Score
+    \remove Timing_translator
+  }
+  
+  \context {
+    \Staff
+    \consists Timing_translator
+  }
+}
+"""
+
+
 def stemletLength(length: float, context='Score') -> str:
     return rf"""
 \layout {{

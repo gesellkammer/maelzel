@@ -654,15 +654,27 @@ class SynthEvent:
             self.initfunc(self, renderer)
 
     def _applySustain(self) -> None:
-        if self.linkednext and self.sustain:
-            logger.debug("A linked event cannot have sustain, self=%s", self)
+        if not self.sustain:
+            return
+
+        if self.linkednext:
+            # logger.debug("A linked event cannot have sustain, self=%s", self)
             return
         if self.sustain > 0:
             last = self.bps[-1]
             bp = (last[0] + self.sustain, *last[1:])
             self.bps.append(bp)
         elif self.sustain < 0:
-            self.crop(0., self.dur + self.sustain)
+            b0 = self.bps[-2]
+            b1 = self.bps[-1]
+            lastdur = b1[0] - b0[0]
+            lastdur = lastdur + self.sustain
+            if lastdur > 0:
+                self.bps[-1] = (b1[0] + self.sustain, *b1[1:])
+            elif len(self.bps) > 2:
+                self.bps.pop()
+            else:
+                self.bps[-1] = (b0[0] + 0.001, *b1[1:])
         self.sustain = 0
 
     @property
@@ -1054,7 +1066,7 @@ class SynthEvent:
         numNamedPfields = instr.numPfields()
 
         # if not self.linkednext and self.sustain > 0:
-        if self.sustain > 0:
+        if self.sustain:
             self._applySustain()
 
         dynargs: dict[str, float|str]
