@@ -1,10 +1,10 @@
-from maelzel import _state
 import sys
 
+from maelzel import _state
+from maelzel import _util
 
-# Only check dependencies on first run
-if _state.isFirstSession() and "sphinx" not in sys.modules:
 
+def _firstRun():
     import logging
     logging.basicConfig(level=logging.WARNING,
                         format='[%(name)s:%(filename)s:%(lineno)s - %(funcName)s] %(message)s')
@@ -26,3 +26,22 @@ if _state.isFirstSession() and "sphinx" not in sys.modules:
     errors = dependencies.checkDependencies()
     if not errors:
         print("\n*** All dependencies are installed! ***")
+
+
+if "sphinx" not in sys.modules:
+    # Only check if not building docs
+    if _state.isFirstSession():
+        _firstRun()
+    else:
+        lastVersion = _state.state['last_version']
+        lastVersionTup = _util.splitVersion(lastVersion) if lastVersion else (0, 0, 0)
+        from importlib.metadata import version
+        currVersion = version("maelzel")
+        currVersionTup = _util.splitVersion(currVersion)
+        if currVersionTup > lastVersionTup:
+            from maelzel import dependencies
+            dependencies.checkDependencies()  # <-- this updates _state.state
+
+
+
+

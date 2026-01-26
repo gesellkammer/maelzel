@@ -1127,11 +1127,11 @@ def renderScore(score: quant.QuantizedScore,
             s = textwrap.indent(s, prefix=IND * indent)
         strs.append(s)
 
-    lilypondVersion = lilytools.getLilypondVersion()
-    if not lilypondVersion:
+    lilyversion = lilytools.lilypondVersion(options.lilypondBinary)
+    if not lilyversion:
         raise RuntimeError("Could not determine lilypond version")
 
-    _(f'\\version "{lilypondVersion}"\n')
+    _(f'\\version "{lilyversion}"\n')
 
     _(r"\header {")
     if options.title:
@@ -1302,7 +1302,8 @@ class LilypondRenderer(Renderer):
             outfiles = lilytools.renderLily(lilyfile=lilyfile,
                                             outfile=tempout,
                                             imageResolution=options.pngResolution,
-                                            lilypondBinary=lilypondBinary)
+                                            lilypondBinary=lilypondBinary,
+                                            backend=options.lilypondBackend)
             if options.preview:
                 previewfile = f"{tempbase}.preview.{fmt}"
                 if os.path.exists(previewfile):

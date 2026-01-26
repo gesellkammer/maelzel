@@ -2,16 +2,19 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import glob
 import subprocess
 import tempfile
 import re
 import textwrap
 import logging
+import functools
+
 
 import pitchtools as pt
 from dataclasses import dataclass
 from maelzel.common import F, getLogger
-from numbers import Rational
+from maelzel import _util
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -19,7 +22,7 @@ if TYPE_CHECKING:
     from maelzel.common import pitch_t
 
 
-_cache = {'lilypath': ''}
+_cache = {}
 
 
 class PlatformNotSupportedError(Exception):
@@ -74,7 +77,7 @@ def _checkOutput(args: list[str], encoding="utf-8") -> str | None:
 
 def _testLilypond(lilybin: str, fmt='.pdf') -> bool:
     lilytxt = r'''
-\version "2.20.0"
+\version "2.24.0"
 {
     <c' d'' b''>8. ~ <c' d'' b''>8
 }
@@ -84,46 +87,32 @@ def _testLilypond(lilybin: str, fmt='.pdf') -> bool:
     open(lyfile, 'w').write(lilytxt)
     assert os.path.exists(lyfile)
     outfile = os.path.splitext(lyfile)[0] + fmt
+    logger = getLogger(__file__)
     try:
-        outfile2 = renderLily(lyfile, outfile=outfile, removeHeader=False, lilypondBinary=lilybin)
-        return outfile2 is not None and os.path.exists(outfile2)
+        parts = renderLily(lyfile, outfile=outfile, removeHeader=False,
+                           lilypondBinary=lilybin)
+        if len(parts) == 0:
+            logger.error("Lilypond generated no output, lilypond file: %s, "
+                         "outfile: %s, lilypond binary: %s", lyfile, outfile, lilybin)
+            return False
+        if part := next((part for part in parts if not os.path.exists(part)), None):
+            logger.error("Generated outfile does not exist: %s, lilypond file: %s", part, lyfile)
+            return False
+        return True
     except Exception as e:
-        getLogger(__file__).error(f"Test lilypond raised an error: {e}")
+        logger.error("Test lilypond raised an error: %s", e)
         return False
 
 
-def _installLilypondMacosHomebrew() -> str | None:
-    """
-    install lilypond via homebrew in macos
-
-    Assumes that homebrew is installed
-
-    Returns:
-        the path to lilypond, or None if failed
-    """
-    logger = getLogger(__file__)
-    logger.info("Installing lilypond via homebrew: `brew install lilypond`")
-    retcode = subprocess.call('brew install lilypond', shell=True)
-    if retcode != 0:
-        # did we fail?
-        lilybin = shutil.which('lilypond')
-        if lilybin and _testLilypond(lilybin):
-            logger.warning(f"brew install lilypond returned code {retcode}, but "
-                           f"lilypond seems installed")
-            return lilybin
-        logger.error(f"Lilypond could not be installed, return code {retcode}")
-        return None
-    if lilybin := shutil.which('lilypond'):
-        logger.info("lilypond installed ok")
-        return lilybin
-    logger.error("brew install lilypond returned successfully but lilypond is "
-                 "not in the path")
-    return None
-
-
-def installLilypond() -> str:
+def installLilypond(version='') -> str:
     """
     Install lilypond, returns the binary
+
+    Args:
+        version: an exact version or a min. version in the form ">=2.24.0"
+
+    Returns:
+        the path if the lilypond binary
 
     .. note::
 
@@ -131,24 +120,30 @@ def installLilypond() -> str:
         see pypi/lilyponddist
     """
     import lilyponddist
-    lilybin = lilyponddist.lilypondbin()
+    lilybin = lilyponddist.lilypondbin(version=version)
     if not lilybin or not lilybin.exists():
         raise RuntimeError("Could not install lilypond")
     lilypath = lilybin.as_posix()
-    _cache['lilypath'] = lilypath
+    _cache['lilypath:' + version] = lilypath
     return lilypath
 
 
-def findLilypond(install=True) -> str | None:
+def findLilypond(version='', system=False) -> str | None:
     """
     Find lilypond binary, or None if not found
+
+    Args:
+        version: an exact or min. version to use ("2.24.13" or ">=2.25", for example)
+        system: if True, use any installed version. Otherwise rely
+            only on lilyponddist
 
     Returns:
         the path to a working lilypond binary, or None if
         the path was not found
     """
     logger = getLogger(__file__)
-    if (lilypath := _cache.get('lilypath', '')):
+    cachekey = 'lilypath:' + version
+    if (lilypath := _cache.get(cachekey, '')):
         if os.path.exists(lilypath):
             return lilypath
         else:
@@ -156,19 +151,22 @@ def findLilypond(install=True) -> str | None:
                            f"Previously cached path: {lilypath}")
 
     # try which
-    logger.debug("findLilypond: searching via shutil.which")
-    lilypond = shutil.which('lilypond')
-    if lilypond:
-        logger.debug("... found! lilypond path: '%s'", lilypond)
-        _cache['lilypath'] = lilypond
-        return lilypond
+    if system and (lilypath := shutil.which('lilypond')):
+        logger.debug("... found system lilypond path: '%s'", lilypath)
+        if not version:
+            _cache[cachekey] = lilypath
+            return lilypath
+        else:
+            vertup, matchop = _util.splitVersionSpec(version)
+            lyverstr = lilypondVersion(lilypath)
+            lyvertup = _util.splitVersion(lyverstr)
+            if (matchop == "=" and vertup == lyvertup) or (matchop == ">=" and lyvertup >= vertup):
+                _cache[cachekey] = lilypath
+                return lilypath
 
-    logger.debug("findLilypond: Lilypond is not in the path, trying lilyponddist")
     import lilyponddist
-    if not lilyponddist.is_lilypond_installed() and not install:
-        return None
-    lilypath = lilyponddist.lilypondbin().as_posix()
-    _cache['lilypath'] = lilypath
+    lilypath = lilyponddist.lilypondbin(version=version).as_posix()
+    _cache[cachekey] = lilypath
     return lilypath
 
 
@@ -188,7 +186,8 @@ def renderScore(score: str,
                 book=False,
                 microtonal=False,
                 openWhenFinished=False,
-                removeTempfiles=False
+                removeTempfiles=False,
+                lilypondBinary=''
                 ) -> list[str]:
     """
     Render a lilypond score
@@ -203,6 +202,7 @@ def renderScore(score: str,
         openWhenFinished: if True, open the rendered file when finished
         cropToContent: crop the generated image to the content
         removeTempfiles: if True, remove tempfile
+        lilypondBinary: if given, the path to the lilypond binary to use
 
     Returns:
         the path of the generated files. In the case of pdf output, only one files is 
@@ -218,7 +218,7 @@ def renderScore(score: str,
     saveScore(score, lilyfile, book=book, microtonal=microtonal, cropToContent=cropToContent)
     if outfile is None:
         outfile = tempfile.mktemp(suffix=".pdf")
-    outfiles = renderLily(lilyfile, outfile=outfile, openWhenFinished=openWhenFinished)
+    outfiles = renderLily(lilyfile, outfile=outfile, openWhenFinished=openWhenFinished, lilypondBinary=lilypondBinary)
     if removeTempfiles:
         os.remove(lilyfile)
     return outfiles
@@ -283,6 +283,8 @@ def renderLily(lilyfile: str,
                imageResolution: int = None,
                openWhenFinished=False,
                lilypondBinary='',
+               backend='',
+               version=''
                ) -> list[str]:
     """
     Call lilypond to render the given file
@@ -295,6 +297,10 @@ def renderLily(lilyfile: str,
         imageResolution: the image resolution in dpi when rendering to png
         openWhenFinished: if True, open the generated file when finished
         lilypondBinary: if given, use this binary for rendering
+        backend: lilypond backend used, one of 'ps' (default), 'svg' or 'cairo'
+        version: an exact version or a min. version ("2.24.15" or ">=2.25"). If
+            not given, any installed version will be used. Not used if lilypondBinary
+            is given.
 
     Returns:
         the generated outfiles. Raises RuntimeError if failed to render
@@ -317,12 +323,19 @@ def renderLily(lilyfile: str,
     basefile = os.path.splitext(outfile)[0]
     shell = True if sys.platform == 'win32' else False
     if not lilypondBinary:
-        lilypondBinary = findLilypond()
+        lilypondBinary = findLilypond(version=version)
         if not lilypondBinary:
-            raise RuntimeError("lilypond binary not found")
+            raise RuntimeError(f"lilypond binary not found for version: {version}")
+
     args = [lilypondBinary, f'--{fmt}', '-o', basefile]
+
     if fmt == 'png' and imageResolution:
         args.append(f'-dresolution={imageResolution}')
+
+    if backend:
+        assert backend in ('svg', 'ps', 'cairo')
+        args.append(f'-dbackend={backend}')
+
     args.append(lilyfile)
     if shell:
         cmd = " ".join(args)
@@ -333,30 +346,28 @@ def renderLily(lilyfile: str,
         result = callWithCapturedOutput(args, shell)
 
     txt = open(lilyfile).read()
-    hasMidiBlock = re.search(r'\\midi\b', txt)
 
-    if "#(ly:set-option 'crop #t)" in txt:
-        # A cropped file should have been generated
-        # TODO: add
-        ...
+    # if "#(ly:set-option 'crop #t)" in txt:
+    #     # A cropped file should have been generated
+    #     # TODO: add
+    #     ...
 
-    
     if result.returnCode != 0:
         logger.error("stdout: \n" + textwrap.indent(result.stdout, "!! "))
         logger.error("stderr: \n" + textwrap.indent(result.stderr, "!! "))
         raise RuntimeError(f"Could not render {args}. Lilypond returned error code {result.returnCode}")
 
+    hasMidiBlock = re.search(r'\\midi\b', txt)
     if hasMidiBlock:
         midifile = basefile + '.midi'
         if not os.path.exists(midifile):
-            raise RuntimeError(f"Failed to produce a .midi file from {lilyfile}")
+            raise RuntimeError(f"Failed to produce a .midi file from '{lilyfile}' (searched '{midifile}')")
         return [midifile]
     
     outfiles = []
     if not os.path.exists(outfile):
         if fmt == 'png':        
             # maybe multiple pages?
-            import glob
             pages = glob.glob(f"{basefile}-page*.png")
             if not pages:
                 # no files found...
@@ -839,7 +850,7 @@ def makeDuration(quarterLength: int | float | str | F, dots=0) -> str:
     elif isinstance(quarterLength, int):
         assert quarterLength in {1, 2, 4}, f"quarterLength: {quarterLength}"
         lilydur = _durationToLily[quarterLength]
-    elif isinstance(quarterLength, Rational):
+    elif isinstance(quarterLength, F) or hasattr(quarterLength, 'denominator'):
         if quarterLength.denominator == 1:
             lilydur = _durationToLily[quarterLength.numerator]
         else:
@@ -1095,26 +1106,39 @@ def makeNote(pitch: pitch_t,
     return "".join(parts)
 
 
-def getLilypondVersion() -> str | None:
+@functools.cache
+def _lilypondVersion(lilybin: str) -> str:
     """
     Return the lilypond version as string
 
-    **NB**: The result is not cached
     """
-    lilybin = findLilypond()
-    logger = getLogger(__file__)
-    if not lilybin:
-        logger.error("Could not find lilypond")
-        return None
     output = _checkOutput([lilybin, "--version"])
     if output is None:
         raise RuntimeError(f"Could not call lilypond to get the version, "
                            f"lilypond binary: '{lilybin}'")
     match = re.search(r"GNU LilyPond \d+\.\d+\.\d+", output)
     if not match:
-        logger.error(f"Could not parse lilypond's output: {output}")
-        return None
+        raise RuntimeError(f"Could not parse lilypond's output: {output}")
     return match[0][13:]
+
+
+def lilypondVersion(lilybin='') -> str:
+    """
+    Return the lilypond version as string
+
+    Args:
+        lilybin: lilypond binary, uses the result of findLilypond() if not given
+
+    Raises RuntimeError if lilypond is not found
+    """
+    if not lilybin:
+        lilybin = findLilypond()
+    if not lilybin:
+        raise RuntimeError("Could not find lilypond")
+    lilybin = _util.normalizePath(lilybin)
+    if not os.path.exists(lilybin):
+        raise RuntimeError(f"Lilypond binary {lilybin} not found")
+    return _lilypondVersion(lilybin)
 
 
 def millimetersToPoints(mm: float) -> float:

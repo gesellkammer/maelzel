@@ -102,7 +102,7 @@ def checkVampPlugins(fix=True) -> str:
         return str(err)
 
 
-def checkLilypond() -> str:
+def checkLilypond(version='') -> str:
     """
     Check if lilypond is installed
 
@@ -110,11 +110,11 @@ def checkLilypond() -> str:
         an error string if something went wrong, an empty string if lilypond is
         installed
     """
-    logger.debug("Checking lilypond")
+    logger.debug("Checking lilypond version: '%s'", version)
     from maelzel.music import lilytools
-    lilybin = lilytools.findLilypond()
+    lilybin = lilytools.findLilypond(version=version)
     if not lilybin:
-        return "Could not find lilypond"
+        return f"Could not find lilypond with version: {version}"
     logger.debug("lilypond ok. lilypond binary: '%s'", lilybin)
     return ""
 
@@ -275,7 +275,10 @@ def installAssets():
     checkVampPlugins(fix=True)
 
 
-def checkDependencies(abortIfErrors=False, fix=True, verbose=False
+def checkDependencies(abortIfErrors=False,
+                      fix=True,
+                      lilypondVersion=">=2.25",
+                      verbose=False
                       ) -> list[str]:
     """
     Checks the dependencies of all maelzel subpackages
@@ -300,7 +303,7 @@ def checkDependencies(abortIfErrors=False, fix=True, verbose=False
 
     steps = [
         ('Checking csound', checkCsound),
-        ('Checking lilypond', checkLilypond),
+        ('Checking lilypond', lambda: checkLilypond(version=lilypondVersion)),
         ('Checking external csound plugins', lambda: checkCsoundPlugins(fix=fix)),
         ('Checking vamp plugins', lambda: checkVampPlugins(fix=fix)),
         ('Checking csoundengine dependencies', lambda: _csoundengineDependencies(fix=fix))
@@ -328,6 +331,8 @@ def checkDependencies(abortIfErrors=False, fix=True, verbose=False
 
     if not errors:
         _state.state['last_dependency_check'] = datetime.now().isoformat()
+        from importlib.metadata import version
+        _state.state['last_version'] = version('maelzel')
 
     return errors
 
@@ -360,31 +365,3 @@ def printReport(echo=print, updaterisset=False):
     echo(f"Vamp plugins: {vamp.list_plugins()}")
 
 
-def checkDependenciesIfNeeded(daysSinceLastCheck=0) -> bool:
-    """
-    Checks dependencies if needed
-
-    A check is needed at the first run and after a given interval
-
-    Args:
-        daysSinceLastCheck: only check after so many days since last check
-
-    Returns:
-        True if dependencies are installed
-    """
-    if daysSinceLastCheck == 0 and not _state.isFirstSession():
-        logger.info('Skipping dependency check - not first run')
-        return True
-
-    lastcheck = datetime.fromisoformat(_state.state['last_dependency_check'])
-    if (datetime.now() - lastcheck).days < daysSinceLastCheck:
-        logger.debug("Dependency check not needed")
-        return True
-
-    errors = checkDependencies(abortIfErrors=False, fix=True)
-    if not errors:
-        return True
-    logger.error("Error while checking dependencies: ")
-    for err in errors:
-        logger.error(f"    {err}")
-    return False

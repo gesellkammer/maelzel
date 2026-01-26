@@ -2405,7 +2405,7 @@ class Voice(Chain):
 
     def __hash__(self):
         superhash = super().__hash__()
-        return hash((superhash, self.name, self.abbrev, id(self._group)))
+        return hash((superhash, self.name, self.abbrev, id(self._group), hash(self._scorestruct)))
 
     def _copyAttributesTo(self, other: Self) -> None:
         super()._copyAttributesTo(other)

@@ -246,6 +246,14 @@ def normalizeFilename(path: str) -> str:
     return os.path.expanduser(path)
 
 
+def normalizePath(path: str) -> str:
+    """
+    Expand user and make absolute path
+    """
+    path = os.path.expanduser(path)
+    return os.path.abspath(path)
+
+
 def showF(f: F, maxdenom=1000, approxAsFloat=False, unicode=False) -> str:
     """
     Show a fraction, limit den to *maxdenom*
@@ -679,3 +687,42 @@ def normalizeWeights(*weights: float) -> list[float]:
     """
     factor = len(weights)/sum(weights)
     return [w*factor for w in weights]
+
+
+def splitVersion(versionstr: str) -> tuple[int, int, int]:
+    """
+    Parses a version str of the form <major>.<minor>.<micro>
+
+    minor and micro are optional
+    """
+    parts = versionstr.split(".")
+    major = int(parts[0])
+    minor = 0
+    micro = 0
+    if len(parts) >= 2:
+        minor = int(parts[1])
+    if len(parts) >= 3:
+        micro = int(parts[2])
+    return major, minor, micro
+
+
+@functools.cache
+def splitVersionSpec(version: str) -> tuple[tuple[int, int, int], str]:
+    """
+    Parses a version str of the form "2.24.0", ">=2.25.12", ">2.24", etc.
+
+    Returns:
+        a tuple (versiontup: tuple[int, int, int], matchop: str), where matchop is
+        one of "=", ">" or ">="
+    """
+    matchop = "="
+    if version.startswith(">="):
+        version = version[2:]
+        matchop = ">="
+    elif version.startswith(">"):
+        version = version[1:]
+        matchop = ">"
+    elif version.startswith("="):
+        version = version[1:]
+    versiontup = splitVersion(version)
+    return versiontup, matchop

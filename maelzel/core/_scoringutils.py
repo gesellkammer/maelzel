@@ -99,6 +99,7 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig | None = None,
         dynamicsResetAfterRest=cfg['.show.dynamicsResetAfterRest'],
         clefTransposingFactor=cfg['show.clefTransposingFactor'],
         pedalStyle=cfg['show.pedalStyle'],
+        lilypondBackend=cfg['lilypondBackend']
     )
     return renderOptions
 

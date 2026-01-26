@@ -30,7 +30,7 @@ if lily is None:
     exiterr = 1
 else:
     print(f"lilypond binary: {lily}")
-    print(f"lilypond version: {lilytools.getLilypondVersion()}")
+    print(f"lilypond version: {lilytools.lilypondVersion()}")
 
 testvamp()
 

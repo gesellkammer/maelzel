@@ -17,6 +17,7 @@ defaultdict = {
     'semitoneDivisions': 4,
     'musescorepath': '',
     'lilypondpath': '',
+    'lilypondBackend': '',
     'jupyterReprShow': True,
     'htmlTheme': 'light',
     'fixStringNotenames': False,
@@ -274,6 +275,7 @@ validator = {
     ".quant.complexityWeight::range": (0, 10),
     "quant.breakBeats::choices": ("none", "all", "weak", "strong"),
     "reprUnicodeAccidentals::choices": (False, True, "full", "simple"),
+    "lilypondBackend::choices": ('', 'cairo', 'ps', 'svg'),
 }
 
 docs = {
@@ -670,6 +672,11 @@ docs = {
         'If set, it must be an absolute, existing path. '
         'Only needed if using a specific lilypond installation '
         '(lilypond is auto-installed if not found)',
+
+    'lilypondBackend':
+        'Backend used by lilypond. By default the postscript (ps) backend '
+        'is used. The cairo backend is somewhat faster but might still not '
+        'support all options',
 
     'show.autoClefChanges':
         'Add clef changes if needed. '

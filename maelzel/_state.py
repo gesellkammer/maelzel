@@ -2,16 +2,22 @@ from configdict import ConfigDict
 from functools import cache
 
 
-_defaultState = {
+__all__ = (
+    'state',
+    'isFirstSession'
+)
+
+
+_state = {
     'last_dependency_check': '1900-01-01T00:00:00',
-    'first_run': True
+    'first_run': True,
+    'last_version': '0.0.0'
 }
 
 
-state = ConfigDict("maelzel.state", _defaultState, persistent=True)
+state = ConfigDict("maelzel.state", _state, persistent=True)
 
 
-@cache
 def isFirstSession() -> bool:
     """
     Returns True if this is the first run

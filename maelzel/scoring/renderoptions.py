@@ -144,6 +144,9 @@ class RenderOptions:
     lilypondBinary: str = ''
     """The lilypond binary used"""
 
+    lilypondBackend: str = ''
+    """Lilypond backend"""
+
     musescoreBinary: str = ''
     """The musescore binary"""
 
