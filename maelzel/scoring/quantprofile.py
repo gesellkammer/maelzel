@@ -70,6 +70,8 @@ class QuantizationProfile:
     - numNestedTupletsPenaltyWeight: how
 
     """
+    divisionDefs: tuple[quantdata.DivisionDef, ...]
+
     nestedTuplets: bool = False
     """Are nested tuplets allowed?"""
 
@@ -128,8 +130,6 @@ class QuantizationProfile:
     """A duration to assume for grace notes"""
 
     graceErrorWeight: float = 0
-
-    divisionDefs: tuple[quantdata.DivisionDef, ...] = _field(default_factory=lambda: quantdata.getPresets()['high'].divisionDefs)
 
     divisionPenaltyMap: dict[int, float] = _factory(quantdata.defaultDivisionPenaltyMap)
     """A mapping of the penalty of each division"""
@@ -337,8 +337,10 @@ class QuantizationProfile:
             return cached
 
         divsByTempo = self.divisionsByTempo()
-        divs = next((divs for maxTempo, divs in divsByTempo.items() if tempo < maxTempo), None)
-        if not divs:
+        try:
+            maxTempo = min(t for t in divsByTempo.keys() if tempo < t)
+            divs = divsByTempo[maxTempo]
+        except ValueError:
             logger.error("Possible divisions of the beat, by tempo: ")
             logger.error(pprint.pformat(divsByTempo))
             raise ValueError(f"No divisions for the given tempo ({tempo=})")
@@ -432,7 +434,8 @@ class QuantizationProfile:
         if not presetkeys.issubset(profilekeys):
             raise KeyError(f"Invalid preset keys: {presetkeys.difference(profilekeys)}")
 
-        presetkws = {key: value for key in presetkeys.intersection(profilekeys)
+        sharedkeys = presetkeys.intersection(profilekeys)
+        presetkws = {key: value for key in sharedkeys
                      if (value:=getattr(preset, key)) is not None}
 
         if nestedTuplets is not None:

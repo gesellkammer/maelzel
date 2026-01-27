@@ -219,7 +219,7 @@ validator = {
     },
     "play.graceDuration::type": (int, float, str),
     "htmlTheme::choices": {"light", "dark"},
-    "quant.complexity::choices": {"speech", "low", "medium", "high", "highest"},
+    "quant.complexity::choices": {"speech", "low", "medium", "high", "highest", "exact"},
     "quant.syncopMinFraction::type": (str, float, Rational),
     "quant.syncopMaxAsymmetry::type": (str, float, Rational),
     "quant.syncopMaxAsymmetry::range": (1, 99),

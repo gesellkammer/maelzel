@@ -672,6 +672,13 @@ class NoteheadSymbol(Symbol):
         for n in notations:
             self.applyToNotation(n, parent=None)
 
+    def applyToParts(self, parts: list[scoring.core.UnquantizedPart]) -> None:
+        for part in parts:
+            self.applyToPart(part)
+    
+    def applyToPart(self, part: scoring.core.UnquantizedPart):
+        self.applyToMany(part.notations)
+
 
 class Hidden(EventSymbol):
     """A hidden property can be attached to note to hide it"""

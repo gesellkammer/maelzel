@@ -1151,6 +1151,8 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
     gridErrorThresh = 0.1
     # TODO: remove this hardcoded threshold
 
+    # assert (8, 4, 8, 6) in possibleDivisions
+
     for div in possibleDivisions:
         if div in seen or div in profile.blacklist:
             continue
@@ -1202,8 +1204,8 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
             seen.add(div2)
             div = div2
 
-        if profile.maxGridDensity and max(div)*len(div) > profile.maxGridDensity:
-            continue
+        # if profile.maxGridDensity and max(div)*len(div) > profile.maxGridDensity:
+        #     continue
 
         # grid0, fgrid0 = quantutils.divisionGrid0Float(beatDuration=beatDuration, division=div)
         grid0, fgrid0 = quantutils.divisionGrid0Array(beatDuration=beatDuration, division=div)
@@ -1219,15 +1221,6 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
             grid0 = quantutils.divisionGrid0(beatDuration=beatDuration, division=simplifiedDiv)
 
         snappedEvents = quantutils.makeSnapped(events0, slots=assignedSlots, grid=grid0)
-        # numSnappedGraces = sum(1 for s in snappedEvents if s.duration == 0)
-        # if (r := (numSnappedGraces - numOriginalGracenotes)/numEvents) <= maxGraceRatio:
-        #     maxGraceRatio = r
-        # elif minGridError < gridErrorThresh:
-        #     if profile.debug:
-        #         print(f"Skipping {div}: too many gracenotes, {maxGraceRatio=:.4f}, grace ratio={r:.4f}")
-        #     seen.add(div)
-        #     continue
-
         gridError = _evalGridError(profile=profile,
                                    snappedEvents=snappedEvents,
                                    beatDuration=beatDuration)
@@ -1235,10 +1228,12 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
         if gridError < minGridError:
             minGridError = gridError
         elif gridError:
-            if minGridError == 0 and gridError > gridErrorThresh:
+            if minGridError < gridErrorThresh and gridError > gridErrorThresh:
+                #if profile.debug:
+                #    print(f"!!! Skipping {div}, {gridError=:.5g}, {minGridError=:.5g}")
                 continue
             if (weightedGridError := gridError * sqrt(gridErrorWeight)) > minError:
-                if profile.debug and weightedGridError / minError < 1.2:
+                if profile.debug and weightedGridError / minError < 1.1:
                     print("Skipping %s, weightedGridError: %g, minError: %g" % (div, weightedGridError, minError))
                 continue
 
@@ -1273,16 +1268,16 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
         else:
             debuginfo = ''
 
+        seen.add(div)
         if totalError > minError:
-            if profile.debug and totalError / minError < 1.3:
-                logger.debug("Skipping %s, totalError: %g, minError: %g", str(div), totalError, minError)
+            if profile.debug and totalError / minError < 1.1:
+                print("Skipping %s, totalError: %g, minError: %g" % (str(div), totalError, minError))
                 rows.append((totalError, div, snappedEvents, assignedSlots, debuginfo))
             continue
         else:
             minError = totalError
 
         rows.append((totalError, div, snappedEvents, assignedSlots, debuginfo))
-        seen.add(div)
 
         if totalError == 0:
             break
