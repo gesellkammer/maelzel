@@ -9,18 +9,18 @@ import numpy as np
 import csoundengine
 from csoundengine.sessionhandler import SessionHandler
 
-from maelzel.core._common import logger
-from maelzel.core.presetdef import PresetDef
-from maelzel.core import presetmanager
 from maelzel.core.workspace import Workspace
+from maelzel.core import presetmanager
 from maelzel.core import environment
 from maelzel.core import _playbacktools
 from maelzel.core.synthevent import SynthEvent
 import maelzel.core.renderer as _renderer
 import maelzel.core.realtimerenderer as _realtimerenderer
+from maelzel.core._common import logger
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
+    from maelzel.core.presetdef import PresetDef
     import csoundengine.engine
     import csoundengine.session
     import csoundengine.baseschedevent
@@ -41,6 +41,7 @@ __all__ = (
     'play',
     'testAudio',
     'audioSession',
+    'audioEngine'
 )
 
 
@@ -56,7 +57,7 @@ def testAudio(duration=4, period=0.5, numChannels: int | None = None, delay=0.5,
               backend=''
               ) -> None:
     """
-    Test the audio engine by sending pink to each channel
+    Test the audio engine
 
     Args:
         duration: the duration of the test
@@ -65,15 +66,15 @@ def testAudio(duration=4, period=0.5, numChannels: int | None = None, delay=0.5,
         delay: how long to wait before starting the test.
 
     """
-    engine = _playEngine(numchannels=numChannels, backend=backend)
+    engine = audioEngine(numchannels=numChannels, backend=backend)
     if not engine:
-        engine = _playEngine(numchannels=numChannels, backend=backend)
+        engine = audioEngine(numchannels=numChannels, backend=backend)
         logger.info("Started engine, backend=%sw", engine.backend)
     engine.testAudio(dur=duration, period=period, delay=delay)
 
 
-def getAudioDevices(backend=''
-                    ) -> tuple[list[csoundengine.csoundlib.AudioDevice],
+def audioDevices(backend=''
+                 ) -> tuple[list[csoundengine.csoundlib.AudioDevice],
                                list[csoundengine.csoundlib.AudioDevice]]:
     """
     Returns (indevices, outdevices), where each of these lists is an AudioDevice.
@@ -110,7 +111,7 @@ def getAudioDevices(backend=''
     return csoundengine.csoundlib.getAudioDevices(backend=backend)
 
 
-def _playEngine(numchannels: int | None = None,
+def audioEngine(numchannels: int | None = None,
                 backend='',
                 outdev='',
                 verbose: bool | None = None,
@@ -300,7 +301,7 @@ def audioSession(numchannels: int | None = None,
     .. seealso:: :class:`csoundengine.Session <https://csoundengine.readthedocs.io/en/latest/api/csoundengine.session.Session.html>`
     """
     if not isSessionActive(name=name):
-        engine = _playEngine(name=name,
+        engine = audioEngine(name=name,
                              numchannels=numchannels,
                              backend=backend,
                              outdev=outdev,
@@ -311,7 +312,7 @@ def audioSession(numchannels: int | None = None,
         return engine.session()
 
     # Session is already active, check params
-    engine = _playEngine(name=name)
+    engine = audioEngine(name=name)
     if ensure:
         for paramname, value in [('nchnls', numchannels), 
                                  ('backend', backend), 
@@ -336,7 +337,7 @@ def isSessionActive(name='') -> bool:
 
 def _dummySynth(dur=0.001, engine: csoundengine.Engine | None = None) -> csoundengine.synth.Synth:
     if not engine:
-        engine = _playEngine()
+        engine = audioEngine()
     session = engine.session()
     return session.sched('.dummy', 0, dur)
 
@@ -424,14 +425,15 @@ def play(*sources: MObj | Sequence[SynthEvent] | csoundengine.event.Event,
                                                              workspace=Workspace.active)
     numChannels = _playbacktools.nchnlsForEvents(coreevents)
     if not isSessionActive():
-        engine = _playEngine(numchannels=numChannels)
+        engine = audioEngine(numchannels=numChannels)
     else:
-        engine = _playEngine()
+        engine = audioEngine()
         assert engine.nchnls is not None
         if engine.nchnls < numChannels:
             logger.error("Some events output to channels outside of the engine's range")
 
-    rtrenderer = _realtimerenderer.RealtimeRenderer(engine=engine)
+    rtrenderer = _realtimerenderer.RealtimeRenderer(engine=engine,
+                                                    presetManager=Workspace.active.presetManager)
     return rtrenderer.schedEvents(coreevents=coreevents, sessionevents=sessionevents, whenfinished=whenfinished)
 
 
@@ -493,7 +495,7 @@ class _SynchronizedContext(_renderer.Renderer):
                  whenfinished: Callable | None = None,
                  display=False):
 
-        super().__init__(presetManager=presetmanager.presetManager)
+        super().__init__(presetManager=Workspace.active.presetManager)
 
         self.session: csoundengine.session.Session = audioSession()
         """The corresponding Session, can be used to access the session during the context"""
@@ -545,9 +547,10 @@ class _SynchronizedContext(_renderer.Renderer):
                   sr: int = 0,
                   tabnum: int = 0
                   ) -> csoundengine.tableproxy.TableProxy:
+        assert tabnum == 0, f"Setting the table number is not supported at the moment"
         if self.session._handler:
             raise NotImplementedError
-        return self.session.makeTable(data=data, size=size, sr=sr, tabnum=tabnum)
+        return self.session.makeTable(data=data, size=size, sr=sr)
 
     def readSoundfile(self, path: str, chan=0, skiptime=0.) -> csoundengine.tableproxy.TableProxy:
         return self.session.readSoundfile(path=path, chan=chan, skiptime=skiptime)
@@ -687,9 +690,8 @@ class _SynchronizedContext(_renderer.Renderer):
         future = self._tokenToFuture.get(token)
         if not future:
             return None
-        event = future.event
-        presetdef = self.presetManager.getPreset(event.instr)
-        return presetdef
+
+        return self.presetManager.getPreset(future.instrName)
 
     def getSynth(self, token: int) -> csoundengine.synth.Synth | None:
         """
@@ -754,7 +756,8 @@ class _SynchronizedContext(_renderer.Renderer):
         corefutures = [f for f in self._futureSynths if f.kind == 'synthevent']
         sessionfutures = [f for f in self._futureSynths if f.kind == 'sessionevent']
 
-        renderer = _realtimerenderer.RealtimeRenderer(engine=self.engine)
+        renderer = _realtimerenderer.RealtimeRenderer(engine=self.engine,
+                                                      presetManager=self.workspace.presetManager)
         coreevents = [f._synthevent() for f in corefutures]
         sessionevents = [f._csoundevent() for f in sessionfutures]
         synths, sessionsynths = renderer._schedEvents(presetManager=self.presetManager,
@@ -923,6 +926,11 @@ class _FutureSynth(csoundengine.baseschedevent.BaseSchedEvent, csoundengine.synt
         self.token: int = token
         self.kind = 'synthevent' if isinstance(event, SynthEvent) else 'sessionevent'
         self.session = parent.session
+
+    @property
+    def instrName(self) -> str:
+        return self.event.instr if isinstance(self.event, SynthEvent) else self.event.instrname
+        # return self.event.instr if self.kind == 'synthevent' else self.event.instrname
 
     def _synthevent(self) -> SynthEvent:
         if isinstance(self.event, SynthEvent):

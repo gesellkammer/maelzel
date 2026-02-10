@@ -16,7 +16,7 @@ import numpy as np
 from emlib import numpytools
 
 from maelzel.snd.numpysnd import getChannel, numChannels
-from maelzel.common import getLogger
+from maelzel._logutils import getLogger
 
 if TYPE_CHECKING:
     import matplotlib.pyplot as plt

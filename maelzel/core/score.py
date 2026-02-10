@@ -4,7 +4,7 @@ from maelzel.common import F, F0, asF
 from .mobj import MObj, MContainer
 from .event import MEvent
 from .config import CoreConfig
-from .chain import Voice, Chain, PartGroup
+from .chain import Voice, Chain, VoiceGroup
 from .workspace import Workspace
 from maelzel.scorestruct import ScoreStruct
 
@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from typing_extensions import Self
     from .synthevent import PlayArgs, SynthEvent
     from maelzel import scoring
+    from maelzel.common import time_t
 
 
 __all__ = (
@@ -44,7 +45,7 @@ class Score(MContainer):
     """
     _acceptsNoteAttachedSymbols = False
 
-    __slots__ = ('voices', 'groups', '_modified', '_scorestruct')
+    __slots__ = ('voices', 'groups', '_modified', '_scorestruct', 'fusedParts')
 
     def __init__(self,
                  voices: Sequence[Voice | Chain | MEvent] = (),
@@ -61,7 +62,10 @@ class Score(MContainer):
         self.voices: list[Voice] = asvoices
         """the voices of this score"""
 
-        self.groups: set[PartGroup] = set()
+        self.fusedParts: list[VoiceGroup] = []
+        """Contains voices which have been fused to one part"""
+
+        self.groups: set[VoiceGroup] = set()
         """Groups added via makeGroup are added here for reference"""
 
         self._scorestruct: ScoreStruct | None = None
@@ -177,14 +181,26 @@ class Score(MContainer):
             out.setScoreStruct(deststruct)
         return out
 
+    def __len__(self):
+        return len(self.voices)
+
+    def index(self, child: Voice) -> int:
+        return self.voices.index(child)
+
     @staticmethod
-    def pack(objects: list[MEvent | Chain | Voice], maxrange=36, mingap=0.) -> Score:
+    def pack(*objects: MEvent | Chain | Voice | list[MEvent],
+             group=True,
+             maxrange=36,
+             mingap: time_t = F0
+             ) -> Score:
         """
         Pack the given objects into a Score
 
         Args:
-            objects: a list of notes, chords, chains, etc. Voices are packed as is and not joined
-                with other voices
+            objects: a list of notes, chords, chains, etc. Voices are packed as is and
+                not joined with other voices
+            group: if True, any sequence of objects are kept within one staff, as long
+                as they do not overlap
             maxrange: the max. pitch range for a voice
             mingap: a min. gap between items in a voice
 
@@ -192,9 +208,10 @@ class Score(MContainer):
             the packed Score
         """
         from maelzel import packing
+        flatobjs = _flattenObjects(objects, group=group)
         voices = []
         items: list[packing.Item[MEvent|Chain]] = []
-        for obj in objects:
+        for obj in flatobjs:
             if isinstance(obj, Voice):
                 voices.append(obj)
             elif isinstance(obj, (MEvent, Chain)):
@@ -225,11 +242,38 @@ class Score(MContainer):
     def __contains__(self, item) -> bool:
         return item in self.voices
 
-    def makeGroup(self,
-                  parts: list[Voice],
-                  name: str = '',
-                  abbrev: str = '',
-                  showPartNames=False) -> None:
+    def addPart(self,
+                voices: list[Voice],
+                name='',
+                abbrev='') -> None:
+        """
+        Group multiple voices within one part
+
+        The voices will be confined to one staff when notated
+
+        Args:
+            voices: the voices to place together. A list of 2, 3 or 4 voices
+            name: a name to use for the staf. If not given, a name constructed
+                from the names of the given voices will be used
+            abbrev: an optional abbreviation for the staf name
+        """
+        part = VoiceGroup(voices=voices, name=name, abbrev=abbrev)
+        if part in self.fusedParts:
+            oldpart = self.fusedParts[self.fusedParts.index(part)]
+            raise ValueError(f"Part containing voices {voices} already exists: {oldpart}")
+        self.fusedParts.append(part)
+        newVoices = sum(1 for v in voices if v not in self.voices)
+        if newVoices:
+            if newVoices != len(voices):
+                raise ValueError("Some voices within this part are already part of this score")
+            self.voices.extend(voices)
+            self._changed()
+
+    def addGroup(self,
+                 voices: list[Voice],
+                 name: str = '',
+                 abbrev: str = '',
+                 showPartNames=False) -> None:
         """
         Create a group from a list of voices
 
@@ -241,12 +285,24 @@ class Score(MContainer):
             abbrev: a short name to use for all systems after the first one
             showPartNames: do not hide the names of the parts which form this group
         """
-        for part in parts:
-            if part.parent and part.parent is not self:
-                raise RuntimeError(f"Cannot make a group with a part which belongs to another"
-                                   f" score (part={part}, parent={part.parent})")
-        group = PartGroup(parts=parts, name=name, abbrev=abbrev, showPartNames=showPartNames)
+        voices = [voice if voice.parent is self else voice.copy()
+                 for voice in voices]
+        group = VoiceGroup(voices=voices, name=name, abbrev=abbrev, showPartNames=showPartNames)
         self.groups.add(group)
+        newVoices = [v for v in voices if v not in self.voices]
+        voiceIds = [id(v) for v in voices]
+        if newVoices:
+            self.voices.extend(newVoices)
+            if len(newVoices) != len(voices):
+                # Voices within a group need to be adjacent
+                voices = []
+                for v in self.voices:
+                    if v is voices[0]:
+                        voices.extend(voices)
+                    elif id(v) not in voiceIds:
+                        voices.append(v)
+                self.voices = voices
+                self._changed()
 
     def __hash__(self):
         items = [type(self).__name__, self.label, self.offset, len(self.voices)]
@@ -297,7 +353,7 @@ class Score(MContainer):
                      ) -> list[scoring.core.UnquantizedPart]:
         self._update()
         parts = []
-        config, iscustomized = self._resolveConfig(config)
+        config, iscustom = self._resolveConfig(config, forceCopy=True)
         config['show.voiceMaxStaves'] = 1
         for voice in self.voices:
             voiceparts = voice.scoringParts(config=config)
@@ -399,25 +455,48 @@ class Score(MContainer):
         return endidx + 1
 
 
-
-def show(*objs: MObj | list[MObj], **kws) -> Score:
+def show(*objs: MObj | Sequence[MObj], group=True, **kws) -> Score:
     """
     Packs all objects into a score and displays them as notation
 
     Args:
-        objs: objects to pack
+        objs: objects to pack. Either single Notes, Chains, etc. List
+            of events can be given and will be kept together if group=True
+        group: if True, objects grouped within a list are kept within a
+            staff if they do not overlap
+        kws: any keyword is passed to the :meth:`~MObj.show` method
 
     Returns:
-
+        the resulting Score
     """
+    sco = Score.pack(*objs, group=group)
+    sco.show(**kws)
+    return sco
+
+
+def _flattenObjects(objs: Sequence[MObj | Sequence[MEvent]], group=True) -> list[MObj]:
     flatobjs = []
     for obj in objs:
         if isinstance(obj, MObj):
             flatobjs.append(obj)
         elif isinstance(obj, (tuple, list)):
-            flatobjs.extend(obj)
+            if group and not _objectsOverlap(obj):
+                assert all(isinstance(item, MEvent) for item in obj)
+                chain = Chain(obj)
+                flatobjs.append(chain)
+            else:
+                flatobjs.extend(obj)
         else:
             raise TypeError(f"Object of type {type(obj)} not supported ({obj})")
-    sco = Score.pack(flatobjs)
-    sco.show(**kws)
-    return sco
+    return flatobjs
+
+
+def _objectsOverlap(objs: Sequence[MObj]) -> bool:
+    now = F0
+    for obj in objs:
+        if obj.offset is not None:
+            if obj.offset < now:
+                return True
+            now = obj.offset
+        now += obj.dur
+    return False

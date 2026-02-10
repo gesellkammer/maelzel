@@ -49,6 +49,7 @@ import os
 import pitchtools as pt
 from maelzel import _util
 from maelzel.snd import numpysnd as _npsnd
+from maelzel._logutils import getLogger
 
 from typing import TYPE_CHECKING
 
@@ -348,8 +349,7 @@ class Sample:
             if usedengine == engine.name:
                 return table
             else:
-                import maelzel.common
-                maelzel.common.getLogger(__file__).warning(f"Engine changed, was {usedengine}, now {engine.name}")
+                getLogger(__file__).warning(f"Engine changed, was {usedengine}, now {engine.name}")
         tabproxy = engine.session().makeTable(self.samples, sr=self.sr, block=True)
         tabnum = tabproxy.tabnum
         self._csoundTable = (engine.name, tabnum)

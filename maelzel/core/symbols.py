@@ -45,7 +45,8 @@ if TYPE_CHECKING:
     from typing import Sequence, Any
     from maelzel.core import mobj
     from maelzel.core import mevent
-    
+
+
 _uuid_alphabet = '0123456789abcdefghijklmnopqrstuvwxyz'
 
 

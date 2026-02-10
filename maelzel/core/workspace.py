@@ -17,6 +17,7 @@ if _t.TYPE_CHECKING:
     from typing import Any
     import csoundengine.session
     import csoundengine.synth
+    import csoundengine.schedevent
     from . import presetmanager
     from maelzel.common import _Context
 
@@ -410,7 +411,7 @@ class Workspace:
         return self.dynamicCurve.amp2dyn(amp)
 
     def setTempo(self,
-                 tempo: float | int,
+                 tempo: float | int | F,
                  reference: tuple[int, int] | F | float = (4, 0),
                  measure=0
                  ) -> _Context:
@@ -534,7 +535,7 @@ class Workspace:
             if key not in d:
                 d[key] = config[f'reverb{key.capitalize()}']
         synth = self.reverbSynth()
-        if synth:
+        if synth is not None:
             d['synth'] = synth
             d['active'] = True
         else:
@@ -597,13 +598,24 @@ class Workspace:
     def _schedReverb(self,
                      session: csoundengine.session.AbstractRenderer | None = None,
                      delay=0.
-                     ) -> csoundengine.synth.Synth:
+                     ) -> csoundengine.schedevent.SchedEvent:
+        """
+
+        Args:
+            session: the session to use
+            delay: when to start the reverb synth
+
+        Returns:
+            a Synth if online rendering, or a SchedEvent if offline
+
+        """
         if session is None:
             session = self.audioSession()
-        if session.renderMode() == "online":
-            if self._reverbSynth is not None and self._reverbSynth.playing():
-                assert self.isAudioSessionActive()
-                return self._reverbSynth
+        isonline = session.renderMode() == 'online'
+        if isonline and self._reverbSynth is not None and self._reverbSynth.playing():
+            assert self.isAudioSessionActive()
+            return self._reverbSynth
+
         config = self.config
         instr = config['.reverbInstr']
 
@@ -613,7 +625,7 @@ class Workspace:
             assert oldsynth is not None
             self._reverbSynth = None
 
-            if self.config['reverbRestart'] and session.engine.elapsedTime() - oldsynth.start > 0.5:
+            if self.config['reverbRestart'] and session.elapsedTime() - oldsynth.start > 0.5:
                 logger.warning("Restarting reverb (set `config['reverbRestart'] = False` to prevent it)")
                 self._schedReverb(session=session, delay=0.5)
 

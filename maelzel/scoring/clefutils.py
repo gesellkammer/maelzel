@@ -872,3 +872,4 @@ def splitNotationsByClef(notations: list[Notation],
     pairs = list(parts.items())
     pairs.sort(key=lambda pair: definitions.clefSortOrder[pair[0]])
     return pairs
+

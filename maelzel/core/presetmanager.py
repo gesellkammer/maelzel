@@ -9,11 +9,10 @@ import os
 import emlib.textlib
 
 from . import presetdef as _presetdef
-from . import _builtinpresets
 from . import presetutils
 from . import environment
 from .workspace import Workspace
-
+from . import _builtinpresets
 from ._common import logger
 
 import typing as _t
@@ -183,7 +182,7 @@ class PresetManager:
                               name=name,
                               preset=info['preset'],
                               description=info.get('description', ''),
-                              sf2AmpDivisor=info.get('ampDivisor'),
+                              sf2AmpDivisor=info.get('ampDivisor', 0),
                               reverb=info.get('reverb', False),
                               _builtin=True,
                               )

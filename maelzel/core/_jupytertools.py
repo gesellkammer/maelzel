@@ -24,7 +24,7 @@ def setJupyterHookForClass(cls, func, fmt='image/png') -> None:
     if ip is None:
         logger.debug("_setJupyterHookForClass: no IPython instance found, skipping")
         return
-    formatter = ip.display_formatter.formatters[fmt]  # type: ignore
+    formatter = ip.display_formatter.formatters[fmt]
     return formatter.for_type(cls, func)
 
 

@@ -2,9 +2,7 @@
 NB: this module cannot import anything from maelzel itself
 """
 from __future__ import annotations
-import logging as _logging
 import pitchtools as pt
-import functools as _functools
 
 
 import typing as _t
@@ -15,7 +13,6 @@ else:
 
 
 __all__ = (
-    'getLogger',
     'F',
     'F0',
     'F1',
@@ -28,7 +25,6 @@ __all__ = (
     'beat_t',
     'location_t'
 )
-
 
 num_t: _t.TypeAlias = _t.Union[int, float, F]
 time_t: _t.TypeAlias = _t.Union[int, float, F]
@@ -72,44 +68,6 @@ def asmidi(x) -> float:
         assert 0 <= x <= 200, f"Expected a midinote (0-127) but got {x}"
         return x
     raise TypeError(f"Expected a str, a Note or a midinote, got {x}")
-
-
-@_functools.cache
-def getLogger(name: str,
-              fmt='[%(name)s:%(filename)s:%(lineno)s:%(funcName)s:%(levelname)s] %(message)s',
-              filelog: str = '',
-              force=True
-              ) -> _logging.Logger:
-    """
-    Construct a logger
-
-    Args:
-        name: the name of the logger
-        fmt: the format used
-        filelog: if given, logging info is **also** output to this file
-        force: set own handlers, even if the logger already exists
-
-    Returns:
-        the logger
-    """
-    # TODO: move this to _logutils
-    logger = _logging.getLogger(name)
-    if logger.hasHandlers():
-        # an old logger
-        if not force:
-            return logger
-        logger.handlers.clear()
-
-    logger.propagate = False
-    handler = _logging.StreamHandler()
-    formatter = _logging.Formatter(fmt)
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    if filelog:
-        filehandler = _logging.FileHandler(filelog)
-        filehandler.setFormatter(formatter)
-        logger.addHandler(filehandler)
-    return logger
 
 
 class _Singleton(type):

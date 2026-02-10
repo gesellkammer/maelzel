@@ -10,10 +10,7 @@ from datetime import datetime
 
 from maelzel import _state
 from maelzel._util import getPlatform
-from maelzel.common import getLogger
-
-
-logger = getLogger('maelzel')
+from maelzel._logutils import getLogger
 
 
 def csoundLibVersion() -> int | None:
@@ -26,7 +23,7 @@ def csoundLibVersion() -> int | None:
     try:
         import libcsound
     except Exception as e:
-        logger.error(f"Could not import libcsound: {e}")
+        getLogger('maelzel').error(f"Could not import libcsound: {e}")
         return None
     return libcsound.VERSION
 
@@ -43,6 +40,7 @@ def checkCsound(minversion="6.17", checkBinaryInPath=True) -> str:
         an error message, or an empty str if csound is installed and the version
         is >= than the version given
     """
+    logger = getLogger('maelzel')
     logger.debug("Checking the csound installation")
     if not isinstance(minversion, str) or minversion.count('.') != 1:
         raise ValueError(f"minversion should be of the form <major>.<minor>, got {minversion}")
@@ -88,6 +86,7 @@ def checkVampPlugins(fix=True) -> str:
         an error string or an empty string if everything is ok
 
     """
+    logger = getLogger('maelzel')
     logger.debug("Checking vamp plugins")
     if vampPluginsInstalled():
         return ""
@@ -110,6 +109,7 @@ def checkLilypond(version='') -> str:
         an error string if something went wrong, an empty string if lilypond is
         installed
     """
+    logger = getLogger('maelzel')
     logger.debug("Checking lilypond version: '%s'", version)
     from maelzel.music import lilytools
     lilybin = lilytools.findLilypond(version=version)
@@ -141,6 +141,7 @@ def checkCsoundPlugins(fix=True) -> str:
     Returns:
         an error string if failed, an empty string if OK
     """
+    logger = getLogger('maelzel')
     logger.debug("Checking dependencies for csound plugins")
     import risset
     logger.debug("Reading risset's main index")
@@ -246,7 +247,7 @@ def installVampPlugins() -> None:
     pluginsDest = vamptools.vampFolder()
     os.makedirs(pluginsDest, exist_ok=True)
     print(f"Installing vamp plugins from {pluginspath} to {pluginsDest}")
-    logger.info(f"Plugins found: {list(pluginspath.glob('*.n3'))}")
+    print(f"Plugins found: {list(pluginspath.glob('*.n3'))}")
     _copyFiles([component.as_posix() for component in components], pluginsDest, verbose=True)
     # This step will fail since vampyhost cached the pluginloader. We need
     # to reload the module, which we cannot do here
@@ -309,6 +310,7 @@ def checkDependencies(abortIfErrors=False,
         ('Checking csoundengine dependencies', lambda: _csoundengineDependencies(fix=fix))
     ]
 
+    logger = getLogger('maelzel')
     logger.info("Maelzel - checking dependencies")
     errors = []
     echo = print if verbose else logger.debug

@@ -233,6 +233,7 @@ class PlayArgs:
         out = self.copy()
         PlayArgs._updatedb(out.db, other.db)
         if automations and other.automations:
+            assert isinstance(other.automations, list)
             out._updateAutomations(other.automations)
         return out
 

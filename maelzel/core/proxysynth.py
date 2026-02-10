@@ -29,7 +29,7 @@ class ProxySynthBase:
         return self.source()
 
     def automate(self,
-                 param: int|str,
+                 param: str,
                  pairs: list[tuple[float|int|F, float]],
                  time='beats',
                  relative=True
@@ -46,7 +46,7 @@ class ProxySynthBase:
     def set(self, param: str, value: float, delay: num_t = F0, time='beats'):
         return self.automate(param=param, pairs=[(delay, value)], relative=True, time=time)
 
-    def _automate(self, param: int | str, data: list[float]):
+    def _automate(self, param: str, data: list[float]):
         raise NotImplementedError
 
     def namedParams(self) -> set[str]:
@@ -135,7 +135,7 @@ class ProxySynthGroup(ProxySynthBase):
     def namedParams(self) -> set[str]:
         return self._group.dynamicParamNames()
 
-    def _automate(self, param: int | str, data: list[float]):
+    def _automate(self, param: str, data: list[float]):
         self._group.automate(param=param, pairs=data)
 
     def playing(self) -> bool:

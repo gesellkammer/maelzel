@@ -1,16 +1,16 @@
 from __future__ import annotations
-from .synthevent import SynthEvent
+import math
 from datetime import datetime
 import os
-import math
+from .synthevent import SynthEvent
 
-from maelzel.core import mobj
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import csoundengine.event
     from typing import Sequence
     from maelzel.core import workspace
+    from maelzel.core import mobj
 
 
 def collectEvents(events: Sequence[SynthEvent | mobj.MObj | csoundengine.event.Event | Sequence[mobj.MObj | SynthEvent]],
@@ -47,7 +47,7 @@ def collectEvents(events: Sequence[SynthEvent | mobj.MObj | csoundengine.event.E
         elif isinstance(ev, csoundengine.event.Event):
             sessionevents.append(ev)
         else:
-            assert isinstance(ev, mobj.MObj)
+            # assert isinstance(ev, mobj.MObj)
             synthevents.extend(ev.synthEvents(workspace=workspace, **eventparams))
     return synthevents, sessionevents
 

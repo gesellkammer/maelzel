@@ -8,11 +8,10 @@ import weakref
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Any, Callable, Sequence
+    from typing import Any, Callable, Sequence, TypeVar
     import logging
     from maelzel.common import F, num_t
     import tempfile
-
 
 _cache = {}
 
@@ -299,7 +298,7 @@ def hasOverlap(x0: num_t, x1: num_t, y0: num_t, y1: num_t) -> bool:
     return x1 > y0 if x0 < y0 else y1 > x0
 
 
-def overlap(u1: num_t, u2: num_t, v1: num_t, v2: num_t) -> tuple[num_t, num_t]:
+def overlap[T: (int, float, F)](u1: T, u2: T, v1: T, v2: T) -> tuple[T, T]:
     """
     The overlap betwen (u1, u2) and (v1, v2)
 
@@ -318,6 +317,27 @@ def overlap(u1: num_t, u2: num_t, v1: num_t, v2: num_t) -> tuple[num_t, num_t]:
     x1 = u1 if u1 > v1 else v1
     x2 = u2 if u2 < v2 else v2
     return x1, x2
+
+
+# def _overlap(u1: num_t, u2: num_t, v1: num_t, v2: num_t) -> tuple[num_t, num_t]:
+#     """
+#     The overlap betwen (u1, u2) and (v1, v2)
+#
+#     If there is no overlap, start > end
+#
+#     Args:
+#         u1: start of first interval
+#         u2: end of first interval
+#         v1: start of second interval
+#         v2: end of second interval
+#
+#     Returns:
+#         a tuple (overlapstart, overlapend). If no overlap, overlapstart > overlapend
+#
+#     """
+#     x1 = u1 if u1 > v1 else v1
+#     x2 = u2 if u2 < v2 else v2
+#     return x1, x2
 
 
 def aslist(seq) -> list:

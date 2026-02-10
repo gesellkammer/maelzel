@@ -30,6 +30,10 @@ class Item[T]:
     """
     an Item is used to wrap an object to be packed in a Track
 
+    We use floats for all time related attributes for performance reasons
+    This can lead to rounding problems so a small epsilon should be used
+    for comparisons
+
     Attributes:
         obj: the object itself
         offset: the offset of the item (a time or x coordinate)
@@ -40,15 +44,14 @@ class Item[T]:
         weight: an arbitrary weight for the object. It might be used to give
             this item a higher priority over other items when packing
     """
-    __slots__ = ("obj", "offset", "dur", "step", "_weight", "end", "weightfunc")
+    __slots__ = ("obj", "offset", "dur", "step", "_weight", "end", "weightFunc")
 
     def __init__(self,
                  obj: T,
                  offset: float,
                  dur: float,
                  step: float,
-                 weight: float | None = None,
-                 weightfunc: _t.Callable[[T], float] | None = None):
+                 weight: float | _t.Callable[[T], float] | None = None):
         """
         Args:
             obj (Any): the object to _packold
@@ -57,21 +60,27 @@ class Item[T]:
             step (float): the pitch step. This is used to distribute
                 the item into a track
             weight: an item can be assigned a weight and this weight can be
-                used for packing to give priority to certain items.
-            weightfunc: as an alternative to precalculating a weight, a
-                weight function of the form `(obj: T) -> weight: float`
-                can be passed, to calculate a weight as needed
+                used for packing to give priority to certain items. This
+                weight can also be a callable, in which case it will
+                be called and the return value of this function will
+                be the weight. This value is cached, meaning that
+                the function will at most be called once
 
         """
         self.obj: T = obj
-        # self.offset = asF(offset)
         self.offset = float(offset)
-        # self.dur = asF(dur)
         self.dur = float(dur)
         self.end = self.offset + self.dur
         self.step = step
-        self._weight = weight
-        self.weightfunc = weightfunc
+        if weight is None:
+            self._weight = weight
+            self.weightFunc = None
+        elif callable(weight):
+            self.weightFunc = weight
+            self._weight = None
+        else:
+            self._weight = weight
+            self.weightFunc = None
 
     def __repr__(self):
         objrepr = repr(self.obj)
@@ -95,7 +104,7 @@ class Item[T]:
         return self.offset > other.offset
 
     def hasWeight(self) -> bool:
-        return self._weight is not None or self.weightfunc is not None
+        return self._weight is not None or self.weightFunc is not None
 
     def weight(self, default=1.0) -> float:
         """
@@ -110,8 +119,8 @@ class Item[T]:
         """
         if self._weight is not None:
             return self._weight
-        elif self.weightfunc:
-            self._weight = w = self.weightfunc(self.obj)
+        elif self.weightFunc:
+            self._weight = w = self.weightFunc(self.obj)
             return w
         return default
 

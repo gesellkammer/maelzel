@@ -181,3 +181,18 @@ def renderWithActiveWorkspace(parts: list[scoring.core.UnquantizedPart],
                                      struct=scorestruct,
                                      options=renderOptions,
                                      quantizationProfile=quantizationProfile)
+
+
+def scoringPartsFromNotations(notations: list[scoring.Notation],
+                              config: CoreConfig
+                              ) -> list[scoring.core.UnquantizedPart]:
+    if not notations:
+        return []
+    if any(n.offset is None for n in notations):
+        scoring.core.resolveOffsets(notations)
+    parts = scoring.core.distributeByClef(notations,
+                                          maxStaves=config['show.voiceMaxStaves'],
+                                          singleStaffRange=config['show.singleStaffRange'],
+                                          staffPenalty=config['show.explodeStaffPenalty'])
+    parts.reverse()
+    return parts

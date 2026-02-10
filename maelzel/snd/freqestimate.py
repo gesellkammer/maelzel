@@ -10,8 +10,7 @@ from __future__ import annotations
 import numpy as np
 import bpf4
 from math import ceil
-from emlib.mathlib import nextpowerof2
-from maelzel.common import getLogger
+from maelzel._logutils import getLogger
 
 
 def _nextPow2(x: int) -> int:
@@ -295,6 +294,7 @@ def frequencyToWindowSize(freq: int, sr: int, powerof2=False, factor=2.0) -> int
     """
     winsize = int(ceil(1/freq  * sr * factor))
     if powerof2:
+        from emlib.mathlib import nextpowerof2
         winsize = nextpowerof2(winsize)
     return winsize
 
@@ -367,6 +367,7 @@ def f0curve(sig: np.ndarray, sr: int, minfreq=60, overlap=4,
     if method == 'pyin-native':
         winlength = frequencyToWindowSize(minfreq, sr=sr, powerof2=False)
         hoplength = winlength // overlap
+        from emlib.mathlib import nextpowerof2
         fftlength = nextpowerof2(winlength)
         return f0curvePyin(sig, sr, minfreq=minfreq,
                            framelength=fftlength,

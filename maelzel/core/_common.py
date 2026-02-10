@@ -9,7 +9,7 @@ Here we define:
 
 """
 
-from maelzel.common import getLogger
+from maelzel._logutils import getLogger
 import os
 
 

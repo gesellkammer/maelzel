@@ -1,6 +1,48 @@
 from __future__ import annotations
 from collections import UserString
+import logging as _logging
+import functools as _functools
+
 import typing as _t
+
+
+@_functools.cache
+def getLogger(name='maelzel',
+              fmt='[%(name)s:%(filename)s:%(lineno)s:%(funcName)s:%(levelname)s] %(message)s',
+              filelog: str = '',
+              force=True
+              ) -> _logging.Logger:
+    """
+    Construct a logger
+
+    Args:
+        name: the name of the logger
+        fmt: the format used
+        filelog: if given, logging info is **also** output to this file (only used if the
+            logger is created)
+        force: set own handlers, even if the logger already exists
+
+    Returns:
+        the logger
+    """
+    # TODO: move this to _logutils
+    logger = _logging.getLogger(name)
+    if logger.hasHandlers():
+        # an old logger
+        if not force:
+            return logger
+        logger.handlers.clear()
+
+    logger.propagate = False
+    handler = _logging.StreamHandler()
+    formatter = _logging.Formatter(fmt)
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    if filelog:
+        filehandler = _logging.FileHandler(filelog)
+        filehandler.setFormatter(formatter)
+        logger.addHandler(filehandler)
+    return logger
 
 
 class LazyFmt(UserString):
@@ -12,6 +54,7 @@ class LazyFmt(UserString):
         assert all(x % 1 == 0 for x in xs), LazyFmt("Invalid xs: %s", xs)
     """
     def __init__(self, fmt: str, *args):
+        # we do not want to call super().__init__, since .data is a property
         self._fmt = fmt
         self._args = args
         self._cached: str | None = None

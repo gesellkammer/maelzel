@@ -26,9 +26,8 @@ from . import clefutils
 from . import spanner as _spanner
 from . import attachment
 from .quantprofile import QuantizationProfile
-from .common import getLogger
 from .quantdefs import QuantizedBeatDef
-from maelzel._logutils import LazyStr
+from maelzel._logutils import LazyStr, getLogger
 
 from .notation import Notation, Snapped
 from .node import Node
@@ -2601,7 +2600,7 @@ def quantizePart(part: core.UnquantizedPart,
     Args:
         part: the events to quantize. Event within a part
             should not overlap
-        struct: the ScoreStruct to use
+        struct: the ScoreStruct to use as fallback if part has not scorestruct set
         fillStructure: if True and struct is not endless, the
             generated UnquantizedPart will have as many measures as are defined
             in the struct. Otherwisem only as many measures as needed
@@ -2616,7 +2615,8 @@ def quantizePart(part: core.UnquantizedPart,
     struct = part.scorestruct or struct
     part.fillGaps()
     notations = part.notations
-    core.resolveOffsets(notations)
+    assert all(n.offset is not None for n in notations)
+    # core.resolveOffsets(notations)
     quantutils.fixGlissWithinTiesInPlace(notations)
     allpairs = [splitNotationAtMeasures(n=n, struct=struct) for n in notations]
     maxMeasure = max(pairs[-1][0] for pairs in allpairs)
@@ -2961,10 +2961,8 @@ def quantizeParts(parts: list[core.UnquantizedPart],
         parts: a list of Parts, where each part represents a series
             of non-overlapping events which have not yet been quantized
         struct:
-            the structure of the resulting score. To create a simple score
-            with an anitial time signature and tempo, use something like
-            `ScoreStructure.fromTimesig((4, 4), quarterTempo=52)`. If not given,
-            defaults to a 4/4 score with tempo 60
+            the structure of the resulting score, used for any part for
+            which a scorestruct has not already been set.
         quantizationProfile:
             The quantization preset determines how events are quantized,
             which divisions of the beat are possible, how the best division

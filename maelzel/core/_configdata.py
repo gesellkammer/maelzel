@@ -63,6 +63,7 @@ defaultdict = {
     'show.hideRedundantDynamics': True,
     'show.absOffsetWhenDetached': False,
     'show.voiceMaxStaves': 2,
+    'show.groupEventsInSpanners': False,
     'show.clipNoteheadShape': 'square',
     'show.referenceStaffsize': 12.0,
     'show.musicxmlFontScaling': 1.0,
@@ -418,6 +419,9 @@ docs = {
       
     'show.voiceMaxStaves':
         "Max number of staves per voice",
+
+    'show.groupEventsInSpanners':
+        "Keep notes/chords within a spanner within the same staff",
 
     'show.clipNoteheadShape':
         "Notehead shape to use for clips",

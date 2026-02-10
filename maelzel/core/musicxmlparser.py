@@ -497,7 +497,9 @@ def _parseNote(root: ET.Element, context: _ParseContext) -> Note:
                         startspanner.makePartnerSpanner(note)
 
             elif notation.kind == 'bend':
-                note.addSymbol(symbols.Bend(notation.getProperty('alter')))
+                alter = notation.getProperty('alter')
+                assert isinstance(alter, (int, float))
+                note.addSymbol(symbols.Bend(alter=alter))
     for symbol in notesymbols:
         note.addSymbol(symbol)
 

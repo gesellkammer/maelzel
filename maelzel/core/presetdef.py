@@ -348,7 +348,7 @@ class PresetDef:
         self.name: str = name
         "Name of this preset"
 
-        self.instrname: str = self.presetNameToInstrName(name)
+        self.instrname: str = presetutils.presetNameToInstrName(name)
         "The name of the corresponding Instrument"
 
         self.init = init
@@ -437,11 +437,6 @@ class PresetDef:
         """
         params = self.getInstr().dynamicParams(aliases=aliases, aliased=aliased)
         return _t.cast(dict[str, float|str], params)
-
-    @staticmethod
-    @cache
-    def presetNameToInstrName(presetname: str) -> str:
-        return f'preset:{presetname}'
 
     def _repr_ansy(self, color=True, theme='dark'):
         from csoundengine import csoundparse

@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import numpy as np
-import maelzel.core.renderer as _renderer
 from maelzel.core import synthevent
-from maelzel.core.workspace import Workspace
-from maelzel.core.presetdef import PresetDef
-
+from maelzel.core import presetutils
+import maelzel.core.renderer as _renderer
 import csoundengine
 
 import typing
@@ -17,6 +14,8 @@ if typing.TYPE_CHECKING:
     import csoundengine.event
     import csoundengine.synth
     import csoundengine.session
+    from maelzel.core.presetdef import PresetDef
+    import numpy as np
     from maelzel.core import presetmanager
 
 
@@ -40,15 +39,13 @@ class RealtimeRenderer(_renderer.Renderer):
 
     """
 
-    def __init__(self, engine: csoundengine.Engine | None = None,
-                 presetManager: presetmanager.PresetManager | None = None):
-        if presetManager is None:
-            from . import presetmanager
-            presetManager = presetmanager.presetManager
+    def __init__(self,
+                 engine: csoundengine.Engine,
+                 presetManager: presetmanager.PresetManager):
         super().__init__(presetManager=presetManager)
-        if engine is None:
-            from maelzel.core import playback
-            engine = playback._playEngine(config=Workspace.active.config)
+        # if engine is None:
+        #     from maelzel.core import playback
+        #     engine = playback._playEngine(config=Workspace.active.config)
         self.engine: csoundengine.Engine = engine
         self.session: csoundengine.session.Session = engine.session()
 
@@ -220,8 +217,7 @@ class RealtimeRenderer(_renderer.Renderer):
             if coreevent.gain == 0:
                 synths.append(self._schedDummyEvent())
                 continue
-
-            synth = self.sched(PresetDef.presetNameToInstrName(coreevent.instr),
+            synth = self.sched(presetutils.presetNameToInstrName(coreevent.instr),
                                delay=coreevent.delay,
                                dur=coreevent.dur,
                                args=pfields5,
@@ -289,11 +285,11 @@ class RealtimeRenderer(_renderer.Renderer):
         return self.session.makeTable(data=data, size=size, sr=sr, tabnum=tabnum)
 
     def readSoundfile(self,
-                      soundfile: str,
+                      path: str,
                       chan=0,
                       skiptime=0.
                       ) -> csoundengine.tableproxy.TableProxy:
-        return self.session.readSoundfile(path=soundfile, chan=chan, skiptime=skiptime)
+        return self.session.readSoundfile(path=path, chan=chan, skiptime=skiptime)
 
     def sched(self,
               instrname: str,
@@ -312,8 +308,7 @@ class RealtimeRenderer(_renderer.Renderer):
                                   priority=priority,
                                   whenfinished=whenfinished,
                                   relative=relative,
-                                  **kws)  # type: ignore
-
+                                  **kws)
     def sync(self):
         self.engine.sync()
 

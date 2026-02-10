@@ -7,6 +7,7 @@ import textwrap
 import emlib.textlib
 from .workspace import Workspace
 from ._common import logger
+from functools import cache
 
 import typing as _t
 if _t.TYPE_CHECKING:
@@ -365,7 +366,9 @@ def soundfontDefaultProgram(sf2path: str) -> tuple[str, int, int]:
     """
     import csoundengine.sftools
     idx = csoundengine.sftools.soundfontIndex(sf2path)
-    name, preset = next(idx.nameToPreset.items())
+    if not idx.nameToPreset:
+        raise RuntimeError(f"{sf2path} does not define any presets")
+    name, preset = next(iter(idx.nameToPreset.items()))
     return name, preset[0], preset[1]
 
 
@@ -439,3 +442,8 @@ def embedEnvelope(audiogen: str, audiovars: list[str], envelope="aenv_"
             envline = emlib.textlib.matchIndentation(envline, lines[lastassign])
             lines = lines[:lastassign+1] + [envline] + lines[lastassign+1:]
     return '\n'.join(lines)
+
+
+@cache
+def presetNameToInstrName(presetname: str) -> str:
+    return f'preset:{presetname}'

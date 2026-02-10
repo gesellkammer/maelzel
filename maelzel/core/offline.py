@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     import csoundengine.offline
     import csoundengine.instr
     import csoundengine.session
+    import csoundengine.busproxy
 
     from maelzel.snd import audiosample
     from maelzel.core.presetdef import PresetDef
@@ -245,22 +246,22 @@ class OfflineRenderer(renderer.Renderer):
         """The scheduled events"""
         return self.session.scheduledEvents
 
-    def assignBus(self, kind='', value=None, persist=False) -> int:
+    def assignBus(self, kind='', value: float | None =None, persist=False
+                  ) -> csoundengine.busproxy.Bus:
         """
         Assign a bus of the given kind
 
         Returns:
             the bus token. Can be used with any bus opcode (busin, busout, busmix, etc)
         """
-        bus = self.session.assignBus()
-        return bus.token
+        return self.session.assignBus()
 
-    def releaseBus(self, busnum: int) -> None:
+    def releaseBus(self, bus: int | csoundengine.busproxy.Bus) -> None:
         """
         Signal that we no longer use the given bus
 
         Args:
-            busnum: the bus token as returned by :meth:`OfflineRenderer.assignBus`
+            bus: the bus token as returned by :meth:`OfflineRenderer.assignBus`
 
         """
         pass
@@ -380,16 +381,19 @@ class OfflineRenderer(renderer.Renderer):
         events = obj.synthEvents(**kws)
         return self.schedEvents(events)
 
-    def prepareSessionEvent(self, sessionevent: csoundengine.event.Event
-                            ) -> None:
+    def prepareSessionEvent(self, event: csoundengine.event.Event
+                            ) -> bool:
         """
         Prepare a session event
 
         Args:
-            sessionevent: the session event to prepare. This is mostly used internally
+            event: the session event to prepare. This is mostly used internally
+
+        Returns:
+            True if the backend needs sync (always False for offline rendering)
 
         """
-        pass
+        return False
 
     def _schedSessionEvent(self, event: csoundengine.event.Event
                            ) -> csoundengine.schedevent.SchedEvent:
@@ -829,9 +833,9 @@ class OfflineRenderer(renderer.Renderer):
         proc = self.lastRenderProc()
         return proc is not None and proc.poll() is not None
 
-    def readSoundfile(self, soundfile: str, chan=0, skiptime=0.
+    def readSoundfile(self, path: str, chan=0, skiptime=0.
                       ) -> csoundengine.tableproxy.TableProxy:
-        return self.session.readSoundfile(path=soundfile, chan=chan, skiptime=skiptime)
+        return self.session.readSoundfile(path=path, chan=chan, skiptime=skiptime)
 
     def makeTable(self,
                   data: np.ndarray | list[float] | None = None,
@@ -894,7 +898,7 @@ class _OfflineSessionHandler(csoundengine.sessionhandler.SessionHandler):
                       delay=0.,
                       force=False,
                       ) -> csoundengine.tableproxy.TableProxy:
-        return self.renderer.readSoundfile(soundfile=path, chan=chan, skiptime=skiptime)
+        return self.renderer.readSoundfile(path=path, chan=chan, skiptime=skiptime)
 
 
 def render(outfile='',

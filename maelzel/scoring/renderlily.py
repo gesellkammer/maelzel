@@ -691,7 +691,6 @@ def _handleSpannerPost(spanner: _spanner.Spanner, state: RenderState) -> str | N
 
     elif isinstance(spanner, _spanner.Pedal):
         if spanner.kind == 'start':
-            # _(r"\set Staff.pedalSustainStyle = #'mixed ")
             _(r"\sustainOn ")
         else:
             _(r"\sustainOff ")
@@ -1005,10 +1004,12 @@ def renderPart(part: quant.QuantizedPart,
     w.line(lilytools.makeClef(clef))
 
     timesig = measuredef0.timesig
-
     pedalStyle = options.pedalStyle or 'mixed'
     state = RenderState(options=options, pedalStyle=pedalStyle)
-    w.line(fr"\set Staff.pedalSustainStyle = #'{pedalStyle}")
+
+    if any(n.spanners and any(isinstance(s, _spanner.Pedal) for s in n.spanners)
+           for n in part.flatNotations()):
+        w.line(fr"\set Staff.pedalSustainStyle = #'{pedalStyle}")
 
     partGracenotes = _numStartGracenotes(part)
 

@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from .common import division_t
     from . import spanner as _spanner
     AttachmentT = TypeVar('AttachmentT', bound=att.Attachment)
+    SpannerT = TypeVar('SpannerT', bound=_spanner.Spanner)
     from .quantdefs import QuantizedBeatDef
 
 
@@ -614,11 +615,11 @@ class Notation:
             return
         self.attachments = [a for a in self.attachments if not(isinstance(a, cls))]
 
-    def hasSpanner(self, uuid: str, kind='') -> bool:
+    def hasSpanner(self, uuid='', cls: str | type[SpannerT] = '', kind='') -> bool:
         """Returns true if a spanner with the given uuid is found"""
-        return bool(self.findSpanner(uuid, kind=kind)) if self.spanners else False
+        return bool(self.findSpanner(uuid=uuid, cls=cls, kind=kind)) if self.spanners else False
 
-    def findSpanner(self, uuid: str, kind='') -> _spanner.Spanner | None:
+    def findSpanner(self, uuid='', cls: str | type[SpannerT] = '', kind='') -> _spanner.Spanner | None:
         """
         Find a spanner with the given attributes
 
@@ -628,10 +629,21 @@ class Notation:
         """
         if not self.spanners:
             return None
-        if kind:
-            assert kind == 'start' or kind == 'end'
-            return next((s for s in self.spanners if s.uuid == uuid and s.kind == kind), None)
-        return next((s for s in self.spanners if s.uuid == uuid), None)
+        if uuid:
+            assert not cls, f"class can only be given if uuid is not known"
+            if kind:
+                assert kind == 'start' or kind == 'end'
+                return next((s for s in self.spanners if s.uuid == uuid and s.kind == kind), None)
+            else:
+                return next((s for s in self.spanners if s.uuid == uuid), None)
+        elif cls:
+            if isinstance(cls, str):
+                cls = cls.lower()
+                return next((s for s in self.spanners if str(s.__class__).lower() == cls), None)
+            else:
+                return next((s for s in self.spanners if isinstance(s, cls)), None)
+        else:
+            raise ValueError("At least one search criterium must be given")
 
     def addSpanner(self, spanner: _spanner.Spanner | str, end: Notation | None = None
                    ) -> Notation:

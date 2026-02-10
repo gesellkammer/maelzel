@@ -200,7 +200,9 @@ class Note(MEvent):
             assert properties is None or isinstance(properties, dict)
 
         dur = asF(dur) if dur is not None else F1
-        super().__init__(dur=dur, offset=offset, label=label, properties=properties,
+        assert offset is None or isinstance(offset, F)
+        super().__init__(dur=dur,
+                         offset=offset, label=label, properties=properties,
                          symbols=symbols, tied=tied, amp=amp, dynamic=dynamic)
 
         if spanners is not None:
@@ -785,6 +787,7 @@ class Note(MEvent):
         else:
             if config['play.useDynamics']:
                 dyn = self.dynamic or (self.properties and self.properties.get('.tempdynamic')) or config['play.defaultDynamic']
+                assert isinstance(dyn, str)
                 return dyncurve.dyn2amp(dyn)
             return config['play.defaultAmplitude']
 
@@ -1233,11 +1236,16 @@ class Chord(MEvent):
                             parenthesis=parenthesis, hidden=hidden)
         return chord
 
-    def mergeWith(self, other: Chord) -> Self | None:
-        if not isinstance(other, Chord):
+    def mergeWith(self, other: MEvent) -> Self | None:
+        if not self.tied or other.gliss:
             return None
 
-        if not self.tied or other.gliss or self.pitches != other.pitches:
+        if isinstance(other, Note) and len(self.notes) == 1:
+            other = Chord([other])
+        elif not isinstance(other, Chord):
+            return None
+
+        if self.pitches != other.pitches:
             return None
 
         if any(n1 != n2 for n1, n2 in zip(self.notes, other.notes)):

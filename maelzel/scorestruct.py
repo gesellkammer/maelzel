@@ -2719,7 +2719,7 @@ class ScoreStruct:
     def setTempo(self,
                  tempo: F | int | float,
                  measure: int = 0,
-                 reference: F | tuple[int, int] = (4, 0)
+                 reference: F | tuple[int, int] | float = (4, 0)
                  ) -> _Context:
         """
         Set the tempo of the given measure, until the next tempo change

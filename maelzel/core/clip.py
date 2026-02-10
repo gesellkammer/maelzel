@@ -290,7 +290,7 @@ class Clip(event.MEvent):
 
     def copy(self) -> Self:
         # We do not copy the parent attr
-        source = self.source if isinstance(self.source, str) else (self.source, self._sr)
+        source = self.source if isinstance(self.source, str) else (self.source, self.sr)
         out = self.__class__(source=source, 
                              pitch=self.pitch,
                              amp=self.amp,
@@ -565,7 +565,7 @@ class Clip(event.MEvent):
                 resolution: float = 50,
                 channel=0,
                 mindb=-90,
-                dur: time_t = None,
+                dur: time_t = F1,
                 maxcount=0,
                 ampfactor=1.0,
                 maxfreq=20000,

@@ -6,7 +6,8 @@ from dataclasses import dataclass
 import enum
 
 import pitchtools as pt
-from maelzel.common import F, F1, getLogger
+from maelzel.common import F, F1
+from maelzel._logutils import getLogger
 
 from typing import TypeAlias
 

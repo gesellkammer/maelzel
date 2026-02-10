@@ -29,7 +29,7 @@ import vamp.load
 
 from maelzel import stats
 from maelzel._util import getPlatform
-from maelzel.common import getLogger
+from maelzel._logutils import getLogger
 from maelzel.snd import numpysnd
 
 logger = getLogger('maelzel.snd')

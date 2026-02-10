@@ -10,14 +10,13 @@ from maelzel._util import reprObj
 from maelzel.common import F, F0
 
 from . import util
-from .common import NotatedDuration, logger
+from .common import logger
 from .notation import Notation
 from maelzel.scorestruct import ScoreStruct
 
 if TYPE_CHECKING:
     from typing import Iterator
     from maelzel.scoring import quant
-    from maelzel.common import time_t
     from . import attachment
 
 
@@ -25,10 +24,8 @@ __all__ = (
     'Notation',
     'UnquantizedPart',
     'UnquantizedScore',
-    'NotatedDuration',
     'fillSilences',
     'resolveOffsets',
-    'packInParts',
     'removeSmallOverlaps',
     'distributeByClef',
 )
@@ -251,6 +248,7 @@ class UnquantizedPart:
         """
         if not groupid:
             groupid = makeGroupId()
+        print(f"Setting groupid {groupid} for parts: {parts}")
         for part in parts:
             part.setGroup(groupid=groupid, name=name, abbrev=abbrev, showPartName=showPartNames)
         return groupid
@@ -316,7 +314,7 @@ class UnquantizedPart:
         """
         if not self.hasGaps():
             return
-        self.notations = fillSilences(self.notations, mingap=mingap, offset=F0)
+        self.notations = fillSilences(self.notations, mingap=mingap, start=F0)
         assert not self.hasGaps()
 
     def hasGaps(self) -> bool:
@@ -333,9 +331,12 @@ class UnquantizedScore:
     """
     An UnquantizedScore is a list of UnquantizedParts
     """
-    def __init__(self, parts: list[UnquantizedPart], title: str = ''):
+    def __init__(self, parts: list[UnquantizedPart],
+                 title: str = '',
+                 scorestruct: ScoreStruct | None = None):
         self.parts = parts
         self.title = title
+        self.scorestruct = scorestruct
 
     def __len__(self):
         return len(self.parts)
@@ -415,7 +416,7 @@ def resolvedOffsets(notations: list[Notation]
         now += n.duration
 
 
-def resolveOffsets(notations: list[Notation], start=F(0), overrideOffset=False
+def resolveOffsets(notations: list[Notation], start=F0
                    ) -> None:
     """
     Fills all offsets, in place
@@ -425,51 +426,50 @@ def resolveOffsets(notations: list[Notation], start=F(0), overrideOffset=False
     Args:
         notations: a list of Notations (or a Part)
         start: the start time, will override the offset of the first event
-        overrideOffset: if True, offsets are overriden even if they are defined
     """
-    if all(ev.offset is not None and ev.duration is not None
-           for ev in notations):
-        return
-    now = _ if (_ := notations[0].offset) is not None else start
+    n0offset = notations[0].offset
+    now = n0offset if n0offset is not None else start
     for i, n in enumerate(notations):
-        assert n.duration is not None
-        if n.offset is None or overrideOffset:
-            n.offset = now
+        if n.offset is not None:
+            now = n.offset
         now += n.duration
-    for n1, n2 in pairwise(notations):
-        if n1.end > n2.qoffset:
-            raise ValueError(f"Notations are not sorted: {n1}, {n2}")
-    removeSmallOverlaps(notations)
+    assert all(n1.end <= n2.offset for n1, n2 in pairwise(notations))
 
 
-def removeSmallOverlaps(notations: list[Notation], threshold=F(1, 1000)) -> None:
+def removeSmallOverlaps(notations: list[Notation], threshold=F(1, 1000)
+                        ) -> None:
     """
-    Remove overlap between notations.
+    Remove overlap between notations, in place
 
-    This should be only used to remove small overlaps product of rounding errors.
+    This should only be used to remove small overlaps product of rounding errors.
+    Attack times are never modified, only durations
+
+    Args:
+        notations: the notations to remove overlap from
+        threshold: how much overlap should be removed. Any overlap higher than
+            this results in a ValueError
+
     """
     if len(notations) < 2:
         return
+
     for n0, n1 in pairwise(notations):
-        n1offset = n1.qoffset
-        n0offset = n0.qoffset
-        diff = n1offset - n0.end
-        if diff > 0 and diff < threshold:
-            # small gap between notations
-            n0.duration = n1offset - n0offset
-        elif diff < 0:
-            # overlap
+        assert n1.offset is not None
+        diff = n1.offset - n0.end
+        if diff != 0:
             if abs(diff) > threshold:
-                raise ValueError(f"Notes overlap by too much: {diff=}, {n0=}, {n1=}")
-            duration = n1offset - n0offset
-            if duration < 0:
+                raise ValueError(f"Too much overlap")
+            elif diff > 0:
+                n0.duration = n1.offset - n0.offset
+            else:
+                if (duration := n1.offset - n0.offset) >= 0:
+                    n0.duration = duration
                 raise ValueError(f"Notations are not sorted: {n0=}, {n1=}")
-            n0.duration = duration
 
 
 def fillSilences(notations: list[Notation],
                  mingap=F(1, 64),
-                 offset=F0
+                 start=F0,
                  ) -> list[Notation]:
     """
     Return a list of Notations filled with rests
@@ -478,19 +478,18 @@ def fillSilences(notations: list[Notation],
         notations: the notes to fill, should have offset set
         mingap: min. gap between two notes. If any notes differ by less
                    than this, the first note absorvs the gap (becomes longer or shorter)
-        offset: if given, marks the start time to fill. If notations start after
+        start: if given, marks the start time to fill. If notations start after
             this offset a rest will be crated from this offset to the start
             of the first notation
 
     Returns:
         a list of new Notations
     """
-    assert notations and all(n.offset is not None and n.offset >= offset for n in notations)
-
+    assert notations and all(n.offset is not None and n.offset >= start for n in notations)
     out: list[Notation] = []
     n0 = notations[0]
-    if n0.offset is not None and n0.offset > offset:
-        out.append(Notation.makeRest(duration=n0.offset - offset, offset=offset))
+    if n0.offset is not None and n0.offset > start:
+        out.append(Notation.makeRest(duration=n0.offset - start, offset=start))
     for ev0, ev1 in pairwise(notations):
         gap = ev1.qoffset - (ev0.qoffset + ev0.duration)
         if gap == 0:
@@ -542,7 +541,7 @@ def distributeByClef(notations: list[Notation],
                      abbrev='',
                      singleStaffRange=12,
                      staffPenalty=1.2,
-                     groupNotesInSpanners=True
+                     groupNotesInSpanners=False
                      ) -> list[UnquantizedPart]:
     """
     Distribute the given notations amongst parts with different clefs
@@ -596,97 +595,96 @@ def distributeByClef(notations: list[Notation],
     return parts
 
 
-def packInParts(notations: list[Notation],
-                maxrange=36,
-                keepGroupsTogether=True,
-                ) -> list[UnquantizedPart]:
-    """
-    Pack a list of possibly simultaneous notations into tracks
+# def packInParts(notations: list[Notation],
+#                 maxrange=36,
+#                 keepGroupsTogether=True,
+#                 ) -> list[UnquantizedPart]:
+#     """
+#     Pack a list of possibly simultaneous notations into tracks
+#
+#     The notations within one track are NOT simultaneous. Notations belonging
+#     to the same group are kept in the same track.
+#
+#     Args:
+#         notations: the Notations to pack
+#         maxrange: the max. distance between the highest and lowest Notation
+#         keepGroupsTogether: if True, items belonging to a same group are
+#             kept in a same track
+#
+#     Returns:
+#         a list of Parts
+#
+#     """
+#     from maelzel import packing
+#     items = []
+#     if keepGroupsTogether:
+#         groups = _groupById(notations)
+#         for group in groups:
+#             if isinstance(group, Notation):
+#                 n = group
+#                 if n.isRest and not n.attachments and not n.dynamic:
+#                     continue
+#                 assert n.offset is not None and n.duration is not None
+#                 items.append(packing.Item(obj=n, offset=float(n.offset),
+#                                           dur=float(n.duration), step=n.meanPitch()))
+#             else:
+#                 dur = (max(n.end for n in group if n.end is not None) -
+#                        min(n.offset for n in group if n.offset is not None))
+#                 step = sum(n.meanPitch() for n in group)/len(group)
+#                 offset = group[0].offset
+#                 items.append(packing.Item(obj=group, offset=float(offset) if offset else 0., dur=float(dur), step=step))
+#     else:
+#         for n in notations:
+#             items.append(packing.Item(obj=n,
+#                                       offset=float(n.offset) if n.offset else 0.,
+#                                       dur=float(n.duration),
+#                                       step=n.meanPitch()))
+#     packedTracks = packing.packInTracks(items, maxrange=maxrange)
+#     assert packedTracks is not None
+#     return [UnquantizedPart(track.unwrap()) for track in packedTracks]
 
-    The notations within one track are NOT simultaneous. Notations belonging
-    to the same group are kept in the same track.
 
-    Args:
-        notations: the Notations to pack
-        maxrange: the max. distance between the highest and lowest Notation
-        keepGroupsTogether: if True, items belonging to a same group are
-            kept in a same track
-
-    Returns:
-        a list of Parts
-
-    """
-    from maelzel import packing
-    items = []
-    groups = _groupById(notations)
-    for group in groups:
-        if isinstance(group, Notation):
-            n = group
-            if n.isRest and not n.attachments and not n.dynamic:
-                continue
-            assert n.offset is not None and n.duration is not None
-            items.append(packing.Item(obj=n, offset=float(n.offset),
-                                      dur=float(n.duration), step=n.meanPitch()))
-        else:
-            assert isinstance(group, list)
-            if keepGroupsTogether:
-                dur = (max(n.end for n in group if n.end is not None) -
-                       min(n.offset for n in group if n.offset is not None))
-                step = sum(n.meanPitch() for n in group)/len(group)
-                offset = group[0].offset
-                item = packing.Item(obj=group, offset=float(offset) if offset else 0., dur=float(dur), step=step)
-                items.append(item)
-            else:
-                items.extend(packing.Item(obj=n, offset=float(n.offset) if n.offset else 0., dur=float(n.duration),
-                                          step=n.meanPitch())
-                             for n in group)
-
-    packedTracks = packing.packInTracks(items, maxrange=maxrange)
-    assert packedTracks is not None
-    return [UnquantizedPart(track.unwrap()) for track in packedTracks]
-
-
-def removeRedundantDynamics(notations: list[Notation],
-                            resetAfterRest=True,
-                            minRestDuration: time_t = F(1, 16),
-                            resetAfterQuarters=0) -> None:
-    """
-    Removes redundant dynamics, inplace
-
-    A dynamic is redundant if it is the same as the last dynamic and
-    it is a dynamic level (ff, mf, ppp, but not sf, sfz, etc). It is
-    possible to force a dynamic by adding a ``!`` sign to the dynamic
-    (pp!)
-
-    Args:
-        notations: the notations to remove redundant dynamics from
-        resetAfterRest: if True, any dynamic after a rest is not considered
-            redundant
-        minRestDuration: the min. duration of a rest to reset dynamic, in quarternotes
-        resetAfterQuarters: if given, an explicit dynamic after this number of quarters
-            will not be removed
-    """
-    lastDynamic = ''
-    now = F(0)
-    lastDynamicBeat = F(0)
-    for n in notations:
-        if resetAfterQuarters and now - lastDynamicBeat > resetAfterQuarters:
-            lastDynamic = ''
-        now += n.duration
-        if n.tiedPrev:
-            continue
-        if n.isRest and not n.dynamic:
-            if resetAfterRest and n.duration > minRestDuration:
-                lastDynamic = ''
-        elif n.dynamic:
-            if n.dynamic[-1] == "!":
-                lastDynamic = n.dynamic[:-1]
-                lastDynamicBeat = now
-            elif n.dynamic == lastDynamic:
-                n.dynamic = ''
-            else:
-                lastDynamic = n.dynamic
-                lastDynamicBeat = now
+# def removeRedundantDynamics(notations: list[Notation],
+#                             resetAfterRest=True,
+#                             minRestDuration: time_t = F(1, 16),
+#                             resetAfterQuarters=0) -> None:
+#     """
+#     Removes redundant dynamics, inplace
+#
+#     A dynamic is redundant if it is the same as the last dynamic and
+#     it is a dynamic level (ff, mf, ppp, but not sf, sfz, etc). It is
+#     possible to force a dynamic by adding a ``!`` sign to the dynamic
+#     (pp!)
+#
+#     Args:
+#         notations: the notations to remove redundant dynamics from
+#         resetAfterRest: if True, any dynamic after a rest is not considered
+#             redundant
+#         minRestDuration: the min. duration of a rest to reset dynamic, in quarternotes
+#         resetAfterQuarters: if given, an explicit dynamic after this number of quarters
+#             will not be removed
+#     """
+#     lastDynamic = ''
+#     now = F(0)
+#     lastDynamicBeat = F(0)
+#     for n in notations:
+#         if resetAfterQuarters and now - lastDynamicBeat > resetAfterQuarters:
+#             lastDynamic = ''
+#         now += n.duration
+#         if n.tiedPrev:
+#             continue
+#         if n.isRest and not n.dynamic:
+#             if resetAfterRest and n.duration > minRestDuration:
+#                 lastDynamic = ''
+#         elif n.dynamic:
+#             if n.dynamic[-1] == "!":
+#                 lastDynamic = n.dynamic[:-1]
+#                 lastDynamicBeat = now
+#             elif n.dynamic == lastDynamic:
+#                 n.dynamic = ''
+#             else:
+#                 lastDynamic = n.dynamic
+#                 lastDynamicBeat = now
 
 
 def makeGroupId(parent: str = '') -> str:
@@ -700,4 +698,6 @@ def makeGroupId(parent: str = '') -> str:
         the group id as string
     """
     groupid = str(uuid.uuid1())
-    return groupid if parent is None else f'{parent}/{groupid}'
+    return groupid if not parent else f'{parent}/{groupid}'
+
+

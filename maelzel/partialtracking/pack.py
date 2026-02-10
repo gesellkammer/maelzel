@@ -247,7 +247,7 @@ def splitInTracks(partials: list[Partial],
     from scipy import optimize
 
     # First, try to fit self without reduction
-    items = [packing.Item(obj=partial, offset=partial.start, dur=partial.duration, step=pt.f2m(partial.meanfreq()), weightfunc=lambda p: p.audibility())
+    items = [packing.Item(obj=partial, offset=partial.start, dur=partial.duration, step=pt.f2m(partial.meanfreq()), weightFunc=lambda p: p.audibility())
              for partial in partials]
 
     packingtracks = packing.packInTracks(items, maxrange=maxrange, maxtracks=maxtracks,

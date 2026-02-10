@@ -58,7 +58,6 @@ import typing as _t
 if _t.TYPE_CHECKING:
     from typing_extensions import Self
     from matplotlib.axes import Axes
-    # from . import symbols as _symbols
     from maelzel.common import location_t, beat_t, time_t, num_t
     from maelzel.core import chain
     from maelzel.scoring.renderoptions import RenderOptions
@@ -855,31 +854,32 @@ class MObj(ABC):
         list of QuantizedMeasures. To access the recursive notation structure of each measure
         call its :meth:`~maelzel.scoring.QuantizedMeasure.asTree` method
         """
-        w = Workspace.active
         if config is None:
-            config = w.config
+            activecfg = Workspace.active.config
+            config = self.getConfig(activecfg) or activecfg
+
+        rawscore = self.scoringScore(config=config)
+        if scorestruct:
+            rawscore.scorestruct = scorestruct
 
         from maelzel.scoring import quant
 
-        if not scorestruct:
-            scorestruct = self.scorestruct() or w.scorestruct
         if quantizationProfile is None:
             quantizationProfile = config.makeQuantizationProfile()
         elif isinstance(quantizationProfile, str):
             quantizationProfile = quant.QuantizationProfile.fromPreset(quantizationProfile)
-        else:
-            assert isinstance(quantizationProfile, quant.QuantizationProfile)
 
+        assert isinstance(quantizationProfile, quant.QuantizationProfile)
         if nestedTuplets is not None:
             quantizationProfile.nestedTuplets = nestedTuplets
 
-        parts = self.scoringParts()
         if config['show.respellPitches'] and enharmonicOptions is None:
             enharmonicOptions = config.makeEnharmonicOptions()
 
         if debug:
             quantizationProfile.debug = True
 
+        parts = rawscore.parts
         qscore = quant.quantizeParts(parts,
                                      quantizationProfile=quantizationProfile,
                                      struct=scorestruct,
@@ -1018,45 +1018,14 @@ class MObj(ABC):
         """
         raise NotImplementedError("Subclass should implement this")
 
-    def scoringParts(self,
-                     config: CoreConfig | None = None
-                     ) -> list[scoring.core.UnquantizedPart]:
-        """
-        Returns this object as a list of scoring UnquantizedParts.
-
-        Args:
-            config: if given, this config instead of the active config will
-                be used
-
-        Returns:
-            a list of unquantized parts, sorted from high (on the score) to low.
-
-        This method is used internally to generate the parts which
-        constitute a given MObj prior to rendering,
-        but might be of use itself so it is exposed here.
-
-        An :class:`maelzel.scoring.UnquantizedPart` is an intermediate format used by the scoring
-        package to represent notated events. It represents a list of non-simultaneous Notations,
-        unquantized and independent of any score structure
-        """
-        cfg = config or Workspace.active.config
-        notations = self.scoringEvents(config=cfg)
-        return self._scoringPartsFromNotations(notations, config=cfg)
-
-    def _scoringPartsFromNotations(self, 
-                                   notations: list[scoring.Notation], 
-                                   config: CoreConfig
-                                   ) -> list[scoring.core.UnquantizedPart]:
-        if not notations:
-            return []
-        scoring.core.resolveOffsets(notations)
-        parts = scoring.core.distributeByClef(notations,
-                                              maxStaves=config['show.voiceMaxStaves'],
-                                              singleStaffRange=config['show.singleStaffRange'],
-                                              staffPenalty=config['show.explodeStaffPenalty'])
-        parts.reverse()
-        return parts
-        
+    def scoringScore(self,
+                     config: CoreConfig | None = None,
+                     title=''
+                     ) -> scoring.core.UnquantizedScore:
+        cfg = config or self.getConfig(Workspace.active.config)
+        parts = self.scoringParts(config=cfg)
+        struct = self.scorestruct()
+        return scoring.core.UnquantizedScore(parts, title=title, scorestruct=struct)
 
     def unquantizedScore(self, title='') -> scoring.core.UnquantizedScore:
         """
@@ -1082,8 +1051,32 @@ class MObj(ABC):
         .. seealso::  :meth:`quantizedScore() <maelzel.core.mobj.MObj.quantizedScore>`, :class:`~maelzel.scoring.quant.QuantizedScore`
 
         """
-        parts = self.scoringParts()
-        return scoring.core.UnquantizedScore(parts, title=title)
+        return self.scoringScore(title=title)
+
+    def scoringParts(self,
+                     config: CoreConfig | None = None
+                     ) -> list[scoring.core.UnquantizedPart]:
+        """
+        Returns this object as a list of scoring UnquantizedParts.
+
+        Args:
+            config: if given, this config instead of the active config will
+                be used
+
+        Returns:
+            a list of unquantized parts, sorted from high (on the score) to low.
+
+        This method is used internally to generate the parts which
+        constitute a given MObj prior to rendering,
+        but might be of use itself so it is exposed here.
+
+        An :class:`maelzel.scoring.UnquantizedPart` is an intermediate format used by the scoring
+        package to represent notated events. It represents a list of non-simultaneous Notations,
+        unquantized and independent of any score structure
+        """
+        cfg = config or Workspace.active.config
+        notations = self.scoringEvents(config=cfg)
+        return _scoringutils.scoringPartsFromNotations(notations, config=cfg)
 
     @classmethod
     def _labelSymbol(cls, label: str, config: CoreConfig | None = None) -> _symbols.Text:
@@ -1582,7 +1575,11 @@ class MObj(ABC):
             import csoundengine.synth
             group = csoundengine.synth.SynthGroup([])
         else:
-            renderer = workspace.renderer or realtimerenderer.RealtimeRenderer()
+            renderer = workspace.renderer
+            if renderer is None:
+                from maelzel.core import playback
+                renderer = realtimerenderer.RealtimeRenderer(engine=playback.audioEngine(),
+                                                             presetManager=Workspace.active.presetManager)
             group = renderer.schedEvents(coreevents=events, whenfinished=whenfinished)
             if display and environment.insideJupyter:
                 from IPython.display import display
@@ -2064,7 +2061,9 @@ class MContainer(MObj):
         else:
             return parentconfig if not self._config else parentconfig.clone(self._config)
 
-    def _resolveConfig(self, config: CoreConfig | dict | None = None
+    def _resolveConfig(self,
+                       config: CoreConfig | dict | None = None,
+                       forceCopy=False
                        ) -> tuple[CoreConfig, bool]:
         """
         Returns a tuple (resolvedConfig, iscustomized)
@@ -2079,16 +2078,40 @@ class MContainer(MObj):
         Returns:
             a tuple (resolvedConfig: CoreConfig, iscustomized: bool)
         """
+        iscopy = False
         if config is None:
             activeconfig = Workspace.active.config
         elif not isinstance(config, CoreConfig):
             assert isinstance(config, dict)
             activeconfig = CoreConfig(updates=config)
+            iscopy = True
         else:
             activeconfig = config
         ownconfig = self.getConfig(prototype=activeconfig)
         config = ownconfig or activeconfig
+        if forceCopy and ownconfig is None and not iscopy:
+            config = config.copy()
         return config, ownconfig is not None
+
+    @abstractmethod
+    def index(self, child: MObj) -> int:
+        raise NotImplementedError
+
+    @abstractmethod
+    def __getitem__(self, index: int) -> MObj:
+        raise NotImplementedError
+
+    @abstractmethod
+    def __len__(self) -> int:
+        raise NotImplementedError
+
+    def previousItem(self, item: MObj) -> MObj | None:
+        itemidx = self.index(item)
+        return self[itemidx - 1] if itemidx > 0 else None
+
+    def nextItem(self, item: MObj) -> MObj | None:
+        itemidx = self.index(item)
+        return self[itemidx + 1] if itemidx < len(self) - 1 else None
 
     @abstractmethod
     def _childOffset(self, child: MObj) -> F:
@@ -2111,20 +2134,6 @@ class MContainer(MObj):
     @abstractmethod
     def _update(self) -> None:
         raise NotImplementedError
-
-    # @abstractmethod
-    # def _resolveGlissandi(self, force=False) -> None:
-    #     raise NotImplementedError
-
-    # def nextItem(self, item: MObj) -> MObj | None:
-    #     """Returns the item after *item*, if any (None otherwise)"""
-    #     return None
-    #
-    # def previousItem(self, item: MObj) -> MObj | None:
-    #     return None
-    #
-    # def previousEvent(self, event: _event.MEvent) -> _event.MEvent | None:
-    #     return None
 
     def __contains__(self, item: MObj) -> bool:
         raise NotImplementedError

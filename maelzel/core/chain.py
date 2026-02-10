@@ -106,7 +106,7 @@ class Chain(MContainer):
 
         self._cachedEventsWithOffset: list[tuple[MEvent, F]] | None = None
 
-        self._postSymbols: list[tuple[symbols.Symbol, time_t, time_t | None]] = []
+        self._postSymbols: list[tuple[symbols.Symbol, beat_t, beat_t | None]] = []
         """Symbols to apply a posteriory, a tuple (symbol, abs. offset, end=None)"""
 
         self._hasRedundantOffsets = True
@@ -518,6 +518,15 @@ class Chain(MContainer):
         _resolveGlissandi(self._recurse(), force=force)
 
     def _flatEventsForSynth(self, config: CoreConfig, graceDurs=True) -> list[MEvent]:
+        """
+        A flat list of the events in this chain, to be used for synthesis
+
+        Might return the actual events, or a copy if the events are modified
+        (for example, duration is added for grace notes)
+
+        The returned events might not necessarily have an explicit offset
+        """
+        flatitems: list[MEvent]
         if all(isinstance(item, MEvent) for item in self):
             flatitems = self.items
         else:
@@ -546,7 +555,9 @@ class Chain(MContainer):
 
         flatitems = self._flatEventsForSynth(conf)
         struct = self.scorestruct()
-        if struct is not None and struct != workspace.scorestruct:
+        if struct is None:
+            struct = workspace.scorestruct
+        elif struct != workspace.scorestruct:
             workspace = workspace.clone(scorestruct=struct)
 
         allevents = []
@@ -575,15 +586,16 @@ class Chain(MContainer):
             presetman = Workspace.active.presetManager
             for autom in self.playargs.automations:
                 startsecs, endsecs = autom.absTimeRange(parentOffset=offset, scorestruct=struct)
+                startsecsf, endsecsf = float(startsecs), float(endsecs)
                 for ev in allevents:
                     preset = presetman.getPreset(ev.instr)
                     if autom.param in preset.dynamicParams(aliases=True, aliased=True):
-                        t0, t1 = _util.overlap(float(startsecs), float(endsecs), ev.delay, ev.end)
+                        t0, t1 = _util.overlap(startsecsf, endsecsf, ev.delay, ev.end)
                         if t0 <= t1:
                             synthautom = autom.makeSynthAutomation(scorestruct=struct, parentOffset=offset)
-                            ev.addAutomation(synthautom.cropped(float(t0), float(t1)))
+                            ev.addAutomation(synthautom.cropped(t0, t1))
 
-        self.removeRedundantOffsets()
+        # self.removeRedundantOffsets()
         return allevents
 
     def mergeTiedEvents(self) -> None:
@@ -790,6 +802,9 @@ class Chain(MContainer):
             return self.items[idx]
         else:
             return self.items.__getitem__(idx)
+
+    def index(self, child: MEvent) -> int:
+        return self.items.index(child)
 
     def _dumpRows(self,
                   indents=0,
@@ -1062,8 +1077,9 @@ class Chain(MContainer):
                 n0 = n1
 
         absOffset = self.absOffset()
-        scoring.core.resolveOffsets(allns, start=absOffset)
-        allns = scoring.core.fillSilences(allns, offset=absOffset)
+        if any(n.offset is None for n in allns):
+            scoring.core.resolveOffsets(allns, start=absOffset)
+        allns = scoring.core.fillSilences(allns, start=absOffset)
 
         if self.symbols and self.isSubChain():
             for symbol in self.symbols:
@@ -1149,7 +1165,8 @@ class Chain(MContainer):
         notations = self.scoringEvents(config=config)
         if not notations:
             return []
-        scoring.core.resolveOffsets(notations)
+        assert all(n.offset is not None for n in notations)
+        # scoring.core.resolveOffsets(notations)
         config = self.getConfig(config) or config
         maxStaves = maxStaves or config['show.voiceMaxStaves']
 
@@ -1165,7 +1182,8 @@ class Chain(MContainer):
                                                   name=name,
                                                   abbrev=abbrev,
                                                   maxStaves=maxStaves,
-                                                  minStaves=minStaves)
+                                                  minStaves=minStaves,
+                                                  groupNotesInSpanners=config['show.groupEventsInSpanners'])
             parts.reverse()
             if len(parts) > 1 and groupParts:
                 scoring.core.UnquantizedPart.groupParts(parts, name=name, abbrev=abbrev)
@@ -2190,7 +2208,8 @@ class Chain(MContainer):
     def configNotation(self,
                        autoClefChanges: bool | None = None,
                        staffSize: float | None = None,
-                       maxStaves: int | None = None
+                       maxStaves: int | None = None,
+                       groupEventsInSpanners: bool | None = None
                        ) -> None:
         """
         Customize options for rendering as notation
@@ -2205,6 +2224,8 @@ class Chain(MContainer):
             staffSize: the size of a staff, in points (see config key `show.staffSize` <config_show_staffsize>`)
             maxStaves: the max. number of staves per voice when showing a
                 Voice as notation (see config `show.voiceMaxStaves <config_show_voicemaxstaves>`)
+            groupEventsInSpanners: keeps notes/chords within spanners within one staf
+                (see config `show.groupEventsInSpanners <config_show_groupeventsinspanners>`)
 
         .. seealso:: :meth:`~Voice.configQuantization`
         """
@@ -2214,31 +2235,33 @@ class Chain(MContainer):
             self.setConfig('show.autoClefChanges', autoClefChanges)
         if maxStaves is not None:
             self.setConfig('show.voiceMaxStaves', maxStaves)
+        if groupEventsInSpanners is not None:
+            self.setConfig('show.groupEventsInSpanners', groupEventsInSpanners)
 
 
-class PartGroup:
+class VoiceGroup:
     """
     This class represents a group of parts
 
-    It is used to indicate that a group of parts are to be notated
-    within a staff group, sharing a name/shortname if given. This is
-    usefull for things like piano scores, for example
+    It is used to indicate that either a group of parts are to be notated
+    within a staff group, sharing a name/shortname and also for the cases
+    where multiple (2 to 4) voices share a staf
 
     A PartGroup is immutable
 
     Args:
-        parts: the parts inside this group
+        voices: the parts inside this group
         name: the name of the group
         abbrev: a shortname to use in systems other than the first
         showPartNames: if True, the name of each part will still be shown in notation.
             Otherwise, it is hidden and only the group name appears
     """
-    def __init__(self, parts: list[Voice], name='', abbrev='', showPartNames=False):
-        for part in parts:
-            part._group = self
+    def __init__(self, voices: Sequence[Voice], name='', abbrev='', showPartNames=False):
+        for voice in voices:
+            voice._group = self
 
-        self.parts = parts
-        """The parts in this group"""
+        self.voices = voices if isinstance(voices, tuple) else tuple(voices)
+        """The voices in this roup"""
 
         self.name = name
         """The name of the group"""
@@ -2246,15 +2269,19 @@ class PartGroup:
         self.abbrev = abbrev
         """A short name for the group"""
 
-        self.groupid = scoring.core.makeGroupId()
+        self.groupid = hex(id(self))[2:] # scoring.core.makeGroupId()
         """A group ID"""
 
-        self.showPartNames = showPartNames
-        """Show the names of the individual parts?"""
+        self.showVoiceNames = showPartNames
+        """Show the names of the in1dividual voices?"""
+
+        self._hash = hash(frozenset((id(part) for part in self.voices)))
+
+    def __repr__(self) -> str:
+        return f"VoiceGroup({self.voices}, name='{self.name}', abbrev='{self.abbrev}', groupid={self.groupid})"
 
     def __hash__(self) -> int:
-        partshash = hash(tuple(id(part) for part in self.parts))
-        return hash((self.name, len(self.parts), partshash))
+        return self._hash
 
 
 class Voice(Chain):
@@ -2279,8 +2306,8 @@ class Voice(Chain):
             systems when shown as notation
         maxStaves: max. number of staves to use for this voice when shown
             as notation. If not given the config key 'show.voiceMaxStaves' is used.
-            This is a maximum value, the actual number of staves is determined based
-            on the actual contents of the voice
+            This is a maximum value, the actual number of staves is determined by
+            the actual contents of the voice
         minStaves: a min. number of staves to use for this voice when shown
             as notation. Can be used to force the distribution of a voice across more
             staves if the automatic clef distribution is not satisfactory
@@ -2314,7 +2341,7 @@ class Voice(Chain):
         """Any key set here will override keys from the coreconfig for rendering
         Any key in CoreConfig is supported"""
 
-        self._group: PartGroup | None = None
+        self._group: VoiceGroup | None = None
         """A part group is created via Score.makeGroup"""
 
         if maxStaves:
@@ -2428,7 +2455,7 @@ class Voice(Chain):
         return self.__copy__()
 
     @property
-    def group(self) -> PartGroup | None:
+    def group(self) -> VoiceGroup | None:
         return self._group
 
     def parentAbsOffset(self) -> F:
@@ -2510,7 +2537,7 @@ class Voice(Chain):
                                 groupid=self._group.groupid,
                                 name=self._group.name,
                                 abbrev=self._group.abbrev,
-                                showPartNames=self._group.showPartNames)
+                                showPartNames=self._group.showVoiceNames)
         if ownstruct := self._scorestruct:
             for part in parts:
                 part.scorestruct = ownstruct

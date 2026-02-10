@@ -13,8 +13,9 @@ import functools
 
 import pitchtools as pt
 from dataclasses import dataclass
-from maelzel.common import F, getLogger
+from maelzel.common import F
 from maelzel import _util
+from maelzel._logutils import getLogger
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:

@@ -2,10 +2,8 @@
 Interface for audio rendering (abstract class for realtime and offline)
 """
 from __future__ import annotations
+
 from abc import abstractmethod, ABC
-
-import numpy as np
-
 from . import environment
 
 from typing import TYPE_CHECKING
@@ -17,6 +15,7 @@ if TYPE_CHECKING:
     import csoundengine.busproxy
     import csoundengine.instr
     import csoundengine.synth
+    import numpy as np
 
     from maelzel.core import presetdef as _presetdef
     from maelzel.core.presetmanager import PresetManager
@@ -275,7 +274,8 @@ class Renderer(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def readSoundfile(self, soundfile: str, chan=0, skiptime=0.) -> int:
+    def readSoundfile(self, path: str, chan=0, skiptime=0.
+                      ) -> csoundengine.tableproxy.TableProxy:
         """Read a soundfile into the renderer
 
         Args:
