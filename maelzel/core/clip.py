@@ -95,8 +95,8 @@ class Clip(event.MEvent):
                  source: str | audiosample.Sample | tuple[np.ndarray, int],
                  dur: time_t = None,
                  pitch: pitch_t = None,
-                 amp: float = 1.,
-                 offset: time_t = None,
+                 amp: float | None = None,
+                 offset: time_t | None = None,
                  startsecs: float | F = 0.,
                  endsecs: float | F = 0.,
                  channel: int | None = None,
@@ -183,7 +183,7 @@ class Clip(event.MEvent):
         self.source: str | np.ndarray = source
         """The source of this clip"""
 
-        self.amp: float = amp
+        self.amp: float | None = amp
         """An amplitude (gain) applied to this clip"""
 
         self.dynamic: str = dynamic
@@ -270,7 +270,9 @@ class Clip(event.MEvent):
     @cache
     def fundamentalPitch(self, dur=0.2, start=0., default=60.) -> float:
         if start == 0:
-            start = self.firstSound()
+            first = self.firstSound()
+            if first is not None:
+                start = first
         samples = self.samplesBetween(start, start+dur*2)
         f0 = audiosample.Sample(samples, sr=self.sr).fundamentalFreq(dur=dur)
         return pt.f2m(f0) if f0 is not None else default

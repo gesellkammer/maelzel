@@ -172,10 +172,11 @@ def groupLinkedEvents(items: list[MEvent],
         if gap < 0:
             raise ValueError(f"Events supperpose: {lastitem=}, {item=}")
         if gap <= mingap and lastitem._canBeLinkedTo(item):
-            if isinstance(groups[-1], list):
-                groups[-1].append(item)
+            last = groups[-1]
+            if isinstance(last, list):
+                last.append(item)
             else:
-                groups[-1] = [groups[-1], item]
+                groups[-1] = [last, item]
         else:
             groups.append(item)
         lastitem = item

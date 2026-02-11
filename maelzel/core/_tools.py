@@ -418,7 +418,7 @@ def parseNote(s: str, check=True) -> NoteProperties:
                     properties[key] = value
             elif part in _knownDynamics:
                 properties['dynamic'] = part
-            elif part[-1] == '!' and part[:-1] in _knownDynamics:
+            elif part.endswith("!") and part[:-1] in _knownDynamics:
                 properties['dynamic'] = part
             elif part in ('gliss', 'tied'):
                 properties[part] = True
@@ -450,7 +450,7 @@ def parseNote(s: str, check=True) -> NoteProperties:
     if "/" in note:
         note, symbolicdur = note.split("/")
         dur = _parseSymbolicDuration(symbolicdur)
-    if note and note[-1] == '~':
+    if note and note.endswith('~'):
         properties['tied'] = True
         note = note[:-1]
     if "," in note or " " in note:
@@ -461,14 +461,12 @@ def parseNote(s: str, check=True) -> NoteProperties:
         notename = note
     if check and notename and notename != 'rest':
         if isinstance(notename, list):
-            for n in filter(bool, notename):
-                if n[-1] == '!':
-                    n = n[:-1]
-                if not pt.is_valid_notename(n, minpitch=0):
-                    raise ValueError(f"Invalid notename '{n}' while parsing '{s}'")
+            for n in notename:
+                if n:
+                    if not pt.is_valid_notename(n.rstrip("!"), minpitch=0):
+                        raise ValueError(f"Invalid notename '{n}' while parsing '{s}'")
         else:
-            n = notename if notename[-1] != '!' else notename[:-1]
-            assert isinstance(n, str)
+            n = notename.rstrip("!")
             if not pt.is_valid_notename(n):
                 raise ValueError(f"Invalid notename '{n}' while parsing '{s}'")
     return NoteProperties(notename=notename, dur=dur, keywords=properties,

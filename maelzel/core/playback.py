@@ -575,7 +575,7 @@ class _SynchronizedContext(_renderer.Renderer):
         return self.session.assignBus(kind=kind, value=value, persist=persist)
 
     def prepareSessionEvent(self, event: csoundengine.event.Event) -> bool:
-        _, needssync = self.session.prepareSched(instr=event.instrname,
+        _, needssync = self.session.prepareInstr(instr=event.instrname,
                                                  priority=event.priority)
         return needssync
 
@@ -589,7 +589,7 @@ class _SynchronizedContext(_renderer.Renderer):
     def prepareInstr(self, instr: csoundengine.instr.Instr, priority: int
                      ) -> bool:
         instrname = instr if isinstance(instr, str) else instr.name
-        reifiedinstr, needssync = self.session.prepareSched(instrname, priority=priority)
+        _, needssync = self.session.prepareInstr(instr=instrname, priority=priority)
         return needssync
 
     def releaseBus(self, bus: int | csoundengine.busproxy.Bus) -> None:
@@ -926,21 +926,23 @@ class _FutureSynth(csoundengine.baseschedevent.BaseSchedEvent, csoundengine.synt
         self.token: int = token
         self.kind = 'synthevent' if isinstance(event, SynthEvent) else 'sessionevent'
         self.session = parent.session
+        self._instr: csoundengine.instr.Instr | None = None
 
     @property
     def instrName(self) -> str:
+        """Name of the instrument template (not to be confused with p1)"""
         return self.event.instr if isinstance(self.event, SynthEvent) else self.event.instrname
         # return self.event.instr if self.kind == 'synthevent' else self.event.instrname
 
     def _synthevent(self) -> SynthEvent:
         if isinstance(self.event, SynthEvent):
             return self.event
-        raise ValueError(f"This FutureSynth has an event of type {type(self.event)}")
+        raise ValueError(f"This FutureSynth has an event of type {type(self.event)}, {self.kind=}")
 
     def _csoundevent(self) -> csoundengine.event.Event:
         if isinstance(self.event, csoundengine.event.Event):
             return self.event
-        raise ValueError(f"This FutureSynth has an event of type {type(self.event)}")
+        raise ValueError(f"This FutureSynth has an event of type {type(self.event)}, {self.kind=}")
 
 
     def aliases(self) -> dict[str, str]:
@@ -1015,14 +1017,16 @@ class _FutureSynth(csoundengine.baseschedevent.BaseSchedEvent, csoundengine.synt
 
     @property
     def instr(self) -> csoundengine.instr.Instr:
-        """Get the Instr associated with the event's preset"""
-        if isinstance(self.event, SynthEvent):
-            return self.event.getPreset().getInstr()
-        else:
-            instr = self.session.getInstr(self.event.instrname)
-            if instr is None:
-                raise RuntimeError(f"Could not find this event's instr. {self=}")
-            return instr
+        """Get the csoundengine's Instr associated with the event's preset"""
+        if self._instr is None:
+            if isinstance(self.event, SynthEvent):
+                self._instr = self.event.getPreset().getInstr()
+            else:
+                instr = self.session.getInstr(self.event.instrname)
+                if instr is None:
+                    raise RuntimeError(f"Could not find this event's instr. {self=}")
+                self._instr = instr
+        return self._instr
 
     def set(self, param='', value: float = 0., delay=0., **kws) -> None:
         """

@@ -1175,19 +1175,19 @@ def parseMusicxml(xml: str, enforceParsedSpelling=False) -> Score:
             partid = f'P{partidx}'
             partdef = PartDef(partid=partid, name=partid, shortname=partid)
         voicename = partdef.nameDisplay or partdef.name or partdef.partid
-        shortname = partdef.shortnameDisplay or partdef.shortname or ''
+        abbrev = partdef.shortnameDisplay or partdef.shortname or ''
         if len(voicesdict) == 1:
             # Only one voice
             voice = next(iter(voicesdict.values()))
             assert isinstance(voice, Voice)
             voice.label = voicename
-            voice.shortname = shortname
+            voice.abbrev = abbrev
 
         else:
             for voicenum, voice in voicesdict.items():
                 voice.label = f'{voicename}/{voicenum}'
-                if shortname:
-                    voice.abbrev = f'{shortname}/{voicenum}'
+                if abbrev:
+                    voice.abbrev = f'{abbrev}/{voicenum}'
 
         for voice in voicesdict.values():
             props = {

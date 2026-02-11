@@ -92,7 +92,7 @@ class Chain(MContainer):
     """
 
     __slots__ = ('items', '_modified', '_cachedEventsWithOffset', '_postSymbols',
-                 '_hasRedundantOffsets')
+                 '_hasRedundantOffsets', '_hash')
 
     def __init__(self,
                  items: Sequence[MEvent | Chain | str] | str = (),
@@ -111,6 +111,8 @@ class Chain(MContainer):
 
         self._hasRedundantOffsets = True
         """Assume redundant offsets at creation"""
+
+        self._hash = 0
 
         if isinstance(items,  str):
             _init = True
@@ -167,6 +169,8 @@ class Chain(MContainer):
                 item._check()
 
     def __hash__(self):
+        if not self._modified and self._hash != 0:
+            return self._hash
         items = [type(self).__name__, self.label, self.offset, len(self.items)]
         if self.symbols:
             items.extend(self.symbols)
@@ -176,6 +180,7 @@ class Chain(MContainer):
             items.extend((k, self._config[k]) for k in sorted(self._config.keys()))
         items.extend(self.items)
         out = hash(tuple(items))
+        self._hash = out
         return out
 
     def clone(self,
@@ -593,7 +598,9 @@ class Chain(MContainer):
                         t0, t1 = _util.overlap(startsecsf, endsecsf, ev.delay, ev.end)
                         if t0 <= t1:
                             synthautom = autom.makeSynthAutomation(scorestruct=struct, parentOffset=offset)
-                            ev.addAutomation(synthautom.cropped(t0, t1))
+                            croppedautom = synthautom.cropped(t0, t1)
+                            if croppedautom:
+                                ev.addAutomation(croppedautom)
 
         # self.removeRedundantOffsets()
         return allevents
@@ -774,6 +781,7 @@ class Chain(MContainer):
         self._modified = True
         self._dur = F0
         self._cachedEventsWithOffset = None
+        self._hash = 0
         if self.parent:
             self.parent._childChanged(self)
 
@@ -1151,7 +1159,7 @@ class Chain(MContainer):
         return allns
 
     def isSubChain(self) -> bool:
-        return self.parent and isinstance(self.parent, Chain)
+        return self.parent is not None and isinstance(self.parent, Chain)
 
     def _scoringParts(self,
                       config: CoreConfig,
@@ -1217,7 +1225,7 @@ class Chain(MContainer):
         items = [i.quantizePitch(step) for i in self.items]
         return self.clone(items=items)
 
-    def setItems(self, items: list[MEvent|Chain]) -> None:
+    def setItems(self, items: Sequence[MEvent|Chain]) -> None:
         """
         Set the items of this chain/voice, inplace
 
@@ -1231,7 +1239,7 @@ class Chain(MContainer):
         """
         for item in items:
             item.parent = self
-        self.items = items
+        self.items = items if isinstance(items, list) else list(items)
         self._changed()
 
     def timeShift(self, offset: time_t) -> Self:
@@ -1599,6 +1607,7 @@ class Chain(MContainer):
         else:
             assert isinstance(symbol, symbols.Symbol)
             self._postSymbols.append((symbol, absoffset, None))
+            self._changed()
 
     def addSymbol(self, *args, **kws) -> None:
         symbol = symbols.parseAddSymbol(args, kws)
