@@ -319,6 +319,9 @@ class QuantizationProfile:
         ))
         return h
 
+    def __repr__(self):
+        return f"QuantizationProfile({self.name})"
+
     def possibleDivisionsForTempo(self, tempo: num_t) -> list[division_t]:
         """
         The possible divisions of the pulse for the given tempo

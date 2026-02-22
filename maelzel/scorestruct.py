@@ -2656,7 +2656,6 @@ class ScoreStruct:
         tempodef = TempoDef(F0, 0, 0)
         rows = []
         for i, m in enumerate(self.measures):
-            # num, den = m.timesig
             if (newtempodef := m.tempoDef()) != tempodef:
                 reffigure, numdots = m.tempoRef
                 refstr = unicodeDuration((reffigure, numdots))

@@ -12,7 +12,7 @@ import pitchtools as pt
 
 from maelzel import _util
 from maelzel.scoring import definitions
-from maelzel.common import F
+from maelzel.common import F, F0
 from maelzel.core import environment
 from maelzel.core import symbols as _symbols
 
@@ -375,7 +375,7 @@ def parseNote(s: str, check=True) -> NoteProperties:
 
     4C#~
     """
-    dur = None
+    dur: F | None = None
     properties: dict[str, Any] = {}
     symbols: list[_symbols.Symbol] = []
     spanners: list[_symbols.Spanner] = []
@@ -426,7 +426,7 @@ def parseNote(s: str, check=True) -> NoteProperties:
                 symbols.append(_symbols.Stem(hidden=True))
             elif part == 'slash' or part == 'slashed':
                 # Only applies to gracenotes
-                if dur != 0:
+                if dur != F0:
                     raise ValueError(f"{part} can only be applied to a grace note/chord")
                 symbols.append(_symbols.Gracenote(slash=True))
             elif part in definitions.allNoteheadShapes():
@@ -455,7 +455,7 @@ def parseNote(s: str, check=True) -> NoteProperties:
         note = note[:-1]
     if "," in note or " " in note:
         notename = list(filter(bool, re.split(r'[\ ,]', note)))
-    elif note.lower() in ('r', 'rest'):
+    elif note in ('r', 'rest', 'R'):
         notename = 'rest'
     else:
         notename = note

@@ -617,6 +617,15 @@ class Node:
             else:
                 yield from item.recurseWithNode(reverse=reverse)
 
+    def initialGracenotes(self) -> list[tuple[Notation, Node]]:
+        gracenotes = []
+        for n, parent in self.recurseWithNode():
+            if n.isGracenote:
+                gracenotes.append((n, parent))
+            else:
+                break
+        return gracenotes
+
     def repairLinks(self) -> int:
         """
         Repair ties and glissandi inplace
@@ -795,7 +804,6 @@ class Node:
         self.repairLinks()
         self.removeUnnecessaryGracenotes()
         self.setParentRecursively()
-        # self._unmergeUnnecessaryNodes(minDur=F(1, 4))
 
     def fixEnharmonics(self,
                        options: enharmonics.EnharmonicOptions,

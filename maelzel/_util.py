@@ -4,14 +4,15 @@ import functools
 import os
 import sys
 import weakref
-
+import emlib.misc
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Any, Callable, Sequence, TypeVar
+    from typing import Any, Callable, Sequence
     import logging
-    from maelzel.common import F, num_t
     import tempfile
+    from maelzel.common import F, num_t
+
 
 _cache = {}
 
@@ -58,7 +59,6 @@ def sessionTempdir() -> tempfile.TemporaryDirectory:
         return tempdir
     _cache['tempdir'] = tempdir = makeTempDir()
     return tempdir
-
 
 
 def mktemp(suffix: str, prefix='') -> str:
@@ -125,7 +125,6 @@ def reprObj(obj,
         which fullfill the given conditions
 
     """
-    import emlib.misc
     attrs = emlib.misc.find_attrs(obj)
     if exclude:
         import fnmatch

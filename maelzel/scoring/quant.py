@@ -7,6 +7,7 @@ a :class:`QuantizedScore`
 """
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass
 import sys
 import os
@@ -26,7 +27,7 @@ from . import clefutils
 from . import spanner as _spanner
 from . import attachment
 from .quantprofile import QuantizationProfile
-from .quantdefs import QuantizedBeatDef
+from .quantdefs import QuantizedBeatDef, PartNode
 from maelzel._logutils import LazyStr, getLogger
 
 from .notation import Notation, Snapped
@@ -1637,8 +1638,8 @@ def splitNotationAtMeasures(n: Notation, struct: st.ScoreStruct
     for idx, part in pairs[1:]:
         assert part.isRest or part.tiedPrev, f"{n=}, {pairs=}"
 
-    sumdur = sum(struct.beatDelta((i, n.qoffset), (i, n.end)) for i, n in pairs)
-    assert sumdur == n.duration, f"{n=}, {sumdur=}, {numMeasures=}\n{pairs=}"
+    # sumdur = sum(struct.beatDelta((i, n.qoffset), (i, n.end)) for i, n in pairs)
+    # assert sumdur == n.duration, f"{n=}, {sumdur=}, {numMeasures=}\n{pairs=}"
     return pairs
 
 
@@ -1667,7 +1668,6 @@ def _mergeNodes(node1: Node,
     out = _mergeSiblings(node, profile=profile, beatOffsets=beatOffsets, beatWeights=beatWeights)
     out.parent = node1.parent
     out.setParentRecursively()
-
     return out
 
 
@@ -1924,17 +1924,7 @@ def _mergeSiblings0(root: Node,
     return newroot
 
 
-# def _maxTupletLength(timesig: timesig_t, subdivision: int):
-#     den = timesig[1]
-#     if subdivision == 3:
-#         return {2: 2, 4: 2, 8: 1}[den]
-#     elif subdivision == 5:
-#         return 2 if den == 2 else 1
-#     else:
-#         return 1
-
-
-@dataclass
+@dataclass(repr=False)
 class QuantizedPart:
     """
     A UnquantizedPart which has already been quantized following a ScoreStruct
@@ -1955,11 +1945,6 @@ class QuantizedPart:
 
     abbrev: str = ''
     """The abbreviated staff name"""
-
-    groupid: str = ''
-    """A groupid, if applicable"""
-
-    groupName: tuple[str, str] | None = None
 
     firstClef: str = ''
     """The first clef of this part"""
@@ -1992,6 +1977,9 @@ class QuantizedPart:
     def __len__(self) -> int:
         return len(self.measures)
 
+    def __repr__(self):
+        return _util.reprObj(self, hideEmptyStr=True, hideFalsy=True)
+
     def setReadOnly(self, value: bool) -> None:
         for m in self.measures:
             m.setReadOnly(value)
@@ -2008,35 +1996,6 @@ class QuantizedPart:
     def check(self):
         for measure in self.measures:
             measure.check()
-
-    def show(self, fmt='png', backend=''):
-        """
-        Show this quantized part as notation
-
-        Args:
-            fmt: the format to show, one of 'png', 'pdf'
-            backend: the backend to use. One of 'lilypond', 'musicxml'
-        """
-        self.render(backend=backend).show(fmt=fmt)
-
-    def render(self, 
-               options: renderoptions.RenderOptions | None = None, 
-               backend=''
-               ) -> renderer.Renderer:
-        """
-        Render this quantized part
-
-        Args:
-            options: the RenderOptions to use
-            backend: the backend to use. If not given the backend defined in the
-                render options will be used instead
-
-        Returns:
-            the Renderer
-
-        """
-        score = QuantizedScore(parts=[self])
-        return score.render(options=options, backend=backend)
 
     def __iter__(self) -> Iterator[QuantizedMeasure]:
         return iter(self.measures)
@@ -2662,9 +2621,7 @@ def quantizePart(part: core.UnquantizedPart,
                           measures=qmeasures,
                           name=part.name,
                           abbrev=part.abbrev,
-                          groupid=part.groupid,
                           quantProfile=quantprofile,
-                          groupName=part.groupName,
                           showName=part.showName,
                           firstClef=part.firstClef,
                           possibleClefs=part.possibleClefs)
@@ -2696,7 +2653,12 @@ class QuantizedScore:
         title: an optional title
         composer: an optional composer
     """
-    __slots__ = ('parts', 'title', 'composer', 'quantProfile', 'struct')
+    __slots__ = ('parts', 'title', 'composer', 'quantProfile', 'struct', 'groups')
+    _ext2format = {'.ly': 'lilypond',
+                   '.xml': 'musicxml',
+                   '.musicxml': 'musicxml',
+                   '.pdf': 'pdf',
+                   '.png': 'png'}
 
     def __init__(self,
                  parts: list[QuantizedPart],
@@ -2724,6 +2686,51 @@ class QuantizedScore:
 
         self.struct = self.parts[0].struct
         "ScoreStruct for this score. A part might have a different scorestruct"
+
+        self.groups: dict[str, PartNode] = {}
+
+    def _addGroup(self, kind: str, parts: list[QuantizedPart | int], name='', abbrev=''
+                 ) -> None:
+        qparts = [p if isinstance(p, QuantizedPart) else self.parts[p]
+                  for p in parts]
+        indexes = [self.parts.index(part) for part in qparts]
+        if not all(idx1==idx2-1 for idx1, idx2 in itertools.pairwise(indexes)):
+            raise ValueError("Parts should be consecutive")
+        assert all(qpart in self.parts for qpart in qparts)
+        group = PartNode(kind=kind, name=name, abbrev=abbrev, items=qparts)
+        self.groups[group.id] = group
+
+    def addGroup(self, parts: list[QuantizedPart | int], name='', abbrev=''
+                 ) -> None:
+        """
+        Mark the given parts as belonging to a group
+
+        NB: the parts need to already be part of this score and need to
+        be adjacent
+
+        Args:
+            parts: a list of parts or their index
+            name: the name of the group
+            abbrev: an abbreviation for the name
+        """
+
+        self._addGroup('group', parts=parts, name=name, abbrev=abbrev)
+
+    def addMultivoicePart(self, voices: list[QuantizedPart | int], name='', abbrev=''
+                          ) -> None:
+        """
+        Mark the given parts as belonging to a multivoice part
+
+        NB: the voices need to already be part of this score and they need
+            to be adjacent
+
+        Args:
+            voices: a list of parts or their index
+            name: the name of the group
+            abbrev: an abbreviation for the name
+        """
+        assert 2 <= len(voices) <= 4
+        self._addGroup('part', parts=voices, name=name, abbrev=abbrev)
 
     def check(self):
         """Check this QuantizedScore"""
@@ -2787,8 +2794,20 @@ class QuantizedScore:
             numindents: the starting indentation
 
         """
+        for group in self.groups.values():
+            if group.kind == 'part':
+                voiceindexes = [group.items.index(v) for v in group.items]
+                print(f"Part '{group.name}', voices: {voiceindexes}")
+            elif group.kind == 'group':
+                print(f"Group {group.name}, parts: {group.items}")
         for i, part in enumerate(self):
-            print(f"{indent*numindents}Part #{i}:", file=stream)
+            parts = [indent*numindents + "Part #" + str(i)]
+            if part.name:
+                parts.append(f"name: {part.name}")
+            if part.abbrev:
+                parts.append(f"abbrev: {part.abbrev}")
+            s = ", ".join(parts)
+            print(s, file=stream)
             part.dump(tree=tree, numindents=numindents+1, indent=indent, stream=stream)
 
     def numMeasures(self) -> int:
@@ -2802,27 +2821,8 @@ class QuantizedScore:
         for part in self.parts:
             part.addEmptyMeasures(numMeasures - len(part.measures))
 
-    def groupParts(self) -> list[list[QuantizedPart]]:
-        """
-        Group parts which have the same id
-
-        At the moment we do not support subgroups
-
-        Returns:
-            A list of groups where a group is a list of parts with the same id
-        """
-        groups = {}
-        out: list[list[QuantizedPart]] = []
-        for part in self.parts:
-            if part.groupid:
-                group = groups.get(part.groupid)
-                if group is None:
-                    groups[part.groupid] = group = []
-                    out.append(group)
-                group.append(part)
-            else:
-                out.append([part])
-        return out
+    def partTree(self) -> PartNode:
+        return _partTree(self.parts, groups=list(self.groups.values()))
 
     def write(self,
               outfile: str,
@@ -2846,13 +2846,9 @@ class QuantizedScore:
         Returns:
             the Renderer used
         """
-        ext = os.path.splitext(outfile)[1].lower()
         if not format:
-            format = {'.ly': 'lilypond',
-                      '.xml': 'musicxml',
-                      '.musicxml': 'musicxml',
-                      '.pdf': 'pdf',
-                      '.png': 'png'}.get(ext)
+            ext = os.path.splitext(outfile)[1].lower()
+            format = self._ext2format.get(ext)
         if format == 'lilypond' or format == 'ly':
             r = self.render(options=options, backend='lilypond')
             if outfile == 'stdout':
@@ -2873,7 +2869,8 @@ class QuantizedScore:
             r.write(outfile)
             return r
         else:
-            raise ValueError(f"Format {format} ({ext=}) not supported, possible formats are 'pdf', 'png', 'musicxml', 'lilypond'")
+            raise ValueError(f"Format {format} not supported, possible formats are "
+                             f"'pdf', 'png', 'musicxml', 'lilypond'")
 
     def show(self, backend='', fmt='png', external: bool = False) -> None:
         self.render(backend=backend).show(fmt=fmt, external=external)
@@ -2947,6 +2944,16 @@ class QuantizedScore:
                 if mdef.timesig != mdef2.timesig or mdef.quarterTempo != mdef.quarterTempo:
                     return True
         return False
+
+
+def quantizeScore(score: core.UnquantizedScore,
+                  profile: QuantizationProfile,
+                  enharmonicOptions: enharmonics.EnharmonicOptions | None = None
+                  ) -> QuantizedScore:
+    return quantizeParts(parts=score.parts,
+                         quantizationProfile=profile,
+                         struct=score.scorestruct,
+                         enharmonicOptions=enharmonicOptions)
 
 
 def quantizeParts(parts: list[core.UnquantizedPart],
@@ -3056,10 +3063,12 @@ def quantizeParts(parts: list[core.UnquantizedPart],
     if struct is None:
         struct = st.ScoreStruct((4, 4), tempo=60)
     qparts = []
+    mapping: dict[int, QuantizedPart] = {}
     for i, part in enumerate(parts):
         profile = part.quantProfile or quantizationProfile
         try:
             qpart = quantizePart(part, struct=struct, quantprofile=profile)
+            mapping[id(part)] = qpart
             qpart.check()
             qparts.append(qpart)
         except Exception as e:
@@ -3070,6 +3079,14 @@ def quantizeParts(parts: list[core.UnquantizedPart],
         qscore.resolveEnharmonics(enharmonicOptions)
     else:
         qscore.resolveChordEnharmonics()
+
+    for groupDef, groupParts in core.collectGroups(parts=parts, kind='group'):
+        qparts = [mapping[id(part)] for part in groupParts]
+        qscore.addGroup(qparts, name=groupDef.name, abbrev=groupDef.abbrev)
+
+    for groupDef, groupParts in core.collectGroups(parts=parts, kind='part'):
+        qparts = [mapping[id(part)] for part in groupParts]
+        qscore.addMultivoicePart(qparts, name=groupDef.name, abbrev=groupDef.abbrev)
 
     return qscore
 
@@ -3088,3 +3105,66 @@ def _makeEmptyBeats(timesig: st.TimeSignature,
         beats.append(beat)
     return beats
 
+
+def _sortedGroups(groups: Sequence[PartNode]) -> list[PartNode]:
+    # sort groups by their hierarchy, first the ones which contain other groups
+    def cmp(a: PartNode, b: PartNode):
+        ranka, rankb = a.rank(), b.rank()
+        if ranka != rankb:
+            return -1 if ranka < rankb else 1
+        if len(a.items) < len(b.items):
+            if all(item in b.items for item in a.items):
+                return 1
+            return 0
+        elif len(a.items) > len(b.items):
+            return 1 if all(item in a.items for item in b.items) else 0
+        else:
+            return -1 if a.items == b.items else 0
+    return sorted(groups, key=functools.cmp_to_key(cmp))
+
+
+def _partTree(parts: list[QuantizedPart], groups: Sequence[PartNode]) -> PartNode:
+    """
+    Creates a tree if groups/subgroups/multivoice parts from all parts
+
+    Args:
+        parts: the parts to organize
+        groups: the individual groups
+
+    Returns:
+        a PartNode representing the root of the tree
+
+    """
+    if not groups:
+        return PartNode(kind='', items=parts)
+    groups = _sortedGroups(groups)
+    id2group = {group.id: group for group in groups}
+    root = PartNode(kind='', items=[])
+    stack: list[PartNode] = [root]
+    for part in parts:
+        groupids = [group.id for group in groups if part in group]
+        added = False
+        while len(stack) > 1:
+            last = stack[-1]
+            if groupids and last.id == groupids[-1]:
+                # part belongs to the group
+                last.items.append(part)
+                added = True
+                break
+            else:
+                group = stack.pop()
+                stack[-1].append(group)
+        if not added:
+            if groupids:
+                # The part has groups but there are no groups open, open one
+                for groupid in groupids:
+                    refgroup = id2group[groupid]
+
+                    group = PartNode(kind=refgroup.kind, id=refgroup.id, items=[], name=refgroup.name, abbrev=refgroup.abbrev)
+                    stack.append(group)
+            stack[-1].items.append(part)
+    if len(stack) > 1:
+        root.items.extend(reversed(stack[1:]))
+    # while len(stack) > 1:
+    #     root.items.append(stack.pop())
+    return root

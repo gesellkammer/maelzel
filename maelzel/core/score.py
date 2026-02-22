@@ -257,6 +257,9 @@ class Score(MContainer):
                 from the names of the given voices will be used
             abbrev: an optional abbreviation for the staf name
         """
+        for voice in voices:
+            if any(voice in fusedPart for fusedPart in self.fusedParts):
+                raise ValueError(f"Voice already belongs to a part")
         part = VoiceGroup(voices=voices, name=name, abbrev=abbrev)
         if part in self.fusedParts:
             oldpart = self.fusedParts[self.fusedParts.index(part)]
@@ -285,8 +288,8 @@ class Score(MContainer):
             abbrev: a short name to use for all systems after the first one
             showPartNames: do not hide the names of the parts which form this group
         """
-        voices = [voice if voice.parent is self else voice.copy()
-                 for voice in voices]
+        voices = [voice if (not voice.parent or voice.parent is self) else voice.copy()
+                  for voice in voices]
         group = VoiceGroup(voices=voices, name=name, abbrev=abbrev, showPartNames=showPartNames)
         self.groups.add(group)
         newVoices = [v for v in voices if v not in self.voices]
@@ -355,9 +358,24 @@ class Score(MContainer):
         parts = []
         config, iscustom = self._resolveConfig(config, forceCopy=True)
         config['show.voiceMaxStaves'] = 1
+        voicemap: dict[int, list[scoring.core.UnquantizedPart]] = {}
         for voice in self.voices:
             voiceparts = voice.scoringParts(config=config)
             parts.extend(voiceparts)
+            voicemap[id(voice)] = voiceparts
+        for group in self.groups:
+            for voice in group.voices:
+                uparts = voicemap.get(id(voice))
+                if uparts:
+                    for part in uparts:
+                        part.setGroup(groupid=group.groupid, name=group.name,
+                                      abbrev=group.abbrev)
+        for fusedpart in self.fusedParts:
+            uparts = []
+            for voice in fusedpart.voices:
+                uparts.extend(voicemap.get(id(voice)))
+            assert 2 <= len(uparts) <= 4
+            uparts[0].makeMultivoicePart(uparts, name=fusedpart.name, abbrev=fusedpart.abbrev)
         return parts
 
     def scoringEvents(self,
@@ -369,7 +387,6 @@ class Score(MContainer):
         flatevents = []
         for part in parts:
             flatevents.extend(part)
-        # TODO: deal with groupid
         return flatevents
 
     def _asVoices(self) -> list[Voice]:

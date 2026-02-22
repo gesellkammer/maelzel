@@ -1669,7 +1669,7 @@ class MObj(ABC):
         """
         return False
 
-    def addSymbol(self, *args, **kws) -> Self:
+    def addSymbol(self, *args, **kws) -> None:
         """
         Add a notation symbol to this object
 
@@ -2074,6 +2074,8 @@ class MContainer(MObj):
         Args:
             config: a config to use as the active config. Any customizations made
                 will have priority over this
+            forceCopy: always return a copy, to ensure that the returned
+                config can be modified safely
 
         Returns:
             a tuple (resolvedConfig: CoreConfig, iscustomized: bool)

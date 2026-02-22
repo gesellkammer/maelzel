@@ -12,7 +12,6 @@ import textwrap
 import math
 from dataclasses import dataclass, field
 from functools import cache
-from typing import TYPE_CHECKING
 from itertools import pairwise
 
 import emlib.filetools
@@ -20,9 +19,8 @@ import emlib.mathlib
 import emlib.textlib
 import pitchtools as pt
 
-from emlib.iterlib import first
-
-from maelzel import _imgtools, _util
+from maelzel import _imgtools
+from maelzel import _util
 from maelzel._indentedwriter import IndentedWriter
 from maelzel.common import F, asF
 from maelzel.music import lilytools
@@ -39,9 +37,11 @@ from .core import Notation
 from .node import Node
 from .render import Renderer, RenderOptions
 
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from maelzel.common import pitch_t
-    from maelzel.scorestruct import MeasureDef
+    from maelzel.scorestruct import MeasureDef, ScoreStruct
+    from typing import Sequence
 
 
 __all__ = (
@@ -275,6 +275,10 @@ class RenderState:
     openSpanners: dict[str, _spanner.Spanner] = field(default_factory=dict)
     pedalStyle: str = ''
 
+    def __post_init__(self):
+        if not self.pedalStyle:
+            self.pedalStyle = self.options.pedalStyle or 'mixed'
+
 
 def _renderTextAttachment(attach: attachment.Text,
                           options: RenderOptions,
@@ -430,7 +434,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
         elif n.tiedPrev and n.gliss and state.glissando and options.glissHideTiedNotes:
             _(lyNotehead(definitions.Notehead(hidden=True)))
 
-        fingering = first(a for a in n.attachments if isinstance(a, attachment.Fingering)) if n.attachments else None
+        fingering = n.findAttachment(attachment.Fingering)
         parenthesis = False
         if not n.tiedPrev:
             if accidentalTraits := n.findAttachment(attachment.AccidentalTraits):
@@ -732,10 +736,10 @@ def _forceBracketsForNestedTuplets(node: Node):
 
 
 def renderNode(node: Node,
-               durRatios: list[F],
+               durRatios: tuple[F, ...],
                options: RenderOptions,
                state: RenderState,
-               numIndents=0,
+               indents=0,
                indentSize=2
                ) -> str:
     """
@@ -749,46 +753,32 @@ def renderNode(node: Node,
             an empty list
         options: the render options to use
         state: context of the ongoing render
-        numIndents: number of indents for the generated code.
+        indents: number of indents for the generated code.
         indentSize: the number of spaces per indent
     """
-    w = IndentedWriter(indentsize=indentSize, indents=numIndents)
-
+    w = IndentedWriter(indentSize=indentSize, indents=indents)
+    tupletStarted = False
     if node.durRatio != (1, 1):
+        tupletStarted = True
         # A new tuplet. Check if the node has any leading gracenotes, which need to
         # be rendered before the tuplet
-
-        gracenotes: list[tuple[Notation, Node]] = []
-        for n, parent in node.recurseWithNode():
-            if n.isGracenote:
-                gracenotes.append((n, parent))
-            else:
-                break
+        gracenotes: list[tuple[Notation, Node]] = node.initialGracenotes()
         if gracenotes:
             for n, parent in gracenotes:
                 parent.items.remove(n)
-        tempnode = Node([n for n, parent in gracenotes], ratio=(1, 1))
-        txt = renderNode(tempnode, durRatios=durRatios.copy(), options=options, state=state,
-                             numIndents=numIndents, indentSize=indentSize)
-        w.add(txt)
-
-        durRatios.append(F(*node.durRatio))
-        tupletStarted = True
+            tempnode = Node([n for n, parent in gracenotes], ratio=(1, 1))
+            w.add(renderNode(tempnode, durRatios=durRatios, options=options, state=state,
+                             indents=indents, indentSize=indentSize))
+        durRatios = durRatios + (F(*node.durRatio),)
         num, den = node.durRatio
-
-        w.line(f"\\tuplet {num}/{den} {{")
-        w.indents += 1
+        w.line(f"\\tuplet {num}/{den} {{", postindent=1)
         if node.getProperty('.forceTupletBracket'):
             w.line(r"\once \override TupletBracket.bracket-visibility = ##t")
 
-    else:
-        tupletStarted = False
-
     for i, item in enumerate(node.items):
         if isinstance(item, Node):
-            nodetxt = renderNode(item, durRatios, options=options, numIndents=0,
-                                 state=state, indentSize=w.indentsize)
-            w.line(nodetxt)
+            w.line(renderNode(item, durRatios, options=options, indents=0,
+                              state=state, indentSize=w.indentSize))
             continue
 
         assert isinstance(item, Notation)
@@ -812,21 +802,18 @@ def renderNode(node: Node,
             state.dynamic = ''
 
         if item.dynamic:
-            dynamic = item.dynamic
             if (options.removeRedundantDynamics and
                     not item.dynamic.endswith('!') and
                     item.dynamic == state.dynamic and
                     item.dynamic in definitions.dynamicLevels):
                 item.dynamic = ''
-            state.dynamic = dynamic
+            state.dynamic = item.dynamic
 
         # Slur modifiers (line type, etc.) need to go before the start of
-        # the first note of the spanner :-(
-        # Some spanners have customizations which need to be declared
-        # before the note to which the spanner is attached to
+        # the first note of the spanner. Some spanners need to declare customizations
+        # before the note to which they are attached to
         if item.spanners:
             item.spanners.sort(key=lambda spanner: spanner.priority())
-
             for spanner in item.spanners:
                 if lilytext := _handleSpannerPre(spanner, state=state):
                     w.add(lilytext)
@@ -868,13 +855,13 @@ def renderNode(node: Node,
                     w.add(r"\glissandoSkipOff")
         else:
             if state.glissando:
-                w.add(r"\glissandoSkipOff")
                 state.glissando = False
+                w.add(r"\glissandoSkipOff")
 
         if item.isGracenote:
             if state.insideGraceGroup and item.getProperty('.graceGroup') == 'stop':
-                w.add("}")
                 state.insideGraceGroup = False
+                w.add("}")
         else:
             state.insideGraceGroup = False
 
@@ -882,7 +869,6 @@ def renderNode(node: Node,
         #   * If it is tied, add glissandoSkipOn IF not already on
         #   * If not tied, turn off skip if already on
         # * else (no gliss): turn off skip if on
-
         if item.spanners:
             for spanner in item.spanners:
                 if lilytext := _handleSpannerPost(spanner, state=state):
@@ -947,6 +933,121 @@ def addTimeSignature(w: IndentedWriter, measuredef: MeasureDef, options: RenderO
             w.line(fr"\time {subdivs} {num}/{den}")
 
 
+def _renderMeasures(w: IndentedWriter,
+                    part: quant.QuantizedPart,
+                    addTempoMarks: bool,
+                    options: RenderOptions,
+                    addMeasureMarks: bool,
+                    startGracenotes=0) -> None:
+    scorestruct = part.struct
+    partGracenotes = _numStartGracenotes(part)
+    timesig = scorestruct.measure(0).timesig
+    quarterTempo = F(0)
+    state = RenderState(options)
+
+    if any(n.spanners and any(isinstance(s, _spanner.Pedal) for s in n.spanners)
+           for n in part.flatNotations()):
+        # Pedals found, set default pedal style
+        w.line(fr"\set Staff.pedalSustainStyle = #'{state.pedalStyle}")
+
+    for i, measure in enumerate(part.measures):
+        # Start measure
+        state.measure = measure
+        w.line(f"% measure {i+1}", postindent=1)
+        measuredef = scorestruct.measure(i)
+        if i > 0 and measuredef.timesig != timesig:
+            addTimeSignature(w, measuredef=measuredef, options=options)
+            timesig = measuredef.timesig
+
+        if addTempoMarks and measure.quarterTempo != quarterTempo:
+            quarterTempo = measure.quarterTempo
+            refvalue, numdots = measuredef.tempoRef
+            w.line(fr"\tempo {str(refvalue) + "." * numdots} = {int(measuredef.tempo)}")
+
+        if measuredef.key:
+            w.line(lilytools.keySignature(fifths=measuredef.key.fifths, mode=measuredef.key.mode))
+
+        if i == 0 and partGracenotes < startGracenotes:
+            s = "s8 " * (startGracenotes - partGracenotes)
+            w.line(r"\grace{ " + s + "}")
+
+        if addMeasureMarks:
+            if measuredef.annotation:
+                style = options.parsedmeasureLabelStyle
+                w.line(lilytools.makeTextMark(measuredef.annotation,
+                                              fontsize=style.fontsize-options.staffSize if style.fontsize else 0,
+                                              fontrelative=True,
+                                              box=style.box))
+            if measuredef.mark and measuredef.mark.text:
+                style = options.parsedRehearsalMarkStyle
+                w.line(lilytools.makeTextMark(measuredef.mark.text,
+                                              fontsize=style.fontsize-options.staffSize if style.fontsize else 0,
+                                              fontrelative=True,
+                                              box=measuredef.mark.box or style.box))
+
+        if measure.isEmpty():
+            measureDur = measure.duration()
+            if measureDur.denominator == 1 and measureDur.numerator in (1, 2, 3, 4, 6, 7, 8):
+                w.line(f"R{lilytools.makeDuration(measureDur)}")
+            else:
+                num, den = measure.timesig.fusedSignature
+                w.line(f"R1*{num}/{den}")
+            state.dynamic = ''
+        else:
+            root = measure.tree
+            _forceBracketsForNestedTuplets(root)
+            markConsecutiveGracenotes(root)
+            w.line(renderNode(root, durRatios=(), options=options,
+                              indentSize=w.indentSize, state=state))
+
+        if measuredef.barline and measuredef.barline != 'single':
+            w.line(rf'\bar "{_lilyBarlines[measuredef.barline]}"')
+
+        w.indents -= 1
+        w.line(f"|   % end measure {i+1}")
+
+
+def _numToName(num: int) -> str:
+    assert 0 <= num <= 6
+    return ("zero", "one", "two", "three", "four", "five", "six")[num]
+
+
+def _renderPartHeader(w: IndentedWriter,
+                      options: RenderOptions,
+                      measuredef: MeasureDef,
+                      clef='',
+                      name='',
+                      abbrev='',
+                      showName=True,
+                      ) -> None:
+    """
+    Renders the header, advances one indentation
+
+    Args:
+        w:
+        options:
+        measuredef:
+        clef:
+        name:
+        abbrev:
+        showName:
+
+    Returns:
+
+    """
+    w.line(r"\new Staff \with {")
+    with w.indent():
+        if name and showName:
+            w.line(f'instrumentName = #"{name}"')
+            if abbrev:
+                w.line(f'shortInstrumentName = "{abbrev}"')
+        if clef:
+            w.line(lilytools.makeClef(clef))
+    w.line("}{", postindent=1)
+    w.line(r"\numericTimeSignature")
+    addTimeSignature(w, measuredef, options=options)
+    w.line(lilytools.makeClef(clef))
+
 
 def renderPart(part: quant.QuantizedPart,
                options: RenderOptions,
@@ -955,7 +1056,7 @@ def renderPart(part: quant.QuantizedPart,
                addTempoMarks=True,
                indents=0,
                indentSize=2,
-               startGracenotes=0
+               startGracenotes=0,
                ) -> str:
     """
     Render a QuantizedPart as lilypond code
@@ -976,122 +1077,17 @@ def renderPart(part: quant.QuantizedPart,
         the rendered lilypond code
 
     """
-    quarterTempo = F(0)
-    scorestruct = part.struct
-    w = IndentedWriter(indentsize=indentSize, indents=indents)
-
-    w.line(r"\new Staff \with {")
-
-    with w.indent():
-        if part.name and part.showName:
-            w.line(f'instrumentName = #"{part.name}"')
-            if part.abbrev:
-                w.line(f'shortInstrumentName = "{part.abbrev}"')
-        if clef or part.firstClef:
-            w.line(lilytools.makeClef(part.firstClef))
-
-    w.line("}")
-    w.line("{")
-
-    w.indents += 1
-    w.line(r"\numericTimeSignature")
-
-    measuredef0 = scorestruct[0]
-    addTimeSignature(w, measuredef0, options=options)
-
-    if not clef:
-        clef = part.firstClef or part.bestClef()
-    w.line(lilytools.makeClef(clef))
-
-    timesig = measuredef0.timesig
-    pedalStyle = options.pedalStyle or 'mixed'
-    state = RenderState(options=options, pedalStyle=pedalStyle)
-
-    if any(n.spanners and any(isinstance(s, _spanner.Pedal) for s in n.spanners)
-           for n in part.flatNotations()):
-        w.line(fr"\set Staff.pedalSustainStyle = #'{pedalStyle}")
-
-    partGracenotes = _numStartGracenotes(part)
-
-    for i, measure in enumerate(part.measures):
-        assert isinstance(measure, quant.QuantizedMeasure)
-        # Start measure
-        # Reset state
-        state.measure = measure
-
-        w.line(f"% measure {i+1}")
-        w.indents += 1
-        measuredef = scorestruct.measure(i)
-        if i > 0 and measuredef.timesig != timesig:
-            addTimeSignature(w, measuredef=measuredef, options=options)
-            timesig = measuredef.timesig
-
-        if addTempoMarks and measure.quarterTempo != quarterTempo:
-            quarterTempo = measure.quarterTempo
-            refvalue, numdots = measuredef.tempoRef
-            reflily = str(refvalue) + "." * numdots
-            reftempo = measuredef.tempo
-            w.line(fr"\tempo {reflily} = {int(reftempo)}")
-
-        if measuredef.key:
-            w.line(lilytools.keySignature(fifths=measuredef.key.fifths,
-                                          mode=measuredef.key.mode))
-
-        if i == 0 and partGracenotes < startGracenotes:
-            s = "s8 " * (startGracenotes - partGracenotes)
-            w.line(r"\grace{ " + s + "}")
-
-
-        if addMeasureMarks:
-            if measuredef.annotation:
-                style = options.parsedmeasureLabelStyle
-                relfontsize = style.fontsize - options.staffSize if style.fontsize else 0
-                w.line(lilytools.makeTextMark(measuredef.annotation,
-                                              fontsize=relfontsize,
-                                              fontrelative=True,
-                                              box=style.box))
-            if measuredef.mark and measuredef.mark.text:
-                style = options.parsedRehearsalMarkStyle
-                relfontsize = style.fontsize - options.staffSize if style.fontsize else 0
-                box = measuredef.mark.box or style.box
-                w.line(lilytools.makeTextMark(measuredef.mark.text,
-                                              fontsize=relfontsize, fontrelative=True,
-                                              box=box))
-
-        if measure.isEmpty():
-            measureDur = measure.duration()
-            if measureDur.denominator == 1 and measureDur.numerator in (1, 2, 3, 4, 6, 7, 8):
-                lilydur = lilytools.makeDuration(measureDur)
-                w.line(f"R{lilydur}")
-            else:
-                num, den = measure.timesig.fusedSignature
-                w.line(f"R1*{num}/{den}")
-            state.dynamic = ''
-        else:
-            root = measure.tree
-            _forceBracketsForNestedTuplets(root)
-            markConsecutiveGracenotes(root)
-            lilytext = renderNode(root, durRatios=[], options=options,
-                                  numIndents=0, indentSize=w.indentsize,
-                                  state=state)
-            w.line(lilytext)
-        w.indents -= 1
-
-        if not measuredef.barline or measuredef.barline == 'single':
-            w.line(f"|   % end measure {i+1}")
-        else:
-            barstyle = _lilyBarlines.get(measuredef.barline)
-            if barstyle is None:
-                logger.error(f"Barstile '{measuredef.barline}' unknown. "
-                             f"Supported styles: {_lilyBarlines.keys()}")
-                barstyle = '|'
-            w.line(rf'\bar "{barstyle}"    |  % end measure {i+1}')
+    w = IndentedWriter(indentSize=indentSize, indents=indents)
+    _renderPartHeader(w=w, options=options, measuredef=part.struct[0], clef=clef)
+    _renderMeasures(w=w, part=part,
+                    addTempoMarks=addTempoMarks,
+                    options=options,
+                    addMeasureMarks=addMeasureMarks,
+                    startGracenotes=startGracenotes)
 
     w.indents -= 1
-
     w.line(f"}}   % end staff {part.name}")
     return w.join()
-
 
 # --------------------------------------------------------------
 
@@ -1113,6 +1109,7 @@ def renderScore(score: quant.QuantizedScore,
     """
     indentSize = 2
     IND = " " * indentSize
+    SPACES = "                                                                                "
     numMeasures = max(len(part.measures)
                       for part in score.parts)
     struct = score.struct.copy()
@@ -1125,7 +1122,8 @@ def renderScore(score: quant.QuantizedScore,
         if dedent:
             s = textwrap.dedent(s)
         if indent:
-            s = textwrap.indent(s, prefix=IND * indent)
+            prefix = SPACES[:indentSize*indent]
+            s = prefix+s if "\n" not in s else textwrap.indent(s, prefix=prefix)
         strs.append(s)
 
     lilyversion = lilytools.lilypondVersion(options.lilypondBinary)
@@ -1133,7 +1131,6 @@ def renderScore(score: quant.QuantizedScore,
         raise RuntimeError("Could not determine lilypond version")
 
     _(f'\\version "{lilyversion}"\n')
-
     _(r"\header {")
     if options.title:
         _(f'{IND}title = "{options.title}"')
@@ -1198,36 +1195,90 @@ def renderScore(score: quant.QuantizedScore,
     # of the part, parts without gracenotes end up unaligned. For this, any part
     # without gracenotes needs to have "silent" gracenotes.
     maxStartGracenotes = max(_numStartGracenotes(part) for part in score.parts)
-
-    _(r"\score {")
-    _(r"<<")
-    indents = 1
-    groups = score.groupParts()
+    w = IndentedWriter(indentSize=indentSize, indents=0)
+    w(r"\score {")
+    w(r"<<")
+    w.indents += 1
     partindex = 0
-    for i, group in enumerate(groups):
-        if len(group) > 1:
-            if group[0].groupName is not None:
-                name, shortname = group[0].groupName
-            else:
-                name, shortname = '', ''
-            _(fr'\new StaffGroup \with {{ instrumentName = "{name}" shortInstrumentName = "{shortname}" }} <<', indent=1)
-            indents += 1
-        for j, part in enumerate(group):
-            partstr = renderPart(part,
-                                 addMeasureMarks=partindex == 0,
-                                 addTempoMarks=partindex == 0,
-                                 options=options,
-                                 indents=indents,
-                                 indentSize=indentSize,
-                                 clef=part.firstClef,
-                                 startGracenotes=maxStartGracenotes)
-            _(partstr)
-            partindex += 1
-        if len(group) > 1:
-            _(r">>", indent=1)
-            indents -= 1
+    voiceindex = 0
+    root = score.partTree()
+    stack: list[dict] = []
+    for item in root.serialize():
+        if isinstance(item, dict):
+            if item['kind'] == 'group':
+                if item['open']:
+                    stack.append(item)
+                    w(fr'\new StaffGroup \with {{ instrumentName = "{item['name']}" '
+                      f'shortInstrumentName = "{item['abbrev']}" }} <<')
+                    w.indents += 1
 
-    _(r">>")
+                else:
+                    group = stack.pop()
+                    assert group['kind'] == 'group' and group['id'] == item['id']
+                    w.indents -= 1
+                    w.line(r">>    % end group")
+
+            elif item['kind'] == 'part':
+                if item['open']:
+                    _renderPartHeader(w, options=options,
+                                      measuredef=item['struct'][0],
+                                      clef=item['clef'],
+                                      name=item['name'],
+                                      abbrev=item['abbrev'])
+                    w("<<")
+                    w.indents += 1
+                    voiceindex = 0
+                    stack.append(item)
+                else:
+                    w.indents -= 1
+                    w(">>    % end part")
+                    w.indents -= 1
+                    w(f"}}    % end staff {item['name']}")
+
+                    partdict = stack.pop()
+                    assert partdict['kind'] == 'part' and partdict['id'] == item['id']
+        else:
+            assert isinstance(item, quant.QuantizedPart)
+            part = item
+            if stack and stack[-1]['kind'] == 'part':
+                # A multivoice part
+                voicename = _numToName(voiceindex+1)
+                w(f'\\new Voice = "{voicename}" {{')
+                w.indents += 1
+                w(f"\\voice{voicename.capitalize()}")
+                _renderMeasures(w=w,
+                                part=part,
+                                addTempoMarks=partindex==0,
+                                options=options,
+                                addMeasureMarks=partindex==0,
+                                startGracenotes=maxStartGracenotes)
+                w.indents -= 1
+                w("}")
+                voiceindex += 1
+            else:
+                name, abbrev = part.name, part.abbrev
+                # If the group has a name, do not show name of part
+                if stack:
+                    parent = stack[-1]
+                    if parent['kind'] == 'group' and parent['name']:
+                        name, abbrev = '', ''
+
+                _renderPartHeader(w,
+                                  options=options,
+                                  measuredef=part.struct[0],
+                                  clef=part.firstClef,
+                                  name=name,
+                                  abbrev=abbrev)
+                _renderMeasures(w, part=part,
+                                options=options,
+                                addTempoMarks=partindex==0,
+                                addMeasureMarks=partindex==0,
+                                startGracenotes=maxStartGracenotes)
+                w.indents -= 1
+                w(f"}}    % end staff {part.name}")
+            partindex += 1
+    w.indents -= 1
+    w(r">>   % end of voices")
     if options.proportionalSpacing:
         dur = asF(options.proportionalNotationDuration)
         if options.proportionalSpacingKind == 'strict':
@@ -1236,12 +1287,13 @@ def renderScore(score: quant.QuantizedScore,
             strict, uniform = False, True
         else:
             strict, uniform = False, False
-        _(lilypondsnippets.proportionalSpacing(num=dur.numerator, den=dur.denominator,
+        w(lilypondsnippets.proportionalSpacing(num=dur.numerator, den=dur.denominator,
                                                strict=strict, uniform=uniform))
 
     if midi:
-        _(" "*indentSize + r"\midi { }")
-    _(r"}   % end score")  # end \score
+        w(" "*indentSize + r"\midi { }")
+    w(r"}   % end score")  # end \score
+    strs.append(w.join())
     return "\n".join(strs)
 
 

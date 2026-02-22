@@ -93,8 +93,8 @@ class Clip(event.MEvent):
 
     def __init__(self,
                  source: str | audiosample.Sample | tuple[np.ndarray, int],
-                 dur: time_t = None,
-                 pitch: pitch_t = None,
+                 dur: time_t | None = None,
+                 pitch: pitch_t | None = None,
                  amp: float | None = None,
                  offset: time_t | None = None,
                  startsecs: float | F = 0.,
@@ -320,7 +320,7 @@ class Clip(event.MEvent):
             start = slice.start if slice.start is None else self.selectionStartSecs
             end = slice.stop if slice.stop is None else self.selectionEndSecs
             assert slice.step is None
-            source = self.source if isinstance(self.source, str) else (self.source, self._sr)
+            source = self.source if isinstance(self.source, str) else (self.source, self.sr)
             return Clip(source, startsecs=start, endsecs=end,
                         speed=self.speed, amp=self.amp, dynamic=self.dynamic)
         else:

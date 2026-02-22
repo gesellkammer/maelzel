@@ -12,12 +12,14 @@ from maelzel.common import F, F0
 from . import util
 from .common import logger
 from .notation import Notation
-from maelzel.scorestruct import ScoreStruct
+from dataclasses import dataclass
 
 if TYPE_CHECKING:
-    from typing import Iterator
+    from typing import Iterator, Sequence
     from maelzel.scoring import quant
     from . import attachment
+    from maelzel.scorestruct import ScoreStruct
+
 
 
 __all__ = (
@@ -26,14 +28,20 @@ __all__ = (
     'UnquantizedScore',
     'fillSilences',
     'resolveOffsets',
-    'removeSmallOverlaps',
     'distributeByClef',
+    'removeSmallOverlaps',
 )
 
 
-def _parseGroupname(name: str, separator="::") -> tuple[str, str]:
-    parts = name.split(separator, maxsplit=1)
-    return (parts[0], '') if len(parts) == 1 else (parts[0], parts[1])
+@dataclass
+class GroupDef:
+    id: str
+    name: str = ''
+    abbrev: str = ''
+    kind: str = 'group'
+
+    def rank(self) -> int:
+        return 0 if self.kind == '' else 1 if self.kind == 'group' else 2
 
 
 class UnquantizedPart:
@@ -42,12 +50,12 @@ class UnquantizedPart:
 
     .. seealso:: :class:`~maelzel.scoring.quant.QuantizedPart`,
     """
+    _groupRegistry: dict[str, GroupDef] = {}
+
     def __init__(self,
                  notations: list[Notation],
                  name='',
                  abbrev='',
-                 groupid: str = '',
-                 groupName='',
                  showName=True,
                  quantProfile: quant.QuantizationProfile | None = None,
                  firstClef='',
@@ -69,12 +77,11 @@ class UnquantizedPart:
         """
         self.notations: list[Notation] = notations
 
-        self.groupid: str = groupid
-        """A UUID identifying this Part (can be left unset)"""
-
-        self.groupName: tuple[str, str] | None = _parseGroupname(groupName) if groupName else None
-        """Used as staff group name for parts grouped together. It can include a shortname as
-        <name>::<shortname>"""
+        self.groups: list[str] = []
+        """Ids of the groups/parts to which this part belongs"""
+        # Nesting of groups is determined by the fact that a group must fully contain
+        # another group, meaning that for groups to share a part one of the groups
+        # must be a subgroup of the other
 
         self.name: str = name
         """The name of the part"""
@@ -110,10 +117,18 @@ class UnquantizedPart:
 
         self._repairNotations()
 
+    @property
+    def partid(self) -> str:
+        for id in self.groups:
+            group = self._groupRegistry.get(id)
+            if group is not None and group.kind == 'part':
+                return id
+        return ''
+
     def _repairNotations(self):
         wasmodified = _repairGracenoteAsTargetGliss(self.notations)
         if wasmodified:
-            resolvedOffsets(self.notations)
+            resolveOffsets(self.notations)
             
     def notationAfter(self, offset: F, end: F = F0) -> Notation | None:
         """
@@ -182,21 +197,92 @@ class UnquantizedPart:
             idx += 1
         return None
 
-    def setGroup(self, groupid: str, name='', abbrev='', showPartName=False) -> None:
+    def setGroup(self, groupid='', name='', abbrev='') -> str:
         """
-        Set group attributes for this part
+        Set group attributes for this part.
+
+        This adds this part to a new/existing group. A part can be part of
+        multiple groups as long as a group is a subgroup of the other. If this
+        part is already marked as belonging to the given group, nothing happends
 
         Args:
             groupid: the groupid this part belongs to. All parts with the same groupid
                 are grouped together
             name: name of the group
             abbrev: abbreviation for the group name
-            showPartName: if True, show the name of each part, even if they are
-                within a group
         """
-        self.groupid = groupid
-        self.groupName = (name, abbrev)
-        self.showName = showPartName
+        if groupid and groupid in self.groups:
+            return groupid
+        groupid = self._registerGroup(id=groupid, name=name, abbrev=abbrev)
+        assert groupid
+        self.groups.append(groupid)
+        return groupid
+
+    @property
+    def groupName(self) -> tuple[str, str]:
+        if not self.groups:
+            raise ValueError("This part does not belong to a group")
+        elif len(self.groups) > 1:
+            raise ValueError("This part belongs to multiple groups")
+        group = self._groupRegistry.get(self.groups[0])
+        if not group:
+            raise ValueError(f"Group {self.groupid} not found in groupRegistry")
+        return group.name, group.abbrev
+
+    @classmethod
+    def _registerGroup(cls, name='', abbrev='', id='', kind='group') -> str:
+        if id and id in cls._groupRegistry:
+            return id
+        elif not id:
+            id = makeGroupId()
+        group = GroupDef(id=id, name=name, abbrev=abbrev, kind=kind)
+        cls._groupRegistry[id] = group
+        return id
+
+    @classmethod
+    def makeMultivoicePart(cls,
+                           voices: Sequence[UnquantizedPart],
+                           name='',
+                           abbrev='',
+                           id=''
+                           ) -> str:
+        """
+        Mark the given parts as being voices of a multivoice part
+
+        Args:
+            voices: the voices to mark as belonging to a part (2 to 4)
+            name: the name of the part
+            abbrev: the abbreviation of the name
+            id: an id, if known. If not given a new id is created.
+
+        Returns:
+            the part id
+
+        """
+        assert 2 <= len(voices) <= 4, f"Invalid number of voices: {voices}"
+        if not id or id not in cls._groupRegistry:
+            id = cls._registerGroup(name=name, abbrev=abbrev, kind='part', id=id)
+        assert id
+        for voice in voices:
+            voice.groups.append(id)
+        return id
+
+    def asVoice(self, id='', name='', abbrev='') -> str:
+        """
+        Mark this part as belonging to a multivoice part
+
+        Args:
+            id: the id of the part. This should be shared between all voices
+            name: the name of the part.
+            abbrev: an optional abbreviation for the name
+
+        Returns:
+            the part id (the same as given or a new one if not set)
+        """
+        if not id or id not in self._groupRegistry:
+            id = self._registerGroup(name=name, abbrev=abbrev, kind='part', id=id)
+        self.groups.append(id)
+        return id
 
     def __getitem__(self, item) -> Notation:
         return self.notations.__getitem__(item)
@@ -215,22 +301,24 @@ class UnquantizedPart:
             info.append(f"name: {self.name}")
         if self.firstClef:
             info.append(f"firstClef: {self.firstClef}")
-        if self.groupName is not None and self.groupName[0]:
-            info.append(f"groupName: {self.groupName[0]} ({self.groupName[1]})")
-        if self.groupid:
-            info.append(f"groupid: {self.groupid}")
+        if self.groups:
+            groups = []
+            for id in self.groups:
+                group = self._groupRegistry[id]
+                groups.append(f"{id}: kind={group.kind}, name={group.name}")
+            info.append(f"groups: {groups})")
         print(indentstr[:-1], ", ".join(info))
-        
         for n in self.notations:
             print(indentstr, n, file=file)
 
-    @staticmethod
-    def groupParts(parts: list[UnquantizedPart],
-                   name='',
-                   abbrev='',
-                   groupid='',
-                   showPartNames=False
-                   ) -> str:
+    @classmethod
+    def makeGroup(cls,
+                  parts: list[UnquantizedPart],
+                  name='',
+                  abbrev='',
+                  groupid='',
+                  showPartNames=False
+                  ) -> str:
         """
         Mark the given parts as belonging to one group
 
@@ -247,17 +335,18 @@ class UnquantizedPart:
 
         """
         if not groupid:
-            groupid = makeGroupId()
-        print(f"Setting groupid {groupid} for parts: {parts}")
+            groupid = cls._registerGroup(name=name, abbrev=abbrev)
+
         for part in parts:
-            part.setGroup(groupid=groupid, name=name, abbrev=abbrev, showPartName=showPartNames)
+            part.setGroup(groupid=groupid)
+            part.showName = showPartNames
         return groupid
 
     def distributeByClef(self, maxStaves: int) -> list[UnquantizedPart]:
         """
         Distribute the notations in this Part into multiple parts, based on pitch
         """
-        return distributeByClef(self.notations, groupid=self.groupid, maxStaves=maxStaves)
+        return distributeByClef(self.notations, maxStaves=maxStaves)
 
     def needsMultipleClefs(self) -> bool:
         """
@@ -265,19 +354,6 @@ class UnquantizedPart:
         """
         midinotes: list[float] = sum((n.pitches for n in self), [])  # type: ignore
         return util.midinotesNeedMultipleClefs(midinotes)
-
-    def stack(self) -> None:
-        """
-        Stack the notations of this part **inplace**.
-
-        Stacking means filling in any unresolved offset in this part.
-        After this operation, all Notations in this UnquantizedPart have an
-        explicit offset.
-
-        .. seealso:: :meth:`UnquantizedPart.iterWithOffset`
-
-        """
-        resolveOffsets(self.notations)
 
     def iterWithOffset(self) -> Iterator[tuple[Notation, F]]:
         """
@@ -290,7 +366,19 @@ class UnquantizedPart:
 
         .. seealso:: :meth:`UnquantizedPart.stack`
         """
-        return resolvedOffsets(self.notations)
+        notations = self.notations
+        now = notations[0].offset
+        if now is None:
+            now = F(0)
+        for i, n in enumerate(notations):
+            if n.offset is not None:
+                if n.offset < now:
+                    raise ValueError(f"Notations not sorted, {i=}, {n.offset=}, {now=}, "
+                                     f"{n} starts before the end of the previous event, {notations[i-1]}. "
+                                     f"Notations: {notations}")
+                now = n.offset
+            yield n, now
+            now += n.duration
 
     def meanPitch(self) -> float:
         """
@@ -337,6 +425,10 @@ class UnquantizedScore:
         self.parts = parts
         self.title = title
         self.scorestruct = scorestruct
+        self._groupidToName: dict[str, str] = {}
+
+    # def addPart(self, voices: Sequence[UnquantizedPart], id: str, name='', abbrev=''):
+    #     assert all(v in self.parts for v in voices)
 
     def __len__(self):
         return len(self.parts)
@@ -386,34 +478,6 @@ def _repairGracenoteAsTargetGliss(notations: list[Notation]) -> bool:
     for item in toBeRemoved:
         notations.remove(item)
     return len(toBeRemoved) > 0
-
-
-def resolvedOffsets(notations: list[Notation]
-                    ) -> Iterator[tuple[Notation, F]]:
-    """
-    Iterate over notations, yields each notation together with its resolved offset
-
-    Notations are not modified
-
-    Args:
-        notations: the notations to iterate over
-
-    Returns:
-        an iterator of tuple(notation, offset)
-
-    """
-    now = notations[0].offset
-    if now is None:
-        now = F(0)
-    for i, n in enumerate(notations):
-        if n.offset is not None:
-            if n.offset < now:
-                raise ValueError(f"Notations not sorted, {i=}, {n.offset=}, {now=}, "
-                                 f"{n} starts before the end of the previous event, {notations[i-1]}. "
-                                 f"Notations: {notations}")
-            now = n.offset
-        yield n, now
-        now += n.duration
 
 
 def resolveOffsets(notations: list[Notation], start=F0
@@ -536,9 +600,6 @@ def _groupById(notations: list[Notation]) -> list[Notation | list[Notation]]:
 def distributeByClef(notations: list[Notation],
                      maxStaves: int,
                      minStaves=1,
-                     groupid: str = '',
-                     name='',
-                     abbrev='',
                      singleStaffRange=12,
                      staffPenalty=1.2,
                      groupNotesInSpanners=False
@@ -578,126 +639,37 @@ def distributeByClef(notations: list[Notation],
         for i in range(len(parts)-2):
             parts[i+1].possibleClefs = clefutils.clefsBetween(minclef=parts[i].firstClef, maxclef=parts[i+2].firstClef)
 
-    if groupid:
-        for p in parts:
-            p.groupid = groupid
-
-    if name:
-        if len(parts) == 1:
-            parts[0].name = name
-            parts[0].abbrev = abbrev
-        else:
-            for i, part in enumerate(parts):
-                part.name = f'{name}-{i + 1}'
-                if abbrev:
-                    part.abbrev = f'{abbrev}{i + 1}'
-
     return parts
 
 
-# def packInParts(notations: list[Notation],
-#                 maxrange=36,
-#                 keepGroupsTogether=True,
-#                 ) -> list[UnquantizedPart]:
-#     """
-#     Pack a list of possibly simultaneous notations into tracks
-#
-#     The notations within one track are NOT simultaneous. Notations belonging
-#     to the same group are kept in the same track.
-#
-#     Args:
-#         notations: the Notations to pack
-#         maxrange: the max. distance between the highest and lowest Notation
-#         keepGroupsTogether: if True, items belonging to a same group are
-#             kept in a same track
-#
-#     Returns:
-#         a list of Parts
-#
-#     """
-#     from maelzel import packing
-#     items = []
-#     if keepGroupsTogether:
-#         groups = _groupById(notations)
-#         for group in groups:
-#             if isinstance(group, Notation):
-#                 n = group
-#                 if n.isRest and not n.attachments and not n.dynamic:
-#                     continue
-#                 assert n.offset is not None and n.duration is not None
-#                 items.append(packing.Item(obj=n, offset=float(n.offset),
-#                                           dur=float(n.duration), step=n.meanPitch()))
-#             else:
-#                 dur = (max(n.end for n in group if n.end is not None) -
-#                        min(n.offset for n in group if n.offset is not None))
-#                 step = sum(n.meanPitch() for n in group)/len(group)
-#                 offset = group[0].offset
-#                 items.append(packing.Item(obj=group, offset=float(offset) if offset else 0., dur=float(dur), step=step))
-#     else:
-#         for n in notations:
-#             items.append(packing.Item(obj=n,
-#                                       offset=float(n.offset) if n.offset else 0.,
-#                                       dur=float(n.duration),
-#                                       step=n.meanPitch()))
-#     packedTracks = packing.packInTracks(items, maxrange=maxrange)
-#     assert packedTracks is not None
-#     return [UnquantizedPart(track.unwrap()) for track in packedTracks]
-
-
-# def removeRedundantDynamics(notations: list[Notation],
-#                             resetAfterRest=True,
-#                             minRestDuration: time_t = F(1, 16),
-#                             resetAfterQuarters=0) -> None:
-#     """
-#     Removes redundant dynamics, inplace
-#
-#     A dynamic is redundant if it is the same as the last dynamic and
-#     it is a dynamic level (ff, mf, ppp, but not sf, sfz, etc). It is
-#     possible to force a dynamic by adding a ``!`` sign to the dynamic
-#     (pp!)
-#
-#     Args:
-#         notations: the notations to remove redundant dynamics from
-#         resetAfterRest: if True, any dynamic after a rest is not considered
-#             redundant
-#         minRestDuration: the min. duration of a rest to reset dynamic, in quarternotes
-#         resetAfterQuarters: if given, an explicit dynamic after this number of quarters
-#             will not be removed
-#     """
-#     lastDynamic = ''
-#     now = F(0)
-#     lastDynamicBeat = F(0)
-#     for n in notations:
-#         if resetAfterQuarters and now - lastDynamicBeat > resetAfterQuarters:
-#             lastDynamic = ''
-#         now += n.duration
-#         if n.tiedPrev:
-#             continue
-#         if n.isRest and not n.dynamic:
-#             if resetAfterRest and n.duration > minRestDuration:
-#                 lastDynamic = ''
-#         elif n.dynamic:
-#             if n.dynamic[-1] == "!":
-#                 lastDynamic = n.dynamic[:-1]
-#                 lastDynamicBeat = now
-#             elif n.dynamic == lastDynamic:
-#                 n.dynamic = ''
-#             else:
-#                 lastDynamic = n.dynamic
-#                 lastDynamicBeat = now
-
-
-def makeGroupId(parent: str = '') -> str:
+def makeGroupId() -> str:
     """
     Create an id to group notations together
+    """
+    return str(uuid.uuid1())
+
+
+def collectGroups(parts: Sequence[UnquantizedPart],
+                  kind=''
+                  ) -> list[tuple[GroupDef, list[UnquantizedPart]]]:
+    """
+    Collect all groups within a sequence of parts
 
     Args:
-        parent: if given it will be prepended as {parent}/{groupid}
+        parts: the parts, generally all the parts of a score
+        kind: one of 'group', 'part' or '' to match any
 
     Returns:
-        the group id as string
+        a list of tuples (groupdef, parts) where groupdef is the
+        GroupDef with information about the group (kind, name, ...)
+        and parts are the parts belonging to that group
+
     """
-    groupid = str(uuid.uuid1())
-    return groupid if not parent else f'{parent}/{groupid}'
-
-
+    assert kind in ('group', 'part', '')
+    id2parts = {}
+    for part in parts:
+        for groupid in part.groups:
+            group = UnquantizedPart._groupRegistry[groupid]
+            if not kind or group.kind == kind:
+                id2parts.setdefault(groupid, []).append(part)
+    return [(UnquantizedPart._groupRegistry[id], parts) for id, parts in id2parts.items()]

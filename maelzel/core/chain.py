@@ -263,7 +263,7 @@ class Chain(MContainer):
         """
         self._update()
         now = F0
-        items = []
+        items: list[MEvent | Chain] = []
         for item in self.items:
             if item.offset is not None and item.offset > now:
                 gapdur = item.offset - now
@@ -614,7 +614,7 @@ class Chain(MContainer):
         an individual amplitude, dynamic, does not start a gliss, etc.)
 
         """
-        out = []
+        out: list[MEvent | Chain] = []
         last = None
         lastidx = len(self.items) - 1
         for i, item in enumerate(self.items):
@@ -800,16 +800,16 @@ class Chain(MContainer):
         return iter(self.items)
 
     @overload
-    def __getitem__(self, idx: int) -> MEvent: ...
+    def __getitem__(self, index: int) -> MEvent: ...
 
     @overload
-    def __getitem__(self, idx: slice) -> list[MEvent | Chain]: ...
+    def __getitem__(self, index: slice) -> list[MEvent | Chain]: ...
 
-    def __getitem__(self, idx):
-        if isinstance(idx, int):
-            return self.items[idx]
+    def __getitem__(self, index):
+        if isinstance(index, int):
+            return self.items[index]
         else:
-            return self.items.__getitem__(idx)
+            return self.items.__getitem__(index)
 
     def index(self, child: MEvent) -> int:
         return self.items.index(child)
@@ -1167,7 +1167,7 @@ class Chain(MContainer):
                       minStaves=1,
                       name='',
                       abbrev='',
-                      groupParts=False,
+                      groupParts=True,
                       addQuantizationProfile=False) -> list[scoring.core.UnquantizedPart]:
         self._update()
         notations = self.scoringEvents(config=config)
@@ -1187,14 +1187,12 @@ class Chain(MContainer):
             parts = [scoring.core.UnquantizedPart(notations, name=name, abbrev=abbrev)]
         else:
             parts = scoring.core.distributeByClef(notations,
-                                                  name=name,
-                                                  abbrev=abbrev,
                                                   maxStaves=maxStaves,
                                                   minStaves=minStaves,
                                                   groupNotesInSpanners=config['show.groupEventsInSpanners'])
             parts.reverse()
             if len(parts) > 1 and groupParts:
-                scoring.core.UnquantizedPart.groupParts(parts, name=name, abbrev=abbrev)
+                scoring.core.UnquantizedPart.makeGroup(parts, name=name, abbrev=abbrev)
 
         if addQuantizationProfile:
             quantProfile = config.makeQuantizationProfile()
@@ -1435,7 +1433,7 @@ class Chain(MContainer):
     def _eventsWithOffset(self,
                           frame: F,
                           ) -> tuple[list[tuple[MEvent, F]], F]:
-        events = []
+        events: list[tuple[MEvent, F]] = []
         now = frame
         for item in self.items:
             if item.offset:
@@ -1452,7 +1450,7 @@ class Chain(MContainer):
     def _iterateWithTimes(self,
                           recurse: bool,
                           frame: F,
-                          ) -> tuple[list[tuple[MEvent | list, F, F]], F]:
+                          ) -> tuple[list[tuple[MEvent | Chain, F, F]], F]:
         """
         For each item returns a tuple (item, offset, dur)
 
@@ -1475,8 +1473,8 @@ class Chain(MContainer):
 
         """
         assert isinstance(frame, F)
-        now = frame
-        out = []
+        now: F = frame
+        out: list[tuple[MEvent | list, F, F]] = []
         for i, item in enumerate(self.items):
             if item.offset is not None:
                 t = frame + item.offset
@@ -1609,9 +1607,10 @@ class Chain(MContainer):
             self._postSymbols.append((symbol, absoffset, None))
             self._changed()
 
-    def addSymbol(self, *args, **kws) -> None:
+    def addSymbol(self, *args, **kws) -> Self:
         symbol = symbols.parseAddSymbol(args, kws)
         self._addSymbol(symbol)
+        return self
 
     def firstEvent(self, acceptRest=True) -> MEvent | None:
         """
@@ -2150,7 +2149,7 @@ class Chain(MContainer):
 
     def _cropped(self, startbeat: F, endbeat: F, absorbOffset=False
                  ) -> Self:
-        items = []
+        items: list[MEvent | Chain] = []
         for item, offset in self.itemsWithOffset():
             if offset > endbeat or (offset == endbeat and item.dur > 0):
                 break
@@ -2250,13 +2249,13 @@ class Chain(MContainer):
 
 class VoiceGroup:
     """
-    This class represents a group of parts
+    This class represents a group of voices
 
-    It is used to indicate that either a group of parts are to be notated
+    It is used to indicate that either a group of voices are to be notated
     within a staff group, sharing a name/shortname and also for the cases
-    where multiple (2 to 4) voices share a staf
+    where multiple (2 to 4) voices share a staff
 
-    A PartGroup is immutable
+    A VoiceGroup is immutable
 
     Args:
         voices: the parts inside this group
@@ -2266,8 +2265,6 @@ class VoiceGroup:
             Otherwise, it is hidden and only the group name appears
     """
     def __init__(self, voices: Sequence[Voice], name='', abbrev='', showPartNames=False):
-        for voice in voices:
-            voice._group = self
 
         self.voices = voices if isinstance(voices, tuple) else tuple(voices)
         """The voices in this roup"""
@@ -2282,7 +2279,7 @@ class VoiceGroup:
         """A group ID"""
 
         self.showVoiceNames = showPartNames
-        """Show the names of the in1dividual voices?"""
+        """Show the names of the individual voices?"""
 
         self._hash = hash(frozenset((id(part) for part in self.voices)))
 
@@ -2291,6 +2288,9 @@ class VoiceGroup:
 
     def __hash__(self) -> int:
         return self._hash
+
+    def __contains__(self, voice: Voice) -> bool:
+        return voice in self.voices
 
 
 class Voice(Chain):
@@ -2349,9 +2349,6 @@ class Voice(Chain):
         self._config: dict[str, Any] = {}
         """Any key set here will override keys from the coreconfig for rendering
         Any key in CoreConfig is supported"""
-
-        self._group: VoiceGroup | None = None
-        """A part group is created via Score.makeGroup"""
 
         if maxStaves:
             self.configNotation(maxStaves=maxStaves)
@@ -2441,7 +2438,7 @@ class Voice(Chain):
 
     def __hash__(self):
         superhash = super().__hash__()
-        return hash((superhash, self.name, self.abbrev, id(self._group), hash(self._scorestruct)))
+        return hash((superhash, self.name, self.abbrev, hash(self._scorestruct)))
 
     def _copyAttributesTo(self, other: Self) -> None:
         super()._copyAttributesTo(other)
@@ -2462,10 +2459,6 @@ class Voice(Chain):
 
     def __deepcopy__(self, memodict={}) -> Self:
         return self.__copy__()
-
-    @property
-    def group(self) -> VoiceGroup | None:
-        return self._group
 
     def parentAbsOffset(self) -> F:
         return F0
@@ -2538,18 +2531,12 @@ class Voice(Chain):
                                    minStaves=self._minStaves,
                                    name=self.name or self.label,
                                    abbrev=self.abbrev,
-                                   groupParts=self._group is None,
                                    addQuantizationProfile=iscustomized)
 
-        if self._group and parts:
-            parts[0].groupParts(parts,
-                                groupid=self._group.groupid,
-                                name=self._group.name,
-                                abbrev=self._group.abbrev,
-                                showPartNames=self._group.showVoiceNames)
         if ownstruct := self._scorestruct:
             for part in parts:
                 part.scorestruct = ownstruct
+
         return parts
 
     def relOffset(self) -> F:
@@ -2732,7 +2719,7 @@ def _eventPairsBetween(eventpairs: list[tuple[MEvent, F]],
     Returns:
         a list pairs (event: MEvent, absoluteoffset: F)
     """
-    out = []
+    out: list[tuple[MEvent, F]] = []
     if partial:
         for event, offset in eventpairs:
             if offset > end:
