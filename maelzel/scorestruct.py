@@ -25,7 +25,8 @@ __all__ = (
     'measureBeatStructure',
     'TimeSignature',
     'convertTempo',
-    'figureDuration'
+    'figureDuration',
+    'BeatDef'
 )
 
 
@@ -49,6 +50,37 @@ def _partialsum(seq: Iterable[F], start=F0) -> list[F]:
         accum += i
         out.append(accum)
     return out
+
+
+@dataclass
+class BeatDef:
+    """
+    A Beat definition
+
+    Attributes:
+        offset: the offset within the measure
+        duration: duration of the beat in quarternotes
+        weight: weight of the beat, used for breaking syncopations
+    """
+    offset: F
+    "The offset within the measure"
+
+    duration: F
+    "Duration of the beat in quarter notes"
+
+    weight: int = 0
+    "Weight of the beat, used for breaking syncopations"
+
+    def isBinary(self) -> bool:
+        """
+        Is this a binary beat?
+        """
+        return self.duration.numerator % 2 == 0
+
+    @property
+    def end(self) -> F:
+        "End time of the beat"
+        return self.offset + self.duration
 
 
 class TimeSignature:
@@ -1189,25 +1221,6 @@ def beatDurations(timesig: timesig_t,
                          f"signature ({timesig[0]}/{timesig[1]}). Subdivision structure: "
                          f"{subdivisions}, durations: {out}")
     return out
-
-
-@dataclass
-class BeatDef:
-    """A Beat definition"""
-    offset: F
-    "The offset within the measure"
-    duration: F
-    "Duration of the beat in quarter notes"
-    weight: int = 0
-    "Weight of the beat, used for breaking syncopations"
-
-    def isBinary(self) -> bool:
-        return self.duration.numerator % 2 == 0
-
-    @property
-    def end(self) -> F:
-        "End time of the beat"
-        return self.offset + self.duration
 
 
 @functools.cache
