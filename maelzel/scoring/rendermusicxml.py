@@ -493,7 +493,7 @@ def _renderPitch(doc: md.Document,
                  idx: int,
                  state: _RenderState,
                  ) -> None:
-    accidentalTraits = notation.findAttachment(cls=_attachment.AccidentalTraits, pitchanchor=idx)
+    accidentalTraits = notation.findAttachment(cls=_attachment.AccidentalTraits, anchor=idx)
     if accidentalTraits:
         assert isinstance(accidentalTraits, _attachment.AccidentalTraits)
     pitch = None if notation.isRest else pt.notated_pitch(notename)

@@ -5,7 +5,7 @@ Functionality to interface with `maelzel.scoring`
 from __future__ import annotations
 
 from maelzel.common import asF
-from .workspace import Workspace
+from maelzel.core.workspace import Workspace
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -186,13 +186,14 @@ def renderWithActiveWorkspace(parts: list[scoring.core.UnquantizedPart],
 def scoringPartsFromNotations(notations: list[scoring.Notation],
                               config: CoreConfig
                               ) -> list[scoring.core.UnquantizedPart]:
+    from maelzel.scoring import core
     if not notations:
         return []
     if any(n.offset is None for n in notations):
-        scoring.core.resolveOffsets(notations)
-    parts = scoring.core.distributeByClef(notations,
-                                          maxStaves=config['show.voiceMaxStaves'],
-                                          singleStaffRange=config['show.singleStaffRange'],
-                                          staffPenalty=config['show.explodeStaffPenalty'])
+        core.resolveOffsets(notations)
+    parts = core.distributeByClef(notations,
+                                  maxStaves=config['show.voiceMaxStaves'],
+                                  singleStaffRange=config['show.singleStaffRange'],
+                                  staffPenalty=config['show.explodeStaffPenalty'])
     parts.reverse()
     return parts

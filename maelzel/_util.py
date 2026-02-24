@@ -5,6 +5,7 @@ import os
 import sys
 import weakref
 import emlib.misc
+from maelzel.common import F, F1
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -745,3 +746,14 @@ def splitVersionSpec(version: str) -> tuple[tuple[int, int, int], str]:
         version = version[1:]
     versiontup = splitVersion(version)
     return versiontup, matchop
+
+
+def fracRange(start: F, stop: F, step=F1
+              ) -> list[F]:
+    """ Like range, but yielding Fractions """
+    out = []
+    while start < stop:
+        out.append(start)
+        start += step
+    return out
+

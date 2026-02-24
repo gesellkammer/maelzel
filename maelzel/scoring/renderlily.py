@@ -468,7 +468,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
 
         notenames = n.resolveNotenames()
         notatedpitches = [pt.notated_pitch(notename) for notename in notenames]
-        chordAccidentalTraits = n.findAttachment(cls=attachment.AccidentalTraits, pitchanchor=None) or attachment.AccidentalTraits.default()
+        chordAccidentalTraits = n.findAttachment(cls=attachment.AccidentalTraits, anchor=None) or attachment.AccidentalTraits.default()
         backTies = n.tieHints('backward') if n.tiedPrev else None
         chordparts = []
         if n.tiedNext:
@@ -483,7 +483,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
             notename = notenames[i]
             notatedpitch = notatedpitches[i]
 
-            accidentalTraits = n.findAttachment(cls=attachment.AccidentalTraits, pitchanchor=i) or chordAccidentalTraits
+            accidentalTraits = n.findAttachment(cls=attachment.AccidentalTraits, anchor=i) or chordAccidentalTraits
 
             if accidentalTraits.hidden:
                 chordparts.append(r"\once\omit Accidental")

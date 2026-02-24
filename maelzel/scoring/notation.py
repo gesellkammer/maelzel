@@ -8,9 +8,9 @@ from itertools import pairwise
 from emlib import mathlib
 from functools import cache
 
-from maelzel.common import UNSET, UnsetType, F, F0, asF, asmidi
-from maelzel._util import showF, showT, hasOverlap
-from .common import (logger, NotatedDuration)
+from maelzel.common import F, F0, F1, asF, asmidi
+from maelzel._util import showF, showT, hasOverlap, fracRange
+from .common import logger
 from . import attachment as att
 from . import util
 from . import definitions
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     import maelzel.core.symbols
     import maelzel.core.mevent
     from maelzel.common import time_t, pitch_t
-    from .common import division_t
+    from .common import division_t, NotatedDuration
     from . import spanner as _spanner
     AttachmentT = TypeVar('AttachmentT', bound=att.Attachment)
     SpannerT = TypeVar('SpannerT', bound=_spanner.Spanner)
@@ -382,7 +382,7 @@ class Notation:
     def getAttachments(self,
                        cls: str | type = '',
                        predicate: Callable | None = None,
-                       anchor: int | None | UnsetType = UNSET
+                       anchor: int = -1
                        ) -> list[att.Attachment]:
         """
         Get a list of Attachments matching the given criteria
@@ -392,7 +392,8 @@ class Notation:
             predicate: a function (attachment) -> bool
             anchor: if given, the anchor index to match. Some attachments are anchored to
                 a specific component (pitch) in the notation (for example a notehead or
-                an accidental trait are attached to a specific pitch of the chord)
+                an accidental trait are attached to a specific pitch of the chord). Unset
+                (-1) to match any pitch within this notation
 
         Returns:
             the list of attachments matching the given criteria
@@ -411,14 +412,14 @@ class Notation:
         if predicate:
             attachments = [a for a in attachments if predicate(a)]
 
-        if anchor is not UNSET:
+        if anchor >= 0:
             attachments = [a for a in attachments if a.anchor == anchor or a.anchor is None]
 
         return attachments
 
     def findAttachment(self,
                        cls: type[AttachmentT],
-                       pitchanchor: int | None | UnsetType = UNSET,
+                       anchor: int = -1,
                        ) -> AttachmentT | None:
         """
         Find an attachment by class or classname
@@ -427,7 +428,7 @@ class Notation:
 
         Args:
             cls: the class to match (the class itself or its name, case is not relevant)
-            pitchanchor: if given, the anchor index to match. Some attachments are anchored to
+            anchor: if given, the anchor index to match. Some attachments are anchored to
                 None, meaning they are anchored to the entire Notation and not a specific
                 pitch. For example, an AccidentalTrait which applies to an entire chord
                 (for example, to force accidentals or set colors) can be anchored to None
@@ -440,10 +441,10 @@ class Notation:
         if not self.attachments:
             return None
 
-        if pitchanchor is UNSET:
+        if anchor < 0:
             return next((a for a in self.attachments if isinstance(a, cls)), None)
         else:
-            return next((a for a in self.attachments if isinstance(a, cls) and a.anchor == pitchanchor), None)
+            return next((a for a in self.attachments if isinstance(a, cls) and a.anchor == anchor), None)
 
     def addAttachment(self, attachment: att.Attachment, pitchanchor: int | None = None
                       ) -> Notation:
@@ -609,7 +610,7 @@ class Notation:
             self.attachments[:] = [a for a in self.attachments
                                    if not(predicate(a))]
 
-    def removeAttachmentsByClass(self, cls: type) -> None:
+    def removeAttachmentsByClass(self, cls: type[AttachmentT]) -> None:
         """Remove attachments which match the given class"""
         if not self.attachments:
             return
@@ -1171,7 +1172,7 @@ class Notation:
             out.spanners = self.spanners.copy()
         return out
 
-    def _breakIrregularDurationInBeat(self: Notation,
+    def _breakIrregularDurationInBeat(self,
                                       beatDur: F,
                                       beatDivision: int | division_t,
                                       beatOffset: F = F0
@@ -1220,7 +1221,7 @@ class Notation:
         numDivisions = len(beatDivision)
         divDuration = beatDur / numDivisions
 
-        ticks = list(mathlib.fraction_range(beatOffset, beatOffset+beatDur+divDuration, divDuration))
+        ticks = fracRange(beatOffset, beatOffset+beatDur+divDuration, divDuration)
         assert len(ticks) == numDivisions + 1
 
         subdivisionTimespans = list(pairwise(ticks))
@@ -1234,7 +1235,8 @@ class Notation:
                     if self.duration == 0 or (self.isQuantized() and self.hasRegularDuration()):
                         allparts.append(self)
                     else:
-                        parts = _breakIrregularDurationInBeat(n=subn, beatDur=divDuration, beatDivision=numslots, beatOffset=timespan[0])
+                        parts = subn._breakIrregularDurationInBeat(beatDur=divDuration, beatDivision=numslots, beatOffset=timespan[0])
+                        # parts = _breakIrregularDurationInBeat(n=subn, beatDur=divDuration, beatDivision=numslots, beatOffset=timespan[0])
                         if parts:
                             allparts.extend(parts)
                         else:
@@ -2206,24 +2208,23 @@ def _transferAttachments(source: Notation, dest: maelzel.core.mevent.MEvent) -> 
                 raise ValueError(f"Spanner {spanner} not implemented yet")
 
 
-def durationsCanMerge(symbolicdur1: F, symbolicdur2: F) -> bool:
+def durationsCanMerge(dur1: F, dur2: F) -> bool:
     """
     True if these symbolic durations can merge
 
-    Two durations can be merged if their sum is regular, meaning
-    the sum has a numerator of 1, 2, 3, 4, or 7 (3 means a dotted
-    note, 7 a double dotted note) and the denominator is <= 64
-    (1/1 being a quarter note)
+    A symbolic duration is the duration representing a notated figure
+    Valid symbolic durations are 1, 2, 4, 1/2 (8th note), 1/4 (16th note),
+    1/16, 3/2 (dotted quarter), 7/8 (double-dotted 8th), etc.
 
     Args:
-        symbolicdur1: first symbolic duration
-        symbolicdur2: seconds symbolic duration
+        dur1: first symbolic duration.
+        dur2: seconds symbolic duration
 
     Returns:
         True if they can be merged
     """
-    assert mathlib.ispowerof2(symbolicdur1.denominator) and mathlib.ispowerof2(symbolicdur2.denominator), f"{symbolicdur1=}, {symbolicdur2}="
-    sumdur = symbolicdur1 + symbolicdur2
+    assert mathlib.ispowerof2(dur1.denominator) and mathlib.ispowerof2(dur2.denominator), f"{dur1=}, {dur2}="
+    sumdur = dur1 + dur2
     num, den = sumdur.numerator, sumdur.denominator
     if den > 64 or num not in {1, 2, 3, 4, 7}:
         return False
@@ -2328,83 +2329,83 @@ class Snapped:
         return f"Snapped({self.notation}, offset={self.offset}, duration={self.duration})"
 
 
-def _breakIrregularDurationInBeat(n: Notation,
-                                  beatDur: F,
-                                  beatDivision: int | division_t,
-                                  beatOffset: F = F0
-                                  ) -> list[Notation] | None:
-    """
-    Breaks a notation with irregular duration into its parts
-
-    - a Notations should not extend over a subdivision of the beat if the
-      subdivisions in question are coprimes
-    - within a subdivision, a Notation should not result in an irregular multiple of the
-      subdivision. Irregular multiples are all numbers which have prime factors other than
-      2 or can be expressed with a dot
-      Regular durations: 2, 3, 4, 6, 7 (double dotted), 8, 12, 16, 24, 32
-      Irregular durations: 5, 9, 10, 11, 13, 15, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27,
-      28, 29, 30, 31
-
-    Args:
-        n: the Notation to break
-        beatDur: the duration of the beat
-        beatDivision: the division of the beat, either a division tuple or an int
-        beatOffset: the offset of the beat
-
-    Returns:
-        a list of tied Notations representing the original notation, or None
-        if the notation does not need to be split into parts
-
-    Raises:
-        ValueError if the notation cannot be split
-
-    """
-
-    assert beatOffset <= n.qoffset and n.end <= beatOffset + beatDur, f"{n=}, {beatOffset=}, {beatDur=}"
-
-    if n.duration == 0:
-        return None
-    elif n.isQuantized() and n.hasRegularDuration():
-        return None
-    
-    if isinstance(beatDivision, (tuple, list)) and len(beatDivision) == 1:
-        beatDivision = beatDivision[0]
-
-    if isinstance(beatDivision, int):
-        parts = _breakIrregularDurationInSimpleDivision(n, beatDur=beatDur,
-                                                        div=beatDivision, beatOffset=beatOffset)
-        return parts
-
-    # beat is not subdivided regularly. check if n extends over subdivision
-    numDivisions = len(beatDivision)
-    divDuration = beatDur/numDivisions
-
-    ticks = list(mathlib.fraction_range(beatOffset, beatOffset+beatDur+divDuration, divDuration))
-    assert len(ticks) == numDivisions + 1
-
-    subdivisionTimespans = list(pairwise(ticks))
-    subdivisions = list(zip(subdivisionTimespans, beatDivision))
-    subns = n.splitAtOffsets(ticks)
-    allparts: list[Notation] = []
-    for subn in subns:
-        # find the subdivision
-        for timespan, numslots in subdivisions:
-            if hasOverlap(timespan[0], timespan[1], subn.qoffset, subn.end):
-                if n.duration == 0 or (n.isQuantized() and n.hasRegularDuration()):
-                    allparts.append(n)
-                else:
-                    parts = _breakIrregularDurationInBeat(n=subn,
-                                                          beatDur=divDuration,
-                                                          beatDivision=numslots,
-                                                          beatOffset=timespan[0])
-                    if parts:
-                        allparts.extend(parts)
-                    else:
-                        allparts.append(subn)
-    assert sum(part.duration for part in allparts) == n.duration
-    Notation.tieNotations(allparts)
-    n._copySpannersToSplitNotation(allparts)
-    return allparts
+# def _breakIrregularDurationInBeat(n: Notation,
+#                                   beatDur: F,
+#                                   beatDivision: int | division_t,
+#                                   beatOffset: F = F0
+#                                   ) -> list[Notation] | None:
+#     """
+#     Breaks a notation with irregular duration into its parts
+#
+#     - a Notations should not extend over a subdivision of the beat if the
+#       subdivisions in question are coprimes
+#     - within a subdivision, a Notation should not result in an irregular multiple of the
+#       subdivision. Irregular multiples are all numbers which have prime factors other than
+#       2 or can be expressed with a dot
+#       Regular durations: 2, 3, 4, 6, 7 (double dotted), 8, 12, 16, 24, 32
+#       Irregular durations: 5, 9, 10, 11, 13, 15, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27,
+#       28, 29, 30, 31
+#
+#     Args:
+#         n: the Notation to break
+#         beatDur: the duration of the beat
+#         beatDivision: the division of the beat, either a division tuple or an int
+#         beatOffset: the offset of the beat
+#
+#     Returns:
+#         a list of tied Notations representing the original notation, or None
+#         if the notation does not need to be split into parts
+#
+#     Raises:
+#         ValueError if the notation cannot be split
+#
+#     """
+#
+#     assert beatOffset <= n.qoffset and n.end <= beatOffset + beatDur, f"{n=}, {beatOffset=}, {beatDur=}"
+#
+#     if n.duration == 0:
+#         return None
+#     elif n.isQuantized() and n.hasRegularDuration():
+#         return None
+#
+#     if isinstance(beatDivision, (tuple, list)) and len(beatDivision) == 1:
+#         beatDivision = beatDivision[0]
+#
+#     if isinstance(beatDivision, int):
+#         parts = _breakIrregularDurationInSimpleDivision(n, beatDur=beatDur,
+#                                                         div=beatDivision, beatOffset=beatOffset)
+#         return parts
+#
+#     # beat is not subdivided regularly. check if n extends over subdivision
+#     numDivisions = len(beatDivision)
+#     divDuration = beatDur/numDivisions
+#
+#     ticks = fracRange(beatOffset, beatOffset+beatDur+divDuration, divDuration)
+#     assert len(ticks) == numDivisions + 1
+#
+#     subdivisionTimespans = list(pairwise(ticks))
+#     subdivisions = list(zip(subdivisionTimespans, beatDivision))
+#     subns = n.splitAtOffsets(ticks)
+#     allparts: list[Notation] = []
+#     for subn in subns:
+#         # find the subdivision
+#         for timespan, numslots in subdivisions:
+#             if hasOverlap(timespan[0], timespan[1], subn.qoffset, subn.end):
+#                 if n.duration == 0 or (n.isQuantized() and n.hasRegularDuration()):
+#                     allparts.append(n)
+#                 else:
+#                     parts = _breakIrregularDurationInBeat(n=subn,
+#                                                           beatDur=divDuration,
+#                                                           beatDivision=numslots,
+#                                                           beatOffset=timespan[0])
+#                     if parts:
+#                         allparts.extend(parts)
+#                     else:
+#                         allparts.append(subn)
+#     assert sum(part.duration for part in allparts) == n.duration
+#     Notation.tieNotations(allparts)
+#     n._copySpannersToSplitNotation(allparts)
+#     return allparts
 
 
 def _breakIrregularDurationInSimpleDivision(n: Notation,
@@ -2496,6 +2497,6 @@ def _breakIrregularDurationInSimpleDivision(n: Notation,
 
 def _intDivisionToRatio(div: int) -> F:
     if mathlib.ispowerof2(div):
-        return F(1)
+        return F1
     pow2 = util.highestPowerLowerOrEqualTo(div, 2)
     return F(div, pow2)
