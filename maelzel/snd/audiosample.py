@@ -280,7 +280,7 @@ class Sample:
         self.sr: int = sr
         """The sr"""
 
-        self.numchannels = 1 if len(self.samples.shape) == 1 else self.samples.shape[1]
+        self.channels = 1 if len(self.samples.shape) == 1 else self.samples.shape[1]
         """The number of channels of each frame"""
 
         self.engine: csoundengine.Engine | None = engine
@@ -290,11 +290,11 @@ class Sample:
         if not self._csoundTable:
             return
         enginename, tabnum = self._csoundTable
-        if enginename == Sample.getEngine().name:
-            Sample.getEngine().freeTable(tabnum)
+        if enginename == Sample.audioEngine().name:
+            Sample.audioEngine().freeTable(tabnum)
 
     @property
-    def numframes(self) -> int:
+    def frames(self) -> int:
         """The number of frames"""
         return len(self.samples)
 
@@ -304,11 +304,11 @@ class Sample:
         return len(self.samples)/self.sr
 
     def __repr__(self):
-        return (f"Sample(dur={self.duration}, sr={self.sr:d}, "
-                f"ch={self.numchannels})")
+        return (f"Sample(dur={self.duration:.3f}s, sr={self.sr:d}, "
+                f"ch={self.channels}, frames={len(self.samples)})")
 
     @staticmethod
-    def getEngine(**kws) -> csoundengine.Engine:
+    def audioEngine(**kws) -> csoundengine.Engine:
         """
         Returns the csound Engine used for playback, starts the Engine if needed
 
@@ -328,9 +328,9 @@ class Sample:
         return engine
 
     @classmethod
-    def createSilent(cls, dur: float, channels: int, sr: int) -> Sample:
+    def makeSilent(cls, dur: float, channels: int, sr: int) -> Sample:
         """
-        Generate a silent Sample with the given characteristics
+        Generate a new silent Sample with the given characteristics
 
         Args:
             dur: the duration of the new Sample
@@ -370,7 +370,7 @@ class Sample:
                        skip=0.,
                        dur=0.,
                        block=False) -> PlaybackStream:
-        mapping = list(range(chan, self.numchannels + chan))
+        mapping = list(range(chan, self.channels + chan))
         samples = self.samples
         if skip:
             samples = samples[int(self.sr * skip):]
@@ -445,7 +445,7 @@ class Sample:
         elif backend == 'csound':
             # Use csoundengine
             if not engine:
-                engine = Sample.getEngine()
+                engine = Sample.audioEngine()
 
             if self.path:
                 source = self.path
@@ -453,7 +453,7 @@ class Sample:
                 source = self._makeCsoundTable(engine)
 
             if pan is None:
-                pan = 0 if self.numchannels == 1 else 0.5
+                pan = 0 if self.channels == 1 else 0.5
 
             if dur == 0:
                 dur = -1
@@ -497,18 +497,18 @@ class Sample:
     def _repr_html_(self) -> str:
         return self.reprHtml()
 
-    def show(self, withAudiotag=True, figsize=(24, 4), external=False, profile=''):
+    def show(self, audiotag=True, figsize=(24, 4), external=False, profile=''):
         if external:
             raise ValueError("External editor not supported")
         if _util.pythonSessionType() == 'jupyter':
             from IPython.display import display_html
-            display_html(self.reprHtml(withAudiotag=withAudiotag, figsize=figsize, profile=profile), raw=True)
+            display_html(self.reprHtml(audiotag=audiotag, figsize=figsize, profile=profile), raw=True)
         else:
             self.plot()
 
     def reprHtml(self,
-                 withHeader=True,
-                 withAudiotag=True,
+                 header=True,
+                 audiotag=True,
                  figsize=(24, 4),
                  profile=''
                  ) -> str:
@@ -541,22 +541,22 @@ class Sample:
         if self._reprHtml:
             return self._reprHtml
         from csoundengine.internal import plotSamplesAsHtml
-        if withAudiotag is None:
-            withAudiotag = config['reprhtml_include_audiotag']
-        if withHeader:
+        if audiotag is None:
+            audiotag = config['reprhtml_include_audiotag']
+        if header:
             from emlib.misc import sec2str
             dur = self.duration
             durstr = sec2str(dur) if dur > 60 else f"{dur:.3g}"
-            header = (f"<b>Sample</b>(duration=<code>{durstr}</code>, "
-                      f"sr=<code>{self.sr}</code>, "
-                      f"numchannels=<code>{self.numchannels}</code>)<br>")
+            h = (f"<b>Sample</b>(duration=<code>{durstr}</code>, "
+                 f"sr=<code>{self.sr}</code>, "
+                 f"numchannels=<code>{self.channels}</code>)<br>")
         else:
-            header = ''
+            h = ''
         audiotagMaxDur = config['reprhtml_audiotag_embed_maxduration_seconds']
         embed = self.duration <= audiotagMaxDur
         html = plotSamplesAsHtml(samples=self.samples, sr=self.sr,
-                                 customHeader=header,
-                                 withAudiotag=withAudiotag,
+                                 customHeader=h,
+                                 withAudiotag=audiotag,
                                  profile=profile, path=self.path, figsize=figsize,
                                  embedAudiotag=embed,
                                  audiotagMaxDuration=audiotagMaxDur if embed else 9999999)
@@ -588,11 +588,11 @@ class Sample:
         a fraction)
         """
         from . import plotting
-        samples = self.samples if self.numchannels == 1 else self.samples[:, 0]
+        samples = self.samples if self.channels == 1 else self.samples[:, 0]
         s0 = 0 if start == 0 else int(start*self.sr)
-        s1 = self.numframes if dur == 0 else min(self.numframes,
-                                                 int(dur*self.sr)-s0)
-        if s0 > 0 or s1 != self.numframes:
+        s1 = self.frames if dur == 0 else min(self.frames,
+                                              int(dur*self.sr) - s0)
+        if s0 > 0 or s1 != self.frames:
             samples = samples[s0:s1]
         return plotting.plotPowerSpectrum(samples, self.sr, framesize=framesize,
                                           window=window, axes=axes)
@@ -632,7 +632,7 @@ class Sample:
             the matplotlib Axes
         """
         from . import plotting
-        if self.numchannels > 1:
+        if self.channels > 1:
             samples = self.samples[:, 0]
         else:
             samples = self.samples
@@ -779,7 +779,7 @@ class Sample:
         if isinstance(other, (int, float)):
             return self.__class__(self.samples+other, self.sr)
         elif isinstance(other, Sample):
-            assert self.numchannels == other.numchannels and self.sr == other.sr
+            assert self.channels == other.channels and self.sr == other.sr
             if len(self) == len(other):
                 return self.__class__(self.samples+other.samples, self.sr)
             elif len(self) > len(other):
@@ -793,7 +793,7 @@ class Sample:
         if isinstance(other, (int, float)):
             self.samples += other
         elif isinstance(other, Sample):
-            assert self.numchannels == other.numchannels and self.sr == other.sr
+            assert self.channels == other.channels and self.sr == other.sr
             if len(self) == len(other):
                 self.samples += other.samples
             elif len(other) < len(self):
@@ -808,7 +808,7 @@ class Sample:
         if isinstance(other, (int, float)):
             return self.__class__(self.samples-other, self.sr)
         elif isinstance(other, Sample):
-            assert self.numchannels == other.numchannels and self.sr == other.sr
+            assert self.channels == other.channels and self.sr == other.sr
             if len(self) == len(other):
                 return self.__class__(self.samples-other.samples, self.sr)
             elif len(self) > len(other):
@@ -822,7 +822,7 @@ class Sample:
         if isinstance(other, (int, float)):
             self.samples -= other
         elif isinstance(other, Sample):
-            assert self.numchannels == other.numchannels and self.sr == other.sr
+            assert self.channels == other.channels and self.sr == other.sr
             if len(self) == len(other):
                 self.samples -= other.samples
             elif len(self) > len(other):
@@ -837,7 +837,7 @@ class Sample:
         if isinstance(other, (int, float)):
             return self.__class__(self.samples*other, self.sr)
         elif isinstance(other, Sample):
-            assert self.numchannels == other.numchannels and self.sr == other.sr
+            assert self.channels == other.channels and self.sr == other.sr
             if len(self) == len(other):
                 return self.__class__(self.samples*other.samples, self.sr)
             elif len(self) > len(other):
@@ -851,7 +851,7 @@ class Sample:
         if isinstance(other, (int, float)):
             self.samples *= other
         elif isinstance(other, Sample):
-            assert self.numchannels == other.numchannels and self.sr == other.sr
+            assert self.channels == other.channels and self.sr == other.sr
             if len(self) == len(other):
                 self.samples *= other.samples
             elif len(self) > len(other):
@@ -983,7 +983,7 @@ class Sample:
         Returns:
             new Sample
         """
-        silence = _silentFrames(numframes=int(self.sr*dur), channels=self.numchannels)
+        silence = _silentFrames(numframes=int(self.sr*dur), channels=self.channels)
         samples = np.concatenate([silence, self.samples])
         return self.__class__(samples, sr=self.sr)
 
@@ -1000,7 +1000,7 @@ class Sample:
         .. seealso:: :meth:`Sample.prependSilence`, :meth:`Sample.join`, :meth:`Sample.append`
 
         """
-        silence = _silentFrames(numframes=int(self.sr*dur), channels=self.numchannels)
+        silence = _silentFrames(numframes=int(self.sr*dur), channels=self.channels)
         samples = np.concatenate([self.samples, silence])
         return self.__class__(samples, sr=self.sr)
 
@@ -1034,13 +1034,13 @@ class Sample:
         Returns:
             the new Sample, always a stereo sample
         """
-        if self.numchannels > 2:
+        if self.channels > 2:
             raise ValueError(f"Panning can only be applied to mono or stereo samples, "
-                             f"this sample has {self.numchannels} channels")
+                             f"this sample has {self.channels} channels")
         samples = _npsnd.panStereo(self.samples, pan)
         return self.__class__(samples, sr=self.sr)
 
-    def applyPan(self, pan: float) -> Self:
+    def pan(self, pan: float) -> Self:
         """Apply panning to the sample in place
 
         .. note:: This method is only available for stereo samples.
@@ -1051,9 +1051,9 @@ class Sample:
         Returns:
             self
         """
-        if self.numchannels != 2:
+        if self.channels != 2:
             raise ValueError(f"Panning can only be applied to stereo samples, "
-                             f"this sample has {self.numchannels} channels")
+                             f"this sample has {self.channels} channels")
 
         self._checkWrite()
         _npsnd.applyPanning(self.samples, pan)
@@ -1176,7 +1176,7 @@ class Sample:
         Returns:
             a mono version of self.
         """
-        if self.numchannels == 1:
+        if self.channels == 1:
             return self if not forcecopy else self.copy()
         return Sample(_npsnd.asmono(self.samples), sr=self.sr)
 
@@ -1278,10 +1278,10 @@ class Sample:
             contiguous: if True, ensure that the samples are represented as
                 contiguous in memory
         """
-        if self.numchannels == 1 and n == 0:
+        if self.channels == 1 and n == 0:
             return self
-        if n > (self.numchannels-1):
-            raise ValueError(f"this sample has only {self.numchannels} channel(s)!")
+        if n > (self.channels-1):
+            raise ValueError(f"this sample has only {self.channels} channel(s)!")
         newsamples = self.samples[:, n]
         if contiguous and not newsamples.flags.c_contiguous:
             newsamples = np.ascontiguousarray(newsamples)
@@ -1482,7 +1482,7 @@ class Sample:
             component of this sample at the given time. Amplitudes are in the range 0-1
         """
         return spectrumAt(self.samples, sr=self.sr, time=time, resolution=resolution,
-                          channel=channel, windowsize=windowsize, mindb=mindb,
+                          channel=channel, winsize=windowsize, mindb=mindb,
                           minfreq=minfreq, maxfreq=maxfreq, maxcount=maxcount)
 
     def fundamentalFreq(self, time: float | None = None, dur=0.2, fftsize=2048, overlap=4,
@@ -1653,7 +1653,7 @@ class Sample:
             If no pitched sound found, returns (0, 0)
 
         """
-        samples = self.samples if self.numchannels == 1 else self.samples[:,channel]
+        samples = self.samples if self.channels == 1 else self.samples[:,channel]
         firstidx = _npsnd.firstSound(samples, threshold=threshold)
         lastidx = _npsnd.lastSound(samples, threshold=threshold)
         if firstidx is None or lastidx is None:
@@ -1743,7 +1743,7 @@ class Sample:
 
         """
         if isinstance(channels, int):
-            channels = _silentFrames(self.numframes, channels)
+            channels = _silentFrames(self.frames, channels)
         else:
             assert len(channels) == len(self)
         frames = np.column_stack((self.samples, channels))
@@ -1857,11 +1857,11 @@ def matchSamplerates(sampleseq: Sequence[Sample], sr: int = 0, forcecopy=False) 
         Only samples which need to be resampled will be resampled. Sample
         instances matching the used samplerate will be returned as is
     """
-    numchannels = sampleseq[0].numchannels
-    if any(s.numchannels != numchannels for s in sampleseq):
-        s = next(s for s in sampleseq if s.numchannels != numchannels)
+    numchannels = sampleseq[0].channels
+    if any(s.channels != numchannels for s in sampleseq):
+        s = next(s for s in sampleseq if s.channels != numchannels)
         raise ValueError(f"All samples should have {numchannels} channels, "
-                         f"but one Sample has {s.numchannels} channels")
+                         f"but one Sample has {s.channels} channels")
     if not sr:
         sr = max(s.sr for s in sampleseq)
 
@@ -1889,22 +1889,22 @@ def concatenate(sampleseq: Sequence[Sample]) -> Sample:
     return Sample(s, sampleseq[0].sr)
 
 
-def _mapn_between(func, n: int, t0: float, t1: float) -> np.ndarray:
-    """
-    Returns a numpy array of n-size, mapping func between t0-t1 at a rate of n/(t1-t0)
-
-    Args:
-        func: a callable of the form func(float) -> float, can be a bpf
-            (see https://bpf4.readthedocs.io)
-    """
-    if hasattr(func, 'mapn_between'):
-        ys = func.mapn_between(n, t0, t1)  # is it a Bpf?
-    else:
-        X = np.linspace(t0, t1, n)
-        ufunc = np.vectorize(func)
-        Y = ufunc(X)
-        return Y
-    return ys
+# def _mapn_between(func, n: int, t0: float, t1: float) -> np.ndarray:
+#     """
+#     Returns a numpy array of n-size, mapping func between t0-t1 at a rate of n/(t1-t0)
+#
+#     Args:
+#         func: a callable of the form func(float) -> float, can be a bpf
+#             (see https://bpf4.readthedocs.io)
+#     """
+#     if hasattr(func, 'mapn_between'):
+#         ys = func.mapn_between(n, t0, t1)  # is it a Bpf?
+#     else:
+#         X = np.linspace(t0, t1, n)
+#         ufunc = np.vectorize(func)
+#         Y = ufunc(X)
+#         return Y
+#     return ys
 
 
 def _silentFrames(numframes: int, channels: int) -> np.ndarray:
@@ -1955,7 +1955,7 @@ def mixSamples(samples: list[Sample],
         >>> m.duration
         4.0
     """
-    nchannels = max(s.numchannels for s in samples)
+    nchannels = max(s.channels for s in samples)
     sr = samples[0].sr
 
     if not all(s.sr == sr for s in samples):
@@ -2002,7 +2002,7 @@ def spectrumAt(samples: np.ndarray,
                time: float,
                resolution: float,
                channel=0,
-               windowsize: float = -1,
+               winsize: float = -1,
                mindb=-90,
                minfreq=0,
                maxfreq=12000,
@@ -2018,7 +2018,7 @@ def spectrumAt(samples: np.ndarray,
         time: the time to analyze
         resolution: the resolution of the analysis, in hz
         channel: if this sample has multiple channels, which channel to analyze
-        windowsize: the window size in hz
+        winsize: the window size in hz
         mindb: the min. amplitude in dB for a component to be included
         minfreq: the min. frequency of a component to be included
         maxfreq: the max. frequency of a component to be included
@@ -2046,7 +2046,7 @@ def spectrumAt(samples: np.ndarray,
     except ImportError:
         raise ImportError("loristrck is needed to perform this operation. Install it via "
                           "'pip install loristrck'")
-    partials = loristrck.analyze(samples, sr=sr, resolution=resolution, windowsize=windowsize)
+    partials = loristrck.analyze(samples, sr=sr, resolution=resolution, windowsize=winsize)
     if minfreq is None:
         minfreq = int(resolution * 1.3)
     validpartials, rest = loristrck.util.select(partials, mindur=margin, minamp=mindb,

@@ -351,7 +351,7 @@ def voicedness(samples: np.ndarray,
     dur = len(samples) / sr
     winsize = winsize or fftsize
     hopsize = min(winsize, fftsize) // overlap
-    numdata = (len(samples) - fftsize + hopsize) // hopsize
+    datasize = (len(samples) - fftsize + hopsize) // hopsize
     wintype = {
         'hamming': 0,
         'hann': 1,
@@ -392,10 +392,10 @@ def voicedness(samples: np.ndarray,
     engine = OfflineEngine(sr=sr, numAudioBuses=0, numControlBuses=0, commandlineOptions=['--nosound'])
     # TODO
     audiotab = engine.makeTable(samples, sr=sr)
-    timestab = engine.makeEmptyTable(numdata)
-    flatnesstab = engine.makeEmptyTable(numdata)
-    cresttab = engine.makeEmptyTable(numdata)
-    peakynesstab = engine.makeEmptyTable(numdata)
+    timestab = engine.makeEmptyTable(datasize)
+    flatnesstab = engine.makeEmptyTable(datasize)
+    cresttab = engine.makeEmptyTable(datasize)
+    peakynesstab = engine.makeEmptyTable(datasize)
     engine.compile(orc)
     engine.sched('analysis', 0, dur=dur, args=[audiotab, sr, flatnesstab, cresttab, peakynesstab, minfreq, maxfreq, magsumbins, fftsize, winsize, hopsize, wintype])
     engine.perform()

@@ -310,16 +310,16 @@ class OfflineRenderer(renderer.Renderer):
         plotHeight = config['soundfilePlotHeight']
         plotWidth = config['.soundfilePlotWidth']
 
-        plotHeightChannel = plotHeight * (0.8 ** (sample.numchannels - 1))
-        figsize = (plotWidth, plotHeightChannel * sample.numchannels)
-        samplehtml = sample.reprHtml(withHeader=False, withAudiotag=True, figsize=figsize)
+        plotHeightChannel = plotHeight * (0.8 ** (sample.channels - 1))
+        figsize = (plotWidth, plotHeightChannel * sample.channels)
+        samplehtml = sample.reprHtml(header=False, audiotag=True, figsize=figsize)
         header = '<strong>OfflineRenderer</strong>'
 
         def _(s):
             return f'<code style="color:{blue}">{s}</code>'
 
         sndfilestr = f'"{sndfile}"'
-        info = f'outfile={_(sndfilestr)}, {_(sample.numchannels)} channels, ' \
+        info = f'outfile={_(sndfilestr)}, {_(sample.channels)} channels, ' \
                f'{_(format(sample.duration, ".2f"))} secs, {_(sample.sr)} Hz'
         header = f'{header}({info})'
         return '<br>'.join([header, samplehtml])
