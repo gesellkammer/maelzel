@@ -1,1 +1,1 @@
-from maelzel.snd import freqestimate, audiosample
+from maelzel.snd import pitchtrack, audiosample

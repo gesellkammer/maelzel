@@ -25,7 +25,6 @@ def getLogger(name='maelzel',
     Returns:
         the logger
     """
-    # TODO: move this to _logutils
     logger = _logging.getLogger(name)
     if logger.hasHandlers():
         # an old logger

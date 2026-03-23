@@ -50,7 +50,7 @@ def pinkNoiseFFT(dur: float, sr=44100, peaknorm=True) -> np.ndarray:
     shaped = white * S
     out = np.fft.irfft(shaped)
     if peaknorm:
-        out *= npsnd.normalizationRatio(out, maxdb=0)
+        out *= npsnd.normalizationRatio(out, headroom=0)
     return out
 
 
@@ -92,7 +92,7 @@ def pinkNoise(dur: float, sr=44100, state: np.random.RandomState | None = None,
         y = y[:-1]
     out = _normalize(y)
     if peaknorm:
-        out *= npsnd.normalizationRatio(out, maxdb=0)
+        out *= npsnd.normalizationRatio(out, headroom=0)
     return out
 
 

@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 from dataclasses import astuple as _astuple
 
-from maelzel.snd import features
-from maelzel.snd import freqestimate
+from maelzel.snd import onset as _onset
+from maelzel.snd import pitchtrack
 from maelzel.snd import audiosample
 from maelzel.snd.numpysnd import rmsBpf
 from pitchtools import PitchConverter, db2amp
@@ -65,7 +65,7 @@ class FundamentalAnalysisMonophonic:
     variation of the fundamental within the given time range. Each breakpoint also holds
     other features of the audio, like its voicedness (a low value is an indication of noisy
     sound without enough harmonic content to determine the pitch). The analysis includes
-    other parameters as global curves (rms, spectral centroid) which can be used for
+    other parameters as global curves (rms, voicedness) which can be used for
     transcription
 
     Args:
@@ -152,30 +152,26 @@ class FundamentalAnalysisMonophonic:
                           " not supported at the moment")
 
         if not minFrequency and not fftSize:
-            minFrequency, _ = freqestimate.detectMinFrequency(samples, sr=sr, refine=False,
-                                                              lowAmpSuppression=lowAmpSuppression)
+            minFrequency, _ = pitchtrack.detectMinFrequency(samples, sr=sr, refine=False,
+                                                            lowAmpSuppression=lowAmpSuppression)
             if minFrequency == 0:
                 raise ValueError("Could not detect any pitched sound")
         if not fftSize:
-            fftSize = max(2048, freqestimate.frequencyToWindowSize(int(minFrequency), sr=sr, powerof2=True))
+            fftSize = max(2048, pitchtrack.frequencyToWindowSize(int(minFrequency), sr=sr, powerof2=True))
 
         onsetsFftSize = min(2048 if sr <= 48000 else 4098, fftSize)
-        onsets, onsetStrengthBpf = features.onsets(samples=samples,
-                                                   sr=sr,
-                                                   winsize=onsetsFftSize,
-                                                   hopsize=onsetsFftSize // onsetOverlap,
-                                                   threshold=onsetThreshold,
-                                                   backtrack=onsetBacktrack)
+        onsets, onsetStrengthBpf = _onset.onsets(samples=samples,
+                                                 sr=sr,
+                                                 winsize=onsetsFftSize,
+                                                 hopsize=onsetsFftSize // onsetOverlap,
+                                                 threshold=onsetThreshold,
+                                                 backtrack=onsetBacktrack)
         hopsize = fftSize // overlap
         hoptime = hopsize / sr
         # Secondary features:
-        rmscurve = rmsBpf(samples, sr, dt=rmsPeriod, overlap=2)
+        rmscurve = rmsBpf(samples, sr, framedur=rmsPeriod, overlap=2)
 
-        centroidFftsize = min(2048 if sr <= 48000 else 4098, fftSize)
-        centroidcurve = features.centroidBpf(samples=samples,
-                                             sr=sr,
-                                             fftsize=centroidFftsize,
-                                             overlap=min(8, overlap))
+
 
         pitchconv = PitchConverter(a4=referenceFrequency)
         dbs = rmscurve.amp2db().map(200)
@@ -184,10 +180,10 @@ class FundamentalAnalysisMonophonic:
         onsetStrengthQuantile = stats.Quantile1d(onsetStrengthBpf.points()[1])
         accentStrength = onsetStrengthQuantile.value(accentPercentile)
 
-        onsetsMask = features.filterOnsets(onsets, samples=samples, sr=sr, rmscurve=rmscurve,
-                                           minampdb=onsetMinDb, rmsperiod=rmsPeriod)
+        onsetsMask = _onset.filterOnsets(onsets, samples=samples, sr=sr, rmscurve=rmscurve,
+                                         minampdb=onsetMinDb, rmsperiod=rmsPeriod)
         onsets = onsets[onsetsMask]
-        offsets = features.findOffsets(onsets, samples=samples, sr=sr, rmscurve=rmscurve)
+        offsets = _onset.findOffsets(onsets, samples=samples, sr=sr, rmscurve=rmscurve)
 
         if removeSustain:
             from maelzel.snd.deverb import removeSustain
@@ -200,12 +196,12 @@ class FundamentalAnalysisMonophonic:
             from maelzel.snd import filters
             samples = filters.spectralFilter(samples, sr=sr, pairs=[0, 0, minFrequency, 0, minFrequency+1, 1, sr, 1])
 
-        f0, voicedcurve = freqestimate.f0curvePyinVamp(sig=samples,
-                                                       sr=sr,
-                                                       fftsize=fftSize,
-                                                       overlap=overlap,
-                                                       unvoicedFreqs='nan',
-                                                       lowAmpSuppression=lowAmpSuppression)
+        f0, voicedcurve = pitchtrack.f0curvePyinVamp(sig=samples,
+                                                     sr=sr,
+                                                     fftsize=fftSize,
+                                                     overlap=overlap,
+                                                     unvoicedFreqs='nan',
+                                                     lowAmpSuppression=lowAmpSuppression)
         groupSamplingPeriod = hoptime * 0.68
         # The min. duration of a note. Groups with a shorter duration will not be
         # split into breakpoints
@@ -313,9 +309,6 @@ class FundamentalAnalysisMonophonic:
 
         self.onsetStrengthQuantile = onsetStrengthQuantile
         """Onset strenth quantile object"""
-
-        self.centroid = centroidcurve
-        """Spectral centroid over time (bpf)"""
 
         self._pitchconv = pitchconv
 
@@ -453,12 +446,6 @@ class FundamentalAnalysisMonophonic:
 
         if scorestruct is None:
             scorestruct = ScoreStruct(tempo=60)
-
-        if self.centroid:
-            for note in voice:
-                if not note.isRest():
-                    centroidfreq = self.centroid(float(scorestruct.time(note.absOffset())))
-                    note.setProperty('centroid', int(centroidfreq))
 
         return voice
 

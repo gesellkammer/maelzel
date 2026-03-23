@@ -28,27 +28,10 @@ Tuning for noisy speech
 """
 from __future__ import annotations
 import numpy as np
+from maelzel.snd.numpysnd import makeFrames
 from scipy.signal import get_window
-
-
-# ------------------------------------------
-# helpers
-# ------------------------------------------
-
-def _frameSignal(samples: np.ndarray, framesize: int, hopsize: int) -> np.ndarray:
-    """
-    Args:
-        samples: samples as a 1D array
-        framesize: the size of each frame
-        hopsize: the hop size in samples
-
-    Returns:
-        an array of shape (numframes, framesize), where each row is a frame
-
-    """
-    n_frames = 1 + (len(samples) - framesize) // hopsize
-    strides  = (samples.strides[0] * hopsize, samples.strides[0])
-    return np.lib.stride_tricks.as_strided(samples, shape=(n_frames, framesize), strides=strides)
+import scipy.special
+from functools import cache
 
 
 def _sumOfLargestN(arr: np.ndarray, n: int) -> float:
@@ -85,9 +68,13 @@ def _spectralFlatness(powerspec: np.ndarray) -> float:
     Expects a power spectrum
 
     Args:
-        powerspec:
+        powerspec: the power spectrum
 
     Returns:
+        the flatness, this gives a measure which ranges from approx 0
+        for a pure sinusoid, to approx 1 for white noise.
+        The measure is calculated linearly. For some applications you
+        may wish to convert the value to a decibel scale
 
     """
     zeros = powerspec == 0
@@ -115,17 +102,37 @@ def _diffFunc(frame: np.ndarray) -> np.ndarray:
 
     """
     N = len(frame)
+    # next power of 2 > than N
     fftsize = 1 << (2 * N - 1).bit_length()
-    F   = np.fft.rfft(frame, n=fftsize)
+    F = np.fft.rfft(frame, n=fftsize)
     return _fftDiff(F, N)
-    # acf = np.fft.irfft(F * np.conj(F))[:N]
-    # return 2.0 * (acf[0] - acf)
+
+
+class CMNDF:
+    def __init__(self, size: int):
+        self.size = size
+        self.factor = np.arange(1, self.size)
+        # Preallocated array
+        self.cumsum = np.empty_like(self.factor)
+
+    def __call__(self, df: np.ndarray, out: np.ndarray | None = None) -> np.ndarray:
+        assert len(df) == self.size
+        if out is None:
+            out = np.empty_like(df)
+        out[0] = 1.0
+        df1 = df[1:]
+        cs = self.cumsum
+        np.cumsum(df1, out=cs)
+        np.multiply(df1, self.factor, out=out[1:])
+        # out[1:] = df1 * self.factor
+        out[1:] /= np.where(cs > 0, cs, 1.0)
+        return out
 
 
 def _cmndf(df: np.ndarray) -> np.ndarray:
-    out    = np.empty_like(df)
+    out = np.empty_like(df)
     out[0] = 1.0
-    cs     = np.cumsum(df[1:])
+    cs = np.cumsum(df[1:])
     out[1:] = df[1:] * np.arange(1, len(df)) / np.where(cs > 0, cs, 1.0)
     return out
 
@@ -250,7 +257,7 @@ def _emissions(
 # Viterbi decoder
 # ---------------------------------------------------------------------------
 
-def _viterbiDecode(
+def _viterbiDecode1(
         frame_data: list[tuple[float, float]],
         f_min: float,
         f_max: float,
@@ -324,16 +331,19 @@ def _viterbiDecode(
         bp[t, :n_pitch_bins] = np.where(take_u, UNVOICED, bp_from_v)
 
         # unvoiced state
-        from_v_to_u = np.max(prev_v) + log_p_v2u
-        from_u_to_u = prev_u         + log_p_u2u
+        argmax_prev_v = int(np.argmax(prev_v))
+        max_prev_v    = prev_v[argmax_prev_v]
+        # from_v_to_u = np.max(prev_v) + log_p_v2u
+        from_v_to_u = max_prev_v + log_p_v2u
+        from_u_to_u = prev_u + log_p_u2u
         if from_v_to_u > from_u_to_u:
             dp[t, UNVOICED] = obs_unvoiced[t] + from_v_to_u
-            bp[t, UNVOICED] = int(np.argmax(prev_v))
+            bp[t, UNVOICED] = argmax_prev_v
         else:
             dp[t, UNVOICED] = obs_unvoiced[t] + from_u_to_u
             bp[t, UNVOICED] = UNVOICED
 
-    path     = np.empty(n_frames, dtype=np.int32)
+    path = np.empty(n_frames, dtype=np.int32)
     path[-1] = int(np.argmax(dp[-1]))
     for t in range(n_frames - 2, -1, -1):
         path[t] = bp[t + 1, path[t + 1]]
@@ -344,37 +354,93 @@ def _viterbiDecode(
         np.nan)
 
 
-def _viterbiDecodeConvolution(
-    frame_data: list[tuple[float, float]],
-    f_min: float,
-    f_max: float,
-    sr: int,
-    n_pitch_bins: int,
-    voiced_prob: float,
-    v2u: float,
-    u2v: float,
-    transition_width: float,
-) -> np.ndarray:
-    from scipy.signal import fftconvolve
+def _gaussian_max_filter_vec(values: np.ndarray, sigma: float) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Vectorised O(n) Gaussian max-filter using scipy grey_dilation.
+    For each j: best_val[j] = max_i [ values[i] - 0.5*((i-j)/sigma)^2 ]
+    """
+    from scipy.ndimage import grey_dilation
 
-    logfreq = np.linspace(np.log2(f_min), np.log2(f_max), n_pitch_bins)
+    # Only need to consider bins within ~4 sigma (negligible prob beyond)
+    half_w = int(np.ceil(4.0 * sigma))
+    n = len(values)
+    size = 2 * half_w + 1
+
+    offsets = np.arange(-half_w, half_w + 1, dtype=float)
+    # Parabolic structuring element: the "shape" added to each value
+    # grey_dilation computes max_i [ values[i] + se[j-i] ]
+    # We want max_i [ values[i] - 0.5*((i-j)/sigma)^2 ]
+    # So se[k] = -0.5*(k/sigma)^2
+    se = -0.5 * (offsets / sigma) ** 2
+
+    dilated = grey_dilation(values, size=size, structure=se, mode='nearest')
+
+    # Recover argmax via argmax over the explicit windowed view
+    # Pad values for boundary handling
+    pad = np.pad(values, half_w, mode='edge')
+    # Strided windows: shape (n, size)
+    strides = (pad.strides[0], pad.strides[0])
+    windows = np.lib.stride_tricks.as_strided(pad, shape=(n, size), strides=strides)
+    scores = windows + se[np.newaxis, :]   # (n, size)
+    local_argmax = np.argmax(scores, axis=1)  # index within window
+    best_idx = (np.arange(n) - half_w + local_argmax).clip(0, n - 1).astype(np.int32)
+
+    return dilated, best_idx
+
+
+def _viterbiDecode2(
+        framedata: list[tuple[float, float]],
+        fmin: float,
+        fmax: float,
+        sr: int,
+        n_pitch_bins: int,
+        voiced_prob: float,
+        v2u: float,
+        u2v: float,
+        transition_width: float,
+    ) -> np.ndarray:
+    """
+    Viterbi over n_pitch_bins log-spaced pitch states + 1 unvoiced state.
+
+    Args:
+        framedata:
+        fmin: min frequency
+        fmax: max frequency
+        sr: sampling rate
+        n_pitch_bins: number of pitch bins
+        voiced_prob: voiced probability
+        v2u: transition voiced->unvoiced probability
+        u2v: transition unvoiced->voiced probability
+        transition_width: transition width, in cents
+
+    Returns:
+        the smooth frequency series (numpy array)
+
+    Transition design
+    -----------------
+
+    voiced[i] -> voiced[j]:  log_p_v2v − 0.5·((i−j)/σ)²   (Gaussian log-cost)
+    voiced    -> unvoiced:   log_p_v2u
+    unvoiced  -> voiced[j]:  log_p_u2v
+    unvoiced  -> unvoiced:   log_p_u2u
+
+    Complexity
+    ----------
+    O(T · n) via parabolic max-filter replacing the naive O(T · n²) matrix op.
+    """
+    logfreq = np.linspace(np.log2(fmin), np.log2(fmax), n_pitch_bins)
     cents_per_bin = (logfreq[1] - logfreq[0]) * 1200.0
+    sigma = transition_width / cents_per_bin   # transition width in bins
+
     UNVOICED = n_pitch_bins
-    n_frames = len(frame_data)
+    n_frames = len(framedata)
 
     log_p_v2v = np.log(1.0 - v2u)
     log_p_v2u = np.log(v2u)
     log_p_u2v = np.log(u2v)
     log_p_u2u = np.log(1.0 - u2v)
 
-    # --- Precompute Gaussian kernel (1-D, length 2n-1) for log-domain max-conv ---
-    # log_trans[i,j] = log_p_v2v - 0.5*((i-j)/sigma)^2
-    sigma = transition_width / cents_per_bin
-    half = n_pitch_bins - 1
-    offsets = np.arange(-half, half + 1, dtype=np.float64)
-    log_gauss_kernel = log_p_v2v - 0.5 * (offsets / sigma) ** 2  # shape: (2n-1,)
-
-    obs_voiced, obs_unvoiced = _emissions(frame_data, logfreq, f_min, f_max, sr)
+    obs_voiced, obs_unvoiced = _emissions(framedata, logfreq, fmin, fmax, sr)
 
     dp = np.full((n_frames, n_pitch_bins + 1), -np.inf)
     bp = np.zeros((n_frames, n_pitch_bins + 1), dtype=np.int32)
@@ -383,42 +449,38 @@ def _viterbiDecodeConvolution(
     dp[0, UNVOICED]      = obs_unvoiced[0] + np.log(np.clip(1.0 - voiced_prob, 1e-9, 1 - 1e-9))
 
     for t in range(1, n_frames):
-        prev_v = dp[t - 1, :n_pitch_bins]
+        prev_v = dp[t - 1, :n_pitch_bins]  # (n,)
         prev_u = dp[t - 1, UNVOICED]
 
-        # --- voiced -> voiced via (max, +) convolution ---
-        # max_j(prev_v[j] + log_gauss_kernel[b-j]) = (prev_v ⊛ kernel)[b]
-        # We approximate this using argmax on the full matrix only where needed.
-        # True O(n log n) (max,+) conv requires SMAWK or distance transform tricks;
-        # for the Gaussian case the kernel is concave (log-concave), so we can use
-        # the "sliding window argmax on shifted scores" approach.
-        #
-        # Practical fast path: since the Gaussian kernel is symmetric and concave,
-        # the argmax for each target bin b is unimodal in j. We use scipy's
-        # fftconvolve as a *soft* approximation for finding the peak, then do a
-        # narrow exact search around it — giving near-O(n) behaviour in practice.
+        # voiced -> voiced: O(n) Gaussian max-filter instead of O(n²) matrix
+        gauss_val, gauss_idx = _gaussian_max_filter_vec(prev_v, sigma)
+        best_from_v = log_p_v2v + gauss_val   # (n,)
+        bp_from_v   = gauss_idx               # (n,)  int indices
 
-        # Step 1: find approximate best source via linear (sum) convolution of scores
-        # (valid for finding the argmax location when kernel is sharply peaked)
-        best_from_v, bp_from_v = _maxconv_gaussian(prev_v, log_gauss_kernel, n_pitch_bins)
-
-        # unvoiced -> voiced
+        # unvoiced -> voiced: scalar broadcast
         from_u  = prev_u + log_p_u2v
-        take_u  = from_u > best_from_v
+        take_u  = from_u > best_from_v        # (n,) bool
 
         dp[t, :n_pitch_bins] = obs_voiced[t] + np.where(take_u, from_u, best_from_v)
         bp[t, :n_pitch_bins] = np.where(take_u, UNVOICED, bp_from_v)
 
-        # unvoiced state
-        from_v_to_u = np.max(prev_v) + log_p_v2u
-        from_u_to_u = prev_u         + log_p_u2u
+        # --- unvoiced state ---
+        # Best voiced -> unvoiced predecessor (reuse gauss bookkeeping is not
+        # helpful here; we just need the global max of prev_v, computed once)
+        argmax_v    = int(np.argmax(prev_v))
+        max_prev_v  = prev_v[argmax_v]
+
+        from_v_to_u = max_prev_v + log_p_v2u
+        from_u_to_u = prev_u     + log_p_u2u
+
         if from_v_to_u > from_u_to_u:
             dp[t, UNVOICED] = obs_unvoiced[t] + from_v_to_u
-            bp[t, UNVOICED] = int(np.argmax(prev_v))
+            bp[t, UNVOICED] = argmax_v
         else:
             dp[t, UNVOICED] = obs_unvoiced[t] + from_u_to_u
             bp[t, UNVOICED] = UNVOICED
 
+    # Viterbi back-track
     path     = np.empty(n_frames, dtype=np.int32)
     path[-1] = int(np.argmax(dp[-1]))
     for t in range(n_frames - 2, -1, -1):
@@ -431,97 +493,140 @@ def _viterbiDecodeConvolution(
     )
 
 
-def _maxconv_gaussian(
-    prev_v: np.ndarray,
-    log_gauss_kernel: np.ndarray,
-    n: int,
-    search_radius: int = 4,
-) -> tuple[np.ndarray, np.ndarray]:
+@cache
+def _logFreq(fmin: float, fmax: float, numbins: int) -> np.ndarray:
+    return np.linspace(np.log2(fmin), np.log2(fmax), numbins)
+
+
+def _gauss_kernel(v2u: float, sigma: float, half_w: int):
+    offsets = np.arange(-half_w, half_w + 1, dtype=float)
+    log_p_v2v = np.log(1.0 - v2u)
+    return log_p_v2v - 0.5 * (offsets / sigma) ** 2
+
+
+def _viterbiDecode3(
+        framedata: list[tuple[float, float]],
+        fmin: float,
+        fmax: float,
+        sr: int,
+        n_pitch_bins: int,
+        voiced_prob: float,
+        v2u: float,
+        u2v: float,
+        transition_width: float,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Efficient (max, +) convolution exploiting the concavity of the Gaussian kernel.
-
-    For a log-concave (concave in log) kernel the argmax of
-        score(b) = max_j  prev_v[j] + kernel[b - j]
-    moves monotonically with b (SMAWK / totally monotone matrix property).
-
-    Here we use a practical approximation:
-      1. Find the approximate argmax location via a *sum* FFT convolution.
-      2. Do an exact brute-force search in a small window around that location.
-
-    This is exact when the kernel is sharp relative to the signal variation,
-    which holds for typical pitch-tracking transition widths.
-    """
-    from scipy.signal import fftconvolve
-
-    half = n - 1
-
-    # Sum-convolution gives us a smooth proxy for the argmax location
-    proxy   = fftconvolve(prev_v, log_gauss_kernel[::-1], mode="full")
-    # 'full' output has length 2n-1; centre it to length n (valid range)
-    proxy_n = proxy[half: half + n]                  # shape (n,)
-    approx_src = np.round(proxy_n - proxy_n).astype(int)  # placeholder — see below
-
-    # Better: use the argmax of the proxy directly as the centre of the search window
-    # The "proxy argmax" for target b lives at index (b + argmax_kernel_shifted).
-    # Since the kernel is symmetric and centred, the dominant source for bin b is ~ b.
-    # We search [b - r, b + r] explicitly.
-
-    best_val = np.full(n, -np.inf)
-    best_src = np.zeros(n, dtype=np.int32)
-
-    for r in range(-search_radius, search_radius + 1):
-        src = np.arange(n) + r                           # candidate source bin
-        valid = (src >= 0) & (src < n)
-        k_idx = half - r                                 # kernel index for offset -r
-        if not (0 <= k_idx < len(log_gauss_kernel)):
-            continue
-        val = np.where(valid, prev_v[np.clip(src, 0, n - 1)] + log_gauss_kernel[k_idx], -np.inf)
-        better = val > best_val
-        best_val = np.where(better, val, best_val)
-        best_src = np.where(better, np.where(valid, src, 0), best_src)
-
-    return best_val, best_src
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
-def makeFrames(samples: np.ndarray,
-               sr: int,
-               frameSize: int = 2048,
-               hopSize: int = 0,
-               ) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Given an array of samples, returns (frames, times)
-
-    Where frames is an array with shape (numframes, framesize) where
-    each row represents a frame. times is an array holding the centre
-    time for each frame
 
     Args:
-        samples: audio data (1D)
-        sr: sampling rate (Hz)
-        frameSize: the size of each frame
-        hopSize: hop size in samples. If not given, hopsize=framesize//4
+        framedata:
+        fmin:
+        fmax:
+        sr:
+        n_pitch_bins:
+        voiced_prob:
+        v2u:
+        u2v:
+        transition_width:
 
     Returns:
-        a tuple (frames: np.ndarray, times: np.ndarray)
+        a tuple (f0: np.ndarray[float], path: np.ndarray[int], confidence: np.ndarray[float])
 
     """
-    samples = np.asarray(samples, dtype=np.float64)
-    if samples.ndim != 1:
-        raise ValueError("audio must be 1-D")
+    # This is currently the fastest version, 2 is next and 1 is slowest, but for
+    # little margin
+    logfreq = _logFreq(fmin, fmax, n_pitch_bins)
+    cents_per_bin = (logfreq[1] - logfreq[0]) * 1200.0
+    sigma = transition_width / cents_per_bin
+    half_w = int(np.ceil(4.0 * sigma))
 
-    peak = np.abs(samples).max()
-    if peak > 0:
-        samples = samples / peak
+    UNVOICED = n_pitch_bins
+    n_frames = len(framedata)
 
-    hopSize = hopSize or frameSize // 4
-    pad = frameSize // 2
-    padded = np.pad(samples, (pad, pad), mode="constant")
-    frames = _frameSignal(padded, frameSize, hopSize)
-    times = (np.arange(len(frames)) * hopSize) / sr
-    return frames, times
+    log_p_v2v = np.log(1.0 - v2u)
+    log_p_v2u = np.log(v2u)
+    log_p_u2v = np.log(u2v)
+    log_p_u2u = np.log(1.0 - u2v)
+
+    obs_voiced, obs_unvoiced = _emissions(framedata, logfreq, fmin, fmax, sr)
+
+    # --- Banded transition kernel (2*half_w+1 wide instead of n_pitch_bins wide) ---
+    offsets = np.arange(-half_w, half_w + 1, dtype=float)
+    gauss_kernel = log_p_v2v - 0.5 * (offsets / sigma) ** 2  # (band_size,)
+    band_size = len(offsets)
+
+    # Padded prev_v array (pad with -inf so out-of-range bins never win)
+    pad_width = half_w
+
+    dp = np.full((n_frames, n_pitch_bins + 1), -np.inf)
+    bp = np.zeros((n_frames, n_pitch_bins + 1), dtype=np.int32)
+
+    dp[0, :n_pitch_bins] = obs_voiced[0]   + np.log(np.clip(voiced_prob,       1e-9, 1 - 1e-9))
+    dp[0, UNVOICED]      = obs_unvoiced[0] + np.log(np.clip(1.0 - voiced_prob, 1e-9, 1 - 1e-9))
+
+    padded = np.full(n_pitch_bins + 2 * pad_width, -np.inf)
+    # Only allocate once
+
+    for t in range(1, n_frames):
+        prev_v = dp[t - 1, :n_pitch_bins]
+        prev_u = dp[t - 1, UNVOICED]
+
+        # Pad prev_v with -inf for boundary bins
+        # padded = np.full(n_pitch_bins + 2 * pad_width, -np.inf)
+        padded[:] = -np.inf
+        padded[pad_width:pad_width + n_pitch_bins] = prev_v
+
+        # Strided windows: each row j is the slice of prev_v that can transition to bin j
+        strides = (padded.strides[0], padded.strides[0])
+        windows = np.lib.stride_tricks.as_strided(
+            padded,
+            shape=(n_pitch_bins, band_size),
+            strides=strides,
+        )  # (n, band_size)
+
+        scores = windows + gauss_kernel[np.newaxis, :]  # (n, band_size)
+        local_argmax = np.argmax(scores, axis=1)        # (n,)
+        best_from_v  = scores[np.arange(n_pitch_bins), local_argmax]  # (n,)
+        bp_from_v    = (np.arange(n_pitch_bins) - half_w + local_argmax).clip(0, n_pitch_bins - 1)
+
+        # unvoiced -> voiced
+        from_u = prev_u + log_p_u2v
+        take_u = from_u > best_from_v
+
+        dp[t, :n_pitch_bins] = obs_voiced[t] + np.where(take_u, from_u, best_from_v)
+        bp[t, :n_pitch_bins] = np.where(take_u, UNVOICED, bp_from_v)
+
+        # unvoiced state
+        argmax_v   = int(np.argmax(prev_v))
+        max_prev_v = prev_v[argmax_v]
+
+        from_v_to_u = max_prev_v + log_p_v2u
+        from_u_to_u = prev_u     + log_p_u2u
+
+        if from_v_to_u > from_u_to_u:
+            dp[t, UNVOICED] = obs_unvoiced[t] + from_v_to_u
+            bp[t, UNVOICED] = argmax_v
+        else:
+            dp[t, UNVOICED] = obs_unvoiced[t] + from_u_to_u
+            bp[t, UNVOICED] = UNVOICED
+
+    path     = np.empty(n_frames, dtype=np.int32)
+    path[-1] = int(np.argmax(dp[-1]))
+    for t in range(n_frames - 2, -1, -1):
+        path[t] = bp[t + 1, path[t + 1]]
+
+    # --- Confidence: voiced prob relative to total mass at each frame ---
+    # log-sum-exp over all voiced bins, then normalise against unvoiced
+    log_voiced_total = scipy.special.logsumexp(dp[:, :n_pitch_bins], axis=1)  # (n_frames,)
+    log_unvoiced     = dp[:, UNVOICED]                                         # (n_frames,)
+    log_total        = np.logaddexp(log_voiced_total, log_unvoiced)            # (n_frames,)
+    confidence       = np.exp(log_voiced_total - log_total)                    # (n_frames,) in [0,1]
+
+    f0 = np.where(
+        path < n_pitch_bins,
+        2.0 ** logfreq[np.clip(path, 0, n_pitch_bins - 1)],
+        np.nan,
+    )
+    return f0, path, confidence
 
 
 def _pyin_f0(
@@ -535,26 +640,27 @@ def _pyin_f0(
         pitchDrift: float = 100.,
         voicedProb: float = 0.5,
         bins: int = 360
-    ) -> np.ndarray:
+    ) -> tuple[np.ndarray, np.ndarray]:
     frameSize = frames.shape[1]
     tau_min = max(1, int(np.floor(sr / maxFreq)))
     tau_max = min(frameSize - 1, int(np.ceil(sr / minFreq)))
     framedata = []
+    cmndf = CMNDF(frameSize)
     for frame in frames:
         if win is not None:
             frame = frame * win
         df = _diffFunc(frame)
-        cm = _cmndf(df)
+        cm = cmndf(df)
         framedata.append(_analyzeFrame(cm, tau_min, tau_max))
 
-    f0 = _viterbiDecode(
+    f0, path, confidence = _viterbiDecode3(
         framedata,
-        f_min=minFreq, f_max=maxFreq, sr=sr,
+        fmin=minFreq, fmax=maxFreq, sr=sr,
         n_pitch_bins=bins,
         voiced_prob=voicedProb,
         v2u=v2u, u2v=u2v,
         transition_width=pitchDrift)
-    return f0
+    return f0, confidence
 
 
 def pyin(
@@ -570,8 +676,8 @@ def pyin(
         v2u: float = 0.1,
         u2v: float = 0.4,
         pitchDrift: float = 100.0,
-
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        normalize=False
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Estimate the fundamental frequency (F0) using pYIN.
 
@@ -593,7 +699,7 @@ def pyin(
     =====  ======================================================
 
     Args:
-        audio: Mono audio array (float32 or float64, any amplitude).
+        samples: Mono audio array (float32 or float64, any amplitude).
         sr : Sample rate in Hz.
         minFreq: min. frequency allowed for f0
         maxFreq: max. frequency allowed for f0
@@ -607,9 +713,11 @@ def pyin(
             Increase to fix slow re-entry after silence (higher=faster recovery after
             silences or consonants)
         pitchDrift: Gaussian log-cost std-dev in cents. Controls frame-to-frame pitch agility.
+        normalize: if True, normalize data before analysis. Data should be normalized or
+            compressed for effective analysis
 
     Returns:
-        a tuple of (times, f0, voiced), where:
+        a tuple of (times, f0, confidence, voiced), where:
         * times: frame centre times in seconds,
         * f0: f0 in hz at each frame
         * voiced: True where pitch was detected, for each frame.
@@ -629,20 +737,23 @@ def pyin(
     The self-transition costs log(p_v2v) ≈ −0.1 nats and a 3-bin move
     costs only −0.1 − 0.05 = −0.15 nats — always cheaper than U->V at −0.9.
     """
+    if normalize:
+        samples = samples / np.max(np.abs(samples))
     frames, times = makeFrames(samples, sr=sr, frameSize=frameSize, hopSize=hopSize)
     win: np.ndarray = get_window(window, frameSize)
-    f0 = _pyin_f0(frames=frames,
-                  sr=sr,
-                  win=win,
-                  minFreq=minFreq,
-                  maxFreq=maxFreq,
-                  v2u=v2u,
-                  u2v=u2v,
-                  pitchDrift=pitchDrift,
-                  voicedProb=voicedProb,
-                  bins=bins)
+    f0, confidence = _pyin_f0(
+        frames=frames,
+        sr=sr,
+        win=win,
+        minFreq=minFreq,
+        maxFreq=maxFreq,
+        v2u=v2u,
+        u2v=u2v,
+        pitchDrift=pitchDrift,
+        voicedProb=voicedProb,
+        bins=bins)
     voiced = ~np.isnan(f0)
-    return times, f0, voiced
+    return times, f0, confidence, voiced
 
 
 def analyze(
@@ -662,7 +773,8 @@ def analyze(
         focusBins: int = 0,
         focusMinFreq: float = 0.,
         focusMaxFreq: float = 0.,
-        rolloff: float = 0.85
+        rolloff: float = 0.85,
+        normalize=True
 ) -> dict[str, np.ndarray]:
     """
     Analyzes multiple features
@@ -694,21 +806,25 @@ def analyze(
         the given feature corresponding to the time of the frame. All arrays have the same size
 
     """
-    frames, times = makeFrames(samples, sr=sr, frameSize=frameSize, hopSize=hopSize)
+    assert len(samples.shape) == 1, f"Only mono arrays are supported"
+    if normalize:
+        samples = samples / np.max(np.abs(samples))
+    frames, times0 = makeFrames(samples, sr=sr, frameSize=frameSize, hopSize=hopSize)
     win: np.ndarray = get_window(window, frameSize)
+    times = np.arange(0, len(samples), hopSize) / sr
     if not focusBins:
         focusBins = frameSize // 64
     tau_min = max(1, int(np.floor(sr / maxFreq)))
     tau_max = min(frameSize - 1, int(np.ceil(sr / minFreq)))
     framedata: list[tuple[float, float]] = []
-    peakyness = np.zeros_like(times)
+    focus = np.zeros_like(times)
     rolloffFreqs = np.zeros_like(times)
     flatness = np.zeros_like(times)
-    N = frames.shape[1]
-    fftsize = 1 << (2 * N - 1).bit_length()
-    fftfreqs = np.fft.rfftfreq(fftsize, d=1./ sr)
-    peakynessMinBin = np.argmax(fftfreqs > (focusMinFreq or minFreq * 2.5))
-    peakynessMaxBin = np.argmax(fftfreqs > (focusMaxFreq or sr / 2))
+    N = frameSize
+    fftSize = 1 << (2*N - 1).bit_length()  # next pow of 2, N=2000->fftSize=2048, 1024->2048
+    fftFreqs = np.fft.rfftfreq(fftSize, d=1./ sr)
+    focusMinBin = np.argmax(fftFreqs > (focusMinFreq or minFreq * 2.5))
+    focusMaxBin = np.argmax(fftFreqs > (focusMaxFreq or sr * 0.4))
 
     featPyin = 'pyin' in features
     featFlatness = 'flatness' in features
@@ -716,24 +832,25 @@ def analyze(
     featFocus = 'focus' in features
 
     frame: np.ndarray
+    cmndf = CMNDF(frameSize)
     for i, frame in enumerate(frames):
-        frame = frame * win
-        F = np.fft.rfft(frame, n=fftsize)
-        Fpos = np.abs(F)
-        Fpow = F ** 2
+        frame = frame * win                # can't do frame *= win: frame points to shared memory
+        F = np.fft.rfft(frame, n=fftSize)  # a complex128 array
+        Freal = np.abs(F)                  # make it real
+        Fpow = Freal ** 2                  # power spectrum
         if featPyin:
-            df = _fftDiff(Fpos, N)
-            cm = _cmndf(df)
+            df = _fftDiff(Freal, N)
+            cm = cmndf(df)
             framedata.append(_analyzeFrame(cm, tau_min, tau_max))
 
         if featFocus:
-            Fposlow = Fpos[peakynessMinBin:peakynessMaxBin]
-            Fposlowsum = Fposlow.sum()
-            peakyness[i] = 0 if Fposlowsum == 0 else _sumOfLargestN(Fposlow, n=focusBins) / Fposlowsum
+            FrealSel = Freal[focusMinBin:focusMaxBin]
+            FrealSelSum = FrealSel.sum()
+            focus[i] = 0 if FrealSelSum == 0 else _sumOfLargestN(FrealSel, n=focusBins)/FrealSelSum
 
         if featRolloff:
             rollbin = _rolloffBin(Fpow, rolloff=rolloff)
-            rolloffFreqs[i] = fftfreqs[int(rollbin)]
+            rolloffFreqs[i] = fftFreqs[int(rollbin)]
 
         if featFlatness:
             flatness[i] = _spectralFlatness(Fpow)
@@ -741,21 +858,18 @@ def analyze(
     out = {'times': times}
 
     if featPyin:
-        f0 = _viterbiDecode(
-            framedata,
-            f_min=minFreq, f_max=maxFreq, sr=sr,
-            n_pitch_bins=bins,
-            voiced_prob=voicedProb,
-            v2u=v2u, u2v=u2v,
-            transition_width=pitchDrift)
-        out['pyin'] = f0
+        f0, path, confidence = _viterbiDecode3(
+            framedata, fmin=minFreq, fmax=maxFreq, sr=sr,
+            n_pitch_bins=bins, voiced_prob=voicedProb,
+            v2u=v2u, u2v=u2v, transition_width=pitchDrift)
+        out['pyin.f0'] = f0
+        out['pyin.confidence'] = confidence
 
     if featFocus:
-        out['focus'] = peakyness
-
+        out['focus'] = focus
+        out['focus.binRange'] = (focusMinBin, focusMaxBin)
     if featRolloff:
         out['rolloff'] = rolloffFreqs
-
     if featFlatness:
         out['flatness'] = flatness
 

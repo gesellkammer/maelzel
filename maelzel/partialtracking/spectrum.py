@@ -961,7 +961,7 @@ class Spectrum:
         """
         sr = 44100
         sample = self.synthesize(sr=sr)
-        from maelzel.snd import freqestimate
+        from maelzel.snd import pitchtrack
         f0curve, voicedness = freqestimate.f0curve(sample.samples, sr=sample.sr, minfreq=minfreq)
         return f0curve, voicedness
 

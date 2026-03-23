@@ -129,7 +129,7 @@ def removeSustain(samples: np.ndarray,
         raise ValueError(f"Expected an integer, got {overlap}")
 
     if onsets is None:
-        from maelzel.snd import features
+        from maelzel.snd import onset
         onsets, onsetStrength = features.onsets(samples=samples,
                                                 sr=sr,
                                                 winsize=onsetFFTsize,

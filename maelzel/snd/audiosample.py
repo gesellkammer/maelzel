@@ -44,6 +44,7 @@ Examples
 from __future__ import annotations
 import abc
 import numpy as np
+import numpy.typing as npt
 import os
 
 import pitchtools as pt
@@ -1114,13 +1115,14 @@ class Sample:
         self._changed()
         return self
 
-    def rmsBpf(self, dt=0.01, overlap=1) -> bpf4.Sampled:
+    def rmsBpf(self, framedur=0.01, overlap=1) -> bpf4.Sampled:
         """
         Creates a BPF representing the rms of this sample over time
 
         Args:
-            dt (float): The duration of each frame in seconds.
-            overlap (int): The number of frames to overlap.
+            framedur: The duration of each frame in seconds.
+            overlap: how much do analysis windows overlap. An overlap of
+                2 means a hop of dt/2
 
         Returns:
             bpf4.Sampled: A BPF representing the rms of this sample over time.
@@ -1131,7 +1133,23 @@ class Sample:
 
         .. seealso:: https://bpf4.readthedocs.io/en/latest/
         """
-        return _npsnd.rmsBpf(self.samples, self.sr, dt=dt, overlap=overlap)
+        return _npsnd.rmsBpf(self.samples, self.sr, framedur=framedur, overlap=overlap)
+
+    def rmsAt(self, times: npt.ArrayLike, framedur=0.01) -> np.ndarray:
+        """
+        Calculate the RMS of this signal at the given times
+
+        Args:
+            times: the times at which to calculate the RMS
+            framedur: the window size in
+
+        Returns:
+
+        """
+        timesarr = np.asarray(times)
+        winsize = int(framedur * self.sr)
+        rmsvals = _npsnd.rmsAt(self.samples, sr=self.sr, times=timesarr, winsize=winsize)
+        return rmsvals
 
     def rms(self) -> float:
         """
@@ -1164,7 +1182,7 @@ class Sample:
         Returns:
             a bpf representing the average amplitude over time
         """
-        return _npsnd.ampBpf(self.samples, self.sr, attack=attack, release=release, chunktime=chunktime, overlap=overlap)
+        return _npsnd.ampBpf(self.samples, self.sr, attack=attack, release=release, framedur=chunktime, overlap=overlap)
 
     def mono(self, forcecopy=False) -> Sample:
         """
@@ -1404,7 +1422,7 @@ class Sample:
         if method == 'rosita':
             if threshold is None:
                 threshold = 0.07
-            from maelzel.snd import features
+            from maelzel.snd import onset
             onsets, onsetstrength = features.onsets(self.samples, sr=self.sr,
                                                     winsize=fftsize,
                                                     hopsize=fftsize // overlap,
@@ -1529,6 +1547,30 @@ class Sample:
             minfreq = self.sr / fftsize * 2
             avgfreq = float(scipy.stats.trim_mean(freqs[freqs > minfreq], proportiontocut=0.1))
         return avgfreq
+
+    def detectMinFreq(self, frameSize=2048, overlap=2, confidence=0.3, refine=False
+                      ) -> tuple[float, float]:
+        """
+        Detects the min. frequency of pitched (voiced) material in this sample
+
+        Args:
+            frameSize: the analysis frame size
+            overlap: number of analysis frames to overlap
+            confidence: min. confidence to considere
+            refine: if True, after searching coarsly for low pitches, search near
+                the best region with more overlap for better freq and time resolution
+
+        Returns:
+            a tuple (freq, time). Both will be 0 if no pitched material found
+        """
+        from maelzel.snd import pitchtrack
+        if overlap >= 4:
+            refine = False
+        return pitchtrack.detectMinFrequency(samples=self.samples, sr=self.sr,
+                                             frameSize=frameSize, overlap=overlap,
+                                             confidence=confidence, minFreq=30, maxFreq=5000,
+                                             refine=refine)
+
 
     def fundamental(self, fftsize=2048, overlap=4, unvoiced='negative', minAmpDb=-60, sensitivity=0.7
                     ) -> tuple[np.ndarray, np.ndarray]:
@@ -1659,7 +1701,7 @@ class Sample:
         if firstidx is None or lastidx is None:
             return (0., 0.)
 
-        from maelzel.snd import freqestimate
+        from maelzel.snd import pitchtrack
         chunksize = int(chunkdur * self.sr)
         for idx in range(firstidx, lastidx, chunksize):
             fragm = samples[idx:idx+chunksize]

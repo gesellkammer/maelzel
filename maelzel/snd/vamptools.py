@@ -373,7 +373,7 @@ def pyin(samples: np.ndarray,
 
     smoothpitchnan = bpf4.core.Linear(nantimes, nanfreqs)
 
-    rmscurve0 = numpysnd.rmsBpf(samples, sr=sr, dt=rmsPeriod, overlap=2)
+    rmscurve0 = numpysnd.rmsBpf(samples, sr=sr, framedur=rmsPeriod, overlap=2)
     rmscurve = bpf4.util.smoothen(rmscurve0, window=rmsPeriod*4)
     rmsnum = rmscurve0.dxton(rmsPeriod)
     rmsdbquant = stats.Quantile1d(rmscurve0.amp2db().map(rmsnum))

@@ -110,8 +110,8 @@ def peakDetect(y_axis: np.ndarray,
     return maxtab, mintab
 
 
-def peakDetectUsingZeroCrossing(y_axis: np.ndarray, window=49
-                                ) -> tuple[list[tuple[int, float]], list[tuple[int, float]]]:
+def peakDetectZeroCross(y_axis: np.ndarray, window=49
+                        ) -> tuple[list[tuple[int, float]], list[tuple[int, float]]]:
     """
     Algorithm for detecting local maximas and minimas in a signal.
 
