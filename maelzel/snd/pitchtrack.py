@@ -232,7 +232,7 @@ def _detectMinFrequency(samples: np.ndarray, sr: int, minFreq=30, overlap=4,
                         refine=True
                         ) -> tuple[float, float]:
     """
-    Detect the min. frequency in this audio sample
+    Detect the min. frequency in this audio sample, using vamp's pyin
 
     Args:
         samples: the samples to analyze

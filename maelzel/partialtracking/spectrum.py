@@ -888,12 +888,12 @@ class Spectrum:
                 samples: np.ndarray | str,
                 sr: int = 44100,
                 resolution: float = 50.,
-                windowsize=0.,
-                hoptime=0.,
-                freqdrift=0.,
-                minbreakpoints=1,
-                mindb=-90,
-                indexresolution=0.
+                winSize=0.,
+                hopTime=0.,
+                freqDrift=0.,
+                minBreakpoints=1,
+                minDb=-90,
+                indexResolution=0.
                 ) -> Spectrum:
         """
         Analyze audiosamples to generate a Spectrum via partial tracking
@@ -908,14 +908,14 @@ class Spectrum:
             sr: the samplerate, ignored if samples is given as a path
             resolution: the analysis resolution, determines the fft size. As a rule of thumb, somewhat lower than the
                 lowest frequency expected for a monophonic source.
-            windowsize: The window size in hz. This value needs to be higher than the resolution since the window in
+            winSize: The window size in hz. This value needs to be higher than the resolution since the window in
                 samples needs to be smaller than the fft analysis
-            hoptime: the time to move the window after each analysis. For overlap==1, this is 1/windowsize.
+            hopTime: the time to move the window after each analysis. For overlap==1, this is 1/windowsize.
                 For overlap==2, 1/(windowsize*2). 0=default
-            freqdrift: the max. variation in frequency between two breakpoints (0.: default, 1/2 resolution)
-            minbreakpoints: the min. number of breakpoints a partial can have. If set to > 1, any unmatched breakpoint
+            freqDrift: the max. variation in frequency between two breakpoints (0.: default, 1/2 resolution)
+            minBreakpoints: the min. number of breakpoints a partial can have. If set to > 1, any unmatched breakpoint
                 will be removed)
-            mindb: the amplitude floor, in dB. Breakpoints below this amplitude will
+            minDb: the amplitude floor, in dB. Breakpoints below this amplitude will
                 not be considered.
 
         Returns:
@@ -938,14 +938,14 @@ class Spectrum:
         partialarrays = loristrck.analyze(samples,
                                           sr=sr,
                                           resolution=resolution,
-                                          windowsize=windowsize or -1,
-                                          hoptime=hoptime or -1,
-                                          ampfloor=mindb,
-                                          freqdrift=freqdrift or -1)
-        if minbreakpoints > 1:
-            partialarrays = [p for p in partialarrays if len(p) >= minbreakpoints]
+                                          windowsize=winSize or -1,
+                                          hoptime=hopTime or -1,
+                                          ampfloor=minDb,
+                                          freqdrift=freqDrift or -1)
+        if minBreakpoints > 1:
+            partialarrays = [p for p in partialarrays if len(p) >= minBreakpoints]
 
-        return Spectrum(partials=[Partial(data) for data in partialarrays], indexTimeResolution=indexresolution)
+        return Spectrum(partials=[Partial(data) for data in partialarrays], indexTimeResolution=indexResolution)
 
     def fundamental(self, minfreq=60) -> tuple[bpf4.BpfInterface, bpf4.BpfInterface]:
         """

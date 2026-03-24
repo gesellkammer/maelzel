@@ -1317,10 +1317,10 @@ class Sample:
 
     def fundamentalAnalysis(self,
                             semitoneQuantization=0,
-                            fftsize: int = 0,
+                            fftSize: int = 0,
                             simplify=0.08,
                             overlap=8,
-                            minFrequency=50,
+                            minFreq=50,
                             minSilence=0.08,
                             onsetThreshold=0.05,
                             onsetOverlap=8,
@@ -1334,10 +1334,10 @@ class Sample:
 
         Args:
             semitoneQuantization (float): Semitone quantization, 0 to disable quantization
-            fftsize (int): FFT size
+            fftSize (int): FFT size
             simplify (float): Simplification threshold
             overlap (int): Overlap factor
-            minFrequency (float): Minimum frequency
+            minFreq (float): Minimum frequency
             minSilence (float): Minimum silence duration
             onsetThreshold (float): Onset threshold
             onsetOverlap (int): overlap factor for onset analysis
@@ -1358,10 +1358,10 @@ class Sample:
         analysis = mono.FundamentalAnalysisMonophonic(samples=self.samples,
                                                       sr=self.sr,
                                                       semitoneQuantization=semitoneQuantization,
-                                                      fftSize=fftsize,
+                                                      fftSize=fftSize,
                                                       overlap=overlap,
                                                       simplify=simplify,
-                                                      minFrequency=minFrequency,
+                                                      minFrequency=minFreq,
                                                       minSilence=minSilence,
                                                       onsetThreshold=onsetThreshold,
                                                       onsetOverlap=onsetOverlap)
@@ -1415,29 +1415,28 @@ class Sample:
         See Also
         ~~~~~~~~
 
-        * maelzel.snd.features.onsetsAubio
         * maelzel.snd.features.onsets
 
         """
         if method == 'rosita':
             if threshold is None:
                 threshold = 0.07
-            from maelzel.snd import onset
-            onsets, onsetstrength = features.onsets(self.samples, sr=self.sr,
-                                                    winsize=fftsize,
-                                                    hopsize=fftsize // overlap,
-                                                    threshold=threshold,
-                                                    mingap=mingap)
-            return onsets
+            from maelzel.snd.onset import onsets
+            times, strengths = onsets(self.samples, sr=self.sr,
+                                      winsize=fftsize,
+                                      hopsize=fftsize // overlap,
+                                      threshold=threshold,
+                                      mingap=mingap)
+            return times
         else:
             raise ValueError(f"method {method} not known. Possible methods: 'rosita'")
 
     def partialTrackingAnalysis(self,
                                 resolution: float = 50.,
                                 channel=0,
-                                windowsize=0.,
-                                freqdrift=0.,
-                                hoptime=0.,
+                                winSize=0.,
+                                freqDrift=0.,
+                                hopTime=0.,
                                 mindb=-90,
                                 ) -> _spectrum.Spectrum:
         """
@@ -1446,12 +1445,12 @@ class Sample:
         Args:
             resolution: the resolution of the analysis, in Hz
             channel: which channel to analyze
-            windowsize: The window size in hz. This value needs to be higher than the
+            winSize: The window size in hz. This value needs to be higher than the
                 resolution since the window in samples needs to be smaller than the fft analysis
             mindb: the amplitude floor.
-            hoptime: the time to move the window after each analysis. For overlap==1, this is 1/windowsize.
+            hopTime: the time to move the window after each analysis. For overlap==1, this is 1/windowsize.
                 For overlap==2, 1/(windowsize*2)
-            freqdrift: the max. variation in frequency between two breakpoints (by default, 1/2 resolution)
+            freqDrift: the max. variation in frequency between two breakpoints (by default, 1/2 resolution)
 
         Returns:
             a :class:`maelzel.partialtracking.spectrum.Spectrum`
@@ -1467,20 +1466,20 @@ class Sample:
         return Spectrum.analyze(samples=samples,
                                 sr=self.sr,
                                 resolution=resolution,
-                                windowsize=windowsize,
-                                hoptime=hoptime,
-                                freqdrift=freqdrift,
-                                mindb=mindb)
+                                winSize=winSize,
+                                hopTime=hopTime,
+                                freqDrift=freqDrift,
+                                minDb=mindb)
 
     def spectrumAt(self,
                    time: float,
                    resolution: float = 50.,
                    channel=0,
-                   windowsize: float = -1,
-                   mindb=-90,
-                   minfreq=0,
-                   maxfreq=12000,
-                   maxcount=0
+                   winSize: float = -1,
+                   winDb=-90,
+                   minFreq=0,
+                   maxFreq=12000,
+                   maxItems=0
                    ) -> list[tuple[float, float]]:
         """
         Analyze sinusoidal components of this Sample at the given time
@@ -1489,19 +1488,19 @@ class Sample:
             time: the time to analyze
             resolution: the resolution of the analysis, in hz
             channel: if this sample has multiple channels, which channel to analyze
-            windowsize: the window size in hz
-            mindb: the min. amplitude in dB for a component to be included
-            minfreq: the min. frequency of a component to be included
-            maxfreq: the max. frequency of a component to be included
-            maxcount: the max. number of components to include (0 to include all)
+            winSize: the window size in hz
+            winDb: the min. amplitude in dB for a component to be included
+            minFreq: the min. frequency of a component to be included
+            maxFreq: the max. frequency of a component to be included
+            maxItems: the max. number of items to include (0 to include all)
 
         Returns:
             a list of pairs (frequency, amplitude) where each pair represents a sinusoidal
             component of this sample at the given time. Amplitudes are in the range 0-1
         """
         return spectrumAt(self.samples, sr=self.sr, time=time, resolution=resolution,
-                          channel=channel, winsize=windowsize, mindb=mindb,
-                          minfreq=minfreq, maxfreq=maxfreq, maxcount=maxcount)
+                          channel=channel, winSize=winSize, minDb=winDb,
+                          minFreq=minFreq, maxFreq=maxFreq, maxItems=maxItems)
 
     def fundamentalFreq(self, time: float | None = None, dur=0.2, fftsize=2048, overlap=4,
                         fallbackfreq=0
@@ -1705,8 +1704,8 @@ class Sample:
         chunksize = int(chunkdur * self.sr)
         for idx in range(firstidx, lastidx, chunksize):
             fragm = samples[idx:idx+chunksize]
-            f0, prob = freqestimate.f0curve(fragm, sr=self.sr, minfreq=minfreq,
-                                            overlap=overlap, unvoicedFreqs='nan')
+            f0, prob = pitchtrack.f0curve(fragm, sr=self.sr, minfreq=minfreq,
+                                          overlap=overlap, unvoicedFreqs='nan')
             times, freqs = f0.points()
             mask = ~np.isnan(freqs)
             if not mask.any():
@@ -2044,11 +2043,11 @@ def spectrumAt(samples: np.ndarray,
                time: float,
                resolution: float,
                channel=0,
-               winsize: float = -1,
-               mindb=-90,
-               minfreq=0,
-               maxfreq=12000,
-               maxcount=0
+               winSize: float = -1,
+               minDb=-90,
+               minFreq=0,
+               maxFreq=12000,
+               maxItems=0
                ) -> list[tuple[float, float]]:
     """
     Analyze sinusoidal components of these samples at the given time
@@ -2060,11 +2059,11 @@ def spectrumAt(samples: np.ndarray,
         time: the time to analyze
         resolution: the resolution of the analysis, in hz
         channel: if this sample has multiple channels, which channel to analyze
-        winsize: the window size in hz
-        mindb: the min. amplitude in dB for a component to be included
-        minfreq: the min. frequency of a component to be included
-        maxfreq: the max. frequency of a component to be included
-        maxcount: the max. number of components to include (0 to include all)
+        winSize: the window size in hz
+        minDb: the min. amplitude in dB for a component to be included
+        minFreq: the min. frequency of a component to be included
+        maxFreq: the max. frequency of a component to be included
+        maxItems: the max. number of components to include (0 to include all)
 
     Returns:
         a list of pairs (frequency, amplitude) where each pair represents a sinusoidal
@@ -2088,12 +2087,12 @@ def spectrumAt(samples: np.ndarray,
     except ImportError:
         raise ImportError("loristrck is needed to perform this operation. Install it via "
                           "'pip install loristrck'")
-    partials = loristrck.analyze(samples, sr=sr, resolution=resolution, windowsize=winsize)
-    if minfreq is None:
-        minfreq = int(resolution * 1.3)
-    validpartials, rest = loristrck.util.select(partials, mindur=margin, minamp=mindb,
-                                                maxfreq=maxfreq, minfreq=minfreq)
-    breakpoints = loristrck.util.partials_at(validpartials, t=margin, maxcount=maxcount)
+    partials = loristrck.analyze(samples, sr=sr, resolution=resolution, windowsize=winSize)
+    if minFreq is None:
+        minFreq = int(resolution * 1.3)
+    validpartials, rest = loristrck.util.select(partials, mindur=margin, minamp=minDb,
+                                                maxfreq=maxFreq, minfreq=minFreq)
+    breakpoints = loristrck.util.partials_at(validpartials, t=margin, maxcount=maxItems)
     pairs = [(float(bp[0]), float(bp[1])) for bp in breakpoints]
     pairs.sort(key=lambda pair: pair[0])
     return pairs

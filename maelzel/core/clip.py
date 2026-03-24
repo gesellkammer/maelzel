@@ -500,7 +500,7 @@ class Clip(event.MEvent):
         assert end > start
         if start > 0 or end < sample.duration:
             sample = sample[start:end]
-        spec = sample.partialTrackingAnalysis(resolution=resolution, windowsize=windowsize, mindb=mindb, hoptime=hoptime)
+        spec = sample.partialTrackingAnalysis(resolution=resolution, winSize=windowsize, mindb=mindb, hopTime=hoptime)
         if maxfreq:
             partials = [p for p in spec.partials if minfreq <= p.meanfreq() < maxfreq]
             spec = spec.__class__(partials)
@@ -599,8 +599,8 @@ class Clip(event.MEvent):
         """
         sample = self.asSample()
         pairs = sample.spectrumAt(time, resolution=resolution, channel=channel,
-                                  mindb=mindb, maxcount=maxcount, maxfreq=maxfreq,
-                                  minfreq=minfreq)
+                                  winDb=mindb, maxItems=maxcount, maxFreq=maxfreq,
+                                  minFreq=minfreq)
         if not pairs:
             return None
         components = [event.Note(pt.f2m(freq), amp=amp * ampfactor)
