@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from maelzel.scoring.common import division_t
     from maelzel.scoring.quant import QuantizedPart
+    from typing import Sequence, Any, MutableSequence
 
 
 @dataclass
@@ -27,12 +28,12 @@ class QuantizedBeatDef:
 
 
 class PartNode:
-    def __init__(self, kind: str, items: list[QuantizedPart | PartNode], name='', abbrev='', id=''):
+    def __init__(self, kind: str, items: Sequence[QuantizedPart | PartNode], name='', abbrev='', id=''):
         assert kind in ('', 'group', 'part')
         if not id:
             id = core.makeGroupId()
         self.kind = kind
-        self.items = items
+        self.items = items if isinstance(items, list) else list(items)
         self.name = name
         self.abbrev = abbrev
         self.id = id
@@ -70,7 +71,7 @@ class PartNode:
     def __repr__(self):
         return self._show()
 
-    def serialize(self) -> list[dict | QuantizedPart]:
+    def serialize(self) -> list[dict[str, Any] | QuantizedPart]:
         d = {'kind': self.kind,
              'name': self.name,
              'id': self.id,
@@ -78,9 +79,9 @@ class PartNode:
              'abbrev': self.abbrev}
         if self.kind == 'part':
             part = self.items[0]
+            assert isinstance(part, QuantizedPart)
             d['struct'] = part.struct  # type: ignore
             d['clef'] = part.firstClef or part.bestClef()
-        if self.kind == 'part':
             if not self.name:
                 d['name'] = next((voice.name for voice in self.items), '')
         out: list[dict | QuantizedPart] = [d]
@@ -92,5 +93,5 @@ class PartNode:
         out.append({'kind': self.kind, 'name': self.name, 'open': False, 'id': self.id})
         return out
 
-    def append(self, item: QuantizedPart | PartNode):
-        self.items.append(item)
+    # def append(self, item: QuantizedPart | PartNode):
+    #     self.items.append(item)

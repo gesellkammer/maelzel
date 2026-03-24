@@ -70,26 +70,26 @@ class QuantizationProfile:
     - numNestedTupletsPenaltyWeight: how
 
     """
-    divisionDefs: tuple[quantdata.DivisionDef, ...]
+    divisionDefs: tuple[quantdata.DivisionDef, ...] = ()
 
-    nestedTuplets: bool = False
+    nestedTuplets: bool = True
     """Are nested tuplets allowed?"""
 
     gridErrorWeight: float = 1
     """Weight of the overall effect of offset and duration errors when fitting events to a grid.
     A higher weight minimizes offset and duration errors at the cost of more complex divisions"""
 
-    gridErrorExp: float = 0.85
+    gridErrorExp: float = 0.75
     """An exponent applied to the grid error. Since this values is always between 0 and 1,
     an exponent less than 1 makes the effects of grid errors grow faster"""
 
-    exactGridFactor: float = 1.0
+    exactGridFactor: float = 0.25
     """A factor applied to the total error when the grid is exact"""
 
-    divisionErrorWeight: float = 0.002
+    divisionErrorWeight: float = 0.001
     """Weight of the division complexity"""
 
-    maxDivPenalty: float = 0.1
+    maxDivPenalty: float = 0.2
     """A max. division penalty, will discard any divisions which have a penalty
     higher than this value. This can be used to further customize the quantization
     process"""
@@ -102,7 +102,7 @@ class QuantizationProfile:
     12 notes per beat
     """
 
-    rhythmComplexityWeight: float = 0.001
+    rhythmComplexityWeight: float = 0.1
     """Weight of the actual quantized rhythm. This includes evaluating synchopes, ties, etc."""
 
     rhythmComplexityNotesAcrossSubdivisionWeight = 0.2
@@ -226,7 +226,7 @@ class QuantizationProfile:
     'strong': only strong beats, 'weak': ??)
     """
 
-    maxGraceRatio: float = 3.
+    maxGraceRatio: float = 2.
     """
     Max ratio of quantization gracenotes to slots
     """
@@ -248,6 +248,10 @@ class QuantizationProfile:
 
     def __post_init__(self):
         assert self.breakSyncopationsLevel in ('strong', 'none', 'all', 'weak'), f"{self.breakSyncopationsLevel=}"
+        if not self.divisionDefs:
+            presets = quantdata.getPresets()
+            preset = presets['high']
+            self.divisionDefs = preset.divisionDefs
         for attr, value in self.__dataclass_fields__.items():  # type: ignore
             assert not isinstance(value, (list, dict)), f"Unhashable {attr=}{value}"
 
@@ -399,7 +403,7 @@ class QuantizationProfile:
     @cache
     @staticmethod
     def default() -> QuantizationProfile:
-        return QuantizationProfile()
+        return QuantizationProfile.fromPreset('high')
 
     @cache
     @staticmethod

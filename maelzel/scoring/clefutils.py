@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Sequence
+    from collections.abc import Sequence
     import bpf4
     from maelzel.scoring import spanner as _spanner
 
@@ -269,7 +269,11 @@ def bestClefForNotations(notations: Sequence[Notation],
         
     for group in itertools.batched(notations, windowSize):
         clef, points = clefeval.process(group, advance=hopSize)
-        clefhistory[clef] = clefhistory.setdefault(clef, 0) + points
+        if clef in clefhistory:
+            clefhistory[clef] += points
+        else:
+            clefhistory[clef] = points
+        # clefhistory[clef] = clefhistory.setdefault(clef, 0) + points
     bestclef, points = max(clefhistory.items(), key=lambda pair: pair[1])
     return bestclef
 
@@ -424,7 +428,11 @@ class SimpleClefEvaluator:
         clefs = {}
         for pitch in pitches:
             clef, points = self(pitch)
-            clefs[clef] = clefs.setdefault(clef, 0) + points
+            if clef in clefs:
+                clefs[clef] += points
+            else:
+                clefs[clef] = points
+        #     clefs[clef] = clefs.setdefault(clef, 0) + points
         points, clef = max((points, clef) for clef, points in clefs.items())
         return clef, points
 
@@ -600,8 +608,8 @@ def bestClefCombination(notations: list[Notation],
     possibleCombinations = _clefCombinations(maxStaves=maxStaves, minStaves=minStaves)
     results: dict[tuple[str, ...], float] = {}
 
-    def collect(seqs: list[Sequence[T]]) -> list[T]:
-        out = []
+    def collect[T](seqs: list[Sequence[T]]) -> list[T]:
+        out: list[T] = []
         for seq in seqs:
             out.extend(seq)
         return out

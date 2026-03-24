@@ -384,7 +384,7 @@ class Text(Attachment):
     def __hash__(self) -> int:
         return hash(('Text', self.text, self.placement, self.fontsize, self.box))
 
-    def __eq__(self, other: 'Text') -> bool:
+    def __eq__(self, other) -> bool:
         return hash(self) == hash(other)
 
     def isBold(self):

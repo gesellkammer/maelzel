@@ -61,7 +61,8 @@ class LogicalTie(UserList[TreeLocation]):
     def notations(self) -> list[Notation]:
         return [loc.notation for loc in self]
 
-    def __contains__(self, item: Notation) -> bool:
+    def __contains__(self, item) -> bool:
+        assert isinstance(item, Notation)
         return any(loc.notation is item for loc in self)
 
     def index(self, item: TreeLocation | Notation, start=0, stop=sys.maxsize, /) -> int:
@@ -136,7 +137,7 @@ class Node:
         self.readonly = readonly
 
     def copy(self) -> Node:
-        items = []
+        items: list[Notation | Node] = []
         for item in self.items:
             if isinstance(item, Notation):
                 items.append(item.copy(spanners=True))
@@ -388,19 +389,18 @@ class Node:
         return "\n".join(parts)
 
     def __repr__(self):
-        num, den = self.durRatio
-        header = f"Node({num}/{den}, dur={self.totalDuration()} "
-        if isinstance(self.items[0], Notation):
-            parts = [header + str(self.items[0])]
-            startidx = 1
-        else:
-            parts = [header]
-            startidx = 0
-        for item in self.items[startidx:]:
-            parts.append(str(item))
-        parts[-1] += ")"
-        return ", ".join(parts)
-
+        # num, den = self.durRatio
+        # header = f"Node({num}/{den}, dur={self.totalDuration()} "
+        # if isinstance(self.items[0], Notation):
+        #     parts = [header + str(self.items[0])]
+        #     startidx = 1
+        # else:
+        #     parts = [header]
+        #     startidx = 0
+        # for item in self.items[startidx:]:
+        #     parts.append(str(item))
+        # parts[-1] += ")"
+        # return ", ".join(parts)
         return self._treeRepr(indent=0)
 
     def _setitems(self, items: list[Notation | Node]) -> None:
@@ -427,7 +427,7 @@ class Node:
         """
         if self.durRatio != (1, 1):
             return
-        items = []
+        items: list[Node|Notation] = []
         for item in self.items:
             if isinstance(item, Notation):
                 items.append(item)
@@ -866,7 +866,7 @@ class Node:
 
     def _splitUnnecessaryNodesAt(self, breakOffset: F, minDuration: F | int
                                  ) -> bool:
-        items = []
+        items: list[Node | Notation] = []
         didsplit = False
         for item in self.items:
             if isinstance(item, Notation):
@@ -907,84 +907,7 @@ class Node:
     def notationAt(self, offset: F) -> Notation:
         if not (self.offset <= offset < self.end):
             raise ValueError(f"Offset {offset} outside of node ({self.offset=}, {self.end=}")
-        return next(n for n in self.recurse() if n.offset <= offset < n.end)
-
-    # def _unmergeUnnecessaryNodes(self, minDur: F = F(1, 4)) -> bool:
-    #     """
-    #
-    #     Returns:
-    #         True if changes were performed
-    #     """
-    #     from . import quantutils
-    #     items = []
-    #     changes = False
-    #     for item in self.items:
-    #         if isinstance(item, Notation):
-    #             items.append(item)
-    #         else:
-    #             assert isinstance(item, Node)
-    #             if item.durRatio == (1, 1) or item.isFlat():
-    #                 changes |= item._unmergeUnnecessaryNodes(minDur=minDur)
-    #                 items.append(item)
-    #             else:
-    #                 assert item.durRatio != (1, 1) and not item.isFlat()
-    #                 symdur = item.symbolicDuration()
-    #                 partdur = symdur / 2
-    #                 if partdur < minDur or not quantutils.isRegularDuration(partdur):
-    #                     items.append(item)
-    #                 else:
-    #                     splitoffset = item.offset + item.totalDuration()/2
-    #                     n = item.notationAt(splitoffset)
-    #                     if n.offset == splitoffset:
-    #                         # Note starts at split point, so no syncopation
-    #                         left, right = item._splitAtBoundary(splitoffset)
-    #                         changes = True
-    #                         items.append(left)
-    #                         items.append(right)
-    #     if changes:
-    #         self.items = items
-    #     return changes
-
-    # def _splitUnnecessaryNodes(self, duration: F | int) -> None:
-    #     """
-    #     Split any nodes which are unnecessarily joined
-    #
-    #     * For a node to be unnecessary it needs to be divisible in two
-    #       and not have a syncopation
-    #     * For a node to be split it needs to match the given duration
-    #     * 1/1 nodes are never split
-    #
-    #     Args:
-    #         duration: the duration of the node to split. Only nodes with this exact
-    #             duration will be considered for splitting. Nodes are always split in half
-    #     """
-    #     if self.totalDuration() < duration:
-    #         return
-    #     items = []
-    #     for item in self.items:
-    #         if isinstance(item, Notation):
-    #             items.append(item)
-    #         else:
-    #             # a Node
-    #             if item.totalDuration() == duration:
-    #                 splitoffset = item.offset + duration//2
-    #                 for sub1, sub2 in pairwise(item.recurse()):
-    #                     if sub2.offset == splitoffset and sub1.durRatios == sub2.durRatios:
-    #                         assert item.offset < splitoffset < item.end, f"{item=}, {splitoffset=}"
-    #                         logger.debug("Splitting node %s at %s", LazyStr.str(self), str(splitoffset))
-    #                         # logger.debug(f"Splitting node {self} at {splitoffset}")
-    #                         left, right = item._splitAtBoundary(splitoffset)
-    #                         items.append(left)
-    #                         items.append(right)
-    #                         break
-    #                 else:
-    #                     logger.debug("Did not split node %s at %s", LazyStr.str(self), str(splitoffset))
-    #                     # logger.debug(f"Did not split node {self} at {splitoffset}")
-    #                     items.append(item)
-    #             else:
-    #                 items.append(item)
-    #     self._setitems(items)
-    #     self.setParentRecursively()
+        return next(n for n in self.recurse() if n.qoffset <= offset < n.end)
 
     def _splitAtBoundary(self, offset) -> tuple[Node, Node]:
         if not (self.offset < offset < self.end):
@@ -1324,7 +1247,7 @@ def beatToTree(notations: list[Notation], division: int | division_t,
     now = beatOffset
     dt = beatDur/numSubBeats
     durRatio = quantdata.durationRatios[numSubBeats]
-    items = []
+    items: list[Node | Notation] = []
     for subdiv in division:
         subdivEnd = now + dt
         subdivNotations = [n for n in notations if now <= n.qoffset < subdivEnd and n.end <= subdivEnd]

@@ -65,15 +65,6 @@ class Notation:
         fixNotenames: if True, pitches given as strings are fixed to the given spelling
 
     """
-    _privateKeys = {
-        '.clefHint',
-        '.graceGroup',
-        '.forceTupletBracket',
-        '.originalDuration',   # For snapped notes, it is useful to keep track of the original duration
-        '.forwardTies',
-        '.backwardTies',
-    }
-
     __slots__ = ("duration",
                  "pitches",
                  "offset",
@@ -97,6 +88,15 @@ class Notation:
                  "__weakref__",
                  "_symbolicDuration"
                  )
+
+    _privateKeys = {
+        '.clefHint',
+        '.graceGroup',
+        '.forceTupletBracket',
+        '.originalDuration',   # For snapped notes, it is useful to keep track of the original duration
+        '.forwardTies',
+        '.backwardTies',
+    }
 
     def __init__(self,
                  duration: time_t,
@@ -223,7 +223,7 @@ class Notation:
     def makeNote(cls,
                  pitch: pitch_t,
                  duration: time_t,
-                 offset: time_t = None,
+                 offset: time_t | None = None,
                  annotation='',
                  gliss=False,
                  withId=False,
@@ -247,7 +247,7 @@ class Notation:
     def makeChord(cls,
                   pitches: Sequence[pitch_t],
                   duration: time_t,
-                  offset: time_t = None,
+                  offset: time_t | None = None,
                   annotation: str | att.Text = '',
                   dynamic='',
                   fixed=False,
@@ -291,7 +291,7 @@ class Notation:
     @classmethod
     def makeRest(cls,
                  duration: time_t,
-                 offset: time_t = None,
+                 offset: time_t | None = None,
                  dynamic: str = '',
                  annotation: str = ''
                  ) -> Notation:
@@ -1308,7 +1308,7 @@ class Notation:
         Returns:
             A list of notations that do not extend over the offsets.
         """
-        out = []
+        out: list[Notation] = []
         for n in notations:
             if n.duration == 0:
                 out.append(n if not forcecopy else n.copy())
@@ -2022,7 +2022,7 @@ class Notation:
                 if (notename := self.fixedNotenames.get(index)) is not None:
                     fixedNotenames[mappedIndexes[index]] = notename
 
-        attachments = []
+        attachments: list[att.Attachment] = []
         if self.attachments:
             for attachment in self.attachments:
                 if isinstance(attachment, att.GlissMap):

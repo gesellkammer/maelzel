@@ -5,7 +5,7 @@ from maelzel.textstyle import TextStyle
 import emlib.misc
 
 
-@dataclass(unsafe_hash=True)
+@dataclass(unsafe_hash=True, slots=True)
 class RenderOptions:
     """
     Holds all options needed for rendering

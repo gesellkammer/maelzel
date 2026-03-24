@@ -33,6 +33,9 @@ class DivisionDef:
         return hash((self.maxTempo, self.maxSubdivisions, hash(self.possibleValues), self.maxDensity))
 
 
+_QuantPresetKeys = set()
+
+
 @dataclass
 class QuantPreset:
     divisionDefs: tuple[DivisionDef, ...]
@@ -58,11 +61,14 @@ class QuantPreset:
         assert 0 <= self.exactGridFactor <= 1
 
     @classmethod
-    @runonce
     def keys(cls) -> set[str]:
+        # using runonce confuses the type checker...
+        if _QuantPresetKeys:
+            return _QuantPresetKeys
         allkeys = set(field.name for field in _fields(QuantPreset)
                       if not field.name.startswith("_"))
         allkeys ^= {'divisionsPenaltyMap'}
+        _QuantPresetKeys.update(allkeys)
         return allkeys
 
 
@@ -393,7 +399,7 @@ def subdivisions(numSubdivisions: int,
     """
     minValue = 1
     used = set()
-    out = []
+    out: list[tuple[int, ...]] = []
     for i in range(maxValue, minValue - 1, -1):
         if i not in possibleValues or any(x % i == 0 for x in used):
             continue
@@ -408,7 +414,7 @@ def subdivisions(numSubdivisions: int,
 
 
 def permutateDivisions(divs: Sequence[division_t]) -> list[division_t]:
-    out = []
+    out: list[division_t] = []
     for p in divs:
         if len(p) == 1:
             out.append(p)
@@ -493,9 +499,7 @@ defaultDivisionPenaltyMap = {
 def divisionsByTempo(divisionDefs: tuple[DivisionDef, ...], 
                      blacklist: tuple[division_t, ...] = ()
                      ) -> dict[int, tuple[division_t, ...]]:
-    return {d.maxTempo: d.subdivisions(blacklist=blacklist) for d in divisionDefs}
-
-
+    return {d.maxTempo: tuple(d.subdivisions(blacklist=blacklist)) for d in divisionDefs}
 
 
 # how to divide an irregular duration into regular parts

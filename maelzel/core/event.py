@@ -220,7 +220,10 @@ class Note(MEvent):
         self._parent: Chord | None = None
 
     @staticmethod
-    def makeRest(dur: time_t | str, offset: time_t = None, label='', dynamic='') -> Note:
+    def makeRest(dur: time_t | str,
+                 offset: time_t | None = None,
+                 label='', dynamic=''
+                 ) -> Note:
         """
         Static method to create a Rest
 

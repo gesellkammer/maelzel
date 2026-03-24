@@ -158,7 +158,7 @@ def _evalGridError(profile: QuantizationProfile,
     for s in snappedEvents:
         n = s.notation
         origdur = float(n.duration)
-        offsetErr = abs(n.offset - s.offset) / beatdurf
+        offsetErr = abs(n.qoffset - s.offset) / beatdurf
 
         if origdur > 0 and s.duration == 0:
             numGraces += 1
@@ -890,7 +890,7 @@ class QuantizedMeasure:
         """
 
         if minimum == maximum == 0:
-            self.tree.breakBeamsAt(beat)
+            self.tree.breakBeamsAt(asF(beat))
         else:
             self.setBeamSubdivisions(beat=beat, minimum=minimum, maximum=maximum)
 
@@ -1143,7 +1143,7 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
     firstOffset = eventsInBeat[0].duration
     lastOffsetMargin = beatDuration - (eventsInBeat[-1].qoffset - beatOffset)
     prevOuterRatio = F(*quantutils.outerTuplet(prevDivision)) if prevDivision else F0
-    events0offsets = np.array([float(ev.offset) for ev in events0])
+    events0offsets = np.array([float(ev.qoffset) for ev in events0])
     gridErrorWeight = profile.gridErrorWeight
 
     numOriginalGracenotes = sum(1 for n in eventsInBeat if n.duration == 0)
@@ -1210,8 +1210,8 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
         # grid0, fgrid0 = quantutils.divisionGrid0Float(beatDuration=beatDuration, division=div)
         grid0, fgrid0 = quantutils.divisionGrid0Array(beatDuration=beatDuration, division=div)
         assignedSlots = quantutils.assignSlots(offsets=events0offsets, fgrid=fgrid0)
-        simplifiedDiv, newSlots = quantutils.simplifyDivisionWithSlots(div, assignedSlots)
-        if simplifiedDiv is not None:
+        if simplifyResult := quantutils.simplifyDivisionWithSlots(div, assignedSlots):
+            simplifiedDiv, newSlots = simplifyResult
             if (simplifiedDiv in seen) or (simplifiedDiv in profile.blacklist):
                 continue
             assert simplifiedDiv != div
@@ -2477,7 +2477,7 @@ class QuantizedPart:
         measure = self.measures[measureidx]
         if relbeat > measure.duration():
             raise ValueError(f"The relative beat {relbeat} exceeds the duration of the measure ({measure})")
-        return measure, relbeat
+        return measure, asF(relbeat)
 
     def splitNotationAt(self, offset: beat_t, tie=True, mergeable=False) -> list[Notation] | None:
         """
@@ -2516,9 +2516,12 @@ class QuantizedPart:
             measure.tree.breakBeamsAt(relbeat)
         else:
             n = measure.notationAt(relbeat)
-            minfrac = F(1, minimum) if minimum else F(0)
-            maxfrac = F(1, maximum) if maximum else F(0)
-            n.addAttachment(attachment.BeamSubdivisionHint(minimum=minfrac, maximum=maxfrac))
+            if n is not None:
+                minfrac = F(1, minimum) if minimum else F(0)
+                maxfrac = F(1, maximum) if maximum else F(0)
+                n.addAttachment(attachment.BeamSubdivisionHint(minimum=minfrac, maximum=maxfrac))
+            else:
+                logger.debug("No notation found at %s (measure=%s)", relbeat, measure)
 
     def breakSyncopationAt(self,
                            location: F | tuple[int, F],
@@ -2822,6 +2825,17 @@ class QuantizedScore:
             part.addEmptyMeasures(numMeasures - len(part.measures))
 
     def partTree(self) -> PartNode:
+        """
+        Tree representing the groups/subgroups/multivoice parts/parts in this score
+
+        .. note:: the returned tree can be serialized, see
+        :meth:`maelzel.scoring.quantdefs.PartNode.serialize`
+
+        Returns:
+            a PartNode, the root of a tree with all the parts in this score
+            organized in a tree
+
+        """
         return _partTree(self.parts, groups=list(self.groups.values()))
 
     def write(self,
@@ -3153,7 +3167,7 @@ def _partTree(parts: list[QuantizedPart], groups: Sequence[PartNode]) -> PartNod
                 break
             else:
                 group = stack.pop()
-                stack[-1].append(group)
+                stack[-1].items.append(group)
         if not added:
             if groupids:
                 # The part has groups but there are no groups open, open one

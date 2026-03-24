@@ -19,6 +19,7 @@ import typing as _t
 if _t.TYPE_CHECKING:
     _T = _t.TypeVar("_T", int, float, F)
     from .common import division_t
+    from numpy.typing import NDArray
 
 
 @cache
@@ -77,12 +78,12 @@ def _fitToGridList(offsets: list[float], grid: list[float]) -> list[int]:
     return out
 
 
-def _fitToGridNumpy(offsets: np.ndarray[float], grid: np.ndarray[float]) -> list[int]:
+def _fitToGridNumpy(offsets: NDArray[np.float64], grid: NDArray[np.float64]) -> list[int]:
     return npx.nearestindexes(grid, offsets).tolist()
 
 
-def assignSlots(fgrid: list[float] | np.ndarray[float],
-                offsets: list[float] | np.ndarray[float]
+def assignSlots(fgrid: list[float] | NDArray[np.float64],
+                offsets: list[float] | NDArray[np.float64]
                 ) -> list[int]:
     """
     Snap unquantized events to a given grid
@@ -96,9 +97,10 @@ def assignSlots(fgrid: list[float] | np.ndarray[float],
     """
     # assignedSlots = _fitEventsToGridNearest(events=notations, grid=grid)
     if isinstance(fgrid, np.ndarray):
+        assert isinstance(offsets, np.ndarray)
         assignedSlots = _fitToGridNumpy(offsets, fgrid)
     else:
-        assert isinstance(fgrid, list)
+        assert isinstance(fgrid, list) and isinstance(offsets, list)
         assignedSlots = _fitToGridList(offsets, fgrid)
     return assignedSlots
 
@@ -166,11 +168,22 @@ _primes = {3, 5, 7, 11, 13, 19}
 
 
 def simplifyDivisionWithSlots(division: division_t, assignedSlots: list[int]
-                              ) -> tuple[division_t, list[int]] | tuple[None, None]:
+                              ) -> tuple[division_t, list[int]] | None:
+    """
+    lorem ipsum
+
+    Args:
+        division: the division to simplify
+        assignedSlots: the already assigned slots
+
+    Returns:
+        a tuple (newdiv, newslots) or None if not possible to simplify
+
+    """
 
     if len(assignedSlots) == 1 and assignedSlots[0] == 0:
         newdiv = (1,)
-        return (newdiv, assignedSlots) if newdiv != division else (None, None)
+        return (newdiv, assignedSlots) if newdiv != division else None
 
     lastslot = sum(subdiv for subdiv in division)
     if all(slot == 0 or slot == lastslot for slot in assignedSlots):
@@ -180,13 +193,14 @@ def simplifyDivisionWithSlots(division: division_t, assignedSlots: list[int]
 
     lendiv = len(division)
     if lendiv == 1 and (d0 := division[0]) % 2 == 1 and d0 in _primes:
-        return None, None
+        return None
 
     if lendiv > 1 and all(subdiv == 1 for subdiv in division):
         newdiv = (lendiv,)
-        simplified, newslots = simplifyDivisionWithSlots(newdiv, assignedSlots)
-        if simplified is not None and simplified != division:
-            return simplified, newslots
+        if simplifyRes := simplifyDivisionWithSlots(newdiv, assignedSlots):
+            simplified, newSlots = simplifyRes
+            assert simplified != division
+            return simplified, newSlots
         return newdiv, assignedSlots
 
     reduced: list[int] = []
@@ -324,12 +338,11 @@ def simplifyDivisionWithSlots(division: division_t, assignedSlots: list[int]
         N = len(newdiv)
         newdiv = (N,)
         if N % 2 == 0 or N % 3 == 0:
-            simplified2, slots2 = simplifyDivisionWithSlots(newdiv, slots)
-            if simplified2 is not None:
-                newdiv, slots = simplified2, slots2
+            if simplifyRes := simplifyDivisionWithSlots(newdiv, slots):
+                newdiv, slots = simplifyRes
 
     if newdiv == division:
-        return None, None
+        return None
 
     if len(slots) != len(assignedSlots):
         # grace notes share slots
@@ -343,119 +356,9 @@ def simplifyDivisionWithSlots(division: division_t, assignedSlots: list[int]
                 else:
                     slots.insert(i, slots[i])
 
-    assert len(slots) == len(assignedSlots), f"{assignedSlots=}, {slots=}, {division=} -> {newdiv=}"
+    assert isinstance(slots, list) and len(slots) == len(assignedSlots), f"{assignedSlots=}, {slots=}, {division=} -> {newdiv=}"
     return newdiv, slots
 
-
-# def simplifyDivision(division: division_t, assignedSlots: _t.Sequence[int]
-#                      ) -> division_t:
-#     """
-#     Checks if a division (a partition of the beat) can be substituted by a simpler one
-#
-#     Args:
-#         division: the division to simplify
-#         assignedSlots: assigned slots for this division
-#
-#     Returns:
-#         the simplified version or the original division if no simplification is possible
-#     """
-#     if len(assignedSlots) == 1 and assignedSlots[0] == 0:
-#         return (1,)
-#
-#     if len(division) == 1 and (d0 := division[0]) % 2 == 1 and d0 in (3, 5, 7, 11, 13):
-#         return division
-#
-#     cs = 0
-#     reduced = []
-#
-#     for subdiv in division:
-#         if subdiv == 1:
-#             reduced.append(1)
-#         elif not any(1 <= s - cs < subdiv for s in assignedSlots):
-#             # only the first slot is assigned
-#             reduced.append(1)
-#         elif subdiv % 2 == 0:
-#             assigned = set(assignedSlots)
-#             if subdiv == 4:
-#                 if cs+1 not in assigned and cs+3 not in assigned:
-#                     reduced.append(2)
-#                 else:
-#                     reduced.append(4)
-#             elif subdiv == 6:
-#                 #   x       x
-#                 # x 0 0 1 0 0 -> 2
-#                 # x 0 1 0 1 0 -> 3
-#                 if cs+1 not in assigned and cs+5 not in assigned:
-#                     if cs+2 not in assigned and cs+4 not in assigned:
-#                         reduced.append(2)
-#                     elif cs+3 not in assigned:
-#                         reduced.append(3)
-#                     else:
-#                         reduced.append(6)
-#                 else:
-#                     reduced.append(6)
-#             elif subdiv == 8:
-#                 # 1 0 1 0 1 0 1 0
-#                 if cs+1 not in assigned and cs+3 not in assigned and cs+5 not in assigned and cs+7 not in assigned:
-#                 # if {cs+1, cs+3, cs+5, cs+7}.isdisjoint(assigned):
-#                     if cs+2 not in assigned and cs+6 not in assigned:
-#                         reduced.append(2)
-#                     else:
-#                         reduced.append(4)
-#                 else:
-#                     reduced.append(8)
-#             # from here on: even subdiv (10, 12, ...)
-#             elif cs+1 not in assigned and cs+subdiv-1 not in assigned:
-#                 # The second and last slot are not assigned
-#                 if cs+subdiv//2 in assigned:
-#                     if _makeset(cs+1, cs+subdiv, (cs+subdiv//2,)).isdisjoint(assigned):
-#                         # 1 0 0 0 0 1 0 0 0 0 -> 2
-#                         reduced.append(2)
-#                     else:
-#                         reduced.append(subdiv)
-#                 # elif set(range(cs+1, cs+subdiv, 2)).isdisjoint(assigned):
-#                 elif not any(x in assigned for x in range(cs+1, cs+subdiv, 2)):
-#                     reduced.append(subdiv//2)
-#                 else:
-#                     reduced.append(subdiv)
-#             else:
-#                 reduced.append(subdiv)
-#         elif subdiv == 9:
-#             # assigned = set(assignedSlots)
-#             if {cs+1, cs+2, cs+4, cs+5, cs+7, cs+8}.isdisjoint(assignedSlots):
-#                 reduced.append(3)
-#             else:
-#                 reduced.append(9)
-#         else:
-#             reduced.append(subdiv)
-#         cs += subdiv
-#
-#     newdiv: division_t = tuple(reduced)
-#     assert len(newdiv) == len(division), f'{division=}, {newdiv=}'
-#
-#     if all(subdiv == 1 for subdiv in newdiv):
-#         newdiv = (len(newdiv),)
-#
-#     return newdiv
-
-
-# def reduceDivision(division: division_t,
-#                    newdiv: division_t,
-#                    assignedSlots: _t.Sequence[int],
-#                    maxslots=40
-#                    ) -> division_t:
-#     assert len(newdiv) > 1
-#     subdiv = math.lcm(*newdiv)
-#     numslots = subdiv * len(newdiv)
-#     if numslots > maxslots or numslots >= sum(newdiv):
-#         return newdiv
-#     expandeddiv = (numslots,)
-#     oldgrid = divisionGrid0(division=division)
-#     expandedgrid = divisionGrid0(expandeddiv)
-#     newslots = resnap(assignedSlots, oldgrid, expandedgrid)
-#     newdiv2 = simplifyDivision(expandeddiv, newslots)
-#     return newdiv2
-#
 
 @cache
 def gridDurationsFlat(beatDuration: F, division: division_t
@@ -490,7 +393,8 @@ def divisionGrid0Float(division: division_t, beatDuration: F) -> tuple[list[F], 
 
 
 @cache
-def divisionGrid0Array(division: division_t, beatDuration: F = F(1)) -> tuple[list[F], np.ndarray[float]]:
+def divisionGrid0Array(division: division_t, beatDuration: F = F(1)
+                       ) -> tuple[list[F], NDArray[np.float64]]:
     grid = divisionGrid0(division=division, beatDuration=beatDuration)
     npgrid = np.array([float(slot) for slot in grid], dtype=float)
     return grid, npgrid
@@ -872,7 +776,7 @@ def fillSpan(notations: list[Notation], start: F, end: F
     if n.end < end:
         out.append(Notation.makeRest(offset=n.end, duration=end-n.end))
     assert sum(n.duration for n in out) == duration
-    assert all(start <= n.offset <= end for n in out)
+    assert all(n.offset is not None and start <= n.offset <= end for n in out)
     return out
 
 

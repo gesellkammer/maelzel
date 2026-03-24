@@ -40,8 +40,7 @@ from .render import Renderer, RenderOptions
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from maelzel.common import pitch_t
-    from maelzel.scorestruct import MeasureDef, ScoreStruct
-    from typing import Sequence
+    from maelzel.scorestruct import MeasureDef
 
 
 __all__ = (
@@ -468,7 +467,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
 
         notenames = n.resolveNotenames()
         notatedpitches = [pt.notated_pitch(notename) for notename in notenames]
-        chordAccidentalTraits = n.findAttachment(cls=attachment.AccidentalTraits, anchor=None) or attachment.AccidentalTraits.default()
+        chordAccidentalTraits = n.findAttachment(cls=attachment.AccidentalTraits) or attachment.AccidentalTraits.default()
         backTies = n.tieHints('backward') if n.tiedPrev else None
         chordparts = []
         if n.tiedNext:
@@ -502,7 +501,7 @@ def notationToLily(n: Notation, options: RenderOptions, state: RenderState) -> s
             lilypitch = lilytools.makePitch(notename,
                                             parenthesizeAccidental=accidentalTraits.parenthesis,
                                             forceAccidental=forceAccidental)
-            if n.tiedNext and needsCustomTies and i in forwardTies:
+            if n.tiedNext and needsCustomTies and forwardTies and i in forwardTies:
                 lilypitch += "~"
             chordparts.append(lilypitch)
 

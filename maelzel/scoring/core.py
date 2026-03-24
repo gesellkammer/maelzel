@@ -497,7 +497,7 @@ def resolveOffsets(notations: list[Notation], start=F0
         if n.offset is not None:
             now = n.offset
         now += n.duration
-    assert all(n1.end <= n2.offset for n1, n2 in pairwise(notations))
+    assert all(n1.end <= n2.qoffset for n1, n2 in pairwise(notations))
 
 
 def removeSmallOverlaps(notations: list[Notation], threshold=F(1, 1000)
@@ -518,7 +518,7 @@ def removeSmallOverlaps(notations: list[Notation], threshold=F(1, 1000)
         return
 
     for n0, n1 in pairwise(notations):
-        assert n1.offset is not None
+        assert n1.offset is not None and n0.offset is not None
         diff = n1.offset - n0.end
         if diff != 0:
             if abs(diff) > threshold:
@@ -671,5 +671,8 @@ def collectGroups(parts: Sequence[UnquantizedPart],
         for groupid in part.groups:
             group = UnquantizedPart._groupRegistry[groupid]
             if not kind or group.kind == kind:
-                id2parts.setdefault(groupid, []).append(part)
+                if groupid in id2parts:
+                    id2parts[groupid].append(part)
+                else:
+                    id2parts[groupid] = [part]
     return [(UnquantizedPart._groupRegistry[id], parts) for id, parts in id2parts.items()]

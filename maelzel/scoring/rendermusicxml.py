@@ -221,19 +221,41 @@ def makeMusicxmlDocument(score: quant.QuantizedScore,
     partlist_ = _elem(doc, root, 'part-list')
     partnum = 1
     partids = {}
-    partGroups = score.groupParts()
-
-    for partGroup in partGroups:
-        for part in partGroup:
+    scoreroot = score.partTree()
+    scoreitems = scoreroot.serialize()
+    groupstack = []
+    for item in scoreitems:
+        if isinstance(item, quant.QuantizedScore):
+            part = item
             partid = f"P{partnum}"
             partids[id(part)] = partid
             scorepart_ = _elem(doc, partlist_, 'score-part', {'id': partid})
             partname_ = _elem(doc, scorepart_, 'part-name')
             _text(doc, partname_, part.name or partid)
             partnum += 1
+        else:
+            assert isinstance(item, dict)
+            if item['kind'] == 'group':
+                if item['open']:
+                    partgroup_ = _elem(doc, partlist_, "part-group", {'number': len(groupstack)+1})
+                    groupstack.append((item['id'], partgroup_))
+                    if item['name']:
+                        _elemText(doc, partgroup_, 'name', item['name'])
+                    if item['abbrev']:
+                        _elemText(doc, partgroup_, "abbreviation", item['abbrev'])
+                    # TODO: barline
+                else:
+                    assert groupstack
+                    groupstack.pop()
+            elif item['kind'] == 'part':
+                # multivoice part, TODO: figure out what to do here
+                pass
+            else:
+                raise ValueError(f"Invalid item {item}")
 
-    for partGroup in partGroups:
-        for part in partGroup:
+    for item in scoreitems:
+        if isinstance(item, quant.QuantizedPart):
+            part = item
             partid = partids[id(part)]
             part_ = _elem(doc, root, 'part', {'id': partid})
             _renderPart(part, doc, part_, renderOptions=options)
@@ -518,7 +540,7 @@ def _renderNotehead(doc: md.Document, parent: md.Element, notehead: definitions.
     # <notehead filled="no">diamond</notehead>
     try:
         xmlnotehead = scoringNoteheadToMusicxml(notehead)
-        attrs = {}
+        attrs: dict[str, str|int] = {}
         if xmlnotehead.shape and not xmlnotehead.hidden:
             attrs['filled'] = 'yes' if xmlnotehead.filled else 'no'
         if xmlnotehead.color:
