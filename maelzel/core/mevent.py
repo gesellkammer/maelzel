@@ -47,8 +47,6 @@ class MEvent(MObj):
                  label='',
                  dynamic='',
                  tied=False):
-        if not isinstance(dur, F):
-            raise ValueError(f"Invalid (None) duration for {self}")
         super().__init__(dur=dur, offset=offset, label=label,
                          properties=properties, symbols=symbols)
         self.tied: bool = tied
@@ -61,11 +59,7 @@ class MEvent(MObj):
             if dynamic.endswith('!'):
                 dynamic = dynamic[:-1]
                 self.addSymbol(_symbols.Dynamic(dynamic, force=True))
-            elif dynamic not in definitions.dynamicLevels:
-                if dynamic in definitions.dynamicExpressions:
-                    self.addSymbol(_symbols.Dynamic(dynamic))
-                else:
-                    raise ValueError(f"Unknown dynamic: {dynamic}")
+            assert dynamic in definitions.dynamicLevels
 
         self.dynamic: str = dynamic
         """A musical dynamic (*pppp, ppp, ..., mp, mf, f, ..., ffff*)"""

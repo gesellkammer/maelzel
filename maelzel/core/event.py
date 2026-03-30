@@ -33,6 +33,7 @@ from maelzel.core.mevent import MEvent
 from maelzel.core._common import MAXDUR, logger
 from maelzel.core import synthevent
 from maelzel.core import _tools
+from maelzel.core import _scoringutils
 from . import symbols as _symbols
 
 from maelzel import _util
@@ -132,9 +133,13 @@ class Note(MEvent):
         pitchSpelling = ''
         spanners: list[_symbols.Spanner] | None = None
 
-        if not _init:
-            midinote = _cast(float, pitch)
+        if isinstance(pitch, (int, float)):
+            midinote = pitch
+            if offset is not None:
+                offset = asF(offset)
+        elif not _init:
             assert offset is None or isinstance(offset, F)
+            midinote = pitch
         else:
             if not isinstance(pitch, str):
                 assert 0 <= pitch <= 200, f"Expected a midinote (0-127) but got {pitch}"
@@ -200,7 +205,6 @@ class Note(MEvent):
             assert properties is None or isinstance(properties, dict)
 
         dur = asF(dur) if dur is not None else F1
-        assert offset is None or isinstance(offset, F)
         super().__init__(dur=dur,
                          offset=offset, label=label, properties=properties,
                          symbols=symbols, tied=tied, amp=amp, dynamic=dynamic)
@@ -1400,7 +1404,7 @@ class Chord(MEvent):
                 glisspairs = self._glissPairs(nextevent=nextev)
                 assert glisspairs, f"No pairs for {self}, next event: {nextev}"
                 destpitches = [pair[1] for pair in glisspairs]
-                notation.groupid = scoring.core.makeGroupId(groupid)
+                notation.groupid = scoring.core.makeGroupId()
                 endgliss = scoring.Notation.makeChord(pitches=destpitches,
                                                       duration=0,
                                                       offset=self.end,
@@ -1440,7 +1444,7 @@ class Chord(MEvent):
         spelling0 = enharmonics.bestChordSpelling(notenames, options=config.makeEnharmonicOptions())
         for name in spelling0:
             n0.fixNotename(name)
-        return self._scoringPartsFromNotations(notations, config=config)
+        return _scoringutils.scoringPartsFromNotations(notations, config=config)
 
     def __hash__(self):
         if isinstance(self.gliss, bool):

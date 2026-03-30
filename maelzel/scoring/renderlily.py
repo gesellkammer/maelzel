@@ -919,17 +919,22 @@ def addTimeSignature(w: IndentedWriter, measuredef: MeasureDef, options: RenderO
             w.line(fr"\time {subdivs} {num}/{den}")
     else:
         # 3/8 -> (3 8)
-        pairs = ' '.join(f"({num} {den})" for num, den in timesig.parts)
-        w.line(fr"\compoundMeter #'({pairs})")
-        # Add subdivisions if needed.
-        if (options.compoundMeterSubdivision == 'all' or
-                (options.compoundMeterSubdivision == 'heterogeneous' and
-                 measuredef.timesig.isHeterogeneous()) or
-                any(denom == 4 for num, denom in measuredef.timesig.parts)):
-            den, multiples = measuredef.subdivisionStructure()
-            num = measuredef.timesig.fusedSignature[0]
-            subdivs = ",".join(map(str, multiples))
-            w.line(fr"\time {subdivs} {num}/{den}")
+        if options.compoundMeterJoinSubsequentDenominators:
+            groups = ["(" + " ".join(str(x) for x in group) + ")"
+                      for group in timesig.compoundGroups()]
+            w.line(fr"\compoundMeter #'({' '.join(groups)})")
+        else:
+            pairs = ' '.join(f"({num} {den})" for num, den in timesig.parts)
+            w.line(fr"\compoundMeter #'({pairs})")
+        # # Add subdivisions if needed.
+        # if (options.compoundMeterSubdivision == 'all' or
+        #         (options.compoundMeterSubdivision == 'heterogeneous' and
+        #          measuredef.timesig.isHeterogeneous())
+        # ):
+        #     den, multiples = measuredef.subdivisionStructure()
+        #     num = measuredef.timesig.fusedSignature[0]
+        #     subdivs = ",".join(map(str, multiples))
+        #     w.line(fr"\time {subdivs} {num}/{den}")
 
 
 def _renderMeasures(w: IndentedWriter,
@@ -1014,7 +1019,7 @@ def _numToName(num: int) -> str:
 def _renderPartHeader(w: IndentedWriter,
                       options: RenderOptions,
                       measuredef: MeasureDef,
-                      clef='',
+                      clef: str,
                       name='',
                       abbrev='',
                       showName=True,
@@ -1034,6 +1039,7 @@ def _renderPartHeader(w: IndentedWriter,
     Returns:
 
     """
+    assert clef
     w.line(r"\new Staff \with {")
     with w.indent():
         if name and showName:
@@ -1265,7 +1271,7 @@ def renderScore(score: quant.QuantizedScore,
                 _renderPartHeader(w,
                                   options=options,
                                   measuredef=part.struct[0],
-                                  clef=part.firstClef,
+                                  clef=part.firstClef or part.bestClef(), # TODO: solve the missing clef
                                   name=name,
                                   abbrev=abbrev)
                 _renderMeasures(w, part=part,
@@ -1342,7 +1348,7 @@ class LilypondRenderer(Renderer):
         tempfiles = []
         lilypondBinary = self.options.lilypondBinary
 
-        if fmt == 'ly':
+        if fmt == 'ly' or fmt == 'text':
             open(outfile, "w").write(lilytxt)
 
         elif fmt == 'png' or fmt == 'pdf':

@@ -1799,7 +1799,7 @@ class Notation:
         # in the repr
         namerepr = self._namerepr(fixedAnnotation=not self.isQuantized())
         info = [f"{namerepr}:{durstr}"]
-        if offset and self.offset:
+        if offset and self.offset is not None:
             if self.duration == 0:
                 info.append(showT(self.offset))
             else:

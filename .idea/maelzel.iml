@@ -30,6 +30,9 @@
       <excludeFolder url="file://$MODULE_DIR$/test/musicxmlsamples" />
       <excludeFolder url="file://$MODULE_DIR$/.ipynb_checkpoints" />
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/.zed" />
+      <excludeFolder url="file://$MODULE_DIR$/maelzel/.ipynb_checkpoints" />
+      <excludeFolder url="file://$MODULE_DIR$/maelzel/.zed" />
       <excludePattern pattern="*.html" />
       <excludePattern pattern=" *.png" />
       <excludePattern pattern=" *.pyc" />

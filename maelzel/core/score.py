@@ -100,7 +100,6 @@ class Score(MContainer):
         """
         return self._scorestruct
 
-
     def getConfig(self, prototype: CoreConfig | None = None) -> CoreConfig | None:
         if not self._config:
             return None
@@ -309,6 +308,9 @@ class Score(MContainer):
 
     def __hash__(self):
         items = [type(self).__name__, self.label, self.offset, len(self.voices)]
+        struct = self.scorestruct()
+        if struct:
+            items.append(hash(struct))
         if self.symbols:
             items.append(hash(tuple(self.symbols)))
         if self.voices:
@@ -415,7 +417,8 @@ class Score(MContainer):
 
     def __deepcopy__(self, memodict={}) -> Self:
         voices = [voice for voice in self.voices]
-        return self.__class__(voices=voices.copy(), scorestruct=self._scorestruct, title=self.label)
+        struct = self._scorestruct.copy() if self._scorestruct else None
+        return self.__class__(voices=voices.copy(), scorestruct=struct, title=self.label)
 
     def clone(self,
               voices: list[Voice] | None = None,
@@ -436,6 +439,26 @@ class Score(MContainer):
     def pitchTransform(self, pitchmap: Callable[[float], float]) -> Self:
         voices = [voice.pitchTransform(pitchmap) for voice in self.voices]
         return self.clone(voices=voices)
+
+    def tempoTransform(self, factor: F | int | float = 1, offset: F | int | float = 0) -> Self:
+        """
+        Return a new Score with the tempo transformed by the given factor and offset
+
+        The returned Score has an ad-hoc scorestruct. The active scorestruct
+        is not modified
+
+        Args:
+            factor: all tempi in the active struct are multiplied by this factor
+            offset: added to all tempi in the active struct
+
+        Returns:
+            a clone of this Score with a newly created scorestructure, modified
+            by the given factor and offset
+        """
+        if factor == 1 and offset == 0:
+            return self
+        struct = self.activeScorestruct().tempoTransform(factor=factor, offset=offset)
+        return self.clone(scorestruct=struct)
 
     def isPolymetric(self) -> bool:
         """

@@ -55,7 +55,7 @@ defaultdict = {
     'show.lilypondPngStaffsizeScale': 1.5,
     'show.lilypondGlissMinLength': 5,
     'show.pngResolution': 200,
-    'show.measureLabelStyle': 'box=rectangle; fontsize=12',
+    'show.measureLabelStyle': 'fontsize=10',
     'show.rehearsalMarkStyle': 'box=rectangle; fontsize=13; bold',
     'show.respellPitches': True,
     'show.horizontalSpace': 'medium',

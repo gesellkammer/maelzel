@@ -142,12 +142,6 @@ class MObj(ABC):
                  properties: dict[str, _t.Any] | None = None,
                  symbols: list[_symbols.Symbol] | None = None):
 
-        if offset is not None and offset < F0:
-            raise ValueError(f"Invalid offset: {offset}")
-
-        if dur is None or dur < F0:
-            raise ValueError(f"Invalid duration: {dur}")
-
         self.parent: MContainer | None = parent
         "The parent of this object (or None if it has no parent)"
 
@@ -859,8 +853,8 @@ class MObj(ABC):
             config = self.getConfig(activecfg) or activecfg
 
         rawscore = self.scoringScore(config=config)
-        if scorestruct:
-            rawscore.scorestruct = scorestruct
+        scorestruct = scorestruct or self.scorestruct()
+        rawscore.scorestruct = scorestruct
 
         from maelzel.scoring import quant
 
@@ -1116,11 +1110,11 @@ class MObj(ABC):
 
     def scorestruct(self) -> ScoreStruct | None:
         """
-        Returns the ScoreStruct active for this obj or its parent (recursively)
+        Returns the ScoreStruct explicitely set for this obj or its parent (recursively)
 
-        If this object has no parent ``None`` is returned. Use
-        :meth:`activeScorestruct() <maelzel.core.mobj.MObj.activeScorestruct>`
-        to always resolve the active struct for this object
+        If this object has no parent or no struct has been set up, ``None`` is returned.
+        Use :meth:`activeScorestruct() <maelzel.core.mobj.MObj.activeScorestruct>`
+        to always resolve the active struct
 
         Returns:
             the associated scorestruct, if set (either directly or through its parent)

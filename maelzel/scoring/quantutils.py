@@ -6,7 +6,7 @@ import numpy as np
 from bisect import bisect
 import numpyx as npx
 
-from functools import cache
+from functools import cache, lru_cache
 from emlib import mathlib
 from itertools import pairwise, accumulate
 
@@ -132,33 +132,6 @@ def makeSnapped(notations: list[Notation], slots: list[int], grid: _t.Sequence[F
     return snapped
 
 
-# def resnap(assignedSlots: _t.Sequence[int],
-#            oldgrid: _t.Sequence[F],
-#            newgrid: _t.Sequence[F]
-#            ) -> list[int]:
-#     minslot = 0
-#     maxslot = len(newgrid)
-#     reassigned: list[int] = []
-#     for slot in assignedSlots:
-#         oldoffset = oldgrid[slot]
-#         for newslotidx in range(minslot, maxslot):
-#             newoffset = newgrid[newslotidx]
-#             if oldoffset == newoffset:
-#                 reassigned.append(newslotidx)
-#                 minslot = newslotidx
-#                 break
-#         else:
-#             raise ValueError(f"No corresponding slot {oldoffset=}, {newgrid=}")
-#
-#     if not len(reassigned) == len(assignedSlots):
-#         oldoffsets = [oldgrid[i] for i in assignedSlots]
-#         newoffsets = [newgrid[i] for i in reassigned]
-#         from .common import logger
-#         logger.error(f'{oldoffsets=}, {newoffsets=}, {assignedSlots=}, {reassigned=}, {oldgrid=}, {newgrid=}')
-#         raise RuntimeError("resnap error")
-#     return reassigned
-
-
 @cache
 def _makeset(start: int, end: int, exclude):
     return set(x for x in range(start, end) if x not in exclude)
@@ -167,7 +140,202 @@ def _makeset(start: int, end: int, exclude):
 _primes = {3, 5, 7, 11, 13, 19}
 
 
-def simplifyDivisionWithSlots(division: division_t, assignedSlots: list[int]
+@lru_cache(8000)
+def simplifyDivisionWithSlots(division: division_t, assignedSlots: tuple[int, ...]
+                              ) -> tuple[division_t, tuple[int, ...]] | None:
+    """
+    Try to find a simpler division which represents the same time as the given slots
+
+    Args:
+        division: the division to simplify
+        assignedSlots: the already assigned slots
+
+    Returns:
+        a tuple (newdiv, newslots) or None if not possible to simplify
+
+    """
+
+    if len(assignedSlots) == 1 and assignedSlots[0] == 0:
+        newdiv = (1,)
+        return (newdiv, assignedSlots) if newdiv != division else None
+
+    lastslot = sum(subdiv for subdiv in division)
+    if all(slot == 0 or slot == lastslot for slot in assignedSlots):
+        newdiv = (1,)
+        newslots = tuple(0 if slot == 0 else 1 for slot in assignedSlots)
+        return newdiv, newslots
+
+    lendiv = len(division)
+    if lendiv == 1 and (d0 := division[0]) % 2 == 1 and d0 in _primes:
+        return None
+
+    if lendiv > 1 and all(subdiv == 1 for subdiv in division):
+        newdiv = (lendiv,)
+        if simplifyRes := simplifyDivisionWithSlots(newdiv, assignedSlots):
+            simplified, newSlots = simplifyRes
+            assert simplified != division
+            return simplified, newSlots
+        return newdiv, assignedSlots
+
+    reduced: list[int] = []
+    slots: list[int] = []
+    cs = 0
+    cs2 = 0
+    assigned = set(assignedSlots)
+    slotSizes = [s1 - s0 for s0, s1 in pairwise(assignedSlots)]
+    numSlots = sum(division)
+    slotSizes.append(numSlots - assignedSlots[-1])
+
+    for subdiv in division:
+        if cs in assigned:
+            slots.append(cs2)
+
+        if subdiv == 1:
+            reduced.append(1)
+        elif all(s not in assigned for s in range(cs+1, cs+subdiv)):
+            # elif not anyBetween(assignedSlots, cs+1, cs+subdiv):
+            # no subslots assigned
+            reduced.append(1)
+        elif subdiv % 2 == 0:
+            if subdiv == 4:
+                if cs+1 not in assigned and cs+3 not in assigned:
+                    reduced.append(2)
+                    assert cs+2 in assigned
+                    slots.append(cs2+1)
+                else:
+                    reduced.append(4)
+                    slots.extend(cs2+i for i in range(1, 4) if cs+i in assigned)
+            elif subdiv == 6:
+                #   x       x
+                # x 0 0 1 0 0 -> 2
+                # x 0 1 0 1 0 -> 3
+                vec = [x in assigned for x in range(cs, cs+6)]
+                if not vec[1] and not vec[5]:
+                    # 0 1 2 3 4 5
+                    #   -       -
+                    if not vec[2] and not vec[4]:
+                        # x - - x - -
+                        reduced.append(2)
+                        assert vec[3]
+                        slots.append(cs2+1)
+                    elif not vec[3]:
+                        # x - . - . -
+                        reduced.append(3)
+                        if vec[2]:
+                            slots.append(cs2+1)
+                        if vec[4]:
+                            slots.append(cs2+2)
+                    else:
+                        reduced.append(6)
+                        slots.extend(cs2 + i for i, x in enumerate(vec[1:]) if x)
+                else:
+                    reduced.append(6)
+                    slots.extend(cs2 + i for i, x in enumerate(vec[1:]) if x)
+            elif subdiv == 8:
+                # 1 0 1 0 1 0 1 0
+                if cs+1 not in assigned and cs+3 not in assigned and cs+5 not in assigned and cs+7 not in assigned:
+                    # if {cs+1, cs+3, cs+5, cs+7}.isdisjoint(assigned):
+                    if cs+2 not in assigned and cs+6 not in assigned:
+                        reduced.append(2)
+                        assert cs+4 in assigned
+                        slots.append(cs2+1)
+                    else:
+                        reduced.append(4)
+                        if cs+2 in assigned:
+                            slots.append(cs2+1)
+                        if cs+4 in assigned:
+                            slots.append(cs2+2)
+                        if cs+6 in assigned:
+                            slots.append(cs2+3)
+                else:
+                    reduced.append(8)
+                    slots.extend(cs2+i for i in range(1, 8) if cs+i in assigned)
+            # from here on: even subdiv (10, 12, ...)
+            elif cs+1 not in assigned and cs+subdiv-1 not in assigned:
+                # The second and last slot are not assigned
+                mid = cs+subdiv//2
+                if mid in assigned:
+                    if all(i not in assigned for i in range(cs+1, cs+subdiv) if i != mid):
+                        # if _makeset(cs+1, cs+subdiv, (cs+subdiv//2,)).isdisjoint(assigned):
+                        # 1 0 0 0 0 1 0 0 0 0 -> 2
+                        reduced.append(2)
+                        slots.append(cs2+1)
+                    else:
+                        reduced.append(subdiv)
+                        slots.extend(cs2+i for i in range(1, subdiv) if cs+i in assigned)
+                # elif not any(x in assigned for x in range(cs+1, cs+subdiv, 2)):
+                #     reduced.append(subdiv//2)
+                #     1/0
+                #     # TODO
+                else:
+                    reduced.append(subdiv)
+                    slots.extend(cs2+i for i in range(1, subdiv) if cs+i in assigned)
+            else:
+                reduced.append(subdiv)
+                slots.extend(cs2+i for i in range(1, subdiv) if cs+i in assigned)
+        elif subdiv == 9:
+            # assigned = set(assignedSlots)
+            if {cs+1, cs+2, cs+4, cs+5, cs+7, cs+8}.isdisjoint(assignedSlots):
+                reduced.append(3)
+                if cs+3 in assigned:
+                    slots.append(cs2+1)
+                if cs+6 in assigned:
+                    slots.append(cs2+2)
+            else:
+                reduced.append(9)
+                slots.extend(cs2+i for i in range(1, subdiv) if cs+i in assigned)
+        elif subdiv == 15:
+            if all(cs+x not in assigned for x in range(1, 15) if x % 5 != 0):
+                reduced.append(3)
+                if cs+5 in assigned:
+                    slots.append(cs2+1)
+                if cs+10 in assigned:
+                    slots.append(cs2+2)
+            elif all(cs+x not in assigned for x in range(1, 15) if x % 3 != 0):
+                reduced.append(5)
+                for j in range(1, 5):
+                    if cs+j*3 in assigned:
+                        slots.append(cs2+j)
+            else:
+                reduced.append(subdiv)
+                slots.extend(cs2+i for i in range(1, subdiv) if cs+i in assigned)
+        else:
+            reduced.append(subdiv)
+            slots.extend(cs2+i for i in range(1, subdiv) if cs+i in assigned)
+        cs += subdiv
+        cs2 += reduced[-1]
+
+    newdiv: division_t = tuple(reduced)
+    assert len(newdiv) == len(division), f'{division=}, {newdiv=}'
+
+    if all(subdiv == 1 for subdiv in newdiv):
+        N = len(newdiv)
+        newdiv = (N,)
+        if N % 2 == 0 or N % 3 == 0:
+            if simplifyRes := simplifyDivisionWithSlots(newdiv, tuple(slots)):
+                newdiv, slotstup = simplifyRes
+                slots = list(slotstup)
+
+    if newdiv == division:
+        return None
+
+    if len(slots) != len(assignedSlots):
+        # grace notes share slots
+        numSlots2 = sum(subdiv for subdiv in newdiv)
+        for i, size in enumerate(slotSizes):
+            if size == 0:
+                if assignedSlots[i] == numSlots:
+                    # gracenote at the end of the beat, actually a gracenote to
+                    # the next beat
+                    slots.append(numSlots2)
+                else:
+                    slots.insert(i, slots[i])
+
+    assert isinstance(slots, list) and len(slots) == len(assignedSlots), f"{assignedSlots=}, {slots=}, {division=} -> {newdiv=}"
+    return newdiv, tuple(slots)
+
+
+def _simplifyDivisionWithSlots(division: division_t, assignedSlots: list[int]
                               ) -> tuple[division_t, list[int]] | None:
     """
     lorem ipsum
@@ -437,13 +605,28 @@ def fixGlissWithinTiesInPlace(notations: _t.Sequence[Notation]) -> None:
             n.gliss = True
 
 
+def _notationsBetween(notations: list[Notation], start: F, end: F) -> list[Notation]:
+        # gracenote policy: if a gracenote is at the start, we keep it,
+        # at the end we don't
+        # No partial notations: a notation needs to fit between start and end
+        out = []
+        for n in notations:
+            noffset = n.offset
+            assert noffset is not None
+            if noffset >= end:
+                break
+            if noffset >= start and n.end <= end:
+                out.append(n)
+        return out
+
+
 def applyDurationRatio(notations: list[Notation],
                        division: int | division_t,
                        beatOffset: F,
                        beatDur: F
                        ) -> None:
     """
-    Applies a duration ratio to each notation.
+    Applies a duration ratio to each notation, in place
 
     A duration ratio converts the actual duration of a notation to its
     notated value and is used to render these as tuplets later
@@ -467,20 +650,6 @@ def applyDurationRatio(notations: list[Notation],
                 else:
                     n.durRatios += (durRatio,)
 
-    def notationsBetween(notations: list[Notation], start: F, end: F) -> list[Notation]:
-        # gracenote policy: if a gracenote is at the start, we keep it,
-        # at the end we don't
-        # No partial notations: a notation needs to fit between start and end
-        out = []
-        for n in notations:
-            noffset = n.offset
-            assert noffset is not None
-            if noffset >= end:
-                break
-            if noffset >= start and n.end <= end:
-                out.append(n)
-        return out
-
     if isinstance(division, int) or len(division) == 1:
         num: int = division if isinstance(division, int) else division[0]
         durRatio = F(*quantdata.durationRatios[num])
@@ -491,10 +660,17 @@ def applyDurationRatio(notations: list[Notation],
         dt = beatDur / numSubBeats
         durRatio = F(*quantdata.durationRatios[numSubBeats])
         _apply(durRatio, notations)
+        if all(div in (1, 2, 4, 8, 16, 32, 64) for div in division):
+            return
+
         numNotations = 0
+        subdivs = []
         for i, subdiv in enumerate(division):
             subdivEnd = now + dt
-            subdivNotations = notationsBetween(notations, now, subdivEnd)
+            subdivNotations = _notationsBetween(notations, now, subdivEnd)
+            subdivs.append(subdivNotations)
+            # Add gracenotes at the end to the last subdiv notations. They would
+            # be left out, since that start at the end of the subdivision
             if i == len(division) - 1 and notations[-1].isGracenote and notations[-1].offset == subdivEnd:
                 endgraces = []
                 for n in reversed(notations):
@@ -507,10 +683,12 @@ def applyDurationRatio(notations: list[Notation],
                                beatOffset=now, beatDur=dt)
             now += dt
             numNotations += len(subdivNotations)
+
         if numNotations != len(notations):
             for i, n in enumerate(notations):
                 print(i, n)
-            raise RuntimeError(f"Failed to apply durations, len mismatch, {numNotations=} != {len(notations)=}, {beatOffset=}, {beatDur=}")
+            raise RuntimeError(f"Failed to apply durations, {numNotations=} != {len(notations)=}, "
+                               f"{division=}, {beatOffset=}, {beatDur=}, {durRatio=}, {notations=}, {subdivs=}")
 
 
 def breakNotationsByBeat(notations: list[Notation],
@@ -783,3 +961,34 @@ def fillSpan(notations: list[Notation], start: F, end: F
 @cache
 def slotsAtSubdivisions(divs: tuple[int, ...]) -> list[int]:
     return [0] + list(accumulate(divs))
+
+
+def divisionFitsPerfectly(div: division_t, events: list[Notation], beatDuration: F, offset: F) -> bool:
+    """
+    Checks if events fit the given div perfectly. Works for simply nested divs (4,), (3, 4, 5)
+
+    Args:
+        div:
+        events:
+        beatDuration:
+
+    Returns:
+
+    """
+    numParts = len(div)
+    partDur = beatDuration / numParts  # each top-level subdivision gets equal duration
+
+    for ev in events:
+        # which part does this offset fall in?
+        partIndex, remainder = divmod(ev.offset - offset, partDur)
+        partIndex = int(partIndex)
+        if partIndex >= numParts:
+            return False  # shouldn't happen but guard anyway
+
+        slotDur = partDur / div[partIndex]
+        q, r = divmod(remainder, slotDur)
+        if r != 0:
+            return False
+
+    return True
+

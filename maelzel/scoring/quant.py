@@ -44,10 +44,10 @@ if TYPE_CHECKING:
     from maelzel.common import beat_t
     from .common import division_t
     from typing import Iterator, Sequence
+    from typing_extensions import Self
     import maelzel.core
     from .node import LogicalTie
     from . import enharmonics
-    from . import renderoptions
     from . import renderer
 
 
@@ -150,7 +150,7 @@ def _evalGridError(profile: QuantizationProfile,
     offsetErrW = profile.offsetErrorWeight
     restOffsetErrW = profile.restOffsetErrorWeight
     gracedur = profile.graceDuration
-    beatdurf = float(beatDuration)
+    beatdurf = beatDuration
     numGraces = 0
     totOffsetErr = 0
     totDurErr = 0
@@ -158,6 +158,7 @@ def _evalGridError(profile: QuantizationProfile,
     for s in snappedEvents:
         n = s.notation
         origdur = float(n.duration)
+        # origdur = n.duration
         offsetErr = abs(n.qoffset - s.offset) / beatdurf
 
         if origdur > 0 and s.duration == 0:
@@ -211,8 +212,11 @@ class QuantizedBeat:
                  quantizationInfo: str = '',
                  weight: int = 0):
 
-        notations = [n for n in notations
-                     if not (n.isRest and n.isGracenote and not n.hasAttributes())]
+        if any(n.isRest and n.isGracenote and not n.hasAttributes() for n in notations):
+            notations = [n for n in notations
+                         if not (n.isRest and n.isGracenote and not n.hasAttributes())]
+
+        assert all(n.offset is not None for n in notations)
 
         self.divisions: division_t = divisions
         "The division of this beat"
@@ -239,6 +243,8 @@ class QuantizedBeat:
         "The weight of this beat within the measure. 2=strong, 1=weak, 0=no weight"
 
         assert all(not n.durRatios for n in notations), notations
+        assert all(beatOffset <= n.offset and n.end <= beatOffset + beatDuration
+                   for n in notations), f"{notations=}, {beatOffset=}, {beatDuration=}"
 
         self._applyDurationRatios()
 
@@ -361,6 +367,15 @@ class QuantizedMeasure:
 
         if readonly:
             self.tree.setReadOnly(True, recurse=True)
+
+    def copy(self) -> Self:
+        return QuantizedMeasure(timesig=self.timesig,
+                                tempo=self.tempo,
+                                tempoRef=self.tempoRef,
+                                beats=self.beats.copy(),
+                                quantprofile=self.quantprofile,
+                                parent=self.parent,
+                                subdivisions=self.subdivisions)
 
     def setReadOnly(self, value=True) -> None:
         """
@@ -982,7 +997,12 @@ def _makeTreeFromQuantizedBeats(beats: list[QuantizedBeat],
         assert all(n.isQuantized() for n in beat.notations), f"{beat.notations=}"
 
     nodes = [beat.asTree().mergedNotations() for beat in beats]
-    assert sum(node.totalDuration() for node in nodes) == sum(beat.duration for beat in beats)
+    if (a:=sum(node.totalDuration() for node in nodes)) != (b:=sum(beat.duration for beat in beats)):
+        print("[")
+        for node, beat in zip(nodes, beats):
+            print(node, beat)
+        print("]")
+        raise AssertionError(f"{a=} != {b=}, {beats=}")
     root = Node.asTree(nodes)
     root.check()
     root = mergeSiblings(root, profile=quantprofile, beatOffsets=beatOffsets, beatWeights=beatWeights)
@@ -1022,7 +1042,7 @@ def _evalRhythmComplexity(profile: QuantizationProfile,
         div0 = div[0]
         if not isinstance(div0, int):
             raise ValueError(f"Deeply nested divisions are not supported, got {div}")
-        slots = assignedSlots + [div0]
+        slots = assignedSlots + [div0] if isinstance(assignedSlots, list) else assignedSlots + (div0,)
         # duration in terms of number of slots
         durs = [b - a for a, b in itertools.pairwise(slots)]
         numTies = sum(dur not in quantdata.regularDurations for dur in durs)
@@ -1045,7 +1065,8 @@ def _evalRhythmComplexity(profile: QuantizationProfile,
         slotsAtSubdivs = quantutils.slotsAtSubdivisions(div)
         numSyncop = 0
         lastslot = quantutils.divisionNumSlots(div)
-        for slotStart, slotEnd in itertools.pairwise(assignedSlots + [lastslot]):
+        slots = assignedSlots + [lastslot] if isinstance(assignedSlots, list) else assignedSlots + (lastslot,)
+        for slotStart, slotEnd in itertools.pairwise(slots):
             if _crossesSubdivisions(slotStart, slotEnd, slotsAtSubdivs):
                 numSyncop += 1
 
@@ -1060,6 +1081,45 @@ def _evalRhythmComplexity(profile: QuantizationProfile,
     debugstr = f'{numSyncop=}, {numTies=}' if profile.debug else ''
     return penalty, debugstr
 
+
+def _splitNotationsInBeat(ns: Sequence[Notation],
+                          div: tuple[int, ...],
+                          assignedSlots: list[int],
+                          beatOffset: F,
+                          beatDuration: F
+                          ) -> tuple[list[Notation], tuple[int, ...], list[int]]:
+    # ----------------------<
+    beatNotations: list[Notation] = []
+    for n in ns:
+        if n.duration == 0:
+            beatNotations.append(n)
+        else:
+            # assert beatOffset <= n.qoffset < n.qoffset + n.duration <= beatOffset + beatDuration, f"{n=}, {beatOffset=}, {beatDuration=}"
+            eventParts = n._breakIrregularDurationInBeat(beatDivision=div, beatDur=beatDuration,
+                                                         beatOffset=beatOffset)
+            if eventParts:
+                beatNotations.extend(eventParts)
+            elif n.duration > 0 or (n.duration == 0 and not n.isRest):
+                beatNotations.append(n)
+            else:
+                assert n.isRest and n.duration == 0
+                # Do not add a null-duration rest
+
+    if len(beatNotations) == 1:
+        n0 = beatNotations[0]
+        beatEnd = beatOffset + beatDuration
+        if div != (1,) and len(assignedSlots) == 1 and assignedSlots[0] == 0:
+            div = (1,)
+        elif n0.isRest and (n0.end == beatEnd or n0.mergeableNext) and (n0.offset == beatOffset or n0.mergeablePrev):
+            div = (1,)
+            beatNotations = [n0.clone(duration=beatDuration)]
+            assignedSlots = [0]
+
+    if sum(n.duration for n in beatNotations) != beatDuration:
+        raise AssertionError(f"{beatDuration=}, {beatNotations=}")
+
+    return beatNotations, div, assignedSlots
+    #------------------------- end
 
 def quantizeBeatBinary(eventsInBeat: list[Notation],
                        quarterTempo: F,
@@ -1097,11 +1157,13 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
 
     """
     # assert all(not ev.tiedNext for ev in eventsInBeat), eventsInBeat
-    assert beatDuration in {F(1, 1), F(1, 2), F(1, 4), F(2, 1)}, f"{beatDuration=}"
+    assert beatDuration in {F(1, 1), F(1, 2), F(1, 4), F(1, 8), F(2, 1)}, f"{beatDuration=}"
     assert eventsInBeat[0].offset == beatOffset
 
     if profile.debug:
         t0 = time.time()
+
+    searchExact = profile.exactGridFactor < 1.0
 
     if len(eventsInBeat) > 2:
         last = eventsInBeat[-1]
@@ -1132,26 +1194,46 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
 
     # (totalError, div, snappedEvents, assignedSlots, debuginfo)
     rows: list[tuple[float, division_t, list[Snapped], list[int], str]] = []
-    seen = set()
+
     if beatOffset > 0:
         events0 = [ev.clone(offset=ev.qoffset - beatOffset) for ev in eventsInBeat]
     else:
         events0 = eventsInBeat
+    events0offsets = np.array([float(ev.qoffset) for ev in events0])
+
+    if True and searchExact:
+        perfectFits = []
+        for div in possibleDivisions:
+            if quantutils.divisionFitsPerfectly(div, eventsInBeat, beatDuration=beatDuration, offset=beatOffset):
+                # TODO: have a heuristic to determine if this div is as good as we will need
+                perfectFits.append(div)
+                if len(perfectFits) > 5:
+                    break
+        if perfectFits:
+            div = perfectFits[0]
+            # print(f"---------------- {len(perfectFits)=}, best={div}, {perfectFits}, {eventsInBeat}")
+            grid0, fgrid0 = quantutils.divisionGrid0Array(beatDuration=beatDuration, division=div)
+            assignedSlots = tuple(quantutils.assignSlots(offsets=events0offsets, fgrid=fgrid0))
+            if simplified := quantutils.simplifyDivisionWithSlots(div, assignedSlots):
+                div, assignedSlots = simplified
+            beatNotations, div, assignedSlots = _splitNotationsInBeat(eventsInBeat, div, assignedSlots, beatOffset=beatOffset, beatDuration=beatDuration)
+            return QuantizedBeat(
+                div, assignedSlots=list(assignedSlots), notations=beatNotations,
+                beatDuration=beatDuration, beatOffset=beatOffset,
+                quantizationError=0, quantizationInfo='exact')
+    seen = set()
     minError = 999.
     minGridError = 999.
 
     firstOffset = eventsInBeat[0].duration
     lastOffsetMargin = beatDuration - (eventsInBeat[-1].qoffset - beatOffset)
     prevOuterRatio = F(*quantutils.outerTuplet(prevDivision)) if prevDivision else F0
-    events0offsets = np.array([float(ev.qoffset) for ev in events0])
     gridErrorWeight = profile.gridErrorWeight
 
     numOriginalGracenotes = sum(1 for n in eventsInBeat if n.duration == 0)
 
     gridErrorThresh = 0.1
     # TODO: remove this hardcoded threshold
-
-    # assert (8, 4, 8, 6) in possibleDivisions
 
     for div in possibleDivisions:
         if div in seen or div in profile.blacklist:
@@ -1204,12 +1286,9 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
             seen.add(div2)
             div = div2
 
-        # if profile.maxGridDensity and max(div)*len(div) > profile.maxGridDensity:
-        #     continue
-
         # grid0, fgrid0 = quantutils.divisionGrid0Float(beatDuration=beatDuration, division=div)
         grid0, fgrid0 = quantutils.divisionGrid0Array(beatDuration=beatDuration, division=div)
-        assignedSlots = quantutils.assignSlots(offsets=events0offsets, fgrid=fgrid0)
+        assignedSlots = tuple(quantutils.assignSlots(offsets=events0offsets, fgrid=fgrid0))
         if simplifyResult := quantutils.simplifyDivisionWithSlots(div, assignedSlots):
             simplifiedDiv, newSlots = simplifyResult
             if (simplifiedDiv in seen) or (simplifiedDiv in profile.blacklist):
@@ -1294,34 +1373,41 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
     notations: list[Notation] = [snapped.applySnap(extraOffset=beatOffset)
                                  for snapped in snappedEvents]
 
-    beatNotations: list[Notation] = []
-    for n in notations:
-        if n.duration == 0:
-            beatNotations.append(n)
-        else:
-            # assert beatOffset <= n.qoffset < n.qoffset + n.duration <= beatOffset + beatDuration, f"{n=}, {beatOffset=}, {beatDuration=}"
-            eventParts = n._breakIrregularDurationInBeat(beatDivision=div, beatDur=beatDuration,
-                                                         beatOffset=beatOffset)
-            if eventParts:
-                beatNotations.extend(eventParts)
-            elif n.duration > 0 or (n.duration == 0 and not n.isRest):
-                beatNotations.append(n)
-            else:
-                assert n.isRest and n.duration == 0
-                # Do not add a null-duration rest
+    # ----------------------<
+    # beatNotations: list[Notation] = []
+    # for n in notations:
+    #     if n.duration == 0:
+    #         beatNotations.append(n)
+    #     else:
+    #         # assert beatOffset <= n.qoffset < n.qoffset + n.duration <= beatOffset + beatDuration, f"{n=}, {beatOffset=}, {beatDuration=}"
+    #         eventParts = n._breakIrregularDurationInBeat(beatDivision=div, beatDur=beatDuration,
+    #                                                      beatOffset=beatOffset)
+    #         if eventParts:
+    #             beatNotations.extend(eventParts)
+    #         elif n.duration > 0 or (n.duration == 0 and not n.isRest):
+    #             beatNotations.append(n)
+    #         else:
+    #             assert n.isRest and n.duration == 0
+    #             # Do not add a null-duration rest
+    #
+    # if len(beatNotations) == 1:
+    #     n0 = beatNotations[0]
+    #     beatEnd = beatOffset + beatDuration
+    #     if div != (1,) and len(assignedSlots) == 1 and assignedSlots[0] == 0:
+    #         div = (1,)
+    #     elif n0.isRest and (n0.end == beatEnd or n0.mergeableNext) and (n0.offset == beatOffset or n0.mergeablePrev):
+    #         div = (1,)
+    #         beatNotations = [n0.clone(duration=beatDuration)]
+    #         assignedSlots = [0]
+    #
+    # if sum(n.duration for n in beatNotations) != beatDuration:
+    #     raise AssertionError(f"{beatDuration=}, {beatNotations=}")
+    #------------------------- end
 
-    if len(beatNotations) == 1:
-        n0 = beatNotations[0]
-        beatEnd = beatOffset + beatDuration
-        if div != (1,) and len(assignedSlots) == 1 and assignedSlots[0] == 0:
-            div = (1,)
-        elif n0.isRest and (n0.end == beatEnd or n0.mergeableNext) and (n0.offset == beatOffset or n0.mergeablePrev):
-            div = (1,)
-            beatNotations = [n0.clone(duration=beatDuration)]
-            assignedSlots = [0]
+    beatNotations, div, assignedSlots = _splitNotationsInBeat(notations, div=div,
+                                                              assignedSlots=assignedSlots,
+                                                              beatOffset=beatOffset, beatDuration=beatDuration)
 
-    if sum(n.duration for n in beatNotations) != beatDuration:
-        raise AssertionError(f"{beatDuration=}, {beatNotations=}")
 
     out = QuantizedBeat(div, assignedSlots=assignedSlots, notations=beatNotations,
                         beatDuration=beatDuration, beatOffset=beatOffset,
@@ -1629,7 +1715,7 @@ def splitNotationAtMeasures(n: Notation, struct: st.ScoreStruct
         pairs.append((measureindex1, notation))
 
     parts = [part for measidx, part in pairs]
-    assert sum(part.duration for part in parts) == n.duration, f"{n=}, {parts=}"
+    # assert sum(part.duration for part in parts) == n.duration, f"{n=}, {parts=}"
 
     n._copySpannersToSplitNotation(parts)
 
@@ -1979,6 +2065,18 @@ class QuantizedPart:
 
     def __repr__(self):
         return _util.reprObj(self, hideEmptyStr=True, hideFalsy=True)
+
+    def copy(self) -> Self:
+        return QuantizedPart(struct=self.struct,
+                             measures=[m.copy() for m in self.measures],
+                             quantProfile=self.quantProfile,
+                             name=self.name,
+                             abbrev=self.abbrev,
+                             firstClef=self.firstClef,
+                             possibleClefs=self.possibleClefs,
+                             autoClefChanges=self.autoClefChanges,
+                             showName=self.showName,
+                             readonly=self.readonly)
 
     def setReadOnly(self, value: bool) -> None:
         for m in self.measures:
@@ -2661,12 +2759,14 @@ class QuantizedScore:
                    '.xml': 'musicxml',
                    '.musicxml': 'musicxml',
                    '.pdf': 'pdf',
-                   '.png': 'png'}
+                   '.png': 'png',
+                   '.mid': 'midi'}
 
     def __init__(self,
                  parts: list[QuantizedPart],
                  title='',
                  composer='',
+                 struct: st.ScoreStruct | None = None
                  ):
         if not parts:
             raise ValueError("Score must have at least one part")
@@ -2687,7 +2787,7 @@ class QuantizedScore:
         self.quantProfile = qprofile
         """Quantization profile. A part might have a different profile"""
 
-        self.struct = self.parts[0].struct
+        self.struct: st.ScoreStruct = struct if struct is not None else self.parts[0].struct
         "ScoreStruct for this score. A part might have a different scorestruct"
 
         self.groups: dict[str, PartNode] = {}
@@ -2838,6 +2938,38 @@ class QuantizedScore:
         """
         return _partTree(self.parts, groups=list(self.groups.values()))
 
+    def tempoTransform(self, factor: F | int | float, offset: F | int | float = 0) -> Self:
+        """
+        Return a new QuantizedScore with the tempo transformed by the given factor and offset
+
+        The returned score has an ad-hoc scorestruct. The active scorestruct
+        is not modified. Notice that quantization is not performed again, the result
+        is an exact copy of the original quantized score with all tempi modified by the
+        given parameters. For requantization, see :meth:`maelzel.core.Score.tempoTransform`
+
+        Args:
+            factor: all tempi in the active struct are multiplied by this factor
+            offset: added to all tempi in the active struct
+
+        Returns:
+            a clone of this score with a newly created scorestructure, modified
+            by the given factor and offset.
+        """
+        if factor == 1 and offset == 0:
+            return self
+        assert self.struct
+        struct = self.struct.tempoTransform(factor=factor, offset=offset)
+        out = self.copy()
+        out.struct = struct
+        for part in out.parts:
+            if part.struct:
+                part.struct = part.struct.tempoTransform(factor=factor, offset=offset)
+        return out
+
+    def copy(self) -> Self:
+        parts = [part.copy() for part in self.parts]
+        return QuantizedScore(parts=parts, title=self.title, composer=self.composer, struct=self.struct)
+
     def write(self,
               outfile: str,
               options: renderer.RenderOptions | None = None,
@@ -2854,8 +2986,8 @@ class QuantizedScore:
             outfile: the path of the written file. Use 'stdout' to print to stdout
             options: render options used to generate the output
             backend: backend used when writing to png / pdf (one of 'lilypond', 'musicxml')
-            format: format used (one of 'pdf', 'png', 'musicxml', 'lilypond'). If not given
-                it is inferred from the file extension.
+            format: format used (one of 'pdf', 'png', 'musicxml', 'lilypond', 'midi').
+                If not given, it is inferred from the file extension.
 
         Returns:
             the Renderer used
@@ -2882,9 +3014,14 @@ class QuantizedScore:
             r = self.render(options=options, backend=backend)
             r.write(outfile)
             return r
+        elif format == 'midi':
+            assert outfile != 'stdout'
+            r = self.render(options=options, backend='lilypond')
+            r.write(outfile)
+            return r
         else:
             raise ValueError(f"Format {format} not supported, possible formats are "
-                             f"'pdf', 'png', 'musicxml', 'lilypond'")
+                             f"'pdf', 'png', 'midi', 'musicxml', 'lilypond'")
 
     def show(self, backend='', fmt='png', external: bool = False) -> None:
         self.render(backend=backend).show(fmt=fmt, external=external)

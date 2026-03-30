@@ -1256,4 +1256,6 @@ def beatToTree(notations: list[Notation], division: int | division_t,
         else:
             items.append(beatToTree(notations=subdivNotations, division=subdiv, beatOffset=now, beatDur=dt))
         now += dt
-    return Node(items, ratio=durRatio)
+    node = Node(items, ratio=durRatio)
+    assert node.totalDuration() == sum(n.duration for n in notations), f"{node=}, {notations=}, {division=}"
+    return node

@@ -271,6 +271,7 @@ def getPresets() -> dict[str, QuantPreset]:
             divisionErrorWeight=0.01,
             rhythmComplexityWeight=0.01,
             gridErrorExp=0.9,
+            exactGridFactor=0.75,
             maxDivPenalty=0.2),
         'low': QuantPreset(
             divisionDefs = (
@@ -466,9 +467,9 @@ def allSubdivisions(maxSubdivs: int,
         blacklistset = set(blacklist)
         allSubdivs = [div for div in allSubdivs if div not in blacklistset]
 
-    allSubdivs.sort()
+    # allSubdivs.sort()
     allSubdivs.sort(key=lambda p: len(p))
-    # allSubdivs.sort(key=lambda p: sum(p))
+    allSubdivs.sort(key=lambda p: sum(p))
     return allSubdivs
 
 

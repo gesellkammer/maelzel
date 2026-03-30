@@ -5,7 +5,7 @@ from maelzel.textstyle import TextStyle
 import emlib.misc
 
 
-@dataclass(unsafe_hash=True, slots=True)
+@dataclass(unsafe_hash=True)
 class RenderOptions:
     """
     Holds all options needed for rendering
@@ -182,7 +182,10 @@ class RenderOptions:
     clefTransposingFactor: float = 1.0
     """Factor applied to a clef fitness if it is a transposing clef"""
 
-    compoundMeterSubdivision: str = 'all'
+    compoundMeterJoinSubsequentDenominators: bool = True
+    """For compound meters like (3/8 + 4/8), join them as 3+4/8"""
+
+    compoundMeterSubdivision: str = 'none'
     """Sets the subdivision policy for compound meters. One of 'all', 'none', 'heterogeneous'
 
     * 'all': add subdivisions to all internal subdivisions.
@@ -222,8 +225,8 @@ class RenderOptions:
     def keys(cls) -> set[str]:
         return {f.name for f in _dataclassfields(cls)}
 
-    #def __hash__(self) -> int:
-    #    return hash(str(self))
+    # def __hash__(self) -> int:
+    #     return hash(str(self))
 
     def __eq__(self, value, /) -> bool:
         return isinstance(value, RenderOptions) and hash(self) == hash(value)

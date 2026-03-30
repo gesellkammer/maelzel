@@ -496,6 +496,8 @@ def resolveOffsets(notations: list[Notation], start=F0
     for i, n in enumerate(notations):
         if n.offset is not None:
             now = n.offset
+        else:
+            n.offset = now
         now += n.duration
     assert all(n1.end <= n2.qoffset for n1, n2 in pairwise(notations))
 

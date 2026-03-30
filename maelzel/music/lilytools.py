@@ -1048,8 +1048,8 @@ def makeClef(clef: str, color='') -> str:
     """
     lilyclef = _clefToLilypondClef.get(clef.lower())
     if lilyclef is None:
-        raise ValueError(f"Unknown clef {clef}. "
-                         f"Possible values: {_clefToLilypondClef.keys()}")
+        raise ValueError(f"Unknown clef '{clef}', "
+                         f"possible values: {_clefToLilypondClef.keys()}")
     if "^" in lilyclef or "_" in lilyclef:
         lilyclef = '"' + lilyclef + '"'
     out = r"\clef " + lilyclef

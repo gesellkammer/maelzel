@@ -319,27 +319,6 @@ def overlap[T: (int, float, F)](u1: T, u2: T, v1: T, v2: T) -> tuple[T, T]:
     return x1, x2
 
 
-# def _overlap(u1: num_t, u2: num_t, v1: num_t, v2: num_t) -> tuple[num_t, num_t]:
-#     """
-#     The overlap betwen (u1, u2) and (v1, v2)
-#
-#     If there is no overlap, start > end
-#
-#     Args:
-#         u1: start of first interval
-#         u2: end of first interval
-#         v1: start of second interval
-#         v2: end of second interval
-#
-#     Returns:
-#         a tuple (overlapstart, overlapend). If no overlap, overlapstart > overlapend
-#
-#     """
-#     x1 = u1 if u1 > v1 else v1
-#     x2 = u2 if u2 < v2 else v2
-#     return x1, x2
-
-
 def aslist(seq) -> list:
     if isinstance(seq, list):
         return seq
@@ -540,6 +519,44 @@ def unicodeNotename(notename: str, full=True) -> str:
     return _unicodeReplacer(full=full)(notename)
 
 
+_unicodeFractionData: tuple[dict, dict, dict] | None = None
+
+
+def _getUnicodeFractionData() -> tuple[dict, dict, dict]:
+    global _unicodeFractionData
+    if _unicodeFractionData is None:
+        commonFractions = {
+            (1, 2): "½",
+            (1, 3): "⅓",
+            (2, 3): "⅔",
+            (1, 4): "¼",
+            (3, 4): "¾",
+            (1, 5): "⅕",
+            (2, 5): "⅖",
+            (3, 5): "⅗",
+            (4, 5): "⅘",
+            (1, 6): "⅙",
+            (5, 6): "⅚",
+            (1, 7): "⅐",
+            (1, 8): "⅛",
+            (3, 8): "⅜",
+            (5, 8): "⅝",
+            (7, 8): "⅞",
+            (1, 9): "⅑",
+            (1, 10): "⅒",
+        }
+        superscripts = {
+            "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
+            "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹",
+        }
+        subscripts = {
+            "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄",
+            "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉",
+        }
+        _unicodeFractionData = (commonFractions, superscripts, subscripts)
+    return _unicodeFractionData
+
+
 def unicodeFraction(numerator: int, denominator: int, multi=False) -> str:
     """
     Convert a fraction to its Unicode representation.
@@ -561,104 +578,59 @@ def unicodeFraction(numerator: int, denominator: int, multi=False) -> str:
         >>> fraction_to_unicode(22, 7)
         '²²⁄₇'
     """
-    # Handle zero numerator
     if numerator == 0:
         return "0"
 
-    # Handle negative fractions
     negative = (numerator < 0) ^ (denominator < 0)
     numerator = abs(numerator)
     denominator = abs(denominator)
 
-    # Common Unicode fractions
-    if not multi:
-        commonFractions = {
-            (1, 2): "½",
-            (1, 3): "⅓",
-            (2, 3): "⅔",
-            (1, 4): "¼",
-            (3, 4): "¾",
-            (1, 5): "⅕",
-            (2, 5): "⅖",
-            (3, 5): "⅗",
-            (4, 5): "⅘",
-            (1, 6): "⅙",
-            (5, 6): "⅚",
-            (1, 7): "⅐",
-            (1, 8): "⅛",
-            (3, 8): "⅜",
-            (5, 8): "⅝",
-            (7, 8): "⅞",
-            (1, 9): "⅑",
-            (1, 10): "⅒",
-        }
+    commonFractions, superscripts, subscripts = _getUnicodeFractionData()
 
-        # Check if it's a common fraction
-        if (numerator, denominator) in commonFractions:
-            result = commonFractions[(numerator, denominator)]
-            return f"−{result}" if negative else result
-
-    # Superscript digits for numerator
-    superscripts = {
-        "0": "⁰",
-        "1": "¹",
-        "2": "²",
-        "3": "³",
-        "4": "⁴",
-        "5": "⁵",
-        "6": "⁶",
-        "7": "⁷",
-        "8": "⁸",
-        "9": "⁹",
-    }
-
-    # Subscript digits for denominator
-    subscripts = {
-        "0": "₀",
-        "1": "₁",
-        "2": "₂",
-        "3": "₃",
-        "4": "₄",
-        "5": "₅",
-        "6": "₆",
-        "7": "₇",
-        "8": "₈",
-        "9": "₉",
-    }
+    if not multi and (numerator, denominator) in commonFractions:
+        result = commonFractions[(numerator, denominator)]
+        return f"−{result}" if negative else result
 
     superscript = "".join(superscripts[digit] for digit in str(numerator))
     subscript = "".join(subscripts[digit] for digit in str(denominator))
-    # Combine with fraction slash
     result = f"{superscript}⁄{subscript}"
     return f"−{result}" if negative else result
 
 
-def fileIsLocked(filepath: str) -> bool:
-    assert os.path.exists(filepath)
-    locked = False
-    fileobj = None
-    try:
-        bufsize = 8
-        # Opening file in append mode and read the first 8 characters.
-        fileobj = open(filepath, mode='a', buffering=bufsize)
-        if fileobj:
-            locked = False
-    except IOError:
-        locked = True
-    finally:
-        if fileobj:
-            fileobj.close()
-    return locked
+# def fileIsLocked(filepath: str) -> bool:
+#     """
+#     Returns True if the file can be read, False otherwise
+#     Args:
+#         filepath:
+#
+#     Returns:
+#
+#     """
+#     assert os.path.exists(filepath)
+#     locked = False
+#     fileobj = None
+#     try:
+#         bufsize = 8
+#         # Opening file in append mode and read the first 8 characters.
+#         fileobj = open(filepath, mode='a', buffering=bufsize)
+#         if fileobj:
+#             locked = False
+#     except IOError:
+#         locked = True
+#     finally:
+#         if fileobj:
+#             fileobj.close()
+#     return locked
+#
 
-
-def waitForFile(filepath: str, period=0.1, timeout=1) -> None:
-    import time
-    accumtime = 0.
-    while fileIsLocked(filepath):
-        if accumtime > timeout:
-            raise TimeoutError
-        time.sleep(period)
-        accumtime += period
+# def waitForFile(filepath: str, period=0.25, timeout=1) -> None:
+#     import time
+#     accumtime = 0.
+#     while fileIsLocked(filepath):
+#         if accumtime > timeout:
+#             raise TimeoutError
+#         time.sleep(period)
+#         accumtime += period
 
 
 def htmlImage64(img64: bytes | str, imwidth: int, width: int | str = '', scale=1.,
@@ -757,3 +729,59 @@ def fracRange(start: F, stop: F, step=F1
         start += step
     return out
 
+
+def splitStr(s: str, sep: str = ',') -> list[str]:
+    """
+    Splits at separator, skips splits inside parentheses, brackets and quoted strings
+
+    Raises ValueError on mismatched brackets.
+
+    Examples:
+        splitAt('a, b, c')                          -> ['a', ' b', ' c']
+        splitAt('a=(1, 2), b=20, c= 30')            -> ['a=(1, 2)', ' b=20', ' c= 30']
+        splitAt('a="hello, world", b=20')            -> ['a="hello, world"', ' b=20']
+        splitAt("a='hello, world', b=20")            -> ["a='hello, world'", ' b=20']
+        splitAt('a=[(1, 2), (3, 4)], b=5')          -> ['a=[(1, 2), (3, 4)]', ' b=5']
+    """
+    parts = []
+    stack = []       # tracks open parens/brackets with their position
+    quote = None     # current open quote character, or None
+    quote_pos = None
+    current = []
+    matching = {')': '(', ']': '['}
+
+    for i, ch in enumerate(s):
+        if quote is not None:
+            # inside a quoted string: only look for the closing quote
+            if ch == quote:
+                quote = None
+                quote_pos = None
+        else:
+            if ch in ('"', "'"):
+                quote = ch
+                quote_pos = i
+            elif ch in ('(', '['):
+                stack.append((ch, i))
+            elif ch in (')', ']'):
+                if not stack:
+                    raise ValueError(f"Unmatched '{ch}' at position {i}")
+                if stack[-1][0] != matching[ch]:
+                    raise ValueError(
+                        f"Mismatched '{stack[-1][0]}' at position {stack[-1][1]} "
+                        f"closed by '{ch}' at position {i}"
+                    )
+                stack.pop()
+            elif ch == sep and not stack:
+                parts.append(''.join(current))
+                current = []
+                continue
+
+        current.append(ch)
+
+    if quote is not None:
+        raise ValueError(f"Unclosed quote '{quote}' at position {quote_pos}")
+    if stack:
+        raise ValueError(f"Unmatched '{stack[-1][0]}' at position {stack[-1][1]}")
+
+    parts.append(''.join(current))
+    return parts
