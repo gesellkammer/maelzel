@@ -4,8 +4,11 @@ import functools
 import os
 import sys
 import weakref
+import pickle
 import emlib.misc
 from maelzel.common import F, F1
+from maelzel._logutils import getLogger
+
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -18,6 +21,56 @@ if TYPE_CHECKING:
 _cache = {}
 
 
+def _cacheFolder() -> str:
+    import appdirs
+    base = appdirs.user_cache_dir(appname='maelzel')
+    if not os.path.exists(base):
+        os.makedirs(base, exist_ok=True)
+    return base
+
+
+def savePickle(obj, prefix: str, objhash: int = 0) -> str:
+    """
+    Save an object as a pickle
+
+    Args:
+        obj: the object to save
+        prefix: a prefix for the filename
+        objhash: a hash number. If not given the hash of obj is used
+
+    Returns:
+        the filename of the pickle file
+    """
+    if not objhash:
+        objhash = hash(obj)
+    base = f"{prefix}:{objhash}.pickle"
+    cachedir = _cacheFolder()
+    filename = os.path.join(cachedir, base)
+    with open(filename, "wb") as f:
+        pickle.dump(obj, f, pickle.HIGHEST_PROTOCOL)
+    return filename
+
+
+def loadPickle(prefix: str, objhash: int) -> Any:
+    """
+    Loads an object from a pickle file
+
+    Args:
+        prefix: the prefix of the filename
+        objhash: the hash used when saving the file
+
+    Returns:
+        the object saved, or None if the pickle file does not exist
+    """
+    basename = f"{prefix}:{objhash}.pickle"
+    cachedir = _cacheFolder()
+    filename = os.path.join(cachedir, basename)
+    if not os.path.exists(filename):
+        getLogger().debug("Pickle file %s not found", filename)
+        return None
+    return pickle.load(open(filename, "rb"))
+
+
 def makeTempDir(check=True) -> tempfile.TemporaryDirectory:
     """
     Creates a temporary directory within the user space, ensures that it is writable
@@ -27,13 +80,15 @@ def makeTempDir(check=True) -> tempfile.TemporaryDirectory:
 
     Raises IOError if it failes to create the temp directory
     """
+    cachedir = _cacheFolder()
+
     import appdirs
     base = appdirs.user_cache_dir(appname='maelzel')
     os.makedirs(base, exist_ok=True)
     if not os.path.exists(base):
         raise IOError(f"Could not create base for temporary folder, tried '{base}'")
     import tempfile
-    tempdir = tempfile.TemporaryDirectory(dir=appdirs.user_cache_dir())
+    tempdir = tempfile.TemporaryDirectory(dir=base, prefix='maelzel-tmp')
     if not os.path.exists(tempdir.name):
         raise IOError(f"Could not create temporary directory, '{tempdir.name}' does not exist")
 
@@ -418,7 +473,8 @@ def getPlatform() -> tuple[str, str]:
     """
     if (out := _cache.get('getPlatform')) is not None:
         assert isinstance(out, tuple)
-        return out
+        system, machine = out
+        return system, machine
 
     import platform
     import sysconfig

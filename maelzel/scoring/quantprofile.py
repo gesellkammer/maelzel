@@ -249,7 +249,7 @@ class QuantizationProfile:
     def __post_init__(self):
         assert self.breakSyncopationsLevel in ('strong', 'none', 'all', 'weak'), f"{self.breakSyncopationsLevel=}"
         if not self.divisionDefs:
-            presets = quantdata.getPresets()
+            presets = quantdata.quantizationPresets()
             preset = presets['high']
             self.divisionDefs = preset.divisionDefs
         for attr, value in self.__dataclass_fields__.items():  # type: ignore
@@ -264,12 +264,19 @@ class QuantizationProfile:
         """
         self._cachedDivisionsByTempo.clear()
         self._cachedDivisionPenalty.clear()
+        self._hash = 0
 
     def divisionsByTempo(self) -> dict[int, tuple[division_t, ...]]:
-        return quantdata.divisionsByTempo(self.divisionDefs, blacklist=self.blacklist)
+        """
+        Returns a dict mapping max. tempo to possible divisions of the beat
 
-    # def normalizedGridWeights(self) -> list[float]:
-    #     return _util.normalizedWeights(self.offsetErrorWeight, self.durationErrorWeight, self.graceErrorWeight)
+        This operation is highly cached, both on memory and pickled to disk,
+        shared among all profiles with the same divisions of the beat
+
+        Returns:
+            a dict {maxtempo: int -> divisions: tuple[division_t, ...]}
+        """
+        return quantdata.divisionsByTempo(self.divisionDefs, blacklist=self.blacklist)
 
     def block(self, val=True):
         if self._blocked == val:
@@ -430,7 +437,7 @@ class QuantizationProfile:
             the quantization preset
 
         """
-        presets = quantdata.getPresets()
+        presets = quantdata.quantizationPresets()
         preset = presets.get(complexity)
         if preset is None:
             raise ValueError(f"complexity preset {complexity} unknown. Possible values: {presets.keys()}")

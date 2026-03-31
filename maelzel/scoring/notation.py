@@ -2305,6 +2305,10 @@ class Snapped:
         self.offset = offset
         self.duration = duration
 
+    @property
+    def isRest(self) -> bool:
+        return self.notation.isRest
+
     def applySnap(self, extraOffset: F | None = None) -> Notation:
         """
         Clone the original notation to be snapped to offset and duration
@@ -2327,85 +2331,6 @@ class Snapped:
 
     def __repr__(self):
         return f"Snapped({self.notation}, offset={self.offset}, duration={self.duration})"
-
-
-# def _breakIrregularDurationInBeat(n: Notation,
-#                                   beatDur: F,
-#                                   beatDivision: int | division_t,
-#                                   beatOffset: F = F0
-#                                   ) -> list[Notation] | None:
-#     """
-#     Breaks a notation with irregular duration into its parts
-#
-#     - a Notations should not extend over a subdivision of the beat if the
-#       subdivisions in question are coprimes
-#     - within a subdivision, a Notation should not result in an irregular multiple of the
-#       subdivision. Irregular multiples are all numbers which have prime factors other than
-#       2 or can be expressed with a dot
-#       Regular durations: 2, 3, 4, 6, 7 (double dotted), 8, 12, 16, 24, 32
-#       Irregular durations: 5, 9, 10, 11, 13, 15, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27,
-#       28, 29, 30, 31
-#
-#     Args:
-#         n: the Notation to break
-#         beatDur: the duration of the beat
-#         beatDivision: the division of the beat, either a division tuple or an int
-#         beatOffset: the offset of the beat
-#
-#     Returns:
-#         a list of tied Notations representing the original notation, or None
-#         if the notation does not need to be split into parts
-#
-#     Raises:
-#         ValueError if the notation cannot be split
-#
-#     """
-#
-#     assert beatOffset <= n.qoffset and n.end <= beatOffset + beatDur, f"{n=}, {beatOffset=}, {beatDur=}"
-#
-#     if n.duration == 0:
-#         return None
-#     elif n.isQuantized() and n.hasRegularDuration():
-#         return None
-#
-#     if isinstance(beatDivision, (tuple, list)) and len(beatDivision) == 1:
-#         beatDivision = beatDivision[0]
-#
-#     if isinstance(beatDivision, int):
-#         parts = _breakIrregularDurationInSimpleDivision(n, beatDur=beatDur,
-#                                                         div=beatDivision, beatOffset=beatOffset)
-#         return parts
-#
-#     # beat is not subdivided regularly. check if n extends over subdivision
-#     numDivisions = len(beatDivision)
-#     divDuration = beatDur/numDivisions
-#
-#     ticks = fracRange(beatOffset, beatOffset+beatDur+divDuration, divDuration)
-#     assert len(ticks) == numDivisions + 1
-#
-#     subdivisionTimespans = list(pairwise(ticks))
-#     subdivisions = list(zip(subdivisionTimespans, beatDivision))
-#     subns = n.splitAtOffsets(ticks)
-#     allparts: list[Notation] = []
-#     for subn in subns:
-#         # find the subdivision
-#         for timespan, numslots in subdivisions:
-#             if hasOverlap(timespan[0], timespan[1], subn.qoffset, subn.end):
-#                 if n.duration == 0 or (n.isQuantized() and n.hasRegularDuration()):
-#                     allparts.append(n)
-#                 else:
-#                     parts = _breakIrregularDurationInBeat(n=subn,
-#                                                           beatDur=divDuration,
-#                                                           beatDivision=numslots,
-#                                                           beatOffset=timespan[0])
-#                     if parts:
-#                         allparts.extend(parts)
-#                     else:
-#                         allparts.append(subn)
-#     assert sum(part.duration for part in allparts) == n.duration
-#     Notation.tieNotations(allparts)
-#     n._copySpannersToSplitNotation(allparts)
-#     return allparts
 
 
 def _breakIrregularDurationInSimpleDivision(n: Notation,

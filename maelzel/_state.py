@@ -1,5 +1,4 @@
 from configdict import ConfigDict
-from functools import cache
 
 
 __all__ = (

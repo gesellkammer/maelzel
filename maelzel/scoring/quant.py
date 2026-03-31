@@ -1017,10 +1017,10 @@ def _makeTreeFromQuantizedBeats(beats: list[QuantizedBeat],
 
 
 def _evalRhythmComplexity(profile: QuantizationProfile,
-                          snapped: list[Snapped],
+                          snapped: list[Snapped | Notation],
                           div: division_t,
                           beatDur: F,
-                          assignedSlots: list[int],
+                          assignedSlots: Sequence[int],
                           ) -> tuple[float, str]:
     """
     Evaluate the complexity of the rhythm
@@ -1061,7 +1061,6 @@ def _evalRhythmComplexity(profile: QuantizationProfile,
                 if 0 in assignedSlots:
                     numSyncop -= 1
     else:
-        # slotsAtSubdivs: list[int] = [0] + list(itertools.accumulate(div))
         slotsAtSubdivs = quantutils.slotsAtSubdivisions(div)
         numSyncop = 0
         lastslot = quantutils.divisionNumSlots(div)
@@ -1121,6 +1120,7 @@ def _splitNotationsInBeat(ns: Sequence[Notation],
     return beatNotations, div, assignedSlots
     #------------------------- end
 
+
 def quantizeBeatBinary(eventsInBeat: list[Notation],
                        quarterTempo: F,
                        profile: QuantizationProfile,
@@ -1163,8 +1163,6 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
     if profile.debug:
         t0 = time.time()
 
-    searchExact = profile.exactGridFactor < 1.0
-
     if len(eventsInBeat) > 2:
         last = eventsInBeat[-1]
         if 0 < last.duration < minTieDur:
@@ -1174,9 +1172,7 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
             eventsInBeat[-1].duration += last.duration
 
     numEvents = len(eventsInBeat)
-
-    # If only one event, bypass quantization
-    assert numEvents >= 1
+    numRealNotes = sum(1 for ev in eventsInBeat if ev.duration > F0)
 
     if numEvents == 1:
         assert eventsInBeat[0].offset == beatOffset
@@ -1199,28 +1195,25 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
         events0 = [ev.clone(offset=ev.qoffset - beatOffset) for ev in eventsInBeat]
     else:
         events0 = eventsInBeat
-    events0offsets = np.array([float(ev.qoffset) for ev in events0])
+
+    searchExact = profile.exactGridFactor < 1.0
+    perfectFitsRegistry = frozenset()
 
     if True and searchExact:
         perfectFits = []
         for div in possibleDivisions:
+            numSlots = sum(div)
+            if numSlots < numRealNotes:
+                continue
             if quantutils.divisionFitsPerfectly(div, eventsInBeat, beatDuration=beatDuration, offset=beatOffset):
-                # TODO: have a heuristic to determine if this div is as good as we will need
                 perfectFits.append(div)
-                if len(perfectFits) > 5:
+                if len(perfectFits) > 100:
                     break
         if perfectFits:
-            div = perfectFits[0]
-            # print(f"---------------- {len(perfectFits)=}, best={div}, {perfectFits}, {eventsInBeat}")
-            grid0, fgrid0 = quantutils.divisionGrid0Array(beatDuration=beatDuration, division=div)
-            assignedSlots = tuple(quantutils.assignSlots(offsets=events0offsets, fgrid=fgrid0))
-            if simplified := quantutils.simplifyDivisionWithSlots(div, assignedSlots):
-                div, assignedSlots = simplified
-            beatNotations, div, assignedSlots = _splitNotationsInBeat(eventsInBeat, div, assignedSlots, beatOffset=beatOffset, beatDuration=beatDuration)
-            return QuantizedBeat(
-                div, assignedSlots=list(assignedSlots), notations=beatNotations,
-                beatDuration=beatDuration, beatOffset=beatOffset,
-                quantizationError=0, quantizationInfo='exact')
+            # perfectFits.sort(key=lambda div: sum(div))
+            possibleDivisions = perfectFits
+            perfectFitsRegistry = frozenset(perfectFits)
+
     seen = set()
     minError = 999.
     minGridError = 999.
@@ -1286,47 +1279,51 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
             seen.add(div2)
             div = div2
 
-        # grid0, fgrid0 = quantutils.divisionGrid0Float(beatDuration=beatDuration, division=div)
-        grid0, fgrid0 = quantutils.divisionGrid0Array(beatDuration=beatDuration, division=div)
-        assignedSlots = tuple(quantutils.assignSlots(offsets=events0offsets, fgrid=fgrid0))
+        if searchExact and div in perfectFitsRegistry:
+            exact = True
+            assignedSlots = quantutils.assignSlotsForPerfectFit(events0, div=div, beatDuration=beatDuration, beatOffset=F0)
+        else:
+            exact = False
+            assignedSlots = quantutils.assignSlots(events0, div=div, beatDuration=beatDuration)
+
         if simplifyResult := quantutils.simplifyDivisionWithSlots(div, assignedSlots):
             simplifiedDiv, newSlots = simplifyResult
             if (simplifiedDiv in seen) or (simplifiedDiv in profile.blacklist):
                 continue
-            assert simplifiedDiv != div
             seen.add(simplifiedDiv)
-            assignedSlots = newSlots
-            div = simplifiedDiv
-            grid0 = quantutils.divisionGrid0(beatDuration=beatDuration, division=simplifiedDiv)
+            div, assignedSlots = simplifiedDiv, newSlots
 
-        snappedEvents = quantutils.makeSnapped(events0, slots=assignedSlots, grid=grid0)
-        gridError = _evalGridError(profile=profile,
-                                   snappedEvents=snappedEvents,
-                                   beatDuration=beatDuration)
+        snappedEvents = quantutils.snappedToDivision(events0, slots=assignedSlots,
+                                                     div=div, beatDuration=beatDuration)
 
-        if gridError < minGridError:
-            minGridError = gridError
-        elif gridError:
-            if minGridError < gridErrorThresh and gridError > gridErrorThresh:
-                #if profile.debug:
-                #    print(f"!!! Skipping {div}, {gridError=:.5g}, {minGridError=:.5g}")
-                continue
-            if (weightedGridError := gridError * sqrt(gridErrorWeight)) > minError:
-                if profile.debug and weightedGridError / minError < 1.1:
-                    print("Skipping %s, weightedGridError: %g, minError: %g" % (div, weightedGridError, minError))
-                continue
-
+        # ------------------------------ start eval
         divPenalty, divPenaltyInfo = profile.divisionPenalty(div)
         if prevDivision and prevOuterRatio != 1:
             outerRatio = F(*quantutils.outerTuplet(div))
             if prevOuterRatio == outerRatio:
                 divPenalty *= profile.outerTupletMatchFactor
 
-        rhythmComplexity, rhythmInfo = _evalRhythmComplexity(profile=profile,
-                                                             snapped=snappedEvents,
-                                                             div=div,
-                                                             beatDur=beatDuration,
-                                                             assignedSlots=assignedSlots)
+        if exact:
+            gridError = 0.
+            minGridError = 0.
+        else:
+            gridError = _evalGridError(profile=profile,
+                                       snappedEvents=snappedEvents,
+                                       beatDuration=beatDuration)
+            if gridError < minGridError:
+                minGridError = gridError
+            elif gridError:
+                if minGridError < gridErrorThresh and gridError > gridErrorThresh:
+                    continue
+                if gridError * sqrt(gridErrorWeight) > minError:
+                    continue
+
+        rhythmComplexity, rhythmInfo = _evalRhythmComplexity(
+            profile=profile,
+            snapped=snappedEvents,
+            div=div,
+            beatDur=beatDuration,
+            assignedSlots=assignedSlots)
 
         totalError = mathlib.weighted_euclidian_distance([
             (gridError, gridErrorWeight),
@@ -1346,18 +1343,13 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
                          f"{divPenaltyInfo})")
         else:
             debuginfo = ''
+        # ----------------------------- end
 
-        seen.add(div)
-        if totalError > minError:
-            if profile.debug and totalError / minError < 1.1:
-                print("Skipping %s, totalError: %g, minError: %g" % (str(div), totalError, minError))
-                rows.append((totalError, div, snappedEvents, assignedSlots, debuginfo))
-            continue
-        else:
+        # seen.add(div)
+        if totalError < minError:
             minError = totalError
 
         rows.append((totalError, div, snappedEvents, assignedSlots, debuginfo))
-
         if totalError == 0:
             break
 
@@ -1373,45 +1365,13 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
     notations: list[Notation] = [snapped.applySnap(extraOffset=beatOffset)
                                  for snapped in snappedEvents]
 
-    # ----------------------<
-    # beatNotations: list[Notation] = []
-    # for n in notations:
-    #     if n.duration == 0:
-    #         beatNotations.append(n)
-    #     else:
-    #         # assert beatOffset <= n.qoffset < n.qoffset + n.duration <= beatOffset + beatDuration, f"{n=}, {beatOffset=}, {beatDuration=}"
-    #         eventParts = n._breakIrregularDurationInBeat(beatDivision=div, beatDur=beatDuration,
-    #                                                      beatOffset=beatOffset)
-    #         if eventParts:
-    #             beatNotations.extend(eventParts)
-    #         elif n.duration > 0 or (n.duration == 0 and not n.isRest):
-    #             beatNotations.append(n)
-    #         else:
-    #             assert n.isRest and n.duration == 0
-    #             # Do not add a null-duration rest
-    #
-    # if len(beatNotations) == 1:
-    #     n0 = beatNotations[0]
-    #     beatEnd = beatOffset + beatDuration
-    #     if div != (1,) and len(assignedSlots) == 1 and assignedSlots[0] == 0:
-    #         div = (1,)
-    #     elif n0.isRest and (n0.end == beatEnd or n0.mergeableNext) and (n0.offset == beatOffset or n0.mergeablePrev):
-    #         div = (1,)
-    #         beatNotations = [n0.clone(duration=beatDuration)]
-    #         assignedSlots = [0]
-    #
-    # if sum(n.duration for n in beatNotations) != beatDuration:
-    #     raise AssertionError(f"{beatDuration=}, {beatNotations=}")
-    #------------------------- end
-
     beatNotations, div, assignedSlots = _splitNotationsInBeat(notations, div=div,
                                                               assignedSlots=assignedSlots,
                                                               beatOffset=beatOffset, beatDuration=beatDuration)
 
-
-    out = QuantizedBeat(div, assignedSlots=assignedSlots, notations=beatNotations,
-                        beatDuration=beatDuration, beatOffset=beatOffset,
-                        quantizationError=error, quantizationInfo=debuginfo)
+    qbeat = QuantizedBeat(div, assignedSlots=assignedSlots, notations=beatNotations,
+                          beatDuration=beatDuration, beatOffset=beatOffset,
+                          quantizationError=error, quantizationInfo=debuginfo)
 
     if profile.debug:
         difftime = time.time() - t0
@@ -1423,10 +1383,9 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
         maxrows = min(profile.debugMaxDivisions, len(rows))
         print(f"Beat: {beatOffset} - {beatOffset + beatDuration} (dur: {beatDuration})")
         table = [(f"{r[0]:.5g}", str(r[1]), str(r[3]), str(r[4])) for r in rows[:maxrows]]
-        # table = [(f"{r[0]:.5g}",) + r[1:] for r in rows[:maxrows]]
         misc.print_table(table, headers="error div slots info".split(), floatfmt='.4f', showindex=False)
 
-    return out
+    return qbeat
 
 
 def _mergeUnquantizedNotations(notations: list[Notation]) -> list[Notation]:

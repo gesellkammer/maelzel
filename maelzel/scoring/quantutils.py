@@ -63,7 +63,29 @@ def asymettry(a, b) -> float:
     return float(a/b)
 
 
-def _fitToGridList(offsets: list[float], grid: list[float]) -> list[int]:
+def assignSlots(events: list[Notation], div: division_t, beatDuration: F) -> list[int]:
+    grid = divisionGrid0(div, beatDuration=beatDuration)
+    return assignSlotsFrac(events, grid)
+
+
+def assignSlotsFrac(events: list[Notation], grid: list[F]) -> list[int]:
+    result: list[int] = []
+    g = 0  # current grid pointer
+    for ev in events:
+        pos = ev.offset
+        # Advance until grid[g+1] is not closer than grid[g]
+        while g + 1 < len(grid) - 1 and grid[g + 1] <= pos:
+            g += 1
+
+        # At this point grid[g] <= pos < grid[g+1] (or g is the last slot)
+        if g + 1 < len(grid) and (pos - grid[g]) > (grid[g + 1] - pos):
+            result.append(g + 1)
+        else:
+            result.append(g)
+
+    return result
+
+def _fitToGridListBisect(offsets: list[float], grid: list[float]) -> list[int]:
     out = []
     idx = 0
     gridlen = len(grid)
@@ -82,31 +104,54 @@ def _fitToGridNumpy(offsets: NDArray[np.float64], grid: NDArray[np.float64]) -> 
     return npx.nearestindexes(grid, offsets).tolist()
 
 
-def assignSlots(fgrid: list[float] | NDArray[np.float64],
-                offsets: list[float] | NDArray[np.float64]
-                ) -> list[int]:
+def assignSlotsForPerfectFit(events: list[Notation],
+                             div: tuple[int, ...],
+                             beatDuration: F,
+                             beatOffset: F = F0
+                             ) -> list[int]:
+    numParts = len(div)
+    partDur = beatDuration / numParts
+    lastSlot = sum(div)
+    beatEnd = beatOffset + beatDuration
+
+    partSlotStart = [0] * numParts
+    for i in range(1, numParts):
+        partSlotStart[i] = partSlotStart[i - 1] + div[i - 1]
+
+    result: list[int] = []
+    for ev in events:
+        if ev.offset == beatEnd:
+            assert ev.duration == 0
+            result.append(lastSlot)
+        else:
+            partIndex, remainder = divmod(ev.offset - beatOffset, partDur)
+            partIndex = int(partIndex)
+            slotDur = partDur / div[partIndex]
+            subIndex, _ = divmod(remainder, slotDur)
+            result.append(partSlotStart[partIndex] + int(subIndex))
+    return result
+
+
+def snappedToDivision(notations: _t.Sequence[Notation], slots: _t.Sequence[int], div: division_t, beatDuration: F
+                      ) -> list[Snapped]:
     """
-    Snap unquantized events to a given grid
+    Creates Snapped variants for each notation given
 
     Args:
-        fgrid: the grid as floats.
-        offsets: the offsets to fit
+        notations: the notations to snap
+        slots: the assigned slots, one for each notation
+        div: the division of the beat
+        beatDuration: the duration of the beat
 
     Returns:
-        tuple (assigned slots, quantized events)
+        a list of Snapped objects, one for each notation
     """
-    # assignedSlots = _fitEventsToGridNearest(events=notations, grid=grid)
-    if isinstance(fgrid, np.ndarray):
-        assert isinstance(offsets, np.ndarray)
-        assignedSlots = _fitToGridNumpy(offsets, fgrid)
-    else:
-        assert isinstance(fgrid, list) and isinstance(offsets, list)
-        assignedSlots = _fitToGridList(offsets, fgrid)
-    return assignedSlots
+    grid = divisionGrid0(div, beatDuration)
+    return snappedToGrid(notations, slots=slots, grid=grid)
 
 
-def makeSnapped(notations: list[Notation], slots: list[int], grid: _t.Sequence[F]
-                ) -> list[Snapped]:
+def snappedToGrid(notations: _t.Sequence[Notation], slots: _t.Sequence[int], grid: _t.Sequence[F]
+                  ) -> list[Snapped]:
     snapped: list[Snapped] = []
     lastidx = len(grid) - 1
 
@@ -128,7 +173,6 @@ def makeSnapped(notations: list[Notation], slots: list[int], grid: _t.Sequence[F
     lastdur = grid[-1] - lastoffset
     if lastdur > 0 or not last.isRest:
         snapped.append(Snapped(last, lastoffset, duration=lastdur))
-    # assert sum(n.duration for n in snapped) == grid[-1]
     return snapped
 
 
@@ -140,9 +184,8 @@ def _makeset(start: int, end: int, exclude):
 _primes = {3, 5, 7, 11, 13, 19}
 
 
-@lru_cache(8000)
-def simplifyDivisionWithSlots(division: division_t, assignedSlots: tuple[int, ...]
-                              ) -> tuple[division_t, tuple[int, ...]] | None:
+def simplifyDivisionWithSlots(division: division_t, assignedSlots: list[int]
+                              ) -> tuple[division_t, list[int]] | None:
     """
     Try to find a simpler division which represents the same time as the given slots
 
@@ -162,7 +205,7 @@ def simplifyDivisionWithSlots(division: division_t, assignedSlots: tuple[int, ..
     lastslot = sum(subdiv for subdiv in division)
     if all(slot == 0 or slot == lastslot for slot in assignedSlots):
         newdiv = (1,)
-        newslots = tuple(0 if slot == 0 else 1 for slot in assignedSlots)
+        newslots = [0 if slot == 0 else 1 for slot in assignedSlots]
         return newdiv, newslots
 
     lendiv = len(division)
@@ -332,7 +375,7 @@ def simplifyDivisionWithSlots(division: division_t, assignedSlots: tuple[int, ..
                     slots.insert(i, slots[i])
 
     assert isinstance(slots, list) and len(slots) == len(assignedSlots), f"{assignedSlots=}, {slots=}, {division=} -> {newdiv=}"
-    return newdiv, tuple(slots)
+    return newdiv, slots
 
 
 def _simplifyDivisionWithSlots(division: division_t, assignedSlots: list[int]
@@ -529,9 +572,8 @@ def _simplifyDivisionWithSlots(division: division_t, assignedSlots: list[int]
 
 
 @cache
-def gridDurationsFlat(beatDuration: F, division: division_t
+def gridDurationsFlat(division: division_t, beatDuration: F
                       ) -> list[F]:
-    assert isinstance(division, tuple)
     numDivisions = len(division)
     subdivDur = beatDuration / numDivisions
     grid = []
@@ -540,13 +582,13 @@ def gridDurationsFlat(beatDuration: F, division: division_t
             dt = subdivDur / subdiv
             grid.extend([dt] * subdiv)
         else:
-            grid.extend(gridDurationsFlat(subdivDur, subdiv))
+            grid.extend(gridDurationsFlat(subdiv, beatDuration=subdivDur))
     return grid
 
 
 @cache
 def divisionGrid0(division: division_t, beatDuration: F) -> list[F]:
-    durations = gridDurationsFlat(beatDuration, division)
+    durations = gridDurationsFlat(division, beatDuration=beatDuration)
     grid = [F0]
     grid.extend(accumulate(durations))
     assert grid[-1] == beatDuration
@@ -963,21 +1005,23 @@ def slotsAtSubdivisions(divs: tuple[int, ...]) -> list[int]:
     return [0] + list(accumulate(divs))
 
 
-def divisionFitsPerfectly(div: division_t, events: list[Notation], beatDuration: F, offset: F) -> bool:
+def divisionFitsPerfectly(div: division_t, events: list[Notation], beatDuration: F, offset: F
+                          ) -> bool:
     """
     Checks if events fit the given div perfectly. Works for simply nested divs (4,), (3, 4, 5)
 
     Args:
-        div:
-        events:
-        beatDuration:
+        div: the division of the beat, as a tuple (subdiv: int, ...)
+        events: the events to check
+        beatDuration: duration of the beat, in quarternotes
+        offset: beat offset
 
     Returns:
+        True if the grid defined by the division fits the events perfectly
 
     """
     numParts = len(div)
     partDur = beatDuration / numParts  # each top-level subdivision gets equal duration
-
     for ev in events:
         # which part does this offset fall in?
         partIndex, remainder = divmod(ev.offset - offset, partDur)

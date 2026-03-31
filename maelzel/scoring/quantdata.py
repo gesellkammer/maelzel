@@ -1,7 +1,6 @@
 from __future__ import annotations
 from functools import cache
 from dataclasses import dataclass, replace as _dataclass_replace, fields as _fields
-from emlib.common import runonce
 
 from maelzel.scoring.common import division_t
 from maelzel.common import F
@@ -38,6 +37,10 @@ _QuantPresetKeys = set()
 
 @dataclass
 class QuantPreset:
+    """
+    A QuantPreset encapsulates all setting to create a QuantizationProfile
+
+    """
     divisionDefs: tuple[DivisionDef, ...]
     divisionsPenaltyMap: dict[int, float]
     nestedTuplets: bool
@@ -73,7 +76,7 @@ class QuantPreset:
 
 
 @cache
-def getPresets() -> dict[str, QuantPreset]:
+def quantizationPresets() -> dict[str, QuantPreset]:
     presets = {
         'exact': QuantPreset(
             divisionDefs = (
@@ -132,15 +135,15 @@ def getPresets() -> dict[str, QuantPreset]:
             divisionDefs = (
                 DivisionDef(maxTempo=48,
                     maxSubdivisions=9,
-                    possibleValues=(4, 5, 6, 7, 8, 9, 11, 13, 15, 17),
+                    possibleValues=(4, 5, 6, 7, 8, 9, 11, 13, 17),
                     maxDensity=42),
                 DivisionDef(maxTempo=63,
                     maxSubdivisions=8,
-                    possibleValues=(4, 5, 6, 7, 8, 9, 11, 13, 15, 17),
+                    possibleValues=(4, 5, 6, 7, 8, 9, 11, 13, 17),
                     maxDensity=30),
                 DivisionDef(maxTempo=88,
                     maxSubdivisions=8,
-                    possibleValues=(4, 5, 6, 7, 8, 9, 11, 13),
+                    possibleValues=(3, 4, 5, 6, 7, 8, 9, 11, 13),
                     maxDensity=28),
                 DivisionDef(maxTempo=120,
                     maxSubdivisions=8,
@@ -468,8 +471,8 @@ def allSubdivisions(maxSubdivs: int,
         allSubdivs = [div for div in allSubdivs if div not in blacklistset]
 
     # allSubdivs.sort()
-    allSubdivs.sort(key=lambda p: len(p))
     allSubdivs.sort(key=lambda p: sum(p))
+    allSubdivs.sort(key=lambda p: len(p))
     return allSubdivs
 
 
@@ -498,8 +501,31 @@ defaultDivisionPenaltyMap = {
 
 @cache
 def divisionsByTempo(divisionDefs: tuple[DivisionDef, ...], 
-                     blacklist: tuple[division_t, ...] = ()
+                     blacklist: tuple[division_t, ...] = (),
                      ) -> dict[int, tuple[division_t, ...]]:
+    """
+    Calculates the divisions by tempo as defined by the multiple divisionDefs
+
+    Args:
+        divisionDefs: a tuple of divisionDefs (hashable to make it cacheable)
+        blacklist: a tuple of divisions which need to be blacklisted
+
+    Returns:
+        a dict mapping max. tempo to divisions of the beat possible at that tempo
+    """
+    from maelzel import _util
+    divsid = hash((divisionDefs, blacklist))
+    prefix = "divs"
+    divs = _util.loadPickle(prefix=prefix, objhash=divsid)
+    if divs is None:
+        divs = _divisionsByTempo(divisionDefs, blacklist=blacklist)
+        _util.savePickle(divs, prefix=prefix, objhash=divsid)
+    return divs
+
+
+def _divisionsByTempo(divisionDefs: tuple[DivisionDef, ...],
+                      blacklist: tuple[division_t, ...] = (),
+                      ) -> dict[int, tuple[division_t, ...]]:
     return {d.maxTempo: tuple(d.subdivisions(blacklist=blacklist)) for d in divisionDefs}
 
 
