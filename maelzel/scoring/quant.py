@@ -1196,9 +1196,9 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
     else:
         events0 = eventsInBeat
 
-    searchExact = profile.exactGridFactor < 1.0
-    perfectFitsRegistry = frozenset()
 
+    perfectFitsRegistry = frozenset()
+    searchExact = profile.exactGridFactor < 1.0
     if True and searchExact:
         perfectFits = []
         for div in possibleDivisions:
@@ -1210,7 +1210,7 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
                 if len(perfectFits) > 100:
                     break
         if perfectFits:
-            # perfectFits.sort(key=lambda div: sum(div))
+            perfectFits.sort(key=lambda div: sum(div))
             possibleDivisions = perfectFits
             perfectFitsRegistry = frozenset(perfectFits)
 
@@ -1279,19 +1279,16 @@ def quantizeBeatBinary(eventsInBeat: list[Notation],
             seen.add(div2)
             div = div2
 
-        if searchExact and div in perfectFitsRegistry:
-            exact = True
-            assignedSlots = quantutils.assignSlotsForPerfectFit(events0, div=div, beatDuration=beatDuration, beatOffset=F0)
-        else:
-            exact = False
-            assignedSlots = quantutils.assignSlots(events0, div=div, beatDuration=beatDuration)
+        exact = searchExact and div in perfectFitsRegistry
 
+        assignedSlots = quantutils.assignSlots(events0, div=div, beatDuration=beatDuration)
         if simplifyResult := quantutils.simplifyDivisionWithSlots(div, assignedSlots):
             simplifiedDiv, newSlots = simplifyResult
             if (simplifiedDiv in seen) or (simplifiedDiv in profile.blacklist):
                 continue
             seen.add(simplifiedDiv)
             div, assignedSlots = simplifiedDiv, newSlots
+
 
         snappedEvents = quantutils.snappedToDivision(events0, slots=assignedSlots,
                                                      div=div, beatDuration=beatDuration)

@@ -270,10 +270,11 @@ def simplifyDivisionWithSlots(division: division_t, assignedSlots: list[int]
                             slots.append(cs2+2)
                     else:
                         reduced.append(6)
-                        slots.extend(cs2 + i for i, x in enumerate(vec[1:]) if x)
+                        slots.extend(cs2 + i for i, x in enumerate(vec[1:], start=1) if x)
                 else:
                     reduced.append(6)
-                    slots.extend(cs2 + i for i, x in enumerate(vec[1:]) if x)
+                    slots.extend(cs2 + i for i, x in enumerate(vec[1:], start=1) if x)
+
             elif subdiv == 8:
                 # 1 0 1 0 1 0 1 0
                 if cs+1 not in assigned and cs+3 not in assigned and cs+5 not in assigned and cs+7 not in assigned:
