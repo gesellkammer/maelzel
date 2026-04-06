@@ -51,7 +51,7 @@ dependencies = [
     "emlib>=1.20.0",
     "libcsound>=0.10.8",
     "bpf4>=1.14.0",
-    "configdict>=2.13",
+    "configdict>=2.14",
     "sndfileio>=1.9.1",
     "numpyx>=1.4.1",
     "csoundengine>=2.22.0",
@@ -81,4 +81,9 @@ maelzel = ['maelzel/data']
 [tool.ruff.lint]
 # 2. Avoid enforcing line-length violations (`E501`)
 ignore = ["E501", "I001", "E402"]
+
+[dependency-groups]
+dev = [
+    "jupyterlab>=4.5.6",
+]
 

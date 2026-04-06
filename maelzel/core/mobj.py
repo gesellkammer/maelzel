@@ -1295,7 +1295,8 @@ class MObj(ABC):
     def _synthEvents(self,
                      playargs: PlayArgs,
                      parentOffset: F,
-                     workspace: Workspace,
+                     config: CoreConfig,
+                     struct: ScoreStruct
                      ) -> list[SynthEvent]:
         """
         Must be overriden by each class to generate SynthEvents
@@ -1305,8 +1306,8 @@ class MObj(ABC):
                 own .playargs values and config defaults (in that order)
             parentOffset: the absolute offset of the parent of this object.
                 If the object has no parent, this will be F(0)
-            workspace: a Workspace. This is used to determine the scorestruct, the
-                configuration and a mapping between dynamics and amplitudes
+            config: the config valid for this object
+            scorestruct: the struct valid for this object
 
         Returns:
             a list of :class:`SynthEvent`s
@@ -1315,7 +1316,7 @@ class MObj(ABC):
 
     def synthEvents(self,
                     instr='',
-                    delay: float | None = None,
+                    delay: float | tuple[int, F|float] | None = None,
                     args: dict[str, float] | None = None,
                     gain: float | None = None,
                     chan: int | None = None,
@@ -1323,8 +1324,8 @@ class MObj(ABC):
                     fade: float | tuple[float, float] | None = None,
                     fadeshape='',
                     position: float | None = None,
-                    skip: float | None = None,
-                    end: float | None = None,
+                    skip: F | float | tuple[int, F|float] | None = None,
+                    end: F | float | tuple[int, F|float] | None = None,
                     sustain: float | None = None,
                     workspace: Workspace | None = None,
                     transpose: float = 0.,
@@ -1393,16 +1394,21 @@ class MObj(ABC):
         if workspace is None:
             workspace = Workspace.active
 
-        if (struct := self.scorestruct()) is not None:
-            workspace = workspace.clone(scorestruct=struct)
+        struct = self.scorestruct() or workspace.scorestruct
+        config = workspace.config   # TODO: resolve config
 
-        playargs = PlayArgs.makeDefault(workspace.config)
+        playargs = PlayArgs.makeDefault(config)
         db = playargs.db
 
         if instr:
             db['instr'] = instr
         if delay is not None:
-            db['delay'] = delay
+            playdelay = struct.time(delay) if isinstance(delay, tuple) else delay
+            if playdelay < 0:
+                raise ValueError(f"Delay cannot be negative, got {playdelay}")
+            db['delay'] = playdelay
+        else:
+            playdelay = 0.
         if args is not None:
             db['args'] = args
         if gain is not None:
@@ -1424,18 +1430,19 @@ class MObj(ABC):
         if glisstime:
             db['glisstime'] = glisstime
 
-
-        parentOffset = self.parent.absOffset() if self.parent else F(0)
+        parentOffset = self.parent.absOffset() if self.parent else F0
         events = self._synthEvents(playargs=playargs,
                                    parentOffset=parentOffset,
-                                   workspace=workspace)
+                                   config=config,
+                                   struct=struct)
 
-        struct = workspace.scorestruct
-        playdelay: float = playargs['delay']
-        if skip is not None or end is not None or playdelay < 0.:
-            skiptime = 0. if skip is None else float(struct.beatToTime(skip))
-            endtime = math.inf if end is None else float(struct.beatToTime(end))
-            events = SynthEvent.cropEvents(events, start=max(0., skiptime+playdelay), end=endtime + playdelay)
+        if skip is not None or end is not None:
+            skipt = 0 if skip is None else float(struct.time(skip))
+            endt = math.inf if end is None else float(struct.time(end))
+            events = SynthEvent.cropEvents(events,
+                                           start=max(0., skipt+playdelay),
+                                           end=endt + playdelay,
+                                           offset=-skipt)
 
         if any(ev.delay < 0 for ev in events):
             raise ValueError(f"Events cannot have negative delay, events={events}")
@@ -1547,6 +1554,7 @@ class MObj(ABC):
             workspace = Workspace.active.clone(config=config)
         elif workspace is None:
             workspace = Workspace.active
+        assert workspace is not None
 
         events = self.synthEvents(delay=delay,
                                   chan=chan,
@@ -1564,7 +1572,14 @@ class MObj(ABC):
                                   transpose=transpose,
                                   glisstime=glisstime,
                                   **kwargs)
+        return self._playEvents(events, workspace=workspace, whenfinished=whenfinished, display=display)
 
+    def _playEvents(self,
+                    events: list[SynthEvent],
+                    workspace: Workspace,
+                    whenfinished: _t.Callable | None = None,
+                    display=False
+             ) -> csoundengine.synth.SynthGroup:
         if not events:
             import csoundengine.synth
             group = csoundengine.synth.SynthGroup([])
@@ -1579,6 +1594,7 @@ class MObj(ABC):
                 from IPython.display import display
                 display(group)
         return group
+
 
     def rec(self, /,
             outfile='',
@@ -1885,7 +1901,7 @@ class MObj(ABC):
 
     def timeScale(self, factor: num_t, offset: num_t = F0) -> Self:
         """
-        Create a copy with modified timing by applying a linear transformation
+        Create a copy with modified timing by applying a scale factor
 
         Args:
             factor: a factor which multiplies all durations and start times
@@ -1894,6 +1910,8 @@ class MObj(ABC):
         Returns:
             the modified object
         """
+        if factor == 1 and offset == 0:
+            return self.copy()  # The caller expects something which can be modified
         transform = _TimeScale(asF(factor), offset=asF(offset))
         return self.timeTransform(transform)
 

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from maelzel import scorestruct
+from maelzel.core import Workspace
 from maelzel.common import F
 from maelzel.core import Note, Voice, Score
-from maelzel.scoring import quantutils
+import pitchtools as pt
 from typing import Sequence, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from maelzel.common import time_t
+    import csoundengine.synth
 
 
 def clickTrack(struct: scorestruct.ScoreStruct,
@@ -66,67 +68,18 @@ def clickTrack(struct: scorestruct.ScoreStruct,
     .. seealso:: :ref:`clicktrack_notebook`
 
     """
-    now = F(0)
-    events = []
     if minMeasures and minMeasures > struct.numMeasures():
         struct = struct.copy()
         struct.addMeasure(count=minMeasures - struct.numMeasures())
 
-    def _processTimesigPart(
-            num: int,
-            den: int,
-            quarterTempo: F,
-            now: F,
-            strongPitch: float | str,
-            weakPitch: float | str,
-            clickdur: time_t | None,
-            subdivisions: Sequence[F] | None = None
-        ) -> tuple[list[Note], F]:
-        # This processes a part within a time signature. If the time signature
-        # is simple (3/4), this is called once, but for compound signatures this
-        # is called for every part
-        # TODO: use the time signature's subdivision structure
-        events = []
-        if den == 4:
-            for i, n in enumerate(range(num)):
-                pitch = strongPitch if i == 0 else weakPitch
-                ev = Note(pitch, offset=now, dur=clickdur or 1).setPlay(fade=(0, 0.1))
-                events.append(ev)
-                now += F(1)
-        elif den == 8:
-            for i, n in enumerate(range(num)):
-                pitch = strongPitch if i == 0 else weakPitch
-                ev = Note(pitch, offset=now, dur=clickdur or 0.5).setPlay(fade=(0, 0.1))
-                events.append(ev)
-                now += F(1, 2)
-        elif den == 16:
-            if quarterTempo > 80 and num in (1, 2, 3, 4, 6, 7, 8, 12, 15):
-                durationQuarters = F(num) / 4
-                dur = clickdur or durationQuarters
-                ev = Note(strongPitch, dur=dur, offset=now)
-                events.append(ev)
-                now += durationQuarters
-            else:
-                assert subdivisions is not None
-                for i, dur in enumerate(subdivisions):
-                    pitch = strongPitch if i == 0 else weakPitch
-                    ev = Note(pitch, dur=clickdur or dur, offset=now)
-                    events.append(ev)
-                    now += dur
-        else:
-            events0, _ = _processTimesigPart(
-                num, den//2,
-                quarterTempo=quarterTempo*2,
-                now=now,
-                strongPitch=strongPitch,
-                weakPitch=weakPitch,
-                clickdur=clickdur)
-            for ev in events0:
-                dur = ev.dur / 2
-                events.append(ev.clone(dur=clickdur or dur, offset=now))
-                now += dur
-        return events, now
-
+    weight2pitch = {
+        3: strongPitch,
+        2: compoundPitch,
+        1: weakPitch,
+        0: weakPitch
+    }
+    events = []
+    now = F(0)
     for m in struct.measures:
         if m.ticks:
             for i, tick in enumerate(m.ticks):
@@ -137,24 +90,45 @@ def clickTrack(struct: scorestruct.ScoreStruct,
                 events.append(Note(pitch, dur=tick or clickdur, offset=now))
                 now += tick
         else:
-            measureSubdivs = m.subdivisions()
-            subdivGroups = scorestruct.groupSubdivisions(m.timesig.parts, measureSubdivs)
-            for i, part in enumerate(m.timesig.parts):
-                numerator, denom = part
-                # Subdivisions corresponding to this part
-                partSubdivs = subdivGroups[i]
-                eventsInPart, now = _processTimesigPart(
-                    num=numerator, den=denom,
-                    now=now,
-                    quarterTempo=m.quarterTempo,
-                    strongPitch=strongPitch if i == 0 else compoundPitch,
-                    weakPitch=weakPitch,
-                    clickdur=clickdur,
-                    subdivisions=partSubdivs)
-                events.extend(eventsInPart)
+            beats = m.beatStructure()
+
+            for beat in beats:
+                pitch = weight2pitch[beat.weight]
+                event = Note(pitch, dur=clickdur or beat.duration, offset=now)
+                events.append(event)
+                now += beat.duration
+
     voice = Voice(events)
-    voice.setPlay(fade=fade)
-    voice.setPlay(instr=preset)
+    voice.setPlay(fade=fade, instr=preset)
     if transposition:
         voice.setPlay(transpose=transposition)
-    return Score([voice], scorestruct=struct)
+    return ClickTrack([voice], scorestruct=struct)
+
+
+class ClickTrack(Score):
+
+    def play(self,
+             /,
+             countin: int | Sequence[int | F | float] = 0,
+             countinPitch: str | float = "7F#",
+             **kws) -> csoundengine.synth.SynthGroup:
+        if not countin:
+            return super().play(**kws)
+
+        struct = self.activeScorestruct()
+        if isinstance(countin, int):
+            # number of measures
+            firstMeasureDur = float(struct.locationToBeat(1, 0))
+            countEvents = self.synthEvents(end=firstMeasureDur, **kws)
+            pitch = countinPitch if isinstance(countinPitch, float) else pt.n2m(countinPitch)
+            countEvents = [ev.replacePitch(pitch) for ev in countEvents]
+            print(countEvents)
+            restEvents = self.synthEvents(delay=float(struct.locationToTime(1, 0)), **kws)
+            allEvents = countEvents + restEvents
+        else:
+            assert isinstance(countin, (list, tuple))
+            # These are durations
+            # TODO
+            allEvents = []
+
+        return self._playEvents(allEvents, workspace=Workspace.active)

@@ -900,23 +900,20 @@ def _numStartGracenotes(part: quant.QuantizedPart) -> int:
 def addTimeSignature(w: IndentedWriter, measuredef: MeasureDef, options: RenderOptions):
     timesig = measuredef.timesig
     if len(timesig.parts) == 1:
-        if not timesig.subdivisionStruct:
-            num, den = timesig.fusedSignature
+        num, den = timesig.parts[0]
+        if not timesig.subdivisions:
             if options.addSubdivisionsForSmallDenominators and _isSmallDenominator(den, measuredef.quarterTempo):
-                den, subdivs = measuredef.subdivisionStructure()
-                num, den2 = measuredef.timesig.fusedSignature
-                # assert den == den2
-                line = fr"\time {','.join(map(str, subdivs))} {num}/{den2}"
-                print(line)
-                w.line(line)
+                groups = [beat.numDenoms() for beat in measuredef.beatStructure()]
+                assert sum(groups) * F(4, den) == timesig.duration
+                # format: \time 2,2,3 7/8
+                w.line(fr"\time ({','.join(map(str, groups))}) {num}/{den}")
             else:
                 # common case, simple timesig num/den
-                w.line(fr"\time {timesig.numerator}/{timesig.denominator}")
+                w.line(fr"\time {num}/{den}")
         else:
-            subdivs = ",".join(map(str, timesig.subdivisionStruct))
-            # \time 2,2,3 7/8
-            num, den = timesig.fusedSignature
-            w.line(fr"\time {subdivs} {num}/{den}")
+            groups = timesig.subdivisions[0]
+            assert isinstance(groups, tuple) and len(groups) > 0, f"Invalid subdivisions: {timesig.subdivisions}"
+            w.line(fr"\time {",".join(map(str, groups))} {num}/{den}")
     else:
         # 3/8 -> (3 8)
         if options.compoundMeterJoinSubsequentDenominators:

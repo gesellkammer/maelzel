@@ -122,7 +122,6 @@ defaultdict = {
     'rec.extratime': 0.,
     '.rec.compressionBitrate': 224,
 
-
     'quant.syncopMinFraction': '1/6',
     'quant.syncopPartMinFraction': '1/10',
     'quant.syncopMaxAsymmetry': 3,
@@ -131,7 +130,8 @@ defaultdict = {
     'quant.breakBeats': 'weak',
     'quant.complexity': 'high',
     'quant.beatWeightTempoThresh': 48,
-    'quant.subdivTempoThresh': 92,
+    'quant.tempoRange': (48, 160),
+    'quant.preferredTempoRange': (52, 132),
     'quant.gridWeight': None,
     'quant.exactFactor': None,
 
@@ -614,9 +614,6 @@ docs = {
         '"weak": break at weak beats; "strong": only break '
         'at strong beats; "none": don´t break syncopations',
 
-    'quant.subdivTempoThresh':
-        'a subdivision slower than this becomes an independent beat during quantization',
-
     '.quant.divisionWeight':
         'Weight applied to the penalty of the beat division'
         'Higher values -> simpler subdivisions. None to use the '
@@ -658,6 +655,12 @@ docs = {
 
     'quant.beatWeightTempoThresh':
         'beats with slower tempo are strong beats, where syncopations should be broken',
+
+    'quant.tempoRange':
+        'Tempo range accepted for beats. Beats outside this range are subdivided/grouped',
+
+    'quant.preferredTempoRange':
+        'Preferred (confortable) tempo range, use when subdividing/grouping beats',
 
     '.quant.debug':
         'Output extra debug info during quantization, showing how different '

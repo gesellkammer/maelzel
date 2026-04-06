@@ -63,7 +63,7 @@ manager to set a temporary score structure:
 
 .. code-block:: python
 
-    with ScoreStruct(timesig=(5, 8), tempo=72):
+    with ScoreStruct((5, 8), tempo=72):
         scale.show()
         scale.play()
 

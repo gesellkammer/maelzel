@@ -43,6 +43,7 @@ from typing import TYPE_CHECKING, overload as _overload, cast as _cast
 
 if TYPE_CHECKING:
     from .config import CoreConfig
+    from maelzel.scorestruct import ScoreStruct
     from typing import Callable, Any, Sequence, Iterator
     from typing_extensions import Self
     from maelzel.common import time_t, pitch_t, num_t, UnsetType
@@ -816,16 +817,15 @@ class Note(MEvent):
     def _synthEvents(self,
                      playargs: synthevent.PlayArgs,
                      parentOffset: F,
-                     workspace: Workspace,
+                     config: CoreConfig,
+                     struct: ScoreStruct
                      ) -> list[synthevent.SynthEvent]:
         if self.isRest():
             return []
-        conf = workspace.config
-        struct = workspace.scorestruct
         if self.playargs is not None:
             playargs = playargs.updated(self.playargs)
 
-        amp = self._resolveAmp(config=conf, dyncurve=workspace.dynamicCurve)
+        amp = self._resolveAmp(config=config, dyncurve=config.makeDynamicCurve())
         glissdur = playargs.get('glisstime', 0.)
         linkednext = glissdur or self.gliss
         endpitch = self.glissTargetPitch() if linkednext else self.pitch
@@ -835,8 +835,8 @@ class Note(MEvent):
         startsecs = float(struct.beatToTime(startbeat))
         endsecs = float(struct.beatToTime(endbeat))
         if startsecs >= endsecs:
-            raise ValueError(f"Trying to play an event with 0 or negative duration: {endsecs-startsecs}. "
-                             f"Object: {self}, {startbeat=}, {endbeat=}, {playargs=}")
+            raise ValueError(f"Synth event with 0 or negative duration: {endsecs-startsecs}. "
+                             f"Object: {self}, {startbeat=}, {endbeat=}, {startsecs=}, {endsecs=}, {playargs=}")
         transp = playargs.get('transpose', 0.)
         startpitch = self.pitch + transp
         if glissdur > 0.:
@@ -1602,16 +1602,15 @@ class Chord(MEvent):
     def _synthEvents(self,
                      playargs: synthevent.PlayArgs,
                      parentOffset: F,
-                     workspace: Workspace
+                     config: CoreConfig,
+                     struct: ScoreStruct
                      ) -> list[synthevent.SynthEvent]:
         if not self.notes:
             return []
-        conf = workspace.config
-        struct = workspace.scorestruct
         if self.playargs:
             playargs = playargs.updated(self.playargs)
 
-        if conf['play.chordAdjustGain'] and all(n.amp is None for n in self.notes):
+        if config['play.chordAdjustGain'] and all(n.amp is None for n in self.notes):
             globalgain = 1/math.sqrt(len(self.notes))
         else:
             globalgain = 1.
@@ -1632,7 +1631,7 @@ class Chord(MEvent):
         else:
             endpitches = self.glissTargetPitches()
 
-        amps = self.resolveAmps(config=conf, dyncurve=workspace.dynamicCurve)
+        amps = self.resolveAmps(config=config, dyncurve=config.makeDynamicCurve())
         transpose = playargs.get('transpose', 0.)
         glissdur = playargs.get('glisstime', 0)
         linkednext = bool(gliss) or glissdur > 0
@@ -1844,7 +1843,7 @@ class Chord(MEvent):
         of the chord (0.5) as default, since it was unset. The other notes have an amplitude
         of 0.01, as set via :meth:`~Chord.setAmplitudes`
         """
-        return self.scaleAmplitudes(factor=0., offset=amp)
+        self.scaleAmplitudes(factor=0., offset=amp)
 
     def scaleAmplitudes(self, factor: float, offset=0.0) -> None:
         """

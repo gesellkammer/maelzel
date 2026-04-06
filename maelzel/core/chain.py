@@ -549,33 +549,27 @@ class Chain(MContainer):
     def _synthEvents(self,
                      playargs: PlayArgs,
                      parentOffset: F,
-                     workspace: Workspace
+                     config: CoreConfig,
+                     struct: ScoreStruct
                      ) -> list[SynthEvent]:
         # TODO: add playback for crescendi (hairpins), depending on config
-        conf = workspace.config
         if self.playargs:
             # We don't include the chain's automations since these are added
             # later, after events have been merged.
             playargs = playargs.updated(self.playargs, automations=False)
 
-        flatitems = self._flatEventsForSynth(conf)
-        struct = self.scorestruct()
-        if struct is None:
-            struct = workspace.scorestruct
-        elif struct != workspace.scorestruct:
-            workspace = workspace.clone(scorestruct=struct)
-
+        flatitems = self._flatEventsForSynth(config)
         allevents = []
         for group in _eventutils.groupLinkedEvents(flatitems):
             # A group is a seq of mevents which are isolated from any
             # other group and linked to each other by at least one tie or gliss
             if isinstance(group, MEvent):
                 # group has absolute timing so parent offset is 0
-                allevents.extend(group._synthEvents(playargs, parentOffset=F0, workspace=workspace))
+                allevents.extend(group._synthEvents(playargs, parentOffset=F0, config=config, struct=struct))
             else:
                 assert isinstance(group, list) and len(group) >= 2
                 evsPerItem = [evs for item in group
-                              if (evs:=item._synthEvents(playargs, parentOffset=F0, workspace=workspace))]
+                              if (evs:=item._synthEvents(playargs, parentOffset=F0, config=config, struct=struct))]
                 if not evsPerItem:
                     continue
                 lines = _makeLines(evsPerItem) if len(evsPerItem) >= 2 else evsPerItem

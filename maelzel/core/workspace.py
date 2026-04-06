@@ -92,12 +92,10 @@ class Workspace:
             config = config.clone(updates=updates)
 
         if dynamicCurve is None:
-            mindb = config['dynamicCurveMindb']
-            maxdb = config['dynamicCurveMaxdb']
-            dynamics = config['dynamicCurveDynamics'].split()
-            dynamicCurve = DynamicCurve.fromdescr(shape=config['dynamicCurveShape'],
-                                                  mindb=mindb, maxdb=maxdb,
-                                                  dynamics=dynamics)
+            dynamicCurve = DynamicCurve.fromDescr(shape=config['dynamicCurveShape'],
+                                                  mindb=config['dynamicCurveMindb'],
+                                                  maxdb=config['dynamicCurveMaxdb'],
+                                                  dynamics=config['dynamicCurveDynamics'])
 
         if scorestruct is None:
             scorestruct = ScoreStruct((4, 4), tempo=60)
@@ -250,7 +248,8 @@ class Workspace:
             struct = ScoreStruct(score,
                                  tempo=tempo,
                                  breakTempo=config['quant.beatWeightTempoThresh'],
-                                 subdivTempo=config['quant.subdivTempoThresh'])
+                                 tempoRange=config['quant.tempoRange'],
+                                 preferredTempoRange=config['quant.preferredTempoRange'])
             self._scorestruct = struct
         self.clearCache()
 
@@ -405,7 +404,7 @@ class Workspace:
             maxdb: the db value mapped to the loudest dynamic
 
         """
-        self.dynamicCurve = DynamicCurve.fromdescr(shape=shape, mindb=mindb, maxdb=maxdb)
+        self.dynamicCurve = DynamicCurve.fromDescr(shape=shape, mindb=mindb, maxdb=maxdb)
         
     def amp2dyn(self, amp: float) -> str:
         return self.dynamicCurve.amp2dyn(amp)

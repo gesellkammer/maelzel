@@ -322,7 +322,6 @@ class PlayArgs:
 def cropBreakpoints(bps: list[breakpoint_t],
                     start: float,
                     end: float,
-                    consolidate=False
                     ) -> list[breakpoint_t]:
     """
     Crop the breakpoints at time t
@@ -368,10 +367,10 @@ def cropBreakpoints(bps: list[breakpoint_t],
                 bp2 = _interpolateBreakpoints(start, bps[i-1], bp)
                 newbps.append(tuple(bp2))
 
-    if consolidate and start > 0:
+    if start > 0:
         if len(newbps[0]) == 3:
             # Most common case, faster than the loop below
-            newbps = [(bp[0] - start, bp[1], bp[2]) for bp in newbps]
+            newbps = [(t - start, p, a) for t, p, a in newbps]
         else:
             # general case
             newbps = [(bp[0] - start, *bp[1:]) for bp in newbps]
@@ -702,7 +701,7 @@ class SynthEvent:
         else:
             return 0.5
 
-    def clone(self, **kws) -> SynthEvent:
+    def clone(self, **kws) -> Self:
         out = self.copy()
         for k, v in kws.items():
             setattr(out, k, v)
@@ -710,23 +709,29 @@ class SynthEvent:
             out._consolidateDelay()
         return out
 
-    def copy(self) -> SynthEvent:
-        return SynthEvent(bps=self.bps.copy(), # shallow copy, since breakpoints are tuples
-                          delay=self.delay,
-                          chan=self.chan,
-                          fade=self.fade,
-                          gain=self.gain,
-                          instr=self.instr,
-                          pitchinterpol=self.pitchinterpol,
-                          fadeshape=self.fadeshape,
-                          args=None if not self.args else self.args.copy(),
-                          priority=self.priority,
-                          position=self.position,
-                          numchans=self.numchans,
-                          linkednext=self.linkednext,
-                          whenfinished=self.whenfinished,
-                          sustain=self.sustain,
-                          properties=self.properties.copy() if self.properties else None)
+    def replacePitch(self, pitch: float) -> Self:
+        out = self.copy()
+        # each bp is a tuple (t, p, a)
+        out.bps = [(bp[0], pitch, *bp[2:]) for bp in self.bps]
+        return out
+
+    def copy(self) -> Self:
+        return self.__class__(bps=self.bps.copy(), # shallow copy, since breakpoints are tuples
+                              delay=self.delay,
+                              chan=self.chan,
+                              fade=self.fade,
+                              gain=self.gain,
+                              instr=self.instr,
+                              pitchinterpol=self.pitchinterpol,
+                              fadeshape=self.fadeshape,
+                              args=None if not self.args else self.args.copy(),
+                              priority=self.priority,
+                              position=self.position,
+                              numchans=self.numchans,
+                              linkednext=self.linkednext,
+                              whenfinished=self.whenfinished,
+                              sustain=self.sustain,
+                              properties=self.properties.copy() if self.properties else None)
 
     @property
     def fade(self) -> tuple[float, float]:
@@ -837,7 +842,7 @@ class SynthEvent:
             self.delay = 0
             self._consolidateDelay()
 
-    def shifted(self, offset: float, crop=True) -> SynthEvent:
+    def shifted(self, offset: float, crop=True) -> Self:
         """
         A clone of this event, shifted in time by the given offset
 
@@ -852,28 +857,38 @@ class SynthEvent:
         out.shiftInPlace(offset=offset, crop=crop)
         return out
 
-    def crop(self, start: float, end: float) -> None:
+    def crop(self, start: float, end: float, offset: float = 0.) -> None:
         """
         Crop this event in place
 
         Args:
             start: start time, in seconds
             end: end time, in seconds
+            offset: if given, an offset to add to all times, after cropping
         """
         assert self.bps[0][0] == 0
         relstart = max(0., start - self.delay)
         relend = max(start, end - self.delay)
-        bps = cropBreakpoints(self.bps, relstart, relend, consolidate=relstart > 0)
+        bps = cropBreakpoints(self.bps, relstart, relend)
+        start += offset
         self.bps = bps
-        self.delay = delay = max(self.delay, start)
-        assert delay >= 0 and self.bps[0][0] == 0
+        self.delay = max(self.delay, start)
+        assert self.delay >= 0 and bps[0][0] == 0
 
-    def cropped(self, start: float, end: float) -> Self:
+    def cropped(self, start: float, end: float, offset: float = 0.) -> Self:
         """
         Return a cropped version of this SynthEvent
+
+        Args:
+            start: time to start crop
+            end: time to end crop
+            offset: an offset to add to all times
+
+        Returns:
+            the cropped event
         """
         out = self.copy()
-        out.crop(start, end)
+        out.crop(start, end, offset=offset)
         return out
         
     def breakpointSize(self) -> int:
@@ -955,7 +970,7 @@ class SynthEvent:
             return "\n".join(lines)
 
     @staticmethod
-    def cropEvents(events: list[SynthEvent], start=0., end=math.inf
+    def cropEvents(events: list[SynthEvent], start=0., end=math.inf, offset=0.
                    ) -> list[SynthEvent]:
         """
         Crop the events at the given time slice (staticmethod)
@@ -964,8 +979,8 @@ class SynthEvent:
 
         Args:
             events: the events to crop
-            start: start of the time slice (None will only crop at the end)
-            end: end of the time slice (None will only crop at the beginning)
+            start: start of the time slice
+            end: end of the time slice
 
         Returns:
             the cropped events
@@ -977,9 +992,11 @@ class SynthEvent:
         out = []
         for event in events:
             if start <= event.delay and end >= event.end:
+                if offset:
+                    event = event.shifted(offset)
                 out.append(event)
             elif hasOverlap(start, end, event.delay, event.end):
-                out.append(event.cropped(start, end))
+                out.append(event.cropped(start, end, offset=offset))
         return out
 
     @staticmethod

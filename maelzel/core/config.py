@@ -138,6 +138,7 @@ from configdict import ConfigDict
 from maelzel.core._common import logger
 from maelzel.core import _configdata
 from functools import cache
+from maelzel import dynamiccurve as _dyncurve
 
 
 import typing as _t
@@ -219,6 +220,7 @@ class CoreConfig(ConfigDict):
     _defaultName: _t.ClassVar[str] = 'maelzel.core'
     _keyToType: _t.ClassVar[dict[str, type | tuple[type, ...]]] = {}
     _listHiddenKeysAtTheEnd: _t.ClassVar[bool] = True
+    _dynamicCurve: _dyncurve.DynamicCurve | None = None
 
     # A config callback has the form (config: CoreConfig, key: str, val: Any) -> None
     # It is called with the config being modified, the key being modified and the new value
@@ -226,6 +228,7 @@ class CoreConfig(ConfigDict):
         'htmlTheme': lambda config, key, val: _syncCsoundengineTheme(val),
         r"(show|quant|\.quant)\..+": lambda config, key, val: _resetImageCacheCallback(config, force=True),
         "A4": lambda config, key, val: _propagateA4(config, val),
+        "/^dynamicCurve[a-zA-Z]+$/": lambda cnf, k, v: setattr(cnf, "_dynamicCurve", None)
     }
 
     def __init__(self,
@@ -243,6 +246,7 @@ class CoreConfig(ConfigDict):
                          persistent=False,
                          validator=_configdata.validator,
                          docs=_configdata.docs,
+                         precallback=self._corePreCallback,
                          load=load,
                          hiddenPrefix='.',
                          strict=False)
@@ -280,6 +284,13 @@ class CoreConfig(ConfigDict):
 
         if active:
             self.activate()
+
+    def _corePreCallback(self, d, key: str, oldval, newval):
+        # We convert any list into tuples to ensure that the CoreConfig remains
+        # hashable.
+        if isinstance(oldval, tuple) and isinstance(newval, list):
+            return tuple(newval)
+        return newval
 
     @classmethod
     def root(cls) -> CoreConfig:
@@ -396,6 +407,24 @@ class CoreConfig(ConfigDict):
         """
         from maelzel.core import _scoringutils
         return _scoringutils.makeQuantizationProfileFromConfig(self)
+
+    def makeDynamicCurve(self) -> _dyncurve.DynamicCurve:
+        """
+        Create a DynamicCurve from this config
+
+        This is internally cached so as long as the corresponding keys
+        do not change the same dynamic curve is returned
+
+        Returns:
+            the dynamic curve object
+        """
+        if self._dynamicCurve is None:
+            self._dynamicCurve = _dyncurve.DynamicCurve.fromDescr(
+                shape=self['dynamicCurveShape'],
+                mindb=self['dynamicCurveMindb'],
+                maxdb=self['dynamicCurveMaxdb'],
+                dynamics=self['dynamicCurveDynamics'])
+        return self._dynamicCurve
         
     @cache
     def makeEnharmonicOptions(self) -> enharmonics.EnharmonicOptions:
@@ -436,33 +465,32 @@ class CoreConfig(ConfigDict):
         assert active is not None
         active.config = self
 
-    def saveKey(self, key: str) -> None:
-        conf = CoreConfig()
-        conf[key] = self[key]
-        conf.save()
+    # def saveKey(self, key: str) -> None:
+    #     conf = CoreConfig()
+    #     conf[key] = self[key]
+    #     conf.save()
 
-    def reset(self, removesaved=False) -> None:
+    def reset(self, removeSaved=False) -> None:
         """
         Reset this config to its defaults
 
         Args:
-            removesaved: if True, remove any saved config
+            removeSaved: remove any saved config
 
         """
-        self.resetKey
         super().reset()
         from maelzel.core.presetmanager import presetManager
         if '.piano' in presetManager.presets:
             self['play.instr'] = '.piano'
 
-        if removesaved:
+        if removeSaved:
             path = self.getPath()
             if os.path.exists(path):
                 os.remove(path)
 
     @classmethod
     def removeSaved(cls):
-        """Remove the saved default config"""
+        """Remove any saved default config"""
         path = configdict.configPathFromName(cls._defaultName)
         if os.path.exists(path):
             logger.debug("Removing default config at '%s'", path)
@@ -479,8 +507,6 @@ class CoreConfig(ConfigDict):
 
         Returns:
             a dict to be passed to PlayArgs
-
-
         """
         if self._defaultPlayArgsDict is not None:
             d = self._defaultPlayArgsDict

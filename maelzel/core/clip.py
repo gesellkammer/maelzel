@@ -179,7 +179,7 @@ class Clip(event.MEvent):
             raise TypeError(f"source should be either a str, a tuple (samples: np.ndarray, sr: int) "
                             f"or an audiosample.Sample, got {type(source)}")
 
-        
+        assert isinstance(source, (str, np.ndarray))
         self.source: str | np.ndarray = source
         """The source of this clip"""
 
@@ -214,6 +214,7 @@ class Clip(event.MEvent):
         if offset is not None:
             offset = asF(offset)
 
+        assert offset is None or isinstance(offset, F)
         super().__init__(offset=offset, dur=F0, label=label)
         self._calculateDuration()
 
@@ -371,6 +372,9 @@ class Clip(event.MEvent):
     @property
     def dur(self) -> F:
         "The duration of this Clip, in quarter notes"
+        # This is a property because the duration is fixed in seconds
+        # but the duration as beats within the context of the scorestruct
+        # depends on the scorestruct and thus is calculated dynamically
         if self._explicitDur:
             return self._explicitDur
 
@@ -385,12 +389,8 @@ class Clip(event.MEvent):
         self._calculateDuration(absoffset=absoffset, struct=struct)
         return self._dur
 
-    def _calculateDuration(self, absoffset: F|None = None, struct: ScoreStruct|None = None
+    def _calculateDuration(self, struct: ScoreStruct, absoffset: F
                            ) -> None:
-        if absoffset is None:
-            absoffset = self.absOffset()
-        if struct is None:
-            struct = self.activeScorestruct()
         dur = struct.beatDelta(absoffset, absoffset + self.durSecs())
         self._dur = dur
         self._durContext = (struct, absoffset)

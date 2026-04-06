@@ -89,12 +89,15 @@ class Score(MContainer):
         """
         if isinstance(scorestruct, str):
             scorestruct = ScoreStruct(scorestruct)
+        assert isinstance(scorestruct, (ScoreStruct)) or scorestruct is None
         self._scorestruct = scorestruct
         self._changed()
 
     def scorestruct(self) -> ScoreStruct | None:
         """
         Returns the ScoreStruct for this score, if set
+
+        .. note:: A part within this score might have its own scorestruct
 
         .. seealso:: :meth:`activeScorestruct() <maelzel.core.mobj.MObj.activeScorestruct>`
         """
@@ -397,14 +400,14 @@ class Score(MContainer):
     def _synthEvents(self,
                      playargs: PlayArgs,
                      parentOffset: F,
-                     workspace: Workspace
+                     config: CoreConfig,
+                     struct: ScoreStruct
                      ) -> list[SynthEvent]:
         if self.playargs:
             playargs = playargs.updated(self.playargs)
         out = []
         for voice in self.voices:
-            events = voice._synthEvents(playargs=playargs, workspace=workspace,
-                                        parentOffset=F0)
+            events = voice._synthEvents(playargs=playargs, config=config, struct=struct, parentOffset=F0)
             out.extend(events)
         return out
 

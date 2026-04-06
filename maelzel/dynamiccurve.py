@@ -7,10 +7,12 @@ import sys
 import math
 from bisect import bisect as _bisect
 from dataclasses import dataclass
+from functools import cache
+
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Union, Callable, Sequence
+    from typing import Callable, Sequence
     import bpf4
 
 
@@ -35,7 +37,7 @@ class DynamicDescr:
     dynamics: str = "ppp pp p mp mf f ff fff"
 
     def makeCurve(self) -> DynamicCurve:
-        return DynamicCurve.fromdescr(self.shape, mindb=self.mindb, maxdb=self.maxdb,
+        return DynamicCurve.fromDescr(self.shape, mindb=self.mindb, maxdb=self.maxdb,
                                       dynamics=self.dynamics)
 
 
@@ -60,7 +62,7 @@ class DynamicCurve:
         See Also
         ~~~~~~~~
 
-        * :meth:`DynamicCurve.fromdescr`
+        * :meth:`DynamicCurve.fromDescr`
 
         """
         import bpf4.util
@@ -71,8 +73,8 @@ class DynamicCurve:
         assert len(self._amps2dyns) == len(self.dynamics)
 
     @classmethod
-    def fromdescr(cls, shape='expon(0.5)', mindb=-80.0, maxdb=0.0,
-                  dynamics:Union[str, Sequence[str]] | None = None) -> DynamicCurve:
+    def fromDescr(cls, shape='expon(0.5)', mindb=-80.0, maxdb=0.0,
+                  dynamics: str | tuple[str, ...] | None = None) -> DynamicCurve:
         """
         Creates a DynamicCurve from a shape description
 
@@ -91,13 +93,8 @@ class DynamicCurve:
         >>> DynamicCurve.fromdescr('expon(3)', mindb=-80, dynamics='ppp pp p mf f ff'.split())
 
         """
-        if isinstance(dynamics, str):
-            dynamics = dynamics.split()
-        bpf = createShape(shape, mindb, maxdb)
-        out = cls(bpf, dynamics)
-        out._shape = shape
-        return out
-
+        return _fromDescr(shape=shape, mindb=mindb, maxdb=maxdb, dynamics=dynamics)
+        
     def __repr__(self) -> str:
         cls = type(self).__name__
         if self._shape:
@@ -126,7 +123,7 @@ class DynamicCurve:
         maxdyn = self.dynamics[-1]
         return self.dyn2db(mindyn), self.dyn2db(maxdyn)
 
-    def amp2dyn(self, amp:float, nearest=True) -> str:
+    def amp2dyn(self, amp: float, nearest=True) -> str:
         """
         Convert amplitude to dynamic
 
@@ -152,7 +149,7 @@ class DynamicCurve:
         db = amp2db(amp)
         return dyn0 if abs(db-amp2db(amp0)) < abs(db-amp2db(amp1)) else dyn1
 
-    def dyn2amp(self, dyn:str) -> float:
+    def dyn2amp(self, dyn: str) -> float:
         """
         Convert a dynamic expressed as a string to a corresponding amplitude
         """
@@ -161,15 +158,15 @@ class DynamicCurve:
             raise ValueError(f"dynamic {dyn} not known")
         return amp
 
-    def dyn2db(self, dyn:str) -> float:
+    def dyn2db(self, dyn: str) -> float:
         """Convert a dynamic expression to an amplitude in dB"""
         return amp2db(self.dyn2amp(dyn))
 
-    def db2dyn(self, db:float) -> str:
+    def db2dyn(self, db: float) -> str:
         """Convert an amp in dB to a dynamic expression"""
         return self.amp2dyn(db2amp(db))
 
-    def dyn2index(self, dyn:str) -> int:
+    def dyn2index(self, dyn: str) -> int:
         """
         Convert the given dynamic to an integer index
         """
@@ -178,7 +175,7 @@ class DynamicCurve:
         except ValueError:
             raise ValueError(f"Dynamic not defined, should be one of {self.dynamics}")
 
-    def index2dyn(self, idx:int) -> str:
+    def index2dyn(self, idx: int) -> str:
         """
         Convert a dynamic index to a dynamic
 
@@ -203,7 +200,7 @@ class DynamicCurve:
         """
         return self.dynamics[idx]
 
-    def amp2index(self, amp:float) -> int:
+    def amp2index(self, amp: float) -> int:
         """
         Converts an amplitude (in the range 0-1) to a dynamic index
 
@@ -229,7 +226,7 @@ class DynamicCurve:
         """
         return self.dyn2index(self.amp2dyn(amp))
 
-    def index2amp(self, index:int) -> float:
+    def index2amp(self, index: int) -> float:
         """
         Convert a dynamic index to an amplitude in the range 0-1
 
@@ -303,12 +300,14 @@ def _makeDynamicsMapping(bpf: bpf4.BpfInterface,
     """
     if dynamics is None:
         dynamics = dynamicSteps
+    assert dynamics is not None
     _validateDynamics(dynamics)
     dynamics_table = [(bpf(i), dyn) for i, dyn in enumerate(dynamics)]
     dynamics_dict = {dyn: ampdb for ampdb, dyn in dynamics_table}
     return dynamics_table, dynamics_dict
 
 
+@cache
 def createShape(shape='expon(3)',
                 mindb: int | float = -90,
                 maxdb: int | float = 0
@@ -338,3 +337,14 @@ def createShape(shape='expon(3)',
     """
     import bpf4.util
     return bpf4.util.makebpf(shape, [0, 1], [mindb, maxdb]).db2amp()
+
+
+@cache
+def _fromDescr(dynamics: str | tuple[str, ...], shape: str, mindb: int | float, maxdb: int | float
+               ) -> DynamicCurve:
+    if isinstance(dynamics, str):
+        dynamics = tuple(dynamics.split())
+    bpf = createShape(shape, mindb, maxdb)
+    out = DynamicCurve(bpf, dynamics)
+    out._shape = shape
+    return out

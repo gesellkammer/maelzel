@@ -5,7 +5,7 @@ import warnings
 from pathlib import Path
 from dataclasses import dataclass
 from bisect import bisect
-from itertools import groupby, accumulate
+from itertools import groupby
 import functools
 import re
 from maelzel import _util
@@ -54,19 +54,36 @@ class BeatDef:
     duration: F
     "Duration of the beat in quarter notes"
 
+    timesig: tuple[int, int]
+    "The timesignature or compound part of it"
+
     weight: int = 0
     "Weight of the beat, used for breaking syncopations"
 
-    def isBinary(self) -> bool:
+    def numDenoms(self) -> int:
         """
-        Is this a binary beat?
+        The number of denominators this beat represents
+
+        For example, a beat of 1 in a 7/8 measure has numDenoms==2,
+        because 1==2 * 1/2
+
+        A beat of 3/2 in 7/8 measure would have numDenoms=3
+        Returns:
+
         """
-        return self.duration.numerator % 2 == 0
+        den = self.timesig[1]
+        dendur = F(4, den)
+        size = self.duration / dendur
+        assert int(size) == size
+        return size
 
     @property
     def end(self) -> F:
         "End time of the beat"
         return self.offset + self.duration
+
+    def __repr__(self):
+        return f"BeatDef(offset={str(self.offset)}, duration={str(self.duration)}, weight={self.weight})"
 
 
 class TimeSignature:
@@ -80,20 +97,30 @@ class TimeSignature:
     Args:
         parts: the parts of this time signature, a seq. of tuples (numerator, denominator).
             Use TimeSignature.parse to parse a signature given as string
-        subdivisions: subdivisions as multiples of the denominator. Only valid for
-            non-compound signatures. It is used to structure subdivisions for a single
-            part. For example, 7/8 subdivided as 2+3+2 can be expressed as
-            TimeSignature((7, 8), subdivisionStruct=(2, 3, 2)).
+        subdivisions: a seq. of subdivisions, one for each part. A subdivision is itself
+            a tuple of multiples of the denominator. For example, 7/8 subdivided as
+            2+3+2 can be expressed as
+            TimeSignature((7, 8), subdivisions=[(2, 3, 2)]). An empty tuple indicates
+            that the subdivisions are not explicitely set. Within a compound time signature,
+            the number of subdivisions must equal the number of parts
     """
     def __init__(self,
                  *parts: tuple[int, int],
-                 subdivisions: tuple[int, ...] = ()):
+                 subdivisions: Sequence[tuple[int, ...]] = ()):
 
         self.parts: tuple[tuple[int, int], ...] = parts
         """
         The parts of this timesig, a seq. of tuples (num, den)
         """
-        assert isinstance(subdivisions, tuple)
+
+        if subdivisions:
+            assert all(isinstance(subdiv, tuple) for subdiv in subdivisions)
+            if not any(subdiv for subdiv in subdivisions):
+                # If no part defines subdivisions, make it an empty tuple
+                subdivisions = ()
+            elif not isinstance(subdivisions, tuple):
+                subdivisions = tuple(subdivisions)
+        self.subdivisions = subdivisions
 
         minden = max(den for num, den in parts)
         numerators = [num * minden // den for num, den in parts]
@@ -114,23 +141,14 @@ class TimeSignature:
         For non-compound signatures, the fused signature is the same as the time signature
         itself."""
 
-        self.subdivisionStruct: tuple[int, ...] = subdivisions
-        """
-        Subdivisions as multiples of the fused denominator.
-        """
-
-        if subdivisions and sum(subdivisions) != self.fusedSignature[0]:
-            raise ValueError(f"Invalid subdivision structure: {subdivisions}, parts={parts}, "
-                             f"{self.fusedSignature=}")
-
     def copy(self) -> TimeSignature:
-        return TimeSignature(*self.parts, subdivisions=self.subdivisionStruct)
+        return TimeSignature(*self.parts, subdivisions=self.subdivisions)
 
     def __hash__(self) -> int:
-        return hash((self.parts, self.subdivisionStruct))
+        return hash((self.parts, self.subdivisions))
 
     def __eq__(self, other: TimeSignature):
-        return isinstance(other, TimeSignature) and self.parts == other.parts and self.subdivisionStruct == other.subdivisionStruct
+        return isinstance(other, TimeSignature) and self.parts == other.parts and self.subdivisions == other.subdivisions
 
     @property
     def numerator(self) -> int:
@@ -174,17 +192,13 @@ class TimeSignature:
         return "+".join(parts)
 
     def _reprInfo(self) -> str:
-        if len(self.parts) == 1:
-            num, den = self.parts[0]
-            if self.subdivisionStruct:
-                subdiv = '-'.join(map(str, self.subdivisionStruct))
-                return f"{num}/{den}({subdiv})"
-            return f"{num}/{den}"
-        elif all(den == self.parts[0][1] for num, den in self.parts):
-            nums = "+".join(str(p[0]) for p in self.parts)
-            return f"{nums}/{self.parts[0][1]}"
-        else:
-            return '+'.join(f"{n}/{d}" for n, d in self.parts)
+        parts = []
+        for i, part in enumerate(self.parts):
+            s = f"{part[0]}/{part[1]}"
+            if self.subdivisions and (partsubs := self.subdivisions[i]):
+                s += "(" + "+".join(str(num) for num in partsubs) + ")"
+            parts.append(s)
+        return "+".join(parts)
 
     def __repr__(self):
         return f"TimeSignature({self._reprInfo()})"
@@ -214,26 +228,25 @@ class TimeSignature:
                 if isinstance(num, tuple):
                     # ((3, 3, 2), 8)
                     parts = [(_, den) for _ in num]
-                    return TimeSignature(*parts, subdivisions=subdivisions)
+                    return TimeSignature(*parts)
                 else:
                     assert isinstance(num, int)
-                    return TimeSignature((num, den), subdivisions=subdivisions)
+                    return TimeSignature((num, den), subdivisions=(subdivisions,))
             else:
                 raise ValueError(f"Cannot parse timesignature: {timesig}")
         elif isinstance(timesig, str):
             # Possible signatures: 3/4, 3/8+3/8+2/8, 5/8(3-2), 5/8(3+2)+3/16
             # parts = re.split(r"\+(?![^(]*\))", timesig)
             parts = splitSignature(timesig)
-            # parsedParts = [_parseTimesigPart(part) for part in parts]
             parsedParts = [_parsePart(part) for part in parts]
             if len(parsedParts) == 1:
                 signature, subdivs = parsedParts[0]
                 if subdivs and subdivisions:
                     raise ValueError("Duplicate subdivision structure")
-                return TimeSignature(signature, subdivisions=subdivs or subdivisions)
+                return TimeSignature(signature, subdivisions=[subdivs or subdivisions])
             signatures, subdivs = zip(*parsedParts)
             # We ignore subdivisions for compound signatures
-            return TimeSignature(*signatures, subdivisions=subdivisions)
+            return TimeSignature(*signatures, subdivisions=subdivs)
 
         else:
             raise TypeError(f"Expected a str or a tuple, got {timesig}")
@@ -265,32 +278,6 @@ class TimeSignature:
             return False
         denoms = set(denom for num, denom in self.parts)
         return len(denoms) >= 2
-
-    def qualifiedSubdivisionStruct(self) -> tuple[int, tuple[int, ...]]:
-        """
-        The qualified subdivision structure, a tuple (denominator, subdivisions)
-        where the denominator is the max. common denom. of the parts of this signature
-        and the subdivisions are the subdivisions as given in the subdivisionStruct
-
-        This method will raise ValueError if this time signature does not have a
-        subdivision structure. To check if a time signature has a subdivision structure:
-        ``if timesig.subdivisionStruct: ...``
-
-        Example
-        ~~~~~~~
-
-            >>> t = TimeSignature((7, 8), subdivisionStruct=(3, 2, 2))
-            >>> t.qualifiedSubdivisionStruct()
-            (8, (3, 2, 2))
-            >>> t2 = TimeSignature((2, 4), (3, 16), subdivisionStruct=(4, 4, 3))
-            >>> t2.fusedSignature
-            (11, 16)
-            >>> t2.qualifiedSubdivisionStruct()
-            (16, (4, 4, 3))
-        """
-        if not self.subdivisionStruct:
-            raise ValueError("This time signature does not have a subdivision structure")
-        return self.fusedSignature[1], self.subdivisionStruct
 
 
 def splitSignature(signature: str) -> list[str]:
@@ -376,28 +363,29 @@ def _parsePart(part: str) -> tuple[tuple[int, int], tuple[int, ...]]:
     raise ValueError(f"Cannot parse time signature part: '{part}'")
 
 
-def _parseTimesigPart(s: str) -> tuple[tuple[int, int], tuple[int, ...]]:
-    """
-    Given a string in the form 5/8(3-2), returns ((5, 8), (3, 2))
-
-    Possible parts: 5/8, 5/8(3-2), 5/8(3+2),
-
-    For 5/8, returns ((5, 8), ())
-    """
-    if "(" in s:
-        assert s.count("(") == 1 and s[-1] == ")", f"Invalid time signature part: {s}"
-        p1, p2 = s[:-1].split("(")
-        nums, dens = p1.split("/")
-        num, den = int(nums), int(dens)
-        subdivparts = re.split(r"[+\-]", p2)
-        subdivs = tuple(int(subdiv) for subdiv in subdivparts)
-        return ((num, den), subdivs)
-    else:
-        fracparts = s.split("/")
-        if len(fracparts) != 2:
-            raise ValueError(f"Invalid time signature: {s}")
-        nums, dens = fracparts
-        return ((int(nums), int(dens)), ())
+# def _parseTimesigPart(s: str) -> tuple[tuple[int, int], tuple[int, ...]]:
+#     """
+#     Given a string in the form 5/8(3+2), returns ((5, 8), (3, 2))
+#
+#     Possible parts: 5/8, 5/8(3+2), 5/8(3+2),
+#
+#     For 5/8, returns ((5, 8), ())
+#     """
+#     if "(" in s:
+#         assert s.count("(") == 1 and s[-1] == ")", f"Invalid time signature part: {s}"
+#         p1, p2 = s[:-1].split("(")
+#         nums, dens = p1.split("/")
+#         num, den = int(nums), int(dens)
+#         subdivparts = re.split(r"[+\-]", p2)
+#         subdivs = tuple(int(subdiv) for subdiv in subdivparts)
+#         return ((num, den), subdivs)
+#     else:
+#         fracparts = s.split("/")
+#         if len(fracparts) != 2:
+#             raise ValueError(f"Invalid time signature: {s}")
+#         nums, dens = fracparts
+#         return ((int(nums), int(dens)), ())
+#
 
 
 def _parseTicks(s: str) -> tuple[tuple[F, ...], tuple[int, ...]]:
@@ -775,7 +763,6 @@ class MeasureDef:
         const: make this measure read-only, any modification raises an error
         tempoRef: the figure corresponding to the given tempo. A tuplet (base, dots),
             where base is 4=quarter, 8=8th note, etc., and dots indicates the number of dots
-        subdivTempo: max. tempo at which a subdivision can be a beat of its own
         breakTempo: tempo threshold at which syncopations over a beat are broken.
             This is a quarter note tempo
         ticks: a list of durations to be used when creating a click track
@@ -797,6 +784,7 @@ class MeasureDef:
         'tempoRef',
         'ticks',
         'compoundTicks',
+        'tempoRange',
         '_subdivTempo',
         '_breakTempo',
         '_durationSecs'
@@ -813,7 +801,7 @@ class MeasureDef:
                  timesigInherited=False,
                  tempoInherited=False,
                  properties: dict | None = None,
-                 subdivTempo: int | None = None,
+                 tempoRange: tuple[int, int] | None = None,
                  breakTempo: int | None = None,
                  ticks: tuple[F, ...] = (),
                  const=True,
@@ -868,8 +856,11 @@ class MeasureDef:
         self.compoundTicks: tuple[int, ...] = compoundTicks
         """A list of indexes, marking which ticks are compound ticks"""
 
-        self._subdivTempo: int | None = subdivTempo
-        """The max. tempo at which an eighth note can be a beat of its own"""
+        self.tempoRange = tempoRange
+        """Range of possible tempi, used to subdivide/group beats. If not given, it's inherited from parent"""
+
+        # self._subdivTempo: int | None = tempoRange[1] / 2 if tempoRange else None
+        # """The max. tempo at which an eighth note can be a beat of its own"""
 
         self._breakTempo: int | None = breakTempo
 
@@ -980,25 +971,25 @@ class MeasureDef:
             raise ValueError(f'Unknown barstyle: {linestyle}, possible values: {_barstyles}')
         self._barline = linestyle
         
-    def subdivTempoThresh(self, fallback=96) -> int:
-        """
-        Resolves the subdivision tempo threshold
-
-        This is the tempo at which a subdivision of the beat (as given
-        in the denominator of the time signature) can become a beat
-        itself. First the value specified for this measure is used,
-        if given; otherwise the value specified for the score or
-        a fallback
-
-        Returns:
-            the tempo threshold
-
-        """
-        if self._subdivTempo:
-            return self._subdivTempo
-        elif self.parent and self.parent.subdivTempo:
-            return self.parent.subdivTempo
-        return fallback
+    # def subdivTempoThresh(self, fallback=96) -> int:
+    #     """
+    #     Resolves the subdivision tempo threshold
+    #
+    #     This is the tempo at which a subdivision of the beat (as given
+    #     in the denominator of the time signature) can become a beat
+    #     itself. First the value specified for this measure is used,
+    #     if given; otherwise the value specified for the score or
+    #     a fallback
+    #
+    #     Returns:
+    #         the tempo threshold
+    #
+    #     """
+    #     if self._subdivTempo:
+    #         return self._subdivTempo
+    #     elif self.parent and self.parent.subdivTempo:
+    #         return self.parent.subdivTempo
+    #     return fallback
 
     def beatWeightTempoThresh(self, fallback=52) -> int:
         """
@@ -1033,8 +1024,8 @@ class MeasureDef:
         return measureBeatStructure(self.timesig,
                                     tempo=self.tempo,
                                     tempoRef=self.tempoRef,
-                                     subdivisions=self.subdivisionStructure(),
-                                    subdivTempo=self.subdivTempoThresh(),
+                                    tempoRange=self.tempoRange or self.parent.tempoRange,
+                                    preferredTempoRange=self.parent.preferredTempoRange,
                                     breakTempo=self.beatWeightTempoThresh())
 
     def asScoreLine(self) -> str:
@@ -1067,7 +1058,7 @@ class MeasureDef:
                           timesigInherited=self.timesigInherited,
                           tempoInherited=self.tempoInherited,
                           properties=self.properties.copy() if self.properties else None,
-                          subdivTempo=self._subdivTempo,
+                          tempoRange=self.tempoRange,
                           breakTempo=self._breakTempo,
                           ticks=self.ticks,
                           compoundTicks=self.compoundTicks,
@@ -1106,25 +1097,25 @@ class MeasureDef:
     def __hash__(self) -> int:
         return hash((self.timesig, self._tempo, self.tempoRef, self.annotation))
 
-    def subdivisionStructure(self) -> tuple[int, tuple[int, ...]]:
-        """
-        Max. common denominator for subdivisions and the subdivisions as multiples of it
-
-        For example, for 3/4+3/8, returns (8, (2, 2, 2, 3))
-
-        Returns:
-            a tuple (max. common denominator, subdivisions as multiples of common denominator)
-
-        """
-        subdivdurs = self.subdivisions()
-        maxdenom = max(dur.denominator for dur in subdivdurs)
-        commondur = F(1, maxdenom)
-        nums = [dur / commondur for dur in subdivdurs]
-        assert all(num.denominator == 1 for num in nums)
-        multiples = tuple(num.numerator for num in nums)
-        struct = (commondur/4).denominator, multiples
-        _checkSubdivisionStructure(struct, self.timesig)
-        return struct
+    # def subdivisionStructure(self) -> tuple[int, tuple[int, ...]]:
+    #     """
+    #     Max. common denominator for subdivisions and the subdivisions as multiples of it
+    #
+    #     For example, for 3/4+3/8, returns (8, (2, 2, 2, 3))
+    #
+    #     Returns:
+    #         a tuple (max. common denominator, subdivisions as multiples of common denominator)
+    #
+    #     """
+    #     subdivdurs = self.subdivisions()
+    #     maxdenom = max(dur.denominator for dur in subdivdurs)
+    #     commondur = F(1, maxdenom)
+    #     nums = [dur / commondur for dur in subdivdurs]
+    #     assert all(num.denominator == 1 for num in nums)
+    #     multiples = tuple(num.numerator for num in nums)
+    #     struct = (commondur/4).denominator, multiples
+    #     _checkSubdivisionStructure(struct, self.timesig)
+    #     return struct
 
     def subdivisions(self) -> list[F]:
         """
@@ -1149,10 +1140,13 @@ class MeasureDef:
             >>> MeasureDef(TimeSignature((7, 8), subdivisionStruct=(2, 3, 2)), quarterTempo=150).subdivisions()
             [1, 1.5, 1]
         """
-        return measureSubdivisions(timesig=self.timesig,
-                                   tempo=self.tempo,
-                                   tempoRef=self.tempoRef,
-                                   subdivTempo=self.subdivTempoThresh())
+        durs, *_ =  measureSubdivisions(
+            timesig=self.timesig,
+            tempo=self.tempo,
+            tempoRef=self.tempoRef,
+            tempoRange=self.tempoRange or self.parent.tempoRange,
+            preferredTempoRange=self.parent.preferredTempoRange)
+        return durs
 
     def timesigRepr(self) -> str:
         """
@@ -1292,141 +1286,284 @@ def measureDuration(timesig: timesig_t | TimeSignature) -> F:
     return F(num)/den * 4
 
 
-def _checkSubdivisionStructure(s: tuple[int, tuple[int, ...]],
-                               timesig: TimeSignature | timesig_t | None = None,
-                               ) -> None:
-    assert isinstance(s, tuple) and len(s) == 2, s
-    assert isinstance(s[0], int) and isinstance(s[1], tuple), s
-    assert all(isinstance(div, int) for div in s[1]), s
-    assert s[0] in _powersof2
-    if timesig is not None:
-        measuredur = measureDuration(timesig)
-        dev, nums = s
-        assert sum(F(num*4, dev) for num in nums) == measuredur
-
-
 @functools.cache
 def measureSubdivisions(timesig: TimeSignature,
                         tempo: F,
+                        tempoRange: tuple[int, int],
                         tempoRef=(4, 0),
-                        subdivisionStructure: tuple[int, tuple[int, ...]] = (),
-                        subdivTempo: int = 96
-                        ) -> list[F]:
+                        preferredTempoRange = (52, 132),
+                        ) -> tuple[list[F], list[int], list[int]]:
     """
     Returns a list of beat durations
+
+    The subdivisions structure is included in TimeSignature
 
     Args:
         timesig: the time signature
         tempo: tempo value
         tempoRef: tempo reference figure
-        subdivisionStructure: subdivision structure, as a tuple (denom, (*subdivs))
-        subdivTempo: ??
+        tempoRange: a range of possible tempi. Any beat resulting in a tempo
+            outside of this range will be subdivided or grouped with other beats
+        preferredTempoRange: a range of tempi which are "comfortable", to be
+            preferred. This is used for time signatures like 7/8 (2+2+3), where
+            if the binary beats fall within this range they would be grouped as
+            quarter notes, but the ternary would be either three 1/8 notes or
+            a dotted 1/4 note.
 
     Returns:
-        a list of durations, one for each beat subdivision
+        a tuple (durations: list[F], weights: list[int], timesigpart: list[int),
+        * durations is a list of quarternote durations, one for each beat subdivision
+        * weights is a list of weights, where 3=strong, 2=compound, 1=secondary,
+          0=weal. Compound weights are only present for compound signatures.
+          The start beat of a compound part of a signature is always a compound
+          weight.
+        * timesigpart: the timesig part to which each duration belongs. This is
+          only of interest for compound time signatures. For example, if a timesig
+          is 4/4+3/8, a beat defined within the 3/8 part would have an index of 1
 
     """
-    if subdivisionStructure:
-        _checkSubdivisionStructure(subdivisionStructure, timesig)
+    qtempo = asQuarterTempo(tempo, *tempoRef)
+    durs = []
+    weights = []
+    partidxs = []
+    for i, part in enumerate(timesig.parts):
+        partdurs, partweights = beatDurations(
+            timesig=part,
+            quarterTempo=qtempo,
+            subdivisions=timesig.subdivisions[i] if timesig.subdivisions else (),
+            tempoRange=tempoRange,
+            preferredTempoRange=preferredTempoRange)
+        durs.extend(partdurs)
+        weights.extend(partweights)
+        partidxs.extend([i] * len(partdurs))
 
-    if len(timesig.parts) == 1:
-        if subdivisionStructure and timesig.subdivisionStruct:
-            subdivisionStructure = timesig.qualifiedSubdivisionStruct()
-        subdivs = beatDurations(timesig=timesig.parts[0],
-                                tempo=tempo,
-                                tempoRef=tempoRef,
-                                subdivisions=subdivisionStructure,
-                                subdivMaxTempo=subdivTempo)
-    else:
-        subdivs = []
-        for part in timesig.parts:
-            # TODO: use the subdivision structure in the timesig, if present
-            beatdurs = beatDurations(timesig=part,
-                                     tempo=tempo,
-                                     tempoRef=tempoRef,
-                                     subdivMaxTempo=subdivTempo)
-            subdivs.extend(beatdurs)
-    assert all(isinstance(div, F) for div in subdivs), f"{subdivs=}"
-    assert sum(div for div in subdivs) == measureDuration(timesig)
-    return subdivs
+    assert sum(div for div in durs) == measureDuration(timesig), f"{durs=}, {timesig=}, {measureDuration(timesig)=}"
+    return durs, weights, partidxs
 
 
 def beatDurations(timesig: timesig_t,
-                  tempo: F,
-                  tempoRef=(4, 0),
-                  subdivMaxTempo=96,
-                  subdivisions: tuple[int, tuple[int, ...]] = ()
-                  ) -> list[F]:
+                  quarterTempo: F | int,
+                  tempoRange = (48, 156),
+                  preferredTempoRange = (56, 116),
+                  subdivisions: tuple[int, ...] = ()) -> tuple[list[F], list[int]]:
     """
-    Returns the beat durations for the given time signature
+    Partitions the measure into beats, returns their durations and weights
 
     Args:
-        timesig: the timesignature of the measure or of the part of the measure
-            (compound signatures are not supported here)
-        tempo: the tempo value corresponding to the tempo reference
-        tempoRef: reference duration for the tempo given. (4, 0) indicates a
-            quarter note without dots
-        subdivMaxTempo: max tempo for a subdivision. A slower tempo
-            will divide beats into subdivisions. For example, a 5/8 measure
-            with a quarterTempo of 40 and a subdivMaxTempo of 96 will
-            subdivide the measure into 5 8th notes. A faster
-            tempo (in this case faster than 48) will result in 2+2+1
-        subdivisions: if given, a tuple (denominator, list of subdivision lengths)
-            For example, a 5/8 measure could have a subdivision structure of (8, (2, 3)) or
-            (8, (3, 2)).
+        timesig: the time signature, or part of a compound signature (a tuple (num, den))
+        quarterTempo: the tempo corresponding to a quarter note
+        tempoRange: allowed tempo range
+        preferredTempoRange: ...
+        subdivisions: if given, a seq. of subdivisions as multiples of the denominator
 
     Returns:
-        a list of durations, as Fraction
-
-    ::
-
-        4/8 -> [1, 1]
-        2/4 -> [1, 1]
-        3/4 -> [1, 1, 1]
-        5/8 -> [1, 1, 0.5]
-        5/16 -> [0.5, 0.5, 0.25]
+        a tuple (durations: list[F], weights: list[int]). Weights has the same
+        length as durations (one per beat), where 0=unstressed, 1=weak, 2=compound, 3=strong
 
     """
-    quarterTempo = asQuarterTempo(tempo, *tempoRef)
-    measuredur = measureDuration(timesig)
-    timesignum, timesigden = timesig
+    num, den = timesig
     if subdivisions:
-        _checkSubdivisionStructure(subdivisions)
-        subdivden, subdivnums = subdivisions
-        out = [F(4*subdivnum, subdivden) for subdivnum in subdivnums]
-    elif timesigden == 4:
-        if quarterTempo < subdivMaxTempo/2 or (tempoRef == (8, 0) and tempo <= subdivMaxTempo):
-            out = [F(1, 2)] * (2 * measuredur.numerator)
+        assert sum(subdivisions) == num
+    dendur = F(4, den)
+    dentempo = quarterTempo * den / 4
+    minTempo, maxTempo = tempoRange
+    preferredMinTempo, preferredMaxTempo = preferredTempoRange
+    if preferredMinTempo <= dentempo <= preferredMaxTempo:
+        # All beats are "comfortable"
+        weights = [3] + [0] * (num - 1)
+        if subdivisions:
+            now = subdivisions[0]
+            for subd in subdivisions[1:]:
+                # 2 2 3 -> [3, 0, 1, 0, 1, 0, 0]
+                weights[now] = 1
+                now += subd
         else:
-            out = [F(1)] * measuredur.numerator
-    elif timesigden == 8:
-        if tempoRef == (8, 0) or quarterTempo <= subdivMaxTempo/2:
-            # render all beats as 1/8 notes
-            out = [F(1, 2)]*timesignum
+            if num in (4, 8, 10):
+                weights[num//2] = 1
+            elif num == 6:
+                weights[3] = 1
+            elif num == 9:
+                weights[3] = 1
+                weights[6] = 1
+            elif num == 12:
+                weights[4] = 1
+                weights[8] = 1
+        return [dendur] * num, weights
+    elif dentempo < minTempo:
+        # 3/4 q=40 -> 6/4 q=80
+        durs, weights = beatDurations(
+            (num * 2, den),
+            quarterTempo=quarterTempo*2,
+            tempoRange=tempoRange,
+            preferredTempoRange=preferredTempoRange,
+            subdivisions=subdivisions)
+        return [d/2 for d in durs], weights
+
+    assert dentempo >= preferredMaxTempo
+    # groups = []
+    if num <= 3:
+        groups = [dendur*num]
+        weights = [3]
+
+    elif subdivisions:
+        if dentempo / min(subdivisions) < minTempo or dentempo / max(subdivisions) > maxTempo:
+            # We ignore subdivisions if they result too fast/slow beats
+            return beatDurations(timesig,
+                                 quarterTempo=quarterTempo,
+                                 tempoRange=tempoRange,
+                                 preferredTempoRange=preferredTempoRange)
+        groups = [dendur * subd for subd in subdivisions]
+        weights = [3] + [0] * (num - 1)
+
+    elif num % 3 == 0:
+        terntempo = dentempo / 3
+        if terntempo >= minTempo and terntempo <= maxTempo:
+            groups = [dendur*3] * (num // 3)
+            weights = [1, 0, 0] * (num // 3)
+        elif dentempo / num >= minTempo:
+            groups = [dendur*num]
         else:
-            subdivstruct = inferSubdivisions(num=timesignum, den=timesigden, tempo=tempo, tempoRef=tempoRef)
-            out = [F(num, timesigden // 4) for num in subdivstruct]
+            raise ValueError(f"No beat groups possible for {timesig=}, {quarterTempo=}")
+
+    elif num % 2 == 0:
+        # 10/8 -> 2+2+2+2+2
+        groups = [dendur*2] * (num // 2)
+        weights = [1, 0] * len(groups)
+    elif num == 5:
+        if dentempo / 3 >= minTempo and dentempo/2 <= maxTempo:
+            groups = [dendur*2, dendur*3]
+            weights = [3, 0]
+        elif dentempo <= maxTempo:
+            groups = [dendur*2, dendur, dendur, dendur]
+            weights = [3, 1, 0, 0]
+        elif dentempo / 5 >= minTempo:
+            groups = [dendur*5]
+            weights = [3]
+        else:
+            raise ValueError(f"No beat groups possible")
+    elif num == 7:
+        if dentempo / 3 >= minTempo and dentempo/2 <= maxTempo:
+            groups = [dendur*2, dendur*2, dendur*3]
+            weights = [3, 0, 0]
+        elif dentempo <= maxTempo:
+            groups = [dendur*2, dendur*2, dendur, dendur, dendur]
+            weights = [3, 0, 1, 0, 0]
+        elif dentempo / 4 <= maxTempo:
+            groups = [dendur*4, dendur*3]
+            weights = [3, 0]
+        elif dentempo / 7 > minTempo:
+            groups = [dendur*7]
+            weights = [3]
+        else:
+            raise ValueError(f"No beat groups possible")
+
     else:
-        # 9/16, 8.=60: convert to 9/8, 4.=60, factor = 2, divide by factor
-        factor = F(timesigden, 8)
-        # beatdurs = beatDurations((timesignum, 8), tempo=tempo*factor, tempoRef=tempoRef)
-        beatdurs = beatDurations((timesignum, 8), tempo=tempo, tempoRef=(int(tempoRef[0]/factor), tempoRef[1]))
-        out = [F(dur)/factor for dur in beatdurs]
-    if (subdivs := sum(out)) != measuredur:
-        raise ValueError(f"The sum of the subdivisions ({subdivs}) does not"
-                         f"match the number of quarters ({measuredur}) in this time "
-                         f"signature ({timesig[0]}/{timesig[1]}). Subdivision structure: "
-                         f"{subdivisions}, durations: {out}")
-    return out
+        # 11, 13, 17, ...
+        if dentempo / num >= minTempo:
+            groups = [dendur*num]
+            weights = [3]
+        elif dentempo <= maxTempo:
+            groups = [dendur*2] * ((num - 3) // 2) + [dendur]*3
+            weights = [0] * len(groups)
+        elif dentempo / 4 <= maxTempo:
+            if num % 4 == 3:
+                # 11: 4 4 4 3
+                groups = [dendur*4] * ((num - 3) // 4)
+                groups.append(dendur*3)
+                weights = [0] * len(groups)
+            else:
+                assert num % 4 == 1
+                # 13
+                # 4 4 4 5
+                groups = [dendur*4] * ((num - 5) // 4)
+                groups.append(dendur*5)
+                weights = [0] * len(groups)
+    measDur = F(num*4, den)
+    weights[0] = 3
+    assert measDur == sum(groups)
+    return groups, weights
+
+
+# def _beatDurations(timesig: timesig_t,
+#                    tempo: F,
+#                    tempoRef=(4, 0),
+#                    subdivMaxTempo=96,
+#                    subdivisions: tuple[int, tuple[int, ...]] = ()
+#                    ) -> list[F]:
+#     """
+#     Returns the beat durations for the given time signature
+#
+#     Args:
+#         timesig: the timesignature of the measure or of the part of the measure
+#             (compound signatures are not supported here), a tuple (num, den)
+#         tempo: the tempo value corresponding to the tempo reference
+#         tempoRef: reference duration for the tempo given. (4, 0) indicates a
+#             quarter note without dots
+#         subdivMaxTempo: max tempo for a subdivision, in quarternote tempo.
+#             A slower tempo will divide beats into subdivisions. For example, a 5/8 measure
+#             with a quarterTempo of 40 and a subdivMaxTempo of 96 will
+#             subdivide the measure into 5 8th notes. A faster
+#             tempo (in this case faster than 48) will result in 2+2+1
+#         subdivisions: if given, a tuple (denominator, list of subdivision lengths)
+#             For example, a 5/8 measure could have a subdivision structure of (8, (2, 3)) or
+#             (8, (3, 2)).
+#
+#     Returns:
+#         a list of durations, as Fraction
+#
+#     ::
+#
+#         4/8 -> [1, 1]
+#         2/4 -> [1, 1]
+#         3/4 -> [1, 1, 1]
+#         5/8 -> [1, 1, 0.5]
+#         5/16 -> [0.5, 0.5, 0.25]
+#
+#     """
+#     quarterTempo = asQuarterTempo(tempo, *tempoRef)
+#     measuredur = measureDuration(timesig)
+#     timesignum, timesigden = timesig
+#     if subdivisions:
+#         _checkSubdivisionStructure(subdivisions)
+#         subdivden, subdivnums = subdivisions
+#         out = [F(4*subdivnum, subdivden) for subdivnum in subdivnums]
+#     elif timesigden == 4:
+#         if quarterTempo < subdivMaxTempo/2 or (tempoRef == (8, 0) and tempo <= subdivMaxTempo):
+#             out = [F(1, 2)] * (2 * measuredur.numerator)
+#         else:
+#             out = [F(1)] * measuredur.numerator
+#     elif timesigden == 8:
+#         print(f"-------------- here 8, {timesig=}, {quarterTempo=}, {subdivMaxTempo=}")
+#
+#         if tempoRef == (8, 0) or quarterTempo <= subdivMaxTempo/2:
+#             # render all beats as 1/8 notes
+#             out = [F(1, 2)]*timesignum
+#         else:
+#             subdivstruct = inferSubdivisions(num=timesignum, den=timesigden, tempo=tempo, tempoRef=tempoRef)
+#             out = [F(num, timesigden // 4) for num in subdivstruct]
+#     else:
+#         # 9/16, 8.=60: convert to 9/8, 4.=60, factor = 2, divide by factor
+#         print(f"-------------- here 16, {timesig=}")
+#         factor = F(timesigden, 8)
+#         beatdurs = _beatDurations((timesignum, 8),
+#                                  tempo=tempo,
+#                                  tempoRef=(int(tempoRef[0]/factor), tempoRef[1]))
+#         out = [F(dur)/factor for dur in beatdurs]
+#     if (subdivs := sum(out)) != measuredur:
+#         raise ValueError(f"The sum of the subdivisions ({subdivs}) does not"
+#                          f"match the number of quarters ({measuredur}) in this time "
+#                          f"signature ({timesig[0]}/{timesig[1]}). Subdivision structure: "
+#                          f"{subdivisions}, durations: {out}")
+#     return out
 
 
 @functools.cache
-def measureBeatStructure(timesig: TimeSignature | tuple[int, int],
+def measureBeatStructure(timesig: TimeSignature,
                          tempo: F | int | float,
+                         tempoRange: tuple[int, int],
+                         preferredTempoRange: tuple[int, int],
                          tempoRef: tuple[int, int] = (4, 0),
-                         subdivisions: tuple[int, tuple[int, ...]] = (),
-                         breakTempo = 52,
-                         subdivTempo = 96
+                         breakTempo = 52
                          ) -> list[BeatDef]:
     """
     Beat structure for this measure (a list of beat definitions)
@@ -1438,100 +1575,111 @@ def measureBeatStructure(timesig: TimeSignature | tuple[int, int],
             form (denominator: int, subdivisions). For example a 7/8 bar divided
             in 3+2+2 would have a subdivision strucutre of (8, (3, 2, 2)). A
             4/4 measure divided in 3/8+3/8+2/8+2/8 would be (8, (3, 3, 2, 2))
-        breakTempo: a beat resulting in a tempo higher than this
+        breakTempo: given as quarternote tempo,
+            a beat resulting in a tempo higher than this
             is by default assigned a weak weight. This means that beats with
             a tempo slower than this are always considered strong beats, indicating
             that beams and syncopations across these beats should be broken
-        subdivTempo: a regular subdivision of a beat resulting in a
-            tempo lower than this can be promoted to a beat of its own. For example,
-            with a quarterTempo of 44, a 5/8 measure would be seen as 5 beats, each
-            of 1/8 note length. For a faster tempo, this would result in a beat
-            of 2/8 and a ternary beat of 5/8
+        tempoRange: ...
+        preferredTempoRange: ...
 
     Returns:
         a list of BeatDefs
     """
     assert isinstance(breakTempo, (int, float, F))
-    assert isinstance(subdivTempo, (int, float, F))
-    if subdivisions:
-        _checkSubdivisionStructure(subdivisions, timesig)
 
-    qtempo = asQuarterTempo(tempo, tempoRef[0], tempoRef[1])
+    subdivDurs, weights, idxs = measureSubdivisions(
+        timesig=timesig,
+        tempo=tempo,
+        tempoRef=tempoRef,
+        tempoRange=tempoRange,
+        preferredTempoRange=preferredTempoRange)
 
-    if isinstance(timesig, tuple):
-        timesig = TimeSignature(timesig)
-    subdivDurs = measureSubdivisions(timesig=timesig,
-                                     tempo=tempo,
-                                     tempoRef=tempoRef,
-                                     subdivisionStructure=subdivisions,
-                                     subdivTempo=subdivTempo)
-
-    N = len(subdivDurs)
-    if N == 1:
-        weights = [1]
-    elif N % 2 == 0:
-        weights = [1, 0] * (N//2)
-    elif N % 3 == 0:
-        weights = [1, 0, 0] * (N//3)
-    else:
-        weights = [1, 0] * (N//2)
-        weights.append(0)
-
-    now = F(0)
-    beatOffsets = []
-    weakBeatDurThreshold = F(60) / breakTempo
-    for i, dur in enumerate(subdivDurs):
-        beatOffsets.append(now)
+    beats = []
+    now = F0
+    qtempo = asQuarterTempo(tempo, *tempoRef)
+    for dur, weight, timesigidx in zip(subdivDurs, weights, idxs):
+        if weight == 0 and dur * 60 / qtempo <= breakTempo:
+            weight = 1
+        beats.append(BeatDef(offset=now, duration=dur, weight=weight, timesig=timesig.parts[timesigidx]))
         now += dur
-        if dur.numerator == 3:
-            weights[i] = 1
-        else:
-            beatRealDur = dur * (F(60)/qtempo)
-            if beatRealDur > weakBeatDurThreshold:
-                weights[i] += 1
 
-    # weights[0] = max(weights) + 1
-    assert len(beatOffsets) == len(subdivDurs) == len(weights)
-    return [BeatDef(offset, duration, weight)
-            for offset, duration, weight in zip(beatOffsets, subdivDurs, weights)]
+    for beat in beats[1:]:
+        if beat.weight == 3:
+            beat.weight = 2
+
+    return beats
+
+    # --------------------------------------------
+    # N = len(subdivDurs)
+    # if N == 1:
+    #     weights = [1]
+    # elif N % 2 == 0:
+    #     weights = [1, 0] * (N//2)
+    # elif N % 3 == 0:
+    #     weights = [1, 0, 0] * (N//3)
+    # else:
+    #     weights = [1, 0] * (N//2)
+    #     weights.append(0)
+    #
+    # now = F(0)
+    # beatOffsets = []
+    # weakBeatDurThreshold = F(60) / breakTempo
+    # for i, dur in enumerate(subdivDurs):
+    #     beatOffsets.append(now)
+    #     now += dur
+    #     if dur.numerator == 3:
+    #         weights[i] = 1
+    #     else:
+    #         beatRealDur = dur * (F(60)/qtempo)
+    #         if beatRealDur > weakBeatDurThreshold:
+    #             weights[i] += 1
+    #
+    # # weights[0] = max(weights) + 1
+    # assert len(beatOffsets) == len(subdivDurs) == len(weights)
+    # return [BeatDef(offset, duration, weight)
+    #         for offset, duration, weight in zip(beatOffsets, subdivDurs, weights)]
 
 
-def beatOffsets(timesig: timesig_t,
-                tempo: F | int,
-                tempoRef=(4, 0),
-                subdivisions: tuple[int, ...] = ()
-                ) -> list[F]:
-    """
-    Returns the offsets of the beats within a measure (first offset is always 0)
-
-    The last value refers to the offset of the end of the measure
-
-    Args:
-        timesig: the timesignature as a tuple (num, den)
-        tempo: the tempo of the measure
-        tempoRef: reference duration for the tempo value, (4, 0) indicates
-            a quarter note without dots
-        subdivisions: if given, a list of subdivision lengths. For example,
-            a 5/8 measure could have a subdivision structure of (2, 3) or (3, 2)
-
-    Returns:
-        a list of fractions representing the start time of each beat, plus the
-        end time of the measure (== the start time of the next measure)
-
-    Example::
-        >>> beatOffsets((5, 8), 60)
-        [Fraction(0, 1), Fraction(1, 1), Fraction(2, 1), Fraction(5, 2)]
-        # 0, 1, 2, 2.5
-    """
-    subdivstruct = () if not subdivisions else (timesig[1], subdivisions)
-    beatdurs = beatDurations(timesig,
-                             tempo=tempo,
-                             tempoRef=tempoRef,
-                             subdivisions=subdivstruct)
-    beatOffsets = [F(0)]
-    beatOffsets += list(accumulate(beatdurs))
-    return beatOffsets
-
+# def beatOffsets(timesig: timesig_t,
+#                 tempo: F | int,
+#                 tempoRef=(4, 0),
+#                 subdivisions: tuple[int, ...] = (),
+#                 ) -> list[F]:
+#     """
+#     Returns the offsets of the beats within a measure (first offset is always 0)
+#
+#     The last value refers to the offset of the end of the measure
+#
+#     Args:
+#         timesig: the timesignature as a tuple (num, den)
+#         tempo: the tempo of the measure
+#         tempoRef: reference duration for the tempo value, (4, 0) indicates
+#             a quarter note without dots
+#         subdivisions: if given, a list of subdivision lengths. For example,
+#             a 5/8 measure could have a subdivision structure of (2, 3) or (3, 2)
+#
+#     Returns:
+#         a list of fractions representing the start time of each beat, plus the
+#         end time of the measure (== the start time of the next measure)
+#
+#     Example::
+#         >>> beatOffsets((5, 8), 60)
+#         [Fraction(0, 1), Fraction(1, 1), Fraction(2, 1), Fraction(5, 2)]
+#         # 0, 1, 2, 2.5
+#     """
+#     subdivstruct = () if not subdivisions else (timesig[1], subdivisions)
+#     # beatdurs = beatDurations(timesig,
+#     #                          tempo=tempo,
+#     #                          tempoRef=tempoRef,
+#     #                          subdivisions=subdivstruct)
+#     beatdurs = bestBeatGroups(timesig,
+#                               quarterTempo=asQuarterTempo(tempo, *tempoRef),
+#                               subdivisions=subdivstruct)
+#     beatOffsets = [F(0)]
+#     beatOffsets += list(accumulate(beatdurs))
+#     return beatOffsets
+#
 
 class ScoreStruct:
     """
@@ -1563,8 +1711,8 @@ class ScoreStruct:
         breakTempo: tempo at which a syncopation across the beat is broken
             (during quantization). This value can be overridden for any measure, it is
             used as a global fallback
-        subdivTempo: a subdivision slower than this becomes an independent beat
-            (during quantization).
+        tempoRange: ...
+        preferredTempoRange: ...
 
     Example
     -------
@@ -1642,7 +1790,8 @@ class ScoreStruct:
                  composer='',
                  const=False,
                  breakTempo: int = 48,
-                 subdivTempo: int = 92):
+                 tempoRange=(48, 160),
+                 preferredTempoRange=(52, 132)):
 
         # holds the time offset (in seconds) of each measure
         self._timeOffsets: list[F] = []
@@ -1674,8 +1823,13 @@ class ScoreStruct:
         self.breakTempo: int = breakTempo
         """Tempo at which a syncopation across the beat is broken (during quantization)"""
 
-        self.subdivTempo: int = min(breakTempo * 2, subdivTempo)
-        """A subdivision slower than this becomes an independent beat (during quantization)"""
+        self.tempoRange = tempoRange
+        """Tempo range accepted for beats. Beats outside this range are subdivided/grouped"""
+
+        self.preferredTempoRange = preferredTempoRange
+        """Preferred (confortable) tempo range, use when subdividing/grouping beats
+        
+        It should be included within self.tempoRange"""
 
         self._hash: int | None = None
         """Cached hash"""
@@ -1687,6 +1841,8 @@ class ScoreStruct:
                 self._parseScore(score, initialTempo=tempo or 60)
         elif tempo:
             self.addMeasure((4, 4), tempo=tempo)
+
+        assert self.tempoRange[0] <= self.preferredTempoRange[0] < self.preferredTempoRange[1] <= self.tempoRange[1]
 
 
     def __hash__(self) -> int:
@@ -2198,7 +2354,12 @@ class ScoreStruct:
         Return the elapsed time at the given score location
 
         Args:
-            measure: the measure number (starting with 0)
+            measure: the measure number (starting with 0). If measure is 0, beat
+                can be any beat even outside the first measure (effectively the
+                same as .beatToTime. This allows using a tuplet to indicate a beat,
+                both as a location (measure, beat) or as a beat as quarter notes (0, beats).
+                For any other value of measure, a beat outside the length of the
+                measure will result in an error
             beat: the beat within the measure
 
         Returns:
@@ -2206,6 +2367,13 @@ class ScoreStruct:
         """
         if self._needsUpdate:
             self._update()
+
+        if measure <= 0:
+            mdef = self.measures[0]
+            if beat <= mdef.duration:
+                qtempo = mdef.quarterTempo
+                return F(60 * qtempo.denominator, qtempo.numerator) * beat
+            measure, beat = self.beatToLocation(beat)
 
         numdefs = len(self.measures)
         if measure > numdefs - 1:
@@ -2551,7 +2719,9 @@ class ScoreStruct:
             a new ScoreStruct
         """
         return ScoreStruct(title=self.title, composer=self.composer, endless=self.endless,
-                           const=self.const, breakTempo=self.breakTempo, subdivTempo=self.subdivTempo)
+                           const=self.const, breakTempo=self.breakTempo,
+                           tempoRange=self.tempoRange,
+                           preferredTempoRange=self.preferredTempoRange)
 
     def tempoTransform(self, factor: num_t = F(1), offset: num_t = F0) -> ScoreStruct:
         """
@@ -2576,7 +2746,6 @@ class ScoreStruct:
         offset = asF(offset )
         for measure in self.measures:
             measure2 = measure.copy()
-            tempo2 = measure.tempo * factor + offset
             measure2.tempo = measure.tempo * factor + offset
             out.addMeasureDef(measure2)
         return out
@@ -2969,7 +3138,7 @@ class ScoreStruct:
                 except ValueError:
                     fig = str(beat.duration)
                 parts.append(fig)
-            if all(part==parts[0] for part in parts):
+            if len(parts) > 1 and all(part==parts[0] for part in parts):
                 beatstruct = f"{len(parts)}×{parts[0]}"
             else:
                 beatstruct = "+".join(parts)
@@ -3308,14 +3477,12 @@ class ScoreStruct:
         else:
             struct = self.copy()
             struct.ensureNumMeasures(minMeasures)
-        score = clickTrack(struct,
-                           clickdur=clickdur,
-                           strongPitch=strongPitch,
-                           weakPitch=weakPitch,
-                           transposition=transposition,
-                           compoundPitch=compoundPitch)
-        score.setScoreStruct(self)
-        return score
+        return clickTrack(struct,
+                          clickdur=clickdur,
+                          strongPitch=strongPitch,
+                          weakPitch=weakPitch,
+                          transposition=transposition,
+                          compoundPitch=compoundPitch)
 
 
 def _filledScoreFromStruct(struct: ScoreStruct, pitch='4C') -> maelzel.core.Score:

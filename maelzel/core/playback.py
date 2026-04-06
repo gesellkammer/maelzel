@@ -309,7 +309,9 @@ def audioSession(numchannels: int | None = None,
                              buffersize=buffersize,
                              latency=latency,
                              numbuffers=numbuffers)
-        return engine.session()
+        s = engine.session()
+        s.engine.sync()
+        return s
 
     # Session is already active, check params
     engine = audioEngine(name=name)
