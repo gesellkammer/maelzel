@@ -9,7 +9,7 @@ import itertools
 # from maelzel import histogram
 from maelzel.common import asF
 from maelzel import stats
-from maelzel.mathutils import linexp
+from maelzel._mathutils import linexp
 from .partialtrack import PartialTrack
 
 from typing import TYPE_CHECKING

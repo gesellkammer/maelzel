@@ -65,7 +65,7 @@ class Score(MContainer):
         self.fusedParts: list[VoiceGroup] = []
         """Contains voices which have been fused to one part"""
 
-        self.groups: set[VoiceGroup] = set()
+        self.groups: list[VoiceGroup] = []
         """Groups added via makeGroup are added here for reference"""
 
         self._scorestruct: ScoreStruct | None = None
@@ -286,6 +286,9 @@ class Score(MContainer):
         voices under one name, add a shortname to the group, etc.
 
         Args:
+            voices: the voices to group. They may/may not belong to the score already. If
+                they belong to another score, a copy of the voice is created and
+                added to this score.
             name: the name of the group. It will be used when rendering as notation
             abbrev: a short name to use for all systems after the first one
             showPartNames: do not hide the names of the parts which form this group
@@ -293,7 +296,7 @@ class Score(MContainer):
         voices = [voice if (not voice.parent or voice.parent is self) else voice.copy()
                   for voice in voices]
         group = VoiceGroup(voices=voices, name=name, abbrev=abbrev, showPartNames=showPartNames)
-        self.groups.add(group)
+        self.groups.append(group)
         newVoices = [v for v in voices if v not in self.voices]
         voiceIds = [id(v) for v in voices]
         if newVoices:
@@ -359,28 +362,37 @@ class Score(MContainer):
 
     def scoringParts(self, config: CoreConfig | None = None
                      ) -> list[scoring.core.UnquantizedPart]:
+        from maelzel.scoring.core import UnquantizedPart
         self._update()
         parts = []
         config, iscustom = self._resolveConfig(config, forceCopy=True)
         config['show.voiceMaxStaves'] = 1
+        # Maps voiceid to the unquantiued parts it generated. A voice may generate
+        # multiple unquantized parts
         voicemap: dict[int, list[scoring.core.UnquantizedPart]] = {}
+
         for voice in self.voices:
             voiceparts = voice.scoringParts(config=config)
             parts.extend(voiceparts)
             voicemap[id(voice)] = voiceparts
+
         for group in self.groups:
-            for voice in group.voices:
+            upartsInGroup = []
+            for voiceref in group.voices:
+                voice = voiceref()
+                assert voice is not None
                 uparts = voicemap.get(id(voice))
                 if uparts:
-                    for part in uparts:
-                        part.setGroup(groupid=group.groupid, name=group.name,
-                                      abbrev=group.abbrev)
+                    upartsInGroup.extend(uparts)
+            if upartsInGroup:
+                UnquantizedPart.makeGroup(upartsInGroup, name=group.name, abbrev=group.abbrev)
+
         for fusedpart in self.fusedParts:
             uparts = []
-            for voice in fusedpart.voices:
-                uparts.extend(voicemap.get(id(voice)))
+            for voiceref in fusedpart.voices:
+                uparts.extend(voicemap[id(voiceref())])
             assert 2 <= len(uparts) <= 4
-            uparts[0].makeMultivoicePart(uparts, name=fusedpart.name, abbrev=fusedpart.abbrev)
+            UnquantizedPart.makeMultivoicePart(uparts, name=fusedpart.name, abbrev=fusedpart.abbrev)
         return parts
 
     def scoringEvents(self,

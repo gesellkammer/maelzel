@@ -1,5 +1,7 @@
 """
 Similar to pitchtools, but on numpy arrays
+
+DEPRECATED: use pitchtools.vectorized
 """
 from __future__ import annotations
 import numpy as np

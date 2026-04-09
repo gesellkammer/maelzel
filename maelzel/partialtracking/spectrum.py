@@ -862,8 +862,6 @@ class Spectrum:
             else:
                 energydata = [p.energy() for p in self.partials]
             minenergy = np.quantile(energydata, minpercentile)
-            # energyquant = self.quantile(metric='energy', loudnessCompensation=loudnessCompensation)
-            # minenergy = energyquant.value(minpercentile)
         else:
             minenergy = 0.
 
@@ -962,7 +960,7 @@ class Spectrum:
         sr = 44100
         sample = self.synthesize(sr=sr)
         from maelzel.snd import pitchtrack
-        f0curve, voicedness = freqestimate.f0curve(sample.samples, sr=sample.sr, minfreq=minfreq)
+        f0curve, voicedness = pitchtrack.f0curve(sample.samples, sr=sample.sr, minfreq=minfreq)
         return f0curve, voicedness
 
     def splitInBands(self, numbands: int, distribution: float | bpf4.BpfInterface = 1.0

@@ -13,6 +13,7 @@ from . import util
 from .common import logger
 from .notation import Notation
 from dataclasses import dataclass
+import weakref
 
 if TYPE_CHECKING:
     from typing import Iterator, Sequence
@@ -39,6 +40,7 @@ class GroupDef:
     name: str = ''
     abbrev: str = ''
     kind: str = 'group'
+    count: int = 0
 
     def rank(self) -> int:
         return 0 if self.kind == '' else 1 if self.kind == 'group' else 2
@@ -117,13 +119,17 @@ class UnquantizedPart:
 
         self._repairNotations()
 
+    def __del__(self):
+        if self.groups:
+            for groupid in self.groups:
+                self._removeFromGroup(groupid, self)
+
     @property
     def partid(self) -> str:
-        for id in self.groups:
-            group = self._groupRegistry.get(id)
-            if group is not None and group.kind == 'part':
-                return id
-        return ''
+        if not self.groups:
+            return ''
+        partid = next((id for id in self.groups if self._groupRegistry[id].kind == 'part'), '')
+        return partid
 
     def _repairNotations(self):
         wasmodified = _repairGracenoteAsTargetGliss(self.notations)
@@ -197,38 +203,6 @@ class UnquantizedPart:
             idx += 1
         return None
 
-    def setGroup(self, groupid='', name='', abbrev='') -> str:
-        """
-        Set group attributes for this part.
-
-        This adds this part to a new/existing group. A part can be part of
-        multiple groups as long as a group is a subgroup of the other. If this
-        part is already marked as belonging to the given group, nothing happends
-
-        Args:
-            groupid: the groupid this part belongs to. All parts with the same groupid
-                are grouped together
-            name: name of the group
-            abbrev: abbreviation for the group name
-        """
-        if groupid and groupid in self.groups:
-            return groupid
-        groupid = self._registerGroup(id=groupid, name=name, abbrev=abbrev)
-        assert groupid
-        self.groups.append(groupid)
-        return groupid
-
-    @property
-    def groupName(self) -> tuple[str, str]:
-        if not self.groups:
-            raise ValueError("This part does not belong to a group")
-        elif len(self.groups) > 1:
-            raise ValueError("This part belongs to multiple groups")
-        group = self._groupRegistry.get(self.groups[0])
-        if not group:
-            raise ValueError(f"Group {self.groupid} not found in groupRegistry")
-        return group.name, group.abbrev
-
     @classmethod
     def _registerGroup(cls, name='', abbrev='', id='', kind='group') -> str:
         if id and id in cls._groupRegistry:
@@ -244,7 +218,6 @@ class UnquantizedPart:
                            voices: Sequence[UnquantizedPart],
                            name='',
                            abbrev='',
-                           id=''
                            ) -> str:
         """
         Mark the given parts as being voices of a multivoice part
@@ -253,16 +226,13 @@ class UnquantizedPart:
             voices: the voices to mark as belonging to a part (2 to 4)
             name: the name of the part
             abbrev: the abbreviation of the name
-            id: an id, if known. If not given a new id is created.
 
         Returns:
             the part id
 
         """
         assert 2 <= len(voices) <= 4, f"Invalid number of voices: {voices}"
-        if not id or id not in cls._groupRegistry:
-            id = cls._registerGroup(name=name, abbrev=abbrev, kind='part', id=id)
-        assert id
+        id = cls._registerGroup(name=name, abbrev=abbrev, kind='part')
         for voice in voices:
             voice.groups.append(id)
         return id
@@ -316,7 +286,6 @@ class UnquantizedPart:
                   parts: list[UnquantizedPart],
                   name='',
                   abbrev='',
-                  groupid='',
                   showPartNames=False
                   ) -> str:
         """
@@ -326,7 +295,6 @@ class UnquantizedPart:
             parts: the parts to group
             name: a name for the group
             abbrev: short name used for all systems after the first
-            groupid: an explicit group id to use. If not given, a group id is created
             showPartNames: if True, the names for each part are shown (if present).
                 Otherwise part names are hidden and only the group name is shown
 
@@ -334,13 +302,24 @@ class UnquantizedPart:
             the group id assigned to the parts
 
         """
-        if not groupid:
-            groupid = cls._registerGroup(name=name, abbrev=abbrev)
+        groupid = cls._registerGroup(name=name, abbrev=abbrev, kind='group')
+        groupdef = cls._groupRegistry.get(groupid)
 
         for part in parts:
-            part.setGroup(groupid=groupid)
+            assert groupid not in part.groups
+            part.groups.append(groupid)
             part.showName = showPartNames
+            groupdef.count += 1
         return groupid
+
+    @classmethod
+    def _removeFromGroup(cls, groupid: str, part: UnquantizedPart) -> None:
+        assert groupid in part.groups
+        groupdef = cls._groupRegistry.get(groupid)
+        if groupdef is not None:
+            groupdef.count -= 1
+            if groupdef.count <= 0:
+                del cls._groupRegistry[groupid]
 
     def distributeByClef(self, maxStaves: int) -> list[UnquantizedPart]:
         """
@@ -433,7 +412,7 @@ class UnquantizedScore:
     def __len__(self):
         return len(self.parts)
 
-    def __getitem__(self, item) -> UnquantizedPart:
+    def __getitem__(self, item) -> UnquantizedPart | list[UnquantizedPart]:
         return self.parts.__getitem__(item)
 
     def __iter__(self) -> Iterator[UnquantizedPart]:
@@ -452,6 +431,7 @@ class UnquantizedScore:
         if self.title:
             parts.append(f"title={self.title}")
         return f"UnquantizedScore({', '.join(parts)}"
+
 
 
 def _repairGracenoteAsTargetGliss(notations: list[Notation]) -> bool:
@@ -669,12 +649,13 @@ def collectGroups(parts: Sequence[UnquantizedPart],
     """
     assert kind in ('group', 'part', '')
     id2parts = {}
+    registry = UnquantizedPart._groupRegistry
     for part in parts:
         for groupid in part.groups:
-            group = UnquantizedPart._groupRegistry[groupid]
+            group = registry[groupid]
             if not kind or group.kind == kind:
                 if groupid in id2parts:
                     id2parts[groupid].append(part)
                 else:
                     id2parts[groupid] = [part]
-    return [(UnquantizedPart._groupRegistry[id], parts) for id, parts in id2parts.items()]
+    return [(registry[id], parts) for id, parts in id2parts.items()]

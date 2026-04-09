@@ -323,7 +323,7 @@ def showF(f: F, maxdenom=1000, approxAsFloat=False, unicode=False) -> str:
         return str(f.numerator)
     if f.denominator > maxdenom:
         if approxAsFloat:
-            from . import mathutils
+            from . import _mathutils
             num, den = mathutils.limitDenominator(f.numerator, f.denominator, maxden=maxdenom, assumeCoprime=True)
             return f"~{num}/{den}"
         else:

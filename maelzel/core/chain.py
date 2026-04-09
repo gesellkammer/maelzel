@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import itertools
+import weakref
 
 from maelzel.common import F, asF, F0
 from maelzel import _util
@@ -15,6 +16,7 @@ from . import environment
 from . import _eventutils
 from . import _tools
 from ._common import logger
+
 
 from maelzel import scoring
 
@@ -2249,7 +2251,8 @@ class VoiceGroup:
     within a staff group, sharing a name/shortname and also for the cases
     where multiple (2 to 4) voices share a staff
 
-    A VoiceGroup is immutable
+    A VoiceGroup is immutable, no voices can be added or removed from the
+    group once it is created.
 
     Args:
         voices: the parts inside this group
@@ -2260,7 +2263,8 @@ class VoiceGroup:
     """
     def __init__(self, voices: Sequence[Voice], name='', abbrev='', showPartNames=False):
 
-        self.voices = voices if isinstance(voices, tuple) else tuple(voices)
+        # self.voices = voices if isinstance(voices, tuple) else tuple(voices)
+        self.voices: tuple[weakref.ReferenceType[Voice], ...] = tuple(weakref.ref(v) for v in voices)
         """The voices in this roup"""
 
         self.name = name
@@ -2284,7 +2288,7 @@ class VoiceGroup:
         return self._hash
 
     def __contains__(self, voice: Voice) -> bool:
-        return voice in self.voices
+        return any(v() is voice for v in self.voices)
 
 
 class Voice(Chain):

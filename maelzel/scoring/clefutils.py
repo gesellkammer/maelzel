@@ -385,21 +385,19 @@ class SimpleClefEvaluator:
     _cache: dict[None | tuple[str, ...], SimpleClefEvaluator] = {}
 
     def __new__(cls, clefs: Sequence[str] | None = None):
-        if clefs is not None and not isinstance(clefs, tuple):
-            clefs = tuple(sorted(clefs))
-        if clefs in cls._cache:
-            return cls._cache[clefs]
+        clefstup = tuple(sorted(clefs)) if clefs is not None else None
+        if clefstup in cls._cache:
+            return cls._cache[clefstup]
         return super().__new__(cls)
 
     def __init__(self, clefs: Sequence[str] | None = None):
         clefcurves = clefDefinitions()
-        if clefs is not None:
-            if not isinstance(clefs, tuple):
-                clefs = tuple(sorted(clefs))
-            clefcurves = {clef: curve for clef, curve in clefcurves.items() if clef in clefs}
+        clefstup = tuple(sorted(clefs)) if clefs is not None else None
+        if clefstup:
+            clefcurves = {clef: curve for clef, curve in clefcurves.items() if clef in clefstup}
         self.curves = clefcurves
         self.clefs = list(clefcurves.keys())
-        self._cache[clefs] = self
+        self._cache[clefstup] = self
 
     def __call__(self, pitch: float) -> tuple[str, float]:
         """

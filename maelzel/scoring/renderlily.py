@@ -29,7 +29,7 @@ from maelzel.textstyle import TextStyle
 
 from . import attachment
 from . import definitions
-from . import lilypondsnippets
+from . import lilysnippets
 from . import quant
 from . import util
 from . import spanner as _spanner
@@ -1160,7 +1160,7 @@ def renderScore(score: quant.QuantizedScore,
         _(f"#(set-default-paper-size \"{options.pageSize}\" '{options.orientation})")
         _(lilytools.paperBlock(margin=options.pageMarginMillimeters, unit="mm"))
 
-    _(lilypondsnippets.prelude)
+    _(lilysnippets.prelude)
 
     if options.glissLineThickness != 1:
         _(r"""
@@ -1177,21 +1177,21 @@ def renderScore(score: quant.QuantizedScore,
         lilyFlagStyle = {'straight': 'modern-straight-flag',
                          'flat': 'flat-flag',
                          'old-straight': 'old-straight-flag'}[options.flagStyle]
-        _(lilypondsnippets.flagStyleLayout(lilyFlagStyle))
+        _(lilysnippets.flagStyleLayout(lilyFlagStyle))
 
     if options.horizontalSpace:
-        spacingPreset = lilypondsnippets.horizontalSpacePresets[options.horizontalSpace]
+        spacingPreset = lilysnippets.horizontalSpacePresets[options.horizontalSpace]
         if spacingPreset:
             _(spacingPreset)
 
     if options.lilypondGlissMinLength:
-        _(lilypondsnippets.glissandoMinimumLength(options.lilypondGlissMinLength))
+        _(lilysnippets.glissandoMinimumLength(options.lilypondGlissMinLength))
 
     if options.useStemlets:
-        _(lilypondsnippets.stemletLength(length=options.stemletLength, context='Score'))
+        _(lilysnippets.stemletLength(length=options.stemletLength, context='Score'))
 
     if score.isPolymetric():
-        _(lilypondsnippets.polymetricScore)
+        _(lilysnippets.polymetricScore)
 
     # There is a "bug" in lilypond where, if a part has gracenotes at the beginning
     # of the part, parts without gracenotes end up unaligned. For this, any part
@@ -1289,7 +1289,7 @@ def renderScore(score: quant.QuantizedScore,
             strict, uniform = False, True
         else:
             strict, uniform = False, False
-        w(lilypondsnippets.proportionalSpacing(num=dur.numerator, den=dur.denominator,
+        w(lilysnippets.proportionalSpacing(num=dur.numerator, den=dur.denominator,
                                                strict=strict, uniform=uniform))
 
     if midi:

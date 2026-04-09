@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from maelzel.scoring.common import division_t
     from maelzel.scoring.quant import QuantizedPart
-    from typing import Sequence, Any, MutableSequence
+    from typing import Sequence, Any
 
 
 @dataclass
@@ -79,7 +79,7 @@ class PartNode:
              'abbrev': self.abbrev}
         if self.kind == 'part':
             part = self.items[0]
-            assert isinstance(part, QuantizedPart)
+            # assert isinstance(part, QuantizedPart)
             d['struct'] = part.struct  # type: ignore
             d['clef'] = part.firstClef or part.bestClef()
             if not self.name:

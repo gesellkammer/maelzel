@@ -5,7 +5,7 @@ from maelzel.core.mobj import MObj
 import maelzel.core.symbols as _symbols
 from maelzel.core import synthevent
 from maelzel.scoring import definitions
-from maelzel import mathutils
+from maelzel import _mathutils
 
 
 from typing import TYPE_CHECKING
