@@ -36,6 +36,8 @@ class Attachment:
     copyToSplitNotation = False
     """Should an attachment of this class be copied to parts of a notation if it is split?"""
 
+    # __slots__ = ('color', 'instancePriority', 'anchor', 'horizontalPlacement')
+
     def __init__(self, 
                  color='',
                  instancePriority=0,
@@ -339,7 +341,8 @@ class Text(Attachment):
     """
     priority = 100
 
-    __slots__ = ('text', 'placement', 'fontsize', 'italic', 'weight', 'fontfamily', 'box', 'relativeSize')
+    # __slots__ = ('text', 'placement', 'fontsize', 'italic', 'weight',
+    #              'fontfamily', 'box', 'relativeSize', 'role')
 
     def __init__(self,
                  text: str,
@@ -373,12 +376,6 @@ class Text(Attachment):
         self.relativeSize = relativeSize
 
     def __repr__(self):
-        # parts = ['"' + self.text + '"']
-        # for attr in ('placement', 'fontsize', 'box', 'italic', 'weight', 'fontfamily', 'role', 'relativeSize'):
-        #     val = getattr(self, attr)
-        #     if val:
-        #         parts.append(f"{attr}={val}")
-        # return f"Text({', '.join(parts)})"
         return _util.reprObj(self, hideFalsy=True, hideEmptyStr=True, first=('text',), quoteStrings=('text',), hideKeys=('text',))
 
     def __hash__(self) -> int:

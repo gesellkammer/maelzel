@@ -161,8 +161,10 @@ def isEnharmonicVariantValid(notes: list[str]) -> bool:
     for n1 in notes[1:]:
         p1 = pt.n2m(n1)
         if p0 < p1 and pt.vertical_position(n0) > pt.vertical_position(n1):
+            print("Invalid enharmonic variant 1: ", notes)
             return False
         if p0 > p1 and pt.vertical_position(n0) < pt.vertical_position(n1):
+            print("Invalid enharmonic variant 2: ", notes)
             return False
         p0 = p1
         n0 = n1
@@ -438,7 +440,9 @@ def _bestEnharmonicVariant(group: Sequence[Notation],
         penalty = sqrt(a+b+c)
         solutions.append((penalty, spellings[i], a, b, c))
     solutions.sort(key=lambda solution: solution[0])
+    assert len(spellings) == len(solutions)
     if options.debug:
+        print(f"Solution: {solutions[0][1]}")
         for s in solutions:
             penalty, spelling, a, b, c = s
             print(f'Spelling: {" ".join(spelling)}, penalty={penalty: .4g}, '
@@ -579,8 +583,8 @@ def _rateChordSpelling(notes: Sequence[str], options: EnharmonicOptions) -> tupl
         totalpenalty += penalty
         sources.append(source)
     sourcestr = ":".join(sources)
-    if options.debug:
-        print(f"Notes: {notes}, penalty: {totalpenalty}, source: {sourcestr}")
+    if options.debug and len(notes) > 1:
+        print(f"Chord spellings: {notes}, penalty: {totalpenalty}, source: {sourcestr}")
     return totalpenalty, sourcestr
 
 
@@ -655,7 +659,7 @@ def pitchSpellings(n: Notation) -> tuple[str, ...]:
 
 def fixEnharmonicsInPlace(notations: list[Notation],
                           eraseFixedNotes=False,
-                          options: EnharmonicOptions = _defaultEnharmonicOptions,
+                          options: EnharmonicOptions | None = None,
                           spellingHistory: SpellingHistory | None = None
                           ) -> None:
     """
@@ -689,6 +693,9 @@ def fixEnharmonicsInPlace(notations: list[Notation],
       be fixed
     """
     # First fix single notes and upper note of chords, then fix each chord
+    if options is None:
+        options = _defaultEnharmonicOptions
+
     notations = [n for n in notations
                  if not n.isRest and all(p > 10 for p in n.pitches)]
 
@@ -764,11 +771,12 @@ def fixEnharmonicsInPlace(notations: list[Notation],
         if not validVariations:
             validVariations = variations
 
-        solution = _bestEnharmonicVariant(group, spellings=validVariations, anchors=anchorIndexes, options=options)
+        solution = _bestEnharmonicVariant(group, spellings=validVariations,
+                                          anchors=anchorIndexes, options=options)
 
         if options.debug:
             print(f"DEBUG: Enharmonic spelling - orig. {notenamesInGroup}, "
-                  f"horizontal solution={solution}")
+                  f"horizontal solution={solution}, variations={validVariations}")
         for idx, n in enumerate(group):
             if len(n) == 1:
                 if not n.fixedNotename():

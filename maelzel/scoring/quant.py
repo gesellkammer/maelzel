@@ -13,7 +13,6 @@ import sys
 import os
 from math import sqrt
 import itertools
-import numpy as np
 import time
 
 from maelzel.common import F, F0, asF
@@ -369,13 +368,13 @@ class QuantizedMeasure:
             self.tree.setReadOnly(True, recurse=True)
 
     def copy(self) -> Self:
-        return QuantizedMeasure(timesig=self.timesig,
-                                tempo=self.tempo,
-                                tempoRef=self.tempoRef,
-                                beats=self.beats.copy(),
-                                quantprofile=self.quantprofile,
-                                parent=self.parent,
-                                subdivisions=self.subdivisions)
+        return self.__class__(timesig=self.timesig,
+                              tempo=self.tempo,
+                              tempoRef=self.tempoRef,
+                              beats=self.beats.copy(),
+                              quantprofile=self.quantprofile,
+                              parent=self.parent,
+                              subdivisions=self.subdivisions)
 
     def setReadOnly(self, value=True) -> None:
         """
@@ -449,6 +448,7 @@ class QuantizedMeasure:
             self._beatDefs = [QuantizedBeatDef(offset=beat.offset, duration=beat.duration,
                                                division=beat.divisions, weight=beat.weight)
                               for beat in self.beats]
+        assert self._beatDefs is not None
         return self._beatDefs
 
     def beatWeights(self) -> list[int]:
@@ -1017,7 +1017,7 @@ def _makeTreeFromQuantizedBeats(beats: list[QuantizedBeat],
 
 
 def _evalRhythmComplexity(profile: QuantizationProfile,
-                          snapped: list[Snapped | Notation],
+                          snapped: Sequence[Snapped | Notation],
                           div: division_t,
                           beatDur: F,
                           assignedSlots: Sequence[int],
@@ -1071,7 +1071,7 @@ def _evalRhythmComplexity(profile: QuantizationProfile,
 
         numTies = sum(not isRegularDuration(dur=n.duration, beatDur=beatDur)
                       for n in snapped
-                      if not n.notation.isRest)
+                      if not n.isRest)
 
     penalty = mathlib.weighted_euclidian_distance([
         (numSyncop / len(snapped), profile.rhythmComplexityNotesAcrossSubdivisionWeight),
@@ -1121,15 +1121,15 @@ def _splitNotationsInBeat(ns: Sequence[Notation],
     #------------------------- end
 
 
-def quantizeBeatBinary(eventsInBeat: list[Notation],
-                       quarterTempo: F,
-                       profile: QuantizationProfile,
-                       beatDuration: F,
-                       beatOffset: F,
-                       divisionHint: tuple[division_t, float] | None = None,
-                       minTieDur=F(1, 10000),
-                       prevDivision: division_t | None = None
-                       ) -> QuantizedBeat:
+def quantizeBeat2(eventsInBeat: list[Notation],
+                  quarterTempo: F,
+                  profile: QuantizationProfile,
+                  beatDuration: F,
+                  beatOffset: F,
+                  divisionHint: tuple[division_t, float] | None = None,
+                  minTieDur=F(1, 10000),
+                  prevDivision: division_t | None = None
+                  ) -> QuantizedBeat:
     """
     Calculate the best subdivision
 
@@ -1411,12 +1411,58 @@ def _mergeUnquantizedNotations(notations: list[Notation]) -> list[Notation]:
     return out
 
 
-def quantizeBeatTernary(eventsInBeat: list[Notation],
-                        quarterTempo: F,
-                        profile: QuantizationProfile,
-                        beatDuration: F,
-                        beatOffset: F
-                        ) -> list[QuantizedBeat]:
+def quantizeBeatPrime(eventsInBeat: list[Notation],
+                      quarterTempo: F,
+                      profile: QuantizationProfile,
+                      beatDuration: F,
+                      beatOffset: F) -> list[QuantizedBeat]:
+    assert all(not ev.isQuantized() for ev in eventsInBeat)
+    beatnum = beatDuration.numerator
+    assert beatnum in (5, 7, 11, 13, 17), f"Invalid beat durations: {beatDuration}"
+    dendur = beatDuration / beatnum
+    # 5/4 -> num = 5, subdiv = 5/4 / 5 = 1/4
+    if beatnum == 5:
+        distrs = [(2, 2, 1), (2, 1, 2), (1, 2, 2)]
+    elif beatnum == 7:
+        distrs = [(2, 2, 2, 1), (2, 2, 1, 2), (2, 1, 2, 2)]
+    elif beatnum == 11:
+        distrs = [(2, 2, 2, 2, 2, 1), (2, 1, 2, 2, 2, 2)]
+    elif beatnum == 13:
+        distrs = [(2, 2, 2, 2, 2, 2, 1), (2, 1, 2, 2, 2, 2, 2)]
+    elif beatnum == 17:
+        distrs = [(2, 2, 2, 2, 2, 2, 2, 2, 1), (2, 1, 2, 2, 2, 2, 2, 2, 2)]
+    else:
+        raise ValueError(f"Beat Duration {beatDuration} not supported")
+    results = []
+    for distr in distrs:
+        offsets = [beatOffset]
+        accum = 0
+        for beatnum in distr:
+            accum += beatnum
+            offsets.append(beatOffset + dendur*accum)
+        assert offsets[-1] == beatOffset + beatDuration
+        eventsInSubbeats = quantutils.breakNotationsByBeat(eventsInBeat, offsets, forcecopy=True)
+        beats = [quantizeBeat2(events, quarterTempo=quarterTempo, profile=profile,
+                               beatDuration=end-start, beatOffset=start)
+                 for start, end, events in eventsInSubbeats]
+
+        totalerror = sum(beat.quantizationError * beat.duration for beat in beats)
+        results.append((totalerror, beats))
+    best = min(results, key=lambda result: result[0])
+    beats = best[1]
+    if profile.debug:
+        print(f"Best solution: {[str(b.duration) for b in beats]}")
+        for error, beats in results:
+            print(f"Error: {error}, durations: {[str(beat.duration) for beat in beats]}")
+    return beats
+
+
+def quantizeBeat3(eventsInBeat: list[Notation],
+                  quarterTempo: F,
+                  profile: QuantizationProfile,
+                  beatDuration: F,
+                  beatOffset: F
+                  ) -> list[QuantizedBeat]:
     """
     Quantize a ternary beat
 
@@ -1444,21 +1490,18 @@ def quantizeBeatTernary(eventsInBeat: list[Notation],
     ]
 
     results = []
-
     assert all(not ev.isQuantized() for ev in eventsInBeat)
     for offsets in possibleDistributions:
         eventsInSubbeats = quantutils.breakNotationsByBeat(eventsInBeat, offsets, forcecopy=True)
-        beats = [quantizeBeatBinary(events, quarterTempo=quarterTempo, profile=profile,
-                                    beatDuration=end-start, beatOffset=start)
+        beats = [quantizeBeat2(events, quarterTempo=quarterTempo, profile=profile,
+                               beatDuration=end-start, beatOffset=start)
                  for start, end, events in eventsInSubbeats]
 
         totalerror = sum(beat.quantizationError * beat.duration for beat in beats)
         results.append((totalerror, beats))
     if profile.debug:
-        for result in results:
-            error, beats = result
-            durations = [beat.duration for beat in beats]
-            print(f"Error: {error}, division: {durations}")
+        for error, beats in results:
+            print(f"Error: {error}, durations: {[beat.duration for beat in beats]}")
     beats = min(results, key=lambda result: result[0])[1]
     return beats
 
@@ -1586,25 +1629,31 @@ def quantizeMeasure(events: list[Notation],
         ev0 = eventsInBeat[0]
         quanthint = ev0.findAttachment(attachment.QuantHint)
         if beatdur.numerator in (1, 2, 4):
-            quantizedBeat = quantizeBeatBinary(eventsInBeat=eventsInBeat,
-                                               quarterTempo=quarterTempo,
-                                               beatDuration=spanend - spanstart,
-                                               beatOffset=spanstart,
-                                               profile=profile,
-                                               divisionHint=None if not quanthint else (quanthint.division, quanthint.strength),
-                                               prevDivision=quantizedBeats[-1].divisions if quantizedBeats else None)
+            quantizedBeat = quantizeBeat2(eventsInBeat=eventsInBeat,
+                                          quarterTempo=quarterTempo,
+                                          beatDuration=spanend - spanstart,
+                                          beatOffset=spanstart,
+                                          profile=profile,
+                                          divisionHint=None if not quanthint else (quanthint.division, quanthint.strength),
+                                          prevDivision=quantizedBeats[-1].divisions if quantizedBeats else None)
             quantizedBeat.weight = beatWeight
             quantizedBeats.append(quantizedBeat)
         elif beatdur.numerator == 3:
-            subBeats = quantizeBeatTernary(eventsInBeat=eventsInBeat,
-                                           quarterTempo=quarterTempo,
-                                           beatDuration=beatdur,
-                                           beatOffset=spanstart,
-                                           profile=profile)
+            subBeats = quantizeBeat3(eventsInBeat=eventsInBeat,
+                                     quarterTempo=quarterTempo,
+                                     beatDuration=beatdur,
+                                     beatOffset=spanstart,
+                                     profile=profile)
             subBeats[0].weight = beatWeight
             quantizedBeats.extend(subBeats)
         else:
-            raise ValueError(f"beat duration not supported: {beatdur}")
+            subBeats = quantizeBeatPrime(eventsInBeat=eventsInBeat,
+                                         quarterTempo=quarterTempo,
+                                         beatDuration=beatdur,
+                                         beatOffset=spanstart,
+                                         profile=profile)
+            subBeats[0].weight = beatWeight
+            quantizedBeats.extend(subBeats)
         idx += 1
 
     quantizedBeats[0].weight = 2
@@ -1631,6 +1680,7 @@ def splitNotationAtMeasures(n: Notation, struct: st.ScoreStruct
 
     """
     assert n.offset is not None and n.offset >= 0 and n.duration >= 0
+    assert isinstance(struct, st.ScoreStruct)
     measureindex0, beat0 = struct.beatToLocation(n.offset)
     measureindex1, beat1 = struct.beatToLocation(n.end)
 
@@ -1915,8 +1965,8 @@ def _mergeSiblings(root: Node,
 
     """
     for _ in range(maxiter):
-        root2 = _mergeSiblings0(root=root, profile=profile,
-                                beatOffsets=beatOffsets, beatWeights=beatWeights)
+        root2 = _mergeSiblingsInner(root=root, profile=profile,
+                                    beatOffsets=beatOffsets, beatWeights=beatWeights)
         if root2 == root:
             break
         root = root2
@@ -1925,21 +1975,24 @@ def _mergeSiblings(root: Node,
     return root
 
 
-def _mergeSiblings0(root: Node,
-                    profile: QuantizationProfile,
-                    beatOffsets: Sequence[F],
-                    beatWeights: Sequence[int]
-                    ) -> Node:
+def _mergeSiblingsInner(root: Node,
+                        profile: QuantizationProfile,
+                        beatOffsets: Sequence[F],
+                        beatWeights: Sequence[int]
+                        ) -> Node:
 
     # merge only tree (not Notations) across tree of same level
+    # This works only in binary form, taking two Nodes at any time
     if len(root.items) < 2:
         return root
 
     items = []
     for item2 in root.items:
+
         if isinstance(item2, Node):
             item2 = _mergeSiblings(item2, profile=profile, beatOffsets=beatOffsets, beatWeights=beatWeights)
             item2.parent = root
+
         if not items:
             items.append(item2)
             continue
@@ -2629,6 +2682,7 @@ def quantizePart(part: core.UnquantizedPart,
     """
     assert isinstance(part, core.UnquantizedPart)
     struct = part.scorestruct or struct
+    assert struct is not None
     part.fillGaps()
     notations = part.notations
     assert all(n.offset is not None for n in notations)
@@ -2924,7 +2978,8 @@ class QuantizedScore:
 
     def copy(self) -> Self:
         parts = [part.copy() for part in self.parts]
-        return QuantizedScore(parts=parts, title=self.title, composer=self.composer, struct=self.struct)
+        return self.__class__(parts=parts, title=self.title, composer=self.composer,
+                              struct=self.struct)
 
     def write(self,
               outfile: str,
@@ -3054,18 +3109,19 @@ class QuantizedScore:
 
 
 def quantizeScore(score: core.UnquantizedScore,
-                  profile: QuantizationProfile,
+                  quantProfile: QuantizationProfile,
                   enharmonicOptions: enharmonics.EnharmonicOptions | None = None
                   ) -> QuantizedScore:
+    assert score.scorestruct is not None
     return quantizeParts(parts=score.parts,
-                         quantizationProfile=profile,
+                         quantProfile=quantProfile,
                          struct=score.scorestruct,
                          enharmonicOptions=enharmonicOptions)
 
 
 def quantizeParts(parts: list[core.UnquantizedPart],
-                  quantizationProfile: QuantizationProfile,
-                  struct: st.ScoreStruct | None = None,
+                  quantProfile: QuantizationProfile,
+                  struct: st.ScoreStruct,
                   enharmonicOptions: enharmonics.EnharmonicOptions | None = None
                   ) -> QuantizedScore:
     """
@@ -3165,14 +3221,13 @@ def quantizeParts(parts: list[core.UnquantizedPart],
 
     .. image:: ../assets/quantize-example.png
     """
+    assert struct is not None
     if not parts:
         raise ValueError("No parts provided")
-    if struct is None:
-        struct = st.ScoreStruct((4, 4), tempo=60)
     qparts = []
     mapping: dict[int, QuantizedPart] = {}
     for i, part in enumerate(parts):
-        profile = part.quantProfile or quantizationProfile
+        profile = part.quantProfile or quantProfile
         try:
             qpart = quantizePart(part, struct=struct, quantprofile=profile)
             mapping[id(part)] = qpart
@@ -3266,7 +3321,6 @@ def _partTree(parts: list[QuantizedPart], groups: Sequence[PartNode]) -> PartNod
                 # The part has groups but there are no groups open, open one
                 for groupid in groupids:
                     refgroup = id2group[groupid]
-
                     group = PartNode(kind=refgroup.kind, id=refgroup.id, items=[], name=refgroup.name, abbrev=refgroup.abbrev)
                     stack.append(group)
             stack[-1].items.append(part)

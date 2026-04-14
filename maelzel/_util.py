@@ -8,6 +8,7 @@ import pickle
 import emlib.misc
 from maelzel.common import F, F1
 from maelzel._logutils import getLogger
+from . import _mathutils
 
 
 from typing import TYPE_CHECKING
@@ -323,8 +324,7 @@ def showF(f: F, maxdenom=1000, approxAsFloat=False, unicode=False) -> str:
         return str(f.numerator)
     if f.denominator > maxdenom:
         if approxAsFloat:
-            from . import _mathutils
-            num, den = mathutils.limitDenominator(f.numerator, f.denominator, maxden=maxdenom, assumeCoprime=True)
+            num, den = _mathutils.limitDenominator(f.numerator, f.denominator, maxden=maxdenom, assumeCoprime=True)
             return f"~{num}/{den}"
         else:
             return f"{f:.3f}".rstrip('0').rstrip('.')
@@ -840,4 +840,5 @@ def splitStr(s: str, sep: str = ',') -> list[str]:
         raise ValueError(f"Unmatched '{stack[-1][0]}' at position {stack[-1][1]}")
 
     parts.append(''.join(current))
+    return parts
     return parts

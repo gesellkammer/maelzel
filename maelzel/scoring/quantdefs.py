@@ -30,22 +30,20 @@ class QuantizedBeatDef:
 class PartNode:
     def __init__(self, kind: str, items: Sequence[QuantizedPart | PartNode], name='', abbrev='', id=''):
         assert kind in ('', 'group', 'part')
-        if not id:
-            id = core.makeGroupId()
         self.kind = kind
         self.items = items if isinstance(items, list) else list(items)
         self.name = name
         self.abbrev = abbrev
-        self.id = id
+        self.id = id or core.makeGroupId()
 
-    def copy(self) -> PartNode:
-        return PartNode(self.kind, items=self.items, name=self.name, abbrev=self.abbrev, id=self.id)
-
-    def clone(self, **kws) -> PartNode:
-        node = self.copy()
-        for k, v in kws.items():
-            setattr(node, k, v)
-        return node
+    # def copy(self) -> PartNode:
+    #     return PartNode(self.kind, items=self.items, name=self.name, abbrev=self.abbrev, id=self.id)
+    #
+    # def clone(self, **kws) -> PartNode:
+    #     node = self.copy()
+    #     for k, v in kws.items():
+    #         setattr(node, k, v)
+    #     return node
 
     def __contains__(self, item: QuantizedPart):
         return item in self.items
@@ -72,6 +70,47 @@ class PartNode:
         return self._show()
 
     def serialize(self) -> list[dict[str, Any] | QuantizedPart]:
+        """
+        Serialize this PartNode
+
+        Called on the rute serializes the entire tree.
+
+        Returns a flat list where each element is a dict,
+        representing an "operation" (opening or closing a group
+        or a multivoice part), or a part itself.
+
+        For the case of a score with the following structure::
+
+            Score
+              part1
+              part2
+              group1:
+                part3
+                part1:
+                  part4
+                  part5
+              group2:
+                part6
+                part7
+
+        Returns a list::
+
+            part1
+            part2
+            {'kind': 'group', 'open': True, name: 'group1', ...}
+            part3
+            {'kind': 'part', 'open': True, name: 'part1', ...}
+            part4
+            part5
+            {'kind': 'part', 'open': False, ...}
+            {'kind': 'group', 'open': False, ...}
+            {'kind': 'group', 'open': True, ...}
+            part6
+            part7
+            {'kind': 'group', 'open': False, ...}
+
+
+        """
         d = {'kind': self.kind,
              'name': self.name,
              'id': self.id,
@@ -90,8 +129,6 @@ class PartNode:
                 out.extend(item.serialize())
             else:
                 out.append(item)
-        out.append({'kind': self.kind, 'name': self.name, 'open': False, 'id': self.id})
+        out.append({'kind': self.kind, 'open': False, 'id': self.id, 'name': self.name})
         return out
 
-    # def append(self, item: QuantizedPart | PartNode):
-    #     self.items.append(item)

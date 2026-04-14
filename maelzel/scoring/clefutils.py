@@ -413,7 +413,7 @@ class SimpleClefEvaluator:
         points, clef = max((curve.fitness(pitch), clef) for clef, curve in self.curves.items())
         return clef, points
     
-    def process(self, pitches: list[float]) -> tuple[str, float]:
+    def process(self, pitches: Sequence[float]) -> tuple[str, float]:
         """
         Find the best clef for a sequence of pitches as a whole
         
@@ -458,7 +458,7 @@ def bestClefForPitch(pitch: float,
 
 
 def _groupNotationsBySpanner(ns: list[Notation]
-                             ) -> list[Notation | list[Notation]]:
+                             ) -> Sequence[Notation | list[Notation]]:
     """
     Groups notations belonging to a same spanner/spanners
 
@@ -473,8 +473,8 @@ def _groupNotationsBySpanner(ns: list[Notation]
         shares one or multiple spanners with the group and no spanners
         with any other item
     """
-    group = []
-    out = []
+    group: list[Notation] = []
+    out: list[Notation | list[Notation]] = []
     stack = []
     if not any(n.spanners for n in ns):
         return ns
@@ -534,8 +534,9 @@ def _mapNotationsToSpanners(ns: Sequence[Notation]
 
 
 @cache
-def _clefCombinations(minStaves: int, maxStaves: int, exclude: tuple[str, ...] = ()) -> list[tuple[str, ...]]:
-    allcombinations = []
+def _clefCombinations(minStaves: int, maxStaves: int, exclude: tuple[str, ...] = ()
+                      ) -> list[tuple[str, ...]]:
+    allcombinations: list[tuple[str, ...]] = []
 
     numStavesToCombinations = {
         1: [('treble15',), ('treble8',), ('treble',), ('bass',), ('bass8',), ('bass15',)],
@@ -820,7 +821,7 @@ def splitNotationsByClef(notations: list[Notation],
                                 continue
                             nextn._setClefHint(clef, destidx)
                     else:
-                        targets = n._guessGlissTargets(nextn)
+                        targets = n._guessGlissTargets(nextn.pitches)
                         for idx, target in enumerate(targets):
                             if idx in indexes and target in nextn.pitches:
                                 nextn._setClefHint(clef, idx)

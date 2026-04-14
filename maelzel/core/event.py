@@ -589,9 +589,10 @@ class Note(MEvent):
         """The fractional part of this pitch, rounded to the cent"""
         return _tools.midicents(self.pitch)
 
-    def scoringParts(self, config: CoreConfig | None = None) -> list[scoring.core.UnquantizedPart]:
+    def unquantizedParts(self) -> list[scoring.core.UnquantizedPart]:
         if self.isRest():
-            notations = self.scoringEvents(config=config)
+            config = self.getConfig() or Workspace.active.config
+            notations = self._scoringEvents(config=config)
             assert len(notations) == 1
             n = notations[0]
             n.mergeableNext = False
@@ -600,13 +601,11 @@ class Note(MEvent):
             n.addAttachment(attachment.Breath(visible=False, horizontalPlacement='post'))
             return [scoring.core.UnquantizedPart(notations)]
         else:
-            return super().scoringParts(config)
+            return super().unquantizedParts()
 
-
-    def scoringEvents(self,
-                      groupid='',
-                      config: CoreConfig | None = None,
-                      ) -> list[scoring.Notation]:
+    def _scoringEvents(self,
+                       config: CoreConfig | None = None,
+                       ) -> list[scoring.Notation]:
         if not config:
             config = Workspace.active.config
         offset = self.absOffset()
@@ -630,8 +629,7 @@ class Note(MEvent):
                                              duration=asF(dur),
                                              offset=offset,
                                              gliss=bool(self.gliss),
-                                             dynamic=self.dynamic,
-                                             group=groupid)
+                                             dynamic=self.dynamic)
         if self.pitchSpelling:
             notation.fixNotename(self.pitchSpelling, index=0)
 
@@ -1367,10 +1365,9 @@ class Chord(MEvent):
             return False
         return not isinstance(gliss, bool) or any(n.gliss for n in self.notes)
 
-    def scoringEvents(self,
-                      groupid='',
-                      config: CoreConfig | None = None,
-                      ) -> list[scoring.Notation]:
+    def _scoringEvents(self,
+                       config: CoreConfig | None = None,
+                       ) -> list[scoring.Notation]:
         if not config:
             config = Workspace.active.config
         notenames = [note.name for note in self.notes]
@@ -1379,7 +1376,6 @@ class Chord(MEvent):
         notation = scoring.Notation.makeChord(pitches=notenames,
                                               duration=dur,
                                               offset=offset,
-                                              group=groupid,
                                               dynamic=self.dynamic,
                                               tiedNext=self.tied)
 
@@ -1431,14 +1427,15 @@ class Chord(MEvent):
 
         return notations
 
-    def scoringParts(self,
-                     config: CoreConfig | None = None
-                     ) -> list[scoring.core.UnquantizedPart]:
+    def unquantizedParts(self,
+                         config: CoreConfig | None = None
+                         ) -> list[scoring.core.UnquantizedPart]:
         # The only reason we need to overload this is that when showing a chord
         # which is split across multiple parts we want to lock the spelling
         from maelzel.scoring import enharmonics
-        config = config or Workspace.active.config
-        notations = self.scoringEvents(config=config)
+        config = config or self.getConfig() or Workspace.active.config
+        assert config is not None
+        notations = self._scoringEvents(config=config)
         n0 = notations[0]
         notenames = n0.resolveNotenames(fixedAnnotation=True)
         spelling0 = enharmonics.bestChordSpelling(notenames, options=config.makeEnharmonicOptions())

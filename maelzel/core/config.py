@@ -438,8 +438,9 @@ class CoreConfig(ConfigDict):
         Returns:
             a :class:`maelzel.scoring.enharmonics.EnharmonicOptions`
         """
-        from maelzel.core import _scoringutils
-        return _scoringutils.makeEnharmonicOptionsFromConfig(self)
+        return self.makeRenderOptions().makeEnharmonicOptions()
+        # from maelzel.core import _scoringutils
+        # return _scoringutils.makeEnharmonicOptionsFromConfig(self)
 
     def __enter__(self):
         from . import workspace
@@ -451,7 +452,7 @@ class CoreConfig(ConfigDict):
     def __exit__(self, exc_type, exc_val, exc_tb):
         assert self._previousState is not None
         workspace, prevconfig = self._previousState
-        assert workspace.isActive() and workspace.config is self and prevconfig
+        assert workspace.isActive() and workspace.config is self
         workspace.config = prevconfig
 
     def activate(self) -> None:

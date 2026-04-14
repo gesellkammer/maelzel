@@ -30,6 +30,9 @@ defaultdict = {
 
     '.enharmonic.debug': False,
     '.enharmonic.150centMicroPenalty': 20,
+    '.enharmonic.groupSize': 5,
+    '.enharmonic.groupStep': 2,
+    '.enharmonic.fixedSlotMaxHistory': 4,
 
     'show.arpeggiateChord': 'auto',
     'show.centsTextStyle': 'fontsize=6; placement=below',
@@ -105,6 +108,8 @@ defaultdict = {
     'play.verbose': False,
     'play.useDynamics': True,
     'play.soundfontFindPeakAOT': False,
+    'clickPitches': ('7C', '7E', '7G'),
+    'clickInstr': '.click',
 
     '.reverbInstr': '.zitarev',
     'reverbGaindb': -6,

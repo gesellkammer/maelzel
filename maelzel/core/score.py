@@ -360,10 +360,11 @@ class Score(MContainer):
             self._update()
         return self._dur
 
-    def scoringParts(self, config: CoreConfig | None = None
-                     ) -> list[scoring.core.UnquantizedPart]:
-        from maelzel.scoring.core import UnquantizedPart
+    def unquantizedParts(self,
+                         config: CoreConfig | None = None
+                         ) -> list[scoring.core.UnquantizedPart]:
         self._update()
+        from maelzel.scoring.core import UnquantizedPart
         parts = []
         config, iscustom = self._resolveConfig(config, forceCopy=True)
         config['show.voiceMaxStaves'] = 1
@@ -372,7 +373,7 @@ class Score(MContainer):
         voicemap: dict[int, list[scoring.core.UnquantizedPart]] = {}
 
         for voice in self.voices:
-            voiceparts = voice.scoringParts(config=config)
+            voiceparts = voice.unquantizedParts(config=config)
             parts.extend(voiceparts)
             voicemap[id(voice)] = voiceparts
 
@@ -395,12 +396,11 @@ class Score(MContainer):
             UnquantizedPart.makeMultivoicePart(uparts, name=fusedpart.name, abbrev=fusedpart.abbrev)
         return parts
 
-    def scoringEvents(self,
-                      groupid='',
-                      config: CoreConfig | None = None,
-                      parentOffset: F | None = None
-                      ) -> list[scoring.Notation]:
-        parts = self.scoringParts(config or Workspace.active.config)
+    def _scoringEvents(self,
+                       config: CoreConfig | None = None,
+                       parentOffset: F | None = None
+                       ) -> list[scoring.Notation]:
+        parts = self.unquantizedParts(config or Workspace.active.config)
         flatevents = []
         for part in parts:
             flatevents.extend(part)
@@ -510,21 +510,19 @@ class Score(MContainer):
         return endidx + 1
 
 
-def show(*objs: MObj | Sequence[MObj], group=True, **kws) -> Score:
+def show(*objs: MObj | Sequence[MObj], **kws) -> Score:
     """
     Packs all objects into a score and displays them as notation
 
     Args:
         objs: objects to pack. Either single Notes, Chains, etc. List
-            of events can be given and will be kept together if group=True
-        group: if True, objects grouped within a list are kept within a
-            staff if they do not overlap
+            of events can be given and will be kept together, if possible
         kws: any keyword is passed to the :meth:`~MObj.show` method
 
     Returns:
         the resulting Score
     """
-    sco = Score.pack(*objs, group=group)
+    sco = Score.pack(*objs, group=True)
     sco.show(**kws)
     return sco
 

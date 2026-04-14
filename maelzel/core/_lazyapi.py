@@ -183,10 +183,7 @@ def play(*sources: MObj | _t.Sequence[SynthEvent] | csoundengine.event.Event,
 def audioSession(numchannels: int | None = None,
                  backend='',
                  outdev='',
-                 verbose: bool | None = None,
                  buffersize: int = 0,
-                 latency: float | None = None,
-                 numbuffers: int = 0,
                  ensure: bool = False,
                  name=''
                  ) -> csoundengine.session.Session:
@@ -214,11 +211,8 @@ def audioSession(numchannels: int | None = None,
         outdev: leave as None to use the backend's default, use '?' to select
             from a list of available devices. To list all available devices
             see :func:`getAudioDevices`
-        verbose: if True, output debugging information
         buffersize: if given, use this as the buffer size. None to use a sensible
             default for the backend
-        latency: an added latency
-        numbuffers: the number of buffers used by the csound engine
         ensure: if True, an exception is raised if a Session already existed
             with parameters differing from the given
 
@@ -235,10 +229,7 @@ def audioSession(numchannels: int | None = None,
     return playback.audioSession(numchannels=numchannels,
                                  backend=backend,
                                  outdev=outdev,
-                                 verbose=verbose,
                                  buffersize=buffersize,
-                                 latency=latency,
-                                 numbuffers=numbuffers,
                                  ensure=ensure,
                                  name=name)
     

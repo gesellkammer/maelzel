@@ -43,9 +43,6 @@ class RealtimeRenderer(_renderer.Renderer):
                  engine: csoundengine.Engine,
                  presetManager: presetmanager.PresetManager):
         super().__init__(presetManager=presetManager)
-        # if engine is None:
-        #     from maelzel.core import playback
-        #     engine = playback._playEngine(config=Workspace.active.config)
         self.engine: csoundengine.Engine = engine
         self.session: csoundengine.session.Session = engine.session()
 

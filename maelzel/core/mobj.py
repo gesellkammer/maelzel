@@ -35,6 +35,7 @@ import math
 import re
 import html as _html
 from dataclasses import dataclass
+from contextlib import contextmanager
 
 from maelzel.common import asmidi, F, asF, F0
 
@@ -670,6 +671,9 @@ class MObj(ABC):
         """
         Returns a CoreConfig overloaded with options set for this object
 
+        This will take into consideration any customizations made to this
+        object or its parents
+
         Args:
             prototype: the config to use as prototype, falls back to the active config
 
@@ -815,30 +819,11 @@ class MObj(ABC):
             self.parent._childChanged(self)
 
     def quantizedScore(self,
-                       scorestruct: ScoreStruct | None = None,
-                       config: CoreConfig | None = None,
-                       quantizationProfile: str | quant.QuantizationProfile | None = None,
-                       enharmonicOptions: enharmonics.EnharmonicOptions | None = None,
-                       nestedTuplets: bool | None = None,
-                       debug: bool = None
                        ) -> quant.QuantizedScore:
         """
-        Returns a QuantizedScore representing this object
+        Returns a QuantizedScore representing this object.
 
-        Args:
-            scorestruct: if given it will override the scorestructure active for this object
-            config: if given will override the active config
-            quantizationProfile: if given it is used to customize the quantization process.
-                Otherwise, a profile is constructed based on the config. It is also possible
-                to pass the name of a quantization preset (possible values: 'lowest', 'low',
-                'medium', 'high', 'highest', see :meth:`maelzel.scoring.quant.QuantizationProfile.fromPreset`)
-            enharmonicOptions: if given it is used to customize enharmonic respelling.
-                Otherwise, the enharmonic options used for respelling are constructed based
-                on the config
-            nestedTuplets: if given, overloads the config value 'quant.nestedTuplets'. This is used
-                to disallow nested tuplets, mainly for rendering musicxml since there are some music
-                editors (MuseScore, for example) which fail to import nested tuplets. This can be set
-                at the config level as ``getWorkspace().config['quant.nestedTuplets'] = False``
+        The quantization process is controlled via the config
 
         Returns:
             a quantized score. To render such a quantized score as notation call
@@ -848,34 +833,19 @@ class MObj(ABC):
         list of QuantizedMeasures. To access the recursive notation structure of each measure
         call its :meth:`~maelzel.scoring.QuantizedMeasure.asTree` method
         """
-        if config is None:
-            activecfg = Workspace.active.config
-            config = self.getConfig(activecfg) or activecfg
-
-        rawscore = self.scoringScore(config=config)
-        scorestruct = scorestruct or self.scorestruct()
+        w = Workspace.active
+        config = self.getConfig() or w.config
+        scorestruct = self.activeScorestruct()
+        rawscore = self.unquantizedScore(config=config)
         rawscore.scorestruct = scorestruct
 
         from maelzel.scoring import quant
 
-        if quantizationProfile is None:
-            quantizationProfile = config.makeQuantizationProfile()
-        elif isinstance(quantizationProfile, str):
-            quantizationProfile = quant.QuantizationProfile.fromPreset(quantizationProfile)
+        quantizationProfile = config.makeQuantizationProfile()
+        enharmonicOptions = config.makeEnharmonicOptions()
 
-        assert isinstance(quantizationProfile, quant.QuantizationProfile)
-        if nestedTuplets is not None:
-            quantizationProfile.nestedTuplets = nestedTuplets
-
-        if config['show.respellPitches'] and enharmonicOptions is None:
-            enharmonicOptions = config.makeEnharmonicOptions()
-
-        if debug:
-            quantizationProfile.debug = True
-
-        parts = rawscore.parts
-        qscore = quant.quantizeParts(parts,
-                                     quantizationProfile=quantizationProfile,
+        qscore = quant.quantizeParts(rawscore.parts,
+                                     quantProfile=quantizationProfile,
                                      struct=scorestruct,
                                      enharmonicOptions=enharmonicOptions)
         return qscore
@@ -991,10 +961,9 @@ class MObj(ABC):
                              "was generated", outfile)
         return outfile
 
-    def scoringEvents(self,
-                      groupid='',
-                      config: CoreConfig | None = None,
-                      ) -> list[scoring.Notation]:
+    def _scoringEvents(self,
+                       config: CoreConfig | None = None,
+                       ) -> list[scoring.Notation]:
         """
         Returns its notated form as scoring.Notations
 
@@ -1002,8 +971,6 @@ class MObj(ABC):
         backends: musicxml or lilypond
 
         Args:
-            groupid: passed by an object higher in the hierarchy to
-                mark this objects as belonging to a group
             config: a configuration to customize rendering
 
         Returns:
@@ -1012,21 +979,17 @@ class MObj(ABC):
         """
         raise NotImplementedError("Subclass should implement this")
 
-    def scoringScore(self,
-                     config: CoreConfig | None = None,
-                     title=''
-                     ) -> scoring.core.UnquantizedScore:
-        cfg = config or self.getConfig(Workspace.active.config)
-        parts = self.scoringParts(config=cfg)
-        struct = self.scorestruct()
-        return scoring.core.UnquantizedScore(parts, title=title, scorestruct=struct)
-
-    def unquantizedScore(self, title='') -> scoring.core.UnquantizedScore:
+    def unquantizedScore(self,
+                         title='',
+                         config: CoreConfig | None = None,
+                         ) -> scoring.core.UnquantizedScore:
         """
         Create a maelzel.scoring.UnquantizedScore from this object
 
         Args:
             title: the title of the resulting score (if given)
+            config: the config to use. This is used internally to pass an already
+                resolved config down the callchain
 
         Returns:
             the Arrangement representation of this object
@@ -1045,17 +1008,19 @@ class MObj(ABC):
         .. seealso::  :meth:`quantizedScore() <maelzel.core.mobj.MObj.quantizedScore>`, :class:`~maelzel.scoring.quant.QuantizedScore`
 
         """
-        return self.scoringScore(title=title)
+        cfg = config or self.getConfig() or Workspace.active.config
+        parts = self.unquantizedParts(config=cfg)
+        struct = self.activeScorestruct()
+        return scoring.core.UnquantizedScore(parts, title=title, scorestruct=struct)
 
-    def scoringParts(self,
-                     config: CoreConfig | None = None
-                     ) -> list[scoring.core.UnquantizedPart]:
+    def unquantizedParts(self,
+                         config: CoreConfig | None = None
+                         ) -> list[scoring.core.UnquantizedPart]:
         """
         Returns this object as a list of scoring UnquantizedParts.
 
         Args:
-            config: if given, this config instead of the active config will
-                be used
+            config: config to use. Used internally to pass a resolved config
 
         Returns:
             a list of unquantized parts, sorted from high (on the score) to low.
@@ -1068,9 +1033,10 @@ class MObj(ABC):
         package to represent notated events. It represents a list of non-simultaneous Notations,
         unquantized and independent of any score structure
         """
-        cfg = config or Workspace.active.config
-        notations = self.scoringEvents(config=cfg)
-        return _scoringutils.scoringPartsFromNotations(notations, config=cfg)
+        config = config or self.getConfig() or Workspace.active.config
+        assert config is not None
+        notations = self._scoringEvents(config=config)
+        return _scoringutils.scoringPartsFromNotations(notations, config=config)
 
     @classmethod
     def _labelSymbol(cls, label: str, config: CoreConfig | None = None) -> _symbols.Text:
@@ -1233,7 +1199,7 @@ class MObj(ABC):
             if resolution:
                 updates['show.pngResolution'] = resolution
             cfg = cfg.clone(updates=updates)
-        r = _scoringutils.renderWithActiveWorkspace(parts=self.scoringParts(config=cfg),
+        r = _scoringutils.renderWithActiveWorkspace(parts=self.unquantizedParts(config=cfg),
                                                     scorestruct=self.scorestruct(),
                                                     config=cfg)
         r.write(outfile)
@@ -1468,6 +1434,8 @@ class MObj(ABC):
              config: CoreConfig | None = None,
              display=False,
              glisstime: float = 0.,
+             click=False,
+             countin=True,
              **kwargs
              ) -> csoundengine.synth.SynthGroup:
 
@@ -1510,6 +1478,8 @@ class MObj(ABC):
             whenfinished: function to be called when the playback is finished. Only applies to
                 realtime rendering
             display: if True and running inside Jupyter, display the resulting synth's html
+            click: if True, play a click track along this object
+            countin: if click is enabled, play a countin measure before starting
 
         Returns:
             A :class:`~csoundengine.synth.SynthGroup`
@@ -1572,7 +1542,12 @@ class MObj(ABC):
                                   transpose=transpose,
                                   glisstime=glisstime,
                                   **kwargs)
-        return self._playEvents(events, workspace=workspace, whenfinished=whenfinished, display=display)
+
+        if not click:
+            return self._playEvents(events, workspace=workspace,
+                                    whenfinished=whenfinished, display=display)
+        clicktrack = self.activeScorestruct().clickTrack()  # <--- customize pitches according to config
+        # TODO
 
     def _playEvents(self,
                     events: list[SynthEvent],
@@ -2067,14 +2042,49 @@ class MContainer(MObj):
             prototype = Workspace.active.config
         if not self.parent:
             return None if not self._config else prototype.clone(self._config)
+
         if (parentconfig := self.parent.getConfig(prototype)) is None:
             # parent made no changes
             return None if not self._config else prototype.clone(self._config)
         else:
             return parentconfig if not self._config else parentconfig.clone(self._config)
 
+    @contextmanager
+    def _tempConfig(self, d: dict | None = None, **updates):
+        """
+        Context manager to perform some operation with an ad-hoc config
+
+        This is only needed if this object customizes the config for itself.
+        Otherwise use ``with CoreConfig(...):`` instead to create a temporary
+        config. The issue is that when an object customizes the config, these
+        changes are applied a posteriori and are still valid, independently of
+        the main config.
+
+        Args:
+            d: updates in the form of a dictionary
+            **updates: keywords to update the dictionary
+
+        Example::
+
+            >>> score = Score(...)
+            >>> score.setConfig(someoption=...)
+            >>> with score.tempConfig({'someoptions': newvalue}):
+            ...     score.show()
+
+        """
+        assert d or updates
+        oldcfg = self._config
+        cfg, _ = self._resolveConfig(forceCopy=True)
+        if d is not None:
+            cfg.update(d)
+        if updates:
+            cfg.update(updates)
+        self._config = cfg
+        yield
+        self._config = oldcfg
+
     def _resolveConfig(self,
-                       config: CoreConfig | dict | None = None,
+                       config: CoreConfig | None = None,
                        forceCopy=False
                        ) -> tuple[CoreConfig, bool]:
         """
@@ -2084,28 +2094,21 @@ class MContainer(MObj):
         and iscustomized is True if self has own customizations
 
         Args:
-            config: a config to use as the active config. Any customizations made
-                will have priority over this
+            config: a config to use as prototype. Any customizations made
+                will have priority over this. If not given, the active config is used
             forceCopy: always return a copy, to ensure that the returned
                 config can be modified safely
 
         Returns:
             a tuple (resolvedConfig: CoreConfig, iscustomized: bool)
         """
-        iscopy = False
-        if config is None:
-            activeconfig = Workspace.active.config
-        elif not isinstance(config, CoreConfig):
-            assert isinstance(config, dict)
-            activeconfig = CoreConfig(updates=config)
-            iscopy = True
-        else:
-            activeconfig = config
+        activeconfig = config if config is not None else Workspace.active.config
         ownconfig = self.getConfig(prototype=activeconfig)
-        config = ownconfig or activeconfig
-        if forceCopy and ownconfig is None and not iscopy:
-            config = config.copy()
-        return config, ownconfig is not None
+        resolved = ownconfig if ownconfig is not None else activeconfig
+        if forceCopy and ownconfig is None:
+            resolved = resolved.copy()
+        assert isinstance(resolved, CoreConfig)
+        return resolved, ownconfig is not None
 
     @abstractmethod
     def index(self, child: MObj) -> int:
@@ -2276,7 +2279,7 @@ def _renderObject(obj: MObj,
                 renderObject(myobj, "outfile.pdf")
     """
     assert scorestruct and config
-    parts = obj.scoringParts(config=config)
+    parts = obj.unquantizedParts(config=config)
     if not parts:
         logger.debug("The object %s did not produce any scoring parts", obj)
         measure0 = scorestruct.measuredefs[0]

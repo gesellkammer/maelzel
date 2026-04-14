@@ -626,28 +626,29 @@ class SynthEvent:
         if self.dur <= 0:
             raise ValueError(f"Duration of a synth event must be possitive: {self}")
 
-    def getPreset(self) -> presetdef.PresetDef:
-        return presetmanager.presetManager.getPreset(self.instr)
+    # def getPreset(self) -> presetdef.PresetDef:
+    #     from maelzel.core.presetmanager import presetManager
+    #     return presetManager.getPreset(self.instr)
 
     def _ensureArgs(self) -> dict[str, float | str]:
         if self.args is None:
             self.args = {}
         return self.args
 
-    def paramValue(self, param: str):
-        instr = self.getInstr()
-        param2 = instr.unaliasParam(param, param)
-        if self.args and param2 in self.args:
-            return self.args[param2]
-        defaults = instr.paramDefaultValues()
-        value = defaults.get(param)
-        if value is None:
-            raise KeyError(f"Unknown parameter '{param}', "
-                           f"possible parameters: {defaults.keys()}")
-        return value
+    # def paramValue(self, param: str):
+    #     instr = self.getInstr()
+    #     param2 = instr.unaliasParam(param, param)
+    #     if self.args and param2 in self.args:
+    #         return self.args[param2]
+    #     defaults = instr.paramDefaultValues()
+    #     value = defaults.get(param)
+    #     if value is None:
+    #         raise KeyError(f"Unknown parameter '{param}', "
+    #                        f"possible parameters: {defaults.keys()}")
+    #     return value
 
-    def getInstr(self) -> csoundengine.instr.Instr:
-        return self.getPreset().getInstr()
+    # def getInstr(self) -> csoundengine.instr.Instr:
+    #     return self.getPreset().getInstr()
 
     def initialize(self, renderer: renderer.Renderer) -> None:
         if not self._initdone and self.initfunc:
@@ -1277,7 +1278,7 @@ def _mergeEvents(events: Sequence[SynthEvent], checkStaticAttributes=True
         offset = event.delay - mergedevent.delay
         if event.args is not None and event.args:
             assert event.instr
-            instr = presetmanager.presetManager.getInstr(event.instr)
+            instr = event.getInstr()
             dynparams = instr.dynamicParams()
             for k, v in event.args.items():
                 if k in dynparams:

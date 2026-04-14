@@ -109,7 +109,7 @@ class UnquantizedPart:
         self.possibleClefs = possibleClefs
         """Clefs to choose from for automatic clef changes during quantization"""
 
-        self.scorestruct = scorestruct
+        self.scorestruct: ScoreStruct | None = scorestruct
         """The scorestruct for this part, or None if not specified"""
 
         self.check()
@@ -303,7 +303,7 @@ class UnquantizedPart:
 
         """
         groupid = cls._registerGroup(name=name, abbrev=abbrev, kind='group')
-        groupdef = cls._groupRegistry.get(groupid)
+        groupdef = cls._groupRegistry[groupid]
 
         for part in parts:
             assert groupid not in part.groups
@@ -398,16 +398,16 @@ class UnquantizedScore:
     """
     An UnquantizedScore is a list of UnquantizedParts
     """
-    def __init__(self, parts: list[UnquantizedPart],
+    def __init__(self,
+                 parts: list[UnquantizedPart],
+                 scorestruct: ScoreStruct | None = None,
                  title: str = '',
-                 scorestruct: ScoreStruct | None = None):
+                 composer: str = ''):
         self.parts = parts
         self.title = title
+        self.composer = composer
         self.scorestruct = scorestruct
         self._groupidToName: dict[str, str] = {}
-
-    # def addPart(self, voices: Sequence[UnquantizedPart], id: str, name='', abbrev=''):
-    #     assert all(v in self.parts for v in voices)
 
     def __len__(self):
         return len(self.parts)
@@ -431,7 +431,6 @@ class UnquantizedScore:
         if self.title:
             parts.append(f"title={self.title}")
         return f"UnquantizedScore({', '.join(parts)}"
-
 
 
 def _repairGracenoteAsTargetGliss(notations: list[Notation]) -> bool:

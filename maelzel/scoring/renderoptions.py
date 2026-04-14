@@ -127,11 +127,11 @@ class RenderOptions:
     backend: str = 'lilypond'
     """Backend used for rendering (lilypond | musicxml)"""
 
-    title: str = ''
-    """The title of this score"""
-
-    composer: str = ''
-    """The composer of this score"""
+    # title: str = ''
+    # """The title of this score"""
+    #
+    # composer: str = ''
+    # """The composer of this score"""
 
     # Options only relevant for lilypond render
     lilypondPngStaffsizeScale: float = 1.4

@@ -5,12 +5,13 @@ from maelzel.core import Workspace
 from maelzel.common import F
 from maelzel.core import Note, Voice, Score
 import pitchtools as pt
+from maelzel.core import synthevent
 from typing import Sequence, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from maelzel.common import time_t
     import csoundengine.synth
-
+    from typing_extensions import Self
 
 def clickTrack(struct: scorestruct.ScoreStruct,
                minMeasures: int = 0,
@@ -102,33 +103,78 @@ def clickTrack(struct: scorestruct.ScoreStruct,
     voice.setPlay(fade=fade, instr=preset)
     if transposition:
         voice.setPlay(transpose=transposition)
-    return ClickTrack([voice], scorestruct=struct)
+    return ClickTrack(voice, scorestruct=struct, preset=preset)
 
 
 class ClickTrack(Score):
 
+    def __init__(self,
+                 voice: Voice,
+                 scorestruct: scorestruct.ScoreStruct,
+                 preset='.click',
+                 countinPitch: str | float = "7F#"):
+        super().__init__([voice], scorestruct=scorestruct)
+        self.preset = preset
+        self.countinPitch: float = countinPitch if isinstance(countinPitch, float) else pt.n2m(countinPitch)
+        self.voices[0].setScoreStruct(scorestruct)
+
+    @property
+    def voice(self) -> Voice:
+        return self.voices[0]
+
+    def clone(self,
+              voice: Voice = None,
+              scorestruct: scorestruct.ScoreStruct | None = None,
+              preset: str = '') -> Self:
+        if scorestruct is None:
+            scorestruct = self.scorestruct()
+        assert scorestruct is not None
+        return self.__class__(voice=voice or self.voices[0],
+                              scorestruct = scorestruct,
+                              preset = preset or self.preset)
+
+    def countinEvents(self,
+                      countin: int,
+                      measure: int,
+                      countinPitch: str | float = ""):
+        if countinPitch:
+            pitch: float = countinPitch if isinstance(countinPitch, float) else pt.n2m(countinPitch)
+        else:
+            pitch: float = self.countinPitch
+
+        if countin == 0:
+            events = self.synthEvents(skip=(measure, 0), end=(measure+1, 0))
+            events = [ev.replacePitch(pitch) for ev in events]
+        else:
+            # number of beats at the tempo of the given measure
+            measdef = self.activeScorestruct().measure(measure)
+            qtempo = measdef.quarterTempo
+            dur = float(60 / qtempo)
+            events = []
+            gain = 0.5
+            for i in range(countin):
+                ev = synthevent.SynthEvent(bps=[(i*dur, pitch, gain), ((i+1)*dur, pitch, gain)],
+                                           instr=self.preset)
+                events.append(ev)
+        return events
+
     def play(self,
              /,
-             countin: int | Sequence[int | F | float] = 0,
-             countinPitch: str | float = "7F#",
+             countin: bool | int = False,  # True: countin of one measure, otherwise number of beats
+             countinPitch: str | float = "",
              **kws) -> csoundengine.synth.SynthGroup:
         if not countin:
             return super().play(**kws)
 
         struct = self.activeScorestruct()
-        if isinstance(countin, int):
-            # number of measures
-            firstMeasureDur = float(struct.locationToBeat(1, 0))
-            countEvents = self.synthEvents(end=firstMeasureDur, **kws)
-            pitch = countinPitch if isinstance(countinPitch, float) else pt.n2m(countinPitch)
-            countEvents = [ev.replacePitch(pitch) for ev in countEvents]
-            print(countEvents)
-            restEvents = self.synthEvents(delay=float(struct.locationToTime(1, 0)), **kws)
-            allEvents = countEvents + restEvents
-        else:
-            assert isinstance(countin, (list, tuple))
-            # These are durations
-            # TODO
-            allEvents = []
+        skip = kws.get('skip', 0)
+        skipMeas = struct.asLocation(skip)[0] if skip else 0
 
+        # number of measures
+        countEvents = self.countinEvents(countin=0 if countin is True else countin,
+                                         measure=skipMeas,
+                                         countinPitch=countinPitch)
+        delay = countEvents[-1].end
+        restEvents = self.synthEvents(delay=delay, **kws)
+        allEvents = countEvents + restEvents
         return self._playEvents(allEvents, workspace=Workspace.active)

@@ -1134,10 +1134,10 @@ def renderScore(score: quant.QuantizedScore,
 
     _(f'\\version "{lilyversion}"\n')
     _(r"\header {")
-    if options.title:
-        _(f'{IND}title = "{options.title}"')
-    if options.composer:
-        _(f'{IND}composer = "{options.composer}"')
+    if score.title:
+        _(f'{IND}title = "{score.title}"')
+    if score.composer:
+        _(f'{IND}composer = "{score.composer}"')
     _(f'{IND}tagline = ##f')
     _("}")
 
@@ -1235,7 +1235,7 @@ def renderScore(score: quant.QuantizedScore,
                     w.indents -= 1
                     w(">>    % end part")
                     w.indents -= 1
-                    w(f"}}    % end staff {item['name']}")
+                    w(f"}}    % end staff {item.get('name', '')}")
 
                     partdict = stack.pop()
                     assert partdict['kind'] == 'part' and partdict['id'] == item['id']

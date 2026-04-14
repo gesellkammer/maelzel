@@ -109,7 +109,7 @@ class Chain(MContainer):
         self._cachedEventsWithOffset: list[tuple[MEvent, F]] | None = None
 
         self._postSymbols: list[tuple[symbols.Symbol, beat_t, beat_t | None]] = []
-        """Symbols to apply a posteriory, a tuple (symbol, abs. offset, end=None)"""
+        """Symbols to apply a posteriory, a tuple (symbol, absoffset, end=None)"""
 
         self._hasRedundantOffsets = True
         """Assume redundant offsets at creation"""
@@ -1045,10 +1045,9 @@ class Chain(MContainer):
         postsymbols.sort(key=lambda x: x[1])
         return postsymbols
 
-    def scoringEvents(self,
-                      groupid='',
-                      config: CoreConfig | None = None,
-                      ) -> list[scoring.Notation]:
+    def _scoringEvents(self,
+                       config: CoreConfig | None = None,
+                       ) -> list[scoring.Notation]:
         """
         Returns the scoring events corresponding to this object.
 
@@ -1064,14 +1063,12 @@ class Chain(MContainer):
         if not self.items:
             return []
 
-        if config is None:
-            config = Workspace.active.config
-
-        config = self.getConfig(prototype=config) or config
+        config, iscustom = self._resolveConfig(config=config)
+        assert config is not None
 
         allns: list[scoring.Notation] = []
         for item in self.items:
-            allns.extend(item.scoringEvents(groupid=groupid, config=config))
+            allns.extend(item._scoringEvents(config=config))
 
         if len(allns) > 1:
             n0 = allns[0]
@@ -1155,6 +1152,7 @@ class Chain(MContainer):
         return allns
 
     def isSubChain(self) -> bool:
+        """Is this chain inside another chain/voice?"""
         return self.parent is not None and isinstance(self.parent, Chain)
 
     def _scoringParts(self,
@@ -1166,7 +1164,7 @@ class Chain(MContainer):
                       groupParts=True,
                       addQuantizationProfile=False) -> list[scoring.core.UnquantizedPart]:
         self._update()
-        notations = self.scoringEvents(config=config)
+        notations = self._scoringEvents(config=config)
         if not notations:
             return []
         assert all(n.offset is not None for n in notations)
@@ -1202,13 +1200,13 @@ class Chain(MContainer):
 
         return parts
 
-    def scoringParts(self,
-                     config: CoreConfig | None = None
-                     ) -> list[scoring.core.UnquantizedPart]:
-        config, iscustomized = self._resolveConfig(config)
+    def unquantizedParts(self,
+                         config: CoreConfig | None = None
+                         ) -> list[scoring.core.UnquantizedPart]:
+        config2, iscustomized = self._resolveConfig(config)
         parts = self._scoringParts(
-            config=config,
-            maxStaves=config["show.voiceMaxStaves"],
+            config=config2,
+            maxStaves=config2["show.voiceMaxStaves"],
             name=self.label,
             addQuantizationProfile=iscustomized)
         return parts
@@ -1261,14 +1259,16 @@ class Chain(MContainer):
         if offset == 0:
             return
 
-        offset = asF(offset)
         self._update()
+
+        offset = asF(offset)
         reloffset = self.relOffset()
         if offset > 0:
             self.offset = reloffset + offset
             self._changed()
             return
 
+        assert offset < 0
         # Negative offset. First decrease the offset to the first event.
         firstoffset = self.firstOffset()
         assert firstoffset is not None
@@ -1398,11 +1398,11 @@ class Chain(MContainer):
 
         if start is not None or end is not None:
             struct = self.activeScorestruct()
-            start = struct.asBeat(start) if start else F0
-            end = struct.asBeat(end) if end else F(sys.maxsize)
+            startbeat = struct.asBeat(start) if start else F0
+            endbeat = struct.asBeat(end) if end else F(sys.maxsize)
             eventpairs = _eventPairsBetween(eventpairs,
-                                            start=start,
-                                            end=end,
+                                            start=startbeat,
+                                            end=endbeat,
                                             partial=partial)
         if reverse:
             out = eventpairs.copy()
@@ -1470,7 +1470,7 @@ class Chain(MContainer):
         """
         assert isinstance(frame, F)
         now: F = frame
-        out: list[tuple[MEvent | list, F, F]] = []
+        out: list[tuple[MEvent | Chain, F, F]] = []
         for i, item in enumerate(self.items):
             if item.offset is not None:
                 t = frame + item.offset
@@ -1487,7 +1487,8 @@ class Chain(MContainer):
                     subitems, subdur = item._iterateWithTimes(frame=now, recurse=True)
                     item._dur = subdur
                     item._relOffset = now - frame
-                    out.append((subitems, now, subdur))
+                    out.extend(subitems)
+                    # out.append((subitems, now, subdur))
                 else:
                     subdur = item.dur
                     out.append((item, now, subdur))
@@ -1528,22 +1529,21 @@ class Chain(MContainer):
             >>> chain[0].addSpanner('slur', chain[-1])
 
         """
-        if isinstance(spanner, str):
-            spanner = symbols.makeSpanner(spanner)
+        spannerObj = symbols.makeSpanner(spanner) if isinstance(spanner, str) else spanner
         if start is None:
-            start = self.firstEvent(acceptRest=spanner.appliesToRests)
+            start = self.firstEvent(acceptRest=spannerObj.appliesToRests)
             if start is None:
                 raise RuntimeError(f"This {type(self)} has no event to apply {spanner} to")
         if end is None:
-            end = self.lastEvent(acceptRest=spanner.appliesToRests)
+            end = self.lastEvent(acceptRest=spannerObj.appliesToRests)
             if end is None:
-                raise RuntimeError(f"This {type(self)} has no event to apply {spanner} to")
+                raise RuntimeError(f"This {type(self)} has no event to apply {spannerObj} to")
         if isinstance(start, MEvent) and isinstance(end, MEvent):
-            start.addSpanner(spanner=spanner, endobj=end)
+            start.addSpanner(spanner=spannerObj, endobj=end)
         else:
             startloc = start.absOffset() if isinstance(start, MEvent) else start
             endloc = end.absOffset() if isinstance(end, MEvent) else end
-            self._postSymbols.append((spanner, startloc, endloc))
+            self._postSymbols.append((spannerObj, startloc, endloc))
 
     def addSymbolAt(self,
                     offset: beat_t,
@@ -1875,7 +1875,7 @@ class Chain(MContainer):
         return out
 
     def splitEventsAtMeasures(self,
-                              scorestruct: ScoreStruct | None = None,
+                              # scorestruct: ScoreStruct | None = None,
                               startindex=0,
                               stopindex=0
                               ) -> None:
@@ -1891,21 +1891,13 @@ class Chain(MContainer):
             ``newchain = self.copy(); newchain.splitEventsAtMeasure(...)``
 
         Args:
-            scorestruct: if given, overrides any active scorestruct for this object
             startindex: the first measure index to use
             stopindex: the last measure index to use. 0=len(measures). The stopindex is not
                 included (similar to how python's builtin `range` behaves`
 
-        .. seealso:: :meth:`Chain.splitAt`
+        .. seealso:: :meth:`Chain.splitAt`, :meth:`Chain.splitEventsAtOffsets`
         """
-        if scorestruct is None:
-            scorestruct = self.activeScorestruct()
-        else:
-            if self.scorestruct():
-                clsname = type(self).__name__
-                logger.warning("This %s has already an active ScoreStruct "
-                               "via its parent. Passing an ad-hoc scorestruct "
-                               "might cause problems...", clsname)
+        scorestruct = self.activeScorestruct()
         offsets = scorestruct.measureOffsets(start=startindex, end=stopindex)
         self.splitEventsAtOffsets(offsets, tie=True)
 
@@ -2068,9 +2060,9 @@ class Chain(MContainer):
               setStruct=True
               ) -> Voice:
         """
-        Creates a clone, remapping times from source scorestruct to destination scorestruct
+        Creates a clone, remaps times from source scorestruct to destination scorestruct
 
-        The absolute time remains the same
+        The absolute time in seconds remains the same
 
         Args:
             deststruct: the destination scorestruct
@@ -2197,17 +2189,12 @@ class Chain(MContainer):
             end: absolute end of the beat range
 
         Returns:
-            a Chain cropped at the given beat range
+            a Chain cropped at the given beat range, None if the range does not
+            intersect this Chain
         """
-        sco = self.scorestruct() or Workspace.active.scorestruct
-        startbeat = sco.asBeat(start)
-        endbeat = sco.asBeat(end)
-        cropped = self._cropped(startbeat=startbeat, endbeat=endbeat)
-        if not cropped.items:
-            return None
-        #if any(item.offset is None for item in self.items):
-        #    cropped.removeRedundantOffsets()
-        return cropped
+        sco = self.activeScorestruct()
+        cropped = self._cropped(startbeat=sco.asBeat(start), endbeat=sco.asBeat(end))
+        return cropped if cropped.items else None
 
     def configNotation(self,
                        autoClefChanges: bool | None = None,
@@ -2218,17 +2205,17 @@ class Chain(MContainer):
         """
         Customize options for rendering as notation
 
-        Each of these options corresponds to a setting in the config
+        Each of these options corresponds to a setting in the config. They are
+        placed here for visibility
 
         Args:
-            autoClefChanges: add clef changes to a quantized part if needed.
+            autoClefChanges: adds clef changes after quantization, if needed.
                 Otherwise one clef is determined for each part
                 (see config key `show.autoClefChanges <config_show_autoclefchanges>`).
                 **NB**: clef changes can be added manually via ``Voice.eventAt(...).addSymbol(symbols.Clef(...))``
-            staffSize: the size of a staff, in points (see config key `show.staffSize` <config_show_staffsize>`)
-            maxStaves: the max. number of staves per voice when showing a
-                Voice as notation (see config `show.voiceMaxStaves <config_show_voicemaxstaves>`)
-            groupEventsInSpanners: keeps notes/chords within spanners within one staf
+            staffSize: staff size in points (see `show.staffSize` <config_show_staffsize>`)
+            maxStaves: max. number of staves per voice (see config `show.voiceMaxStaves <config_show_voicemaxstaves>`)
+            groupEventsInSpanners: keeps notes/chords within spanners within one staff
                 (see config `show.groupEventsInSpanners <config_show_groupeventsinspanners>`)
 
         .. seealso:: :meth:`~Voice.configQuantization`
@@ -2247,12 +2234,14 @@ class VoiceGroup:
     """
     This class represents a group of voices
 
-    It is used to indicate that either a group of voices are to be notated
-    within a staff group, sharing a name/shortname and also for the cases
-    where multiple (2 to 4) voices share a staff
+    A user never creates a VoiceGroup. It is created internally to indicate that
+    either a group of voices are to be notated within a staff group, sharing a
+    name/shortname and also for the cases where multiple (2 to 4) voices share a staff
 
     A VoiceGroup is immutable, no voices can be added or removed from the
     group once it is created.
+
+    .. seealso:: :meth:`maelzel.core.Score.addGroup` and :meth:`maelzel.core.Score.addPart`
 
     Args:
         voices: the parts inside this group
@@ -2515,17 +2504,21 @@ class Voice(Chain):
             out.setScoreStruct(self._scorestruct)
         return out
 
-    def quantizedPart(self, **kws) -> quant.QuantizedPart:
-        cfg = (self.getConfig() or Workspace.active.config).clone(showVoiceMaxStaves=1)
-        qscore = self.quantizedScore(config=cfg, **kws)
+    def quantizedPart(self) -> quant.QuantizedPart:
+        cfg, iscustom  = self._resolveConfig()
+        if cfg['show.voiceMaxStaves'] == 1:
+            qscore = self.quantizedScore()
+        else:
+            with self._tempConfig({'show.voiceMaxStaves': 1}):
+                qscore = self.quantizedScore()
         assert len(qscore.parts) == 1
         return qscore.parts[0]
 
-    def scoringParts(self, config: CoreConfig | None = None
-                     ) -> list[scoring.core.UnquantizedPart]:
-        config, iscustomized = self._resolveConfig(config)
-        parts = self._scoringParts(config=config,
-                                   maxStaves=config['show.voiceMaxStaves'],
+    def unquantizedParts(self, config: CoreConfig | None = None
+                         ) -> list[scoring.core.UnquantizedPart]:
+        config2, iscustomized = self._resolveConfig(config)
+        parts = self._scoringParts(config=config2,
+                                   maxStaves=config2['show.voiceMaxStaves'],
                                    minStaves=self._minStaves,
                                    name=self.name or self.label,
                                    abbrev=self.abbrev,

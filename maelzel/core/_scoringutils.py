@@ -31,7 +31,14 @@ def makeEnharmonicOptionsFromConfig(cfg: CoreConfig) -> enharmonics.EnharmonicOp
 
     """
     renderoptions = cfg.makeRenderOptions()
-    return renderoptions.makeEnharmonicOptions()
+    enhoptions = renderoptions.makeEnharmonicOptions()
+
+    for k in cfg.keys():
+        if k.startswith('.enharmonic.'):
+            opt = k.lstrip(".enharmonic.")
+            if hasattr(enhoptions, opt):
+                setattr(enhoptions, opt, cfg[k])
+    return enhoptions
 
 
 def makeRenderOptionsFromConfig(cfg: CoreConfig | None = None,
@@ -59,10 +66,13 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig | None = None,
         centsAnnotationPlacement=centsTextStyle.placement or 'above',
         centsTextPlusSign=cfg['.show.centsTextPlusSign'],
         divsPerSemitone=cfg['semitoneDivisions'],
-        enharmonicDebug=cfg['.enharmonic.debug'],
         enharmonicHorizontalWeight=cfg['enharmonic.horizontalWeight'],
-        enharmonicThreeQuarterMicrotonePenalty=cfg['.enharmonic.150centMicroPenalty'],
         enharmonicVerticalWeight=cfg['enharmonic.verticalWeight'],
+        enharmonicDebug=cfg['.enharmonic.debug'],
+        enharmonicThreeQuarterMicrotonePenalty=cfg['.enharmonic.150centMicroPenalty'],
+        enharmonicGroupSize=cfg['.enharmonic.groupSize'],
+        enharmonicStep=cfg['.enharmonic.groupStep'],
+
         glissLineThickness=cfg['show.glissLineThickness'],
         glissHideTiedNotes=cfg['show.glissHideTiedNotes'],
         glissLineType=cfg['show.glissLineType'],
@@ -99,7 +109,7 @@ def makeRenderOptionsFromConfig(cfg: CoreConfig | None = None,
         dynamicsResetAfterRest=cfg['.show.dynamicsResetAfterRest'],
         clefTransposingFactor=cfg['show.clefTransposingFactor'],
         pedalStyle=cfg['show.pedalStyle'],
-        lilypondBackend=cfg['lilypondBackend']
+        lilypondBackend=cfg['lilypondBackend'],
     )
     return renderOptions
 
@@ -177,9 +187,13 @@ def renderWithActiveWorkspace(parts: list[scoring.core.UnquantizedPart],
     if scorestruct is None:
         scorestruct = workspace.scorestruct
     from maelzel.scoring import render
+    assert scorestruct is not None
+    assert renderOptions is not None
+    assert quantizationProfile is not None
     return render._quantizeAndRender(parts,
                                      struct=scorestruct,
                                      options=renderOptions,
+                                     enharmonicOptions=config.makeEnharmonicOptions(),
                                      quantizationProfile=quantizationProfile)
 
 

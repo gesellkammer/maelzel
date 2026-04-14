@@ -607,11 +607,11 @@ class Clip(event.MEvent):
                       for freq, amp in pairs]
         return event.Chord(components, dur=dur)
 
-    def scoringEvents(self,
-                      groupid='',
-                      config: CoreConfig|None = None,
-                      parentOffset: F|None = None
-                      ) -> list[scoring.Notation]:
+    def _scoringEvents(self,
+                       groupid='',
+                       config: CoreConfig|None = None,
+                       parentOffset: F|None = None
+                       ) -> list[scoring.Notation]:
         if not config:
             config = Workspace.active.config
         offset = self.absOffset()

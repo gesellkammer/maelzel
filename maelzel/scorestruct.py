@@ -1401,6 +1401,8 @@ def beatDurations(timesig: timesig_t,
 
     assert dentempo >= preferredMaxTempo
     # groups = []
+    weights: list[int]
+
     if num <= 3:
         groups = [dendur*num]
         weights = [3]
@@ -1415,6 +1417,27 @@ def beatDurations(timesig: timesig_t,
         groups = [dendur * subd for subd in subdivisions]
         weights = [3] + [0] * (num - 1)
 
+    elif num == 15:
+        if dentempo / 3 >= minTempo and dentempo / 2 <= maxTempo:
+            # 2 2 2 2 2 2 3
+            d2 = dendur*2
+            groups =  [d2, d2, d2, d2, d2, d2, dendur*3]
+            weights = [ 3,  0,  1,  0,  1,  0, 2]
+        elif dentempo / 4 >= minTempo and dentempo / 3 <= maxTempo:
+            # 4 4 4 3
+            d4 = dendur*4
+            groups  = [d4, d4, d4, dendur*3]
+            weights = [ 3,  0,  1, 0]
+        elif dentempo / 3 <= maxTempo:
+            # 3 3 3 3 3
+            d3 = dendur*3
+            groups  = [d3, d3, d3, d3, d3]
+            weights = [ 3,  0,  1,  0,  0]
+        elif dentempo / 8 >= minTempo:
+            groups  = [dendur*8, dendur*7]
+            weights = [3, 0]
+        else:
+            raise ValueError(f"No beat groups possible for {timesig=}, {quarterTempo=}")
     elif num % 3 == 0:
         terntempo = dentempo / 3
         if terntempo >= minTempo and terntempo <= maxTempo:
@@ -1422,6 +1445,7 @@ def beatDurations(timesig: timesig_t,
             weights = [1, 0, 0] * (num // 3)
         elif dentempo / num >= minTempo:
             groups = [dendur*num]
+            weights = [3]
         else:
             raise ValueError(f"No beat groups possible for {timesig=}, {quarterTempo=}")
 
@@ -1478,9 +1502,36 @@ def beatDurations(timesig: timesig_t,
                 groups = [dendur*4] * ((num - 5) // 4)
                 groups.append(dendur*5)
                 weights = [0] * len(groups)
+        else:
+            # dentempo / 4 > maxTempo, so we are in really fast tempo
+            # por example, 13/16 at q=240, just accept that it is fast
+            if num == 11:
+                groups = [4*dendur, 4*dendur, 3*dendur]
+                weights = [3, 0, 0]
+            elif num == 13:
+                groups = [4*dendur, 4*dendur, 5*dendur]
+                weights = [3, 0, 0]
+            elif num == 17:
+                d4 = dendur*4
+                groups = [d4, d4, d4, 5*dendur]
+                weights = [3, 0, 1, 0]
+            elif num == 19:
+                d4 = dendur*4
+                groups = [d4, d4, d4, dendur*3]
+                weights = [3, 0, 1, 0]
+            elif num % 4 == 3:
+                groups = [dendur*4] * ((num - 3) // 4)
+                groups.append(dendur*3)
+                weights = [0] * len(groups)
+            else:
+                assert num % 4 == 1
+                groups = [dendur*4] * ((num - 5) // 4)
+                groups.append(dendur*5)
+                weights = [0] * len(groups)
+
     measDur = F(num*4, den)
     weights[0] = 3
-    assert measDur == sum(groups)
+    assert measDur == sum(groups), f"{measDur=}, {sum(groups)=}, {groups=}"
     return groups, weights
 
 
@@ -2457,6 +2508,12 @@ class ScoreStruct:
         numMeasures = dt / measDur
         beat = (numMeasures - int(numMeasures)) * lastMeas.duration
         return len(self.measures)-1 + int(numMeasures), beat
+
+    def asLocation(self, t: beat_t) -> tuple[int, F]:
+        if isinstance(t, tuple):
+            return t
+        else:
+            return self.beatToLocation(t)
 
     def beatToLocation(self, beat: num_t) -> tuple[int, F]:
         """
@@ -3528,7 +3585,14 @@ def unicodeDuration(dur: tuple[int, int] | F) -> str:
         the unicode representation
     """
     if isinstance(dur, F):
-        base, dots = durationToFigure(dur)
+        if dur.numerator == 5:
+            part1 = unicodeDuration(dur - F(1, dur.denominator))
+            part2 = unicodeDuration(F(1, dur.denominator))
+            return part1 + "͜" + part2
+        elif dur.numerator in (1, 2, 3, 4, 6, 7, 8, 15):
+            base, dots = durationToFigure(dur)
+        else:
+            raise ValueError(f"Invalid notated duration: {dur}")
     else:
         base, dots = dur
 

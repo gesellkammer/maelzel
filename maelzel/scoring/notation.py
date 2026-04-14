@@ -107,7 +107,6 @@ class Notation:
                  tiedNext=False,
                  dynamic: str = '',
                  durRatios: tuple[F, ...] = (),
-                 group='',
                  gliss=False,
                  properties: dict[str, Any] | None = None,
                  fixNotenames=False,
@@ -169,8 +168,8 @@ class Notation:
         see :meth:`Notation.notatedDuration`
         """
 
-        self.groupid: str = group
-        "The group id this Notation belongs to, if applicable"
+        # self.groupid: str = group
+        # "The group id this Notation belongs to, if applicable"
 
         self.gliss: bool = gliss
         "Is this Notation part of a glissando?"
@@ -180,12 +179,6 @@ class Notation:
 
         self.noteheads: dict[int, definitions.Notehead] | None = None
         "A dict mapping pitch index to notehead definition"
-
-        # self.color: str = color
-        # "The color of this entire Notation"
-
-        # self.sizeFactor: int = sizeFactor
-        # "A size factor applied to this Notation (0: normal, 1: bigger, 2: even bigger, -1: smaller, etc.)"
 
         self.properties: dict[str, Any] | None = properties
         "A dict of user properties. To be set via setProperty"
@@ -226,7 +219,6 @@ class Notation:
                  offset: time_t | None = None,
                  annotation='',
                  gliss=False,
-                 withId=False,
                  enharmonicSpelling='',
                  dynamic='',
                  **kws
@@ -234,11 +226,9 @@ class Notation:
         duration = asF(duration)
         offset = asF(offset) if offset is not None else None
         out = Notation(pitches=[pitch], duration=duration, offset=offset, gliss=gliss,
-                    dynamic=dynamic, **kws)
+                       dynamic=dynamic, **kws)
         if annotation:
             out.addText(annotation)
-        if withId:
-            out.groupid = str(id(out))
         if enharmonicSpelling:
             out.fixNotename(enharmonicSpelling)
         return out
@@ -471,7 +461,8 @@ class Notation:
         """
         if self.attachments is None:
             self.attachments = []
-        if attachment.exclusive:
+
+        if self.attachments and attachment.exclusive:
             # An exclusive attachment is exclusive at the class level (like a Harmonic or an ornament)
             cls = type(attachment)
             if any(isinstance(a, cls) for a in self.attachments):
@@ -815,11 +806,10 @@ class Notation:
             where the higher pitch has a harmonic notehead. In both cases
             the enharmonic spelling is fixed in order to keep the interval
         """
-        if not isinstance(basepitch, str):
-            basepitch = pt.m2n(basepitch)
-        touchpitch = pt.transpose(basepitch, interval)
+        note: str = basepitch if isinstance(basepitch, str) else pt.m2n(basepitch)
+        touchpitch = pt.transpose(note, interval)
         n = cls(pitches=[basepitch, touchpitch], **kws)
-        n.fixNotename(basepitch, 0)
+        n.fixNotename(note, 0)
         n.fixNotename(touchpitch, 1)
         n.setNotehead(definitions.Notehead('harmonic'), index=1)
         return n
@@ -832,7 +822,10 @@ class Notation:
         if self.fixedNotenames:
             self.fixedNotenames.clear()
 
-    def fixNotename(self, notename: str, index: int | None = None, tolerance=0.01
+    def fixNotename(self,
+                    notename: str,
+                    index: int | None = None,
+                    tolerance=0.01
                     ) -> None:
         """
         Fix the spelling for the pitch at index **inplace**
@@ -861,6 +854,7 @@ class Notation:
                     raise ValueError(f"No pitch in this notation matches the given notename {notename}={pt.n2m(notename)}"
                                      f" (pitches: {self.pitches=}, {index=}, {[pt.m2n(p) for p in self.pitches]})")
 
+        assert self.fixedNotenames is not None and isinstance(index, int)
         self.fixedNotenames[index] = notename
 
     def fixedNotename(self, idx: int = 0) -> str | None:
@@ -1056,7 +1050,7 @@ class Notation:
 
         out = self.copy(spanners=spanners if isinstance(spanners, bool) else False)
         if (pitches := kws.pop('pitches', None)) is not None:
-            out._setPitches(pitches)  # type: ignore
+            out._setPitches(pitches)
             if self.fixedNotenames and copyFixedNotenames:
                 self.copyFixedSpellingTo(out)
         if kws:
@@ -1152,7 +1146,6 @@ class Notation:
                        tiedNext=self.tiedNext,
                        dynamic=self.dynamic,
                        durRatios=self.durRatios,
-                       group=self.groupid,
                        gliss=self.gliss,
                        properties=properties,
                        _init=False)
@@ -1486,17 +1479,16 @@ class Notation:
         else:
             return next((i for i, p in enumerate(self.pitches) if abs(p - pitch) <= tolerance), None)
 
-    @cache
-    def _guessGlissTargets(self, nextev: Notation) -> list[float]:
+    def _guessGlissTargets(self, pitches: tuple[float, ...]) -> Sequence[float]:
         assert self.gliss
         len0 = len(self)
-        len1 = len(nextev)
+        len1 = len(pitches)
         if len0 == len1:
-            return list(nextev.pitches)
+            return pitches
         elif len0 < len1:
             lines = []
             origins = list(self.pitches)
-            for p1 in nextev.pitches:
+            for p1 in pitches:
                 p0 = min(origins, key=lambda p0: abs(p1 - p0))
                 lines.append((p0, p1))
                 origins.remove(p0)
@@ -1504,7 +1496,7 @@ class Notation:
             return [p1 for _, p1 in lines]
         else:
             out = []
-            targets = list(nextev.pitches)
+            targets = list(pitches)
             for p0 in self.pitches:
                 p1 = min(targets, key=lambda p1: abs(p1 - p0))
                 out.append(p1)
@@ -1525,7 +1517,7 @@ class Notation:
             pair = next((pair for pair in glissmap.pairs if abs(pair[0] - pitch) < tol), None)
             return None if pair is None else pair[1]
         elif nextev is not None:
-            targets = self._guessGlissTargets(nextev)
+            targets = self._guessGlissTargets(nextev.pitches)
             return targets[idx]
         else:
             return None
@@ -2425,3 +2417,8 @@ def _intDivisionToRatio(div: int) -> F:
         return F1
     pow2 = util.highestPowerLowerOrEqualTo(div, 2)
     return F(div, pow2)
+
+
+
+
+

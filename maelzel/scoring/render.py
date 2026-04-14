@@ -14,7 +14,7 @@ from . import attachment
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    pass
+    from maelzel.scoring.enharmonics import EnharmonicOptions
 
 
 __all__ = (
@@ -101,6 +101,7 @@ def _quantizeAndRender(parts: list[core.UnquantizedPart],
                        struct: ScoreStruct,
                        options: RenderOptions,
                        quantizationProfile: quant.QuantizationProfile,
+                       enharmonicOptions: EnharmonicOptions | None = None
                        ) -> Renderer:
     """
     Quantize and render unquantized events organized into parts
@@ -112,13 +113,19 @@ def _quantizeAndRender(parts: list[core.UnquantizedPart],
         quantizationProfile: the profile to use for quantization, passed
             to maelzel.scoring.quant.quantize. If not given a default profile
             is used
+        enharmonicOptions: if given, and options.respellPitches is True, it
+            is used to spell enharmonics, overriding the RenderOptions given
 
     Returns:
         the Renderer object
     """
-    enharmonicOptions = options.makeEnharmonicOptions() if options.respellPitches else None
+    if options.respellPitches:
+        if enharmonicOptions is None:
+            enharmonicOptions = options.makeEnharmonicOptions()
+    else:
+        enharmonicOptions = None
     qscore = quant.quantizeParts(parts,
-                                 quantizationProfile=quantizationProfile,
+                                 quantProfile=quantizationProfile,
                                  struct=struct,
                                  enharmonicOptions=enharmonicOptions)
     return renderQuantizedScore(score=qscore, options=options)
@@ -144,8 +151,9 @@ def _asParts(obj: core.UnquantizedPart | core.Notation | list[core.UnquantizedPa
 def render(obj: core.UnquantizedPart | core.Notation | list[core.UnquantizedPart] | list[core.Notation],
            struct: ScoreStruct | None = None,
            options: RenderOptions | None = None,
+           enharmonicOptions: EnharmonicOptions | None = None,
+           quantizationProfile: quant.QuantizationProfile | None = None,
            backend='',
-           quantizationProfile: quant.QuantizationProfile | str = 'high'
            ) -> Renderer:
     """
     Quantize and render the given object `obj` to generate musical notation
@@ -180,14 +188,16 @@ def render(obj: core.UnquantizedPart | core.Notation | list[core.UnquantizedPart
         options = RenderOptions()
     if backend and options.backend != backend:
         options = options.clone(backend=backend)
-    if isinstance(quantizationProfile, str):
+    if quantizationProfile is None:
         from maelzel.scoring.quantprofile import QuantizationProfile
-        quantizationProfile = QuantizationProfile.fromPreset(quantizationProfile)
-        
+        quantizationProfile = QuantizationProfile.fromPreset('high')
+
+    assert struct is not None and options is not None and quantizationProfile is not None
     return _quantizeAndRender(parts,
                               struct=struct,
                               options=options,
-                              quantizationProfile=quantizationProfile)
+                              quantizationProfile=quantizationProfile,
+                              enharmonicOptions=enharmonicOptions)
 
 
 def renderMusicxml(xmlfile: str, outfile: str, method='musescore', crop: bool | None = None,

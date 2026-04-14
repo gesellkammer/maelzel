@@ -102,37 +102,27 @@ def limitDenominator(num: int, den: int, maxden: int, assumeCoprime=False) -> tu
     """
     if maxden < 1:
         raise ValueError("max_denominator should be at least 1")
-
     if den <= maxden:
         return num, den
-
     if not assumeCoprime:
         g = math.gcd(num, den)
         if den < 0:
             g = -g
         num //= g
         den //= g
-
     p0, q0, p1, q1 = 0, 1, 1, 0
     n, d = num, den
     while True:
-        a = n // d
+        a, r = divmod(n, d)          # ← single division instead of // then n - a*d
         q2 = q0 + a * q1
         if q2 > maxden:
             break
         p0, q0, p1, q1 = p1, q1, p0 + a * p1, q2
-        newd = n - a*d
-        if newd == 0:
+        if r == 0:                   # ← check remainder directly, no subtraction
             break
-        n, d = d, newd
-
+        n, d = d, r                  # ← assign r directly, no newd temp
     k = (maxden - q0) // q1
-
-    # Determine which of the candidates (p0+k*p1)/(q0+k*q1) and p1/q1 is
-    # closer to self. The distance between them is 1/(q1*(q0+k*q1)), while
-    # the distance from p1/q1 to self is d/(q1*self._denominator). So we
-    # need to compare 2*(q0+k*q1) with self._denominator/d.
     if 2 * d * (q0 + k * q1) <= den:
         return p1, q1
-    else:
-        return p0 + k * p1, q0 + k * q1
+    return p0 + k * p1, q0 + k * q1  # ← drop else after return
+
