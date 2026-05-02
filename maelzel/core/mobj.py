@@ -43,7 +43,6 @@ from maelzel.core._common import logger
 
 from .config import CoreConfig
 from .workspace import Workspace
-from . import environment
 from . import realtimerenderer
 from . import _scoringutils
 from . import _tools
@@ -52,7 +51,7 @@ from . import symbols as _symbols
 
 from .synthevent import PlayArgs, SynthEvent
 
-from maelzel import _util
+from maelzel import _misc
 from maelzel import scoring
 
 import typing as _t
@@ -62,14 +61,14 @@ if _t.TYPE_CHECKING:
     from maelzel.common import location_t, beat_t, time_t, num_t
     from maelzel.core import chain
     from maelzel.scoring.renderoptions import RenderOptions
-    from maelzel.scoring.render import  Renderer
+    from maelzel.scoring.render import Renderer
     from maelzel.scoring import quant
-    from maelzel.scoring import enharmonics
+    from maelzel.scoring.core import UnquantizedPart
+    from maelzel.scoring.notation import Notation
     import csoundengine
     import csoundengine.synth
     from . import offline
     from maelzel.scorestruct import ScoreStruct
-
 
 
 __all__ = (
@@ -587,9 +586,8 @@ class MObj(ABC):
             a clone of self remapped to the destination scorestruct
 
         """
-        if sourcestruct is None:
-            sourcestruct = self.activeScorestruct()
-        offset, dur = deststruct.remapSpan(sourcestruct, self.absOffset(), self.dur)
+        struct = sourcestruct if sourcestruct is not None else self.activeScorestruct()
+        offset, dur = deststruct.remapSpan(struct, self.absOffset(), self.dur)
         return self.clone(offset=offset, dur=dur)
 
     def copy(self) -> Self:
@@ -783,12 +781,12 @@ class MObj(ABC):
             cfg['show.backend'] = backend
 
         if not fmt:
-            fmt = 'png' if not external and environment.insideJupyter else cfg['show.format']
+            fmt = 'png' if not external and _misc.insideJupyter() else cfg['show.format']
 
         if fmt == 'ly':
             renderer = self.render(backend='lilypond', config=cfg)
             if external:
-                lyfile = _util.mktemp(suffix='.ly')
+                lyfile = _misc.mktemp(suffix='.ly')
                 renderer.write(lyfile)
                 import emlib.misc
                 emlib.misc.open_with_app(lyfile)
@@ -934,14 +932,14 @@ class MObj(ABC):
         .. seealso:: :meth:`~maelzel.core.mobj.MObj.render`
         """
         w = Workspace.active
-        if not config:
+        if config is None:
             config = w.config
         if fmt == 'ly' and config['show.backend'] != 'lilypond':
             config = config.clone(updates={'show.backend': 'lilypond'})
         if not outfile:
             assert fmt in ('png', 'pdf')
-            outfile = _util.mktemp(suffix='.' + fmt)
-
+            outfile = _misc.mktemp(suffix='.' + fmt)
+        assert config is not None
         _renderImage(obj=self, outfile=outfile, config=config)
 
         if not os.path.exists(outfile):
@@ -963,7 +961,7 @@ class MObj(ABC):
 
     def _scoringEvents(self,
                        config: CoreConfig | None = None,
-                       ) -> list[scoring.Notation]:
+                       ) -> list[Notation]:
         """
         Returns its notated form as scoring.Notations
 
@@ -1015,7 +1013,7 @@ class MObj(ABC):
 
     def unquantizedParts(self,
                          config: CoreConfig | None = None
-                         ) -> list[scoring.core.UnquantizedPart]:
+                         ) -> list[UnquantizedPart]:
         """
         Returns this object as a list of scoring UnquantizedParts.
 
@@ -1042,6 +1040,7 @@ class MObj(ABC):
     def _labelSymbol(cls, label: str, config: CoreConfig | None = None) -> _symbols.Text:
         if config is None:
             config = Workspace.active.config
+        assert config is not None
         labelstyle = TextStyle.parse(config['show.labelStyle'])
         return _symbols.Text(text=label,
                              fontsize=labelstyle.fontsize,
@@ -1220,7 +1219,7 @@ class MObj(ABC):
         img64, width, height = _imgtools.readImageAsBase64(imgpath)
         if scaleFactor == 0.:
             scaleFactor = Workspace.active.config.get('show.scaleFactor', 1.0)
-        return img64, _util.htmlImage64(img64=img64, imwidth=width, width=f'{int(width * scaleFactor)}px')
+        return img64, _misc.htmlImage64(img64=img64, imwidth=width, width=f'{int(width * scaleFactor)}px')
 
     def _repr_html_header(self):
         return _html.escape(repr(self))
@@ -1273,7 +1272,6 @@ class MObj(ABC):
             parentOffset: the absolute offset of the parent of this object.
                 If the object has no parent, this will be F(0)
             config: the config valid for this object
-            scorestruct: the struct valid for this object
 
         Returns:
             a list of :class:`SynthEvent`s
@@ -1565,7 +1563,7 @@ class MObj(ABC):
                 renderer = realtimerenderer.RealtimeRenderer(engine=playback.audioEngine(),
                                                              presetManager=Workspace.active.presetManager)
             group = renderer.schedEvents(coreevents=events, whenfinished=whenfinished)
-            if display and environment.insideJupyter:
+            if display and _misc.insideJupyter():
                 from IPython.display import display
                 display(group)
         return group
@@ -2233,7 +2231,7 @@ def _renderImageCached(obj: MObj,
                        ) -> tuple[str, Renderer]:
     assert fmt in ('pdf', 'png')
     renderer = obj.render(renderoptions=renderoptions, config=config)
-    outfile = _util.mktemp(suffix="." + fmt)
+    outfile = _misc.mktemp(suffix="." + fmt)
     renderer.write(outfile)
     if not os.path.exists(outfile):
         raise RuntimeError(f"Error rendering to file '{outfile}', file does not exist")
@@ -2281,11 +2279,9 @@ def _renderObject(obj: MObj,
     assert scorestruct and config
     parts = obj.unquantizedParts(config=config)
     if not parts:
-        logger.debug("The object %s did not produce any scoring parts", obj)
-        measure0 = scorestruct.measuredefs[0]
-        part = scoring.core.UnquantizedPart(notations=[scoring.Notation.makeRest(measure0.beatStructure()[0].duration)])
-        parts = [part]
-    elif check:
+        raise RuntimeError("The object %s did not produce any scoring parts", obj)
+
+    if check:
         for part in parts:
             part.check()
     renderer = _scoringutils.renderWithActiveWorkspace(parts,

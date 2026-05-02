@@ -2,24 +2,21 @@
 Utilities used during quantization
 """
 from __future__ import division, annotations
-import numpy as np
 from bisect import bisect
-import numpyx as npx
 
-from functools import cache, lru_cache
-from emlib import mathlib
+from functools import cache
 from itertools import pairwise, accumulate
 
 from maelzel.common import F, F0, F1
 from .notation import Notation, Snapped
+from maelzel._mathutils import (ispowerof2, highestPowerLowerOrEqualTo)
 from . import quantdata
-from . import util
+
 
 import typing as _t
 if _t.TYPE_CHECKING:
     _T = _t.TypeVar("_T", int, float, F)
     from .common import division_t
-    from numpy.typing import NDArray
 
 
 @cache
@@ -31,9 +28,9 @@ def divisionNumSlots(div: division_t) -> int:
 def outerTuplet(div: division_t) -> tuple[int, int]:
     lendiv = len(div)
     outer = div[0] if lendiv == 1 else lendiv
-    if mathlib.ispowerof2(outer):
+    if ispowerof2(outer):
         return (1, 1)
-    den = util.highestPowerLowerOrEqualTo(outer, base=2)
+    den = highestPowerLowerOrEqualTo(outer, base=2)
     return outer, den
 
 
@@ -50,11 +47,7 @@ def isNestedTupletDivision(div: division_t) -> bool:
     if isinstance(div, int):
         # A shortcut division, like 3 or 5
         return False
-    return not mathlib.ispowerof2(len(div)) and any(not mathlib.ispowerof2(subdiv) for subdiv in div)
-
-
-# def divisionDensity(division: division_t) -> int:
-#     return max(division) * len(division)
+    return not ispowerof2(len(div)) and any(not ispowerof2(subdiv) for subdiv in div)
 
 
 def asymettry(a, b) -> float:
@@ -85,6 +78,7 @@ def assignSlotsFrac(events: list[Notation], grid: list[F]) -> list[int]:
 
     return result
 
+
 def _fitToGridListBisect(offsets: list[float], grid: list[float]) -> list[int]:
     out = []
     idx = 0
@@ -100,39 +94,42 @@ def _fitToGridListBisect(offsets: list[float], grid: list[float]) -> list[int]:
     return out
 
 
-def _fitToGridNumpy(offsets: NDArray[np.float64], grid: NDArray[np.float64]) -> list[int]:
-    return npx.nearestindexes(grid, offsets).tolist()
+# def _fitToGridNumpy(offsets: NDArray[np.float64], grid: NDArray[np.float64]) -> list[int]:
+#     return npx.nearestindexes(grid, offsets).tolist()
 
 
-def assignSlotsForPerfectFit(events: list[Notation],
-                             div: tuple[int, ...],
-                             beatDuration: F,
-                             beatOffset: F = F0
-                             ) -> list[int]:
-    numParts = len(div)
-    partDur = beatDuration / numParts
-    lastSlot = sum(div)
-    beatEnd = beatOffset + beatDuration
+# def assignSlotsForPerfectFit(events: list[Notation],
+#                              div: tuple[int, ...],
+#                              beatDuration: F,
+#                              beatOffset: F = F0
+#                              ) -> list[int]:
+#     numParts = len(div)
+#     partDur = beatDuration / numParts
+#     lastSlot = sum(div)
+#     beatEnd = beatOffset + beatDuration
+#
+#     partSlotStart = [0] * numParts
+#     for i in range(1, numParts):
+#         partSlotStart[i] = partSlotStart[i - 1] + div[i - 1]
+#
+#     result: list[int] = []
+#     for ev in events:
+#         if ev.offset == beatEnd:
+#             assert ev.duration == 0
+#             result.append(lastSlot)
+#         else:
+#             partIndex, remainder = divmod(ev.offset - beatOffset, partDur)
+#             partIndex = int(partIndex)
+#             slotDur = partDur / div[partIndex]
+#             subIndex, _ = divmod(remainder, slotDur)
+#             result.append(partSlotStart[partIndex] + int(subIndex))
+#     return result
 
-    partSlotStart = [0] * numParts
-    for i in range(1, numParts):
-        partSlotStart[i] = partSlotStart[i - 1] + div[i - 1]
 
-    result: list[int] = []
-    for ev in events:
-        if ev.offset == beatEnd:
-            assert ev.duration == 0
-            result.append(lastSlot)
-        else:
-            partIndex, remainder = divmod(ev.offset - beatOffset, partDur)
-            partIndex = int(partIndex)
-            slotDur = partDur / div[partIndex]
-            subIndex, _ = divmod(remainder, slotDur)
-            result.append(partSlotStart[partIndex] + int(subIndex))
-    return result
-
-
-def snappedToDivision(notations: _t.Sequence[Notation], slots: _t.Sequence[int], div: division_t, beatDuration: F
+def snappedToDivision(notations: _t.Sequence[Notation],
+                      slots: _t.Sequence[int],
+                      div: division_t,
+                      beatDuration: F
                       ) -> list[Snapped]:
     """
     Creates Snapped variants for each notation given
@@ -150,7 +147,9 @@ def snappedToDivision(notations: _t.Sequence[Notation], slots: _t.Sequence[int],
     return snappedToGrid(notations, slots=slots, grid=grid)
 
 
-def snappedToGrid(notations: _t.Sequence[Notation], slots: _t.Sequence[int], grid: _t.Sequence[F]
+def snappedToGrid(notations: _t.Sequence[Notation],
+                  slots: _t.Sequence[int],
+                  grid: _t.Sequence[F]
                   ) -> list[Snapped]:
     snapped: list[Snapped] = []
     lastidx = len(grid) - 1
@@ -181,7 +180,7 @@ def _makeset(start: int, end: int, exclude):
     return set(x for x in range(start, end) if x not in exclude)
 
 
-_primes = {3, 5, 7, 11, 13, 19}
+_primes = {3, 5, 7, 11, 13, 17, 19}
 
 
 def simplifyDivisionWithSlots(division: division_t, assignedSlots: list[int]
@@ -356,9 +355,8 @@ def simplifyDivisionWithSlots(division: division_t, assignedSlots: list[int]
         N = len(newdiv)
         newdiv = (N,)
         if N % 2 == 0 or N % 3 == 0:
-            if simplifyRes := simplifyDivisionWithSlots(newdiv, tuple(slots)):
-                newdiv, slotstup = simplifyRes
-                slots = list(slotstup)
+            if simplifyRes := simplifyDivisionWithSlots(newdiv, slots):
+                newdiv, slots = simplifyRes
 
     if newdiv == division:
         return None
@@ -417,8 +415,7 @@ def _simplifyDivisionWithSlots(division: division_t, assignedSlots: list[int]
 
     reduced: list[int] = []
     slots: list[int] = []
-    cs = 0
-    cs2 = 0
+    cs, cs2 = 0, 0
     assigned = set(assignedSlots)
     slotSizes = [s1 - s0 for s0, s1 in pairwise(assignedSlots)]
     numSlots = sum(division)
@@ -596,26 +593,26 @@ def divisionGrid0(division: division_t, beatDuration: F) -> list[F]:
     return grid
 
 
-@cache
-def divisionGrid0Float(division: division_t, beatDuration: F) -> tuple[list[F], list[float]]:
-    grid = divisionGrid0(division=division, beatDuration=beatDuration)
-    fgrid = [float(slot) for slot in grid]
-    return grid, fgrid
+# @cache
+# def divisionGrid0Float(division: division_t, beatDuration: F) -> tuple[list[F], list[float]]:
+#     grid = divisionGrid0(division=division, beatDuration=beatDuration)
+#     fgrid = [float(slot) for slot in grid]
+#     return grid, fgrid
 
 
-@cache
-def divisionGrid0Array(division: division_t, beatDuration: F = F(1)
-                       ) -> tuple[list[F], NDArray[np.float64]]:
-    grid = divisionGrid0(division=division, beatDuration=beatDuration)
-    npgrid = np.array([float(slot) for slot in grid], dtype=float)
-    return grid, npgrid
+# @cache
+# def divisionGrid0Array(division: division_t, beatDuration: F = F(1)
+#                        ) -> tuple[list[F], NDArray[np.float64]]:
+#     grid = divisionGrid0(division=division, beatDuration=beatDuration)
+#     npgrid = np.array([float(slot) for slot in grid], dtype=float)
+#     return grid, npgrid
 
 
 @cache
 def primeFactors(d: int, excludeBinary=False) -> set:
     """calculate the prime factors of d"""
     factors = set()
-    for p in (3, 5, 7, 11, 13, 17, 19, 23, 29, 31):
+    for p in (3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37):
         if d % p == 0:
             factors.add(p)
     if not excludeBinary:
@@ -649,18 +646,19 @@ def fixGlissWithinTiesInPlace(notations: _t.Sequence[Notation]) -> None:
 
 
 def _notationsBetween(notations: list[Notation], start: F, end: F) -> list[Notation]:
-        # gracenote policy: if a gracenote is at the start, we keep it,
-        # at the end we don't
-        # No partial notations: a notation needs to fit between start and end
-        out = []
-        for n in notations:
-            noffset = n.offset
-            assert noffset is not None
-            if noffset >= end:
-                break
-            if noffset >= start and n.end <= end:
-                out.append(n)
-        return out
+    # gracenote policy: if a gracenote is at the start, we keep it,
+    # at the end we don't
+    # No partial notations: a notation needs to fit between start and end
+    out = []
+    for n in notations:
+        noffset = n.offset
+        assert noffset is not None
+        if noffset >= end:
+            break
+        if start <= noffset <= end:
+        # if noffset >= start and n.end <= end:
+            out.append(n)
+    return out
 
 
 def applyDurationRatio(notations: list[Notation],
@@ -682,35 +680,35 @@ def applyDurationRatio(notations: list[Notation],
 
     """
     def _apply(durRatio: F, notations: list[Notation]):
-        if durRatio == F1:
-            for n in notations:
-                if not n.durRatios:
-                    n.durRatios = (durRatio,)
-        else:
-            for n in notations:
-                if not n.durRatios:
-                    n.durRatios = (durRatio,)
-                else:
-                    n.durRatios += (durRatio,)
+        assert durRatio != F1
+        for n in notations:
+            if not n.durRatios:
+                n.durRatios = (durRatio,)
+            else:
+                n.durRatios += (durRatio,)
 
     if isinstance(division, int) or len(division) == 1:
         num: int = division if isinstance(division, int) else division[0]
         durRatio = F(*quantdata.durationRatios[num])
-        _apply(durRatio, notations)
+        if durRatio != F1:
+            _apply(durRatio, notations)
     else:
         numSubBeats = len(division)
         now = beatOffset
         dt = beatDur / numSubBeats
         durRatio = F(*quantdata.durationRatios[numSubBeats])
-        _apply(durRatio, notations)
-        if all(div in (1, 2, 4, 8, 16, 32, 64) for div in division):
+        if durRatio != F1:
+            _apply(durRatio, notations)
+        if all(ispowerof2(div) for div in division):
             return
 
         numNotations = 0
         subdivs = []
         for i, subdiv in enumerate(division):
             subdivEnd = now + dt
+            # A notation can span over multiple subdivisions?
             subdivNotations = _notationsBetween(notations, now, subdivEnd)
+            # assert subdivNotations
             subdivs.append(subdivNotations)
             # Add gracenotes at the end to the last subdiv notations. They would
             # be left out, since that start at the end of the subdivision
@@ -722,15 +720,16 @@ def applyDurationRatio(notations: list[Notation],
                     endgraces.append(n)
                 if endgraces:
                     subdivNotations.extend(reversed(endgraces))
-            applyDurationRatio(notations=subdivNotations, division=subdiv,
-                               beatOffset=now, beatDur=dt)
+            if subdivNotations:
+                applyDurationRatio(notations=subdivNotations, division=subdiv,
+                                   beatOffset=now, beatDur=dt)
             now += dt
             numNotations += len(subdivNotations)
 
         if numNotations != len(notations):
             for i, n in enumerate(notations):
                 print(i, n)
-            raise RuntimeError(f"Failed to apply durations, {numNotations=} != {len(notations)=}, "
+            raise RuntimeError(f"Failed to apply dur ratios, {numNotations=} != {len(notations)=}, "
                                f"{division=}, {beatOffset=}, {beatDur=}, {durRatio=}, {notations=}, {subdivs=}")
 
 
@@ -754,7 +753,6 @@ def breakNotationsByBeat(notations: list[Notation],
         a list of tuples (startbeat, endbeat, notation)
 
     """
-    assert not any(n.isQuantized() for n in notations)
     assert offsets[0] == notations[0].offset, f"{offsets=}, {notations=}"
     assert offsets[-1] == notations[-1].end, f"{offsets=}, {notations=}, {offsets[-1]=}, {notations[-1].end=}"
 
@@ -835,11 +833,11 @@ def insertRestAt(offset: F, seq: list[Notation], fallbackdur=F1) -> Notation:
     nextidx = next((i for i, n in enumerate(seq) if n.qoffset > offset), None)
     if nextidx is None:
         # offset past last
-        n = Notation.makeRest(duration=fallbackdur, offset=offset)
+        n = Notation.Rest(duration=fallbackdur, offset=offset)
         seq.append(n)
     else:
         nextnot = seq[nextidx]
-        n = Notation.makeRest(duration=nextnot.qoffset-offset, offset=offset)
+        n = Notation.Rest(duration=nextnot.qoffset - offset, offset=offset)
         seq.insert(nextidx, n)
     return n
 
@@ -863,17 +861,17 @@ def insertRestEndingAt(end: F, seq: list[Notation]) -> Notation | None:
         last = seq[-1]
         if last.end >= end:
             raise RuntimeError(f"{end} overlaps with {last}, notations: {seq}")
-        rest = Notation.makeRest(duration=end - last.end, offset=last.end)
+        rest = Notation.Rest(duration=end - last.end, offset=last.end)
         seq.append(rest)
     else:
         if idx == 0:
-            rest = Notation.makeRest(duration=seq[0].qoffset, offset=0)
+            rest = Notation.Rest(duration=seq[0].qoffset, offset=0)
             seq.insert(0, rest)
         else:
             previdx = idx - 1
             last = seq[previdx]
             if last.end < end:
-                rest = Notation.makeRest(duration=end - last.end, offset=last.end)
+                rest = Notation.Rest(duration=end - last.end, offset=last.end)
                 seq.insert(idx, rest)
             else:
                 assert last.end == end, f"{last=}, {end=}, {seq=}"
@@ -967,27 +965,25 @@ def fillSpan(notations: list[Notation], start: F, end: F
     duration: F = end - start
 
     if not notations:
-        out.append(Notation.makeRest(duration, offset=start))
+        out.append(Notation.Rest(duration, offset=start))
         return out
 
-    assert all(not n.isQuantized() for n in notations)
-
     if (n0offset := notations[0].qoffset) > start:
-        out.append(Notation.makeRest(n0offset-start, offset=start))
+        out.append(Notation.Rest(n0offset - start, offset=start))
         now = n0offset
 
     for n0, n1 in pairwise(notations):
         n0offset = n0.qoffset
         if n0offset > now:
             # there is a gap, fill it with a rest
-            out.append(Notation.makeRest(offset=now, duration=n0offset - now))
+            out.append(Notation.Rest(offset=now, duration=n0offset - now))
         if n0.duration is None:
             out.append(n0.clone(duration=n1.qoffset - n0offset, spanners=n0.spanners))
         else:
             out.append(n0)
             n0end = n0.end
             if n0end < n1.qoffset:
-                out.append(Notation.makeRest(offset=n0end, duration=n1.qoffset - n0end))
+                out.append(Notation.Rest(offset=n0end, duration=n1.qoffset - n0end))
         now = n1.qoffset
 
     # last event
@@ -995,7 +991,7 @@ def fillSpan(notations: list[Notation], start: F, end: F
     assert n.duration is not None
     out.append(n)
     if n.end < end:
-        out.append(Notation.makeRest(offset=n.end, duration=end-n.end))
+        out.append(Notation.Rest(offset=n.end, duration=end - n.end))
     assert sum(n.duration for n in out) == duration
     assert all(n.offset is not None and start <= n.offset <= end for n in out)
     return out
@@ -1006,7 +1002,9 @@ def slotsAtSubdivisions(divs: tuple[int, ...]) -> list[int]:
     return [0] + list(accumulate(divs))
 
 
-def divisionFitsPerfectly(div: division_t, events: list[Notation], beatDuration: F, offset: F
+def divisionFitsPerfectly(div: division_t,
+                          events: list[Notation],
+                          beatDuration: F, offset: F
                           ) -> bool:
     """
     Checks if events fit the given div perfectly. Works for simply nested divs (4,), (3, 4, 5)
@@ -1026,10 +1024,9 @@ def divisionFitsPerfectly(div: division_t, events: list[Notation], beatDuration:
     for ev in events:
         # which part does this offset fall in?
         partIndex, remainder = divmod(ev.offset - offset, partDur)
+        if remainder == 0:
+            continue
         partIndex = int(partIndex)
-        if partIndex >= numParts:
-            return False  # shouldn't happen but guard anyway
-
         slotDur = partDur / div[partIndex]
         q, r = divmod(remainder, slotDur)
         if r != 0:
@@ -1037,3 +1034,27 @@ def divisionFitsPerfectly(div: division_t, events: list[Notation], beatDuration:
 
     return True
 
+
+def simplifyUnusedSubdivs(div: division_t, events0: list[Notation]) -> division_t:
+    # Exclude divisions which are not worth evaluating at full
+    numSubdivs = len(div)
+    beatdur = events0[-1].end
+    scale_num = numSubdivs * beatdur.denominator
+    scale_den = beatdur.numerator
+
+    activeSubdivs = [0] * numSubdivs
+    last_subdiv = -1
+    lastidx = numSubdivs - 1
+
+    for n in events0:
+        t = n.offset
+        subdiv = (t.numerator * scale_num) // (t.denominator * scale_den)
+        if subdiv != last_subdiv:
+            activeSubdivs[subdiv] = 1
+            last_subdiv = subdiv
+            if subdiv == lastidx:
+                break
+
+    if all(activeSubdivs):
+        return div
+    return tuple(1 if not active else s for active, s in zip(activeSubdivs, div))

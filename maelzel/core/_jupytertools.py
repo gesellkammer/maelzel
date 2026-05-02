@@ -1,7 +1,8 @@
 from __future__ import annotations
+from maelzel import _misc
 from . import environment
 
-if not environment.insideJupyter:
+if not _misc.insideJupyter():
     raise ImportError("This module is only available inside a jupyter session")
 
 from maelzel import _imgtools
@@ -16,9 +17,6 @@ def setJupyterHookForClass(cls, func, fmt='image/png') -> None:
     """
     Register func as a displayhook for class `cls`
     """
-    if not environment.insideJupyter:
-        logger.debug("_setJupyterHookForClass: not inside IPython/jupyter, skipping")
-        return
     from IPython.core.getipython import get_ipython
     ip = get_ipython()
     if ip is None:
@@ -40,9 +38,6 @@ def jupyterMakeImage(path: str, scalefactor=1.0) -> Image:
         an IPython.core.display.Image
 
     """
-    if not environment.insideJupyter:
-        raise RuntimeError("Not inside a Jupyter session")
-
     width, height = _imgtools.imgSize(path)  # emlib.img.imgSize(path)
     if scalefactor != 1.0:
         width *= scalefactor
@@ -81,7 +76,7 @@ def showPng(pngpath: str, forceExternal=False, app='', scalefactor=1.0,
         maxwidth: max. width of the image, in pixels (0: no limit)
         app: the name of the external app to use
     """
-    if environment.insideJupyter and not forceExternal:
+    if not forceExternal:
         jupyterShowImage(pngpath, scalefactor=scalefactor, maxwidth=maxwidth)
     else:
         environment.openPngWithExternalApplication(pngpath, app=app)
@@ -98,9 +93,6 @@ def displayButton(buttonText: str, callback) -> None:
         callback: the function to call when the button is pressed. This function
             takes no arguments and should not return anything
     """
-    if not environment.insideJupyter:
-        raise RuntimeError("This function is only available when running inside a jupyter notebook")
-
     button = ipywidgets.Button(description=buttonText)
     output = ipywidgets.Output()
 

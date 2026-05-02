@@ -3,124 +3,17 @@ from __future__ import annotations
 import random
 
 import pitchtools as pt
-import math
 
-from maelzel.common import F, asF
+from maelzel.common import F
 from maelzel.scoring.common import NotatedDuration
+from maelzel._mathutils import ispowerof2
+import functools
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Iterator, Sequence
-    from maelzel.common import timesig_t
+    from typing import Sequence
 
 # This module can only import .common from .
-
-
-def asSimplestNumberType(f: F) -> int | float:
-    """
-    convert a fraction to the simplest number type it represents
-    """
-    fl = float(f)
-    i = int(fl)
-    return i if i == fl else fl
-
-
-def roundMidinote(a: float, divsPerSemitone=4) -> float:
-    """
-    Round a midi note to the nearest division
-
-    Args:
-        a: the midinote
-        divsPerSemitone: the number of subdivisions per semitone
-
-    Returns:
-        the rounded midinote
-
-    Example
-    ~~~~~~~
-
-        >>> from maelzel.scoring import util
-        >>> util.roundMidinote(60.1)
-        60.0
-        >>> util.roundMidinote(60.7, divsPerSemitone=2)
-        60.5
-        >>> util.roundMidinote(60.7, dicsPerSemitone=4)
-        60.75
-
-    """
-    rounding_factor = 1/divsPerSemitone
-    return round(a/rounding_factor)*rounding_factor
-
-
-def measureQuarterDuration(timesig: timesig_t) -> F:
-    """
-    The duration in quarter notes of a measure according to its time signature
-
-    Args:
-        timesig: a tuple (num, den)
-
-    Returns:
-        the duration in quarter notes
-
-    .. rubric:: Example
-
-    >>> measureQuarterDuration((3,4))
-    Fraction(3, 1)
-
-    >>> measureQuarterDuration((5, 8))
-    Fraction(5, 2)
-
-    """
-    assert isinstance(timesig, tuple) and isinstance(timesig[0], int) and isinstance(timesig[1], int)
-    num, den = timesig
-    quarterDuration = F(num)/den * 4
-    return quarterDuration
-
-
-def measureTimeDuration(timesig: timesig_t, quarterTempo: F) -> F:
-    """
-    The duration of a measure in seconds
-
-    Args:
-        timesig: the time signature, a tuple (num, den)
-        quarterTempo: the tempo of the quarter note
-
-    Returns:
-        The duration **in seconds**
-
-    """
-    assert isinstance(quarterTempo, (int, F))
-    quarters = measureQuarterDuration(timesig=timesig)
-    return (F(60) / quarterTempo) * quarters
-
-
-def midinotesNeedMultipleClefs(midinotes: list[float], threshold=1) -> bool:
-    """
-    True if multiple clefs are needed to represent these midinotes
-
-    This can be used to determine of they need to be split
-    among multiple staves.
-
-    Args:
-        midinotes: the pitches to evaluate
-        threshold: how many events should be outside a clef's range
-            to declare the need for multiple clefs
-
-    Returns:
-        True if midinotes can't be represened through one clef alone
-    """
-    G, F, G15a = 0, 0, 0
-    for midinote in midinotes:
-        if 55 < midinote <= 93:
-            G += 1
-        elif 93 < midinote:
-            G15a += 1
-        else:
-            F += 1
-        if int(G>threshold)+int(G15a>threshold)+int(F>threshold)>1:
-            return True
-    return False
-
 
 def centsShown(centsdev: int, divsPerSemitone=4, snap=2, addplus=False) -> str:
     """
@@ -159,150 +52,6 @@ def centsShown(centsdev: int, divsPerSemitone=4, snap=2, addplus=False) -> str:
     return f'+{centsdev:d}' if addplus else str(int(centsdev))
 
 
-def snapToGrids(x: F, ticks: list[F], offsets: list[F] | F = F(0), mode='nearest') -> F:
-    """
-    Snap x to the a grid created by the given grids
-
-    Args:
-        x: an unquantized value
-        ticks: deltas which constitute a grid
-        offsets: offsets for each grid. Either a list of offsets or a single offset
-        mode: 'nearest', 'floor', 'ceil'
-
-    Returns:
-        the nearest value to x within the grid, according to the specified mode
-
-    Example
-    ~~~~~~~
-
-       >>> snapToGrids(0.4, [1/4, 1/3])
-       1/2
-
-       >>> snapToGrids(0.29, [1/4, 1/3])
-       1/3
-
-    """
-    def snapRound(x: F, tick: F, offset: F) -> F:
-        return tick * round((x - offset) * (1 / tick)) + offset
-
-    def snapFloor(x: F, tick: F, offset: F) -> F:
-        return tick * int((x - offset) * (1 / tick)) + offset
-
-    def snapCeil(x: F, tick: F, offset: F) -> F:
-        xtick = (x - offset) * (1 / tick)
-        xtickfloor = int(xtick)
-        if xtick > xtickfloor:
-            xtick = xtickfloor + 1
-        return tick * xtick + offset
-
-    func = {
-        'floor': snapFloor,
-        'ceil': snapCeil,
-        'nearest': snapRound,
-    }.get(mode)
-    if func is None:
-        raise ValueError(f"mode should be one of 'floor', 'ceil', 'round', but got {mode}")
-    if not isinstance(offsets, list):
-        offsets = [offsets] * len(ticks)
-    if len(offsets) != len(ticks):
-        raise ValueError(f"offsets and ticks should have the same length, {ticks=}, {offsets=}")
-    quants = [func(x, t, o) for t, o in zip(ticks, offsets)]
-    quants.sort(key=lambda quant: abs(quant - x))
-    return quants[0]
-
-
-def nextInGrid(x: float|F, ticks: list[F]) -> F:
-    """
-    Snap x to the right within a grid created by the given ticks
-
-    Args:
-        x: an unquantized value
-        ticks: deltas which constitute a grid
-
-    Returns:
-        the nearest value to x within the grid
-
-    Example
-    ~~~~~~~
-
-       >>> nextInGrid(0.4, [1/4, 1/3])
-       0.5
-
-       >>> nextInGrid(0.29, [1/4, 1/3])
-       0.33333333
-
-    """
-    return snapToGrids(asF(x) + F(1, 999999999), ticks, mode='ceil')
-
-
-# def snapTime(start: F,
-#              duration: F,
-#              divisors: list[int],
-#              mindur=F(1, 16),
-#              durdivisors: list[int] | None = None
-#              ) -> tuple[F, F]:
-#     """
-#     Quantize an event to snap to a grid defined by divisors and durdivisors
-# 
-#     Args:
-#         start: the start of the event
-#         duration: the duration of the event
-#         divisors: a list of divisions of the pulse
-#         mindur: the min. duration of the note
-#         durdivisors: if left unspecified, then the same list of divisors
-#             is used for start and end of the note. Otherwise, it is possible
-#             to define a specific grid for the end also
-# 
-#     Returns:
-#         a tuple (start, duration) quantized to the given grids
-#     """
-#     if durdivisors is None:
-#         durdivisors = divisors
-#     ticks = [F(1, div) for div in divisors]
-#     durticks = [F(1, div) for div in durdivisors]
-#     start = snapToGrids(start, ticks)
-#     end = snapToGrids(start + duration, durticks)
-#     if end - start <= mindur:
-#         end = nextInGrid(start + mindur, ticks)
-#     return (start, end-start)
-
-
-def showB(b: bool) -> str:
-    """Show *b* as boolean"""
-    return "T" if b else "F"
-
-
-def quarterDurationToBaseDuration(d: F) -> int:
-    """
-    Convert duration in quarters to its base duration
-
-
-    Args:
-        d: the duration
-
-    Returns:
-        the base duration
-
-
-    ================  ===============
-    Quarter Duration  Base Duration
-    ================  ===============
-    4/1               1
-    2/1               2
-    1/1               4
-    1/2               8
-    1/4               16
-    1/8               32
-    1/16              64
-    ================  ===============
-
-    """
-    assert ((d.denominator == 1 and d.numerator in {4, 2, 1}) or
-            (d.numerator == 1 and d.denominator in {2, 4, 8, 16, 32})
-            )
-    return (d/4).denominator
-
-
 _baseDurationToName = {
     1: 'whole',
     2: 'half',
@@ -327,7 +76,7 @@ def baseDurationToName(baseDur: int) -> str:
     ====  ========
     Base  Name
     ====  ========
-     1    while
+     1    whole
      2    half
      4    quarter
      8    eighth
@@ -337,95 +86,6 @@ def baseDurationToName(baseDur: int) -> str:
     ====  ========
     """
     return _baseDurationToName[baseDur]
-
-
-def baseDurationToQuarterDuration(b: int) -> F:
-    """Convert base duration to quarter duration
-
-    Example
-    ~~~~~~~
-
-        >>> baseDurationToQuarterDuration(4)
-        1
-        >>> baseDurationToQuarterDuration(8)
-        0.5
-    """
-    return F(1, b)*4
-
-
-def durationRatiosToTuplets(durRatios: Sequence[F]) -> list[tuple[int, int]]:
-    tuplets = [(dr.numerator, dr.denominator) for dr in durRatios if dr != F(1)]
-    return tuplets
-
-
-def highestPowerLowerOrEqualTo(limit: int, base: int) -> int:
-    """
-    Returns the highest power of base which does not exceed limit
-
-    Args:
-        limit: the limit to the power of base
-        base: the base
-
-    Returns:
-        the highest power of base not exceeding limit
-
-    Example
-    ~~~~~~~
-
-        >>> highestPowerLowerOrEqualTo(100, 2)
-        64
-
-    .. seealso:: :func:`lowestPowerHigherOrEqualTo`
-    """
-    return base ** int(math.log(limit, base))
-
-
-def lowestPowerHigherOrEqualTo(limit: int, base: int) -> int:
-    return base ** int(math.ceil(math.log(limit, base)))
-
-
-def parseScoreStructLine(line: str
-                         ) -> tuple[int|None, timesig_t|None, float|None]:
-    """
-    Parse a line of a ScoreStructure definition
-
-    Args:
-        line: a line of the format [measureNum, ] timesig [, tempo]
-
-    Returns:
-        a tuple (measureNum, timesig, tempo), where only timesig
-        is required
-    """
-    def parseTimesig(s: str) -> tuple[int, int]:
-        try:
-            num, den = s.split("/")
-        except ValueError:
-            raise ValueError(f"Could not parse timesig: {s}")
-        return int(num), int(den)
-
-    parts = [_.strip() for _ in line.split(",")]
-    lenparts = len(parts)
-    if lenparts == 1:
-        timesigS = parts[0]
-        measure = None
-        tempo = None
-    elif lenparts == 2:
-        if "/" in parts[0]:
-            timesigS, tempoS = parts
-            measure = None
-            tempo = float(tempoS)
-        else:
-            measureNumS, timesigS = parts
-            measure = int(measureNumS)
-            tempo = None
-    elif lenparts == 3:
-        measureNumS, timesigS, tempoS = [_.strip() for _ in parts]
-        measure = int(measureNumS) if measureNumS else None
-        tempo = int(tempoS) if tempoS else None
-    else:
-        raise ValueError(f"Parsing error at line {line}")
-    timesig = parseTimesig(timesigS) if timesigS else None
-    return measure, timesig, tempo
 
 
 def centsDeviation(pitch: float, divsPerSemitone=4) -> int:
@@ -505,7 +165,7 @@ def centsAnnotation(pitch: float | Sequence[float],
     return separator.join(annotations) if any(annotations) else ""
 
 
-def notatedDuration(duration: F, durRatios: Sequence[F] = ()
+def _notatedDuration(duration: F, durRatios: Sequence[F] = ()
                     ) -> NotatedDuration:
     assert duration >= 0
     if duration == 0:
@@ -514,14 +174,14 @@ def notatedDuration(duration: F, durRatios: Sequence[F] = ()
 
     dur = duration
     if durRatios and any(dr != 1 for dr in durRatios):
-        tuplets = durationRatiosToTuplets(durRatios)
-        for durRatio in durRatios:
-            dur *= durRatio
+        tuplets = [(d.numerator, d.denominator) for d in durRatios if d != F(1)]
+        for dr in durRatios:
+            dur *= dr
     else:
         tuplets = None
     num, den = dur.numerator, dur.denominator
-    assert den in {1, 2, 4, 8, 16, 32, 64}, f"Irregular denominator: {den}, {dur=}"
-    assert num in {1, 3, 7} or den == 1
+    assert den in {1, 2, 4, 8, 16, 32, 64, 128}, f"Irregular denominator: {den}, {dur=}, orig. duration: {duration}, {durRatios=}"
+    assert den == 1 or num in {1, 3, 7}
     if num == 1:
         # 1/1, 1/2, 1/4, 1/8
         # 1/2 -> base is 8 (8th note)
@@ -546,56 +206,6 @@ def makeuuid(size=8) -> str:
     return ''.join(random.choices(_uuid_alphabet, k=size))
 
 
-def splitInterval(start: F, end: F, offsets: Sequence[F]
-                  ) -> list[tuple[F, F]]:
-    """
-    Split interval (start, end) at the given offsets
-
-    Args:
-        start: start of the interval
-        end: end of the interval
-        offsets: offsets to split the interval at. Must be sorted
-
-    Returns:
-        a list of (start, end) segments where no segment extends over any
-        of the given offsets
-
-    Example
-    ~~~~~~~
-
-        >>> splitInterval(F(1), F(3), [F(1.5), F(2)])
-        [(F(1), F(1.5)), (F(1.5),  F(2)), (F(2), F(3))]
-
-    """
-    assert end > start
-    assert offsets
-
-    if offsets[0] > end or offsets[-1] < start:
-        # no intersection, return the original time range
-        return [(start, end)]
-
-    out = []
-    for offset in offsets:
-        if offset >= end:
-            break
-        if start < offset:
-            out.append((start, offset))
-            start = offset
-    if start != end:
-        out.append((start, end))
-
-    assert len(out) >= 1
-    return out
-
-
-def fractionRange(start: F, stop: F, step: F = F(1)
-                   ) -> Iterator[F]:
-    """ Like range, but yielding Fractions """
-    while start < stop:
-        yield start
-        start += step
-
-
 def durRepr(dur: F, maxdenom=100) -> str:
     if dur == 0:
         return "𝆔"
@@ -603,3 +213,137 @@ def durRepr(dur: F, maxdenom=100) -> str:
         return f"{dur:.3f}".rstrip('0').rstrip('.') + '♩'
     else:
         return f"{dur.numerator}/{dur.denominator}♩"
+
+
+def durationToFigure(dur: F, maxdots=5) -> tuple[int, int]:
+    """
+    Convert a duration in quarter notes (as a fraction) to a notated duration
+
+    Args:
+        dur: duration as a fraction
+        maxdots: max. number of dots allowed
+
+    Returns:
+        a tuple (basedur: int, numdots: int) where basedur represents the
+        base duration (4=quarter note, 8=8th note, etc.) and numdots represents
+        the number of dots
+
+
+    .. note::
+
+        A dotted note has duration = base * (2^(dots+1) - 1) / 2^dots
+        Relative to quarter note: (4/base) * (2^(dots+1) - 1) / 2^dots = num/denom
+    """
+    # Simplify: 4 * denom * (2^(dots+1) - 1) = base * num * 2^dots
+
+    # Count trailing zeros in numerator (these become dots)
+    # numerator must be odd times a power of 2 minus that power
+
+    # Try to express as: numerator/denominator = (4/base) * (2^(n+1) - 1) / 2^n
+    # This means: numerator * 2^n = denominator * 4 * (2^(n+1) - 1) / base
+    num, den = dur.numerator, dur.denominator
+    if num == 0:
+        return (0, 0)
+
+    if num == 1:
+        assert ispowerof2(den), f"Invalid duration: {num}/{den}"
+        # 1/1 -> 4
+        # 1/2 -> 8
+        # 1/4 -> 16
+        return (den * 4, 0)
+
+    for numdots in range(maxdots+1):
+        # (2^(dots+1) - 1) is the pattern for dots
+        dotsFactor = (2 ** (numdots + 1)) - 1
+
+        # Check if numerator * 2^dots / dots_factor gives us an integer
+        if (num * (2 ** numdots)) % dotsFactor == 0:
+            k = (num * (2 ** numdots)) // dotsFactor
+            assert k > 0, f"Invalid duration: {dur}, {num=}, {den=}, {dotsFactor=}, {numdots=}"
+            base = (4 * den) // k
+
+            # Verify and check base is valid
+            if k * base == 4 * den and ispowerof2(base):
+                return (base, numdots)
+
+    raise ValueError(f"Cannot represent {num}/{den} as a standard "
+                     f"duration with dots")
+
+
+
+@functools.cache
+def figureToDuration(base: int, dots: int) -> F:
+    """
+    Convert a notated figure to a duration in quarter notes
+
+    Args:w
+        base: the base duration, where 4=quarter note, 8=eighth note, etc
+        dots: number of dots
+
+    Returns:
+        the duration in quarter notes
+
+
+    =====  =====  =========
+    base   dots   duration
+    =====  =====  =========
+    4      0      1
+    4      1      3/2
+    4      2      7/4
+    4      3      15/8
+    8      0      1/2
+    8      1      1/2 * 3/2
+    =====  =====  =========
+
+
+    """
+    refdur = F(4, base)
+    if dots > 0:
+        den = 2 ** dots
+        num = (2 ** (dots + 1)) - 1
+        refdur = refdur * num / den
+    return refdur
+
+
+@functools.cache
+def unicodeDuration(dur: tuple[int, int] | F) -> str:
+    """
+    Returns the given notated duration as a unicode str
+
+    Args:
+        dur: either a duration as a Fraction or a figure as tuple (base: int, dots: int),
+            where base represents the notated figure (4=quarter note, 8=eigth note, etc)
+            and dots is the number of dots
+
+    Returns:
+        the unicode representation
+    """
+    if isinstance(dur, F):
+        if dur.numerator == 5:
+            part1 = unicodeDuration(dur - F(1, dur.denominator))
+            part2 = unicodeDuration(F(1, dur.denominator))
+            return part1 + "͜" + part2
+        elif dur.numerator in (1, 2, 3, 4, 6, 7, 8, 15):
+            base, dots = durationToFigure(dur)
+        else:
+            raise ValueError(f"Invalid symbolic duration: {dur}")
+    else:
+        base, dots = dur
+
+    figures = {
+        1: "𝅝",
+        2: "𝅗𝅥",
+        4: "𝅘𝅥",
+        8: "𝅘𝅥𝅮",
+        16: "𝅘𝅥𝅯",
+        32: "𝅘𝅥𝅰",
+        64: "𝅘𝅥𝅱",
+        128: "1/128",
+        256: "1/256"
+    }
+
+    figbase = figures.get(base)
+    if not figbase:
+        raise ValueError(f"Invalid figure, expected a power of 2 between 1 and 256, got {base}")
+    return figbase + '∙' * dots
+

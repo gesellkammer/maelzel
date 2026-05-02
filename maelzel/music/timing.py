@@ -1,7 +1,7 @@
 from __future__ import annotations
 import warnings
 
-from maelzel import _util
+from maelzel import _misc
 from maelzel.common import timesig_t, num_t, F
 
 import itertools

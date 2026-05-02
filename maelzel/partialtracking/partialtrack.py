@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from maelzel._util import hasOverlap
+from maelzel._mathutils import hasOverlap
 import itertools
 import pitchtools as pt
 import bisect

@@ -48,7 +48,7 @@ import numpy.typing as npt
 import os
 
 import pitchtools as pt
-from maelzel import _util
+from maelzel import _misc
 from maelzel.snd import numpysnd as _npsnd
 from maelzel._logutils import getLogger
 

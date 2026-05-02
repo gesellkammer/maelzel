@@ -52,19 +52,3 @@ as ``musicxml`` or even as ``midi``.
     rendering in the general *maelzel* configuration. See :ref:`config`
 
 """
-from .notation import Notation
-from . import core
-from .common import logger
-from . import definitions
-from . import attachment
-from . import spanner
-
-
-__all__ = [
-    'Notation',
-    'core',
-    'logger',
-    'definitions',
-    'attachment',
-    'spanner'
-]

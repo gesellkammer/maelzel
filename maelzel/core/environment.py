@@ -11,10 +11,6 @@ Functionality to deal with the environment in which `maelzel.core` is running
 from __future__ import annotations
 import os
 import shutil
-from maelzel import _util
-
-
-insideJupyter = _util.pythonSessionType() == 'jupyter'
 
 
 def hasBinary(binary: str) -> bool:

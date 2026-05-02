@@ -10,11 +10,10 @@ import textwrap
 import logging
 import functools
 
-
 import pitchtools as pt
 from dataclasses import dataclass
 from maelzel.common import F
-from maelzel import _util
+from maelzel import _misc
 from maelzel._logutils import getLogger
 
 from typing import TYPE_CHECKING
@@ -158,9 +157,9 @@ def findLilypond(version='', system=False) -> str | None:
             _cache[cachekey] = lilypath
             return lilypath
         else:
-            vertup, matchop = _util.splitVersionSpec(version)
+            vertup, matchop = _misc.splitVersionSpec(version)
             lyverstr = lilypondVersion(lilypath)
-            lyvertup = _util.splitVersion(lyverstr)
+            lyvertup = _misc.splitVersion(lyverstr)
             if (matchop == "=" and vertup == lyvertup) or (matchop == ">=" and lyvertup >= vertup):
                 _cache[cachekey] = lilypath
                 return lilypath
@@ -1136,7 +1135,7 @@ def lilypondVersion(lilybin='') -> str:
         lilybin = findLilypond()
     if not lilybin:
         raise RuntimeError("Could not find lilypond")
-    lilybin = _util.normalizePath(lilybin)
+    lilybin = _misc.normalizePath(lilybin)
     if not os.path.exists(lilybin):
         raise RuntimeError(f"Lilypond binary {lilybin} not found")
     return _lilypondVersion(lilybin)

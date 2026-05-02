@@ -21,7 +21,7 @@ from maelzel.core import (
     _playbacktools,
     )
 
-from maelzel import _util
+from maelzel import _misc
 from maelzel.core.workspace import Workspace
 from maelzel.core._common import logger
 

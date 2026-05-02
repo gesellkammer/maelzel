@@ -10,10 +10,10 @@ from functools import cache
 from dataclasses import dataclass
 import pitchtools as pt
 
-from maelzel import _util
+from maelzel import _misc
 from maelzel.scoring import definitions
-from maelzel.common import F, F0
 from maelzel.core import environment
+from maelzel.common import F, F0
 from maelzel.core import symbols as _symbols
 
 from typing import TYPE_CHECKING, Any, Sequence
@@ -61,7 +61,7 @@ def pngShow(pngpath: str, forceExternal=False, app='', scalefactor=1.0) -> None:
             defined app is used
         scalefactor: used to scale the image when shown within jupyter
     """
-    if environment.insideJupyter and not forceExternal:
+    if not forceExternal and _misc.insideJupyter():
         from . import _jupytertools
         _jupytertools.showPng(pngpath, scalefactor=scalefactor)
     else:
@@ -281,42 +281,6 @@ def _evalArgs(args: list[str]) -> dict[str, Any]:
     return dict(evalArg(arg) for arg in args)
 
 
-def regexSplit(pattern: str, string: str, maxsplit=0, strip=False, removeEmpty=False):
-    """
-    Similar to re.split but can strip lines and remove empty parts
-
-    Args:
-        pattern: regex pattern
-        string: string to split
-        maxsplit: max number of splits
-        strip: strip each line
-        removeEmpty: remove empty items
-
-    Returns:
-        a list of strings
-
-    Example
-    -------
-
-        >>> s = r'''
-        ...     C4:1
-        ...     D4:2
-        ...     E3:3; E4:4
-        ... '''
-        # Split on new lines and semicolons
-        >>> re.split('[\n;]', s)
-        ['', '    C4:1 ', '    D4:2', '    E3:3', ' E4:4', '    ']
-        >>> regexSplit('[\n;]', s, strip=True, removeEmpty=True)
-        ['C4:1', 'D4:2', 'E3:3', 'E4:4']
-    """
-    parts = re.split(pattern=pattern, string=string, maxsplit=maxsplit)
-    if strip:
-        parts = [part.strip() for part in parts]
-    if removeEmpty:
-        parts = [part for part in parts if part]
-    return parts
-
-
 def stripNoteComments(s: str) -> str:
     """
     Strip comments from notes defined as strings
@@ -441,7 +405,7 @@ def parseNote(s: str, check=True) -> NoteProperties:
                 spanners.append(_symbols.Hairpin('<'))
             else:
                 allkeys = _allkeys()
-                _util.checkChoice(s, part, allkeys)
+                _misc.checkChoice(s, part, allkeys)
     note = note.strip()
     if note.startswith('(') and note.endswith(')'):
         note = note[1:-1]
@@ -539,7 +503,7 @@ def showLilypondScore(score: str, htmlstyle='friendly') -> None:
     Args:
         score: the score as text
     """
-    if environment.insideJupyter:
+    if _misc.insideJupyter():
         from IPython.display import display, HTML
         html = _highlightLilypondAsHtml(score, style=htmlstyle)
         if html:

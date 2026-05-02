@@ -26,6 +26,9 @@ class QuantizedBeatDef:
     def end(self) -> F:
         return self.offset + self.duration
 
+    def __repr__(self) -> str:
+        return f"QuantizedBeatDef(offset={str(self.offset)}, duration={str(self.duration)}, division={self.division}, weight={self.weight})"
+
 
 class PartNode:
     def __init__(self, kind: str, items: Sequence[QuantizedPart | PartNode], name='', abbrev='', id=''):

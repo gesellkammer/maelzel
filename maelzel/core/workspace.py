@@ -8,7 +8,7 @@ from ._common import logger
 from .config import CoreConfig
 
 from maelzel.common import F
-from maelzel.dynamiccurve import DynamicCurve
+from maelzel.dyncurve import DynamicCurve
 from maelzel.scorestruct import ScoreStruct
 
 import typing as _t
@@ -287,7 +287,8 @@ class Workspace:
             >>> n2f("A4")
             442
         """
-        pitchtools.set_reference_freq(self.a4)
+        if self.a4 != pitchtools.get_reference_freq():
+            pitchtools.set_reference_freq(self.a4)
         if hasattr(Workspace, "active"):
             self._previousWorkspace = Workspace.active
         Workspace.active = self
@@ -475,7 +476,6 @@ class Workspace:
                      backend='',
                      numchannels: int | None = None,
                      buffersize: int = 0,
-                     numbuffers: int = 0,
                      **kws) -> csoundengine.session.Session:
         """
         Get the audio Session used for playback
@@ -504,7 +504,6 @@ class Workspace:
                                      backend=backend,
                                      numchannels=numchannels,
                                      buffersize=buffersize,
-                                     numbuffers=numbuffers,
                                      **kws)
 
     def reverbSynth(self) -> csoundengine.synth.Synth | None:
@@ -733,3 +732,5 @@ def _presetsPath() -> str:
 
 Workspace._initclass()
 ws = getWorkspace
+
+W = getWorkspace()

@@ -7,9 +7,9 @@ from dataclasses import dataclass
 
 from ._common import logger
 from maelzel.common import F
-from maelzel._util import hasOverlap, showT, showFlt
+from maelzel._misc import showT, showFlt
+from maelzel._mathutils import hasOverlap
 from maelzel.core import automation as _automation
-from maelzel.core import presetmanager
 import functools
 
 from typing import TYPE_CHECKING

@@ -20,7 +20,7 @@ import emlib.textlib
 import pitchtools as pt
 
 from maelzel import _imgtools
-from maelzel import _util
+from maelzel import _misc
 from maelzel._indentedwriter import IndentedWriter
 from maelzel.common import F, asF
 from maelzel.music import lilytools
@@ -765,7 +765,7 @@ def renderNode(node: Node,
         if gracenotes:
             for n, parent in gracenotes:
                 parent.items.remove(n)
-            tempnode = Node([n for n, parent in gracenotes], ratio=(1, 1))
+            tempnode = Node((1, 1), [n for n, parent in gracenotes])
             w.add(renderNode(tempnode, durRatios=durRatios, options=options, state=state,
                              indents=indents, indentSize=indentSize))
         durRatios = durRatios + (F(*node.durRatio),)
@@ -830,6 +830,7 @@ def renderNode(node: Node,
                         w.line(rf"\once \set glissandoMap = #'({pairstr})")
 
         # <<<<<<<<<<<<<< The pitches of the event >>>>>>>>>>>>>>
+        assert item.hasRegularDuration(), f"???, {item=}"
         w.add(notationToLily(item, options=options, state=state))
 
         # <<<<<<<<<<<<<< Post pitch >>>>>>>>>>>>>>
@@ -899,6 +900,9 @@ def _numStartGracenotes(part: quant.QuantizedPart) -> int:
 
 def addTimeSignature(w: IndentedWriter, measuredef: MeasureDef, options: RenderOptions):
     timesig = measuredef.timesig
+    if timesig.display is not None:
+        num, den = timesig.display
+        w.line(fr"\set Staff.timeSignature = #'({num} . {den})")
     if len(timesig.parts) == 1:
         num, den = timesig.parts[0]
         if not timesig.subdivisions:
@@ -1004,6 +1008,9 @@ def _renderMeasures(w: IndentedWriter,
         if measuredef.barline and measuredef.barline != 'single':
             w.line(rf'\bar "{_lilyBarlines[measuredef.barline]}"')
 
+        if measuredef.timesig.display:
+            # We need to unset the display signature
+            w.line(rf"\unset Staff.timeSignature")
         w.indents -= 1
         w.line(f"|   % end measure {i+1}")
 
@@ -1349,7 +1356,7 @@ class LilypondRenderer(Renderer):
             open(outfile, "w").write(lilytxt)
 
         elif fmt == 'png' or fmt == 'pdf':
-            lilyfile = _util.mktemp(suffix=".ly")
+            lilyfile = _misc.mktemp(suffix=".ly")
             tempbase = os.path.splitext(lilyfile)[0]
             tempout = f"{tempbase}.{fmt}"
             open(lilyfile, "w").write(lilytxt)
@@ -1386,7 +1393,7 @@ class LilypondRenderer(Renderer):
             # Cascade: if preview: base.preview.fmt, if crop: base.crop.fmt else base.fmt
 
         elif fmt == 'mid' or fmt == 'midi':
-            lilyfile = _util.mktemp(suffix='.ly')
+            lilyfile = _misc.mktemp(suffix='.ly')
             open(lilyfile, "w").write(lilytxt)
             lilytools.renderLily(lilyfile=lilyfile, lilypondBinary=lilypondBinary)
             midifile = emlib.filetools.withExtension(lilyfile, "midi")

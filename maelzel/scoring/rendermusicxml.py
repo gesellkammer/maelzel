@@ -28,7 +28,7 @@ from .node import Node
 from .render import Renderer, RenderOptions
 from . import util
 from maelzel.scoring.tempo import inferMetronomeMark
-from maelzel import _util
+from maelzel import _misc
 
 _articulationAttachments = {
     'staccato': 'staccato',

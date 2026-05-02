@@ -95,6 +95,10 @@ class DynamicCurve:
         """
         return _fromDescr(shape=shape, mindb=mindb, maxdb=maxdb, dynamics=dynamics)
         
+    def __str__(self):
+        mindb, maxdb = self.decibelRange()
+        return f"｢{self._shape} {mindb:.0f}:{maxdb:.0f}ᵈᴮ｣"
+
     def __repr__(self) -> str:
         cls = type(self).__name__
         if self._shape:

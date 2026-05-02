@@ -48,7 +48,7 @@ dependencies = [
     "pygments",
 
     # Own libraries
-    "emlib>=1.20.0",
+    "emlib>=1.21.0",
     "libcsound>=0.10.8",
     "bpf4>=1.14.0",
     "configdict>=2.14",

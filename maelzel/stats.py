@@ -23,7 +23,7 @@ class Quantile1d:
 
     TODO
     """
-    def __init__(self, data: npt.ArrayLike):
+    def __init__(self, data: npt.ArrayLike, handleTies=True):
         arr = np.asarray(data)
         if not arr.ndim == 1:
             raise ValueError("data must be 1-dimensional")
@@ -32,6 +32,7 @@ class Quantile1d:
         self.data = arr.copy()
         self.data.sort()
         self.size = len(arr)
+        self.handleTies = handleTies
 
     def quantile(self, value: float) -> float:
         """
@@ -49,14 +50,21 @@ class Quantile1d:
             return 0.
         elif value > self.data[-1]:
             return 1.
-        idx = int(np.searchsorted(self.data, value))
-        if idx == 0:
-            return 0.
-        val1 = self.data[idx]
-        if val1 > value:
-            val0 = self.data[idx - 1]
-            idx = (value - val0) / (val1 - val0)
-        return idx / self.size
+
+        left = np.searchsorted(self.data, value, side="left")
+        if self.handleTies:
+            right = np.searchsorted(self.data, value, side="right")
+            return float(0.5 * (left + right) / self.size)
+        return float(left / self.size)
+
+    def quantiles(self, values: list[float] | np.ndarray) -> np.ndarray:
+        new_values = np.asarray(values, dtype=float)
+        n = self.size
+        left: np.ndarray = np.searchsorted(self.data, new_values, side="left")
+        if self.handleTies:
+            right: np.ndarray = np.searchsorted(self.data, values, side="right")
+            return 0.5 * (left + right) / n
+        return left / n
 
     def value(self, q: float, method: str = 'linear') -> float:
         """

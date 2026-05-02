@@ -9,7 +9,7 @@ import sys
 from datetime import datetime
 
 from maelzel import _state
-from maelzel._util import getPlatform
+from maelzel._misc import getPlatform
 from maelzel._logutils import getLogger
 
 

@@ -1,8 +1,8 @@
 from __future__ import annotations
 import copy
 
-from maelzel import _util
 from . import definitions
+from maelzel._reprobj import reprObj
 from maelzel.common import F, F0
 
 from typing import TYPE_CHECKING
@@ -64,7 +64,7 @@ class Attachment:
         return copy.deepcopy(self)
 
     def __repr__(self):
-        return _util.reprObj(self, hideFalsy=True)
+        return reprObj(self, hideFalsy=True)
 
     def validate(self, parent: Notation) -> None:
         """
@@ -122,6 +122,8 @@ class Color(Attachment):
     def __init__(self, color: str):
         super().__init__(color=color)
         
+    def __repr__(self):
+        return f"Color({self.color})" if not self.anchor else super().__repr__()
 
 class Hidden(Attachment):
     exclusive = True
@@ -376,7 +378,7 @@ class Text(Attachment):
         self.relativeSize = relativeSize
 
     def __repr__(self):
-        return _util.reprObj(self, hideFalsy=True, hideEmptyStr=True, first=('text',), quoteStrings=('text',), hideKeys=('text',))
+        return reprObj(self, hideFalsy=True, hideEmptyStr=True, first=('text',), quoteStrings=('text',), hideKeys=('text',))
 
     def __hash__(self) -> int:
         return hash(('Text', self.text, self.placement, self.fontsize, self.box))

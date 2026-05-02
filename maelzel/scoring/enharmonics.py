@@ -4,6 +4,7 @@ Find the best enharmonic spelling for a sequence of notes
 from __future__ import annotations
 from collections import defaultdict
 from statistics import stdev
+import sys
 import functools
 from dataclasses import dataclass, astuple as _astuple
 from collections import deque
@@ -556,13 +557,13 @@ class SpellingHistory:
         currentSpelling = self.currentSpelling(index)
         return currentSpelling == 0 or currentSpelling == n.alteration_direction()
 
-    def dump(self) -> None:
+    def dump(self, file=sys.stdout) -> None:
         def idx2name(idx):
             return pt.m2n(60 + idx / 2)[1:]
 
         fixed = {f"{idx}:{idx2name(idx)}": val for idx, val in self.slots.items()
                  if val != 0}
-        print(fixed)
+        print(fixed, file=file)
 
     def addNotation(self, notation: Notation):
         """

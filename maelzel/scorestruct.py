@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-
-import warnings
-from pathlib import Path
+import os
 from dataclasses import dataclass
 from bisect import bisect
-from itertools import groupby
+import itertools
 import functools
 import re
-from maelzel import _util
-
-import emlib.textlib
+from maelzel import _misc
+import maelzel.scoring.util as util
 from maelzel.common import F, asF, F0, _Context
+from maelzel._mathutils import ispowerof2
+
+# This module should not import from maelzel.core
 
 from typing import TYPE_CHECKING, overload as _overload
 if TYPE_CHECKING:
@@ -30,12 +30,8 @@ __all__ = (
     'measureBeatStructure',
     'TimeSignature',
     'convertTempo',
-    'figureDuration',
     'BeatDef'
 )
-
-
-_powersof2 = (1, 2, 4, 8, 16, 32, 64, 128)
 
 
 @dataclass
@@ -68,14 +64,16 @@ class BeatDef:
         because 1==2 * 1/2
 
         A beat of 3/2 in 7/8 measure would have numDenoms=3
-        Returns:
 
+        Returns:
+            The number of denominators in this beat
         """
         den = self.timesig[1]
         dendur = F(4, den)
         size = self.duration / dendur
-        assert int(size) == size
-        return size
+        isize = int(size)
+        assert isize == size
+        return isize
 
     @property
     def end(self) -> F:
@@ -85,6 +83,9 @@ class BeatDef:
     def __repr__(self):
         return f"BeatDef(offset={str(self.offset)}, duration={str(self.duration)}, weight={self.weight})"
 
+
+DEFAULT_TEMPO_RANGE = (48, 160)
+DEFAULT_PREFERRED_TEMPO_RANGE = (52, 132)
 
 class TimeSignature:
     """
@@ -103,10 +104,14 @@ class TimeSignature:
             TimeSignature((7, 8), subdivisions=[(2, 3, 2)]). An empty tuple indicates
             that the subdivisions are not explicitely set. Within a compound time signature,
             the number of subdivisions must equal the number of parts
+        display: if given, this signature is displayed instead of the signature given
+            by parts. Mostly used when you want to define parts as subdivisions (for
+            quantization or clicks) but want to have a different signature displayed.
     """
     def __init__(self,
                  *parts: tuple[int, int],
-                 subdivisions: Sequence[tuple[int, ...]] = ()):
+                 subdivisions: Sequence[tuple[int, ...]] = (),
+                 display: tuple[int, int] | None = None):
 
         self.parts: tuple[tuple[int, int], ...] = parts
         """
@@ -121,6 +126,7 @@ class TimeSignature:
             elif not isinstance(subdivisions, tuple):
                 subdivisions = tuple(subdivisions)
         self.subdivisions = subdivisions
+        self.display = display
 
         minden = max(den for num, den in parts)
         numerators = [num * minden // den for num, den in parts]
@@ -188,8 +194,11 @@ class TimeSignature:
         return F(num, den) * 4
 
     def __str__(self):
-        parts = [f"{num}/{den}" for num, den in self.parts]
-        return "+".join(parts)
+        real = "+".join(f"{num}/{den}" for num, den in self.parts)
+        if self.display:
+            n, d = self.display
+            return f"{n/d}({real})"
+        return real
 
     def _reprInfo(self) -> str:
         parts = []
@@ -198,7 +207,11 @@ class TimeSignature:
             if self.subdivisions and (partsubs := self.subdivisions[i]):
                 s += "(" + "+".join(str(num) for num in partsubs) + ")"
             parts.append(s)
-        return "+".join(parts)
+        out = "+".join(parts)
+        if self.display is not None:
+            num, den = self.display
+            out += f", display: {num}/{den}"
+        return out
 
     def __repr__(self):
         return f"TimeSignature({self._reprInfo()})"
@@ -237,16 +250,26 @@ class TimeSignature:
         elif isinstance(timesig, str):
             # Possible signatures: 3/4, 3/8+3/8+2/8, 5/8(3-2), 5/8(3+2)+3/16
             # parts = re.split(r"\+(?![^(]*\))", timesig)
+            if ":" in timesig:
+                timesig, displaysigstr = timesig.split(":", maxsplit=1)
+                try:
+                    displaysig = parseSimpleTimeSignature(displaysigstr)
+                except ValueError as e:
+                    e.add_note(f"Could not parse {displaysigstr}")
+                    raise e
+                assert isinstance(timesig, str)
+            else:
+                displaysig = None
             parts = splitSignature(timesig)
             parsedParts = [_parsePart(part) for part in parts]
             if len(parsedParts) == 1:
                 signature, subdivs = parsedParts[0]
                 if subdivs and subdivisions:
                     raise ValueError("Duplicate subdivision structure")
-                return TimeSignature(signature, subdivisions=[subdivs or subdivisions])
+                return TimeSignature(signature, subdivisions=[subdivs or subdivisions], display=displaysig)
             signatures, subdivs = zip(*parsedParts)
             # We ignore subdivisions for compound signatures
-            return TimeSignature(*signatures, subdivisions=subdivs)
+            return TimeSignature(*signatures, subdivisions=subdivs, display=displaysig)
 
         else:
             raise TypeError(f"Expected a str or a tuple, got {timesig}")
@@ -278,6 +301,21 @@ class TimeSignature:
             return False
         denoms = set(denom for num, denom in self.parts)
         return len(denoms) >= 2
+
+
+def parseSimpleTimeSignature(s: str) -> tuple[int, int]:
+    TIME_SIGNATURE_RE = re.compile(r'^\s*([1-9]\d*)/([1-9]\d*)\s*$')
+    match = TIME_SIGNATURE_RE.match(s)
+    if not match:
+        raise ValueError("Invalid time signature")
+    denominator = int(match.group(2))
+    if not ispowerof2(denominator):
+        raise ValueError("Invalid denominator in time signature")
+    numerator = int(match.group(1))
+    if numerator <= 0:
+        raise ValueError("Invalid numerator in time signature")
+    return numerator, denominator
+
 
 
 def splitSignature(signature: str) -> list[str]:
@@ -530,8 +568,8 @@ def convertTempo(tempo: F | int | float,
     """
     sourcefig = _asFigure(source)
     destfig = _asFigure(dest)
-    sourcedur = figureDuration(*sourcefig)
-    destdur = figureDuration(*destfig)
+    sourcedur = util.figureToDuration(*sourcefig)
+    destdur = util.figureToDuration(*destfig)
     return tempo * sourcedur / destdur
 
 
@@ -539,11 +577,11 @@ def _asFigure(fig: tuple[int, int] | F | int) -> tuple[int, int]:
     if isinstance(fig, tuple):
         return fig
     elif isinstance(fig, F):
-        return durationToFigure(fig)
+        return util.durationToFigure(fig)
     elif isinstance(fig, int):
         return (fig, 0)
     elif isinstance(fig, float):
-        return durationToFigure(F(fig))
+        return util.durationToFigure(F(fig))
     else:
         raise ValueError(f"Cannot convert to a figure: {fig}")
 
@@ -574,7 +612,7 @@ def _parseTempoRefvalue(ref: str) -> tuple[int, int]:
                              f"value '{refvaluestr}'. Examples of valid tempos: 4=60, 8=72, "
                              f"8.=96, etc.") from e
 
-    if refvalue not in _powersof2:
+    if not ispowerof2(refvalue) or refvalue > 256:
         raise ValueError(f"Could not parse tempo: '{ref}', reference value {refvalue} should be a power of 2")
     return refvalue, numdots
 
@@ -648,7 +686,7 @@ def _parseLine(line: str) -> _ScoreLine:
     line = line.strip()
     tempodef: TempoDef | None = None
     # This splits at the separator but not when inside parens
-    parts = [_.strip() for _ in _util.splitStr(line, sep=",")]
+    parts = [_.strip() for _ in _misc.splitStr(line, sep=",")]
     # The first argument is special: it's the only one which can be an index
     measureidx: int | None = None
     timesig = ''
@@ -711,7 +749,7 @@ def compoundGroups(parts: Sequence[tuple[int, int]]) -> list[tuple[int, ...]]:
         adjacent parts sharing a denom. a joined
     """
     result = []
-    for denom, group in groupby(parts, key=lambda p: p[1]):
+    for denom, group in itertools.groupby(parts, key=lambda p: p[1]):
         numerators = [p[0] for p in group]
         result.append(tuple(numerators + [denom]))
     return result
@@ -829,7 +867,7 @@ class MeasureDef:
         self._barline = barline
         """The barline style, or '' to use default"""
 
-        self.mark: Mark | None = mark or None
+        self.mark: Mark | None = mark if isinstance(mark, Mark) else Mark(mark) if mark else None
         """If given, a RehearsalMark for this measure"""
 
         self.key = key
@@ -948,12 +986,15 @@ class MeasureDef:
                 given instead with the duration of the rhythmic value as a fraction
                 of the quarter note (quarter=F(1), dotted 8th note=F(3, 4))
         """
+        assert tempo > 0
         if self.const:
             raise ValueError("This MeasureDef is readonly")
         if not reference:
             reference = self.tempoRef
         elif isinstance(reference, F):
-            reference = durationToFigure(reference)
+            assert reference > 0
+            reference = util.durationToFigure(reference)
+        assert isinstance(reference, tuple)
         self._setTempo(asF(tempo), reference, inherited=False)
         if self.parent:
             self.parent.modified()
@@ -1024,8 +1065,8 @@ class MeasureDef:
         return measureBeatStructure(self.timesig,
                                     tempo=self.tempo,
                                     tempoRef=self.tempoRef,
-                                    tempoRange=self.tempoRange or self.parent.tempoRange,
-                                    preferredTempoRange=self.parent.preferredTempoRange,
+                                    tempoRange=self.tempoRange or (self.parent.tempoRange if self.parent is not None else (48, 160)),
+                                    preferredTempoRange=self.parent.preferredTempoRange if self.parent else (52, 144),
                                     breakTempo=self.beatWeightTempoThresh())
 
     def asScoreLine(self) -> str:
@@ -1051,7 +1092,7 @@ class MeasureDef:
                           tempo=self._tempo,
                           annotation=self.annotation,
                           barline=self.barline,
-                          mark=self.mark,
+                          mark=self.mark or '',
                           tempoRef=self.tempoRef,
                           key=self.key,
                           parent=self.parent,
@@ -1072,7 +1113,7 @@ class MeasureDef:
         parts = []
         timesig = str(self._timesig)
         parts.append(timesig)
-        fig = unicodeDuration(self.tempoRef)
+        fig = util.unicodeDuration(self.tempoRef)
         parts.append(f"{fig}={self._tempo}")
         if self.tempoRef != (4, 0):
             parts.append(f'quarterTempo={self._quarterTempo}')
@@ -1144,7 +1185,7 @@ class MeasureDef:
             timesig=self.timesig,
             tempo=self.tempo,
             tempoRef=self.tempoRef,
-            tempoRange=self.tempoRange or self.parent.tempoRange,
+            tempoRange=self.tempoRange or (self.parent.tempoRange if self.parent else (DEFAULT_TEMPO_RANGE)),
             preferredTempoRange=self.parent.preferredTempoRange)
         return durs
 
@@ -1159,40 +1200,6 @@ class MeasureDef:
         return self.timesig._reprInfo()
 
 
-@functools.cache
-def figureDuration(base: int, dots: int) -> F:
-    """
-    Convert a notated figure to a duration in quarter notes
-
-    Args:w
-        base: the base duration, where 4=quarter note, 8=eighth note, etc
-        dots: number of dots
-
-    Returns:
-        the duration in quarter notes
-
-
-    =====  =====  =========
-    base   dots   duration
-    =====  =====  =========
-    4      0      1
-    4      1      3/2
-    4      2      7/4
-    4      3      15/8
-    8      0      1/2
-    8      1      1/2 * 3/2
-    =====  =====  =========
-
-
-    """
-    refdur = F(4, base)
-    if dots > 0:
-        den = 2 ** dots
-        num = (2 ** (dots + 1)) - 1
-        refdur = refdur * num / den
-    return refdur
-
-
 def _subdivRepr(f: F, timesigDen: int) -> str:
     f = f * (timesigDen // 4)
     if f.denominator == 1:
@@ -1200,65 +1207,65 @@ def _subdivRepr(f: F, timesigDen: int) -> str:
     return f"{f.numerator}/{f.denominator}"
 
 
-def inferSubdivisions(num: int, den: int,
-                      tempo: F,
-                      tempoRef=(4, 0),
-                      minTempoBinary=48,
-                      minTempoTernary: int = 0,
-                      maxTempo=96
-                      ) -> tuple[int, ...]:
-    """
-    Infer the subdivisions of a measure
-
-    Args:
-        num: numerator of the time signature. Compound time signatures are not
-            supported but the parts of the time signature can be passed to
-            this function
-        den: denominator of the time signautre
-        tempo: tempo value
-        tempoRef: reference ryhthmic figure for the given tempo
-        minTempoBinary: min. quarter tempo for a binary beat. A beat resulting
-            in a tempo slower than this will be subdivided in two
-        minTempoTernary: min. quarter tempo for a ternary beat. A beat resulting
-            in a tempo slower than this will be subdivided in three. If not given, the same
-            value passed to minBinaryTempo is used (adapted to a ternary beat)
-        maxTempo: if the pulse quarter tempo is slower than this value, the measure
-            is split into the pulses as indicated in the time signature. For example,
-            for a time signature of 7/8, if the tempo of an 8th note is slower
-            than `maxTempo`, the measure is subdivided in 7 8th note beats. Any
-            tempo faster than this value will group beats together, either as 2+2+1+1+1
-            or 2+2+3, depending on the tempo.
-
-    Returns:
-        the subdivisions, as multiples of the denominator
-
-    """
-    # TODO: make this more clever...
-    if not minTempoTernary:
-        minTempoTernary = minTempoBinary * 2 / 3
-
-    qtempo = asQuarterTempo(tempo, *tempoRef)
-    denomtempo = convertTempo(qtempo, (4, 0), (den, 0))
-
-    if minTempoBinary <= denomtempo <= maxTempo:
-        out = tuple([1] * num)
-    elif num % 2 == 0 and denomtempo / 2 >= minTempoBinary:
-        out = tuple([2] * (num // 2))
-    elif num % 3 == 0 and denomtempo / 3 >= minTempoTernary:
-        out = tuple([3] * (num // 3))
-    else:
-        subdivs = []
-        while num > 3:
-            subdivs.append(2)
-            num -= 2
-        if num:
-            assert num == 1 or num == 3
-            if num == 3 and denomtempo / 3 >= minTempoTernary:
-                subdivs.append(3)
-            else:
-                subdivs.extend([1] * num)
-        out = tuple(subdivs)
-    return out
+# def inferSubdivisions(num: int, den: int,
+#                       tempo: F,
+#                       tempoRef=(4, 0),
+#                       minTempoBinary=48,
+#                       minTempoTernary: int = 0,
+#                       maxTempo=96
+#                       ) -> tuple[int, ...]:
+#     """
+#     Infer the subdivisions of a measure
+#
+#     Args:
+#         num: numerator of the time signature. Compound time signatures are not
+#             supported but the parts of the time signature can be passed to
+#             this function
+#         den: denominator of the time signautre
+#         tempo: tempo value
+#         tempoRef: reference ryhthmic figure for the given tempo
+#         minTempoBinary: min. quarter tempo for a binary beat. A beat resulting
+#             in a tempo slower than this will be subdivided in two
+#         minTempoTernary: min. quarter tempo for a ternary beat. A beat resulting
+#             in a tempo slower than this will be subdivided in three. If not given, the same
+#             value passed to minBinaryTempo is used (adapted to a ternary beat)
+#         maxTempo: if the pulse quarter tempo is slower than this value, the measure
+#             is split into the pulses as indicated in the time signature. For example,
+#             for a time signature of 7/8, if the tempo of an 8th note is slower
+#             than `maxTempo`, the measure is subdivided in 7 8th note beats. Any
+#             tempo faster than this value will group beats together, either as 2+2+1+1+1
+#             or 2+2+3, depending on the tempo.
+#
+#     Returns:
+#         the subdivisions, as multiples of the denominator
+#
+#     """
+#     # TODO: make this more clever...
+#     if not minTempoTernary:
+#         minTempoTernary = minTempoBinary * 2 / 3
+#
+#     qtempo = asQuarterTempo(tempo, *tempoRef)
+#     denomtempo = convertTempo(qtempo, (4, 0), (den, 0))
+#
+#     if minTempoBinary <= denomtempo <= maxTempo:
+#         out = tuple([1] * num)
+#     elif num % 2 == 0 and denomtempo / 2 >= minTempoBinary:
+#         out = tuple([2] * (num // 2))
+#     elif num % 3 == 0 and denomtempo / 3 >= minTempoTernary:
+#         out = tuple([3] * (num // 3))
+#     else:
+#         subdivs = []
+#         while num > 3:
+#             subdivs.append(2)
+#             num -= 2
+#         if num:
+#             assert num == 1 or num == 3
+#             if num == 3 and denomtempo / 3 >= minTempoTernary:
+#                 subdivs.append(3)
+#             else:
+#                 subdivs.extend([1] * num)
+#         out = tuple(subdivs)
+#     return out
 
 
 @functools.cache
@@ -1291,7 +1298,7 @@ def measureSubdivisions(timesig: TimeSignature,
                         tempo: F,
                         tempoRange: tuple[int, int],
                         tempoRef=(4, 0),
-                        preferredTempoRange = (52, 132),
+                        preferredTempoRange = DEFAULT_PREFERRED_TEMPO_RANGE,
                         ) -> tuple[list[F], list[int], list[int]]:
     """
     Returns a list of beat durations
@@ -1343,8 +1350,8 @@ def measureSubdivisions(timesig: TimeSignature,
 
 def beatDurations(timesig: timesig_t,
                   quarterTempo: F | int,
-                  tempoRange = (48, 156),
-                  preferredTempoRange = (56, 116),
+                  tempoRange = DEFAULT_TEMPO_RANGE,
+                  preferredTempoRange = DEFAULT_PREFERRED_TEMPO_RANGE,
                   subdivisions: tuple[int, ...] = ()) -> tuple[list[F], list[int]]:
     """
     Partitions the measure into beats, returns their durations and weights
@@ -1399,7 +1406,7 @@ def beatDurations(timesig: timesig_t,
             subdivisions=subdivisions)
         return [d/2 for d in durs], weights
 
-    assert dentempo >= preferredMaxTempo
+    assert dentempo >= minTempo < preferredMinTempo, f"{dentempo=}, {preferredMaxTempo=}, {preferredMinTempo=}"
     # groups = []
     weights: list[int]
 
@@ -1451,8 +1458,14 @@ def beatDurations(timesig: timesig_t,
 
     elif num % 2 == 0:
         # 10/8 -> 2+2+2+2+2
-        groups = [dendur*2] * (num // 2)
-        weights = [1, 0] * len(groups)
+        # 4/4 -> 2/4 + 2/4
+        numgroups = num // 2
+        groups = [dendur*2] * numgroups
+        if numgroups % 2 == 0:
+            weights = [1, 0] * (numgroups//2)
+        else:
+            weights = [1, 0] * ((numgroups - 3) // 2) + [1, 0, 0]
+            assert len(weights) == len(groups), f"{groups=}, {weights=}"
     elif num == 5:
         if dentempo / 3 >= minTempo and dentempo/2 <= maxTempo:
             groups = [dendur*2, dendur*3]
@@ -1535,79 +1548,6 @@ def beatDurations(timesig: timesig_t,
     return groups, weights
 
 
-# def _beatDurations(timesig: timesig_t,
-#                    tempo: F,
-#                    tempoRef=(4, 0),
-#                    subdivMaxTempo=96,
-#                    subdivisions: tuple[int, tuple[int, ...]] = ()
-#                    ) -> list[F]:
-#     """
-#     Returns the beat durations for the given time signature
-#
-#     Args:
-#         timesig: the timesignature of the measure or of the part of the measure
-#             (compound signatures are not supported here), a tuple (num, den)
-#         tempo: the tempo value corresponding to the tempo reference
-#         tempoRef: reference duration for the tempo given. (4, 0) indicates a
-#             quarter note without dots
-#         subdivMaxTempo: max tempo for a subdivision, in quarternote tempo.
-#             A slower tempo will divide beats into subdivisions. For example, a 5/8 measure
-#             with a quarterTempo of 40 and a subdivMaxTempo of 96 will
-#             subdivide the measure into 5 8th notes. A faster
-#             tempo (in this case faster than 48) will result in 2+2+1
-#         subdivisions: if given, a tuple (denominator, list of subdivision lengths)
-#             For example, a 5/8 measure could have a subdivision structure of (8, (2, 3)) or
-#             (8, (3, 2)).
-#
-#     Returns:
-#         a list of durations, as Fraction
-#
-#     ::
-#
-#         4/8 -> [1, 1]
-#         2/4 -> [1, 1]
-#         3/4 -> [1, 1, 1]
-#         5/8 -> [1, 1, 0.5]
-#         5/16 -> [0.5, 0.5, 0.25]
-#
-#     """
-#     quarterTempo = asQuarterTempo(tempo, *tempoRef)
-#     measuredur = measureDuration(timesig)
-#     timesignum, timesigden = timesig
-#     if subdivisions:
-#         _checkSubdivisionStructure(subdivisions)
-#         subdivden, subdivnums = subdivisions
-#         out = [F(4*subdivnum, subdivden) for subdivnum in subdivnums]
-#     elif timesigden == 4:
-#         if quarterTempo < subdivMaxTempo/2 or (tempoRef == (8, 0) and tempo <= subdivMaxTempo):
-#             out = [F(1, 2)] * (2 * measuredur.numerator)
-#         else:
-#             out = [F(1)] * measuredur.numerator
-#     elif timesigden == 8:
-#         print(f"-------------- here 8, {timesig=}, {quarterTempo=}, {subdivMaxTempo=}")
-#
-#         if tempoRef == (8, 0) or quarterTempo <= subdivMaxTempo/2:
-#             # render all beats as 1/8 notes
-#             out = [F(1, 2)]*timesignum
-#         else:
-#             subdivstruct = inferSubdivisions(num=timesignum, den=timesigden, tempo=tempo, tempoRef=tempoRef)
-#             out = [F(num, timesigden // 4) for num in subdivstruct]
-#     else:
-#         # 9/16, 8.=60: convert to 9/8, 4.=60, factor = 2, divide by factor
-#         print(f"-------------- here 16, {timesig=}")
-#         factor = F(timesigden, 8)
-#         beatdurs = _beatDurations((timesignum, 8),
-#                                  tempo=tempo,
-#                                  tempoRef=(int(tempoRef[0]/factor), tempoRef[1]))
-#         out = [F(dur)/factor for dur in beatdurs]
-#     if (subdivs := sum(out)) != measuredur:
-#         raise ValueError(f"The sum of the subdivisions ({subdivs}) does not"
-#                          f"match the number of quarters ({measuredur}) in this time "
-#                          f"signature ({timesig[0]}/{timesig[1]}). Subdivision structure: "
-#                          f"{subdivisions}, durations: {out}")
-#     return out
-
-
 @functools.cache
 def measureBeatStructure(timesig: TimeSignature,
                          tempo: F | int | float,
@@ -1649,8 +1589,10 @@ def measureBeatStructure(timesig: TimeSignature,
     beats = []
     now = F0
     qtempo = asQuarterTempo(tempo, *tempoRef)
+    breakDur = 60 / breakTempo
     for dur, weight, timesigidx in zip(subdivDurs, weights, idxs):
-        if weight == 0 and dur * 60 / qtempo <= breakTempo:
+        if weight == 0 and dur * 60 / qtempo > breakDur:
+            print(f"weight 1, {now=}, {qtempo=}")
             weight = 1
         beats.append(BeatDef(offset=now, duration=dur, weight=weight, timesig=timesig.parts[timesigidx]))
         now += dur
@@ -1661,76 +1603,6 @@ def measureBeatStructure(timesig: TimeSignature,
 
     return beats
 
-    # --------------------------------------------
-    # N = len(subdivDurs)
-    # if N == 1:
-    #     weights = [1]
-    # elif N % 2 == 0:
-    #     weights = [1, 0] * (N//2)
-    # elif N % 3 == 0:
-    #     weights = [1, 0, 0] * (N//3)
-    # else:
-    #     weights = [1, 0] * (N//2)
-    #     weights.append(0)
-    #
-    # now = F(0)
-    # beatOffsets = []
-    # weakBeatDurThreshold = F(60) / breakTempo
-    # for i, dur in enumerate(subdivDurs):
-    #     beatOffsets.append(now)
-    #     now += dur
-    #     if dur.numerator == 3:
-    #         weights[i] = 1
-    #     else:
-    #         beatRealDur = dur * (F(60)/qtempo)
-    #         if beatRealDur > weakBeatDurThreshold:
-    #             weights[i] += 1
-    #
-    # # weights[0] = max(weights) + 1
-    # assert len(beatOffsets) == len(subdivDurs) == len(weights)
-    # return [BeatDef(offset, duration, weight)
-    #         for offset, duration, weight in zip(beatOffsets, subdivDurs, weights)]
-
-
-# def beatOffsets(timesig: timesig_t,
-#                 tempo: F | int,
-#                 tempoRef=(4, 0),
-#                 subdivisions: tuple[int, ...] = (),
-#                 ) -> list[F]:
-#     """
-#     Returns the offsets of the beats within a measure (first offset is always 0)
-#
-#     The last value refers to the offset of the end of the measure
-#
-#     Args:
-#         timesig: the timesignature as a tuple (num, den)
-#         tempo: the tempo of the measure
-#         tempoRef: reference duration for the tempo value, (4, 0) indicates
-#             a quarter note without dots
-#         subdivisions: if given, a list of subdivision lengths. For example,
-#             a 5/8 measure could have a subdivision structure of (2, 3) or (3, 2)
-#
-#     Returns:
-#         a list of fractions representing the start time of each beat, plus the
-#         end time of the measure (== the start time of the next measure)
-#
-#     Example::
-#         >>> beatOffsets((5, 8), 60)
-#         [Fraction(0, 1), Fraction(1, 1), Fraction(2, 1), Fraction(5, 2)]
-#         # 0, 1, 2, 2.5
-#     """
-#     subdivstruct = () if not subdivisions else (timesig[1], subdivisions)
-#     # beatdurs = beatDurations(timesig,
-#     #                          tempo=tempo,
-#     #                          tempoRef=tempoRef,
-#     #                          subdivisions=subdivstruct)
-#     beatdurs = bestBeatGroups(timesig,
-#                               quarterTempo=asQuarterTempo(tempo, *tempoRef),
-#                               subdivisions=subdivstruct)
-#     beatOffsets = [F(0)]
-#     beatOffsets += list(accumulate(beatdurs))
-#     return beatOffsets
-#
 
 class ScoreStruct:
     """
@@ -1841,8 +1713,8 @@ class ScoreStruct:
                  composer='',
                  const=False,
                  breakTempo: int = 48,
-                 tempoRange=(48, 160),
-                 preferredTempoRange=(52, 132)):
+                 tempoRange=DEFAULT_TEMPO_RANGE,
+                 preferredTempoRange=DEFAULT_PREFERRED_TEMPO_RANGE):
 
         # holds the time offset (in seconds) of each measure
         self._timeOffsets: list[F] = []
@@ -1906,7 +1778,7 @@ class ScoreStruct:
     def __eq__(self, other: ScoreStruct) -> int:
         return hash(self) == hash(other)
 
-    def _parseScore(self, s: str, initialTempo=60, initialTimeSignature=(4, 4)
+    def _parseScore(self, s: str, initialTempo: int | float | F = 60, initialTimeSignature=(4, 4)
                     ) -> None:
         """
         Create a ScoreStruct from a string definition
@@ -1955,18 +1827,13 @@ class ScoreStruct:
         """
         assert not self.measures
         lines = re.split(r'[\n;]', s)
-        lines = emlib.textlib.linesStrip(lines)
+        lines = _misc.linesStrip(lines)
         if lines[-1].strip() == '...':
             self.endless = True
             lines = lines[:-1]
 
-        def lineStrip(line: str) -> str:
-            if "#" in line:
-                line = line.split("#")[0]
-            return line.strip()
-
         for i, line0 in enumerate(lines):
-            line0 = lineStrip(line0)
+            line0 = line0.split("#", maxsplit=1)[0].strip if "#" in line0 else line0.strip()
             if not line0:
                 continue
 
@@ -3060,19 +2927,15 @@ class ScoreStruct:
 
         """
         import tempfile
-        from maelzel.core import environment
-        import emlib.misc
 
         outfile = tempfile.mktemp(suffix='.' + fmt)
         self.write(outfile, backend=backend, renderoptions=renderoptions)
 
-        if fmt == 'png':
+        if fmt == 'png' and _misc.insideJupyter():
             from maelzel.core import _jupytertools
-            if environment.insideJupyter and not app:
-                _jupytertools.jupyterShowImage(outfile, scalefactor=scalefactor, maxwidth=1200)
-            else:
-                emlib.misc.open_with_app(outfile, app=app or None)
+            _jupytertools.jupyterShowImage(outfile, scalefactor=scalefactor, maxwidth=1200)
         else:
+            import emlib.misc
             emlib.misc.open_with_app(outfile, app=app)
 
     def dump(self, index=True, beatstruct=True) -> None:
@@ -3081,8 +2944,8 @@ class ScoreStruct:
         """
         self._update()
 
-        from maelzel import _util
-        if _util.pythonSessionType() == 'jupyter':
+        from maelzel import _misc
+        if _misc.insideJupyter():
             from IPython.display import display, HTML
             display(HTML(self._repr_html_()))
         else:
@@ -3145,16 +3008,16 @@ class ScoreStruct:
             return f"ScoreStruct([{s}])"
 
     def __enter__(self):
-        from maelzel.core import getWorkspace
-        w = getWorkspace()
+        from maelzel.core.workspace import Workspace
+        w = Workspace.active
         self._prevScoreStruct = w.scorestruct
         w.scorestruct = self
         return self
 
     def __exit__(self, *args, **kws):
         assert self._prevScoreStruct is not None
-        from maelzel.core import getWorkspace
-        getWorkspace().scorestruct = self._prevScoreStruct
+        from maelzel.core.workspace import Workspace
+        Workspace.active.scorestruct = self._prevScoreStruct
 
     def _repr_html_(self) -> str:
         self._update()
@@ -3177,7 +3040,7 @@ class ScoreStruct:
         for i, m in enumerate(self.measures):
             if (newtempodef := m.tempoDef()) != tempodef:
                 reffigure, numdots = m.tempoRef
-                refstr = unicodeDuration((reffigure, numdots))
+                refstr = util.unicodeDuration((reffigure, numdots))
                 tempovaluestr = ("%.3f" % m.tempo).rstrip("0").rstrip(".")
                 tempostr = f"{refstr}={tempovaluestr}"
                 tempodef = newtempodef
@@ -3191,7 +3054,7 @@ class ScoreStruct:
             parts = []
             for beat in beatstruct:
                 try:
-                    fig = unicodeDuration(beat.duration)
+                    fig = util.unicodeDuration(beat.duration)
                 except ValueError:
                     fig = str(beat.duration)
                 parts.append(fig)
@@ -3228,7 +3091,7 @@ class ScoreStruct:
             an empty quantized score
         """
         self._update()
-        from maelzel.scoring import quant
+        import maelzel.scoring.quant as quant
         quantprofile = quant.QuantizationProfile()
         measures = [quant.QuantizedMeasure(timesig=m.timesig, tempo=m.tempo, tempoRef=m.tempoRef,
                                            quantprofile=quantprofile, beats=[])
@@ -3294,13 +3157,12 @@ class ScoreStruct:
                              f"{len(self)} measures defined")
         meas = self.measure(measure)
         oldtempo, oldref = meas.tempo, meas.tempoRef
-        tempo = asF(tempo)
-        if isinstance(reference, F):
-            reference = durationToFigure(reference)
-        meas._setTempo(tempo=tempo, reference=reference, inherited=False)
+        ftempo = asF(tempo)
+        reftup = reference if isinstance(reference, tuple) else util.durationToFigure(reference)
+        meas._setTempo(tempo=ftempo, reference=reftup, inherited=False)
         for m in self.measures[measure + 1:]:
             if m.tempoInherited:
-                m._setTempo(tempo=tempo, reference=reference, inherited=True)
+                m._setTempo(tempo=ftempo, reference=reftup, inherited=True)
             else:
                 break
         self.modified()
@@ -3384,7 +3246,7 @@ class ScoreStruct:
         return True
 
     def write(self,
-              path: str | Path,
+              path: str,
               backend='',
               renderoptions: RenderOptions | None = None
               ) -> None:
@@ -3407,21 +3269,21 @@ class ScoreStruct:
                 process.
         """
         self._update()
-        path = Path(path)
-        if path.suffix == ".xml":
+        ext = os.path.splitext(path)[1]
+        if ext == ".xml":
             raise ValueError("musicxml output is not supported yet")
-        elif path.suffix in (".pdf", '.png', '.ly'):
+        elif ext in (".pdf", '.png', '.ly'):
             r = self.render(backend=backend, renderoptions=renderoptions)
             r.write(str(path))
-        elif path.suffix == '.mid' or path.suffix == '.midi':
+        elif ext == '.mid' or ext == '.midi':
             sco = _filledScoreFromStruct(self)
-            sco.write(str(path))
-        elif path.suffix == '.txt':
+            sco.write(path)
+        elif ext == '.txt':
             text = self.asText()
             with open(path, 'w') as f:
                 f.write(text)
         else:
-            raise ValueError(f"Extension {path.suffix} not supported, "
+            raise ValueError(f"Extension {ext} not supported, "
                              f"should be one of .xml, .pdf, .png or .ly")
 
     def setEnd(self, numMeasures: int) -> None:
@@ -3480,6 +3342,7 @@ class ScoreStruct:
         """
         Deprecated, use clickTrack instead
         """
+        import warnings
         warnings.warn("makeClickTrack is deprecated, use clickTrack instead",
                       DeprecationWarning, stacklevel=2)
         return self.clickTrack(*args, **kws)
@@ -3569,90 +3432,5 @@ def _filledScoreFromStruct(struct: ScoreStruct, pitch='4C') -> maelzel.core.Scor
         now += dur
     voice = Voice(events)
     return Score([voice], scorestruct=struct)
-
-
-@functools.cache
-def unicodeDuration(dur: tuple[int, int] | F) -> str:
-    """
-    Returns the given notated duration as a unicode str
-
-    Args:
-        dur: either a duration as a Fraction or a figure as tuple (base: int, dots: int),
-            where base represents the notated figure (4=quarter note, 8=eigth note, etc)
-            and dots is the number of dots
-
-    Returns:
-        the unicode representation
-    """
-    if isinstance(dur, F):
-        if dur.numerator == 5:
-            part1 = unicodeDuration(dur - F(1, dur.denominator))
-            part2 = unicodeDuration(F(1, dur.denominator))
-            return part1 + "͜" + part2
-        elif dur.numerator in (1, 2, 3, 4, 6, 7, 8, 15):
-            base, dots = durationToFigure(dur)
-        else:
-            raise ValueError(f"Invalid notated duration: {dur}")
-    else:
-        base, dots = dur
-
-    figures = {
-        1: "𝅝",
-        2: "𝅗𝅥",
-        4: "𝅘𝅥",
-        8: "𝅘𝅥𝅮",
-        16: "𝅘𝅥𝅯",
-        32: "𝅘𝅥𝅰",
-        64: "𝅘𝅥𝅱",
-    }
-    base = figures.get(base)
-    if not base:
-        raise ValueError(f"Invalid figure, expected a power of 2 between 1 and 64, got {base}")
-    return base + '𝅭' * dots
-
-
-def durationToFigure(dur: F, maxdots=5) -> tuple[int, int]:
-    """
-    Convert a duration in quarter notes (as a fraction) to a notated duration
-
-    Args:
-        dur: duration as a fraction
-        maxdots: max. number of dots allowed
-
-    Returns:
-        a tuple (basedur: int, numdots: int) where basedur represents the
-        base duration (4=quarter note, 8=8th note, etc.) and numdots represents
-        the number of dots
-
-
-    .. note::
-
-        A dotted note has duration = base * (2^(dots+1) - 1) / 2^dots
-        Relative to quarter note: (4/base) * (2^(dots+1) - 1) / 2^dots = num/denom
-    """
-    # Simplify: 4 * denom * (2^(dots+1) - 1) = base * num * 2^dots
-
-    # Count trailing zeros in numerator (these become dots)
-    # numerator must be odd times a power of 2 minus that power
-
-    # Try to express as: numerator/denominator = (4/base) * (2^(n+1) - 1) / 2^n
-    # This means: numerator * 2^n = denominator * 4 * (2^(n+1) - 1) / base
-    num, den = dur.numerator, dur.denominator
-
-    for numdots in range(maxdots+1):
-        # (2^(dots+1) - 1) is the pattern for dots
-        dotsFactor = (2 ** (numdots + 1)) - 1
-
-        # Check if numerator * 2^dots / dots_factor gives us an integer
-        if (num * (2 ** numdots)) % dotsFactor == 0:
-            k = (num * (2 ** numdots)) // dotsFactor
-            base = (4 * den) // k
-
-            # Verify and check base is valid
-            if k * base == 4 * den and base in _powersof2:
-                return (base, numdots)
-
-    raise ValueError(f"Cannot represent {num}/{den} as a standard "
-                     f"duration with dots")
 
 

@@ -1,7 +1,7 @@
 import sys
 
 from maelzel import _state
-from maelzel import _util
+from maelzel import _misc
 
 
 def _firstRun():
@@ -34,10 +34,10 @@ if "sphinx" not in sys.modules:
         _firstRun()
     else:
         lastVersion = _state.state['last_version']
-        lastVersionTup = _util.splitVersion(lastVersion) if lastVersion else (0, 0, 0)
+        lastVersionTup = _misc.splitVersion(lastVersion) if lastVersion else (0, 0, 0)
         from importlib.metadata import version
         currVersion = version("maelzel")
-        currVersionTup = _util.splitVersion(currVersion)
+        currVersionTup = _misc.splitVersion(currVersion)
         if currVersionTup > lastVersionTup:
             from maelzel import dependencies
             dependencies.checkDependencies()  # <-- this updates _state.state

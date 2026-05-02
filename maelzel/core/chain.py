@@ -5,7 +5,8 @@ import itertools
 import weakref
 
 from maelzel.common import F, asF, F0
-from maelzel import _util
+from maelzel import _misc
+from maelzel import _mathutils
 from maelzel.core.config import CoreConfig
 from .mobj import MObj, MContainer
 from .event import MEvent, asEvent, Note, Chord
@@ -18,7 +19,8 @@ from . import _tools
 from ._common import logger
 
 
-from maelzel import scoring
+from maelzel.scoring import core as sc
+from maelzel.scoring import spanner
 
 
 from typing import TYPE_CHECKING, overload
@@ -61,8 +63,8 @@ def _removeRedundantOffsets(items: list[MEvent | Chain],
                     modified = True
                     item.offset = None
             elif absoffset < now:
-                raise ValueError(f"Items overlap: {item} (abs. offset={_util.showT(absoffset)}) "
-                                 f"starts before current time ({_util.showT(now)})")
+                raise ValueError(f"Items overlap: {item} (abs. offset={_misc.showT(absoffset)}) "
+                                 f"starts before current time ({_misc.showT(now)})")
             else:
                 now = absoffset
 
@@ -127,7 +129,7 @@ class Chain(MContainer):
             else:
                 if isinstance(items, str):
                     # split using new lines and semicolons as separators
-                    tokens = _tools.regexSplit('[\n;]', items, strip=True, removeEmpty=True)
+                    tokens = _misc.regexSplit('[\n;]', items, strip=True, removeEmpty=True)
                     tokens2 = [_tools.stripNoteComments(token) for token in tokens]
                     items = [asEvent(tok) for tok in tokens2 if tok]
 
@@ -591,7 +593,7 @@ class Chain(MContainer):
                 for ev in allevents:
                     preset = presetman.getPreset(ev.instr)
                     if autom.param in preset.dynamicParams(aliases=True, aliased=True):
-                        t0, t1 = _util.overlap(startsecsf, endsecsf, ev.delay, ev.end)
+                        t0, t1 = _mathutils.overlap(startsecsf, endsecsf, ev.delay, ev.end)
                         if t0 <= t1:
                             synthautom = autom.makeSynthAutomation(scorestruct=struct, parentOffset=offset)
                             croppedautom = synthautom.cropped(t0, t1)
@@ -832,12 +834,12 @@ class Chain(MContainer):
             'playargs': 20,
             'info': 20
         }
-        T = _util.showT
+        T = _misc.showT
 
         if struct is None:
             struct = self.scorestruct() or Workspace.active.scorestruct
 
-        if environment.insideJupyter and not forcetext:
+        if _misc.insideJupyter() and not forcetext:
             r = type(self).__name__
             header = (f'<code><span style="font-size: {fontsize}">{IND*indents}<b>{r}</b> - '
                       f'beat: {T(self.absOffset())}, offset: {selfstart}, '
@@ -933,7 +935,7 @@ class Chain(MContainer):
         """
         self._update()
         rows = self._dumpRows(indents=indents, now=self.offset or F0, forcetext=forcetext)
-        if environment.insideJupyter and not forcetext:
+        if _misc.insideJupyter() and not forcetext:
             html = '<br>'.join(rows)
             from IPython.display import HTML, display
             display(HTML(html))
@@ -967,9 +969,9 @@ class Chain(MContainer):
         if len(self.items) >= 10:
             itemstr += ", …"
         cls = self.__class__.__name__
-        namedargs = [f'dur={_util.showT(self.dur)}']
+        namedargs = [f'dur={_misc.showT(self.dur)}']
         if self.offset:
-            namedargs.append(f'offset={_util.showT(self.offset)}')
+            namedargs.append(f'offset={_misc.showT(self.offset)}')
         info = ', ' + ', '.join(namedargs)
         return f'{cls}([{itemstr}]{info})'
 
@@ -1047,14 +1049,13 @@ class Chain(MContainer):
 
     def _scoringEvents(self,
                        config: CoreConfig | None = None,
-                       ) -> list[scoring.Notation]:
+                       ) -> list[sc.Notation]:
         """
         Returns the scoring events corresponding to this object.
 
         The scoring events returned always have an absolute offset
 
         Args:
-            groupid: if given, all events are given this groupid
             config: the configuration used (None to use the active config)
 
         Returns:
@@ -1066,7 +1067,7 @@ class Chain(MContainer):
         config, iscustom = self._resolveConfig(config=config)
         assert config is not None
 
-        allns: list[scoring.Notation] = []
+        allns: list[sc.Notation] = []
         for item in self.items:
             allns.extend(item._scoringEvents(config=config))
 
@@ -1079,15 +1080,15 @@ class Chain(MContainer):
 
         absOffset = self.absOffset()
         if any(n.offset is None for n in allns):
-            scoring.core.resolveOffsets(allns, start=absOffset)
-        allns = scoring.core.fillSilences(allns, start=absOffset)
+            sc.resolveOffsets(allns, start=absOffset)
+        allns = sc.fillSilences(allns, start=absOffset)
 
         if self.symbols and self.isSubChain():
             for symbol in self.symbols:
                 if isinstance(symbol, (symbols.EventSymbol, symbols.NoteheadSymbol)):
                     symbol.applyToMany(allns)
 
-        scoring.spanner.matchOrfanSpanners(allns, apply=True)
+        spanner.matchOrfanSpanners(allns, apply=True)
 
         if postsymbols := self._flatPostSymbols(config):
             from maelzel.scoring import quantutils
@@ -1101,7 +1102,7 @@ class Chain(MContainer):
 
             if symbolsMaxBeat > allns[-1].end:
                 end = allns[-1].end
-                rest = scoring.Notation.makeRest(duration=symbolsMaxBeat-end, offset=end)
+                rest = sc.Notation.Rest(duration=symbolsMaxBeat - end, offset=end)
                 allns.append(rest)
 
             firstoffset = allns[0].offset
@@ -1114,7 +1115,7 @@ class Chain(MContainer):
                 if end is not None:
                     splitpoints.append(end)
             splitpoints.sort()
-            allns = scoring.Notation.splitNotationsAtOffsets(allns, splitpoints, mergeable=False)
+            allns = sc.Notation.splitNotationsAtOffsets(allns, splitpoints, mergeable=False)
             for symbol, offset, end in postsymbols:
                 if isinstance(symbol, symbols.Spanner):
                     assert end is not None
@@ -1162,7 +1163,7 @@ class Chain(MContainer):
                       name='',
                       abbrev='',
                       groupParts=True,
-                      addQuantizationProfile=False) -> list[scoring.core.UnquantizedPart]:
+                      addQuantizationProfile=False) -> list[sc.UnquantizedPart]:
         self._update()
         notations = self._scoringEvents(config=config)
         if not notations:
@@ -1178,15 +1179,15 @@ class Chain(MContainer):
             logger.info("Spanners across multiple staves are not supported")
 
         if maxStaves == 1:
-            parts = [scoring.core.UnquantizedPart(notations, name=name, abbrev=abbrev)]
+            parts = [sc.UnquantizedPart(notations, name=name, abbrev=abbrev)]
         else:
-            parts = scoring.core.distributeByClef(notations,
+            parts = sc.distributeByClef(notations,
                                                   maxStaves=maxStaves,
                                                   minStaves=minStaves,
                                                   groupNotesInSpanners=config['show.groupEventsInSpanners'])
             parts.reverse()
             if len(parts) > 1 and groupParts:
-                scoring.core.UnquantizedPart.makeGroup(parts, name=name, abbrev=abbrev)
+                sc.UnquantizedPart.makeGroup(parts, name=name, abbrev=abbrev)
 
         if addQuantizationProfile:
             quantProfile = config.makeQuantizationProfile()
@@ -1202,7 +1203,7 @@ class Chain(MContainer):
 
     def unquantizedParts(self,
                          config: CoreConfig | None = None
-                         ) -> list[scoring.core.UnquantizedPart]:
+                         ) -> list[sc.UnquantizedPart]:
         config2, iscustomized = self._resolveConfig(config)
         parts = self._scoringParts(
             config=config2,
@@ -2455,7 +2456,7 @@ class Voice(Chain):
                            complexity='',
                            nestedTuplets: bool | None = None,
                            syncopMinFraction: F | None = None,
-                           debug=False
+                           debug: bool | None = None
                            ) -> None:
         """
         Customize the quantization process for this Voice
@@ -2474,7 +2475,6 @@ class Voice(Chain):
         .. seealso:: :meth:`~Voice.configNotation`, :meth:`setConfig() <maelzel.core.chain.Voice.setConfig>`
 
         """
-        config = Workspace.active.config
         if breakSyncopationsLevel:
             self.setConfig('quant.breakBeats', breakSyncopationsLevel)
         if complexity:
@@ -2483,8 +2483,8 @@ class Voice(Chain):
             self.setConfig('quant.nestedTuplets', nestedTuplets)
         if syncopMinFraction is not None:
             self.setConfig('quant.syncopMinFraction', asF(syncopMinFraction))
-        if debug != config['.quant.debug']:
-            self.setConfig('.quant.debug', debug)
+        if debug is not None:
+            self.setConfig('quant.debug', debug)
 
     def clone(self, **kws) -> Self:
         if 'items' not in kws:
@@ -2515,7 +2515,7 @@ class Voice(Chain):
         return qscore.parts[0]
 
     def unquantizedParts(self, config: CoreConfig | None = None
-                         ) -> list[scoring.core.UnquantizedPart]:
+                         ) -> list[sc.UnquantizedPart]:
         config2, iscustomized = self._resolveConfig(config)
         parts = self._scoringParts(config=config2,
                                    maxStaves=config2['show.voiceMaxStaves'],

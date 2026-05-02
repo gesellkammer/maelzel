@@ -139,12 +139,14 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig
         kws['rhythmComplexityWeight'] = rhythmWeight
     if (gridErrorExp := cfg['.quant.gridErrorExp']) is not None:
         kws['gridErrorExp'] = gridErrorExp
+    if (nestedTupletsAcrossBeat := cfg['quant.nestedTupletsAcrossBeat']):
+        kws['nestedTupletsAcrossBeat'] = nestedTupletsAcrossBeat
 
     from maelzel.scoring import quant
     return quant.QuantizationProfile.fromPreset(
         complexity=cfg['quant.complexity'],
         nestedTuplets=nestedTuplets,
-        debug=cfg['.quant.debug'],
+        debug=cfg['quant.debug'],
         debugMaxDivisions = cfg['.quant.debugShowNumRows'],
         syncopMinFraction = asF(cfg['quant.syncopMinFraction']),
         syncopPartMinFraction = asF(cfg['quant.syncopPartMinFraction']),
@@ -154,6 +156,7 @@ def makeQuantizationProfileFromConfig(cfg: CoreConfig
         beatWeightTempoThresh = cfg['quant.beatWeightTempoThresh'],
         mergeTupletsDifferentDur = cfg['.quant.mergeTupletsDifferentDur'],
         exactGridFactor = cfg['quant.exactFactor'],
+        tupletsAcrossBeat = cfg['quant.tupletsAcrossBeat'],
         **kws
     )
 

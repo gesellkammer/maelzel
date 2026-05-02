@@ -1,11 +1,16 @@
 from __future__ import annotations
 from functools import cache
-from dataclasses import dataclass, replace as _dataclass_replace, fields as _fields
+from dataclasses import (dataclass,
+                         replace as _dataclass_replace,
+                         fields as _fields)
 
-from maelzel.scoring.common import division_t
+from maelzel.scoring.common import division_t, logger
+from maelzel import _misc
+
 from maelzel.common import F
 import itertools
 import math
+import time
 
 from typing import Sequence
 
@@ -16,12 +21,15 @@ class DivisionDef:
     maxSubdivisions: int
     possibleValues: tuple[int, ...]
     maxDensity: int
+    minSubdivDurations: dict[int, F] | None = None
+    """Maps second level subdivision to duration of subdivision"""
 
     @cache
     def subdivisions(self, blacklist: tuple[division_t, ...] = ()) -> list[division_t]:
         subdivs = allSubdivisions(maxSubdivs=self.maxSubdivisions,
                                   possibleValues=self.possibleValues,
                                   maxDensity=self.maxDensity,
+                                  minSubdivDurations=self.minSubdivDurations,
                                   skipSubdivs=())
         if not blacklist:
             return subdivs
@@ -29,7 +37,15 @@ class DivisionDef:
         return [subdiv for subdiv in subdivs if subdiv not in blacklistset]
 
     def __hash__(self):
-        return hash((self.maxTempo, self.maxSubdivisions, hash(self.possibleValues), self.maxDensity))
+        if self.minSubdivDurations:
+            minSubdivDurationsHash = hash(tuple(self.minSubdivDurations.items()))
+        else:
+            minSubdivDurationsHash = 0
+        return hash((self.maxTempo,
+                     self.maxSubdivisions,
+                     hash(self.possibleValues),
+                     self.maxDensity,
+                     minSubdivDurationsHash))
 
 
 _QuantPresetKeys = set()
@@ -55,6 +71,8 @@ class QuantPreset:
     numSubdivisionsPenaltyWeight: float | None = None
     syncopExcludeSymDurs: tuple[int, ...] | None = None
     maxGraceRatio: float | None = None
+    nestedTupletsAcrossBeat: Sequence[tuple[int, ...]] = ((3, 3), (3, 5), (5, 3))
+
     _cachedDivsByTempo: dict[int, tuple[division_t, ...]] | None = None
 
     def clone(self, **kws) -> QuantPreset:
@@ -81,25 +99,30 @@ def quantizationPresets() -> dict[str, QuantPreset]:
         'exact': QuantPreset(
             divisionDefs = (
                 DivisionDef(maxTempo=60,
-                    maxSubdivisions=9,
-                    possibleValues=(4, 5, 6, 7, 8, 9, 11, 13, 15, 17),
-                    maxDensity=42),
-                DivisionDef(maxTempo=90,
-                    maxSubdivisions=8,
-                    possibleValues=(4, 5, 6, 7, 8, 9, 11, 13, 15, 17),
-                    maxDensity=36),
-                DivisionDef(maxTempo=180,
                     maxSubdivisions=8,
                     possibleValues=(4, 5, 6, 7, 8, 9, 11, 13),
-                    maxDensity=28),
+                    minSubdivDurations={13: F(1, 2), 11: F(1, 3), 9: F(1, 3), 7: F(1, 7), 8: F(1, 6)},
+                    maxDensity=47),
+                DivisionDef(maxTempo=90,
+                    maxSubdivisions=7,
+                    possibleValues=(5, 6, 7, 8, 9, 11, 13),
+                    minSubdivDurations={13: F(1, 2), 11: F(1, 3), 9: F(1, 3), 7: F(1, 6), 8: F(1, 6)},
+                    maxDensity=47),
+                DivisionDef(maxTempo=180,
+                    maxSubdivisions=7,
+                    possibleValues=(5, 6, 7, 8, 9, 11, 13),
+                    minSubdivDurations={13: F(1, 1), 11: F(1, 3), 9: F(1, 3), 7: F(1, 5), 8: F(1, 4)},
+                    maxDensity=36),
                 DivisionDef(maxTempo=360,
                     maxSubdivisions=6,
-                    possibleValues=(3, 4, 5, 6, 7, 8, 9, 11),
-                    maxDensity=24),
+                    possibleValues=(4, 5, 6, 7, 8, 9, 11),
+                    minSubdivDurations={13: F(1, 1), 11: F(1, 2), 9: F(1, 2), 7: F(1, 41)},
+                    maxDensity=32),
                 DivisionDef(maxTempo=800,
                     maxSubdivisions=3,
-                    possibleValues=(3, 4, 5, 6, 7, 8, 9, 11),
-                    maxDensity=20)),
+                    possibleValues=(3, 4, 5, 6, 7, 8, 11),
+                    minSubdivDurations={13: F(1, 1), 11: F(1, 1), 9: F(1, 1), 7: F(1, 4)},
+                    maxDensity=26)),
             divisionsPenaltyMap={
                 1:0.0,
                 2:0.0,
@@ -130,32 +153,39 @@ def quantizationPresets() -> dict[str, QuantPreset]:
             maxDivPenalty=0.1,
             exactGridFactor=0.01,
             maxGraceRatio=2.0,
+            nestedTupletsAcrossBeat=((3,3), (3,5), (5,3), (3,7), (7,3))
         ),
         'highest': QuantPreset(
             divisionDefs = (
                 DivisionDef(maxTempo=48,
-                    maxSubdivisions=9,
-                    possibleValues=(4, 5, 6, 7, 8, 9, 11, 13, 17),
-                    maxDensity=42),
+                    maxSubdivisions=8,
+                    possibleValues=(5, 6, 7, 8, 9, 11, 13, 17),
+                    minSubdivDurations={17: F(1, 1), 13: F(1, 2), 11: F(1, 3), 9: F(1, 3), 7: F(1, 7)},
+                    maxDensity=30),
                 DivisionDef(maxTempo=63,
                     maxSubdivisions=8,
-                    possibleValues=(4, 5, 6, 7, 8, 9, 11, 13, 17),
-                    maxDensity=30),
+                    possibleValues=(5, 6, 7, 8, 9, 11, 13, 17),
+                    minSubdivDurations={17: F(1, 1), 13: F(1, 2), 11: F(1, 3), 9: F(1, 3), 7: F(1, 6)},
+                    maxDensity=24),
                 DivisionDef(maxTempo=88,
-                    maxSubdivisions=8,
-                    possibleValues=(3, 4, 5, 6, 7, 8, 9, 11, 13),
-                    maxDensity=28),
+                    maxSubdivisions=6,
+                    possibleValues=(5, 6, 7, 8, 9, 11, 13),
+                    minSubdivDurations={13: F(1, 1), 11: F(1, 2), 9: F(1, 3), 7: F(1, 4)},
+                    maxDensity=24),
                 DivisionDef(maxTempo=120,
-                    maxSubdivisions=8,
-                    possibleValues=(3, 4, 5, 6, 7, 8, 9, 11, 13),
-                    maxDensity=26),
+                    maxSubdivisions=6,
+                    possibleValues=(1, 3, 4, 5, 6, 7, 8, 9, 11, 13),
+                    minSubdivDurations={13: F(1, 1), 11: F(1, 2), 9: F(1, 3), 7: F(1, 6)},
+                    maxDensity=24),
                 DivisionDef(maxTempo=240,
                     maxSubdivisions=6,
                     possibleValues=(3, 4, 5, 6, 7, 8, 9, 11),
+                    minSubdivDurations={13: F(1, 1), 11: F(1, 1), 9: F(1, 2), 7: F(1, 4)},
                     maxDensity=24),
                 DivisionDef(maxTempo=800,
                     maxSubdivisions=3,
                     possibleValues=(3, 4, 5, 6, 7, 8, 9, 11),
+                    minSubdivDurations={11: F(1, 1), 9: F(1, 1), 7: F(1, 2)},
                     maxDensity=20)),
             divisionsPenaltyMap={
                 1:0.0,
@@ -187,20 +217,21 @@ def quantizationPresets() -> dict[str, QuantPreset]:
             maxDivPenalty=0.1,
             exactGridFactor=0.1,
             maxGraceRatio=2.0,
+            nestedTupletsAcrossBeat=((3,3), (3,5), (5,3), (3,7))
         ),
         'high': QuantPreset(
             divisionDefs = (
                 DivisionDef(maxTempo=48,
                     maxSubdivisions=8,
-                    possibleValues=(3, 5, 6, 7, 8, 9, 11, 13, 15),
+                    possibleValues=(1, 3, 5, 6, 7, 8, 9, 11, 13, 15),
                     maxDensity=30),
                 DivisionDef(maxTempo=56,
                     maxSubdivisions=8,
-                    possibleValues=(3, 4, 5, 6, 7, 8, 9, 11, 13, 15),
+                    possibleValues=(1, 3, 4, 5, 6, 7, 8, 9, 11, 13, 15),
                     maxDensity=28),
                 DivisionDef(maxTempo=66,
                     maxSubdivisions=7,
-                    possibleValues=(3, 4, 5, 6, 7, 8, 9, 11, 13),
+                    possibleValues=(3, 4, 5, 6, 8, 7, 9, 11, 13),
                     maxDensity=26),
                 DivisionDef(maxTempo=80,
                     maxSubdivisions=6,
@@ -447,21 +478,45 @@ def allSubdivisions(maxSubdivs: int,
                     maxDensity: int,
                     possibleValues: Sequence[int],
                     blacklist: Sequence[division_t] = (),
-                    method='average',
+                    minSubdivDurations: dict[int, F] | None = None,
                     skipSubdivs=()
                     ) -> list[division_t]:
+    """
+    Calculates all possible subdivisions with the given params
 
+    Args:
+        maxSubdivs: max. number of subdivisions of the beat
+        maxDensity: max. number of ticks
+        possibleValues: possible values for any subdivision
+        blacklist: divisions which should not be used, in any permutation
+        method: method to calculate max. density
+        minSubdivDurations: a dict mapping subdivision values to their min. duration.
+            For example, a dict {13: F(1, 2)} would allow (13, 5) but not (13, 3, 3), since
+            the duration of the 13 subdiv would be less than 1/2 of the beat.
+        skipSubdivs:
+            seq. of exact subdivisions to skip (exclude)
+
+    Returns:
+        a list of divisions
+    """
+    logger.debug("Calculating all subdivisions")
+    t0 = time.time()
     allSubdivs: list[division_t] = []
     possibleValsSet = set(possibleValues)
     for numSubdivs in range(maxSubdivs, 0, -1):
         if numSubdivs in skipSubdivs:
             continue
-        if method == 'average':
-            allSubdivs.extend(subdivisionsWithMaxDensity(numSubdivisions=numSubdivs, maxDensity=maxDensity, possibleValues=possibleValues))
+        if not minSubdivDurations:
+            possibleValuesForSubdiv = possibleValues
         else:
-            maxval = int(round(maxDensity / numSubdivs))
-            allSubdivs.extend(subdivisions(numSubdivisions=numSubdivs, maxValue=maxval, possibleValues=possibleValsSet))
-
+            subdivDur = F(1, numSubdivs)
+            possibleValuesForSubdiv = [v for v in possibleValues
+                                       if subdivDur >= minSubdivDurations.get(v, 0)]
+            logger.debug("Enabled subslots for div %d: %s", numSubdivs, possibleValuesForSubdiv)
+        subdivs = subdivisionsWithMaxDensity(numSubdivisions=numSubdivs,
+                                             maxDensity=maxDensity,
+                                             possibleValues=possibleValuesForSubdiv)
+        allSubdivs.extend(subdivs)
     allSubdivs = [s for s in allSubdivs if not isSuperfluousDivision(s, possibleValsSet)]
     allSubdivs = list(set(permutateDivisions(allSubdivs)))
 
@@ -473,6 +528,7 @@ def allSubdivisions(maxSubdivs: int,
     # allSubdivs.sort()
     allSubdivs.sort(key=lambda p: sum(p))
     allSubdivs.sort(key=lambda p: len(p))
+    logger.debug(f"Calculated {len(allSubdivs)} subdivisions in {time.time() - t0:.2f}s")
     return allSubdivs
 
 
@@ -513,21 +569,20 @@ def divisionsByTempo(divisionDefs: tuple[DivisionDef, ...],
     Returns:
         a dict mapping max. tempo to divisions of the beat possible at that tempo
     """
-    from maelzel import _util
     divsid = hash((divisionDefs, blacklist))
     prefix = "divs"
-    divs = _util.loadPickle(prefix=prefix, objhash=divsid)
+    divs = _misc.loadPickle(prefix=prefix, objhash=divsid)
     if divs is None:
         divs = _divisionsByTempo(divisionDefs, blacklist=blacklist)
-        _util.savePickle(divs, prefix=prefix, objhash=divsid)
+        _misc.savePickle(divs, prefix=prefix, objhash=divsid)
     return divs
 
 
 def _divisionsByTempo(divisionDefs: tuple[DivisionDef, ...],
                       blacklist: tuple[division_t, ...] = (),
                       ) -> dict[int, tuple[division_t, ...]]:
-    return {d.maxTempo: tuple(d.subdivisions(blacklist=blacklist)) for d in divisionDefs}
-
+    divs = {d.maxTempo: tuple(d.subdivisions(blacklist=blacklist)) for d in divisionDefs}
+    return divs
 
 # how to divide an irregular duration into regular parts
 # Regular durations are those which can be expressed via

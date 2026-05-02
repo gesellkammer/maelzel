@@ -137,7 +137,7 @@ class RenderOptions:
     lilypondPngStaffsizeScale: float = 1.4
     """Png staffsize scaling when rendering to lilypond"""
 
-    lilypondGlissMinLength: int = 5
+    lilypondGlissMinLength: int = 4
     """Mininum length of the glissando line when rendering with lilypond.
     This is to avoid too short glissandi actually not showing at all"""
 

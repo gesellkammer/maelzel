@@ -23,8 +23,6 @@ import functools
 
 import pitchtools as pt
 
-from maelzel import scoring
-
 from maelzel.core import mobj
 from maelzel.common import F, asF, F1, asmidi
 from maelzel.common import UNSET
@@ -34,12 +32,15 @@ from maelzel.core._common import MAXDUR, logger
 from maelzel.core import synthevent
 from maelzel.core import _tools
 from maelzel.core import _scoringutils
+
+from maelzel.scoring.notation import Notation
+
 from . import symbols as _symbols
 
-from maelzel import _util
+from maelzel import _misc
 
 
-from typing import TYPE_CHECKING, overload as _overload, cast as _cast
+from typing import TYPE_CHECKING, overload as _overload
 
 if TYPE_CHECKING:
     from .config import CoreConfig
@@ -47,8 +48,8 @@ if TYPE_CHECKING:
     from typing import Callable, Any, Sequence, Iterator
     from typing_extensions import Self
     from maelzel.common import time_t, pitch_t, num_t, UnsetType
-    from maelzel.dynamiccurve import DynamicCurve
-
+    from maelzel.dyncurve import DynamicCurve
+    from maelzel.scoring.core import UnquantizedPart
 
 __all__ = (
     'MEvent',
@@ -589,7 +590,8 @@ class Note(MEvent):
         """The fractional part of this pitch, rounded to the cent"""
         return _tools.midicents(self.pitch)
 
-    def unquantizedParts(self) -> list[scoring.core.UnquantizedPart]:
+    def unquantizedParts(self, config: CoreConfig | None = None
+                         ) -> list[UnquantizedPart]:
         if self.isRest():
             config = self.getConfig() or Workspace.active.config
             notations = self._scoringEvents(config=config)
@@ -597,15 +599,16 @@ class Note(MEvent):
             n = notations[0]
             n.mergeableNext = False
             n.mergeablePrev = False
-            from maelzel.scoring import attachment
-            n.addAttachment(attachment.Breath(visible=False, horizontalPlacement='post'))
-            return [scoring.core.UnquantizedPart(notations)]
+            from maelzel.scoring.core import UnquantizedPart
+            from maelzel.scoring.attachment import Breath
+            n.addAttachment(Breath(visible=False, horizontalPlacement='post'))
+            return [UnquantizedPart(notations)]
         else:
-            return super().unquantizedParts()
+            return super().unquantizedParts(config=config)
 
     def _scoringEvents(self,
                        config: CoreConfig | None = None,
-                       ) -> list[scoring.Notation]:
+                       ) -> list[Notation]:
         if not config:
             config = Workspace.active.config
         offset = self.absOffset()
@@ -615,7 +618,7 @@ class Note(MEvent):
             return a+b if (a and b) else a or b
 
         if self.isRest():
-            rest = scoring.Notation.makeRest(dur, offset=offset, dynamic=self.dynamic)
+            rest = Notation.Rest(dur, offset=offset, dynamic=self.dynamic)
             if self.label:
                 rest.addText(self.label, role='label')
             tempsymbols = self.properties.pop('.tempsymbols', None) if self.properties else None
@@ -625,11 +628,11 @@ class Note(MEvent):
                         symbol.applyToNotation(rest, parent=self)
             return [rest]
 
-        notation = scoring.Notation.makeNote(pitch=self.pitch,
-                                             duration=asF(dur),
-                                             offset=offset,
-                                             gliss=bool(self.gliss),
-                                             dynamic=self.dynamic)
+        notation = Notation.Note(pitch=self.pitch,
+                                 duration=asF(dur),
+                                 offset=offset,
+                                 gliss=bool(self.gliss),
+                                 dynamic=self.dynamic)
         if self.pitchSpelling:
             notation.fixNotename(self.pitchSpelling, index=0)
 
@@ -639,13 +642,10 @@ class Note(MEvent):
         notes = [notation]
         if self.gliss and not isinstance(self.gliss, bool):
             offset = self.end if self.end is not None else None
-            groupid = groupid or str(hash(self))
-            notes[0].groupid = groupid
             assert self.gliss >= 12, f"self.gliss = {self.gliss}"
-            notes.append(scoring.Notation.makeNote(pitch=self.gliss,
-                                                   duration=0,
-                                                   offset=offset,
-                                                   group=groupid))
+            notes.append(Notation.Note(pitch=self.gliss,
+                                               duration=0,
+                                               offset=offset))
             if config['show.glissStemless']:
                 from maelzel.scoring import attachment
                 notes[-1].addAttachment(attachment.StemTraits(hidden=True))
@@ -669,7 +669,7 @@ class Note(MEvent):
             notename = self.name
             if (unicodeaccidentals := config['reprUnicodeAccidentals']):
                 full = unicodeaccidentals == 'full'
-                notename = _util.unicodeNotename(notename, full=full)
+                notename = _misc.unicodeNotename(notename, full=full)
             if self.tied:
                 notename += "~"
 
@@ -689,11 +689,11 @@ class Note(MEvent):
             if self.dur >= MAXDUR:
                 elements.append("dur=inf")
             elif config['reprDurationAsFraction']:
-                elements.append(f"{_util.showF(self.dur, maxdenom=32, approxAsFloat=True, unicode=config['reprUnicodeFractions'])}♩")
+                elements.append(f"{_misc.showF(self.dur, maxdenom=32, approxAsFloat=True, unicode=config['reprUnicodeFractions'])}♩")
             else:
-                elements.append(f"{_util.showT(self.dur)}")
+                elements.append(f"{_misc.showT(self.dur)}")
         if self.offset is not None:
-            elements.append(f"offset={_util.showT(self.offset)}")
+            elements.append(f"offset={_misc.showT(self.offset)}")
 
         if self.gliss:
             if isinstance(self.gliss, bool):
@@ -710,11 +710,11 @@ class Note(MEvent):
         if self.isRest():
             cfg = Workspace.active.config
             if cfg['reprDurationAsFraction']:
-                parts = [f"{_util.showF(self.dur, maxdenom=32, approxAsFloat=True)}♩"]
+                parts = [f"{_misc.showF(self.dur, maxdenom=32, approxAsFloat=True)}♩"]
             else:
-                parts = [f"{_util.showT(self.dur)}"]
+                parts = [f"{_misc.showT(self.dur)}"]
             if self.offset is not None:
-                parts.append(f"offset={_util.showT(self.offset)}")
+                parts.append(f"offset={_misc.showT(self.offset)}")
             if self.symbols:
                 parts.append(f"symbols={(self.symbols)}")
             return "R:" + ":".join(parts)
@@ -1367,17 +1367,17 @@ class Chord(MEvent):
 
     def _scoringEvents(self,
                        config: CoreConfig | None = None,
-                       ) -> list[scoring.Notation]:
+                       ) -> list[Notation]:
         if not config:
             config = Workspace.active.config
         notenames = [note.name for note in self.notes]
         dur = self.dur
         offset = self.absOffset()
-        notation = scoring.Notation.makeChord(pitches=notenames,
-                                              duration=dur,
-                                              offset=offset,
-                                              dynamic=self.dynamic,
-                                              tiedNext=self.tied)
+        notation = Notation.Chord(pitches=notenames,
+                                  duration=dur,
+                                  offset=offset,
+                                  dynamic=self.dynamic,
+                                  tiedNext=self.tied)
 
         # Transfer any pitch spelling
         for i, note in enumerate(self.notes):
@@ -1400,11 +1400,10 @@ class Chord(MEvent):
                 glisspairs = self._glissPairs(nextevent=nextev)
                 assert glisspairs, f"No pairs for {self}, next event: {nextev}"
                 destpitches = [pair[1] for pair in glisspairs]
-                notation.groupid = scoring.core.makeGroupId()
-                endgliss = scoring.Notation.makeChord(pitches=destpitches,
-                                                      duration=0,
-                                                      offset=self.end,
-                                                      group=notation.groupid)
+                endgliss = Notation.Chord(pitches=destpitches,
+                                          duration=0,
+                                          offset=self.end,
+                                          group=notation.groupid)
                 if config['show.glissStemless']:
                     endgliss.addAttachment(attachment.StemTraits(hidden=True))
 
@@ -1429,7 +1428,7 @@ class Chord(MEvent):
 
     def unquantizedParts(self,
                          config: CoreConfig | None = None
-                         ) -> list[scoring.core.UnquantizedPart]:
+                         ) -> list[UnquantizedPart]:
         # The only reason we need to overload this is that when showing a chord
         # which is split across multiple parts we want to lock the spelling
         from maelzel.scoring import enharmonics

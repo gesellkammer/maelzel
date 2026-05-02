@@ -17,11 +17,11 @@ import loristrck.util
 import pitchtools as pt
 from emlib.filetools import normalizePath
 import itertools
-import emlib.mathlib
 
 
 from .partial import Partial
 from . import pack
+from maelzel import _mathutils
 
 from typing_extensions import Self
 from typing import TYPE_CHECKING, Callable
@@ -153,7 +153,7 @@ class _PartialIndex:
             raise ValueError(f"The start time should not be later than the end time, got {start=}, {end=}")
         if end == start:
             end = start + 1e-12
-        overlap = emlib.mathlib.overlap(start, end, self.start, self.end)
+        overlap = _mathutils.overlap(start, end, self.start, self.end)
         if not overlap:
             return []
         start, end = overlap
@@ -510,11 +510,11 @@ class Spectrum:
         Transpose a spectrum a 4th up in the pitch space
 
             >>> from maelzel.pitchtracking import Spectrum
-            >>> from maelzel import pitchtoolsnp as ptnp
+            >>> import pitchtools.vectorized as ptv
             >>> sp = Spectrum.analyze(...)
             >>> def transpose(freqs, interval):
-            ...     pitches = ptnp.f2m(freqs)
-            ...     return ptnp.m2f(pitches + interval)
+            ...     pitches = ptv.f2m(freqs)
+            ...     return ptv.m2f(pitches + interval)
             >>> # Transpose a partial a 4th up
             >>> sp2 = sp.freqTransform(lambda freqs: transpose(freqs, 5))
 

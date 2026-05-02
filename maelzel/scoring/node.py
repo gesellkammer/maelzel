@@ -3,16 +3,19 @@ from dataclasses import dataclass
 import sys
 import textwrap
 import weakref
-
-from maelzel.common import F, asF, F0
-from maelzel.scoring.quantdefs import QuantizedBeatDef
-from .common import logger
-from maelzel._logutils import LazyStr
-from .core import Notation
-from . import attachment
 from itertools import pairwise
 from collections import UserList
+
+from maelzel.common import F, asF, F0, F1
+from maelzel.scoring.quantdefs import QuantizedBeatDef
+from maelzel.scoring.common import logger
+from maelzel._logutils import LazyStr
+from maelzel import _misc
+from .core import Notation
+from . import attachment
 from . import quantdata
+from . import util
+
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -117,18 +120,19 @@ class Node:
         >>> Node(ratio=(3, 2), items=notations)
     """
     def __init__(self,
+                 ratio: tuple[int, int],
                  items: list[Notation | Node],
-                 ratio: tuple[int, int] | F = (1, 1),
                  parent: Node | None = None,
                  properties: dict | None = None,
                  measure: quant.QuantizedMeasure | None = None,
                  readonly=False,
                  _duration=F0
                  ):
-        if not all(_.isQuantized() for _ in items if isinstance(_, Notation)):
-            raise ValueError(f"A Node accepts only quantized Notations, {items=}")
-        assert (isinstance(ratio, tuple) and len(ratio) == 2) or isinstance(ratio, F), f"{ratio=}"
-        self.durRatio: tuple[int, int] = ratio if isinstance(ratio, tuple) else (ratio.numerator, ratio.denominator)
+        assert all(item.offset is not None and item.hasRegularDuration()
+                   for item in items
+                   if isinstance(item, Notation))
+        assert (isinstance(ratio, tuple) and len(ratio) == 2), f"{ratio=}"
+        self.durRatio: tuple[int, int] = ratio
         self.items: list[Notation | Node] = items
         self._properties = properties
         self._measureReference: weakref.ReferenceType[quant.QuantizedMeasure] | None = weakref.ref(measure) if measure else None
@@ -137,13 +141,8 @@ class Node:
         self.readonly = readonly
 
     def copy(self) -> Node:
-        items: list[Notation | Node] = []
-        for item in self.items:
-            if isinstance(item, Notation):
-                items.append(item.copy(spanners=True))
-            else:
-                items.append(item.copy())
-        return Node(items=items, ratio=self.durRatio, parent=self.parent,
+        return Node(items=[item.copy() for item in self.items],
+                    ratio=self.durRatio, parent=self.parent,
                     properties=self._properties,
                     measure=self._measureReference() if self._measureReference else None,
                     readonly=self.readonly,
@@ -151,19 +150,18 @@ class Node:
 
     def clone(self,
               items: list[Notation | Node] | None = None,
-              ratio: tuple[int, int] | F = (1, 1),
+              ratio: tuple[int, int] | F | None = None,
               parent: Node | None = None,
               properties: dict | None = None,
               measure: quant.QuantizedMeasure | None = None,
               readonly: bool | None = None
               ) -> Node:
-        out = Node(items=items if items is not None else self.items,
-                   ratio=ratio or self.durRatio,
-                   parent=parent or self.parent,
-                   properties=properties if properties is not None else self._properties,
-                   measure=measure if measure is not None else self._measureReference() if self._measureReference else None,
-                   readonly=readonly if readonly is not None else self.readonly)
-        return out
+        return Node(items=self.items if items is None else items,
+                    ratio=self.durRatio if ratio is None else ratio,
+                    parent=parent or self.parent,
+                    properties=self._properties if properties is None else properties,
+                    measure=measure if measure is not None else self._measureReference() if self._measureReference else None,
+                    readonly=self.readonly if readonly is None else readonly)
 
     def _checkCanModify(self) -> None:
         if self.readonly:
@@ -194,8 +192,20 @@ class Node:
 
     @parentMeasure.setter
     def parentMeasure(self, value: quant.QuantizedMeasure):
-        self._checkCanModify()
+        # self._checkCanModify()
         self._measureReference = weakref.ref(value)
+
+    def measureIndex(self) -> int | None:
+        """
+        Return the index of the measure this node belongs to
+
+        Raises ValueError if the tree of this node has no associated measure
+        """
+        if (measure := self.parentMeasure) is not None:
+            idx = measure.measureIndex()
+            if idx is not None:
+                return idx
+        raise ValueError("This node belongs to a tree with no associated measure")
 
     @property
     def parent(self) -> Node | None:
@@ -204,7 +214,9 @@ class Node:
     @parent.setter
     def parent(self, other: Node | None):
         """Set the parent of this node"""
-        self._checkCanModify()
+        if self.readonly and other is not self._parent:
+            logger.error("Modifying parent of readonly node=%s, parent=%s", self, other)
+        # self._checkCanModify()
         self._parent = weakref.ref(other) if other else None
 
     def empty(self) -> bool:
@@ -236,7 +248,6 @@ class Node:
 
     def setParentRecursively(self):
         """Set the parent of each Node downstream"""
-        self._checkCanModify()
         for item in self.items:
             if isinstance(item, Node):
                 item.parent = self
@@ -244,6 +255,7 @@ class Node:
 
     def setProperty(self, key: str, value) -> None:
         """Set a property for this Node"""
+        self._checkCanModify()
         if self._properties is None:
             self._properties = {key: value}
         else:
@@ -326,9 +338,16 @@ class Node:
         if self.parent:
             dur *= self.parent.fusedDurRatio()
         return dur
-        # return sum((item.symbolicDuration() for item in self.items), F(0))
+
+    def _checkDurations(self):
+        for item in self.items:
+            if isinstance(item, Node):
+                item._checkDurations()
+            else:
+                assert item.offset is not None and item.hasRegularDuration(), f"Unquantized notation {item} in node {self}"
 
     def check(self):
+        durRatiosF = tuple(F(r[0], r[1]) for r in self.treeDurRatios() if r != (1, 1))
         for child in self.items:
             if isinstance(child, Node):
                 if child.parent is not self:
@@ -336,13 +355,52 @@ class Node:
                 assert child.parent is self
                 child.check()
             else:
-                assert child.isQuantized(), f"Unquantized notation {child} in node {self}"
+                if len(child.durRatios) > 1 and child.durRatios[0] == F1:
+                    child.durRatios = child.durRatios[1:]
+                assert child.durRatios == durRatiosF or not child.durRatios, f"Invalid dur ratio for item, {child=}, {child.durRatios=}, {durRatiosF=}, {self=}"
 
         dur = self.totalDuration()
         if dur == 0:
             raise ValueError(f"Node with 0 duration: {self}")
 
-    def dump(self, numindents=0, indent='  ', stream=None) -> None:
+    def treeDurRatios(self) -> tuple[tuple[int, int], ...]:
+        """
+        The durRatios from root down to this node (including any unary ratio
+
+        The returned tuplet has always len > 0
+
+        """
+        own = (self.durRatio,)
+        return self.parent.treeDurRatios() + own if self.parent else own
+
+    def treeTuplets(self) -> tuple[tuple[int, int], ...]:
+        """
+        Tuplets from root down to this node (excluding unary ratios)
+
+        Returns:
+            a list of tuplet ratios for this node, excluding unary (1, 1) ratios.
+            Returns an empty tuple in the absence of tuplets.
+
+        """
+        if not self.parent or not (tree := self.parent.treeTuplets()):
+            return (self.durRatio,) if self.durRatio != (1, 1) else ()
+        return tree + (self.durRatio,) if self.durRatio != (1, 1) else tree
+
+    @property
+    def durRatioFraction(self) -> F:
+        num, den = self.durRatio
+        return F(num, den)
+
+    def dumpStr(self, numindents=0, indent='  ', header='') -> str:
+        """
+        Similar to .dump, but returns the generated str instead of printing to stream
+        """
+        import io
+        s = io.StringIO()
+        self.dump(numindents=numindents, indent=indent, stream=s, header=header)
+        return s.getvalue()
+
+    def dump(self, numindents=0, indent='  ', stream=None, header='') -> None:
         """
         Dump this node, recursively
 
@@ -353,23 +411,35 @@ class Node:
         """
         stream = stream or sys.stdout
         MAXWIDTH = 90
-        print(f"{indent * numindents}Node ratio: {self.durRatio[0]}/{self.durRatio[1]}, "
+        ratio = _misc.unicodeFraction(self.durRatio[0], self.durRatio[1])
+
+        if header:
+            print(f"{indent*numindents}>> {header} <<", file=stream)
+        print(f"{indent * numindents}Node ratio: {ratio}, "
               f"offset={self.offset}, end={self.end}, dur={self.totalDuration()}, "
-              f"symbolicdur={self.symbolicDuration()}", file=stream)
+              f"symbolicdur={self.symbolicDuration()} ⌈", file=stream)
         IND = indent * (numindents + 1)
         for item in self.items:
             if isinstance(item, Notation):
-                itemlines = textwrap.wrap(repr(item), width=MAXWIDTH)
+                symdur = item.symbolicDuration()
+                itemstr = f"{item}: {symdur} = {util.unicodeDuration(item.symbolicDuration())}"
+                itemlines = textwrap.wrap(itemstr, width=MAXWIDTH)
                 print(IND, itemlines[0], file=stream, sep='')
                 for line in itemlines[1:]:
                     print(IND, '  ', line, file=stream, sep='')
             else:
+                assert isinstance(item, Node)
                 item.dump(numindents=numindents + 1, stream=stream)
+
+        print(f"{indent*numindents}⌋", file=stream)
 
     def _treeRepr(self, indent=0) -> str:
         indent0 = " " * indent
         num, den = self.durRatio
-        header = f"{indent0}Node({num}/{den}, dur={self.totalDuration()} "
+        ratio = _misc.unicodeFraction(num, den)
+        header = f"{indent0}Node⌈{ratio} {self.totalDuration()}♩ "
+        if all(isinstance(item, Notation) for item in self.items):
+            return header + ",".join(str(n) for n in self.items) + "⌋"
         if isinstance(self.items[0], Notation):
             parts = [header + str(self.items[0])]
             indentstr = " " * len(header)
@@ -380,88 +450,72 @@ class Node:
             startidx = 0
         for item in self.items[startidx:]:
             if isinstance(item, Notation):
-                parts.append(indentstr + str(item))
+                parts.append(f"{indentstr}{item}={str(item.symbolicDuration())}")
             else:
                 s = item._treeRepr(len(indentstr))
                 parts.append(s)
 
-        parts[-1] += ")"
+        parts[-1] += "⌋"
         return "\n".join(parts)
 
     def __repr__(self):
-        # num, den = self.durRatio
-        # header = f"Node({num}/{den}, dur={self.totalDuration()} "
-        # if isinstance(self.items[0], Notation):
-        #     parts = [header + str(self.items[0])]
-        #     startidx = 1
-        # else:
-        #     parts = [header]
-        #     startidx = 0
-        # for item in self.items[startidx:]:
-        #     parts.append(str(item))
-        # parts[-1] += ")"
-        # return ", ".join(parts)
         return self._treeRepr(indent=0)
 
     def _setitems(self, items: list[Notation | Node]) -> None:
         self._checkCanModify()
         self.items = items
 
-    def _repairDurRatios(self, durRatios: list[tuple[int, int]] | None = None):
-        if durRatios is None:
-            durRatios = [self.durRatio]
-        else:
-            durRatios.append(self.durRatio)
+    def _repairDurRatios(self, durRatios: tuple[tuple[int, int], ...] = ()) -> None:
+        """
+        Args:
+            durRatios: the ratios of the parents
+
+        Returns:
+
+        """
+        if not durRatios:
+            durRatios = self.treeTuplets()
+        elif self.durRatio != (1, 1):
+            durRatios = durRatios + (self.durRatio,)
         notationDurRatio = tuple(F(num, den) for num, den in durRatios)
         for item in self.items:
             if isinstance(item, Node):
                 item._repairDurRatios(durRatios)
             else:
-                item.durRatios = notationDurRatio
-        durRatios.pop()
+                if item.durRatios != notationDurRatio:
+                    logger.debug("Applying dur ratio for %s, %s -> %s", item, item.durRatios, notationDurRatio)
+                    assert (1, 1) not in notationDurRatio
+                    item.durRatios = notationDurRatio
 
-    def _flattenUnnecessaryChildren(self) -> None:
+    def _flattenUnnecessaryChildren(self) -> bool:
         """
         Flattens regular nodes (nodes with ratio (1:1)), in place
 
-        """
-        if self.durRatio != (1, 1):
-            return
-        items: list[Node|Notation] = []
-        for item in self.items:
-            if isinstance(item, Notation):
-                items.append(item)
-            else:
-                if item.durRatio == (1, 1):
-                    item._flattenUnnecessaryChildren()
-                    items.extend(item.items)
-                else:
-                    items.append(item)
-        self._setitems(items)
-
-    def mergeWith(self, other: Node, readonly: bool | None = None) -> Node:
-        """
-        Merge this tree with other
-
-        It is assumed that these Nodes can merge
-
-        Args:
-            other: the other node
-
         Returns:
-            the merged node / tree
+            true if self was changed
         """
-        # we don't check here, just merge
-        if readonly is None:
-            readonly = self.readonly or other.readonly
-        node = Node(ratio=self.durRatio,
-                    items=self.items + other.items,
-                    properties=_mergeProperties(self._properties, other._properties))
-        node = node.mergedNotations()
-        node.readonly = readonly
-        return node
+        changed = False
+        if self.durRatio == (1, 1):
+            items = []
+            for item in self.items:
+                if isinstance(item, Notation):
+                    items.append(item)
+                else:
+                    changed |= item._flattenUnnecessaryChildren()
+                    if item.durRatio == (1, 1):
+                        items.extend(item.items)
+                        changed = True
+                    else:
+                        items.append(item)
+            if changed:
+                self._setitems(items)
+        else:
+            for item in self.items:
+                if isinstance(item, Node):
+                    changed |= item._flattenUnnecessaryChildren()
+        return changed
 
-    def mergedNotations(self, flatten=True) -> Node:
+    def mergedNotations(self, flatten=True, forceCopy=False) -> Node:
         """
         Returns a new tree with all items merged (recursively)
 
@@ -469,53 +523,78 @@ class Node:
             flatten: if True, superfluous children are flattened
 
         Returns:
-            a new Node with merged items (whenever possible)
+            a new Node with merged items (whenever possible). Might return
+            self if no modifications were made
         """
         if flatten:
             self._flattenUnnecessaryChildren()
 
-        def mergeonce(items: list[Notation | Node]) -> tuple[list[Notation | Node], bool]:
+        def innermerge2(items: list[Notation | Node]) -> tuple[list[Notation | Node], bool]:
             modified = False
-            # out = [i0 if isinstance(i0, Notation) else i0.mergedNotations(flatten=False)]
             out = [items[0]]
             for i1 in items[1:]:
                 i0 = out[-1]
-                if isinstance(i0, Notation) and isinstance(i1, Notation):
-                    if i0.canMergeWith(i1):
-                        modified = True
-                        out[-1] = i0.mergeWith(i1)
-                    else:
-                        out.append(i1)
+                if isinstance(i0, Notation) and isinstance(i1, Notation) and i0.canMergeWith(i1, quantized=True):
+                    modified = True
+                    out[-1] = i0.mergeWith(i1)
                 else:
                     # n+G, G+n or G+G
                     out.append(i1)
-                    # out.append(i1 if isinstance(i1, Notation) else i1.mergedNotations(flatten=False))
             return out, modified
 
         items = [item if isinstance(item, Notation) else item.mergedNotations() for item in self.items]
 
-        for i in range(10):
-            items, modified = mergeonce(items)
+        numiter = 4
+        for i in range(numiter):
+            items, modified = innermerge2(items)
             if not modified:
-                if i > 1:
-                    logger.debug("Merged notations in %d iterations", i)
+                if i == 0:
+                    # No modifications to this node at all
+                    return self if not forceCopy else self.copy()
                 break
         else:
-            logger.debug("Merging didn't converge, before: %s, after: %s", LazyStr.str(self.items), LazyStr.str(items))
+            logger.debug("Merging didn't converge after %d iterations, "
+                         "before: %s, after: %s", numiter, LazyStr.str(self.items), LazyStr.str(items))
 
-        if len(items) == 1 and isinstance(items[0], Notation):
+        # We should also try 3-merges, for things like 1/4~1~1/4 = 3/2
+        if len(items) >= 3:
+            newitems = []
+            i = 0
+            while i < len(items) - 2:
+                i1, i2, i3 = items[i:i+3]
+                if (isinstance(i1, Notation) and isinstance(i2, Notation) and isinstance(i3, Notation) and
+                        i1.tiedNext and i2.tiedNext and
+                        Notation.canMerge((i1, i2, i3))):
+                    merged = i1.mergeWith(i2, check=False)
+                    merged = merged.mergeWith(i3, check=False)
+                    assert merged.offset == i1.offset and merged.end == i3.end and merged.hasRegularDuration()
+                    newitems.append(merged)
+                    logger.debug("Merged %s, %s, %s -> %s", i1, i2, i3, merged)
+                    i += 3
+                else:
+                    newitems.append(i1)
+                    i += 1
+            if i < len(items):
+                newitems.extend(items[i:])
+
+            assert newitems[0].offset == items[0].offset and newitems[-1].end == items[-1].end
+            items = newitems
+
+        # TODO: check if this is actually needed, disabled for now (if False...)
+        if False and len(items) == 1 and isinstance(items[0], Notation):
             n = items[0].copy()
             n.spanners = items[0].spanners
             if n.durRatios and n.durRatios[-1] != 1:
                 n.durRatios = n.durRatios[:-1]
             node = Node(ratio=(1, 1), items=[n], readonly=self.readonly)
         else:
-            node = Node(items=items,
-                        ratio=self.durRatio,
+            node = Node(ratio=self.durRatio,
+                        items=items,
                         parent=self.parent,
-                        properties=self._properties.copy() if self._properties else None,
+                        properties=self._properties,
                         readonly=self.readonly)
             node.setParentRecursively()
+        node._checkDurations()
         return node
 
     def lastNotation(self) -> Notation:
@@ -799,9 +878,12 @@ class Node:
 
     def repair(self):
         self._flattenUnnecessaryChildren()
+        self._checkDurations()
         self._removeUnnecessaryNodesInPlace()
-        self._remerge()
-        self.repairLinks()
+        self._checkDurations()
+
+        # self._remerge()
+        # self.repairLinks()
         self.removeUnnecessaryGracenotes()
         self.setParentRecursively()
 
@@ -864,6 +946,16 @@ class Node:
                     item.breakBeamsAt(offset)
         return None
 
+    def numAttacks(self) -> int:
+        total = 0
+        for item in self.items:
+            if isinstance(item, Notation):
+                if not item.tiedPrev:
+                    total += 1
+            else:
+                total += item.numAttacks()
+        return total
+
     def _splitUnnecessaryNodesAt(self, breakOffset: F, minDuration: F | int
                                  ) -> bool:
         items: list[Node | Notation] = []
@@ -910,6 +1002,7 @@ class Node:
         return next(n for n in self.recurse() if n.qoffset <= offset < n.end)
 
     def _splitAtBoundary(self, offset) -> tuple[Node, Node]:
+
         if not (self.offset < offset < self.end):
             raise ValueError(f"Offset {offset} not within this node. "
                              f"({self.offset=}, {self.end=}), node={self}")
@@ -935,8 +1028,8 @@ class Node:
                     leftsub, rightsub = item._splitAtBoundary(offset)
                     left.append(leftsub)
                     right.append(rightsub)
-        lnode = Node(left, ratio=self.durRatio, parent=self.parent, readonly=self.readonly)
-        rnode = Node(right, ratio=self.durRatio, parent=self.parent, readonly=self.readonly)
+        lnode = Node(items=left, ratio=self.durRatio, parent=self.parent, readonly=self.readonly)
+        rnode = Node(items=right, ratio=self.durRatio, parent=self.parent, readonly=self.readonly)
         return lnode, rnode
 
     def splitNotationAtOffset(self,
@@ -1012,8 +1105,10 @@ class Node:
         """
         self._checkCanModify()
         self._repairDurRatios()
-        self._setitems(self.mergedNotations(flatten=True).items)
-        self.setParentRecursively()
+        merged = self.mergedNotations(flatten=True)
+        if merged is not self:
+            self._setitems(merged.items)
+            self.setParentRecursively()
 
     def splitNotationAtBeat(self,
                             beats: Sequence[QuantizedBeatDef],
@@ -1045,7 +1140,7 @@ class Node:
     def _splitNotationAtBeat(self,
                              beats: Sequence[quantdefs.QuantizedBeatDef],
                              beatIndex: int,
-                             callback: Callable[[Notation, Node, F], bool] | None = None
+                             callback: Callable[[Notation, Node, F], bool] | None = None,
                              ) -> list[Notation] | None:
         """
         Split any notation which crosses the given offset, inplace
@@ -1085,7 +1180,6 @@ class Node:
             if isinstance(item, Node):
                 return item._splitNotationAtBeat(beats=beats, beatIndex=beatIndex, callback=callback)
 
-            assert item.isQuantized(), f"Item not quantized: {item}"
             if not item.hasRegularDuration():
                 raise SplitError(f"Item does not have a regular duration: {item=}, "
                                  f"symbolic duration={item.symbolicDuration()}")
@@ -1093,7 +1187,7 @@ class Node:
                 if not callback(item, self, offset):
                     logger.debug("Syncopation at meas=%d, offset=%s, callback %s negative, %s will NOT be split", measidx, str(offset), str(callback), LazyStr.str(item))
                     break
-                # logger.debug("Syncopation at %d:%s - %s was positive, splitting", measidx, str(offset), str(callback))
+                logger.debug("Syncopation at %d:%s - %s was positive, splitting", measidx, str(offset), str(callback))
 
             parts = item.splitAtOffsets([offset])
             if not len(parts) == 2:
@@ -1171,9 +1265,7 @@ class Node:
             the resulting notations.
         """
         # this is called on each part of a notation when split at a beat boundary
-        assert n.duration > 0
-        assert n.isQuantized() and not n.hasRegularDuration()
-        from maelzel.scoring import util
+        assert n.offset is not None and n.duration > 0 and not n.hasRegularDuration()
         beatoffsets = [b.offset for b in beatstruct]
         fragments = util.splitInterval(n.qoffset, n.end, beatoffsets)
         N = len(fragments)
@@ -1228,34 +1320,32 @@ class Node:
             a Node representing the tree structure of this beat
 
         """
-        return beatToTree(notations=notations, division=division,
-                          beatOffset=beatOffset, beatDur=beatDur)
+        assert all(n.hasRegularDuration() for n in notations)
 
+        if isinstance(division, tuple) and len(division) == 1:
+            return Node(items=notations, ratio=quantdata.durationRatios[division[0]])
 
-def beatToTree(notations: list[Notation], division: int | division_t,
-               beatOffset: F, beatDur: F
-               ) -> Node:
-    if isinstance(division, tuple) and len(division) == 1:
-        division = division[0]
+        if isinstance(division, int):
+            return Node(items=notations, ratio=quantdata.durationRatios[division])  # type: ignore
 
-    if isinstance(division, int):
-        durRatio = quantdata.durationRatios[division]
-        return Node(notations, ratio=durRatio)  # type: ignore
-
-    # assert isinstance(division, tuple) and len(division) >= 2
-    numSubBeats = len(division)
-    now = beatOffset
-    dt = beatDur/numSubBeats
-    durRatio = quantdata.durationRatios[numSubBeats]
-    items: list[Node | Notation] = []
-    for subdiv in division:
-        subdivEnd = now + dt
-        subdivNotations = [n for n in notations if now <= n.qoffset < subdivEnd and n.end <= subdivEnd]
-        if subdiv == 1:
-            items.extend(subdivNotations)
-        else:
-            items.append(beatToTree(notations=subdivNotations, division=subdiv, beatOffset=now, beatDur=dt))
-        now += dt
-    node = Node(items, ratio=durRatio)
-    assert node.totalDuration() == sum(n.duration for n in notations), f"{node=}, {notations=}, {division=}"
-    return node
+        numSubBeats = len(division)
+        now = beatOffset
+        dt = beatDur/numSubBeats
+        items: list[Node | Notation] = []
+        numNotations = 0
+        for subdiv in division:
+            subdivEnd = now + dt
+            subdivNotations = [n for n in notations if now <= n.qoffset < subdivEnd]
+            numNotations += len(subdivNotations)
+            # assert subdivNotations, f"No notations in this subdivision..., {notations=}, {division=}, {subdiv=}"
+            if subdivNotations:
+                if subdiv == 1:
+                    items.extend(subdivNotations)
+                else:
+                    items.append(Node.beatToTree(notations=subdivNotations, division=subdiv, beatOffset=now, beatDur=dt))
+            now += dt
+        # assert numNotations == len(notations)
+        noderatio = quantdata.durationRatios[numSubBeats]
+        node = Node(ratio=noderatio, items=items)
+        node._checkDurations()
+        return node

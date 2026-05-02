@@ -28,7 +28,7 @@ import vamp.frames
 import vamp.load
 
 from maelzel import stats
-from maelzel._util import getPlatform
+from maelzel._misc import getPlatform
 from maelzel._logutils import getLogger
 from maelzel.snd import numpysnd
 

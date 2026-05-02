@@ -14,7 +14,7 @@ from maelzel.common import F, asF, F0, F1, asmidi
 from maelzel.core import event
 from maelzel.core.synthevent import SynthEvent
 from maelzel.core.workspace import Workspace, logger
-from maelzel import _util
+from maelzel import _misc
 
 
 from typing import TYPE_CHECKING
@@ -619,11 +619,11 @@ class Clip(event.MEvent):
         from maelzel import scoring
         if not self.pitch:
             self.pitch = self.fundamentalPitch(default=60)
-        notation = scoring.Notation.makeNote(pitch=self.pitch,
-                                             duration=dur,
-                                             offset=offset,
-                                             dynamic=self.dynamic,
-                                             gliss=bool(self.gliss))
+        notation = scoring.Notation.Note(pitch=self.pitch,
+                                         duration=dur,
+                                         offset=offset,
+                                         dynamic=self.dynamic,
+                                         gliss=bool(self.gliss))
         if self.tied:
             notation.tiedNext = True
 

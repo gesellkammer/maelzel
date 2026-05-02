@@ -298,11 +298,11 @@ class Partial:
         Transpose a partial a 4th up
 
             >>> from maelzel.pitchtracking import Spectrum
-            >>> from maelzel import pitchtoolsnp as ptnp
+            >>> from pitchtools.vectorized import f2m, m2f
             >>> sp = Spectrum.analyze(...)
             >>> def transpose(freqs, interval):
-            ...     pitches = ptnp.f2m(freqs)
-            ...     return ptnp.m2f(pitches + interval)
+            ...     pitches = f2m(freqs)
+            ...     return m2f(pitches + interval)
             >>> newpartial = sp[0].freqTransform(lambda freqs: transpose(freqs, 5))
 
         Tune to a scale without removing vibrato

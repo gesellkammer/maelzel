@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 
-from maelzel._util import reprObj
+from maelzel._reprobj import reprObj
 
 from . import definitions
 from . import util

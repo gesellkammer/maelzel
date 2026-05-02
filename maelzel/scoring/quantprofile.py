@@ -10,6 +10,7 @@ from maelzel.scoring import quantutils
 import copy
 import pprint
 from emlib import mathlib
+from emlib.numtheory import prime_factors
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -187,16 +188,19 @@ class QuantizationProfile:
     allowNestedTupletsAcrossBeat: bool = False
     """Allow merging nested tuplets across the beat"""
 
-    allowedTupletsAcrossBeat: tuple[int, ...] = (1, 2, 3, 4, 5, 8)
-    """Which tuplets are allowed to cross the beat"""
+    tupletsAcrossBeat: tuple[int, ...] = (3, 5, 6, 7)
+    """Which tuplets are allowed to cross the beat. 
+    All binary divisions (2, 4, 8, ...) are allowed
+    """
 
-    allowedNestedTupletsAcrossBeat: tuple[tuple[int, int], ...] = ((3, 3), (3, 5), (5, 3))
+    nestedTupletsAcrossBeat: tuple[tuple[int, int], ...] = ((3, 3), (3, 5), (5, 3), (3, 7))
     """Which nested tuplets are allowed to cross the beat?
 
     Nested tuplets are those which are non-binary at more than one level, like
     a triplet with a quintuplet inside. For example a value of (3, 3) indicates
     that a big triplet with a triplet inside which both go across the beat
-    (for example the rhythm 2/3, 2/9, 2/9, 2/9, 2/3) would be allowed"""
+    (for example the rhythm 2/3, 2/9, 2/9, 2/9, 2/3) would be allowed. No irregular tuplets
+    (5:3 or 7:6) are allowed across beats."""
 
     breakLongGliss: bool = True
     """When a glissando extends over a quarternote, break it into quarter notes
@@ -239,6 +243,8 @@ class QuantizationProfile:
 
     beatWeightTempoThresh: int = 52
 
+    maxExactFits: int = 100
+
     # subdivTempoThresh: int = 96
 
     _cachedDivisionsByTempo: dict[tuple[num_t, bool], list[division_t]] = _field(default_factory=dict)
@@ -249,8 +255,7 @@ class QuantizationProfile:
     def __post_init__(self):
         assert self.breakSyncopationsLevel in ('strong', 'none', 'all', 'weak'), f"{self.breakSyncopationsLevel=}"
         if not self.divisionDefs:
-            presets = quantdata.quantizationPresets()
-            preset = presets['high']
+            preset = quantdata.quantizationPresets()['high']
             self.divisionDefs = preset.divisionDefs
         for attr, value in self.__dataclass_fields__.items():  # type: ignore
             assert not isinstance(value, (list, dict)), f"Unhashable {attr=}{value}"
@@ -320,8 +325,8 @@ class QuantizationProfile:
             self.mergedTupletsMaxDuration,
             self.mergeTupletsDifferentDur,
             self.allowNestedTupletsAcrossBeat,
-            self.allowedTupletsAcrossBeat,
-            self.allowedNestedTupletsAcrossBeat,
+            self.tupletsAcrossBeat,
+            self.nestedTupletsAcrossBeat,
             self.breakLongGliss,
             self.maxPenalty,
             self.blacklist,
@@ -410,13 +415,38 @@ class QuantizationProfile:
     @cache
     @staticmethod
     def default() -> QuantizationProfile:
+        """
+        Returns the default profile.
+
+        .. note:: do not modify the returned profile
+        """
         return QuantizationProfile.fromPreset('high')
 
     @cache
     @staticmethod
     def keys() -> set[str]:
+        """
+        The keys present in any QuantizationProfile
+        """
         return set(field.name for field in _fields(QuantizationProfile)
                    if not field.name.startswith('_'))
+
+    @staticmethod
+    def registerPreset(name: str, preset: quantdata.QuantPreset) -> None:
+        """
+        Register a user defined quantization preset
+
+        Args:
+            name: the name of the preset
+            preset: the actual preset, an instance of quantdata.QuantPreset
+
+        """
+        presets = _quantPresets()
+        presets[name] = preset
+
+    @staticmethod
+    def presets() -> dict[str, quantdata.QuantPreset]:
+        return _quantPresets()
 
     @staticmethod
     def fromPreset(complexity: str,
@@ -437,7 +467,7 @@ class QuantizationProfile:
             the quantization preset
 
         """
-        presets = quantdata.quantizationPresets()
+        presets = _quantPresets()
         preset = presets.get(complexity)
         if preset is None:
             raise ValueError(f"complexity preset {complexity} unknown. Possible values: {presets.keys()}")
@@ -466,17 +496,34 @@ class QuantizationProfile:
         return QuantizationProfile(**presetkws)
 
 
+_quantPresetRegistry: dict[str, quantdata.QuantPreset] = {}
+
+
+def _quantPresets() -> dict[str, quantdata.QuantPreset]:
+    if not _quantPresetRegistry:
+        _quantPresetRegistry.update(quantdata.quantizationPresets())
+    return _quantPresetRegistry
+
+
 @cache
-def _divisionCardinality(division: division_t, excludeBinary=False) -> int:
+def _primeFactors(x: int) -> set[int]:
+    return prime_factors(x)
+
+
+@cache
+def _divisionCardinality(division: division_t, excludeBinary=True) -> int:
     # TODO: make general form for deeply nested tuplets
     if isinstance(division, int):
         return 1
 
-    allfactors = quantutils.primeFactors(len(division), excludeBinary=excludeBinary).copy()
+    allfactors = _primeFactors(len(division)).copy()
     for subdiv in division:
-        allfactors.update(quantutils.primeFactors(subdiv, excludeBinary=excludeBinary))
+        allfactors.update(_primeFactors(subdiv))
 
-    return sum(1 for fact in allfactors if fact not in (1, 3))
+    if excludeBinary and 2 in allfactors:
+        allfactors.remove(2)
+
+    return sum(1 for fact in allfactors if fact != 3)
 
 
 @cache

@@ -13,7 +13,8 @@ if TYPE_CHECKING:
     from typing import Any, Iterator, Sequence, Callable
     from typing_extensions import Self
     from .synthevent import PlayArgs, SynthEvent
-    from maelzel import scoring
+    from maelzel.scoring.core import UnquantizedPart
+    from maelzel.scoring.notation import Notation
     from maelzel.common import time_t
 
 
@@ -346,10 +347,9 @@ class Score(MContainer):
 
     def append(self, voice: Voice | Chain) -> None:
         """Append a Voice to this Score"""
-        if isinstance(voice, Chain):
-            voice = voice.asVoice()
-        voice.parent = self
-        self.voices.append(voice)
+        realvoice = voice if isinstance(voice, Voice) else voice.asVoice()
+        realvoice.parent = self
+        self.voices.append(realvoice)
         if not self._modified:
             self._changed()
 
@@ -362,18 +362,18 @@ class Score(MContainer):
 
     def unquantizedParts(self,
                          config: CoreConfig | None = None
-                         ) -> list[scoring.core.UnquantizedPart]:
+                         ) -> list[UnquantizedPart]:
         self._update()
         from maelzel.scoring.core import UnquantizedPart
         parts = []
-        config, iscustom = self._resolveConfig(config, forceCopy=True)
-        config['show.voiceMaxStaves'] = 1
+        _config, iscustom = self._resolveConfig(config, forceCopy=True)
+        _config['show.voiceMaxStaves'] = 1
         # Maps voiceid to the unquantiued parts it generated. A voice may generate
         # multiple unquantized parts
-        voicemap: dict[int, list[scoring.core.UnquantizedPart]] = {}
+        voicemap: dict[int, list[UnquantizedPart]] = {}
 
         for voice in self.voices:
-            voiceparts = voice.unquantizedParts(config=config)
+            voiceparts = voice.unquantizedParts(config=_config)
             parts.extend(voiceparts)
             voicemap[id(voice)] = voiceparts
 
@@ -399,7 +399,7 @@ class Score(MContainer):
     def _scoringEvents(self,
                        config: CoreConfig | None = None,
                        parentOffset: F | None = None
-                       ) -> list[scoring.Notation]:
+                       ) -> list[Notation]:
         parts = self.unquantizedParts(config or Workspace.active.config)
         flatevents = []
         for part in parts:

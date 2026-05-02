@@ -3,17 +3,16 @@ from __future__ import annotations
 import functools
 import os
 import sys
-import weakref
-import pickle
-import emlib.misc
-from maelzel.common import F, F1
+import re
+
+from maelzel.common import F1
 from maelzel._logutils import getLogger
 from . import _mathutils
 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Any, Callable, Sequence
+    from typing import Any, Callable, Sequence, Iterator
     import logging
     import tempfile
     from maelzel.common import F, num_t
@@ -47,6 +46,7 @@ def savePickle(obj, prefix: str, objhash: int = 0) -> str:
     base = f"{prefix}:{objhash}.pickle"
     cachedir = _cacheFolder()
     filename = os.path.join(cachedir, base)
+    import pickle
     with open(filename, "wb") as f:
         pickle.dump(obj, f, pickle.HIGHEST_PROTOCOL)
     return filename
@@ -69,6 +69,7 @@ def loadPickle(prefix: str, objhash: int) -> Any:
     if not os.path.exists(filename):
         getLogger().debug("Pickle file %s not found", filename)
         return None
+    import pickle
     return pickle.load(open(filename, "rb"))
 
 
@@ -81,13 +82,7 @@ def makeTempDir(check=True) -> tempfile.TemporaryDirectory:
 
     Raises IOError if it failes to create the temp directory
     """
-    cachedir = _cacheFolder()
-
-    import appdirs
-    base = appdirs.user_cache_dir(appname='maelzel')
-    os.makedirs(base, exist_ok=True)
-    if not os.path.exists(base):
-        raise IOError(f"Could not create base for temporary folder, tried '{base}'")
+    base = _cacheFolder()
     import tempfile
     tempdir = tempfile.TemporaryDirectory(dir=base, prefix='maelzel-tmp')
     if not os.path.exists(tempdir.name):
@@ -139,89 +134,6 @@ def mktemp(suffix: str, prefix='') -> str:
     import tempfile
     return tempfile.mktemp(suffix=suffix, prefix=prefix, dir=tempdir.name)
 
-
-def reprObj(obj,
-            exclude: Sequence[str] | None = None,
-            properties: Sequence[str] | None = None,
-            filter: dict[str, Callable] = {},
-            first: Sequence[str] | None = None,
-            hideFalse=False,
-            hideEmptyStr=False,
-            hideFalsy=False,
-            hideKeys: Sequence[str] | None = None,
-            quoteStrings: bool | Sequence[str] = False,
-            quoteChar="'",
-            sort=True,
-            convert: dict[str, Callable[[Any], str]] | None = None,
-            ) -> str:
-    """
-    Given an object, generate its repr
-
-    Args:
-        obj: the object
-        filter: a dict mapping keys to functions deciding if the key:value should
-            be shown at all. The default is True, so if a filter function is given
-            for a certain key, that key will be shown only if the function returns
-            True.
-        sort: if True, sort the keys
-        properties: properties to include in the repr
-        hideKeys: show the value without the key name. Makes the given key a priority
-        quoteChar: char used to quote strings
-        exclude: a seq. of attributes to exclude
-        first: a list of attributes which are shown first.
-        hideFalsy: hide any attr which evaluates to False under bool(obj.attr)
-        hideFalse: hide bool attributes which are False.
-        hideEmptyStr: hide str attributes which are empty
-        quoteStrings: if True, strings are quoted. Alternative, a sequence of
-            attributes to quote.
-        convert: if given, a dict mapping attr names to a function of the form (value) -> str,
-            which returns the string representation of the given value
-
-    Returns:
-        a list of strings of the form "{key}={value}" only for those attributes
-        which fullfill the given conditions
-
-    """
-    attrs = emlib.misc.find_attrs(obj)
-    if exclude:
-        import fnmatch
-        attrs = [a for a in attrs if any(fnmatch.fnmatch(a, p) for p in exclude)]
-    if properties:
-        for p in properties:
-            if p not in attrs:
-                attrs.append(p)
-    info = []
-    if hideKeys:
-        if first:
-            for key in hideKeys:
-                if key not in first:
-                    first += (key,)
-        else:
-            first = hideKeys
-    if sort:
-        attrs.sort()
-    if first:
-        attrs.sort(key=lambda attr: 0 if attr in first else 1)
-    for attr in attrs:
-        value = getattr(obj, attr)
-        if value is None or (hideFalsy and not value) or (hideEmptyStr and value == '') or (hideFalse and value is False):
-            continue
-        elif convert and attr in convert:
-            value = convert[attr](value)
-        elif (filterfunc := filter.get(attr)) and not filterfunc(value):
-            continue
-        elif isinstance(value, weakref.ref):
-            refobj = value()
-            value = f'ref({type(refobj).__name__})'
-        elif isinstance(value, str) and (quoteStrings is True or (isinstance(quoteStrings, (tuple, list)) and attr in quoteStrings)):
-            value = f'{quoteChar}{value}{quoteChar}'
-        if hideKeys and attr in hideKeys:
-            info.append(str(value))
-        else:
-            info.append(f'{attr}={value}')
-    infostr = ', '.join(info)
-    cls = type(obj).__name__
-    return f"{cls}({infostr})"
 
 
 def fuzzymatch(query: str, choices: Sequence[str], limit=5
@@ -348,32 +260,6 @@ def showFlt(num: float, decimals=3) -> str:
     return format(num, fmt).rstrip("0").rstrip(".")
 
 
-def hasOverlap(x0: num_t, x1: num_t, y0: num_t, y1: num_t) -> bool:
-    """ do (x0, x1) and (y0, y1) overlap? """
-    return x1 > y0 if x0 < y0 else y1 > x0
-
-
-def overlap[T: (int, float, F)](u1: T, u2: T, v1: T, v2: T) -> tuple[T, T]:
-    """
-    The overlap betwen (u1, u2) and (v1, v2)
-
-    If there is no overlap, start > end
-
-    Args:
-        u1: start of first interval
-        u2: end of first interval
-        v1: start of second interval
-        v2: end of second interval
-
-    Returns:
-        a tuple (overlapstart, overlapend). If no overlap, overlapstart > overlapend
-
-    """
-    x1 = u1 if u1 > v1 else v1
-    x2 = u2 if u2 < v2 else v2
-    return x1, x2
-
-
 def aslist(seq) -> list:
     if isinstance(seq, list):
         return seq
@@ -439,6 +325,10 @@ def pythonSessionType() -> str:
         return session
     except NameError:
         return "python"
+
+
+def insideJupyter() -> bool:
+    return pythonSessionType() == 'jupyter'
 
 
 def getPlatform() -> tuple[str, str]:
@@ -627,11 +517,11 @@ def unicodeFraction(numerator: int, denominator: int, multi=False) -> str:
         str: Unicode representation of the fraction
 
     Examples:
-        >>> fraction_to_unicode(1, 2)
+        >>> unicodeFraction(1, 2)
         '½'
-        >>> fraction_to_unicode(3, 4)
+        >>> unicodeFraction(3, 4)
         '¾'
-        >>> fraction_to_unicode(22, 7)
+        >>> unicodeFraction(22, 7)
         '²²⁄₇'
     """
     if numerator == 0:
@@ -776,16 +666,6 @@ def splitVersionSpec(version: str) -> tuple[tuple[int, int, int], str]:
     return versiontup, matchop
 
 
-def fracRange(start: F, stop: F, step=F1
-              ) -> list[F]:
-    """ Like range, but yielding Fractions """
-    out = []
-    while start < stop:
-        out.append(start)
-        start += step
-    return out
-
-
 def splitStr(s: str, sep: str = ',') -> list[str]:
     """
     Splits at separator, skips splits inside parentheses, brackets and quoted strings
@@ -841,4 +721,59 @@ def splitStr(s: str, sep: str = ',') -> list[str]:
 
     parts.append(''.join(current))
     return parts
+
+
+def linesStrip(lines: list[str]) -> list[str]:
+    """
+    Remove empty lines from the top and bottom
+
+    Args:
+        lines: lines already split
+
+    Returns:
+        a list of lines without any empty lines at the beginning and at the end
+    """
+    startidx, endidx = 0, 0
+    for startidx, line in enumerate(lines):
+        if line and not line.isspace():
+            break
+    for endidx, line in enumerate(reversed(lines)):
+        if line and not line.isspace():
+            break
+    return lines[startidx:len(lines)-endidx]
+
+
+def regexSplit(pattern: str, string: str, maxsplit=0, strip=False, removeEmpty=False):
+    """
+    Similar to re.split but can strip lines and remove empty parts
+
+    Args:
+        pattern: regex pattern
+        string: string to split
+        maxsplit: max number of splits
+        strip: strip each line
+        removeEmpty: remove empty items
+
+    Returns:
+        a list of strings
+
+    Example
+    -------
+
+        >>> s = r'''
+        ...     C4:1
+        ...     D4:2
+        ...     E3:3; E4:4
+        ... '''
+        # Split on new lines and semicolons
+        >>> re.split('[\n;]', s)
+        ['', '    C4:1 ', '    D4:2', '    E3:3', ' E4:4', '    ']
+        >>> regexSplit('[\n;]', s, strip=True, removeEmpty=True)
+        ['C4:1', 'D4:2', 'E3:3', 'E4:4']
+    """
+    parts = re.split(pattern=pattern, string=string, maxsplit=maxsplit)
+    if strip:
+        parts = [part.strip() for part in parts]
+    if removeEmpty:
+        parts = [part for part in parts if part]
     return parts

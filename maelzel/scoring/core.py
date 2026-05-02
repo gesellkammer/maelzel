@@ -6,14 +6,12 @@ from itertools import pairwise
 
 from emlib import iterlib
 
-from maelzel._util import reprObj
+from maelzel._reprobj import reprObj
 from maelzel.common import F, F0
 
-from . import util
 from .common import logger
 from .notation import Notation
 from dataclasses import dataclass
-import weakref
 
 if TYPE_CHECKING:
     from typing import Iterator, Sequence
@@ -327,13 +325,6 @@ class UnquantizedPart:
         """
         return distributeByClef(self.notations, maxStaves=maxStaves)
 
-    def needsMultipleClefs(self) -> bool:
-        """
-        True if the notations in this Part extend over the range of one clef
-        """
-        midinotes: list[float] = sum((n.pitches for n in self), [])  # type: ignore
-        return util.midinotesNeedMultipleClefs(midinotes)
-
     def iterWithOffset(self) -> Iterator[tuple[Notation, F]]:
         """
         Iterate over the notations in this part with their resolved offsets
@@ -534,14 +525,14 @@ def fillSilences(notations: list[Notation],
     out: list[Notation] = []
     n0 = notations[0]
     if n0.offset is not None and n0.offset > start:
-        out.append(Notation.makeRest(duration=n0.offset - start, offset=start))
+        out.append(Notation.Rest(duration=n0.offset - start, offset=start))
     for ev0, ev1 in pairwise(notations):
         gap = ev1.qoffset - (ev0.qoffset + ev0.duration)
         if gap == 0:
             out.append(ev0)
         elif gap > mingap:
             out.append(ev0)
-            rest = Notation.makeRest(duration=gap, offset=ev0.qoffset+ev0.duration)
+            rest = Notation.Rest(duration=gap, offset=ev0.qoffset + ev0.duration)
             out.append(rest)
         elif gap < 0:
             if abs(gap) < 1e-14 and ev0.duration > 1e-13:

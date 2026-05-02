@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from maelzel.scorestruct import ScoreStruct
 from maelzel.scoring.renderoptions import RenderOptions
 from maelzel.scoring import quant
-from maelzel import _util
+from maelzel import _misc
 
 import emlib.img
 import emlib.misc
@@ -112,11 +112,11 @@ class Renderer(ABC):
             external = True
 
         if fmt == 'png':
-            png = _util.mktemp(suffix='.png')
+            png = _misc.mktemp(suffix='.png')
             self.write(png)
-            _util.pngShow(png, forceExternal=external, inlineScale=scalefactor)
+            _misc.pngShow(png, forceExternal=external, inlineScale=scalefactor)
         elif fmt == 'pdf':
-            outfile = _util.mktemp(suffix=f'.{fmt}')
+            outfile = _misc.mktemp(suffix=f'.{fmt}')
             self.write(outfile)
             emlib.misc.open_with_app(outfile)
         else:

@@ -3,14 +3,16 @@ A Notation represents a note/chord/rest
 """
 from __future__ import annotations
 import copy
-import pitchtools as pt
-from itertools import pairwise
-from emlib import mathlib
 from functools import cache
+from itertools import pairwise
+import pitchtools as pt
+from emlib import mathlib
 
+from maelzel._mathutils import fracRange
 from maelzel.common import F, F0, F1, asF, asmidi
-from maelzel._util import showF, showT, hasOverlap, fracRange
-from .common import logger
+from maelzel._misc import showT, unicodeFraction
+from maelzel._mathutils import ispowerof2, hasOverlap, splitInterval
+from .common import logger, NotatedDuration
 from . import attachment as att
 from . import util
 from . import definitions
@@ -23,7 +25,7 @@ if TYPE_CHECKING:
     import maelzel.core.symbols
     import maelzel.core.mevent
     from maelzel.common import time_t, pitch_t
-    from .common import division_t, NotatedDuration
+    from .common import division_t
     from . import spanner as _spanner
     AttachmentT = TypeVar('AttachmentT', bound=att.Attachment)
     SpannerT = TypeVar('SpannerT', bound=_spanner.Spanner)
@@ -39,6 +41,34 @@ __all__ = (
 
 _EMPTYLIST = []
 _EMPTYSET = set()
+
+
+# class QNotation:
+#     def __init__(self,
+#                  offset: F,
+#                  duration: F,
+#                  pitches: Sequence[pitch_t],
+#                  durRatios: tuple[F, ...] = (),
+#                  dynamic='',
+#                  tiedNext=False,
+#                  tiedPrev=False,
+#                  gliss=False):
+#         self.offset = offset
+#         self.pitches = pitches
+#         self.durRatios = durRatios
+#         self.duration = duration
+#         self.pitches = pitches
+#         self.dynamic = dynamic
+#         self.tiedNext = tiedNext
+#         self.tiedPrev = tiedPrev
+#
+#
+#
+#     @property
+#     def end(self) -> F:
+#         return self.offset + self.duration
+
+
 
 
 class Notation:
@@ -86,7 +116,6 @@ class Notation:
                  "mergeableNext",
                  "mergeablePrev",
                  "__weakref__",
-                 "_symbolicDuration"
                  )
 
     _privateKeys = {
@@ -137,9 +166,6 @@ class Notation:
             assert isinstance(pitches, tuple)
             midinotes = pitches
             assert offset is None or isinstance(offset, F)
-
-        if durRatios:
-            assert isinstance(durRatios, tuple) and all(isinstance(r, F) for r in durRatios)
 
         self.duration: F = asF(duration)
         "The duration of this Notation, in quarternotes"
@@ -198,8 +224,6 @@ class Notation:
         self.mergeableNext = True
         "Can this Notation be merged with a next Notation"
 
-        self._symbolicDuration: F = F0
-
         if self.isRest:
             assert self.duration > 0
             assert not self.pitches
@@ -213,16 +237,16 @@ class Notation:
 
 
     @classmethod
-    def makeNote(cls,
-                 pitch: pitch_t,
-                 duration: time_t,
-                 offset: time_t | None = None,
-                 annotation='',
-                 gliss=False,
-                 enharmonicSpelling='',
-                 dynamic='',
-                 **kws
-                 ) -> Notation:
+    def Note(cls,
+             pitch: pitch_t,
+             duration: time_t,
+             offset: time_t | None = None,
+             annotation='',
+             gliss=False,
+             enharmonicSpelling='',
+             dynamic='',
+             **kws
+             ) -> Notation:
         duration = asF(duration)
         offset = asF(offset) if offset is not None else None
         out = Notation(pitches=[pitch], duration=duration, offset=offset, gliss=gliss,
@@ -234,15 +258,15 @@ class Notation:
         return out
 
     @classmethod
-    def makeChord(cls,
-                  pitches: Sequence[pitch_t],
-                  duration: time_t,
-                  offset: time_t | None = None,
-                  annotation: str | att.Text = '',
-                  dynamic='',
-                  fixed=False,
-                  **kws
-                  ) -> Notation:
+    def Chord(cls,
+              pitches: Sequence[pitch_t],
+              duration: time_t,
+              offset: time_t | None = None,
+              annotation: str | att.Text = '',
+              dynamic='',
+              fixed=False,
+              **kws
+              ) -> Notation:
         """
         Utility function to create a chord Notation
 
@@ -279,12 +303,12 @@ class Notation:
         return out
 
     @classmethod
-    def makeRest(cls,
-                 duration: time_t,
-                 offset: time_t | None = None,
-                 dynamic: str = '',
-                 annotation: str = ''
-                 ) -> Notation:
+    def Rest(cls,
+             duration: time_t,
+             offset: time_t | None = None,
+             dynamic: str = '',
+             annotation: str = ''
+             ) -> Notation:
         """
         Shortcut function to create a rest notation.
 
@@ -317,10 +341,6 @@ class Notation:
     def pitchRange(self) -> tuple[float, float]:
         return self.pitches[0], self.pitches[-1]
 
-    def isQuantized(self) -> bool:
-        """Is this Notation quantized?"""
-        return self.offset is not None and len(self.durRatios) > 0
-
     @property
     def qoffset(self) -> F:
         """Quantized offset, raises ValueError if this notation is not quantized"""
@@ -351,12 +371,8 @@ class Notation:
         .. seealso:: :meth:`Notation.isQuantized`
         """
         if not self.durRatios:
-            raise ValueError(f"This Notation is not quantized, {self=}")
-        num, den = 1, 1
-        for ratio in self.durRatios:
-            num *= ratio.numerator
-            den *= ratio.denominator
-        return F(num, den)
+            return F1
+        return fusedRatio(self.durRatios)
 
     def quantizedPitches(self, divs=4) -> list[float]:
         """Quantize the pitches of this Notation
@@ -785,11 +801,11 @@ class Notation:
         return out
 
     @classmethod
-    def makeArtificialHarmonic(cls,
-                               basepitch: pitch_t,
-                               interval: int,
-                               **kws
-                               ) -> Notation:
+    def ArtificialHarmonic(cls,
+                           basepitch: pitch_t,
+                           interval: int,
+                           **kws
+                           ) -> Notation:
         """
         Create a Notation representing an artificial harmonic
 
@@ -933,12 +949,14 @@ class Notation:
             idx: the index of the pitch
             direction: one of "forward" or "backward"
         """
+        if len(self.pitches) == 1:
+            logger.warning("No need to set tie hints for single pitches: %s", self)
         assert direction == "forward" or direction == "backward"
         if direction == "forward" and not self.tiedNext:
             raise ValueError(f"This Notation is not tied forward: {self}")
         elif direction == "backward" and not self.tiedPrev:
             raise ValueError(f"This Notation is not tied backward: {self}")
-        key = f".{direction}Ties"
+        key = ".forwardTies" if direction == "forward" else ".backwardTies"
         hints = self.getProperty(key)
         if hints is None:
             self.setProperty(key, {idx})
@@ -1167,7 +1185,7 @@ class Notation:
 
     def _breakIrregularDurationInBeat(self,
                                       beatDur: F,
-                                      beatDivision: int | division_t,
+                                      beatDivision: division_t,
                                       beatOffset: F = F0
                                       ) -> list[Notation] | None:
         """
@@ -1199,20 +1217,20 @@ class Notation:
             raise ValueError(f"The notation should be defined within the given beat boundaries, "
                              f"got {self=}, {beatOffset=}, {beatDur=}")
 
+        assert self.offset is not None
+
         if self.duration == 0:
             return None
-        elif self.isQuantized() and self.hasRegularDuration():
+        elif self.hasRegularDuration():
             return None
 
-        if isinstance(beatDivision, (tuple, list)) and len(beatDivision) == 1:
-            beatDivision = beatDivision[0]
-
-        if isinstance(beatDivision, int):
-            return _breakIrregularDurationInSimpleDivision(self, beatDur=beatDur, div=beatDivision, beatOffset=beatOffset)
+        if len(beatDivision) == 1:
+            return _breakIrregularDurationInSimpleDivision(self, beatDur=beatDur, div=beatDivision[0], beatOffset=beatOffset)
 
         # beat is not subdivided regularly. check if n extends over subdivision
         numDivisions = len(beatDivision)
         divDuration = beatDur / numDivisions
+        assert isinstance(divDuration, F)
 
         ticks = fracRange(beatOffset, beatOffset+beatDur+divDuration, divDuration)
         assert len(ticks) == numDivisions + 1
@@ -1225,11 +1243,10 @@ class Notation:
             # find the subdivision
             for timespan, numslots in subdivisions:
                 if hasOverlap(timespan[0], timespan[1], subn.qoffset, subn.end):
-                    if self.duration == 0 or (self.isQuantized() and self.hasRegularDuration()):
+                    if self.duration == 0 or (self.offset is not None and self.hasRegularDuration()):
                         allparts.append(self)
                     else:
-                        parts = subn._breakIrregularDurationInBeat(beatDur=divDuration, beatDivision=numslots, beatOffset=timespan[0])
-                        # parts = _breakIrregularDurationInBeat(n=subn, beatDur=divDuration, beatDivision=numslots, beatOffset=timespan[0])
+                        parts = subn._breakIrregularDurationInBeat(beatDur=divDuration, beatDivision=(numslots,), beatOffset=timespan[0])
                         if parts:
                             allparts.extend(parts)
                         else:
@@ -1241,10 +1258,9 @@ class Notation:
     def breakIrregularDurationInNode(self: Notation, beatstruct: Sequence[QuantizedBeatDef]) -> list[Notation]:
         # this is called on each part of a notation when split at a beat boundary
         assert self.duration > 0
-        assert self.isQuantized() and not self.hasRegularDuration()
         from maelzel.scoring import util
         beatoffsets = [b.offset for b in beatstruct]
-        fragments = util.splitInterval(self.qoffset, self.end, beatoffsets)
+        fragments = splitInterval(self.qoffset, self.end, beatoffsets)
         N = len(fragments)
         assert N > 0,  f"??? {self=}, {beatoffsets=}"
         if N == 1:
@@ -1383,7 +1399,7 @@ class Notation:
             raise ValueError("offsets is empty")
 
         assert self.offset is not None
-        intervals = util.splitInterval(self.offset, self.end, offsets)
+        intervals = splitInterval(self.offset, self.end, offsets)
 
         if len(intervals) == 1:
             return [self.copy() if forcecopy else self]
@@ -1428,8 +1444,10 @@ class Notation:
         Raises:
             ValueError: if the notation has not been quantized
         """
+        if self.duration == F0:
+            return True
         symdur = self.symbolicDuration()
-        return symdur.denominator in (1, 2, 4, 8, 16, 32) and symdur.numerator in (1, 2, 3, 4, 7)
+        return symdur.denominator in (1, 2, 4, 8, 16, 32, 64, 128) and symdur.numerator in (1, 2, 3, 4, 7, 8, 15, 16, 31)
 
     def symbolicDuration(self) -> F:
         """
@@ -1442,10 +1460,7 @@ class Notation:
         Raises:
             ValueError: if the notation has not been quantized
         """
-        if self._symbolicDuration > 0:
-            return self._symbolicDuration
-        self._symbolicDuration = dur = self.duration * self.fusedDurRatio()
-        return dur
+        return self.duration * self.fusedDurRatio()
 
     def setPitches(self, pitches: Sequence[float | str], fixNotenames=False
                    ) -> None:
@@ -1595,7 +1610,7 @@ class Notation:
         return pt.vertical_position(self.notename(index))
 
     def addText(self,
-                text: str | att.Text,
+                text: str,
                 placement='above',
                 fontsize: int | float | None = None,
                 italic=False,
@@ -1626,25 +1641,36 @@ class Notation:
                 to check at the callsite that this text is already present
             relativeSize: if True, the font size is relative to the staff size
         """
-        if isinstance(text, att.Text):
-            assert not text.text.isspace()
-            annotation = text
-        else:
-            assert not text.isspace()
-            annotation = att.Text(text=text,
-                                  placement=placement,
-                                  fontsize=fontsize,
-                                  fontfamily=fontfamily,
-                                  italic=italic,
-                                  weight=weight,
-                                  box=box,
-                                  role=role,
-                                  relativeSize=relativeSize)
+        assert not text.isspace()
+        annotation = att.Text(text=text,
+                              placement=placement,
+                              fontsize=fontsize,
+                              fontfamily=fontfamily,
+                              italic=italic,
+                              weight=weight,
+                              box=box,
+                              role=role,
+                              relativeSize=relativeSize)
         if exclusive and self.attachments:
             for attach in self.attachments:
                 if attach == annotation:
                     return
         self.addAttachment(annotation)
+
+    def notatedFigure(self) -> tuple[int, int]:
+        """
+        The duration of the notated figure as (base, numdots)
+
+        Returns:
+            A tuplet (base: int, numdots: int), where base is the
+            base figure (4=quarter, 8=8th, etc)
+        """
+        symdur = self.symbolicDuration()
+        # n, d = symdur.numerator, symdur.denominator
+        # assert d in {1, 2, 4, 8, 16, 32, 64, 128}
+        # assert d == 1 or n in {1, 3, 7}
+        base, dots = util.durationToFigure(symdur)
+        return base, dots
 
     def notatedDuration(self) -> NotatedDuration:
         """
@@ -1652,7 +1678,9 @@ class Notation:
 
         A quarter-note inside a triplet would have a notatedDuration of 1
         """
-        return util.notatedDuration(self.duration, self.durRatios)
+        base, dots = self.notatedFigure()
+        tuplets = [(r.numerator, r.denominator) for r in self.durRatios] if self.durRatios else None
+        return NotatedDuration(base=base, dots=dots, tuplets=tuplets)
 
     def mergeWith(self, other: Notation, check=True) -> Notation:
         """Merge this Notation with ``other``"""
@@ -1786,11 +1814,12 @@ class Notation:
         return s
 
     def _repr(self, offset=True) -> str:
-        durstr =  util.durRepr(self.duration)
+        durstr = util.durRepr(self.duration)
         # All quantized notations have a fixed spelling, so no need to show that
         # in the repr
-        namerepr = self._namerepr(fixedAnnotation=not self.isQuantized())
-        info = [f"{namerepr}:{durstr}"]
+        namerepr = self._namerepr()
+        sep = "⋮"
+        info = [f"{namerepr}{sep}{durstr}"]
         if offset and self.offset is not None:
             if self.duration == 0:
                 info.append(showT(self.offset))
@@ -1798,7 +1827,10 @@ class Notation:
                 info.append(f"{showT(self.offset)}:{showT(self.end)}")
 
         if self.durRatios and self.durRatios != (F(1),):
-            info.append(",".join(showF(r) for r in self.durRatios))
+            ratios = [unicodeFraction(r.numerator, r.denominator) if r.denominator != 1 else str(r.numerator)
+                      for r in self.durRatios]
+            info.append("".join(ratios))
+            # info.append(",".join(showF(r) for r in self.durRatios))
 
         if self.dynamic:
             info.append(self.dynamic)
@@ -1811,14 +1843,14 @@ class Notation:
             if val:
                 info.append(f"{attr}={val}")
 
-        infostr = " ".join(info)
-        if self.isQuantized():
-            return f"«{infostr}»"
+        infostr = sep.join(info)
+        if self.offset is not None and self.hasRegularDuration():
+            return f"{infostr}"
         return f"‹{infostr}›"
 
 
     def __repr__(self):
-        offset = not self.isQuantized() and not self.isGracenote
+        offset = self.offset is not None and not self.isGracenote
         return self._repr(offset=offset)
 
     def copyAttributesTo(self: Notation, dest: Notation, spelling=True) -> None:
@@ -1892,7 +1924,7 @@ class Notation:
     @staticmethod
     def mergeNotationsIfPossible(notations: list[Notation]) -> list[Notation]:
         """
-        Merge the given notations into one, if possible.
+        Merge the given quantized notations into one, if possible.
     
         Notations which cannot be merged are added to the returned list
     
@@ -1913,7 +1945,21 @@ class Notation:
         """
         return _mergeNotationsIfPossible(notations)
 
-    def canMergeWith(self, n1: Notation) -> bool:
+    @staticmethod
+    def canMerge(notations: Sequence[Notation]) -> bool:
+        """Assume quantized"""
+        if len(notations) == 2:
+            return notations[0].canMergeWith(notations[1], quantized=True)
+        sumdur = sum(n.symbolicDuration() for n in notations)
+        if not (ispowerof2(sumdur.denominator) and sumdur.numerator in (1, 2, 3, 4, 7, 15)):
+            return False
+        for n1, n2 in pairwise(notations):
+            # We do not check the quantized dur since we are merging multiple
+            if not n1.canMergeWith(n2, quantized=False):
+                return False
+        return True
+
+    def canMergeWith(self, n1: Notation, quantized: bool) -> bool:
         """
         Returns True if self and n1 can be merged
 
@@ -1929,14 +1975,22 @@ class Notation:
         if (self.isRest != n1.isRest):
             return False
 
-        quantized = self.isQuantized()
-
-        if quantized != n1.isQuantized():
-            raise ValueError(f"A quantized notation cannot be merged with an "
-                             f"unquantized notation: {self=}, {n1=}")
+        # if not quantized != n1.isQuantized():
+        #     raise ValueError(f"A quantized notation cannot be merged with an "
+        #                      f"unquantized notation: {self=}, {n1=}")
 
         if quantized:
-            if self.durRatios != n1.durRatios or not durationsCanMerge(self.symbolicDuration(), n1.symbolicDuration()):
+            assert self.offset is not None and n1.offset is not None
+            assert self.hasRegularDuration() and n1.hasRegularDuration()
+
+            if self.durRatios != n1.durRatios:
+                return False
+
+            symdur = self.symbolicDuration()
+            assert ispowerof2(symdur.denominator), f"Irregular duration for {self}, sym. dur={symdur}"
+            n1symdur = n1.symbolicDuration()
+            assert ispowerof2(n1symdur.denominator), f"Irregular duration for {n1}, sym. dur={n1symdur}"
+            if not durationsCanMerge(symdur, n1symdur):
                 return False
 
         if self.isRest and n1.isRest:
@@ -2060,6 +2114,8 @@ def _mergeNotations(a: Notation, b: Notation, check=True) -> Notation:
     All other attributes are taken from the first notation and the
     duration of this first notation is extended to cover both notations
     """
+    quantized = a.offset is not None and a.hasRegularDuration()
+
     if check:
         assert type(a) is type(b), f"{a=}, {b=}"
         if a.pitches != b.pitches:
@@ -2068,9 +2124,10 @@ def _mergeNotations(a: Notation, b: Notation, check=True) -> Notation:
         assert a.duration is not None and b.duration is not None
         if a.isRest != b.isRest:
             raise ValueError(f"Cannot merge a notation with a rest, {a=}, {b=}")
-    quantized = a.isQuantized()
-    if quantized != b.isQuantized():
-        raise ValueError(f"Cannot merge a quantized and an unquantized notation, {a=}, {b=}")
+
+        bquantized = b.offset is not None and b.hasRegularDuration()
+        if quantized != bquantized:
+            raise ValueError(f"Cannot merge a quantized and an unquantized notation, {a=}, {b=}")
 
     out = a.clone(duration=a.duration + b.duration,
                   tiedNext=b.tiedNext,
@@ -2080,7 +2137,7 @@ def _mergeNotations(a: Notation, b: Notation, check=True) -> Notation:
 
     if quantized:
         assert a.end == b.offset
-        if not out.hasRegularDuration():
+        if check and not out.hasRegularDuration():
             raise ValueError(f"Cannot merge {a=} with {b=}, the resulting notation does not"
                              f" hava a regular duration: {out}")
 
@@ -2200,31 +2257,20 @@ def _transferAttachments(source: Notation, dest: maelzel.core.mevent.MEvent) -> 
                 raise ValueError(f"Spanner {spanner} not implemented yet")
 
 
-def durationsCanMerge(dur1: F, dur2: F) -> bool:
+def durationsCanMerge(*durs: F) -> bool:
     """
-    True if these symbolic durations can merge
-
-    A symbolic duration is the duration representing a notated figure
-    Valid symbolic durations are 1, 2, 4, 1/2 (8th note), 1/4 (16th note),
-    1/16, 3/2 (dotted quarter), 7/8 (double-dotted 8th), etc.
-
     Args:
-        dur1: first symbolic duration.
-        dur2: seconds symbolic duration
+        *durs: a seq. of symbolic durations
 
     Returns:
-        True if they can be merged
+        True if they can be merged into one duration
+
     """
-    assert mathlib.ispowerof2(dur1.denominator) and mathlib.ispowerof2(dur2.denominator), f"{dur1=}, {dur2}="
-    sumdur = dur1 + dur2
+    assert all(mathlib.ispowerof2(dur.denominator) for dur in durs)
+    sumdur = sum(durs)
     num, den = sumdur.numerator, sumdur.denominator
     if den > 64 or num not in {1, 2, 3, 4, 7}:
         return False
-
-    # Allow: r8 8 + 4 = r8 4.
-    # Don't allow: r16 8. + 8. r16 = r16 4. r16
-    # grid = F(1, den)
-    # if (num == 3 or num == 7) and ((n0.offset % grid) > 0 or (n1.end % grid) > 0):
 
     if num not in {1, 2, 3, 4, 6, 7, 8, 12, 16, 32}:
         return False
@@ -2256,7 +2302,7 @@ def _mergeNotationsIfPossible(notations: list[Notation]) -> list[Notation]:
     out = [notations[0]]
     for n1 in notations[1:]:
         last = out[-1]
-        if last.canMergeWith(n1):
+        if last.canMergeWith(n1, quantized=True):
             out[-1] = last.mergeWith(n1)
         else:
             out.append(n1)
@@ -2412,13 +2458,10 @@ def _breakIrregularDurationInSimpleDivision(n: Notation,
     return parts
 
 
-def _intDivisionToRatio(div: int) -> F:
-    if mathlib.ispowerof2(div):
-        return F1
-    pow2 = util.highestPowerLowerOrEqualTo(div, 2)
-    return F(div, pow2)
-
-
-
-
-
+@cache
+def fusedRatio(durRatios: tuple[F, ...]) -> F:
+    num, den = 1, 1
+    for ratio in durRatios:
+        num *= ratio.numerator
+        den *= ratio.denominator
+    return F(num, den)

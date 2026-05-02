@@ -1,5 +1,5 @@
 from __future__ import annotations
-from maelzel.common import F
+from maelzel.common import F, F1
 import math
 
 import typing as _t
@@ -125,4 +125,85 @@ def limitDenominator(num: int, den: int, maxden: int, assumeCoprime=False) -> tu
     if 2 * d * (q0 + k * q1) <= den:
         return p1, q1
     return p0 + k * p1, q0 + k * q1  # ← drop else after return
+
+
+def ispowerof2(x: int) -> bool:
+    """
+    Is x a power of two?
+
+    Via: https://stackoverflow.com/questions/600293/how-to-check-if-a-number-is-a-power-of-2
+    """
+    return (x != 0) and ((x & (x - 1)) == 0)
+
+
+
+def highestPowerLowerOrEqualTo(limit: int, base: int) -> int:
+    """
+    Returns the highest power of base which does not exceed limit
+
+    Args:
+        limit: the limit to the power of base
+        base: the base
+
+    Returns:
+        the highest power of base not exceeding limit
+
+    Example
+    ~~~~~~~
+
+        >>> highestPowerLowerOrEqualTo(100, 2)
+        64
+
+    .. seealso:: :func:`lowestPowerHigherOrEqualTo`
+    """
+    return base ** int(math.log(limit, base))
+
+
+def lowestPowerHigherOrEqualTo(limit: int, base: int) -> int:
+    return base ** int(math.ceil(math.log(limit, base)))
+
+
+def fracRange(start: F, stop: F, step=F1
+              ) -> list[F]:
+    """Create a list of fractions"""
+    out = []
+    while start < stop:
+        out.append(start)
+        start += step
+    return out
+
+
+def ifracRange(start: F, stop: F, step: F = F1
+               ) -> _t.Iterator[F]:
+    """ Like range, but yielding Fractions """
+    while start < stop:
+        yield start
+        start += step
+
+
+def overlap[T: (int, float, F)](u1: T, u2: T, v1: T, v2: T) -> tuple[T, T]:
+    """
+    The overlap betwen (u1, u2) and (v1, v2)
+
+    If there is no overlap, start > end
+
+    Args:
+        u1: start of first interval
+        u2: end of first interval
+        v1: start of second interval
+        v2: end of second interval
+
+    Returns:
+        a tuple (overlapstart, overlapend). If no overlap, overlapstart > overlapend
+
+    """
+    x1 = u1 if u1 > v1 else v1
+    x2 = u2 if u2 < v2 else v2
+    return x1, x2
+
+
+def hasOverlap[T: (int, float, F)](x0: T, x1: T, y0: T, y1: T) -> bool:
+    """ do (x0, x1) and (y0, y1) overlap? """
+    return x1 > y0 if x0 < y0 else y1 > x0
+
 

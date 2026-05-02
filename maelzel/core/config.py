@@ -138,7 +138,7 @@ from configdict import ConfigDict
 from maelzel.core._common import logger
 from maelzel.core import _configdata
 from functools import cache
-from maelzel import dynamiccurve as _dyncurve
+from maelzel import dyncurve as _dyncurve
 
 
 import typing as _t
@@ -220,7 +220,9 @@ class CoreConfig(ConfigDict):
     _defaultName: _t.ClassVar[str] = 'maelzel.core'
     _keyToType: _t.ClassVar[dict[str, type | tuple[type, ...]]] = {}
     _listHiddenKeysAtTheEnd: _t.ClassVar[bool] = True
-    _dynamicCurve: _dyncurve.DynamicCurve | None = None
+    _dynamicCurve: _dyncurve.DynamicCurve = _dyncurve.DynamicCurve.fromDescr(
+        shape='expon(0.3)',
+        mindb=-60)
 
     # A config callback has the form (config: CoreConfig, key: str, val: Any) -> None
     # It is called with the config being modified, the key being modified and the new value
@@ -228,13 +230,19 @@ class CoreConfig(ConfigDict):
         'htmlTheme': lambda config, key, val: _syncCsoundengineTheme(val),
         r"(show|quant|\.quant)\..+": lambda config, key, val: _resetImageCacheCallback(config, force=True),
         "A4": lambda config, key, val: _propagateA4(config, val),
-        "/^dynamicCurve[a-zA-Z]+$/": lambda cnf, k, v: setattr(cnf, "_dynamicCurve", None)
+        "/^dynamicCurve[a-zA-Z]+$/": lambda cnf, k, v: setattr(cnf, "_dynamicCurve", None),
+        r"quant\.debug": lambda c, k, v: c._quantDebugCallback(v)
+    }
+
+    _deprecated = {
+        '.quant.debug': 'quant.debug'
     }
 
     def __init__(self,
                  updates: dict[str, _t.Any] | None = None,
                  source: ConfigDict | str = 'root',
                  active=False,
+                 readonly=False,
                  **kws):
         self._hash: int = 0
         self._defaultPlayArgsDict: dict | None = None
@@ -265,9 +273,6 @@ class CoreConfig(ConfigDict):
 
         self._previousState: tuple[Workspace, CoreConfig] | None = None
 
-        self.readonly = False
-        """If True, trying to modify this dict will raise a ReadOnlyException"""
-
         for regex, func in self._builtinCallbacks.items():
             self.registerCallback(func, pattern=regex)
 
@@ -282,12 +287,25 @@ class CoreConfig(ConfigDict):
                    if k in self.keys()}
             self.update(kws)
 
+        for alias, key in self._deprecated.items():
+            self.addAlias(key, alias)
+
+        self.readonly = readonly
+
         if active:
             self.activate()
 
-    def _corePreCallback(self, d, key: str, oldval, newval):
+    def _quantDebugCallback(self, val):
+        if val and self['.quant.debugLogging']:
+            from maelzel.scoring.quant import logger as quantlogger
+            logger.warning("Setting the quant logger to DEBUG")
+            quantlogger.setLevel("DEBUG")
+
+    def _corePreCallback(self, d, key: str, oldval, newval, origkey=''):
         # We convert any list into tuples to ensure that the CoreConfig remains
         # hashable.
+        if origkey in self._deprecated:
+            logger.warn("Deprecated key '%s', use '%s' instead.", origkey, key)
         if isinstance(oldval, tuple) and isinstance(newval, list):
             return tuple(newval)
         return newval

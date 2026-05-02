@@ -56,7 +56,7 @@ defaultdict = {
     'show.glissLineThickness': 2,
     'show.glissLineType': 'solid',
     'show.lilypondPngStaffsizeScale': 1.5,
-    'show.lilypondGlissMinLength': 5,
+    'show.lilypondGlissMinLength': 3.6,
     'show.pngResolution': 200,
     'show.measureLabelStyle': 'fontsize=10',
     'show.rehearsalMarkStyle': 'box=rectangle; fontsize=13; bold',
@@ -127,11 +127,13 @@ defaultdict = {
     'rec.extratime': 0.,
     '.rec.compressionBitrate': 224,
 
-    'quant.syncopMinFraction': '1/6',
-    'quant.syncopPartMinFraction': '1/10',
-    'quant.syncopMaxAsymmetry': 3,
+    'quant.syncopMinFraction': '1/8',
+    'quant.syncopPartMinFraction': '1/12',
+    'quant.syncopMaxAsymmetry': 4,
     'quant.nestedTuplets': None,
     'quant.nestedTupletsMusicxml': False,
+    'quant.tupletsAcrossBeat': (3, 5, 6, 7),
+    'quant.nestedTupletsAcrossBeat': (),
     'quant.breakBeats': 'weak',
     'quant.complexity': 'high',
     'quant.beatWeightTempoThresh': 48,
@@ -139,13 +141,14 @@ defaultdict = {
     'quant.preferredTempoRange': (52, 132),
     'quant.gridWeight': None,
     'quant.exactFactor': None,
+    'quant.debug': False,
 
     '.quant.divisionWeight': None,
     '.quant.complexityWeight': None,
     '.quant.gridErrorExp': None,
-    '.quant.debug': False,
     '.quant.debugShowNumRows': 50,
     '.quant.mergeTupletsDifferentDur': False,
+    '.quant.debugLogging': True,
 
     'dynamicCurveShape': 'expon(0.3)',
     'dynamicCurveMindb': -60,
@@ -227,8 +230,12 @@ validator = {
     "htmlTheme::choices": {"light", "dark"},
     "quant.complexity::choices": {"speech", "low", "medium", "high", "highest", "exact"},
     "quant.syncopMinFraction::type": (str, float, Rational),
+    "quant.syncopPartMinFraction::type": (str, float, Rational),
     "quant.syncopMaxAsymmetry::type": (str, float, Rational),
+
     "quant.syncopMaxAsymmetry::range": (1, 99),
+    'quant.nestedTupletsAcrossBeat': lambda c, k, v: isinstance(v, tuple) and (not v or all(isinstance(x, tuple) and len(x) == 2 for x in v)),
+    'quant.nestedTupletsAcrossBeat::typehint': 'tuple[tuple[int, ...]]',
     "quant.nestedTuplets::choices": {True, False, None},
     # "quant.gridWeight::type": (float, None),
     # "quant.gridWeight::range": (0, 10),
@@ -268,6 +275,8 @@ validator = {
     "show.pedalStyle::choices": ("", "mixed", "bracket", "text"),
     "show.clefSimplify::range": (0, 10000),
     "show.clefTransposingFactor::range": (0, 1),
+    "show.lilypondGlissMinLength::range": (1, 8),
+    "show.lilypondGlissMinLength::type": (int, float),
     "dynamicCurveShape": lambda cfg, key, val: val.split("(")[0] in ("linear", "expon", "halfcos"),
     "dynamicCurveMindb::range": (-160, 0),
     "dynamicCurveMaxdb::range": (-160, 0),
@@ -667,7 +676,7 @@ docs = {
     'quant.preferredTempoRange':
         'Preferred (confortable) tempo range, use when subdividing/grouping beats',
 
-    '.quant.debug':
+    'quant.debug':
         'Output extra debug info during quantization, showing how different '
         'divisions are evaluated by the quantizer',
 
