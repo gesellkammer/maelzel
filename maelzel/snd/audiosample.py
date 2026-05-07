@@ -63,7 +63,7 @@ if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
     from maelzel.partialtracking import spectrum as _spectrum
-    from maelzel.transcribe import mono
+    from maelzel.transcribe.mono import FundamentalAnalysisMonophonic
     from typing_extensions import Self
 
 __all__ = (
@@ -501,7 +501,7 @@ class Sample:
     def show(self, audiotag=True, figsize=(24, 4), external=False, profile=''):
         if external:
             raise ValueError("External editor not supported")
-        if _util.pythonSessionType() == 'jupyter':
+        if _misc.pythonSessionType() == 'jupyter':
             from IPython.display import display_html
             display_html(self.reprHtml(audiotag=audiotag, figsize=figsize, profile=profile), raw=True)
         else:
@@ -1324,7 +1324,7 @@ class Sample:
                             minSilence=0.08,
                             onsetThreshold=0.05,
                             onsetOverlap=8,
-                            ) -> mono.FundamentalAnalysisMonophonic:
+                            ) -> FundamentalAnalysisMonophonic:
         """
         Analyze the fundamental of this sound, assuming it is a monophonic sound
 
@@ -1354,17 +1354,17 @@ class Sample:
             >>> notes = [(group.start(), group.duration(), group.meanfreq())
             ...          for group in f0analysis.groups]
         """
-        from maelzel.transcribe import mono
-        analysis = mono.FundamentalAnalysisMonophonic(samples=self.samples,
-                                                      sr=self.sr,
-                                                      semitoneQuantization=semitoneQuantization,
-                                                      fftSize=fftSize,
-                                                      overlap=overlap,
-                                                      simplify=simplify,
-                                                      minFrequency=minFreq,
-                                                      minSilence=minSilence,
-                                                      onsetThreshold=onsetThreshold,
-                                                      onsetOverlap=onsetOverlap)
+        from maelzel.transcribe.mono import FundamentalAnalysisMonophonic
+        analysis = FundamentalAnalysisMonophonic(samples=self.samples,
+                                                 sr=self.sr,
+                                                 semitoneQuantization=semitoneQuantization,
+                                                 fftSize=fftSize,
+                                                 overlap=overlap,
+                                                 simplify=simplify,
+                                                 minFrequency=minFreq,
+                                                 minSilence=minSilence,
+                                                 onsetThreshold=onsetThreshold,
+                                                 onsetOverlap=onsetOverlap)
         return analysis
 
     def onsets(self, fftsize=2048, overlap=4, method='rosita',
@@ -1593,7 +1593,7 @@ class Sample:
         """
         from maelzel.snd import vamptools
         samples = _npsnd.getChannel(self.samples, 0, ensureContiguous=True)
-        _util.checkChoice("unvoiced", unvoiced, choices=('negative', 'nan'))
+        _misc.checkChoice("unvoiced", unvoiced, choices=('negative', 'nan'))
         dt, freqs = vamptools.pyinSmoothPitch(samples, self.sr,
                                               fftSize=fftsize,
                                               stepSize=fftsize // overlap,

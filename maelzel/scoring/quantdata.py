@@ -191,9 +191,9 @@ def quantizationPresets() -> dict[str, QuantPreset]:
                 1:0.0,
                 2:0.0,
                 3:0.0,
-                4:0.01,
+                4:0.0,
                 5:0.01,
-                6:0.02,
+                6:0.01,
                 7:0.01,
                 8:0.01,
                 9:0.04,
@@ -201,7 +201,7 @@ def quantizationPresets() -> dict[str, QuantPreset]:
                 11:0.1,
                 12:0.1,
                 13:0.2,
-                14:0.1,
+                14:0.2,
                 15:0.2,
                 16:0.4,
             },
@@ -261,7 +261,7 @@ def quantizationPresets() -> dict[str, QuantPreset]:
             nestedTuplets=True,
             numNestedTupletsPenalty=(0., 0., 0.03, 0.4, 0.5, 0.8),
             gridErrorWeight=1.0,
-            divisionErrorWeight=0.0001,
+            divisionErrorWeight=0.001,
             rhythmComplexityWeight=0.1,
             cardinalityPenaltyWeight=0,
             gridErrorExp=0.75,
@@ -539,7 +539,7 @@ defaultDivisionPenaltyMap = {
     1:0.0,
     2:0.0,
     3:0.0,
-    4:0.01,
+    4:0.0,
     5:0.01,
     6:0.01,
     7:0.01,
@@ -552,6 +552,7 @@ defaultDivisionPenaltyMap = {
     14:0.1,
     15:0.1,
     16:0.4,
+    17:0.2
 }
 
 

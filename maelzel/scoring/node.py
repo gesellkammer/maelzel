@@ -11,6 +11,7 @@ from maelzel.scoring.quantdefs import QuantizedBeatDef
 from maelzel.scoring.common import logger
 from maelzel._logutils import LazyStr
 from maelzel import _misc
+from maelzel import _mathutils
 from .core import Notation
 from . import attachment
 from . import quantdata
@@ -346,14 +347,16 @@ class Node:
             else:
                 assert item.offset is not None and item.hasRegularDuration(), f"Unquantized notation {item} in node {self}"
 
-    def check(self):
+    def check(self, msg=''):
         durRatiosF = tuple(F(r[0], r[1]) for r in self.treeDurRatios() if r != (1, 1))
         for child in self.items:
             if isinstance(child, Node):
                 if child.parent is not self:
+                    if msg:
+                        logger.error("Node check error: %s", msg)
                     raise ValueError(f"Invalid parent for {child=}. Parent should be {self}, found {child.parent}")
                 assert child.parent is self
-                child.check()
+                child.check(msg=msg)
             else:
                 if len(child.durRatios) > 1 and child.durRatios[0] == F1:
                     child.durRatios = child.durRatios[1:]
@@ -535,8 +538,8 @@ class Node:
             for i1 in items[1:]:
                 i0 = out[-1]
                 if isinstance(i0, Notation) and isinstance(i1, Notation) and i0.canMergeWith(i1, quantized=True):
-                    modified = True
                     out[-1] = i0.mergeWith(i1)
+                    modified = True
                 else:
                     # n+G, G+n or G+G
                     out.append(i1)
@@ -882,7 +885,7 @@ class Node:
         self._removeUnnecessaryNodesInPlace()
         self._checkDurations()
 
-        # self._remerge()
+        self._remerge()
         # self.repairLinks()
         self.removeUnnecessaryGracenotes()
         self.setParentRecursively()
@@ -1267,7 +1270,7 @@ class Node:
         # this is called on each part of a notation when split at a beat boundary
         assert n.offset is not None and n.duration > 0 and not n.hasRegularDuration()
         beatoffsets = [b.offset for b in beatstruct]
-        fragments = util.splitInterval(n.qoffset, n.end, beatoffsets)
+        fragments = _mathutils.splitInterval(n.qoffset, n.end, beatoffsets)
         N = len(fragments)
         assert N > 0,  f"??? {n=}, {beatoffsets=}"
         if N == 1:

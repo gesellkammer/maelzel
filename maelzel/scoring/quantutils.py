@@ -664,7 +664,7 @@ def _notationsBetween(notations: list[Notation], start: F, end: F) -> list[Notat
 def applyDurationRatio(notations: list[Notation],
                        division: int | division_t,
                        beatOffset: F,
-                       beatDur: F
+                       beatDuration: F
                        ) -> None:
     """
     Applies a duration ratio to each notation, in place
@@ -676,7 +676,7 @@ def applyDurationRatio(notations: list[Notation],
         notations: the notations inside the period beatOffset:beatOffset+beatDur
         division: the division of the beat/subbeat.
         beatOffset: the start of the beat
-        beatDur: the duration of the beat
+        beatDuration: the duration of the beat
 
     """
     def _apply(durRatio: F, notations: list[Notation]):
@@ -695,7 +695,7 @@ def applyDurationRatio(notations: list[Notation],
     else:
         numSubBeats = len(division)
         now = beatOffset
-        dt = beatDur / numSubBeats
+        dt = beatDuration / numSubBeats
         durRatio = F(*quantdata.durationRatios[numSubBeats])
         if durRatio != F1:
             _apply(durRatio, notations)
@@ -722,7 +722,7 @@ def applyDurationRatio(notations: list[Notation],
                     subdivNotations.extend(reversed(endgraces))
             if subdivNotations:
                 applyDurationRatio(notations=subdivNotations, division=subdiv,
-                                   beatOffset=now, beatDur=dt)
+                                   beatOffset=now, beatDuration=dt)
             now += dt
             numNotations += len(subdivNotations)
 
@@ -730,7 +730,7 @@ def applyDurationRatio(notations: list[Notation],
             for i, n in enumerate(notations):
                 print(i, n)
             raise RuntimeError(f"Failed to apply dur ratios, {numNotations=} != {len(notations)=}, "
-                               f"{division=}, {beatOffset=}, {beatDur=}, {durRatio=}, {notations=}, {subdivs=}")
+                               f"{division=}, {beatOffset=}, {beatDuration=}, {durRatio=}, {notations=}, {subdivs=}")
 
 
 def breakNotationsByBeat(notations: list[Notation],
@@ -917,7 +917,7 @@ def splitDots(dur: F | tuple[int, int]) -> tuple[F, int]:
     else:
         num, den = dur.numerator, dur.denominator
     if num == 1:
-        assert mathlib.ispowerof2(den), f"Invalid duration: {dur}"
+        assert ispowerof2(den), f"Invalid duration: {dur}"
         return dur if isinstance(dur, F) else F(num, den), 0
     elif num == 2 or num == 4:
         assert den == 1
@@ -1058,3 +1058,287 @@ def simplifyUnusedSubdivs(div: division_t, events0: list[Notation]) -> division_
     if all(activeSubdivs):
         return div
     return tuple(1 if not active else s for active, s in zip(activeSubdivs, div))
+
+
+class SubdivSimplifier:
+    """
+    Computes which subdivisions are "active" (have an event onset) for a fixed
+    set of events, caching the result per subdivision count so that all divisions
+    of the same length share one scan of the event list.
+    """
+
+    def __init__(self, events: list[Notation]):
+        self.events = events
+        self.beatdur = events[-1].end
+        # numSubdivs -> (activeSubdivs bytearray, all_active bool)
+        self._cache: dict[int, tuple[bytearray, bool]] = {}
+
+    def _compute(self, numSubdivs: int) -> tuple[bytearray, bool]:
+        beatdur = self.beatdur
+        scale_num = numSubdivs * beatdur.denominator
+        scale_den = beatdur.numerator
+        active = bytearray(numSubdivs)
+        last_subdiv = -1
+        lastidx = numSubdivs - 1
+        numActive = 0
+
+        for n in self.events:
+            t = n.offset
+            subdiv = (t.numerator * scale_num) // (t.denominator * scale_den)
+            if subdiv != last_subdiv:
+                last_subdiv = subdiv
+                if not active[subdiv]:
+                    active[subdiv] = 1
+                    numActive += 1
+                    if numActive == numSubdivs:
+                        return active, True   # all slots filled, no need to continue
+                if subdiv == lastidx:
+                    break
+
+        return active, False
+
+    def simplify(self, div: division_t) -> division_t:
+        numSubdivs = len(div)
+        entry = self._cache.get(numSubdivs)
+        if entry is None:
+            entry = self._compute(numSubdivs)
+            self._cache[numSubdivs] = entry
+
+        active, all_active = entry
+        if all_active:
+            return div
+        return tuple(1 if not a else s for a, s in zip(active, div))
+
+
+class DivisionFitChecker:
+    """
+    Precomputes per-numParts which events fall off part-boundaries and by how
+    much, so that checking a specific division is reduced to a small arithmetic
+    test per non-aligned event — with no repeated divmod over all events.
+    """
+
+    def __init__(self, events: list[Notation], beatDuration: F, offset: F):
+        self.events = events
+        self.beatDuration = beatDuration
+        self.offset = offset
+        # numParts -> list of (partIndex, remainder) for events NOT on a part boundary
+        # If the list is None it means ALL events are on boundaries → always fits
+        self._cache: dict[int, list[tuple[int, F]] | None] = {}
+
+    def _compute(self, numParts: int) -> list[tuple[int, F]] | None:
+        partDur = self.beatDuration / numParts
+        misaligned: list[tuple[int, F]] = []
+        for ev in self.events:
+            partIndex, remainder = divmod(ev.offset - self.offset, partDur)
+            if remainder != 0:
+                misaligned.append((int(partIndex), remainder))
+        return None if not misaligned else misaligned
+
+    def fits(self, div: division_t) -> bool:
+        numParts = len(div)
+        if numParts not in self._cache:
+            self._cache[numParts] = self._compute(numParts)
+
+        misaligned = self._cache[numParts]
+        if misaligned is None:
+            return True   # every event lands on a part boundary
+
+        partDur = self.beatDuration / numParts
+        for partIndex, remainder in misaligned:
+            slotDur = partDur / div[partIndex]
+            if remainder % slotDur != 0:
+                return False
+        return True
+
+# --------------------------------
+
+from dataclasses import dataclass
+
+
+@dataclass
+class _PartResult:
+    reduced_subdiv: int
+    start_active: bool
+    inner_reduced_slots: list[int]   # occupied inner slots in reduced-grid local coords
+    event_reduced_slots: list[int]   # one per event in this part (with duplicates for grace notes)
+
+
+class BeatQuantizer:
+    """
+    For fixed (events, beatDuration, offset), caches per-subdivision work keyed
+    by (numParts, partIndex, subdiv) so that all divisions of the same length
+    sharing a subdiv at the same position pay only once for both the slot
+    snapping and the reduction logic.
+    """
+
+    def __init__(self, events: list[Notation], beatDuration: F, offset: F):
+        self.events = events
+        self.beatDuration = beatDuration
+        self.offset = offset
+        self._cache: dict[tuple[int, int, int], _PartResult] = {}
+
+    # ------------------------------------------------------------------
+    # per-part computation
+    # ------------------------------------------------------------------
+
+    def _compute_part(self, numParts: int, partIndex: int, subdiv: int) -> _PartResult:
+        partDur = self.beatDuration / numParts
+        partStart = self.offset + partIndex * partDur
+        partEnd = partStart + partDur
+        slotDur = partDur / subdiv
+        isLast = (partIndex == numParts - 1)
+
+        occupied: set[int] = set()
+        local_slots: list[int] = []
+
+        for ev in self.events:
+            pos = ev.offset
+            if pos < partStart:
+                continue
+            if pos > partEnd or (not isLast and pos >= partEnd):
+                break
+            relPos = pos - partStart
+            slot_f = relPos / slotDur
+            slot = int(slot_f)
+            if slot < subdiv - 1 and slot_f - slot > F(1, 2):
+                slot += 1
+            slot = min(slot, subdiv - 1)   # clamp beat-end grace notes
+            local_slots.append(slot)
+            occupied.add(slot)
+
+        start_active = 0 in occupied
+        occ = occupied - {0}
+
+        reduced_subdiv, inner_reduced_slots = self._reduce_subdiv(subdiv, occ)
+
+        # Map original local slots -> reduced local slots via uniform factor
+        if reduced_subdiv == subdiv:
+            event_reduced_slots = local_slots[:]
+        else:
+            factor = subdiv // reduced_subdiv
+            event_reduced_slots = [s // factor for s in local_slots]
+
+        return _PartResult(reduced_subdiv, start_active, inner_reduced_slots, event_reduced_slots)
+
+    @staticmethod
+    def _reduce_subdiv(subdiv: int, occ: set[int]) -> tuple[int, list[int]]:
+        """
+        Given the set of occupied inner slots (1..subdiv-1), return
+        (reduced_subdiv, inner_reduced_slots) in the reduced grid's local coords.
+        """
+        if not occ:
+            return 1, []
+
+        if subdiv % 2 == 0:
+            if subdiv == 4:
+                if 1 not in occ and 3 not in occ:
+                    return 2, [1]              # slot 2 -> reduced 1
+                return 4, sorted(occ)
+
+            elif subdiv == 6:
+                if 1 not in occ and 5 not in occ:
+                    if 2 not in occ and 4 not in occ:
+                        return 2, [1]          # slot 3 -> reduced 1
+                    elif 3 not in occ:
+                        # slots 2,4 -> reduced 1,2
+                        return 3, [i for i in (1, 2) if i * 2 in occ]
+                return 6, sorted(occ)
+
+            elif subdiv == 8:
+                if 1 not in occ and 3 not in occ and 5 not in occ and 7 not in occ:
+                    if 2 not in occ and 6 not in occ:
+                        return 2, [1]          # slot 4 -> reduced 1
+                    # slots 2,4,6 -> reduced 1,2,3
+                    return 4, [i for i in (1, 2, 3) if i * 2 in occ]
+                return 8, sorted(occ)
+
+            else:  # general even (10, 12, ...)
+                if 1 not in occ and (subdiv - 1) not in occ:
+                    mid = subdiv // 2
+                    if mid in occ and not (occ - {mid}):
+                        return 2, [1]
+                return subdiv, sorted(occ)
+
+        elif subdiv == 9:
+            if {1, 2, 4, 5, 7, 8}.isdisjoint(occ):
+                return 3, [i for i in (1, 2) if i * 3 in occ]
+            return 9, sorted(occ)
+
+        elif subdiv == 15:
+            if all(x not in occ for x in range(1, 15) if x % 5 != 0):
+                return 3, [i for i in (1, 2) if i * 5 in occ]
+            elif all(x not in occ for x in range(1, 15) if x % 3 != 0):
+                return 5, [i for i in range(1, 5) if i * 3 in occ]
+            return 15, sorted(occ)
+
+        return subdiv, sorted(occ)
+
+    # ------------------------------------------------------------------
+    # public API
+    # ------------------------------------------------------------------
+
+    def assignAndSimplify(self, division: division_t) -> tuple[division_t, list[int]]:
+        """
+        Assign events to slots and simplify the division in one pass,
+        reusing cached per-part results across all divisions of the same length.
+        Always returns (division, slots) — simplified if possible.
+        """
+        numSubdivs = len(division)
+
+        # Structural early-outs that don't need slot info
+        if numSubdivs == 1 and (d0 := division[0]) % 2 == 1 and d0 in _primes:
+            slotDur = self.beatDuration / d0
+            offset = self.offset + slotDur
+            if all(ev.offset < offset for ev in self.events):
+                return (1, ), [0] * len(self.events)
+            return division, self._assign_only(division)
+
+        if numSubdivs > 1 and all(s == 1 for s in division):
+            slots = self._assign_only(division)
+            newdiv = (numSubdivs,)
+            if res := simplifyDivisionWithSlots(newdiv, slots):
+                return res
+            return newdiv, slots
+
+        # Main per-part loop
+        reduced: list[int] = []
+        all_event_slots: list[int] = []   # one per event, in reduced-grid coords
+        cs2 = 0
+
+        for partIndex, subdiv in enumerate(division):
+            key = (numSubdivs, partIndex, subdiv)
+            if key not in self._cache:
+                self._cache[key] = self._compute_part(numSubdivs, partIndex, subdiv)
+            result = self._cache[key]
+
+            if result.start_active:
+                # slot 0 of this part is occupied; its reduced-grid position is cs2
+                pass  # accounted for via event_reduced_slots (slot 0 // factor = 0)
+
+            reduced.append(result.reduced_subdiv)
+            all_event_slots.extend(cs2 + s for s in result.event_reduced_slots)
+            cs2 += result.reduced_subdiv
+
+        newdiv: division_t = tuple(reduced)
+        numSlots2 = cs2
+
+        # Boundary special cases (evaluated on reduced slots, which are equivalent)
+        if len(all_event_slots) == 1 and all_event_slots[0] == 0:
+            return (1,), all_event_slots
+
+        if all(s == 0 or s == numSlots2 for s in all_event_slots):
+            return (1,), [0 if s == 0 else 1 for s in all_event_slots]
+
+        # All-ones collapse: (1,1,...,1) -> (N,) with optional further simplification
+        if all(s == 1 for s in newdiv):
+            N = numSubdivs
+            newdiv = (N,)
+            if N % 2 == 0 or N % 3 == 0:
+                if res := simplifyDivisionWithSlots(newdiv, all_event_slots):
+                    return res
+
+        return newdiv, all_event_slots
+
+    def _assign_only(self, division: division_t) -> list[int]:
+        grid = divisionGrid0(division, beatDuration=self.beatDuration)
+        return assignSlotsFrac(self.events, grid)

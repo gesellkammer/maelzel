@@ -162,10 +162,8 @@ def isEnharmonicVariantValid(notes: list[str]) -> bool:
     for n1 in notes[1:]:
         p1 = pt.n2m(n1)
         if p0 < p1 and pt.vertical_position(n0) > pt.vertical_position(n1):
-            print("Invalid enharmonic variant 1: ", notes)
             return False
         if p0 > p1 and pt.vertical_position(n0) < pt.vertical_position(n1):
-            print("Invalid enharmonic variant 2: ", notes)
             return False
         p0 = p1
         n0 = n1

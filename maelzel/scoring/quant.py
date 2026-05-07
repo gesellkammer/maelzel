@@ -242,14 +242,14 @@ class QuantizedBeat:
         self.weight: int = weight
         "The weight of this beat within the measure. 2=strong, 1=weak, 0=no weight"
 
-        assert all(not n.durRatios for n in notations), notations
+        # assert all(not n.durRatios for n in notations), notations
         assert all(beatOffset <= n.offset and n.end <= beatOffset + beatDuration
                    for n in notations), f"{notations=}, {beatOffset=}, {beatDuration=}"
 
         self._applyDurationRatios()
 
         for n in self.notations:
-            assert n.hasRegularDuration(), f"Invalid duration: {n}"
+            assert n.hasRegularDuration(), f"Invalid duration: {n}, dur: {n.duration}, ratios: {n.durRatios}, div: {self.divisions}"
 
     def __repr__(self):
         parts = [
@@ -279,7 +279,7 @@ class QuantizedBeat:
     def _applyDurationRatios(self):
         # After this, all notations are quantized
         quantutils.applyDurationRatio(self.notations, division=self.divisions,
-                                      beatOffset=self.offset, beatDur=self.duration)
+                                      beatOffset=self.offset, beatDuration=self.duration)
 
     def asTree(self) -> Node:
         """
@@ -763,17 +763,17 @@ class QuantizedMeasure:
                 logger.debug("---- binary node. Too complex syncopation (double/triple dots), splitting")
                 return True
 
-            # if durprop < F(1, 2):
-            #     logger.debug("Too short syncopation: dur/beatdur = %s", durprop)
-            #     return True
+            if durprop < F(1, 2):
+                logger.debug("Too short syncopation: dur/beatdur = %s", durprop)
+                return True
 
-            # if durprop <= F(3, 4) and durprop.denominator > 2 and durprop.numerator % 2 == 1:
-            #     logger.debug("Dotted syncopation two short, durprop: %s", durprop)
-            #     return True
+            if durprop <= F(3, 4) and durprop.denominator > 2 and durprop.numerator % 2 == 1:
+                logger.debug("Dotted syncopation two short, durprop: %s", durprop)
+                return True
 
-            # if partdur/beat.duration <= F(1, 8):
-            #     logger.debug("Too short syncopation on one side")
-            #     return True
+            if partdur/beat.duration <= F(1, 8):
+                logger.debug("Too short syncopation on one side")
+                return True
 
             if (durprop == F(1, 2) or durprop == F(1)) and partdur.numerator in (3, 7, 15):
                 logger.debug("Too complex syncopation 3, durprop: %s", durprop)
@@ -784,7 +784,7 @@ class QuantizedMeasure:
                 return True
 
         if partprop <= qprofile.syncopPartMinFraction:
-            logger.debug("Part of %s, %s too short in relation to the beat, min fraction: %s, ratio: %s", n, partprop, qprofile.syncopPartMinFraction, nodeDurRatio)
+            logger.debug("Part of %s, %s too short in relation to the beat, split it!, min fraction: %s, ratio: %s", n, partprop, qprofile.syncopPartMinFraction, nodeDurRatio)
             return True
 
         if n.tiedPrev and n.tiedNext and n.symbolicDuration().numerator in (3, 7, 15):
@@ -1214,32 +1214,37 @@ def quantizeBeat2(eventsInBeat: list[Notation],
     else:
         events0 = eventsInBeat
 
-    seen = set()
     searchExact = profile.exactGridFactor < 1.0
     perfectFitsRegistry = frozenset()
+    simplifier = quantutils.SubdivSimplifier(events0)
+
     if searchExact:
-        perfectFits = []
+        perfectFits = set()
         t0 = time.time()
+        fitchecker = quantutils.DivisionFitChecker(eventsInBeat, beatDuration=beatDuration, offset=beatOffset)
         for div in possibleDivisions:
+            if div in perfectFits:
+                continue
             numSlots = sum(div)
             if numSlots < numRealNotes:
                 continue
-            if quantutils.divisionFitsPerfectly(div, eventsInBeat, beatDuration=beatDuration, offset=beatOffset):
+            if fitchecker.fits(div):
+            # if quantutils.divisionFitsPerfectly(div, eventsInBeat, beatDuration=beatDuration, offset=beatOffset):
                 if len(div) > 1:
-                    div2 = quantutils.simplifyUnusedSubdivs(div, events0)
+                    div2 = simplifier.simplify(div)
+                    # div2 = quantutils.simplifyUnusedSubdivs(div, events0)
                     if div2 != div:
-                        if div in seen:
+                        if div in perfectFits:
                             continue
-                        seen.add(div)
                         div = div2
-                perfectFits.append(div)
+                perfectFits.add(div)
                 if len(perfectFits) >= profile.maxExactFits:
                     break
 
         if perfectFits:
-            perfectFits.sort(key=lambda div: sum(div))
-            perfectFitsRegistry = frozenset(perfectFits)
-            possibleDivisions = perfectFits
+            possibleDivisions = list(perfectFits)
+            possibleDivisions.sort(key=lambda div: sum(div))
+            perfectFitsRegistry = perfectFits
         logger.debug("Searched perfect fits, found %d divisions in %.3f ms", len(perfectFits), (time.time() - t0) / 1000)
 
     if divisionHint is not None:
@@ -1263,11 +1268,12 @@ def quantizeBeat2(eventsInBeat: list[Notation],
     if len(possibleDivisions) > 1_000_000:
         logger.debug("Finding best division out of %d", len(possibleDivisions))
 
+    seen = set()
+    quantizer = quantutils.BeatQuantizer(events0, beatDuration=beatDuration, offset=F0)
+
     for div in possibleDivisions:
         if div in seen or div in profile.blacklist:
             continue
-
-        seen.add(div)
 
         # More events than slots and no orig. gracenotes
         if (profile.maxGraceRatio and
@@ -1278,19 +1284,25 @@ def quantizeBeat2(eventsInBeat: list[Notation],
 
         isPerfectFit = searchExact and div in perfectFitsRegistry or div == prioritizedDiv
         if not isPerfectFit and len(div) > 1:
-            div2 = quantutils.simplifyUnusedSubdivs(div, events0)
+            div2 = simplifier.simplify(div)
+            # div2 = quantutils.simplifyUnusedSubdivs(div, events0)
             if div2 != div:
                 if div in seen:
                     continue
                 div = div2
 
-        assignedSlots = quantutils.assignSlots(events0, div=div, beatDuration=beatDuration)
-        if simplifyResult := quantutils.simplifyDivisionWithSlots(div, assignedSlots):
-            simplifiedDiv, newSlots = simplifyResult
-            if (simplifiedDiv in seen) or (simplifiedDiv in profile.blacklist):
-                continue
-            seen.add(simplifiedDiv)
-            div, assignedSlots = simplifiedDiv, newSlots
+        div, assignedSlots = quantizer.assignAndSimplify(div)
+        if div in seen:
+            continue
+        seen.add(div)
+
+        # assignedSlots = quantutils.assignSlots(events0, div=div, beatDuration=beatDuration)
+        # if simplifyResult := quantutils.simplifyDivisionWithSlots(div, assignedSlots):
+        #     simplifiedDiv, newSlots = simplifyResult
+        #     if (simplifiedDiv in seen) or (simplifiedDiv in profile.blacklist):
+        #         continue
+        #     seen.add(simplifiedDiv)
+        #     div, assignedSlots = simplifiedDiv, newSlots
 
 
         snappedEvents = quantutils.snappedToDivision(events0, slots=assignedSlots,
@@ -1331,7 +1343,7 @@ def quantizeBeat2(eventsInBeat: list[Notation],
             (gridError, gridErrorWeight),
             (divPenalty, profile.divisionErrorWeight),
             (rhythmComplexity, profile.rhythmComplexityWeight)   # XXX
-        ])
+        ]) * 100
 
         if div == prioritizedDiv:
             totalError /= prioritizedDivStrength
@@ -1341,9 +1353,8 @@ def quantizeBeat2(eventsInBeat: list[Notation],
             totalError *= profile.exactGridFactor
 
         if profile.debug:
-            debuginfo = (f"{gridError=:.3g}, {rhythmComplexity=:.3g} ({rhythmInfo}), "
-                         f"{divPenalty=:.3g} ({divPenalty*sqrt(profile.divisionErrorWeight):.4g}, "
-                         f"{divPenaltyInfo})")
+            debuginfo = (f"{gridError=:.3g} (weight={gridErrorWeight}), {rhythmComplexity=:.3g} (weight={profile.rhythmComplexityWeight}) ({rhythmInfo}), "
+                         f"{divPenalty=:.3g} (weight={profile.divisionErrorWeight} ({divPenaltyInfo})")
         else:
             debuginfo = ''
         # ----------------------------- end
@@ -1351,8 +1362,8 @@ def quantizeBeat2(eventsInBeat: list[Notation],
         if totalError < minError:
             minError = totalError
             rows.append((totalError, div, snappedEvents, assignedSlots, debuginfo))
-        elif profile.debug and totalError / minError < 3:
-            # keep rows for debugging
+        elif profile.debug and totalError / minError < 2:
+            # keep best rows for debugging
             rows.append((totalError, div, snappedEvents, assignedSlots, debuginfo))
 
         if totalError == 0:
@@ -1383,7 +1394,7 @@ def quantizeBeat2(eventsInBeat: list[Notation],
         gridcache = quantutils.divisionGrid0.cache_info()
         print(f"Possible divs: {len(possibleDivisions)}, solutions: {len(rows)}, best div: {div}, "
               f"error: {error:.5f}, time: {difftime * 1000:.2f}ms, cache info: {gridcache.hits}/{gridcache.misses}")
-        print(f"Solutions in order of eval: {[row[1] for row in rows]}")
+        print(f"Solutions in order of eval: {[row[1] for row in rows[:20]]}")
         rows.sort(key=lambda row: row[0])
         maxrows = min(profile.debugMaxDivisions, len(rows))
         print(f"Beat: {beatOffset} - {beatOffset + beatDuration} (dur: {beatDuration})")
@@ -1771,12 +1782,14 @@ def _mergeNodes(node1: Node,
         The merged node.
     """
     # we don't check here, just merge
-    assert node1.parent is not None and node1.parent is node2.parent
+    # assert node1.parent is not None and node1.parent is node2.parent
     node = Node(ratio=node1.durRatio, items=node1.items + node2.items, parent=node1.parent)
     node._repairDurRatios()
     node = node.mergedNotations()
     if any(isinstance(item, Node) for item in node.items):
-        node = _mergeSiblings(node, profile=profile, beatOffsets=beatOffsets, beatWeights=beatWeights)
+        if merged := _mergeSiblings(node, profile=profile, beatOffsets=beatOffsets, beatWeights=beatWeights):
+            node = merged
+
     node.parent = node1.parent
     node.setParentRecursively()
     if profile.debug:
@@ -1865,22 +1878,17 @@ def _nodesCanMerge(g1: Node,
     #    return Result.Fail("Don't merge 3/2 when the merged Notation in a dot")
 
     sumdur = g1dur + g2dur
-    if g1.durRatio != (1, 1):
-        if acrossBeat:
-            if g1.durRatio[0] not in profile.tupletsAcrossBeat:
-                return Result.Fail("tuplet not allowed to merge across beat")
-            # elif g1dur + g2dur > profile.mergedTupletsMaxDuration:
-            #     return Result.Fail("incompatible duration")
-            elif (g1.durRatio[0] % 3 == 0 and
-                  sumdur != 1 and
-                  sumdur.numerator > 1 and sumdur.numerator % 2 == 1):
-                logger.debug("Sum. dur: %s, %d/%d", sumdur, sumdur.numerator, sumdur.denominator)
-                return Result.Fail(f"3:2 tuplet across beats with irregular duration: {g1dur+g2dur}")
+    if g1.durRatio != (1, 1) and acrossBeat:
+        if g1.durRatio[0] not in profile.tupletsAcrossBeat:
+            return Result.Fail("tuplet not allowed to merge across beat")
 
-            #elif (not profile.mergeTupletsDifferentDur
-            #      and g1dur != g2dur
-            #):
-            #    return Result.Fail("Tuplet nodes of different duration cannot merge across beats")
+        # elif g1dur + g2dur > profile.mergedTupletsMaxDuration:
+        #     return Result.Fail("incompatible duration")
+        elif (g1.durRatio[0] % 3 == 0 and
+              sumdur != 1 and
+              sumdur.numerator > 1 and sumdur.numerator % 2 == 1):
+            logger.debug("Sum. dur: %s, %d/%d", sumdur, sumdur.numerator, sumdur.denominator)
+            return Result.Fail(f"3:2 tuplet across beats results in irregular duration: {g1dur+g2dur}")
 
     item1, item2 = g1.items[-1], g2.items[0]
     syncopated = g1last.tiedNext or (g1last.isRest and g2first.isRest and g1last.durRatios == g2first.durRatios)
@@ -1918,7 +1926,7 @@ def _nodesCanMerge(g1: Node,
                 return Result.Fail(f'complex nested tuplets cannot merge: {nestedtup}')
             return Result.Ok()
     else:
-        if TYPE_CHECKING: assert isinstance(item2, Notation)
+        assert isinstance(item2, Notation)
         # Two Notations
         if not acrossBeat and not syncopated and g1.durRatio == g2.durRatio == (3, 2):
             return Result.Fail('Merging these tuplets is not needed')
@@ -1927,8 +1935,8 @@ def _nodesCanMerge(g1: Node,
             return Result.Ok()
 
         symdur: F = item1.symbolicDuration() + item2.symbolicDuration()
-
-        if syncopated and symdur.denominator not in (1, 2, 4, 8, 16):
+        assert ispowerof2(symdur.denominator)
+        if syncopated and (symdur.denominator > 1 and symdur.numerator not in (1, 2, 3, 4, 7, 8, 15, 16, 31)):
             return Result.Fail(f'Cannot merge notations resulting in irregular durations. Resulting symbolic duration: {symdur}')
 
         if item1.gliss and item1.tiedNext and item2.gliss:
@@ -1987,22 +1995,25 @@ def mergeSiblings(root: Node,
                   beatOffsets: Sequence[F],
                   beatWeights: Sequence[int]) -> Node:
     newroot = _mergeSiblings(root, profile=profile, beatOffsets=beatOffsets, beatWeights=beatWeights)
+    if newroot is None:
+        return root
+    newroot.setParentRecursively()
     newroot._checkDurations()
-    # newroot.repair()
+    newroot = newroot.mergedNotations()
     return newroot
 
 
-def _mergeSiblings(root: Node,
+def _mergeSiblings(node: Node,
                    profile: QuantizationProfile,
                    beatOffsets: Sequence[F],
                    beatWeights: Sequence[int],
                    maxiter=4
-                   ) -> Node:
+                   ) -> Node | None:
     """
     Merge sibling tree of the same kind, if possible (recursively)
 
     Args:
-        root: the root of a tree of Nodes
+        node: the root of a tree of Nodes
         profile: the quantization profile
         beatOffsets: these offsets are used to determine if a merged node
             would cross a beat boundary. The quantization profile has some
@@ -2014,52 +2025,57 @@ def _mergeSiblings(root: Node,
         root
 
     """
-    if len(root.items) < 2:
-        return root
+    if len(node.items) < 2 or all(isinstance(item, Notation) for item in node.items):
+        return None
 
-    root2 = root
     # We merge until there are no changes, since merging two siblings might
     # enable subsequent merges
+    assert maxiter >= 1
+    changed = False
     for _ in range(maxiter):
-        root2 = _mergeSiblingsInner(root=root, profile=profile,
+        node2 = _mergeSiblingsInner(node=node, profile=profile,
                                     beatOffsets=beatOffsets, beatWeights=beatWeights)
-        if root2 == root:
+        if node2 is None:
             break
-        root = root2
+        node = node2
+        changed = True
     else:
         # No break, so we did not converge
         logger.error("Could not converge merge in %d iterations", maxiter)
-    assert root2.parent is root.parent
-    root2.setParentRecursively()
-    root2.check()
-    return root2
+    return node if changed else None
 
 
-def _mergeSiblingsInner(root: Node,
+def _mergeSiblingsInner(node: Node,
                         profile: QuantizationProfile,
                         beatOffsets: Sequence[F],
                         beatWeights: Sequence[int]
-                        ) -> Node:
-    root.check()
-    rootitems = root.items
-    if len(rootitems) < 2:
-        return root
+                        ) -> Node | None:
+    nodeitems = node.items
+    if len(nodeitems) < 2 or all(isinstance(item, Notation) for item in node.items):
+        return None
 
-    items1 = rootitems[0]
+    changed = False
+
+    items1 = nodeitems[0]
     if isinstance(items1, Node):
-        items1 = _mergeSiblings(items1, profile=profile, beatOffsets=beatOffsets, beatWeights=beatWeights)
-    items = [items1]
-    for item2 in rootitems[1:]:
-        if isinstance(item2, Node):
-            item2 = _mergeSiblings(item2, profile=profile, beatOffsets=beatOffsets, beatWeights=beatWeights)
+        if items1b:=_mergeSiblings(items1, profile=profile, beatOffsets=beatOffsets, beatWeights=beatWeights):
+            changed = True
+            items1 = items1b
 
+    items = [items1]
+    for item2 in nodeitems[1:]:
+        if isinstance(item2, Node):
+            if item2b:=_mergeSiblings(item2, profile=profile, beatOffsets=beatOffsets, beatWeights=beatWeights):
+                item2 = item2b
+                changed = True
         item1 = items[-1]
         if isinstance(item1, Node) and isinstance(item2, Node):
-            assert item1.parent is not None and item1.parent is item2.parent, f"Invalid parents: {item1.parent=}, {item2.parent=}"
+            # assert item1.parent is not None and item1.parent is item2.parent, f"Invalid parents: {item1.parent=}, {item2.parent=}"
             if r := _nodesCanMerge(item1, item2, profile=profile, beatOffsets=beatOffsets, beatWeights=beatWeights):
                 mergednode = _mergeNodes(item1, item2, profile=profile, beatOffsets=beatOffsets, beatWeights=beatWeights)
                 mergednode._checkDurations()
                 items[-1] = mergednode
+                changed = True
             else:
                 if profile.debug:
                     logger.debug("** Nodes cannot merge (offsets: %s, %s): %s", item1.offset, item2.offset, r.info)
@@ -2068,6 +2084,7 @@ def _mergeSiblingsInner(root: Node,
             merged = item1.mergeWith(item2)
             assert merged.hasRegularDuration()
             items[-1] = merged
+            changed = True
         else:
             items.append(item2)
 
@@ -2075,28 +2092,33 @@ def _mergeSiblingsInner(root: Node,
     # Only attempt if the binary pass left at least 3 Node siblings
 
     if sum(1 for it in items if isinstance(it, Node)) >= 3:
-        items3 = _mergeSiblingsThree(items, root=root, profile=profile,
-                                     beatOffsets=beatOffsets, beatWeights=beatWeights)
-        if len(items3) != len(items):
+        items3, changed3 = _mergeSiblingsThree(items, root=node, profile=profile,
+                                              beatOffsets=beatOffsets, beatWeights=beatWeights)
+        if changed3:
             items = items3
+            changed = True
 
-    newroot = Node(ratio=root.durRatio, items=items, parent=root.parent)
-    assert root.totalDuration() == newroot.totalDuration()
-    newroot.setParentRecursively()
-    return newroot
+    if not changed:
+        return None
+
+    node2 = Node(ratio=node.durRatio, items=items, parent=node.parent)
+    assert node.totalDuration() == node2.totalDuration()
+    node2.setParentRecursively()
+    return node2
 
 
-def _mergeSiblingsThree(items: list,
+def _mergeSiblingsThree(items: list[Node|Notation],
                         root: Node,
                         profile: QuantizationProfile,
                         beatOffsets: Sequence[F],
-                        beatWeights: Sequence[int]) -> list:
+                        beatWeights: Sequence[int]) -> tuple[list[Node|Notation], bool]:
     """
     Second pass: scan 'items' with a window of 3, merging consecutive Node
     triples that share a durRatio and pass validity checks.
     """
     result = []
     i = 0
+    changed = False
     while i < len(items) - 2:
         # Need at least 3 items ahead
         n1, n2, n3 = items[i:i+3]
@@ -2111,6 +2133,7 @@ def _mergeSiblingsThree(items: list,
                 result.append(merged)
                 i += 3
                 logger.debug("... Merged %s, %s, %s!", n1.offset, n2.offset, n3.offset)
+                changed = True
                 continue
 
         result.append(items[i])
@@ -2118,7 +2141,7 @@ def _mergeSiblingsThree(items: list,
     while i < len(items):
         result.append(items[i])
         i += 1
-    return result
+    return result, changed
 
 
 def _tryMergeThree(n1: Node, n2: Node, n3: Node,
@@ -2641,8 +2664,10 @@ class QuantizedPart:
                             note1 = n1.notename(idx1)
                             if note1 != note0:
                                 n1.fixNotename(note0, index=idx1)
-                            n0.setTieHint(idx0)
-                            n1.setTieHint(idx1, "backward")
+                            if len(n0.pitches) > 1:
+                                n0.setTieHint(idx0)
+                            if len(n1.pitches) > 1:
+                                n1.setTieHint(idx1, "backward")
 
             elif n0.gliss:
                 if n1.isRest or n0.pitches == n1.pitches:

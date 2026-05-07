@@ -683,6 +683,7 @@ def _parseLine(line: str) -> _ScoreLine:
         a tuple (measureidx, timesig, tempo), where only timesig
         is required
     """
+    assert isinstance(line, str)
     line = line.strip()
     tempodef: TempoDef | None = None
     # This splits at the separator but not when inside parens

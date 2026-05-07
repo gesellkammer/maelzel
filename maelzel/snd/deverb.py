@@ -130,12 +130,12 @@ def removeSustain(samples: np.ndarray,
 
     if onsets is None:
         from maelzel.snd import onset
-        onsets, onsetStrength = features.onsets(samples=samples,
-                                                sr=sr,
-                                                winsize=onsetFFTsize,
-                                                hopsize=onsetHopsize,
-                                                threshold=onsetThreshold,
-                                                backtrack=True)
+        onsets, onsetStrength = onset.onsets(samples=samples,
+                                             sr=sr,
+                                             winsize=onsetFFTsize,
+                                             hopsize=onsetHopsize,
+                                             threshold=onsetThreshold,
+                                             backtrack=True)
     else:
         onsets = np.asarray(onsets)
 

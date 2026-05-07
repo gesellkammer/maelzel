@@ -4,6 +4,7 @@ import copy
 from . import definitions
 from maelzel._reprobj import reprObj
 from maelzel.common import F, F0
+from maelzel import _misc
 
 from typing import TYPE_CHECKING
 
@@ -83,7 +84,7 @@ class GlissProperties(Attachment):
 
     def __init__(self, linetype='solid', color='', index=-1):
         super().__init__(color=color)
-        _util.checkChoice('linetype', linetype, GlissProperties.linetypes)
+        _misc.checkChoice('linetype', linetype, GlissProperties.linetypes)
         self.linetype = linetype
         """The line type, one of 'solid', 'wavy', 'dotted', 'dashed'"""
 

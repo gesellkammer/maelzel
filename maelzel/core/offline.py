@@ -684,7 +684,7 @@ class OfflineRenderer(renderer.Renderer):
                 raise errors.CancelledError("Render operation was cancelled")
         elif not outfile:
             outfile = self._outfile or _playbacktools.makeRecordingFilename(ext=".wav")
-        outfile = _util.normalizeFilename(outfile)
+        outfile = _misc.normalizeFilename(outfile)
         if verbose is None:
             verbose = self._verbose if self._verbose is not None else cfg['rec.verbose']
         job = self.session.render(outfile=outfile,

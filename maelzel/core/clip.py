@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from maelzel.common import time_t, pitch_t
     from typing_extensions import Self
     from maelzel.core.synthevent import PlayArgs
-    from maelzel import scoring
+    from maelzel.scoring.notation import Notation
     import csoundengine
     from maelzel.scorestruct import ScoreStruct
     from maelzel.core.config import CoreConfig
@@ -81,6 +81,7 @@ class Clip(event.MEvent):
                  'loop',
                  'noteheadShape',
                  'sr',
+                 '_samples',
                  '_speed',
                  '_playbackMethod',
                  '_engine',
@@ -147,6 +148,8 @@ class Clip(event.MEvent):
         self._csoundTable: int = 0
         """Will be filled during event initialization"""
 
+        self._samples: np.ndarray | None = None
+
         self.noteheadShape = noteheadShape
         """The shape to use as notehead"""
 
@@ -198,7 +201,6 @@ class Clip(event.MEvent):
         self._speed: F = asF(speed)
         """Playback speed"""
 
-        self._sample: audiosample.Sample | None = None
         self._durContext: tuple[ScoreStruct, F] | None = None
 
         if pitch:
@@ -216,20 +218,29 @@ class Clip(event.MEvent):
 
         assert offset is None or isinstance(offset, F)
         super().__init__(offset=offset, dur=F0, label=label)
-        self._calculateDuration()
+        # self._calculateDuration(struct=self.activeScorestruct(), absoffset=self.absOffset())
 
-    def _readSamples(self) -> None:
+    def _readSamples(self, setSource=False) -> np.ndarray:
         """
-        Read all samples and switch the source to the samples themselves
+        Read all samples (cached into ._samples)
+
+        Does nothing if the .source already contains the samples
         """
         # TODO: deal with startsecs and endsecs
         if isinstance(self.source, np.ndarray):
-            pass
+            return self.source
+        if self._samples is not None:
+            return self._samples
 
         assert isinstance(self.source, str)
         import sndfileio
         samples, sr = sndfileio.sndread(self.source)
-        self.source = samples
+        assert sr == self.sr
+        self._samples = samples
+        if setSource:
+            self.source = samples
+            self._playbackMethod = 'table'
+        return samples
 
     def samplesBetween(self, start: float, end: float) -> np.ndarray:
         """
@@ -243,14 +254,15 @@ class Clip(event.MEvent):
             the samples as a numpy array
 
         """
+
         if isinstance(self.source, str):
             # read samples if duration is short or asked to read a substantial
             # part of the source
             if self.sourceDurSecs < 10 or (end - start) / self.sourceDurSecs > 0.25:
-                logger.debug("Reading all samples")
-                self._readSamples()
-                assert isinstance(self.source, np.ndarray)
-                return self.source[int(start * self.sr):int(end*self.sr)]
+                samples = self._readSamples()
+                return samples[int(start * self.sr):int(end*self.sr)]
+            elif self._samples is not None:
+                return self._samples[int(start * self.sr):int(end*self.sr)]
             else:
                 import sndfileio
                 return sndfileio.sndread(self.source, start=start, end=end)[0]
@@ -260,12 +272,12 @@ class Clip(event.MEvent):
 
     @cache
     def firstSound(self, threshold=-120) -> float | None:
-        if isinstance(self.source, str):
+        if isinstance(self.source, str) and self._samples is None:
             from maelzel.snd import sndfiletools
             return sndfiletools.firstSound(self.source, threshold=threshold)
         else:
-            assert isinstance(self.source, np.ndarray)
-            samplenum = numpysnd.firstSound(self.source, threshold=threshold)
+            samples = self._readSamples()
+            samplenum = numpysnd.firstSound(samples, threshold=threshold)
             return None if samplenum is None else samplenum * self.sr
 
     @cache
@@ -291,10 +303,10 @@ class Clip(event.MEvent):
     def name(self) -> str:
         return f"Clip(source={self.source})"
 
-    def copy(self) -> Self:
+    def _copy(self, attributes=True) -> Self:
         # We do not copy the parent attr
         source = self.source if isinstance(self.source, str) else (self.source, self.sr)
-        out = self.__class__(source=source, 
+        out = self.__class__(source=source,
                              pitch=self.pitch,
                              amp=self.amp,
                              offset=self.offset,
@@ -306,7 +318,8 @@ class Clip(event.MEvent):
                              speed=self.speed,
                              loop=self.loop,
                              tied=self.tied)
-        self._copyAttributesTo(out)
+        if attributes:
+            self._copyAttributesTo(out)
         return out
 
     def __hash__(self):
@@ -339,22 +352,22 @@ class Clip(event.MEvent):
 
         TODO
         """
-        if self._sample is not None:
-            return self._sample
-
-        if isinstance(self.source, np.ndarray):
+        if self._samples is not None:
+            return audiosample.Sample(self._samples, sr=int(self.sr),
+                                      start=float(self.selectionStartSecs),
+                                      end=float(self.selectionEndSecs),
+                                      readonly=True)
+        elif isinstance(self.source, np.ndarray):
             return audiosample.Sample(self.source, sr=int(self.sr),
                                       start=float(self.selectionStartSecs), 
                                       end=float(self.selectionEndSecs), 
                                       readonly=True)
         elif isinstance(self.source, str):
-            sample = audiosample.Sample(self.source,
-                                        readonly=True,
-                                        engine=self._engine,
-                                        start=float(self.selectionStartSecs),
-                                        end=float(self.selectionEndSecs))
-            self._sample = sample
-            return sample
+            return audiosample.Sample(self.source,
+                                      readonly=True,
+                                      engine=self._engine,
+                                      start=float(self.selectionStartSecs),
+                                      end=float(self.selectionEndSecs))
         else:
             raise TypeError(f"Wrong type for source!, got {type(self.source)}")
 
@@ -399,20 +412,20 @@ class Clip(event.MEvent):
         return (f"Clip(source={self.source}, "
                 f"numChannels={self.numChannels}, "
                 f"sr={self.sr}, "
-                f"dur={_util.showT(self.dur)}, "
-                f"sourcedur={_util.showT(self.sourceDurSecs)}s)")
+                f"dur={_misc.showT(self.dur)}, "
+                f"sourcedur={_misc.showT(self.sourceDurSecs)}s)")
 
     def _synthEvents(self,
                      playargs: PlayArgs,
                      parentOffset: F,
-                     workspace: Workspace,
+                     config: CoreConfig,
+                     struct: ScoreStruct
                      ) -> list[SynthEvent]:
         skip = float(self.selectionStartSecs / self.speed)
-        scorestruct = workspace.scorestruct
         reloffset = self.relOffset()
         offset = reloffset + parentOffset
-        starttime = float(scorestruct.beatToTime(offset))
-        endtime = float(scorestruct.beatToTime(offset + self.dur))
+        starttime = float(struct.beatToTime(offset))
+        endtime = float(struct.beatToTime(offset + self.dur))
         amp = self.amp if self.amp is not None else 1.0
         bps = [(starttime, self.pitch, amp),
                (endtime, self.pitch, amp)]
@@ -445,7 +458,7 @@ class Clip(event.MEvent):
                                         initfunc=self._initEvent)
 
         if playargs.automations:
-            event.addAutomationsFromPlayArgs(playargs, scorestruct=scorestruct)
+            event.addAutomationsFromPlayArgs(playargs, scorestruct=struct)
         return [event]
 
     def _initEvent(self, event: SynthEvent, renderer: Renderer) -> None:
@@ -611,19 +624,19 @@ class Clip(event.MEvent):
                        groupid='',
                        config: CoreConfig|None = None,
                        parentOffset: F|None = None
-                       ) -> list[scoring.Notation]:
+                       ) -> list[Notation]:
         if not config:
             config = Workspace.active.config
         offset = self.absOffset()
         dur = self.dur
-        from maelzel import scoring
+        from maelzel.scoring.notation import Notation
         if not self.pitch:
             self.pitch = self.fundamentalPitch(default=60)
-        notation = scoring.Notation.Note(pitch=self.pitch,
-                                         duration=dur,
-                                         offset=offset,
-                                         dynamic=self.dynamic,
-                                         gliss=bool(self.gliss))
+        notation = Notation.Note(pitch=self.pitch,
+                                 duration=dur,
+                                 offset=offset,
+                                 dynamic=self.dynamic,
+                                 gliss=bool(self.gliss))
         if self.tied:
             notation.tiedNext = True
 

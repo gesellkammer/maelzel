@@ -304,7 +304,8 @@ def glissandoMinimumLength(length: int) -> str:
     return _glissandoMinLengthTemplate.substitute(length=length)
 
 
-def proportionalSpacing(num=1, den=20, strict=True, uniform=True
+def proportionalSpacing(num=1, den=20, strict=True, uniform=True, tupleFullLength=False,
+                        breakGliss=False, affectGracenotes=False
                         ) -> str:
     """
     Creates the snippet for proportional spacing
@@ -320,21 +321,30 @@ def proportionalSpacing(num=1, den=20, strict=True, uniform=True
     Returns:
         the lilypond snippet
     """
-    spacings = []
+    parts = []
     if strict:
-        spacings.append(r"    \override SpacingSpanner.strict-note-spacing = ##t")
+        parts.append(r"    \override SpacingSpanner.strict-note-spacing = ##t")
 
     if uniform:
-        spacings.append(r"    \override SpacingSpanner.uniform-stretching = ##t")
+        parts.append(r"    \override SpacingSpanner.uniform-stretching = ##t")
 
-    spacing = "\n".join(spacings) if spacings else '        '
+    if tupleFullLength:
+        parts.append(r"    \set tupletFullLength = ##t")
+
+    if breakGliss:
+        parts.append(r"    \override Glissando.breakable = ##t")
+
+    if affectGracenotes:
+        parts.append(r"    \override SpacingSpanner.strict-grace-spacing = ##t")
+
+    snippet = "\n".join(parts) if parts else '        '
 
     return fr"""
 \layout {{
   \context {{
     \Score
-    proportionalNotationDuration = #(ly:make-moment {num}/{den})
-{spacing}
+    proportionalNotationDuration = #{num}/{den}  % was #(ly:make-moment {num}/{den})
+{snippet}
   }}
 }}
     """

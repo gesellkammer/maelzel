@@ -146,7 +146,7 @@ defaultdict = {
     '.quant.divisionWeight': None,
     '.quant.complexityWeight': None,
     '.quant.gridErrorExp': None,
-    '.quant.debugShowNumRows': 50,
+    '.quant.debugShowNumRows': 20,
     '.quant.mergeTupletsDifferentDur': False,
     '.quant.debugLogging': True,
 

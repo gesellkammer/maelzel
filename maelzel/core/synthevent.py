@@ -935,7 +935,7 @@ class SynthEvent:
                 f"gain={showFlt(self.gain, 4)}, chan={self.chan}"
                 f", fade=({showT(self.fadein)}, {showT(self.fadeout)})"]
         if self.linkednext:
-            info.append('linkednext✓')
+            info.append('linked✓')
         if self.args:
             info.append(f"args={self.args}")
         if self.sustain:

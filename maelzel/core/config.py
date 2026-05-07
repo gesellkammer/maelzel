@@ -296,10 +296,14 @@ class CoreConfig(ConfigDict):
             self.activate()
 
     def _quantDebugCallback(self, val):
-        if val and self['.quant.debugLogging']:
+        if self['.quant.debugLogging']:
             from maelzel.scoring.quant import logger as quantlogger
-            logger.warning("Setting the quant logger to DEBUG")
-            quantlogger.setLevel("DEBUG")
+            if val:
+                logger.warning("Setting the quant logger to DEBUG")
+                quantlogger.setLevel("DEBUG")
+            else:
+                parentlevel = quantlogger.parent.level
+                quantlogger.setLevel(parentlevel)
 
     def _corePreCallback(self, d, key: str, oldval, newval, origkey=''):
         # We convert any list into tuples to ensure that the CoreConfig remains

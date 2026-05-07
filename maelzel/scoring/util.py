@@ -319,6 +319,8 @@ def unicodeDuration(dur: tuple[int, int] | F) -> str:
         the unicode representation
     """
     if isinstance(dur, F):
+        if dur.numerator == 0:
+            return "𝆔"
         if dur.numerator == 5:
             part1 = unicodeDuration(dur - F(1, dur.denominator))
             part2 = unicodeDuration(F(1, dur.denominator))
@@ -345,5 +347,5 @@ def unicodeDuration(dur: tuple[int, int] | F) -> str:
     figbase = figures.get(base)
     if not figbase:
         raise ValueError(f"Invalid figure, expected a power of 2 between 1 and 256, got {base}")
-    return figbase + '∙' * dots
+    return figbase + '·' * dots
 

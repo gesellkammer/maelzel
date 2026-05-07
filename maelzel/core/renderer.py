@@ -4,7 +4,7 @@ Interface for audio rendering (abstract class for realtime and offline)
 from __future__ import annotations
 
 from abc import abstractmethod, ABC
-from . import environment
+from maelzel import _misc
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -47,7 +47,7 @@ class Renderer(ABC):
         If inside jupyter, force a display of this OfflineRenderer
 
         """
-        if environment.insideJupyter:
+        if _misc.insideJupyter():
             from IPython.display import display
             display(self)
 

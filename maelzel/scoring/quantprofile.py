@@ -243,7 +243,7 @@ class QuantizationProfile:
 
     beatWeightTempoThresh: int = 52
 
-    maxExactFits: int = 100
+    maxExactFits: int = 50
 
     # subdivTempoThresh: int = 96
 

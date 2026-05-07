@@ -118,6 +118,8 @@ class MEvent(MObj):
 
         Returns:
             the previous event within the parent container, or None
+
+        .. seealso:: :meth:`MEvent.nextEvent`
         """
         if not self.parent:
             return None
@@ -131,6 +133,8 @@ class MEvent(MObj):
 
         Returns:
             the next event within the parent container, or None
+
+        .. seealso:: :meth:`MEvent.previousEvent`
         """
         if self._nextEvent:
             return self._nextEvent
@@ -254,9 +258,9 @@ class MEvent(MObj):
             the copy
 
         """
-        return super().copy()
-        
-    def copy(self):
+        raise NotImplementedError
+
+    def copy(self) :
         return self._copy()
 
     def hasExplicitGliss(self) -> bool:
@@ -326,7 +330,7 @@ class MEvent(MObj):
         startbeat = start if isinstance(start, F) else scorestruct.asBeat(start)
         endbeat = end if isinstance(end, F) else scorestruct.asBeat(end)
         absoffset = self.absOffset()
-        if intersect := mathutils.intersectF(startbeat, endbeat, absoffset, absoffset + self.dur):
+        if intersect := _mathutils.intersectF(startbeat, endbeat, absoffset, absoffset + self.dur):
             intersect0, intersect1 = intersect
             return self.clone(offset=intersect0, dur=intersect1 - intersect0)
         else:
@@ -409,7 +413,7 @@ class MEvent(MObj):
         if offset >= offsets[-1] or offset + dur <= offsets[0]:
             return [self]
 
-        intervals = mathutils.splitInterval(offset, offset + dur, offsets)
+        intervals = _mathutils.splitInterval(offset, offset + dur, offsets)
         events = [self.clone(dur=end-start, offset=None)
                   for start, end in intervals]
         events[0].offset = self.offset
@@ -495,14 +499,15 @@ class MEvent(MObj):
                 kind = 'end'
             else:
                 kind = 'start'
-            spanner = _symbols.makeSpanner(spanner.lower(), kind=kind)
-        assert isinstance(spanner, _symbols.Spanner)
+            spannerobj = _symbols.makeSpanner(spanner.lower(), kind=kind)
+        else:
+            spannerobj = spanner
 
         if endobj is not None:
-            assert spanner.kind == 'start'
-            spanner.bind(self, endobj)
+            assert spannerobj.kind == 'start'
+            spannerobj.bind(self, endobj)
         else:
-            self.addSymbol(spanner)
+            self.addSymbol(spannerobj)
         return self
 
     def timeTransform(self, timemap: Callable[[F], F], inplace=False

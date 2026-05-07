@@ -561,6 +561,7 @@ class Chain(MContainer):
             # We don't include the chain's automations since these are added
             # later, after events have been merged.
             playargs = playargs.updated(self.playargs, automations=False)
+        self._resolveGlissandi()
 
         flatitems = self._flatEventsForSynth(config)
         allevents = []

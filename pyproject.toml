@@ -49,12 +49,12 @@ dependencies = [
 
     # Own libraries
     "emlib>=1.21.0",
-    "libcsound>=0.10.8",
+    "libcsound>=0.13.1",
     "bpf4>=1.14.0",
     "configdict>=2.14",
     "sndfileio>=1.9.1",
     "numpyx>=1.4.1",
-    "csoundengine>=2.22.0",
+    "csoundengine>=2.22.6",
     "pitchtools>=1.17.1",
     "risset>=3.2.0",
     "loristrck>=1.6.1",

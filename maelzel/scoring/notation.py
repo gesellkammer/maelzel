@@ -1975,10 +1975,6 @@ class Notation:
         if (self.isRest != n1.isRest):
             return False
 
-        # if not quantized != n1.isQuantized():
-        #     raise ValueError(f"A quantized notation cannot be merged with an "
-        #                      f"unquantized notation: {self=}, {n1=}")
-
         if quantized:
             assert self.offset is not None and n1.offset is not None
             assert self.hasRegularDuration() and n1.hasRegularDuration()
@@ -2003,13 +1999,14 @@ class Notation:
         # Two notes/chords
         # TODO: decide what to do about spanners
         if (not self.tiedNext or
-            not n1.tiedPrev or
             self.durRatios != n1.durRatios or
-            self.pitches != n1.pitches or
-            self.noteheads != n1.noteheads or
-                (n1.dynamic and n1.dynamic != self.dynamic)
+            self.pitches != n1.pitches):
+            return False
 
-        ):
+        if (n1.dynamic and n1.dynamic != self.dynamic):
+            return False
+
+        if self.noteheads != n1.noteheads:
             return False
 
         if n1.attachments:

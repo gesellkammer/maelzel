@@ -1291,6 +1291,7 @@ class Chord(MEvent):
                               for n in self.notes]
         else:
             # self.gliss is True
+            # Explicit glissando
             if any(n.gliss and isinstance(n.gliss, (int, float)) for n in self.notes):
                 pairs = [(n.pitch, n.gliss) for n in self.notes if n.gliss]
             else:
@@ -1308,8 +1309,11 @@ class Chord(MEvent):
                         pairs = [(n.pitch, nextn.pitch)
                                  for n, nextn in zip(self.notes, nextevent.notes)]
                 elif isinstance(nextevent, Note):
-                    pairs = [(n.pitch, nextevent.pitch) for n in self.notes
-                             if n.gliss]
+                    if any(n.gliss for n in self.notes):
+                        pairs = [(n.pitch, nextevent.pitch) for n in self.notes
+                                 if n.gliss]
+                    else:
+                        pairs = [(n.pitch, nextevent.pitch) for n in self.notes]
                 else:
                     nextpitch = nextevent.meanPitch()
                     pairs = [(n.pitch, nextpitch) for n in self.notes]
@@ -1354,7 +1358,7 @@ class Chord(MEvent):
             raise ValueError(f"This chord does not have .gliss set: {self}")
         pairs = self.glissPairs()
         if not self.hasExplicitGliss():
-            assert len(pairs) == len(self.notes), f"{pairs=}, {self.notes=}"
+            assert len(pairs) == len(self.notes), f"{pairs=}, {self.notes=}, {self=}, {self.nextEvent()=}"
             return [pair[1] for pair in pairs]
         mapping = dict(pairs)
         return [mapping.get(n.pitch, n.pitch) for n in self.notes]
