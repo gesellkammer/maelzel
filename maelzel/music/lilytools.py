@@ -75,57 +75,33 @@ def _checkOutput(args: list[str], encoding="utf-8") -> str | None:
         return None
 
 
-def _testLilypond(lilybin: str, fmt='.pdf') -> bool:
-    lilytxt = r'''
-\version "2.24.0"
-{
-    <c' d'' b''>8. ~ <c' d'' b''>8
-}
-    '''
-    assert fmt in ('.pdf', '.png')
-    lyfile = tempfile.mktemp(suffix='.ly')
-    open(lyfile, 'w').write(lilytxt)
-    assert os.path.exists(lyfile)
-    outfile = os.path.splitext(lyfile)[0] + fmt
-    logger = getLogger(__file__)
-    try:
-        parts = renderLily(lyfile, outfile=outfile, removeHeader=False,
-                           lilypondBinary=lilybin)
-        if len(parts) == 0:
-            logger.error("Lilypond generated no output, lilypond file: %s, "
-                         "outfile: %s, lilypond binary: %s", lyfile, outfile, lilybin)
-            return False
-        if part := next((part for part in parts if not os.path.exists(part)), None):
-            logger.error("Generated outfile does not exist: %s, lilypond file: %s", part, lyfile)
-            return False
-        return True
-    except Exception as e:
-        logger.error("Test lilypond raised an error: %s", e)
-        return False
-
-
-def installLilypond(version='') -> str:
-    """
-    Install lilypond, returns the binary
-
-    Args:
-        version: an exact version or a min. version in the form ">=2.24.0"
-
-    Returns:
-        the path if the lilypond binary
-
-    .. note::
-
-        The installed lilypond will only be available for usage within python
-        see pypi/lilyponddist
-    """
-    import lilyponddist
-    lilybin = lilyponddist.lilypondbin(version=version)
-    if not lilybin or not lilybin.exists():
-        raise RuntimeError("Could not install lilypond")
-    lilypath = lilybin.as_posix()
-    _cache['lilypath:' + version] = lilypath
-    return lilypath
+# def _testLilypond(lilybin: str, fmt='.pdf') -> bool:
+#     lilytxt = r'''
+# \version "2.24.0"
+# {
+#     <c' d'' b''>8. ~ <c' d'' b''>8
+# }
+#     '''
+#     assert fmt in ('.pdf', '.png')
+#     lyfile = tempfile.mktemp(suffix='.ly')
+#     open(lyfile, 'w').write(lilytxt)
+#     assert os.path.exists(lyfile)
+#     outfile = os.path.splitext(lyfile)[0] + fmt
+#     logger = getLogger(__file__)
+#     try:
+#         parts = renderLily(lyfile, outfile=outfile, removeHeader=False,
+#                            lilypondBinary=lilybin)
+#         if len(parts) == 0:
+#             logger.error("Lilypond generated no output, lilypond file: %s, "
+#                          "outfile: %s, lilypond binary: %s", lyfile, outfile, lilybin)
+#             return False
+#         if part := next((part for part in parts if not os.path.exists(part)), None):
+#             logger.error("Generated outfile does not exist: %s, lilypond file: %s", part, lyfile)
+#             return False
+#         return True
+#     except Exception as e:
+#         logger.error("Test lilypond raised an error: %s", e)
+#         return False
 
 
 def findLilypond(version='', system=False) -> str | None:
@@ -333,7 +309,7 @@ def renderLily(lilyfile: str,
         args.append(f'-dresolution={imageResolution}')
 
     if backend:
-        assert backend in ('svg', 'ps', 'cairo')
+        assert backend in ('svg', 'ps', 'cairo'), f"Invalid backend: '{backend}'"
         args.append(f'-dbackend={backend}')
 
     args.append(lilyfile)
@@ -406,9 +382,6 @@ def renderLily(lilyfile: str,
 
 
 _microtonePrelude = r"""
-
-% \version "2.19.22"
-
 % adapted from http://lsr.di.unimi.it/LSR/Item?id=784
 
 % Define the alterations as fraction of the equal-tempered whole tone.
@@ -709,9 +682,7 @@ def lilyOctave(octave: int) -> str:
     lilyoctave = _octaveMapping.get(octave)
     if lilyoctave is None:
         octaves = _octaveMapping.keys()
-        o0 = min(octaves)
-        o1 = max(octaves)
-        raise ValueError(f"Invalid octave. Octave should be between {o0} and {o1}, "
+        raise ValueError(f"Invalid octave. Octave should be between {min(octaves)} and {max(octaves)}, "
                          f"got {octave}")
     return _octaveMapping[octave]
 

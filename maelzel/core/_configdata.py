@@ -17,7 +17,7 @@ defaultdict = {
     'semitoneDivisions': 4,
     'musescorepath': '',
     'lilypondpath': '',
-    'lilypondBackend': '',
+    'lilypondBackend': 'cairo',
     'jupyterReprShow': True,
     'htmlTheme': 'light',
     'fixStringNotenames': False,
@@ -290,7 +290,7 @@ validator = {
     ".quant.complexityWeight::range": (0, 10),
     "quant.breakBeats::choices": ("none", "all", "weak", "strong"),
     "reprUnicodeAccidentals::choices": (False, True, "full", "simple"),
-    "lilypondBackend::choices": ('', 'cairo', 'ps', 'svg'),
+    "lilypondBackend::choices": ('cairo', 'ps', 'svg'),
 }
 
 docs = {
@@ -695,9 +695,9 @@ docs = {
         '(lilypond is auto-installed if not found)',
 
     'lilypondBackend':
-        'Backend used by lilypond. By default the postscript (ps) backend '
-        'is used. The cairo backend is somewhat faster but might still not '
-        'support all options',
+        'Backend used by lilypond. Lilypond uses the postscript (ps) backend '
+        'by default. The cairo backend is somewhat faster but might not '
+        'support all options at the moment',
 
     'show.autoClefChanges':
         'Add clef changes if needed. '

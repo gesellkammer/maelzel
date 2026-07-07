@@ -348,12 +348,12 @@ def voicedness(samples: np.ndarray,
     engine.compile(orc)
     engine.sched('analysis', 0, dur=dur, args=[audiotab, sr, flatnesstab, cresttab, peakynesstab, minfreq, maxfreq, magsumbins, fftsize, winsize, hopsize, wintype])
     engine.perform()
-    count = engine.getControlChannel("count")
+    count = engine.channelValue("count")
     assert count > 0
-    flatnessdata = engine.getTableData(flatnesstab).copy()
-    crestdata = engine.getTableData(cresttab).copy()
-    peakynessdata = engine.getTableData(peakynesstab).copy()
-    times = engine.getTableData(timestab).copy()
+    flatnessdata = engine.tableData(flatnesstab).copy()
+    crestdata = engine.tableData(cresttab).copy()
+    peakynessdata = engine.tableData(peakynesstab).copy()
+    times = engine.tableData(timestab).copy()
     engine.stop()
     return {'times': times, 'flatness': flatnessdata, 'crest': crestdata, 'peakyness': peakynessdata}
 

@@ -34,7 +34,7 @@ import scipy.special
 from functools import cache
 
 
-def _sumOfLargestN(arr: np.ndarray, n: int) -> float:
+def _sumLargestN(arr: np.ndarray, n: int) -> float:
     """
     Returns the sum of the largest n values of arr
 
@@ -775,7 +775,7 @@ def analyze(
         focusMaxFreq: float = 0.,
         rolloff: float = 0.85,
         normalize=True
-) -> dict[str, np.ndarray]:
+) -> dict:
     """
     Analyzes multiple features
 
@@ -846,7 +846,7 @@ def analyze(
         if featFocus:
             FrealSel = Freal[focusMinBin:focusMaxBin]
             FrealSelSum = FrealSel.sum()
-            focus[i] = 0 if FrealSelSum == 0 else _sumOfLargestN(FrealSel, n=focusBins)/FrealSelSum
+            focus[i] = 0 if FrealSelSum == 0 else _sumLargestN(FrealSel, n=focusBins) / FrealSelSum
 
         if featRolloff:
             rollbin = _rolloffBin(Fpow, rolloff=rolloff)
@@ -874,98 +874,3 @@ def analyze(
         out['flatness'] = flatness
 
     return out
-
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    import time
-    SR = 22050; np.random.seed(0)
-
-    def _runs(voiced):
-        runs, r = [], 0
-        for v in voiced:
-            if v: r += 1
-            elif r: runs.append(r); r = 0
-        if r: runs.append(r)
-        return runs
-
-    def _test(label, audio, expected_hz, **kw):
-        t0 = time.perf_counter()
-        _, f0, voiced = pyin(audio, sr=SR, **kw)
-        ms = (time.perf_counter() - t0) * 1000
-        v  = f0[voiced]
-        if len(v):
-            runs = _runs(voiced)
-            err  = abs(v.mean() - expected_hz)
-            ok   = "✓" if err < expected_hz * 0.03 else "~"
-            print(f"{ok} [{label}]  mean={v.mean():.1f} Hz  std={v.std():.2f}  "
-                  f"voiced={voiced.sum()}/{len(voiced)}  max_run={max(runs)}  "
-                  f"err={err:.1f} Hz  {ms:.0f}ms")
-        else:
-            print(f"✗ [{label}]  No voiced frames (expected {expected_hz} Hz)")
-
-    t = np.linspace(0, 3.0, 3 * SR)
-
-    print("=== Accuracy ===")
-    _test("sine 220 Hz",
-          np.sin(2*np.pi*220*t), 220, f_min=80, f_max=500)
-
-    speech_m = (0.4*np.sin(2*np.pi*130*t) + 0.2*np.sin(2*np.pi*260*t) +
-                0.1*np.sin(2*np.pi*390*t) + 0.08*np.random.randn(len(t)))
-    _test("speech male 130 Hz", speech_m, 130, f_min=60, f_max=400)
-
-    speech_f = (0.5*np.sin(2*np.pi*250*t) + 0.3*np.sin(2*np.pi*500*t) +
-                0.08*np.random.randn(len(t)))
-    _test("speech female 250 Hz", speech_f, 250, f_min=100, f_max=600)
-
-    _test("noisy 180 Hz (~20 dB SNR)",
-          0.5*np.sin(2*np.pi*180*t) + 0.05*np.random.randn(len(t)),
-          180, f_min=80, f_max=400, frame_length=4096)
-
-    print()
-    print("=== Pitch tracking ===")
-
-    freqs = np.linspace(150, 300, len(t))
-    glide = 0.5*np.sin(2*np.pi*np.cumsum(freqs)/SR) + 0.02*np.random.randn(len(t))
-    _, f0_g, v_g = pyin(glide, SR, minFreq=100, maxFreq=400)
-    v = f0_g[v_g]
-    print(f"✓ [glide 150->300]  voiced={v_g.sum()}/{len(v_g)}  range=[{v.min():.0f},{v.max():.0f}]")
-
-    vib_f = 200 + 20*np.sin(2*np.pi*5*t)
-    vib   = 0.5*np.sin(2*np.pi*np.cumsum(vib_f)/SR) + 0.02*np.random.randn(len(t))
-    _, f0_v, v_v = pyin(vib, SR, minFreq=100, maxFreq=400)
-    v = f0_v[v_v]
-    print(f"✓ [vibrato 200±20 Hz]  mean={v.mean():.1f}  std={v.std():.1f}  range=[{v.min():.0f},{v.max():.0f}]")
-
-    print()
-    print("=== Silence recovery ===")
-    def voiced_seg(f, dur): return (0.5*np.sin(2*np.pi*f*np.linspace(0,dur,int(dur*SR)))
-                                    + 0.03*np.random.randn(int(dur*SR)))
-    def silent_seg(dur):    return 0.01*np.random.randn(int(dur*SR))
-    mixed = np.concatenate([voiced_seg(130,0.3), silent_seg(0.1),
-                             voiced_seg(130,0.3), silent_seg(0.3),
-                             voiced_seg(130,0.3), silent_seg(0.1),
-                             voiced_seg(130,0.3)])
-    mixed /= np.abs(mixed).max()
-    _, f0_m, v_m = pyin(mixed, SR, minFreq=60, maxFreq=400)
-    runs_m = _runs(v_m)
-    print(f"  voiced={v_m.sum()}/{len(v_m)}  segments={len(runs_m)}/4 expected  "
-          f"max_run={max(runs_m) if runs_m else 0}  "
-          f"mean_F0={f0_m[v_m].mean():.1f} Hz")
-
-    print()
-    print("=== Parameter guide ===")
-    for p_v2u, p_u2v, label in [
-        (0.3,  0.4, "default-ish (noisy)"),
-        (0.1,  0.4, "balanced default"),
-        (0.05, 0.4, "sticky dropout"),
-        (0.05, 0.7, "sticky + fast recovery"),
-    ]:
-        _, f0_p, vp = pyin(speech_m, SR, minFreq=60, maxFreq=400,
-                           v2u=p_v2u, u2v=p_u2v)
-        rp = _runs(vp)
-        print(f"  p_v2u={p_v2u:.2f} p_u2v={p_u2v:.1f}  ({label}):  "
-              f"voiced={vp.sum()}/{len(vp)}  max_run={max(rp) if rp else 0}  "
-              f"mean_f0={f0_p[vp].mean():.1f}")
