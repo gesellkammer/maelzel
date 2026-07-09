@@ -27,11 +27,12 @@ Tuning for noisy speech
     times, f0, voiced = pyin(audio, sr, p_v2u=0.05, p_u2v=0.6)
 """
 from __future__ import annotations
+from abc import ABC
+from dataclasses import dataclass
 import numpy as np
 from maelzel.snd.numpysnd import makeFrames
-from scipy.signal import get_window
-import scipy.special
 from functools import cache
+import typing as _t
 
 
 def _sumLargestN(arr: np.ndarray, n: int) -> float:
@@ -85,27 +86,46 @@ def _spectralFlatness(powerspec: np.ndarray) -> float:
     return geom_mean / np.mean(powerspec)
 
 
+def _spectralCentroid(magnitude: np.ndarray, freqs: np.ndarray) -> float:
+    magsum = magnitude.sum()
+    if magsum == 0:
+        return 0.0
+    return float((magnitude * freqs).sum() / magsum)
+
+
 def _fftDiff(rfft: np.ndarray, N: int) -> np.ndarray:
+    """
+    Sum of squared differences at each lag, using FFT autocorrelation
+
+    Args:
+        rfft: an rfft frame
+        N: number of bins
+
+    Returns:
+        the difference function, an array of length N containing the
+        correlation difference per fft bin
+
+    """
     acf = np.fft.irfft(rfft * np.conj(rfft))[:N]
     return 2.0 * (acf[0] - acf)
 
 
-def _diffFunc(frame: np.ndarray) -> np.ndarray:
-    """
-    difference function
-
-    Args:
-        frame: Audio data
-
-    Returns:
-        an array containing the correlation difference per fft bin
-
-    """
-    N = len(frame)
-    # next power of 2 > than N
-    fftsize = 1 << (2 * N - 1).bit_length()
-    F = np.fft.rfft(frame, n=fftsize)
-    return _fftDiff(F, N)
+# def _diffFunc(frame: np.ndarray) -> np.ndarray:
+#     """
+#     difference function
+#
+#     Args:
+#         frame: Audio data
+#
+#     Returns:
+#         an array containing the correlation difference per fft bin
+#
+#     """
+#     N = len(frame)
+#     # next power of 2 > than N
+#     fftsize = 1 << (2 * N - 1).bit_length()
+#     F = np.fft.rfft(frame, n=fftsize)
+#     return _fftDiff(F, N)
 
 
 class CMNDF:
@@ -173,6 +193,281 @@ def _analyzeFrame(cmndf: np.ndarray, tau_min: int, tau_max: int
     best_rel = int(np.argmin(cmndf_selection))
     best_tau = _parabolicInterp(cmndf, best_rel + tau_min)
     return best_tau, float(cmndf_selection[best_rel])
+
+
+@dataclass(slots=True)
+class AnalysisFrame:
+    index: int
+    time: float
+    magnitude: np.ndarray
+    frameSize: int
+    _power: np.ndarray | None = None
+    _diff: np.ndarray | None = None
+    _cmndf: np.ndarray | None = None
+
+    def power(self) -> np.ndarray:
+        """
+        Returns the power spectrum (cached)
+        """
+        if self._power is None:
+            self._power = self.magnitude ** 2
+        return self._power
+
+    def diff(self) -> np.ndarray:
+        if self._diff is None:
+            self._diff = _fftDiff(self.magnitude, self.frameSize)
+        assert self._diff is not None
+        return self._diff
+
+    def cmndf(self, cmndf: CMNDF) -> np.ndarray:
+        if self._cmndf is None:
+            self._cmndf = cmndf(self.diff())
+        return self._cmndf
+
+
+class AnalysisFeature(ABC):
+    name = ''
+
+    def prepare(self, analysis: Analysis) -> None:
+        pass
+
+    def consume(self, frame: AnalysisFrame, analysis: Analysis) -> None:
+        pass
+
+    def finalize(self, analysis: Analysis) -> dict:
+        return {}
+
+
+class Analysis:
+    """
+    Shared analysis context for frame-based feature extraction.
+    """
+
+    def __init__(self,
+                 samples: np.ndarray,
+                 sr: int,
+                 frameSize: int = 2048,
+                 hopSize: int = 0,
+                 minFreq: float = 80.0,
+                 maxFreq: float = 1000.0,
+                 window: str = "hann",
+                 normalize: bool = True):
+        self.samples = np.asarray(samples, dtype=np.float64)
+        if self.samples.ndim != 1:
+            raise ValueError("Only mono arrays are supported")
+
+        if normalize:
+            peak = np.abs(self.samples).max()
+            if peak > 0:
+                self.samples = self.samples / peak
+
+        self.sr = int(sr)
+        self.frameSize = int(frameSize)
+        self.hopSize = int(hopSize) or self.frameSize // 4
+        self.minFreq = float(minFreq)
+        self.maxFreq = float(maxFreq)
+        self.windowName = window
+        from scipy.signal import get_window
+        self.window = get_window(window, self.frameSize)
+        self.frames, self.times = makeFrames(self.samples, sr=self.sr,
+                                             frameSize=self.frameSize,
+                                             hopSize=self.hopSize)
+        self.fftSize = 1 << (2 * self.frameSize - 1).bit_length()
+        self.fftFreqs = np.fft.rfftfreq(self.fftSize, d=1. / self.sr)
+        self.cmndf = CMNDF(self.frameSize)
+        self._features: list[AnalysisFeature] = []
+
+    @property
+    def numFrames(self) -> int:
+        return len(self.frames)
+
+    def addFeature(self, feature: str | AnalysisFeature) -> Analysis:
+        if isinstance(feature, str):
+            feature = _featureFactory(feature)
+        self._features.append(feature)
+        return self
+
+    def addFeatures(self, *features: str | AnalysisFeature) -> Analysis:
+        for feature in features:
+            self.addFeature(feature)
+        return self
+
+    def iterFrames(self) -> _t.Iterator[AnalysisFrame]:
+        for index, frame in enumerate(self.frames):
+            windowed = frame * self.window
+            spectrum = np.fft.rfft(windowed, n=self.fftSize)
+            magnitude = np.abs(spectrum)
+            power = magnitude ** 2
+            yield AnalysisFrame(index=index, time=float(self.times[index]),
+                                magnitude=magnitude, power=power,
+                                frameSize=self.frameSize)
+
+    def run(self) -> dict:
+        for feature in self._features:
+            feature.prepare(self)
+
+        for frame in self.iterFrames():
+            for feature in self._features:
+                feature.consume(frame, self)
+
+        out = {'times': self.times}
+        for feature in self._features:
+            out.update(feature.finalize(self))
+        return out
+
+
+class PyinFeature(AnalysisFeature):
+    name = 'pyin'
+
+    def __init__(self,
+                 minFreq: float | None = None,
+                 maxFreq: float | None = None,
+                 bins: int = 360,
+                 voicedProb: float = 0.5,
+                 v2u: float = 0.1,
+                 u2v: float = 0.4,
+                 pitchDrift: float = 100.0):
+        self.minFreq = minFreq
+        self.maxFreq = maxFreq
+        self.bins = bins
+        self.voicedProb = voicedProb
+        self.v2u = v2u
+        self.u2v = u2v
+        self.pitchDrift = pitchDrift
+        self._frameData: list[tuple[float, float]] = []
+
+    def prepare(self, analysis: Analysis) -> None:
+        self.minFreq = analysis.minFreq if self.minFreq is None else self.minFreq
+        self.maxFreq = analysis.maxFreq if self.maxFreq is None else self.maxFreq
+        self.tau_min = max(1, int(np.floor(analysis.sr / self.maxFreq)))
+        self.tau_max = min(analysis.frameSize - 1, int(np.ceil(analysis.sr / self.minFreq)))
+        self._frameData = []
+
+    def consume(self, frame: AnalysisFrame, analysis: Analysis) -> None:
+        self._frameData.append(_analyzeFrame(frame.cmndf(analysis.cmndf),
+                                             self.tau_min, self.tau_max))
+
+    def finalize(self, analysis: Analysis) -> dict:
+        f0, _, confidence = _viterbiDecode3(
+            self._frameData,
+            fmin=self.minFreq,
+            fmax=self.maxFreq,
+            sr=analysis.sr,
+            n_pitch_bins=self.bins,
+            voiced_prob=self.voicedProb,
+            v2u=self.v2u,
+            u2v=self.u2v,
+            transition_width=self.pitchDrift)
+        return {
+            'pyin.f0': f0,
+            'pyin.confidence': confidence,
+        }
+
+
+class FlatnessFeature(AnalysisFeature):
+    name = 'flatness'
+
+    def __init__(self):
+        self.values: np.ndarray | None = None
+
+    def prepare(self, analysis: Analysis) -> None:
+        self.values = np.zeros(analysis.numFrames, dtype=float)
+
+    def consume(self, frame: AnalysisFrame, analysis: Analysis) -> None:
+        assert self.values is not None
+        self.values[frame.index] = _spectralFlatness(frame.power())
+
+    def finalize(self, analysis: Analysis) -> dict:
+        assert self.values is not None
+        return {'flatness': self.values}
+
+
+class CentroidFeature(AnalysisFeature):
+    name = 'centroid'
+
+    def __init__(self):
+        self.values: np.ndarray | None = None
+
+    def prepare(self, analysis: Analysis) -> None:
+        self.values = np.zeros(analysis.numFrames, dtype=float)
+
+    def consume(self, frame: AnalysisFrame, analysis: Analysis) -> None:
+        assert self.values is not None
+        self.values[frame.index] = _spectralCentroid(frame.magnitude, analysis.fftFreqs)
+
+    def finalize(self, analysis: Analysis) -> dict:
+        assert self.values is not None
+        return {'centroid': self.values}
+
+
+class RolloffFeature(AnalysisFeature):
+    name = 'rolloff'
+
+    def __init__(self, rolloff: float = 0.85):
+        self.rolloff = rolloff
+        self.values: np.ndarray | None = None
+
+    def prepare(self, analysis: Analysis) -> None:
+        self.values = np.zeros(analysis.numFrames, dtype=float)
+
+    def consume(self, frame: AnalysisFrame, analysis: Analysis) -> None:
+        assert self.values is not None
+        rollbin = _rolloffBin(frame.power(), rolloff=self.rolloff)
+        self.values[frame.index] = analysis.fftFreqs[int(rollbin)]
+
+    def finalize(self, analysis: Analysis) -> dict:
+        assert self.values is not None
+        return {'rolloff': self.values}
+
+
+class FocusFeature(AnalysisFeature):
+    name = 'focus'
+
+    def __init__(self,
+                 focusBins: int = 0,
+                 focusMinFreq: float = 0.,
+                 focusMaxFreq: float = 0.):
+        self.focusBins = focusBins
+        self.focusMinFreq = focusMinFreq
+        self.focusMaxFreq = focusMaxFreq
+        self.values: np.ndarray | None = None
+        self.focusMinBin = 0
+        self.focusMaxBin = 0
+
+    def prepare(self, analysis: Analysis) -> None:
+        self.focusBins = self.focusBins or analysis.frameSize // 64
+        focusMinFreq = self.focusMinFreq or analysis.minFreq * 2.5
+        focusMaxFreq = self.focusMaxFreq or analysis.sr * 0.4
+        self.focusMinBin = int(np.searchsorted(analysis.fftFreqs, focusMinFreq, side='left'))
+        self.focusMaxBin = int(np.searchsorted(analysis.fftFreqs, focusMaxFreq, side='left'))
+        self.values = np.zeros(analysis.numFrames, dtype=float)
+
+    def consume(self, frame: AnalysisFrame, analysis: Analysis) -> None:
+        assert self.values is not None
+        freal_sel = frame.magnitude[self.focusMinBin:self.focusMaxBin]
+        freal_sel_sum = freal_sel.sum()
+        self.values[frame.index] = 0 if freal_sel_sum == 0 else _sumLargestN(freal_sel, n=self.focusBins) / freal_sel_sum
+
+    def finalize(self, analysis: Analysis) -> dict:
+        assert self.values is not None
+        return {
+            'focus': self.values,
+            'focus.binRange': (self.focusMinBin, self.focusMaxBin),
+        }
+
+
+def _featureFactory(name: str) -> AnalysisFeature:
+    if name == 'pyin':
+        return PyinFeature()
+    elif name == 'flatness':
+        return FlatnessFeature()
+    elif name == 'centroid':
+        return CentroidFeature()
+    elif name == 'rolloff':
+        return RolloffFeature()
+    elif name == 'focus':
+        return FocusFeature()
+    raise ValueError(f"Unknown feature {name!r}")
 
 
 # -----------------------------------------------ww----------------------------
@@ -616,6 +911,7 @@ def _viterbiDecode3(
 
     # --- Confidence: voiced prob relative to total mass at each frame ---
     # log-sum-exp over all voiced bins, then normalise against unvoiced
+    import scipy.special
     log_voiced_total = scipy.special.logsumexp(dp[:, :n_pitch_bins], axis=1)  # (n_frames,)
     log_unvoiced     = dp[:, UNVOICED]                                         # (n_frames,)
     log_total        = np.logaddexp(log_voiced_total, log_unvoiced)            # (n_frames,)
@@ -627,40 +923,6 @@ def _viterbiDecode3(
         np.nan,
     )
     return f0, path, confidence
-
-
-def _pyin_f0(
-        frames: np.ndarray,
-        sr: int,
-        win: np.ndarray | None = None,
-        minFreq: float = 80.,
-        maxFreq: float = 1000.,
-        v2u: float = 0.1,
-        u2v: float = 0.4,
-        pitchDrift: float = 100.,
-        voicedProb: float = 0.5,
-        bins: int = 360
-    ) -> tuple[np.ndarray, np.ndarray]:
-    frameSize = frames.shape[1]
-    tau_min = max(1, int(np.floor(sr / maxFreq)))
-    tau_max = min(frameSize - 1, int(np.ceil(sr / minFreq)))
-    framedata = []
-    cmndf = CMNDF(frameSize)
-    for frame in frames:
-        if win is not None:
-            frame = frame * win
-        df = _diffFunc(frame)
-        cm = cmndf(df)
-        framedata.append(_analyzeFrame(cm, tau_min, tau_max))
-
-    f0, path, confidence = _viterbiDecode3(
-        framedata,
-        fmin=minFreq, fmax=maxFreq, sr=sr,
-        n_pitch_bins=bins,
-        voiced_prob=voicedProb,
-        v2u=v2u, u2v=u2v,
-        transition_width=pitchDrift)
-    return f0, confidence
 
 
 def pyin(
@@ -737,21 +999,15 @@ def pyin(
     The self-transition costs log(p_v2v) ≈ −0.1 nats and a 3-bin move
     costs only −0.1 − 0.05 = −0.15 nats — always cheaper than U->V at −0.9.
     """
-    if normalize:
-        samples = samples / np.max(np.abs(samples))
-    frames, times = makeFrames(samples, sr=sr, frameSize=frameSize, hopSize=hopSize)
-    win: np.ndarray = get_window(window, frameSize)
-    f0, confidence = _pyin_f0(
-        frames=frames,
-        sr=sr,
-        win=win,
-        minFreq=minFreq,
-        maxFreq=maxFreq,
-        v2u=v2u,
-        u2v=u2v,
-        pitchDrift=pitchDrift,
-        voicedProb=voicedProb,
-        bins=bins)
+    analysis = Analysis(samples=samples, sr=sr, frameSize=frameSize, hopSize=hopSize,
+                        minFreq=minFreq, maxFreq=maxFreq, window=window, normalize=normalize)
+    analysis.addFeature(PyinFeature(minFreq=minFreq, maxFreq=maxFreq, bins=bins,
+                                    voicedProb=voicedProb, v2u=v2u, u2v=u2v,
+                                    pitchDrift=pitchDrift))
+    out = analysis.run()
+    times = out['times']
+    f0 = out['pyin.f0']
+    confidence = out['pyin.confidence']
     voiced = ~np.isnan(f0)
     return times, f0, confidence, voiced
 
@@ -782,10 +1038,11 @@ def analyze(
     Args:
         samples: the samples to analyze (1D audio array)
         sr: sample rate
-            'flatness', 'rolloff' and 'focus'
+            'flatness', 'centroid', 'rolloff' and 'focus'
         frameSize: window size
         hopSize: hop size in samples
-        features: the features to analyze. Available features: 'pyin',
+        features: the features to analyze. Available features:
+            'pyin', 'flatness', 'centroid', 'rolloff', 'focus'
         minFreq: min. frequency to considere for fundamental tracking
         maxFreq: max. frequency to considere for fundamental tracking
         window: kind of window to use
@@ -806,71 +1063,25 @@ def analyze(
         the given feature corresponding to the time of the frame. All arrays have the same size
 
     """
-    assert len(samples.shape) == 1, f"Only mono arrays are supported"
-    if normalize:
-        samples = samples / np.max(np.abs(samples))
-    frames, times0 = makeFrames(samples, sr=sr, frameSize=frameSize, hopSize=hopSize)
-    win: np.ndarray = get_window(window, frameSize)
-    times = np.arange(0, len(samples), hopSize) / sr
-    if not focusBins:
-        focusBins = frameSize // 64
-    tau_min = max(1, int(np.floor(sr / maxFreq)))
-    tau_max = min(frameSize - 1, int(np.ceil(sr / minFreq)))
-    framedata: list[tuple[float, float]] = []
-    focus = np.zeros_like(times)
-    rolloffFreqs = np.zeros_like(times)
-    flatness = np.zeros_like(times)
-    N = frameSize
-    fftSize = 1 << (2*N - 1).bit_length()  # next pow of 2, N=2000->fftSize=2048, 1024->2048
-    fftFreqs = np.fft.rfftfreq(fftSize, d=1./ sr)
-    focusMinBin = np.argmax(fftFreqs > (focusMinFreq or minFreq * 2.5))
-    focusMaxBin = np.argmax(fftFreqs > (focusMaxFreq or sr * 0.4))
-
-    featPyin = 'pyin' in features
-    featFlatness = 'flatness' in features
-    featRolloff = 'rolloff' in features
-    featFocus = 'focus' in features
-
-    frame: np.ndarray
-    cmndf = CMNDF(frameSize)
-    for i, frame in enumerate(frames):
-        frame = frame * win                # can't do frame *= win: frame points to shared memory
-        F = np.fft.rfft(frame, n=fftSize)  # a complex128 array
-        Freal = np.abs(F)                  # make it real
-        Fpow = Freal ** 2                  # power spectrum
-        if featPyin:
-            df = _fftDiff(Freal, N)
-            cm = cmndf(df)
-            framedata.append(_analyzeFrame(cm, tau_min, tau_max))
-
-        if featFocus:
-            FrealSel = Freal[focusMinBin:focusMaxBin]
-            FrealSelSum = FrealSel.sum()
-            focus[i] = 0 if FrealSelSum == 0 else _sumLargestN(FrealSel, n=focusBins) / FrealSelSum
-
-        if featRolloff:
-            rollbin = _rolloffBin(Fpow, rolloff=rolloff)
-            rolloffFreqs[i] = fftFreqs[int(rollbin)]
-
-        if featFlatness:
-            flatness[i] = _spectralFlatness(Fpow)
-
-    out = {'times': times}
-
-    if featPyin:
-        f0, path, confidence = _viterbiDecode3(
-            framedata, fmin=minFreq, fmax=maxFreq, sr=sr,
-            n_pitch_bins=bins, voiced_prob=voicedProb,
-            v2u=v2u, u2v=u2v, transition_width=pitchDrift)
-        out['pyin.f0'] = f0
-        out['pyin.confidence'] = confidence
-
-    if featFocus:
-        out['focus'] = focus
-        out['focus.binRange'] = (focusMinBin, focusMaxBin)
-    if featRolloff:
-        out['rolloff'] = rolloffFreqs
-    if featFlatness:
-        out['flatness'] = flatness
-
-    return out
+    analysis = Analysis(samples=samples, sr=sr, frameSize=frameSize, hopSize=hopSize,
+                        minFreq=minFreq, maxFreq=maxFreq, window=window, normalize=normalize)
+    for feature in features:
+        if isinstance(feature, AnalysisFeature):
+            analysis.addFeature(feature)
+        elif feature == 'pyin':
+            analysis.addFeature(PyinFeature(minFreq=minFreq, maxFreq=maxFreq, bins=bins,
+                                            voicedProb=voicedProb, v2u=v2u, u2v=u2v,
+                                            pitchDrift=pitchDrift))
+        elif feature == 'flatness':
+            analysis.addFeature(FlatnessFeature())
+        elif feature == 'centroid':
+            analysis.addFeature(CentroidFeature())
+        elif feature == 'rolloff':
+            analysis.addFeature(RolloffFeature(rolloff=rolloff))
+        elif feature == 'focus':
+            analysis.addFeature(FocusFeature(focusBins=focusBins,
+                                             focusMinFreq=focusMinFreq,
+                                             focusMaxFreq=focusMaxFreq))
+        else:
+            raise ValueError(f"Unknown feature {feature!r}")
+    return analysis.run()
